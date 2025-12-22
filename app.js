@@ -10,6 +10,10 @@ let savedErrors = [];
 let currentReview = [];
 let reviewHistory = [];
 let reviewChart = null;
+let currentGameErrors = [];
+let matchErrorQueue = [];
+let currentMatchError = null;
+let isMatchErrorReviewSession = false;
 
 // Sistema d'IA Adaptativa
 let recentGames = []; 
@@ -1515,6 +1519,9 @@ function removeBundle(idx) {
 
 window.startBundleGame = function(fen) {
     isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
     $('#bundle-modal').remove(); currentGameMode = 'bundle';
     currentOpponent = null;
     startGame(true, fen);
@@ -1524,6 +1531,9 @@ function startRandomBundleGame() {
     if (savedErrors.length === 0) { alert('No tens errors guardats'); return false; }
     const choice = savedErrors[Math.floor(Math.random() * savedErrors.length)];
     isRandomBundleSession = true;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
     $('#bundle-modal').remove();
     currentGameMode = 'bundle';
     currentOpponent = null;
@@ -1531,8 +1541,57 @@ function startRandomBundleGame() {
     return true;
 }
 
+function startMatchErrorReview() {
+    if (currentGameErrors.length === 0) {
+        alert('No hi ha errors per revisar en aquesta partida.');
+        return;
+    }
+    isRandomBundleSession = false;
+    matchErrorQueue = currentGameErrors.slice();
+    isMatchErrorReviewSession = true;
+    currentMatchError = null;
+    launchNextMatchError();
+}
+
+function launchNextMatchError() {
+    if (matchErrorQueue.length === 0) {
+        endMatchErrorReviewSession();
+        return;
+    }
+    currentMatchError = matchErrorQueue.shift();
+    startGame(true, currentMatchError.fen);
+}
+
+function endMatchErrorReviewSession() {
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    returnToMainMenuImmediate();
+}
+
+function promptMatchErrorNext() {
+    const remaining = matchErrorQueue.length;
+    if (remaining > 0) {
+        const wantsMore = confirm(`Vols revisar un altre error? En queden ${remaining}.`);
+        if (wantsMore) {
+            launchNextMatchError();
+        } else {
+            endMatchErrorReviewSession();
+        }
+    } else {
+        alert('Ja has revisat tots els errors de la partida.');
+        endMatchErrorReviewSession();
+    }
+}
+
 function startGame(isBundle, fen = null) {
     currentReview = [];
+        if (!isBundle) {
+        currentGameErrors = [];
+        matchErrorQueue = [];
+        currentMatchError = null;
+        isMatchErrorReviewSession = false;
+    }
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     $('#bundle-success-overlay').hide();
     if (!isBundle) isRandomBundleSession = false;
@@ -1611,7 +1670,7 @@ function startGame(isBundle, fen = null) {
         currentGameMode = 'bundle';
         currentOpponent = null;
         $('#engine-elo').text('Anàlisi');
-        $('#game-mode-title').text('📚 Bundle');
+        $('#game-mode-title').text(isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Bundle');
     } else if (currentGameMode === 'catalan') {
         $('#engine-elo').text('Mestre Català (Adaptatiu)');
         $('#game-mode-title').text('🐉 Obertura Catalana');
@@ -1903,6 +1962,16 @@ function showPostGameReview(msg, finalPrecision, counts, onClose) {
     renderReviewBreakdown(counts || summarizeReview(currentReview));
     modal.css('display', 'flex');
 
+        const hasMatchErrors = currentGameErrors.length > 0;
+    const reviewErrorsBtn = $('#btn-review-errors');
+    if (reviewErrorsBtn.length) {
+        reviewErrorsBtn.toggle(hasMatchErrors);
+        reviewErrorsBtn.off('click').on('click', () => {
+            modal.hide();
+            startMatchErrorReview();
+        });
+    }
+
     $('#btn-review-close').off('click').on('click', () => {
         modal.hide();
         if (typeof onClose === 'function') onClose();
@@ -1919,6 +1988,9 @@ function returnToMainMenuImmediate() {
     $('#game-screen').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#start-screen').show();
     if (stockfish) stockfish.postMessage('stop');
     clearTapSelection();
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
 }
 
 function handleBundleSuccess() {
@@ -1940,7 +2012,9 @@ function handleBundleSuccess() {
     saveStorage(); updateDisplay(); checkMissions();
     board.draggable = false;
 
-    if (isRandomBundleSession) {
+    if (isMatchErrorReviewSession) {
+        promptMatchErrorNext();
+    } else if (isRandomBundleSession) {
         showRandomBundleSuccessOverlay();
     } else {
         alert("Molt bé! Has trobat la millor opció.");
@@ -1988,6 +2062,10 @@ function updatePrecisionDisplay() {
 }
 
 function saveBlunderToBundle(fen, severity) {
+     if (!blunderMode && currentGameMode !== 'drill') {
+        const alreadyTracked = currentGameErrors.some(e => e.fen === fen);
+        if (!alreadyTracked) currentGameErrors.push({ fen, severity });
+    }
     if (!savedErrors.some(e => e.fen === fen)) {
         let typeErrors = savedErrors.filter(e => e.severity === severity);
         if (typeErrors.length >= 10) {
