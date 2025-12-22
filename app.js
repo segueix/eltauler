@@ -19,6 +19,7 @@ let lastPosition = null;
 let blunderMode = false;
 let currentBundleFen = null;
 let playerColor = 'w';
+let isRandomBundleSession = false;
 
 let totalPlayerMoves = 0;
 let goodMoves = 0;
@@ -1325,12 +1326,7 @@ function showBundleMenu() {
     });
 
     $('#btn-bundle-random').off('click').on('click', () => {
-        if (savedErrors.length === 0) return;
-        const choice = savedErrors[Math.floor(Math.random() * savedErrors.length)];
-        $('#bundle-modal').remove();
-        currentGameMode = 'bundle';
-        currentOpponent = null;
-        startGame(true, choice.fen);
+        startRandomBundleGame();
     });
 }
 
@@ -1342,13 +1338,27 @@ function removeBundle(idx) {
 }
 
 window.startBundleGame = function(fen) {
+    isRandomBundleSession = false;
     $('#bundle-modal').remove(); currentGameMode = 'bundle';
     currentOpponent = null;
     startGame(true, fen);
 };
 
+function startRandomBundleGame() {
+    if (savedErrors.length === 0) { alert('No tens errors guardats'); return false; }
+    const choice = savedErrors[Math.floor(Math.random() * savedErrors.length)];
+    isRandomBundleSession = true;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, choice.fen);
+    return true;
+}
+
 function startGame(isBundle, fen = null) {
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
+    $('#bundle-success-overlay').hide();
+    if (!isBundle) isRandomBundleSession = false;
     
     $('#start-screen').hide(); 
     $('#stats-screen').hide(); 
@@ -1694,6 +1704,7 @@ function returnToMainMenuImmediate() {
 function handleBundleSuccess() {
     $('#status').text("EXCEL·LENT! Problema resolt 🏆").css('color', '#4a7c59').css('font-weight', 'bold');
     sessionStats.bundlesSolved++;
+    if (stockfish) stockfish.postMessage('stop');
     
     if (currentBundleFen) {
         const solvedErr = savedErrors.find(e => e.fen === currentBundleFen);
@@ -1708,8 +1719,43 @@ function handleBundleSuccess() {
     
     saveStorage(); updateDisplay(); checkMissions();
     board.draggable = false;
-    alert("Molt bé! Has trobat la millor opció.");
-    returnToMainMenuImmediate();
+
+    if (isRandomBundleSession) {
+        showRandomBundleSuccessOverlay();
+    } else {
+        alert("Molt bé! Has trobat la millor opció.");
+        returnToMainMenuImmediate();
+    }
+}
+
+function showRandomBundleSuccessOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    if (!overlay.length) {
+        alert("Molt bé! Has trobat la millor opció.");
+        returnToMainMenuImmediate();
+        return;
+    }
+
+    const remaining = savedErrors.length;
+    overlay.find('.bundle-success-remaining').text(
+        remaining > 0 ? `${remaining} bundles pendents` : 'No queda cap bundle pendent'
+    );
+    overlay.find('#btn-bundle-random-again').prop('disabled', remaining === 0);
+    overlay.css('display', 'flex');
+
+    $('#btn-bundle-random-home').off('click').on('click', () => {
+        isRandomBundleSession = false;
+        overlay.hide();
+        returnToMainMenuImmediate();
+    });
+
+    $('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        if (!startRandomBundleGame()) {
+            isRandomBundleSession = false;
+            returnToMainMenuImmediate();
+        }
+    });
 }
 
 function updatePrecisionDisplay() {
