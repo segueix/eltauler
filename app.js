@@ -108,6 +108,9 @@ let controlMode = null;
 const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top2'; // 'top2' o 'any'
 
+const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
+let epaperEnabled = false;
+
 function loadBundleAcceptMode() {
     try {
         const v = localStorage.getItem(BUNDLE_ACCEPT_MODE_KEY);
@@ -121,6 +124,25 @@ function saveBundleAcceptMode(mode) {
     try { localStorage.setItem(BUNDLE_ACCEPT_MODE_KEY, bundleAcceptMode); } catch (e) {}
     const sel = document.getElementById('bundle-accept-select');
     if (sel) sel.value = bundleAcceptMode;
+}
+
+function loadEpaperPreference() {
+    try { return localStorage.getItem(EPAPER_MODE_KEY) === 'on'; }
+    catch (e) { return false; }
+}
+
+function saveEpaperPreference(enabled) {
+    try { localStorage.setItem(EPAPER_MODE_KEY, enabled ? 'on' : 'off'); } catch (e) {}
+}
+
+function applyEpaperMode(enabled, options = {}) {
+    epaperEnabled = !!enabled;
+    document.body.classList.toggle('epaper-mode', epaperEnabled);
+    const toggle = document.getElementById('epaper-toggle');
+    if (toggle) toggle.checked = epaperEnabled;
+    if (!options.skipSave) saveEpaperPreference(epaperEnabled);
+    if (eloChart) updateEloChart();
+    if (reviewChart) updateReviewChart();
 }
 
 // Estat de validació Top-2 al Bundle
@@ -1109,6 +1131,11 @@ function updateEloChart() {
     if (eloHistory.length === 0) { eloHistory.push({ date: getToday(), elo: userELO }); saveStorage(); }
     const labels = eloHistory.map(entry => { const parts = entry.date.split('-'); return `${parts[2]}/${parts[1]}`; });
     const data = eloHistory.map(entry => entry.elo);
+    const strokeColor = epaperEnabled ? '#555' : '#c9a227';
+    const fillColor = epaperEnabled ? 'rgba(90, 90, 90, 0.12)' : 'rgba(201, 162, 39, 0.1)';
+    const pointBorder = epaperEnabled ? '#666' : '#f4e4bc';
+    const gridColor = epaperEnabled ? '#d0d0d0' : 'rgba(201, 162, 39, 0.1)';
+    const tickColor = epaperEnabled ? '#444' : '#a89a8a';
     
     if (eloChart) eloChart.destroy();
     eloChart = new Chart(ctx, {
@@ -1118,12 +1145,12 @@ function updateEloChart() {
             datasets: [{
                 label: 'ELO',
                 data: data,
-                borderColor: '#c9a227',
-                backgroundColor: 'rgba(201, 162, 39, 0.1)',
+                borderColor: strokeColor,
+                backgroundColor: fillColor,
                 tension: 0.3,
                 fill: true,
-                pointBackgroundColor: '#c9a227',
-                pointBorderColor: '#f4e4bc',
+                pointBackgroundColor: strokeColor,
+                pointBorderColor: pointBorder,
                 pointBorderWidth: 2,
                 pointRadius: 4,
                 pointHoverRadius: 6
@@ -1133,8 +1160,8 @@ function updateEloChart() {
             responsive: true, maintainAspectRatio: false,
             plugins: { legend: { display: false } },
             scales: {
-                y: { beginAtZero: false, grid: { color: 'rgba(201, 162, 39, 0.1)' }, ticks: { color: '#a89a8a' } },
-                x: { grid: { color: 'rgba(201, 162, 39, 0.1)' }, ticks: { color: '#a89a8a', maxRotation: 45, minRotation: 45 } }
+                y: { beginAtZero: false, grid: { color: gridColor }, ticks: { color: tickColor } },
+                x: { grid: { color: gridColor }, ticks: { color: tickColor, maxRotation: 45, minRotation: 45 } }
             }
         }
     });
@@ -1203,20 +1230,26 @@ function updateReviewChart() {
     const ctx = canvas.getContext('2d');
     const hasData = reviewHistory.length > 0;
     const labels = hasData ? reviewHistory.map(r => r.label) : ['—'];
+    const graySteps = ['#444', '#555', '#666', '#777', '#888'];
+    const tickColor = epaperEnabled ? '#444' : '#a89a8a';
+    const gridColor = epaperEnabled ? '#d0d0d0' : 'rgba(201, 162, 39, 0.1)';
     const datasets = [
         { key: 'excel', label: 'Excel·lents', color: '#4a7c59' },
         { key: 'good', label: 'Bones', color: '#c9a227' },
         { key: 'inaccuracy', label: 'Imprecisions', color: '#ffb74d' },
         { key: 'mistake', label: 'Errors', color: '#ef5350' },
         { key: 'blunder', label: 'Blunders', color: '#b71c1c' }
-    ].map(meta => ({
+        ].map((meta, idx) => {
+        const gray = graySteps[idx % graySteps.length];
+        return {
         label: meta.label,
         data: hasData ? reviewHistory.map(r => r[meta.key] || 0) : [0],
-        borderColor: meta.color,
-        backgroundColor: meta.color + '33',
+        borderColor: epaperEnabled ? gray : meta.color,
+        backgroundColor: epaperEnabled ? `rgba(${80 + idx * 20}, ${80 + idx * 20}, ${80 + idx * 20}, 0.2)` : meta.color + '33',
         tension: 0.25,
         fill: false
-    }));
+        };
+    });
 
     if (reviewChart) reviewChart.destroy();
     reviewChart = new Chart(ctx, {
@@ -1226,12 +1259,12 @@ function updateReviewChart() {
             responsive: true,
             maintainAspectRatio: false,
             plugins: {
-                legend: { display: true, labels: { color: '#a89a8a' } },
+                legend: { display: true, labels: { color: tickColor } },
                 tooltip: { mode: 'index', intersect: false }
             },
             scales: {
-                y: { beginAtZero: true, ticks: { color: '#a89a8a' }, grid: { color: 'rgba(201, 162, 39, 0.1)' } },
-                x: { ticks: { color: '#a89a8a', maxRotation: 45, minRotation: 45 }, grid: { color: 'rgba(201, 162, 39, 0.05)' } }
+                y: { beginAtZero: true, ticks: { color: tickColor }, grid: { color: gridColor } },
+                x: { ticks: { color: tickColor, maxRotation: 45, minRotation: 45 }, grid: { color: gridColor } }
             }
         }
     });
@@ -1285,6 +1318,10 @@ function setupEvents() {
         saveBundleAcceptMode($(this).val());
     });
 
+        $('#epaper-toggle').off('change').on('change', function() {
+        applyEpaperMode($(this).is(':checked'));
+    });
+
     
     $('#btn-show-delete').click(() => { $('#confirm-delete-panel').slideDown(); });
     $('#btn-cancel-delete').click(() => { $('#confirm-delete-panel').slideUp(); });
@@ -1292,6 +1329,7 @@ function setupEvents() {
     $('#btn-confirm-delete').click(() => {
         if (confirm('Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.')) {
             localStorage.clear();
+            saveEpaperPreference(epaperEnabled);
             applyControlMode(getDefaultControlMode(), { save: true, rebuild: false });
             userELO = 300; savedErrors = []; currentStreak = 0; lastPracticeDate = null;
             todayCompleted = false; totalStars = 0; todayMissions = []; missionsDate = null; unlockedBadges = [];
@@ -2216,6 +2254,7 @@ $('#btn-dismiss-install').on('click', () => {
 $(document).ready(() => {
     updateDeviceType();
     loadStorage();
+    saveEpaperPreference(epaperEnabled);
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
