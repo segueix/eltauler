@@ -43,9 +43,31 @@
             --streak-fire: #d4763b;
             --star-gold: #ffd700;
         }
+                body.epaper-mode {
+            --bg-dark: #f2f2f2;
+            --bg-card: #e6e6e6;
+            --bg-warm: #e6e6e6;
+            --accent-gold: #444;
+            --accent-green: #555;
+            --accent-purple: #555;
+            --accent-blue: #555;
+            --text-primary: #222;
+            --text-secondary: #444;
+            --severity-low: #555;
+            --severity-med: #666;
+            --severity-high: #777;
+            --streak-fire: #444;
+            --star-gold: #555;
+            background: #f2f2f2 !important;
+            color: #222;
+            filter: saturate(0) contrast(0.95);
+        }
         
         * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-        
+        @media (prefers-reduced-motion: reduce) {
+            * { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0ms !important; scroll-behavior: auto !important; }
+        }
+   
         body {
             font-family: 'Crimson Pro', Georgia, serif;
             background: linear-gradient(180deg, var(--bg-dark) 0%, #251c15 50%, var(--bg-dark) 100%);
@@ -57,6 +79,19 @@
             padding: 15px;
             overflow-x: hidden;
         }
+        body.epaper-mode *,
+        body.epaper-mode *::before,
+        body.epaper-mode *::after {
+            animation: none !important;
+            transition: none !important;
+            box-shadow: none !important;
+            text-shadow: none !important;
+        }
+        body.epaper-mode {
+            background: #f2f2f2;
+        }
+        body.epaper-mode img, body.epaper-mode svg { filter: grayscale(100%); }
+        body.epaper-mode #app-container { filter: none; }
         
         #app-container { position: relative; z-index: 1; max-width: 480px; width: 100%; }
         body.device-tablet #app-container { max-width: 760px; }
@@ -92,6 +127,11 @@
             text-align: center;
             border: 1px solid rgba(201, 162, 39, 0.2);
         }
+        body.epaper-mode #start-screen, body.epaper-mode #stats-screen {
+            background: var(--bg-card);
+            border: 1px solid #cfcfcf;
+            box-shadow: none;
+        }
         
         .app-logo { font-size: 2.5rem; margin-bottom: 5px; }
         
@@ -102,6 +142,7 @@
             margin-bottom: 5px;
             letter-spacing: 2px;
         }
+        body.epaper-mode h1 { color: #222; }  
         
         .subtitle {
             color: var(--text-secondary);
@@ -114,6 +155,10 @@
             box-shadow: inset 0 0 5px 4px var(--accent-purple) !important;
             background-color: rgba(156, 39, 176, 0.4) !important;
             animation: pulse-purple 1.5s infinite;
+        }
+        body.epaper-mode .highlight-hint {
+            box-shadow: inset 0 0 0 2px #b3b3b3 !important;
+            background-color: #dcdcdc !important;
         }
         
         @keyframes pulse-purple {
@@ -172,6 +217,43 @@
         .mission-trophies { font-size: 0.9rem; text-align: right; min-width: 70px; opacity: 0.95; }
         .mission-trophies.empty { opacity: 0.25; }
 
+                .epaper-toggle {
+            position: relative;
+            width: 54px;
+            height: 30px;
+        }
+        .epaper-toggle input { opacity: 0; width: 0; height: 0; }
+        .epaper-slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0; left: 0;
+            right: 0; bottom: 0;
+            background-color: #b5b5b5;
+            transition: 0.2s;
+            border-radius: 30px;
+            border: 1px solid #cfcfcf;
+        }
+        .epaper-slider:before {
+            position: absolute;
+            content: "";
+            height: 22px;
+            width: 22px;
+            left: 4px;
+            bottom: 3px;
+            background-color: #f2f2f2;
+            transition: 0.2s;
+            border-radius: 50%;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+        }
+        .epaper-toggle input:checked + .epaper-slider {
+            background-color: #9d9d9d;
+            box-shadow: inset 0 0 0 1px #cfcfcf;
+        }
+        .epaper-toggle input:checked + .epaper-slider:before {
+            transform: translateX(22px);
+            background-color: #e6e6e6;
+        }
+
         /* CONFIGURACIÓ */
         .settings-panel {
             background: rgba(0,0,0,0.2);
@@ -193,7 +275,35 @@
             font-family: 'Crimson Pro', serif;
             font-size: 0.9rem;
         }
+        body.epaper-mode .select-control { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         .setting-help { margin-top: 8px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.25; }
+        body.epaper-mode .header,
+        body.epaper-mode .precision-panel,
+        body.epaper-mode .controls,
+        body.epaper-mode .missions-panel,
+        body.epaper-mode .settings-panel,
+        body.epaper-mode .chart-container,
+        body.epaper-mode .stat-card,
+        body.epaper-mode .danger-zone,
+        body.epaper-mode .league-meta,
+        body.epaper-mode .league-table-wrap,
+        body.epaper-mode .mission-item,
+        body.epaper-mode .bundle-item,
+        body.epaper-mode .drill-item,
+        body.epaper-mode .bundle-section,
+        body.epaper-mode .review-chip,
+        body.epaper-mode .controls .status-message {
+            background: #e6e6e6 !important;
+            border-color: #cfcfcf !important;
+            box-shadow: none !important;
+            color: #222;
+        }
+        body.epaper-mode .mission-item { border-left-color: #cfcfcf !important; }
+        body.epaper-mode .stat-card-value { color: #222; }
+        body.epaper-mode .stat-card-label,
+        body.epaper-mode .setting-help,
+        body.epaper-mode .subtitle,
+        body.epaper-mode .review-highlight { color: #444; }
         
         /* BUTTONS */
         .menu-buttons { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
@@ -202,6 +312,13 @@
             border: none; border-radius: 10px; cursor: pointer; width: 100%;
             display: flex; align-items: center; justify-content: center; gap: 10px; letter-spacing: 1px;
         }
+               body.epaper-mode .btn {
+            background: #dcdcdc !important;
+            color: #222 !important;
+            border: 1px solid #cfcfcf !important;
+            box-shadow: none !important;
+        }
+        body.epaper-mode .btn:hover { background: #d0d0d0 !important; }
         .btn:active { transform: scale(0.98); }
         .btn-primary { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
         .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: var(--accent-cream); }
@@ -237,6 +354,8 @@
         /* MODALS */
         .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; padding: 20px; }
         .modal-content { background: var(--bg-card); padding: 25px; border-radius: 16px; text-align: center; width: 100%; max-width: 380px; border: 1px solid rgba(201, 162, 39, 0.3); max-height: 80vh; overflow-y: auto; }
+        body.epaper-mode .modal-overlay { background: rgba(0,0,0,0.15); }
+        body.epaper-mode .modal-content { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         
         .modal-title { font-family: 'Cinzel', serif; font-size: 1.5rem; color: var(--accent-gold); margin-bottom: 15px; }
         .close-modal { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-top: 15px; font-family: 'Crimson Pro', serif; }
@@ -472,6 +591,11 @@
             min-width: 130px;
             justify-content: space-between;
         }
+            body.epaper-mode .review-chip {
+            background: #e6e6e6;
+            border: 1px solid #cfcfcf;
+            color: #222;
+        }
         .review-chip strong { color: white; font-size: 1rem; }
         .review-chip.excel { border-color: rgba(74, 124, 89, 0.4); color: #cbe6d2; }
         .review-chip.good { border-color: rgba(201, 162, 39, 0.4); color: #f4e4bc; }
@@ -492,6 +616,7 @@
             padding: 15px;
             margin-top: 20px;
         }
+        body.epaper-mode .danger-zone { background: #e6e6e6; border: 1px solid #cfcfcf; }
         
         .danger-zone-title {
             font-family: 'Cinzel', serif;
@@ -500,6 +625,7 @@
             margin-bottom: 10px;
             text-align: center;
         }
+        body.epaper-mode .danger-zone-title { color: #444; }
         
         .confirm-delete {
             display: none;
@@ -508,6 +634,7 @@
             border-radius: 8px;
             margin-top: 10px;
         }
+        body.epaper-mode .confirm-delete { background: #efefef; border: 1px solid #cfcfcf; }
         
         .confirm-delete p {
             color: var(--text-primary);
@@ -554,6 +681,11 @@
             border-bottom: 1px solid rgba(201, 162, 39, 0.08);
             font-size: 0.95rem;
         }
+        body.epaper-mode .league-table thead th {
+            background: #e6e6e6;
+            border-bottom: 1px solid #cfcfcf;
+        }
+        body.epaper-mode .league-table tbody td { border-bottom: 1px solid #cfcfcf; }      
         .league-table tbody tr:last-child td { border-bottom: none; }
         .league-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
         .league-row-me td:first-child { color: var(--accent-gold); font-weight: 700; }
@@ -577,7 +709,13 @@
             background: rgba(61, 50, 42, 0.98);
             box-shadow: -10px 0 14px rgba(0,0,0,0.18);
         }
+        body.epaper-mode .league-table thead th:last-child,
+        body.epaper-mode .league-table tbody td:last-child {
+            background: #e6e6e6;
+            box-shadow: none;
+        }
         
+        body.epaper-mode .league-table tbody td { border-bottom: 1px solid #cfcfcf; }
         @media (max-width: 520px) {
             body { padding: 0; align-items: flex-start; }
             #app-container { max-width: 100vw; width: 100vw; }
@@ -756,7 +894,14 @@
                         <option value="any">Qualsevol jugada legal</option>
                     </select>
                 </div>
-                <div class="setting-help">En mode estricte, si no és una de les 2 millors jugades, et farà tornar-ho a intentar.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Mode ePaper</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="epaper-toggle">
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Tons grisos, ombres mínimes i sense animacions per llegir millor.</div>
             </div>
 
             <div class="chart-container">
