@@ -421,6 +421,38 @@
             color: var(--text-secondary);
             margin-top: 5px;
         }
+               .review-legend {
+            display: flex;
+            gap: 8px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-bottom: 10px;
+        }
+        .review-chip {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(255,255,255,0.06);
+            min-width: 130px;
+            justify-content: space-between;
+        }
+        .review-chip strong { color: white; font-size: 1rem; }
+        .review-chip.excel { border-color: rgba(74, 124, 89, 0.4); color: #cbe6d2; }
+        .review-chip.good { border-color: rgba(201, 162, 39, 0.4); color: #f4e4bc; }
+        .review-chip.inaccuracy { border-color: rgba(255, 183, 77, 0.4); color: #ffe4c4; }
+        .review-chip.mistake { border-color: rgba(239, 83, 80, 0.4); color: #ffd1d1; }
+        .review-chip.blunder { border-color: rgba(183, 28, 28, 0.4); color: #ffcdd2; }
+        .review-highlight {
+            text-align: center;
+            font-size: 0.95rem;
+            color: var(--text-secondary);
+            margin-bottom: 6px;
+        }
         
         .danger-zone {
             background: rgba(139, 58, 58, 0.2);
@@ -581,6 +613,25 @@
         }
         .install-banner.show { display: block; }
         .install-banner button { margin-top: 8px; }
+
+        /* Revisió de partides */
+        .review-modal-result {
+            font-size: 1.05rem;
+            color: var(--accent-gold);
+            margin-bottom: 8px;
+            font-family: 'Cinzel', serif;
+        }
+        .review-precision {
+            color: var(--text-secondary);
+            margin-bottom: 10px;
+        }
+        .review-actions {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 12px;
+        }
     </style>
 </head>
 <body>
@@ -681,6 +732,19 @@
                 <div class="chart-title">Progressió de l'ELO</div>
                 <canvas id="elo-chart"></canvas>
             </div>
+            <div class="chart-container">
+                <div class="chart-title">Qualitat de jugades</div>
+                <div class="review-legend">
+                    <div class="review-chip excel">Excel·lents <strong id="legend-excel">0</strong></div>
+                    <div class="review-chip good">Bones <strong id="legend-good">0</strong></div>
+                    <div class="review-chip inaccuracy">Imprecisions <strong id="legend-inaccuracy">0</strong></div>
+                    <div class="review-chip mistake">Errors <strong id="legend-mistake">0</strong></div>
+                    <div class="review-chip blunder">Blunders <strong id="legend-blunder">0</strong></div>
+                </div>
+                <div style="height:240px;">
+                    <canvas id="review-chart"></canvas>
+                </div>
+            </div>
             
             <div class="stats-grid">
                 <div class="stat-card">
@@ -741,7 +805,20 @@
                 <button class="btn btn-primary" onclick="$('#new-badge-modal').hide()">Genial!</button>
             </div>
         </div>
-
+           <div class="modal-overlay" id="review-modal">
+            <div class="modal-content">
+                <div class="modal-title">📈 Revisió de la partida</div>
+                <div class="review-modal-result" id="review-result-text">—</div>
+                <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>
+                <div class="review-highlight">Com han estat les teves jugades?</div>
+                <div class="review-legend" id="review-breakdown"></div>
+                <div class="review-actions">
+                    <button class="btn btn-primary" id="btn-review-stats">📊 Veure evolució</button>
+                    <button class="close-modal" id="btn-review-close">Tancar</button>
+                </div>
+            </div>
+        </div>
+        
         <div id="league-screen" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">🏆</div>
