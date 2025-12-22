@@ -1619,13 +1619,15 @@ function handleEngineMessage(msg) {
     if (msg.indexOf('bestmove') !== -1 && isEngineThinking) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
-            isEngineThinking = false;
-            if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
-                goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay();
-            }
-            game.move({ from: match[1], to: match[2], promotion: match[3] || 'q' });
-            board.position(game.fen()); updateStatus();
-            if (game.game_over()) handleGameOver();
+            setTimeout(() => {
+                isEngineThinking = false;
+                if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
+                    goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay();
+                }
+                game.move({ from: match[1], to: match[2], promotion: match[3] || 'q' });
+                board.position(game.fen()); updateStatus();
+                if (game.game_over()) handleGameOver();
+            }, 900);
         }
     }
 }
