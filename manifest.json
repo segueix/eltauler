@@ -1,0 +1,49 @@
+{
+  "name": "El Tauler - Entrenador d'Escacs",
+  "short_name": "El Tauler",
+  "description": "Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#1a1410",
+  "theme_color": "#c9a227",
+  "orientation": "any",
+  "lang": "ca",
+  "categories": ["games", "education"],
+  "icons": [
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect fill='%231a1410' width='100' height='100' rx='20'/><text x='50' y='65' font-size='50' text-anchor='middle' fill='%23c9a227'>♔</text></svg>",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'><rect fill='%231a1410' width='192' height='192' rx='38'/><text x='96' y='125' font-size='96' text-anchor='middle' fill='%23c9a227'>♔</text></svg>",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'><rect fill='%231a1410' width='512' height='512' rx='102'/><text x='256' y='330' font-size='256' text-anchor='middle' fill='%23c9a227'>♔</text></svg>",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "screenshots": [],
+  "shortcuts": [
+    {
+      "name": "Nova Partida",
+      "short_name": "Partida",
+      "description": "Inicia una nova partida d'escacs",
+      "url": "./index.html?mode=game",
+      "icons": [{ "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><text x='48' y='70' font-size='60' text-anchor='middle'>♟</text></svg>", "sizes": "96x96" }]
+    },
+    {
+      "name": "Lliga",
+      "short_name": "Lliga",
+      "description": "Accedeix a la teva lliga",
+      "url": "./index.html?mode=league",
+      "icons": [{ "src": "data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'><text x='48' y='70' font-size='60' text-anchor='middle'>🏆</text></svg>", "sizes": "96x96" }]
+    }
+  ]
+}

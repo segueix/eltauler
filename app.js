@@ -1,0 +1,1823 @@
+// El Tauler - Entrenador d'Escacs PWA
+// app.js - Lògica principal de l'aplicació
+
+let game = null;
+let board = null;
+let stockfish = null;
+let userELO = 300; 
+let engineELO = 300;
+let savedErrors = [];
+
+// Sistema d'IA Adaptativa
+let recentGames = []; 
+let aiDifficulty = 8; 
+let consecutiveWins = 0;
+let consecutiveLosses = 0;
+let isEngineThinking = false;
+
+let lastPosition = null; 
+let blunderMode = false;
+let currentBundleFen = null;
+let playerColor = 'w';
+
+let totalPlayerMoves = 0;
+let goodMoves = 0;
+let pendingMoveEvaluation = false;
+
+// Controls tàctils (tap-to-move)
+let tapSelectedSquare = null;
+let tapMoveEnabled = false;
+let lastTapEventTs = 0;
+
+// DRILLS DATA (Finals)
+const DRILLS = {
+    basics: [
+        { name: "Mate amb Rei i Dama", fen: "8/8/8/8/8/8/k7/4Q2K w - - 0 1" },
+        { name: "Mate amb Rei i Torre", fen: "8/8/8/8/8/8/k7/4R2K w - - 0 1" }
+    ],
+    pawns: [
+        { name: "Peó Passat (Quadrat)", fen: "8/8/8/8/8/k7/4P3/K7 w - - 0 1" },
+        { name: "Oposició Bàsica", fen: "8/8/8/8/4k3/4P3/4K3/8 w - - 0 1" },
+        { name: "Rei i Peó vs Rei", fen: "8/8/8/8/8/2k5/2P5/2K5 w - - 0 1" }
+    ],
+    advanced: [
+        { name: "Posició de Lucena", fen: "2K5/2P1k3/8/8/8/8/1r6/2R5 w - - 0 1" },
+        { name: "Final de Torres (Philidor)", fen: "2r5/8/8/8/4k3/8/3R4/3K4 w - - 0 1" }
+    ]
+};
+
+function isTouchDevice() {
+    return ('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
+}
+
+// Control del tauler (Tocar / Arrossegar)
+const CONTROL_MODE_KEY = 'eltauler_control_mode';
+let controlMode = null;
+
+// Revisió d'errors (Bundle): validar només les 2 millors jugades o acceptar qualsevol jugada legal
+const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
+let bundleAcceptMode = 'top2'; // 'top2' o 'any'
+
+function loadBundleAcceptMode() {
+    try {
+        const v = localStorage.getItem(BUNDLE_ACCEPT_MODE_KEY);
+        if (v === 'top2' || v === 'any') return v;
+    } catch (e) {}
+    return 'top2';
+}
+
+function saveBundleAcceptMode(mode) {
+    bundleAcceptMode = (mode === 'any') ? 'any' : 'top2';
+    try { localStorage.setItem(BUNDLE_ACCEPT_MODE_KEY, bundleAcceptMode); } catch (e) {}
+    const sel = document.getElementById('bundle-accept-select');
+    if (sel) sel.value = bundleAcceptMode;
+}
+
+// Estat de validació Top-2 al Bundle
+let isBundleTop2Analysis = false;
+let bundlePvMoves = {};
+let lastHumanMoveUci = null;
+
+let dragGuardBound = false;
+let dragGuardHandler = null;
+
+function getDefaultControlMode() {
+    return isTouchDevice() ? 'tap' : 'drag';
+}
+
+function loadControlMode() {
+    try {
+        const v = localStorage.getItem(CONTROL_MODE_KEY);
+        if (v === 'tap' || v === 'drag') return v;
+    } catch (e) {}
+    return getDefaultControlMode();
+}
+
+function setBodyControlClass(mode) {
+    document.body.classList.toggle('control-tap', mode === 'tap');
+    document.body.classList.toggle('control-drag', mode === 'drag');
+}
+
+function detachDragGuards() {
+    const el = document.getElementById('myBoard');
+    if (!el || !dragGuardBound || !dragGuardHandler) return;
+    el.removeEventListener('touchmove', dragGuardHandler);
+    el.removeEventListener('gesturestart', dragGuardHandler);
+    dragGuardBound = false;
+    dragGuardHandler = null;
+}
+
+function attachDragGuards() {
+    if (!isTouchDevice()) return;
+    const el = document.getElementById('myBoard');
+    if (!el) return;
+
+    detachDragGuards();
+    dragGuardHandler = (e) => {
+        if (controlMode === 'drag') e.preventDefault();
+    };
+    el.addEventListener('touchmove', dragGuardHandler, { passive: false });
+    el.addEventListener('gesturestart', dragGuardHandler, { passive: false });
+    dragGuardBound = true;
+}
+
+function disableTapToMove() {
+    tapMoveEnabled = false;
+    $('#myBoard').off('.tapmove');
+    const boardEl = document.getElementById('myBoard');
+    if (boardEl && controlMode !== 'drag') boardEl.style.touchAction = '';
+    clearTapSelection();
+}
+
+function rebuildBoardForControlMode() {
+    if (!game) return;
+    const fen = game.fen();
+
+    if (board) board.destroy();
+    board = Chessboard('myBoard', {
+        draggable: (controlMode === 'drag'),
+        position: fen,
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd,
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+
+    setTimeout(() => { resizeBoardToViewport(); }, 0);
+
+    if (controlMode === 'tap') {
+        detachDragGuards();
+        enableTapToMove();
+    } else {
+        disableTapToMove();
+        attachDragGuards();
+    }
+}
+
+function applyControlMode(mode, opts) {
+    const o = opts || {};
+    if (mode !== 'tap' && mode !== 'drag') mode = getDefaultControlMode();
+
+    controlMode = mode;
+    setBodyControlClass(mode);
+
+    if (o.save !== false) {
+        try { localStorage.setItem(CONTROL_MODE_KEY, mode); } catch (e) {}
+    }
+
+    const sel = document.getElementById('control-mode-select');
+    if (sel) sel.value = mode;
+
+    if (o.rebuild) rebuildBoardForControlMode();
+}
+
+// Resize del tauler perquè ocupi el màxim possible
+let resizeTimer = null;
+
+function resizeBoardToViewport() {
+    const boardEl = document.getElementById('myBoard');
+    const gameScreen = document.getElementById('game-screen');
+    if (!boardEl || !gameScreen) return;
+
+    const isVisible = (gameScreen.style.display !== 'none') && (gameScreen.offsetParent !== null);
+    if (!isVisible) return;
+
+    const headerEl = gameScreen.querySelector('.header');
+    const precisionEl = gameScreen.querySelector('.precision-panel');
+    const controlsEl = gameScreen.querySelector('.controls');
+
+    const used = (headerEl ? headerEl.getBoundingClientRect().height : 0)
+        + (precisionEl ? precisionEl.getBoundingClientRect().height : 0)
+        + (controlsEl ? controlsEl.getBoundingClientRect().height : 0);
+
+    const availableW = window.innerWidth;
+    const isSmall = availableW <= 520;
+    const isPortrait = window.innerHeight >= availableW;
+
+    let size = 0;
+
+    if (isSmall && isPortrait) {
+        size = Math.floor(Math.max(240, availableW));
+        boardEl.style.marginLeft = '0';
+        boardEl.style.marginRight = '0';
+    } else {
+        const verticalGaps = 24;
+        const availableH = window.innerHeight - used - verticalGaps;
+        size = Math.floor(Math.max(240, Math.min(availableW, availableH)));
+        boardEl.style.marginLeft = 'auto';
+        boardEl.style.marginRight = 'auto';
+    }
+
+    boardEl.style.width = size + 'px';
+    boardEl.style.height = size + 'px';
+
+    if (board && typeof board.resize === 'function') board.resize();
+}
+
+function scheduleBoardResize() {
+    if (resizeTimer) clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(() => resizeBoardToViewport(), 60);
+}
+
+window.addEventListener('resize', scheduleBoardResize, { passive: true });
+window.addEventListener('orientationchange', () => setTimeout(() => resizeBoardToViewport(), 140), { passive: true });
+
+function clearTapSelection() {
+    tapSelectedSquare = null;
+    $('.square-55d63').removeClass('tap-selected tap-move');
+}
+
+function highlightTapSelection(square) {
+    $('.square-55d63').removeClass('tap-selected tap-move');
+    const sel = $(`#myBoard .square-55d63[data-square='${square}']`);
+    sel.addClass('tap-selected');
+
+    const moves = game ? game.moves({ square: square, verbose: true }) : [];
+    for (const mv of moves) {
+        $(`#myBoard .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
+    }
+}
+
+function commitHumanMoveFromTap(from, to) {
+    $('#blunder-alert').hide();
+    if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+
+    $('.square-55d63').removeClass('highlight-hint');
+    const prevFen = game.fen();
+    const move = game.move({ from: from, to: to, promotion: 'q' });
+    if (move === null) return false;
+    lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
+
+    lastPosition = prevFen;
+    totalPlayerMoves++;
+    pendingMoveEvaluation = true;
+
+    board.position(game.fen());
+    updateStatus();
+    analyzeMove();
+    return true;
+}
+
+function enableTapToMove() {
+    if (tapMoveEnabled) return;
+    tapMoveEnabled = true;
+    const boardEl = document.getElementById('myBoard');
+    if (boardEl) boardEl.style.touchAction = 'none';
+
+    $('#myBoard').off('.tapmove')
+        .on(`pointerdown.tapmove touchstart.tapmove`, '.square-55d63', function(e) {
+        if (!game || game.game_over() || isEngineThinking) return;
+
+        if (e && e.preventDefault) e.preventDefault();
+
+        const nowTs = Date.now();
+        if (nowTs - lastTapEventTs < 180) return;
+        lastTapEventTs = nowTs;
+
+        const square = $(this).attr('data-square');
+        if (!square) return;
+
+        if (!tapSelectedSquare) {
+            const p = game.get(square);
+            if (!p || p.color !== game.turn()) return;
+            tapSelectedSquare = square;
+            highlightTapSelection(square);
+            return;
+        }
+
+        if (square === tapSelectedSquare) {
+            clearTapSelection();
+            return;
+        }
+
+        const moved = commitHumanMoveFromTap(tapSelectedSquare, square);
+        if (moved) {
+            clearTapSelection();
+            return;
+        }
+
+        const p2 = game.get(square);
+        if (p2 && p2.color === game.turn()) {
+            tapSelectedSquare = square;
+            highlightTapSelection(square);
+        }
+    });
+}
+
+let currentStreak = 0;
+let lastPracticeDate = null;
+let todayCompleted = false;
+let missionsCompletionTime = null; // Guardarà l'hora de finalització
+
+let totalStars = 0;
+let todayMissions = [];
+let missionsDate = null;
+let unlockedBadges = [];
+
+let sessionStats = { 
+    gamesPlayed: 0, 
+    gamesWon: 0, 
+    bundlesSolved: 0,
+    bundlesSolvedLow: 0,
+    bundlesSolvedMed: 0,
+    bundlesSolvedHigh: 0,
+    highPrecisionGames: 0, 
+    perfectGames: 0, 
+    blackWins: 0,
+    leagueGamesPlayed: 0,
+    freeGamesPlayed: 0,
+    drillsSolved: 0
+};
+
+let isAnalyzingHint = false;
+let waitingForBlunderAnalysis = false;
+let analysisStep = 0;
+let analysisScoreStep1 = 0;
+let tempAnalysisScore = 0;
+
+let eloHistory = [];
+let totalGamesPlayed = 0;
+let totalWins = 0;
+let maxStreak = 0;
+
+// Lliga (mode escacs)
+let currentLeague = null; 
+let leagueActiveMatch = null; 
+
+let currentGameMode = 'free';
+let currentOpponent = null;
+let eloChart = null;
+let engineMoveTimeout = null;
+
+const MISSION_TEMPLATES = [
+    { id: 'play1', text: 'Juga 1 Partida', stars: 1, check: () => sessionStats.gamesPlayed >= 1 },
+    { id: 'playLeague', text: 'Juga 1 Lliga', stars: 1, check: () => sessionStats.leagueGamesPlayed >= 1 },
+    { id: 'playFree', text: 'Juga 1 Lliure', stars: 1, check: () => sessionStats.freeGamesPlayed >= 1 },
+    { id: 'bundle1', text: 'Resol 1 Error', stars: 1, check: () => sessionStats.bundlesSolved >= 1 },
+    { id: 'drill1', text: 'Entrena 1 Final', stars: 1, check: () => sessionStats.drillsSolved >= 1 },
+    { id: 'bundleLow', text: 'Resol 1 Lleu', stars: 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
+    { id: 'precision70', text: 'Precisió +70%', stars: 1, check: () => sessionStats.highPrecisionGames >= 1 },
+    
+    { id: 'play3', text: 'Juga 3 Partides', stars: 2, check: () => sessionStats.gamesPlayed >= 3 },
+    { id: 'win2', text: 'Guanya 2 partides', stars: 2, check: () => sessionStats.gamesWon >= 2 },
+    { id: 'bundle3', text: 'Resol 3 Errors', stars: 2, check: () => sessionStats.bundlesSolved >= 3 },
+    { id: 'bundleMed', text: 'Resol 1 Mitjà', stars: 2, check: () => sessionStats.bundlesSolvedMed >= 1 },
+    { id: 'precision85', text: 'Precisió +85%', stars: 2, check: () => sessionStats.perfectGames >= 1 },
+    
+    { id: 'play5', text: 'Juga 5 Partides', stars: 3, check: () => sessionStats.gamesPlayed >= 5 },
+    { id: 'win4', text: 'Guanya 4 partides', stars: 3, check: () => sessionStats.gamesWon >= 4 },
+    { id: 'bundleHigh', text: 'Resol 1 Greu', stars: 3, check: () => sessionStats.bundlesSolvedHigh >= 1 },
+    { id: 'blackwin', text: 'Guanya amb Negres', stars: 3, check: () => sessionStats.blackWins >= 1 }
+];
+
+const BADGES = [
+    { id: 'rookie', name: 'Novell', stars: 5, icon: '🌱' },
+    { id: 'apprentice', name: 'Aprenent', stars: 20, icon: '📚' },
+    { id: 'skilled', name: 'Competent', stars: 50, icon: '⚔️' },
+    { id: 'expert', name: 'Expert', stars: 100, icon: '🎖️' },
+    { id: 'master', name: 'Mestre', stars: 200, icon: '👑' },
+    { id: 'grandmaster', name: 'Gran Mestre', stars: 400, icon: '🏆' },
+    { id: 'legend', name: 'Llegenda', stars: 750, icon: '⭐' },
+    { id: 'immortal', name: 'Immortal', stars: 1500, icon: '🔥' }
+];
+
+function getToday() { return new Date().toISOString().split('T')[0]; }
+
+function randInt(min, max) { return Math.floor(Math.random() * (max - min + 1)) + min; }
+
+function shuffleArray(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        const tmp = arr[i]; arr[i] = arr[j]; arr[j] = tmp;
+    }
+    return arr;
+}
+
+function generateLeagueName() {
+    const a = ['Lliga', 'Copa', 'Circuit', 'Temporada', 'Torneig'];
+    const b = ['del Tauler', 'dels Alfiles', 'de la Dama', 'del Cavall', 'dels Naips', 'del Rei', 'de l\'Escac'];
+    const c = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX'];
+    const partA = a[randInt(0, a.length - 1)];
+    const partB = b[randInt(0, b.length - 1)];
+    const partC = c[randInt(0, c.length - 1)];
+    return `${partA} ${partB} ${partC}`;
+}
+
+function buildRoundRobinSchedule(playerIds) {
+    const ids = playerIds.slice();
+    const fixed = ids[0];
+    let rest = ids.slice(1);
+    const rounds = [];
+    const n = ids.length;
+
+    for (let r = 0; r < n - 1; r++) {
+        const roundArr = [fixed, ...rest];
+        const pairings = [];
+        for (let i = 0; i < n / 2; i++) {
+            const aId = roundArr[i];
+            const bId = roundArr[n - 1 - i];
+            pairings.push([aId, bId]);
+        }
+        rounds.push(pairings);
+        const last = rest.pop();
+        rest = [last, ...rest];
+    }
+    return rounds;
+}
+
+function createNewLeague(force = false) {
+    if (currentLeague && !force) return currentLeague;
+
+    const baseNames = [
+        'RocaNegra', 'AlfilFosc', 'CavallViu', 'DamaRàpida', 'ReiCalm', 'PeóFerm',
+        'TorreVella', 'Gambit', 'Finalista', 'TrampaDolça', 'VellaGuàrdia', 'LíniaSòlida',
+        'EscacIAnem', 'Fletxa', 'Diagonal', 'CasellaClara', 'CasellaFosca', 'XecMate'
+    ];
+    shuffleArray(baseNames);
+
+    const bots = [];
+    for (let i = 0; i < 9; i++) {
+        const name = baseNames[i] || `Rival${i + 1}`;
+        const elo = Math.max(100, userELO + randInt(-120, 120));
+        bots.push({ id: `bot${i + 1}`, name: name, elo: elo, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 });
+    }
+
+    const me = { id: 'me', name: 'Tu', elo: userELO, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 };
+    const players = [me, ...bots];
+
+    const ids = ['me', ...shuffleArray(bots.map(b => b.id))];
+    const schedule = buildRoundRobinSchedule(ids);
+
+    currentLeague = {
+        id: 'league_' + Date.now(),
+        name: generateLeagueName(),
+        createdAt: Date.now(),
+        players: players,
+        schedule: schedule,
+        currentRound: 1,
+        completed: false
+    };
+    leagueActiveMatch = null;
+    saveStorage();
+    return currentLeague;
+}
+
+function getLeaguePlayer(id) {
+    if (!currentLeague) return null;
+    return currentLeague.players.find(p => p.id === id) || null;
+}
+
+function formatPts(v) {
+    const isInt = Math.abs(v - Math.round(v)) < 1e-9;
+    if (isInt) return String(Math.round(v));
+    return (Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
+}
+
+function leagueSort(players) {
+    return players.slice().sort((a, b) => {
+        if (b.pts !== a.pts) return b.pts - a.pts;
+        if (b.pg !== a.pg) return b.pg - a.pg;
+        if (b.elo !== a.elo) return b.elo - a.elo;
+        return a.name.localeCompare(b.name);
+    });
+}
+
+function getMyOpponentForRound(roundIndex) {
+    if (!currentLeague) return null;
+    const pairings = currentLeague.schedule[roundIndex];
+    for (const [aId, bId] of pairings) {
+        if (aId === 'me') return bId;
+        if (bId === 'me') return aId;
+    }
+    return null;
+}
+
+function openLeague() {
+    createNewLeague(false);
+    $('#start-screen').hide(); $('#stats-screen').hide(); $('#game-screen').hide();
+    $('#league-screen').show();
+    renderLeague();
+}
+
+function renderLeague() {
+    if (!currentLeague) return;
+    const me = getLeaguePlayer('me');
+    if (me) me.elo = userELO;
+
+    $('#league-name').text(currentLeague.name);
+
+    if (currentLeague.completed) {
+        $('#league-round').text('Lliga acabada');
+        $('#league-next').text('Proper rival: —');
+        $('#btn-league-play').hide();
+        $('#btn-league-new').show();
+    } else {
+        $('#league-round').text(`Jornada ${currentLeague.currentRound}/9`);
+        const oppId = getMyOpponentForRound(currentLeague.currentRound - 1);
+        const opp = oppId ? getLeaguePlayer(oppId) : null;
+        $('#league-next').text(`Proper rival: ${opp ? opp.name : '—'}`);
+        $('#btn-league-play').show();
+        $('#btn-league-new').hide();
+    }
+
+    const sorted = leagueSort(currentLeague.players);
+    const tbody = $('#league-table-body');
+    tbody.empty();
+
+    sorted.forEach((p, idx) => {
+        const tr = $('<tr></tr>');
+        if (p.id === 'me') tr.addClass('league-row-me');
+
+        if (currentLeague.completed) {
+            if (idx === 0) tr.addClass('league-podium-1');
+            else if (idx === 1) tr.addClass('league-podium-2');
+            else if (idx === 2) tr.addClass('league-podium-3');
+        }
+
+        tr.append(`<td>${p.name}</td>`);
+        tr.append(`<td class="num">${p.elo}</td>`);
+        tr.append(`<td class="num">${p.pj}</td>`);
+        tr.append(`<td class="num">${p.pg}</td>`);
+        tr.append(`<td class="num">${p.pp}</td>`);
+        tr.append(`<td class="num">${p.pe}</td>`);
+        tr.append(`<td class="num">${formatPts(p.pts)}</td>`);
+        tbody.append(tr);
+    });
+}
+
+function simulateOutcomeByElo(eloA, eloB) {
+    const ea = 1 / (1 + Math.pow(10, (eloB - eloA) / 400));
+    const diff = Math.abs(eloA - eloB);
+    const drawBase = 0.20;
+    const drawExtra = 0.15 * (1 - Math.min(diff / 350, 1));
+    const pDraw = Math.min(0.45, Math.max(0.10, drawBase + drawExtra));
+
+    const r = Math.random();
+    if (r < pDraw) return 'draw';
+
+    const r2 = (r - pDraw) / (1 - pDraw);
+    return r2 < ea ? 'A' : 'B';
+}
+
+function applyResult(aId, bId, outcome) {
+    const a = getLeaguePlayer(aId);
+    const b = getLeaguePlayer(bId);
+    if (!a || !b) return;
+
+    a.pj++; b.pj++;
+
+    if (outcome === 'draw') {
+        a.pe++; b.pe++;
+        a.pts += 0.5; b.pts += 0.5;
+        return;
+    }
+
+    if (outcome === 'winA') {
+        a.pg++; b.pp++;
+        a.pts += 1;
+        return;
+    }
+
+    if (outcome === 'winB') {
+        b.pg++; a.pp++;
+        b.pts += 1;
+        return;
+    }
+}
+
+function startLeagueRound() {
+    if (!currentLeague) createNewLeague(false);
+    if (currentLeague.completed) return;
+
+    const roundIdx = currentLeague.currentRound - 1;
+    const oppId = getMyOpponentForRound(roundIdx);
+    if (!oppId) { alert('No s\'ha pogut trobar rival'); return; }
+
+    leagueActiveMatch = { leagueId: currentLeague.id, round: currentLeague.currentRound, opponentId: oppId };
+    currentGameMode = 'league';
+    const opp = getLeaguePlayer(oppId);
+    currentOpponent = opp ? { id: opp.id, name: opp.name, elo: opp.elo } : { id: oppId, name: 'Rival', elo: userELO };
+    saveStorage();
+
+    startGame(false);
+}
+
+function applyLeagueAfterGame(myOutcome) {
+    if (!currentLeague || !leagueActiveMatch) return;
+    if (leagueActiveMatch.leagueId !== currentLeague.id) { leagueActiveMatch = null; saveStorage(); return; }
+
+    const roundNumber = leagueActiveMatch.round;
+    const roundIdx = roundNumber - 1;
+    const oppId = leagueActiveMatch.opponentId;
+
+    if (myOutcome === 'win') applyResult('me', oppId, 'winA');
+    else if (myOutcome === 'loss') applyResult('me', oppId, 'winB');
+    else applyResult('me', oppId, 'draw');
+
+    const pairings = currentLeague.schedule[roundIdx] || [];
+    for (const [aId, bId] of pairings) {
+        if ((aId === 'me' || bId === 'me')) continue;
+
+        const a = getLeaguePlayer(aId);
+        const b = getLeaguePlayer(bId);
+        if (!a || !b) continue;
+
+        const sim = simulateOutcomeByElo(a.elo, b.elo);
+        if (sim === 'draw') applyResult(aId, bId, 'draw');
+        else if (sim === 'A') applyResult(aId, bId, 'winA');
+        else applyResult(aId, bId, 'winB');
+    }
+
+    currentLeague.currentRound++;
+    if (currentLeague.currentRound > 9) {
+        currentLeague.completed = true;
+    }
+
+    leagueActiveMatch = null;
+    saveStorage();
+}
+
+function generateDailyMissions() {
+    const today = getToday();
+    const now = Date.now();
+    const oneHour = 3600 * 1000; // 1 hora en mil·lisegons
+
+    // Comprovem si ha passat 1 hora des que es van completar
+    let timePassed = false;
+    if (missionsCompletionTime && (now - missionsCompletionTime > oneHour)) {
+        timePassed = true;
+    }
+
+    // Si estem al mateix dia, tenim missions, i NO ha passat l'hora, no fem res.
+    if (missionsDate === today && todayMissions.length === 3 && !timePassed) {
+        updateMissionsDisplay();
+        return;
+    }
+
+    // Si ha passat l'hora, resetegem el temps per la pròxima tanda
+    if (timePassed) {
+        missionsCompletionTime = null;
+    }
+
+    missionsDate = today;
+    
+    // MODIFICACIÓ CLAU: La "seed" ara inclou l'hora per garantir que les noves missions siguin diferents
+    // encara que sigui el mateix dia.
+    const seedString = today.split('-').join('') + (timePassed ? 'v2' : ''); 
+    // Nota: 'v2' és un exemple, cada cop que es completin canviarà l'atzar lleugerament
+    
+    // Per fer-ho senzill i que variï sempre si regenerem, fem servir un random pur si regenerem intra-dia
+    const rng = timePassed ? Math.random : mulberry32(parseInt(today.split('-').join('')));
+
+    const easy = MISSION_TEMPLATES.filter(m => m.stars === 1);
+    const medium = MISSION_TEMPLATES.filter(m => m.stars === 2);
+    const hard = MISSION_TEMPLATES.filter(m => m.stars === 3);
+    
+    // Funció auxiliar per triar random
+    const pick = (arr) => arr[Math.floor((timePassed ? Math.random() : rng()) * arr.length)];
+
+    todayMissions = [
+        { ...pick(easy), completed: false },
+        { ...pick(medium), completed: false },
+        { ...pick(hard), completed: false }
+    ];
+
+    // Reiniciem estadístiques parcials de sessió per a les noves missions
+    sessionStats = { 
+        gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
+        bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
+        highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
+        leagueGamesPlayed: 0, freeGamesPlayed: 0, drillsSolved: 0
+    };
+    
+    saveStorage();
+    updateMissionsDisplay();
+}
+
+function mulberry32(a) {
+    return function() {
+        var t = a += 0x6D2B79F5; t = Math.imul(t ^ t >>> 15, t | 1); t ^= t + Math.imul(t ^ t >>> 7, t | 61);
+        return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    }
+}
+
+function updateMissionsDisplay() {
+    const container = $('#missions-list'); container.empty();
+    const targets = { 
+        play1: 1, play3: 3, play5: 5, win2: 2, win4: 4, 
+        bundle1: 1, bundle3: 3, precision70: 1, precision85: 1, blackwin: 1,
+        playLeague: 1, playFree: 1, bundleLow: 1, bundleMed: 1, bundleHigh: 1,
+        drill1: 1
+    };
+    const getValue = (id) => {
+        if (id === 'playLeague') return sessionStats.leagueGamesPlayed;
+        if (id === 'playFree') return sessionStats.freeGamesPlayed;
+        if (id === 'bundleLow') return sessionStats.bundlesSolvedLow;
+        if (id === 'bundleMed') return sessionStats.bundlesSolvedMed;
+        if (id === 'bundleHigh') return sessionStats.bundlesSolvedHigh;
+        if (id === 'drill1') return sessionStats.drillsSolved;
+        
+        if (id.startsWith('play')) return sessionStats.gamesPlayed;
+        if (id.startsWith('win')) return sessionStats.gamesWon;
+        if (id.startsWith('bundle')) return sessionStats.bundlesSolved;
+        if (id === 'precision70') return sessionStats.highPrecisionGames;
+        if (id === 'precision85') return sessionStats.perfectGames;
+        if (id === 'blackwin') return sessionStats.blackWins;
+        return 0;
+    };
+    todayMissions.forEach((mission) => {
+        const stars = '★'.repeat(mission.stars);
+        const completedClass = mission.completed ? 'completed' : '';
+        const target = targets[mission.id] || 1;
+        const val = getValue(mission.id);
+        const stepsDone = Math.min(val, target);
+        const trophies = '🏆'.repeat(stepsDone);
+        const trophiesClass = stepsDone === 0 ? 'empty' : '';
+        const progressText = mission.completed ? 'Fet' : `${stepsDone}/${target}`;
+        container.append(
+            `<div class="mission-item ${completedClass}">
+                <div class="mission-stars">${stars}</div>
+                <div class="mission-text">
+                    <div class="mission-label">${mission.text}</div>
+                    <div class="mission-progress">${progressText}</div>
+                </div>
+                <div class="mission-check">★</div>
+                <div class="mission-trophies ${trophiesClass}">${trophies}</div>
+            </div>`
+        );
+    });
+}
+
+function checkMissions() {
+    let newStarsEarned = 0;
+    let allCompletedBefore = todayMissions.every(m => m.completed); // Estat abans de comprovar
+
+    todayMissions.forEach((mission, idx) => {
+        if (!mission.completed && mission.check()) {
+            mission.completed = true; newStarsEarned += mission.stars;
+        }
+    });
+
+    // NOVA LÒGICA: Si totes estan completes i abans no ho estaven (o no tenim temps guardat)
+    if (todayMissions.every(m => m.completed) && !missionsCompletionTime) {
+        missionsCompletionTime = Date.now(); // Guardem el moment actual
+        saveStorage();
+    }
+
+    if (newStarsEarned > 0) {
+        const oldStars = totalStars; totalStars += newStarsEarned;
+        saveStorage(); updateMissionsDisplay(); updateDisplay(); checkNewBadges(oldStars, totalStars);
+    }
+}
+
+function checkNewBadges(oldStars, newStars) {
+    BADGES.forEach(badge => {
+        if (oldStars < badge.stars && newStars >= badge.stars) {
+            if (!unlockedBadges.includes(badge.id)) {
+                unlockedBadges.push(badge.id); showNewBadge(badge); saveStorage();
+            }
+        }
+    });
+}
+
+function showNewBadge(badge) {
+    $('#new-badge-icon').text(badge.icon); $('#new-badge-name').text(badge.name);
+    $('#new-badge-stars').text('★'.repeat(Math.min(badge.stars / 10, 10)) + ` (${badge.stars}★)`);
+    $('#new-badge-modal').css('display', 'flex');
+}
+
+function updateBadgesModal() {
+    $('#modal-total-stars').text(totalStars); const grid = $('#badges-grid'); grid.empty();
+    BADGES.forEach(badge => {
+        const isUnlocked = totalStars >= badge.stars; const statusClass = isUnlocked ? 'unlocked' : 'locked';
+        grid.append(`<div class="badge-item ${statusClass}"><div class="badge-icon">${badge.icon}</div><div class="badge-name">${badge.name}</div><div class="badge-req">${badge.stars}★</div></div>`);
+    });
+}
+
+function getYesterday() { const d = new Date(); d.setDate(d.getDate() - 1); return d.toISOString().split('T')[0]; }
+
+function checkStreak() {
+    const today = getToday(); const yesterday = getYesterday();
+    if (lastPracticeDate === today) todayCompleted = true;
+    else if (lastPracticeDate === yesterday) todayCompleted = false;
+    else if (lastPracticeDate && lastPracticeDate !== today) {
+        currentStreak = 0; todayCompleted = false;
+    }
+    updateStreakDisplay();
+}
+
+function recordActivity() {
+    const today = getToday();
+    if (lastPracticeDate !== today) {
+        if (lastPracticeDate === getYesterday()) currentStreak++;
+        else if (!lastPracticeDate || lastPracticeDate !== today) currentStreak = 1;
+        lastPracticeDate = today; todayCompleted = true;
+        if (currentStreak > maxStreak) maxStreak = currentStreak;
+        saveStorage();
+    }
+    updateStreakDisplay();
+}
+
+function updateStreakDisplay() {
+    $('#current-streak').text(currentStreak);
+    const streakBox = $('#streak-box'); const statusEl = $('#streak-status');
+    if (todayCompleted) { statusEl.removeClass('streak-pending').addClass('streak-done').text('✓ Fet'); streakBox.addClass('active'); } 
+    else { statusEl.removeClass('streak-done').addClass('streak-pending').text('Pendent'); streakBox.removeClass('active'); }
+}
+
+function restoreMissions(savedList) {
+    if (!savedList) return [];
+    return savedList.map(saved => {
+        const template = MISSION_TEMPLATES.find(t => t.id === saved.id);
+        if (template) return { ...template, completed: saved.completed };
+        return saved;
+    });
+}
+
+function adjustAIDifficulty(playerWon, precision) {
+    recentGames.push({ won: playerWon, precision: precision });
+    if (recentGames.length > 10) recentGames.shift();
+    
+    if (playerWon) { consecutiveWins++; consecutiveLosses = 0; } 
+    else { consecutiveLosses++; consecutiveWins = 0; }
+    
+    const recent5 = recentGames.slice(-5);
+    const winRate = recent5.length > 0 ? recent5.filter(g => g.won).length / recent5.length : 0.5;
+    const avgPrecision = recent5.length > 0 ? recent5.reduce((sum, g) => sum + g.precision, 0) / recent5.length : 50;
+    
+    let adjustment = 0;
+    if (consecutiveLosses >= 3) adjustment = -2;
+    else if (consecutiveLosses >= 2) adjustment = -1;
+    else if (winRate < 0.3 && recent5.length >= 5) adjustment = -1;
+    else if (consecutiveWins >= 3 && avgPrecision >= 70) adjustment = 2;
+    else if (consecutiveWins >= 2 && avgPrecision >= 60) adjustment = 1;
+    else if (winRate > 0.7 && recent5.length >= 5) adjustment = 1;
+    else if (avgPrecision >= 80 && winRate > 0.5) adjustment = 1;
+    else if (avgPrecision < 40 && winRate < 0.5) adjustment = -1;
+    
+    aiDifficulty = Math.max(5, Math.min(15, aiDifficulty + adjustment));
+    saveStorage();
+}
+
+function getAIDepth() {
+    const randomness = Math.floor(Math.random() * 3) - 1;
+
+    if (currentGameMode !== 'league') {
+        return Math.max(1, Math.min(15, aiDifficulty + randomness));
+    }
+
+    const oppElo = (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : userELO;
+    const delta = (oppElo - userELO);
+    const base = 8 + Math.round(delta / 250); 
+    return Math.max(1, Math.min(15, base + randomness));
+}
+
+// MODIFICAT: Ara carrega directament el fitxer local
+function createStockfishWorker() {
+    try {
+        return new Worker('stockfish.js');
+    } catch (e) {
+        console.error("Error carregant Stockfish local:", e);
+        return null;
+    }
+}
+
+function ensureStockfish() {
+    if (stockfish) return true;
+    try {
+        stockfish = createStockfishWorker();
+        stockfish.onmessage = (e) => handleEngineMessage(e.data);
+        return true;
+    } catch (err) {
+        console.error(err);
+        stockfish = null;
+        return false;
+    }
+}
+
+function loadStorage() {
+    const elo = localStorage.getItem('chess_userELO'); if (elo) userELO = parseInt(elo);
+    const errors = localStorage.getItem('chess_savedErrors'); if (errors) savedErrors = JSON.parse(errors);
+    const streak = localStorage.getItem('chess_streak'); if (streak) currentStreak = parseInt(streak);
+    const lastDate = localStorage.getItem('chess_lastPracticeDate'); if (lastDate) lastPracticeDate = lastDate;
+    const stars = localStorage.getItem('chess_totalStars'); if (stars) totalStars = parseInt(stars);
+    
+    // Càrrega de Missions i Temps
+    const missions = localStorage.getItem('chess_todayMissions'); const mDate = localStorage.getItem('chess_missionsDate');
+    if (missions && mDate) { todayMissions = restoreMissions(JSON.parse(missions)); missionsDate = mDate; }
+    
+    // --- LÍNIA AFEGIDA PER AL CRONÒMETRE DE MISSIONS ---
+    const mTime = localStorage.getItem('chess_missionsCompletionTime'); 
+    if (mTime) missionsCompletionTime = parseInt(mTime);
+    // ---------------------------------------------------
+
+    const badges = localStorage.getItem('chess_unlockedBadges'); if (badges) unlockedBadges = JSON.parse(badges);
+    const stats = localStorage.getItem('chess_sessionStats'); const statsDate = localStorage.getItem('chess_sessionStatsDate');
+    if (stats && statsDate === getToday()) sessionStats = JSON.parse(stats);
+    
+    const history = localStorage.getItem('chess_eloHistory'); if (history) eloHistory = JSON.parse(history);
+    const tGames = localStorage.getItem('chess_totalGamesPlayed'); if (tGames) totalGamesPlayed = parseInt(tGames);
+    const tWins = localStorage.getItem('chess_totalWins'); if (tWins) totalWins = parseInt(tWins);
+    const mStreak = localStorage.getItem('chess_maxStreak'); if (mStreak) maxStreak = parseInt(mStreak);
+    
+    const aiDiff = localStorage.getItem('chess_aiDifficulty'); if (aiDiff) aiDifficulty = parseInt(aiDiff);
+    const rGames = localStorage.getItem('chess_recentGames'); if (rGames) recentGames = JSON.parse(rGames);
+    const cWins = localStorage.getItem('chess_consecutiveWins'); if (cWins) consecutiveWins = parseInt(cWins);
+    const cLosses = localStorage.getItem('chess_consecutiveLosses'); if (cLosses) consecutiveLosses = parseInt(cLosses);
+    const league = localStorage.getItem('chess_currentLeague'); if (league) currentLeague = JSON.parse(league);
+    const lMatch = localStorage.getItem('chess_leagueActiveMatch'); if (lMatch) leagueActiveMatch = JSON.parse(lMatch);
+}
+
+function saveStorage() {
+    localStorage.setItem('chess_userELO', userELO);
+    localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
+    localStorage.setItem('chess_streak', currentStreak);
+    localStorage.setItem('chess_lastPracticeDate', lastPracticeDate);
+    localStorage.setItem('chess_totalStars', totalStars);
+    localStorage.setItem('chess_todayMissions', JSON.stringify(todayMissions));
+    localStorage.setItem('chess_missionsDate', missionsDate);
+    localStorage.setItem('chess_unlockedBadges', JSON.stringify(unlockedBadges));
+    localStorage.setItem('chess_sessionStats', JSON.stringify(sessionStats));
+    localStorage.setItem('chess_sessionStatsDate', getToday());
+    localStorage.setItem('chess_eloHistory', JSON.stringify(eloHistory));
+    localStorage.setItem('chess_totalGamesPlayed', totalGamesPlayed);
+    localStorage.setItem('chess_totalWins', totalWins);
+    localStorage.setItem('chess_maxStreak', maxStreak);
+    localStorage.setItem('chess_aiDifficulty', aiDifficulty);
+    localStorage.setItem('chess_recentGames', JSON.stringify(recentGames));
+    localStorage.setItem('chess_consecutiveWins', consecutiveWins);
+    localStorage.setItem('chess_consecutiveLosses', consecutiveLosses);
+    if (currentLeague) localStorage.setItem('chess_currentLeague', JSON.stringify(currentLeague)); else localStorage.removeItem('chess_currentLeague');
+    if (leagueActiveMatch) localStorage.setItem('chess_leagueActiveMatch', JSON.stringify(leagueActiveMatch)); else localStorage.removeItem('chess_leagueActiveMatch');
+}
+
+function updateEloHistory(newElo) {
+    const today = getToday();
+    const lastEntry = eloHistory[eloHistory.length - 1];
+    if (lastEntry && lastEntry.date === today) { lastEntry.elo = newElo; } 
+    else { eloHistory.push({ date: today, elo: newElo }); }
+    if (eloHistory.length > 100) eloHistory = eloHistory.slice(-100);
+    saveStorage();
+}
+
+function updateDisplay() {
+    $('#current-elo').text(userELO); $('#game-elo').text(userELO);
+    $('#current-stars').text(totalStars); $('#game-stars').text(totalStars);
+    $('#engine-elo').text('Adaptativa');
+    
+    let total = savedErrors.length;
+    $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
+    $('#game-bundles').text(total);
+    updateStreakDisplay(); updateMissionsDisplay();
+}
+
+function updateStatsDisplay() {
+    $('#stats-total-games').text(totalGamesPlayed);
+    $('#stats-total-wins').text(totalWins);
+    $('#stats-bundles-count').text(savedErrors.length);
+    $('#stats-max-streak').text(maxStreak);
+    updateEloChart();
+}
+
+function updateEloChart() {
+    const ctx = document.getElementById('elo-chart').getContext('2d');
+    if (eloHistory.length === 0) { eloHistory.push({ date: getToday(), elo: userELO }); saveStorage(); }
+    const labels = eloHistory.map(entry => { const parts = entry.date.split('-'); return `${parts[2]}/${parts[1]}`; });
+    const data = eloHistory.map(entry => entry.elo);
+    
+    if (eloChart) eloChart.destroy();
+    eloChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: labels,
+            datasets: [{
+                label: 'ELO',
+                data: data,
+                borderColor: '#c9a227',
+                backgroundColor: 'rgba(201, 162, 39, 0.1)',
+                tension: 0.3,
+                fill: true,
+                pointBackgroundColor: '#c9a227',
+                pointBorderColor: '#f4e4bc',
+                pointBorderWidth: 2,
+                pointRadius: 4,
+                pointHoverRadius: 6
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { beginAtZero: false, grid: { color: 'rgba(201, 162, 39, 0.1)' }, ticks: { color: '#a89a8a' } },
+                x: { grid: { color: 'rgba(201, 162, 39, 0.1)' }, ticks: { color: '#a89a8a', maxRotation: 45, minRotation: 45 } }
+            }
+        }
+    });
+}
+
+function checkShareSupport() {
+    if (navigator.canShare && navigator.share) $('#btn-smart-share').show();
+}
+
+function setupEvents() {
+    checkShareSupport();
+    $('#btn-new-game').click(() => {
+        currentGameMode = 'free';
+        currentOpponent = null;
+        if (leagueActiveMatch) { leagueActiveMatch = null; saveStorage(); }
+        startGame(false);
+    });
+
+    // NOU ESDEVENIMENT: Obertura Catalana
+    $('#btn-catalan').click(() => {
+        currentGameMode = 'catalan';
+        currentOpponent = null;
+        startGame(false);
+    });
+
+    $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
+    
+    $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); });
+
+    $('#btn-league').click(() => { openLeague(); });
+    $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
+    $('#btn-league-new').click(() => { createNewLeague(true); openLeague(); });
+    $('#btn-league-play').click(() => { startLeagueRound(); });
+
+    $('#btn-drills').click(() => { showDrillsMenu(); });
+
+    $('#btn-back-stats').click(() => { $('#stats-screen').hide(); $('#start-screen').show(); });
+
+    $('#control-mode-select').off('change').on('change', function() {
+        const mode = $(this).val();
+        const shouldRebuild = $('#game-screen').is(':visible');
+        applyControlMode(mode, { save: true, rebuild: shouldRebuild });
+    });
+
+    // Mode de validació del Bundle (Revisió d'errors)
+    $('#bundle-accept-select').off('change').on('change', function() {
+        saveBundleAcceptMode($(this).val());
+    });
+
+    
+    $('#btn-show-delete').click(() => { $('#confirm-delete-panel').slideDown(); });
+    $('#btn-cancel-delete').click(() => { $('#confirm-delete-panel').slideUp(); });
+    
+    $('#btn-confirm-delete').click(() => {
+        if (confirm('Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.')) {
+            localStorage.clear();
+            applyControlMode(getDefaultControlMode(), { save: true, rebuild: false });
+            userELO = 300; savedErrors = []; currentStreak = 0; lastPracticeDate = null;
+            todayCompleted = false; totalStars = 0; todayMissions = []; missionsDate = null; unlockedBadges = [];
+            sessionStats = { 
+                gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
+                bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
+                highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
+                leagueGamesPlayed: 0, freeGamesPlayed: 0, drillsSolved: 0
+            };
+            eloHistory = []; totalGamesPlayed = 0; totalWins = 0; maxStreak = 0;
+            aiDifficulty = 8; recentGames = []; consecutiveWins = 0; consecutiveLosses = 0;
+            currentLeague = null; leagueActiveMatch = null;
+            saveStorage(); generateDailyMissions(); updateDisplay();
+            $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
+            alert('Totes les dades han estat esborrades. Comença de nou!');
+        }
+    });
+    
+    $('#btn-hint').click(() => {
+        if (!stockfish && !ensureStockfish()) { $('#status').text("Motor Stockfish no disponible").css('color', '#c62828'); return; }
+        if (game.game_over()) return;
+        isAnalyzingHint = true;
+        $('#status').text("Buscant objectiu clau...");
+        stockfish.postMessage(`position fen ${game.fen()}`);
+        stockfish.postMessage('go depth 15');
+    });
+
+    $('#btn-smart-share').click(async () => {
+        const data = {
+            elo: userELO, bundles: savedErrors, streak: currentStreak, lastPracticeDate: lastPracticeDate,
+            totalStars: totalStars, unlockedBadges: unlockedBadges, todayMissions: todayMissions, missionsDate: missionsDate,
+            sessionStats: sessionStats, eloHistory: eloHistory, totalGamesPlayed: totalGamesPlayed, 
+            totalWins: totalWins, maxStreak: maxStreak,
+            aiDifficulty: aiDifficulty, recentGames: recentGames, consecutiveWins: consecutiveWins, 
+            consecutiveLosses: consecutiveLosses, currentLeague: currentLeague, leagueActiveMatch: leagueActiveMatch, date: new Date().toLocaleDateString()
+        };
+        const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+        const file = new File([blob], `eltauler_backup_${totalStars}stars.json`, { type: 'application/json' });
+        if (navigator.canShare && navigator.canShare({ files: [file] })) {
+            try { await navigator.share({ files: [file], title: 'El Tauler - Progrés', text: `ELO: ${userELO} | ★${totalStars}` }); } 
+            catch (e) { console.log('Cancel·lat'); }
+        }
+    });
+
+    $('#btn-export').click(() => {
+        const data = {
+            elo: userELO, bundles: savedErrors, streak: currentStreak, lastPracticeDate: lastPracticeDate,
+            totalStars: totalStars, unlockedBadges: unlockedBadges, todayMissions: todayMissions, missionsDate: missionsDate,
+            sessionStats: sessionStats, eloHistory: eloHistory, totalGamesPlayed: totalGamesPlayed,
+            totalWins: totalWins, maxStreak: maxStreak,
+            aiDifficulty: aiDifficulty, recentGames: recentGames, consecutiveWins: consecutiveWins,
+            consecutiveLosses: consecutiveLosses, currentLeague: currentLeague, leagueActiveMatch: leagueActiveMatch, date: new Date().toLocaleDateString()
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a'); a.href = url; a.download = `eltauler_backup_${totalStars}stars.json`; a.click();
+        URL.revokeObjectURL(url);
+    });
+
+    $('#btn-import').click(() => $('#file-input').click());
+    $('#file-input').change((e) => {
+        const file = e.target.files[0]; if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                const data = JSON.parse(ev.target.result);
+                if (confirm(`Importar dades? ELO: ${data.elo || 300}, Estrelles: ${data.totalStars || 0}`)) {
+                    userELO = data.elo || 300; savedErrors = data.bundles || [];
+                    currentStreak = data.streak || 0; lastPracticeDate = data.lastPracticeDate || null;
+                    totalStars = data.totalStars || 0; unlockedBadges = data.unlockedBadges || [];
+                    todayMissions = restoreMissions(data.todayMissions || []); missionsDate = data.missionsDate || null;
+                    sessionStats = data.sessionStats || { 
+                        gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
+                        bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
+                        highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
+                        leagueGamesPlayed: 0, freeGamesPlayed: 0, drillsSolved: 0
+                    };
+                    eloHistory = data.eloHistory || []; totalGamesPlayed = data.totalGamesPlayed || 0; totalWins = data.totalWins || 0; maxStreak = data.maxStreak || 0;
+                    aiDifficulty = data.aiDifficulty || 8; recentGames = data.recentGames || []; consecutiveWins = data.consecutiveWins || 0; consecutiveLosses = data.consecutiveLosses || 0;
+                    currentLeague = data.currentLeague || null;
+                    leagueActiveMatch = data.leagueActiveMatch || null;
+                    saveStorage(); updateDisplay(); alert('Dades importades!');
+                }
+            } catch (err) { alert('Error llegint l\'arxiu'); }
+        };
+        reader.readAsText(file);
+    });
+
+    // Click per desfer
+    $('#blunder-alert').click(() => {
+        if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+
+        const targetFen = lastPosition || null;
+        if (targetFen) {
+            game.load(targetFen);
+        } else {
+            game.undo();
+        }
+
+        board.position(game.fen());
+        $('#blunder-alert').hide();
+
+        $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
+        clearTapSelection();
+
+        if (blunderMode && currentBundleFen) {
+            $('#status').text("Prova una altra jugada");
+        } else {
+            $('#status').text("Rectifica... (+0)");
+            waitingForBlunderAnalysis = false;
+            pendingMoveEvaluation = false;
+        }
+    });
+
+    $('#btn-back').click(() => {
+        if (leagueActiveMatch) {
+            if (confirm("Sortir de la partida de lliga? Comptarà com a derrota.")) handleGameOver(true);
+            return;
+        }
+        if (confirm('Sortir de la partida?')) {
+            $('#game-screen').hide(); $('#start-screen').show();
+            if (stockfish) stockfish.postMessage('stop');
+        }
+    });
+
+    $('#btn-resign').click(() => {
+        if (confirm('Rendir-se?')) handleGameOver(true);
+    });
+
+    $('#btn-bundle-menu').click(() => {
+        showBundleMenu();
+    });
+}
+
+// --- DRILLS LOGIC ---
+function showDrillsMenu() {
+    $('#bundle-modal').remove();
+
+    let html = '<div class="modal-overlay" id="bundle-modal" style="display:flex;"><div class="modal-content">';
+    html += '<div class="modal-title">🎓 Entrenament</div>';
+    html += '<div class="bundle-folder-list">';
+
+    const categories = [
+        { id: 'basics', title: 'Bàsics', icon: '♟️' },
+        { id: 'pawns', title: 'Peons', icon: '🏗️' },
+        { id: 'advanced', title: 'Avançats', icon: '🔥' }
+    ];
+
+    categories.forEach(cat => {
+        const drills = DRILLS[cat.id];
+        html += `<div class="bundle-section drill open">`;
+        html += '<div class="bundle-section-header">';
+        html += `<div class="bundle-section-title">${cat.icon} ${cat.title}</div>`;
+        html += '</div>';
+
+        html += '<div class="bundle-section-content" style="display:block;">';
+        html += '<div class="bundle-list">';
+        drills.forEach((d) => {
+            html += `<div class="drill-item" onclick="startDrill('${d.fen}', '${d.name}')">`;
+            html += `<div><strong>${d.name}</strong></div>`;
+            html += '</div>';
+        });
+        html += '</div></div></div>';
+    });
+
+    html += '</div>'; 
+    html += '<button class="close-modal" onclick="$(\'#bundle-modal\').remove()">Tancar</button></div></div>';
+    $('body').append(html);
+}
+
+window.startDrill = function(fen, name) {
+    $('#bundle-modal').remove(); 
+    
+    currentGameMode = 'drill';
+    currentOpponent = null;
+    $('#game-mode-title').text('🎓 ' + name);
+    
+    startGame(false, fen); 
+};
+
+function showBundleMenu() {
+    if (savedErrors.length === 0) { alert('No tens errors guardats'); return; }
+
+    $('#bundle-modal').remove();
+
+    const groups = { low: [], med: [], high: [] };
+    savedErrors.forEach((err, idx) => {
+        const sev = (err.severity === 'med' || err.severity === 'high' || err.severity === 'low') ? err.severity : 'low';
+        groups[sev].push({ err, idx });
+    });
+
+    const sectionMeta = {
+        low: { title: 'Groc · Lleus', sev: 'low' },
+        med: { title: 'Taronja · Mitjans', sev: 'med' },
+        high: { title: 'Vermell · Greus', sev: 'high' }
+    };
+
+    let html = '<div class="modal-overlay" id="bundle-modal" style="display:flex;"><div class="modal-content">';
+    html += '<div class="modal-title">📚 Errors Guardats</div>';
+    html += '<button class="btn btn-primary" id="btn-bundle-random" style="margin:0 0 12px 0;">🎲 Resoldre bundle aleatori</button>';
+    html += '<div class="bundle-folder-list">';
+
+    ['high', 'med', 'low'].forEach((sevKey) => {
+        const meta = sectionMeta[sevKey];
+        const count = groups[sevKey].length;
+
+        html += `<div class="bundle-section ${meta.sev}">`;
+        html += '<div class="bundle-section-header">';
+        html += `<div class="bundle-section-title">${meta.title}</div>`;
+        html += `<div class="bundle-section-count"><span>${count}</span><span class="bundle-section-caret">▾</span></div>`;
+        html += '</div>';
+
+        html += '<div class="bundle-section-content">';
+        if (count === 0) {
+            html += '<div class="bundle-empty">Cap bundle en aquesta carpeta</div>';
+        } else {
+            html += '<div class="bundle-list">';
+            groups[sevKey].forEach(({ err, idx }) => {
+                const severityClass = err.severity;
+                const severityLabel = err.severity === 'low' ? 'Lleu' : err.severity === 'med' ? 'Mitjà' : 'Greu';
+                html += `<div class="bundle-item ${severityClass}" onclick="startBundleGame('${err.fen}')">`;
+                html += `<div><strong>${severityLabel}</strong><div class="bundle-meta">${err.date} • ELO: <span class="bundle-elo">${err.elo || '?'}</span></div></div>`;
+                html += `<div class="bundle-remove" onclick="event.stopPropagation(); removeBundle(${idx})">🗑️</div>`;
+                html += '</div>';
+            });
+            html += '</div>';
+        }
+        html += '</div>'; 
+        html += '</div>'; 
+    });
+
+    html += '</div>'; 
+    html += '<button class="close-modal" onclick="$(\'#bundle-modal\').remove()">Tancar</button></div></div>';
+    $('body').append(html);
+
+    ['high', 'med', 'low'].forEach((sevKey) => {
+        if (groups[sevKey].length > 0) $('#bundle-modal .bundle-section.' + sevKey).addClass('open');
+    });
+
+    $('#bundle-modal .bundle-section-header').off('click').on('click', function() {
+        $(this).closest('.bundle-section').toggleClass('open');
+    });
+
+    $('#btn-bundle-random').off('click').on('click', () => {
+        if (savedErrors.length === 0) return;
+        const choice = savedErrors[Math.floor(Math.random() * savedErrors.length)];
+        $('#bundle-modal').remove();
+        currentGameMode = 'bundle';
+        currentOpponent = null;
+        startGame(true, choice.fen);
+    });
+}
+
+function removeBundle(idx) {
+    if (confirm('Esborrar aquest error?')) {
+        savedErrors.splice(idx, 1); saveStorage(); updateDisplay();
+        $('#bundle-modal').remove(); if (savedErrors.length > 0) showBundleMenu();
+    }
+}
+
+window.startBundleGame = function(fen) {
+    $('#bundle-modal').remove(); currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, fen);
+};
+
+function startGame(isBundle, fen = null) {
+    applyControlMode(loadControlMode(), { save: false, rebuild: false });
+    
+    $('#start-screen').hide(); 
+    $('#stats-screen').hide(); 
+    $('#league-screen').hide(); 
+    $('#game-screen').show();
+    
+    blunderMode = isBundle; 
+    currentBundleFen = fen;
+    lastHumanMoveUci = null;
+    isBundleTop2Analysis = false;
+    bundlePvMoves = {};
+    if (isBundle) { bundleAcceptMode = loadBundleAcceptMode(); }
+
+    totalPlayerMoves = 0; 
+    goodMoves = 0;
+    isEngineThinking = false;
+    pendingMoveEvaluation = false;
+    
+    updatePrecisionDisplay();
+    
+    game = new Chess(fen || undefined); 
+    
+    let boardOrientation = 'white';
+    
+    // LÒGICA DE COLORS
+    if (currentGameMode === 'drill') {
+        playerColor = game.turn();
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (currentGameMode === 'catalan') {
+        playerColor = 'b';
+        boardOrientation = 'black';
+    } else if (isBundle) {
+        playerColor = game.turn();
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else {
+        const isWhite = Math.random() < 0.5;
+        playerColor = isWhite ? 'w' : 'b';
+        boardOrientation = isWhite ? 'white' : 'black';
+    }
+    
+    if (board) board.destroy();
+    board = Chessboard('myBoard', {
+        orientation: boardOrientation,
+        draggable: (controlMode === 'drag'), 
+        position: game.fen(), 
+        onDragStart: onDragStart, 
+        onDrop: onDrop, 
+        onSnapEnd: onSnapEnd,
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+
+    setTimeout(() => { resizeBoardToViewport(); }, 0);
+
+    if (controlMode === 'tap') {
+        detachDragGuards();
+        disableTapToMove(); 
+        enableTapToMove();
+    } else {
+        disableTapToMove();
+        attachDragGuards();
+        clearTapSelection();
+    }
+
+    const engineReady = ensureStockfish();
+    if (!engineReady) { $('#status').text("Motor Stockfish no carregat.").css('color', '#c62828'); }
+    
+    $('#blunder-alert').hide();
+
+    // Lògica de Modes
+    if (currentGameMode === 'drill') {
+        $('#engine-elo').text('Mestre');
+    } else if (isBundle) {
+        currentGameMode = 'bundle';
+        currentOpponent = null;
+        $('#engine-elo').text('Anàlisi');
+        $('#game-mode-title').text('📚 Bundle');
+    } else if (currentGameMode === 'catalan') {
+        $('#engine-elo').text('Mestre Català (Adaptatiu)');
+        $('#game-mode-title').text('🐉 Obertura Catalana');
+    } else if (leagueActiveMatch) {
+        currentGameMode = 'league';
+        const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
+        if (opp) currentOpponent = { id: opp.id, name: opp.name, elo: opp.elo };
+        const label = opp ? `${opp.name} (${opp.elo})` : 'Rival de lliga';
+        $('#engine-elo').text(label);
+        $('#game-mode-title').text(`🏆 Lliga · Jornada ${leagueActiveMatch.round}/9`);
+    } else {
+        currentGameMode = 'free';
+        currentOpponent = null;
+        $('#engine-elo').text('Adaptativa');
+        $('#game-mode-title').text('♟ Nova partida');
+    }
+    
+    $('.square-55d63').removeClass('highlight-hint');
+    updateStatus();
+    
+    if (playerColor !== game.turn() && stockfish) {
+         setTimeout(makeEngineMove, 500);
+    }
+    if (!isBundle && currentGameMode !== 'drill' && playerColor === 'b' && stockfish) {
+        setTimeout(makeEngineMove, 500);
+    }
+}
+
+function onDragStart(source, piece, position, orientation) {
+    if (game.game_over() || isEngineThinking) return false;
+    if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || 
+        (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
+    if ((currentGameMode === 'drill' || blunderMode) && game.turn() !== playerColor) return false;
+}
+
+function onDrop(source, target) {
+    $('#blunder-alert').hide();
+    if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+
+    $('.square-55d63').removeClass('highlight-hint');
+    lastPosition = game.fen(); 
+    var move = game.move({ from: source, to: target, promotion: 'q' });
+    if (move === null) return 'snapback';
+    lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
+    
+    totalPlayerMoves++; 
+    pendingMoveEvaluation = true; 
+    updateStatus();
+    analyzeMove(); 
+}
+
+function onSnapEnd() { board.position(game.fen()); }
+
+function makeEngineMove() {
+    if (!stockfish && !ensureStockfish()) return;
+
+    // LÒGICA ESPECIAL OBERTURA CATALANA
+    if (currentGameMode === 'catalan' && game.turn() === 'w') {
+        const history = game.history().length;
+        let forcedMove = null;
+
+        if (history === 0) forcedMove = 'd2d4';
+        else if (history === 2) forcedMove = 'c2c4';
+        else if (history === 4) forcedMove = 'g2g3';
+        else if (history === 6) forcedMove = 'f1g2';
+
+        if (forcedMove) {
+            const moveObj = game.move({ from: forcedMove.substring(0,2), to: forcedMove.substring(2,4), promotion: 'q' });
+            if (moveObj) {
+                game.undo();
+                
+                isEngineThinking = true;
+                $('#status').text("El Mestre Català mou...");
+                setTimeout(() => {
+                    game.move({ from: forcedMove.substring(0,2), to: forcedMove.substring(2,4) });
+                    board.position(game.fen());
+                    isEngineThinking = false;
+                    
+                    if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
+                        goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay();
+                    }
+                    updateStatus();
+                    if (game.game_over()) handleGameOver();
+                }, 800);
+                return;
+            }
+        }
+    }
+
+    isEngineThinking = true; 
+    $('#status').text("L'adversari pensa...");
+    
+    const depth = (currentGameMode === 'drill') ? 20 : getAIDepth(); 
+    
+    stockfish.postMessage(`position fen ${game.fen()}`); 
+    stockfish.postMessage(`go depth ${depth}`);
+}
+
+function analyzeMove() {
+    if (!stockfish && !ensureStockfish()) { setTimeout(makeEngineMove, 300); return; }
+
+    if (blunderMode && currentBundleFen && bundleAcceptMode === 'top2') {
+        isBundleTop2Analysis = true;
+        bundlePvMoves = {};
+        stockfish.postMessage('setoption name MultiPV value 2');
+        stockfish.postMessage(`position fen ${lastPosition}`);
+        stockfish.postMessage('go depth 12');
+        return;
+    }
+
+    waitingForBlunderAnalysis = true;
+    analysisStep = 1;
+    tempAnalysisScore = 0;
+
+    stockfish.postMessage(`position fen ${lastPosition}`);
+    stockfish.postMessage('go depth 10');
+}
+
+function handleEngineMessage(msg) {
+    if (msg.indexOf('score cp') !== -1) {
+        let match = msg.match(/score cp (-?\d+)/);
+        if (match) tempAnalysisScore = parseInt(match[1]);
+    }
+    if (msg.indexOf('score mate') !== -1) {
+         let match = msg.match(/score mate (-?\d+)/);
+         if (match) {
+             let mates = parseInt(match[1]);
+             tempAnalysisScore = mates > 0 ? 10000 : -10000;
+         }
+    }
+
+    // Validació Top-2 en mode Bundle
+    if (isBundleTop2Analysis) {
+        const pvMatch = msg.match(/multipv\s+([12]).*?\spv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+        if (pvMatch) {
+            bundlePvMoves[pvMatch[1]] = pvMatch[2];
+        }
+
+        if (msg.indexOf('bestmove') !== -1) {
+            isBundleTop2Analysis = false;
+            try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+
+            const accepted = [bundlePvMoves['1'], bundlePvMoves['2']].filter(Boolean);
+            const played = lastHumanMoveUci || '';
+            const ok = accepted.length > 0 ? accepted.includes(played) : false;
+
+            if (ok) {
+                if (pendingMoveEvaluation) { goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay(); }
+                handleBundleSuccess();
+            } else {
+                if (pendingMoveEvaluation) {
+                    pendingMoveEvaluation = false;
+                    totalPlayerMoves = Math.max(0, totalPlayerMoves - 1);
+                    updatePrecisionDisplay();
+                }
+                showBundleTryAgainModal();
+            }
+        }
+        return;
+    }
+
+    if (isAnalyzingHint && msg.indexOf('bestmove') !== -1) {
+        isAnalyzingHint = false;
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])/);
+        if (match) {
+            const to = match[2];
+            $('#myBoard').find('.square-' + to).addClass('highlight-hint');
+            $('#status').text(`Pista: Alguna peça ha d'anar a ${to}`);
+        }
+        return;
+    }
+
+    if (msg.indexOf('bestmove') !== -1 && waitingForBlunderAnalysis) {
+        if (analysisStep === 1) {
+            analysisScoreStep1 = tempAnalysisScore;
+            analysisStep = 2;
+            stockfish.postMessage(`position fen ${game.fen()}`);
+            stockfish.postMessage('go depth 10');
+        }
+        else if (analysisStep === 2) {
+            let swing = tempAnalysisScore + analysisScoreStep1;
+            waitingForBlunderAnalysis = false;
+
+            if (swing > 250 && !blunderMode && currentGameMode !== 'drill') {
+                let severity = 'low';
+                if (swing > 800) severity = 'high';
+                else if (swing > 500) severity = 'med';
+
+                $('#blunder-alert').removeClass('alert-low alert-med alert-high')
+                    .addClass('alert-' + severity).show();
+
+                if (pendingMoveEvaluation) { pendingMoveEvaluation = false; updatePrecisionDisplay(); }
+                saveBlunderToBundle(lastPosition, severity);
+
+                engineMoveTimeout = setTimeout(() => {
+                    if (!game.game_over()) makeEngineMove();
+                }, 1500);
+
+            } else {
+                if (blunderMode) handleBundleSuccess();
+                else if (!game.game_over()) makeEngineMove();
+            }
+        }
+        return;
+    }
+
+    if (msg.indexOf('bestmove') !== -1 && isEngineThinking) {
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+        if (match) {
+            isEngineThinking = false;
+            if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
+                goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay();
+            }
+            game.move({ from: match[1], to: match[2], promotion: match[3] || 'q' });
+            board.position(game.fen()); updateStatus();
+            if (game.game_over()) handleGameOver();
+        }
+    }
+}
+
+function resetBundleToStartPosition() {
+    const fen = currentBundleFen || lastPosition || null;
+    if (!fen) return;
+    try { game.load(fen); } catch (e) { return; }
+    board.position(game.fen());
+
+    lastHumanMoveUci = null;
+    waitingForBlunderAnalysis = false;
+    isEngineThinking = false;
+    $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
+    clearTapSelection();
+    $('#blunder-alert').hide();
+    $('#status').text("Tornar a intentar");
+}
+
+function showBundleTryAgainModal() {
+    $('#bundle-retry-modal').remove();
+    let html = '<div class="modal-overlay" id="bundle-retry-modal" style="display:flex;">';
+    html += '<div class="modal-content">';
+    html += '<div class="modal-title">Tornar a intentar</div>';
+    html += '<div style="margin:12px 0; color:var(--text-secondary); line-height:1.4;">Aquesta no és una de les dues millors opcions. Prova una altra jugada.</div>';
+    html += '<button class="btn btn-primary" id="btn-bundle-retry-ok">OK</button>';
+    html += '</div></div>';
+    $('body').append(html);
+
+    $('#btn-bundle-retry-ok').off('click').on('click', () => {
+        $('#bundle-retry-modal').remove();
+        resetBundleToStartPosition();
+    });
+}
+
+function returnToMainMenuImmediate() {
+    $('#game-screen').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#start-screen').show();
+    if (stockfish) stockfish.postMessage('stop');
+    clearTapSelection();
+}
+
+function handleBundleSuccess() {
+    $('#status').text("EXCEL·LENT! Problema resolt 🏆").css('color', '#4a7c59').css('font-weight', 'bold');
+    sessionStats.bundlesSolved++;
+    
+    if (currentBundleFen) {
+        const solvedErr = savedErrors.find(e => e.fen === currentBundleFen);
+        if (solvedErr) {
+            if (solvedErr.severity === 'high') sessionStats.bundlesSolvedHigh++;
+            else if (solvedErr.severity === 'med') sessionStats.bundlesSolvedMed++;
+            else sessionStats.bundlesSolvedLow++;
+        }
+        savedErrors = savedErrors.filter(e => e.fen !== currentBundleFen);
+        currentBundleFen = null;
+    }
+    
+    saveStorage(); updateDisplay(); checkMissions();
+    board.draggable = false;
+    alert("Molt bé! Has trobat la millor opció.");
+    returnToMainMenuImmediate();
+}
+
+function updatePrecisionDisplay() {
+    const precisionEl = $('#current-precision'); const barEl = $('#precision-bar');
+    if (totalPlayerMoves === 0) { precisionEl.text('—'); barEl.css('width', '0%').removeClass('good warning danger'); return; }
+    const precision = Math.round((goodMoves / totalPlayerMoves) * 100);
+    precisionEl.text(precision + '%'); barEl.css('width', precision + '%');
+    barEl.removeClass('good warning danger');
+    if (precision >= 75) barEl.addClass('good'); else if (precision >= 50) barEl.addClass('warning'); else barEl.addClass('danger');
+}
+
+function saveBlunderToBundle(fen, severity) {
+    if (!savedErrors.some(e => e.fen === fen)) {
+        let typeErrors = savedErrors.filter(e => e.severity === severity);
+        if (typeErrors.length >= 10) {
+            let furthestError = typeErrors.reduce((prev, curr) => {
+                let prevDiff = Math.abs((prev.elo || 400) - userELO);
+                let currDiff = Math.abs((curr.elo || 400) - userELO);
+                return (currDiff > prevDiff) ? curr : prev;
+            });
+            savedErrors = savedErrors.filter(e => e !== furthestError);
+        }
+        
+        savedErrors.push({ fen: fen, date: new Date().toLocaleDateString(), severity: severity, elo: userELO });
+        saveStorage(); 
+        updateDisplay(); 
+    }
+}
+
+function handleGameOver(manualResign = false) {
+    let msg = ""; let change = 0; let playerWon = false;
+    const wasLeagueMatch = (currentGameMode === 'league') && !!leagueActiveMatch;
+    let leagueOutcome = 'draw';
+    const finalPrecision = totalPlayerMoves > 0 ? Math.round((goodMoves / totalPlayerMoves) * 100) : 0;
+    
+    if (manualResign) { msg = "T'has rendit. (−10)"; change = -10; leagueOutcome = 'loss'; }
+    else if (game.in_checkmate()) {
+        if (game.turn() !== playerColor) { 
+            msg = "Victòria! (+20)"; change = 20; playerWon = true; leagueOutcome = 'win'; 
+            sessionStats.gamesWon++; totalWins++;
+            if (playerColor === 'b') sessionStats.blackWins++;
+        } else { msg = "Derrota. (−10)"; change = -10; leagueOutcome = 'loss'; }
+    } else { msg = "Taules. (+5)"; change = 5; playerWon = true; leagueOutcome = 'draw'; }
+    
+    sessionStats.gamesPlayed++; totalGamesPlayed++;
+    
+    if (currentGameMode === 'league') sessionStats.leagueGamesPlayed++;
+    else if (currentGameMode === 'free') sessionStats.freeGamesPlayed++;
+
+    if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
+    if (finalPrecision >= 85) sessionStats.perfectGames++;
+    
+    // LÒGICA DRILLS
+    if (currentGameMode === 'drill') {
+        if (playerWon) {
+            alert("Entrenament completat! 🎉");
+            sessionStats.drillsSolved++;
+            checkMissions();
+            returnToMainMenuImmediate();
+            return;
+        } else {
+            if(confirm("Entrenament fallit. Vols tornar-ho a provar?")) {
+                game.undo(); board.position(game.fen()); return;
+            } else {
+                returnToMainMenuImmediate(); return;
+            }
+        }
+    }
+
+    if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
+    
+    userELO = Math.max(100, userELO + change); 
+    updateEloHistory(userELO);
+    
+    if (!blunderMode && currentGameMode !== 'drill') adjustAIDifficulty(playerWon, finalPrecision);
+
+    if (wasLeagueMatch && !blunderMode) {
+        applyLeagueAfterGame(leagueOutcome);
+    }
+    
+    recordActivity(); saveStorage(); checkMissions(); updateDisplay(); 
+    $('#status').text(msg);
+    let alertMsg = msg;
+    if (totalPlayerMoves > 0) alertMsg += `\nPrecisió: ${finalPrecision}%`;
+    if (currentStreak > 0) alertMsg += `\nRatxa: ${currentStreak} dies`;
+    alert(alertMsg);
+    if (wasLeagueMatch) { currentGameMode = 'free'; currentOpponent = null; $('#game-screen').hide(); $('#league-screen').show(); renderLeague(); }
+}
+
+function updateStatus() {
+    if (!isEngineThinking) {
+        var s = (game.turn() === 'b' ? 'Negres' : 'Blanques');
+        if (game.in_check()) s += ' — Escac!';
+        $('#status').text(s).css('color', 'var(--accent-cream)');
+    }
+}
+
+// PWA Install functionality
+let deferredPrompt;
+
+window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredPrompt = e;
+    $('#install-banner').addClass('show');
+});
+
+$('#btn-install').on('click', async () => {
+    if (deferredPrompt) {
+        deferredPrompt.prompt();
+        const { outcome } = await deferredPrompt.userChoice;
+        console.log(`Resultat instal·lació: ${outcome}`);
+        deferredPrompt = null;
+        $('#install-banner').removeClass('show');
+    }
+});
+
+$('#btn-dismiss-install').on('click', () => {
+    $('#install-banner').removeClass('show');
+});
+
+// Inicialització
+$(document).ready(() => {
+    loadStorage();
+    applyControlMode(loadControlMode(), { save: false, rebuild: false });
+    bundleAcceptMode = loadBundleAcceptMode();
+    const bSel = document.getElementById('bundle-accept-select');
+    if (bSel) bSel.value = bundleAcceptMode;
+    generateDailyMissions(); checkStreak(); updateDisplay(); setupEvents(); 
+    if (!window.__boardResizeBound) {
+        window.__boardResizeBound = true;
+        window.addEventListener('resize', () => { if (board) board.resize(); });
+    }
+
+    setInterval(() => { if (getToday() !== missionsDate) generateDailyMissions(); }, 60000);
+});

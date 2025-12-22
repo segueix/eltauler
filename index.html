@@ -1,0 +1,789 @@
+<!DOCTYPE html>
+<html lang="ca">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#c9a227">
+    <meta name="description" content="Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="El Tauler">
+    
+    <title>El Tauler - Entrenador d'Escacs</title>
+    
+    <!-- PWA Manifest -->
+    <link rel="manifest" href="manifest.json">
+    
+    <!-- Apple Touch Icon -->
+    <link rel="apple-touch-icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 180 180'><rect fill='%231a1410' width='180' height='180' rx='36'/><text x='90' y='118' font-size='90' text-anchor='middle' fill='%23c9a227'>♔</text></svg>">
+    
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.png">
+
+<link rel="icon" type="image/png" href="icon.png">
+    
+    <!-- Fonts -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=Cinzel:wght@500;700&display=swap" rel="stylesheet">
+    
+    <!-- Chessboard CSS -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
+    
+    <style>
+        :root {
+            --bg-dark: #1a1410;
+            --bg-card: #2d241c;
+            --bg-warm: #3d322a;
+            --accent-gold: #c9a227;
+            --accent-green: #4a7c59;
+            --accent-purple: #9c27b0;
+            --accent-blue: #1976d2;
+            --text-primary: #f4e4bc;
+            --text-secondary: #a89a8a;
+            --severity-low: #ffd700;
+            --severity-med: #ff8c00;
+            --severity-high: #ff0000;
+            --streak-fire: #d4763b;
+            --star-gold: #ffd700;
+        }
+        
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        
+        body {
+            font-family: 'Crimson Pro', Georgia, serif;
+            background: linear-gradient(180deg, var(--bg-dark) 0%, #251c15 50%, var(--bg-dark) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 15px;
+            overflow-x: hidden;
+        }
+        
+        #app-container { position: relative; z-index: 1; max-width: 480px; width: 100%; }
+        
+        #start-screen, #stats-screen {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 25px 20px;
+            box-shadow: 0 15px 40px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.05);
+            text-align: center;
+            border: 1px solid rgba(201, 162, 39, 0.2);
+        }
+        
+        .app-logo { font-size: 2.5rem; margin-bottom: 5px; }
+        
+        h1 {
+            font-family: 'Cinzel', serif;
+            font-size: 1.7rem;
+            color: var(--accent-gold);
+            margin-bottom: 5px;
+            letter-spacing: 2px;
+        }
+        
+        .subtitle {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            font-style: italic;
+            margin-bottom: 15px;
+        }
+        
+        .highlight-hint {
+            box-shadow: inset 0 0 5px 4px var(--accent-purple) !important;
+            background-color: rgba(156, 39, 176, 0.4) !important;
+            animation: pulse-purple 1.5s infinite;
+        }
+        
+        @keyframes pulse-purple {
+            0% { box-shadow: inset 0 0 5px 4px var(--accent-purple); }
+            50% { box-shadow: inset 0 0 10px 6px var(--accent-purple); }
+            100% { box-shadow: inset 0 0 5px 4px var(--accent-purple); }
+        }
+
+        /* STATS */
+        .stats-row { display: flex; justify-content: center; gap: 10px; margin: 12px 0; }
+        .stat-box {
+            background: rgba(0,0,0,0.3);
+            border: 1px solid rgba(201, 162, 39, 0.3);
+            border-radius: 12px;
+            padding: 10px 12px;
+            min-width: 90px;
+            flex: 1;
+        }
+        .stat-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 3px; }
+        .stat-value { font-family: 'Cinzel', serif; font-size: 1.5rem; font-weight: 700; }
+        .elo-value { color: var(--accent-gold); }
+        .streak-value { color: var(--streak-fire); }
+        .stars-value { color: var(--star-gold); text-shadow: 0 0 10px rgba(255,215,0,0.5); }
+        
+        .streak-status { font-size: 0.6rem; margin-top: 3px; padding: 2px 6px; border-radius: 8px; display: inline-block; }
+        .streak-done { background: rgba(74, 124, 89, 0.3); color: var(--accent-green); }
+        .streak-pending { background: rgba(212, 118, 59, 0.2); color: var(--streak-fire); }
+        
+        /* MISSIONS */
+        .missions-panel {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            margin: 12px 0;
+            text-align: left;
+        }
+        .missions-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+        .missions-title { font-family: 'Cinzel', serif; font-size: 0.9rem; color: var(--accent-gold); }
+        .badges-btn {
+            background: rgba(255,215,0,0.15); border: 1px solid var(--star-gold); color: var(--star-gold);
+            padding: 4px 10px; border-radius: 15px; font-size: 0.7rem; cursor: pointer; font-family: 'Crimson Pro', serif;
+        }
+        .mission-item {
+            display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 6px;
+            background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid var(--text-secondary);
+        }
+        .mission-item.completed { border-left-color: var(--accent-green); opacity: 0.8; background: rgba(74, 124, 89, 0.1); }
+
+        .mission-stars { font-size: 0.9rem; color: var(--star-gold); width: 54px; text-align: center; opacity: 0.9; }
+        .mission-text { flex: 1; font-size: 0.85rem; color: var(--text-primary); }
+        .mission-progress { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.9; margin-top: 2px; }
+        .mission-check { font-size: 1.1rem; color: var(--star-gold); display: none; text-shadow: 0 0 5px var(--star-gold); }
+        .mission-item.completed .mission-check { display: block; }
+
+        .mission-trophies { font-size: 0.9rem; text-align: right; min-width: 70px; opacity: 0.95; }
+        .mission-trophies.empty { opacity: 0.25; }
+
+        /* CONFIGURACIÓ */
+        .settings-panel {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            margin: 12px 0 16px;
+            text-align: left;
+        }
+        .settings-title { font-family: 'Cinzel', serif; font-size: 0.95rem; color: var(--accent-gold); margin-bottom: 10px; }
+        .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+        .setting-label { font-size: 0.85rem; color: var(--text-primary); }
+        .select-control {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: var(--text-primary);
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-family: 'Crimson Pro', serif;
+            font-size: 0.9rem;
+        }
+        .setting-help { margin-top: 8px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.25; }
+        
+        /* BUTTONS */
+        .menu-buttons { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
+        .btn {
+            font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 600; padding: 14px 18px;
+            border: none; border-radius: 10px; cursor: pointer; width: 100%;
+            display: flex; align-items: center; justify-content: center; gap: 10px; letter-spacing: 1px;
+        }
+        .btn:active { transform: scale(0.98); }
+        .btn-primary { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
+        .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: var(--accent-cream); }
+        .btn-blue { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: white; }
+        
+        .btn-hint {
+            background: linear-gradient(135deg, #7b1fa2, #4a148c);
+            color: white;
+            box-shadow: 0 4px 15px rgba(123, 31, 162, 0.4);
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #c62828, #8b0000);
+            color: white;
+            box-shadow: 0 4px 15px rgba(198, 40, 40, 0.4);
+        }
+        
+        .sync-container { display: flex; gap: 8px; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }
+        .btn-file {
+            background: var(--bg-warm); color: var(--text-secondary); font-family: 'Crimson Pro', serif;
+            font-size: 0.8rem; padding: 10px; flex: 1; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
+        }
+        .btn-share { background: linear-gradient(135deg, #673ab7, #9c27b0); color: white; width: 100%; margin-bottom: 5px; display: none; font-weight: bold; }
+
+        /* MODALS */
+        .modal-overlay { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); z-index: 999; align-items: center; justify-content: center; padding: 20px; }
+        .modal-content { background: var(--bg-card); padding: 25px; border-radius: 16px; text-align: center; width: 100%; max-width: 380px; border: 1px solid rgba(201, 162, 39, 0.3); max-height: 80vh; overflow-y: auto; }
+        
+        .modal-title { font-family: 'Cinzel', serif; font-size: 1.5rem; color: var(--accent-gold); margin-bottom: 15px; }
+        .close-modal { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-top: 15px; font-family: 'Crimson Pro', serif; }
+        
+        .new-badge { width: 80px; height: 80px; font-size: 3.5rem; margin: 0 auto 15px; }
+        .new-badge-name { font-size: 1.3rem; color: var(--text-primary); margin-bottom: 5px; font-weight: bold; }
+        .new-badge-stars { color: var(--star-gold); font-size: 1rem; }
+        
+        #badges-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px, 1fr)); gap: 12px; margin-top: 15px; }
+        .badge-item { background: rgba(0,0,0,0.3); padding: 12px; border-radius: 10px; border: 1px solid rgba(255,255,255,0.1); }
+        .badge-item.locked { opacity: 0.4; }
+        .badge-icon { font-size: 2.5rem; margin-bottom: 5px; }
+        .badge-name { font-size: 0.8rem; color: var(--text-primary); margin-bottom: 3px; }
+        .badge-req { font-size: 0.65rem; color: var(--text-secondary); }
+        
+        /* BUNDLE & DRILLS MENU */
+        .bundle-list { text-align: left; max-height: 300px; overflow-y: auto; margin-top: 15px; }
+        .bundle-item, .drill-item {
+            background: rgba(0,0,0,0.2); padding: 12px; margin-bottom: 8px; border-radius: 8px;
+            border-left: 4px solid var(--severity-low); cursor: pointer;
+            display: flex; justify-content: space-between; align-items: center;
+        }
+        .drill-item { border-left-color: var(--accent-blue); }
+        .bundle-item.med { border-left-color: var(--severity-med); }
+        .bundle-item.high { border-left-color: var(--severity-high); }
+        .bundle-item:hover, .drill-item:hover { background: rgba(255,255,255,0.05); }
+        .bundle-meta { font-size: 0.75rem; color: var(--text-secondary); }
+        .bundle-elo { color: var(--accent-gold); font-weight: bold; }
+        .bundle-remove { color: #8b3a3a; cursor: pointer; padding: 5px 10px; font-size: 0.9rem; }
+        .bundle-remove:hover { color: #c62828; }
+        
+        /* BUNDLE FOLDERS */
+        .bundle-folder-list { text-align: left; margin-top: 10px; }
+        .bundle-section {
+            border: 1px solid rgba(201, 162, 39, 0.15);
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 10px;
+            background: rgba(0,0,0,0.18);
+        }
+        .bundle-section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            cursor: pointer;
+            background: rgba(0,0,0,0.25);
+        }
+        .bundle-section-title {
+            font-family: 'Cinzel', serif;
+            font-size: 0.85rem;
+            letter-spacing: 1px;
+            color: var(--text-primary);
+        }
+        .bundle-section-count {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        .bundle-section-caret { opacity: 0.8; }
+        .bundle-section-content { padding: 8px 10px; display: none; }
+        .bundle-section.open .bundle-section-content { display: block; }
+
+        .bundle-section.low .bundle-section-header { border-left: 4px solid var(--severity-low); }
+        .bundle-section.med .bundle-section-header { border-left: 4px solid var(--severity-med); }
+        .bundle-section.high .bundle-section-header { border-left: 4px solid var(--severity-high); }
+        .bundle-section.drill .bundle-section-header { border-left: 4px solid var(--accent-blue); }
+
+        .bundle-empty {
+            padding: 10px 12px;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            font-style: italic;
+        }
+
+        /* GAME SCREEN */
+        #game-screen { display: none; }
+        .header { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .header-title { font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 8px; }
+        .game-info { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary); }
+        .streak-badge { color: var(--star-gold); font-weight: bold; }
+        
+        .precision-panel { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .precision-stat { text-align: center; min-width: 70px; }
+        .precision-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 3px; }
+        .precision-value { font-family: 'Cinzel', serif; font-size: 1.3rem; font-weight: 700; color: var(--accent-gold); }
+        .precision-target-text { color: var(--text-secondary); }
+        
+        .precision-bar-container { flex: 1; height: 20px; background: rgba(0,0,0,0.3); border-radius: 10px; position: relative; overflow: hidden; }
+        .precision-bar { height: 100%; background: var(--accent-green); border-radius: 10px; width: 0%; transition: width 0.3s, background 0.3s; }
+        .precision-bar.warning { background: var(--severity-med); }
+        .precision-bar.danger { background: var(--severity-high); }
+        .precision-target { position: absolute; left: 75%; top: 0; width: 2px; height: 100%; background: rgba(255,255,255,0.5); }
+        
+        .board-container { position: relative; margin-bottom: 15px; }
+        .blunder-alert {
+            position: absolute; top: 10px; right: 10px; width: 45px; height: 45px; background: var(--severity-high);
+            border-radius: 50%; display: none; align-items: center; justify-content: center;
+            box-shadow: 0 4px 15px rgba(139, 58, 58, 0.6); cursor: pointer; z-index: 100; animation: blunder-pulse 1s infinite;
+        }
+        .blunder-alert.alert-low { background: var(--severity-low); box-shadow: 0 4px 15px var(--severity-low); }
+        .blunder-alert.alert-med { background: var(--severity-med); box-shadow: 0 4px 15px var(--severity-med); }
+        .blunder-alert.alert-high { background: var(--severity-high); box-shadow: 0 4px 15px var(--severity-high); }
+        
+        @keyframes blunder-pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+        
+        .controls { background: var(--bg-card); padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        .status-message { color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px; text-align: center; min-height: 24px; }
+        .game-buttons { display: flex; gap: 8px; }
+        .game-buttons .btn { flex: 1; padding: 12px 10px; font-size: 0.85rem; }
+
+        /* STATS SCREEN */
+        #stats-screen { text-align: left; }
+        
+        .stats-header { text-align: center; margin-bottom: 20px; }
+        
+        .chart-container {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            border-radius: 12px;
+            padding: 15px;
+            margin-bottom: 20px;
+        }
+        
+        .chart-title {
+            font-family: 'Cinzel', serif;
+            font-size: 1rem;
+            color: var(--accent-gold);
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        #elo-chart { max-height: 250px; }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .stat-card {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            text-align: center;
+        }
+        
+        .stat-card-value {
+            font-family: 'Cinzel', serif;
+            font-size: 1.8rem;
+            color: var(--accent-gold);
+            font-weight: 700;
+        }
+        
+        .stat-card-label {
+            font-size: 0.75rem;
+            color: var(--text-secondary);
+            margin-top: 5px;
+        }
+        
+        .danger-zone {
+            background: rgba(139, 58, 58, 0.2);
+            border: 1px solid rgba(139, 58, 58, 0.4);
+            border-radius: 12px;
+            padding: 15px;
+            margin-top: 20px;
+        }
+        
+        .danger-zone-title {
+            font-family: 'Cinzel', serif;
+            font-size: 0.9rem;
+            color: #c62828;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .confirm-delete {
+            display: none;
+            background: rgba(198, 40, 40, 0.2);
+            padding: 12px;
+            border-radius: 8px;
+            margin-top: 10px;
+        }
+        
+        .confirm-delete p {
+            color: var(--text-primary);
+            font-size: 0.85rem;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+        
+        .confirm-buttons { display: flex; gap: 8px; }
+        .confirm-buttons .btn { flex: 1; padding: 10px; font-size: 0.85rem; }
+
+        /* Lliga */
+        .league-meta {
+            background: var(--bg-warm);
+            padding: 12px 14px;
+            border-radius: 14px;
+            margin-top: 12px;
+            border: 1px solid rgba(201, 162, 39, 0.12);
+        }
+        .league-name { font-family: 'Cinzel', serif; font-weight: 700; letter-spacing: 0.5px; }
+        .league-round, .league-next, .league-note { color: var(--text-secondary); margin-top: 4px; font-size: 0.95rem; }
+        .league-note { font-size: 0.9rem; }
+
+        .league-table-wrap {
+            margin-top: 12px;
+            background: var(--bg-warm);
+            border-radius: 14px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            -webkit-overflow-scrolling: touch;
+            border: 1px solid rgba(201, 162, 39, 0.12);
+        }
+        table.league-table { width: 100%; border-collapse: collapse; }
+        .league-table thead th {
+            text-align: left;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            padding: 10px 10px;
+            background: rgba(0,0,0,0.15);
+            border-bottom: 1px solid rgba(201, 162, 39, 0.12);
+        }
+        .league-table tbody td {
+            padding: 10px 10px;
+            border-bottom: 1px solid rgba(201, 162, 39, 0.08);
+            font-size: 0.95rem;
+        }
+        .league-table tbody tr:last-child td { border-bottom: none; }
+        .league-table tbody td.num { text-align: right; font-variant-numeric: tabular-nums; }
+        .league-row-me td:first-child { color: var(--accent-gold); font-weight: 700; }
+        .league-podium-1 { background: rgba(255, 215, 0, 0.14); }
+        .league-podium-2 { background: rgba(192, 192, 192, 0.10); }
+        .league-podium-3 { background: rgba(205, 127, 50, 0.10); }
+
+        /* Lliga responsive mobile */
+        table.league-table { min-width: 520px; }
+        .league-table thead th:last-child {
+            position: sticky;
+            right: 0;
+            z-index: 5;
+            background: rgba(61, 50, 42, 0.98);
+            box-shadow: -10px 0 14px rgba(0,0,0,0.25);
+        }
+        .league-table tbody td:last-child {
+            position: sticky;
+            right: 0;
+            z-index: 4;
+            background: rgba(61, 50, 42, 0.98);
+            box-shadow: -10px 0 14px rgba(0,0,0,0.18);
+        }
+        
+        @media (max-width: 520px) {
+            body { padding: 0; align-items: flex-start; }
+            #app-container { max-width: 100vw; width: 100vw; }
+            #game-screen { padding: 0 0 10px; }
+            .header, .precision-panel, .controls { margin-left: 8px; margin-right: 8px; border-radius: 12px; }
+            .header { padding: 10px; margin-top: 8px; margin-bottom: 8px; }
+            .header-title { font-size: 1.05rem; margin-bottom: 6px; }
+            .game-info { font-size: 0.78rem; gap: 6px; }
+            .precision-panel { padding: 10px; gap: 10px; margin-bottom: 8px; }
+            .precision-stat { min-width: 56px; }
+            .precision-value { font-size: 1.15rem; }
+            .board-container { margin: 0; }
+            #myBoard { width: 100vw; max-width: 100vw; }
+            .controls { padding: 10px; margin-top: 8px; }
+            .status-message { font-size: 0.9rem; margin-bottom: 10px; }
+            .game-buttons .btn { padding: 12px 8px; font-size: 0.82rem; }
+            table.league-table { min-width: 470px; }
+            .league-table thead th, .league-table tbody td { padding: 8px 6px; }
+            .league-table thead th { font-size: 0.74rem; }
+            .league-table tbody td { font-size: 0.86rem; }
+        }
+
+        @media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) {
+            body { padding: 0; align-items: flex-start; }
+            #app-container { max-width: 100vw; width: 100vw; }
+            #game-screen { padding: 0 0 8px; }
+            .header, .precision-panel, .controls { margin-left: 8px; margin-right: 8px; }
+            .header { padding: 8px 10px; margin-top: 6px; margin-bottom: 6px; }
+            .precision-panel { padding: 8px 10px; gap: 10px; margin-bottom: 6px; }
+            .controls { padding: 8px 10px; margin-top: 6px; }
+            .board-container { margin: 0; }
+            #myBoard { width: 100vw; max-width: 100vw; }
+        }
+
+        /* Controls del tauler (tocar / arrossegar) */
+        body.control-tap #myBoard { touch-action: manipulation; }
+        body.control-drag #myBoard { touch-action: none; }
+        #myBoard, #myBoard * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+
+        /* Tap-to-move feedback */
+        .board-container { width: 100%; }
+        .square-55d63.tap-selected { outline: 3px solid rgba(201, 162, 39, 0.95); outline-offset: -3px; }
+        .square-55d63.tap-move { box-shadow: inset 0 0 0 3px rgba(74, 124, 89, 0.65); }
+        
+        /* PWA Install Banner */
+        .install-banner {
+            display: none;
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: var(--bg-card);
+            border: 1px solid var(--accent-gold);
+            border-radius: 12px;
+            padding: 12px 20px;
+            box-shadow: 0 8px 25px rgba(0,0,0,0.5);
+            z-index: 1000;
+            text-align: center;
+        }
+        .install-banner.show { display: block; }
+        .install-banner button { margin-top: 8px; }
+    </style>
+</head>
+<body>
+    <div id="app-container">
+        <div id="start-screen">
+            <div class="app-logo">♔</div>
+            <h1>EL TAULER</h1>
+            <div class="subtitle">Entrenador d'Escacs</div>
+            
+            <div class="stats-row">
+                <div class="stat-box">
+                    <div class="stat-label">ELO</div>
+                    <div class="stat-value elo-value" id="current-elo">400</div>
+                </div>
+                <div class="stat-box" id="streak-box">
+                    <div class="stat-label">Ratxa</div>
+                    <div class="stat-value streak-value" id="current-streak">0</div>
+                    <div class="streak-status" id="streak-status">Pendent</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-label">Estrelles</div>
+                    <div class="stat-value stars-value" id="current-stars">0</div>
+                </div>
+            </div>
+            
+            <div class="missions-panel">
+                <div class="missions-header">
+                    <div class="missions-title">Missions Diàries</div>
+                    <button class="badges-btn" id="btn-badges">Trofeus</button>
+                </div>
+                <div id="missions-list"></div>
+            </div>
+            
+            <div class="menu-buttons">
+                <button class="btn btn-primary" id="btn-new-game">♟ Nova Partida</button>
+                <button class="btn btn-secondary" id="btn-league" style="background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc;">🏆 Lliga</button>
+                <button class="btn btn-secondary" id="btn-catalan" style="background: linear-gradient(135deg, #bf6e4e 0%, #a05030 100%); color: white;">🐉 Obertura Catalana</button>
+                <button class="btn btn-secondary" id="btn-drills" style="background: linear-gradient(135deg, #7c8568 0%, #555e42 100%); color: #f4e4bc;">🎓 Entrenament de Finals</button>
+                <button class="btn btn-secondary" id="btn-bundle-menu" style="background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc;">
+                    📚 Revisa Errors
+                    <span style="font-size:0.75rem; opacity:0.8;" id="bundle-info">Cap error desat</span>
+                </button>
+                <button class="btn btn-secondary" id="btn-stats" style="background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: white;">📊 Estadístiques</button>
+            </div>
+            
+            <div class="sync-container">
+                <button class="btn btn-share" id="btn-smart-share">📤 Compartir Progrés</button>
+                <button class="btn btn-file" id="btn-export">💾 Exportar</button>
+                <button class="btn btn-file" id="btn-import">📂 Importar</button>
+                <input type="file" id="file-input" accept=".json" style="display:none;">
+            </div>
+        </div>
+
+        <div id="stats-screen" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">📊</div>
+                <h1>Estadístiques</h1>
+            </div>
+            
+            <div class="settings-panel">
+                <div class="settings-title">Configuració</div>
+                <div class="setting-row">
+                    <div class="setting-label">Control del tauler</div>
+                    <select id="control-mode-select" class="select-control">
+                        <option value="tap">Tocar</option>
+                        <option value="drag">Arrossegar</option>
+                    </select>
+                </div>
+                <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar".</div>
+                <div class="setting-row">
+                    <div class="setting-label">Revisió d'errors (Bundle)</div>
+                    <select id="bundle-accept-select" class="select-control">
+                        <option value="top2">Només les 2 millors</option>
+                        <option value="any">Qualsevol jugada legal</option>
+                    </select>
+                </div>
+                <div class="setting-help">En mode estricte, si no és una de les 2 millors jugades, et farà tornar-ho a intentar.</div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Progressió de l'ELO</div>
+                <canvas id="elo-chart"></canvas>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-card-value" id="stats-total-games">0</div>
+                    <div class="stat-card-label">Partides Jugades</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value" id="stats-total-wins">0</div>
+                    <div class="stat-card-label">Victòries</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value" id="stats-bundles-count">0</div>
+                    <div class="stat-card-label">Errors Guardats</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-card-value" id="stats-max-streak">0</div>
+                    <div class="stat-card-label">Millor Ratxa</div>
+                </div>
+            </div>
+            
+            <div class="danger-zone">
+                <div class="danger-zone-title">⚠️ Zona Perillosa</div>
+                <button class="btn btn-danger" id="btn-show-delete" style="width:100%;">
+                    🗑️ Esborrar Totes les Dades
+                </button>
+                
+                <div class="confirm-delete" id="confirm-delete-panel">
+                    <p><strong>ATENCIÓ:</strong> Aquesta acció esborrarà totes les teves dades, incloent-hi l'ELO, errors guardats, ratxa, missions i trofeus. Aquesta acció NO es pot desfer.</p>
+                    <div class="confirm-buttons">
+                        <button class="btn btn-secondary" id="btn-cancel-delete">Cancel·lar</button>
+                        <button class="btn btn-danger" id="btn-confirm-delete">Confirmar</button>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-primary" id="btn-back-stats">Tornar al Menú</button>
+            </div>
+        </div>
+        
+        <div class="modal-overlay" id="badges-modal">
+            <div class="modal-content">
+                <div class="modal-title">🏆 Trofeus</div>
+                <div style="margin-bottom:15px; color:var(--text-secondary);">
+                    Total Estrelles: <span style="color:var(--star-gold); font-weight:bold;" id="modal-total-stars">0</span>
+                </div>
+                <div id="badges-grid"></div>
+                <button class="close-modal" onclick="$('#badges-modal').hide()">Tancar</button>
+            </div>
+        </div>
+        
+        <div class="modal-overlay" id="new-badge-modal">
+            <div class="modal-content">
+                <div class="modal-title">🎉 Trofeu Desbloquejat!</div>
+                <div class="new-badge" id="new-badge-icon">🏆</div>
+                <div class="new-badge-name" id="new-badge-name">Master</div>
+                <div class="new-badge-stars" id="new-badge-stars">★★★</div>
+                <button class="btn btn-primary" onclick="$('#new-badge-modal').hide()">Genial!</button>
+            </div>
+        </div>
+
+        <div id="league-screen" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">🏆</div>
+                <h1>Lliga</h1>
+            </div>
+
+            <div class="league-meta">
+                <div class="league-name" id="league-name">—</div>
+                <div class="league-round" id="league-round">Jornada 1/9</div>
+                <div class="league-next" id="league-next">Proper rival: —</div>
+                <div class="league-note">Punts: Victòria 1 · Taules 0,5 · Derrota 0</div>
+            </div>
+
+            <div class="league-table-wrap">
+                <table class="league-table">
+                    <thead>
+                        <tr>
+                            <th>Jugador</th>
+                            <th>ELO</th>
+                            <th>PJ</th>
+                            <th>PG</th>
+                            <th>PP</th>
+                            <th>PE</th>
+                            <th>Punts</th>
+                        </tr>
+                    </thead>
+                    <tbody id="league-table-body"></tbody>
+                </table>
+            </div>
+
+            <div class="menu-buttons" style="margin-top:16px;">
+                <button class="btn btn-primary" id="btn-league-play">Jugar</button>
+                <button class="btn btn-secondary" id="btn-league-new" style="display:none;">Generar nova lliga</button>
+                <button class="btn btn-secondary" id="btn-back-league">Tornar al Menú</button>
+            </div>
+        </div>
+
+        <div id="game-screen">
+            <div class="header">
+                <div class="header-title" id="game-mode-title">♞ En joc</div>
+                <div class="game-info">
+                    <div>Tu: <span id="game-elo" style="color:var(--accent-gold); font-weight:bold;">400</span></div>
+                    <div>IA: <span id="engine-elo" style="color:var(--accent-purple); font-weight:bold;">Adaptativa</span></div>
+                    <div>📚 <span id="game-bundles" style="color:var(--text-secondary); font-weight:bold;">0</span></div>
+                    <div class="streak-badge">★ <span id="game-stars">0</span></div>
+                </div>
+            </div>
+            
+            <div class="precision-panel">
+                <div class="precision-stat">
+                    <div class="precision-label">Precisió</div>
+                    <div class="precision-value" id="current-precision">—</div>
+                </div>
+                <div class="precision-bar-container">
+                    <div class="precision-bar" id="precision-bar"></div>
+                    <div class="precision-target" id="precision-target"></div>
+                </div>
+                <div class="precision-stat">
+                    <div class="precision-label">Objectiu</div>
+                    <div class="precision-value precision-target-text">75%</div>
+                </div>
+            </div>
+            
+            <div class="board-container">
+                <div id="myBoard"></div>
+                <div class="blunder-alert" id="blunder-alert" title="Desfés l'error (click)">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
+                        <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+                    </svg>
+                </div>
+            </div>
+            
+            <div class="controls">
+                <div class="status-message" id="status">Preparat...</div>
+                <div class="game-buttons">
+                    <button class="btn btn-hint" id="btn-hint" title="Demanar pista">💡 Pista</button>
+                    <button class="btn btn-secondary" id="btn-back">Menú</button>
+                    <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- PWA Install Banner -->
+    <div class="install-banner" id="install-banner">
+        <div style="color: var(--text-primary); margin-bottom: 8px;">📲 Instal·la El Tauler al teu dispositiu</div>
+        <button class="btn btn-primary" id="btn-install" style="padding: 10px 20px;">Instal·lar</button>
+        <button class="btn btn-file" id="btn-dismiss-install" style="padding: 10px 15px; margin-left: 8px;">Ara no</button>
+    </div>
+
+    <!-- Libraries -->
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    
+    <!-- App Logic -->
+    <script src="app.js"></script>
+    
+    <!-- Service Worker Registration -->
+    <script>
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                navigator.serviceWorker.register('./sw.js')
+                    .then((reg) => console.log('Service Worker registrat:', reg.scope))
+                    .catch((err) => console.log('Error registrant SW:', err));
+            });
+        }
+    </script>
+</body>
+</html>
