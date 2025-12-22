@@ -311,6 +311,29 @@
         .blunder-alert.alert-low { background: var(--severity-low); box-shadow: 0 4px 15px var(--severity-low); }
         .blunder-alert.alert-med { background: var(--severity-med); box-shadow: 0 4px 15px var(--severity-med); }
         .blunder-alert.alert-high { background: var(--severity-high); box-shadow: 0 4px 15px var(--severity-high); }
+        .bundle-success-overlay {
+            position: absolute; inset: 0; background: rgba(0,0,0,0.75);
+            display: none; align-items: center; justify-content: center; z-index: 150; padding: 16px;
+        }
+        .bundle-success-content {
+            background: rgba(45, 36, 28, 0.95);
+            border: 1px solid rgba(201, 162, 39, 0.4);
+            border-radius: 14px;
+            padding: 18px 16px;
+            text-align: center;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08);
+            width: 100%;
+            max-width: 340px;
+        }
+        .bundle-success-icon {
+            font-size: 3rem;
+            margin-bottom: 8px;
+            filter: drop-shadow(0 0 12px rgba(74, 124, 89, 0.6));
+        }
+        .bundle-success-title { font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1.2rem; margin-bottom: 8px; }
+        .bundle-success-remaining { color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 14px; }
+        .bundle-success-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
+        .bundle-success-actions .btn { flex: 1; min-width: 150px; }
         
         @keyframes blunder-pulse {
             0% { transform: scale(1); }
@@ -742,6 +765,17 @@
             
             <div class="board-container">
                 <div id="myBoard"></div>
+                <div class="bundle-success-overlay" id="bundle-success-overlay">
+                    <div class="bundle-success-content">
+                        <div class="bundle-success-icon">✅</div>
+                        <div class="bundle-success-title">Bundle resolt</div>
+                        <div class="bundle-success-remaining">Bundles pendents</div>
+                        <div class="bundle-success-actions">
+                            <button class="btn btn-primary" id="btn-bundle-random-again">🎲 Un altre</button>
+                            <button class="btn btn-secondary" id="btn-bundle-random-home">🏠 Tornar</button>
+                        </div>
+                    </div>
+                </div> 
                 <div class="blunder-alert" id="blunder-alert" title="Desfés l'error (click)">
                     <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
                         <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
