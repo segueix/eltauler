@@ -20,6 +20,16 @@ let blunderMode = false;
 let currentBundleFen = null;
 let playerColor = 'w';
 let isRandomBundleSession = false;
+const LEAGUE_QUOTES = [
+    "“El millor moment per jugar és ara.”",
+    "“La sort somriu als valents.”",
+    "“El tauler és teu, confia en el teu pla.”",
+    "“Cada partida és una oportunitat de créixer.”",
+    "“Aprofita la iniciativa!”",
+    "“La preparació és mitja victòria.”",
+    "“El rival també dubta; lidera tu.”",
+    "“Juga amb calma, acaba amb força.”"
+];
 
 let totalPlayerMoves = 0;
 let goodMoves = 0;
@@ -507,6 +517,61 @@ function getMyOpponentForRound(roundIndex) {
     return null;
 }
 
+function cloneLeaguePlayers() {
+    if (!currentLeague) return [];
+    return currentLeague.players.map(p => ({ ...p }));
+}
+
+function findPlayerRank(players, id) {
+    const sorted = leagueSort(players);
+    const idx = sorted.findIndex(p => p.id === id);
+    return idx >= 0 ? idx + 1 : null;
+}
+
+function simulateRankAfterWin(opponentId) {
+    if (!currentLeague) return null;
+    const playersCopy = cloneLeaguePlayers();
+    const me = playersCopy.find(p => p.id === 'me');
+    const opp = playersCopy.find(p => p.id === opponentId);
+    if (!me || !opp) return null;
+
+    me.pj++; me.pg++; me.pts += 1;
+    opp.pj++; opp.pp++;
+
+    return findPlayerRank(playersCopy, 'me');
+}
+
+function updateLeagueBanner() {
+    const banner = $('#league-banner');
+    if (!banner.length) return;
+
+    createNewLeague(false);
+    if (!currentLeague || currentLeague.completed) {
+        banner.hide();
+        return;
+    }
+
+    const roundIdx = currentLeague.currentRound - 1;
+    const oppId = getMyOpponentForRound(roundIdx);
+    const opp = oppId ? getLeaguePlayer(oppId) : null;
+    if (!opp) { banner.hide(); return; }
+
+    const myRank = findPlayerRank(currentLeague.players, 'me');
+    const oppRank = findPlayerRank(currentLeague.players, opp.id);
+    const projectedRank = simulateRankAfterWin(opp.id);
+
+    $('#league-banner-opponent').text(opp.name);
+    $('#league-banner-elo').text(opp.elo);
+    $('#league-banner-opp-rank').text(oppRank ? `#${oppRank}` : '—');
+    $('#league-banner-my-rank').text(myRank ? `#${myRank}` : '—');
+    $('#league-banner-projected').text(projectedRank ? `#${projectedRank}` : '—');
+
+    const quote = LEAGUE_QUOTES[Math.floor(Math.random() * LEAGUE_QUOTES.length)];
+    $('#league-banner-quote').text(quote);
+
+    banner.show();
+}
+
 function openLeague() {
     createNewLeague(false);
     $('#start-screen').hide(); $('#stats-screen').hide(); $('#game-screen').hide();
@@ -983,7 +1048,7 @@ function updateDisplay() {
     let total = savedErrors.length;
     $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
     $('#game-bundles').text(total);
-    updateStreakDisplay(); updateMissionsDisplay();
+    updateStreakDisplay(); updateMissionsDisplay(); updateLeagueBanner();
 }
 
 function updateStatsDisplay() {
@@ -1042,6 +1107,9 @@ function setupEvents() {
         if (leagueActiveMatch) { leagueActiveMatch = null; saveStorage(); }
         startGame(false);
     });
+
+    $('#league-banner').on('click', () => { startLeagueRound(); });
+    $('#btn-league-banner-play').on('click', (e) => { e.stopPropagation(); startLeagueRound(); });
 
     // NOU ESDEVENIMENT: Obertura Catalana
     $('#btn-catalan').click(() => {
