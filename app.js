@@ -47,6 +47,38 @@ let tapSelectedSquare = null;
 let tapMoveEnabled = false;
 let lastTapEventTs = 0;
 
+let deviceType = 'desktop';
+
+function detectDeviceType() {
+    const ua = (navigator && navigator.userAgent ? navigator.userAgent : '').toLowerCase();
+    const minSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
+    const touch = isTouchDevice();
+
+    const isTabletUA = /ipad|tablet|kindle|silk|playbook/.test(ua) || (/android/.test(ua) && !/mobile/.test(ua));
+    const isMobileUA = /mobi|iphone|ipod|android.*mobile|windows phone/.test(ua);
+
+    if (isTabletUA || (touch && minSide >= 600 && minSide <= 1100)) return 'tablet';
+    if (isMobileUA || (touch && minSide < 600)) return 'mobile';
+    return 'desktop';
+}
+
+function applyDeviceType(type) {
+    deviceType = type;
+    document.body.dataset.device = type;
+    document.body.classList.remove('device-mobile', 'device-tablet', 'device-desktop');
+    document.body.classList.add(`device-${type}`);
+}
+
+function updateDeviceType() {
+    const detected = detectDeviceType();
+    if (detected !== deviceType) {
+        applyDeviceType(detected);
+        resizeBoardToViewport();
+    } else if (!document.body.classList.contains(`device-${detected}`)) {
+        applyDeviceType(detected);
+    }
+}
+
 // DRILLS DATA (Finals)
 const DRILLS = {
     basics: [
@@ -237,8 +269,11 @@ function scheduleBoardResize() {
     resizeTimer = setTimeout(() => resizeBoardToViewport(), 60);
 }
 
-window.addEventListener('resize', scheduleBoardResize, { passive: true });
-window.addEventListener('orientationchange', () => setTimeout(() => resizeBoardToViewport(), 140), { passive: true });
+window.addEventListener('resize', () => { updateDeviceType(); scheduleBoardResize(); }, { passive: true });
+window.addEventListener('orientationchange', () => {
+    updateDeviceType();
+    setTimeout(() => resizeBoardToViewport(), 140);
+}, { passive: true });
 
 function clearTapSelection() {
     tapSelectedSquare = null;
@@ -2179,6 +2214,7 @@ $('#btn-dismiss-install').on('click', () => {
 
 // Inicialització
 $(document).ready(() => {
+    updateDeviceType();
     loadStorage();
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     bundleAcceptMode = loadBundleAcceptMode();
