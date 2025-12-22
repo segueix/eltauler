@@ -7,6 +7,9 @@ let stockfish = null;
 let userELO = 300; 
 let engineELO = 300;
 let savedErrors = [];
+let currentReview = [];
+let reviewHistory = [];
+let reviewChart = null;
 
 // Sistema d'IA Adaptativa
 let recentGames = []; 
@@ -1006,6 +1009,7 @@ function loadStorage() {
     const cLosses = localStorage.getItem('chess_consecutiveLosses'); if (cLosses) consecutiveLosses = parseInt(cLosses);
     const league = localStorage.getItem('chess_currentLeague'); if (league) currentLeague = JSON.parse(league);
     const lMatch = localStorage.getItem('chess_leagueActiveMatch'); if (lMatch) leagueActiveMatch = JSON.parse(lMatch);
+    const reviews = localStorage.getItem('chess_reviewHistory'); if (reviews) reviewHistory = JSON.parse(reviews);
 }
 
 function saveStorage() {
@@ -1027,6 +1031,7 @@ function saveStorage() {
     localStorage.setItem('chess_recentGames', JSON.stringify(recentGames));
     localStorage.setItem('chess_consecutiveWins', consecutiveWins);
     localStorage.setItem('chess_consecutiveLosses', consecutiveLosses);
+    localStorage.setItem('chess_reviewHistory', JSON.stringify(reviewHistory));
     if (currentLeague) localStorage.setItem('chess_currentLeague', JSON.stringify(currentLeague)); else localStorage.removeItem('chess_currentLeague');
     if (leagueActiveMatch) localStorage.setItem('chess_leagueActiveMatch', JSON.stringify(leagueActiveMatch)); else localStorage.removeItem('chess_leagueActiveMatch');
 }
@@ -1057,6 +1062,7 @@ function updateStatsDisplay() {
     $('#stats-bundles-count').text(savedErrors.length);
     $('#stats-max-streak').text(maxStreak);
     updateEloChart();
+    updateReviewChart();
 }
 
 function updateEloChart() {
@@ -1093,6 +1099,104 @@ function updateEloChart() {
             }
         }
     });
+}
+
+function classifyMoveQuality(swing) {
+    if (swing <= 30) return 'excel';
+    if (swing <= 80) return 'good';
+    if (swing <= 200) return 'inaccuracy';
+    if (swing <= 600) return 'mistake';
+    return 'blunder';
+}
+
+function registerMoveReview(swing) {
+    if (blunderMode || currentGameMode === 'drill') return;
+    const quality = classifyMoveQuality(Math.abs(swing));
+    currentReview.push({
+        move: lastHumanMoveUci || '—',
+        swing: Math.abs(swing),
+        quality: quality
+    });
+}
+
+function summarizeReview(entries) {
+    const base = { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
+    (entries || []).forEach(item => {
+        if (base[item.quality] !== undefined) base[item.quality]++;
+    });
+    return base;
+}
+
+function persistReviewSummary(finalPrecision, resultLabel) {
+    if (blunderMode || currentGameMode === 'drill') { currentReview = []; return; }
+    const summary = summarizeReview(currentReview);
+    const now = new Date();
+    const label = now.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short' }) + ' ' + now.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' });
+    reviewHistory.push({
+        label: label,
+        precision: finalPrecision,
+        result: resultLabel,
+        ...summary
+    });
+    if (reviewHistory.length > 60) reviewHistory = reviewHistory.slice(-60);
+    currentReview = [];
+}
+
+function updateReviewLegend(entry) {
+    const lastEntry = entry || reviewHistory[reviewHistory.length - 1] || null;
+    const counts = { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
+    if (lastEntry) {
+        counts.excel = lastEntry.excel || 0;
+        counts.good = lastEntry.good || 0;
+        counts.inaccuracy = lastEntry.inaccuracy || 0;
+        counts.mistake = lastEntry.mistake || 0;
+        counts.blunder = lastEntry.blunder || 0;
+    }
+    Object.keys(counts).forEach(key => {
+        const el = document.getElementById(`legend-${key}`);
+        if (el) el.textContent = counts[key];
+    });
+}
+
+function updateReviewChart() {
+    const canvas = document.getElementById('review-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const hasData = reviewHistory.length > 0;
+    const labels = hasData ? reviewHistory.map(r => r.label) : ['—'];
+    const datasets = [
+        { key: 'excel', label: 'Excel·lents', color: '#4a7c59' },
+        { key: 'good', label: 'Bones', color: '#c9a227' },
+        { key: 'inaccuracy', label: 'Imprecisions', color: '#ffb74d' },
+        { key: 'mistake', label: 'Errors', color: '#ef5350' },
+        { key: 'blunder', label: 'Blunders', color: '#b71c1c' }
+    ].map(meta => ({
+        label: meta.label,
+        data: hasData ? reviewHistory.map(r => r[meta.key] || 0) : [0],
+        borderColor: meta.color,
+        backgroundColor: meta.color + '33',
+        tension: 0.25,
+        fill: false
+    }));
+
+    if (reviewChart) reviewChart.destroy();
+    reviewChart = new Chart(ctx, {
+        type: 'line',
+        data: { labels, datasets },
+        options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            plugins: {
+                legend: { display: true, labels: { color: '#a89a8a' } },
+                tooltip: { mode: 'index', intersect: false }
+            },
+            scales: {
+                y: { beginAtZero: true, ticks: { color: '#a89a8a' }, grid: { color: 'rgba(201, 162, 39, 0.1)' } },
+                x: { ticks: { color: '#a89a8a', maxRotation: 45, minRotation: 45 }, grid: { color: 'rgba(201, 162, 39, 0.05)' } }
+            }
+        }
+    });
+    updateReviewLegend();
 }
 
 function checkShareSupport() {
@@ -1161,6 +1265,7 @@ function setupEvents() {
             eloHistory = []; totalGamesPlayed = 0; totalWins = 0; maxStreak = 0;
             aiDifficulty = 8; recentGames = []; consecutiveWins = 0; consecutiveLosses = 0;
             currentLeague = null; leagueActiveMatch = null;
+            reviewHistory = []; currentReview = [];
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             alert('Totes les dades han estat esborrades. Comença de nou!');
@@ -1183,7 +1288,8 @@ function setupEvents() {
             sessionStats: sessionStats, eloHistory: eloHistory, totalGamesPlayed: totalGamesPlayed, 
             totalWins: totalWins, maxStreak: maxStreak,
             aiDifficulty: aiDifficulty, recentGames: recentGames, consecutiveWins: consecutiveWins, 
-            consecutiveLosses: consecutiveLosses, currentLeague: currentLeague, leagueActiveMatch: leagueActiveMatch, date: new Date().toLocaleDateString()
+            consecutiveLosses: consecutiveLosses, currentLeague: currentLeague, leagueActiveMatch: leagueActiveMatch,
+            reviewHistory: reviewHistory, date: new Date().toLocaleDateString()
         };
         const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
         const file = new File([blob], `eltauler_backup_${totalStars}stars.json`, { type: 'application/json' });
@@ -1200,7 +1306,8 @@ function setupEvents() {
             sessionStats: sessionStats, eloHistory: eloHistory, totalGamesPlayed: totalGamesPlayed,
             totalWins: totalWins, maxStreak: maxStreak,
             aiDifficulty: aiDifficulty, recentGames: recentGames, consecutiveWins: consecutiveWins,
-            consecutiveLosses: consecutiveLosses, currentLeague: currentLeague, leagueActiveMatch: leagueActiveMatch, date: new Date().toLocaleDateString()
+            consecutiveLosses: consecutiveLosses, currentLeague: currentLeague, leagueActiveMatch: leagueActiveMatch,
+            reviewHistory: reviewHistory, date: new Date().toLocaleDateString()
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1230,6 +1337,7 @@ function setupEvents() {
                     aiDifficulty = data.aiDifficulty || 8; recentGames = data.recentGames || []; consecutiveWins = data.consecutiveWins || 0; consecutiveLosses = data.consecutiveLosses || 0;
                     currentLeague = data.currentLeague || null;
                     leagueActiveMatch = data.leagueActiveMatch || null;
+                    reviewHistory = data.reviewHistory || [];
                     saveStorage(); updateDisplay(); alert('Dades importades!');
                 }
             } catch (err) { alert('Error llegint l\'arxiu'); }
@@ -1424,6 +1532,7 @@ function startRandomBundleGame() {
 }
 
 function startGame(isBundle, fen = null) {
+    currentReview = [];
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     $('#bundle-success-overlay').hide();
     if (!isBundle) isRandomBundleSession = false;
@@ -1687,7 +1796,8 @@ function handleEngineMessage(msg) {
         else if (analysisStep === 2) {
             let swing = tempAnalysisScore + analysisScoreStep1;
             waitingForBlunderAnalysis = false;
-
+            registerMoveReview(swing);
+            
             if (swing > 250 && !blunderMode && currentGameMode !== 'drill') {
                 let severity = 'low';
                 if (swing > 800) severity = 'high';
@@ -1760,6 +1870,48 @@ function showBundleTryAgainModal() {
     $('#btn-bundle-retry-ok').off('click').on('click', () => {
         $('#bundle-retry-modal').remove();
         resetBundleToStartPosition();
+    });
+}
+
+function renderReviewBreakdown(counts) {
+    const container = $('#review-breakdown');
+    if (!container.length) return;
+    container.empty();
+    const items = [
+        { key: 'excel', label: 'Excel·lents', css: 'excel' },
+        { key: 'good', label: 'Bones', css: 'good' },
+        { key: 'inaccuracy', label: 'Imprecisions', css: 'inaccuracy' },
+        { key: 'mistake', label: 'Errors', css: 'mistake' },
+        { key: 'blunder', label: 'Blunders', css: 'blunder' }
+    ];
+    items.forEach(item => {
+        const value = counts[item.key] || 0;
+        const block = `<div class="review-chip ${item.css}"><span>${item.label}</span><strong>${value}</strong></div>`;
+        container.append(block);
+    });
+}
+
+function showPostGameReview(msg, finalPrecision, counts, onClose) {
+    const modal = $('#review-modal');
+    if (!modal.length) {
+        alert(msg + (finalPrecision ? `\nPrecisió: ${finalPrecision}%` : ''));
+        if (typeof onClose === 'function') onClose();
+        return;
+    }
+    $('#review-result-text').text(msg);
+    $('#review-precision-value').text(finalPrecision ? `${finalPrecision}%` : '—');
+    renderReviewBreakdown(counts || summarizeReview(currentReview));
+    modal.css('display', 'flex');
+
+    $('#btn-review-close').off('click').on('click', () => {
+        modal.hide();
+        if (typeof onClose === 'function') onClose();
+    });
+    $('#btn-review-stats').off('click').on('click', () => {
+        modal.hide();
+        $('#start-screen').hide(); $('#league-screen').hide(); $('#game-screen').hide(); $('#stats-screen').show();
+        updateStatsDisplay();
+        if (typeof onClose === 'function') onClose();
     });
 }
 
@@ -1904,13 +2056,16 @@ function handleGameOver(manualResign = false) {
         applyLeagueAfterGame(leagueOutcome);
     }
     
-    recordActivity(); saveStorage(); checkMissions(); updateDisplay(); 
+    const reviewCounts = summarizeReview(currentReview);
+    persistReviewSummary(finalPrecision, msg);
+    recordActivity(); saveStorage(); checkMissions(); updateDisplay(); updateReviewChart();
     $('#status').text(msg);
-    let alertMsg = msg;
-    if (totalPlayerMoves > 0) alertMsg += `\nPrecisió: ${finalPrecision}%`;
-    if (currentStreak > 0) alertMsg += `\nRatxa: ${currentStreak} dies`;
-    alert(alertMsg);
-    if (wasLeagueMatch) { currentGameMode = 'free'; currentOpponent = null; $('#game-screen').hide(); $('#league-screen').show(); renderLeague(); }
+    let reviewHeader = msg;
+    if (currentStreak > 0) reviewHeader += ` · Ratxa ${currentStreak} dies`;
+    const onClose = () => {
+        if (wasLeagueMatch) { currentGameMode = 'free'; currentOpponent = null; $('#game-screen').hide(); $('#league-screen').show(); renderLeague(); }
+    };
+    showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose);
 }
 
 function updateStatus() {
