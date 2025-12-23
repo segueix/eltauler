@@ -4,8 +4,8 @@
 let game = null;
 let board = null;
 let stockfish = null;
-let userELO = 200; 
-let engineELO = 200;
+let userELO = 100; 
+let engineELO = 100;
 let savedErrors = [];
 let currentReview = [];
 let reviewHistory = [];
@@ -21,6 +21,7 @@ let aiDifficulty = 8;
 let consecutiveWins = 0;
 let consecutiveLosses = 0;
 let isEngineThinking = false;
+let engineMoveCandidates = [];
 
 let lastPosition = null; 
 let blunderMode = false;
@@ -1016,6 +1017,73 @@ function getAIDepth() {
     return Math.max(1, Math.min(15, base + randomness));
 }
 
+function getEngineSkillLevel() {
+    const normalized = Math.max(0, Math.min(1, (aiDifficulty - 5) / 10));
+    const minSkill = 2;
+    const maxSkill = 18;
+    return Math.round(minSkill + (maxSkill - minSkill) * normalized);
+}
+
+function resetEngineMoveCandidates() {
+    engineMoveCandidates = [];
+}
+
+function trackEngineCandidate(msg) {
+    if (!isEngineThinking || msg.indexOf('multipv') === -1 || msg.indexOf(' pv ') === -1) return;
+    const pvMatch = msg.match(/multipv\s+(\d+).*?\spv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+    if (!pvMatch) return;
+
+    let score = 0;
+    const cpMatch = msg.match(/score cp (-?\d+)/);
+    if (cpMatch) score = parseInt(cpMatch[1]);
+    const mateMatch = msg.match(/score mate (-?\d+)/);
+    if (mateMatch) {
+        const mateVal = parseInt(mateMatch[1]);
+        score = mateVal > 0 ? 10000 : -10000;
+    }
+
+    const multipv = parseInt(pvMatch[1]);
+    const move = pvMatch[2];
+    const existingIdx = engineMoveCandidates.findIndex(c => c.multipv === multipv);
+    const candidate = { multipv, move, score };
+    if (existingIdx >= 0) engineMoveCandidates[existingIdx] = candidate;
+    else engineMoveCandidates.push(candidate);
+}
+
+function chooseHumanLikeMove(candidates) {
+    if (!candidates || candidates.length === 0) return null;
+    const sorted = candidates.slice().sort((a, b) => b.score - a.score);
+
+    const normalized = Math.max(0, Math.min(1, (aiDifficulty - 5) / 10));
+    const bestScore = sorted[0].score;
+    const maxDelta = 250 - (normalized * 170); // Més desviació a nivells baixos
+
+    const plausible = sorted.filter(c => (bestScore - c.score) <= maxDelta);
+    const pool = plausible.length ? plausible : [sorted[0]];
+    const maxCandidates = normalized < 0.3 ? 4 : (normalized < 0.7 ? 3 : 2);
+    const trimmed = pool.slice(0, maxCandidates);
+
+    if (trimmed.length === 1) return trimmed[0];
+
+    const offPathChance = Math.max(0.1, 0.35 - (normalized * 0.22));
+    const explore = Math.random() < offPathChance;
+    if (!explore) return trimmed[0];
+
+    const temperature = 1.4 - (normalized * 0.8);
+    const weights = trimmed.map((c, idx) => {
+        const relativeScore = c.score - trimmed[0].score;
+        const softness = Math.exp(relativeScore / (50 * temperature));
+        return softness / (idx + 1);
+    });
+    const total = weights.reduce((sum, w) => sum + w, 0);
+    let roll = Math.random() * total;
+    for (let i = 0; i < trimmed.length; i++) {
+        roll -= weights[i];
+        if (roll <= 0) return trimmed[i];
+    }
+    return trimmed[trimmed.length - 1];
+}
+
 // MODIFICAT: Ara carrega directament el fitxer local
 function createStockfishWorker() {
     try {
@@ -1331,7 +1399,7 @@ function setupEvents() {
             localStorage.clear();
             saveEpaperPreference(epaperEnabled);
             applyControlMode(getDefaultControlMode(), { save: true, rebuild: false });
-            userELO = 200; savedErrors = []; currentStreak = 0; lastPracticeDate = null;
+            userELO = 100; savedErrors = []; currentStreak = 0; lastPracticeDate = null;
             todayCompleted = false; totalStars = 0; todayMissions = []; missionsDate = null; unlockedBadges = [];
             sessionStats = { 
                 gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
@@ -1839,7 +1907,11 @@ function makeEngineMove() {
     $('#status').text("L'adversari pensa...");
     
     const depth = (currentGameMode === 'drill') ? 20 : getAIDepth(); 
-    
+    const skillLevel = getEngineSkillLevel();
+    resetEngineMoveCandidates();
+
+    try { stockfish.postMessage(`setoption name Skill Level value ${skillLevel}`); } catch (e) {}
+    try { stockfish.postMessage('setoption name MultiPV value 5'); } catch (e) {}
     stockfish.postMessage(`position fen ${game.fen()}`); 
     stockfish.postMessage(`go depth ${depth}`);
 }
@@ -1877,6 +1949,8 @@ function handleEngineMessage(msg) {
          }
     }
 
+    trackEngineCandidate(msg);
+    
     // Validació Top-2 en mode Bundle
     if (isBundleTop2Analysis) {
         const pvMatch = msg.match(/multipv\s+([12]).*?\spv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
@@ -1956,14 +2030,20 @@ function handleEngineMessage(msg) {
     if (msg.indexOf('bestmove') !== -1 && isEngineThinking) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
-            const fromSq = match[1];
-            const toSq = match[2];
+            const fallbackMove = match[1] + match[2] + (match[3] || '');
+            const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: fallbackMove };
+            const moveStr = chosen.move || fallbackMove;
+            const fromSq = moveStr.substring(0, 2);
+            const toSq = moveStr.substring(2, 4);
+            const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
+            resetEngineMoveCandidates();
+            try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
             setTimeout(() => {
                 isEngineThinking = false;
                 if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
                     goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay();
                 }
-                game.move({ from: fromSq, to: toSq, promotion: match[3] || 'q' });
+                game.move({ from: fromSq, to: toSq, promotion: promotion });
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
                 updateStatus();
