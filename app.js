@@ -977,17 +977,19 @@ function updateStreakDisplay() {
 }
 
 function restoreMissions(savedList) {
-    if (!savedList) return [];
-    return savedList.map(saved => {
+    if (!Array.isArray(savedList)) return [];
+    return savedList
+        .map(saved => {
+            const template = MISSION_TEMPLATES.find(t => t.id === saved.id);
+            if (!template) return null;
+            return { ...template, completed: !!saved.completed };
+        })
+        .filter(Boolean);
+}
+
 function adjustAIDifficulty(playerWon, precision, resultScore = null) {
     const normalizedScore = (typeof resultScore === 'number') ? resultScore : (playerWon ? 1 : 0);
     recentGames.push({ won: playerWon, precision: precision, result: normalizedScore });
-        return saved;
-    });
-}
-
-function adjustAIDifficulty(playerWon, precision) {
-    recentGames.push({ won: playerWon, precision: precision });
     if (recentGames.length > 10) recentGames.shift();
     
     if (normalizedScore === 1) { consecutiveWins++; consecutiveLosses = 0; } 
@@ -1001,7 +1003,6 @@ function adjustAIDifficulty(playerWon, precision) {
     let adjustment = 0;
     if (consecutiveLosses >= 3) adjustment = -2;
     else if (consecutiveLosses >= 2) adjustment = -1;
-    else if (avgScore < 0.35 && recent5.length >= 5) adjustment = -1;
     else if (consecutiveWins >= 3 && avgPrecision >= 70) adjustment = 2;
     else if (consecutiveWins >= 3 && avgPrecision >= 70) adjustment = 2;
     else if (avgScore > 0.7 && recent5.length >= 5) adjustment = 1;
@@ -1024,7 +1025,6 @@ function getAIDepth() {
     }
 
     const oppElo = getOpponentElo();   
-    const oppElo = (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : userELO;
     const delta = (oppElo - userELO);
     const base = 8 + Math.round(delta / 250); 
     return Math.max(1, Math.min(15, base + randomness));
