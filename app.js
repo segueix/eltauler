@@ -2229,6 +2229,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     if (options.showCheckmate) {
         reviewAutoCloseTimer = setTimeout(() => {
             modal.hide();
+            $('#blunder-alert').hide();
             if (typeof onClose === 'function') onClose();
         }, 3000);
     }
