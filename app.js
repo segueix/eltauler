@@ -344,6 +344,12 @@ function commitHumanMoveFromTap(from, to) {
 
     board.position(game.fen());
     updateStatus();
+    
+    if (game.game_over()) {
+        handleGameOver();
+        return true;
+    }
+
     analyzeMove();
     return true;
 }
@@ -973,8 +979,9 @@ function updateStreakDisplay() {
 function restoreMissions(savedList) {
     if (!savedList) return [];
     return savedList.map(saved => {
-        const template = MISSION_TEMPLATES.find(t => t.id === saved.id);
-        if (template) return { ...template, completed: saved.completed };
+function adjustAIDifficulty(playerWon, precision, resultScore = null) {
+    const normalizedScore = (typeof resultScore === 'number') ? resultScore : (playerWon ? 1 : 0);
+    recentGames.push({ won: playerWon, precision: precision, result: normalizedScore });
         return saved;
     });
 }
@@ -983,25 +990,30 @@ function adjustAIDifficulty(playerWon, precision) {
     recentGames.push({ won: playerWon, precision: precision });
     if (recentGames.length > 10) recentGames.shift();
     
-    if (playerWon) { consecutiveWins++; consecutiveLosses = 0; } 
-    else { consecutiveLosses++; consecutiveWins = 0; }
+    if (normalizedScore === 1) { consecutiveWins++; consecutiveLosses = 0; } 
+    else if (normalizedScore === 0) { consecutiveLosses++; consecutiveWins = 0; }
+    else { consecutiveWins = 0; consecutiveLosses = 0; }
     
     const recent5 = recentGames.slice(-5);
-    const winRate = recent5.length > 0 ? recent5.filter(g => g.won).length / recent5.length : 0.5;
-    const avgPrecision = recent5.length > 0 ? recent5.reduce((sum, g) => sum + g.precision, 0) / recent5.length : 50;
+    const avgScore = recent5.length > 0 ? recent5.reduce((sum, g) => sum + (typeof g.result === 'number' ? g.result : (g.won ? 1 : 0)), 0) / recent5.length : 0.5;
+    const avgPrecision = recent5.length > 0 ? recent5.reduce((sum, g) => sum + (typeof g.precision === 'number' ? g.precision : 50), 0) / recent5.length : 50;
     
     let adjustment = 0;
     if (consecutiveLosses >= 3) adjustment = -2;
     else if (consecutiveLosses >= 2) adjustment = -1;
-    else if (winRate < 0.3 && recent5.length >= 5) adjustment = -1;
+    else if (avgScore < 0.35 && recent5.length >= 5) adjustment = -1;
     else if (consecutiveWins >= 3 && avgPrecision >= 70) adjustment = 2;
-    else if (consecutiveWins >= 2 && avgPrecision >= 60) adjustment = 1;
-    else if (winRate > 0.7 && recent5.length >= 5) adjustment = 1;
-    else if (avgPrecision >= 80 && winRate > 0.5) adjustment = 1;
-    else if (avgPrecision < 40 && winRate < 0.5) adjustment = -1;
+    else if (consecutiveWins >= 3 && avgPrecision >= 70) adjustment = 2;
+    else if (avgScore > 0.7 && recent5.length >= 5) adjustment = 1;
+    else if (avgPrecision >= 80 && avgScore > 0.5) adjustment = 1;
+    else if (avgPrecision < 40 && avgScore < 0.5) adjustment = -1;
     
     aiDifficulty = Math.max(5, Math.min(15, aiDifficulty + adjustment));
     saveStorage();
+}
+
+function getOpponentElo() {
+    return (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : userELO;
 }
 
 function getAIDepth() {
@@ -1011,6 +1023,7 @@ function getAIDepth() {
         return Math.max(1, Math.min(15, aiDifficulty + randomness));
     }
 
+    const oppElo = getOpponentElo();   
     const oppElo = (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : userELO;
     const delta = (oppElo - userELO);
     const base = 8 + Math.round(delta / 250); 
@@ -1022,6 +1035,20 @@ function getEngineSkillLevel() {
     const minSkill = 2;
     const maxSkill = 18;
     return Math.round(minSkill + (maxSkill - minSkill) * normalized);
+}
+function calculateEloDelta(resultScore) {
+    const oppElo = getOpponentElo();
+    const expected = 1 / (1 + Math.pow(10, (oppElo - userELO) / 400));
+    const kFactor = 24;
+    const raw = kFactor * (resultScore - expected);
+
+    if (resultScore === 0) return Math.min(-8, Math.round(raw));
+    if (resultScore === 1) return Math.max(8, Math.round(raw));
+    return Math.round(raw);
+}
+
+function formatEloChange(delta) {
+    return `${delta > 0 ? '+' : ''}${delta}`;
 }
 
 function resetEngineMoveCandidates() {
@@ -1835,9 +1862,6 @@ function startGame(isBundle, fen = null) {
     updateStatus();
     
     if (playerColor !== game.turn() && stockfish) {
-         setTimeout(makeEngineMove, 500);
-    }
-    if (!isBundle && currentGameMode !== 'drill' && playerColor === 'b' && stockfish) {
         setTimeout(makeEngineMove, 500);
     }
 }
@@ -1863,6 +1887,12 @@ function onDrop(source, target) {
     totalPlayerMoves++; 
     pendingMoveEvaluation = true; 
     updateStatus();
+    
+    if (game.game_over()) {
+        handleGameOver();
+        return;
+    }
+    
     analyzeMove(); 
 }
 
@@ -2238,20 +2268,23 @@ function saveBlunderToBundle(fen, severity) {
 }
 
 function handleGameOver(manualResign = false) {
-    let msg = ""; let change = 0; let playerWon = false;
+    pendingMoveEvaluation = false;
+    let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
     const wasLeagueMatch = (currentGameMode === 'league') && !!leagueActiveMatch;
     let leagueOutcome = 'draw';
     const finalPrecision = totalPlayerMoves > 0 ? Math.round((goodMoves / totalPlayerMoves) * 100) : 0;
     
-    if (manualResign) { msg = "T'has rendit. (−10)"; change = -10; leagueOutcome = 'loss'; }
+    if (manualResign) { 
+        msg = "T'has rendit."; resultScore = 0; leagueOutcome = 'loss'; 
+    }
     else if (game.in_checkmate()) {
         if (game.turn() !== playerColor) { 
-            msg = "Victòria! (+20)"; change = 20; playerWon = true; leagueOutcome = 'win'; 
+            msg = "Victòria!"; resultScore = 1; playerWon = true; leagueOutcome = 'win'; 
             sessionStats.gamesWon++; totalWins++;
             if (playerColor === 'b') sessionStats.blackWins++;
-        } else { msg = "Derrota. (−10)"; change = -10; leagueOutcome = 'loss'; }
-    } else { msg = "Taules. (+5)"; change = 5; playerWon = true; leagueOutcome = 'draw'; }
-    
+        } else { msg = "Derrota."; resultScore = 0; leagueOutcome = 'loss'; }
+    } else { msg = "Taules."; resultScore = 0.5; leagueOutcome = 'draw'; }
+        
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
     if (currentGameMode === 'league') sessionStats.leagueGamesPlayed++;
@@ -2277,12 +2310,15 @@ function handleGameOver(manualResign = false) {
         }
     }
 
+    change = calculateEloDelta(resultScore);
+    msg += ` (${formatEloChange(change)})`;
+
     if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
     
     userELO = Math.max(50, userELO + change); 
     updateEloHistory(userELO);
     
-    if (!blunderMode && currentGameMode !== 'drill') adjustAIDifficulty(playerWon, finalPrecision);
+    if (!blunderMode && currentGameMode !== 'drill') adjustAIDifficulty(playerWon, finalPrecision, resultScore);
 
     if (wasLeagueMatch && !blunderMode) {
         applyLeagueAfterGame(leagueOutcome);
