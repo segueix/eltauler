@@ -794,6 +794,12 @@
             color: var(--text-secondary);
             margin-bottom: 10px;
         }
+        .checkmate-image {
+            display: none;
+            width: min(220px, 70%);
+            margin: 4px auto 12px;
+            filter: drop-shadow(0 6px 12px rgba(0,0,0,0.35));
+        }
         .review-actions {
             display: flex;
             gap: 10px;
@@ -984,6 +990,7 @@
            <div class="modal-overlay" id="review-modal">
             <div class="modal-content">
                 <div class="modal-title">📈 Revisió de la partida</div>
+                <img src="checkmate.svg" alt="Escac i mat" id="checkmate-image" class="checkmate-image">
                 <div class="review-modal-result" id="review-result-text">—</div>
                 <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>
                 <div class="review-highlight">Com han estat les teves jugades?</div>
