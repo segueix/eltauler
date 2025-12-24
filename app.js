@@ -2244,7 +2244,8 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         return;
     }
     
-   const checkmateOverlay = $('#checkmate-overlay');
+    const checkmateOverlay = $('#checkmate-overlay');
+    const checkmateImage = $('#checkmate-image');
     const openReviewModal = () => {
         if (checkmateImage.length) {
             if (options.showCheckmate) {
