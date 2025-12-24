@@ -37,7 +37,7 @@ const ADAPTIVE_CONFIG = {
     PENALTY_STRONG: -80
 };
 const CALIBRATION_ENGINE_PRECISION = 50;
-const CALIBRATION_ENGINE_DIFFICULTY = 10;
+const CALIBRATION_ENGINE_DIFFICULTY = 6;
 let adaptiveLevel = ADAPTIVE_CONFIG.DEFAULT_LEVEL;
 let consecutiveWins = 0;
 let consecutiveLosses = 0;
@@ -1212,6 +1212,27 @@ function chooseHumanLikeMove(candidates) {
     return trimmed[trimmed.length - 1];
 }
 
+function chooseCalibrationMove(candidates, fallbackMove) {
+    if (!candidates || candidates.length === 0) return { move: fallbackMove };
+    const sorted = candidates.slice().sort((a, b) => b.score - a.score);
+    const bestScore = sorted[0].score;
+    const goodCandidates = sorted.filter(c => (bestScore - c.score) <= 80);
+    const badCandidates = sorted.filter(c => (bestScore - c.score) > 80);
+    const target = CALIBRATION_ENGINE_PRECISION / 100;
+    const currentPrecision = totalEngineMoves > 0 ? (goodEngineMoves / totalEngineMoves) : target;
+
+    let pickGood = true;
+    if (badCandidates.length === 0) pickGood = true;
+    else if (goodCandidates.length === 0) pickGood = false;
+    else if (currentPrecision < target) pickGood = true;
+    else if (currentPrecision > target) pickGood = false;
+    else pickGood = Math.random() < target;
+
+    const pool = pickGood ? goodCandidates : badCandidates;
+    const choice = pool[Math.floor(Math.random() * pool.length)];
+    return choice || { move: fallbackMove };
+}
+
 // MODIFICAT: Ara carrega directament el fitxer local
 function createStockfishWorker() {
     try {
@@ -1925,6 +1946,7 @@ function startGame(isBundle, fen = null) {
     
     updatePrecisionDisplay();
     updateAIPrecisionDisplay();
+    updateAIPrecisionTarget();
     
     game = new Chess(fen || undefined); 
     
@@ -2083,13 +2105,14 @@ function makeEngineMove() {
 
     isEngineThinking = true; 
     $('#status').text("L'adversari pensa...");
-    
-    const depth = (currentGameMode === 'drill') ? 20 : getAIDepth(); 
+        
+    const depth = (currentGameMode === 'drill') ? 20 : (isCalibrationGame ? Math.max(4, getAIDepth() - 2) : getAIDepth()); 
     const skillLevel = getEngineSkillLevel();
     resetEngineMoveCandidates();
 
     try { stockfish.postMessage(`setoption name Skill Level value ${skillLevel}`); } catch (e) {}
-    try { stockfish.postMessage('setoption name MultiPV value 5'); } catch (e) {}
+    const multiPvValue = isCalibrationGame ? 7 : 5;
+    try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     stockfish.postMessage(`position fen ${game.fen()}`); 
     stockfish.postMessage(`go depth ${depth}`);
 }
@@ -2209,7 +2232,9 @@ function handleEngineMessage(msg) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
-            const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: fallbackMove };
+            const chosen = isCalibrationGame
+                ? chooseCalibrationMove(engineMoveCandidates, fallbackMove)
+                : (chooseHumanLikeMove(engineMoveCandidates) || { move: fallbackMove });
             const moveStr = chosen.move || fallbackMove;
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
@@ -2452,6 +2477,12 @@ function updateAIPrecisionDisplay() {
     precisionEl.text(precision + '%'); barEl.css('width', precision + '%');
     barEl.removeClass('good warning danger');
     if (precision >= 75) barEl.addClass('good'); else if (precision >= 50) barEl.addClass('warning'); else barEl.addClass('danger');
+}
+
+function updateAIPrecisionTarget() {
+    const targetEl = $('#ai-precision-target');
+    if (!targetEl.length) return;
+    targetEl.text(isCalibrationGame ? `${CALIBRATION_ENGINE_PRECISION}%` : '—');
 }
 
 function registerEngineMovePrecision(moveStr, candidates) {
