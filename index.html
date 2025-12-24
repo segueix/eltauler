@@ -445,9 +445,11 @@
         .precision-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 3px; }
         .precision-value { font-family: 'Cinzel', serif; font-size: 1.3rem; font-weight: 700; color: var(--accent-gold); }
         .precision-target-text { color: var(--text-secondary); }
+        .precision-panel.ai-precision-panel .precision-value { color: var(--accent-purple); }
         
         .precision-bar-container { flex: 1; height: 20px; background: rgba(0,0,0,0.3); border-radius: 10px; position: relative; overflow: hidden; }
         .precision-bar { height: 100%; background: var(--accent-green); border-radius: 10px; width: 0%; transition: width 0.3s, background 0.3s; }
+        .precision-panel.ai-precision-panel .precision-bar { background: var(--accent-purple); }
         .precision-bar.warning { background: var(--severity-med); }
         .precision-bar.danger { background: var(--severity-high); }
         .precision-target { position: absolute; left: 75%; top: 0; width: 2px; height: 100%; background: rgba(255,255,255,0.5); }
@@ -1078,6 +1080,20 @@
                 <div class="precision-stat">
                     <div class="precision-label">Objectiu</div>
                     <div class="precision-value precision-target-text">75%</div>
+                </div>
+            </div>
+   
+            <div class="precision-panel ai-precision-panel">
+                <div class="precision-stat">
+                    <div class="precision-label">Precisió IA</div>
+                    <div class="precision-value" id="current-ai-precision">—</div>
+                </div>
+                <div class="precision-bar-container">
+                    <div class="precision-bar" id="ai-precision-bar"></div>
+                </div>
+                <div class="precision-stat">
+                    <div class="precision-label">Objectiu</div>
+                    <div class="precision-value precision-target-text">—</div>
                 </div>
             </div>
             
