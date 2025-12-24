@@ -4,6 +4,8 @@
 let game = null;
 let board = null;
 let stockfish = null;
+let stockfishReady = false;
+let pendingEngineFirstMove = false;
 let userELO = 50; 
 let engineELO = 50;
 let savedErrors = [];
@@ -1248,10 +1250,13 @@ function ensureStockfish() {
     try {
         stockfish = createStockfishWorker();
         stockfish.onmessage = (e) => handleEngineMessage(e.data);
+        stockfishReady = false;
+        try { stockfish.postMessage('uci'); } catch (e) {}    
         return true;
     } catch (err) {
         console.error(err);
         stockfish = null;
+        stockfishReady = false;
         return false;
     }
 }
@@ -2029,8 +2034,14 @@ function startGame(isBundle, fen = null) {
     clearEngineMoveHighlights();
     updateStatus();
     
-    if (playerColor !== game.turn() && stockfish) {
-        setTimeout(makeEngineMove, 500);
+    if (playerColor !== game.turn()) {
+        pendingEngineFirstMove = true;
+        if (stockfishReady) {
+            pendingEngineFirstMove = false;
+            setTimeout(makeEngineMove, 500);
+        }
+    } else {
+        pendingEngineFirstMove = false;
     }
 }
 
@@ -2117,6 +2128,17 @@ function makeEngineMove() {
     stockfish.postMessage(`go depth ${depth}`);
 }
 
+function chooseFallbackMove(fallbackMove) {
+    const effectiveDifficulty = getEffectiveAIDifficulty();
+    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
+    const mistakeChance = Math.max(0.1, 0.35 - (normalized * 0.25));
+    if (Math.random() > mistakeChance) return fallbackMove;
+    const legalMoves = game ? game.moves({ verbose: true }) : [];
+    if (!legalMoves || legalMoves.length === 0) return fallbackMove;
+    const choice = legalMoves[Math.floor(Math.random() * legalMoves.length)];
+    return `${choice.from}${choice.to}${choice.promotion || ''}`;
+}
+
 function analyzeMove() {
     if (!stockfish && !ensureStockfish()) { setTimeout(makeEngineMove, 300); return; }
 
@@ -2138,6 +2160,18 @@ function analyzeMove() {
 }
 
 function handleEngineMessage(msg) {
+    if (msg === 'uciok') {
+        try { stockfish.postMessage('isready'); } catch (e) {}
+        return;
+    }
+    if (msg === 'readyok') {
+        stockfishReady = true;
+        if (pendingEngineFirstMove && playerColor !== game.turn()) {
+            pendingEngineFirstMove = false;
+            setTimeout(makeEngineMove, 200);
+        }
+        return;
+    }
     if (msg.indexOf('score cp') !== -1) {
         let match = msg.match(/score cp (-?\d+)/);
         if (match) tempAnalysisScore = parseInt(match[1]);
@@ -2234,8 +2268,10 @@ function handleEngineMessage(msg) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
             const chosen = isCalibrationGame
                 ? chooseCalibrationMove(engineMoveCandidates, fallbackMove)
-                : (chooseHumanLikeMove(engineMoveCandidates) || { move: fallbackMove });
-            const moveStr = chosen.move || fallbackMove;
+                : (chooseHumanLikeMove(engineMoveCandidates) || { move: null });
+            const moveStr = (engineMoveCandidates.length > 0 && chosen.move)
+                ? chosen.move
+                : chooseFallbackMove(fallbackMove);
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
