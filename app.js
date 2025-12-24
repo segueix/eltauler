@@ -2284,12 +2284,13 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         reviewOpenDelayTimer = null;
     }
 
-     if (options.showCheckmate && checkmateOverlay.length) {
-        checkmateOverlay.css('display', 'flex');
-        reviewOpenDelayTimer = setTimeout(() => {
+     if (options.showCheckmate) {
+        if (checkmateOverlay.length) {
             checkmateOverlay.hide();
+        }
+        reviewOpenDelayTimer = setTimeout(() => {            
             openReviewModal();
-        }, 3000);
+        }, 2000);
     } else {
         openReviewModal();
     }
