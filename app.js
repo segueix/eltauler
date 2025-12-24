@@ -68,6 +68,8 @@ const LEAGUE_QUOTES = [
 let totalPlayerMoves = 0;
 let goodMoves = 0;
 let pendingMoveEvaluation = false;
+let totalEngineMoves = 0;
+let goodEngineMoves = 0;
 
 // Controls tàctils (tap-to-move)
 let tapSelectedSquare = null;
@@ -1916,10 +1918,13 @@ function startGame(isBundle, fen = null) {
 
     totalPlayerMoves = 0; 
     goodMoves = 0;
+    totalEngineMoves = 0;
+    goodEngineMoves = 0;
     isEngineThinking = false;
     pendingMoveEvaluation = false;
     
     updatePrecisionDisplay();
+    updateAIPrecisionDisplay();
     
     game = new Chess(fen || undefined); 
     
@@ -2063,6 +2068,7 @@ function makeEngineMove() {
                     game.move({ from: forcedMove.substring(0,2), to: forcedMove.substring(2,4) });
                     board.position(game.fen());
                     isEngineThinking = false;
+                    registerEngineMovePrecision(forcedMove, null);
                     
                     if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
                         goodMoves++; registerCalibrationMove(true); pendingMoveEvaluation = false; updatePrecisionDisplay();
@@ -2208,6 +2214,7 @@ function handleEngineMessage(msg) {
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
+            registerEngineMovePrecision(moveStr, engineMoveCandidates);    
             resetEngineMoveCandidates();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
             setTimeout(() => {
@@ -2435,6 +2442,32 @@ function updatePrecisionDisplay() {
     precisionEl.text(precision + '%'); barEl.css('width', precision + '%');
     barEl.removeClass('good warning danger');
     if (precision >= 75) barEl.addClass('good'); else if (precision >= 50) barEl.addClass('warning'); else barEl.addClass('danger');
+}
+
+function updateAIPrecisionDisplay() {
+    const precisionEl = $('#current-ai-precision'); const barEl = $('#ai-precision-bar');
+    if (!precisionEl.length || !barEl.length) return;
+    if (totalEngineMoves === 0) { precisionEl.text('—'); barEl.css('width', '0%').removeClass('good warning danger'); return; }
+    const precision = Math.round((goodEngineMoves / totalEngineMoves) * 100);
+    precisionEl.text(precision + '%'); barEl.css('width', precision + '%');
+    barEl.removeClass('good warning danger');
+    if (precision >= 75) barEl.addClass('good'); else if (precision >= 50) barEl.addClass('warning'); else barEl.addClass('danger');
+}
+
+function registerEngineMovePrecision(moveStr, candidates) {
+    if (!moveStr) return;
+    totalEngineMoves++;
+    let isGood = true;
+    if (candidates && candidates.length) {
+        const bestScore = Math.max(...candidates.map(c => c.score));
+        const chosen = candidates.find(c => c.move === moveStr);
+        if (chosen) {
+            const delta = bestScore - chosen.score;
+            isGood = delta <= 80;
+        }
+    }
+    if (isGood) goodEngineMoves++;
+    updateAIPrecisionDisplay();
 }
 
 function saveBlunderToBundle(fen, severity) {
