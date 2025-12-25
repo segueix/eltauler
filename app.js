@@ -1809,7 +1809,11 @@ function setupEvents() {
         initHistoryBoard();
         renderGameHistory();
     });
-
+    $('#btn-tv').click(() => {
+        $('#start-screen').hide();
+        $('#tv-screen').show();
+    });
+    
     $('#btn-league').click(() => { openLeague(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { createNewLeague(true); openLeague(); });
@@ -1827,7 +1831,11 @@ function setupEvents() {
         $('#history-screen').hide();
         $('#start-screen').show();
     });
-
+    $('#btn-back-tv').click(() => {
+        $('#tv-screen').hide();
+        $('#start-screen').show();
+    });
+    
     $('#history-play').off('click').on('click', () => { startHistoryPlayback(); });
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
