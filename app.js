@@ -1902,7 +1902,7 @@ function updateTvDetails(entry) {
 
 async function fetchTvPgn(entry) {
     if (!entry) return '';
-       if (entry.pgnUrl) {
+    if (entry.pgnUrl) {
         try {
             const response = await fetch(entry.pgnUrl, {
                 headers: { 'Accept': 'application/x-chess-pgn' }
@@ -1923,7 +1923,8 @@ async function loadTvGame(entry) {
     stopTvPlayback();
     initTvBoard();
     setTvStatus('Carregant partida...');
-    const pgnText = await fetchTvPgn(entry);
+    const rawPgnText = await fetchTvPgn(entry);
+    const pgnText = selectTvPgn(rawPgnText);
     const pgnGame = new Chess();
     const loaded = pgnGame.load_pgn(pgnText, { sloppy: true });
     if (!loaded) {
@@ -1955,6 +1956,33 @@ async function loadTvGame(entry) {
     updateTvBoard();
     setTvStatus(`Partida carregada · ${moves.length} jugades.`);
     return true;
+}
+
+function splitTvPgnBlocks(pgnText) {
+    if (!pgnText) return [];
+    const normalized = pgnText.replace(/\r\n/g, '\n').trim();
+    if (!normalized) return [];
+    const blocks = normalized.split(/\n(?=\\[Event\\s)/g);
+    return blocks.map(block => block.trim()).filter(Boolean);
+}
+
+function selectTvPgn(pgnText) {
+    if (!pgnText) return '';
+    const blocks = splitTvPgnBlocks(pgnText);
+    if (!blocks.length) return pgnText.trim();
+    if (blocks.length === 1) return blocks[0];
+    let best = blocks[0];
+    let bestMoves = -1;
+    blocks.forEach(block => {
+        const game = new Chess();
+        if (!game.load_pgn(block, { sloppy: true })) return;
+        const count = game.history().length;
+        if (count > bestMoves) {
+            bestMoves = count;
+            best = block;
+        }
+    });
+    return best;
 }
 
 function pickRandomTvGame() {
