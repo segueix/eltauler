@@ -2003,18 +2003,23 @@ function setupEvents() {
         }
     });
 
+     const showMenuExitModal = () => {
+        const message = leagueActiveMatch
+            ? "Sortir de la partida de lliga? Comptarà com a derrota."
+            : "Vols sortir de la partida?";
+        $('#menu-exit-message').text(message);
+        $('#menu-exit-modal').css('display', 'flex');
+    };
+
+    const hideMenuExitModal = () => {
+        $('#menu-exit-modal').hide();
+    };
+
     $('#btn-back').click(() => {
-        if (leagueActiveMatch) {
-            if (confirm("Sortir de la partida de lliga? Comptarà com a derrota.")) handleGameOver(true);
-            return;
-        }
-        if (confirm('Sortir de la partida?')) {
-            $('#game-screen').hide(); $('#start-screen').show();
-            if (stockfish) stockfish.postMessage('stop');
-        }
+       showMenuExitModal();
     });
 
-        const showResignModal = () => {
+    const showResignModal = () => {
         $('#resign-modal').css('display', 'flex');
     };
 
@@ -2038,6 +2043,27 @@ function setupEvents() {
     $('#resign-modal').click((event) => {
         if (event.target.id === 'resign-modal') {
             hideResignModal();
+        }
+    });
+
+    $('#btn-menu-exit-confirm').click(() => {
+        hideMenuExitModal();
+        if (leagueActiveMatch) {
+            handleGameOver(true);
+            return;
+        }
+        $('#game-screen').hide();
+        $('#start-screen').show();
+        if (stockfish) stockfish.postMessage('stop');
+    });
+
+    $('#btn-menu-exit-cancel').click(() => {
+        hideMenuExitModal();
+    });
+
+    $('#menu-exit-modal').click((event) => {
+        if (event.target.id === 'menu-exit-modal') {
+            hideMenuExitModal();
         }
     });
 
