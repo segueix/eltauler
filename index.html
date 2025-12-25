@@ -186,6 +186,32 @@
         .streak-value { color: var(--streak-fire); }
         .stars-value { color: var(--star-gold); text-shadow: 0 0 10px rgba(255,215,0,0.5); }
         
+        .floating-resign-button {
+            position: fixed;
+            right: 18px;
+            bottom: 18px;
+            z-index: 1000;
+            border-radius: 999px;
+            padding: 12px 18px;
+            font-size: 0.9rem;
+            box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+        }
+        body.device-mobile .floating-resign-button {
+            right: 12px;
+            bottom: 12px;
+            padding: 10px 14px;
+            font-size: 0.85rem;
+        }
+        body.epaper-mode .floating-resign-button { box-shadow: none; }
+
+        .resign-modal-actions {
+            display: flex;
+            justify-content: center;
+            gap: 12px;
+            margin-top: 18px;
+            flex-wrap: wrap;
+        }
+        
         .streak-status { font-size: 0.6rem; margin-top: 3px; padding: 2px 6px; border-radius: 8px; display: inline-block; }
         .streak-done { background: rgba(74, 124, 89, 0.3); color: var(--accent-green); }
         .streak-pending { background: rgba(212, 118, 59, 0.2); color: var(--streak-fire); }
@@ -1270,6 +1296,18 @@
                     <button class="btn btn-secondary" id="btn-back">Menú</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
                 </div>
+            </div>
+   
+            <button class="btn btn-primary floating-resign-button" id="btn-resign-float">🏳️ Rendir-me</button>
+        </div>
+    </div>
+
+    <div class="modal-overlay" id="resign-modal">
+        <div class="modal-content">
+            <div class="modal-title">Rendir-se?</div>
+            <div class="resign-modal-actions">
+                <button class="btn btn-primary" id="btn-resign-confirm">Sí</button>
+                <button class="btn btn-secondary" id="btn-resign-cancel">No</button>
             </div>
         </div>
     </div>
