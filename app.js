@@ -2014,8 +2014,35 @@ function setupEvents() {
         }
     });
 
+        const showResignModal = () => {
+        $('#resign-modal').css('display', 'flex');
+    };
+
+    const hideResignModal = () => {
+        $('#resign-modal').hide();
+    };
+
     $('#btn-resign').click(() => {
-        if (confirm('Rendir-se?')) handleGameOver(true);
+        showResignModal();
+    });
+
+    $('#btn-resign-float').click(() => {
+        showResignModal();
+    });
+
+    $('#btn-resign-confirm').click(() => {
+        hideResignModal();
+        handleGameOver(true);
+    });
+
+    $('#btn-resign-cancel').click(() => {
+        hideResignModal();
+    });
+
+    $('#resign-modal').click((event) => {
+        if (event.target.id === 'resign-modal') {
+            hideResignModal();
+        }
     });
 
     $('#btn-bundle-menu').click(() => {
