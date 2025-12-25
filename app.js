@@ -21,6 +21,9 @@ let currentMatchError = null;
 let isMatchErrorReviewSession = false;
 let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
+let gameHistory = [];
+let historyBoard = null;
+let historyReplay = null;
 
 // Sistema d'IA Adaptativa
 let recentGames = []; 
@@ -1326,6 +1329,7 @@ function loadStorage() {
     const league = localStorage.getItem('chess_currentLeague'); if (league) currentLeague = JSON.parse(league);
     const lMatch = localStorage.getItem('chess_leagueActiveMatch'); if (lMatch) leagueActiveMatch = JSON.parse(lMatch);
     const reviews = localStorage.getItem('chess_reviewHistory'); if (reviews) reviewHistory = JSON.parse(reviews);
+    const gameHistoryStored = localStorage.getItem('chess_gameHistory'); if (gameHistoryStored) gameHistory = JSON.parse(gameHistoryStored);
     const storedElo = localStorage.getItem('chess_currentElo');
     currentElo = clampEngineElo(storedElo ? parseInt(storedElo) : adaptiveLevel);
     const storedRecentErrors = localStorage.getItem('chess_recentErrors');
@@ -1362,6 +1366,7 @@ function saveStorage() {
     localStorage.setItem('chess_calibrationMoves', calibrationMoves);
     localStorage.setItem('chess_calibrationGoodMoves', calibrationGoodMoves);
     localStorage.setItem('chess_reviewHistory', JSON.stringify(reviewHistory));
+    localStorage.setItem('chess_gameHistory', JSON.stringify(gameHistory));    
     localStorage.setItem('chess_currentElo', currentElo);
     localStorage.setItem('chess_recentErrors', JSON.stringify(recentErrors));
     if (currentLeague) localStorage.setItem('chess_currentLeague', JSON.stringify(currentLeague)); else localStorage.removeItem('chess_currentLeague');
@@ -1556,6 +1561,201 @@ function updateReviewChart() {
     updateReviewLegend();
 }
 
+function formatHistoryMode(mode) {
+    if (mode === 'league') return 'Lliga';
+    if (mode === 'catalan') return 'Obertura Catalana';
+    if (mode === 'free') return 'Amistosa';
+    if (mode === 'drill') return 'Finals';
+    return 'Partida';
+}
+
+function stopHistoryPlayback() {
+    if (historyReplay && historyReplay.timer) {
+        clearInterval(historyReplay.timer);
+        historyReplay.timer = null;
+    }
+    if (historyReplay) historyReplay.isPlaying = false;
+    updateHistoryControls();
+}
+
+function updateHistoryControls() {
+    const playBtn = $('#history-play');
+    const pauseBtn = $('#history-pause');
+    const prevBtn = $('#history-prev');
+    const nextBtn = $('#history-next');
+    const hasEntry = historyReplay && historyReplay.entry;
+    const movesCount = hasEntry ? historyReplay.moves.length : 0;
+    const atStart = !hasEntry || historyReplay.moveIndex === 0;
+    const atEnd = !hasEntry || historyReplay.moveIndex >= movesCount;
+
+    playBtn.prop('disabled', !hasEntry || movesCount === 0 || historyReplay.isPlaying || atEnd);
+    pauseBtn.prop('disabled', !hasEntry || !historyReplay.isPlaying);
+    prevBtn.prop('disabled', !hasEntry || atStart || historyReplay.isPlaying);
+    nextBtn.prop('disabled', !hasEntry || atEnd || historyReplay.isPlaying);
+}
+
+function updateHistoryProgress() {
+    const progress = $('#history-progress');
+    if (!historyReplay || !historyReplay.entry) {
+        progress.text('0/0');
+        return;
+    }
+    progress.text(`${historyReplay.moveIndex}/${historyReplay.moves.length}`);
+}
+
+function updateHistoryBoard() {
+    if (!historyBoard || !historyReplay || !historyReplay.game) return;
+    historyBoard.position(historyReplay.game.fen(), false);
+    if (typeof historyBoard.resize === 'function') historyBoard.resize();
+    updateHistoryProgress();
+    updateHistoryControls();
+}
+
+function initHistoryBoard() {
+    if (historyBoard) return;
+    const boardEl = document.getElementById('history-board');
+    if (!boardEl) return;
+    historyBoard = Chessboard('history-board', {
+        draggable: false,
+        position: 'start'
+    });
+}
+
+function loadHistoryEntry(entry) {
+    if (!entry) return;
+    stopHistoryPlayback();
+    initHistoryBoard();
+    historyReplay = {
+        entry: entry,
+        game: new Chess(),
+        moves: entry.moves || [],
+        moveIndex: 0,
+        timer: null,
+        isPlaying: false
+    };
+    updateHistoryDetails(entry);
+    updateHistoryBoard();
+}
+
+function updateHistoryDetails(entry) {
+    const resultEl = $('#history-result');
+    const precisionEl = $('#history-precision');
+    const metaEl = $('#history-meta');
+    const breakdown = $('#history-breakdown');
+    if (!entry) {
+        resultEl.text('—');
+        precisionEl.text('—');
+        metaEl.text('Selecciona una partida per veure detalls.');
+        breakdown.empty();
+        updateHistoryProgress();
+        updateHistoryControls();
+        return;
+    }
+
+    resultEl.text(entry.result || '—');
+    precisionEl.text(typeof entry.precision === 'number' ? `${entry.precision}%` : '—');
+    const movesLabel = entry.moves ? `${entry.moves.length} jugades` : '0 jugades';
+    const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesLabel}`;
+    metaEl.text(meta);
+
+    const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
+    breakdown.html(`
+        <div class="review-chip excel">Excel·lents <strong>${counts.excel || 0}</strong></div>
+        <div class="review-chip good">Bones <strong>${counts.good || 0}</strong></div>
+        <div class="review-chip inaccuracy">Imprecisions <strong>${counts.inaccuracy || 0}</strong></div>
+        <div class="review-chip mistake">Errors <strong>${counts.mistake || 0}</strong></div>
+        <div class="review-chip blunder">Blunders <strong>${counts.blunder || 0}</strong></div>
+    `);
+    updateHistoryProgress();
+    updateHistoryControls();
+}
+
+function historyStepForward() {
+    if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex >= historyReplay.moves.length) return;
+    const move = historyReplay.moves[historyReplay.moveIndex];
+    historyReplay.game.move(move, { sloppy: true });
+    historyReplay.moveIndex++;
+    updateHistoryBoard();
+}
+
+function historyStepBack() {
+    if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex <= 0) return;
+    historyReplay.game.undo();
+    historyReplay.moveIndex--;
+    updateHistoryBoard();
+}
+
+function startHistoryPlayback() {
+    if (!historyReplay || !historyReplay.entry || historyReplay.moves.length === 0 || historyReplay.isPlaying) return;
+    historyReplay.isPlaying = true;
+    updateHistoryControls();
+    historyReplay.timer = setInterval(() => {
+        if (historyReplay.moveIndex >= historyReplay.moves.length) {
+            stopHistoryPlayback();
+            return;
+        }
+        historyStepForward();
+    }, 900);
+}
+
+function renderGameHistory() {
+    const container = $('#history-list');
+    if (!container.length) return;
+    if (!gameHistory.length) {
+        container.html('<div class="history-empty">Encara no hi ha partides guardades.</div>');
+        historyReplay = null;
+        updateHistoryDetails(null);
+        return;
+    }
+    const items = gameHistory
+        .slice()
+        .reverse()
+        .map(entry => {
+            const movesCount = entry.moves ? entry.moves.length : 0;
+            const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesCount} jugades`;
+            return `
+                <div class="history-item" data-history-id="${entry.id}">
+                    <div class="history-item-main">
+                        <div class="history-item-title">${entry.result || '—'}</div>
+                        <div class="history-item-meta">${meta}</div>
+                    </div>
+                    <button class="btn btn-secondary history-select" data-history-id="${entry.id}">▶️ Veure</button>
+                </div>
+            `;
+        })
+        .join('');
+    container.html(items);
+    $('.history-select').off('click').on('click', function() {
+        const id = $(this).data('history-id');
+        const entry = gameHistory.find(item => item.id === id);
+        loadHistoryEntry(entry);
+    });
+    if (!historyReplay || !historyReplay.entry) {
+        loadHistoryEntry(gameHistory[gameHistory.length - 1]);
+    }
+}
+
+function recordGameHistory(resultLabel, finalPrecision, counts) {
+    if (blunderMode || currentGameMode === 'drill') return;
+    const moves = game.history();
+    const now = new Date();
+    const entry = {
+        id: `game_${now.getTime()}`,
+        label: now.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short' }) + ' ' + now.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' }),
+        date: now.toISOString(),
+        mode: currentGameMode,
+        result: resultLabel,
+        precision: finalPrecision,
+        counts: counts,
+        moves: moves,
+        playerColor: playerColor,
+        opponent: currentOpponent || null,
+        pgn: game.pgn()
+    };
+    gameHistory.push(entry);
+    if (gameHistory.length > 60) gameHistory = gameHistory.slice(-60);
+}
+
 function checkShareSupport() {
     if (navigator.canShare && navigator.share) $('#btn-smart-share').show();
 }
@@ -1582,6 +1782,12 @@ function setupEvents() {
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
     
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); });
+    $('#btn-history').click(() => {
+        $('#start-screen').hide();
+        $('#history-screen').show();
+        initHistoryBoard();
+        renderGameHistory();
+    });
 
     $('#btn-league').click(() => { openLeague(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
@@ -1590,7 +1796,21 @@ function setupEvents() {
 
     $('#btn-drills').click(() => { showDrillsMenu(); });
 
-    $('#btn-back-stats').click(() => { $('#stats-screen').hide(); $('#start-screen').show(); });
+    $('#btn-back-stats').click(() => {
+        stopHistoryPlayback();
+        $('#stats-screen').hide();
+        $('#start-screen').show();
+    });
+    $('#btn-back-history').click(() => {
+        stopHistoryPlayback();
+        $('#history-screen').hide();
+        $('#start-screen').show();
+    });
+
+    $('#history-play').off('click').on('click', () => { startHistoryPlayback(); });
+    $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
+    $('#history-prev').off('click').on('click', () => { historyStepBack(); });
+    $('#history-next').off('click').on('click', () => { historyStepForward(); });
 
     $('#result-indicator').off('click').on('click', () => {
         if (!lastReviewSnapshot) return;
@@ -1639,7 +1859,7 @@ function setupEvents() {
             adaptiveLevel = ADAPTIVE_CONFIG.DEFAULT_LEVEL;
             aiDifficulty = levelToDifficulty(adaptiveLevel); recentGames = []; consecutiveWins = 0; consecutiveLosses = 0;
             currentLeague = null; leagueActiveMatch = null;
-            reviewHistory = []; currentReview = [];
+            reviewHistory = []; currentReview = []; gameHistory = [];
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             alert('Totes les dades han estat esborrades. Comença de nou!');
@@ -1681,7 +1901,7 @@ function setupEvents() {
             totalWins: totalWins, maxStreak: maxStreak,
             aiDifficulty: aiDifficulty, adaptiveLevel: adaptiveLevel, recentGames: recentGames, consecutiveWins: consecutiveWins,
             consecutiveLosses: consecutiveLosses, currentLeague: currentLeague, leagueActiveMatch: leagueActiveMatch,
-            reviewHistory: reviewHistory, date: new Date().toLocaleDateString()
+            reviewHistory: reviewHistory, gameHistory: gameHistory, date: new Date().toLocaleDateString()
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
         const url = URL.createObjectURL(blob);
@@ -1713,6 +1933,7 @@ function setupEvents() {
                     currentLeague = data.currentLeague || null;
                     leagueActiveMatch = data.leagueActiveMatch || null;
                     reviewHistory = data.reviewHistory || [];
+                    gameHistory = data.gameHistory || [];
                     saveStorage(); updateDisplay(); alert('Dades importades!');
                 }
             } catch (err) { alert('Error llegint l\'arxiu'); }
@@ -2693,6 +2914,7 @@ function handleGameOver(manualResign = false) {
     }
     
     const reviewCounts = summarizeReview(currentReview);
+    recordGameHistory(msg, finalPrecision, reviewCounts);    
     persistReviewSummary(finalPrecision, msg);
     recordActivity(); saveStorage(); checkMissions(); updateDisplay(); updateReviewChart();
     $('#status').text(msg);
