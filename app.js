@@ -333,9 +333,38 @@ function resizeBoardToViewport() {
     if (board && typeof board.resize === 'function') board.resize();
 }
 
+function resizeTvBoardToViewport() {
+    const boardEl = document.getElementById('tv-board');
+    const tvScreen = document.getElementById('tv-screen');
+    if (!boardEl || !tvScreen) return;
+
+    const isVisible = (tvScreen.style.display !== 'none') && (tvScreen.offsetParent !== null);
+    if (!isVisible) return;
+
+    const container = boardEl.parentElement;
+    if (!container) return;
+
+    const rect = container.getBoundingClientRect();
+    let size = Math.floor(rect.width);
+
+    const isPortrait = window.innerHeight >= window.innerWidth;
+    if (window.innerWidth <= 520 && isPortrait) {
+        size = Math.floor(window.innerWidth - 32);
+    }
+
+    size = Math.max(220, size);
+    boardEl.style.width = `${size}px`;
+    boardEl.style.height = `${size}px`;
+
+    if (tvBoard && typeof tvBoard.resize === 'function') tvBoard.resize();
+}
+
 function scheduleBoardResize() {
     if (resizeTimer) clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => resizeBoardToViewport(), 60);
+    resizeTimer = setTimeout(() => {
+        resizeBoardToViewport();
+        resizeTvBoardToViewport();
+    }, 60);
 }
 
 window.addEventListener('resize', () => { updateDeviceType(); scheduleBoardResize(); }, { passive: true });
@@ -1786,7 +1815,7 @@ function updateTvEndActions() {
 function updateTvBoard() {
     if (!tvBoard || !tvReplay || !tvReplay.game) return;
     tvBoard.position(tvReplay.game.fen(), false);
-    if (typeof tvBoard.resize === 'function') tvBoard.resize();
+    resizeTvBoardToViewport();
     updateTvProgress();
     updateTvControls();
 }
@@ -1800,6 +1829,7 @@ function initTvBoard() {
         position: 'start',
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     });
+    resizeTvBoardToViewport();
 }
 
 function setTvStatus(message, isError = false) {
@@ -1812,15 +1842,21 @@ function updateTvDetails(entry) {
     const resultEl = $('#tv-result');
     const metaEl = $('#tv-meta');
     const eloEl = $('#tv-elo');
+    const whiteEl = $('#tv-white-player');
+    const blackEl = $('#tv-black-player');
     if (!entry) {
         resultEl.text('—');
         metaEl.text('Sense dades.');
         eloEl.text('—');
+        whiteEl.text('—');
+        blackEl.text('—');
         return;
     }
     resultEl.text(`${entry.white} vs ${entry.black}`);
     metaEl.text(`${entry.event} · ${entry.date}`);
     eloEl.text(`${entry.whiteElo} vs ${entry.blackElo}`);
+    whiteEl.text(entry.white || '—');
+    blackEl.text(entry.black || '—');
 }
 
 function extendTvGameToEnd(pgnGame, maxPlies = 200) {
@@ -2030,6 +2066,7 @@ function setupEvents() {
         $('#tv-screen').show();
         initTvBoard();
         loadRandomTvGame();
+        setTimeout(() => { resizeTvBoardToViewport(); }, 0);
     });
     
     $('#btn-league').click(() => { openLeague(); });
