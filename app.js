@@ -1823,6 +1823,18 @@ function updateTvDetails(entry) {
     eloEl.text(`${entry.whiteElo} vs ${entry.blackElo}`);
 }
 
+function extendTvGameToEnd(pgnGame, maxPlies = 200) {
+    let pliesAdded = 0;
+    while (!pgnGame.game_over() && pliesAdded < maxPlies) {
+        const legalMoves = pgnGame.moves();
+        if (!legalMoves.length) break;
+        const randomMove = legalMoves[randInt(0, legalMoves.length - 1)];
+        pgnGame.move(randomMove);
+        pliesAdded++;
+    }
+    return pgnGame.history();
+}
+
 function loadTvGame(entry) {
     if (!entry) return;
     stopTvPlayback();
@@ -1838,7 +1850,7 @@ function loadTvGame(entry) {
         setTvStatus('No s’ha pogut carregar la partida.', true);
         return;
     }
-    const moves = pgnGame.history();
+    const moves = extendTvGameToEnd(pgnGame);
     tvReplay = {
         data: entry,
         game: new Chess(),
@@ -1891,7 +1903,7 @@ function startTvPlayback() {
             return;
         }
         tvStepForward();
-    }, 900);
+    }, 2000);
 }
 
 function resetTvReplay() {
@@ -2059,7 +2071,11 @@ function setupEvents() {
         $('#tv-screen').hide();
         $('#start-screen').show();
     });
-
+    $('.tv-card.gold').off('click').on('click', () => {
+        const boardEl = document.getElementById('tv-board');
+        if (boardEl) boardEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+    
     $('#result-indicator').off('click').on('click', () => {
         if (!lastReviewSnapshot) return;
         showPostGameReview(
