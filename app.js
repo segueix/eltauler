@@ -2411,6 +2411,7 @@ function makeEngineMove() {
                     game.move({ from: forcedMove.substring(0,2), to: forcedMove.substring(2,4) });
                     board.position(game.fen());
                     isEngineThinking = false;
+                    highlightEngineMove(forcedMove.substring(0,2), forcedMove.substring(2,4));
                     registerEngineMovePrecision(forcedMove, null);
                     
                     if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
