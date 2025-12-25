@@ -1600,7 +1600,17 @@ function formatHistoryMode(mode) {
     return 'Partida';
 }
 
-const TV_GAME_POOL = [
+const TV_LICHESS_CHANNELS = [
+    { id: 'featured', label: 'Destacada' },
+    { id: 'classical', label: 'Clàssiques' },
+    { id: 'rapid', label: 'Ràpides' },
+    { id: 'blitz', label: 'Blitz' },
+    { id: 'bullet', label: 'Bullet' },
+    { id: 'ultraBullet', label: 'UltraBullet' },
+    { id: 'chess960', label: 'Chess960' }
+];
+
+const TV_FALLBACK_POOL = [
     {
         id: 'elo2800-ruy',
         white: 'Magnus Carlsen',
@@ -1676,6 +1686,7 @@ const TV_GAME_POOL = [
 ];
 
 const MIN_TV_MOVES = 21;
+let lastTvDynamicId = null;
 
 function stopHistoryPlayback() {
     if (historyReplay && historyReplay.timer) {
@@ -1918,15 +1929,99 @@ async function fetchTvPgn(entry) {
     return entry.pgnText ? entry.pgnText.trim() : '';
 }
 
+function shuffleArray(items) {
+    const list = items.slice();
+    for (let i = list.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [list[i], list[j]] = [list[j], list[i]];
+    }
+    return list;
+}
+
+function formatTvDate(date = new Date()) {
+    return date.toISOString().slice(0, 10).replace(/-/g, '.');
+}
+
+function normalizeTvPlayerName(player, fallback) {
+    if (!player) return fallback;
+    if (player.user) return player.user.name || player.user.id || fallback;
+    return player.name || player.id || player.username || fallback;
+}
+
+function normalizeTvElo(player) {
+    if (!player) return '—';
+    return player.rating || player.elo || '—';
+}
+
+function extractTvGameFromPayload(payload) {
+    if (!payload) return null;
+    if (payload.gameId || payload.id) return payload;
+    if (payload.featured) return payload.featured;
+    if (payload.current) return payload.current;
+    if (payload.game) return payload.game;
+    if (payload.channels && typeof payload.channels === 'object') {
+        const candidates = Object.values(payload.channels);
+        for (const candidate of candidates) {
+            if (!candidate) continue;
+            if (candidate.gameId || candidate.id) return candidate;
+            if (candidate.game) return candidate.game;
+        }
+    }
+    return null;
+}
+
+async function fetchLichessTvGame() {
+    const channels = shuffleArray(TV_LICHESS_CHANNELS);
+    for (const channel of channels) {
+        try {
+            const response = await fetch(`https://lichess.org/api/tv/${channel.id}`, {
+                headers: { 'Accept': 'application/json' },
+                cache: 'no-store'
+            });
+            if (!response.ok) continue;
+            const payload = await response.json();
+            const game = extractTvGameFromPayload(payload);
+            if (!game) continue;
+            const gameId = game.gameId || game.id || (game.game && (game.game.id || game.game.gameId));
+            if (!gameId || gameId === lastTvDynamicId) continue;
+            const players = game.players || (game.game && game.game.players) || {};
+            const white = players.white || players.w;
+            const black = players.black || players.b;
+            const entry = {
+                id: `lichess-${gameId}`,
+                white: normalizeTvPlayerName(white, 'Blanques'),
+                black: normalizeTvPlayerName(black, 'Negres'),
+                whiteElo: normalizeTvElo(white),
+                blackElo: normalizeTvElo(black),
+                event: `Lichess TV · ${channel.label}`,
+                date: formatTvDate(),
+                result: '*',
+                pgnUrl: `https://lichess.org/game/export/${gameId}`
+            };
+            lastTvDynamicId = gameId;
+            return entry;
+        } catch (err) {
+            // Try next channel.
+        }
+    }
+    return null;
+}
+
 async function loadTvGame(entry) {
     if (!entry) return;
     stopTvPlayback();
     initTvBoard();
     setTvStatus('Carregant partida...');
     const rawPgnText = await fetchTvPgn(entry);
-    const pgnText = selectTvPgn(rawPgnText);
-    const pgnGame = new Chess();
-    const loaded = pgnGame.load_pgn(pgnText, { sloppy: true });
+    let pgnText = selectTvPgn(rawPgnText);
+    let pgnGame = new Chess();
+    let loaded = pgnGame.load_pgn(pgnText, { sloppy: true });
+    if (!loaded && entry.pgnText) {
+        const fallbackText = selectTvPgn(entry.pgnText);
+        pgnGame = new Chess();
+        loaded = pgnGame.load_pgn(fallbackText, { sloppy: true });
+        if (loaded) pgnText = fallbackText;
+    }
     if (!loaded) {
         tvReplay = null;
         updateTvDetails(null);
@@ -1986,16 +2081,21 @@ function selectTvPgn(pgnText) {
 }
 
 function pickRandomTvGame() {
-    if (!TV_GAME_POOL.length) return null;
-    if (!tvReplay || !tvReplay.data) return TV_GAME_POOL[randInt(0, TV_GAME_POOL.length - 1)];
+    if (!TV_FALLBACK_POOL.length) return null;
+    if (!tvReplay || !tvReplay.data) return TV_FALLBACK_POOL[randInt(0, TV_FALLBACK_POOL.length - 1)];
     const currentId = tvReplay.data.id;
-    const options = TV_GAME_POOL.filter(entry => entry.id !== currentId);
-    if (!options.length) return TV_GAME_POOL[0];
+    const options = TV_FALLBACK_POOL.filter(entry => entry.id !== currentId);
+    if (!options.length) return TV_FALLBACK_POOL[0];
     return options[randInt(0, options.length - 1)];
 }
 
 async function loadRandomTvGame() {
-    const attempts = TV_GAME_POOL.length || 1;
+      const dynamicEntry = await fetchLichessTvGame();
+    if (dynamicEntry) {
+        const ok = await loadTvGame(dynamicEntry);
+        if (ok) return;
+    }
+    const attempts = TV_FALLBACK_POOL.length || 1;
     for (let i = 0; i < attempts; i++) {
         const next = pickRandomTvGame();
         const ok = await loadTvGame(next);
