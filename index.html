@@ -666,7 +666,14 @@
             overflow: hidden;
             border: 2px solid rgba(201, 162, 39, 0.3);
         }
+                #tv-board {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid rgba(201, 162, 39, 0.3);
+        }
         body.epaper-mode #history-board { border-color: #cfcfcf; }
+        body.epaper-mode #tv-board { border-color: #cfcfcf; }
         .history-controls {
             display: flex;
             justify-content: center;
@@ -679,6 +686,23 @@
             font-size: 0.8rem;
             color: var(--text-secondary);
         }      
+                .tv-section {
+            margin-top: 18px;
+        }
+        .tv-status {
+            margin-top: 10px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            text-align: center;
+            min-height: 1.1em;
+        }
+        .tv-end-actions {
+            display: flex;
+            gap: 10px;
+            justify-content: center;
+            flex-wrap: wrap;
+            margin-top: 12px;
+        }
         
         .stats-header { text-align: center; margin-bottom: 20px; }
         
@@ -1173,7 +1197,7 @@
             <div class="stats-header">
                 <div class="app-logo">📺</div>
                 <h1>TV</h1>
-                <div class="subtitle">Avui només activem la pestanya. Aviat hi haurà contingut.</div>
+                <div class="subtitle">ELO 2800 · Partida aleatòria de la base de dades oberta de Lichess.</div>
             </div>
             <div class="settings-panel">
                 <div class="settings-title">Nivells TV</div>
@@ -1188,6 +1212,34 @@
                     <div class="tv-card shadow">ELO <strong>1500</strong></div>
                 </div>
             </div>
+            <div class="history-section tv-section">
+                <div class="history-title">ELO 2800 · Reproducció</div>
+                <div class="history-layout" style="grid-template-columns: 1fr;">
+                    <div class="history-detail">
+                        <div class="history-detail-header">
+                            <div class="history-detail-title" id="tv-result">—</div>
+                            <div class="history-detail-meta" id="tv-meta">Carregant partida...</div>
+                            <div class="history-detail-meta">ELO: <strong id="tv-elo">—</strong></div>
+                        </div>
+                        <div class="history-board">
+                            <div id="tv-board"></div>
+                        </div>
+                        <div class="history-controls">
+                            <button class="btn btn-secondary" id="tv-prev">⏮️ Endarrere</button>
+                            <button class="btn btn-primary" id="tv-play">▶️ Play</button>
+                            <button class="btn btn-secondary" id="tv-pause">⏸️ Pausa</button>
+                            <button class="btn btn-secondary" id="tv-next">⏭️ Endavant</button>
+                        </div>
+                        <div class="history-progress" id="tv-progress">0/0</div>
+                        <div class="tv-end-actions" id="tv-end-actions" style="display:none;">
+                            <button class="btn btn-primary" id="tv-next-game">SEGÜENT</button>
+                            <button class="btn btn-secondary" id="tv-restart">TORNAR ENRERE</button>
+                            <button class="btn btn-secondary" id="tv-menu">MENÚ</button>
+                        </div>
+                        <div class="tv-status" id="tv-status"></div>
+                    </div>
+                </div>
+            </div>            
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-back-tv">Tornar al Menú</button>
             </div>
