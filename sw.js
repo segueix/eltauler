@@ -1,11 +1,12 @@
 // Service Worker per El Tauler PWA
-const CACHE_NAME = 'eltauler-v2'; // He pujat la versió a v2 per forçar l'actualització
+const CACHE_VERSION = '1.0.4';
+const CACHE_NAME = `eltauler-${CACHE_VERSION}`; // He pujat la versió per forçar l'actualització
 const ASSETS_TO_CACHE = [
   './',
   './index.html',
-  './app.js',
-  './manifest.json',
-  './stockfish.js', // <--- ARA APUNTA AL FITXER LOCAL
+  `./app.js?v=${CACHE_VERSION}`,
+  `./manifest.json?v=${CACHE_VERSION}`,
+  `./stockfish.js?v=${CACHE_VERSION}`, // <--- ARA APUNTA AL FITXER LOCAL
   'https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=Cinzel:wght@500;700&display=swap',
   'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css',
   'https://code.jquery.com/jquery-3.6.0.min.js',
