@@ -1859,18 +1859,6 @@ function updateTvDetails(entry) {
     blackEl.text(entry.black || '—');
 }
 
-function extendTvGameToEnd(pgnGame, maxPlies = 200) {
-    let pliesAdded = 0;
-    while (!pgnGame.game_over() && pliesAdded < maxPlies) {
-        const legalMoves = pgnGame.moves();
-        if (!legalMoves.length) break;
-        const randomMove = legalMoves[randInt(0, legalMoves.length - 1)];
-        pgnGame.move(randomMove);
-        pliesAdded++;
-    }
-    return pgnGame.history();
-}
-
 function loadTvGame(entry) {
     if (!entry) return;
     stopTvPlayback();
@@ -1886,7 +1874,7 @@ function loadTvGame(entry) {
         setTvStatus('No s’ha pogut carregar la partida.', true);
         return;
     }
-    const moves = extendTvGameToEnd(pgnGame);
+    const moves = pgnGame.history();
     tvReplay = {
         data: entry,
         game: new Chess(),
