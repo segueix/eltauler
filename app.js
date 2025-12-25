@@ -2806,6 +2806,20 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         updateStatsDisplay();
         if (typeof onClose === 'function') onClose();
     });
+
+    $('#btn-review-menu').off('click').on('click', () => {
+        if (reviewAutoCloseTimer) {
+            clearTimeout(reviewAutoCloseTimer);
+            reviewAutoCloseTimer = null;
+        }
+        if (reviewOpenDelayTimer) {
+            clearTimeout(reviewOpenDelayTimer);
+            reviewOpenDelayTimer = null;
+        }
+        checkmateOverlay.hide();
+        modal.hide();
+        returnToMainMenuImmediate();
+    });
 }
 
 function returnToMainMenuImmediate() {
