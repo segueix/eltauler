@@ -2042,7 +2042,7 @@ function startGame(isBundle, fen = null) {
 
     // Lògica de Modes
     if (isCalibrationGame) {
-        $('#engine-elo').text(`Calibratge · ${CALIBRATION_ENGINE_PRECISION}%`);
+        $('#engine-elo').text('Calibratge');
         $('#game-mode-title').text('🎯 Partida de calibratge');
     } else if (currentGameMode === 'drill') {
         $('#engine-elo').text('Mestre');
