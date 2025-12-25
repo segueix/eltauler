@@ -2030,14 +2030,23 @@ async function loadTvGame(entry) {
         setTvStatus('No s’ha pogut carregar la partida.', true);
        return false;
     }
-    const header = pgnGame.header ? pgnGame.header() : {};
+      const header = pgnGame.header ? pgnGame.header() : {};
     const result = header && header.Result ? header.Result : '*';
-    if (result === '*') {
+    const termination = header && header.Termination ? String(header.Termination).toLowerCase() : '';
+    const normalizedPgn = pgnText.trim();
+    const endMatch = normalizedPgn.match(/(1-0|0-1|1\/2-1\/2|\*)\s*$/);
+    const endToken = endMatch ? endMatch[1] : null;
+    const isOngoing = result === '*'
+        || termination.includes('unterminated')
+        || termination.includes('abandoned')
+        || !endToken
+        || endToken !== result;
+    if (isOngoing) {
         tvReplay = null;
         updateTvDetails(null);
         updateTvProgress();
         updateTvControls();
-        setTvStatus('Partida en curs. Buscant-ne una de completa...', true);
+        setTvStatus('Partida inacabada. Buscant-ne una de completa...', true);
         return false;
     }
     const moves = pgnGame.history();
