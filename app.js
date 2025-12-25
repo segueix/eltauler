@@ -190,47 +190,6 @@ function applyEpaperMode(enabled, options = {}) {
     if (reviewChart) updateReviewChart();
 }
 
-function showConfirm(message, options = {}) {
-    const modal = $('#confirm-modal');
-    const titleEl = $('#confirm-modal-title');
-    const messageEl = $('#confirm-modal-message');
-    const confirmBtn = $('#confirm-modal-confirm');
-    const cancelBtn = $('#confirm-modal-cancel');
-    const title = options.title || 'Confirmació';
-    const confirmText = options.confirmText || 'Confirmar';
-    const cancelText = options.cancelText || 'Cancel·lar';
-
-    return new Promise((resolve) => {
-        const close = (value) => {
-            modal.hide();
-            confirmBtn.off('click');
-            cancelBtn.off('click');
-            modal.off('click');
-            $(document).off('keydown', escHandler);
-            resolve(value);
-        };
-
-        const escHandler = (event) => {
-            if (event.key === 'Escape') close(false);
-        };
-
-        titleEl.text(title);
-        messageEl.text(message);
-        confirmBtn.text(confirmText);
-        cancelBtn.text(cancelText);
-
-        confirmBtn.off('click').on('click', () => close(true));
-        cancelBtn.off('click').on('click', () => close(false));
-        modal.off('click').on('click', (event) => {
-            if (event.target === modal[0]) close(false);
-        });
-        $(document).on('keydown', escHandler);
-
-        modal.css('display', 'flex');
-        confirmBtn.trigger('focus');
-    });
-}
-
 // Estat de validació Top-2 al Bundle
 let isBundleTop2Analysis = false;
 let bundlePvMoves = {};
@@ -1905,11 +1864,7 @@ function setupEvents() {
     $('#btn-cancel-delete').click(() => { $('#confirm-delete-panel').slideUp(); });
     
     $('#btn-confirm-delete').click(() => {
-         showConfirm(
-            'Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.',
-            { title: 'Confirmar esborrat', confirmText: 'Esborrar', cancelText: 'Cancel·lar' }
-        ).then((confirmed) => {
-            if (!confirmed) return;
+        if (confirm('Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.')) {
             localStorage.clear();
             saveEpaperPreference(epaperEnabled);
             applyControlMode(getDefaultControlMode(), { save: true, rebuild: false });
@@ -1929,7 +1884,8 @@ function setupEvents() {
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             alert('Totes les dades han estat esborrades. Comença de nou!');
-        });
+        }
+    });
     
     $('#btn-hint').click(() => {
         if (!stockfish && !ensureStockfish()) { $('#status').text("Motor Stockfish no disponible").css('color', '#c62828'); return; }
@@ -1981,12 +1937,7 @@ function setupEvents() {
         reader.onload = (ev) => {
             try {
                 const data = JSON.parse(ev.target.result);
-                showConfirm(`Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`, {
-                    title: 'Importar dades',
-                    confirmText: 'Importar',
-                    cancelText: 'Cancel·lar'
-                }).then((confirmed) => {
-                    if (!confirmed) return;
+                if (confirm(`Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`)) {
                     userELO = data.elo || 50; savedErrors = data.bundles || [];
                     currentStreak = data.streak || 0; lastPracticeDate = data.lastPracticeDate || null;
                     totalStars = data.totalStars || 0; unlockedBadges = data.unlockedBadges || [];
@@ -2005,7 +1956,7 @@ function setupEvents() {
                     reviewHistory = data.reviewHistory || [];
                     gameHistory = data.gameHistory || [];
                     saveStorage(); updateDisplay(); alert('Dades importades!');
-                });
+                }
             } catch (err) { alert('Error llegint l\'arxiu'); }
         };
         reader.readAsText(file);
@@ -2054,31 +2005,17 @@ function setupEvents() {
 
     $('#btn-back').click(() => {
         if (leagueActiveMatch) {
-            showConfirm("Sortir de la partida de lliga? Comptarà com a derrota.", {
-                title: 'Sortir de la lliga',
-                confirmText: 'Sortir',
-                cancelText: 'Cancel·lar'
-            }).then((confirmed) => {
-                if (confirmed) handleGameOver(true);
-            });
+            if (confirm("Sortir de la partida de lliga? Comptarà com a derrota.")) handleGameOver(true);
             return;
         }
-        showConfirm('Sortir de la partida?', {
-            title: 'Sortir de la partida',
-            confirmText: 'Sortir',
-            cancelText: 'Cancel·lar'
-        }).then((confirmed) => {
-            if (!confirmed) return;
+        if (confirm('Sortir de la partida?')) {
             $('#game-screen').hide(); $('#start-screen').show();
             if (stockfish) stockfish.postMessage('stop');
-        });
+        }
     });
 
     $('#btn-resign').click(() => {
-        showConfirm('Rendir-se?', { title: 'Rendir-se', confirmText: 'Rendir-se', cancelText: 'Cancel·lar' })
-            .then((confirmed) => {
-                if (confirmed) handleGameOver(true);
-            });
+        if (confirm('Rendir-se?')) handleGameOver(true);
     });
 
     $('#btn-bundle-menu').click(() => {
@@ -2201,12 +2138,10 @@ function showBundleMenu() {
 }
 
 function removeBundle(idx) {
-    showConfirm('Esborrar aquest error?', { title: 'Esborrar error', confirmText: 'Esborrar', cancelText: 'Cancel·lar' })
-        .then((confirmed) => {
-            if (!confirmed) return;
-            savedErrors.splice(idx, 1); saveStorage(); updateDisplay();
-            $('#bundle-modal').remove(); if (savedErrors.length > 0) showBundleMenu();
-        });
+    if (confirm('Esborrar aquest error?')) {
+        savedErrors.splice(idx, 1); saveStorage(); updateDisplay();
+        $('#bundle-modal').remove(); if (savedErrors.length > 0) showBundleMenu();
+    }
 }
 
 window.startBundleGame = function(fen) {
@@ -2245,13 +2180,6 @@ function startMatchErrorReview() {
     launchNextMatchError();
 }
 
-function scrollToMatchErrorReview() {
-    const boardEl = document.getElementById('myBoard');
-    const target = boardEl || document.getElementById('game-screen');
-    if (!target || typeof target.scrollIntoView !== 'function') return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function launchNextMatchError() {
     if (matchErrorQueue.length === 0) {
         endMatchErrorReviewSession();
@@ -2271,17 +2199,12 @@ function endMatchErrorReviewSession() {
 function promptMatchErrorNext() {
     const remaining = matchErrorQueue.length;
     if (remaining > 0) {
-         showConfirm(`Vols revisar un altre error? En queden ${remaining}.`, {
-            title: 'Continuar revisió',
-            confirmText: 'Sí, seguir',
-            cancelText: 'No'
-        }).then((wantsMore) => {
-            if (wantsMore) {
-                launchNextMatchError();
-            } else {
-                endMatchErrorReviewSession();
-            }
-        });
+        const wantsMore = confirm(`Vols revisar un altre error? En queden ${remaining}.`);
+        if (wantsMore) {
+            launchNextMatchError();
+        } else {
+            endMatchErrorReviewSession();
+        }
     } else {
         alert('Ja has revisat tots els errors de la partida.');
         endMatchErrorReviewSession();
@@ -2360,9 +2283,7 @@ function startGame(isBundle, fen = null) {
     });
 
     setTimeout(() => { resizeBoardToViewport(); }, 0);
-    if (isMatchErrorReviewSession) {
-        setTimeout(() => { scrollToMatchErrorReview(); }, 0);
-    }
+
     if (controlMode === 'tap') {
         detachDragGuards();
         disableTapToMove(); 
@@ -2991,17 +2912,11 @@ function handleGameOver(manualResign = false) {
             returnToMainMenuImmediate();
             return;
         } else {
-            showConfirm("Entrenament fallit. Vols tornar-ho a provar?", {
-                title: 'Reintentar entrenament',
-                confirmText: 'Reintentar',
-                cancelText: 'Sortir'
-            }).then((retry) => {
-                if (retry) {
-                    game.undo(); board.position(game.fen()); return;
-                }
+            if(confirm("Entrenament fallit. Vols tornar-ho a provar?")) {
+                game.undo(); board.position(game.fen()); return;
+            } else {
                 returnToMainMenuImmediate(); return;
-              });
-            return;
+            }
         }
     }
 
