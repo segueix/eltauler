@@ -528,6 +528,100 @@
 
         /* STATS SCREEN */
         #stats-screen { text-align: left; }
+  
+        .history-section {
+            margin-top: 20px;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            border-radius: 12px;
+            padding: 14px;
+        }
+        body.epaper-mode .history-section {
+            background: var(--bg-card);
+            border: 1px solid #cfcfcf;
+        }
+        .history-title {
+            font-family: 'Cinzel', serif;
+            font-size: 0.95rem;
+            color: var(--accent-gold);
+            margin-bottom: 10px;
+        }
+        .history-layout {
+            display: grid;
+            grid-template-columns: 1fr;
+            gap: 16px;
+        }
+        body.device-desktop .history-layout,
+        body.device-tablet .history-layout {
+            grid-template-columns: 1fr 1fr;
+        }
+        .history-list {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            max-height: 360px;
+            overflow-y: auto;
+            padding-right: 4px;
+        }
+        .history-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            background: rgba(0,0,0,0.25);
+            border-radius: 10px;
+            padding: 10px 12px;
+            border: 1px solid rgba(201, 162, 39, 0.15);
+        }
+        body.epaper-mode .history-item {
+            background: #eaeaea;
+            border-color: #cfcfcf;
+        }
+        .history-item-title { font-weight: 600; font-size: 0.95rem; }
+        .history-item-meta { font-size: 0.75rem; color: var(--text-secondary); }
+        .history-empty { color: var(--text-secondary); font-size: 0.85rem; text-align: center; padding: 12px; }
+        .history-detail {
+            background: rgba(0,0,0,0.25);
+            border-radius: 12px;
+            padding: 12px;
+            border: 1px solid rgba(201, 162, 39, 0.15);
+        }
+        body.epaper-mode .history-detail {
+            background: #ededed;
+            border-color: #cfcfcf;
+        }
+        .history-detail-header {
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            margin-bottom: 10px;
+        }
+        .history-detail-title { font-size: 1rem; font-weight: 600; }
+        .history-detail-meta { font-size: 0.8rem; color: var(--text-secondary); }
+        .history-board {
+            width: 100%;
+            max-width: 360px;
+            margin: 10px auto 12px;
+        }
+        #history-board {
+            width: 100%;
+            border-radius: 12px;
+            overflow: hidden;
+            border: 2px solid rgba(201, 162, 39, 0.3);
+        }
+        body.epaper-mode #history-board { border-color: #cfcfcf; }
+        .history-controls {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin-bottom: 8px;
+        }
+        .history-progress {
+            text-align: center;
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+        }      
         
         .stats-header { text-align: center; margin-bottom: 20px; }
         
@@ -881,6 +975,7 @@
                     📚 Revisa Errors
                     <span style="font-size:0.75rem; opacity:0.8;" id="bundle-info">Cap error desat</span>
                 </button>
+                <button class="btn btn-secondary" id="btn-history" style="background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: white;">📜 Historial</button>
                 <button class="btn btn-secondary" id="btn-stats" style="background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: white;">📊 Estadístiques</button>
             </div>
             
@@ -961,7 +1056,7 @@
                     <div class="stat-card-label">Millor Ratxa</div>
                 </div>
             </div>
-            
+
             <div class="danger-zone">
                 <div class="danger-zone-title">⚠️ Zona Perillosa</div>
                 <button class="btn btn-danger" id="btn-show-delete" style="width:100%;">
@@ -979,6 +1074,40 @@
             
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-back-stats">Tornar al Menú</button>
+            </div>
+        </div>
+   
+        <div id="history-screen" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">📜</div>
+                <h1>Historial</h1>
+            </div>
+            <div class="history-section">
+                <div class="history-title">Partides guardades</div>
+                <div class="history-layout">
+                    <div class="history-list" id="history-list"></div>
+                    <div class="history-detail">
+                        <div class="history-detail-header">
+                            <div class="history-detail-title" id="history-result">—</div>
+                            <div class="history-detail-meta" id="history-meta">Selecciona una partida per veure detalls.</div>
+                            <div class="history-detail-meta">Precisió: <strong id="history-precision">—</strong></div>
+                        </div>
+                        <div class="review-legend" id="history-breakdown"></div>
+                        <div class="history-board">
+                            <div id="history-board"></div>
+                        </div>
+                        <div class="history-controls">
+                            <button class="btn btn-secondary" id="history-prev">⏮️ Endarrere</button>
+                            <button class="btn btn-primary" id="history-play">▶️ Play</button>
+                            <button class="btn btn-secondary" id="history-pause">⏸️ Pausa</button>
+                            <button class="btn btn-secondary" id="history-next">⏭️ Endavant</button>
+                        </div>
+                        <div class="history-progress" id="history-progress">0/0</div>
+                    </div>
+                </div>
+            </div>
+            <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-primary" id="btn-back-history">Tornar al Menú</button>
             </div>
         </div>
         
