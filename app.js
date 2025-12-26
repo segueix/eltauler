@@ -103,6 +103,9 @@ let goodEngineMoves = 0;
 let tapSelectedSquare = null;
 let tapMoveEnabled = false;
 let lastTapEventTs = 0;
+let tvTapSelectedSquare = null;
+let tvTapMoveEnabled = false;
+let tvLastTapEventTs = 0;
 
 let deviceType = 'desktop';
 
@@ -131,8 +134,10 @@ function updateDeviceType() {
     if (detected !== deviceType) {
         applyDeviceType(detected);
         resizeBoardToViewport();
+        updateTvBoardInteractivity();        
     } else if (!document.body.classList.contains(`device-${detected}`)) {
         applyDeviceType(detected);
+        updateTvBoardInteractivity();
     }
 }
 
@@ -323,6 +328,7 @@ function applyControlMode(mode, opts) {
     if (sel) sel.value = mode;
 
     if (o.rebuild) rebuildBoardForControlMode();
+    updateTvBoardInteractivity();
 }
 
 // Resize del tauler perquè ocupi el màxim possible
@@ -413,6 +419,11 @@ function clearTapSelection() {
     $('.square-55d63').removeClass('tap-selected tap-move');
 }
 
+function clearTvTapSelection() {
+    tvTapSelectedSquare = null;
+    $('#tv-board .square-55d63').removeClass('tap-selected tap-move');
+}
+
 function clearEngineMoveHighlights() {
     $('#myBoard .square-55d63').removeClass('engine-move');
 }
@@ -435,6 +446,13 @@ function highlightTapSelection(square) {
     for (const mv of moves) {
         $(`#myBoard .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
     }
+}
+
+function highlightTvTapSelection(square) {
+    $('#tv-board .square-55d63').removeClass('tap-selected tap-move');
+    if (!square) return;
+    const sel = $(`#tv-board .square-55d63[data-square='${square}']`);
+    sel.addClass('tap-selected');
 }
 
 function commitHumanMoveFromTap(from, to) {
@@ -508,6 +526,53 @@ function enableTapToMove() {
             highlightTapSelection(square);
         }
     });
+}
+
+function enableTvTapToMove() {
+    if (tvTapMoveEnabled) return;
+    tvTapMoveEnabled = true;
+    const boardEl = document.getElementById('tv-board');
+    if (boardEl) boardEl.style.touchAction = 'none';
+
+    $('#tv-board').off('.tv-tapmove')
+        .on(`pointerdown.tv-tapmove touchstart.tv-tapmove`, '.square-55d63', function(e) {
+            if (!tvJeroglyphicsActive || tvJeroglyphicsAnalyzing || tvJeroglyphicsSolved || tvJeroglyphicsIncorrect) return;
+            if (!tvReplay || !tvReplay.game) return;
+
+            if (e && e.preventDefault) e.preventDefault();
+
+            const nowTs = Date.now();
+            if (nowTs - tvLastTapEventTs < 180) return;
+            tvLastTapEventTs = nowTs;
+
+            const square = $(this).attr('data-square');
+            if (!square) return;
+
+            if (!tvTapSelectedSquare) {
+                const p = tvReplay.game.get(square);
+                if (!p || p.color !== tvReplay.game.turn()) return;
+                tvTapSelectedSquare = square;
+                highlightTvTapSelection(square);
+                return;
+            }
+
+            if (square === tvTapSelectedSquare) {
+                clearTvTapSelection();
+                return;
+            }
+
+            tvOnDrop(tvTapSelectedSquare, square);
+            clearTvTapSelection();
+        });
+}
+
+function disableTvTapToMove() {
+    if (!tvTapMoveEnabled) return;
+    tvTapMoveEnabled = false;
+    $('#tv-board').off('.tv-tapmove');
+    const boardEl = document.getElementById('tv-board');
+    if (boardEl) boardEl.style.touchAction = '';
+    clearTvTapSelection();
 }
 
 let currentStreak = 0;
@@ -1940,6 +2005,7 @@ function updateTvControls() {
     prevBtn.prop('disabled', !hasEntry || atStart || tvReplay.isPlaying || lockedByPuzzle);
     nextBtn.prop('disabled', !hasEntry || atEnd || tvReplay.isPlaying || lockedByPuzzle);
      hintBtn.prop('disabled', !tvJeroglyphicsActive || tvJeroglyphicsSolved);
+    updateTvBoardInteractivity();  
     updateTvEndActions();
 }
 
@@ -1986,6 +2052,18 @@ function initTvBoard() {
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     });
     resizeTvBoardToViewport();
+    updateTvBoardInteractivity();
+}
+
+function updateTvBoardInteractivity() {
+    if (!tvBoard) return;
+    const shouldUseTap = tvJeroglyphicsActive && deviceType === 'mobile' && controlMode === 'tap' && isTouchDevice();
+    tvBoard.draggable = !shouldUseTap;
+    if (shouldUseTap) {
+        enableTvTapToMove();
+    } else {
+        disableTvTapToMove();
+    }
 }
 
 function clearTvHintHighlight() {
