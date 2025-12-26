@@ -421,7 +421,7 @@ function clearTapSelection() {
 
 function clearTvTapSelection() {
     tvTapSelectedSquare = null;
-    $('#tv-board .square-55d63').removeClass('tap-selected tap-move');
+    applyEpaperMode(loadEpaperPreference(), { skipSave: true });
 }
 
 function clearEngineMoveHighlights() {
