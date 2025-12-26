@@ -35,6 +35,7 @@ let tvJeroglyphicsTargetIndex = null;
 let tvJeroglyphicsActualMove = null;
 let tvJeroglyphicsResumePlayback = false;
 let tvJeroglyphicsSolved = false;
+let tvJeroglyphicsIncorrect = false;
 
 // Sistema d'IA Adaptativa
 let recentGames = []; 
@@ -1932,7 +1933,7 @@ function updateTvControls() {
     const atStart = !hasEntry || tvReplay.moveIndex === 0;
     const atEnd = !hasEntry || tvReplay.moveIndex >= movesCount;
 
-    const lockedByPuzzle = tvJeroglyphicsActive || tvJeroglyphicsAnalyzing;
+    const lockedByPuzzle = tvJeroglyphicsActive || tvJeroglyphicsAnalyzing || tvJeroglyphicsIncorrect;
 
     playBtn.prop('disabled', !hasEntry || movesCount === 0 || tvReplay.isPlaying || atEnd || lockedByPuzzle);
     pauseBtn.prop('disabled', !hasEntry || !tvReplay.isPlaying || lockedByPuzzle);
@@ -1998,7 +1999,7 @@ function highlightTvHintSquare(square) {
 }
 
 function tvOnDragStart(source, piece) {
-    if (!tvJeroglyphicsActive || tvJeroglyphicsAnalyzing || tvJeroglyphicsSolved) return false;
+    if (!tvJeroglyphicsActive || tvJeroglyphicsAnalyzing || tvJeroglyphicsSolved || tvJeroglyphicsIncorrect) return false;
     if (!tvReplay || !tvReplay.game) return false;
     if ((tvReplay.game.turn() === 'w' && piece.search(/^b/) !== -1) ||
         (tvReplay.game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
@@ -2016,11 +2017,15 @@ function tvOnDrop(source, target) {
     if (ok) {
         setTvStatus('Correcte! Pots continuar la partida.');
         tvJeroglyphicsSolved = true;
+        tvJeroglyphicsIncorrect = false;
         tvJeroglyphicsAnalyzing = false;
         updateTvJeroglyphicsUI();
         updateTvControls()
     } else {
-        setTvStatus('No és una de les dues millors opcions. Torna-ho a provar.');
+        setTvStatus('Incorrecte. Torna-ho a provar.');
+        tvJeroglyphicsIncorrect = true;
+        updateTvJeroglyphicsUI();
+        updateTvControls();
     }
     return 'snapback';
 }
@@ -2043,7 +2048,9 @@ function getTvJeroglyphicsTurnLabel() {
 
 function updateTvJeroglyphicsUI() {
     const turnEl = $('#tv-jeroglyphics-turn');
-    const resultEl = $('#tv-jeroglyphics-result');
+    const overlayEl = $('#tv-jeroglyphics-overlay');
+    const correctEl = $('#tv-jeroglyphics-result-correct');
+    const incorrectEl = $('#tv-jeroglyphics-result-incorrect');
     if (turnEl.length) {
         if (tvJeroglyphicsActive) {
             turnEl.text(getTvJeroglyphicsTurnLabel());
@@ -2052,8 +2059,11 @@ function updateTvJeroglyphicsUI() {
             turnEl.hide();
         }
     }
-    if (resultEl.length) {
-        resultEl.toggle(!!tvJeroglyphicsSolved);
+    if (overlayEl.length) {
+        const showOverlay = tvJeroglyphicsActive && (tvJeroglyphicsSolved || tvJeroglyphicsIncorrect);
+        overlayEl.toggle(showOverlay);
+        correctEl.toggle(!!tvJeroglyphicsSolved);
+        incorrectEl.toggle(!!tvJeroglyphicsIncorrect);
     }
 }
 
@@ -2087,7 +2097,8 @@ function resetTvJeroglyphicsState() {
     tvJeroglyphicsTargetIndex = null;
     tvJeroglyphicsActualMove = null;
     tvJeroglyphicsResumePlayback = false;
-    tvJeroglyphicsSolved = false;   
+    tvJeroglyphicsSolved = false;
+    tvJeroglyphicsIncorrect = false;
     clearTvHintHighlight();
     updateTvJeroglyphicsUI();
 }
@@ -2474,6 +2485,7 @@ function startTvJeroglyphics(resumePlayback) {
     tvJeroglyphicsActualMove = tvReplay.moves[tvReplay.moveIndex] || null;
     tvJeroglyphicsResumePlayback = !!resumePlayback;
     tvJeroglyphicsSolved = false;
+    tvJeroglyphicsIncorrect = false;
     clearTvHintHighlight();
     stopTvPlayback();
     setTvStatus('Jeroglífic: buscant les dues millors jugades...');
@@ -2491,6 +2503,7 @@ function finishTvJeroglyphics(options = {}) {
     tvJeroglyphicsAnalyzing = false;
     tvJeroglyphicsHinting = false;
     tvJeroglyphicsSolved = false;
+    tvJeroglyphicsIncorrect = false;
     tvJeroglyphicsResumePlayback = false;
     clearTvHintHighlight();
     try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
@@ -2520,7 +2533,7 @@ function cancelTvJeroglyphics(message) {
 }
 
 function requestTvJeroglyphicsHint() {
-    if (!tvJeroglyphicsActive || tvJeroglyphicsSolved || !tvReplay || !tvReplay.game) return;
+    if (!tvJeroglyphicsActive || tvJeroglyphicsSolved || tvJeroglyphicsIncorrect || !tvReplay || !tvReplay.game) return;
     if (tvJeroglyphicsAnalyzing) {
         setTvStatus('Esperant les millors jugades...');
         return;
@@ -2740,6 +2753,19 @@ function setupEvents() {
         setTvStatus('');
         finishTvJeroglyphics({ advanceMove: true, resumePlayback: tvJeroglyphicsResumePlayback });
     });
+    $('#tv-jeroglyphics-retry').off('click').on('click', () => {
+        if (!tvJeroglyphicsIncorrect) return;
+        tvJeroglyphicsIncorrect = false;
+        setTvStatus('');
+        updateTvJeroglyphicsUI();
+        updateTvControls();
+    });
+    $('#tv-jeroglyphics-watch').off('click').on('click', () => {
+        if (!tvJeroglyphicsIncorrect) return;
+        tvJeroglyphicsIncorrect = false;
+        setTvStatus('');
+        finishTvJeroglyphics({ advanceMove: true, resumePlayback: tvJeroglyphicsResumePlayback });
+    });    
     $('#tv-next-game').off('click').on('click', () => { void loadRandomTvGame(); });    
     $('#tv-restart').off('click').on('click', () => { resetTvReplay(); });
     $('#tv-random').off('click').on('click', () => { void loadRandomTvGame(); });    
