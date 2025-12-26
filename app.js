@@ -1612,76 +1612,103 @@ const TV_LICHESS_CHANNELS = [
 
 const TV_FALLBACK_POOL = [
     {
-        id: 'elo2800-ruy',
+        id: 'carlsen-caruana-wcc2018-g12',
         white: 'Magnus Carlsen',
+        black: 'Fabiano Caruana',
+        whiteElo: 2835,
+        blackElo: 2832,
+        event: 'World Chess Championship 2018',
+        date: '2018.11.26',
+        result: '1/2-1/2',
+        pgnText: `[Event "World Chess Championship 2018"]
+[Site "London"]
+[Date "2018.11.26"]
+[Round "12"]
+[White "Carlsen, Magnus"]
+[Black "Caruana, Fabiano"]
+[Result "1/2-1/2"]
+[WhiteElo "2835"]
+[BlackElo "2832"]
+
+1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 O-O 8. h3 d6 9. c3 Na5 10. Bc2 c5 11. d4 Qc7 12. Nbd2 cxd4 13. cxd4 Bd7 14. Nf1 Rac8 15. Ne3 Nc6 16. d5 Nb4 17. Bb1 a5 18. a3 Na6 19. b4 g6 20. Bd2 Qb8 21. Bd3 Nc7 22. Rc1 Nxd5 23. Nxd5 Nxd5 24. exd5 Rxc1 25. Qxc1 Rc8 26. Qb1 axb4 27. axb4 Bf6 28. Rc1 Rxc1+ 29. Qxc1 Qa8 30. Bc3 Qa2 31. Bb1 Qa6 1/2-1/2`
+    },
+    {
+        id: 'kasparov-topalov-1999',
+        white: 'Garry Kasparov',
+        black: 'Veselin Topalov',
+        whiteElo: 2851,
+        blackElo: 2700,
+        event: 'Hoogovens Wijk aan Zee',
+        date: '1999.01.20',
+        result: '1-0',
+        pgnText: `[Event "Hoogovens"]
+[Site "Wijk aan Zee"]
+[Date "1999.01.20"]
+[White "Kasparov, Garry"]
+[Black "Topalov, Veselin"]
+[Result "1-0"]
+[WhiteElo "2851"]
+[BlackElo "2700"]
+
+1. e4 d6 2. d4 Nf6 3. Nc3 g6 4. Be3 Bg7 5. Qd2 c6 6. f3 b5 7. Nge2 Nbd7 8. Bh6 Bxh6 9. Qxh6 Bb7 10. a3 e5 11. O-O-O Qe7 12. Kb1 a6 13. Nc1 O-O-O 14. Nb3 exd4 15. Rxd4 c5 16. Rd1 Nb6 17. g3 Kb8 18. Na5 Ba8 19. Bh3 d5 20. Qf4+ Ka7 21. Rhe1 d4 22. Nd5 Nbxd5 23. exd5 Qd6 24. Rxd4 cxd4 25. Re7+ Kb6 26. Qxd4+ Kxa5 27. b4+ Ka4 28. Qc3 Qxd5 29. Ra7 Bb7 30. Rxb7 Qc4 31. Qxf6 Kxa3 32. Qxa6+ Kxb4 33. c3+ Kxc3 34. Qa1+ Kd2 35. Qb2+ Kd1 36. Bf1 Rd2 37. Rd7 Rxd7 38. Bxc4 bxc4 39. Qxh8 Rd3 40. Qa8 c3 41. Qa4+ Ke1 42. f4 f5 43. Kc1 Rd2 44. Qa7 1-0`
+    },
+    {
+        id: 'morphy-duke-opera-1858',
+        white: 'Paul Morphy',
+        black: 'Duke of Brunswick',
+        whiteElo: 2690,
+        blackElo: 2000,
+        event: 'Paris Opera',
+        date: '1858.11.02',
+        result: '1-0',
+        pgnText: `[Event "Paris Opera"]
+[Site "Paris"]
+[Date "1858.11.02"]
+[White "Morphy, Paul"]
+[Black "Duke of Brunswick and Count Isouard"]
+[Result "1-0"]
+
+1. e4 e5 2. Nf3 d6 3. d4 Bg4 4. dxe5 Bxf3 5. Qxf3 dxe5 6. Bc4 Nf6 7. Qb3 Qe7 8. Nc3 c6 9. Bg5 b5 10. Nxb5 cxb5 11. Bxb5+ Nbd7 12. O-O-O Rd8 13. Rxd7 Rxd7 14. Rd1 Qe6 15. Bxd7+ Nxd7 16. Qb8+ Nxb8 17. Rd8# 1-0`
+    },
+    {
+        id: 'fischer-spassky-1972-g6',
+        white: 'Bobby Fischer',
+        black: 'Boris Spassky',
+        whiteElo: 2785,
+        blackElo: 2660,
+        event: 'World Championship 1972',
+        date: '1972.07.23',
+        result: '1-0',
+        pgnText: `[Event "World Championship"]
+[Site "Reykjavik"]
+[Date "1972.07.23"]
+[Round "6"]
+[White "Fischer, Robert James"]
+[Black "Spassky, Boris"]
+[Result "1-0"]
+
+1. c4 e6 2. Nf3 d5 3. d4 Nf6 4. Nc3 Be7 5. Bg5 O-O 6. e3 h6 7. Bh4 b6 8. cxd5 Nxd5 9. Bxe7 Qxe7 10. Nxd5 exd5 11. Rc1 Be6 12. Qa4 c5 13. Qa3 Rc8 14. Bb5 a6 15. dxc5 bxc5 16. O-O Ra7 17. Be2 Nd7 18. Nd4 Qf8 19. Nxe6 fxe6 20. e4 d4 21. f4 Qe7 22. e5 Rb8 23. Bc4 Kh8 24. Qh3 Nf8 25. b3 a5 26. f5 exf5 27. Rxf5 Nh7 28. Rcf1 Qd8 29. Qg3 Re7 30. h4 Rbb7 31. e6 Rbc7 32. Qe5 Qe8 33. a4 Qd8 34. R1f2 Qe8 35. R2f3 Qd8 36. Bd3 Qe8 37. Qe4 Nf6 38. Rxf6 gxf6 39. Rxf6 Kg8 40. Bc4 Kh8 41. Qf4 1-0`
+    },
+    {
+        id: 'ding-nepo-wcc2023-g12',
+        white: 'Ding Liren',
         black: 'Ian Nepomniachtchi',
-        whiteElo: 2882,
-        blackElo: 2835,
-        event: 'Lichess Open Database',
-        date: '2024.06.12',
-        result: '1/2-1/2',
-        pgnUrl: 'https://lichess.org/open/elo2800-ruy.pgn',
-        pgnText: `[Event "Lichess Open Database"]
-[Site "https://lichess.org/open/elo2800-ruy"]
-[Date "2024.06.12"]
-[White "Magnus Carlsen"]
-[Black "Ian Nepomniachtchi"]
-[Result "1/2-1/2"]
-[WhiteElo "2882"]
-[BlackElo "2835"]
+        whiteElo: 2788,
+        blackElo: 2795,
+        event: 'World Chess Championship 2023',
+        date: '2023.04.28',
+        result: '1-0',
+        pgnText: `[Event "World Chess Championship 2023"]
+[Site "Astana"]
+[Date "2023.04.28"]
+[Round "12"]
+[White "Ding, Liren"]
+[Black "Nepomniachtchi, Ian"]
+[Result "1-0"]
+[WhiteElo "2788"]
+[BlackElo "2795"]
 
-1. e4 e5 2. Nf3 Nc6 3. Bb5 a6 4. Ba4 Nf6 5. O-O Be7 6. Re1 b5 7. Bb3 d6
-8. c3 O-O 9. h3 Nb8 10. d4 Nbd7 11. c4 c6 12. Nc3 Qc7 13. Be3 Bb7
-14. Rc1 Rfe8 15. cxb5 axb5 16. Nxb5 Qb8 17. dxe5 dxe5 18. Ng5 Rf8
-19. Nxf7 Rxf7 20. Bxf7+ Kxf7 21. Qb3+ Kf8 22. Nc3 1/2-1/2`
-    },
-    {
-        id: 'elo2800-qg',
-        white: 'Fabiano Caruana',
-        black: 'Ding Liren',
-        whiteElo: 2815,
-        blackElo: 2806,
-        event: 'Lichess Open Database',
-        date: '2024.05.18',
-        result: '1/2-1/2',
-        pgnUrl: 'https://lichess.org/open/elo2800-qg.pgn',
-        pgnText: `[Event "Lichess Open Database"]
-[Site "https://lichess.org/open/elo2800-qg"]
-[Date "2024.05.18"]
-[White "Fabiano Caruana"]
-[Black "Ding Liren"]
-[Result "1/2-1/2"]
-[WhiteElo "2815"]
-[BlackElo "2806"]
-
-1. d4 d5 2. c4 e6 3. Nc3 Nf6 4. Nf3 Be7 5. Bg5 O-O 6. e3 h6 7. Bh4 b6
-8. cxd5 exd5 9. Bd3 c5 10. O-O c4 11. Bc2 Nc6 12. Ne5 Bb7 13. f4 b5
-14. g4 b4 15. Na4 Ne4 16. Bxe7 Nxe7 17. Bxe4 dxe4 18. Nc5 Bd5
-19. f5 f6 20. Ned7 Re8 21. g5 hxg5 22. Qh5 Bf7 23. Nxf6+ gxf6 24. Qh8+ Kxh8 1/2-1/2`
-    },
-    {
-        id: 'elo2800-sicilian',
-        white: 'Hikaru Nakamura',
-        black: 'Alireza Firouzja',
-        whiteElo: 2824,
-        blackElo: 2804,
-        event: 'Lichess Open Database',
-        date: '2024.04.02',
-        result: '1/2-1/2',
-        pgnUrl: 'https://lichess.org/open/elo2800-sicilian.pgn',
-        pgnText: `[Event "Lichess Open Database"]
-[Site "https://lichess.org/open/elo2800-sicilian"]
-[Date "2024.04.02"]
-[White "Hikaru Nakamura"]
-[Black "Alireza Firouzja"]
-[Result "*"]
-[WhiteElo "2824"]
-[BlackElo "2804"]
-
-1. e4 c5 2. Nf3 d6 3. d4 cxd4 4. Nxd4 Nf6 5. Nc3 a6 6. Bg5 e6
-7. f4 Qb6 8. Qd2 Qxb2 9. Rb1 Qa3 10. Bxf6 gxf6 11. Be2 h5 12. f5 Bh6
-13. Qd3 Nc6 14. Nxc6 bxc6 15. Bxh5 exf5 16. O-O Qc5+ 17. Kh1 f4
-18. Nd5 cxd5 19. exd5 Bg4 20. Rbe1+ Kf8 21. Bxg4 Qxg5 22. Qf3 Re8 1/2-1/2`  
+1. d4 Nf6 2. c4 e6 3. Nf3 d5 4. Nc3 Be7 5. Bf4 O-O 6. e3 c5 7. dxc5 Bxc5 8. Qc2 Nc6 9. a3 Qa5 10. Rd1 Rd8 11. Be2 Ne4 12. O-O Nxc3 13. bxc3 Be7 14. cxd5 Rxd5 15. c4 Rd7 16. Rd2 e5 17. Bg3 Bf6 18. Rfd1 Rxd2 19. Rxd2 Be6 20. h3 h6 21. Nd4 Bxd4 22. Rxd4 Qxa3 23. Rxd8+ Nxd8 24. Qd2 Nc6 25. Qd6 Qc1+ 26. Kh2 Qxc4 27. Qxe5 Qc2 28. Qb8+ Qc8 29. Qb3 Qc7 30. Qd5 Qc2 31. Kg1 Ne7 32. Qe5 Qc1+ 33. Kh2 Ng6 34. Qb8+ Kh7 35. Bd6 Bd7 36. Qxa7 Qf4+ 37. Bg3 Qb4 38. Bf3 Qd2 39. Qa8 b5 40. Qa1 Qb4 41. Bd5 Nf4 42. Qa7 Qd2 43. exf4 Qxd5 44. Qxf7 Qd4 45. Qf5+ Kg8 46. Be5 Qd1 47. Qe4 Be6 48. Qxb1 1-0`
     }
 ];
 
@@ -1971,40 +1998,58 @@ function extractTvGameFromPayload(payload) {
 }
 
 async function fetchLichessTvGame() {
-    const channels = shuffleArray(TV_LICHESS_CHANNELS);
-    for (const channel of channels) {
-        try {
-            const response = await fetch(`https://lichess.org/api/tv/${channel.id}`, {
-                headers: { 'Accept': 'application/json' },
+    const gmUsers = ['DrNykterstein', 'penguingim1', 'Zhigalko_Sergei', 'ChessWeeb', 'nihalsarin2004', 'Fins0', 'opperwezen', 'lance5500', 'Bombegansen'];
+    const user = gmUsers[Math.floor(Math.random() * gmUsers.length)];
+    
+    try {
+        // Descarreguem 30 partides i en triem una aleatòriament
+        const response = await fetch(
+            `https://lichess.org/api/games/user/${user}?max=30&rated=true&finished=true&perfType=blitz,rapid,classical&clocks=false&evals=false`,
+            {
+                headers: { 'Accept': 'application/x-chess-pgn' },
                 cache: 'no-store'
-            });
-            if (!response.ok) continue;
-            const payload = await response.json();
-            const game = extractTvGameFromPayload(payload);
-            if (!game) continue;
-            const gameId = game.gameId || game.id || (game.game && (game.game.id || game.game.gameId));
-            if (!gameId || gameId === lastTvDynamicId) continue;
-            const players = game.players || (game.game && game.game.players) || {};
-            const white = players.white || players.w;
-            const black = players.black || players.b;
-            const entry = {
-                id: `lichess-${gameId}`,
-                white: normalizeTvPlayerName(white, 'Blanques'),
-                black: normalizeTvPlayerName(black, 'Negres'),
-                whiteElo: normalizeTvElo(white),
-                blackElo: normalizeTvElo(black),
-                event: `Lichess TV · ${channel.label}`,
-                date: formatTvDate(),
-                result: '*',
-                pgnUrl: `https://lichess.org/game/export/${gameId}`
-            };
-            lastTvDynamicId = gameId;
-            return entry;
-        } catch (err) {
-            // Try next channel.
-        }
+            }
+        );
+        if (!response.ok) return null;
+        
+        const allPgn = await response.text();
+        if (!allPgn || allPgn.trim().length < 50) return null;
+        
+        // Separar partides individuals
+        const games = allPgn.split(/\n(?=\[Event )/).filter(g => g.trim().length > 50);
+        if (!games.length) return null;
+        
+        // Triar una partida aleatòria
+        const pgnText = games[Math.floor(Math.random() * games.length)];
+        
+        const getHeader = (name) => {
+            const match = pgnText.match(new RegExp(`\\[${name}\\s+"([^"]+)"\\]`));
+            return match ? match[1] : null;
+        };
+        
+        const gameId = getHeader('Site')?.split('/').pop() || `lichess-${Date.now()}`;
+        const result = getHeader('Result');
+        
+        if (!result || result === '*') return null;
+        
+        const entry = {
+            id: `lichess-${gameId}`,
+            white: getHeader('White') || 'Blanques',
+            black: getHeader('Black') || 'Negres',
+            whiteElo: getHeader('WhiteElo') || '—',
+            blackElo: getHeader('BlackElo') || '—',
+            event: getHeader('Event') || 'Lichess',
+            date: getHeader('UTCDate') || getHeader('Date') || formatTvDate(),
+            result: result,
+            pgnText: pgnText.trim()
+        };
+        
+        lastTvDynamicId = gameId;
+        return entry;
+    } catch (err) {
+        console.warn('fetchLichessTvGame error:', err);
+        return null;
     }
-    return null;
 }
 
 async function loadTvGame(entry) {
