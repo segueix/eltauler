@@ -3935,6 +3935,11 @@ function showCategoryBundleSuccessOverlay() {
         returnToBundleMenu();
     });
 
+     $('#btn-bundle-category-menu').off('click').on('click', () => {
+        overlay.hide();
+        returnToMainMenuImmediate();
+    });
+
     againBtn.off('click').on('click', () => {
         overlay.hide();
         if (!startCategoryBundleNext(severity)) {
