@@ -1736,20 +1736,16 @@ function updateTvEloUI() {
     const subtitle = document.getElementById('tv-subtitle');
     const title = document.getElementById('tv-title');
     if (subtitle) {
-        subtitle.textContent = `ELO ${tvSelectedElo} · Lichess TV (si està disponible) o partida aleatòria de la base de dades oberta.`;
+        subtitle.textContent = 'Lichess TV (si està disponible) o partida aleatòria de la base de dades oberta.';
     }
     if (title) {
-        title.textContent = `ELO ${tvSelectedElo} · Reproducció`;
+       title.textContent = 'Reproducció TV';
     }
-    $('.tv-card').removeClass('active');
-    $(`.tv-card[data-elo="${tvSelectedElo}"]`).addClass('active');
 }
 
-function setTvEloSelection(elo, options = {}) {
-    if (!TV_ELO_LEVELS.includes(elo)) return;
-    tvSelectedElo = elo;
-    updateTvEloUI();
-    if (!options.skipLoad) void loadRandomTvGame();
+function randomizeTvElo() {
+    if (!TV_ELO_LEVELS.length) return;
+    tvSelectedElo = TV_ELO_LEVELS[randInt(0, TV_ELO_LEVELS.length - 1)];
 }
 
 function stopHistoryPlayback() {
@@ -2316,6 +2312,7 @@ function pickRandomTvGame() {
 }
 
 async function loadRandomTvGame() {
+    randomizeTvElo();
     const dynamicEntry = await fetchLichessDbGameByElo(tvSelectedElo);
     if (dynamicEntry) {
         lastTvDynamicId = dynamicEntry.id;
@@ -2520,18 +2517,11 @@ function setupEvents() {
     $('#tv-next').off('click').on('click', () => { tvStepForward(); });
     $('#tv-next-game').off('click').on('click', () => { void loadRandomTvGame(); });
     $('#tv-restart').off('click').on('click', () => { resetTvReplay(); });
+    $('#tv-random').off('click').on('click', () => { void loadRandomTvGame(); });    
     $('#tv-menu').off('click').on('click', () => {
         stopTvPlayback();
         $('#tv-screen').hide();
         $('#start-screen').show();
-    });
-    $('.tv-card').off('click').on('click', function() {
-        const selected = Number($(this).data('elo'));
-        if (Number.isFinite(selected)) {
-            setTvEloSelection(selected);
-        }
-        const boardEl = document.getElementById('tv-board');
-        if (boardEl) boardEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     });
     
     $('#result-indicator').off('click').on('click', () => {
