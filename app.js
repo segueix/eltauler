@@ -670,7 +670,7 @@ function getMissionProgress(id) {
 }
 
 const MISSION_TEMPLATES = [
-    { id: 'play1', text: 'Juga 1 Partida', stars: 1, check: () => getMissionProgress('play1') >= getMissionTarget('play1') },
+       { id: 'play1', text: 'Juga 1 Partida', stars: 1, check: () => getMissionProgress('play1') >= getMissionTarget('play1') },
     { id: 'playLeague', text: 'Juga 1 Lliga', stars: 1, check: () => getMissionProgress('playLeague') >= getMissionTarget('playLeague') },
     { id: 'playFree', text: 'Juga 1 Lliure', stars: 1, check: () => getMissionProgress('playFree') >= getMissionTarget('playFree') },
     { id: 'bundle1', text: 'Resol 1 Error', stars: 1, check: () => getMissionProgress('bundle1') >= getMissionTarget('bundle1') },
@@ -678,13 +678,13 @@ const MISSION_TEMPLATES = [
     { id: 'bundleLow', text: 'Resol 1 Lleu', stars: 1, check: () => getMissionProgress('bundleLow') >= getMissionTarget('bundleLow') },
     { id: 'precision70', text: 'Precisió +70%', stars: 1, check: () => getMissionProgress('precision70') >= getMissionTarget('precision70') },
     
-    { id: 'play3', text: 'Juga 3 Partides', stars: 2, check: () => getMissionProgress('play3') >= getMissionTarget('play3') },
+      { id: 'play3', text: 'Juga 3 Partides', stars: 2, check: () => getMissionProgress('play3') >= getMissionTarget('play3') },
     { id: 'win2', text: 'Guanya 2 partides', stars: 2, check: () => getMissionProgress('win2') >= getMissionTarget('win2') },
     { id: 'bundle3', text: 'Resol 3 Errors', stars: 2, check: () => getMissionProgress('bundle3') >= getMissionTarget('bundle3') },
     { id: 'bundleMed', text: 'Resol 1 Mitjà', stars: 2, check: () => getMissionProgress('bundleMed') >= getMissionTarget('bundleMed') },
     { id: 'precision85', text: 'Precisió +85%', stars: 2, check: () => getMissionProgress('precision85') >= getMissionTarget('precision85') },
     
-    { id: 'play5', text: 'Juga 5 Partides', stars: 3, check: () => getMissionProgress('play5') >= getMissionTarget('play5') },
+       { id: 'play5', text: 'Juga 5 Partides', stars: 3, check: () => getMissionProgress('play5') >= getMissionTarget('play5') },
     { id: 'win4', text: 'Guanya 4 partides', stars: 3, check: () => getMissionProgress('win4') >= getMissionTarget('win4') },
     { id: 'bundleHigh', text: 'Resol 1 Greu', stars: 3, check: () => getMissionProgress('bundleHigh') >= getMissionTarget('bundleHigh') },
     { id: 'blackwin', text: 'Guanya amb Negres', stars: 3, check: () => getMissionProgress('blackwin') >= getMissionTarget('blackwin') }
@@ -1082,8 +1082,8 @@ function updateMissionsDisplay() {
         const stars = '★'.repeat(mission.stars);
         const completedClass = mission.completed ? 'completed' : '';
         const target = getMissionTarget(mission.id);
+        const target = getMissionTarget(mission.id);
         const val = getMissionProgress(mission.id);
-        const trophies = '🏆'.repeat(stepsDone);
         const stepsDone = Math.min(val, target);        
         const trophiesClass = stepsDone === 0 ? 'empty' : '';
         const progressText = mission.completed ? 'Fet' : `${stepsDone}/${target}`;
