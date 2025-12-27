@@ -61,6 +61,7 @@ const ELO_MAX = 2000;
 const CALIBRATION_ENGINE_PRECISION = 50;
 const CALIBRATION_GAME_COUNT = 5;
 const CALIBRATION_ELOS = [400, 600, 800, 1000, 1200];
+const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
 let recentErrors = [];
 let currentElo = clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
 aiDifficulty = levelToDifficulty(currentElo);
@@ -969,9 +970,33 @@ function simulateRankAfterWin(opponentId) {
     return findPlayerRank(playersCopy, 'me');
 }
 
+function isLeagueUnlocked() {
+    return calibrationGames.length >= CALIBRATION_GAME_COUNT
+        && totalGamesPlayed >= LEAGUE_UNLOCK_MIN_GAMES
+        && !isCalibrationActive();
+}
+
+function updateLeagueAccessUI() {
+    const leagueBtn = $('#btn-league');
+    const unlocked = isLeagueUnlocked();
+    if (leagueBtn.length) {
+        leagueBtn.prop('disabled', !unlocked);
+        leagueBtn.toggleClass('btn-disabled', !unlocked);
+        if (unlocked) leagueBtn.removeAttr('title');
+        else leagueBtn.attr('title', `Disponible després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
+    }
+    if (!unlocked) $('#league-banner').hide();
+    else updateLeagueBanner();
+}
+
 function updateLeagueBanner() {
     const banner = $('#league-banner');
     if (!banner.length) return;
+
+     if (!isLeagueUnlocked()) {
+        banner.hide();
+        return;
+    }
 
     createNewLeague(false);
     if (!currentLeague || currentLeague.completed) {
@@ -1001,6 +1026,10 @@ function updateLeagueBanner() {
 }
 
 function openLeague() {
+    if (!isLeagueUnlocked()) {
+        alert(`La lliga s'activa després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
+        return;
+    }
     createNewLeague(false);
     $('#start-screen').hide(); $('#stats-screen').hide(); $('#game-screen').hide();
     $('#league-screen').show();
@@ -1095,6 +1124,10 @@ function applyResult(aId, bId, outcome) {
 }
 
 function startLeagueRound() {
+    if (!isLeagueUnlocked()) {
+        alert(`La lliga s'activa després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
+        return;
+    }   
     if (!currentLeague) createNewLeague(false);
     if (currentLeague.completed) return;
 
@@ -1777,7 +1810,7 @@ function updateDisplay() {
     let total = savedErrors.length;
     $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
     $('#game-bundles').text(total);
-    updateStreakDisplay(); updateMissionsDisplay(); updateLeagueBanner();
+    updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
 }
 
 function updateStatsDisplay() {
