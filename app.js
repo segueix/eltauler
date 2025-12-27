@@ -1434,7 +1434,37 @@ function adjustAIDifficulty(playerWon, precision, resultScore = null) {
         saveStorage();
         return;
     }
-      saveStorage();
+
+    let eloDelta = 0;
+
+    if (normalizedScore === 1) {
+        if (safePrecision > 80) eloDelta += 50;
+        else if (safePrecision >= 65) eloDelta += 35;
+        else eloDelta += 15;
+    } else if (normalizedScore === 0) {
+        if (safePrecision > 60) eloDelta -= 15;
+        else if (safePrecision >= 45) eloDelta -= 30;
+        else eloDelta -= 50;
+    } else {
+        eloDelta += 10;
+    }
+
+    if (consecutiveWins >= 3) eloDelta += 30;
+    if (consecutiveLosses >= 3) eloDelta -= 25;
+
+    if (recentGames.length >= 5) {
+        const recentSlice = recentGames.slice(-10);
+        const wins = recentSlice.filter(game => game.result === 1).length;
+        const winRate = recentSlice.length > 0 ? wins / recentSlice.length : 0.5;
+        if (winRate > 0.60) eloDelta += 30;
+        else if (winRate < 0.40) eloDelta -= 30;
+    }
+
+    eloDelta = Math.max(-60, Math.min(60, eloDelta));
+    currentElo = clampEngineElo(currentElo + eloDelta);
+    aiDifficulty = levelToDifficulty(currentElo);
+    applyEngineEloStrength(currentElo);
+    saveStorage();
 }
 
  function isCalibrationActive() {
