@@ -15,7 +15,7 @@
     <title>El Tauler - Entrenador d'Escacs</title>
     
     <!-- PWA Manifest -->
-   <link rel="manifest" href="manifest.json?v=1.0.5">
+    <link rel="manifest" href="manifest.json?v=1.0.4">
     
     <!-- Icons -->
     <link rel="apple-touch-icon" href="novaicon.png">
@@ -513,34 +513,6 @@
         
         .modal-title { font-family: 'Cinzel', serif; font-size: 1.5rem; color: var(--accent-gold); margin-bottom: 15px; }
         .close-modal { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-top: 15px; font-family: 'Crimson Pro', serif; }
-
-        .calibration-reveal-content {
-            position: relative;
-            background: radial-gradient(circle at top, rgba(255, 215, 0, 0.18), rgba(45, 36, 28, 0.95));
-            border: 1px solid rgba(255, 215, 0, 0.45);
-            box-shadow: 0 0 25px rgba(201, 162, 39, 0.45), inset 0 0 20px rgba(255, 215, 0, 0.12);
-        }
-        .calibration-reveal-glow {
-            font-size: 0.9rem;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
-        }
-        .revealed-elo-value {
-            font-family: 'Cinzel', serif;
-            font-size: 3rem;
-            font-weight: 700;
-            color: var(--accent-gold);
-            text-shadow: 0 0 12px rgba(255, 215, 0, 0.6);
-            margin: 12px 0 18px;
-        }
-        .counter-animate {
-            animation: shimmer 2s ease-in-out;
-        }
-        @keyframes shimmer {
-            0% { opacity: 0.6; transform: scale(0.96); }
-            50% { opacity: 1; transform: scale(1.02); }
-            100% { opacity: 1; transform: scale(1); }
-        }
         
         .new-badge { width: 80px; height: 80px; font-size: 3.5rem; margin: 0 auto 15px; }
         .new-badge-name { font-size: 1.3rem; color: var(--text-primary); margin-bottom: 5px; font-weight: bold; }
@@ -636,52 +608,10 @@
 
         /* GAME SCREEN */
         #game-screen { display: none; }
-        .header { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); position: relative; }
+        .header { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .header-title { font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 8px; }
         .game-info { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary); }
         .streak-badge { color: var(--star-gold); font-weight: bold; }
-        .game-indicators {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-top: 10px;
-            gap: 10px;
-            flex-wrap: wrap;
-        }
-        .flow-indicator {
-            display: inline-flex;
-            align-items: center;
-            gap: 6px;
-            padding: 6px 10px;
-            border-radius: 999px;
-            font-size: 0.75rem;
-            font-weight: 600;
-            border: 1px solid rgba(255,255,255,0.12);
-            background: rgba(0,0,0,0.25);
-        }
-        .flow-optimal { color: #c8f7d2; background: rgba(76, 175, 80, 0.2); border-color: rgba(76, 175, 80, 0.5); }
-        .flow-warning { color: #f7e6a6; background: rgba(255, 193, 7, 0.2); border-color: rgba(255, 193, 7, 0.5); }
-        .elo-change-badge {
-            display: none;
-            padding: 6px 12px;
-            border-radius: 999px;
-            font-size: 0.85rem;
-            font-weight: 700;
-            letter-spacing: 0.5px;
-            box-shadow: 0 6px 16px rgba(0,0,0,0.35);
-        }
-        .elo-change-badge.show {
-            display: inline-flex;
-            animation: elo-badge-fade 3s ease-in-out forwards;
-        }
-        .elo-gain { background: rgba(76, 175, 80, 0.2); color: #b9f6ca; border: 1px solid rgba(76, 175, 80, 0.6); }
-        .elo-loss { background: rgba(244, 67, 54, 0.2); color: #ffcdd2; border: 1px solid rgba(244, 67, 54, 0.6); }
-        @keyframes elo-badge-fade {
-            0% { opacity: 0; transform: translateY(4px); }
-            15% { opacity: 1; transform: translateY(0); }
-            80% { opacity: 1; }
-            100% { opacity: 0; transform: translateY(-6px); }
-        }
         
         .precision-panel { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .precision-stat { text-align: center; min-width: 70px; }
@@ -1030,81 +960,6 @@
             font-size: 0.75rem;
             color: var(--text-secondary);
             margin-top: 5px;
-           }
-        .recent-performance {
-            background: rgba(0,0,0,0.2);
-            border: 1px solid rgba(201, 162, 39, 0.2);
-            border-radius: 12px;
-            padding: 15px;
-            margin-bottom: 20px;
-        }
-        body.epaper-mode .recent-performance {
-            background: var(--bg-card);
-            border: 1px solid #cfcfcf;
-        }
-        .recent-performance-title {
-            font-family: 'Cinzel', serif;
-            font-size: 0.95rem;
-            color: var(--accent-gold);
-            margin-bottom: 10px;
-            text-align: center;
-        }
-        .recent-bars {
-            display: grid;
-            grid-template-columns: repeat(10, 1fr);
-            gap: 6px;
-            align-items: end;
-            height: 70px;
-            margin-bottom: 14px;
-        }
-        .recent-bar {
-            width: 100%;
-            border-radius: 6px;
-            background: rgba(255,255,255,0.1);
-            min-height: 14px;
-            display: flex;
-            align-items: flex-end;
-            justify-content: center;
-            font-size: 0.6rem;
-            color: rgba(0,0,0,0.6);
-        }
-        .recent-bar.win { background: rgba(76, 175, 80, 0.7); }
-        .recent-bar.loss { background: rgba(244, 67, 54, 0.7); }
-        .recent-bar.draw { background: rgba(255, 193, 7, 0.7); }
-        .recent-performance-meta {
-            display: grid;
-            gap: 12px;
-        }
-        .winrate-row {
-            display: flex;
-            justify-content: space-between;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-            margin-bottom: 6px;
-        }
-        .winrate-bar {
-            width: 100%;
-            height: 10px;
-            border-radius: 999px;
-            background: rgba(0,0,0,0.25);
-            overflow: hidden;
-        }
-        .winrate-fill {
-            height: 100%;
-            width: 0%;
-            background: var(--accent-green);
-            transition: width 0.4s ease;
-        }
-        .trend-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            font-size: 0.85rem;
-            color: var(--text-secondary);
-        }
-        .trend-icon {
-            font-size: 1.1rem;
-            font-weight: 700;
         }
                .review-legend {
             display: flex;
@@ -1493,26 +1348,6 @@
                 </div>
             </div>
 
-            <div class="recent-performance">
-                <div class="recent-performance-title">Rendiment recent</div>
-                <div class="recent-bars" id="recent-performance-bars"></div>
-                <div class="recent-performance-meta">
-                    <div>
-                        <div class="winrate-row">
-                            <span>Taxa de victòries</span>
-                            <strong id="recent-winrate">0%</strong>
-                        </div>
-                        <div class="winrate-bar">
-                            <div class="winrate-fill" id="recent-winrate-fill"></div>
-                        </div>
-                    </div>
-                    <div class="trend-row">
-                        <span>Tendència</span>
-                        <span class="trend-icon" id="recent-trend-icon">➡️</span>
-                    </div>
-                </div>
-            </div>
-
             <div class="danger-zone">
                 <div class="danger-zone-title">⚠️ Zona Perillosa</div>
                 <button class="btn btn-danger" id="btn-show-delete" style="width:100%;">
@@ -1662,14 +1497,6 @@
                 <button class="btn btn-primary" onclick="$('#new-badge-modal').hide()">Genial!</button>
             </div>
         </div>
-        <div class="modal-overlay" id="calibration-reveal-modal">
-            <div class="modal-content calibration-reveal-content">
-                <div class="modal-title">🎉 Avaluació completada!</div>
-                <div class="calibration-reveal-glow">El teu nivell inicial és:</div>
-                <div class="revealed-elo-value" id="revealed-elo-value">0</div>
-                <button class="btn btn-primary" id="btn-calibration-reveal-close">Començar a jugar</button>
-            </div>
-        </div>
         <div class="modal-overlay" id="checkmate-overlay">
             <div class="modal-content">
                 <img src="checkmate.svg" alt="Escac i mat" class="checkmate-image">
@@ -1737,10 +1564,6 @@
                     <div>IA: <span id="engine-elo" style="color:var(--accent-purple); font-weight:bold;">Adaptativa</span></div>
                     <div>📚 <span id="game-bundles" style="color:var(--text-secondary); font-weight:bold;">0</span></div>
                     <div class="streak-badge">★ <span id="game-stars">0</span></div>
-                </div>
-                <div class="game-indicators">
-                    <div id="flow-indicator" class="flow-indicator flow-warning">🟡 Ajustant...</div>
-                    <div id="elo-change-badge" class="elo-change-badge">+0</div>
                 </div>
                 <div class="calibration-progress" id="calibration-progress">
                     <div class="calibration-progress-text" id="calibration-progress-text">Avaluant nivell... 1/5</div>
@@ -1859,9 +1682,9 @@
     
     <!-- App Logic -->
     <script>
-        window.APP_VERSION = '1.0.5';
+        window.APP_VERSION = '1.0.4';
     </script>
-    <script src="app.js?v=1.0.5"></script>
+    <script src="app.js?v=1.0.4"></script>
     
     <!-- Service Worker Registration -->
     <script>
