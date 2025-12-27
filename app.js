@@ -1857,8 +1857,8 @@ function updateEloHistory(newElo) {
 }
 
 function updateAdaptiveEngineEloLabel() {
-     if (isCalibrationGame && typeof currentCalibrationOpponentElo === 'number') {
-        $('#engine-elo').text(`ELO ${currentCalibrationOpponentElo}`);
+     if (isCalibrationGame) {
+        $('#engine-elo').text('Calibratge');
         return;
     }
     if (isCalibrationActive()) {
@@ -3868,7 +3868,7 @@ function startGame(isBundle, fen = null) {
         currentCalibrationOpponentElo = getCalibrationOpponentElo();
         aiDifficulty = levelToDifficulty(currentCalibrationOpponentElo);
         if (engineReady) applyEngineEloStrength(currentCalibrationOpponentElo);
-        $('#engine-elo').text(`ELO ${currentCalibrationOpponentElo}`);
+        updateAdaptiveEngineEloLabel();
         $('#game-mode-title').text('🎯 Partida de calibratge');
     } else if (currentGameMode === 'drill') {
         $('#engine-elo').text('Mestre');
