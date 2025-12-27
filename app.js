@@ -58,7 +58,13 @@ const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
-const CALIBRATION_ENGINE_PRECISION = 50;
+const CALIBRATION_ENGINE_PRECISION_RANGES = [
+    { min: 45, max: 50 },
+    { min: 52, max: 58 },
+    { min: 58, max: 65 },
+    { min: 65, max: 72 },
+    { min: 72, max: 78 }
+];
 const CALIBRATION_GAME_COUNT = 5;
 const CALIBRATION_ELOS = [400, 600, 800, 1000, 1200];
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
@@ -1448,6 +1454,16 @@ function getCalibrationProgressCount() {
     return Math.min(calibrationGames.length + extra, CALIBRATION_GAME_COUNT);
 }
 
+function getCalibrationPrecisionRange(gameIndex = null) {
+    const index = typeof gameIndex === 'number' ? gameIndex : getCalibrationGameIndex();
+    return CALIBRATION_ENGINE_PRECISION_RANGES[index] || CALIBRATION_ENGINE_PRECISION_RANGES[CALIBRATION_ENGINE_PRECISION_RANGES.length - 1];
+}
+
+function getCalibrationPrecisionTargetText() {
+    const range = getCalibrationPrecisionRange(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
+    return `${range.min}-${range.max}%`;
+}
+
 function updateCalibrationProgressUI() {
     const container = $('#calibration-progress');
     if (!container.length) return;
@@ -1624,14 +1640,17 @@ function chooseCalibrationMove(candidates, fallbackMove) {
     const bestScore = sorted[0].score;
     const goodCandidates = sorted.filter(c => (bestScore - c.score) <= 80);
     const badCandidates = sorted.filter(c => (bestScore - c.score) > 80);
-    const target = CALIBRATION_ENGINE_PRECISION / 100;
+    const range = getCalibrationPrecisionRange(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
+    const minTarget = range.min / 100;
+    const maxTarget = range.max / 100;
+    const target = (minTarget + maxTarget) / 2;
     const currentPrecision = totalEngineMoves > 0 ? (goodEngineMoves / totalEngineMoves) : target;
 
     let pickGood = true;
     if (badCandidates.length === 0) pickGood = true;
     else if (goodCandidates.length === 0) pickGood = false;
-    else if (currentPrecision < target) pickGood = true;
-    else if (currentPrecision > target) pickGood = false;
+    else if (currentPrecision < minTarget) pickGood = true;
+    else if (currentPrecision > maxTarget) pickGood = false;
     else pickGood = Math.random() < target;
 
     const pool = pickGood ? goodCandidates : badCandidates;
@@ -4291,7 +4310,7 @@ function updateAIPrecisionDisplay() {
 function updateAIPrecisionTarget() {
     const targetEl = $('#ai-precision-target');
     if (!targetEl.length) return;
-    targetEl.text(isCalibrationGame ? `${CALIBRATION_ENGINE_PRECISION}%` : '—');
+    targetEl.text(isCalibrationGame ? getCalibrationPrecisionTargetText() : '—');
 }
 
 function registerEngineMovePrecision(moveStr, candidates) {
