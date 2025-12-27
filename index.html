@@ -467,6 +467,13 @@
         }
         body.epaper-mode .btn:hover { background: #d0d0d0 !important; }
         .btn:active { transform: scale(0.98); }
+        .btn[disabled],
+        .btn.btn-disabled {
+            opacity: 0.55;
+            cursor: not-allowed;
+            box-shadow: none;
+            filter: grayscale(0.35);
+        }
         .btn-primary { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
         .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: var(--accent-cream); }
         .btn-blue { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: white; }
