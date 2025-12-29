@@ -80,6 +80,8 @@ const CALIBRATION_ENGINE_PRECISION_RANGES = [
 const CALIBRATION_GAME_COUNT = 5;
 const CALIBRATION_ELOS = [400, 600, 800, 1000, 1200];
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
+const CALIBRATGE_ELO_BASE = 400;
+const CALIBRATGE_ELO_MULT = 22;
 let recentErrors = [];
 let currentElo = clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
 aiDifficulty = levelToDifficulty(currentElo);
@@ -1041,7 +1043,7 @@ function updateLeagueBanner() {
     const projectedRank = simulateRankAfterWin(opp.id);
 
     $('#league-banner-opponent').text(opp.name);
-    $('#league-banner-elo').text(opp.elo);
+    $('#league-banner-elo').text(nivellCalibratgeFromElo(opp.elo));
     $('#league-banner-opp-rank').text(oppRank ? `#${oppRank}` : '—');
     $('#league-banner-my-rank').text(myRank ? `#${myRank}` : '—');
     $('#league-banner-projected').text(projectedRank ? `#${projectedRank}` : '—');
@@ -1098,9 +1100,9 @@ function renderLeague() {
             else if (idx === 2) tr.addClass('league-podium-3');
         }
 
-        const displayElo = (isCalibrationActive() && p.id === 'me') ? '—' : p.elo;
-        tr.append(`<td class="num">${displayElo}</td>`);
-        tr.append(`<td class="num">${p.elo}</td>`);
+        const displayLevel = (isCalibrationActive() && p.id === 'me') ? '—' : nivellCalibratgeFromElo(p.elo);
+        tr.append(`<td class="league-player-name">${p.name}</td>`);
+        tr.append(`<td class="num">${displayLevel}</td>`);
         tr.append(`<td class="num">${p.pj}</td>`);
         tr.append(`<td class="num">${p.pg}</td>`);
         tr.append(`<td class="num">${p.pp}</td>`);
@@ -1420,6 +1422,19 @@ function levelToDifficulty(level) {
     // Manté la compatibilitat amb l'antic rang 5-15
     const normalized = Math.max(0, Math.min(1, (level - ADAPTIVE_CONFIG.MIN_LEVEL) / (ADAPTIVE_CONFIG.MAX_LEVEL - ADAPTIVE_CONFIG.MIN_LEVEL)));
     return Math.round(5 + normalized * 10);
+}
+
+function nivellCalibratgeFromElo(elo) {
+    if (typeof elo !== 'number' || Number.isNaN(elo)) return 0;
+    return Math.max(0, Math.min(100, Math.round((elo - CALIBRATGE_ELO_BASE) / CALIBRATGE_ELO_MULT)));
+}
+
+function obtenirNivellActual() {
+    if (typeof TaulerCalibratge !== 'undefined' && TaulerCalibratge?.obtenirEstat) {
+        const estat = TaulerCalibratge.obtenirEstat();
+        if (estat && typeof estat.nivell === 'number') return estat.nivell;
+    }
+    return nivellCalibratgeFromElo(userELO);
 }
 
 function getEffectiveAIDifficulty() {
@@ -1878,6 +1893,7 @@ function updateEloDisplay() {
 function updateDisplay() {
     engineELO = Math.round(currentElo);  
     updateEloDisplay();
+    $('#current-level').text(obtenirNivellActual());
     $('#current-stars').text(totalStars); $('#game-stars').text(totalStars);
     $('#current-diamonds').text(totalDiamonds); $('#game-diamonds').text(totalDiamonds);
     updateAdaptiveEngineEloLabel();

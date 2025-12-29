@@ -118,7 +118,7 @@
         body.device-mobile .controls { padding: 10px; margin-top: 8px; }
         body.device-mobile .status-message { font-size: 0.9rem; margin-bottom: 10px; }
         body.device-mobile .game-buttons .btn { padding: 12px 8px; font-size: 0.82rem; }
-        body.device-mobile table.league-table { min-width: 470px; }
+        body.device-mobile table.league-table { min-width: 560px; }
         body.device-mobile .league-table thead th, body.device-mobile .league-table tbody td { padding: 8px 6px; }
         body.device-mobile .league-table thead th { font-size: 0.74rem; }
         body.device-mobile .league-table tbody td { font-size: 0.86rem; }
@@ -179,7 +179,9 @@
         }
 
         /* STATS */
-        .stats-row { display: flex; justify-content: center; gap: 10px; margin: 12px 0; }
+        .stats-row { display: flex; justify-content: center; gap: 10px; margin: 12px 0; flex-wrap: wrap; }
+        .stats-row.stats-row-secondary { margin-top: 0; }
+        .stat-box { flex: 1; min-width: 90px; }
         .stat-box {
             background: rgba(0,0,0,0.3);
             border: 1px solid rgba(201, 162, 39, 0.3);
@@ -1073,6 +1075,13 @@
             border-bottom: 1px solid rgba(201, 162, 39, 0.08);
             font-size: 0.95rem;
         }
+        .league-table tbody td.league-player-name {
+            font-weight: 600;
+            max-width: 180px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
         body.epaper-mode .league-table thead th {
             background: #e6e6e6;
             border-bottom: 1px solid #cfcfcf;
@@ -1128,6 +1137,16 @@
             .league-table thead th, .league-table tbody td { padding: 8px 6px; }
             .league-table thead th { font-size: 0.74rem; }
             .league-table tbody td { font-size: 0.86rem; }
+        }
+        @media (max-width: 520px) {
+            table.league-table { min-width: 560px; }
+            .league-table thead th:first-child,
+            .league-table tbody td:first-child { min-width: 160px; }
+            .league-table tbody td.league-player-name {
+                white-space: normal;
+                overflow: visible;
+                text-overflow: unset;
+            }
         }
 
         @media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) {
@@ -1218,22 +1237,24 @@
             <h1>EL TAULER</h1>
             <div class="subtitle">Entrenador d'Escacs</div>
             
-            <div class="stats-row">
+            <div class="stats-row stats-row-primary">
                 <div class="stat-box">
-                    <div class="stat-label">ELO</div>
-                    <div class="stat-value elo-value" id="current-elo">400</div>
+                    <div class="stat-label">Nivell</div>
+                    <div class="stat-value elo-value" id="current-level">30</div>
                 </div>
                 <div class="stat-box" id="streak-box">
                     <div class="stat-label">Ratxa</div>
                     <div class="stat-value streak-value" id="current-streak">0</div>
                     <div class="streak-status" id="streak-status">Pendent</div>
                 </div>
+            </div>
+            <div class="stats-row stats-row-secondary">
                 <div class="stat-box">
-                    <div class="stat-label">Estrelles</div>
+                    <div class="stat-label">★</div>
                     <div class="stat-value stars-value" id="current-stars">0</div>
                 </div>
                 <div class="stat-box">
-                    <div class="stat-label">Diamants</div>
+                    <div class="stat-label">✦</div>
                     <div class="stat-value diamonds-value" id="current-diamonds">0</div>
                 </div>
             </div>
@@ -1255,7 +1276,7 @@
                     </div>
                     <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
                     <div class="league-banner-body">
-                        <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
+                        <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · Nivell <span id="league-banner-elo">—</span></div>
                         <div class="league-banner-ranks">
                             <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
                             <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
@@ -1543,7 +1564,7 @@
                     <thead>
                         <tr>
                             <th>Jugador</th>
-                            <th>ELO</th>
+                            <th>Nivell</th>
                             <th>PJ</th>
                             <th>PG</th>
                             <th>PP</th>
