@@ -1435,6 +1435,7 @@ function obtenirNivellActual() {
         if (estat && estat.calibratge !== 'completat') return '_';
         if (estat && typeof estat.nivell === 'number') return estat.nivell;
     }
+    if (isCalibrationActive()) return '_';
     return nivellCalibratgeFromElo(userELO);
 }
 
