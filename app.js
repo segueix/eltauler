@@ -129,6 +129,10 @@ let tvLastTapEventTs = 0;
 
 let deviceType = 'desktop';
 
+function isPlayerTurn() {
+    return !!game && game.turn() === playerColor;
+}
+
 function detectDeviceType() {
     const ua = (navigator && navigator.userAgent ? navigator.userAgent : '').toLowerCase();
     const minSide = Math.min(window.innerWidth || 0, window.innerHeight || 0);
@@ -670,6 +674,7 @@ function highlightTvTapSelection(square) {
 function commitHumanMoveFromTap(from, to) {
     $('#blunder-alert').hide();
     if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+    if (!isPlayerTurn()) return false;
 
     $('.square-55d63').removeClass('highlight-hint');
     const prevFen = game.fen();
@@ -703,6 +708,7 @@ function enableTapToMove() {
     $('#myBoard').off('.tapmove')
         .on(`pointerdown.tapmove touchstart.tapmove`, '.square-55d63', function(e) {
         if (!game || game.game_over() || isEngineThinking) return;
+        if (!isPlayerTurn()) return;
 
         if (e && e.preventDefault) e.preventDefault();
 
@@ -3823,6 +3829,7 @@ function startGame(isBundle, fen = null) {
 
 function onDragStart(source, piece, position, orientation) {
     if (game.game_over() || isEngineThinking) return false;
+    if (!isPlayerTurn()) return false;
     if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || 
         (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
     if ((currentGameMode === 'drill' || blunderMode) && game.turn() !== playerColor) return false;
@@ -3831,6 +3838,7 @@ function onDragStart(source, piece, position, orientation) {
 function onDrop(source, target) {
     $('#blunder-alert').hide();
     if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+    if (!isPlayerTurn()) return 'snapback';
 
     $('.square-55d63').removeClass('highlight-hint');
     lastPosition = game.fen(); 
