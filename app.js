@@ -36,6 +36,8 @@ let tvJeroglyphicsActualMove = null;
 let tvJeroglyphicsResumePlayback = false;
 let tvJeroglyphicsSolved = false;
 let tvJeroglyphicsIncorrect = false;
+let totalDiamonds = 0;
+let currentGameStartFen = null;
 
 // Sistema d'IA Adaptativa
 let recentGames = []; 
@@ -368,7 +370,7 @@ async function importBackupFromPicker() {
 function buildBackupData({ includeGameHistory = false } = {}) {
     const base = {
         elo: userELO, bundles: savedErrors, streak: currentStreak, lastPracticeDate: lastPracticeDate,
-        totalStars: totalStars, unlockedBadges: unlockedBadges, todayMissions: todayMissions, missionsDate: missionsDate,
+        totalStars: totalStars, totalDiamonds: totalDiamonds, unlockedBadges: unlockedBadges, todayMissions: todayMissions, missionsDate: missionsDate,
         sessionStats: sessionStats, eloHistory: eloHistory, totalGamesPlayed: totalGamesPlayed,
         totalWins: totalWins, maxStreak: maxStreak,
         aiDifficulty: aiDifficulty, currentElo: currentElo, recentGames: recentGames, consecutiveWins: consecutiveWins,
@@ -384,7 +386,7 @@ function importBackupData(data) {
     if (!data || typeof data !== 'object') return;
     userELO = data.elo || 50; savedErrors = data.bundles || [];
     currentStreak = data.streak || 0; lastPracticeDate = data.lastPracticeDate || null;
-    totalStars = data.totalStars || 0; unlockedBadges = data.unlockedBadges || [];
+    totalStars = data.totalStars || 0; totalDiamonds = data.totalDiamonds || 0; unlockedBadges = data.unlockedBadges || [];
     todayMissions = restoreMissions(data.todayMissions || []); missionsDate = data.missionsDate || null;
     sessionStats = data.sessionStats || { 
         gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
@@ -421,7 +423,7 @@ async function handleBackupImportFile(file) {
     try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (confirm(`Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`)) {
+        if (confirm(`Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}, Diamants: ${data.totalDiamonds || 0}`)) {
             importBackupData(data);
         }
     } catch (err) {
@@ -1715,6 +1717,9 @@ function ensureStockfish() {
         stockfish.onmessage = (e) => handleEngineMessage(e.data);
         stockfishReady = false;
         try { stockfish.postMessage('uci'); } catch (e) {}    
+        if (typeof TaulerCalibratge !== 'undefined' && TaulerCalibratge?.inicialitzar) {
+            TaulerCalibratge.inicialitzar(stockfish);
+        }
         return true;
     } catch (err) {
         console.error(err);
@@ -1730,6 +1735,7 @@ function loadStorage() {
     const streak = localStorage.getItem('chess_streak'); if (streak) currentStreak = parseInt(streak);
     const lastDate = localStorage.getItem('chess_lastPracticeDate'); if (lastDate) lastPracticeDate = lastDate;
     const stars = localStorage.getItem('chess_totalStars'); if (stars) totalStars = parseInt(stars);
+    const diamonds = localStorage.getItem('chess_totalDiamonds'); if (diamonds) totalDiamonds = parseInt(diamonds);
     
     // Càrrega de Missions i Temps
     const missions = localStorage.getItem('chess_todayMissions'); const mDate = localStorage.getItem('chess_missionsDate');
@@ -1795,6 +1801,7 @@ function saveStorage() {
     localStorage.setItem('chess_streak', currentStreak);
     localStorage.setItem('chess_lastPracticeDate', lastPracticeDate);
     localStorage.setItem('chess_totalStars', totalStars);
+    localStorage.setItem('chess_totalDiamonds', totalDiamonds);
     localStorage.setItem('chess_todayMissions', JSON.stringify(todayMissions));
     localStorage.setItem('chess_missionsDate', missionsDate);
     localStorage.setItem('chess_unlockedBadges', JSON.stringify(unlockedBadges));
@@ -1872,6 +1879,7 @@ function updateDisplay() {
     engineELO = Math.round(currentElo);  
     updateEloDisplay();
     $('#current-stars').text(totalStars); $('#game-stars').text(totalStars);
+    $('#current-diamonds').text(totalDiamonds); $('#game-diamonds').text(totalDiamonds);
     updateAdaptiveEngineEloLabel();
     updateCalibrationProgressUI();
     
@@ -3699,6 +3707,7 @@ function startGame(isBundle, fen = null) {
     updateEloDisplay();
     
     game = new Chess(fen || undefined); 
+    currentGameStartFen = fen || null;
     
     let boardOrientation = 'white';
     
@@ -4391,6 +4400,28 @@ function saveBlunderToBundle(fen, severity) {
     }
 }
 
+function buildGameFenTimeline() {
+    if (!game) return [];
+    try {
+        const replay = new Chess(currentGameStartFen || undefined);
+        const fens = [replay.fen()];
+        const moves = game.history({ verbose: true });
+        moves.forEach(move => {
+            replay.move(move);
+            fens.push(replay.fen());
+        });
+        return fens;
+    } catch (e) {
+        return [];
+    }
+}
+
+function getCalibratgeResultLabel(resultScore, playerWon) {
+    if (playerWon) return 'victoria';
+    if (resultScore === 0.5) return 'taules';
+    return 'derrota';
+}
+
 function handleGameOver(manualResign = false) {
     pendingMoveEvaluation = false;
     let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
@@ -4495,6 +4526,22 @@ function handleGameOver(manualResign = false) {
         if (wasLeagueMatch) { currentGameMode = 'free'; currentOpponent = null; $('#game-screen').hide(); $('#league-screen').show(); renderLeague(); }
     };
     showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate });
+    if (typeof TaulerCalibratge !== 'undefined' && !blunderMode && currentGameMode !== 'drill') {
+        const fens = buildGameFenTimeline();
+        const resultLabel = getCalibratgeResultLabel(resultScore, playerWon);
+        if (fens.length > 1) {
+            TaulerCalibratge.finalitzarPartida(fens, playerColor, resultLabel)
+                .then((resultatCalibratge) => {
+                    const diamondsEarned = resultatCalibratge?.recompenses?.diamants || 0;
+                    if (diamondsEarned > 0) {
+                        totalDiamonds += diamondsEarned;
+                        saveStorage();
+                        updateDisplay();
+                    }
+                })
+                .catch(() => {});
+        }
+    }
     if (calibrationJustCompleted) {
         showCalibrationReveal(userELO);
     }

@@ -45,6 +45,7 @@
             --severity-high: #ff0000;
             --streak-fire: #d4763b;
             --star-gold: #ffd700;
+            --diamond-blue: #4a90d9;
         }
                 body.epaper-mode {
             --bg-dark: #f2f2f2;
@@ -192,6 +193,7 @@
         .elo-value { color: var(--accent-gold); }
         .streak-value { color: var(--streak-fire); }
         .stars-value { color: var(--star-gold); text-shadow: 0 0 10px rgba(255,215,0,0.5); }
+        .diamonds-value { color: var(--diamond-blue); text-shadow: 0 0 10px rgba(74,144,217,0.45); }
         
         .resign-modal-actions {
             display: flex;
@@ -1230,6 +1232,10 @@
                     <div class="stat-label">Estrelles</div>
                     <div class="stat-value stars-value" id="current-stars">0</div>
                 </div>
+                <div class="stat-box">
+                    <div class="stat-label">Diamants</div>
+                    <div class="stat-value diamonds-value" id="current-diamonds">0</div>
+                </div>
             </div>
             
             <div class="missions-panel">
@@ -1564,6 +1570,7 @@
                     <div>IA: <span id="engine-elo" style="color:var(--accent-purple); font-weight:bold;">Adaptativa</span></div>
                     <div>📚 <span id="game-bundles" style="color:var(--text-secondary); font-weight:bold;">0</span></div>
                     <div class="streak-badge">★ <span id="game-stars">0</span></div>
+                    <div class="streak-badge" style="color: var(--diamond-blue);">✦ <span id="game-diamonds">0</span></div>
                 </div>
                 <div class="calibration-progress" id="calibration-progress">
                     <div class="calibration-progress-text" id="calibration-progress-text">Avaluant nivell... 1/5</div>
