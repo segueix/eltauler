@@ -1554,7 +1554,9 @@ function getCalibrationEloFloor() {
 
 function clampUserElo(value) {
     const floor = getCalibrationEloFloor();
-    const minValue = Math.max(50, typeof floor === 'number' ? floor : 50);
+    const baseFloor = typeof floor === 'number' ? floor : ELO_MIN;
+    const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.7);
+    const minValue = Number.isFinite(flexibleFloor) ? flexibleFloor : ELO_MIN;
     return Math.round(Math.max(minValue, Math.min(ELO_MAX, value)));
 }
 
