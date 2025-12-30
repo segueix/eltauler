@@ -555,6 +555,10 @@ function applyControlMode(mode, opts) {
 // Resize del tauler perquè ocupi el màxim possible
 let resizeTimer = null;
 
+function setInGameLayout(active) {
+    document.body.classList.toggle('in-game', active);
+}
+
 function resizeBoardToViewport() {
     const boardEl = document.getElementById('myBoard');
     const gameScreen = document.getElementById('game-screen');
@@ -564,14 +568,16 @@ function resizeBoardToViewport() {
     if (!isVisible) return;
 
     const headerEl = gameScreen.querySelector('.header');
-    const precisionEl = gameScreen.querySelector('.precision-panel');
+    const precisionPanels = Array.from(gameScreen.querySelectorAll('.precision-panel'));
     const controlsEl = gameScreen.querySelector('.controls');
 
+    const precisionHeight = precisionPanels.reduce((sum, panel) => sum + panel.getBoundingClientRect().height, 0);
+
     const used = (headerEl ? headerEl.getBoundingClientRect().height : 0)
-        + (precisionEl ? precisionEl.getBoundingClientRect().height : 0)
+        + precisionHeight
         + (controlsEl ? controlsEl.getBoundingClientRect().height : 0);
 
-    const availableW = window.innerWidth;
+    const availableW = Math.min(window.innerWidth, gameScreen.getBoundingClientRect().width || window.innerWidth);
     const isSmall = availableW <= 520;
     const isPortrait = window.innerHeight >= availableW;
 
@@ -582,7 +588,7 @@ function resizeBoardToViewport() {
         boardEl.style.marginLeft = '0';
         boardEl.style.marginRight = '0';
     } else {
-        const verticalGaps = 24;
+        const verticalGaps = 16;
         const availableH = window.innerHeight - used - verticalGaps;
         size = Math.floor(Math.max(240, Math.min(availableW, availableH)));
         boardEl.style.marginLeft = 'auto';
@@ -1070,6 +1076,7 @@ function openLeague() {
     }
     createNewLeague(false);
     $('#start-screen').hide(); $('#stats-screen').hide(); $('#game-screen').hide();
+    setInGameLayout(false);
     $('#league-screen').show();
     renderLeague();
 }
@@ -1110,8 +1117,8 @@ function renderLeague() {
         }
 
         const displayElo = (isCalibrationActive() && p.id === 'me') ? '—' : p.elo;
+        tr.append(`<td class="league-player">${p.name}</td>`);
         tr.append(`<td class="num">${displayElo}</td>`);
-        tr.append(`<td class="num">${p.elo}</td>`);
         tr.append(`<td class="num">${p.pj}</td>`);
         tr.append(`<td class="num">${p.pg}</td>`);
         tr.append(`<td class="num">${p.pp}</td>`);
@@ -2181,6 +2188,7 @@ function renderCalibrationResults() {
 function showCalibrationResultsScreen() {
     renderCalibrationResults();
     $('#game-screen').hide();
+    setInGameLayout(false);
     $('#league-screen').hide();
     $('#stats-screen').hide();
     $('#history-screen').hide();
@@ -3677,6 +3685,7 @@ function setupEvents() {
             return;
         }
         $('#game-screen').hide();
+        setInGameLayout(false);
         $('#start-screen').show();
         if (stockfish) stockfish.postMessage('stop');
     });
@@ -3941,6 +3950,7 @@ function startGame(isBundle, fen = null) {
     $('#history-screen').hide();
     $('#calibration-result-screen').hide();
     $('#game-screen').show();
+    setInGameLayout(true);
     
     blunderMode = isBundle; 
     isCalibrationGame = isCalibrationActive() && !isBundle && currentGameMode !== 'drill';
@@ -4448,6 +4458,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         checkmateOverlay.hide();
         modal.hide();
         $('#start-screen').hide(); $('#league-screen').hide(); $('#game-screen').hide(); $('#stats-screen').show();
+        setInGameLayout(false);
         updateStatsDisplay();
         if (typeof onClose === 'function') onClose();
     });
@@ -4469,6 +4480,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 
 function returnToMainMenuImmediate() {
     $('#game-screen').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#calibration-result-screen').hide(); $('#start-screen').show();
+    setInGameLayout(false);
     if (stockfish) stockfish.postMessage('stop');
     clearTapSelection();
     isMatchErrorReviewSession = false;
@@ -4767,7 +4779,7 @@ function handleGameOver(manualResign = false) {
     };
     
     let onClose = () => {
-        if (wasLeagueMatch) { currentGameMode = 'free'; currentOpponent = null; $('#game-screen').hide(); $('#league-screen').show(); renderLeague(); }
+        if (wasLeagueMatch) { currentGameMode = 'free'; currentOpponent = null; $('#game-screen').hide(); setInGameLayout(false); $('#league-screen').show(); renderLeague(); }
     };
     if (calibrationJustCompleted) {
         const baseClose = onClose;
