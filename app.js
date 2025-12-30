@@ -5218,6 +5218,15 @@ function analyzeMove() {
     stockfish.postMessage('go depth 12');
 }
 
+function resolvePendingMoveEvaluation(moveQuality) {
+    if (!pendingMoveEvaluation) return;
+    if (moveQuality === 'excel' || moveQuality === 'good') {
+        goodMoves++;
+    }
+    pendingMoveEvaluation = false;
+    updatePrecisionDisplay();
+}
+
 /**
  * Acumula informació UCI durant l'anàlisi.
  * @param {object} info - Resultat de parseUciInfo
@@ -5430,6 +5439,7 @@ function handleEngineMessage(rawMsg) {
                 saveStorage();
             }           
             waitingForBlunderAnalysis = false;
+            const moveQuality = classifyMoveQuality(Math.abs(swing), lastHumanMoveUci, pendingBestMove);
             registerMoveReview(swing, {
                 fen: pendingAnalysisFen,
                 bestMove: pendingBestMove,
@@ -5439,6 +5449,7 @@ function handleEngineMessage(rawMsg) {
                 evalBefore: pendingEvalBefore,
                 evalAfter: pendingEvalAfter
             });
+            resolvePendingMoveEvaluation(moveQuality);
             
             if (swing > 250 && !blunderMode && currentGameMode !== 'drill') {
                 let severity = 'low';
@@ -5448,7 +5459,6 @@ function handleEngineMessage(rawMsg) {
                 $('#blunder-alert').removeClass('alert-low alert-med alert-high')
                     .addClass('alert-' + severity).show();
 
-                 if (pendingMoveEvaluation) { pendingMoveEvaluation = false; updatePrecisionDisplay(); }
                 saveBlunderToBundle(
                     pendingAnalysisFen || lastPosition,
                     severity,
@@ -5494,9 +5504,6 @@ function handleEngineMessage(rawMsg) {
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
             setTimeout(() => {
                 isEngineThinking = false;
-                if (pendingMoveEvaluation && !$('#blunder-alert').is(':visible')) {
-                    goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay();
-                }
                 game.move({ from: fromSq, to: toSq, promotion: promotion });
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
