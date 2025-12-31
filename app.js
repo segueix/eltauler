@@ -186,23 +186,6 @@ function updateDeviceType() {
     }
 }
 
-// DRILLS DATA (Finals)
-const DRILLS = {
-    basics: [
-        { name: "Mate amb Rei i Dama", fen: "8/8/8/8/8/8/k7/4Q2K w - - 0 1" },
-        { name: "Mate amb Rei i Torre", fen: "8/8/8/8/8/8/k7/4R2K w - - 0 1" }
-    ],
-    pawns: [
-        { name: "Peó Passat (Quadrat)", fen: "8/8/8/8/8/k7/4P3/K7 w - - 0 1" },
-        { name: "Oposició Bàsica", fen: "8/8/8/8/4k3/4P3/4K3/8 w - - 0 1" },
-        { name: "Rei i Peó vs Rei", fen: "8/8/8/8/8/2k5/2P5/2K5 w - - 0 1" }
-    ],
-    advanced: [
-        { name: "Posició de Lucena", fen: "2K5/2P1k3/8/8/8/8/1r6/2R5 w - - 0 1" },
-        { name: "Final de Torres (Philidor)", fen: "2r5/8/8/8/4k3/8/3R4/3K4 w - - 0 1" }
-    ]
-};
-
 function isTouchDevice() {
     return ('ontouchstart' in window) || (navigator.maxTouchPoints && navigator.maxTouchPoints > 0);
 }
@@ -430,7 +413,7 @@ function importBackupData(data) {
         gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
         bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
         highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
-        leagueGamesPlayed: 0, freeGamesPlayed: 0, drillsSolved: 0
+        leagueGamesPlayed: 0, freeGamesPlayed: 0
     };
     eloHistory = data.eloHistory || []; totalGamesPlayed = data.totalGamesPlayed || 0; totalWins = data.totalWins || 0; maxStreak = data.maxStreak || 0;
        const importedElo = (typeof data.currentElo === 'number') ? data.currentElo
@@ -858,8 +841,7 @@ let sessionStats = {
     perfectGames: 0, 
     blackWins: 0,
     leagueGamesPlayed: 0,
-    freeGamesPlayed: 0,
-    drillsSolved: 0
+    freeGamesPlayed: 0
 };
 
 let isAnalyzingHint = false;
@@ -895,7 +877,6 @@ const MISSION_TEMPLATES = [
     { id: 'playLeague', text: 'Juga 1 Lliga', stars: 1, check: () => sessionStats.leagueGamesPlayed >= 1 },
     { id: 'playFree', text: 'Juga 1 Lliure', stars: 1, check: () => sessionStats.freeGamesPlayed >= 1 },
     { id: 'bundle1', text: 'Resol 1 Error', stars: 1, check: () => sessionStats.bundlesSolved >= 1 },
-    { id: 'drill1', text: 'Entrena 1 Final', stars: 1, check: () => sessionStats.drillsSolved >= 1 },
     { id: 'bundleLow', text: 'Resol 1 Lleu', stars: 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
     { id: 'precision70', text: 'Precisió +70%', stars: 1, check: () => sessionStats.highPrecisionGames >= 1 },
     
@@ -1323,7 +1304,7 @@ function generateDailyMissions() {
         gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
         bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
         highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
-        leagueGamesPlayed: 0, freeGamesPlayed: 0, drillsSolved: 0
+        leagueGamesPlayed: 0, freeGamesPlayed: 0
     };
     
     saveStorage();
@@ -1342,8 +1323,7 @@ function updateMissionsDisplay() {
     const targets = { 
         play1: 1, play3: 3, play5: 5, win2: 2, win4: 4, 
         bundle1: 1, bundle3: 3, precision70: 1, precision85: 1, blackwin: 1,
-        playLeague: 1, playFree: 1, bundleLow: 1, bundleMed: 1, bundleHigh: 1,
-        drill1: 1
+        playLeague: 1, playFree: 1, bundleLow: 1, bundleMed: 1, bundleHigh: 1
     };
     const getValue = (id) => {
         if (id === 'playLeague') return sessionStats.leagueGamesPlayed;
@@ -1351,7 +1331,6 @@ function updateMissionsDisplay() {
         if (id === 'bundleLow') return sessionStats.bundlesSolvedLow;
         if (id === 'bundleMed') return sessionStats.bundlesSolvedMed;
         if (id === 'bundleHigh') return sessionStats.bundlesSolvedHigh;
-        if (id === 'drill1') return sessionStats.drillsSolved;
         
         if (id.startsWith('play')) return sessionStats.gamesPlayed;
         if (id.startsWith('win')) return sessionStats.gamesWon;
@@ -1792,7 +1771,7 @@ function isCalibrationRequired() {
 
 function updateCalibrationAccessUI() {
     const lock = isCalibrationRequired();
-    const lockableButtons = $('#btn-league, #btn-drills, #btn-bundle-menu, #btn-tv');
+    const lockableButtons = $('#btn-league, #btn-bundle-menu');
     lockableButtons.prop('disabled', lock).toggleClass('btn-disabled', lock);
     const leagueBanner = $('#league-banner');
     if (lock) leagueBanner.addClass('disabled'); else leagueBanner.removeClass('disabled');
@@ -2995,7 +2974,7 @@ Genera:
 }
 
 function registerMoveReview(swing, analysisData = {}) {
-    if (blunderMode || currentGameMode === 'drill') return;
+    if (blunderMode) return;
     const quality = classifyMoveQuality(Math.abs(swing));
     const history = game.history({ verbose: true });
     const lastMove = history[history.length - 1];
@@ -3183,7 +3162,7 @@ function showCalibrationResultsScreen() {
 }
 
 function persistReviewSummary(finalPrecision, resultLabel) {
-    if (blunderMode || currentGameMode === 'drill') { currentReview = []; return; }
+    if (blunderMode) { currentReview = []; return; }
     const summary = summarizeReview(currentReview);
     const now = new Date();
     const label = now.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short' }) + ' ' + now.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' });
@@ -3263,7 +3242,6 @@ function updateReviewChart() {
 function formatHistoryMode(mode) {
     if (mode === 'league') return 'Lliga';
     if (mode === 'free') return 'Amistosa';
-    if (mode === 'drill') return 'Finals';
     return 'Partida';
 }
 
@@ -4320,7 +4298,7 @@ function showHistoryReview(entry) {
 }
 
 function recordGameHistory(resultLabel, finalPrecision, counts) {
-    if (blunderMode || currentGameMode === 'drill') return;
+    if (blunderMode) return;
     const moves = game.history();
     const now = new Date();
     const entry = {
@@ -4394,22 +4372,10 @@ function setupEvents() {
         initHistoryBoard();
         renderGameHistory();
     });
-    $('#btn-tv').click(() => {
-        if (!guardCalibrationAccess()) return;
-        $('#start-screen').hide();
-        $('#tv-screen').show();
-        initTvBoard();
-        updateTvEloUI();        
-        void loadRandomTvGame();
-        setTimeout(() => { resizeTvBoardToViewport(); }, 0);
-    });
-    
     $('#btn-league').click(() => { if (guardCalibrationAccess()) openLeague(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
-
-    $('#btn-drills').click(() => { if (guardCalibrationAccess()) showDrillsMenu(); });
 
     $('#btn-reset-league').click(() => {
         if (!guardCalibrationAccess()) return;
@@ -4434,13 +4400,6 @@ function setupEvents() {
         $('#history-screen').hide();
         $('#start-screen').show();
     });
-    $('#btn-back-tv').click(() => {
-        stopTvPlayback();
-        stopTvPlayback();
-        $('#tv-screen').hide();
-        $('#start-screen').show();
-    });
-
     $('#btn-calibration-continue').click(() => {
         $('#calibration-result-screen').hide();
         $('#start-screen').show();
@@ -4476,38 +4435,6 @@ function setupEvents() {
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
-    $('#tv-play').off('click').on('click', () => { startTvPlayback(); });
-    $('#tv-pause').off('click').on('click', () => { stopTvPlayback(); });
-    $('#tv-prev').off('click').on('click', () => { tvStepBack(); });
-    $('#tv-next').off('click').on('click', () => { tvStepForward(); });
-    $('#tv-hint').off('click').on('click', () => { requestTvJeroglyphicsHint(); });   
-    $('#tv-jeroglyphics-continue').off('click').on('click', () => {
-        if (!tvJeroglyphicsSolved) return;
-        setTvStatus('');
-        finishTvJeroglyphics({ advanceMove: true, resumePlayback: tvJeroglyphicsResumePlayback });
-    });
-    $('#tv-jeroglyphics-retry').off('click').on('click', () => {
-        if (!tvJeroglyphicsIncorrect) return;
-        tvJeroglyphicsIncorrect = false;
-        setTvStatus('');
-        updateTvJeroglyphicsUI();
-        updateTvControls();
-    });
-    $('#tv-jeroglyphics-watch').off('click').on('click', () => {
-        if (!tvJeroglyphicsIncorrect) return;
-        tvJeroglyphicsIncorrect = false;
-        setTvStatus('');
-        finishTvJeroglyphics({ advanceMove: true, resumePlayback: tvJeroglyphicsResumePlayback });
-    });    
-    $('#tv-next-game').off('click').on('click', () => { void loadRandomTvGame(); });    
-    $('#tv-restart').off('click').on('click', () => { resetTvReplay(); });
-    $('#tv-random').off('click').on('click', () => { void loadRandomTvGame(); });    
-    $('#tv-menu').off('click').on('click', () => {
-        stopTvPlayback();
-        $('#tv-screen').hide();
-        $('#start-screen').show();
-    });
-    
     $('#result-indicator').off('click').on('click', () => {
         if (!lastReviewSnapshot) return;
         showPostGameReview(
@@ -4534,11 +4461,6 @@ function setupEvents() {
         applyEpaperMode($(this).is(':checked'));
     });
 
-    $('#tv-jeroglyphics-toggle').off('change').on('change', function() {
-        applyTvJeroglyphicsMode($(this).is(':checked'));
-    });
-
-    
     $('#btn-show-delete').click(() => { $('#confirm-delete-panel').slideDown(); });
     $('#btn-cancel-delete').click(() => { $('#confirm-delete-panel').slideUp(); });
     
@@ -4553,7 +4475,7 @@ function setupEvents() {
                 gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
                 bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
                 highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
-                leagueGamesPlayed: 0, freeGamesPlayed: 0, drillsSolved: 0
+                leagueGamesPlayed: 0, freeGamesPlayed: 0
             };
             eloHistory = []; totalGamesPlayed = 0; totalWins = 0; maxStreak = 0;
             currentElo = clampEngineElo(userELO);
@@ -4746,52 +4668,6 @@ function setupEvents() {
         showBundleMenu();
     });
 }
-
-// --- DRILLS LOGIC ---
-function showDrillsMenu() {
-    $('#bundle-modal').remove();
-
-    let html = '<div class="modal-overlay" id="bundle-modal" style="display:flex;"><div class="modal-content">';
-    html += '<div class="modal-title">🎓 Entrenament</div>';
-    html += '<div class="bundle-folder-list">';
-
-    const categories = [
-        { id: 'basics', title: 'Bàsics', icon: '♟️' },
-        { id: 'pawns', title: 'Peons', icon: '🏗️' },
-        { id: 'advanced', title: 'Avançats', icon: '🔥' }
-    ];
-
-    categories.forEach(cat => {
-        const drills = DRILLS[cat.id];
-        html += `<div class="bundle-section drill open">`;
-        html += '<div class="bundle-section-header">';
-        html += `<div class="bundle-section-title">${cat.icon} ${cat.title}</div>`;
-        html += '</div>';
-
-        html += '<div class="bundle-section-content" style="display:block;">';
-        html += '<div class="bundle-list">';
-        drills.forEach((d) => {
-            html += `<div class="drill-item" onclick="startDrill('${d.fen}', '${d.name}')">`;
-            html += `<div><strong>${d.name}</strong></div>`;
-            html += '</div>';
-        });
-        html += '</div></div></div>';
-    });
-
-    html += '</div>'; 
-    html += '<button class="close-modal" onclick="$(\'#bundle-modal\').remove()">Tancar</button></div></div>';
-    $('body').append(html);
-}
-
-window.startDrill = function(fen, name) {
-    $('#bundle-modal').remove(); 
-    
-    currentGameMode = 'drill';
-    currentOpponent = null;
-    $('#game-mode-title').text('🎓 ' + name);
-    
-    startGame(false, fen); 
-};
 
 function showBundleMenu() {
     if (savedErrors.length === 0) { alert('No tens errors guardats'); return; }
@@ -4993,7 +4869,7 @@ function startGame(isBundle, fen = null) {
     $('#game-screen').show();
     
     blunderMode = isBundle; 
-    isCalibrationGame = isCalibrationActive() && !isBundle && currentGameMode !== 'drill';
+    isCalibrationGame = isCalibrationActive() && !isBundle;
     currentBundleFen = fen;
     lastHumanMoveUci = null;
     isBundleStrictAnalysis = false;
@@ -5020,10 +4896,7 @@ function startGame(isBundle, fen = null) {
     let boardOrientation = 'white';
     
     // LÒGICA DE COLORS
-    if (currentGameMode === 'drill') {
-        playerColor = game.turn();
-        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
-    } else if (isBundle) {
+    if (isBundle) {
         playerColor = game.turn();
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else {
@@ -5070,9 +4943,6 @@ function startGame(isBundle, fen = null) {
         if (engineReady) applyEngineEloStrength(currentCalibrationOpponentElo);
         $('#engine-elo').text(`ELO ${currentCalibrationOpponentElo}`);
         $('#game-mode-title').text('🎯 Partida de calibratge');
-    } else if (currentGameMode === 'drill') {
-        $('#engine-elo').text('Mestre');
-        $('#engine-elo').text('Mestre');
     } else if (isBundle) {
         currentGameMode = 'bundle';
         currentOpponent = null;
@@ -5115,7 +4985,7 @@ function onDragStart(source, piece, position, orientation) {
     if (game.game_over() || isEngineThinking) return false;
     if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || 
         (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
-    if ((currentGameMode === 'drill' || blunderMode) && game.turn() !== playerColor) return false;
+    if (blunderMode && game.turn() !== playerColor) return false;
 }
 
 function onDrop(source, target) {
@@ -5149,7 +5019,7 @@ function makeEngineMove() {
     isEngineThinking = true; 
     $('#status').text("L'adversari pensa...");
 
-    const depth = (currentGameMode === 'drill') ? 20 : getAIDepth(); 
+    const depth = getAIDepth(); 
     const skillLevel = isCalibrationGame ? getCalibrationSkillLevel() : getEngineSkillLevel();
     resetEngineMoveCandidates();
 
@@ -5451,7 +5321,7 @@ function handleEngineMessage(rawMsg) {
             });
             resolvePendingMoveEvaluation(moveQuality);
             
-            if (swing > 250 && !blunderMode && currentGameMode !== 'drill') {
+            if (swing > 250 && !blunderMode) {
                 let severity = 'low';
                 if (swing > 800) severity = 'high';
                 else if (swing > 500) severity = 'med';
@@ -5865,7 +5735,7 @@ function registerEngineMovePrecision(moveStr, candidates) {
 }
 
 function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = []) {
-     if (!blunderMode && currentGameMode !== 'drill') {
+     if (!blunderMode) {
         const alreadyTracked = currentGameErrors.some(e => e.fen === fen);
         if (!alreadyTracked) {
             currentGameErrors.push({
@@ -5937,23 +5807,6 @@ function handleGameOver(manualResign = false) {
     if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
     if (finalPrecision >= 85) sessionStats.perfectGames++;
     
-    // LÒGICA DRILLS
-    if (currentGameMode === 'drill') {
-        if (playerWon) {
-            alert("Entrenament completat! 🎉");
-            sessionStats.drillsSolved++;
-            checkMissions();
-            returnToMainMenuImmediate();
-            return;
-        } else {
-            if(confirm("Entrenament fallit. Vols tornar-ho a provar?")) {
-                game.undo(); board.position(game.fen()); return;
-            } else {
-                returnToMainMenuImmediate(); return;
-            }
-        }
-    }
-
     if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
@@ -5977,7 +5830,7 @@ function handleGameOver(manualResign = false) {
         });
     }
 
-    if (!blunderMode && currentGameMode !== 'drill' && !calibrationGameWasActive) {
+    if (!blunderMode && !calibrationGameWasActive) {
         if (shouldContinuousAdjust) {
             const adjustResult = registerFreeGameAdjustment(resultScore, finalPrecision, {
                 avgCpLoss: avgCpLoss,
@@ -6106,7 +5959,6 @@ $(document).ready(() => {
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
-    applyTvJeroglyphicsMode(loadTvJeroglyphicsPreference(), { skipSave: true });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
