@@ -198,6 +198,8 @@ let controlMode = null;
 const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
+const LLM_API_KEY_KEY = 'eltauler_llm_api_key';
+const LLM_MODEL = 'gemini-1.5-flash';
 
 const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
 let epaperEnabled = false;
@@ -3488,6 +3490,7 @@ function updateHistoryDetails(entry) {
         breakdown.empty();
         updateHistoryProgress();
         updateHistoryControls();
+        updateHistoryLlmPanel(null);
         return;
     }
 
@@ -3507,6 +3510,135 @@ function updateHistoryDetails(entry) {
     `);
     updateHistoryProgress();
     updateHistoryControls();
+    updateHistoryLlmPanel(entry);
+}
+
+function getStoredLlmApiKey() {
+    try { return localStorage.getItem(LLM_API_KEY_KEY) || ''; } catch (e) { return ''; }
+}
+
+function setStoredLlmApiKey(value) {
+    try {
+        if (value) localStorage.setItem(LLM_API_KEY_KEY, value);
+        else localStorage.removeItem(LLM_API_KEY_KEY);
+    } catch (e) {}
+}
+
+function summarizeHistoryErrors(entry) {
+    if (!entry || !Array.isArray(entry.errors)) return 'Sense errors destacats.';
+    const errors = entry.errors.slice(0, 6);
+    if (!errors.length) return 'Sense errors destacats.';
+    return errors.map((err, idx) => {
+        const severityLabel = err.severity === 'high' ? 'Greu' : err.severity === 'med' ? 'Mitjà' : 'Lleu';
+        const bestMove = err.bestMove || '—';
+        const playerMove = err.playerMove || '—';
+        const fen = err.fen || '—';
+        return `${idx + 1}. ${severityLabel} | Jugada: ${playerMove} | Millor: ${bestMove} | FEN: ${fen}`;
+    }).join('\n');
+}
+
+function buildHistoryLlmPrompt(entry) {
+    const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
+    const precision = typeof entry.precision === 'number' ? `${entry.precision}%` : '—';
+    const moves = getHistoryMoves(entry);
+    const game = new Chess();
+    const sanMoves = [];
+    moves.forEach(move => {
+        const res = game.move(move, { sloppy: true });
+        if (res && res.san) sanMoves.push(res.san);
+    });
+    const finalFen = game.fen();
+    const moveSample = sanMoves.slice(0, 20).join(' ');
+    const errorSummary = summarizeHistoryErrors(entry);
+    return `
+Resultat: ${entry.result || '—'}
+Precisió: ${precision}
+Recompte: Excel·lents ${counts.excel || 0}, Bones ${counts.good || 0}, Imprecisions ${counts.inaccuracy || 0}, Errors ${counts.mistake || 0}, Blunders ${counts.blunder || 0}
+Mostra jugades (inici): ${moveSample || '—'}
+FEN final del tauler: ${finalFen}
+Errors destacats:
+${errorSummary}
+`;
+}
+
+async function requestHistoryLlmComment(entry) {
+    const output = $('#history-llm-output');
+    const button = $('#history-llm-generate');
+    if (!output.length || !button.length) return;
+    if (!entry) {
+        output.text('Selecciona una partida per generar el comentari.');
+        return;
+    }
+    const apiKey = ($('#history-llm-key').val() || '').trim();
+    if (!apiKey) {
+        output.text('Introdueix una clau API per generar el comentari.');
+        return;
+    }
+    setStoredLlmApiKey(apiKey);
+    const originalLabel = button.text();
+    button.prop('disabled', true).text('Generant...');
+    output.text('Generant comentari...');
+
+    const payload = {
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    {
+                        text: `Ets un entrenador d’escacs en català. Dona un comentari breu, útil i respectuós.\nFes un comentari de revisió (3-5 frases) basat en les dades següents. Inclou 2-3 consells concrets i esmenta el resultat i la precisió. No inventis informació.\n${buildHistoryLlmPrompt(entry)}`
+                    }
+                ]
+            }
+        ],
+        generationConfig: {
+            temperature: 0.5
+        }
+    };
+
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${LLM_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(payload)
+        });
+        if (!response.ok) {
+            const errorText = await response.text();
+            throw new Error(errorText || 'Resposta no vàlida del servei.');
+        }
+        const data = await response.json();
+        const comment = data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+        if (!comment) {
+            throw new Error('Resposta buida del model.');
+        }
+        entry.llmComment = comment;
+        saveStorage();
+        output.text(comment);
+    } catch (error) {
+        const message = error && error.message ? error.message : 'Error desconegut.';
+        output.text(`No s'ha pogut generar el comentari. ${message}`);
+    } finally {
+        button.prop('disabled', false).text(originalLabel);
+    }
+}
+
+function updateHistoryLlmPanel(entry) {
+    const keyInput = $('#history-llm-key');
+    const output = $('#history-llm-output');
+    const button = $('#history-llm-generate');
+    if (!keyInput.length || !output.length || !button.length) return;
+    const storedKey = getStoredLlmApiKey();
+    if (keyInput.val() !== storedKey) {
+        keyInput.val(storedKey);
+    }
+    if (!entry) {
+        button.prop('disabled', true);
+        output.text('Selecciona una partida per veure el comentari.');
+        return;
+    }
+    button.prop('disabled', false);
+    output.text(entry.llmComment || 'Encara no s\'ha generat cap comentari.');
 }
 
 function historyStepForward() {
@@ -4399,6 +4531,13 @@ function setupEvents() {
         stopHistoryPlayback();
         $('#history-screen').hide();
         $('#start-screen').show();
+    });
+    $('#history-llm-key').off('change').on('change', function() {
+        setStoredLlmApiKey($(this).val().trim());
+    });
+    $('#history-llm-generate').off('click').on('click', () => {
+        const entry = historyReplay ? historyReplay.entry : null;
+        requestHistoryLlmComment(entry);
     });
     $('#btn-calibration-continue').click(() => {
         $('#calibration-result-screen').hide();
