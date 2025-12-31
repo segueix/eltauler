@@ -1360,8 +1360,6 @@
                     </div>
                 </div>
                 <button class="btn btn-secondary" id="btn-league" style="background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc;">🏆 Lliga</button>
-                <button class="btn btn-secondary" id="btn-drills" style="background: linear-gradient(135deg, #7c8568 0%, #555e42 100%); color: #f4e4bc;">🎓 Entrenament de Finals</button>
-                <button class="btn btn-secondary" id="btn-tv" style="background: linear-gradient(135deg, #455a64 0%, #263238 100%); color: #f4e4bc;">📺 TV</button>
                 <button class="btn btn-secondary" id="btn-bundle-menu" style="background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc;">
                     📚 Revisa Errors
                     <span style="font-size:0.75rem; opacity:0.8;" id="bundle-info">Cap error desat</span>
@@ -1546,81 +1544,6 @@
             </div>
         </div>
 
-        <div id="tv-screen" style="display:none;">
-            <div class="stats-header">
-                <div class="app-logo">📺</div>
-                <h1>TV</h1>
-                <div class="subtitle" id="tv-subtitle">Lichess TV (si està disponible) o partida aleatòria de la base de dades oberta.</div>
-            </div>
-            <div class="settings-panel">
-                <div class="settings-title">Partida aleatòria</div>
-                <div class="tv-actions">
-                    <button class="btn btn-primary" id="tv-random">🎲 Tindré sort</button>
-                </div>
-                 <div class="setting-row" style="margin-top:12px;">
-                    <div class="setting-label">Jeroglífics</div>
-                    <label class="epaper-toggle">
-                        <input type="checkbox" id="tv-jeroglyphics-toggle">
-                        <span class="epaper-slider"></span>
-                    </label>
-                </div>
-            </div>
-            <div class="history-section tv-section">
-                <div class="history-title" id="tv-title">Reproducció TV</div>
-                <div class="history-layout" style="grid-template-columns: 1fr;">
-                    <div class="history-detail">
-                        <div class="history-detail-header">
-                            <div class="history-detail-title" id="tv-result">—</div>
-                            <div class="history-detail-meta" id="tv-meta">Carregant partida...</div>
-                            <div class="history-detail-meta">ELO: <strong id="tv-elo">—</strong></div>
-                            <div class="tv-players" id="tv-players">
-                                <div class="tv-player white"><span class="tv-chip"></span>Blanques: <strong id="tv-white-player">—</strong></div>
-                                <div class="tv-player black"><span class="tv-chip"></span>Negres: <strong id="tv-black-player">—</strong></div>
-                            </div>               
-                        </div>
-                        <div class="history-board">
-                            <div id="tv-board"></div>
-                             <div class="tv-jeroglyphics-overlay" id="tv-jeroglyphics-overlay">
-                                <div class="tv-jeroglyphics-result" id="tv-jeroglyphics-result-correct">
-                                    <div class="tv-jeroglyphics-result-icon">✅</div>
-                                    <div class="tv-jeroglyphics-result-text">Correcte!</div>
-                                    <div class="tv-jeroglyphics-result-actions">
-                                        <button class="btn btn-primary" id="tv-jeroglyphics-continue">Seguir mirant partida</button>
-                                    </div>
-                                </div>
-                                <div class="tv-jeroglyphics-result tv-jeroglyphics-result--incorrect" id="tv-jeroglyphics-result-incorrect">
-                                    <div class="tv-jeroglyphics-result-icon">❌</div>
-                                    <div class="tv-jeroglyphics-result-text">Incorrecte</div>
-                                    <div class="tv-jeroglyphics-result-actions">
-                                        <button class="btn btn-primary" id="tv-jeroglyphics-retry">Seguir intentant</button>
-                                        <button class="btn btn-secondary" id="tv-jeroglyphics-watch">Seguir mirant partida</button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                        <div class="tv-jeroglyphics-turn" id="tv-jeroglyphics-turn"></div>
-                        <div class="history-controls">
-                            <button class="btn btn-secondary" id="tv-prev">⏮️ Endarrere</button>
-                            <button class="btn btn-primary" id="tv-play">▶️ Play</button>
-                            <button class="btn btn-secondary" id="tv-pause">⏸️ Pausa</button>
-                            <button class="btn btn-secondary" id="tv-hint">💡 Pista</button>                       
-                            <button class="btn btn-secondary" id="tv-next">⏭️ Endavant</button>
-                        </div>
-                        <div class="history-progress" id="tv-progress">0/0</div>
-                        <div class="tv-end-actions" id="tv-end-actions" style="display:none;">
-                            <button class="btn btn-primary" id="tv-next-game">SEGÜENT</button>
-                            <button class="btn btn-secondary" id="tv-restart">TORNAR ENRERE</button>
-                            <button class="btn btn-secondary" id="tv-menu">MENÚ</button>
-                        </div>
-                        <div class="tv-status" id="tv-status"></div>
-                    </div>
-                </div>
-            </div>            
-            <div class="menu-buttons" style="margin-top:20px;">
-                <button class="btn btn-primary" id="btn-back-tv">Tornar al Menú</button>
-            </div>
-        </div>
-        
         <div class="modal-overlay" id="badges-modal">
             <div class="modal-content">
                 <div class="modal-title">🏆 Trofeus</div>
