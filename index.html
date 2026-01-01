@@ -293,7 +293,18 @@
             font-family: 'Crimson Pro', serif;
             font-size: 0.9rem;
         }
+        .text-control {
+            background: rgba(0,0,0,0.25);
+            border: 1px solid rgba(255,255,255,0.15);
+            color: var(--text-primary);
+            padding: 8px 10px;
+            border-radius: 10px;
+            font-family: 'Crimson Pro', serif;
+            font-size: 0.9rem;
+            width: 100%;
+        }
         body.epaper-mode .select-control { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
+        body.epaper-mode .text-control { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         .setting-help { margin-top: 8px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.25; }
         body.epaper-mode .header,
         body.epaper-mode .precision-panel,
@@ -905,6 +916,37 @@
             font-size: 0.8rem;
             color: var(--text-secondary);
         }
+        .history-llm {
+            margin-top: 12px;
+            padding: 12px;
+            border-radius: 12px;
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            background: rgba(0,0,0,0.2);
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        body.epaper-mode .history-llm {
+            background: #e6e6e6;
+            border-color: #cfcfcf;
+        }
+        .history-llm-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .history-llm-title {
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+        .history-llm-output {
+            font-size: 0.85rem;
+            line-height: 1.4;
+            color: var(--text-primary);
+            white-space: pre-wrap;
+        }
         .tv-section .history-board {
             max-width: 640px;
             position: relative;
@@ -1451,6 +1493,11 @@
                     <button class="btn btn-secondary" id="btn-recalibrate">Tornar a calibrar nivell</button>
                 </div>
                 <div class="setting-help">Això resetarà el teu perfil actual.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Clau API Gemini (gemini-3-flash)</div>
+                    <input type="password" id="gemini-api-key" class="text-control" placeholder="AIza..." autocomplete="off">
+                </div>
+                <div class="setting-help">La clau es guarda només en aquest dispositiu. Si és vàlida, les revisions es generen automàticament.</div>
             </div>
 
             <div class="chart-container">
@@ -1536,6 +1583,13 @@
                             <button class="btn btn-secondary" id="history-next">⏭️ Endavant</button>
                         </div>
                         <div class="history-progress" id="history-progress">0/0</div>
+                        <div class="history-llm">
+                            <div class="history-llm-header">
+                                <div class="history-llm-title">Comentari IA</div>
+                                <button class="btn btn-secondary" id="history-llm-generate">✨ Genera comentari</button>
+                            </div>
+                            <div class="history-llm-output" id="history-llm-output">Encara no s'ha generat cap comentari.</div>
+                        </div>
                     </div>
                 </div>
             </div>

@@ -198,6 +198,10 @@ let controlMode = null;
 const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
+const LLM_API_KEY_KEY = 'eltauler_llm_api_key';
+const LLM_MODEL = 'gemini-3-flash';
+let historyReviewQueue = [];
+let historyReviewProcessing = false;
 
 const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
 let epaperEnabled = false;
@@ -2257,6 +2261,7 @@ function updateStatsDisplay() {
     $('#stats-max-streak').text(maxStreak);
     updateEloChart();
     updateReviewChart();
+    updateGeminiKeyInput();
 }
 
 function updateEloChart() {
@@ -3488,6 +3493,7 @@ function updateHistoryDetails(entry) {
         breakdown.empty();
         updateHistoryProgress();
         updateHistoryControls();
+        updateHistoryLlmPanel(null);
         return;
     }
 
@@ -3507,6 +3513,180 @@ function updateHistoryDetails(entry) {
     `);
     updateHistoryProgress();
     updateHistoryControls();
+    updateHistoryLlmPanel(entry);
+}
+
+function getStoredLlmApiKey() {
+    try { return localStorage.getItem(LLM_API_KEY_KEY) || ''; } catch (e) { return ''; }
+}
+
+function setStoredLlmApiKey(value) {
+    try {
+        if (value) localStorage.setItem(LLM_API_KEY_KEY, value);
+        else localStorage.removeItem(LLM_API_KEY_KEY);
+    } catch (e) {}
+}
+
+function summarizeHistoryErrors(entry) {
+    if (!entry || !Array.isArray(entry.errors)) return { severeCount: 0 };
+    const severeErrors = entry.errors.filter(err => err.severity === 'high');
+    return { severeCount: severeErrors.length };
+}
+
+function buildHistoryLlmPrompt(entry) {
+    const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
+    const precision = typeof entry.precision === 'number' ? `${entry.precision}%` : '—';
+    const movesCount = getHistoryMoves(entry).length;
+    const errorSummary = summarizeHistoryErrors(entry);
+    return `
+Resultat: ${entry.result || '—'}
+Precisió: ${precision}
+Recompte: Excel·lents ${counts.excel || 0}, Bones ${counts.good || 0}, Imprecisions ${counts.inaccuracy || 0}, Errors ${counts.mistake || 0}, Blunders ${counts.blunder || 0}
+Total jugades: ${movesCount}
+Errors greus: ${errorSummary.severeCount}
+`;
+}
+
+async function requestHistoryLlmComment(entry) {
+    if (!entry) {
+        updateHistoryLlmOutput('Selecciona una partida per generar el comentari.');
+        return;
+    }
+    const apiKey = getStoredLlmApiKey();
+    if (!apiKey) {
+        updateHistoryLlmOutput('Introdueix una clau API per generar el comentari.');
+        return;
+    }
+    const originalLabel = setHistoryLlmLoadingState(true);
+    updateHistoryLlmOutput('Generant comentari...');
+    try {
+        const comment = await generateHistoryLlmComment(entry);
+        if (comment) updateHistoryLlmOutput(comment);
+    } catch (error) {
+        const message = error && error.message ? error.message : 'Error desconegut.';
+        updateHistoryLlmOutput(`No s'ha pogut generar el comentari. ${message}`);
+    } finally {
+        setHistoryLlmLoadingState(false, originalLabel);
+    }
+}
+
+function updateHistoryLlmPanel(entry) {
+    const output = $('#history-llm-output');
+    const button = $('#history-llm-generate');
+    if (!output.length || !button.length) return;
+    if (!entry) {
+        button.prop('disabled', true);
+        updateHistoryLlmOutput('Selecciona una partida per veure el comentari.');
+        return;
+    }
+    const hasKey = Boolean(getStoredLlmApiKey());
+    button.prop('disabled', !hasKey);
+    updateHistoryLlmOutput(entry.llmComment || (hasKey ? 'Encara no s\'ha generat cap comentari.' : 'Introdueix una clau API per activar les revisions.'));
+}
+
+function updateHistoryLlmOutput(message) {
+    const output = $('#history-llm-output');
+    if (output.length) output.text(message);
+}
+
+function setHistoryLlmLoadingState(loading, previousLabel = null) {
+    const button = $('#history-llm-generate');
+    if (!button.length) return previousLabel;
+    if (loading) {
+        const label = button.text();
+        button.prop('disabled', true).text('Generant...');
+        return label;
+    }
+    button.prop('disabled', false).text(previousLabel || '✨ Genera comentari');
+    return previousLabel;
+}
+
+async function generateHistoryLlmComment(entry) {
+    const apiKey = getStoredLlmApiKey();
+    if (!apiKey || !entry) return null;
+    if (entry.llmComment) return entry.llmComment;
+    const payload = {
+        contents: [
+            {
+                role: 'user',
+                parts: [
+                    {
+                        text: `Ets un mestre d’escacs zen i parles en català.\nCrea un comentari en format de petit conte zen. Primer, un paràgraf amb una màxima general per a tota la partida. Després, escriu un paràgraf per cada error greu detectat, cadascun amb una màxima i una petita història.\nNo facis llistes ni numeracions, no mencionis coordenades ni moviments exactes.\n${buildHistoryLlmPrompt(entry)}`
+                    }
+                ]
+            }
+        ],
+        generationConfig: {
+            temperature: 0.6
+        }
+    };
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${LLM_MODEL}:generateContent?key=${encodeURIComponent(apiKey)}`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json'
+        },
+        body: JSON.stringify(payload)
+    });
+    const data = await response.json();
+    if (!response.ok) {
+        const apiMessage = data?.error?.message || 'Resposta no vàlida del servei.';
+        if (data?.error?.status === 'INVALID_ARGUMENT') {
+            throw new Error('La clau API no és vàlida o no té permisos per a Gemini. Revisa-la i comprova que l’API estigui habilitada.');
+        }
+        throw new Error(apiMessage);
+    }
+    const comment = data?.candidates?.[0]?.content?.parts?.map(part => part.text || '').join('').trim();
+    if (!comment) {
+        throw new Error('Resposta buida del model.');
+    }
+    entry.llmComment = comment;
+    saveStorage();
+    return comment;
+}
+
+function updateGeminiKeyInput() {
+    const input = $('#gemini-api-key');
+    if (!input.length) return;
+    const storedKey = getStoredLlmApiKey();
+    if (input.val() !== storedKey) input.val(storedKey);
+}
+
+function enqueueHistoryReview(entry) {
+    if (!entry || entry.llmComment) return;
+    if (historyReviewQueue.includes(entry)) return;
+    historyReviewQueue.push(entry);
+    processHistoryReviewQueue();
+}
+
+async function processHistoryReviewQueue() {
+    if (historyReviewProcessing) return;
+    const apiKey = getStoredLlmApiKey();
+    if (!apiKey) return;
+    historyReviewProcessing = true;
+    while (historyReviewQueue.length) {
+        const entry = historyReviewQueue.shift();
+        if (!entry || entry.llmComment) continue;
+        try {
+            const comment = await generateHistoryLlmComment(entry);
+            if (historyReplay && historyReplay.entry === entry && comment) {
+                updateHistoryLlmOutput(comment);
+            }
+        } catch (error) {
+            if (historyReplay && historyReplay.entry === entry) {
+                const message = error && error.message ? error.message : 'Error desconegut.';
+                updateHistoryLlmOutput(`No s'ha pogut generar el comentari. ${message}`);
+            }
+        }
+    }
+    historyReviewProcessing = false;
+}
+
+function enqueueMissingHistoryReviews() {
+    if (!getStoredLlmApiKey()) return;
+    gameHistory.forEach(entry => {
+        if (!entry.llmComment) enqueueHistoryReview(entry);
+    });
 }
 
 function historyStepForward() {
@@ -4335,6 +4515,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts) {
             }
         }
     }
+    if (getStoredLlmApiKey()) {
+        enqueueHistoryReview(entry);
+    }
 }
 
 function checkShareSupport() {
@@ -4399,6 +4582,15 @@ function setupEvents() {
         stopHistoryPlayback();
         $('#history-screen').hide();
         $('#start-screen').show();
+    });
+    $('#history-llm-generate').off('click').on('click', () => {
+        const entry = historyReplay ? historyReplay.entry : null;
+        requestHistoryLlmComment(entry);
+    });
+    $('#gemini-api-key').off('change').on('change', function() {
+        setStoredLlmApiKey($(this).val().trim());
+        updateHistoryLlmPanel(historyReplay ? historyReplay.entry : null);
+        enqueueMissingHistoryReviews();
     });
     $('#btn-calibration-continue').click(() => {
         $('#calibration-result-screen').hide();
