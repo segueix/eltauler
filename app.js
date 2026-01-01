@@ -3558,7 +3558,7 @@ function updateHistoryReview(entry) {
     }
     const review = entry.geminiReview || null;
     if (review && review.text) {
-        reviewContent.text(review.text);
+        reviewContent.html(formatGeminiReviewText(review.text));
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
@@ -3579,6 +3579,22 @@ function updateHistoryReview(entry) {
     }
     reviewContent.text('Encara no hi ha revisió per aquesta partida.');
     if (generateBtn.length) generateBtn.prop('disabled', false);
+}
+
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatGeminiReviewText(text) {
+    const safe = escapeHtml(text || '');
+    return safe
+        .replace(/&quot;([\s\S]*?)&quot;/g, '<em>"$1"</em>')
+        .replace(/“([\s\S]*?)”/g, '<em>“$1”</em>');
 }
 
 function getSevereErrors(entries) {
