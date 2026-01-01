@@ -200,7 +200,7 @@ let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
 
 const GEMINI_API_KEY_STORAGE = 'chess_gemini_api_key';
-const GEMINI_MODEL_ID = 'gemini-3-flash-preview';
+const GEMINI_MODEL_ID = 'gemini-3-pro-preview';
 let geminiApiKey = null;
 
 const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
@@ -3558,7 +3558,7 @@ function updateHistoryReview(entry) {
     }
     const review = entry.geminiReview || null;
     if (review && review.text) {
-        reviewContent.text(review.text);
+        reviewContent.html(formatGeminiReviewText(review.text));
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
@@ -3581,10 +3581,36 @@ function updateHistoryReview(entry) {
     if (generateBtn.length) generateBtn.prop('disabled', false);
 }
 
+function escapeHtml(text) {
+    return String(text)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function formatGeminiReviewText(text) {
+    const safe = escapeHtml(text || '');
+    return safe
+        .replace(/&quot;([\s\S]*?)&quot;/g, '<em>"$1"</em>')
+        .replace(/“([\s\S]*?)”/g, '<em>“$1”</em>');
+}
+
 function getSevereErrors(entries) {
     return (entries || [])
         .filter(entry => entry.quality === 'blunder' || (entry.swing || 0) >= 200)
         .map(entry => ({
+            fen: entry.fen || null,
+            moveNumber: entry.moveNumber || null,
+            playerMove: entry.playerMove || null,
+            playerMoveSan: entry.playerMoveSan || null,
+            bestMove: entry.bestMove || null,
+            bestMoveSan: entry.bestMoveSan || null,
+            bestMovePv: entry.bestMovePv || [],
+            bestMovePvSan: entry.bestMovePvSan || [],
+            evalBefore: entry.evalBefore ?? null,
+            evalAfter: entry.evalAfter ?? null,
             swing: entry.swing || null,
             isCapture: !!entry.isCapture,
             isCheck: !!entry.isCheck
@@ -3614,57 +3640,44 @@ function buildGeminiReviewPrompt(entry, severeErrors) {
         const fen = err.fen || '';
         const pvLine = (err.bestMovePvSan || err.bestMovePv || []).slice(0, 4).join(' ');
         
-        return `Error a la jugada ${moveNum}: vas jugar ${played} però calia ${best}. Línia: ${pvLine || '—'}. Pèrdua: ${swing} cp. FEN: ${fen}`;
+        return `Error ${idx + 1}: Jugada ${moveNum}, vas jugar ${played}, calia ${best}. Pèrdua: ${swing}cp. Continuació: ${pvLine || '—'}. FEN: ${fen}`;
     }).join('\n');
 
     const totalMoves = moves.length;
     
-    return `Ets un mestre d'escacs que ensenya amb principis clars i memorables.
-Escriu en català. Usa un to càlid i proper, com si parlessis amb un amic.
+    return `Ets un mestre d'escacs amable que ensenya amb màximes memorables.
 
-DADES DE LA PARTIDA
-Resultat: ${entry.result || '—'}
-Precisió: ${typeof entry.precision === 'number' ? `${entry.precision}%` : '—'}
-Jugades: ${totalMoves}
-Bones jugades: ${(summary.excel || 0) + (summary.good || 0)}
-Errors lleus: ${summary.inaccuracy || 0}
-Errors greus: ${(summary.mistake || 0) + (summary.blunder || 0)}
+DADES
+Resultat: ${entry.result || '—'} | Precisió: ${typeof entry.precision === 'number' ? `${entry.precision}%` : '—'} | Jugades: ${totalMoves}
+Bones: ${(summary.excel || 0) + (summary.good || 0)} | Imprecisions: ${summary.inaccuracy || 0} | Errors greus: ${(summary.mistake || 0) + (summary.blunder || 0)}
 
-ERRORS A ANALITZAR
-${errorsDetail || 'Partida sense errors greus.'}
+ERRORS CONCRETS (menciona les jugades explícitament!)
+${errorsDetail || 'Cap error greu.'}
 
 INSTRUCCIONS
+1. Comença amb un TÍTOL que sigui la màxima principal de la partida entre cometes dobles (per exemple: "Les peces han de treballar juntes")
+2. Redacta un paràgraf d'anàlisi general que resumeixi el rendiment i la precisió, evitant felicitacions personals o un to excessivament fraternalista
+3. Per a cada error, utilitza l'estructura "Quan vas jugar [jugada] a la jugada [número]..." i acompanya-ho sempre d'una descripció clara de l'acció (per exemple: "en capturar el peó amb la reina" o "en retrocedir l'alfil") perquè s'entengui el moviment sense dependre del nom de la casella. Cada explicació d'error ha d'incloure una màxima universal entre cometes
+4. Finalitza amb un paràgraf de conclusió centrat en el principi clau per millorar en el futur
 
-Escriu una revisió en prosa natural, sense enumeracions ni llistes amb punts o números. El text ha de fluir com una conversa.
+REGLES
+- Màxim 350 paraules
+- Prosa natural organitzada exclusivament en paràgrafs. No utilitzis llistes, numeracions ni asteriscs
+- Descriu la jugada identificant exclusivament la peça i l'acció mecànica realitzada.
+- Totes les lliçons estratègiques han d'anar entre cometes dobles
+- Manté un to objectiu, analític i professional, evitant un llenguatge massa familiar o emotiu
+- Crea Màximes noves coherents amb la partida i els principis dels escacs
 
-Estructura el text així:
-
-Primer, fes un paràgraf curt sobre com ha anat la partida en general. Destaca què s'ha fet bé abans de parlar dels errors.
-
-Després, per cada error greu, dedica un paràgraf que inclogui:
-- Una MÀXIMA D'ESCACS entre cometes que s'apliqui a l'error (exemples: "Les peces han de treballar juntes", "El rei al centre és un rei en perill", "No moguis la mateixa peça dues vegades a l'obertura", "Abans d'atacar, assegura el rei", "Cada jugada ha de tenir un propòsit")
-- Explica amb paraules senzilles per què la jugada era un error i què feia millor la jugada correcta
-- Relaciona l'error amb la màxima
-
-Finalment, un paràgraf de tancament amb el principi més important a recordar d'aquesta partida.
-
-REGLES D'ESTIL
-- No facis servir asteriscs, guions, números ni cap tipus de llista
-- Les màximes van sempre entre cometes dobles
-- Usa paraules senzilles: "torre" no "columna oberta per la torre pesada"
-- Explica els conceptes: si dius "forquilla", afegeix "atacar dues peces alhora"
-- El to ha de ser encoratjador, mai crític
-- Màxim 400 paraules
-- Cada màxima ha de ser un principi universal aplicable a moltes partides
-
-EXEMPLES DE BONES MÀXIMES
+MÀXIMES VÀLIDES 
 "Desenvolupa les peces abans d'atacar"
-"Un cavall a la vora del tauler té menys força"
+"El rei al centre és un rei en perill"
 "Controla el centre per controlar la partida"
-"Quan dubtes, millora la teva pitjor peça"
-"No canviïs peces sense motiu quan vas guanyant"
-"El rei és una peça forta als finals"
 "Les torres necessiten columnes obertes"
+"Un cavall a la vora té menys força"
+"Abans de moure, mira què ataca el rival"
+"Cada jugada ha de tenir un propòsit"
+"Les peces han de treballar juntes"
+"No canviïs peces sense motiu quan vas guanyant"
 "Peó passat, peó que corre"`;
 }
 
@@ -3700,8 +3713,8 @@ async function requestGeminiReview(entry, severeErrors) {
         const data = await response.json();
         let text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('')?.trim();
         if (!text) throw new Error('Resposta buida de Gemini');
-        if (text.length > 2500) {
-            text = text.slice(0, 2500).trim();
+        if (text.length > 4000) {
+            text = text.slice(0, 4000).trim();
         }
         entry.geminiReview = { status: 'done', text };
     } catch (error) {
