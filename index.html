@@ -949,6 +949,14 @@
             flex-wrap: wrap;
             margin-bottom: 8px;
         }
+        .history-actions {
+            display: flex;
+            justify-content: center;
+            margin-bottom: 8px;
+        }
+        .history-actions .btn {
+            max-width: 240px;
+        }
         .history-progress {
             text-align: center;
             font-size: 0.8rem;
@@ -1596,6 +1604,9 @@
                             <button class="btn btn-primary" id="history-play">▶️ Play</button>
                             <button class="btn btn-secondary" id="history-pause">⏸️ Pausa</button>
                             <button class="btn btn-secondary" id="history-next">⏭️ Endavant</button>
+                        </div>
+                        <div class="history-actions">
+                            <button class="btn btn-secondary" id="history-generate-review">✨ Generar ressenya</button>
                         </div>
                         <div class="history-progress" id="history-progress">0/0</div>
                     </div>

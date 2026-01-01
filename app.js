@@ -3549,29 +3549,36 @@ function updateHistoryDetails(entry) {
 
 function updateHistoryReview(entry) {
     const reviewContent = $('#history-review-content');
+    const generateBtn = $('#history-generate-review');
     if (!reviewContent.length) return;
     if (!entry) {
         reviewContent.text('—');
+        if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     const review = entry.geminiReview || null;
     if (review && review.text) {
         reviewContent.text(review.text);
+        if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     if (review && review.status === 'pending') {
         reviewContent.text('Generant revisió zen amb Gemini...');
+        if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     if (review && review.status === 'error') {
         reviewContent.text(review.message || "No s'ha pogut generar la revisió.");
+        if (generateBtn.length) generateBtn.prop('disabled', !geminiApiKey);
         return;
     }
     if (!geminiApiKey) {
         reviewContent.text('Configura la clau de Gemini per generar revisions zen.');
+        if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     reviewContent.text('Encara no hi ha revisió per aquesta partida.');
+    if (generateBtn.length) generateBtn.prop('disabled', false);
 }
 
 function getSevereErrors(entries) {
@@ -3582,6 +3589,17 @@ function getSevereErrors(entries) {
             isCapture: !!entry.isCapture,
             isCheck: !!entry.isCheck
         }));
+}
+
+function getEntrySevereErrors(entry) {
+    if (!entry) return [];
+    if (Array.isArray(entry.severeErrors) && entry.severeErrors.length) {
+        return entry.severeErrors;
+    }
+    if (Array.isArray(entry.review) && entry.review.length) {
+        return getSevereErrors(entry.review);
+    }
+    return [];
 }
 
 function buildGeminiReviewPrompt(entry, severeErrors) {
@@ -3613,10 +3631,13 @@ async function requestGeminiReview(entry, severeErrors) {
     if (!entry || !geminiApiKey) return;
     if (entry.geminiReview && entry.geminiReview.status === 'pending') return;
     if (entry.geminiReview && entry.geminiReview.text) return;
+    const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
+        ? severeErrors
+        : getEntrySevereErrors(entry);
     entry.geminiReview = { status: 'pending', text: '' };
     saveStorage();
     updateHistoryReview(historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id ? historyReplay.entry : entry);
-    const prompt = buildGeminiReviewPrompt(entry, severeErrors);
+    const prompt = buildGeminiReviewPrompt(entry, resolvedErrors);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
     try {
         const response = await fetch(url, {
@@ -4577,6 +4598,11 @@ function setupEvents() {
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
+    $('#history-generate-review').off('click').on('click', () => {
+        if (!historyReplay || !historyReplay.entry) return;
+        const severeErrors = getEntrySevereErrors(historyReplay.entry);
+        void requestGeminiReview(historyReplay.entry, severeErrors);
+    });
     $('#result-indicator').off('click').on('click', () => {
         if (!lastReviewSnapshot) return;
         showPostGameReview(
