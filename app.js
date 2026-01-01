@@ -3626,7 +3626,7 @@ Entrega:
 - Dona una màxima general per tota la partida.
 - Dona una màxima per cada error greu (si no n'hi ha, explica que la lliçó és global).
 - No numeris ni facis llistes; usa frases clares i breus.
-- Màxim 1000 caràcters.`;
+- Extensió: entre 400 i 600 paraules.`;
 }
 
 async function requestGeminiReview(entry, severeErrors) {
@@ -3648,8 +3648,8 @@ async function requestGeminiReview(entry, severeErrors) {
             body: JSON.stringify({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 generationConfig: {
-                    temperature: 0.7,
-                    maxOutputTokens: 450
+                    temperature: 0.8,
+                    maxOutputTokens: 2048
                 }
             })
         });
@@ -3659,8 +3659,8 @@ async function requestGeminiReview(entry, severeErrors) {
         const data = await response.json();
         let text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('')?.trim();
         if (!text) throw new Error('Resposta buida de Gemini');
-        if (text.length > 1000) {
-            text = text.slice(0, 1000).trim();
+        if (text.length > 2500) {
+            text = text.slice(0, 2500).trim();
         }
         entry.geminiReview = { status: 'done', text };
     } catch (error) {
