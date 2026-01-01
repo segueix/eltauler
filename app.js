@@ -3626,7 +3626,9 @@ Entrega:
 - Dona una màxima general per tota la partida.
 - Dona una màxima per cada error greu (si no n'hi ha, explica que la lliçó és global).
 - No numeris ni facis llistes; usa frases clares i breus.
-- Extensió: entre 400 i 600 paraules.`;
+- IMPORTANT: La resposta ha de tenir UN MÍNIM DE 400 PARAULES i UN MÀXIM DE 600 PARAULES.
+- Compta les paraules abans d'enviar.
+- Si la resposta és més curta de 400 paraules, afegeix més detalls i explicacions.`;
 }
 
 async function requestGeminiReview(entry, severeErrors) {
@@ -3648,8 +3650,10 @@ async function requestGeminiReview(entry, severeErrors) {
             body: JSON.stringify({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 generationConfig: {
-                    temperature: 0.8,
-                    maxOutputTokens: 2048
+                    temperature: 0.9,
+                    maxOutputTokens: 4096,
+                    topP: 0.95,
+                    topK: 40
                 }
             })
         });
