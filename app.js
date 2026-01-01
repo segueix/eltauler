@@ -199,6 +199,10 @@ const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
 
+const GEMINI_API_KEY_STORAGE = 'chess_gemini_api_key';
+const GEMINI_MODEL_ID = 'gemini-3-flash-preview';
+let geminiApiKey = null;
+
 const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
 let epaperEnabled = false;
 const TV_JEROGLYPHICS_KEY = 'eltauler_tv_jeroglyphics';
@@ -2135,6 +2139,8 @@ function loadStorage() {
             }
         } catch (e) {}
     }
+    const storedGeminiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE);
+    if (storedGeminiKey) geminiApiKey = storedGeminiKey;
 }
 
 function saveStorage() {
@@ -2180,9 +2186,37 @@ function saveStorage() {
     }
     if (currentLeague) localStorage.setItem('chess_currentLeague', JSON.stringify(currentLeague)); else localStorage.removeItem('chess_currentLeague');
     if (leagueActiveMatch) localStorage.setItem('chess_leagueActiveMatch', JSON.stringify(leagueActiveMatch)); else localStorage.removeItem('chess_leagueActiveMatch');
+    if (geminiApiKey) {
+        localStorage.setItem(GEMINI_API_KEY_STORAGE, geminiApiKey);
+    } else {
+        localStorage.removeItem(GEMINI_API_KEY_STORAGE);
+    }
     localStorage.removeItem('chess_isCalibrationPhase');
     localStorage.removeItem('chess_calibrationMoves');
     localStorage.removeItem('chess_calibrationGoodMoves');
+}
+
+function updateGeminiSettingsUI() {
+    const input = document.getElementById('gemini-key-input');
+    const status = document.getElementById('gemini-key-status');
+    if (!input || !status) return;
+    if (geminiApiKey) {
+        input.value = '';
+        input.placeholder = 'Clau desada';
+        status.textContent = '✅ OK';
+    } else {
+        input.placeholder = 'Enganxa la clau';
+        status.textContent = 'No configurada';
+    }
+}
+
+function saveGeminiApiKey(rawKey) {
+    const key = (rawKey || '').trim();
+    if (!key) return false;
+    geminiApiKey = key;
+    saveStorage();
+    updateGeminiSettingsUI();
+    return true;
 }
 
 function updateEloHistory(newElo) {
@@ -2255,6 +2289,7 @@ function updateStatsDisplay() {
     $('#stats-total-wins').text(totalWins);
     $('#stats-bundles-count').text(savedErrors.length);
     $('#stats-max-streak').text(maxStreak);
+    updateGeminiSettingsUI();
     updateEloChart();
     updateReviewChart();
 }
@@ -3481,11 +3516,13 @@ function updateHistoryDetails(entry) {
     const precisionEl = $('#history-precision');
     const metaEl = $('#history-meta');
     const breakdown = $('#history-breakdown');
+    const reviewContent = $('#history-review-content');
     if (!entry) {
         resultEl.text('—');
         precisionEl.text('—');
         metaEl.text('Selecciona una partida per veure detalls.');
         breakdown.empty();
+        if (reviewContent.length) reviewContent.text('—');
         updateHistoryProgress();
         updateHistoryControls();
         return;
@@ -3505,8 +3542,178 @@ function updateHistoryDetails(entry) {
         <div class="review-chip mistake">Errors <strong>${counts.mistake || 0}</strong></div>
         <div class="review-chip blunder">Blunders <strong>${counts.blunder || 0}</strong></div>
     `);
+    updateHistoryReview(entry);
     updateHistoryProgress();
     updateHistoryControls();
+}
+
+function updateHistoryReview(entry) {
+    const reviewContent = $('#history-review-content');
+    const generateBtn = $('#history-generate-review');
+    if (!reviewContent.length) return;
+    if (!entry) {
+        reviewContent.text('—');
+        if (generateBtn.length) generateBtn.prop('disabled', true);
+        return;
+    }
+    const review = entry.geminiReview || null;
+    if (review && review.text) {
+        reviewContent.text(review.text);
+        if (generateBtn.length) generateBtn.prop('disabled', true);
+        return;
+    }
+    if (review && review.status === 'pending') {
+        reviewContent.text('Generant revisió zen amb Gemini...');
+        if (generateBtn.length) generateBtn.prop('disabled', true);
+        return;
+    }
+    if (review && review.status === 'error') {
+        reviewContent.text(review.message || "No s'ha pogut generar la revisió.");
+        if (generateBtn.length) generateBtn.prop('disabled', !geminiApiKey);
+        return;
+    }
+    if (!geminiApiKey) {
+        reviewContent.text('Configura la clau de Gemini per generar revisions zen.');
+        if (generateBtn.length) generateBtn.prop('disabled', true);
+        return;
+    }
+    reviewContent.text('Encara no hi ha revisió per aquesta partida.');
+    if (generateBtn.length) generateBtn.prop('disabled', false);
+}
+
+function getSevereErrors(entries) {
+    return (entries || [])
+        .filter(entry => entry.quality === 'blunder' || (entry.swing || 0) >= 200)
+        .map(entry => ({
+            swing: entry.swing || null,
+            isCapture: !!entry.isCapture,
+            isCheck: !!entry.isCheck
+        }));
+}
+
+function getEntrySevereErrors(entry) {
+    if (!entry) return [];
+    if (Array.isArray(entry.severeErrors) && entry.severeErrors.length) {
+        return entry.severeErrors;
+    }
+    if (Array.isArray(entry.review) && entry.review.length) {
+        return getSevereErrors(entry.review);
+    }
+    return [];
+}
+
+function buildGeminiReviewPrompt(entry, severeErrors) {
+    const summary = entry.counts || {};
+    const moves = getHistoryMoves(entry);
+    
+    const errorsDetail = severeErrors.map((err, idx) => {
+        const moveNum = err.moveNumber || '?';
+        const played = err.playerMoveSan || err.playerMove || '?';
+        const best = err.bestMoveSan || err.bestMove || '?';
+        const swing = err.swing || 0;
+        const fen = err.fen || '';
+        const pvLine = (err.bestMovePvSan || err.bestMovePv || []).slice(0, 4).join(' ');
+        
+        return `Error a la jugada ${moveNum}: vas jugar ${played} però calia ${best}. Línia: ${pvLine || '—'}. Pèrdua: ${swing} cp. FEN: ${fen}`;
+    }).join('\n');
+
+    const totalMoves = moves.length;
+    
+    return `Ets un mestre d'escacs que ensenya amb principis clars i memorables.
+Escriu en català. Usa un to càlid i proper, com si parlessis amb un amic.
+
+DADES DE LA PARTIDA
+Resultat: ${entry.result || '—'}
+Precisió: ${typeof entry.precision === 'number' ? `${entry.precision}%` : '—'}
+Jugades: ${totalMoves}
+Bones jugades: ${(summary.excel || 0) + (summary.good || 0)}
+Errors lleus: ${summary.inaccuracy || 0}
+Errors greus: ${(summary.mistake || 0) + (summary.blunder || 0)}
+
+ERRORS A ANALITZAR
+${errorsDetail || 'Partida sense errors greus.'}
+
+INSTRUCCIONS
+
+Escriu una revisió en prosa natural, sense enumeracions ni llistes amb punts o números. El text ha de fluir com una conversa.
+
+Estructura el text així:
+
+Primer, fes un paràgraf curt sobre com ha anat la partida en general. Destaca què s'ha fet bé abans de parlar dels errors.
+
+Després, per cada error greu, dedica un paràgraf que inclogui:
+- Una MÀXIMA D'ESCACS entre cometes que s'apliqui a l'error (exemples: "Les peces han de treballar juntes", "El rei al centre és un rei en perill", "No moguis la mateixa peça dues vegades a l'obertura", "Abans d'atacar, assegura el rei", "Cada jugada ha de tenir un propòsit")
+- Explica amb paraules senzilles per què la jugada era un error i què feia millor la jugada correcta
+- Relaciona l'error amb la màxima
+
+Finalment, un paràgraf de tancament amb el principi més important a recordar d'aquesta partida.
+
+REGLES D'ESTIL
+- No facis servir asteriscs, guions, números ni cap tipus de llista
+- Les màximes van sempre entre cometes dobles
+- Usa paraules senzilles: "torre" no "columna oberta per la torre pesada"
+- Explica els conceptes: si dius "forquilla", afegeix "atacar dues peces alhora"
+- El to ha de ser encoratjador, mai crític
+- Màxim 400 paraules
+- Cada màxima ha de ser un principi universal aplicable a moltes partides
+
+EXEMPLES DE BONES MÀXIMES
+"Desenvolupa les peces abans d'atacar"
+"Un cavall a la vora del tauler té menys força"
+"Controla el centre per controlar la partida"
+"Quan dubtes, millora la teva pitjor peça"
+"No canviïs peces sense motiu quan vas guanyant"
+"El rei és una peça forta als finals"
+"Les torres necessiten columnes obertes"
+"Peó passat, peó que corre"`;
+}
+
+async function requestGeminiReview(entry, severeErrors) {
+    if (!entry || !geminiApiKey) return;
+    if (entry.geminiReview && entry.geminiReview.status === 'pending') return;
+    if (entry.geminiReview && entry.geminiReview.text) return;
+    const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
+        ? severeErrors
+        : getEntrySevereErrors(entry);
+    entry.geminiReview = { status: 'pending', text: '' };
+    saveStorage();
+    updateHistoryReview(historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id ? historyReplay.entry : entry);
+    const prompt = buildGeminiReviewPrompt(entry, resolvedErrors);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.9,
+                    maxOutputTokens: 4096,
+                    topP: 0.95,
+                    topK: 40
+                }
+            })
+        });
+        if (!response.ok) {
+            throw new Error(`Gemini error ${response.status}`);
+        }
+        const data = await response.json();
+        let text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('')?.trim();
+        if (!text) throw new Error('Resposta buida de Gemini');
+        if (text.length > 2500) {
+            text = text.slice(0, 2500).trim();
+        }
+        entry.geminiReview = { status: 'done', text };
+    } catch (error) {
+        entry.geminiReview = {
+            status: 'error',
+            message: 'No s’ha pogut generar la revisió amb Gemini.'
+        };
+    }
+    saveStorage();
+    if (historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id) {
+        updateHistoryReview(historyReplay.entry);
+    }
 }
 
 function historyStepForward() {
@@ -4297,7 +4504,7 @@ function showHistoryReview(entry) {
     showPostGameReview(msg, precision, counts, null, { showCheckmate: false });
 }
 
-function recordGameHistory(resultLabel, finalPrecision, counts) {
+function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     if (blunderMode) return;
     const moves = game.history();
     const now = new Date();
@@ -4317,6 +4524,8 @@ function recordGameHistory(resultLabel, finalPrecision, counts) {
             playerMove: err.playerMove || null
         })),
         review: currentReview.slice(),
+        severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
+        geminiReview: options.geminiReview || null,
         playerColor: playerColor,
         opponent: currentOpponent || null,
         pgn: game.pgn()
@@ -4435,6 +4644,11 @@ function setupEvents() {
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
+    $('#history-generate-review').off('click').on('click', () => {
+        if (!historyReplay || !historyReplay.entry) return;
+        const severeErrors = getEntrySevereErrors(historyReplay.entry);
+        void requestGeminiReview(historyReplay.entry, severeErrors);
+    });
     $('#result-indicator').off('click').on('click', () => {
         if (!lastReviewSnapshot) return;
         showPostGameReview(
@@ -4457,7 +4671,19 @@ function setupEvents() {
         saveBundleAcceptMode($(this).val());
     });
 
-        $('#epaper-toggle').off('change').on('change', function() {
+    $('#btn-save-gemini-key').off('click').on('click', () => {
+        const input = document.getElementById('gemini-key-input');
+        if (!input) return;
+        const ok = saveGeminiApiKey(input.value);
+        if (ok) {
+            input.value = '';
+            alert('Clau de Gemini guardada.');
+        } else {
+            alert('Introdueix una clau vàlida.');
+        }
+    });
+
+    $('#epaper-toggle').off('change').on('change', function() {
         applyEpaperMode($(this).is(':checked'));
     });
 
@@ -4483,6 +4709,7 @@ function setupEvents() {
             isCalibrating = true; calibrationGames = []; calibrationProfile = null; calibratgeComplet = false;
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = [];
+            geminiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             alert('Totes les dades han estat esborrades. Comença de nou!');
@@ -5851,7 +6078,8 @@ function handleGameOver(manualResign = false) {
     }
     
     const reviewCounts = summarizeReview(currentReview);
-    recordGameHistory(msg, finalPrecision, reviewCounts);
+    const severeErrors = getSevereErrors(currentReview);
+    recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors });
     persistReviewSummary(finalPrecision, msg);
     recordActivity(); saveStorage(); checkMissions(); updateDisplay(); updateReviewChart();
     $('#status').text(msg);
@@ -5892,6 +6120,10 @@ function handleGameOver(manualResign = false) {
     showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate });
     if (calibrationJustCompleted) {
         showCalibrationReveal(userELO);
+    }
+    if (!blunderMode && !calibrationGameWasActive) {
+        const latestEntry = gameHistory[gameHistory.length - 1];
+        void requestGeminiReview(latestEntry, severeErrors);
     }
 }
 
