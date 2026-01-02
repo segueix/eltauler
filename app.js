@@ -3817,12 +3817,12 @@ function buildGeminiBundleHintPrompt(step) {
     return `Ets un entrenador d'escacs. Dona ${sentenceText} molt breu${sentenceCount === 1 ? '' : 's'} en català: màximes o principis d'escacs per ajudar a trobar la millor jugada del pas ${stepNumber} d'un jeroglífic.
 
 Regles estrictes:
-- Respon només amb ${sentenceText}, una per consulta.
+- Analitzant l'error de la partida, així com el moviment correcta, genera una màxima o princip d'escacs adaptat per donar una pista per trobar el següent moviment correcte.
 - No afegeixis salutacions, títols ni explicacions.
 - No enumeris ni facis llistes.
 - No facis servir cometes ni emojis.
-- No mencionis peces concretes ni caselles.
-- Cada frase ha de ser una màxima general aplicable.
+- No facis una frase evident on l'usuari no hagi d'analitzar la situació.
+- Cada frase ha de ser una màxima general aplicable a situacions amb errors similars concrets dins d'una partida d'escacs.
 ${extraStep1}
 Exemple pas 1:
 Busca la millor casella per a la teva peça més activa
