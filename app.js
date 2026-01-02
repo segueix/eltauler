@@ -3559,6 +3559,7 @@ function updateHistoryReview(entry) {
     const review = entry.geminiReview || null;
     if (review && review.text) {
         reviewContent.html(formatGeminiReviewText(review.text));
+        bindGeminiMoveLinks(reviewContent);
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
@@ -3594,7 +3595,54 @@ function formatGeminiReviewText(text) {
     const safe = escapeHtml(text || '');
     return safe
         .replace(/&quot;([\s\S]*?)&quot;/g, '<em>"$1"</em>')
-        .replace(/“([\s\S]*?)”/g, '<em>“$1”</em>');
+        .replace(/“([\s\S]*?)”/g, '<em>“$1”</em>')
+        .replace(/jugada\s+(\d+)\s*\(([^)]+)\)/gi, (match, moveNumber, san) => (
+            `<a href="#" class="gemini-move-link" data-move-number="${moveNumber}" data-san="${san}">jugada ${moveNumber} (${san})</a>`
+        ));
+}
+
+function bindGeminiMoveLinks(container) {
+    if (!container || !container.length) return;
+    container.find('.gemini-move-link').off('click').on('click', function(event) {
+        event.preventDefault();
+        const moveNumber = Number($(this).data('move-number'));
+        const san = String($(this).data('san') || '').trim();
+        jumpToHistoryMove(moveNumber, san);
+    });
+}
+
+function jumpToHistoryMove(moveNumber, san) {
+    if (!historyReplay || !historyReplay.entry || !historyReplay.moves) return;
+    stopHistoryPlayback();
+    const targetIndex = findHistoryMoveIndex(moveNumber, san);
+    if (targetIndex === null) return;
+    historyReplay.game = new Chess();
+    for (let i = 0; i < targetIndex; i++) {
+        historyReplay.game.move(historyReplay.moves[i], { sloppy: true });
+    }
+    historyReplay.moveIndex = targetIndex;
+    updateHistoryBoard();
+}
+
+function findHistoryMoveIndex(moveNumber, san) {
+    if (!historyReplay || !Array.isArray(historyReplay.moves)) return null;
+    const moves = historyReplay.moves;
+    const normalizedSan = (san || '').trim();
+    let candidate = null;
+    for (let i = 0; i < moves.length; i++) {
+        if (normalizedSan && moves[i] !== normalizedSan) continue;
+        const fullMove = Math.ceil((i + 1) / 2);
+        if (!moveNumber || moveNumber === fullMove) {
+            candidate = i + 1;
+            break;
+        }
+    }
+    if (candidate !== null) return candidate;
+    if (normalizedSan) {
+        const fallbackIndex = moves.findIndex(move => move === normalizedSan);
+        if (fallbackIndex >= 0) return fallbackIndex + 1;
+    }
+    return null;
 }
 
 function getSevereErrors(entries) {
