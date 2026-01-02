@@ -3657,7 +3657,7 @@ ${errorsDetail || 'Cap error greu.'}
 INSTRUCCIONS
 1. Comença amb un TÍTOL que sigui la màxima principal de la partida entre cometes dobles (per exemple: "Les peces han de treballar juntes")
 2. Redacta un paràgraf d'anàlisi general que resumeixi el rendiment i la precisió, evitant felicitacions personals o un to excessivament fraternalista
-3. Per a cada error, utilitza l'estructura "Quan vas jugar [jugada] a la jugada [número]..." i acompanya-ho sempre d'una descripció clara de l'acció (per exemple: "en capturar el peó amb la reina" o "en retrocedir l'alfil") perquè s'entengui el moviment sense dependre del nom de la casella. Cada explicació d'error ha d'incloure una màxima universal entre cometes
+3. Per a cada error, utilitza l'estructura "Quan vas jugar [jugada] a la jugada [número] ([SAN])..." i acompanya-ho sempre d'una descripció clara de l'acció (per exemple: "en capturar el peó amb la reina" o "en retrocedir l'alfil") perquè s'entengui el moviment sense dependre del nom de la casella. Cada explicació d'error ha d'incloure una màxima universal entre cometes
 4. Finalitza amb un paràgraf de conclusió centrat en el principi clau per millorar en el futur
 
 REGLES
