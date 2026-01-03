@@ -5072,7 +5072,8 @@ function showHistoryReview(entry) {
             fen: err.fen,
             severity: err.severity,
             bestMove: err.bestMove || null,
-            playerMove: err.playerMove || null
+            playerMove: err.playerMove || null,
+            bestMovePv: err.bestMovePv || []  // ← AFEGIR AQUEST CAMP
         }))
         : [];
     const msg = entry.result || 'Partida';
