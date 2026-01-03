@@ -25,6 +25,7 @@ let reviewOpenDelayTimer = null;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
+let lastBundleGeminiHint = null
 let tvBoard = null;
 let tvReplay = null;
 let tvJeroglyphicsActive = false;
@@ -4114,17 +4115,13 @@ async function requestGeminiBundleHint() {
     const statusEl = $('#status');
     statusEl.html('<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">🧠 Generant màxima d\'escacs...</div>');
     
-    // ✅ USAR SEQÜÈNCIA FIXA SI EXISTEIX
     let prompt;
     if (bundleFixedSequence) {
         prompt = buildBundleGeminiPromptWithFixedSequence(bundleSequenceStep);
     } else {
-        // Fallback al mètode antic
         const errorContext = {};
-        // Buscar primer a savedErrors
         let currentError = savedErrors.find(e => e.fen === currentBundleFen);
 
-        // Si no es troba, buscar a gameHistory.severeErrors
         if (!currentError) {
             for (const entry of gameHistory) {
                 if (entry.severeErrors && Array.isArray(entry.severeErrors)) {
@@ -4212,6 +4209,8 @@ async function requestGeminiBundleHint() {
         });
         html += '</div>';
         
+        // CANVI: Guardar el missatge generat
+        lastBundleGeminiHint = html;
         statusEl.html(html);
         
     } catch (err) {
@@ -6341,7 +6340,14 @@ function resetBundleToStartPosition() {
     clearEngineMoveHighlights();
     clearTapSelection();
     $('#blunder-alert').hide();
-    $('#status').text("Tornar a intentar");
+    
+    // CANVI: Restaurar el missatge de Gemini si existeix
+    const statusEl = $('#status');
+    if (lastBundleGeminiHint) {
+        statusEl.html(lastBundleGeminiHint);
+    } else {
+        statusEl.text("Torna a intentar-ho");
+    }
 }
 
 function cacheBundleAnswer(fen, mode, bestMove, pvMoves, pvLine = null, pvLines = null) {
@@ -6381,7 +6387,9 @@ function evaluateBundleAttempt(bundleData) {
             }
             
             if (bundleSequenceStep === 1) {
-                // ✅ USAR RESPOSTA FIXA DE L'OPONENT
+                // CANVI: Netejar el missatge de Gemini només quan s'avança al pas 2
+                lastBundleGeminiHint = null;
+                
                 bundleSequenceStep = 2;
                 const replyMove = bundleFixedSequence.opponentMove.move;
                 applyBundleAutoReply(replyMove);
@@ -6391,7 +6399,8 @@ function evaluateBundleAttempt(bundleData) {
                 return;
             }
             
-            // Pas 2 completat!
+            // CANVI: Netejar el missatge quan s'acaba l'exercici
+            lastBundleGeminiHint = null;
             handleBundleSuccess();
         } else {
             // Error - resetar al pas actual
@@ -6422,8 +6431,16 @@ function evaluateBundleAttempt(bundleData) {
     }
     
     if (ok) {
-        if (pendingMoveEvaluation) { goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay(); }
+        if (pendingMoveEvaluation) { 
+            goodMoves++; 
+            pendingMoveEvaluation = false; 
+            updatePrecisionDisplay(); 
+        }
+        
         if (bundleSequenceStep === 1) {
+            // CANVI: Netejar el missatge de Gemini només quan s'avança al pas 2
+            lastBundleGeminiHint = null;
+            
             const pvLine = selectBundlePvLineForMove(bundleData, played);
             const replyMove = pvLine.length > 1 ? pvLine[1] : null;
             bundleSequenceStep = 2;
@@ -6435,6 +6452,9 @@ function evaluateBundleAttempt(bundleData) {
             bundleStepStartFen = game.fen();
             return;
         }
+        
+        // CANVI: Netejar el missatge quan s'acaba l'exercici
+        lastBundleGeminiHint = null;
         handleBundleSuccess();
     } else {
         if (pendingMoveEvaluation) {
