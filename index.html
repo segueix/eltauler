@@ -1061,28 +1061,44 @@
         body.device-desktop .history-detail {
             display: grid;
             grid-template-columns: 1fr 1.1fr;
-            grid-template-rows: auto auto auto 1fr;  /* ← CANVIAT: 4 files en lloc de 5 */
+            grid-template-rows: auto auto auto 1fr;  /* 4 files: títol, info, controls, ressenya */
             gap: 10px 14px;
         }
-        body.device-desktop .history-detail-header {
-            grid-column: 1 / -1;
+
+        body.device-desktop .history-title {
+            grid-column: 1;
+            grid-row: 1;
         }
+
+        body.device-desktop .history-info {
+            grid-column: 2;
+            grid-row: 1;
+        }
+
+        body.device-desktop .history-controls {
+            grid-column: 1 / -1;  /* Ocupa les 2 columnes */
+            grid-row: 3;          /* Fila 3 - sota el tauler */
+        }
+
         body.device-desktop .history-review {
-            grid-column: 1 / -1;      
-            grid-row: 4;              
+            grid-column: 1 / -1;  /* Ocupa les 2 columnes */
+            grid-row: 4;          /* Fila 4 - a baix de tot */
             align-self: stretch;
-            max-height: none;
+            max-height: none;     /* Sense límit en desktop */
             display: flex;
-            flex-direction: column;   
+            flex-direction: column;
         }
+
         body.device-desktop .history-review-content {
-        flex: 1;
-        overflow-y: auto;
-        min-height: 200px;
+            flex: 1;
+            overflow-y: auto;
+            min-height: 200px;
         }
+
+        /* Mantenir límit d'alçada en mòbil/tablet */
         body.device-mobile .history-review,
         body.device-tablet .history-review {
-        max-height: 500px;
+            max-height: 500px;
         }
         body.device-desktop .history-board {
             grid-column: 2;
