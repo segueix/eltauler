@@ -5690,6 +5690,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     currentReview = [];
     lastReviewSnapshot = null;
     setResultIndicator(null);
+    $('#btn-resign').prop('disabled', false);
     const checkmateImage = $('#checkmate-image');
     if (checkmateImage.length) checkmateImage.hide();
         if (!isBundle) {
@@ -6932,6 +6933,8 @@ function handleGameOver(manualResign = false) {
             showCalibrationResultsScreen();
         };
     }
+    $('#btn-resign').prop('disabled', true);
+    
     showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate });
     if (calibrationJustCompleted) {
         showCalibrationReveal(userELO);
