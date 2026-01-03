@@ -5093,19 +5093,7 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         pgn: game.pgn()
     };
     gameHistory.push(entry);
-    if (gameHistory.length > 60) gameHistory = gameHistory.slice(-60);
-    const reviewEntries = gameHistory.filter(item => Array.isArray(item.review) && item.review.length);
-    if (reviewEntries.length > 30) {
-        const overflow = reviewEntries.length - 30;
-        let cleared = 0;
-        for (const item of gameHistory) {
-            if (cleared >= overflow) break;
-            if (Array.isArray(item.review) && item.review.length) {
-                item.review = [];
-                cleared++;
-            }
-        }
-    }
+    if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
 }
 
 function checkShareSupport() {
@@ -6722,15 +6710,7 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
         }
     }
     if (!savedErrors.some(e => e.fen === fen)) {
-        let typeErrors = savedErrors.filter(e => e.severity === severity);
-        if (typeErrors.length >= 10) {
-            let furthestError = typeErrors.reduce((prev, curr) => {
-                  let prevDiff = Math.abs((prev.elo || 400) - userELO);
-                let currDiff = Math.abs((curr.elo || 400) - userELO);
-                return (currDiff > prevDiff) ? curr : prev;
-            });
-            savedErrors = savedErrors.filter(e => e !== furthestError);
-        }
+        // Bloc eliminat - ja no hi ha límit per categoria
         
         savedErrors.push({
             fen: fen,
@@ -6739,7 +6719,7 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
             elo: userELO,
             bestMove: bestMove || null,
             playerMove: playerMove || lastHumanMoveUci || null,
-            bestMovePv: bestMovePv || []  // ← Assegura't que aquest està present
+            bestMovePv: bestMovePv || []
         });
         saveStorage(); 
         updateDisplay(); 
