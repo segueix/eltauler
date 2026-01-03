@@ -2775,15 +2775,35 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
 }
 
 async function prepareBundleSequence(fen) {
-    if (!stockfish || !stockfishReady) {
-        console.error('[Bundle] Stockfish no està llest');
+    // Validació inicial més robusta
+    if (!stockfish) {
+        console.error('[Bundle] Stockfish no existeix');
+        ensureStockfish();
+        await new Promise(resolve => setTimeout(resolve, 500));
+    }
+    
+    if (!stockfish) {
+        console.error('[Bundle] No es pot inicialitzar Stockfish');
+        return null;
+    }
+    
+    // Esperar que Stockfish estigui llest
+    let waitCount = 0;
+    while (!stockfishReady && waitCount < 20) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        waitCount++;
+    }
+    
+    if (!stockfishReady) {
+        console.error('[Bundle] Stockfish no està llest després d\'esperar');
         return null;
     }
     
     try {
-        // Neteja inicial
+        // Neteja inicial més agressiva
         stockfish.postMessage('stop');
-        await new Promise(resolve => setTimeout(resolve, 100));
+        stockfish.postMessage('setoption name MultiPV value 1');
+        await new Promise(resolve => setTimeout(resolve, 300)); // Temps augmentat
         
         console.log('[Bundle] Iniciant preparació seqüència per FEN:', fen);
         
@@ -2793,6 +2813,7 @@ async function prepareBundleSequence(fen) {
         
         if (!step1Analysis || !step1Analysis.bestMove || !step1Analysis.bestMove.move) {
             console.error('[Bundle] Pas 1 fallit: no hi ha bestMove', step1Analysis);
+            alert('Error: No es pot analitzar la posició inicial. Torna-ho a provar.');
             return null;
         }
         
@@ -2813,14 +2834,15 @@ async function prepareBundleSequence(fen) {
         
         if (!move1) {
             console.error('[Bundle] No es pot aplicar jugada 1:', playerMove1);
+            alert('Error: Jugada no vàlida. Prova un altre error.');
             return null;
         }
         
         const afterPlayerFen = tempGame1.fen();
         console.log('[Bundle] Després jugada 1, FEN:', afterPlayerFen);
         
-        // Pausa entre anàlisis
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Pausa més llarga entre anàlisis
+        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
         
         // 3. Calcular millor resposta de l'oponent
         console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
@@ -2828,6 +2850,7 @@ async function prepareBundleSequence(fen) {
         
         if (!opponentAnalysis || !opponentAnalysis.bestMove || !opponentAnalysis.bestMove.move) {
             console.error('[Bundle] Pas 2 fallit: no hi ha bestMove oponent', opponentAnalysis);
+            alert('Error: No es pot calcular la resposta. Prova un altre error.');
             return null;
         }
         
@@ -2847,14 +2870,15 @@ async function prepareBundleSequence(fen) {
         
         if (!move2) {
             console.error('[Bundle] No es pot aplicar jugada oponent:', opponentMove);
+            alert('Error: Resposta no vàlida. Prova un altre error.');
             return null;
         }
         
         const afterOpponentFen = tempGame2.fen();
         console.log('[Bundle] Després resposta oponent, FEN:', afterOpponentFen);
         
-        // Pausa entre anàlisis
-        await new Promise(resolve => setTimeout(resolve, 150));
+        // Pausa abans de l'anàlisi final
+        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
         
         // 5. Calcular millor segona jugada del jugador (Pas 3)
         console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
@@ -2862,6 +2886,7 @@ async function prepareBundleSequence(fen) {
         
         if (!step2Analysis || !step2Analysis.bestMove || !step2Analysis.bestMove.move) {
             console.error('[Bundle] Pas 3 fallit: no hi ha bestMove pas 2', step2Analysis);
+            alert('Error: No es pot calcular la segona jugada. Prova un altre error.');
             return null;
         }
         
@@ -2920,6 +2945,7 @@ async function prepareBundleSequence(fen) {
         
     } catch (error) {
         console.error('[Bundle] Error preparant seqüència:', error);
+        alert('Error inesperat preparant l\'exercici. Torna-ho a provar.');
         return null;
     }
 }
