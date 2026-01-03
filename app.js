@@ -2775,105 +2775,153 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
 }
 
 async function prepareBundleSequence(fen) {
-    if (!stockfish) return null;
+    if (!stockfish || !stockfishReady) {
+        console.error('[Bundle] Stockfish no està llest');
+        return null;
+    }
     
-    // 1. Analitzar posició inicial (Pas 1)
-    const step1Analysis = await analyzePositionEnriched(stockfish, fen, 15, 2);
-    
-    if (!step1Analysis.bestMove) return null;
-    
-    const playerMove1 = step1Analysis.bestMove.move;
-    const playerMove1San = uciToSan(fen, playerMove1);
-    const playerMove1Pv = step1Analysis.bestMove.pv || [];
-    const playerMove1Eval = step1Analysis.bestMove.eval || null;
-    
-    // 2. Aplicar la millor jugada del jugador
-    const tempGame1 = new Chess(fen);
-    const move1 = tempGame1.move({
-        from: playerMove1.slice(0, 2),
-        to: playerMove1.slice(2, 4),
-        promotion: playerMove1.length > 4 ? playerMove1[4] : undefined
-    });
-    
-    if (!move1) return null;
-    const afterPlayerFen = tempGame1.fen();
-    
-    // 3. Calcular millor resposta de l'oponent
-    const opponentAnalysis = await analyzePositionEnriched(stockfish, afterPlayerFen, 15, 1);
-    
-    if (!opponentAnalysis.bestMove) return null;
-    
-    const opponentMove = opponentAnalysis.bestMove.move;
-    const opponentMoveSan = uciToSan(afterPlayerFen, opponentMove);
-    const opponentMoveEval = opponentAnalysis.bestMove.eval || null;
-    
-    // 4. Aplicar resposta de l'oponent
-    const tempGame2 = new Chess(afterPlayerFen);
-    const move2 = tempGame2.move({
-        from: opponentMove.slice(0, 2),
-        to: opponentMove.slice(2, 4),
-        promotion: opponentMove.length > 4 ? opponentMove[4] : undefined
-    });
-    
-    if (!move2) return null;
-    const afterOpponentFen = tempGame2.fen();
-    
-    // 5. Calcular millor segona jugada del jugador (Pas 2)
-    const step2Analysis = await analyzePositionEnriched(stockfish, afterOpponentFen, 15, 2);
-    
-    if (!step2Analysis.bestMove) return null;
-    
-    const playerMove2 = step2Analysis.bestMove.move;
-    const playerMove2San = uciToSan(afterOpponentFen, playerMove2);
-    const playerMove2Pv = step2Analysis.bestMove.pv || [];
-    const playerMove2Eval = step2Analysis.bestMove.eval || null;
-    
-    // 6. Analitzar context posicional de cada pas
-    const positionStep1 = parseFenPosition(fen);
-    const positionStep2 = parseFenPosition(afterOpponentFen);
-    const threatsStep1 = analyzePvThreats(fen, playerMove1Pv);
-    const threatsStep2 = analyzePvThreats(afterOpponentFen, playerMove2Pv);
-    
-    // 7. Retornar seqüència completa i fixa
-    return {
-        initialFen: fen,
+    try {
+        // Neteja inicial
+        stockfish.postMessage('stop');
+        await new Promise(resolve => setTimeout(resolve, 100));
         
-        // Pas 1
-        step1: {
-            fen: fen,
-            playerMove: playerMove1,
-            playerMoveSan: playerMove1San,
-            playerMovePv: playerMove1Pv,
-            evalBefore: playerMove1Eval,
-            alternatives: step1Analysis.alternatives || [],
-            position: positionStep1,
-            threats: threatsStep1
-        },
+        console.log('[Bundle] Iniciant preparació seqüència per FEN:', fen);
         
-        // Resposta oponent
-        opponentMove: {
-            fen: afterPlayerFen,
-            move: opponentMove,
-            moveSan: opponentMoveSan,
-            eval: opponentMoveEval
-        },
+        // 1. Analitzar posició inicial (Pas 1)
+        console.log('[Bundle] Pas 1: Analitzant posició inicial...');
+        const step1Analysis = await analyzePositionEnriched(stockfish, fen, 15, 2);
         
-        // Pas 2
-        step2: {
-            fen: afterOpponentFen,
-            playerMove: playerMove2,
-            playerMoveSan: playerMove2San,
-            playerMovePv: playerMove2Pv,
-            evalBefore: playerMove2Eval,
-            alternatives: step2Analysis.alternatives || [],
-            position: positionStep2,
-            threats: threatsStep2
-        },
+        if (!step1Analysis || !step1Analysis.bestMove || !step1Analysis.bestMove.move) {
+            console.error('[Bundle] Pas 1 fallit: no hi ha bestMove', step1Analysis);
+            return null;
+        }
         
-        // Seqüència completa
-        fullSequence: [playerMove1, opponentMove, playerMove2],
-        fullSequenceSan: [playerMove1San, opponentMoveSan, playerMove2San]
-    };
+        const playerMove1 = step1Analysis.bestMove.move;
+        console.log('[Bundle] Pas 1 - Millor jugada:', playerMove1);
+        
+        const playerMove1San = uciToSan(fen, playerMove1);
+        const playerMove1Pv = step1Analysis.bestMove.pv || [];
+        const playerMove1Eval = step1Analysis.bestMove.eval || 0;
+        
+        // 2. Aplicar la millor jugada del jugador
+        const tempGame1 = new Chess(fen);
+        const move1 = tempGame1.move({
+            from: playerMove1.slice(0, 2),
+            to: playerMove1.slice(2, 4),
+            promotion: playerMove1.length > 4 ? playerMove1[4] : undefined
+        });
+        
+        if (!move1) {
+            console.error('[Bundle] No es pot aplicar jugada 1:', playerMove1);
+            return null;
+        }
+        
+        const afterPlayerFen = tempGame1.fen();
+        console.log('[Bundle] Després jugada 1, FEN:', afterPlayerFen);
+        
+        // Pausa entre anàlisis
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        // 3. Calcular millor resposta de l'oponent
+        console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
+        const opponentAnalysis = await analyzePositionEnriched(stockfish, afterPlayerFen, 15, 1);
+        
+        if (!opponentAnalysis || !opponentAnalysis.bestMove || !opponentAnalysis.bestMove.move) {
+            console.error('[Bundle] Pas 2 fallit: no hi ha bestMove oponent', opponentAnalysis);
+            return null;
+        }
+        
+        const opponentMove = opponentAnalysis.bestMove.move;
+        console.log('[Bundle] Pas 2 - Resposta oponent:', opponentMove);
+        
+        const opponentMoveSan = uciToSan(afterPlayerFen, opponentMove);
+        const opponentMoveEval = opponentAnalysis.bestMove.eval || 0;
+        
+        // 4. Aplicar resposta de l'oponent
+        const tempGame2 = new Chess(afterPlayerFen);
+        const move2 = tempGame2.move({
+            from: opponentMove.slice(0, 2),
+            to: opponentMove.slice(2, 4),
+            promotion: opponentMove.length > 4 ? opponentMove[4] : undefined
+        });
+        
+        if (!move2) {
+            console.error('[Bundle] No es pot aplicar jugada oponent:', opponentMove);
+            return null;
+        }
+        
+        const afterOpponentFen = tempGame2.fen();
+        console.log('[Bundle] Després resposta oponent, FEN:', afterOpponentFen);
+        
+        // Pausa entre anàlisis
+        await new Promise(resolve => setTimeout(resolve, 150));
+        
+        // 5. Calcular millor segona jugada del jugador (Pas 3)
+        console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
+        const step2Analysis = await analyzePositionEnriched(stockfish, afterOpponentFen, 15, 2);
+        
+        if (!step2Analysis || !step2Analysis.bestMove || !step2Analysis.bestMove.move) {
+            console.error('[Bundle] Pas 3 fallit: no hi ha bestMove pas 2', step2Analysis);
+            return null;
+        }
+        
+        const playerMove2 = step2Analysis.bestMove.move;
+        console.log('[Bundle] Pas 3 - Segona jugada:', playerMove2);
+        
+        const playerMove2San = uciToSan(afterOpponentFen, playerMove2);
+        const playerMove2Pv = step2Analysis.bestMove.pv || [];
+        const playerMove2Eval = step2Analysis.bestMove.eval || 0;
+        
+        // 6. Analitzar context posicional de cada pas
+        const positionStep1 = parseFenPosition(fen);
+        const positionStep2 = parseFenPosition(afterOpponentFen);
+        const threatsStep1 = analyzePvThreats(fen, playerMove1Pv);
+        const threatsStep2 = analyzePvThreats(afterOpponentFen, playerMove2Pv);
+        
+        console.log('[Bundle] Seqüència completa preparada:', 
+            [playerMove1San, opponentMoveSan, playerMove2San]);
+        
+        // 7. Retornar seqüència completa i fixa
+        return {
+            initialFen: fen,
+            
+            step1: {
+                fen: fen,
+                playerMove: playerMove1,
+                playerMoveSan: playerMove1San,
+                playerMovePv: playerMove1Pv,
+                evalBefore: playerMove1Eval,
+                alternatives: step1Analysis.alternatives || [],
+                position: positionStep1,
+                threats: threatsStep1
+            },
+            
+            opponentMove: {
+                fen: afterPlayerFen,
+                move: opponentMove,
+                moveSan: opponentMoveSan,
+                eval: opponentMoveEval
+            },
+            
+            step2: {
+                fen: afterOpponentFen,
+                playerMove: playerMove2,
+                playerMoveSan: playerMove2San,
+                playerMovePv: playerMove2Pv,
+                evalBefore: playerMove2Eval,
+                alternatives: step2Analysis.alternatives || [],
+                position: positionStep2,
+                threats: threatsStep2
+            },
+            
+            fullSequence: [playerMove1, opponentMove, playerMove2],
+            fullSequenceSan: [playerMove1San, opponentMoveSan, playerMove2San]
+        };
+        
+    } catch (error) {
+        console.error('[Bundle] Error preparant seqüència:', error);
+        return null;
+    }
 }
 
 function analyzePvThreats(fen, pv) {
