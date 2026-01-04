@@ -900,24 +900,30 @@ function showCompletionModal() {
 
     $('#btn-practice-random').off('click').on('click', () => {
         $('#practice-complete-modal').remove();
-        const stats = analyzeLastOpenings();
-        const color = openingPracticeState.lastPracticeColor;
-        const moveNumber = openingPracticeState.lastPracticeMoveNumber;
-        const errors = stats?.[color]?.[moveNumber - 1]?.errors || [];
-
-        if (!errors.length) {
-            alert('No hi ha errors disponibles per practicar.');
-            returnToLessonScreen();
-            return;
-        }
-
-        startMovePractice(color, moveNumber, errors, null);
+        startRandomOpeningPracticeFromLesson({ fallbackToLesson: true });
     });
 
     $('#btn-practice-menu').off('click').on('click', () => {
         $('#practice-complete-modal').remove();
         returnToStartScreen();
     });
+}
+
+function startRandomOpeningPracticeFromLesson({ fallbackToLesson = false } = {}) {
+    const stats = analyzeLastOpenings();
+    const color = openingPracticeState.lastPracticeColor;
+    const moveNumber = openingPracticeState.lastPracticeMoveNumber;
+    const errors = stats?.[color]?.[moveNumber - 1]?.errors || [];
+
+    if (!errors.length) {
+        alert('No hi ha errors disponibles per practicar.');
+        if (fallbackToLesson) {
+            returnToLessonScreen();
+        }
+        return;
+    }
+
+    startMovePractice(color, moveNumber, errors, null);
 }
 
 /**
@@ -929,6 +935,7 @@ function returnToLessonScreen(reopenDrawer = false) {
 
     $('#game-screen').hide();
     $('#lesson-screen').show();
+    $('#btn-practice-random-lesson').hide();
 
     // Re-analitzar i re-renderitzar amb les dades actualitzades
     const stats = analyzeLastOpenings();
@@ -952,6 +959,7 @@ function returnToStartScreen() {
     $('#game-screen').hide();
     $('#lesson-screen').hide();
     $('#start-screen').show();
+    $('#btn-practice-random-lesson').hide();
 }
 
 // ============================================================================
@@ -1289,6 +1297,7 @@ function updatePracticeUI() {
     // Assegurar que els botons estan visibles i actius
     $('#btn-hint').show().prop('disabled', false).css('opacity', '1');
     $('#btn-brain-hint').show().prop('disabled', false).css('opacity', '1');
+    $('#btn-practice-random-lesson').show().prop('disabled', false).css('opacity', '1');
     $('#btn-back').show();
     $('#btn-resign').hide();
     
@@ -1402,6 +1411,12 @@ function initOpeningPracticeSystem() {
     $('#btn-brain-hint').off('click.practice').on('click.practice', function() {
         if (openingPracticeState.isPracticing) {
             showGeminiPracticeHint();
+        }
+    });
+
+    $('#btn-practice-random-lesson').off('click.practice').on('click.practice', function() {
+        if (openingPracticeState.isPracticing) {
+            startRandomOpeningPracticeFromLesson();
         }
     });
 

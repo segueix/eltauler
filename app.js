@@ -5962,6 +5962,7 @@ blunderMode = isBundle;
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
     updateStatus();
+    $('#btn-practice-random-lesson').hide();
     updateBundleHintButtons();
     
     // Forçar actualització visual després de 100ms
