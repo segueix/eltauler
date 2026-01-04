@@ -68,7 +68,9 @@ function buildDetailedOpeningStats(entries) {
                     comment: move.comment || '',
                     gameId: entry.timestamp || Date.now(),
                     playerMove: move.playerMove || '',
-                    moveNumber: moveNumber
+                    moveNumber: moveNumber,
+                    pgn: entry.pgn || '',
+                    playerColor: entry.playerColor || 'w'
                 });
             }
         });
@@ -333,13 +335,37 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
         // ✅ CAS IDEAL: Tenim el FEN abans del moviment
         practiceFen = errorToPractice.fenBefore;
         console.log('✅ Usant fenBefore:', practiceFen);
+    } else if (errorToPractice.pgn) {
+        // ⚠️ CAS ALTERNATIU: Reconstruir des del PGN i el número de moviment
+        console.warn('⚠️ No hi ha fenBefore, reconstruint des del PGN...');
+        try {
+            const tempGame = new Chess();
+            const loaded = tempGame.load_pgn(errorToPractice.pgn);
+            if (!loaded) throw new Error('No s\'ha pogut carregar el PGN');
+
+            const history = tempGame.history({ verbose: true });
+            const isBlack = (errorToPractice.playerColor === 'b');
+            const targetPly = (errorToPractice.moveNumber - 1) * 2 + (isBlack ? 1 : 0);
+
+            tempGame.reset();
+            for (let i = 0; i < history.length && i < targetPly; i++) {
+                tempGame.move(history[i]);
+            }
+
+            practiceFen = tempGame.fen();
+            console.log('✅ FEN reconstruït des de PGN:', practiceFen);
+        } catch (e) {
+            console.error('❌ Error reconstruint FEN des de PGN:', e);
+            // Fallback: FEN inicial
+            practiceFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        }
     } else if (errorToPractice.fen) {
         // ⚠️ CAS ALTERNATIU: Intentar reconstruir des del FEN després
         console.warn('⚠️ No hi ha fenBefore, intentant reconstruir...');
         try {
             const tempGame = new Chess(errorToPractice.fen);
             const history = tempGame.history({ verbose: true });
-            
+
             if (history.length > 0) {
                 // Desfer l'últim moviment per obtenir la posició anterior
                 tempGame.undo();
