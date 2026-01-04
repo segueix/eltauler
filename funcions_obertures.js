@@ -1109,13 +1109,12 @@ function showPracticeHint() {
     const targetMove = openingPracticeState.targetMove;
     if (!targetMove || targetMove.length < 4) return;
 
-    const from = targetMove.substring(0, 2);
     const to = targetMove.substring(2, 4);
 
     // Destacar caselles al tauler
-    highlightSquares([from, to], 'hint');
+    highlightSquares([to], 'hint');
 
-    $('#status').text(`💡 Pista: Mou des de ${from} cap a ${to}`);
+    $('#status').text(`💡 Pista: Mou cap a ${to}`);
 
     // Eliminar destacat després de 3 segons
     setTimeout(() => {
