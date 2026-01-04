@@ -19,12 +19,17 @@ let openingPracticeState = {
     completedMoves: {},           // Objecte per guardar els moviments completats: {white: [1,2,3], black: [1,2]}
     currentPracticeFen: null,     // FEN de la posició actual de pràctica
     targetMove: null,             // Moviment objectiu que cal fer
-    currentError: null            // Referència a l'error actual
+    currentError: null,           // Referència a l'error actual
+    lastPracticeMoveNumber: null, // Moviment per reobrir la llista d'errors
+    lastPracticeColor: null       // Color per reobrir la llista d'errors
 };
 
 let openingGeminiHintPending = false;
 
 const OPENING_PRACTICE_START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+let practiceTapEnabled = false;
+let practiceTapSelectedSquare = null;
+let practiceLastTapEventTs = 0;
 
 // ============================================================================
 // 1. CONSTRUCCIÓ DE DADES AMB DETALL D'ERRORS
@@ -302,7 +307,9 @@ function startMovePractice(color, moveNumber, errors, errorIdx = null) {
         completedMoves: openingPracticeState.completedMoves || {},
         currentPracticeFen: null,
         targetMove: null,
-        currentError: null
+        currentError: null,
+        lastPracticeMoveNumber: moveNumber,
+        lastPracticeColor: color
     };
 
     // Navegar a la pantalla de joc
@@ -418,6 +425,7 @@ function buildPracticeFenFromError(errorToPractice) {
  */
 function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
     console.log('🎯 Iniciant pràctica...');
+    disablePracticeTapToMove();
     
     // Seleccionar error (específic o aleatori)
     const selectedIdx = errorIdx !== null ? errorIdx : Math.floor(Math.random() * errors.length);
@@ -465,8 +473,9 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
 
     // Inicialitzar nou tauler
     try {
+        const isTapMode = controlMode === 'tap' && typeof isTouchDevice === 'function' && isTouchDevice();
         board = Chessboard('myBoard', {
-            draggable: true,
+            draggable: !isTapMode,
             position: game.fen(),
             orientation: playerColor === 'w' ? 'white' : 'black',
             onDragStart: onDragStart,
@@ -474,6 +483,10 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
             onSnapEnd: onSnapEnd,
             pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         });
+        if (isTapMode) {
+            if (typeof disableTapToMove === 'function') disableTapToMove();
+            enablePracticeTapToMove();
+        }
         
         console.log('✅ Tauler creat amb èxit');
         
@@ -498,7 +511,7 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
         </div>
         <div style="font-size: 0.85rem; color: var(--text-secondary);">
             Error #${selectedIdx + 1} de ${errors.length} | 
-            Progressió: ${openingPracticeState.correctMovesCount}/2 correctes
+            Progressió: ${openingPracticeState.correctMovesCount}/2 correctes consecutius
         </div>
     `);
 
@@ -541,6 +554,85 @@ function onDropPractice(source, target) {
     checkPracticeMove(move);
 }
 
+function clearPracticeTapSelection() {
+    practiceTapSelectedSquare = null;
+    $('#myBoard .square-55d63').removeClass('tap-selected tap-move');
+}
+
+function highlightPracticeTapSelection(square) {
+    $('#myBoard .square-55d63').removeClass('tap-selected tap-move');
+    const sel = $(`#myBoard .square-55d63[data-square='${square}']`);
+    sel.addClass('tap-selected');
+
+    const moves = game ? game.moves({ square: square, verbose: true }) : [];
+    for (const mv of moves) {
+        $(`#myBoard .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
+    }
+}
+
+function commitPracticeMoveFromTap(from, to) {
+    const move = game.move({ from: from, to: to, promotion: 'q' });
+    if (move === null) return false;
+    board.position(game.fen());
+    checkPracticeMove(move);
+    return true;
+}
+
+function enablePracticeTapToMove() {
+    if (practiceTapEnabled) return;
+    practiceTapEnabled = true;
+    const boardEl = document.getElementById('myBoard');
+    if (boardEl) boardEl.style.touchAction = 'none';
+
+    $('#myBoard').off('.practice-tapmove')
+        .on(`pointerdown.practice-tapmove touchstart.practice-tapmove`, '.square-55d63', function(e) {
+            if (!openingPracticeState.isPracticing || !game) return;
+
+            if (e && e.preventDefault) e.preventDefault();
+
+            const nowTs = Date.now();
+            if (nowTs - practiceLastTapEventTs < 180) return;
+            practiceLastTapEventTs = nowTs;
+
+            const square = $(this).attr('data-square');
+            if (!square) return;
+
+            if (!practiceTapSelectedSquare) {
+                const p = game.get(square);
+                if (!p || p.color !== game.turn()) return;
+                practiceTapSelectedSquare = square;
+                highlightPracticeTapSelection(square);
+                return;
+            }
+
+            if (square === practiceTapSelectedSquare) {
+                clearPracticeTapSelection();
+                return;
+            }
+
+            const moved = commitPracticeMoveFromTap(practiceTapSelectedSquare, square);
+            if (moved) {
+                clearPracticeTapSelection();
+                return;
+            }
+
+            const p2 = game.get(square);
+            if (p2 && p2.color === game.turn()) {
+                practiceTapSelectedSquare = square;
+                highlightPracticeTapSelection(square);
+            }
+        });
+}
+
+function disablePracticeTapToMove() {
+    if (!practiceTapEnabled) return;
+    practiceTapEnabled = false;
+    $('#myBoard').off('.practice-tapmove');
+    const boardEl = document.getElementById('myBoard');
+    if (boardEl) boardEl.style.touchAction = '';
+    clearPracticeTapSelection();
+}
+
 /**
  * Comprova si el moviment practicat és correcte
  * @param {Object} move - Objecte del moviment realitzat
@@ -568,10 +660,12 @@ function checkPracticeMove(move) {
         } else {
             // Moviment incorrecte
             showFeedback('error', '✗ No és el millor moviment. Prova de nou.');
+            openingPracticeState.correctMovesCount = 0;
 
             // Desfer moviment i tornar a intentar
             game.undo();
             board.position(game.fen());
+            $('#status').text('Sèrie reiniciada: 0/2 correctes consecutius. Torna-ho a provar!');
         }
     });
 }
@@ -632,7 +726,7 @@ function setupNextPracticeAttempt() {
     game.load(openingPracticeState.currentPracticeFen);
     board.position(game.fen());
 
-    $('#status').text(`Intents correctes: ${openingPracticeState.correctMovesCount}/2. Continua!`);
+    $('#status').text(`Intents correctes: ${openingPracticeState.correctMovesCount}/2 consecutius. Continua!`);
 }
 
 /**
@@ -666,11 +760,14 @@ function showCompletionModal() {
                 <div class="modal-title">🎉 Pràctica completada!</div>
                 <div class="subtitle">
                     Has completat la pràctica del moviment ${activeMoveNumber}
-                    (${activeColor === 'white' ? 'Blanques' : 'Negres'}) amb 2 moviments perfectes.
+                    (${activeColor === 'white' ? 'Blanques' : 'Negres'}) amb 2 moviments consecutius.
                 </div>
                 <div class="practice-complete-actions">
                     <button class="btn btn-primary" id="btn-practice-continue">
                         Tornar a l'anàlisi
+                    </button>
+                    <button class="btn btn-secondary" id="btn-practice-back">
+                        Tornar enrere
                     </button>
                     <button class="btn btn-secondary" id="btn-practice-menu">
                         Menú principal
@@ -687,6 +784,11 @@ function showCompletionModal() {
         returnToLessonScreen();
     });
 
+    $('#btn-practice-back').off('click').on('click', () => {
+        $('#practice-complete-modal').remove();
+        returnToLessonScreen(true);
+    });
+
     $('#btn-practice-menu').off('click').on('click', () => {
         $('#practice-complete-modal').remove();
         returnToStartScreen();
@@ -696,14 +798,23 @@ function showCompletionModal() {
 /**
  * Torna a la pantalla de lliçons i actualitza l'anàlisi
  */
-function returnToLessonScreen() {
+function returnToLessonScreen(reopenDrawer = false) {
     openingPracticeState.isPracticing = false;
+    disablePracticeTapToMove();
 
     $('#game-screen').hide();
     $('#lesson-screen').show();
 
     // Re-analitzar i re-renderitzar amb les dades actualitzades
-    analyzeLastOpenings();
+    const stats = analyzeLastOpenings();
+
+    if (reopenDrawer && stats && openingPracticeState.lastPracticeMoveNumber && openingPracticeState.lastPracticeColor) {
+        openMoveReviewDrawer(
+            openingPracticeState.lastPracticeColor,
+            openingPracticeState.lastPracticeMoveNumber,
+            stats
+        );
+    }
 }
 
 /**
@@ -711,6 +822,7 @@ function returnToLessonScreen() {
  */
 function returnToStartScreen() {
     openingPracticeState.isPracticing = false;
+    disablePracticeTapToMove();
 
     $('#game-screen').hide();
     $('#lesson-screen').hide();
@@ -1130,6 +1242,7 @@ function analyzeLastOpenings() {
     const stats = buildDetailedOpeningStats(entries);
     loadCompletedPractices();
     renderDetailedOpeningStats(stats);
+    return stats;
 }
 
 // ============================================================================
