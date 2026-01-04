@@ -403,13 +403,14 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
 
     // Inicialitzar nou tauler
     try {
-        board = ChessBoard('myBoard', {
+        board = Chessboard('myBoard', {
             draggable: true,
             position: game.fen(),
             orientation: playerColor === 'w' ? 'white' : 'black',
             onDragStart: onDragStart,
             onDrop: onDropPractice,
-            onSnapEnd: onSnapEnd
+            onSnapEnd: onSnapEnd,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
         });
         
         console.log('✅ Tauler creat amb èxit');
