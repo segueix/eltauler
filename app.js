@@ -5251,8 +5251,9 @@ function setupEvents() {
         renderGameHistory();
     });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) openLeague(); });
-    $('#btn-lesson').click(() => { $('#lesson-panel').slideToggle(); });
+    $('#btn-lesson').click(() => { $('#start-screen').hide(); $('#lesson-screen').show(); });
     $('#btn-analyze-openings').click(() => { analyzeLastOpenings(); });
+    $('#btn-back-lesson').click(() => { $('#lesson-screen').hide(); $('#start-screen').show(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });

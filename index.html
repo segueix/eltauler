@@ -122,7 +122,7 @@
         body.device-mobile .league-table thead th { font-size: 0.74rem; }
         body.device-mobile .league-table tbody td { font-size: 0.86rem; }
         
-        #start-screen, #stats-screen {
+        #start-screen, #stats-screen, #lesson-screen {
             background: var(--bg-card);
             border-radius: 16px;
             padding: 25px 20px;
@@ -130,7 +130,7 @@
             text-align: center;
             border: 1px solid rgba(201, 162, 39, 0.2);
         }
-        body.epaper-mode #start-screen, body.epaper-mode #stats-screen {
+        body.epaper-mode #start-screen, body.epaper-mode #stats-screen, body.epaper-mode #lesson-screen {
             background: var(--bg-card);
             border: 1px solid #cfcfcf;
             box-shadow: none;
@@ -1709,10 +1709,6 @@
                 </div>
                 <button class="btn btn-secondary" id="btn-league" style="background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc;">🏆 Lliga</button>
                 <button class="btn btn-lesson" id="btn-lesson">📒 Lliçó</button>
-                <div class="lesson-panel" id="lesson-panel" style="display:none;">
-                    <button class="btn btn-secondary" id="btn-analyze-openings">Analitzar 10 últimes obertures</button>
-                    <div class="lesson-stats" id="lesson-stats"></div>
-                </div>
                 <button class="btn btn-secondary" id="btn-bundle-menu" style="background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc;">
                     📚 Revisa Errors
                     <span style="font-size:0.75rem; opacity:0.8;" id="bundle-info">Cap error desat</span>
@@ -1874,6 +1870,21 @@
             
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-back-stats">Tornar al Menú</button>
+            </div>
+        </div>
+
+        <div id="lesson-screen" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">📒</div>
+                <h1>Lliçó</h1>
+                <div class="subtitle">Anàlisi d'obertures recents</div>
+            </div>
+            <div class="lesson-panel">
+                <button class="btn btn-secondary" id="btn-analyze-openings">Analitzar 10 últimes obertures</button>
+                <div class="lesson-stats" id="lesson-stats"></div>
+            </div>
+            <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-primary" id="btn-back-lesson">Tornar al Menú</button>
             </div>
         </div>
    
