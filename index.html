@@ -1853,46 +1853,51 @@
             padding: 40px 20px;
         }
 
-        .lesson-move-table {
+        .lesson-first-moves-stats .lesson-move-table {
             width: 100%;
             border-collapse: collapse;
             margin-top: 8px;
+            font-size: 1.05rem;
         }
 
-        .lesson-move-table th,
-        .lesson-move-table td {
+        .lesson-first-moves-stats .lesson-move-table th,
+        .lesson-first-moves-stats .lesson-move-table td {
             text-align: left;
-            padding: 10px 12px;
+            padding: 12px 14px;
         }
 
-        .lesson-move-table thead th {
+        .lesson-first-moves-stats .lesson-move-table thead th {
             color: var(--text-secondary);
             font-weight: 600;
             border-bottom: 1px solid rgba(201, 162, 39, 0.2);
         }
 
-        .lesson-move-table tbody tr {
+        .lesson-first-moves-stats .lesson-move-table tbody tr {
             background: rgba(201, 162, 39, 0.05);
         }
 
-        .lesson-move-table tbody tr + tr {
+        .lesson-first-moves-stats .lesson-move-table tbody tr + tr {
             border-top: 1px solid rgba(201, 162, 39, 0.08);
         }
 
-        .lesson-move-table td:last-child {
+        .lesson-first-moves-stats .lesson-move-table td:last-child {
             font-weight: 600;
         }
 
-        .lesson-move-table .good {
+        .lesson-first-moves-stats .lesson-move-table .good {
             color: var(--severity-low);
         }
 
-        .lesson-move-table .warning {
+        .lesson-first-moves-stats .lesson-move-table .warning {
             color: var(--severity-med);
         }
 
-        .lesson-move-table .danger {
+        .lesson-first-moves-stats .lesson-move-table .danger {
             color: var(--severity-high);
+        }
+
+        .lesson-first-moves-stats .lesson-color-section h4 {
+            font-size: 1.2rem;
         }
 
         .btn-large {
@@ -2286,26 +2291,6 @@
                     <p style="margin-top:16px; color:var(--text-secondary);">Analitzant les teves últimes partides...</p>
                 </div>
 
-                <!-- Diagnòstic general -->
-                <div id="lesson-diagnosis" style="display:none;">
-                    <div class="lesson-card">
-                        <div class="lesson-card-header">
-                            <span class="lesson-icon">🎯</span>
-                            <h3>Diagnòstic Intel·ligent</h3>
-                        </div>
-                        <div class="lesson-card-body">
-                            <p id="lesson-games-analyzed" class="lesson-meta">—</p>
-                            <div id="lesson-critical-area" class="lesson-alert">
-                                <div class="lesson-alert-title">⚠️ ÀREA CRÍTICA</div>
-                                <div id="lesson-critical-content">—</div>
-                            </div>
-                            <div id="lesson-other-areas" class="lesson-stats">
-                                <!-- S'omplirà dinàmicament -->
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
                 <!-- Anàlisi d'obertures -->
                 <div id="lesson-openings" style="display:none;">
                     <div class="lesson-card">
@@ -2352,15 +2337,15 @@
                 <!-- Botó principal -->
                 <div class="lesson-main-action" id="lesson-main-action">
                     <button class="btn btn-primary btn-large" id="btn-analyze-lessons">
-                        🔍 Analitzar últimes 10 partides
+                        📊 Precisió dels darrers 10 moviments
                     </button>
                 </div>
 
-                <div id="lesson-first-moves-stats" style="display:none;">
+                <div id="lesson-first-moves-stats" class="lesson-first-moves-stats" style="display:none;">
                     <div class="lesson-card">
                         <div class="lesson-card-header">
                             <span class="lesson-icon">📊</span>
-                            <h3>Precisió dels 10 primers moviments</h3>
+                            <h3>Precisió dels darrers 10 moviments</h3>
                         </div>
                         <div class="lesson-card-body">
                             <div class="lesson-color-section">

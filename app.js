@@ -7370,12 +7370,10 @@ function calculateOpeningStats(opening) {
 // Analitzar i mostrar diagnòstic
 async function performLessonAnalysis() {
     $('#lesson-loading').show();
-    $('#lesson-diagnosis').hide();
     $('#lesson-openings').hide();
     $('#lesson-severe-errors').hide();
     $('#lesson-library').hide();
     $('#lesson-save-action').hide();
-    $('#lesson-first-moves-stats').hide();
 
     const analyzeButton = $('#btn-analyze-lessons');
     analyzeButton.prop('disabled', true);
@@ -7449,39 +7447,6 @@ async function performLessonAnalysis() {
         `;
     }
 
-    // Mostrar diagnòstic
-    $('#lesson-games-analyzed').text(`Últimes ${openingStats.totalGames} partides analitzades`);
-    $('#lesson-critical-content').html(criticalMessage);
-
-    // Mostrar altres àrees
-    const otherAreas = $('#lesson-other-areas');
-    otherAreas.empty();
-
-    if (criticalArea !== 'obertures') {
-        otherAreas.append(`
-            <div class="lesson-stat-item">
-                <span class="lesson-stat-label">Obertures (mov 1-10)</span>
-                <span class="lesson-stat-value ${avgEarly >= 70 ? 'good' : avgEarly >= 50 ? 'warning' : 'danger'}">${avgEarly}%</span>
-            </div>
-        `);
-    }
-    if (criticalArea !== 'mitjoc') {
-        otherAreas.append(`
-            <div class="lesson-stat-item">
-                <span class="lesson-stat-label">Mitjà joc (mov 11-25)</span>
-                <span class="lesson-stat-value ${avgMid >= 70 ? 'good' : avgMid >= 50 ? 'warning' : 'danger'}">${avgMid}%</span>
-            </div>
-        `);
-    }
-    if (criticalArea !== 'finals') {
-        otherAreas.append(`
-            <div class="lesson-stat-item">
-                <span class="lesson-stat-label">Finals (mov 26+)</span>
-                <span class="lesson-stat-value ${avgLate >= 70 ? 'good' : avgLate >= 50 ? 'warning' : 'danger'}">${avgLate}%</span>
-            </div>
-        `);
-    }
-
     // Guardar dades per usar després
     currentLessonData = {
         openingStats,
@@ -7495,7 +7460,6 @@ async function performLessonAnalysis() {
     currentLessonErrors = buildLessonErrorsFromGames(recentGames);
 
     $('#lesson-loading').hide();
-    $('#lesson-diagnosis').show();
     $('#lesson-severe-errors').show();
     renderLessonErrors();
     updateLessonSaveState();
@@ -7850,7 +7814,6 @@ function setupLessonEvents() {
         $('#lesson-severe-errors').hide();
         $('#lesson-library').hide();
         $('#lesson-save-action').hide();
-        $('#lesson-first-moves-stats').hide();
         $('#lesson-main-action').show();
 
         renderLessonErrors();
