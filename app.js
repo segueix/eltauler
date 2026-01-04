@@ -2775,7 +2775,111 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
     return safety;
 }
 
-async function prepareBundleSequence(fen) {
+async function prepareBundleSequence(fen, savedBundleData = null) {
+    // ============================================================
+    // NOVA FUNCIONALITAT: Utilitzar dades guardades si existeixen
+    // ============================================================
+    if (savedBundleData && savedBundleData.bestMove && savedBundleData.playerMove) {
+        console.log('[Bundle] Utilitzant dades guardades de l\'error');
+        
+        try {
+            const playerMove1 = savedBundleData.bestMove; // La millor jugada guardada
+            const playerMove1Pv = savedBundleData.bestMovePv || [];
+            
+            // Aplicar la millor jugada
+            const tempGame1 = new Chess(fen);
+            const move1 = tempGame1.move({
+                from: playerMove1.slice(0, 2),
+                to: playerMove1.slice(2, 4),
+                promotion: playerMove1.length > 4 ? playerMove1[4] : undefined
+            });
+            
+            if (!move1) {
+                console.warn('[Bundle] No es pot aplicar jugada guardada, recalculant...');
+                // Si falla, continuar amb el càlcul normal (veure més avall)
+            } else {
+                const afterPlayerFen = tempGame1.fen();
+                const playerMove1San = move1.san;
+                
+                // Calcular resposta de l'oponent
+                await new Promise(resolve => setTimeout(resolve, 300));
+                const opponentAnalysis = await analyzePositionEnriched(stockfish, afterPlayerFen, 15, 1);
+                
+                if (!opponentAnalysis || !opponentAnalysis.bestMove || !opponentAnalysis.bestMove.move) {
+                    console.warn('[Bundle] Error calculant resposta oponent, recalculant tot...');
+                } else {
+                    const opponentMove = opponentAnalysis.bestMove.move;
+                    const opponentMoveSan = uciToSan(afterPlayerFen, opponentMove);
+                    
+                    // Aplicar resposta de l'oponent
+                    const tempGame2 = new Chess(afterPlayerFen);
+                    const move2 = tempGame2.move({
+                        from: opponentMove.slice(0, 2),
+                        to: opponentMove.slice(2, 4),
+                        promotion: opponentMove.length > 4 ? opponentMove[4] : undefined
+                    });
+                    
+                    if (move2) {
+                        const afterOpponentFen = tempGame2.fen();
+                        
+                        // Calcular segona jugada del jugador
+                        await new Promise(resolve => setTimeout(resolve, 300));
+                        const step2Analysis = await analyzePositionEnriched(stockfish, afterOpponentFen, 15, 2);
+                        
+                        if (step2Analysis && step2Analysis.bestMove && step2Analysis.bestMove.move) {
+                            const playerMove2 = step2Analysis.bestMove.move;
+                            const playerMove2San = uciToSan(afterOpponentFen, playerMove2);
+                            const playerMove2Pv = step2Analysis.bestMove.pv || [];
+                            
+                            console.log('[Bundle] Seqüència completa amb dades guardades:', 
+                                [playerMove1San, opponentMoveSan, playerMove2San]);
+                            
+                            // Retornar seqüència utilitzant dades guardades
+                            return {
+                                initialFen: fen,
+                                step1: {
+                                    fen: fen,
+                                    playerMove: playerMove1,
+                                    playerMoveSan: playerMove1San,
+                                    playerMovePv: playerMove1Pv,
+                                    evalBefore: 0,
+                                    alternatives: [],
+                                    position: parseFenPosition(fen),
+                                    threats: analyzePvThreats(fen, playerMove1Pv)
+                                },
+                                opponentMove: {
+                                    fen: afterPlayerFen,
+                                    move: opponentMove,
+                                    moveSan: opponentMoveSan,
+                                    eval: opponentAnalysis.bestMove.eval || 0
+                                },
+                                step2: {
+                                    fen: afterOpponentFen,
+                                    playerMove: playerMove2,
+                                    playerMoveSan: playerMove2San,
+                                    playerMovePv: playerMove2Pv,
+                                    evalBefore: step2Analysis.bestMove.eval || 0,
+                                    alternatives: step2Analysis.alternatives || [],
+                                    position: parseFenPosition(afterOpponentFen),
+                                    threats: analyzePvThreats(afterOpponentFen, playerMove2Pv)
+                                },
+                                fullSequence: [playerMove1, opponentMove, playerMove2],
+                                fullSequenceSan: [playerMove1San, opponentMoveSan, playerMove2San]
+                            };
+                        }
+                    }
+                }
+            }
+        } catch (error) {
+            console.error('[Bundle] Error utilitzant dades guardades:', error);
+        }
+    }
+    
+    // ============================================================
+    // CÀLCUL ORIGINAL: Recalcular des de zero amb Stockfish
+    // ============================================================
+    console.log('[Bundle] Calculant seqüència des de zero amb Stockfish...');
+    
     // Validació inicial més robusta
     if (!stockfish) {
         console.error('[Bundle] Stockfish no existeix');
@@ -2804,7 +2908,7 @@ async function prepareBundleSequence(fen) {
         // Neteja inicial més agressiva
         stockfish.postMessage('stop');
         stockfish.postMessage('setoption name MultiPV value 1');
-        await new Promise(resolve => setTimeout(resolve, 300)); // Temps augmentat
+        await new Promise(resolve => setTimeout(resolve, 300));
         
         console.log('[Bundle] Iniciant preparació seqüència per FEN:', fen);
         
@@ -2843,7 +2947,7 @@ async function prepareBundleSequence(fen) {
         console.log('[Bundle] Després jugada 1, FEN:', afterPlayerFen);
         
         // Pausa més llarga entre anàlisis
-        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
+        await new Promise(resolve => setTimeout(resolve, 400));
         
         // 3. Calcular millor resposta de l'oponent
         console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
@@ -2879,7 +2983,7 @@ async function prepareBundleSequence(fen) {
         console.log('[Bundle] Després resposta oponent, FEN:', afterOpponentFen);
         
         // Pausa abans de l'anàlisi final
-        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
+        await new Promise(resolve => setTimeout(resolve, 400));
         
         // 5. Calcular millor segona jugada del jugador (Pas 3)
         console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
@@ -5661,7 +5765,9 @@ function startSelectedBundleGame(entry) {
     $('#bundle-modal').remove();
     currentGameMode = 'bundle';
     currentOpponent = null;
-    startGame(true, entry.fen);
+    
+    // Passar l'objecte complet de l'error, no només el FEN
+    startGame(true, entry.fen, entry); // ← AFEGIR entry com a paràmetre
     return true;
 }
 
@@ -5752,7 +5858,7 @@ blunderMode = isBundle;
     bundleFixedSequence = null;
     if (isBundle && fen) {
         $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
-        bundleFixedSequence = await prepareBundleSequence(fen);
+        bundleFixedSequence = await prepareBundleSequence(fen, bundleData);
         
         if (!bundleFixedSequence) {
             alert("No s'ha pogut preparar l'exercici. Es retornarà al menú.");
