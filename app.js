@@ -5422,7 +5422,7 @@ async function generateLessonReview() {
         return;
     }
 
-    const apiKey = localStorage.getItem('gemini_api_key');
+    const apiKey = geminiApiKey || localStorage.getItem(GEMINI_API_KEY_STORAGE);
     if (!apiKey) {
         alert('Configura la clau de Gemini per generar ressenyes.');
         return;
