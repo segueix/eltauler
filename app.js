@@ -5153,7 +5153,7 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             playerMove: err.playerMove || null,
             bestMovePv: err.bestMovePv || []
         })),
-        review: [], // ← BUIDAT: ja no cal guardar review completa
+        review: currentReview.map(entry => ({ ...entry })),
         severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
         geminiReview: options.geminiReview || null,
         playerColor: playerColor,
@@ -5163,6 +5163,56 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     gameHistory.push(entry);
     if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
     // Bloc de neteja de reviews eliminat
+}
+
+function buildOpeningStats(entries) {
+    const initMoves = () => Array.from({ length: 10 }, () => ({ sum: 0, count: 0 }));
+    const stats = { white: initMoves(), black: initMoves() };
+    (entries || []).forEach(entry => {
+        const colorKey = entry.playerColor === 'b' ? 'black' : 'white';
+        const reviews = Array.isArray(entry.review) ? entry.review : [];
+        reviews.forEach(move => {
+            const moveNumber = move.moveNumber || 0;
+            if (moveNumber < 1 || moveNumber > 10) return;
+            const isCorrect = move.quality === 'excel' || move.quality === 'good';
+            stats[colorKey][moveNumber - 1].sum += isCorrect ? 1 : 0;
+            stats[colorKey][moveNumber - 1].count += 1;
+        });
+    });
+    return stats;
+}
+
+function renderOpeningStats(stats) {
+    const container = $('#lesson-stats');
+    if (!container.length) return;
+    const entries = gameHistory.slice(-10);
+    if (!entries.length) {
+        container.html('<div>No hi ha partides per analitzar encara.</div>');
+        return;
+    }
+    const sections = [
+        { key: 'white', label: 'Blanques' },
+        { key: 'black', label: 'Negres' }
+    ];
+    const html = sections.map(section => {
+        const rows = stats[section.key].map((item, idx) => {
+            const value = item.count ? `${Math.round((item.sum / item.count) * 100)}%` : '—';
+            return `<div>Mov. ${idx + 1}: <strong>${value}</strong></div>`;
+        }).join('');
+        return `
+            <div class="lesson-stats-section">
+                <div class="lesson-stats-title">${section.label}</div>
+                <div class="lesson-stats-grid">${rows}</div>
+            </div>
+        `;
+    }).join('');
+    container.html(html);
+}
+
+function analyzeLastOpenings() {
+    const entries = gameHistory.slice(-10);
+    const stats = buildOpeningStats(entries);
+    renderOpeningStats(stats);
 }
 
 function checkShareSupport() {
@@ -5201,6 +5251,8 @@ function setupEvents() {
         renderGameHistory();
     });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) openLeague(); });
+    $('#btn-lesson').click(() => { $('#lesson-panel').slideToggle(); });
+    $('#btn-analyze-openings').click(() => { analyzeLastOpenings(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
