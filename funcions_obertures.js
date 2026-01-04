@@ -5,7 +5,7 @@
 // Aquest fitxer conté les funcions necessàries per:
 // 1. Mostrar el nombre de jugades a revisar per cada moviment d'obertura
 // 2. Obrir un calaix amb les imprecisions d'un moviment específic
-// 3. Practicar moviments fins aconseguir 2 correctes al 100%
+// 3. Practicar una seqüència de 2 moviments correctes per resoldre l'error
 // 4. Gestionar l'estat de completitud de cada moviment
 //
 // ============================================================================
@@ -14,7 +14,11 @@
 let openingPracticeState = {
     activeMoveNumber: null,      // Número del moviment que s'està practicant
     activeColor: null,            // 'white' o 'black'
-    correctMovesCount: 0,         // Comptador de moviments correctes consecutius
+    practiceStep: 1,              // Pas actual dins la seqüència (1 o 2)
+    practiceSequence: null,       // Seqüència fixa amb resposta de l'oponent i 2a jugada
+    isSequenceReady: false,       // Quan la seqüència està preparada per Stockfish
+    practiceErrorIndex: null,     // Índex de l'error dins la llista
+    practiceErrorsCount: null,    // Nombre total d'errors en aquest moviment
     isPracticing: false,          // Si estem en mode pràctica
     completedMoves: {},           // Objecte per guardar els moviments completats: {white: [1,2,3], black: [1,2]}
     currentPracticeFen: null,     // FEN de la posició actual de pràctica
@@ -302,7 +306,11 @@ function startMovePractice(color, moveNumber, errors, errorIdx = null) {
     openingPracticeState = {
         activeMoveNumber: moveNumber,
         activeColor: color,
-        correctMovesCount: 0,
+        practiceStep: 1,
+        practiceSequence: null,
+        isSequenceReady: false,
+        practiceErrorIndex: null,
+        practiceErrorsCount: null,
         isPracticing: true,
         completedMoves: openingPracticeState.completedMoves || {},
         currentPracticeFen: null,
@@ -435,6 +443,11 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
     
     // Guardar referència a l'error actual
     openingPracticeState.currentError = errorToPractice;
+    openingPracticeState.practiceErrorIndex = selectedIdx + 1;
+    openingPracticeState.practiceErrorsCount = errors.length;
+    openingPracticeState.practiceStep = 1;
+    openingPracticeState.practiceSequence = null;
+    openingPracticeState.isSequenceReady = false;
 
     const practiceFenData = buildPracticeFenFromError(errorToPractice);
     const practiceFen = practiceFenData.fen;
@@ -452,10 +465,8 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
     
     console.log('🎮 Joc inicialitzat amb FEN:', game.fen());
 
-    // Guardar el millor moviment com a objectiu
-    openingPracticeState.targetMove = errorToPractice.bestMove;
-    
-    console.log('🎯 Moviment objectiu:', openingPracticeState.targetMove);
+    // Es prepara la seqüència amb Stockfish després del setup del tauler
+    openingPracticeState.targetMove = null;
 
     // Configurar color del jugador
     playerColor = color === 'white' ? 'w' : 'b';
@@ -507,11 +518,10 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
     $('#game-mode-title').text(`🎯 Pràctica: Moviment ${moveNumber} (${color === 'white' ? 'Blanques' : 'Negres'})`);
     $('#status').html(`
         <div style="margin-bottom: 8px;">
-            <strong>Troba el millor moviment!</strong>
+            <strong>Preparant la seqüència amb Stockfish...</strong>
         </div>
         <div style="font-size: 0.85rem; color: var(--text-secondary);">
-            Error #${selectedIdx + 1} de ${errors.length} | 
-            Progressió: ${openingPracticeState.correctMovesCount}/2 correctes consecutius
+            Error #${selectedIdx + 1} de ${errors.length} | Pas 1 de 2
         </div>
     `);
 
@@ -524,6 +534,95 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
     $('#btn-brain-hint').html('<img src="brain.svg" alt="Cervell"><span>Màxima</span>');
     
     console.log('✅ Setup complet!');
+
+    void preparePracticeSequenceFromError(errorToPractice, practiceFen);
+}
+
+async function preparePracticeSequenceFromError(errorToPractice, initialFen) {
+    if (!initialFen) return;
+    if (!stockfish && typeof ensureStockfish === 'function') {
+        ensureStockfish();
+    }
+
+    let waitCount = 0;
+    while (!stockfishReady && waitCount < 20) {
+        await new Promise(resolve => setTimeout(resolve, 100));
+        waitCount++;
+    }
+
+    if (!stockfishReady || !stockfish) {
+        console.error('❌ Stockfish no està disponible per preparar la seqüència');
+        alert('Error: No es pot preparar l\'exercici amb Stockfish.');
+        returnToLessonScreen();
+        return;
+    }
+
+    try {
+        const playerMove1 = errorToPractice.bestMove
+            || (await analyzePositionEnriched(stockfish, initialFen, 15, 2))?.bestMove?.move;
+
+        if (!playerMove1) {
+            throw new Error('No s\'ha pogut obtenir la millor jugada inicial');
+        }
+
+        const tempGame1 = new Chess(initialFen);
+        const move1 = tempGame1.move({
+            from: playerMove1.slice(0, 2),
+            to: playerMove1.slice(2, 4),
+            promotion: playerMove1.length > 4 ? playerMove1[4] : undefined
+        });
+
+        if (!move1) {
+            throw new Error('No s\'ha pogut aplicar la millor jugada inicial');
+        }
+
+        const afterPlayerFen = tempGame1.fen();
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        const opponentAnalysis = await analyzePositionEnriched(stockfish, afterPlayerFen, 15, 1);
+        const opponentMove = opponentAnalysis?.bestMove?.move;
+
+        if (!opponentMove) {
+            throw new Error('No s\'ha pogut obtenir la resposta de l\'oponent');
+        }
+
+        const tempGame2 = new Chess(afterPlayerFen);
+        const move2 = tempGame2.move({
+            from: opponentMove.slice(0, 2),
+            to: opponentMove.slice(2, 4),
+            promotion: opponentMove.length > 4 ? opponentMove[4] : undefined
+        });
+
+        if (!move2) {
+            throw new Error('No s\'ha pogut aplicar la resposta de l\'oponent');
+        }
+
+        const afterOpponentFen = tempGame2.fen();
+        await new Promise(resolve => setTimeout(resolve, 300));
+
+        const step2Analysis = await analyzePositionEnriched(stockfish, afterOpponentFen, 15, 2);
+        const playerMove2 = step2Analysis?.bestMove?.move;
+
+        if (!playerMove2) {
+            throw new Error('No s\'ha pogut obtenir la segona jugada');
+        }
+
+        openingPracticeState.practiceSequence = {
+            initialFen,
+            step1: { playerMove: playerMove1 },
+            opponentMove: { move: opponentMove },
+            step2: { playerMove: playerMove2 },
+            fullSequence: [playerMove1, opponentMove, playerMove2]
+        };
+        openingPracticeState.isSequenceReady = true;
+        openingPracticeState.practiceStep = 1;
+        openingPracticeState.targetMove = playerMove1;
+        updatePracticeStatus();
+    } catch (error) {
+        console.error('❌ Error preparant seqüència de pràctica:', error);
+        alert('Error: No es pot preparar l\'exercici. Torna-ho a provar.');
+        returnToLessonScreen();
+    }
 }
 
 /**
@@ -533,6 +632,10 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
  * @returns {string} 'snapback' si el moviment és invàlid
  */
 function onDropPractice(source, target) {
+    if (!openingPracticeState.isSequenceReady) {
+        showFeedback('info', '⏳ Preparant la seqüència amb Stockfish...');
+        return 'snapback';
+    }
     // Verificar si és el torn del jugador
     if (game.turn() !== playerColor) {
         return 'snapback';
@@ -638,95 +741,63 @@ function disablePracticeTapToMove() {
  * @param {Object} move - Objecte del moviment realitzat
  */
 function checkPracticeMove(move) {
-    const targetMove = openingPracticeState.targetMove;
-
-    // Analitzar amb Stockfish per verificar si és òptim
-    analyzePracticeMove(move, (isCorrect, evaluation) => {
-        if (isCorrect) {
-            // Moviment correcte!
-            openingPracticeState.correctMovesCount++;
-
-            showFeedback('success', '✓ Excel·lent! Moviment correcte.');
-
-            if (openingPracticeState.correctMovesCount >= 2) {
-                // Completat!
-                completePractice();
-            } else {
-                // Preparar següent intent
-                setTimeout(() => {
-                    setupNextPracticeAttempt();
-                }, 1500);
-            }
-        } else {
-            // Moviment incorrecte
-            showFeedback('error', '✗ No és el millor moviment. Prova de nou.');
-            openingPracticeState.correctMovesCount = 0;
-
-            // Desfer moviment i tornar a intentar
-            game.undo();
-            board.position(game.fen());
-            $('#status').text('Sèrie reiniciada: 0/2 correctes consecutius. Torna-ho a provar!');
-        }
-    });
-}
-
-/**
- * Analitza un moviment de pràctica amb Stockfish
- * @param {Object} move - Moviment a analitzar
- * @param {Function} callback - Funció callback amb (isCorrect, evaluation)
- */
-function analyzePracticeMove(move, callback) {
-    if (!stockfish || !stockfishReady) {
-        callback(false, null);
+    const sequence = openingPracticeState.practiceSequence;
+    if (!sequence) {
+        showFeedback('error', '❌ Encara no tenim la seqüència preparada.');
+        game.undo();
+        board.position(game.fen());
         return;
     }
 
-    const fen = openingPracticeState.currentPracticeFen;
+    const expectedMove = openingPracticeState.practiceStep === 1
+        ? sequence.step1.playerMove
+        : sequence.step2.playerMove;
+    const moveUci = move.from + move.to + (move.promotion || '');
 
-    // Configurar Stockfish per analitzar
-    stockfish.postMessage(`position fen ${fen}`);
-    stockfish.postMessage('go depth 15');
+    if (moveUci !== expectedMove) {
+        showFeedback('error', '✗ No és el millor moviment. Torna-ho a provar.');
+        resetPracticeSequence();
+        return;
+    }
 
-    let bestMove = null;
-    let evaluation = null;
+    if (openingPracticeState.practiceStep === 1) {
+        showFeedback('success', '✓ Bona! Completem la seqüència.');
+        openingPracticeState.practiceStep = 2;
+        openingPracticeState.targetMove = sequence.step2.playerMove;
+        applyPracticeOpponentMove(sequence.opponentMove.move);
+        updatePracticeStatus('Completa la seqüència amb el segon moviment.');
+        return;
+    }
 
-    const handleMessage = (event) => {
-        const line = event.data || event;
-
-        // Capturar millor moviment
-        if (line.startsWith('bestmove')) {
-            const parts = line.split(' ');
-            bestMove = parts[1];
-
-            // Verificar si coincideix
-            const moveUci = move.from + move.to + (move.promotion || '');
-            const isCorrect = bestMove === moveUci;
-
-            stockfish.removeEventListener('message', handleMessage);
-            callback(isCorrect, evaluation);
-        }
-
-        // Capturar avaluació
-        if (line.includes('score cp')) {
-            const match = line.match(/score cp (-?\d+)/);
-            if (match) {
-                evaluation = parseInt(match[1], 10);
-            }
-        }
-    };
-
-    stockfish.addEventListener('message', handleMessage);
+    showFeedback('success', '✓ Excel·lent! Seqüència completada.');
+    completePractice();
 }
 
-/**
- * Prepara el següent intent de pràctica
- */
-function setupNextPracticeAttempt() {
-    // Tornar a la posició inicial
-    game.load(openingPracticeState.currentPracticeFen);
+function applyPracticeOpponentMove(uciMove) {
+    if (!uciMove) return;
+    const applied = game.move({
+        from: uciMove.slice(0, 2),
+        to: uciMove.slice(2, 4),
+        promotion: uciMove.length > 4 ? uciMove[4] : undefined
+    });
+    if (!applied) {
+        console.error('❌ No s\'ha pogut aplicar la resposta de l\'oponent.');
+        resetPracticeSequence();
+        return;
+    }
     board.position(game.fen());
+}
 
-    $('#status').text(`Intents correctes: ${openingPracticeState.correctMovesCount}/2 consecutius. Continua!`);
+function resetPracticeSequence() {
+    if (openingPracticeState.currentPracticeFen) {
+        game.load(openingPracticeState.currentPracticeFen);
+        board.position(game.fen());
+    }
+    openingPracticeState.practiceStep = 1;
+    if (openingPracticeState.practiceSequence) {
+        openingPracticeState.targetMove = openingPracticeState.practiceSequence.step1.playerMove;
+    }
+    updatePracticeStatus('Torna-ho a provar des del principi.');
 }
 
 /**
@@ -1014,7 +1085,7 @@ function showPracticeHint() {
     // Eliminar destacat després de 3 segons
     setTimeout(() => {
         clearHighlights();
-        $('#status').text('Troba el millor moviment!');
+        updatePracticeStatus();
     }, 3000);
 }
 
@@ -1116,8 +1187,33 @@ function showGeminiAnalysisModal(analysis) {
 /**
  * Actualitza elements bàsics de la UI durant la pràctica
  */
+function updatePracticeStatus(messageOverride = null) {
+    const { practiceStep, practiceErrorIndex, practiceErrorsCount, isSequenceReady } = openingPracticeState;
+    const stepLabel = practiceStep === 2 ? 'Pas 2 de 2' : 'Pas 1 de 2';
+    const helperText = isSequenceReady
+        ? 'Troba el millor moviment!'
+        : 'Preparant la seqüència amb Stockfish...';
+
+    const mainLine = messageOverride || helperText;
+    const errorInfo = (practiceErrorIndex && practiceErrorsCount)
+        ? `Error #${practiceErrorIndex} de ${practiceErrorsCount}`
+        : 'Error seleccionat';
+
+    $('#status').html(`
+        <div style="margin-bottom: 8px;">
+            <strong>${mainLine}</strong>
+        </div>
+        <div style="font-size: 0.85rem; color: var(--text-secondary);">
+            ${errorInfo} | ${stepLabel}
+        </div>
+    `);
+}
+
+/**
+ * Actualitza elements bàsics de la UI durant la pràctica
+ */
 function updatePracticeUI() {
-    const { activeMoveNumber, activeColor, correctMovesCount, currentError } = openingPracticeState;
+    const { activeMoveNumber, activeColor, practiceStep, currentError } = openingPracticeState;
     
     // Assegurar que estem a la pantalla correcta
     $('#game-screen').show();
@@ -1130,14 +1226,7 @@ function updatePracticeUI() {
     );
     
     // Actualitzar status amb informació útil
-    $('#status').html(`
-        <div style="margin-bottom: 8px;">
-            <strong>Troba el millor moviment!</strong>
-        </div>
-        <div style="font-size: 0.85rem; color: var(--text-secondary);">
-            Progressió: <strong style="color: var(--accent-gold);">${correctMovesCount}/2</strong> moviments correctes
-        </div>
-    `);
+    updatePracticeStatus();
     
     // Mostrar informació de l'error si està disponible
     if (currentError) {
@@ -1158,7 +1247,7 @@ function updatePracticeUI() {
     $('#btn-resign').hide();
     
     // Missatge informatiu sobre pistes (només primera vegada)
-    if (correctMovesCount === 0) {
+    if (practiceStep === 1) {
         setTimeout(() => {
             showFeedback('info', '💡 Pots usar les pistes si necessites ajuda!');
         }, 1000);
