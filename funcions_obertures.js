@@ -997,10 +997,15 @@ function buildOpeningPracticeGeminiPrompt(error) {
     }
 
     if (typeof buildGeminiBundleHintPrompt === 'function') {
-        return buildGeminiBundleHintPrompt(1, context);
+        const stepNumber = openingPracticeState.practiceStep === 2 ? 2 : 1;
+        const basePrompt = buildGeminiBundleHintPrompt(stepNumber, context);
+        if (!basePrompt) return null;
+        const aesopInstruction = `\nINSTRUCCIONS ADDICIONALS:\n- Inspira cada màxima en una faula d'Esop amb animals, adaptada a l'estratègia dels escacs\n- Usa animals com a metàfora per reforçar el consell tàctic o estratègic sense perdre claredat\n`;
+        return basePrompt.replace('\nGenera ara', `${aesopInstruction}\nGenera ara`);
     }
 
-    const sentenceCount = 2;
+    const stepNumber = openingPracticeState.practiceStep === 2 ? 2 : 1;
+    const sentenceCount = stepNumber === 1 ? 2 : 1;
     const sentenceText = sentenceCount === 1 ? '1 frase' : '2 frases';
 
     let contextText = '';
@@ -1021,7 +1026,7 @@ function buildOpeningPracticeGeminiPrompt(error) {
         contextText += `\nGravetat: Error ${severityLabels[context.severity] || 'desconegut'}`;
     }
 
-    return `Ets un entrenador d'escacs expert. Analitza aquesta situació i genera ${sentenceText} en català amb màximes o principis d'escacs per ajudar a trobar la millor jugada.
+    return `Ets un entrenador d'escacs expert. Analitza aquesta situació i genera ${sentenceText} en català amb màximes o principis d'escacs per ajudar a trobar la millor jugada del pas ${stepNumber}.
 ${contextText}
 
 REGLES IMPERATIVES:
@@ -1032,6 +1037,8 @@ REGLES IMPERATIVES:
 - NO facis servir cometes, emojis, ni enumeracions
 - Centra't en conceptes tàctics concrets: forquilles, claus, atacs dobles, debilitats de peó, peces sobrecarregades, línies obertes, control del centre
 - Les màximes han de guiar sense revelar directament la solució
+- Inspira cada màxima en una faula d'Esop amb animals, adaptada a l'estratègia dels escacs
+- Usa animals com a metàfora per reforçar el consell tàctic o estratègic sense perdre claredat
 
 Genera ara ${sentenceText} específica${sentenceCount === 1 ? '' : 's'} per aquesta posició:`;
 }
