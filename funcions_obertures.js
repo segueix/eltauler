@@ -22,6 +22,10 @@ let openingPracticeState = {
     currentError: null            // Referència a l'error actual
 };
 
+let openingGeminiHintPending = false;
+
+const OPENING_PRACTICE_START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+
 // ============================================================================
 // 1. CONSTRUCCIÓ DE DADES AMB DETALL D'ERRORS
 // ============================================================================
@@ -59,10 +63,12 @@ function buildDetailedOpeningStats(entries) {
                 moveData.errors.push({
                     gameDate: entry.date || 'Sense data',
                     moveNotation: move.move || move.playerMoveSan || '?',
+                    playerMoveSan: move.playerMoveSan || move.move || '',
                     quality: move.quality || 'unknown',
                     cpLoss: move.cpLoss || move.swing || 0,
                     bestMove: move.bestMove || '',
                     bestMoveSan: move.bestMoveSan || '',
+                    bestMovePv: move.bestMovePv || [],
                     fen: move.fen || '',
                     fenBefore: move.fenBefore || '',
                     comment: move.comment || '',
@@ -70,7 +76,8 @@ function buildDetailedOpeningStats(entries) {
                     playerMove: move.playerMove || '',
                     moveNumber: moveNumber,
                     pgn: entry.pgn || '',
-                    playerColor: entry.playerColor || 'w'
+                    playerColor: entry.playerColor || 'w',
+                    moves: entry.moves || []
                 });
             }
         });
@@ -310,6 +317,99 @@ function startMovePractice(color, moveNumber, errors, errorIdx = null) {
     updatePracticeUI();
 }
 
+function isValidPracticeFen(fen) {
+    if (!fen) return null;
+    try {
+        const testGame = new Chess(fen);
+        return testGame.fen() ? fen : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function computePracticeTargetPly(errorToPractice) {
+    const moveNumber = Number.isFinite(errorToPractice.moveNumber) ? errorToPractice.moveNumber : 1;
+    const isBlack = errorToPractice.playerColor === 'b';
+    return Math.max(0, (moveNumber - 1) * 2 + (isBlack ? 1 : 0));
+}
+
+function rebuildFenFromPgn(errorToPractice) {
+    if (!errorToPractice.pgn) return null;
+    try {
+        const tempGame = new Chess();
+        const loaded = tempGame.load_pgn(errorToPractice.pgn);
+        if (!loaded) throw new Error('No s\'ha pogut carregar el PGN');
+
+        const history = tempGame.history({ verbose: true });
+        const targetPly = computePracticeTargetPly(errorToPractice);
+
+        tempGame.reset();
+        for (let i = 0; i < history.length && i < targetPly; i++) {
+            tempGame.move(history[i]);
+        }
+
+        return isValidPracticeFen(tempGame.fen());
+    } catch (e) {
+        console.error('❌ Error reconstruint FEN des de PGN:', e);
+        return null;
+    }
+}
+
+function rebuildFenFromMoves(errorToPractice) {
+    if (!Array.isArray(errorToPractice.moves) || !errorToPractice.moves.length) return null;
+    try {
+        const tempGame = new Chess();
+        const targetPly = computePracticeTargetPly(errorToPractice);
+
+        for (let i = 0; i < errorToPractice.moves.length && i < targetPly; i++) {
+            const moveSan = errorToPractice.moves[i];
+            const moved = tempGame.move(moveSan, { sloppy: true });
+            if (!moved) break;
+        }
+
+        return isValidPracticeFen(tempGame.fen());
+    } catch (e) {
+        console.error('❌ Error reconstruint FEN des de moviments:', e);
+        return null;
+    }
+}
+
+function buildPracticeFenFromError(errorToPractice) {
+    const fenBefore = isValidPracticeFen(errorToPractice.fenBefore);
+    if (fenBefore) {
+        return { fen: fenBefore, source: 'fenBefore' };
+    }
+
+    const pgnFen = rebuildFenFromPgn(errorToPractice);
+    if (pgnFen) {
+        return { fen: pgnFen, source: 'pgn' };
+    }
+
+    const movesFen = rebuildFenFromMoves(errorToPractice);
+    if (movesFen) {
+        return { fen: movesFen, source: 'moves' };
+    }
+
+    if (errorToPractice.fen) {
+        try {
+            const tempGame = new Chess(errorToPractice.fen);
+            const history = tempGame.history({ verbose: true });
+
+            if (history.length > 0) {
+                tempGame.undo();
+                const fen = isValidPracticeFen(tempGame.fen());
+                if (fen) {
+                    return { fen, source: 'fen' };
+                }
+            }
+        } catch (e) {
+            console.error('❌ Error reconstruint FEN:', e);
+        }
+    }
+
+    return { fen: OPENING_PRACTICE_START_FEN, source: 'fallback' };
+}
+
 /**
  * Configura el tauler per la pràctica d'un moviment
  * @param {string} color - Color del jugador
@@ -328,79 +428,15 @@ function setupPracticeBoard(color, moveNumber, errors, errorIdx = null) {
     // Guardar referència a l'error actual
     openingPracticeState.currentError = errorToPractice;
 
-    // CRITICA: Usar fenBefore si està disponible, sinó reconstruir
-    let practiceFen;
-    
-    if (errorToPractice.fenBefore) {
-        // ✅ CAS IDEAL: Tenim el FEN abans del moviment
-        practiceFen = errorToPractice.fenBefore;
-        console.log('✅ Usant fenBefore:', practiceFen);
-    } else if (errorToPractice.pgn) {
-        // ⚠️ CAS ALTERNATIU: Reconstruir des del PGN i el número de moviment
-        console.warn('⚠️ No hi ha fenBefore, reconstruint des del PGN...');
-        try {
-            const tempGame = new Chess();
-            const loaded = tempGame.load_pgn(errorToPractice.pgn);
-            if (!loaded) throw new Error('No s\'ha pogut carregar el PGN');
-
-            const history = tempGame.history({ verbose: true });
-            const isBlack = (errorToPractice.playerColor === 'b');
-            const targetPly = (errorToPractice.moveNumber - 1) * 2 + (isBlack ? 1 : 0);
-
-            tempGame.reset();
-            for (let i = 0; i < history.length && i < targetPly; i++) {
-                tempGame.move(history[i]);
-            }
-
-            practiceFen = tempGame.fen();
-            console.log('✅ FEN reconstruït des de PGN:', practiceFen);
-        } catch (e) {
-            console.error('❌ Error reconstruint FEN des de PGN:', e);
-            // Fallback: FEN inicial
-            practiceFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-        }
-    } else if (errorToPractice.fen) {
-        // ⚠️ CAS ALTERNATIU: Intentar reconstruir des del FEN després
-        console.warn('⚠️ No hi ha fenBefore, intentant reconstruir...');
-        try {
-            const tempGame = new Chess(errorToPractice.fen);
-            const history = tempGame.history({ verbose: true });
-
-            if (history.length > 0) {
-                // Desfer l'últim moviment per obtenir la posició anterior
-                tempGame.undo();
-                practiceFen = tempGame.fen();
-                console.log('✅ FEN reconstruït:', practiceFen);
-            } else {
-                // No hi ha història, usar FEN inicial
-                practiceFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-                console.warn('⚠️ No hi ha història, usant FEN inicial');
-            }
-        } catch (e) {
-            console.error('❌ Error reconstruint FEN:', e);
-            // Fallback: FEN inicial
-            practiceFen = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
-        }
-    } else {
-        // ❌ CAS CRÍTIC: No hi ha cap FEN
+    const practiceFenData = buildPracticeFenFromError(errorToPractice);
+    const practiceFen = practiceFenData.fen;
+    if (!practiceFen) {
         console.error('❌ No hi ha cap FEN disponible!');
         alert('Error: No es pot carregar la posició per practicar.');
         returnToLessonScreen();
         return;
     }
-
-    // Validar el FEN abans d'usar-lo
-    try {
-        const testGame = new Chess(practiceFen);
-        if (!testGame.fen()) {
-            throw new Error('FEN invàlid');
-        }
-    } catch (e) {
-        console.error('❌ FEN invàlid:', practiceFen, e);
-        alert('Error: La posició a practicar no és vàlida.');
-        returnToLessonScreen();
-        return;
-    }
+    console.log(`✅ FEN preparat (${practiceFenData.source}):`, practiceFen);
 
     // Inicialitzar joc amb el FEN validat
     game = new Chess(practiceFen);
@@ -722,6 +758,130 @@ function isMovePracticeCompleted(color, moveNumber) {
 // 6. SISTEMA DE PISTES AMB GEMINI
 // ============================================================================
 
+function getOpeningErrorSeverity(cpLoss) {
+    if (!Number.isFinite(cpLoss)) return null;
+    if (cpLoss > 800) return 'high';
+    if (cpLoss > 500) return 'med';
+    return 'low';
+}
+
+function buildOpeningPracticeGeminiPrompt(error) {
+    const context = {};
+    if (openingPracticeState.currentPracticeFen) {
+        context.fen = openingPracticeState.currentPracticeFen;
+    }
+    if (error) {
+        context.playerMove = error.playerMoveSan || error.moveNotation || error.playerMove || '';
+        context.bestMove = error.bestMoveSan || error.bestMove || '';
+        context.bestMovePv = Array.isArray(error.bestMovePv) ? error.bestMovePv : [];
+        const severity = getOpeningErrorSeverity(error.cpLoss);
+        if (severity) context.severity = severity;
+    }
+
+    if (typeof buildGeminiBundleHintPrompt === 'function') {
+        return buildGeminiBundleHintPrompt(1, context);
+    }
+
+    const sentenceCount = 2;
+    const sentenceText = sentenceCount === 1 ? '1 frase' : '2 frases';
+
+    let contextText = '';
+    if (context.fen) {
+        contextText += `\nPOSICIÓ (FEN): ${context.fen}`;
+    }
+    if (context.playerMove) {
+        contextText += `\nJugada feta: ${context.playerMove}`;
+    }
+    if (context.bestMove) {
+        contextText += `\nMillor jugada: ${context.bestMove}`;
+    }
+    if (context.bestMovePv && context.bestMovePv.length) {
+        contextText += `\nVariant principal: ${context.bestMovePv.slice(0, 4).join(' ')}`;
+    }
+    if (context.severity) {
+        const severityLabels = { low: 'lleu', med: 'mitjà', high: 'greu' };
+        contextText += `\nGravetat: Error ${severityLabels[context.severity] || 'desconegut'}`;
+    }
+
+    return `Ets un entrenador d'escacs expert. Analitza aquesta situació i genera ${sentenceText} en català amb màximes o principis d'escacs per ajudar a trobar la millor jugada.
+${contextText}
+
+REGLES IMPERATIVES:
+- Cada frase ha de tenir mínim 20 i 250 màxim caràcters
+- Les màximes han de ser específiques i accionables, no genèriques
+- NO facis servir frases de menys de 5 paraules
+- NO repeteixis conceptes entre frases
+- NO facis servir cometes, emojis, ni enumeracions
+- Centra't en conceptes tàctics concrets: forquilles, claus, atacs dobles, debilitats de peó, peces sobrecarregades, línies obertes, control del centre
+- Les màximes han de guiar sense revelar directament la solució
+
+Genera ara ${sentenceText} específica${sentenceCount === 1 ? '' : 's'} per aquesta posició:`;
+}
+
+async function requestGeminiOpeningPracticeHint(error) {
+    if (!geminiApiKey) return null;
+    const prompt = buildOpeningPracticeGeminiPrompt(error);
+    if (!prompt) return null;
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+    const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            contents: [{ role: 'user', parts: [{ text: prompt }] }],
+            generationConfig: {
+                temperature: 0.85,
+                maxOutputTokens: 2000,
+                topP: 0.95,
+                topK: 40
+            }
+        })
+    });
+
+    if (!response.ok) {
+        const errorBody = await response.text();
+        console.error('[Gemini] Error response:', response.status, errorBody);
+        throw new Error(`Gemini error ${response.status}: ${errorBody}`);
+    }
+
+    const data = await response.json();
+    const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+    if (!text) throw new Error('Resposta buida de Gemini');
+
+    const lines = text.split('\n').filter(l => l.trim());
+    const validLines = lines.filter(line => {
+        const words = line.trim().split(/\s+/).length;
+        return words >= 5;
+    });
+
+    if (validLines.length === 0) {
+        throw new Error('Respostes massa curtes');
+    }
+
+    const MAX_GEMINI_HINT_CHARS = 350;
+    let remainingChars = MAX_GEMINI_HINT_CHARS;
+    const trimmedLines = [];
+    for (const line of validLines) {
+        if (remainingChars <= 0) break;
+        let trimmedLine = line.trim();
+        if (trimmedLine.length > remainingChars) {
+            const sliceLength = Math.max(remainingChars - 1, 0);
+            trimmedLine = `${trimmedLine.slice(0, sliceLength).trim()}…`.trim();
+        }
+        trimmedLines.push(trimmedLine);
+        remainingChars -= trimmedLine.length;
+    }
+
+    let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
+    html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
+    trimmedLines.forEach(line => {
+        html += `<div style="font-style:italic; margin:4px 0;">${line.trim()}</div>`;
+    });
+    html += '</div>';
+
+    return html;
+}
+
 /**
  * Demana una pista bàsica (destacar caselles)
  */
@@ -755,24 +915,22 @@ async function showGeminiPracticeHint() {
         alert('Cal configurar la clau API de Gemini a la configuració.');
         return;
     }
+    if (openingGeminiHintPending) return;
 
-    $('#status').text('🧠 Analitzant amb Gemini...');
+    openingGeminiHintPending = true;
+    const statusEl = $('#status');
+    statusEl.html('<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">🧠 Generant màxima d\'escacs...</div>');
     $('#btn-brain-hint').prop('disabled', true);
 
-    const fen = openingPracticeState.currentPracticeFen;
-    const targetMove = openingPracticeState.targetMove;
-
     try {
-        const analysis = await requestGeminiMoveAnalysis(fen, targetMove);
-
-        // Mostrar anàlisi en un modal
-        showGeminiAnalysisModal(analysis);
-
-        $('#status').text('Troba el millor moviment!');
+        const html = await requestGeminiOpeningPracticeHint(openingPracticeState.currentError);
+        if (!html) throw new Error('No s\'ha pogut generar la màxima');
+        statusEl.html(html);
     } catch (error) {
         console.error('Error en anàlisi Gemini:', error);
-        $('#status').text("Error en l'anàlisi. Torna-ho a provar.");
+        statusEl.html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut generar la màxima. Torna-ho a provar.</div>');
     } finally {
+        openingGeminiHintPending = false;
         $('#btn-brain-hint').prop('disabled', false);
     }
 }
