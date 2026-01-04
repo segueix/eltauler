@@ -119,6 +119,9 @@ body.epaper-mode .btn-review-move.completed {
     display: flex;
     flex-direction: column;
     gap: 12px;
+    position: sticky;
+    bottom: 16px;
+    z-index: 2;
 }
 
 .lesson-review .btn {
@@ -132,6 +135,9 @@ body.epaper-mode .btn-review-move.completed {
     border: 1px solid rgba(156, 39, 176, 0.35);
     line-height: 1.6;
     text-align: left;
+    max-height: 320px;
+    overflow-y: auto;
+    font-size: 1.05rem;
 }
 
 .lesson-gemini-review h4 {
@@ -463,6 +469,7 @@ body.epaper-mode .highlight-target {
     text-align: left;
     max-height: 400px;
     overflow-y: auto;
+    font-size: 1.05rem;
 }
 
 #btn-close-gemini {
@@ -541,7 +548,7 @@ body.epaper-mode .gemini-analysis-content {
     .gemini-analysis-content {
         padding: 12px;
         max-height: 300px;
-        font-size: 0.9rem;
+        font-size: 1rem;
     }
 }
 

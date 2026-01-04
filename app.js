@@ -4381,7 +4381,7 @@ INSTRUCCIONS
 4. Paràgraf de conclusió amb el principi clau per millorar
 
 REGLES
-- Màxim 400 paraules
+- Màxim 450 paraules
 - Prosa natural en paràgrafs (sense llistes ni numeracions)
 - Descriu cada jugada identificant la peça i l'acció (ex: "en capturar el cavall amb l'alfil")
 - Les màximes sempre entre cometes dobles
@@ -4414,7 +4414,7 @@ async function requestGeminiReview(entry, severeErrors) {
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: 0.9,
-                    maxOutputTokens: 4096,
+                    maxOutputTokens: 4600,
                     topP: 0.95,
                     topK: 40
                 }
@@ -4426,8 +4426,8 @@ async function requestGeminiReview(entry, severeErrors) {
         const data = await response.json();
         let text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('')?.trim();
         if (!text) throw new Error('Resposta buida de Gemini');
-        if (text.length > 4000) {
-            text = text.slice(0, 4000).trim();
+        if (text.length > 6000) {
+            text = text.slice(0, 6000).trim();
         }
         entry.geminiReview = { status: 'done', text };
     } catch (error) {

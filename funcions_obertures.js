@@ -323,7 +323,7 @@ async function generateLessonReview() {
                     contents: [{ role: 'user', parts: [{ text: prompt }] }],
                     generationConfig: {
                         temperature: 0.8,
-                        maxOutputTokens: 1200,
+                        maxOutputTokens: 1500,
                         topP: 0.95,
                         topK: 40
                     }
