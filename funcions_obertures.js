@@ -872,6 +872,9 @@ function showCompletionModal() {
                     <button class="btn btn-primary" id="btn-practice-continue">
                         Tornar a l'anàlisi
                     </button>
+                    <button class="btn btn-primary" id="btn-practice-random">
+                        🎲 Practicar error aleatori
+                    </button>
                     <button class="btn btn-secondary" id="btn-practice-back">
                         Tornar enrere
                     </button>
@@ -893,6 +896,22 @@ function showCompletionModal() {
     $('#btn-practice-back').off('click').on('click', () => {
         $('#practice-complete-modal').remove();
         returnToLessonScreen(true);
+    });
+
+    $('#btn-practice-random').off('click').on('click', () => {
+        $('#practice-complete-modal').remove();
+        const stats = analyzeLastOpenings();
+        const color = openingPracticeState.lastPracticeColor;
+        const moveNumber = openingPracticeState.lastPracticeMoveNumber;
+        const errors = stats?.[color]?.[moveNumber - 1]?.errors || [];
+
+        if (!errors.length) {
+            alert('No hi ha errors disponibles per practicar.');
+            returnToLessonScreen();
+            return;
+        }
+
+        startMovePractice(color, moveNumber, errors, null);
     });
 
     $('#btn-practice-menu').off('click').on('click', () => {
