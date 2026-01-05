@@ -5368,7 +5368,7 @@ function initOpeningErrorBoard() {
         if (openingErrorBoard && typeof openingErrorBoard.resize === 'function') {
             openingErrorBoard.resize();
         }
-    }, 50);
+    }, 150);
 }
 
 function onOpeningErrorDragStart(source, piece) {
@@ -5553,7 +5553,7 @@ function initOpeningPracticeBoard() {
         if (openingPracticeBoard && typeof openingPracticeBoard.resize === 'function') {
             openingPracticeBoard.resize();
         }
-    }, 50);
+    }, 150);
 }
 
 function onOpeningPracticeDragStart(source, piece) {
@@ -5836,6 +5836,12 @@ function showOpeningScreen() {
     setTimeout(() => {
         initOpeningErrorBoard();
         initOpeningPracticeBoard();
+        
+        // Segon resize per assegurar
+        setTimeout(() => {
+            if (openingErrorBoard) openingErrorBoard.resize();
+            if (openingPracticeBoard) openingPracticeBoard.resize();
+        }, 200);
         
         if (openingPracticeColor === 'b') {
             setTimeout(makeOpeningPracticeEngineMove, 500);
