@@ -473,23 +473,82 @@ function initLessonPracticeBoard() {
 
     $('#btn-lesson-hint').off('click').on('click', getLessonHint);
     $('#btn-lesson-maxim').off('click').on('click', getLessonMaxim);
-    $('#btn-lesson-reset').off('click').on('click', () => {
-        lessonGame.reset();
-        lessonBoard.start();
-        $('#lesson-maxim-output').empty();
-    });
+    
+    // Actualitzar visibilitat del botó Màxima segons clau Gemini
+    updateLessonHintButtons();
+    
+    // Mostrar missatge inicial
+    $('#lesson-maxim-output').html('Juga les primeres 5 jugades. Usa 💡 per pistes!');
 }
+
+// Funció per actualitzar visibilitat dels botons (igual que a Revisa Errors)
+function updateLessonHintButtons() {
+    const brainBtn = document.getElementById('btn-lesson-maxim');
+    const hintBtn = document.getElementById('btn-lesson-hint');
+    if (!brainBtn || !hintBtn) return;
+    
+    const apiKey = getLessonGeminiApiKey();
+    const hasGemini = !!apiKey;
+    const lessonActive = lessonGame && lessonGame.history().length < 10;
+    
+    brainBtn.style.display = (hasGemini && lessonActive) ? 'inline-flex' : 'none';
+    hintBtn.style.display = lessonActive ? 'inline-flex' : 'none';
+    
+    brainBtn.disabled = !hasGemini;
+    hintBtn.disabled = typeof stockfishReady !== 'undefined' ? !stockfishReady : true;
+}
+
+// Funció per fer jugada de l'oponent (Stockfish)
+function makeLessonEngineMove() {
+    if (typeof stockfishReady === 'undefined' || !stockfishReady) return;
+    if (!lessonGame || lessonGame.game_over()) return;
+    
+    $('#lesson-maxim-output').html('<span style="opacity:0.6">L\'oponent pensa...</span>');
+    
+    lessonHintCallback = (move) => {
+        const from = move.substring(0, 2);
+        const to = move.substring(2, 4);
+        const promotion = move.length > 4 ? move.substring(4, 5) : undefined;
+        
+        const result = lessonGame.move({ from, to, promotion: promotion || 'q' });
+        if (result) {
+            lessonBoard.position(lessonGame.fen());
+            
+            if (lessonGame.history().length >= 10) {
+                $('#lesson-maxim-output').html('✅ Pràctica completada! Has jugat 5 moviments.');
+                updateLessonHintButtons();
+            } else {
+                $('#lesson-maxim-output').html('El teu torn. Usa 💡 si necessites ajuda.');
+            }
+        }
+    };
+    
+    stockfish.postMessage(`position fen ${lessonGame.fen()}`);
+    stockfish.postMessage('go depth 10');
+}
+
 
 function onDropLesson(source, target) {
     const move = lessonGame.move({ from: source, to: target, promotion: 'q' });
     if (move === null) return 'snapback';
 
-    if (lessonGame.history().length > 20) {
-        alert('Has arribat al límit de 10 moviments per a aquesta pràctica.');
+    if (lessonGame.history().length > 10) {
+        alert('Has arribat al límit de 5 moviments per a aquesta pràctica.');
         lessonGame.undo();
         return 'snapback';
     }
-    $('#lesson-maxim-output').empty();
+    
+    // Actualitzar botons
+    updateLessonHintButtons();
+    
+    // Fer jugada de l'oponent automàticament després d'un petit retard
+    setTimeout(() => {
+        if (lessonGame.history().length < 10 && !lessonGame.game_over()) {
+            makeLessonEngineMove();
+        } else if (lessonGame.history().length >= 10) {
+            $('#lesson-maxim-output').html('✅ Pràctica completada! Has jugat 5 moviments.');
+        }
+    }, 300);
 }
 
 function getLessonHint() {
