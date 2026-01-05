@@ -39,6 +39,22 @@ let tvJeroglyphicsResumePlayback = false;
 let tvJeroglyphicsSolved = false;
 let tvJeroglyphicsIncorrect = false;
 
+// Sistema d'obertures
+let openingErrors = [];
+let openingErrorBoard = null;
+let openingPracticeBoard = null;
+let openingPracticeGame = null;
+let openingPracticeColor = 'w';
+let openingPracticeMoveCount = 0;
+let openingPracticeHistory = [];
+let currentOpeningError = null;
+let openingErrorGame = null;
+let isOpeningErrorSession = false;
+let openingBundleSequence = null;
+let openingBundleStep = 1;
+let lastOpeningGeminiHint = null;
+const OPENING_ERRORS_STORAGE_KEY = 'eltauler_opening_errors';
+
 // Sistema d'IA Adaptativa
 let recentGames = []; 
 let aiDifficulty = 8; 
@@ -5182,6 +5198,651 @@ function novaPartida() {
     startGame(false);
 }
 
+function getOpeningStats() {
+    const last10Games = gameHistory.slice(-10);
+    const stats = {
+        white: [],
+        black: []
+    };
+
+    for (let i = 1; i <= 10; i++) {
+        stats.white.push({ move: i, totalPrecision: 0, count: 0, errors: [] });
+        stats.black.push({ move: i, totalPrecision: 0, count: 0, errors: [] });
+    }
+
+    last10Games.forEach((gameEntry) => {
+        if (!gameEntry.review || !gameEntry.review.length) return;
+        const playerColor = gameEntry.playerColor || 'w';
+
+        gameEntry.review.forEach((entry) => {
+            const moveNum = entry.moveNumber;
+            if (moveNum < 1 || moveNum > 10) return;
+
+            const isWhiteMove = (moveNum % 2 === 1 && playerColor === 'w') || (moveNum % 2 === 0 && playerColor === 'b');
+            const targetArray = isWhiteMove ? stats.white : stats.black;
+            const idx = moveNum - 1;
+
+            let precision = 100;
+            if (entry.swing !== undefined) {
+                if (entry.swing <= 20) precision = 100;
+                else if (entry.swing <= 50) precision = 85;
+                else if (entry.swing <= 100) precision = 70;
+                else if (entry.swing <= 200) precision = 50;
+                else precision = 25;
+            }
+
+            targetArray[idx].totalPrecision += precision;
+            targetArray[idx].count++;
+
+            if (precision < 100 && entry.fen) {
+                targetArray[idx].errors.push({
+                    fen: entry.fen,
+                    moveNumber: moveNum,
+                    color: isWhiteMove ? 'w' : 'b',
+                    bestMove: entry.bestMove,
+                    playerMove: entry.playerMove,
+                    swing: entry.swing,
+                    bestMovePv: entry.bestMovePv || []
+                });
+            }
+        });
+    });
+
+    ['white', 'black'].forEach((color) => {
+        stats[color].forEach((stat) => {
+            stat.avgPrecision = stat.count > 0 ? Math.round(stat.totalPrecision / stat.count) : 100;
+            stat.errorCount = stat.errors.filter((error) => (error.swing || 0) > 50).length;
+        });
+    });
+
+    return stats;
+}
+
+function getOpeningPrecisionColor(pct) {
+    if (pct >= 90) return 'var(--accent-green)';
+    if (pct >= 75) return 'var(--accent-gold)';
+    if (pct >= 60) return 'var(--severity-med)';
+    return 'var(--severity-high)';
+}
+
+function openOpeningErrorFromStats(moveNum, color, errors) {
+    if (!errors || errors.length === 0) return;
+
+    const error = errors[Math.floor(Math.random() * errors.length)];
+    currentOpeningError = error;
+    isOpeningErrorSession = true;
+
+    startOpeningErrorReview(error);
+}
+
+function renderOpeningStats() {
+    const stats = getOpeningStats();
+    const tbody = document.getElementById('opening-stats-body');
+    if (!tbody) return;
+
+    tbody.innerHTML = '';
+
+    for (let i = 0; i < 10; i++) {
+        const whiteStat = stats.white[i];
+        const blackStat = stats.black[i];
+
+        const row = document.createElement('tr');
+
+        const moveCell = document.createElement('td');
+        moveCell.textContent = i + 1;
+        moveCell.style.fontWeight = 'bold';
+        row.appendChild(moveCell);
+
+        const whitePctCell = document.createElement('td');
+        whitePctCell.textContent = whiteStat.count > 0 ? `${whiteStat.avgPrecision}%` : '—';
+        whitePctCell.style.color = getOpeningPrecisionColor(whiteStat.avgPrecision);
+        row.appendChild(whitePctCell);
+
+        const whiteErrCell = document.createElement('td');
+        if (whiteStat.errorCount > 0) {
+            const errSpan = document.createElement('span');
+            errSpan.className = 'opening-error-count';
+            errSpan.textContent = whiteStat.errorCount;
+            errSpan.dataset.move = i + 1;
+            errSpan.dataset.color = 'w';
+            errSpan.onclick = () => openOpeningErrorFromStats(i + 1, 'w', whiteStat.errors);
+            whiteErrCell.appendChild(errSpan);
+        } else {
+            const zeroSpan = document.createElement('span');
+            zeroSpan.className = 'opening-error-count zero';
+            zeroSpan.textContent = '0';
+            whiteErrCell.appendChild(zeroSpan);
+        }
+        row.appendChild(whiteErrCell);
+
+        const blackPctCell = document.createElement('td');
+        blackPctCell.textContent = blackStat.count > 0 ? `${blackStat.avgPrecision}%` : '—';
+        blackPctCell.style.color = getOpeningPrecisionColor(blackStat.avgPrecision);
+        row.appendChild(blackPctCell);
+
+        const blackErrCell = document.createElement('td');
+        if (blackStat.errorCount > 0) {
+            const errSpan = document.createElement('span');
+            errSpan.className = 'opening-error-count';
+            errSpan.textContent = blackStat.errorCount;
+            errSpan.dataset.move = i + 1;
+            errSpan.dataset.color = 'b';
+            errSpan.onclick = () => openOpeningErrorFromStats(i + 1, 'b', blackStat.errors);
+            blackErrCell.appendChild(errSpan);
+        } else {
+            const zeroSpan = document.createElement('span');
+            zeroSpan.className = 'opening-error-count zero';
+            zeroSpan.textContent = '0';
+            blackErrCell.appendChild(zeroSpan);
+        }
+        row.appendChild(blackErrCell);
+
+        tbody.appendChild(row);
+    }
+}
+
+function initOpeningErrorBoard() {
+    const boardEl = document.getElementById('opening-error-board');
+    if (!boardEl) return;
+
+    if (openingErrorBoard) {
+        openingErrorBoard.destroy();
+    }
+
+    openingErrorGame = new Chess();
+
+    $('#opening-error-gemini-hint').removeClass('visible').text('');
+
+    const config = {
+        draggable: true,
+        position: 'start',
+        pieceTheme: 'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/img/chesspieces/wikipedia/{piece}.png',
+        onDragStart: onOpeningErrorDragStart,
+        onDrop: onOpeningErrorDrop,
+        onSnapEnd: onOpeningErrorSnapEnd
+    };
+
+    openingErrorBoard = Chessboard('opening-error-board', config);
+
+    setTimeout(() => {
+        if (openingErrorBoard && typeof openingErrorBoard.resize === 'function') {
+            openingErrorBoard.resize();
+        }
+    }, 50);
+}
+
+function onOpeningErrorDragStart(source, piece) {
+    if (!openingErrorGame || openingErrorGame.game_over()) return false;
+    if (!isOpeningErrorSession) return false;
+
+    const turn = openingErrorGame.turn();
+    if ((turn === 'w' && piece.search(/^b/) !== -1) ||
+        (turn === 'b' && piece.search(/^w/) !== -1)) {
+        return false;
+    }
+    return true;
+}
+
+function onOpeningErrorDrop(source, target) {
+    if (!openingErrorGame) return 'snapback';
+
+    const move = openingErrorGame.move({
+        from: source,
+        to: target,
+        promotion: 'q'
+    });
+
+    if (move === null) return 'snapback';
+
+    const playerMoveUci = move.from + move.to + (move.promotion || '');
+
+    if (openingBundleSequence) {
+        const currentStep = openingBundleStep === 1 ? openingBundleSequence.step1 : openingBundleSequence.step2;
+        const expectedMove = currentStep.playerMove;
+
+        let isCorrect = playerMoveUci === expectedMove;
+        if (!isCorrect && bundleAcceptMode === 'top2' && currentStep.alternatives && currentStep.alternatives[0]) {
+            isCorrect = playerMoveUci === currentStep.alternatives[0].move;
+        }
+
+        if (isCorrect) {
+            if (openingBundleStep === 1 && openingBundleSequence.step2) {
+                openingBundleStep = 2;
+                $('#opening-error-status').text('Correcte! Ara la resposta de l\'oponent...');
+
+                setTimeout(() => {
+                    const oppMove = openingBundleSequence.opponentMove.move;
+                    openingErrorGame.move({
+                        from: oppMove.slice(0, 2),
+                        to: oppMove.slice(2, 4),
+                        promotion: oppMove.length > 4 ? oppMove[4] : undefined
+                    });
+                    openingErrorBoard.position(openingErrorGame.fen());
+                    $('#opening-error-status').text('Troba la segona millor jugada!');
+                }, 800);
+            } else {
+                handleOpeningErrorSuccess();
+            }
+        } else {
+            openingErrorGame.undo();
+            $('#opening-error-status').text('Incorrecte! Prova una altra vegada.').css('color', 'var(--severity-high)');
+            setTimeout(() => {
+                $('#opening-error-status').css('color', '');
+            }, 1500);
+            return 'snapback';
+        }
+    }
+
+    return undefined;
+}
+
+function onOpeningErrorSnapEnd() {
+    if (openingErrorBoard && openingErrorGame) {
+        openingErrorBoard.position(openingErrorGame.fen());
+    }
+}
+
+async function startOpeningErrorReview(error) {
+    if (!error || !error.fen) return;
+
+    initOpeningErrorBoard();
+
+    openingErrorGame = new Chess(error.fen);
+    openingErrorBoard.position(error.fen);
+
+    const orientation = error.color === 'b' ? 'black' : 'white';
+    openingErrorBoard.orientation(orientation);
+
+    $('#opening-error-status').text('Preparant exercici...');
+
+    if (!stockfish && !ensureStockfish()) {
+        $('#opening-error-status').text('Motor Stockfish no disponible');
+        return;
+    }
+
+    openingBundleSequence = await prepareBundleSequence(error.fen);
+    openingBundleStep = 1;
+
+    if (openingBundleSequence) {
+        $('#opening-error-status').text(`Moviment ${error.moveNumber} · Troba la millor jugada!`);
+    } else {
+        $('#opening-error-status').text('Error preparant exercici. Prova un altre.');
+    }
+}
+
+function handleOpeningErrorSuccess() {
+    $('#opening-error-success-overlay').show();
+}
+
+function loadRandomOpeningError() {
+    const stats = getOpeningStats();
+    const allErrors = [];
+
+    ['white', 'black'].forEach((color) => {
+        stats[color].forEach((stat) => {
+            stat.errors.forEach((err) => {
+                if ((err.swing || 0) > 50) {
+                    allErrors.push(err);
+                }
+            });
+        });
+    });
+
+    if (allErrors.length === 0) {
+        $('#opening-error-status').text('No hi ha errors d\'obertura per revisar.');
+        return;
+    }
+
+    const randomError = allErrors[Math.floor(Math.random() * allErrors.length)];
+    currentOpeningError = randomError;
+    isOpeningErrorSession = true;
+    startOpeningErrorReview(randomError);
+}
+
+function requestOpeningErrorHint() {
+    if (!currentOpeningError || !openingBundleSequence) {
+        $('#opening-error-status').text('No hi ha cap error actiu');
+        return;
+    }
+
+    const currentStep = openingBundleStep === 1 ? openingBundleSequence.step1 : openingBundleSequence.step2;
+    const bestMove = currentStep.playerMove;
+    const from = bestMove.slice(0, 2);
+
+    $(`#opening-error-board .square-55d63[data-square='${from}']`).addClass('highlight-hint');
+
+    setTimeout(() => {
+        $(`#opening-error-board .square-55d63`).removeClass('highlight-hint');
+    }, 3000);
+
+    $('#opening-error-status').text('Pista: mou la peça ressaltada!');
+}
+
+function initOpeningPracticeBoard() {
+    const boardEl = document.getElementById('opening-practice-board');
+    if (!boardEl) return;
+
+    if (openingPracticeBoard) {
+        openingPracticeBoard.destroy();
+    }
+
+    openingPracticeGame = new Chess();
+    openingPracticeHistory = [];
+    openingPracticeMoveCount = 0;
+
+    $('#opening-practice-gemini-hint').removeClass('visible').text('');
+
+    const config = {
+        draggable: true,
+        position: 'start',
+        pieceTheme: 'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/img/chesspieces/wikipedia/{piece}.png',
+        onDragStart: onOpeningPracticeDragStart,
+        onDrop: onOpeningPracticeDrop,
+        onSnapEnd: onOpeningPracticeSnapEnd
+    };
+
+    openingPracticeBoard = Chessboard('opening-practice-board', config);
+
+    const color = $('#opening-practice-color').val() || 'w';
+    openingPracticeColor = color;
+    openingPracticeBoard.orientation(color === 'b' ? 'black' : 'white');
+
+    updateOpeningPracticeProgress();
+
+    setTimeout(() => {
+        if (openingPracticeBoard && typeof openingPracticeBoard.resize === 'function') {
+            openingPracticeBoard.resize();
+        }
+    }, 50);
+}
+
+function onOpeningPracticeDragStart(source, piece) {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+    if (openingPracticeMoveCount >= 10) return false;
+
+    const turn = openingPracticeGame.turn();
+    if (turn !== openingPracticeColor) return false;
+
+    if ((turn === 'w' && piece.search(/^b/) !== -1) ||
+        (turn === 'b' && piece.search(/^w/) !== -1)) {
+        return false;
+    }
+    return true;
+}
+
+function onOpeningPracticeDrop(source, target) {
+    if (!openingPracticeGame) return 'snapback';
+    if (openingPracticeMoveCount >= 10) return 'snapback';
+
+    const prevFen = openingPracticeGame.fen();
+    const move = openingPracticeGame.move({
+        from: source,
+        to: target,
+        promotion: 'q'
+    });
+
+    if (move === null) return 'snapback';
+
+    openingPracticeHistory.push({
+        fen: prevFen,
+        move: move.san,
+        uci: source + target + (move.promotion || '')
+    });
+
+    if (openingPracticeGame.turn() !== openingPracticeColor) {
+        openingPracticeMoveCount++;
+    }
+
+    updateOpeningPracticeProgress();
+
+    if (openingPracticeMoveCount >= 10) {
+        $('#opening-practice-status').text('Pràctica completada! 10 moviments jugats.');
+        return undefined;
+    }
+
+    if (openingPracticeGame.turn() !== openingPracticeColor) {
+        setTimeout(makeOpeningPracticeEngineMove, 500);
+    }
+
+    return undefined;
+}
+
+function onOpeningPracticeSnapEnd() {
+    if (openingPracticeBoard && openingPracticeGame) {
+        openingPracticeBoard.position(openingPracticeGame.fen());
+    }
+}
+
+function makeOpeningPracticeEngineMove() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return;
+    if (openingPracticeMoveCount >= 10) return;
+
+    if (!stockfish && !ensureStockfish()) {
+        $('#opening-practice-status').text('Motor Stockfish no disponible');
+        return;
+    }
+
+    $('#opening-practice-status').text('Stockfish pensant...');
+
+    stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
+    stockfish.postMessage('go depth 10');
+
+    const handler = (e) => {
+        const line = e.data;
+        if (line.startsWith('bestmove')) {
+            stockfish.removeEventListener('message', handler);
+
+            const parts = line.split(' ');
+            const bestMove = parts[1];
+
+            if (bestMove && bestMove !== '(none)') {
+                const prevFen = openingPracticeGame.fen();
+                const move = openingPracticeGame.move({
+                    from: bestMove.slice(0, 2),
+                    to: bestMove.slice(2, 4),
+                    promotion: bestMove.length > 4 ? bestMove[4] : undefined
+                });
+
+                if (move) {
+                    openingPracticeHistory.push({
+                        fen: prevFen,
+                        move: move.san,
+                        uci: bestMove,
+                        isEngine: true
+                    });
+
+                    openingPracticeBoard.position(openingPracticeGame.fen());
+
+                    if (openingPracticeGame.turn() === openingPracticeColor) {
+                        openingPracticeMoveCount++;
+                    }
+
+                    updateOpeningPracticeProgress();
+
+                    if (openingPracticeMoveCount >= 10) {
+                        $('#opening-practice-status').text('Pràctica completada! 10 moviments jugats.');
+                    } else {
+                        $('#opening-practice-status').text('El teu torn');
+                    }
+                }
+            }
+        }
+    };
+
+    stockfish.addEventListener('message', handler);
+}
+
+function updateOpeningPracticeProgress() {
+    const progress = document.getElementById('opening-practice-progress');
+    if (progress) {
+        progress.textContent = `Moviment ${openingPracticeMoveCount}/10`;
+    }
+}
+
+function openingPracticeUndo() {
+    if (!openingPracticeGame || openingPracticeHistory.length === 0) return;
+
+    openingPracticeGame.undo();
+    openingPracticeHistory.pop();
+
+    if (openingPracticeHistory.length > 0 && openingPracticeHistory[openingPracticeHistory.length - 1].isEngine) {
+        openingPracticeGame.undo();
+        openingPracticeHistory.pop();
+    }
+
+    openingPracticeMoveCount = Math.max(0, openingPracticeMoveCount - 1);
+    openingPracticeBoard.position(openingPracticeGame.fen());
+    updateOpeningPracticeProgress();
+    $('#opening-practice-status').text('El teu torn');
+}
+
+function openingPracticeRedo() {
+    $('#opening-practice-status').text('Funció en desenvolupament');
+}
+
+async function requestOpeningMasterclass() {
+    if (!geminiApiKey) {
+        alert('Cal configurar la clau API de Gemini a Estadístiques.');
+        return;
+    }
+
+    const stats = getOpeningStats();
+    const content = document.getElementById('opening-masterclass-content');
+    const textEl = document.getElementById('opening-masterclass-text');
+
+    if (!content || !textEl) return;
+
+    content.style.display = 'block';
+    textEl.textContent = 'Generant classe magistral...';
+
+    let weakPoints = [];
+    let strongPoints = [];
+
+    ['white', 'black'].forEach((color) => {
+        stats[color].forEach((stat, idx) => {
+            if (stat.avgPrecision < 75 && stat.count > 0) {
+                weakPoints.push({
+                    move: idx + 1,
+                    color: color === 'white' ? 'blanques' : 'negres',
+                    precision: stat.avgPrecision,
+                    errorCount: stat.errorCount
+                });
+            } else if (stat.avgPrecision >= 85 && stat.count > 0) {
+                strongPoints.push({
+                    move: idx + 1,
+                    color: color === 'white' ? 'blanques' : 'negres',
+                    precision: stat.avgPrecision
+                });
+            }
+        });
+    });
+
+    const prompt = `Ets un mestre d'escacs que utilitza metàfores d'estratègia militar medieval per ensenyar obertures.
+
+ANÀLISI D'OBERTURES DEL JUGADOR (últimes 10 partides):
+
+PUNTS FEBLES:
+${weakPoints.length > 0 ? weakPoints.map((p) => `- Moviment ${p.move} amb ${p.color}: ${p.precision}% precisió, ${p.errorCount} errors`).join('\n') : 'Cap punt feble destacat'}
+
+PUNTS FORTS:
+${strongPoints.length > 0 ? strongPoints.map((p) => `- Moviment ${p.move} amb ${p.color}: ${p.precision}% precisió`).join('\n') : 'Encara no hi ha prou dades'}
+
+INSTRUCCIONS:
+1. Utilitza metàfores d'estratègia militar medieval (cavallers, torres, flancs, avantguarda, retaguarda)
+2. NO utilitzis coordenades d'escacs (a4, e5, etc.)
+3. Refereix-te a les peces pel seu nom i si són del costat rei o reina
+4. Explica els principis generals d'obertura que ha de millorar
+5. Dona consells pràctics i memorables
+6. Sigues concís però inspirador
+
+Genera una classe magistral d'obertures en català (màxim 300 paraules).`;
+
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${geminiApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.8, maxOutputTokens: 1000 }
+            })
+        });
+
+        if (!response.ok) {
+            throw new Error('Error de Gemini API');
+        }
+
+        const data = await response.json();
+        const text = data.candidates?.[0]?.content?.parts?.[0]?.text || 'No s\'ha pogut generar la classe magistral.';
+
+        textEl.textContent = text;
+    } catch (error) {
+        console.error('Error amb Gemini:', error);
+        textEl.textContent = 'Error generant la classe magistral. Verifica la teva clau API.';
+    }
+}
+
+async function requestOpeningGeminiHint() {
+    if (!currentOpeningError || !openingBundleSequence) return;
+    if (!geminiApiKey) {
+        alert('Cal configurar la clau API de Gemini.');
+        return;
+    }
+
+    const currentStep = openingBundleStep === 1 ? openingBundleSequence.step1 : openingBundleSequence.step2;
+    const fen = currentStep.fen;
+
+    $('#opening-error-status').text('Generant màxima...');
+
+    const prompt = `Ets un mestre d'escacs medieval. Analitza aquesta posició FEN: ${fen}
+
+La millor jugada és: ${currentStep.playerMoveSan}
+
+Genera UNA màxima d'escacs breu i memorable (màxim 15 paraules) que ajudi el jugador a recordar per què aquesta és la millor jugada.
+
+Utilitza metàfores militars medievals. NO donis la solució directament, només una pista filosòfica.`;
+
+    try {
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${geminiApiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.9, maxOutputTokens: 100 }
+            })
+        });
+
+        const data = await response.json();
+        const hint = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Pensa en el centre i el desenvolupament.';
+
+        lastOpeningGeminiHint = hint;
+        $('#opening-error-gemini-hint').text(hint).addClass('visible');
+        $('#opening-error-status').text('Troba la millor jugada!');
+    } catch (error) {
+        $('#opening-error-status').text('Error generant màxima');
+    }
+}
+
+function showOpeningScreen() {
+    $('#start-screen').hide();
+    $('#game-screen').hide();
+    $('#stats-screen').hide();
+    $('#league-screen').hide();
+    $('#history-screen').hide();
+    $('#calibration-result-screen').hide();
+    $('#opening-screen').show();
+
+    renderOpeningStats();
+    
+    setTimeout(() => {
+        initOpeningErrorBoard();
+        initOpeningPracticeBoard();
+        
+        if (openingPracticeColor === 'b') {
+            setTimeout(makeOpeningPracticeEngineMove, 500);
+        }
+    }, 100);
+}
+
 function setupEvents() {
     checkShareSupport();
     $('#btn-new-game').click(() => {
@@ -5200,10 +5861,101 @@ function setupEvents() {
         initHistoryBoard();
         renderGameHistory();
     });
+    $('#btn-openings').click(() => { showOpeningScreen(); });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) openLeague(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
+    $('#btn-back-opening').click(() => { $('#opening-screen').hide(); $('#start-screen').show(); });
+    $('#btn-opening-hint').click(() => { requestOpeningErrorHint(); });
+    $('#btn-opening-gemini-hint').click(() => { requestOpeningGeminiHint(); });
+    $('#btn-opening-masterclass').click(() => { requestOpeningMasterclass(); });
+    $('#btn-opening-random').click(() => { loadRandomOpeningError(); });
+    $('#btn-opening-back-list').click(() => {
+        isOpeningErrorSession = false;
+        currentOpeningError = null;
+        openingBundleSequence = null;
+        $('#opening-error-status').text('Selecciona un error del llistat');
+        initOpeningErrorBoard();
+    });
+    $('#btn-opening-error-another').click(() => {
+        $('#opening-error-success-overlay').hide();
+        loadRandomOpeningError();
+    });
+    $('#btn-opening-error-back').click(() => {
+        $('#opening-error-success-overlay').hide();
+        isOpeningErrorSession = false;
+        currentOpeningError = null;
+        initOpeningErrorBoard();
+        $('#opening-error-status').text('Selecciona un error del llistat');
+    });
+    $('#opening-practice-color').change(function() {
+        openingPracticeColor = $(this).val();
+        initOpeningPracticeBoard();
+        if (openingPracticeColor === 'b') {
+            setTimeout(makeOpeningPracticeEngineMove, 500);
+        }
+    });
+    $('#btn-opening-practice-start').click(() => {
+        initOpeningPracticeBoard();
+        $('#opening-practice-status').text('El teu torn');
+        if (openingPracticeColor === 'b') {
+            setTimeout(makeOpeningPracticeEngineMove, 500);
+        }
+    });
+    $('#btn-opening-practice-reset').click(() => {
+        initOpeningPracticeBoard();
+        $('#opening-practice-status').text('Preparat per practicar');
+    });
+    $('#btn-opening-practice-prev').click(() => { openingPracticeUndo(); });
+    $('#btn-opening-practice-next').click(() => { openingPracticeRedo(); });
+    $('#btn-opening-practice-hint').click(() => {
+        if (!openingPracticeGame || !stockfish) return;
+
+        stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
+        stockfish.postMessage('go depth 12');
+
+        const handler = (e) => {
+            if (e.data.startsWith('bestmove')) {
+                stockfish.removeEventListener('message', handler);
+                const best = e.data.split(' ')[1];
+                if (best) {
+                    const from = best.slice(0, 2);
+                    $(`#opening-practice-board .square-55d63[data-square='${from}']`).addClass('highlight-hint');
+                    setTimeout(() => {
+                        $(`#opening-practice-board .square-55d63`).removeClass('highlight-hint');
+                    }, 3000);
+                }
+            }
+        };
+        stockfish.addEventListener('message', handler);
+    });
+    $('#btn-opening-practice-gemini').click(async () => {
+        if (!openingPracticeGame || !geminiApiKey) {
+            alert('Cal configurar Gemini');
+            return;
+        }
+
+        const fen = openingPracticeGame.fen();
+        $('#opening-practice-status').text('Generant màxima...');
+
+        try {
+            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${geminiApiKey}`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    contents: [{ parts: [{ text: `Dona una màxima breu d'escacs (màx 12 paraules) per aquesta obertura. FEN: ${fen}. Usa metàfores medievals.` }] }],
+                    generationConfig: { temperature: 0.9, maxOutputTokens: 50 }
+                })
+            });
+            const data = await response.json();
+            const hint = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Controla el centre!';
+            $('#opening-practice-gemini-hint').text(hint).addClass('visible');
+            $('#opening-practice-status').text('El teu torn');
+        } catch (e) {
+            $('#opening-practice-status').text('Error generant màxima');
+        }
+    });
 
     $('#btn-reset-league').click(() => {
         if (!guardCalibrationAccess()) return;
