@@ -3235,6 +3235,7 @@ function registerMoveReview(swing, analysisData = {}) {
         playerMove: lastHumanMoveUci || '—',
         playerMoveSan: lastMove ? lastMove.san : '—',
         bestMove: analysisData.bestMove || null,
+        color: lastMove ? lastMove.color : null,
         evalBefore: analysisData.evalBefore ?? null,
         evalAfter: analysisData.evalAfter ?? null,
         swing: Math.abs(swing),
@@ -5153,6 +5154,11 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             playerMove: err.playerMove || null,
             bestMovePv: err.bestMovePv || []
         })),
+        moveReviews: currentReview.map(review => ({
+            moveNumber: review.moveNumber,
+            quality: review.quality,
+            color: review.color
+        })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
         severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
         geminiReview: options.geminiReview || null,
@@ -5163,6 +5169,80 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     gameHistory.push(entry);
     if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
     // Bloc de neteja de reviews eliminat
+}
+
+function isOpeningMoveCorrect(quality) {
+    return quality === 'excel' || quality === 'good';
+}
+
+function buildOpeningMoveStats() {
+    const recentEntries = gameHistory
+        .slice(-10)
+        .filter(entry => Array.isArray(entry.moveReviews) && entry.moveReviews.length);
+    const stats = [];
+    const colors = [
+        { key: 'w', label: 'Blanques' },
+        { key: 'b', label: 'Negres' }
+    ];
+
+    colors.forEach(color => {
+        for (let moveNumber = 1; moveNumber <= 10; moveNumber++) {
+            let total = 0;
+            let correct = 0;
+            recentEntries.forEach(entry => {
+                const match = entry.moveReviews.find(review => (
+                    review.moveNumber === moveNumber && review.color === color.key
+                ));
+                if (!match) return;
+                total += 1;
+                if (isOpeningMoveCorrect(match.quality)) correct += 1;
+            });
+            stats.push({
+                moveNumber,
+                color: color.label,
+                total,
+                correct
+            });
+        }
+    });
+
+    return { stats, totalEntries: recentEntries.length };
+}
+
+function renderOpeningStatsModal() {
+    const listEl = $('#opening-stats-list');
+    const noteEl = $('#opening-stats-note');
+    if (!listEl.length) return;
+
+    const { stats, totalEntries } = buildOpeningMoveStats();
+    if (!totalEntries) {
+        listEl.html('<div class="opening-stats-row">Encara no hi ha dades per mostrar.</div>');
+        if (noteEl.length) noteEl.text('Juga algunes partides perquè puguem calcular la mitja.');
+        return;
+    }
+
+    let html = `
+        <div class="opening-stats-header">
+            <span>Moviment</span>
+            <span>Mitja correcció</span>
+            <span>Moviments &lt;75%</span>
+        </div>
+    `;
+    stats.forEach(item => {
+        const percent = item.total ? Math.round((item.correct / item.total) * 100) : null;
+        const below = item.total ? item.total - item.correct : null;
+        html += `
+            <div class="opening-stats-row">
+                <div><strong>${item.moveNumber}</strong> · ${item.color}</div>
+                <div>${percent === null ? '—' : `${percent}%`}</div>
+                <div>${below === null ? '—' : below}</div>
+            </div>
+        `;
+    });
+    listEl.html(html);
+    if (noteEl.length) {
+        noteEl.text(`Basat en ${totalEntries} partides guardades.`);
+    }
 }
 
 function checkShareSupport() {
@@ -5204,6 +5284,11 @@ function setupEvents() {
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
+    $('#btn-opening').click(() => {
+        renderOpeningStatsModal();
+        $('#opening-modal').css('display', 'flex');
+    });
+    $('#btn-opening-close').click(() => { $('#opening-modal').hide(); });
 
     $('#btn-reset-league').click(() => {
         if (!guardCalibrationAccess()) return;

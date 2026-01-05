@@ -591,6 +591,48 @@
             color: #2b2118;
             box-shadow: 0 4px 12px rgba(201, 162, 39, 0.35);
         }
+        .opening-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+            text-align: left;
+        }
+        .opening-stats-header {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr 1fr;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.8px;
+            color: var(--text-secondary);
+            gap: 10px;
+            margin-bottom: 6px;
+        }
+        .opening-stats-row {
+            display: grid;
+            grid-template-columns: 1.1fr 1fr 1fr;
+            gap: 10px;
+            align-items: center;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.12);
+            font-size: 0.9rem;
+        }
+        body.epaper-mode .opening-stats-row {
+            background: #efefef;
+            border: 1px solid #cfcfcf;
+        }
+        .opening-stats-row strong {
+            color: var(--accent-gold);
+            font-family: 'Cinzel', serif;
+            font-size: 0.95rem;
+        }
+        .opening-stats-note {
+            margin-top: 10px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            text-align: center;
+        }
         
         body.device-tablet .menu-buttons,
         body.device-desktop .menu-buttons {
@@ -1958,6 +2000,15 @@
                     <button class="btn btn-secondary" id="btn-review-menu">Menú</button>
                     <button class="close-modal" id="btn-review-close">Tancar</button>
                 </div>
+            </div>
+        </div>
+
+        <div class="modal-overlay" id="opening-modal">
+            <div class="modal-content">
+                <div class="modal-title">📖 Obertures (darreres 10)</div>
+                <div class="opening-stats" id="opening-stats-list"></div>
+                <div class="opening-stats-note" id="opening-stats-note">—</div>
+                <button class="close-modal" id="btn-opening-close">Tancar</button>
             </div>
         </div>
         
