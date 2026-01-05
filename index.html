@@ -1700,14 +1700,13 @@
             margin-bottom: 12px;
         }
         .opening-board-container {
-            width: 100%;
-            max-width: 300px;
+            width: 300px;
+            height: 300px;
             margin: 0 auto 12px;
             position: relative;
         }
         #opening-error-board, #opening-practice-board {
-            width: 300px !important;
-            height: 300px !important;
+            width: 100%;
         }
         .opening-controls {
             margin-top: 12px;
@@ -1795,12 +1794,8 @@
         }
         /* Responsive obertures */
         body.device-mobile .opening-board-container {
-            max-width: 280px;
-        }
-        body.device-mobile #opening-error-board,
-        body.device-mobile #opening-practice-board {
-            width: 280px !important;
-            height: 280px !important;
+            width: 280px;
+            height: 280px;
         }
         body.device-mobile .opening-gemini-hint {
             font-size: 0.88rem;
@@ -1808,20 +1803,31 @@
             max-width: 290px;
         }
         body.device-tablet .opening-board-container {
-            max-width: 350px;
-        }
-        body.device-tablet #opening-error-board,
-        body.device-tablet #opening-practice-board {
-            width: 350px !important;
-            height: 350px !important;
+            width: 350px;
+            height: 350px;
         }
         body.device-desktop .opening-board-container {
-            max-width: 400px;
+            width: 400px;
+            height: 400px;
         }
-        body.device-desktop #opening-error-board,
-        body.device-desktop #opening-practice-board {
-            width: 400px !important;
-            height: 400px !important;
+        /* Fallback per quan no hi ha classe device-* */
+        @media (max-width: 480px) {
+            .opening-board-container {
+                width: 280px;
+                height: 280px;
+            }
+        }
+        @media (min-width: 481px) and (max-width: 768px) {
+            .opening-board-container {
+                width: 320px;
+                height: 320px;
+            }
+        }
+        @media (min-width: 769px) {
+            .opening-board-container {
+                width: 380px;
+                height: 380px;
+            }
         }
         body.epaper-mode .opening-stats-section,
         body.epaper-mode .opening-practice-section {
