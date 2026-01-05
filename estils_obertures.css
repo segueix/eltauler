@@ -797,5 +797,259 @@ body.epaper-mode .practice-feedback.feedback-info {
 }
 
 /* ============================================================================
+   CSS ADDICIONAL PER AL TAULER DE LLIÇÓ
+   ============================================================================ */
+
+/* Estructura del lesson-practice-area igual que game-screen */
+#lesson-practice-area {
+    background: transparent;
+    padding: 0;
+}
+
+.lesson-header {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 15px;
+    margin-bottom: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border: 1px solid rgba(201, 162, 39, 0.15);
+}
+
+.lesson-header .header-title {
+    font-family: 'Cinzel', serif;
+    font-size: 1.2rem;
+    color: var(--accent-gold);
+    margin-bottom: 8px;
+}
+
+.lesson-header .game-info {
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    font-size: 0.85rem;
+    color: var(--text-secondary);
+    flex-wrap: wrap;
+}
+
+.lesson-precision-panel {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 12px 15px;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border: 1px solid rgba(201, 162, 39, 0.15);
+}
+
+.lesson-board-container {
+    width: 100%;
+    position: relative;
+    margin: 0;
+}
+
+#lessonBoard {
+    width: 100%;
+    max-width: 100%;
+}
+
+.lesson-controls {
+    background: var(--bg-card);
+    border-radius: 12px;
+    padding: 15px;
+    margin-top: 10px;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border: 1px solid rgba(201, 162, 39, 0.15);
+}
+
+.lesson-controls .status-message {
+    text-align: center;
+    font-size: 0.95rem;
+    color: var(--text-primary);
+    margin-bottom: 12px;
+    min-height: 1.5em;
+}
+
+.lesson-controls .game-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    justify-content: center;
+}
+
+.lesson-controls .game-buttons .btn {
+    flex: 1;
+    min-width: 100px;
+}
+
+/* Layout desktop per lesson-practice-area */
+body.device-desktop #lesson-practice-area {
+    display: grid;
+    grid-template-columns: minmax(520px, 1fr) 320px;
+    gap: 16px;
+    align-items: start;
+}
+
+body.device-desktop .lesson-header {
+    grid-column: 2;
+    grid-row: 1;
+}
+
+body.device-desktop .lesson-precision-panel {
+    grid-column: 2;
+    grid-row: 2;
+}
+
+body.device-desktop .lesson-board-container {
+    grid-column: 1;
+    grid-row: 1 / span 3;
+    margin-bottom: 0;
+}
+
+body.device-desktop .lesson-controls {
+    grid-column: 2;
+    grid-row: 3;
+}
+
+/* Layout mòbil per lesson-practice-area */
+@media (max-width: 520px) {
+    .lesson-header,
+    .lesson-precision-panel,
+    .lesson-controls {
+        margin-left: 8px;
+        margin-right: 8px;
+        border-radius: 12px;
+    }
+    
+    .lesson-header {
+        padding: 10px;
+        margin-top: 8px;
+        margin-bottom: 8px;
+    }
+    
+    .lesson-header .header-title {
+        font-size: 1.05rem;
+        margin-bottom: 6px;
+    }
+    
+    .lesson-header .game-info {
+        font-size: 0.78rem;
+        gap: 6px;
+    }
+    
+    .lesson-precision-panel {
+        padding: 10px;
+        gap: 10px;
+        margin-bottom: 8px;
+    }
+    
+    .lesson-board-container {
+        margin: 0;
+    }
+    
+    #lessonBoard {
+        width: 100vw !important;
+        max-width: 100vw !important;
+    }
+    
+    .lesson-controls {
+        padding: 10px;
+        margin-top: 8px;
+    }
+    
+    .lesson-controls .status-message {
+        font-size: 0.9rem;
+        margin-bottom: 10px;
+    }
+    
+    .lesson-controls .game-buttons .btn {
+        padding: 12px 8px;
+        font-size: 0.82rem;
+    }
+}
+
+/* Landscape mòbil */
+@media (max-width: 900px) and (orientation: landscape) and (max-height: 520px) {
+    body.device-mobile .lesson-header,
+    body.device-mobile .lesson-precision-panel,
+    body.device-mobile .lesson-controls {
+        margin-left: 8px;
+        margin-right: 8px;
+    }
+    
+    body.device-mobile .lesson-header {
+        padding: 8px 10px;
+        margin-top: 6px;
+        margin-bottom: 6px;
+    }
+    
+    body.device-mobile .lesson-precision-panel {
+        padding: 8px 10px;
+        gap: 10px;
+        margin-bottom: 6px;
+    }
+    
+    body.device-mobile .lesson-controls {
+        padding: 8px 10px;
+        margin-top: 6px;
+    }
+    
+    body.device-mobile .lesson-board-container {
+        margin: 0;
+    }
+    
+    body.device-mobile #lessonBoard {
+        width: 100vw !important;
+        max-width: 100vw !important;
+    }
+}
+
+/* e-Paper mode */
+body.epaper-mode .lesson-header,
+body.epaper-mode .lesson-precision-panel,
+body.epaper-mode .lesson-controls {
+    background: #e6e6e6 !important;
+    border-color: #cfcfcf !important;
+    box-shadow: none !important;
+    color: #222;
+}
+
+body.epaper-mode .lesson-header .header-title {
+    color: #222;
+}
+
+body.epaper-mode .lesson-controls .status-message {
+    color: #222;
+}
+
+/* Destacats del tauler de lliçó */
+#lessonBoard .square-55d63.tap-selected {
+    outline: 3px solid rgba(201, 162, 39, 0.95);
+    outline-offset: -3px;
+}
+
+#lessonBoard .square-55d63.tap-move {
+    box-shadow: inset 0 0 0 3px rgba(74, 124, 89, 0.65);
+}
+
+#lessonBoard .square-55d63.engine-move {
+    border-radius: 10px;
+    box-shadow: inset 0 0 0 3px #4b2f18 !important;
+    outline: none !important;
+}
+
+#lessonBoard .square-55d63.highlight-hint {
+    box-shadow: inset 0 0 5px 4px var(--accent-purple) !important;
+    background-color: rgba(156, 39, 176, 0.4) !important;
+    animation: pulse-purple 1.5s infinite;
+}
+
+body.epaper-mode #lessonBoard .square-55d63.highlight-hint {
+    box-shadow: inset 0 0 0 3px #5c5c5c !important;
+    background-color: #d1d1d1 !important;
+}
+
+/* ============================================================================
    FI DELS ESTILS
    ============================================================================ */
