@@ -12,6 +12,8 @@
 
 let lessonBoard = null;
 let lessonGame = new Chess();
+let lessonTapSelectedSquare = null;
+let lessonControlMode = null; // Utilitzarà el mateix que el tauler principal
 
 // Estat global per la pràctica d'obertures
 let openingPracticeState = {
@@ -459,122 +461,404 @@ async function generateLessonReview() {
 function initLessonPracticeBoard() {
     $('#lesson-practice-area').show();
     lessonGame = new Chess();
+    
+    // Utilitzar el mateix mode de control que el tauler principal
+    lessonControlMode = controlMode || getDefaultControlMode();
 
     const config = {
-        draggable: true,
+        draggable: (lessonControlMode === 'drag'),
         position: 'start',
+        onDragStart: onDragStartLesson,
         onDrop: onDropLesson,
+        onSnapEnd: onSnapEndLesson,
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     };
 
     if (lessonBoard) lessonBoard.destroy();
     lessonBoard = Chessboard('lessonBoard', config);
-    $(window).resize(lessonBoard.resize);
+    
+    // Aplicar resize després d'un petit delay per assegurar que el DOM està llest
+    setTimeout(() => { 
+        resizeLessonBoardToViewport(); 
+    }, 50);
 
+    // Configurar tap-to-move si és necessari
+    if (lessonControlMode === 'tap') {
+        enableLessonTapToMove();
+    } else {
+        disableLessonTapToMove();
+    }
+
+    // Configurar event listeners dels botons
     $('#btn-lesson-hint').off('click').on('click', getLessonHint);
     $('#btn-lesson-maxim').off('click').on('click', getLessonMaxim);
-    
-    // Actualitzar visibilitat del botó Màxima segons clau Gemini
-    updateLessonHintButtons();
-    
-    // Mostrar missatge inicial
-    $('#lesson-maxim-output').html('Juga les primeres 5 jugades. Usa 💡 per pistes!');
-}
+    $('#btn-lesson-reset').off('click').on('click', resetLessonBoard);
+    $('#btn-back-lesson-practice').off('click').on('click', () => {
+        $('#lesson-practice-area').hide();
+    });
 
-// Funció per actualitzar visibilitat dels botons (igual que a Revisa Errors)
-function updateLessonHintButtons() {
-    const brainBtn = document.getElementById('btn-lesson-maxim');
-    const hintBtn = document.getElementById('btn-lesson-hint');
-    if (!brainBtn || !hintBtn) return;
+    // Actualitzar la UI inicial
+    updateLessonUI();
     
-    const apiKey = getLessonGeminiApiKey();
-    const hasGemini = !!apiKey;
-    const lessonActive = lessonGame && lessonGame.history().length < 10;
-    
-    brainBtn.style.display = (hasGemini && lessonActive) ? 'inline-flex' : 'none';
-    hintBtn.style.display = lessonActive ? 'inline-flex' : 'none';
-    
-    brainBtn.disabled = !hasGemini;
-    hintBtn.disabled = typeof stockfishReady !== 'undefined' ? !stockfishReady : true;
-}
-
-// Funció per fer jugada de l'oponent (Stockfish)
-function makeLessonEngineMove() {
-    if (typeof stockfishReady === 'undefined' || !stockfishReady) return;
-    if (!lessonGame || lessonGame.game_over()) return;
-    
-    $('#lesson-maxim-output').html('<span style="opacity:0.6">L\'oponent pensa...</span>');
-    
-    lessonHintCallback = (move) => {
-        const from = move.substring(0, 2);
-        const to = move.substring(2, 4);
-        const promotion = move.length > 4 ? move.substring(4, 5) : undefined;
-        
-        const result = lessonGame.move({ from, to, promotion: promotion || 'q' });
-        if (result) {
-            lessonBoard.position(lessonGame.fen());
-            
-            if (lessonGame.history().length >= 10) {
-                $('#lesson-maxim-output').html('✅ Pràctica completada! Has jugat 5 moviments.');
-                updateLessonHintButtons();
-            } else {
-                $('#lesson-maxim-output').html('El teu torn. Usa 💡 si necessites ajuda.');
-            }
+    // Afegir listener per resize de la finestra
+    $(window).off('resize.lessonBoard').on('resize.lessonBoard', function() {
+        if ($('#lesson-practice-area').is(':visible')) {
+            clearTimeout(window.lessonResizeTimer);
+            window.lessonResizeTimer = setTimeout(resizeLessonBoardToViewport, 100);
         }
-    };
-    
-    stockfish.postMessage(`position fen ${lessonGame.fen()}`);
-    stockfish.postMessage('go depth 10');
+    });
 }
 
+// ============================================================================
+// FUNCIÓ DE RESIZE PER AL TAULER DE LLIÇÓ
+// ============================================================================
+
+function resizeLessonBoardToViewport() {
+    const boardEl = document.getElementById('lessonBoard');
+    const practiceArea = document.getElementById('lesson-practice-area');
+    if (!boardEl || !practiceArea) return;
+
+    const isVisible = (practiceArea.style.display !== 'none') && (practiceArea.offsetParent !== null);
+    if (!isVisible) return;
+
+    const headerEl = practiceArea.querySelector('.lesson-header');
+    const precisionEl = practiceArea.querySelector('.lesson-precision-panel');
+    const controlsEl = practiceArea.querySelector('.lesson-controls');
+
+    const isDesktopLayout = (typeof deviceType !== 'undefined') && deviceType === 'desktop';
+    const used = isDesktopLayout ? 0 : 
+        (headerEl ? headerEl.getBoundingClientRect().height : 0) +
+        (precisionEl ? precisionEl.getBoundingClientRect().height : 0) +
+        (controlsEl ? controlsEl.getBoundingClientRect().height : 0);
+
+    const availableW = window.innerWidth;
+    const isSmall = availableW <= 520;
+    const isPortrait = window.innerHeight >= availableW;
+
+    let size = 0;
+
+    if (isSmall && isPortrait) {
+        size = Math.floor(Math.max(240, availableW));
+        boardEl.style.marginLeft = '0';
+        boardEl.style.marginRight = '0';
+    } else {
+        const verticalGaps = 24;
+        const availableH = window.innerHeight - used - verticalGaps;
+        size = Math.floor(Math.max(240, Math.min(availableW, availableH)));
+        boardEl.style.marginLeft = 'auto';
+        boardEl.style.marginRight = 'auto';
+    }
+
+    boardEl.style.width = size + 'px';
+    boardEl.style.height = size + 'px';
+
+    if (lessonBoard && typeof lessonBoard.resize === 'function') {
+        lessonBoard.resize();
+    }
+}
+
+// ============================================================================
+// FUNCIONS DE DRAG/DROP PER AL TAULER DE LLIÇÓ
+// ============================================================================
+
+function onDragStartLesson(source, piece, position, orientation) {
+    // No permetre moure peces del rival
+    if (lessonGame.game_over()) return false;
+    
+    // Només permetre moure peces del torn actual
+    if ((lessonGame.turn() === 'w' && piece.search(/^b/) !== -1) ||
+        (lessonGame.turn() === 'b' && piece.search(/^w/) !== -1)) {
+        return false;
+    }
+    
+    return true;
+}
 
 function onDropLesson(source, target) {
-    const move = lessonGame.move({ from: source, to: target, promotion: 'q' });
+    // Netejar selecció de tap si existeix
+    clearLessonTapSelection();
+    
+    const move = lessonGame.move({
+        from: source,
+        to: target,
+        promotion: 'q' // Sempre promocionar a reina per simplicitat
+    });
+
     if (move === null) return 'snapback';
 
-    if (lessonGame.history().length > 10) {
-        alert('Has arribat al límit de 5 moviments per a aquesta pràctica.');
+    // Verificar límit de moviments (10 moviments = 20 plys)
+    if (lessonGame.history().length > 20) {
+        showLessonMessage('Has arribat al límit de 10 moviments!', 'warning');
         lessonGame.undo();
         return 'snapback';
     }
+
+    // Actualitzar UI
+    updateLessonUI();
     
-    // Actualitzar botons
-    updateLessonHintButtons();
+    // Resposta de la IA (Stockfish)
+    setTimeout(makeLessonAIMove, 300);
     
-    // Fer jugada de l'oponent automàticament després d'un petit retard
-    setTimeout(() => {
-        if (lessonGame.history().length < 10 && !lessonGame.game_over()) {
-            makeLessonEngineMove();
-        } else if (lessonGame.history().length >= 10) {
-            $('#lesson-maxim-output').html('✅ Pràctica completada! Has jugat 5 moviments.');
-        }
-    }, 300);
+    return undefined; // Permetre el moviment
 }
 
-function getLessonHint() {
-    if (!stockfishReady) return;
-    $('#btn-lesson-hint').text('⏳...');
+function onSnapEndLesson() {
+    lessonBoard.position(lessonGame.fen());
+}
 
+// ============================================================================
+// TAP-TO-MOVE PER AL TAULER DE LLIÇÓ
+// ============================================================================
+
+function enableLessonTapToMove() {
+    disableLessonTapToMove(); // Netejar listeners anteriors
+    
+    const boardEl = document.getElementById('lessonBoard');
+    if (!boardEl) return;
+
+    $(boardEl).on('click.lessontap', '.square-55d63', function(e) {
+        e.preventDefault();
+        e.stopPropagation();
+        
+        const square = $(this).data('square');
+        if (!square) return;
+        
+        handleLessonTap(square);
+    });
+}
+
+function disableLessonTapToMove() {
+    $('#lessonBoard').off('.lessontap');
+    clearLessonTapSelection();
+}
+
+function handleLessonTap(square) {
+    const piece = lessonGame.get(square);
+    const turn = lessonGame.turn();
+    
+    // Si no hi ha peça seleccionada
+    if (!lessonTapSelectedSquare) {
+        // Només seleccionar peces del torn actual
+        if (piece && piece.color === turn) {
+            lessonTapSelectedSquare = square;
+            highlightLessonSquare(square, 'tap-selected');
+            showLessonLegalMoves(square);
+        }
+        return;
+    }
+    
+    // Si ja hi ha una peça seleccionada
+    if (lessonTapSelectedSquare === square) {
+        // Deseleccionar si es clica la mateixa casella
+        clearLessonTapSelection();
+        return;
+    }
+    
+    // Intentar moure
+    const move = lessonGame.move({
+        from: lessonTapSelectedSquare,
+        to: square,
+        promotion: 'q'
+    });
+    
+    clearLessonTapSelection();
+    
+    if (move) {
+        // Verificar límit
+        if (lessonGame.history().length > 20) {
+            showLessonMessage('Has arribat al límit de 10 moviments!', 'warning');
+            lessonGame.undo();
+            lessonBoard.position(lessonGame.fen());
+            return;
+        }
+        
+        lessonBoard.position(lessonGame.fen());
+        updateLessonUI();
+        setTimeout(makeLessonAIMove, 300);
+    } else {
+        // Si el moviment no és vàlid, intentar seleccionar nova peça
+        if (piece && piece.color === turn) {
+            lessonTapSelectedSquare = square;
+            highlightLessonSquare(square, 'tap-selected');
+            showLessonLegalMoves(square);
+        }
+    }
+}
+
+function highlightLessonSquare(square, className) {
+    $(`#lessonBoard .square-55d63[data-square='${square}']`).addClass(className);
+}
+
+function showLessonLegalMoves(square) {
+    const moves = lessonGame.moves({ square: square, verbose: true });
+    moves.forEach(move => {
+        $(`#lessonBoard .square-55d63[data-square='${move.to}']`).addClass('tap-move');
+    });
+}
+
+function clearLessonTapSelection() {
+    lessonTapSelectedSquare = null;
+    $('#lessonBoard .square-55d63').removeClass('tap-selected tap-move');
+}
+
+// ============================================================================
+// IA AMB STOCKFISH PER AL TAULER DE LLIÇÓ
+// ============================================================================
+
+function makeLessonAIMove() {
+    if (lessonGame.game_over() || lessonGame.history().length >= 20) return;
+    
+    if (typeof stockfishReady === 'undefined' || !stockfishReady) {
+        console.log('[Lesson] Stockfish no disponible');
+        return;
+    }
+    
+    // Configurar callback temporal per la resposta
+    const originalCallback = lessonHintCallback;
     lessonHintCallback = (move) => {
-        $('#btn-lesson-hint').text('💡 Pista');
+        lessonHintCallback = originalCallback;
+        
+        if (!move || move.length < 4) return;
+        
         const from = move.substring(0, 2);
         const to = move.substring(2, 4);
-        lessonBoard.move(`${from}-${to}`);
-        lessonGame.move({ from, to, promotion: 'q' });
+        const promotion = move.length > 4 ? move.charAt(4) : undefined;
+        
+        const aiMove = lessonGame.move({
+            from: from,
+            to: to,
+            promotion: promotion || 'q'
+        });
+        
+        if (aiMove) {
+            // Animar el moviment
+            lessonBoard.move(`${from}-${to}`);
+            
+            // Marcar caselles del moviment de la IA
+            setTimeout(() => {
+                $(`#lessonBoard .square-55d63[data-square='${from}']`).addClass('engine-move');
+                $(`#lessonBoard .square-55d63[data-square='${to}']`).addClass('engine-move');
+                
+                // Netejar després d'un temps
+                setTimeout(() => {
+                    $('#lessonBoard .square-55d63').removeClass('engine-move');
+                }, 1500);
+            }, 100);
+            
+            updateLessonUI();
+        }
+    };
+    
+    // Enviar posició a Stockfish (dificultat baixa per pràctica)
+    stockfish.postMessage(`position fen ${lessonGame.fen()}`);
+    stockfish.postMessage('go depth 8'); // Profunditat baixa per resposta ràpida
+}
+
+// ============================================================================
+// FUNCIONS D'ACTUALITZACIÓ DE UI
+// ============================================================================
+
+function updateLessonUI() {
+    const moveCount = Math.floor(lessonGame.history().length / 2);
+    const turn = lessonGame.turn() === 'w' ? 'Blanques' : 'Negres';
+    const progress = Math.round((lessonGame.history().length / 20) * 100);
+    
+    $('#lesson-move-count').text(moveCount);
+    $('#lesson-turn').text(turn);
+    $('#lesson-progress-text').text(progress + '%');
+    $('#lesson-progress-bar').css('width', progress + '%');
+    
+    // Actualitzar missatge d'status
+    if (lessonGame.game_over()) {
+        if (lessonGame.in_checkmate()) {
+            $('#lesson-status').text('Escac i mat!');
+        } else if (lessonGame.in_draw()) {
+            $('#lesson-status').text('Taules!');
+        }
+    } else if (lessonGame.in_check()) {
+        $('#lesson-status').text('Escac! ' + turn + ' juguen.');
+    } else {
+        $('#lesson-status').text(turn + ' juguen. Practica les teves obertures!');
+    }
+}
+
+function showLessonMessage(message, type) {
+    const statusEl = $('#lesson-status');
+    statusEl.text(message);
+    
+    if (type === 'warning') {
+        statusEl.css('color', 'var(--severity-med)');
+        setTimeout(() => {
+            statusEl.css('color', '');
+            updateLessonUI();
+        }, 2000);
+    }
+}
+
+function resetLessonBoard() {
+    lessonGame.reset();
+    lessonBoard.start();
+    clearLessonTapSelection();
+    $('#lesson-status').text('Practica les teves obertures!');
+    updateLessonUI();
+}
+
+// ============================================================================
+// PISTA AMB STOCKFISH (ACTUALITZAT)
+// ============================================================================
+
+function getLessonHint() {
+    if (typeof stockfishReady === 'undefined' || !stockfishReady) {
+        showLessonMessage('Stockfish no disponible', 'warning');
+        return;
+    }
+    
+    $('#btn-lesson-hint').text('⏳...').prop('disabled', true);
+
+    const originalCallback = lessonHintCallback;
+    lessonHintCallback = (move) => {
+        lessonHintCallback = originalCallback;
+        $('#btn-lesson-hint').text('💡 Pista').prop('disabled', false);
+        
+        if (!move || move.length < 4) return;
+        
+        const from = move.substring(0, 2);
+        const to = move.substring(2, 4);
+        
+        // Destacar la pista
+        clearLessonTapSelection();
+        $(`#lessonBoard .square-55d63[data-square='${from}']`).addClass('highlight-hint');
+        $(`#lessonBoard .square-55d63[data-square='${to}']`).addClass('highlight-hint');
+        
+        showLessonMessage(`Pista: mou de ${from} a ${to}`, 'info');
+        
+        // Netejar després d'uns segons
+        setTimeout(() => {
+            $('#lessonBoard .square-55d63').removeClass('highlight-hint');
+        }, 3000);
     };
 
     stockfish.postMessage(`position fen ${lessonGame.fen()}`);
     stockfish.postMessage('go depth 15');
 }
 
+// ============================================================================
+// MÀXIMA AMB GEMINI (SENSE CANVIS SUBSTANCIALS)
+// ============================================================================
+
 async function getLessonMaxim() {
     const apiKey = getLessonGeminiApiKey();
-    if (!apiKey) return alert('Configura Gemini per veure màximes.');
+    if (!apiKey) {
+        showLessonMessage('Configura Gemini per veure màximes.', 'warning');
+        return;
+    }
 
-    $('#lesson-maxim-output').html('<span style="opacity:0.5">Meditant màxima...</span>');
+    $('#btn-lesson-maxim').prop('disabled', true);
+    $('#lesson-status').html('<span style="opacity:0.5">Meditant màxima...</span>');
 
     const prompt = `Ets un mestre d'escacs expert en l'estratègia de "L'Art de la Guerra" de Sun Tzu.
 Donada la posició actual en FEN: ${lessonGame.fen()}
+I el número de moviments jugats: ${lessonGame.history().length}
 Genera una màxima breu (màxim 2 línies) inspirada en Sun Tzu que ajudi el jugador a plantejar el següent moviment en aquesta obertura.
 Escriu només la màxima en català.`;
 
@@ -586,9 +870,11 @@ Escriu només la màxima en català.`;
         });
         const data = await response.json();
         const text = data?.candidates?.[0]?.content?.parts?.[0]?.text || "L'oportunitat es troba en el mig de les dificultats.";
-        $('#lesson-maxim-output').text(`"${text.trim()}"`);
+        $('#lesson-status').text(`"${text.trim()}"`);
     } catch (e) {
-        $('#lesson-maxim-output').text('El general que guanya la batalla fa molts càlculs abans de lluitar.');
+        $('#lesson-status').text('El general que guanya la batalla fa molts càlculs abans de lluitar.');
+    } finally {
+        $('#btn-lesson-maxim').prop('disabled', false);
     }
 }
 
