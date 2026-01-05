@@ -5265,6 +5265,16 @@ function getOpeningPrecisionColor(pct) {
     return 'var(--severity-high)';
 }
 
+function openOpeningErrorFromStats(moveNum, color, errors) {
+    if (!errors || errors.length === 0) return;
+
+    const error = errors[Math.floor(Math.random() * errors.length)];
+    currentOpeningError = error;
+    isOpeningErrorSession = true;
+
+    startOpeningErrorReview(error);
+}
+
 function renderOpeningStats() {
     const stats = getOpeningStats();
     const tbody = document.getElementById('opening-stats-body');
@@ -5293,6 +5303,9 @@ function renderOpeningStats() {
             const errSpan = document.createElement('span');
             errSpan.className = 'opening-error-count';
             errSpan.textContent = whiteStat.errorCount;
+            errSpan.dataset.move = i + 1;
+            errSpan.dataset.color = 'w';
+            errSpan.onclick = () => openOpeningErrorFromStats(i + 1, 'w', whiteStat.errors);
             whiteErrCell.appendChild(errSpan);
         } else {
             const zeroSpan = document.createElement('span');
@@ -5312,6 +5325,9 @@ function renderOpeningStats() {
             const errSpan = document.createElement('span');
             errSpan.className = 'opening-error-count';
             errSpan.textContent = blackStat.errorCount;
+            errSpan.dataset.move = i + 1;
+            errSpan.dataset.color = 'b';
+            errSpan.onclick = () => openOpeningErrorFromStats(i + 1, 'b', blackStat.errors);
             blackErrCell.appendChild(errSpan);
         } else {
             const zeroSpan = document.createElement('span');
@@ -5325,6 +5341,175 @@ function renderOpeningStats() {
     }
 }
 
+function initOpeningErrorBoard() {
+    const boardEl = document.getElementById('opening-error-board');
+    if (!boardEl) return;
+
+    if (openingErrorBoard) {
+        openingErrorBoard.destroy();
+    }
+
+    openingErrorGame = new Chess();
+
+    const config = {
+        draggable: true,
+        position: 'start',
+        pieceTheme: 'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/img/chesspieces/wikipedia/{piece}.png',
+        onDragStart: onOpeningErrorDragStart,
+        onDrop: onOpeningErrorDrop,
+        onSnapEnd: onOpeningErrorSnapEnd
+    };
+
+    openingErrorBoard = Chessboard('opening-error-board', config);
+}
+
+function onOpeningErrorDragStart(source, piece) {
+    if (!openingErrorGame || openingErrorGame.game_over()) return false;
+    if (!isOpeningErrorSession) return false;
+
+    const turn = openingErrorGame.turn();
+    if ((turn === 'w' && piece.search(/^b/) !== -1) ||
+        (turn === 'b' && piece.search(/^w/) !== -1)) {
+        return false;
+    }
+    return true;
+}
+
+function onOpeningErrorDrop(source, target) {
+    if (!openingErrorGame) return 'snapback';
+
+    const move = openingErrorGame.move({
+        from: source,
+        to: target,
+        promotion: 'q'
+    });
+
+    if (move === null) return 'snapback';
+
+    const playerMoveUci = move.from + move.to + (move.promotion || '');
+
+    if (openingBundleSequence) {
+        const currentStep = openingBundleStep === 1 ? openingBundleSequence.step1 : openingBundleSequence.step2;
+        const expectedMove = currentStep.playerMove;
+
+        let isCorrect = playerMoveUci === expectedMove;
+        if (!isCorrect && bundleAcceptMode === 'top2' && currentStep.alternatives && currentStep.alternatives[0]) {
+            isCorrect = playerMoveUci === currentStep.alternatives[0].move;
+        }
+
+        if (isCorrect) {
+            if (openingBundleStep === 1 && openingBundleSequence.step2) {
+                openingBundleStep = 2;
+                $('#opening-error-status').text('Correcte! Ara la resposta de l\'oponent...');
+
+                setTimeout(() => {
+                    const oppMove = openingBundleSequence.opponentMove.move;
+                    openingErrorGame.move({
+                        from: oppMove.slice(0, 2),
+                        to: oppMove.slice(2, 4),
+                        promotion: oppMove.length > 4 ? oppMove[4] : undefined
+                    });
+                    openingErrorBoard.position(openingErrorGame.fen());
+                    $('#opening-error-status').text('Troba la segona millor jugada!');
+                }, 800);
+            } else {
+                handleOpeningErrorSuccess();
+            }
+        } else {
+            openingErrorGame.undo();
+            $('#opening-error-status').text('Incorrecte! Prova una altra vegada.').css('color', 'var(--severity-high)');
+            setTimeout(() => {
+                $('#opening-error-status').css('color', '');
+            }, 1500);
+            return 'snapback';
+        }
+    }
+
+    return undefined;
+}
+
+function onOpeningErrorSnapEnd() {
+    if (openingErrorBoard && openingErrorGame) {
+        openingErrorBoard.position(openingErrorGame.fen());
+    }
+}
+
+async function startOpeningErrorReview(error) {
+    if (!error || !error.fen) return;
+
+    initOpeningErrorBoard();
+
+    openingErrorGame = new Chess(error.fen);
+    openingErrorBoard.position(error.fen);
+
+    const orientation = error.color === 'b' ? 'black' : 'white';
+    openingErrorBoard.orientation(orientation);
+
+    $('#opening-error-status').text('Preparant exercici...');
+
+    if (!stockfish && !ensureStockfish()) {
+        $('#opening-error-status').text('Motor Stockfish no disponible');
+        return;
+    }
+
+    openingBundleSequence = await prepareBundleSequence(error.fen);
+    openingBundleStep = 1;
+
+    if (openingBundleSequence) {
+        $('#opening-error-status').text(`Moviment ${error.moveNumber} · Troba la millor jugada!`);
+    } else {
+        $('#opening-error-status').text('Error preparant exercici. Prova un altre.');
+    }
+}
+
+function handleOpeningErrorSuccess() {
+    $('#opening-error-success-overlay').show();
+}
+
+function loadRandomOpeningError() {
+    const stats = getOpeningStats();
+    const allErrors = [];
+
+    ['white', 'black'].forEach((color) => {
+        stats[color].forEach((stat) => {
+            stat.errors.forEach((err) => {
+                if ((err.swing || 0) > 50) {
+                    allErrors.push(err);
+                }
+            });
+        });
+    });
+
+    if (allErrors.length === 0) {
+        $('#opening-error-status').text('No hi ha errors d\'obertura per revisar.');
+        return;
+    }
+
+    const randomError = allErrors[Math.floor(Math.random() * allErrors.length)];
+    currentOpeningError = randomError;
+    isOpeningErrorSession = true;
+    startOpeningErrorReview(randomError);
+}
+
+function requestOpeningErrorHint() {
+    if (!currentOpeningError || !openingBundleSequence) {
+        $('#opening-error-status').text('No hi ha cap error actiu');
+        return;
+    }
+
+    const currentStep = openingBundleStep === 1 ? openingBundleSequence.step1 : openingBundleSequence.step2;
+    const bestMove = currentStep.playerMove;
+    const from = bestMove.slice(0, 2);
+
+    $(`#opening-error-board .square-55d63[data-square='${from}']`).addClass('highlight-hint');
+
+    setTimeout(() => {
+        $(`#opening-error-board .square-55d63`).removeClass('highlight-hint');
+    }, 3000);
+
+    $('#opening-error-status').text('Pista: mou la peça ressaltada!');
+}
+
 function showOpeningScreen() {
     $('#start-screen').hide();
     $('#game-screen').hide();
@@ -5335,6 +5520,7 @@ function showOpeningScreen() {
     $('#opening-screen').show();
 
     renderOpeningStats();
+    initOpeningErrorBoard();
 }
 
 function setupEvents() {
@@ -5361,6 +5547,26 @@ function setupEvents() {
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-back-opening').click(() => { $('#opening-screen').hide(); $('#start-screen').show(); });
+    $('#btn-opening-hint').click(() => { requestOpeningErrorHint(); });
+    $('#btn-opening-random').click(() => { loadRandomOpeningError(); });
+    $('#btn-opening-back-list').click(() => {
+        isOpeningErrorSession = false;
+        currentOpeningError = null;
+        openingBundleSequence = null;
+        $('#opening-error-status').text('Selecciona un error del llistat');
+        initOpeningErrorBoard();
+    });
+    $('#btn-opening-error-another').click(() => {
+        $('#opening-error-success-overlay').hide();
+        loadRandomOpeningError();
+    });
+    $('#btn-opening-error-back').click(() => {
+        $('#opening-error-success-overlay').hide();
+        isOpeningErrorSession = false;
+        currentOpeningError = null;
+        initOpeningErrorBoard();
+        $('#opening-error-status').text('Selecciona un error del llistat');
+    });
 
     $('#btn-reset-league').click(() => {
         if (!guardCalibrationAccess()) return;
