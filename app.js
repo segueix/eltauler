@@ -5260,6 +5260,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     };
     gameHistory.push(entry);
     if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
+    if (typeof analyzeLastOpenings === 'function') {
+        analyzeLastOpenings();
+    }
     // Bloc de neteja de reviews eliminat
 }
 
@@ -5309,11 +5312,10 @@ function setupEvents() {
         $('#game-screen').hide();
         $('#start-screen').hide();
         $('#lesson-screen').show();
-        if (typeof showStoredLessonReview === 'function') {
-            showStoredLessonReview();
+        if (typeof analyzeLastOpenings === 'function') {
+            analyzeLastOpenings();
         }
     });
-    $('#btn-analyze-openings').click(() => { analyzeLastOpenings(); });
     $('#btn-back-lesson').click(() => { $('#lesson-screen').hide(); $('#start-screen').show(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
