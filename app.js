@@ -23,6 +23,9 @@ let isMatchErrorReviewSession = false;
 let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
 let openingBundleBoard = null;
+let openingPracticeGame = null;
+let openingPracticeMoveCount = 0;
+const OPENING_PRACTICE_MAX_PLIES = 20;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -5250,12 +5253,63 @@ function initOpeningBundleBoard() {
     if (openingBundleBoard) return;
     const boardEl = document.getElementById('bundle-board');
     if (!boardEl) return;
+    openingPracticeGame = new Chess();
+    openingPracticeMoveCount = 0;
     openingBundleBoard = Chessboard('bundle-board', {
-        draggable: false,
+        draggable: true,
         position: 'start',
+        onDragStart: (source, piece) => {
+            if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
+            if (openingPracticeGame.turn() === 'w' && piece.search(/^b/) !== -1) return false;
+            if (openingPracticeGame.turn() === 'b' && piece.search(/^w/) !== -1) return false;
+        },
+        onDrop: (source, target) => {
+            if (!openingPracticeGame) return 'snapback';
+            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
+            const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
+            if (!move) return 'snapback';
+            openingPracticeMoveCount += 1;
+            updateOpeningPracticeStatus();
+        },
+        onSnapEnd: () => {
+            if (!openingPracticeGame) return;
+            openingBundleBoard.position(openingPracticeGame.fen());
+        },
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     });
+    updateOpeningPracticeStatus();
     if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+}
+
+function updateOpeningPracticeStatus() {
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl) return;
+    const remaining = Math.max(OPENING_PRACTICE_MAX_PLIES - openingPracticeMoveCount, 0);
+    if (!openingPracticeGame) {
+        noteEl.textContent = 'Preparat per practicar.';
+        return;
+    }
+    if (openingPracticeGame.game_over()) {
+        noteEl.textContent = 'Partida finalitzada.';
+        return;
+    }
+    if (remaining === 0) {
+        noteEl.textContent = 'Límit assolit: 10 moviments per bàndol.';
+        return;
+    }
+    const remainingFullMoves = Math.ceil(remaining / 2);
+    noteEl.textContent = `Moviments restants: ${remainingFullMoves} per bàndol.`;
+}
+
+function resetOpeningPracticeBoard() {
+    openingPracticeGame = new Chess();
+    openingPracticeMoveCount = 0;
+    if (openingBundleBoard) {
+        openingBundleBoard.position('start');
+        if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+    }
+    updateOpeningPracticeStatus();
 }
 
 function checkShareSupport() {
@@ -5300,6 +5354,7 @@ function setupEvents() {
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
         initOpeningBundleBoard();
+        resetOpeningPracticeBoard();
         $('#start-screen').hide();
         $('#opening-screen').show();
     });
