@@ -1909,25 +1909,51 @@
                     <button class="btn btn-primary" id="btn-generate-lesson-review">⚔️ Ressenya d'obertures</button>
                     <div class="lesson-gemini-review" id="lesson-gemini-review" style="display:none;"></div>
                 </div>
-                <div id="lesson-practice-area" class="lesson-practice-area">
-                    <h3 class="lesson-practice-title">🛡️ Pràctica d'Obertures (5 mov.)</h3>
+               <div id="lesson-practice-area" class="lesson-practice-area" style="display:none;">
+                    <!-- Capçalera igual que game-screen -->
+                    <div class="header lesson-header">
+                        <div class="header-title" id="lesson-mode-title">🛡️ Pràctica d'Estratègia</div>
+                        <div class="game-info">
+                            <div>Moviments: <span id="lesson-move-count" style="color:var(--accent-gold); font-weight:bold;">0</span>/10</div>
+                            <div>Mode: <span id="lesson-practice-mode" style="color:var(--accent-purple); font-weight:bold;">Lliure</span></div>
+                        </div>
+                 </div>
+    
+                <!-- Barra de status igual que precision-panel -->
+                <div class="precision-panel lesson-precision-panel">
+                    <div class="precision-stat">
+                        <div class="precision-label">Torn</div>
+                        <div class="precision-value" id="lesson-turn">Blanques</div>
+                    </div>
+                    <div class="precision-bar-container">
+                        <div class="precision-bar" id="lesson-progress-bar" style="width: 0%;"></div>
+                        </div>
+                        <div class="precision-stat">
+                            <div class="precision-label">Progrés</div>
+                            <div class="precision-value" id="lesson-progress-text">0%</div>
+                        </div>
+                    </div>
+
+                    <!-- Contenidor del tauler igual que game-screen -->
                     <div class="board-container lesson-board-container">
                         <div id="lessonBoard"></div>
                     </div>
-                    <div class="controls lesson-controls">
-                        <div class="status-message" id="lesson-maxim-output"></div>
-                        <div class="game-buttons">
-                            <button class="btn btn-hint" id="btn-lesson-hint" title="Demanar pista">💡 Pista</button>
-                            <button class="btn btn-brain-hint" id="btn-lesson-maxim" title="Màxima amb Gemini" style="display:none;">
-                                <img src="brain.svg" alt="Cervell">
-                                <span>Màxima</span>
-                            </button>
-                            <button class="btn btn-secondary" id="btn-back-lesson">Menú</button>
-                        </div>
-                    </div>
-                </div>
+    
+    <!-- Controls iguals que game-screen -->
+    <div class="controls lesson-controls">
+        <div class="status-message" id="lesson-status">Practica les teves obertures!</div>
+        <div class="game-buttons">
+            <button id="btn-lesson-hint" class="btn btn-hint" title="Demanar pista">💡 Pista</button>
+            <button id="btn-lesson-maxim" class="btn btn-brain-hint" title="Màxima amb Gemini">
+                <img src="brain.svg" alt="Cervell">
+                <span>Màxima</span>
+            </button>
+            <button id="btn-lesson-reset" class="btn btn-secondary">🔄 Reiniciar</button>
+            <button class="btn btn-secondary" id="btn-back-lesson-practice">Tornar</button>
             </div>
         </div>
+    </div>
+</div>
    
         <div id="history-screen" style="display:none;">
             <div class="stats-header">
