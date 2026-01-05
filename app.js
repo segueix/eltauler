@@ -5351,6 +5351,8 @@ function initOpeningErrorBoard() {
 
     openingErrorGame = new Chess();
 
+    $('#opening-error-gemini-hint').removeClass('visible').text('');
+
     const config = {
         draggable: true,
         position: 'start',
@@ -5361,6 +5363,12 @@ function initOpeningErrorBoard() {
     };
 
     openingErrorBoard = Chessboard('opening-error-board', config);
+
+    setTimeout(() => {
+        if (openingErrorBoard && typeof openingErrorBoard.resize === 'function') {
+            openingErrorBoard.resize();
+        }
+    }, 50);
 }
 
 function onOpeningErrorDragStart(source, piece) {
@@ -5522,6 +5530,8 @@ function initOpeningPracticeBoard() {
     openingPracticeHistory = [];
     openingPracticeMoveCount = 0;
 
+    $('#opening-practice-gemini-hint').removeClass('visible').text('');
+
     const config = {
         draggable: true,
         position: 'start',
@@ -5538,6 +5548,12 @@ function initOpeningPracticeBoard() {
     openingPracticeBoard.orientation(color === 'b' ? 'black' : 'white');
 
     updateOpeningPracticeProgress();
+
+    setTimeout(() => {
+        if (openingPracticeBoard && typeof openingPracticeBoard.resize === 'function') {
+            openingPracticeBoard.resize();
+        }
+    }, 50);
 }
 
 function onOpeningPracticeDragStart(source, piece) {
@@ -5799,7 +5815,8 @@ Utilitza metàfores militars medievals. NO donis la solució directament, només
         const hint = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Pensa en el centre i el desenvolupament.';
 
         lastOpeningGeminiHint = hint;
-        $('#opening-error-status').text(`💭 "${hint}"`);
+        $('#opening-error-gemini-hint').text(hint).addClass('visible');
+        $('#opening-error-status').text('Troba la millor jugada!');
     } catch (error) {
         $('#opening-error-status').text('Error generant màxima');
     }
@@ -5815,12 +5832,15 @@ function showOpeningScreen() {
     $('#opening-screen').show();
 
     renderOpeningStats();
-    initOpeningErrorBoard();
-    initOpeningPracticeBoard();
-
-    if (openingPracticeColor === 'b') {
-        setTimeout(makeOpeningPracticeEngineMove, 500);
-    }
+    
+    setTimeout(() => {
+        initOpeningErrorBoard();
+        initOpeningPracticeBoard();
+        
+        if (openingPracticeColor === 'b') {
+            setTimeout(makeOpeningPracticeEngineMove, 500);
+        }
+    }, 100);
 }
 
 function setupEvents() {
@@ -5930,7 +5950,8 @@ function setupEvents() {
             });
             const data = await response.json();
             const hint = data.candidates?.[0]?.content?.parts?.[0]?.text || 'Controla el centre!';
-            $('#opening-practice-status').text(`💭 "${hint}"`);
+            $('#opening-practice-gemini-hint').text(hint).addClass('visible');
+            $('#opening-practice-status').text('El teu torn');
         } catch (e) {
             $('#opening-practice-status').text('Error generant màxima');
         }

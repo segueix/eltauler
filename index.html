@@ -1700,20 +1700,50 @@
             margin-bottom: 12px;
         }
         .opening-board-container {
-            max-width: 350px;
-            margin: 0 auto;
+            width: 100%;
+            max-width: 300px;
+            margin: 0 auto 12px;
+            position: relative;
         }
         #opening-error-board, #opening-practice-board {
-            width: 100%;
+            width: 300px !important;
+            height: 300px !important;
         }
         .opening-controls {
             margin-top: 12px;
             text-align: center;
         }
         .opening-status {
-            color: var(--text-secondary);
+            color: var(--text-primary);
             margin-bottom: 8px;
             font-size: 0.95rem;
+            min-height: 24px;
+            line-height: 1.5;
+            text-align: center;
+        }
+        .opening-gemini-hint {
+            background: linear-gradient(135deg, rgba(94, 53, 177, 0.2), rgba(69, 39, 160, 0.3));
+            border: 1px solid rgba(94, 53, 177, 0.4);
+            border-radius: 12px;
+            padding: 12px 14px;
+            margin: 10px auto;
+            max-width: 320px;
+            color: var(--text-primary);
+            font-size: 0.92rem;
+            line-height: 1.6;
+            font-style: italic;
+            text-align: center;
+            display: none;
+        }
+        .opening-gemini-hint.visible {
+            display: block;
+        }
+        .opening-gemini-hint::before {
+            content: '💭 ';
+        }
+        body.epaper-mode .opening-gemini-hint {
+            background: #e0e0e0;
+            border-color: #bbb;
         }
         .opening-progress {
             color: var(--accent-gold);
@@ -1734,16 +1764,24 @@
             justify-content: center;
         }
         .opening-masterclass-content {
-            background: rgba(0,0,0,0.2);
-            padding: 14px;
-            border-radius: 10px;
-            margin-top: 12px;
+            background: linear-gradient(135deg, rgba(94, 53, 177, 0.15), rgba(45, 36, 28, 0.9));
+            border: 1px solid rgba(94, 53, 177, 0.3);
+            padding: 16px;
+            border-radius: 12px;
+            margin-top: 14px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
         }
         .opening-masterclass-text {
             color: var(--text-primary);
-            font-size: 0.95rem;
-            line-height: 1.6;
+            font-size: 0.93rem;
+            line-height: 1.7;
             white-space: pre-wrap;
+            text-align: left;
+        }
+        body.epaper-mode .opening-masterclass-content {
+            background: #e6e6e6;
+            border-color: #bbb;
+            box-shadow: none;
         }
         .opening-error-success-overlay {
             position: absolute;
@@ -1754,6 +1792,36 @@
             justify-content: center;
             border-radius: 14px;
             z-index: 10;
+        }
+        /* Responsive obertures */
+        body.device-mobile .opening-board-container {
+            max-width: 280px;
+        }
+        body.device-mobile #opening-error-board,
+        body.device-mobile #opening-practice-board {
+            width: 280px !important;
+            height: 280px !important;
+        }
+        body.device-mobile .opening-gemini-hint {
+            font-size: 0.88rem;
+            padding: 10px 12px;
+            max-width: 290px;
+        }
+        body.device-tablet .opening-board-container {
+            max-width: 350px;
+        }
+        body.device-tablet #opening-error-board,
+        body.device-tablet #opening-practice-board {
+            width: 350px !important;
+            height: 350px !important;
+        }
+        body.device-desktop .opening-board-container {
+            max-width: 400px;
+        }
+        body.device-desktop #opening-error-board,
+        body.device-desktop #opening-practice-board {
+            width: 400px !important;
+            height: 400px !important;
         }
         body.epaper-mode .opening-stats-section,
         body.epaper-mode .opening-practice-section {
@@ -2148,6 +2216,7 @@
                 </div>
                 <div class="opening-controls">
                     <div class="opening-status" id="opening-error-status">Selecciona un error del llistat</div>
+                    <div class="opening-gemini-hint" id="opening-error-gemini-hint"></div>
                     <div class="opening-buttons">
                         <button class="btn btn-hint" id="btn-opening-hint">💡 Pista</button>
                         <button class="btn btn-brain-hint" id="btn-opening-gemini-hint">
@@ -2184,6 +2253,7 @@
                 </div>
                 <div class="opening-controls">
                     <div class="opening-status" id="opening-practice-status">Preparat per practicar</div>
+                    <div class="opening-gemini-hint" id="opening-practice-gemini-hint"></div>
                     <div class="opening-progress" id="opening-practice-progress">Moviment 0/10</div>
                     <div class="opening-buttons">
                         <button class="btn btn-hint" id="btn-opening-practice-hint">💡 Pista</button>
