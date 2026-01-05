@@ -2235,6 +2235,21 @@ function updateBundleHintButtons() {
     hintBtn.disabled = !visible || !stockfish || isAnalyzingHint;
 }
 
+function updateLessonHintButtons() {
+    const brainBtn = document.getElementById('btn-lesson-maxim');
+    const hintBtn = document.getElementById('btn-lesson-hint');
+    if (!brainBtn || !hintBtn) return;
+    
+    const lessonActive = typeof lessonPracticeActive !== 'undefined' && lessonPracticeActive;
+    const visible = lessonActive && lessonMoveCount < 10; // 5 mov per color = 10 plies
+    
+    brainBtn.style.display = visible ? 'inline-flex' : 'none';
+    hintBtn.style.display = visible ? 'inline-flex' : 'none';
+    
+    brainBtn.disabled = !visible || !geminiApiKey;
+    hintBtn.disabled = !visible || !stockfish || isAnalyzingHint;
+}
+
 function saveGeminiApiKey(rawKey) {
     const key = (rawKey || '').trim();
     if (!key) return false;
