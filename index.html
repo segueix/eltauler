@@ -597,6 +597,13 @@
             gap: 8px;
             text-align: left;
         }
+        .opening-stats-container {
+            margin-top: 10px;
+            display: none;
+        }
+        .opening-stats-container.is-visible {
+            display: block;
+        }
         .opening-stats-header {
             display: grid;
             grid-template-columns: 1.1fr 1fr 1fr;
@@ -1751,6 +1758,10 @@
                     <div class="opening-section-title">Secció d'obertura</div>
                     <div class="opening-section-desc">Explora idees bàsiques per començar la partida.</div>
                     <button class="btn btn-opening" id="btn-opening">OBERTURA</button>
+                    <div class="opening-stats-container" id="opening-stats-container">
+                        <div class="opening-stats" id="opening-stats-list"></div>
+                        <div class="opening-stats-note" id="opening-stats-note">—</div>
+                    </div>
                 </div>
                 <button class="btn btn-secondary" id="btn-bundle-menu" style="background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc;">
                     📚 Revisa Errors
@@ -2003,14 +2014,6 @@
             </div>
         </div>
 
-        <div class="modal-overlay" id="opening-modal">
-            <div class="modal-content">
-                <div class="modal-title">📖 Obertures (darreres 10)</div>
-                <div class="opening-stats" id="opening-stats-list"></div>
-                <div class="opening-stats-note" id="opening-stats-note">—</div>
-                <button class="close-modal" id="btn-opening-close">Tancar</button>
-            </div>
-        </div>
         
         <div id="league-screen" style="display:none;">
             <div class="stats-header">
