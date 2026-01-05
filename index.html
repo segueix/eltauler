@@ -597,13 +597,6 @@
             gap: 8px;
             text-align: left;
         }
-        .opening-stats-container {
-            margin-top: 10px;
-            display: none;
-        }
-        .opening-stats-container.is-visible {
-            display: block;
-        }
         .opening-stats-header {
             display: grid;
             grid-template-columns: 1.1fr 1fr 1fr;
@@ -1758,10 +1751,6 @@
                     <div class="opening-section-title">Secció d'obertura</div>
                     <div class="opening-section-desc">Explora idees bàsiques per començar la partida.</div>
                     <button class="btn btn-opening" id="btn-opening">OBERTURA</button>
-                    <div class="opening-stats-container" id="opening-stats-container">
-                        <div class="opening-stats" id="opening-stats-list"></div>
-                        <div class="opening-stats-note" id="opening-stats-note">—</div>
-                    </div>
                 </div>
                 <button class="btn btn-secondary" id="btn-bundle-menu" style="background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc;">
                     📚 Revisa Errors
@@ -2049,6 +2038,22 @@
                 <button class="btn btn-primary" id="btn-league-play">Jugar</button>
                 <button class="btn btn-secondary" id="btn-league-new" style="display:none;">Generar nova lliga</button>
                 <button class="btn btn-secondary" id="btn-back-league">Tornar al Menú</button>
+            </div>
+        </div>
+
+        <div id="opening-screen" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">📖</div>
+                <h1>Obertures</h1>
+            </div>
+            <div class="opening-section">
+                <div class="opening-section-title">Moviments 1-10 (darreres 10 partides)</div>
+                <div class="opening-section-desc">Mitja de correcció i moviments per sota del 75%.</div>
+                <div class="opening-stats" id="opening-stats-list"></div>
+                <div class="opening-stats-note" id="opening-stats-note">—</div>
+            </div>
+            <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-primary" id="btn-back-opening">Menú</button>
             </div>
         </div>
 

@@ -5209,7 +5209,7 @@ function buildOpeningMoveStats() {
     return { stats, totalEntries: recentEntries.length };
 }
 
-function renderOpeningStatsInline() {
+function renderOpeningStatsScreen() {
     const listEl = $('#opening-stats-list');
     const noteEl = $('#opening-stats-note');
     if (!listEl.length) return;
@@ -5285,8 +5285,13 @@ function setupEvents() {
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-opening').click(() => {
-        renderOpeningStatsInline();
-        $('#opening-stats-container').toggleClass('is-visible');
+        renderOpeningStatsScreen();
+        $('#start-screen').hide();
+        $('#opening-screen').show();
+    });
+    $('#btn-back-opening').click(() => {
+        $('#opening-screen').hide();
+        $('#start-screen').show();
     });
 
     $('#btn-reset-league').click(() => {
