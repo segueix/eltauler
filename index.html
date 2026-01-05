@@ -633,6 +633,22 @@
             font-size: 0.85rem;
             text-align: center;
         }
+        .opening-bundle-board {
+            margin-top: 14px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 12px;
+            padding: 10px;
+            border: 1px solid rgba(201, 162, 39, 0.12);
+        }
+        body.epaper-mode .opening-bundle-board {
+            background: #efefef;
+            border: 1px solid #cfcfcf;
+        }
+        #bundle-board {
+            width: 100%;
+            max-width: 360px;
+            margin: 0 auto;
+        }
         
         body.device-tablet .menu-buttons,
         body.device-desktop .menu-buttons {
@@ -2051,6 +2067,22 @@
                 <div class="opening-section-desc">Mitja de correcció i moviments per sota del 75%.</div>
                 <div class="opening-stats" id="opening-stats-list"></div>
                 <div class="opening-stats-note" id="opening-stats-note">—</div>
+            </div>
+            <div class="opening-section">
+                <div class="opening-section-title">Tauler Bundle</div>
+                <div class="opening-section-desc">Resol errors i practica amb pistes i màximes.</div>
+                <div class="opening-bundle-board">
+                    <div id="bundle-board"></div>
+                </div>
+                <div class="game-buttons" style="margin-top:12px;">
+                    <button class="btn btn-hint" id="btn-opening-bundle-hint">💡 Pista</button>
+                    <button class="btn btn-brain-hint" id="btn-opening-bundle-maxim">
+                        <img src="brain.svg" alt="Cervell">
+                        <span>Màxima</span>
+                    </button>
+                    <button class="btn btn-secondary" id="btn-opening-bundle-menu">Menú</button>
+                    <button class="btn btn-primary" id="btn-opening-bundle-resign">Rendir-se</button>
+                </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-back-opening">Menú</button>

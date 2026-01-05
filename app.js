@@ -22,6 +22,7 @@ let currentMatchError = null;
 let isMatchErrorReviewSession = false;
 let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
+let openingBundleBoard = null;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -5245,6 +5246,18 @@ function renderOpeningStatsScreen() {
     }
 }
 
+function initOpeningBundleBoard() {
+    if (openingBundleBoard) return;
+    const boardEl = document.getElementById('bundle-board');
+    if (!boardEl) return;
+    openingBundleBoard = Chessboard('bundle-board', {
+        draggable: false,
+        position: 'start',
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+    if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+}
+
 function checkShareSupport() {
     if ((navigator.canShare && navigator.share) || supportsDirectoryPicker()) $('#btn-smart-share').show();
 }
@@ -5286,12 +5299,26 @@ function setupEvents() {
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
+        initOpeningBundleBoard();
         $('#start-screen').hide();
         $('#opening-screen').show();
     });
     $('#btn-back-opening').click(() => {
         $('#opening-screen').hide();
         $('#start-screen').show();
+    });
+    $('#btn-opening-bundle-menu').click(() => {
+        $('#opening-screen').hide();
+        $('#start-screen').show();
+    });
+    $('#btn-opening-bundle-hint').click(() => {
+        alert('La pista del tauler bundle s’activarà més endavant.');
+    });
+    $('#btn-opening-bundle-maxim').click(() => {
+        alert('La màxima del tauler bundle s’activarà més endavant.');
+    });
+    $('#btn-opening-bundle-resign').click(() => {
+        alert('Rendir-se al tauler bundle s’activarà més endavant.');
     });
 
     $('#btn-reset-league').click(() => {
