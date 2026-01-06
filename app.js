@@ -27,6 +27,7 @@ let openingPracticeGame = null;
 let openingPracticeMoveCount = 0;
 const OPENING_PRACTICE_MAX_PLIES = 20;
 let openingPracticeEngineThinking = false;
+let openingPracticeHintPending = false;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -5269,6 +5270,7 @@ function initOpeningBundleBoard() {
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
+            $('#opening-board .square-55d63').removeClass('highlight-hint');
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
             if (!move) return 'snapback';
             openingPracticeMoveCount += 1;
@@ -5313,10 +5315,12 @@ function resetOpeningPracticeBoard() {
     openingPracticeGame = new Chess();
     openingPracticeMoveCount = 0;
     openingPracticeEngineThinking = false;
+    openingPracticeHintPending = false;
     if (openingBundleBoard) {
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
     }
+    $('#opening-board .square-55d63').removeClass('highlight-hint');
     updateOpeningPracticeStatus();
 }
 
@@ -5325,6 +5329,22 @@ function requestOpeningPracticeEngineMove() {
     if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
     if (!stockfish && !ensureStockfish()) return;
     openingPracticeEngineThinking = true;
+    try { stockfish.postMessage('setoption name UCI_LimitStrength value false'); } catch (e) {}
+    try { stockfish.postMessage('setoption name Skill Level value 20'); } catch (e) {}
+    try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+    stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
+    stockfish.postMessage('go depth 12');
+}
+
+function requestOpeningPracticeHint() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return;
+    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
+    if (openingPracticeEngineThinking || openingPracticeHintPending) return;
+    if (!stockfish && !ensureStockfish()) return;
+    openingPracticeHintPending = true;
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) noteEl.textContent = 'Buscant pista...';
+    $('#opening-board .square-55d63').removeClass('highlight-hint');
     try { stockfish.postMessage('setoption name UCI_LimitStrength value false'); } catch (e) {}
     try { stockfish.postMessage('setoption name Skill Level value 20'); } catch (e) {}
     try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
@@ -5390,7 +5410,7 @@ function setupEvents() {
         $('#start-screen').show();
     });
     $('#btn-opening-bundle-hint').click(() => {
-        alert('La pista del tauler bundle s’activarà més endavant.');
+        requestOpeningPracticeHint();
     });
     $('#btn-opening-bundle-maxim').click(() => {
         alert('La màxima del tauler bundle s’activarà més endavant.');
@@ -6277,6 +6297,7 @@ function handleEngineMessage(rawMsg) {
             const promotion = match[3] || 'q';
             setTimeout(() => {
                 if (!openingPracticeGame) return;
+                $('#opening-board .square-55d63').removeClass('highlight-hint');
                 const move = openingPracticeGame.move({
                     from,
                     to,
@@ -6294,6 +6315,18 @@ function handleEngineMessage(rawMsg) {
         } else {
             openingPracticeEngineThinking = false;
         }
+        return;
+    }
+
+    if (openingPracticeHintPending && msg.indexOf('bestmove') !== -1) {
+        openingPracticeHintPending = false;
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])/);
+        if (match) {
+            const to = match[2];
+            $('#opening-board .square-55d63').removeClass('highlight-hint');
+            $(`#opening-board .square-55d63[data-square='${to}']`).addClass('highlight-hint');
+        }
+        updateOpeningPracticeStatus();
         return;
     }
 
