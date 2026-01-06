@@ -27,6 +27,8 @@ let openingPracticeGame = null;
 let openingPracticeMoveCount = 0;
 const OPENING_PRACTICE_MAX_PLIES = 20;
 let openingPracticeEngineThinking = false;
+let openingMaximPending = false;
+let lastOpeningMaxim = null;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -4114,6 +4116,137 @@ Màxima específica`;
     }
 }
 
+function buildOpeningMaximPromptLlull(fen, moveCount) {
+    const phase = moveCount <= 4 ? 'inicial' : moveCount <= 8 ? 'desenvolupament' : 'transició';
+
+    return `Ets un mestre cavaller d'escacs que parla com Ramon Llull al "Llibre de l'orde de cavalleria".
+
+POSICIÓ ACTUAL (FEN): ${fen}
+FASE DE L'OBERTURA: ${phase} (moviment ${moveCount} de 10)
+
+INSTRUCCIONS:
+Genera exactament 2 màximes d'escacs escrites en l'estil literari de Ramon Llull:
+- Usa llenguatge arcaic i solemne, amb paraules com "car", "per ço", "deveu", "honor", "virtut"
+- Les màximes han de ser consells sobre obertures d'escacs
+- Han de tenir un to de cavalleria medieval, comparant les peces amb cavallers i la partida amb una batalla noble
+- El to ha de ser sentenciós i filosòfic, com les màximes del Llibre de l'orde de cavalleria
+
+TEMES A CONSIDERAR SEGONS LA FASE:
+${phase === 'inicial' ? `
+- Control del centre com a conquesta del camp de batalla
+- Desenvolupament de peces com a preparació de l'host
+- La importància del primer moviment com a declaració d'intencions` : ''}
+${phase === 'desenvolupament' ? `
+- Coordinació de peces com a harmonia entre cavallers
+- L'enroc com a protecció del senyor (rei)
+- L'activitat de les peces menors com a avantguarda` : ''}
+${phase === 'transició' ? `
+- La connexió de torres com a unió de forces
+- La preparació per al mig joc com a estratègia abans de la batalla
+- L'ocupació de columnes obertes com a domini del terreny` : ''}
+
+REGLES IMPERATIVES:
+- Cada màxima entre 40-180 caràcters
+- Estil arcaic català medieval
+- NO revelar jugades concretes
+- NO usar emojis ni enumeracions
+- Només les màximes, res més
+
+EXEMPLES D'ESTIL (NO COPIAR, només per referència):
+"Car lo cavaller qui no guarda son rei al centre, no mereix honor en la batalla."
+"Per ço deveu moure los cavallers abans que els peons s'endolentin en llur quietud."
+"Virtut és del savi escaquista que l'enroc sia fet ans que l'enemic amenaci."
+
+Genera ara 2 màximes:`;
+}
+
+async function requestOpeningMaximLlull() {
+    if (!openingPracticeGame) return;
+    if (!geminiApiKey) {
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) {
+            noteEl.innerHTML = '<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px; line-height:1.5;">⚠️ Configura la clau de Gemini a Estadístiques → Configuració per utilitzar aquesta funció.</div>';
+        }
+        return;
+    }
+    if (openingMaximPending) return;
+
+    openingMaximPending = true;
+    const noteEl = document.getElementById('opening-practice-note');
+
+    if (noteEl) {
+        noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">📜 El mestre cavaller medita...</div>';
+    }
+
+    const fen = openingPracticeGame.fen();
+    const moveCount = openingPracticeMoveCount;
+    const prompt = buildOpeningMaximPromptLlull(fen, moveCount);
+
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: {
+                    temperature: 0.9,
+                    maxOutputTokens: 1500,
+                    topP: 0.95,
+                    topK: 40
+                }
+            })
+        });
+
+        if (!response.ok) {
+            const errorBody = await response.text();
+            console.error('[Gemini Llull] Error response:', response.status, errorBody);
+            throw new Error(`Gemini error ${response.status}: ${errorBody}`);
+        }
+
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+        if (!text) throw new Error('Resposta buida de Gemini');
+
+        const lines = text.split('\n').filter(l => l.trim() && l.trim().length >= 20);
+
+        if (lines.length === 0) {
+            throw new Error('Respostes massa curtes');
+        }
+
+        const MAX_CHARS = 400;
+        let remainingChars = MAX_CHARS;
+        const trimmedLines = [];
+        for (const line of lines.slice(0, 2)) {
+            if (remainingChars <= 0) break;
+            let trimmedLine = line.trim().replace(/^["«]|["»]$/g, '');
+            if (trimmedLine.length > remainingChars) {
+                trimmedLine = `${trimmedLine.slice(0, remainingChars - 1).trim()}…`;
+            }
+            trimmedLines.push(trimmedLine);
+            remainingChars -= trimmedLine.length;
+        }
+
+        let html = '<div style="padding:12px; background:rgba(139,69,19,0.15); border-left:3px solid #8b4513; border-radius:8px; line-height:1.7;">';
+        html += '<div style="font-weight:600; color:#c9a227; margin-bottom:8px; font-family:\'Cinzel\', serif;">📜 Màximes del Cavaller:</div>';
+        trimmedLines.forEach(line => {
+            html += `<div style="font-style:italic; margin:6px 0; color:var(--text-primary);">"${line}"</div>`;
+        });
+        html += '</div>';
+
+        lastOpeningMaxim = html;
+        if (noteEl) noteEl.innerHTML = html;
+    } catch (err) {
+        console.error('[Gemini Llull]', err);
+        if (noteEl) {
+            noteEl.innerHTML = '<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut consultar el mestre cavaller. Torna-ho a provar.</div>';
+        }
+    } finally {
+        openingMaximPending = false;
+    }
+}
+
 async function requestGeminiBundleHint() {
     if (!blunderMode || !currentBundleFen) return;
     if (!geminiApiKey) {
@@ -5313,6 +5446,8 @@ function resetOpeningPracticeBoard() {
     openingPracticeGame = new Chess();
     openingPracticeMoveCount = 0;
     openingPracticeEngineThinking = false;
+    openingMaximPending = false;
+    lastOpeningMaxim = null;
     if (openingBundleBoard) {
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
@@ -5393,7 +5528,7 @@ function setupEvents() {
         alert('La pista del tauler bundle s’activarà més endavant.');
     });
     $('#btn-opening-bundle-maxim').click(() => {
-        alert('La màxima del tauler bundle s’activarà més endavant.');
+        void requestOpeningMaximLlull();
     });
     $('#btn-opening-bundle-resign').click(() => {
         resetOpeningPracticeBoard();
