@@ -27,10 +27,6 @@ let openingPracticeGame = null;
 let openingPracticeMoveCount = 0;
 const OPENING_PRACTICE_MAX_PLIES = 20;
 let openingPracticeEngineThinking = false;
-let openingPracticeTapEnabled = false;
-let openingPracticeTapSelected = null;
-let openingPracticeLastTapTs = 0;
-let openingPracticeHinting = false;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -5254,7 +5250,13 @@ function renderOpeningStatsScreen() {
     }
 }
 
-openingBundleBoard = Chessboard('opening-board', {
+function initOpeningBundleBoard() {
+    if (openingBundleBoard) return;
+    const boardEl = document.getElementById('opening-board');
+    if (!boardEl) return;
+    openingPracticeGame = new Chess();
+    openingPracticeMoveCount = 0;
+    openingBundleBoard = Chessboard('opening-board', {
         draggable: true,
         position: 'start',
         onDragStart: (source, piece) => {
@@ -5267,7 +5269,6 @@ openingBundleBoard = Chessboard('opening-board', {
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
-            clearOpeningPracticeHint();
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
             if (!move) return 'snapback';
             openingPracticeMoveCount += 1;
@@ -5286,7 +5287,6 @@ openingBundleBoard = Chessboard('opening-board', {
     });
     updateOpeningPracticeStatus();
     if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
-    updateOpeningPracticeTapMode();
 }
 
 function updateOpeningPracticeStatus() {
@@ -5313,148 +5313,11 @@ function resetOpeningPracticeBoard() {
     openingPracticeGame = new Chess();
     openingPracticeMoveCount = 0;
     openingPracticeEngineThinking = false;
-    openingPracticeHinting = false;
-    clearOpeningPracticeHint();
-    clearOpeningPracticeTapSelection();
     if (openingBundleBoard) {
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
     }
     updateOpeningPracticeStatus();
-}
-
-function clearOpeningPracticeHint() {
-    $('#opening-board .square-55d63').removeClass('highlight-hint');
-}
-
-function highlightOpeningPracticeHint(square) {
-    clearOpeningPracticeHint();
-    if (!square) return;
-    $(`#opening-board .square-55d63[data-square='${square}']`).addClass('highlight-hint');
-}
-
-function clearOpeningPracticeTapSelection() {
-    openingPracticeTapSelected = null;
-    $('#opening-board .square-55d63').removeClass('tap-selected tap-move');
-}
-
-function highlightOpeningPracticeTapSelection(square) {
-    $('#opening-board .square-55d63').removeClass('tap-selected tap-move');
-    if (!square) return;
-    const sel = $(`#opening-board .square-55d63[data-square='${square}']`);
-    sel.addClass('tap-selected');
-    const moves = openingPracticeGame ? openingPracticeGame.moves({ square: square, verbose: true }) : [];
-    for (const mv of moves) {
-        $(`#opening-board .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
-    }
-}
-
-function openingPracticeOnTapMove(from, to) {
-    if (!openingPracticeGame) return false;
-    if (openingPracticeGame.game_over()) return false;
-    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
-    if (openingPracticeEngineThinking) return false;
-    
-    clearOpeningPracticeHint();
-    const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
-    if (!move) return false;
-    
-    openingPracticeMoveCount += 1;
-    openingBundleBoard.position(openingPracticeGame.fen());
-    updateOpeningPracticeStatus();
-    
-    if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
-        if (openingPracticeGame.turn() === 'b') {
-            requestOpeningPracticeEngineMove();
-        }
-    }
-    return true;
-}
-
-function enableOpeningPracticeTapToMove() {
-    if (openingPracticeTapEnabled) return;
-    openingPracticeTapEnabled = true;
-    const boardEl = document.getElementById('opening-board');
-    if (boardEl) boardEl.style.touchAction = 'none';
-
-    $('#opening-board').off('.openingtap')
-        .on('pointerdown.openingtap touchstart.openingtap', '.square-55d63', function(e) {
-            if (!openingPracticeGame || openingPracticeGame.game_over()) return;
-            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
-            if (openingPracticeEngineThinking) return;
-            if (openingPracticeGame.turn() !== 'w') return; // Només l'usuari juga blanques
-
-            if (e && e.preventDefault) e.preventDefault();
-
-            const nowTs = Date.now();
-            if (nowTs - openingPracticeLastTapTs < 180) return;
-            openingPracticeLastTapTs = nowTs;
-
-            const square = $(this).attr('data-square');
-            if (!square) return;
-
-            if (!openingPracticeTapSelected) {
-                const p = openingPracticeGame.get(square);
-                if (!p || p.color !== 'w') return;
-                openingPracticeTapSelected = square;
-                highlightOpeningPracticeTapSelection(square);
-                return;
-            }
-
-            if (square === openingPracticeTapSelected) {
-                clearOpeningPracticeTapSelection();
-                return;
-            }
-
-            const moved = openingPracticeOnTapMove(openingPracticeTapSelected, square);
-            if (moved) {
-                clearOpeningPracticeTapSelection();
-                return;
-            }
-
-            const p2 = openingPracticeGame.get(square);
-            if (p2 && p2.color === 'w') {
-                openingPracticeTapSelected = square;
-                highlightOpeningPracticeTapSelection(square);
-            }
-        });
-}
-
-function disableOpeningPracticeTapToMove() {
-    if (!openingPracticeTapEnabled) return;
-    openingPracticeTapEnabled = false;
-    $('#opening-board').off('.openingtap');
-    const boardEl = document.getElementById('opening-board');
-    if (boardEl) boardEl.style.touchAction = '';
-    clearOpeningPracticeTapSelection();
-}
-
-function updateOpeningPracticeTapMode() {
-    const shouldUseTap = deviceType === 'mobile' && controlMode === 'tap' && isTouchDevice();
-    if (openingBundleBoard) {
-        openingBundleBoard.draggable = !shouldUseTap;
-    }
-    if (shouldUseTap) {
-        enableOpeningPracticeTapToMove();
-    } else {
-        disableOpeningPracticeTapToMove();
-    }
-}
-
-function requestOpeningPracticeHint() {
-    if (!openingPracticeGame || openingPracticeGame.game_over()) return;
-    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
-    if (openingPracticeGame.turn() !== 'w') return; // Només pista quan toca a l'usuari
-    if (!stockfish && !ensureStockfish()) {
-        const noteEl = document.getElementById('opening-practice-note');
-        if (noteEl) noteEl.textContent = 'Motor Stockfish no disponible.';
-        return;
-    }
-    openingPracticeHinting = true;
-    const noteEl = document.getElementById('opening-practice-note');
-    if (noteEl) noteEl.textContent = 'Buscant pista...';
-    stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
-    stockfish.postMessage('go depth 15');
 }
 
 function requestOpeningPracticeEngineMove() {
@@ -5527,7 +5390,7 @@ function setupEvents() {
         $('#start-screen').show();
     });
     $('#btn-opening-bundle-hint').click(() => {
-        requestOpeningPracticeHint();
+        alert('La pista del tauler bundle s’activarà més endavant.');
     });
     $('#btn-opening-bundle-maxim').click(() => {
         alert('La màxima del tauler bundle s’activarà més endavant.');
@@ -6405,17 +6268,7 @@ function handleEngineMessage(rawMsg) {
         }
         return;
     }
-    if (openingPracticeHinting && msg.indexOf('bestmove') !== -1) {
-        openingPracticeHinting = false;
-        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])/);
-        if (match) {
-            const to = match[2];
-            highlightOpeningPracticeHint(to);
-            const noteEl = document.getElementById('opening-practice-note');
-            if (noteEl) noteEl.textContent = `Pista: Alguna peça ha d'anar a ${to}`;
-        }
-        return;
-    }
+
     if (openingPracticeEngineThinking && msg.indexOf('bestmove') !== -1) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match && openingPracticeGame) {
