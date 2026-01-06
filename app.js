@@ -6322,14 +6322,11 @@ function handleEngineMessage(rawMsg) {
         openingPracticeHintPending = false;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])/);
         if (match) {
-            const from = match[1];
             const to = match[2];
             $('#opening-board .square-55d63').removeClass('highlight-hint');
-            $(`#opening-board .square-55d63[data-square='${from}']`).addClass('highlight-hint');
             $(`#opening-board .square-55d63[data-square='${to}']`).addClass('highlight-hint');
-            const noteEl = document.getElementById('opening-practice-note');
-            if (noteEl) noteEl.textContent = `Pista: mou de ${from} a ${to}`;
         }
+        updateOpeningPracticeStatus();
         return;
     }
 
