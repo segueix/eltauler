@@ -5402,12 +5402,18 @@ function resetOpeningPracticeBoard() {
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
     }
     clearOpeningTapSelection();
+    clearOpeningPracticeHintHighlight();
     updateOpeningPracticeStatus();
+}
+
+function clearOpeningPracticeHintHighlight() {
+    $('#opening-board').find('.highlight-hint').removeClass('highlight-hint');
 }
 
 function applyOpeningPracticeMove(source, target) {
     if (!openingPracticeGame) return false;
     if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
+    clearOpeningPracticeHintHighlight();
     const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
     if (!move) return false;
     openingPracticeMoveCount += 1;
@@ -6403,6 +6409,7 @@ function handleEngineMessage(rawMsg) {
                     if (openingBundleBoard) {
                         openingBundleBoard.position(openingPracticeGame.fen());
                     }
+                    clearOpeningPracticeHintHighlight();
                     updateOpeningPracticeStatus();
                 }
                 openingPracticeEngineThinking = false;
@@ -6529,7 +6536,7 @@ function handleEngineMessage(rawMsg) {
             const from = match[1];
             const to = match[2];
             // Netejar highlights anteriors
-            $('#opening-board').find('.square-55').removeClass('highlight-hint');
+            clearOpeningPracticeHintHighlight();
             // Destacar caselles d'origen i destí
             $('#opening-board').find('.square-' + from).addClass('highlight-hint');
             $('#opening-board').find('.square-' + to).addClass('highlight-hint');
