@@ -43,6 +43,7 @@ let tvJeroglyphicsActualMove = null;
 let tvJeroglyphicsResumePlayback = false;
 let tvJeroglyphicsSolved = false;
 let tvJeroglyphicsIncorrect = false;
+let isAnalyzingOpeningHint = false;
 
 // Sistema d'IA Adaptativa
 let recentGames = []; 
@@ -5401,12 +5402,18 @@ function resetOpeningPracticeBoard() {
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
     }
     clearOpeningTapSelection();
+    clearOpeningPracticeHintHighlight();
     updateOpeningPracticeStatus();
+}
+
+function clearOpeningPracticeHintHighlight() {
+    $('#opening-board').find('.highlight-hint').removeClass('highlight-hint');
 }
 
 function applyOpeningPracticeMove(source, target) {
     if (!openingPracticeGame) return false;
     if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
+    clearOpeningPracticeHintHighlight();
     const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
     if (!move) return false;
     openingPracticeMoveCount += 1;
@@ -5496,10 +5503,19 @@ function setupEvents() {
         $('#start-screen').show();
     });
     $('#btn-opening-bundle-hint').click(() => {
-        alert('La pista del tauler bundle s’activarà més endavant.');
+        if (!stockfish && !ensureStockfish()) {
+            alert("Motor Stockfish no disponible");
+            return;
+        }
+        if (!openingPracticeGame || openingPracticeGame.game_over()) return;
+        isAnalyzingOpeningHint = true;
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) noteEl.textContent = 'Buscant millor moviment...';
+        stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
+        stockfish.postMessage('go depth 15');
     });
     $('#btn-opening-bundle-maxim').click(() => {
-        alert('La màxima del tauler bundle s’activarà més endavant.');
+        void requestGeminiBundleHint();
     });
     $('#btn-opening-bundle-resign').click(() => {
         resetOpeningPracticeBoard();
@@ -6393,6 +6409,7 @@ function handleEngineMessage(rawMsg) {
                     if (openingBundleBoard) {
                         openingBundleBoard.position(openingPracticeGame.fen());
                     }
+                    clearOpeningPracticeHintHighlight();
                     updateOpeningPracticeStatus();
                 }
                 openingPracticeEngineThinking = false;
@@ -6508,6 +6525,26 @@ function handleEngineMessage(rawMsg) {
 
             cacheBundleAnswer(lastPosition, bundleAcceptMode, null, { ...bundlePvMoves }, null, { ...bundlePvLines });
             evaluateBundleAttempt({ mode: bundleAcceptMode, bestMove: null, pvMoves: { ...bundlePvMoves }, pvLines: { ...bundlePvLines } });
+        }
+        return;
+    }
+
+    if (isAnalyzingOpeningHint && msg.indexOf('bestmove') !== -1) {
+        isAnalyzingOpeningHint = false;
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])/);
+        if (match && openingBundleBoard) {
+            const from = match[1];
+            const to = match[2];
+            // Netejar highlights anteriors
+            clearOpeningPracticeHintHighlight();
+            // Destacar caselles d'origen i destí
+            $('#opening-board').find('.square-' + from).addClass('highlight-hint');
+            $('#opening-board').find('.square-' + to).addClass('highlight-hint');
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) noteEl.textContent = `Pista: ${from} → ${to}`;
+        } else {
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) noteEl.textContent = 'No s\'ha pogut obtenir la pista.';
         }
         return;
     }
