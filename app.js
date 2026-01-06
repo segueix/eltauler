@@ -22,6 +22,11 @@ let currentMatchError = null;
 let isMatchErrorReviewSession = false;
 let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
+let openingBundleBoard = null;
+let openingPracticeGame = null;
+let openingPracticeMoveCount = 0;
+const OPENING_PRACTICE_MAX_PLIES = 20;
+let openingPracticeEngineThinking = false;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -160,6 +165,9 @@ let lastTapEventTs = 0;
 let tvTapSelectedSquare = null;
 let tvTapMoveEnabled = false;
 let tvLastTapEventTs = 0;
+let openingTapSelectedSquare = null;
+let openingTapMoveEnabled = false;
+let openingLastTapEventTs = 0;
 
 let deviceType = 'desktop';
 
@@ -188,10 +196,12 @@ function updateDeviceType() {
     if (detected !== deviceType) {
         applyDeviceType(detected);
         resizeBoardToViewport();
-        updateTvBoardInteractivity();        
+        updateTvBoardInteractivity();
+        updateOpeningBoardInteractivity();
     } else if (!document.body.classList.contains(`device-${detected}`)) {
         applyDeviceType(detected);
         updateTvBoardInteractivity();
+        updateOpeningBoardInteractivity();
     }
 }
 
@@ -587,6 +597,7 @@ function applyControlMode(mode, opts) {
 
     if (o.rebuild) rebuildBoardForControlMode();
     updateTvBoardInteractivity();
+    updateOpeningBoardInteractivity();
 }
 
 // Resize del tauler perquè ocupi el màxim possible
@@ -683,6 +694,11 @@ function clearTvTapSelection() {
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
 }
 
+function clearOpeningTapSelection() {
+    openingTapSelectedSquare = null;
+    $('#opening-board .square-55d63').removeClass('tap-selected tap-move');
+}
+
 function clearEngineMoveHighlights() {
     $('#myBoard .square-55d63').removeClass('engine-move');
 }
@@ -712,6 +728,18 @@ function highlightTvTapSelection(square) {
     if (!square) return;
     const sel = $(`#tv-board .square-55d63[data-square='${square}']`);
     sel.addClass('tap-selected');
+}
+
+function highlightOpeningTapSelection(square) {
+    $('#opening-board .square-55d63').removeClass('tap-selected tap-move');
+    if (!square || !openingPracticeGame) return;
+    const sel = $(`#opening-board .square-55d63[data-square='${square}']`);
+    sel.addClass('tap-selected');
+
+    const moves = openingPracticeGame.moves({ square: square, verbose: true });
+    for (const mv of moves) {
+        $(`#opening-board .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
+    }
 }
 
 function commitHumanMoveFromTap(from, to) {
@@ -832,6 +860,63 @@ function disableTvTapToMove() {
     const boardEl = document.getElementById('tv-board');
     if (boardEl) boardEl.style.touchAction = '';
     clearTvTapSelection();
+}
+
+function enableOpeningTapToMove() {
+    if (openingTapMoveEnabled) return;
+    openingTapMoveEnabled = true;
+    const boardEl = document.getElementById('opening-board');
+    if (boardEl) boardEl.style.touchAction = 'none';
+
+    $('#opening-board').off('.opening-tapmove')
+        .on(`pointerdown.opening-tapmove touchstart.opening-tapmove`, '.square-55d63', function(e) {
+            if (!openingPracticeGame || openingPracticeGame.game_over()) return;
+            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
+            if (openingPracticeEngineThinking) return;
+
+            if (e && e.preventDefault) e.preventDefault();
+
+            const nowTs = Date.now();
+            if (nowTs - openingLastTapEventTs < 180) return;
+            openingLastTapEventTs = nowTs;
+
+            const square = $(this).attr('data-square');
+            if (!square) return;
+
+            if (!openingTapSelectedSquare) {
+                const p = openingPracticeGame.get(square);
+                if (!p || p.color !== openingPracticeGame.turn()) return;
+                openingTapSelectedSquare = square;
+                highlightOpeningTapSelection(square);
+                return;
+            }
+
+            if (square === openingTapSelectedSquare) {
+                clearOpeningTapSelection();
+                return;
+            }
+
+            const moved = commitOpeningPracticeMoveFromTap(openingTapSelectedSquare, square);
+            if (moved) {
+                clearOpeningTapSelection();
+                return;
+            }
+
+            const p2 = openingPracticeGame.get(square);
+            if (p2 && p2.color === openingPracticeGame.turn()) {
+                openingTapSelectedSquare = square;
+                highlightOpeningTapSelection(square);
+            }
+        });
+}
+
+function disableOpeningTapToMove() {
+    if (!openingTapMoveEnabled) return;
+    openingTapMoveEnabled = false;
+    $('#opening-board').off('.opening-tapmove');
+    const boardEl = document.getElementById('opening-board');
+    if (boardEl) boardEl.style.touchAction = '';
+    clearOpeningTapSelection();
 }
 
 let currentStreak = 0;
@@ -3235,6 +3320,7 @@ function registerMoveReview(swing, analysisData = {}) {
         playerMove: lastHumanMoveUci || '—',
         playerMoveSan: lastMove ? lastMove.san : '—',
         bestMove: analysisData.bestMove || null,
+        color: lastMove ? lastMove.color : null,
         evalBefore: analysisData.evalBefore ?? null,
         evalAfter: analysisData.evalAfter ?? null,
         swing: Math.abs(swing),
@@ -4460,6 +4546,26 @@ function updateTvBoardInteractivity() {
     }
 }
 
+function updateOpeningBoardInteractivity() {
+    if (!openingBundleBoard) return;
+    const shouldUseTap = deviceType === 'mobile' && controlMode === 'tap' && isTouchDevice();
+    
+    // Comprovar si cal reconstruir
+    const currentlyDraggable = openingBundleBoard.draggable !== false;
+    const needsDraggable = !shouldUseTap;
+    
+    if (currentlyDraggable !== needsDraggable) {
+        rebuildOpeningBoardForControlMode();
+        return;
+    }
+    
+    if (shouldUseTap) {
+        enableOpeningTapToMove();
+    } else {
+        disableOpeningTapToMove();
+    }
+}
+
 function clearTvHintHighlight() {
     $('#tv-board .square-55d63').removeClass('highlight-hint');
 }
@@ -5153,6 +5259,11 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             playerMove: err.playerMove || null,
             bestMovePv: err.bestMovePv || []
         })),
+        moveReviews: currentReview.map(review => ({
+            moveNumber: review.moveNumber,
+            quality: review.quality,
+            color: review.color
+        })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
         severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
         geminiReview: options.geminiReview || null,
@@ -5163,6 +5274,233 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     gameHistory.push(entry);
     if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
     // Bloc de neteja de reviews eliminat
+}
+
+function isOpeningMoveCorrect(quality) {
+    return quality === 'excel' || quality === 'good';
+}
+
+function buildOpeningMoveStats() {
+    const recentEntries = gameHistory
+        .slice(-10)
+        .filter(entry => Array.isArray(entry.moveReviews) && entry.moveReviews.length);
+    const stats = [];
+    const colors = [
+        { key: 'w', label: 'Blanques' },
+        { key: 'b', label: 'Negres' }
+    ];
+
+    colors.forEach(color => {
+        for (let moveNumber = 1; moveNumber <= 10; moveNumber++) {
+            let total = 0;
+            let correct = 0;
+            recentEntries.forEach(entry => {
+                const match = entry.moveReviews.find(review => (
+                    review.moveNumber === moveNumber && review.color === color.key
+                ));
+                if (!match) return;
+                total += 1;
+                if (isOpeningMoveCorrect(match.quality)) correct += 1;
+            });
+            stats.push({
+                moveNumber,
+                color: color.label,
+                total,
+                correct
+            });
+        }
+    });
+
+    return { stats, totalEntries: recentEntries.length };
+}
+
+function renderOpeningStatsScreen() {
+    const listEl = $('#opening-stats-list');
+    const noteEl = $('#opening-stats-note');
+    if (!listEl.length) return;
+
+    const { stats, totalEntries } = buildOpeningMoveStats();
+    if (!totalEntries) {
+        listEl.html('<div class="opening-stats-row">Encara no hi ha dades per mostrar.</div>');
+        if (noteEl.length) noteEl.text('Juga algunes partides perquè puguem calcular la mitja.');
+        return;
+    }
+
+    let html = `
+        <div class="opening-stats-header">
+            <span>Moviment</span>
+            <span>Mitja correcció</span>
+            <span>Moviments &lt;75%</span>
+        </div>
+    `;
+    stats.forEach(item => {
+        const percent = item.total ? Math.round((item.correct / item.total) * 100) : null;
+        const below = item.total ? item.total - item.correct : null;
+        html += `
+            <div class="opening-stats-row">
+                <div><strong>${item.moveNumber}</strong> · ${item.color}</div>
+                <div>${percent === null ? '—' : `${percent}%`}</div>
+                <div>${below === null ? '—' : below}</div>
+            </div>
+        `;
+    });
+    listEl.html(html);
+    if (noteEl.length) {
+        noteEl.text(`Basat en ${totalEntries} partides guardades.`);
+    }
+}
+
+function initOpeningBundleBoard() {
+    const boardEl = document.getElementById('opening-board');
+    if (!boardEl) return;
+    
+    openingPracticeGame = new Chess();
+    openingPracticeMoveCount = 0;
+    
+    // Si ja existeix, reconstruir per aplicar el mode correcte
+    if (openingBundleBoard) {
+        rebuildOpeningBoardForControlMode();
+        return;
+    }
+    
+    const shouldUseTap = deviceType === 'mobile' && controlMode === 'tap' && isTouchDevice();
+    
+    openingBundleBoard = Chessboard('opening-board', {
+        draggable: !shouldUseTap,  // ✅ Respecta el mode des de l'inici
+        position: 'start',
+        onDragStart: (source, piece) => {
+            if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
+            if (openingPracticeEngineThinking) return false;
+            if (openingPracticeGame.turn() === 'w' && piece.search(/^b/) !== -1) return false;
+            if (openingPracticeGame.turn() === 'b' && piece.search(/^w/) !== -1) return false;
+        },
+        onDrop: (source, target) => {
+            const moved = applyOpeningPracticeMove(source, target);
+            if (!moved) return 'snapback';
+        },
+        onSnapEnd: () => {
+            if (!openingPracticeGame) return;
+            openingBundleBoard.position(openingPracticeGame.fen());
+        },
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+    
+    updateOpeningPracticeStatus();
+    
+    if (shouldUseTap) {
+        enableOpeningTapToMove();
+    }
+    
+    if (typeof openingBundleBoard.resize === 'function') {
+        setTimeout(() => openingBundleBoard.resize(), 50);
+    }
+}
+
+function rebuildOpeningBoardForControlMode() {
+    if (!openingPracticeGame) return;
+    const fen = openingPracticeGame.fen();
+    const shouldUseTap = deviceType === 'mobile' && controlMode === 'tap' && isTouchDevice();
+
+    if (openingBundleBoard) openingBundleBoard.destroy();
+    
+    openingBundleBoard = Chessboard('opening-board', {
+        draggable: !shouldUseTap,  // ✅ Respecta el mode
+        position: fen,
+        onDragStart: (source, piece) => {
+            if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
+            if (openingPracticeEngineThinking) return false;
+            if (openingPracticeGame.turn() === 'w' && piece.search(/^b/) !== -1) return false;
+            if (openingPracticeGame.turn() === 'b' && piece.search(/^w/) !== -1) return false;
+        },
+        onDrop: (source, target) => {
+            const moved = applyOpeningPracticeMove(source, target);
+            if (!moved) return 'snapback';
+        },
+        onSnapEnd: () => {
+            if (!openingPracticeGame) return;
+            openingBundleBoard.position(openingPracticeGame.fen());
+        },
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+
+    setTimeout(() => {
+        if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+    }, 0);
+
+    if (shouldUseTap) {
+        disableOpeningTapToMove();
+        enableOpeningTapToMove();
+    } else {
+        disableOpeningTapToMove();
+    }
+}
+
+function updateOpeningPracticeStatus() {
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl) return;
+    const remaining = Math.max(OPENING_PRACTICE_MAX_PLIES - openingPracticeMoveCount, 0);
+    if (!openingPracticeGame) {
+        noteEl.textContent = 'Preparat per practicar amb Stockfish.';
+        return;
+    }
+    if (openingPracticeGame.game_over()) {
+        noteEl.textContent = 'Partida finalitzada.';
+        return;
+    }
+    if (remaining === 0) {
+        noteEl.textContent = 'Límit assolit: 10 moviments per bàndol.';
+        return;
+    }
+    const remainingFullMoves = Math.ceil(remaining / 2);
+    noteEl.textContent = `Moviments restants: ${remainingFullMoves} per bàndol (vs Stockfish màxim).`;
+}
+
+function resetOpeningPracticeBoard() {
+    openingPracticeGame = new Chess();
+    openingPracticeMoveCount = 0;
+    openingPracticeEngineThinking = false;
+    if (openingBundleBoard) {
+        openingBundleBoard.position('start');
+        if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+    }
+    clearOpeningTapSelection();
+    updateOpeningPracticeStatus();
+}
+
+function applyOpeningPracticeMove(source, target) {
+    if (!openingPracticeGame) return false;
+    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
+    const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
+    if (!move) return false;
+    openingPracticeMoveCount += 1;
+    updateOpeningPracticeStatus();
+    if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
+        if (openingPracticeGame.turn() === 'b') {
+            requestOpeningPracticeEngineMove();
+        }
+    }
+    return true;
+}
+
+function commitOpeningPracticeMoveFromTap(source, target) {
+    const moved = applyOpeningPracticeMove(source, target);
+    if (!moved) return false;
+    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+    return true;
+}
+
+function requestOpeningPracticeEngineMove() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return;
+    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
+    if (!stockfish && !ensureStockfish()) return;
+    openingPracticeEngineThinking = true;
+    try { stockfish.postMessage('setoption name UCI_LimitStrength value false'); } catch (e) {}
+    try { stockfish.postMessage('setoption name Skill Level value 20'); } catch (e) {}
+    try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+    stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
+    stockfish.postMessage('go depth 12');
 }
 
 function checkShareSupport() {
@@ -5204,6 +5542,33 @@ function setupEvents() {
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
+    $('#btn-opening').click(() => {
+        renderOpeningStatsScreen();
+        initOpeningBundleBoard();
+        resetOpeningPracticeBoard();
+        $('#start-screen').hide();
+        $('#opening-screen').show();
+        if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
+            setTimeout(() => openingBundleBoard.resize(), 50);
+        }
+    });
+    $('#btn-back-opening').click(() => {
+        $('#opening-screen').hide();
+        $('#start-screen').show();
+    });
+    $('#btn-opening-bundle-menu').click(() => {
+        $('#opening-screen').hide();
+        $('#start-screen').show();
+    });
+    $('#btn-opening-bundle-hint').click(() => {
+        alert('La pista del tauler bundle s’activarà més endavant.');
+    });
+    $('#btn-opening-bundle-maxim').click(() => {
+        alert('La màxima del tauler bundle s’activarà més endavant.');
+    });
+    $('#btn-opening-bundle-resign').click(() => {
+        resetOpeningPracticeBoard();
+    });
 
     $('#btn-reset-league').click(() => {
         if (!guardCalibrationAccess()) return;
@@ -6071,6 +6436,34 @@ function handleEngineMessage(rawMsg) {
         if (pendingEngineFirstMove && playerColor !== game.turn()) {
             pendingEngineFirstMove = false;
             setTimeout(makeEngineMove, 200);
+        }
+        return;
+    }
+
+    if (openingPracticeEngineThinking && msg.indexOf('bestmove') !== -1) {
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+        if (match && openingPracticeGame) {
+            const from = match[1];
+            const to = match[2];
+            const promotion = match[3] || 'q';
+            setTimeout(() => {
+                if (!openingPracticeGame) return;
+                const move = openingPracticeGame.move({
+                    from,
+                    to,
+                    promotion
+                });
+                if (move) {
+                    openingPracticeMoveCount += 1;
+                    if (openingBundleBoard) {
+                        openingBundleBoard.position(openingPracticeGame.fen());
+                    }
+                    updateOpeningPracticeStatus();
+                }
+                openingPracticeEngineThinking = false;
+            }, 2000);
+        } else {
+            openingPracticeEngineThinking = false;
         }
         return;
     }
