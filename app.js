@@ -5667,13 +5667,33 @@ function setupEvents() {
     });
     
     $('#btn-hint').click(() => {
-        if (!stockfish && !ensureStockfish()) { $('#status').text("Motor Stockfish no disponible").css('color', '#c62828'); return; }
-        if (game.game_over()) return;
-        isAnalyzingHint = true;
-        $('#status').text("Buscant objectiu clau...");
-        stockfish.postMessage(`position fen ${game.fen()}`);
-        stockfish.postMessage('go depth 15');
-    });
+    if (game.game_over()) return;
+    
+    // En mode bundle, usar la jugada pre-calculada
+    if (blunderMode && bundleFixedSequence) {
+        const step = bundleSequenceStep;
+        const expectedMove = step === 1 
+            ? bundleFixedSequence.step1.playerMove 
+            : bundleFixedSequence.step2.playerMove;
+        if (expectedMove && expectedMove.length >= 4) {
+            const toSquare = expectedMove.substring(2, 4);
+            $('.square-55d63').removeClass('highlight-hint');
+            $(`#myBoard .square-55d63[data-square='${toSquare}']`).addClass('highlight-hint');
+            $('#status').text(`Pista: Alguna peça ha d'anar a ${toSquare}`);
+        }
+        return;
+    }
+    
+    // Comportament normal per partides
+    if (!stockfish && !ensureStockfish()) { 
+        $('#status').text("Motor Stockfish no disponible").css('color', '#c62828'); 
+        return; 
+    }
+    isAnalyzingHint = true;
+    $('#status').text("Buscant objectiu clau...");
+    stockfish.postMessage(`position fen ${game.fen()}`);
+    stockfish.postMessage('go depth 15');
+});
 
     $('#btn-brain-hint').click(() => {
         void requestGeminiBundleHint();
