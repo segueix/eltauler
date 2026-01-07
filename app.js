@@ -1501,6 +1501,10 @@ function getAdaptiveNormalized() {
 }
 
 function adjustAIDifficulty(playerWon, precision, resultScore = null) {
+    // NOTA: Aquesta funció ja no s'usa activament.
+    // Tot l'ajust es fa via calculateEloDelta + syncEngineEloFromUser
+    // Mantenim per compatibilitat amb codi antic.
+    
     const normalizedScore = (typeof resultScore === 'number') ? resultScore : (playerWon ? 1 : 0);
     const safePrecision = Math.max(0, Math.min(100, typeof precision === 'number' ? precision : 50));
 
@@ -1511,40 +1515,6 @@ function adjustAIDifficulty(playerWon, precision, resultScore = null) {
     else if (normalizedScore === 0) { consecutiveLosses++; consecutiveWins = 0; }
     else { consecutiveWins = 0; consecutiveLosses = 0; }
 
-    if (isCalibrating) {
-        saveStorage();
-        return;
-    }
-
-    let eloDelta = 0;
-
-    if (normalizedScore === 1) {
-        if (safePrecision > 80) eloDelta += 50;
-        else if (safePrecision >= 65) eloDelta += 35;
-        else eloDelta += 15;
-    } else if (normalizedScore === 0) {
-        if (safePrecision > 60) eloDelta -= 15;
-        else if (safePrecision >= 45) eloDelta -= 30;
-        else eloDelta -= 50;
-    } else {
-        eloDelta += 10;
-    }
-
-    if (consecutiveWins >= 3) eloDelta += 30;
-    if (consecutiveLosses >= 3) eloDelta -= 25;
-
-    if (recentGames.length >= 5) {
-        const recentSlice = recentGames.slice(-10);
-        const wins = recentSlice.filter(game => game.result === 1).length;
-        const winRate = recentSlice.length > 0 ? wins / recentSlice.length : 0.5;
-        if (winRate > 0.60) eloDelta += 30;
-        else if (winRate < 0.40) eloDelta -= 30;
-    }
-
-    eloDelta = Math.max(-60, Math.min(60, eloDelta));
-    currentElo = clampEngineElo(currentElo + eloDelta);
-    aiDifficulty = levelToDifficulty(currentElo);
-    applyEngineEloStrength(currentElo);
     saveStorage();
 }
 
@@ -1556,10 +1526,9 @@ function getCalibrationEloFloor() {
 
 function clampUserElo(value) {
     const floor = getCalibrationEloFloor();
-    const baseFloor = typeof floor === 'number' ? floor : ELO_MIN;
-    const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.7);
-    const minValue = Number.isFinite(flexibleFloor) ? flexibleFloor : ELO_MIN;
-    return Math.round(Math.max(minValue, Math.min(ELO_MAX, value)));
+    // Permetre baixar fins al 60% del floor (era 70%)
+    const flexibleFloor = Math.max(ELO_MIN, (floor || ELO_MIN) * 0.6);
+    return Math.round(Math.max(flexibleFloor, Math.min(ELO_MAX, value)));
 }
 
 function evaluateGameQuality(precision, avgCpLoss, blunders) {
@@ -1921,15 +1890,30 @@ function getEngineSkillLevel() {
     const maxSkill = 18;
     return Math.round(minSkill + (maxSkill - minSkill) * normalized);
 }
-function calculateEloDelta(resultScore) {
-    const oppElo = getOpponentElo();
+function calculateEloDelta(resultScore, precision) {
+    // En mode lliure, l'oponent és l'engine que juga a currentElo
+    const oppElo = (currentGameMode === 'league' && currentOpponent)
+        ? currentOpponent.elo
+        : currentElo;
+    
     const expected = 1 / (1 + Math.pow(10, (oppElo - userELO) / 400));
-    const kFactor = 24;
-    const raw = kFactor * (resultScore - expected);
-
-    if (resultScore === 0) return Math.min(-8, Math.round(raw));
-    if (resultScore === 1) return Math.max(8, Math.round(raw));
-    return Math.round(raw);
+    const kFactor = 32;  // Augmentat per canvis més ràpids
+    let delta = Math.round(kFactor * (resultScore - expected));
+    
+    // Bonus/penalització per qualitat de joc
+    const safePrecision = typeof precision === 'number' ? precision : 50;
+    if (resultScore === 1) {
+        if (safePrecision >= 80) delta += 8;
+        else if (safePrecision >= 65) delta += 4;
+    } else if (resultScore === 0) {
+        if (safePrecision < 35) delta -= 8;
+        else if (safePrecision < 50) delta -= 4;
+    }
+    
+    // Assegurar mínim canvi per evitar estancament
+    if (resultScore === 1) return Math.max(10, delta);
+    if (resultScore === 0) return Math.min(-10, delta);
+    return delta;
 }
 
 function formatEloChange(delta) {
@@ -2287,10 +2271,19 @@ function applyEngineEloStrength(eloValue) {
 }
 
 function syncEngineEloFromUser() {
+    // L'engine SEMPRE juga al nivell del jugador
     currentElo = clampEngineElo(userELO);
     aiDifficulty = levelToDifficulty(currentElo);
-    applyEngineEloStrength(currentElo);
+    
+    // Aplicar a Stockfish
+    if (stockfish && stockfishReady) {
+        applyEngineEloStrength(currentElo);
+    }
+    
     updateAdaptiveEngineEloLabel();
+    
+    // Debug: verificar sincronització
+    console.log(`[ELO Sync] userELO=${userELO}, currentElo=${currentElo}, aiDifficulty=${aiDifficulty}`);
 }
 
 function getDisplayedElo(value) {
@@ -6181,6 +6174,11 @@ blunderMode = isBundle;
         onSnapEnd: onSnapEnd,
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     });
+    
+    // Assegurar que l'engine juga al nivell correcte
+    if (!isBundle && !isCalibrationGame) {
+        syncEngineEloFromUser();
+    }
 
     setTimeout(() => { resizeBoardToViewport(); }, 0);
     if (isMatchErrorReviewSession) {
@@ -7293,18 +7291,27 @@ function handleGameOver(manualResign = false) {
     if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
     if (finalPrecision >= 85) sessionStats.perfectGames++;
     
-    if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
-        change = calculateEloDelta(resultScore);
+    // ═══════════════════════════════════════════════════════════════════════
+    // SISTEMA D'ELO SIMPLIFICAT
+    // ═══════════════════════════════════════════════════════════════════════
+    
+    if (!calibrationGameWasActive && !blunderMode) {
+        // Calcular canvi d'ELO
+        change = calculateEloDelta(resultScore, finalPrecision);
         msg += ` (${formatEloChange(change)})`;
+        
+        // Aplicar canvi
+        userELO = clampUserElo(userELO + change);
+        updateEloHistory(userELO);
+        
+        // Sincronitzar engine amb el nou ELO del jugador
+        syncEngineEloFromUser();
+        
+        // Log per debug
+        console.log(`[Game Over] Result: ${resultScore}, Precision: ${finalPrecision}%, Delta: ${change}, New ELO: ${userELO}`);
     }
     
     if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
-    
-    if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
-        userELO = Math.max(50, userELO + change);
-        updateEloHistory(userELO);
-        syncEngineEloFromUser();
-    }
     
     if (calibrationGameWasActive) {
         isCalibrationGame = false;
@@ -7314,22 +7321,6 @@ function handleGameOver(manualResign = false) {
             blunders: blundersOver200,
             tacticalPatterns: tacticalPatterns
         });
-    }
-
-    if (!blunderMode && !calibrationGameWasActive) {
-        if (shouldContinuousAdjust) {
-            const adjustResult = registerFreeGameAdjustment(resultScore, finalPrecision, {
-                avgCpLoss: avgCpLoss,
-                blunders: blundersOver200,
-                durationSeconds: durationSeconds,
-                tacticalPatterns: tacticalPatterns
-            });
-            if (adjustResult && adjustResult.feedback) {
-                msg += ` · ${adjustResult.feedback}`;
-            }
-        } else if (!isLeagueMode) {
-            adjustAIDifficulty(playerWon, finalPrecision, resultScore);
-        }
     }
 
     if (wasLeagueMatch && !blunderMode) {
