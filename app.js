@@ -849,6 +849,21 @@ function disableTvTapToMove() {
     clearTvTapSelection();
 }
 
+// Funcions per a la pista visual del tauler d'obertures
+function clearOpeningHintHighlight() {
+    $('#opening-board .square-55d63').removeClass('highlight-hint');
+}
+
+function highlightOpeningHint(from, to) {
+    clearOpeningHintHighlight();
+    if (from) {
+        $(`#opening-board .square-55d63[data-square='${from}']`).addClass('highlight-hint');
+    }
+    if (to) {
+        $(`#opening-board .square-55d63[data-square='${to}']`).addClass('highlight-hint');
+    }
+}
+
 // Funcions tap-to-move per al tauler d'obertures
 function clearOpeningTapSelection() {
     openingTapSelectedSquare = null;
@@ -875,6 +890,8 @@ function commitOpeningMoveFromTap(from, to) {
     const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
     if (!move) return false;
 
+    // Netejar pista visual i estat
+    clearOpeningHintHighlight();
     openingPracticeBestMove = null;
     openingPracticeMoveCount += 1;
     openingBundleBoard.position(openingPracticeGame.fen());
@@ -5521,7 +5538,9 @@ function initOpeningBundleBoard() {
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
             if (!move) return 'snapback';
-            openingPracticeBestMove = null; // Netejar pista pre-calculada
+            // Netejar pista visual i estat
+            clearOpeningHintHighlight();
+            openingPracticeBestMove = null;
             openingPracticeMoveCount += 1;
             updateOpeningPracticeStatus();
             if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
@@ -5574,6 +5593,7 @@ function resetOpeningPracticeBoard() {
     openingPracticeHintPending = false;
     openingPracticeBestMove = null;
     clearOpeningTapSelection();
+    clearOpeningHintHighlight();
     if (openingBundleBoard) {
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
@@ -5657,30 +5677,33 @@ function setupEvents() {
             if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,200,100,0.2); border-radius:8px;">⏳ Espera que l\'engine acabi...</div>';
             return;
         }
-        
+
         // Si ja tenim la millor jugada calculada, mostrar-la directament
         if (openingPracticeBestMove && openingPracticeBestMove.length >= 4) {
+            const fromSquare = openingPracticeBestMove.substring(0, 2);
             const toSquare = openingPracticeBestMove.substring(2, 4);
+            // Marcar visualment les caselles
+            highlightOpeningHint(fromSquare, toSquare);
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) {
-                noteEl.innerHTML = `<div style="padding:12px; background:rgba(100,150,255,0.15); border-left:3px solid #6495ed; border-radius:8px;">
-                    <strong>💡 Pista:</strong> Alguna peça ha d'anar a <strong>${toSquare}</strong>
+                noteEl.innerHTML = `<div style="padding:12px; background:rgba(156,39,176,0.15); border-left:3px solid var(--accent-purple); border-radius:8px;">
+                    <strong>💡 Pista:</strong> Mou de <strong>${fromSquare}</strong> a <strong>${toSquare}</strong>
                 </div>`;
             }
             return;
         }
-        
+
         // Si no, calcular-la
         if (!stockfish && !ensureStockfish()) {
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ Stockfish no disponible</div>';
             return;
         }
-        
+
         openingPracticeHintPending = true;
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">🔍 Calculant millor jugada...</div>';
-        
+
         try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
         stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
         stockfish.postMessage('go depth 12');
@@ -6587,12 +6610,15 @@ function handleEngineMessage(rawMsg) {
         openingPracticeHintPending = false;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
-            openingPracticeBestMove = match[1] + match[2] + (match[3] || '');
+            const fromSquare = match[1];
             const toSquare = match[2];
+            openingPracticeBestMove = fromSquare + toSquare + (match[3] || '');
+            // Marcar visualment les caselles
+            highlightOpeningHint(fromSquare, toSquare);
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) {
-                noteEl.innerHTML = `<div style="padding:12px; background:rgba(100,150,255,0.15); border-left:3px solid #6495ed; border-radius:8px;">
-                    <strong>💡 Pista:</strong> Alguna peça ha d'anar a <strong>${toSquare}</strong>
+                noteEl.innerHTML = `<div style="padding:12px; background:rgba(156,39,176,0.15); border-left:3px solid var(--accent-purple); border-radius:8px;">
+                    <strong>💡 Pista:</strong> Mou de <strong>${fromSquare}</strong> a <strong>${toSquare}</strong>
                 </div>`;
             }
         }
@@ -6613,6 +6639,9 @@ function handleEngineMessage(rawMsg) {
                     promotion
                 });
                 if (move) {
+                    // Netejar pista visual i estat quan l'engine mou
+                    clearOpeningHintHighlight();
+                    openingPracticeBestMove = null;
                     openingPracticeMoveCount += 1;
                     if (openingBundleBoard) {
                         openingBundleBoard.position(openingPracticeGame.fen());
