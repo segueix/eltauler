@@ -31,6 +31,12 @@ let openingMaximPending = false;
 let lastOpeningMaxim = null;
 let openingPracticeHintPending = false;
 let openingPracticeBestMove = null;
+// Variables per a la precisió del tauler d'obertures
+let openingPracticeGoodMoves = 0;
+let openingPracticeTotalMoves = 0;
+let openingPracticeAnalysisPending = false;
+let openingPracticeLastFen = null;
+let openingPracticeLastMove = null;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -864,6 +870,64 @@ function highlightOpeningHint(from, to) {
     }
 }
 
+// Funcions de precisió per al tauler d'obertures
+function updateOpeningPrecisionDisplay() {
+    const precisionEl = $('#opening-precision-value');
+    const barEl = $('#opening-precision-bar');
+    if (!precisionEl.length || !barEl.length) return;
+
+    if (openingPracticeTotalMoves === 0) {
+        precisionEl.text('—');
+        barEl.css('width', '0%').removeClass('good warning danger');
+        return;
+    }
+
+    const precision = Math.round((openingPracticeGoodMoves / openingPracticeTotalMoves) * 100);
+    precisionEl.text(precision + '%');
+    barEl.css('width', precision + '%');
+    barEl.removeClass('good warning danger');
+    if (precision >= 75) barEl.addClass('good');
+    else if (precision >= 50) barEl.addClass('warning');
+    else barEl.addClass('danger');
+}
+
+function analyzeOpeningMoveQuality(fenBefore, movePlayed) {
+    if (!stockfish || openingPracticeAnalysisPending) return;
+    if (!fenBefore || !movePlayed) return;
+
+    openingPracticeAnalysisPending = true;
+    openingPracticeLastFen = fenBefore;
+    openingPracticeLastMove = movePlayed;
+
+    try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+    stockfish.postMessage(`position fen ${fenBefore}`);
+    stockfish.postMessage('go depth 10');
+}
+
+function processOpeningMoveAnalysis(bestMove) {
+    if (!openingPracticeAnalysisPending) return;
+    openingPracticeAnalysisPending = false;
+
+    if (!openingPracticeLastMove || !bestMove) return;
+
+    // Comparar el moviment jugat amb el millor moviment
+    const played = openingPracticeLastMove.toLowerCase();
+    const best = bestMove.toLowerCase();
+
+    // Considerar correcte si coincideix exactament o si la casella destí és la mateixa
+    const playedTo = played.substring(2, 4);
+    const bestTo = best.substring(2, 4);
+
+    if (played === best || playedTo === bestTo) {
+        openingPracticeGoodMoves++;
+    }
+    openingPracticeTotalMoves++;
+    updateOpeningPrecisionDisplay();
+
+    openingPracticeLastFen = null;
+    openingPracticeLastMove = null;
+}
+
 // Funcions tap-to-move per al tauler d'obertures
 function clearOpeningTapSelection() {
     openingTapSelectedSquare = null;
@@ -887,6 +951,10 @@ function commitOpeningMoveFromTap(from, to) {
     if (openingPracticeGame.game_over()) return false;
     if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
 
+    // Guardar FEN abans del moviment per a l'anàlisi de precisió
+    const fenBefore = openingPracticeGame.fen();
+    const movePlayed = from + to;
+
     const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
     if (!move) return false;
 
@@ -896,6 +964,11 @@ function commitOpeningMoveFromTap(from, to) {
     openingPracticeMoveCount += 1;
     openingBundleBoard.position(openingPracticeGame.fen());
     updateOpeningPracticeStatus();
+
+    // Analitzar la qualitat del moviment (només per moviments del jugador - blanques)
+    if (openingPracticeGame.turn() === 'b') {
+        analyzeOpeningMoveQuality(fenBefore, movePlayed);
+    }
 
     if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
         if (openingPracticeGame.turn() === 'b') {
@@ -5529,6 +5602,11 @@ function initOpeningBundleBoard() {
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
+            // Guardar FEN abans del moviment per a l'anàlisi de precisió
+            const fenBefore = openingPracticeGame.fen();
+            const movePlayed = source + target;
+            const wasWhiteTurn = openingPracticeGame.turn() === 'w';
+
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
             if (!move) return 'snapback';
             // Netejar pista visual i estat
@@ -5536,6 +5614,12 @@ function initOpeningBundleBoard() {
             openingPracticeBestMove = null;
             openingPracticeMoveCount += 1;
             updateOpeningPracticeStatus();
+
+            // Analitzar la qualitat del moviment (només per moviments del jugador - blanques)
+            if (wasWhiteTurn) {
+                analyzeOpeningMoveQuality(fenBefore, movePlayed);
+            }
+
             if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
                 if (openingPracticeGame.turn() === 'b') {
                     requestOpeningPracticeEngineMove();
@@ -5585,6 +5669,12 @@ function resetOpeningPracticeBoard() {
     lastOpeningMaxim = null;
     openingPracticeHintPending = false;
     openingPracticeBestMove = null;
+    // Reset precisió
+    openingPracticeGoodMoves = 0;
+    openingPracticeTotalMoves = 0;
+    openingPracticeAnalysisPending = false;
+    openingPracticeLastFen = null;
+    openingPracticeLastMove = null;
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
     if (openingBundleBoard) {
@@ -5592,6 +5682,7 @@ function resetOpeningPracticeBoard() {
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
     }
     updateOpeningPracticeStatus();
+    updateOpeningPrecisionDisplay();
 }
 
 function requestOpeningPracticeEngineMove() {
@@ -6594,6 +6685,18 @@ function handleEngineMessage(rawMsg) {
         if (pendingEngineFirstMove && playerColor !== game.turn()) {
             pendingEngineFirstMove = false;
             setTimeout(makeEngineMove, 200);
+        }
+        return;
+    }
+
+    // Anàlisi de precisió del tauler d'obertures
+    if (openingPracticeAnalysisPending && msg.indexOf('bestmove') !== -1) {
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+        if (match) {
+            const bestMove = match[1] + match[2] + (match[3] || '');
+            processOpeningMoveAnalysis(bestMove);
+        } else {
+            openingPracticeAnalysisPending = false;
         }
         return;
     }
