@@ -5387,6 +5387,16 @@ function renderOpeningStatsScreen() {
     }
 }
 
+function clearOpeningHintHighlight() {
+    $('#opening-board .square-55d63').removeClass('highlight-hint');
+}
+
+function highlightOpeningHint(from, to) {
+    clearOpeningHintHighlight();
+    if (from) $(`#opening-board .square-55d63[data-square='${from}']`).addClass('highlight-hint');
+    if (to) $(`#opening-board .square-55d63[data-square='${to}']`).addClass('highlight-hint');
+}
+
 function initOpeningBundleBoard() {
     if (openingBundleBoard) return;
     const boardEl = document.getElementById('opening-board');
@@ -5408,7 +5418,8 @@ function initOpeningBundleBoard() {
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
             if (!move) return 'snapback';
-            openingPracticeBestMove = null; // Netejar pista pre-calculada
+            openingPracticeBestMove = null;
+            clearOpeningHintHighlight();
             openingPracticeMoveCount += 1;
             updateOpeningPracticeStatus();
             if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
@@ -5455,6 +5466,7 @@ function resetOpeningPracticeBoard() {
     lastOpeningMaxim = null;
     openingPracticeHintPending = false;
     openingPracticeBestMove = null;
+    clearOpeningHintHighlight();
     if (openingBundleBoard) {
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
@@ -5541,11 +5553,13 @@ function setupEvents() {
         
         // Si ja tenim la millor jugada calculada, mostrar-la directament
         if (openingPracticeBestMove && openingPracticeBestMove.length >= 4) {
+            const fromSquare = openingPracticeBestMove.substring(0, 2);
             const toSquare = openingPracticeBestMove.substring(2, 4);
+            highlightOpeningHint(fromSquare, toSquare);
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) {
-                noteEl.innerHTML = `<div style="padding:12px; background:rgba(100,150,255,0.15); border-left:3px solid #6495ed; border-radius:8px;">
-                    <strong>💡 Pista:</strong> Alguna peça ha d'anar a <strong>${toSquare}</strong>
+                noteEl.innerHTML = `<div style="padding:12px; background:rgba(147,112,219,0.2); border-left:3px solid #9370db; border-radius:8px; line-height:1.6;">
+                    <strong>💡 Pista:</strong> Mou de <strong>${fromSquare}</strong> a <strong>${toSquare}</strong>
                 </div>`;
             }
             return;
@@ -5560,7 +5574,7 @@ function setupEvents() {
         
         openingPracticeHintPending = true;
         const noteEl = document.getElementById('opening-practice-note');
-        if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">🔍 Calculant millor jugada...</div>';
+        if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(147,112,219,0.15); border-radius:8px;">🔍 Calculant millor jugada...</div>';
         
         try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
         stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
@@ -6468,12 +6482,14 @@ function handleEngineMessage(rawMsg) {
         openingPracticeHintPending = false;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
-            openingPracticeBestMove = match[1] + match[2] + (match[3] || '');
+            const fromSquare = match[1];
             const toSquare = match[2];
+            openingPracticeBestMove = fromSquare + toSquare + (match[3] || '');
+            highlightOpeningHint(fromSquare, toSquare);
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) {
-                noteEl.innerHTML = `<div style="padding:12px; background:rgba(100,150,255,0.15); border-left:3px solid #6495ed; border-radius:8px;">
-                    <strong>💡 Pista:</strong> Alguna peça ha d'anar a <strong>${toSquare}</strong>
+                noteEl.innerHTML = `<div style="padding:12px; background:rgba(147,112,219,0.2); border-left:3px solid #9370db; border-radius:8px; line-height:1.6;">
+                    <strong>💡 Pista:</strong> Mou de <strong>${fromSquare}</strong> a <strong>${toSquare}</strong>
                 </div>`;
             }
         }
