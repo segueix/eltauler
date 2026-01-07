@@ -29,6 +29,8 @@ const OPENING_PRACTICE_MAX_PLIES = 20;
 let openingPracticeEngineThinking = false;
 let openingMaximPending = false;
 let lastOpeningMaxim = null;
+let openingPracticeHintPending = false;
+let openingPracticeBestMove = null;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -5406,6 +5408,7 @@ function initOpeningBundleBoard() {
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
             if (!move) return 'snapback';
+            openingPracticeBestMove = null; // Netejar pista pre-calculada
             openingPracticeMoveCount += 1;
             updateOpeningPracticeStatus();
             if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
@@ -5450,6 +5453,8 @@ function resetOpeningPracticeBoard() {
     openingPracticeEngineThinking = false;
     openingMaximPending = false;
     lastOpeningMaxim = null;
+    openingPracticeHintPending = false;
+    openingPracticeBestMove = null;
     if (openingBundleBoard) {
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
@@ -5527,7 +5532,39 @@ function setupEvents() {
         $('#start-screen').show();
     });
     $('#btn-opening-bundle-hint').click(() => {
-        alert('La pista del tauler bundle s’activarà més endavant.');
+        if (!openingPracticeGame || openingPracticeGame.game_over()) return;
+        if (openingPracticeEngineThinking || openingPracticeHintPending) {
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,200,100,0.2); border-radius:8px;">⏳ Espera que l\'engine acabi...</div>';
+            return;
+        }
+        
+        // Si ja tenim la millor jugada calculada, mostrar-la directament
+        if (openingPracticeBestMove && openingPracticeBestMove.length >= 4) {
+            const toSquare = openingPracticeBestMove.substring(2, 4);
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) {
+                noteEl.innerHTML = `<div style="padding:12px; background:rgba(100,150,255,0.15); border-left:3px solid #6495ed; border-radius:8px;">
+                    <strong>💡 Pista:</strong> Alguna peça ha d'anar a <strong>${toSquare}</strong>
+                </div>`;
+            }
+            return;
+        }
+        
+        // Si no, calcular-la
+        if (!stockfish && !ensureStockfish()) {
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ Stockfish no disponible</div>';
+            return;
+        }
+        
+        openingPracticeHintPending = true;
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">🔍 Calculant millor jugada...</div>';
+        
+        try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+        stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
+        stockfish.postMessage('go depth 12');
     });
     $('#btn-opening-bundle-maxim').click(() => {
         void requestOpeningMaximLlull();
@@ -6426,6 +6463,23 @@ function handleEngineMessage(rawMsg) {
         return;
     }
 
+    // Pista del tauler d'obertures
+    if (openingPracticeHintPending && msg.indexOf('bestmove') !== -1) {
+        openingPracticeHintPending = false;
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+        if (match) {
+            openingPracticeBestMove = match[1] + match[2] + (match[3] || '');
+            const toSquare = match[2];
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) {
+                noteEl.innerHTML = `<div style="padding:12px; background:rgba(100,150,255,0.15); border-left:3px solid #6495ed; border-radius:8px;">
+                    <strong>💡 Pista:</strong> Alguna peça ha d'anar a <strong>${toSquare}</strong>
+                </div>`;
+            }
+        }
+        return;
+    }
+    
     if (openingPracticeEngineThinking && msg.indexOf('bestmove') !== -1) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match && openingPracticeGame) {
