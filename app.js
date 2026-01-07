@@ -53,8 +53,8 @@ let recentGames = [];
 let aiDifficulty = 8; 
 const ADAPTIVE_CONFIG = {
     MIN_LEVEL: 50,
-    MAX_LEVEL: 3000,
-    DEFAULT_LEVEL: 75,
+    MAX_LEVEL: 2200,
+    DEFAULT_LEVEL: 800,
     WIN_PRECISION_HIGH: 80,
     WIN_PRECISION_MID: 65,
     LOSS_PRECISION_HIGH: 60,
@@ -104,7 +104,7 @@ const CALIBRATION_ENGINE_PRECISION_RANGES = [
 const CALIBRATION_GAME_COUNT = 5;
 const CALIBRATION_ELOS = [900, 1100, 1300, 1500, 1700];
 const CALIBRATION_DEPTHS = [5, 8, 10];
-const CALIBRATION_ELO_MIN = 800;
+const CALIBRATION_ELO_MIN = 400;
 const CALIBRATION_ELO_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
 let recentErrors = [];
@@ -1835,10 +1835,44 @@ function estimateCalibrationElo() {
     const avgOpponentElo = opponentEloValues.length
         ? opponentEloValues.reduce((sum, value) => sum + value, 0) / opponentEloValues.length
         : CALIBRATION_ELOS[Math.min(getCalibrationGameIndex(), CALIBRATION_ELOS.length - 1)];
-    const performanceDelta = (weightedPerformance - 0.5) * 600;
+    const performanceDelta = (weightedPerformance - 0.5) * 350;
     const confidence = Math.min(1, calibrationGames.length / CALIBRATION_GAME_COUNT);
     const eloEstimate = avgOpponentElo + (performanceDelta * confidence);
-    return Math.max(CALIBRATION_ELO_MIN, Math.min(CALIBRATION_ELO_MAX, Math.round(eloEstimate)));
+    return Math.max(400, Math.min(CALIBRATION_ELO_MAX, Math.round(eloEstimate)));
+}
+
+function shouldMakeIntentionalBlunder() {
+    if (isCalibrationGame) return false;
+    
+    const effectiveDifficulty = getEffectiveAIDifficulty();
+    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
+    
+    // A nivell molt baix (< 0.25): 20% de probabilitat de blunder
+    // A nivell baix (0.25-0.4): 10% de probabilitat
+    // A nivell mitjà (0.4-0.6): 3% de probabilitat
+    // A nivell alt (> 0.6): 0%
+    if (normalized > 0.6) return false;
+    if (normalized < 0.25) return Math.random() < 0.20;
+    if (normalized < 0.4) return Math.random() < 0.10;
+    return Math.random() < 0.03;
+}
+
+// Selecciona una jugada clarament dolenta
+function makeIntentionalBlunder(candidates) {
+    if (!candidates || candidates.length < 2) return null;
+    
+    const sorted = candidates.slice().sort((a, b) => b.score - a.score);
+    const bestScore = sorted[0].score;
+    
+    // Buscar jugades que perdin almenys 250cp
+    const blunders = sorted.filter(c => (bestScore - c.score) >= 250);
+    
+    if (blunders.length > 0) {
+        return blunders[Math.floor(Math.random() * blunders.length)];
+    }
+    
+    // Si no hi ha blunders clars, retornar la pitjor jugada
+    return sorted[sorted.length - 1];
 }
 
 function showCalibrationReveal(eloValue) {
@@ -1917,8 +1951,8 @@ function getAIDepth() {
 function getEngineSkillLevel() {
     const effectiveDifficulty = getEffectiveAIDifficulty();
     const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
-    const minSkill = 2;
-    const maxSkill = 18;
+    const minSkill = 0;
+    const maxSkill = 20;
     return Math.round(minSkill + (maxSkill - minSkill) * normalized);
 }
 function calculateEloDelta(resultScore) {
@@ -1969,25 +2003,38 @@ function chooseHumanLikeMove(candidates) {
     const effectiveDifficulty = getEffectiveAIDifficulty();
     const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
     const bestScore = sorted[0].score;
-    const maxDelta = 250 - (normalized * 170); // Més desviació a nivells baixos
+    
+    // CANVI: Rang d'error molt més ampli a nivells baixos
+    // A nivell baix: permet errors fins a 700cp
+    // A nivell alt: només fins a 120cp
+    const maxDelta = 700 - (normalized * 580);
 
     const plausible = sorted.filter(c => (bestScore - c.score) <= maxDelta);
     const pool = plausible.length ? plausible : [sorted[0]];
-    const maxCandidates = normalized < 0.3 ? 4 : (normalized < 0.7 ? 3 : 2);
+    
+    // CANVI: Més candidats a nivells baixos
+    const maxCandidates = normalized < 0.3 ? 6 : (normalized < 0.6 ? 4 : 2);
     const trimmed = pool.slice(0, maxCandidates);
 
     if (trimmed.length === 1) return trimmed[0];
 
-    const offPathChance = Math.max(0.1, 0.35 - (normalized * 0.22));
+    // CANVI: Probabilitat d'explorar jugades subòptimes molt més alta
+    // A nivell baix: 75% de probabilitat de NO jugar la millor
+    // A nivell alt: 8% de probabilitat de NO jugar la millor
+    const offPathChance = Math.max(0.08, 0.75 - (normalized * 0.67));
     const explore = Math.random() < offPathChance;
+    
     if (!explore) return trimmed[0];
 
-    const temperature = 1.4 - (normalized * 0.8);
+    // CANVI: Temperatura més alta = més aleatorietat a nivells baixos
+    const temperature = 3.0 - (normalized * 2.5);
+    
     const weights = trimmed.map((c, idx) => {
         const relativeScore = c.score - trimmed[0].score;
-        const softness = Math.exp(relativeScore / (50 * temperature));
+        const softness = Math.exp(relativeScore / (40 * temperature));
         return softness / (idx + 1);
     });
+    
     const total = weights.reduce((sum, w) => sum + w, 0);
     let roll = Math.random() * total;
     for (let i = 0; i < trimmed.length; i++) {
@@ -6326,7 +6373,7 @@ function makeEngineMove() {
 function chooseFallbackMove(fallbackMove) {
     const effectiveDifficulty = getEffectiveAIDifficulty();
     const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
-    const mistakeChance = Math.max(0.1, 0.35 - (normalized * 0.25));
+    const mistakeChance = Math.max(0.05, 0.55 - (normalized * 0.50));
     if (Math.random() > mistakeChance) return fallbackMove;
     const legalMoves = game ? game.moves({ verbose: true }) : [];
     if (!legalMoves || legalMoves.length === 0) return fallbackMove;
@@ -6729,8 +6776,16 @@ function handleEngineMessage(rawMsg) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
-            const chosen = isCalibrationGame
-                ? chooseCalibrationMove(engineMoveCandidates, fallbackMove)
+            
+            let chosen;
+            // NOU: Comprovar si cal fer un blunder intencional
+            if (shouldMakeIntentionalBlunder() && engineMoveCandidates.length > 1) {
+                chosen = makeIntentionalBlunder(engineMoveCandidates);
+            } else if (isCalibrationGame) {
+                chosen = chooseCalibrationMove(engineMoveCandidates, fallbackMove);
+            } else {
+                chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
+            }, fallbackMove)
                 : (chooseHumanLikeMove(engineMoveCandidates) || { move: null });
             const moveStr = (engineMoveCandidates.length > 0 && chosen.move)
                 ? chosen.move
