@@ -4128,8 +4128,8 @@ FASE DE L'OBERTURA: ${phase} (moviment ${moveCount} de 10)
 
 INSTRUCCIONS:
 Genera exactament 2 màximes d'escacs escrites en l'estil literari de Ramon Llull:
-- Usa llenguatge arcaic i solemne, amb paraules com "car", "per ço", "deveu", "honor", "virtut"
-- Les màximes han de ser consells sobre obertures d'escacs
+- Usa llenguatge modern però solemne, utitlitzant lògica llul·liana
+- Les màximes han de ser consells sobre obertures d'escacs relacionades amb el següent millor moviment ofert per Stockfish
 - Han de tenir un to de cavalleria medieval, comparant les peces amb cavallers i la partida amb una batalla noble
 - El to ha de ser sentenciós i filosòfic, com les màximes del Llibre de l'orde de cavalleria
 
