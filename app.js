@@ -4248,48 +4248,48 @@ Màxima específica`;
     }
 }
 
-function buildOpeningMaximPromptLlull(fen, moveCount) {
+function buildOpeningMaximPromptSunTzu(fen, moveCount) {
     const phase = moveCount <= 4 ? 'inicial' : moveCount <= 8 ? 'desenvolupament' : 'transició';
-    
-    return `Ets un mestre cavaller d'escacs que parla com Ramon Llull al "Llibre de l'orde de cavalleria".
+
+    return `Ets Sun Tzu, autor de "L'Art de la Guerra", aplicant la teva saviesa militar als escacs.
 
 POSICIÓ ACTUAL (FEN): ${fen}
 FASE DE L'OBERTURA: ${phase} (moviment ${moveCount} de 10)
 
 INSTRUCCIONS:
-Genera exactament 2 màximes d'escacs escrites en l'estil literari de Ramon Llull:
-- Usa llenguatge modern però solemne, utitlitzant lògica llul·liana
-- Les màximes han de ser consells sobre obertures d'escacs relacionades amb el següent millor moviment ofert per Stockfish
-- Han de tenir un to de cavalleria medieval, comparant les peces amb cavallers i la partida amb una batalla noble
-- El to ha de ser sentenciós i filosòfic, com les màximes del Llibre de l'orde de cavalleria
+Genera exactament 1 màxima d'escacs inspirada en "L'Art de la Guerra":
+- Usa llenguatge concís, profund i sentenciós com Sun Tzu
+- La màxima ha de ser un consell estratègic aplicable a l'obertura d'escacs
+- Ha de reflectir la filosofia de Sun Tzu: preparació, engany, coneixement de l'enemic, economia de forces
+- Escriu en català modern però amb to filosòfic oriental
 
 TEMES A CONSIDERAR SEGONS LA FASE:
 ${phase === 'inicial' ? `
-- Control del centre com a conquesta del camp de batalla
-- Desenvolupament de peces com a preparació de l'host
-- La importància del primer moviment com a declaració d'intencions` : ''}
+- "Coneix-te a tu mateix i coneix el teu enemic" - control del centre
+- "La victòria suprem és sotmetre l'enemic sense lluitar" - posicionament
+- "En la guerra, el camí és evitar el que és fort i atacar el que és feble" - desenvolupament` : ''}
 ${phase === 'desenvolupament' ? `
-- Coordinació de peces com a harmonia entre cavallers
-- L'enroc com a protecció del senyor (rei)
-- L'activitat de les peces menors com a avantguarda` : ''}
+- "Tot l'art de la guerra es basa en l'engany" - maniobres tàctiques
+- "Qui arriba primer al camp de batalla i espera l'enemic està fresc" - iniciativa
+- "Mantingues els teus amics a prop i els teus enemics més a prop" - coordinació` : ''}
 ${phase === 'transició' ? `
-- La connexió de torres com a unió de forces
-- La preparació per al mig joc com a estratègia abans de la batalla
-- L'ocupació de columnes obertes com a domini del terreny` : ''}
+- "L'oportunitat de derrotar l'enemic la proporciona el propi enemic" - esperar errors
+- "Un exèrcit victoriós guanya primer i després cerca la batalla" - preparació
+- "La velocitat és l'essència de la guerra" - activitat de les peces` : ''}
 
 REGLES IMPERATIVES:
-- Cada màxima entre 40-180 caràcters
-- Estil arcaic català medieval
+- Exactament 1 màxima entre 60-200 caràcters
+- Estil filosòfic i sentenciós de Sun Tzu
 - NO revelar jugades concretes
 - NO usar emojis ni enumeracions
-- Només les màximes, res més
+- Escriu NOMÉS la màxima, res més
 
 EXEMPLES D'ESTIL (NO COPIAR, només per referència):
-"Car lo cavaller qui no guarda son rei al centre, no mereix honor en la batalla."
-"Per ço deveu moure los cavallers abans que els peons s'endolentin en llur quietud."
-"Virtut és del savi escaquista que l'enroc sia fet ans que l'enemic amenaci."
+"El general savi conquista el centre abans que l'enemic pensi en disputar-lo."
+"Com l'aigua s'adapta al terreny, les peces han de fluir cap a les caselles buides."
+"Qui domina les columnes obertes domina els camins de la victòria."
 
-Genera ara 2 màximes:`;
+Genera ara 1 màxima:`
 }
 
 async function requestOpeningMaximLlull() {
@@ -4302,20 +4302,20 @@ async function requestOpeningMaximLlull() {
         return;
     }
     if (openingMaximPending) return;
-    
+
     openingMaximPending = true;
     const noteEl = document.getElementById('opening-practice-note');
-    
+
     if (noteEl) {
-        noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">📜 El mestre cavaller medita...</div>';
+        noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">⚔️ Sun Tzu medita sobre la posició...</div>';
     }
-    
+
     const fen = openingPracticeGame.fen();
     const moveCount = openingPracticeMoveCount;
-    const prompt = buildOpeningMaximPromptLlull(fen, moveCount);
-    
+    const prompt = buildOpeningMaximPromptSunTzu(fen, moveCount);
+
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
-    
+
     try {
         const response = await fetch(url, {
             method: 'POST',
@@ -4323,58 +4323,51 @@ async function requestOpeningMaximLlull() {
             body: JSON.stringify({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 generationConfig: {
-                    temperature: 0.9,
-                    maxOutputTokens: 1500,
-                    topP: 0.95,
-                    topK: 40
+                    temperature: 0.85,
+                    maxOutputTokens: 500,
+                    topP: 0.9,
+                    topK: 30
                 }
             })
         });
-        
+
         if (!response.ok) {
             const errorBody = await response.text();
-            console.error('[Gemini Llull] Error response:', response.status, errorBody);
+            console.error('[Gemini SunTzu] Error response:', response.status, errorBody);
             throw new Error(`Gemini error ${response.status}: ${errorBody}`);
         }
-        
+
         const data = await response.json();
         const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
         if (!text) throw new Error('Resposta buida de Gemini');
-        
-        const lines = text.split('\n').filter(l => l.trim() && l.trim().length >= 20);
-        
+
+        // Agafa només la primera línia vàlida (una sola màxima)
+        const lines = text.split('\n').filter(l => l.trim() && l.trim().length >= 30);
+
         if (lines.length === 0) {
-            throw new Error('Respostes massa curtes');
+            throw new Error('Resposta massa curta');
         }
-        
-        const MAX_CHARS = 400;
-        let remainingChars = MAX_CHARS;
-        const trimmedLines = [];
-        for (const line of lines.slice(0, 2)) {
-            if (remainingChars <= 0) break;
-            let trimmedLine = line.trim().replace(/^["«]|["»]$/g, '');
-            if (trimmedLine.length > remainingChars) {
-                trimmedLine = `${trimmedLine.slice(0, remainingChars - 1).trim()}…`;
-            }
-            trimmedLines.push(trimmedLine);
-            remainingChars -= trimmedLine.length;
+
+        // Neteja i limita la màxima
+        let maxim = lines[0].trim().replace(/^["«]|["»]$/g, '');
+        if (maxim.length > 250) {
+            maxim = maxim.slice(0, 249).trim() + '…';
         }
-        
-        // Estil similar al bundle-hint però amb tema medieval
-        let html = '<div style="padding:12px; background:rgba(139,69,19,0.15); border-left:3px solid #8b4513; border-radius:8px; line-height:1.7;">';
-        html += '<div style="font-weight:600; color:#c9a227; margin-bottom:8px; font-family:\'Cinzel\', serif;">📜 Màximes del Cavaller:</div>';
-        trimmedLines.forEach(line => {
-            html += `<div style="font-style:italic; margin:6px 0; color:var(--text-primary);">"${line}"</div>`;
-        });
+
+        // Estil inspirat en l'Art de la Guerra - vermell fosc oriental
+        let html = '<div style="padding:14px; background:rgba(139,0,0,0.12); border-left:3px solid #8b0000; border-radius:8px; line-height:1.6;">';
+        html += '<div style="font-weight:600; color:#c9a227; margin-bottom:10px; font-family:\'Cinzel\', serif;">⚔️ L\'Art de la Guerra:</div>';
+        html += `<div style="font-style:italic; color:var(--text-primary); font-size:1.05em;">"${maxim}"</div>`;
+        html += '<div style="text-align:right; margin-top:8px; font-size:0.85em; color:var(--text-secondary);">— Sun Tzu</div>';
         html += '</div>';
-        
+
         lastOpeningMaxim = html;
         if (noteEl) noteEl.innerHTML = html;
-        
+
     } catch (err) {
-        console.error('[Gemini Llull]', err);
+        console.error('[Gemini SunTzu]', err);
         if (noteEl) {
-            noteEl.innerHTML = '<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut consultar el mestre cavaller. Torna-ho a provar.</div>';
+            noteEl.innerHTML = '<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut consultar Sun Tzu. Torna-ho a provar.</div>';
         }
     } finally {
         openingMaximPending = false;
