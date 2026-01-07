@@ -919,6 +919,14 @@ function executeOpeningMoveAnalysis(fenBefore, movePlayed) {
     openingPracticeLastFen = fenBefore;
     openingPracticeLastMove = movePlayed;
 
+    // Timeout de seguretat: si no rebem resposta en 5 segons, processar igualment
+    setTimeout(() => {
+        if (openingPracticeAnalysisPending && openingPracticeLastMove === movePlayed) {
+            console.warn('[OpeningPrecision] Timeout esperant resposta Stockfish');
+            processOpeningMoveAnalysis(null); // Processar sense bestMove
+        }
+    }, 5000);
+
     try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
     stockfish.postMessage(`position fen ${fenBefore}`);
     stockfish.postMessage('go depth 8');
@@ -928,24 +936,37 @@ function processOpeningMoveAnalysis(bestMove) {
     if (!openingPracticeAnalysisPending) return;
     openingPracticeAnalysisPending = false;
 
-    if (!openingPracticeLastMove || !bestMove) return;
+    // Sempre incrementar total i actualitzar display, fins i tot si hi ha errors
+    try {
+        if (!openingPracticeLastMove || !bestMove) {
+            // Si falten dades, comptem com a moviment fet però no analitzat
+            openingPracticeTotalMoves++;
+            updateOpeningPrecisionDisplay();
+            return;
+        }
 
-    // Comparar el moviment jugat amb el millor moviment
-    const played = openingPracticeLastMove.toLowerCase();
-    const best = bestMove.toLowerCase();
+        // Comparar el moviment jugat amb el millor moviment
+        const played = openingPracticeLastMove.toLowerCase();
+        const best = bestMove.toLowerCase();
 
-    // Considerar correcte si coincideix exactament o si la casella destí és la mateixa
-    const playedTo = played.substring(2, 4);
-    const bestTo = best.substring(2, 4);
+        // Considerar correcte si coincideix exactament o si la casella destí és la mateixa
+        const playedTo = played.substring(2, 4);
+        const bestTo = best.substring(2, 4);
 
-    if (played === best || playedTo === bestTo) {
-        openingPracticeGoodMoves++;
+        if (played === best || playedTo === bestTo) {
+            openingPracticeGoodMoves++;
+        }
+        openingPracticeTotalMoves++;
+        updateOpeningPrecisionDisplay();
+    } catch (e) {
+        // En cas d'error, almenys comptem el moviment
+        openingPracticeTotalMoves++;
+        updateOpeningPrecisionDisplay();
+        console.error('[OpeningPrecision] Error processant anàlisi:', e);
+    } finally {
+        openingPracticeLastFen = null;
+        openingPracticeLastMove = null;
     }
-    openingPracticeTotalMoves++;
-    updateOpeningPrecisionDisplay();
-
-    openingPracticeLastFen = null;
-    openingPracticeLastMove = null;
 }
 
 // Funcions tap-to-move per al tauler d'obertures
@@ -6737,7 +6758,8 @@ function handleEngineMessage(rawMsg) {
             const bestMove = match[1] + match[2] + (match[3] || '');
             processOpeningMoveAnalysis(bestMove);
         } else {
-            openingPracticeAnalysisPending = false;
+            // Encara que no puguem parsejar el bestmove, processar per actualitzar comptadors
+            processOpeningMoveAnalysis(null);
         }
         return;
     }
