@@ -1746,6 +1746,17 @@
     </style>
 </head>
 <body>
+    <!-- Banner d'actualització del Service Worker -->
+    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Crimson Pro',serif;">
+        <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
+            <span style="font-size:14px;">Nova versió disponible</span>
+            <div style="display:flex; gap:8px;">
+                <button id="sw-update-btn" style="background:#fff; color:#4a7c59; border:none; padding:6px 14px; border-radius:4px; font-weight:600; cursor:pointer; font-size:13px;">Actualitzar ara</button>
+                <button id="sw-dismiss-btn" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); padding:6px 10px; border-radius:4px; cursor:pointer; font-size:13px;">Ara no</button>
+            </div>
+        </div>
+    </div>
+
     <div id="app-container">
         <div id="start-screen">
             <div class="app-logo">♔</div>
@@ -2245,33 +2256,120 @@
     
     <!-- Service Worker Registration -->
     <script>
-        if ('serviceWorker' in navigator) {
+        (function() {
+            if (!('serviceWorker' in navigator)) return;
+
+            let refreshing = false;
+            let pendingWorker = null;
+
+            // Mostra el banner d'actualització
+            function showUpdateBanner() {
+                const banner = document.getElementById('sw-update-banner');
+                if (banner) {
+                    banner.style.display = 'block';
+                    console.log('[App] Mostrant banner d\'actualització');
+                }
+            }
+
+            // Amaga el banner
+            function hideUpdateBanner() {
+                const banner = document.getElementById('sw-update-banner');
+                if (banner) banner.style.display = 'none';
+            }
+
+            // Activa el nou service worker i recarrega
+            function applyUpdate() {
+                console.log('[App] Aplicant actualització...');
+                if (pendingWorker) {
+                    pendingWorker.postMessage({ type: 'SKIP_WAITING' });
+                }
+            }
+
+            // Configura els botons del banner
+            document.addEventListener('DOMContentLoaded', () => {
+                const updateBtn = document.getElementById('sw-update-btn');
+                const dismissBtn = document.getElementById('sw-dismiss-btn');
+
+                if (updateBtn) {
+                    updateBtn.addEventListener('click', () => {
+                        hideUpdateBanner();
+                        applyUpdate();
+                    });
+                }
+
+                if (dismissBtn) {
+                    dismissBtn.addEventListener('click', () => {
+                        hideUpdateBanner();
+                    });
+                }
+            });
+
+            // Registra el service worker
             window.addEventListener('load', () => {
                 navigator.serviceWorker.register('./sw.js')
                     .then((reg) => {
-                        console.log('Service Worker registrat:', reg.scope);
+                        console.log('[App] Service Worker registrat:', reg.scope);
+
+                        // Comprova si ja hi ha un worker esperant
                         if (reg.waiting) {
-                            reg.waiting.postMessage('skipWaiting');
+                            console.log('[App] Hi ha un worker esperant');
+                            pendingWorker = reg.waiting;
+                            showUpdateBanner();
                         }
+
+                        // Escolta noves actualitzacions
                         reg.addEventListener('updatefound', () => {
                             const newWorker = reg.installing;
                             if (!newWorker) return;
+
+                            console.log('[App] Nou worker trobat, estat:', newWorker.state);
+
                             newWorker.addEventListener('statechange', () => {
-                                if (newWorker.state === 'installed' && navigator.serviceWorker.controller) {
-                                    newWorker.postMessage('skipWaiting');
+                                console.log('[App] Worker canvi d\'estat:', newWorker.state);
+
+                                if (newWorker.state === 'installed') {
+                                    if (navigator.serviceWorker.controller) {
+                                        // Hi ha una actualització disponible
+                                        console.log('[App] Actualització disponible!');
+                                        pendingWorker = newWorker;
+                                        showUpdateBanner();
+                                    } else {
+                                        // Primera instal·lació
+                                        console.log('[App] Service Worker instal·lat per primera vegada');
+                                    }
                                 }
                             });
                         });
+
+                        // Comprova actualitzacions cada 60 segons
+                        setInterval(() => {
+                            reg.update().catch(err => console.log('[App] Error comprovant actualitzacions:', err));
+                        }, 60000);
                     })
-                    .catch((err) => console.log('Error registrant SW:', err));
+                    .catch((err) => console.log('[App] Error registrant SW:', err));
             });
-              let refreshing = false;
+
+            // Escolta missatges del service worker
+            navigator.serviceWorker.addEventListener('message', (event) => {
+                console.log('[App] Missatge del SW:', event.data);
+
+                if (event.data?.type === 'SW_UPDATE_AVAILABLE') {
+                    showUpdateBanner();
+                }
+
+                if (event.data?.type === 'SW_ACTIVATED') {
+                    console.log('[App] Nova versió activada:', event.data.version);
+                }
+            });
+
+            // Recarrega quan el controller canvia
             navigator.serviceWorker.addEventListener('controllerchange', () => {
                 if (refreshing) return;
                 refreshing = true;
+                console.log('[App] Controller canviat, recarregant...');
                 window.location.reload();
             });
-        }
+        })();
     </script>
 </body>
 </html>
