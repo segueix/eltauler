@@ -37,6 +37,7 @@ let openingPracticeTotalMoves = 0;
 let openingPracticeAnalysisPending = false;
 let openingPracticeLastFen = null;
 let openingPracticeLastMove = null;
+let openingPracticePendingAnalysis = null; // Guardar anàlisi pendent mentre l'engine pensa
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -892,8 +893,27 @@ function updateOpeningPrecisionDisplay() {
 }
 
 function analyzeOpeningMoveQuality(fenBefore, movePlayed) {
-    if (!stockfish || openingPracticeAnalysisPending) return;
     if (!fenBefore || !movePlayed) return;
+
+    // Si l'engine està pensant, guardem l'anàlisi per després
+    if (openingPracticeEngineThinking) {
+        openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+        return;
+    }
+
+    // Si ja hi ha una anàlisi en curs, la substituïm
+    if (openingPracticeAnalysisPending) {
+        openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+        return;
+    }
+
+    executeOpeningMoveAnalysis(fenBefore, movePlayed);
+}
+
+function executeOpeningMoveAnalysis(fenBefore, movePlayed) {
+    if (!stockfish) {
+        if (!ensureStockfish()) return;
+    }
 
     openingPracticeAnalysisPending = true;
     openingPracticeLastFen = fenBefore;
@@ -901,7 +921,7 @@ function analyzeOpeningMoveQuality(fenBefore, movePlayed) {
 
     try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
     stockfish.postMessage(`position fen ${fenBefore}`);
-    stockfish.postMessage('go depth 10');
+    stockfish.postMessage('go depth 8');
 }
 
 function processOpeningMoveAnalysis(bestMove) {
@@ -954,6 +974,7 @@ function commitOpeningMoveFromTap(from, to) {
     // Guardar FEN abans del moviment per a l'anàlisi de precisió
     const fenBefore = openingPracticeGame.fen();
     const movePlayed = from + to;
+    const wasWhiteTurn = openingPracticeGame.turn() === 'w';
 
     const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
     if (!move) return false;
@@ -965,16 +986,26 @@ function commitOpeningMoveFromTap(from, to) {
     openingBundleBoard.position(openingPracticeGame.fen());
     updateOpeningPracticeStatus();
 
-    // Analitzar la qualitat del moviment (només per moviments del jugador - blanques)
-    if (openingPracticeGame.turn() === 'b') {
-        analyzeOpeningMoveQuality(fenBefore, movePlayed);
+    // Primer iniciar el moviment de l'engine (si toca)
+    const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
+                           !openingPracticeGame.game_over() &&
+                           openingPracticeGame.turn() === 'b';
+
+    if (needsEngineMove) {
+        requestOpeningPracticeEngineMove();
     }
 
-    if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
-        if (openingPracticeGame.turn() === 'b') {
-            requestOpeningPracticeEngineMove();
+    // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
+    if (wasWhiteTurn) {
+        if (needsEngineMove) {
+            // L'engine està pensant, guardem l'anàlisi pendent
+            openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+        } else {
+            // No hi ha moviment de l'engine, analitzem directament
+            analyzeOpeningMoveQuality(fenBefore, movePlayed);
         }
     }
+
     return true;
 }
 
@@ -5615,14 +5646,23 @@ function initOpeningBundleBoard() {
             openingPracticeMoveCount += 1;
             updateOpeningPracticeStatus();
 
-            // Analitzar la qualitat del moviment (només per moviments del jugador - blanques)
-            if (wasWhiteTurn) {
-                analyzeOpeningMoveQuality(fenBefore, movePlayed);
+            // Primer iniciar el moviment de l'engine (si toca)
+            const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
+                                   !openingPracticeGame.game_over() &&
+                                   openingPracticeGame.turn() === 'b';
+
+            if (needsEngineMove) {
+                requestOpeningPracticeEngineMove();
             }
 
-            if (openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES && !openingPracticeGame.game_over()) {
-                if (openingPracticeGame.turn() === 'b') {
-                    requestOpeningPracticeEngineMove();
+            // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
+            if (wasWhiteTurn) {
+                if (needsEngineMove) {
+                    // L'engine està pensant, guardem l'anàlisi pendent
+                    openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+                } else {
+                    // No hi ha moviment de l'engine, analitzem directament
+                    analyzeOpeningMoveQuality(fenBefore, movePlayed);
                 }
             }
         },
@@ -5675,6 +5715,7 @@ function resetOpeningPracticeBoard() {
     openingPracticeAnalysisPending = false;
     openingPracticeLastFen = null;
     openingPracticeLastMove = null;
+    openingPracticePendingAnalysis = null;
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
     if (openingBundleBoard) {
@@ -6745,9 +6786,26 @@ function handleEngineMessage(rawMsg) {
                     updateOpeningPracticeStatus();
                 }
                 openingPracticeEngineThinking = false;
+
+                // Executar anàlisi de precisió pendent si n'hi ha
+                if (openingPracticePendingAnalysis) {
+                    const pending = openingPracticePendingAnalysis;
+                    openingPracticePendingAnalysis = null;
+                    setTimeout(() => {
+                        executeOpeningMoveAnalysis(pending.fen, pending.move);
+                    }, 100);
+                }
             }, 2000);
         } else {
             openingPracticeEngineThinking = false;
+            // Executar anàlisi de precisió pendent si n'hi ha
+            if (openingPracticePendingAnalysis) {
+                const pending = openingPracticePendingAnalysis;
+                openingPracticePendingAnalysis = null;
+                setTimeout(() => {
+                    executeOpeningMoveAnalysis(pending.fen, pending.move);
+                }, 100);
+            }
         }
         return;
     }
