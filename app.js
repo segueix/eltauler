@@ -41,6 +41,7 @@ let openingPracticePendingAnalysis = null; // Guardar anàlisi pendent mentre l'
 let openingPracticePendingEngineMove = false;
 let openingPracticePrecisionReady = false;
 let openingPracticeAwaitingOk = false;
+let openingPracticeOkConfirmed = false;
 let openingPracticeHistory = []; // Historial de moviments per undo
 let gameHistory = [];
 let historyBoard = null;
@@ -886,7 +887,7 @@ function updateOpeningPrecisionDisplay() {
         barEl.css('width', '0%').removeClass('good warning danger');
         return;
     }
-    if (!openingPracticePrecisionReady) {
+    if (!openingPracticePrecisionReady || !openingPracticeOkConfirmed) {
         precisionEl.text('—');
         barEl.css('width', '0%').removeClass('good warning danger');
         return;
@@ -5798,6 +5799,7 @@ function undoOpeningPracticeMove() {
     openingPracticePendingEngineMove = false;
     openingPracticePrecisionReady = false;
     openingPracticeAwaitingOk = false;
+    openingPracticeOkConfirmed = false;
     openingPracticeLastFen = null;
     openingPracticeLastMove = null;
 
@@ -5848,6 +5850,7 @@ function resetOpeningPracticeBoard() {
     openingPracticePendingEngineMove = false;
     openingPracticePrecisionReady = false;
     openingPracticeAwaitingOk = false;
+    openingPracticeOkConfirmed = false;
     openingPracticeHistory = []; // Reset historial per undo
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
@@ -5984,6 +5987,7 @@ function setupEvents() {
         if (openingPracticePendingEngineMove) {
             openingPracticePendingEngineMove = false;
             openingPracticeAwaitingOk = false;
+            openingPracticeOkConfirmed = true;
             updateOpeningOkButton();
             requestOpeningPracticeEngineMove();
             return;
