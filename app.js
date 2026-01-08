@@ -40,6 +40,8 @@ let openingPracticeLastMove = null;
 let openingPracticePendingAnalysis = null; // Guardar anàlisi pendent mentre l'engine pensa
 let openingPracticePendingEngineMove = false;
 let openingPracticePrecisionReady = false;
+let openingPracticeAwaitingOk = false;
+let openingPracticeAutoEngineMove = false;
 let openingPracticeHistory = []; // Historial de moviments per undo
 let gameHistory = [];
 let historyBoard = null;
@@ -978,10 +980,7 @@ function processOpeningMoveAnalysis(bestMove) {
         openingPracticeLastMove = null;
     }
 
-    if (openingPracticePendingEngineMove && !openingPracticeEngineThinking) {
-        openingPracticePendingEngineMove = false;
-        requestOpeningPracticeEngineMove();
-    }
+    maybeTriggerOpeningEngineMove();
 }
 
 // Funcions tap-to-move per al tauler d'obertures
@@ -5723,6 +5722,7 @@ function initOpeningBundleBoard() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
+    updateOpeningOkButton();
     if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
 
     // Aplicar mode de control tàctil
@@ -5773,6 +5773,26 @@ function updateOpeningUndoButton() {
     btn.disabled = !canUndo;
 }
 
+function updateOpeningOkButton() {
+    const btn = document.getElementById('btn-opening-ok');
+    if (!btn) return;
+    const canOk = openingPracticeAwaitingOk && !openingPracticeEngineThinking;
+    btn.disabled = !canOk;
+}
+
+function maybeTriggerOpeningEngineMove() {
+    if (!openingPracticePendingEngineMove || openingPracticeEngineThinking) return;
+    if (!openingPracticeAutoEngineMove) {
+        openingPracticeAwaitingOk = true;
+        updateOpeningOkButton();
+        return;
+    }
+    openingPracticePendingEngineMove = false;
+    openingPracticeAwaitingOk = false;
+    updateOpeningOkButton();
+    requestOpeningPracticeEngineMove();
+}
+
 // Desfer el darrer moviment de l'usuari (limitat a un sol undo)
 function undoOpeningPracticeMove() {
     if (!openingPracticeGame || openingPracticeHistory.length === 0) return;
@@ -5792,6 +5812,7 @@ function undoOpeningPracticeMove() {
     openingPracticePendingAnalysis = null;
     openingPracticePendingEngineMove = false;
     openingPracticePrecisionReady = false;
+    openingPracticeAwaitingOk = false;
     openingPracticeLastFen = null;
     openingPracticeLastMove = null;
 
@@ -5815,6 +5836,7 @@ function undoOpeningPracticeMove() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
+    updateOpeningOkButton();
 
     // Missatge
     const noteEl = document.getElementById('opening-practice-note');
@@ -5840,6 +5862,8 @@ function resetOpeningPracticeBoard() {
     openingPracticePendingAnalysis = null;
     openingPracticePendingEngineMove = false;
     openingPracticePrecisionReady = false;
+    openingPracticeAwaitingOk = false;
+    openingPracticeAutoEngineMove = false;
     openingPracticeHistory = []; // Reset historial per undo
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
@@ -5850,6 +5874,7 @@ function resetOpeningPracticeBoard() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
+    updateOpeningOkButton();
 }
 
 function requestOpeningPracticeEngineMove() {
@@ -5968,6 +5993,18 @@ function setupEvents() {
     });
     $('#btn-opening-undo').click(() => {
         undoOpeningPracticeMove();
+    });
+    $('#btn-opening-ok').click(() => {
+        if (openingPracticeEngineThinking) return;
+        openingPracticeAutoEngineMove = true;
+        openingPracticeAwaitingOk = false;
+        if (openingPracticePendingEngineMove) {
+            openingPracticePendingEngineMove = false;
+            updateOpeningOkButton();
+            requestOpeningPracticeEngineMove();
+            return;
+        }
+        updateOpeningOkButton();
     });
 
     $('#btn-reset-league').click(() => {
