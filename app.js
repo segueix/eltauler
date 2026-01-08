@@ -41,7 +41,6 @@ let openingPracticePendingAnalysis = null; // Guardar anàlisi pendent mentre l'
 let openingPracticePendingEngineMove = false;
 let openingPracticePrecisionReady = false;
 let openingPracticeAwaitingOk = false;
-let openingPracticeAutoEngineMove = false;
 let openingPracticeHistory = []; // Historial de moviments per undo
 let gameHistory = [];
 let historyBoard = null;
@@ -894,11 +893,7 @@ function updateOpeningPrecisionDisplay() {
     }
 
     const precision = Math.round((openingPracticeGoodMoves / openingPracticeTotalMoves) * 100);
-    if (precision === 0) {
-        precisionEl.text(`${openingPracticeGoodMoves}/${openingPracticeTotalMoves}`);
-    } else {
-        precisionEl.text(precision + '%');
-    }
+    precisionEl.text(precision + '%');
     barEl.css('width', precision + '%');
     barEl.removeClass('good warning danger');
     if (precision >= 75) barEl.addClass('good');
@@ -969,18 +964,20 @@ function processOpeningMoveAnalysis(bestMove) {
         } else {
             openingPracticePrecisionReady = false;
         }
+        openingPracticeAwaitingOk = openingPracticePendingEngineMove && openingPracticePrecisionReady;
         updateOpeningPrecisionDisplay();
+        updateOpeningOkButton();
     } catch (e) {
         // En cas d'error, no actualitzem precisió perquè falten dades fiables
         openingPracticePrecisionReady = false;
+        openingPracticeAwaitingOk = false;
         updateOpeningPrecisionDisplay();
+        updateOpeningOkButton();
         console.error('[OpeningPrecision] Error processant anàlisi:', e);
     } finally {
         openingPracticeLastFen = null;
         openingPracticeLastMove = null;
     }
-
-    maybeTriggerOpeningEngineMove();
 }
 
 // Funcions tap-to-move per al tauler d'obertures
@@ -5781,19 +5778,6 @@ function updateOpeningOkButton() {
     btn.disabled = !canOk;
 }
 
-function maybeTriggerOpeningEngineMove() {
-    if (!openingPracticePendingEngineMove || openingPracticeEngineThinking) return;
-    if (!openingPracticeAutoEngineMove) {
-        openingPracticeAwaitingOk = true;
-        updateOpeningOkButton();
-        return;
-    }
-    openingPracticePendingEngineMove = false;
-    openingPracticeAwaitingOk = false;
-    updateOpeningOkButton();
-    requestOpeningPracticeEngineMove();
-}
-
 // Desfer el darrer moviment de l'usuari (limitat a un sol undo)
 function undoOpeningPracticeMove() {
     if (!openingPracticeGame || openingPracticeHistory.length === 0) return;
@@ -5864,7 +5848,6 @@ function resetOpeningPracticeBoard() {
     openingPracticePendingEngineMove = false;
     openingPracticePrecisionReady = false;
     openingPracticeAwaitingOk = false;
-    openingPracticeAutoEngineMove = false;
     openingPracticeHistory = []; // Reset historial per undo
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
@@ -5997,15 +5980,14 @@ function setupEvents() {
     });
     $('#btn-opening-ok').click(() => {
         if (openingPracticeEngineThinking) return;
-        openingPracticeAutoEngineMove = true;
-        openingPracticeAwaitingOk = false;
+        if (!openingPracticePrecisionReady) return;
         if (openingPracticePendingEngineMove) {
             openingPracticePendingEngineMove = false;
+            openingPracticeAwaitingOk = false;
             updateOpeningOkButton();
             requestOpeningPracticeEngineMove();
             return;
         }
-        updateOpeningOkButton();
     });
 
     $('#btn-reset-league').click(() => {
