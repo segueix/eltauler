@@ -925,6 +925,7 @@ function executeOpeningMoveAnalysis(fenBefore, movePlayed) {
         if (!ensureStockfish()) return;
     }
 
+    openingPracticeOkConfirmed = false;
     openingPracticeAnalysisPending = true;
     openingPracticeLastFen = fenBefore;
     openingPracticeLastMove = movePlayed;
@@ -5984,14 +5985,16 @@ function setupEvents() {
     $('#btn-opening-ok').click(() => {
         if (openingPracticeEngineThinking) return;
         if (!openingPracticePrecisionReady) return;
+        openingPracticeOkConfirmed = true;
         if (openingPracticePendingEngineMove) {
             openingPracticePendingEngineMove = false;
             openingPracticeAwaitingOk = false;
-            openingPracticeOkConfirmed = true;
             updateOpeningOkButton();
             requestOpeningPracticeEngineMove();
             return;
         }
+        updateOpeningPrecisionDisplay();
+        updateOpeningOkButton();
     });
 
     $('#btn-reset-league').click(() => {
