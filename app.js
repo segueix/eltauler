@@ -39,6 +39,7 @@ let openingPracticeLastFen = null;
 let openingPracticeLastMove = null;
 let openingPracticePendingAnalysis = null; // Guardar anàlisi pendent mentre l'engine pensa
 let openingPracticePendingEngineMove = false;
+let openingPracticePrecisionReady = false;
 let openingPracticeHistory = []; // Historial de moviments per undo
 let gameHistory = [];
 let historyBoard = null;
@@ -884,6 +885,11 @@ function updateOpeningPrecisionDisplay() {
         barEl.css('width', '0%').removeClass('good warning danger');
         return;
     }
+    if (!openingPracticePrecisionReady) {
+        precisionEl.text('—');
+        barEl.css('width', '0%').removeClass('good warning danger');
+        return;
+    }
 
     const precision = Math.round((openingPracticeGoodMoves / openingPracticeTotalMoves) * 100);
     if (precision === 0) {
@@ -956,12 +962,15 @@ function processOpeningMoveAnalysis(bestMove) {
             if (played === best || playedTo === bestTo) {
                 openingPracticeGoodMoves++;
             }
+            openingPracticeTotalMoves++;
+            openingPracticePrecisionReady = true;
+        } else {
+            openingPracticePrecisionReady = false;
         }
-        openingPracticeTotalMoves++;
         updateOpeningPrecisionDisplay();
     } catch (e) {
-        // En cas d'error, almenys comptem el moviment
-        openingPracticeTotalMoves++;
+        // En cas d'error, no actualitzem precisió perquè falten dades fiables
+        openingPracticePrecisionReady = false;
         updateOpeningPrecisionDisplay();
         console.error('[OpeningPrecision] Error processant anàlisi:', e);
     } finally {
@@ -5782,6 +5791,7 @@ function undoOpeningPracticeMove() {
     openingPracticeAnalysisPending = false;
     openingPracticePendingAnalysis = null;
     openingPracticePendingEngineMove = false;
+    openingPracticePrecisionReady = false;
     openingPracticeLastFen = null;
     openingPracticeLastMove = null;
 
@@ -5829,6 +5839,7 @@ function resetOpeningPracticeBoard() {
     openingPracticeLastMove = null;
     openingPracticePendingAnalysis = null;
     openingPracticePendingEngineMove = false;
+    openingPracticePrecisionReady = false;
     openingPracticeHistory = []; // Reset historial per undo
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
