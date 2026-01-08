@@ -961,7 +961,6 @@ function processOpeningMoveAnalysis(bestMove) {
             if (played === best || playedTo === bestTo) {
                 openingPracticeGoodMoves++;
             }
-            openingPracticeTotalMoves++;
             openingPracticePrecisionReady = true;
         } else {
             openingPracticePrecisionReady = false;
@@ -1039,6 +1038,10 @@ function commitOpeningMoveFromTap(from, to) {
     // Després guardar l'anàlisi de precisió; l'engine esperarà fins que s'acabi
     if (wasWhiteTurn) {
         if (needsEngineMove) openingPracticePendingEngineMove = true;
+        openingPracticeTotalMoves++;
+        openingPracticePrecisionReady = false;
+        openingPracticeOkConfirmed = false;
+        updateOpeningPrecisionDisplay();
         analyzeOpeningMoveQuality(fenBefore, movePlayed);
     }
 
@@ -5709,6 +5712,10 @@ function initOpeningBundleBoard() {
             // Després guardar l'anàlisi de precisió; l'engine esperarà fins que s'acabi
             if (wasWhiteTurn) {
                 if (needsEngineMove) openingPracticePendingEngineMove = true;
+                openingPracticeTotalMoves++;
+                openingPracticePrecisionReady = false;
+                openingPracticeOkConfirmed = false;
+                updateOpeningPrecisionDisplay();
                 analyzeOpeningMoveQuality(fenBefore, movePlayed);
             }
         },
