@@ -39,6 +39,29 @@ let openingPracticeLastFen = null;
 let openingPracticeLastMove = null;
 let openingPracticePendingAnalysis = null; // Guardar anàlisi pendent mentre l'engine pensa
 let openingPracticeHistory = []; // Historial de moviments per undo
+// Variables per a l'anàlisi de precisió en dos passos (com partida lliure)
+let openingAnalysisStep = 0; // 0 = no actiu, 1 = analitzant posició abans, 2 = analitzant posició després
+let openingEvalBefore = null;
+let openingEvalAfter = null;
+let openingBestMove = null;
+let openingTempScore = null;
+let openingFenAfterMove = null; // FEN després del moviment per a la segona anàlisi
+// Sistema de feedback instantani per obertures
+let openingPreCalcBestMove = null; // Millor moviment pre-calculat per a la posició actual
+let openingPreCalcPending = false; // Indica si estem calculant el millor moviment
+let openingPreCalcFen = null; // FEN per al qual s'ha calculat el millor moviment
+let openingLastMoveQuality = null; // Qualitat de l'últim moviment ('correct', 'good', 'incorrect')
+// Sistema de callback per assegurar precisió abans del moviment de l'engine
+let openingPendingUserMove = null; // {movePlayed, from, to} - Moviment de l'usuari pendent d'avaluar
+let openingNeedsEngineMove = false; // Indica si cal demanar moviment de l'engine després de la precisió
+// Sistema de tokens per evitar conflictes entre handlers de Stockfish
+let stockfishRequestor = null; // Identificador de qui ha fet l'última petició
+
+// Sistema d'obertures per calcular precisió
+let openingTrie = null; // Estructura trie per cercar obertures
+let openingCurrentSequence = []; // Seqüència actual de moviments (SAN)
+let openingMatchedOpenings = []; // Obertures que coincideixen amb la seqüència actual
+
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -857,6 +880,155 @@ function disableTvTapToMove() {
     clearTvTapSelection();
 }
 
+// =====================================================
+// SISTEMA D'OBERTURES - Funcions per calcular precisió
+// =====================================================
+
+// Parseja un PGN d'obertura a un array de moviments SAN
+function parsePgnToMoves(pgn) {
+    if (!pgn) return [];
+    // Eliminar números i punts (ex: "1. e4 e5 2. Nf3" -> ["e4", "e5", "Nf3"])
+    return pgn.replace(/\d+\.\s*/g, '').trim().split(/\s+/).filter(m => m.length > 0);
+}
+
+// Construeix el trie d'obertures per cerca eficient
+function buildOpeningTrie() {
+    if (typeof OPENINGS_DATA === 'undefined') {
+        console.warn('[Openings] OPENINGS_DATA no disponible');
+        return null;
+    }
+
+    const trie = { children: {}, openings: [] };
+
+    for (const opening of OPENINGS_DATA) {
+        const moves = parsePgnToMoves(opening.pgn);
+        let node = trie;
+
+        for (const move of moves) {
+            if (!node.children[move]) {
+                node.children[move] = { children: {}, openings: [] };
+            }
+            node = node.children[move];
+        }
+        node.openings.push({ eco: opening.eco, name: opening.name, moves: moves });
+    }
+
+    console.log(`[Openings] Trie construït amb ${OPENINGS_DATA.length} obertures`);
+    console.log(`[Openings] Primers moviments vàlids: [${Object.keys(trie.children).join(', ')}]`);
+    return trie;
+}
+
+// Inicialitza el sistema d'obertures (només construeix el trie si no existeix)
+function initOpeningSystem() {
+    if (!openingTrie) {
+        openingTrie = buildOpeningTrie();
+        if (openingTrie) {
+            console.log('[Openings] Sistema d\'obertures inicialitzat correctament');
+        } else {
+            console.error('[Openings] ERROR: No s\'ha pogut construir el trie d\'obertures');
+        }
+    }
+    // NO resetejar openingCurrentSequence aquí - només es reseteja a resetOpeningPracticeBoard
+}
+
+// Obté els moviments vàlids d'obertura per a la posició actual
+function getValidOpeningMoves(sequence) {
+    if (!openingTrie) return [];
+
+    let node = openingTrie;
+    for (const move of sequence) {
+        if (!node.children[move]) {
+            return []; // No hi ha obertures que continuïn amb aquesta seqüència
+        }
+        node = node.children[move];
+    }
+
+    // Retorna tots els moviments possibles des d'aquest node
+    return Object.keys(node.children);
+}
+
+// Comprova si un moviment és vàlid dins d'alguna obertura
+function isValidOpeningMove(sequence, move) {
+    const validMoves = getValidOpeningMoves(sequence);
+    return validMoves.includes(move);
+}
+
+// Obté les obertures que coincideixen amb la seqüència actual
+function getMatchingOpenings(sequence) {
+    if (!openingTrie || sequence.length === 0) return [];
+
+    let node = openingTrie;
+    for (const move of sequence) {
+        if (!node.children[move]) {
+            return [];
+        }
+        node = node.children[move];
+    }
+
+    // Recollir totes les obertures des d'aquest node cap avall
+    const openings = [];
+    function collectOpenings(n) {
+        openings.push(...n.openings);
+        for (const child of Object.values(n.children)) {
+            collectOpenings(child);
+        }
+    }
+    collectOpenings(node);
+    return openings;
+}
+
+// Selecciona la millor obertura quan hi ha múltiples opcions
+// Basat en el moviment de l'engine
+function selectBestOpeningByEngine(sequence, engineMove) {
+    const validMoves = getValidOpeningMoves(sequence);
+
+    if (validMoves.length === 0) return null;
+    if (validMoves.length === 1) return validMoves[0];
+
+    // Si el moviment de l'engine coincideix amb una obertura, preferir-la
+    if (validMoves.includes(engineMove)) {
+        return engineMove;
+    }
+
+    // Sinó, retornar el primer moviment vàlid (ordre del fitxer d'obertures)
+    return validMoves[0];
+}
+
+// Avalua la precisió d'un moviment basat en obertures
+// Retorna: { quality: 'correct'|'good'|'incorrect', isOpeningMove: boolean, validMoves: [] }
+function evaluateOpeningMovePrecision(sequence, movePlayed) {
+    const validMoves = getValidOpeningMoves(sequence);
+
+    console.log(`[OpeningEval] Seqüència: [${sequence.join(', ')}]`);
+    console.log(`[OpeningEval] Moviment jugat: "${movePlayed}"`);
+    console.log(`[OpeningEval] Moviments vàlids (${validMoves.length}): [${validMoves.slice(0, 10).join(', ')}${validMoves.length > 10 ? '...' : ''}]`);
+    console.log(`[OpeningEval] Moviment "${movePlayed}" està a la llista: ${validMoves.includes(movePlayed)}`);
+
+    // Si és el primer moviment i no hi ha cap obertura que comenci així
+    if (sequence.length === 0 && validMoves.length > 0 && !validMoves.includes(movePlayed)) {
+        // Primer moviment no estàndard: 50% (ni bo ni dolent)
+        return { quality: 'unknown', isOpeningMove: false, validMoves: validMoves };
+    }
+
+    // Si el moviment és vàlid dins d'alguna obertura
+    if (validMoves.includes(movePlayed)) {
+        return { quality: 'correct', isOpeningMove: true, validMoves: validMoves };
+    }
+
+    // Si no hi ha moviments vàlids d'obertura (hem sortit de les obertures)
+    if (validMoves.length === 0) {
+        // Ja no estem dins d'obertures conegudes - usar engine
+        return { quality: 'engine', isOpeningMove: false, validMoves: [] };
+    }
+
+    // Hi havia moviments d'obertura vàlids però l'usuari n'ha fet un altre
+    return { quality: 'incorrect', isOpeningMove: false, validMoves: validMoves };
+}
+
+// =====================================================
+// FI SISTEMA D'OBERTURES
+// =====================================================
+
 // Funcions per a la pista visual del tauler d'obertures
 function clearOpeningHintHighlight() {
     $('#opening-board .square-55d63').removeClass('highlight-hint');
@@ -873,45 +1045,391 @@ function highlightOpeningHint(from, to) {
 }
 
 // Funcions de precisió per al tauler d'obertures
-function updateOpeningPrecisionDisplay() {
+// Mostra el resultat del MOVIMENT ACTUAL (no la mitjana)
+function updateOpeningPrecisionDisplay(animate = false) {
     const precisionEl = $('#opening-precision-value');
     const barEl = $('#opening-precision-bar');
+    const panelEl = $('#opening-precision-panel');
     if (!precisionEl.length || !barEl.length) return;
 
-    if (openingPracticeTotalMoves === 0) {
+    // Estat inicial - sense moviments o esperant dades de Stockfish
+    if (openingPracticeTotalMoves === 0 || openingLastMoveQuality === null || openingLastMoveQuality === 'unknown') {
         precisionEl.text('—');
-        barEl.css('width', '0%').removeClass('good warning danger');
+        barEl.css('width', '0%').removeClass('good warning danger move-correct move-incorrect move-good');
+        // Actualitzar estadístiques de sessió (pot ser 0/0 o valors restaurats per undo)
+        updateOpeningSessionStats();
         return;
     }
 
-    const precision = Math.round((openingPracticeGoodMoves / openingPracticeTotalMoves) * 100);
-    precisionEl.text(precision + '%');
-    barEl.css('width', precision + '%');
-    barEl.removeClass('good warning danger');
-    if (precision >= 75) barEl.addClass('good');
-    else if (precision >= 50) barEl.addClass('warning');
-    else barEl.addClass('danger');
+    // Mostrar resultat del MOVIMENT ACTUAL
+    barEl.removeClass('good warning danger move-correct move-incorrect move-good');
+
+    if (openingLastMoveQuality === 'correct') {
+        // ═══════════════════════════════════════
+        // MOVIMENT CORRECTE - Barra verda al 100%
+        // ═══════════════════════════════════════
+        precisionEl.text('✓');
+        barEl.css('width', '100%').addClass('move-correct');
+        if (animate) {
+            barEl.addClass('precision-correct-anim');
+            setTimeout(() => barEl.removeClass('precision-correct-anim'), 600);
+        }
+    } else if (openingLastMoveQuality === 'good') {
+        // ═══════════════════════════════════════
+        // MOVIMENT ACCEPTABLE - Barra taronja al 100%
+        // ═══════════════════════════════════════
+        precisionEl.text('~');
+        barEl.css('width', '100%').addClass('move-good');
+        if (animate) {
+            barEl.addClass('precision-good-anim');
+            setTimeout(() => barEl.removeClass('precision-good-anim'), 600);
+        }
+    } else {
+        // ═══════════════════════════════════════
+        // MOVIMENT INCORRECTE - Barra vermella al 100%
+        // ═══════════════════════════════════════
+        precisionEl.text('✗');
+        barEl.css('width', '100%').addClass('move-incorrect');
+        if (animate) {
+            barEl.addClass('precision-error-anim');
+            setTimeout(() => barEl.removeClass('precision-error-anim'), 600);
+        }
+    }
+
+    // Actualitzar estadístiques de sessió
+    updateOpeningSessionStats();
 }
 
-function analyzeOpeningMoveQuality(fenBefore, movePlayed) {
-    if (!fenBefore || !movePlayed) return;
+// Crea l'element d'estadístiques de sessió si no existeix
+function createSessionStatsElement() {
+    if (document.getElementById('opening-session-stats')) return;
+
+    const panelEl = document.getElementById('opening-precision-panel');
+    if (!panelEl) return;
+
+    const statsEl = document.createElement('div');
+    statsEl.id = 'opening-session-stats';
+    statsEl.className = 'opening-session-stats';
+    statsEl.innerHTML = `
+        <span class="stats-label">Sessió:</span>
+        <span class="stats-value" id="session-stats-value">0/0</span>
+        <span class="stats-percent" id="session-stats-percent">(—%)</span>
+    `;
+    panelEl.appendChild(statsEl);
+}
+
+// Actualitza l'indicador d'estadístiques acumulades de la sessió
+function updateOpeningSessionStats() {
+    let statsEl = document.getElementById('opening-session-stats');
+
+    // Crear si no existeix
+    if (!statsEl) {
+        createSessionStatsElement();
+        statsEl = document.getElementById('opening-session-stats');
+    }
+
+    if (!statsEl) return;
+
+    const valueEl = document.getElementById('session-stats-value');
+    const percentEl = document.getElementById('session-stats-percent');
+
+    // No mostrar estadístiques fins tenir dades vàlides de Stockfish
+    // (openingLastMoveQuality ha de ser 'correct', 'good' o 'incorrect', no null ni 'unknown')
+    const hasValidData = openingPracticeTotalMoves > 0 &&
+                         openingLastMoveQuality !== null &&
+                         openingLastMoveQuality !== 'unknown';
+
+    if (!hasValidData) {
+        if (valueEl) valueEl.textContent = '—/—';
+        if (percentEl) percentEl.textContent = '(—%)';
+        statsEl.className = 'opening-session-stats';
+        return;
+    }
+
+    const avgPrecision = Math.round((openingPracticeGoodMoves / openingPracticeTotalMoves) * 100);
+
+    if (valueEl) valueEl.textContent = `${openingPracticeGoodMoves}/${openingPracticeTotalMoves}`;
+    if (percentEl) percentEl.textContent = `(${avgPrecision}%)`;
+
+    // Color segons el percentatge
+    statsEl.className = 'opening-session-stats';
+    if (avgPrecision >= 80) {
+        statsEl.classList.add('stats-good');
+    } else if (avgPrecision >= 50) {
+        statsEl.classList.add('stats-warning');
+    } else {
+        statsEl.classList.add('stats-danger');
+    }
+}
+
+// ========== SISTEMA DE FEEDBACK INSTANTANI PER OBERTURES ==========
+
+// Pre-calcula el millor moviment per a la posició actual (quan és el torn de l'usuari)
+// DESACTIVAT: Interfereix amb l'anàlisi en dos passos (sobreescriu stockfishRequestor)
+function preCalculateOpeningBestMove() {
+    // La precisió ara es calcula amb el sistema d'anàlisi en dos passos (com partida lliure)
+    return;
+}
+
+// Processa el resultat del pre-càlcul del millor moviment
+// NOTA: Aquest sistema ja no s'utilitza per la precisió (ara usem anàlisi en dos passos)
+// Només guardem el resultat per si es vol usar per pistes o feedback visual futur
+function processOpeningPreCalcResult(bestMove) {
+    if (!openingPreCalcPending) return;
+    openingPreCalcPending = false;
+    openingPreCalcBestMove = bestMove;
+    console.log(`[OpeningInstant] Pre-calculat millor moviment: ${bestMove} (no afecta precisió)`);
+    // No fem res més - la precisió es calcula amb l'anàlisi en dos passos
+}
+
+// Avalua instantàniament si el moviment de l'usuari és correcte
+function evaluateOpeningMoveInstantly(movePlayed, moveFrom, moveTo) {
+    // Inicialitzar sistema d'obertures si cal
+    if (!openingTrie) {
+        initOpeningSystem();
+    }
+
+    // Convertir moviment UCI a SAN per comparar amb obertures
+    // El movePlayed ja és en format SAN (ex: "e4", "Nf3")
+    const moveSAN = movePlayed;
+
+    // Avaluar el moviment segons el sistema d'obertures
+    const evaluation = evaluateOpeningMovePrecision(openingCurrentSequence, moveSAN);
+    let quality = evaluation.quality;
+
+    console.log(`[OpeningInstant] Seqüència actual: [${openingCurrentSequence.join(', ')}], Moviment: ${moveSAN}`);
+    console.log(`[OpeningInstant] Moviments vàlids d'obertura: [${evaluation.validMoves.join(', ')}]`);
+    console.log(`[OpeningInstant] Avaluació obertura: ${quality}, isOpeningMove: ${evaluation.isOpeningMove}`);
+
+    // Si el moviment és d'obertura vàlid
+    if (quality === 'correct') {
+        openingLastMoveQuality = 'correct';
+        showOpeningMoveVisualFeedback(moveFrom, moveTo, 'correct');
+        openingPracticeTotalMoves++;
+        openingPracticeGoodMoves++;
+        updateOpeningPrecisionDisplay(true);
+        // Afegir moviment a la seqüència actual
+        openingCurrentSequence.push(moveSAN);
+        console.log(`[OpeningInstant] Moviment d'obertura correcte: ${moveSAN}`);
+        return 'correct';
+    }
+
+    // Si és el primer moviment i no coincideix amb cap obertura coneguda
+    if (quality === 'unknown' && openingCurrentSequence.length === 0) {
+        // Donar 50%: comptar com a mig punt
+        openingLastMoveQuality = 'good';
+        showOpeningMoveVisualFeedback(moveFrom, moveTo, 'good');
+        openingPracticeTotalMoves += 2; // Comptem com 2 moviments
+        openingPracticeGoodMoves += 1; // Però només 1 correcte = 50%
+        updateOpeningPrecisionDisplay(true);
+        // Afegir moviment a la seqüència (tot i no ser obertura estàndard)
+        openingCurrentSequence.push(moveSAN);
+        console.log(`[OpeningInstant] Primer moviment no estàndard: ${moveSAN} - 50%`);
+        return 'good';
+    }
+
+    // Si hem sortit de les obertures conegudes, usar engine per avaluar
+    if (quality === 'engine' || evaluation.validMoves.length === 0) {
+        // Fallback: usar el pre-càlcul de l'engine si existeix
+        const playedNorm = movePlayed.toLowerCase().substring(0, 4);
+        const bestNorm = openingPreCalcBestMove ? openingPreCalcBestMove.toLowerCase().substring(0, 4) : null;
+
+        if (bestNorm) {
+            if (playedNorm === bestNorm) {
+                quality = 'correct';
+            } else if (playedNorm.substring(2, 4) === bestNorm.substring(2, 4)) {
+                quality = 'good';
+            } else {
+                quality = 'incorrect';
+            }
+        } else {
+            // Sense pre-càlcul i fora d'obertures, assumir acceptable
+            quality = 'good';
+        }
+
+        openingLastMoveQuality = quality;
+        showOpeningMoveVisualFeedback(moveFrom, moveTo, quality);
+        openingPracticeTotalMoves++;
+        if (quality === 'correct' || quality === 'good') {
+            openingPracticeGoodMoves++;
+        }
+        updateOpeningPrecisionDisplay(true);
+        openingCurrentSequence.push(moveSAN);
+        console.log(`[OpeningInstant] Fora d'obertures, avaluació engine: ${quality}`);
+        openingPreCalcBestMove = null;
+        openingPreCalcFen = null;
+        return quality;
+    }
+
+    // Hi havia moviments d'obertura vàlids però l'usuari n'ha fet un altre
+    openingLastMoveQuality = 'incorrect';
+    showOpeningMoveVisualFeedback(moveFrom, moveTo, 'incorrect');
+    openingPracticeTotalMoves++;
+    updateOpeningPrecisionDisplay(true);
+    openingCurrentSequence.push(moveSAN);
+    console.log(`[OpeningInstant] Moviment incorrecte: ${moveSAN}, esperats: [${evaluation.validMoves.join(', ')}]`);
+
+    openingPreCalcBestMove = null;
+    openingPreCalcFen = null;
+    return 'incorrect';
+}
+
+// Gestiona el flux complet: primer precisió, després moviment de l'engine
+// Utilitza el sistema d'anàlisi en dos passos (igual que partida lliure)
+function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
+    console.log(`[OpeningAnalysis] handleOpeningUserMove cridat amb movePlayed="${movePlayed}"`);
+
+    // Inicialitzar sistema d'obertures si cal
+    if (!openingTrie) {
+        console.log('[OpeningAnalysis] Inicialitzant sistema d\'obertures...');
+        initOpeningSystem();
+    }
+
+    // Guardar si cal moure l'engine després de l'anàlisi
+    openingNeedsEngineMove = needsEngineMove;
+
+    // Usar el sistema d'obertures per avaluar el moviment
+    const validMovesDebug = getValidOpeningMoves(openingCurrentSequence);
+    console.log(`[OpeningAnalysis] DEBUG - Trie existeix: ${!!openingTrie}, Moviments vàlids des de seqüència [${openingCurrentSequence.join(', ')}]: [${validMovesDebug.join(', ')}]`);
+
+    const evaluation = evaluateOpeningMovePrecision(openingCurrentSequence, movePlayed);
+    let quality = evaluation.quality;
+
+    console.log(`[OpeningAnalysis] Seqüència: [${openingCurrentSequence.join(', ')}], Moviment: ${movePlayed}`);
+    console.log(`[OpeningAnalysis] Moviments vàlids: [${evaluation.validMoves.join(', ')}], Avaluació: ${quality}`);
+
+    // Si el moviment és d'obertura vàlid
+    if (quality === 'correct') {
+        openingLastMoveQuality = 'correct';
+        showOpeningMoveVisualFeedback(from, to, 'correct');
+        openingPracticeTotalMoves++;
+        openingPracticeGoodMoves++;
+        updateOpeningPrecisionDisplay(true);
+        openingCurrentSequence.push(movePlayed);
+        console.log(`[OpeningAnalysis] Moviment d'obertura correcte: ${movePlayed}`);
+
+        if (needsEngineMove) {
+            setTimeout(() => requestOpeningPracticeEngineMove(), 700);
+        }
+        return;
+    }
+
+    // Si és el primer moviment i no coincideix amb cap obertura coneguda (50%)
+    if (quality === 'unknown' && openingCurrentSequence.length === 0) {
+        openingLastMoveQuality = 'good';
+        showOpeningMoveVisualFeedback(from, to, 'good');
+        // 50%: comptem com 2 moviments però només 1 correcte
+        openingPracticeTotalMoves += 2;
+        openingPracticeGoodMoves += 1;
+        updateOpeningPrecisionDisplay(true);
+        openingCurrentSequence.push(movePlayed);
+        console.log(`[OpeningAnalysis] Primer moviment no estàndard: ${movePlayed} - 50%`);
+
+        if (needsEngineMove) {
+            setTimeout(() => requestOpeningPracticeEngineMove(), 700);
+        }
+        return;
+    }
+
+    // Si hem sortit de les obertures conegudes, usar engine per avaluar
+    if (quality === 'engine' || evaluation.validMoves.length === 0) {
+        // Fallback a l'anàlisi de l'engine
+        const fenAfter = openingPracticeGame.fen();
+        let fenBefore = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
+        if (openingPracticeHistory.length > 0) {
+            fenBefore = openingPracticeHistory[openingPracticeHistory.length - 1].fen;
+        }
+        openingCurrentSequence.push(movePlayed);
+        console.log(`[OpeningAnalysis] Fora d'obertures, usant engine per: ${movePlayed}`);
+        analyzeOpeningMoveQuality(fenBefore, movePlayed, fenAfter);
+        return;
+    }
+
+    // Hi havia moviments d'obertura vàlids però l'usuari n'ha fet un altre
+    openingLastMoveQuality = 'incorrect';
+    showOpeningMoveVisualFeedback(from, to, 'incorrect');
+    openingPracticeTotalMoves++;
+    updateOpeningPrecisionDisplay(true);
+    openingCurrentSequence.push(movePlayed);
+    console.log(`[OpeningAnalysis] Moviment incorrecte: ${movePlayed}, esperats: [${evaluation.validMoves.join(', ')}]`);
+
+    if (needsEngineMove) {
+        setTimeout(() => requestOpeningPracticeEngineMove(), 700);
+    }
+}
+
+// Mostra feedback visual sobre el tauler
+function showOpeningMoveVisualFeedback(from, to, quality) {
+    // Netejar feedback anterior
+    clearOpeningMoveVisualFeedback();
+
+    const toSquare = $(`#opening-board .square-55d63[data-square='${to}']`);
+    if (!toSquare.length) return;
+
+    // Afegir classe segons qualitat
+    if (quality === 'correct') {
+        toSquare.addClass('move-correct');
+        showOpeningMoveIcon(to, '✓', 'correct');
+    } else if (quality === 'good') {
+        toSquare.addClass('move-good');
+        showOpeningMoveIcon(to, '~', 'good');
+    } else if (quality === 'incorrect') {
+        toSquare.addClass('move-incorrect');
+        showOpeningMoveIcon(to, '✗', 'incorrect');
+    }
+
+    // Eliminar feedback després d'un temps
+    setTimeout(() => {
+        toSquare.removeClass('move-correct move-good move-incorrect');
+    }, 2000);
+}
+
+// Mostra una icona sobre la casella
+function showOpeningMoveIcon(square, icon, type) {
+    // Eliminar icones anteriors
+    $('.opening-move-icon').remove();
+
+    const squareEl = $(`#opening-board .square-55d63[data-square='${square}']`);
+    if (!squareEl.length) return;
+
+    const iconEl = $(`<div class="opening-move-icon opening-move-icon-${type}">${icon}</div>`);
+    squareEl.append(iconEl);
+
+    // Animació d'entrada
+    setTimeout(() => iconEl.addClass('show'), 10);
+
+    // Eliminar després d'un temps
+    setTimeout(() => {
+        iconEl.removeClass('show');
+        setTimeout(() => iconEl.remove(), 300);
+    }, 1500);
+}
+
+// Neteja el feedback visual
+function clearOpeningMoveVisualFeedback() {
+    $('#opening-board .square-55d63').removeClass('move-correct move-good move-incorrect');
+    $('.opening-move-icon').remove();
+}
+
+function analyzeOpeningMoveQuality(fenBefore, movePlayed, fenAfter) {
+    if (!fenBefore || !movePlayed || !fenAfter) return;
 
     // Si l'engine està pensant, guardem l'anàlisi per després
     if (openingPracticeEngineThinking) {
-        openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+        openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed, fenAfter: fenAfter };
         return;
     }
 
     // Si ja hi ha una anàlisi en curs, la substituïm
     if (openingPracticeAnalysisPending) {
-        openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+        openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed, fenAfter: fenAfter };
         return;
     }
 
-    executeOpeningMoveAnalysis(fenBefore, movePlayed);
+    executeOpeningMoveAnalysis(fenBefore, movePlayed, fenAfter);
 }
 
-function executeOpeningMoveAnalysis(fenBefore, movePlayed) {
+function executeOpeningMoveAnalysis(fenBefore, movePlayed, fenAfter) {
     if (!stockfish) {
         if (!ensureStockfish()) return;
     }
@@ -919,54 +1437,125 @@ function executeOpeningMoveAnalysis(fenBefore, movePlayed) {
     openingPracticeAnalysisPending = true;
     openingPracticeLastFen = fenBefore;
     openingPracticeLastMove = movePlayed;
+    openingFenAfterMove = fenAfter;
+    openingAnalysisStep = 1; // Pas 1: analitzar posició ABANS del moviment
+    openingTempScore = null;
+    openingEvalBefore = null;
+    openingEvalAfter = null;
+    openingBestMove = null;
 
-    // Timeout de seguretat: si no rebem resposta en 5 segons, processar igualment
+    // Timeout de seguretat: si no rebem resposta en 8 segons, processar igualment
     setTimeout(() => {
         if (openingPracticeAnalysisPending && openingPracticeLastMove === movePlayed) {
             console.warn('[OpeningPrecision] Timeout esperant resposta Stockfish');
-            processOpeningMoveAnalysis(null); // Processar sense bestMove
+            finalizeOpeningMoveAnalysis(); // Processar amb el que tenim
         }
-    }, 5000);
+    }, 8000);
 
+    stockfishRequestor = 'opening-analysis';
     try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
     stockfish.postMessage(`position fen ${fenBefore}`);
-    stockfish.postMessage('go depth 8');
+    stockfish.postMessage('go depth 10');
 }
 
-function processOpeningMoveAnalysis(bestMove) {
+// Processa el resultat del pas 1 (posició abans del moviment)
+function processOpeningAnalysisStep1(bestMove) {
+    if (openingAnalysisStep !== 1) return;
+
+    openingBestMove = bestMove;
+    openingEvalBefore = openingTempScore;
+    openingTempScore = null;
+
+    // Pas 2: analitzar posició DESPRÉS del moviment
+    openingAnalysisStep = 2;
+
+    if (!openingFenAfterMove) {
+        // Si no tenim FEN després, finalitzem amb el que tenim
+        finalizeOpeningMoveAnalysis();
+        return;
+    }
+
+    stockfishRequestor = 'opening-analysis';
+    try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+    stockfish.postMessage(`position fen ${openingFenAfterMove}`);
+    stockfish.postMessage('go depth 10');
+}
+
+// Processa el resultat del pas 2 (posició després del moviment)
+function processOpeningAnalysisStep2() {
+    if (openingAnalysisStep !== 2) return;
+
+    openingEvalAfter = openingTempScore;
+    finalizeOpeningMoveAnalysis();
+}
+
+// Finalitza l'anàlisi i calcula la qualitat del moviment
+function finalizeOpeningMoveAnalysis() {
     if (!openingPracticeAnalysisPending) return;
     openingPracticeAnalysisPending = false;
+    openingAnalysisStep = 0;
 
-    // Sempre incrementar total i actualitzar display, fins i tot si hi ha errors
+    let moveQuality = 'good'; // Default a acceptable
+
     try {
-        if (!openingPracticeLastMove || !bestMove) {
-            // Si falten dades, comptem com a moviment fet però no analitzat
-            openingPracticeTotalMoves++;
-            updateOpeningPrecisionDisplay();
-            return;
+        // Calcular swing igual que a la partida lliure
+        // swing = evalAfter + evalBefore (el signe és oposat perquè canvia de perspectiva)
+        let swing = null;
+        if (openingEvalBefore !== null && openingEvalAfter !== null) {
+            swing = openingEvalAfter + openingEvalBefore;
         }
 
-        // Comparar el moviment jugat amb el millor moviment
-        const played = openingPracticeLastMove.toLowerCase();
-        const best = bestMove.toLowerCase();
+        // Classificar la qualitat del moviment usant la mateixa funció que partida lliure
+        moveQuality = classifyMoveQuality(
+            swing !== null ? Math.abs(swing) : null,
+            openingPracticeLastMove,
+            openingBestMove
+        );
 
-        // Considerar correcte si coincideix exactament o si la casella destí és la mateixa
-        const playedTo = played.substring(2, 4);
-        const bestTo = best.substring(2, 4);
+        // Guardar per feedback visual
+        openingLastMoveQuality = moveQuality;
 
-        if (played === best || playedTo === bestTo) {
+        // Comptar com a bon moviment si és 'excel' o 'good'
+        if (moveQuality === 'excel' || moveQuality === 'good') {
             openingPracticeGoodMoves++;
         }
         openingPracticeTotalMoves++;
         updateOpeningPrecisionDisplay();
+
+        console.log(`[OpeningPrecision] Move: ${openingPracticeLastMove}, Best: ${openingBestMove}, ` +
+                   `EvalBefore: ${openingEvalBefore}, EvalAfter: ${openingEvalAfter}, ` +
+                   `Swing: ${swing}, Quality: ${moveQuality}`);
     } catch (e) {
-        // En cas d'error, almenys comptem el moviment
+        // En cas d'error, almenys comptem el moviment com acceptable
         openingPracticeTotalMoves++;
+        openingPracticeGoodMoves++;
         updateOpeningPrecisionDisplay();
         console.error('[OpeningPrecision] Error processant anàlisi:', e);
     } finally {
+        // Netejar variables d'anàlisi
         openingPracticeLastFen = null;
         openingPracticeLastMove = null;
+        openingFenAfterMove = null;
+        openingTempScore = null;
+        openingEvalBefore = null;
+        openingEvalAfter = null;
+        openingBestMove = null;
+    }
+
+    // Executar anàlisi pendent si n'hi ha (i l'engine no està pensant)
+    if (openingPracticePendingAnalysis && !openingPracticeEngineThinking) {
+        const pending = openingPracticePendingAnalysis;
+        openingPracticePendingAnalysis = null;
+        setTimeout(() => {
+            executeOpeningMoveAnalysis(pending.fen, pending.move, pending.fenAfter);
+        }, 50);
+        return; // No moure l'engine encara, esperar la següent anàlisi
+    }
+
+    // Després de l'anàlisi, fer moure l'engine si cal
+    if (openingNeedsEngineMove) {
+        openingNeedsEngineMove = false;
+        setTimeout(() => requestOpeningPracticeEngineMove(), 500);
     }
 }
 
@@ -996,9 +1585,6 @@ function commitOpeningMoveFromTap(from, to) {
     // Guardar estat per poder desfer
     saveOpeningPracticeState();
 
-    // Guardar FEN abans del moviment per a l'anàlisi de precisió
-    const fenBefore = openingPracticeGame.fen();
-    const movePlayed = from + to;
     const wasWhiteTurn = openingPracticeGame.turn() === 'w';
 
     const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
@@ -1008,6 +1594,9 @@ function commitOpeningMoveFromTap(from, to) {
         return false;
     }
 
+    // Obtenir moviment en format SAN per al sistema d'obertures
+    const movePlayed = move.san;
+
     // Netejar pista visual i estat
     clearOpeningHintHighlight();
     openingPracticeBestMove = null;
@@ -1015,24 +1604,17 @@ function commitOpeningMoveFromTap(from, to) {
     openingBundleBoard.position(openingPracticeGame.fen());
     updateOpeningPracticeStatus();
 
-    // Primer iniciar el moviment de l'engine (si toca)
+    // Determinar si cal moviment de l'engine
     const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
                            !openingPracticeGame.game_over() &&
                            openingPracticeGame.turn() === 'b';
 
-    if (needsEngineMove) {
-        requestOpeningPracticeEngineMove();
-    }
-
-    // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
+    // FLUX: Primer precisió, després moviment de l'engine
     if (wasWhiteTurn) {
-        if (needsEngineMove) {
-            // L'engine està pensant, guardem l'anàlisi pendent
-            openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
-        } else {
-            // No hi ha moviment de l'engine, analitzem directament
-            analyzeOpeningMoveQuality(fenBefore, movePlayed);
-        }
+        handleOpeningUserMove(movePlayed, from, to, needsEngineMove);
+    } else if (needsEngineMove) {
+        // Si no era torn de l'usuari però cal engine, demanar-lo directament
+        setTimeout(() => requestOpeningPracticeEngineMove(), 300);
     }
 
     return true;
@@ -5673,9 +6255,6 @@ function initOpeningBundleBoard() {
             // Guardar estat per poder desfer
             saveOpeningPracticeState();
 
-            // Guardar FEN abans del moviment per a l'anàlisi de precisió
-            const fenBefore = openingPracticeGame.fen();
-            const movePlayed = source + target;
             const wasWhiteTurn = openingPracticeGame.turn() === 'w';
 
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
@@ -5684,30 +6263,27 @@ function initOpeningBundleBoard() {
                 openingPracticeHistory.pop();
                 return 'snapback';
             }
+
+            // Obtenir moviment en format SAN per al sistema d'obertures
+            const movePlayed = move.san;
+
             // Netejar pista visual i estat
             clearOpeningHintHighlight();
             openingPracticeBestMove = null;
             openingPracticeMoveCount += 1;
             updateOpeningPracticeStatus();
 
-            // Primer iniciar el moviment de l'engine (si toca)
+            // Determinar si cal moviment de l'engine
             const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
                                    !openingPracticeGame.game_over() &&
                                    openingPracticeGame.turn() === 'b';
 
-            if (needsEngineMove) {
-                requestOpeningPracticeEngineMove();
-            }
-
-            // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
+            // FLUX: Primer precisió, després moviment de l'engine
             if (wasWhiteTurn) {
-                if (needsEngineMove) {
-                    // L'engine està pensant, guardem l'anàlisi pendent
-                    openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
-                } else {
-                    // No hi ha moviment de l'engine, analitzem directament
-                    analyzeOpeningMoveQuality(fenBefore, movePlayed);
-                }
+                handleOpeningUserMove(movePlayed, source, target, needsEngineMove);
+            } else if (needsEngineMove) {
+                // Si no era torn de l'usuari però cal engine, demanar-lo directament
+                setTimeout(() => requestOpeningPracticeEngineMove(), 300);
             }
         },
         onSnapEnd: () => {
@@ -5725,6 +6301,9 @@ function initOpeningBundleBoard() {
     if (controlMode === 'tap') {
         enableOpeningTapToMove();
     }
+
+    // Pre-calcular el millor moviment per al primer torn de l'usuari
+    setTimeout(() => preCalculateOpeningBestMove(), 500);
 }
 
 function updateOpeningPracticeStatus() {
@@ -5755,7 +6334,8 @@ function saveOpeningPracticeState() {
         fen: openingPracticeGame.fen(),
         moveCount: openingPracticeMoveCount,
         goodMoves: openingPracticeGoodMoves,
-        totalMoves: openingPracticeTotalMoves
+        totalMoves: openingPracticeTotalMoves,
+        openingSequence: [...openingCurrentSequence] // Guardar seqüència d'obertures
     }];
     updateOpeningUndoButton();
 }
@@ -5782,12 +6362,21 @@ function undoOpeningPracticeMove() {
     openingPracticeMoveCount = lastState.moveCount;
     openingPracticeGoodMoves = lastState.goodMoves;
     openingPracticeTotalMoves = lastState.totalMoves;
+    // Restaurar seqüència d'obertures
+    openingCurrentSequence = lastState.openingSequence ? [...lastState.openingSequence] : [];
 
     // Cancel·lar qualsevol anàlisi de precisió pendent
     openingPracticeAnalysisPending = false;
     openingPracticePendingAnalysis = null;
     openingPracticeLastFen = null;
     openingPracticeLastMove = null;
+    // Cancel·lar també les noves variables d'anàlisi en dos passos
+    openingAnalysisStep = 0;
+    openingFenAfterMove = null;
+    openingTempScore = null;
+    openingEvalBefore = null;
+    openingEvalAfter = null;
+    openingBestMove = null;
 
     // Cancel·lar pista pendent
     openingPracticeHintPending = false;
@@ -5796,9 +6385,21 @@ function undoOpeningPracticeMove() {
     // Cancel·lar màxima pendent (evitar que s'actualitzi després de l'undo)
     openingMaximPending = false;
 
+    // Cancel·lar variables de feedback instantani
+    openingPreCalcBestMove = null;
+    openingPreCalcPending = false;
+    openingPreCalcFen = null;
+    openingLastMoveQuality = null;
+    // Cancel·lar variables de callback precisió-engine
+    openingPendingUserMove = null;
+    openingNeedsEngineMove = false;
+    // Cancel·lar token de Stockfish (evitar conflictes amb peticions anteriors)
+    stockfishRequestor = null;
+
     // Netejar seleccions i pistes visuals
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
+    clearOpeningMoveVisualFeedback();
 
     // Actualitzar el tauler
     if (openingBundleBoard) {
@@ -5815,6 +6416,9 @@ function undoOpeningPracticeMove() {
     if (noteEl) {
         noteEl.textContent = 'Moviment desfet. Torna a intentar-ho!';
     }
+
+    // Pre-calcular el millor moviment per a la posició restaurada
+    setTimeout(() => preCalculateOpeningBestMove(), 200);
 }
 
 function resetOpeningPracticeBoard() {
@@ -5832,9 +6436,30 @@ function resetOpeningPracticeBoard() {
     openingPracticeLastFen = null;
     openingPracticeLastMove = null;
     openingPracticePendingAnalysis = null;
+    // Reset variables d'anàlisi en dos passos
+    openingAnalysisStep = 0;
+    openingFenAfterMove = null;
+    openingTempScore = null;
+    openingEvalBefore = null;
+    openingEvalAfter = null;
+    openingBestMove = null;
+    // Reset variables de feedback instantani
+    openingPreCalcBestMove = null;
+    openingPreCalcPending = false;
+    openingPreCalcFen = null;
+    openingLastMoveQuality = null;
+    // Reset variables de callback precisió-engine
+    openingPendingUserMove = null;
+    openingNeedsEngineMove = false;
+    // Reset token de Stockfish
+    stockfishRequestor = null;
     openingPracticeHistory = []; // Reset historial per undo
+    // Reset seqüència d'obertures
+    openingCurrentSequence = [];
+    openingMatchedOpenings = [];
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
+    clearOpeningMoveVisualFeedback();
     if (openingBundleBoard) {
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
@@ -5842,6 +6467,8 @@ function resetOpeningPracticeBoard() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
+    // Pre-calcular el millor moviment per al primer torn de l'usuari
+    setTimeout(() => preCalculateOpeningBestMove(), 300);
 }
 
 function requestOpeningPracticeEngineMove() {
@@ -5850,6 +6477,7 @@ function requestOpeningPracticeEngineMove() {
     if (!stockfish && !ensureStockfish()) return;
     openingPracticeEngineThinking = true;
     updateOpeningUndoButton(); // Deshabilitar undo mentre l'engine pensa
+    stockfishRequestor = 'opening-engine';
     try { stockfish.postMessage('setoption name UCI_LimitStrength value false'); } catch (e) {}
     try { stockfish.postMessage('setoption name Skill Level value 20'); } catch (e) {}
     try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
@@ -5948,6 +6576,7 @@ function setupEvents() {
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">🔍 Calculant millor jugada...</div>';
 
+        stockfishRequestor = 'opening-hint';
         try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
         stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
         stockfish.postMessage('go depth 12');
@@ -6852,21 +7481,38 @@ function handleEngineMessage(rawMsg) {
         return;
     }
 
-    // Anàlisi de precisió del tauler d'obertures
-    if (openingPracticeAnalysisPending && msg.indexOf('bestmove') !== -1) {
+    // Pre-càlcul del millor moviment per feedback instantani (obertures)
+    if (openingPreCalcPending && stockfishRequestor === 'opening-precalc' && msg.indexOf('bestmove') !== -1) {
+        stockfishRequestor = null;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
             const bestMove = match[1] + match[2] + (match[3] || '');
-            processOpeningMoveAnalysis(bestMove);
+            processOpeningPreCalcResult(bestMove);
         } else {
-            // Encara que no puguem parsejar el bestmove, processar per actualitzar comptadors
-            processOpeningMoveAnalysis(null);
+            processOpeningPreCalcResult(null);
+        }
+        return;
+    }
+
+    // Anàlisi de precisió del tauler d'obertures (sistema de dos passos)
+    if (openingPracticeAnalysisPending && openingAnalysisStep > 0 && stockfishRequestor === 'opening-analysis' && msg.indexOf('bestmove') !== -1) {
+        const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+        if (openingAnalysisStep === 1) {
+            // Pas 1 completat: tenim la posició abans del moviment
+            // No netejem stockfishRequestor perquè passem al pas 2
+            const bestMove = match ? (match[1] + match[2] + (match[3] || '')) : null;
+            processOpeningAnalysisStep1(bestMove);
+        } else if (openingAnalysisStep === 2) {
+            // Pas 2 completat: tenim la posició després del moviment
+            stockfishRequestor = null;
+            processOpeningAnalysisStep2();
         }
         return;
     }
 
     // Pista del tauler d'obertures
-    if (openingPracticeHintPending && msg.indexOf('bestmove') !== -1) {
+    if (openingPracticeHintPending && stockfishRequestor === 'opening-hint' && msg.indexOf('bestmove') !== -1) {
+        stockfishRequestor = null;
         openingPracticeHintPending = false;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
@@ -6884,53 +7530,50 @@ function handleEngineMessage(rawMsg) {
         }
         return;
     }
-    
-    if (openingPracticeEngineThinking && msg.indexOf('bestmove') !== -1) {
+
+    if (openingPracticeEngineThinking && stockfishRequestor === 'opening-engine' && msg.indexOf('bestmove') !== -1) {
+        stockfishRequestor = null;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match && openingPracticeGame) {
             const from = match[1];
             const to = match[2];
             const promotion = match[3] || 'q';
-            setTimeout(() => {
-                if (!openingPracticeGame) return;
-                const move = openingPracticeGame.move({
-                    from,
-                    to,
-                    promotion
-                });
-                if (move) {
-                    // Netejar pista visual i estat quan l'engine mou
-                    clearOpeningHintHighlight();
-                    openingPracticeBestMove = null;
-                    openingPracticeMoveCount += 1;
-                    if (openingBundleBoard) {
-                        openingBundleBoard.position(openingPracticeGame.fen());
-                    }
-                    updateOpeningPracticeStatus();
-                }
-                openingPracticeEngineThinking = false;
-                updateOpeningUndoButton(); // Rehabilitar undo
 
-                // Executar anàlisi de precisió pendent si n'hi ha
-                if (openingPracticePendingAnalysis) {
-                    const pending = openingPracticePendingAnalysis;
-                    openingPracticePendingAnalysis = null;
-                    setTimeout(() => {
-                        executeOpeningMoveAnalysis(pending.fen, pending.move);
-                    }, 100);
+            // Fer el moviment de l'engine immediatament en chess.js (per evitar que l'usuari mogui abans)
+            const move = openingPracticeGame.move({
+                from,
+                to,
+                promotion
+            });
+            if (move) {
+                clearOpeningHintHighlight();
+                openingPracticeBestMove = null;
+                openingPracticeMoveCount += 1;
+                updateOpeningPracticeStatus();
+                // Afegir moviment de l'engine a la seqüència d'obertures
+                if (move.san) {
+                    openingCurrentSequence.push(move.san);
+                    console.log(`[OpeningEngine] Moviment engine afegit: ${move.san}, seqüència: [${openingCurrentSequence.join(', ')}]`);
                 }
-            }, 2000);
+            }
+
+            // Ara l'estat del joc és correcte, podem permetre que l'usuari mogui
+            openingPracticeEngineThinking = false;
+            updateOpeningUndoButton();
+
+            // Actualitzar el tauler visualment amb un petit delay per a animació suau
+            setTimeout(() => {
+                if (openingBundleBoard && openingPracticeGame) {
+                    openingBundleBoard.position(openingPracticeGame.fen());
+                }
+                // Pre-calcular el millor moviment per al proper torn de l'usuari
+                preCalculateOpeningBestMove();
+            }, 200);
         } else {
             openingPracticeEngineThinking = false;
             updateOpeningUndoButton(); // Rehabilitar undo
-            // Executar anàlisi de precisió pendent si n'hi ha
-            if (openingPracticePendingAnalysis) {
-                const pending = openingPracticePendingAnalysis;
-                openingPracticePendingAnalysis = null;
-                setTimeout(() => {
-                    executeOpeningMoveAnalysis(pending.fen, pending.move);
-                }, 100);
-            }
+            // Pre-calcular el millor moviment per al proper torn de l'usuari
+            preCalculateOpeningBestMove();
         }
         return;
     }
@@ -6991,13 +7634,23 @@ function handleEngineMessage(rawMsg) {
 
     if (msg.indexOf('score cp') !== -1) {
         let match = msg.match(/score cp (-?\d+)/);
-        if (match) tempAnalysisScore = parseInt(match[1]);
+        if (match) {
+            tempAnalysisScore = parseInt(match[1]);
+            // Capturar també per a l'anàlisi d'obertures
+            if (openingPracticeAnalysisPending && openingAnalysisStep > 0) {
+                openingTempScore = parseInt(match[1]);
+            }
+        }
     }
     if (msg.indexOf('score mate') !== -1) {
          let match = msg.match(/score mate (-?\d+)/);
          if (match) {
              let mates = parseInt(match[1]);
              tempAnalysisScore = mates > 0 ? 10000 : -10000;
+             // Capturar també per a l'anàlisi d'obertures
+             if (openingPracticeAnalysisPending && openingAnalysisStep > 0) {
+                 openingTempScore = mates > 0 ? 10000 : -10000;
+             }
          }
     }
 

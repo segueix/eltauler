@@ -840,6 +840,141 @@
         .precision-bar.warning { background: var(--severity-med); }
         .precision-bar.danger { background: var(--severity-high); }
 
+        /* Animació pols per a la barra de precisió */
+        @keyframes precision-pulse {
+            0% { transform: scale(1); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+            50% { transform: scale(1.02); box-shadow: 0 4px 20px rgba(212, 175, 55, 0.4); }
+            100% { transform: scale(1); box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        }
+        .precision-pulse { animation: precision-pulse 0.4s ease-out; }
+
+        /* Feedback visual de moviments (obertures) */
+        #opening-board .square-55d63.move-correct {
+            box-shadow: inset 0 0 0 4px rgba(76, 175, 80, 0.8) !important;
+            background-color: rgba(76, 175, 80, 0.3) !important;
+        }
+        #opening-board .square-55d63.move-good {
+            box-shadow: inset 0 0 0 4px rgba(255, 193, 7, 0.8) !important;
+            background-color: rgba(255, 193, 7, 0.2) !important;
+        }
+        #opening-board .square-55d63.move-incorrect {
+            box-shadow: inset 0 0 0 4px rgba(244, 67, 54, 0.8) !important;
+            background-color: rgba(244, 67, 54, 0.3) !important;
+        }
+
+        /* Icones de feedback sobre caselles */
+        .opening-move-icon {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0);
+            font-size: 2rem;
+            font-weight: bold;
+            text-shadow: 0 2px 4px rgba(0,0,0,0.5);
+            z-index: 100;
+            pointer-events: none;
+            transition: transform 0.2s ease-out, opacity 0.3s;
+            opacity: 0;
+        }
+        .opening-move-icon.show {
+            transform: translate(-50%, -50%) scale(1);
+            opacity: 1;
+        }
+        .opening-move-icon-correct { color: #4CAF50; }
+        .opening-move-icon-good { color: #FFC107; }
+        .opening-move-icon-incorrect { color: #F44336; }
+
+        /* Animació d'entrada per feedback */
+        @keyframes move-feedback-pop {
+            0% { transform: translate(-50%, -50%) scale(0); }
+            50% { transform: translate(-50%, -50%) scale(1.3); }
+            100% { transform: translate(-50%, -50%) scale(1); }
+        }
+        .opening-move-icon.show {
+            animation: move-feedback-pop 0.3s ease-out forwards;
+        }
+
+        /* Barra de precisió per moviment individual */
+        #opening-precision-bar.move-correct {
+            background: linear-gradient(90deg, #4CAF50, #81C784) !important;
+        }
+        #opening-precision-bar.move-good {
+            background: linear-gradient(90deg, #FF9800, #FFB74D) !important;
+        }
+        #opening-precision-bar.move-incorrect {
+            background: linear-gradient(90deg, #f44336, #e57373) !important;
+        }
+
+        /* Animació pols per moviment correcte */
+        @keyframes precisionCorrectPulse {
+            0% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0.7); }
+            50% { box-shadow: 0 0 20px 8px rgba(76, 175, 80, 0.4); }
+            100% { box-shadow: 0 0 0 0 rgba(76, 175, 80, 0); }
+        }
+        .precision-correct-anim {
+            animation: precisionCorrectPulse 0.6s ease-out;
+        }
+
+        /* Animació pols per moviment acceptable */
+        @keyframes precisionGoodPulse {
+            0% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0.7); }
+            50% { box-shadow: 0 0 20px 8px rgba(255, 152, 0, 0.4); }
+            100% { box-shadow: 0 0 0 0 rgba(255, 152, 0, 0); }
+        }
+        .precision-good-anim {
+            animation: precisionGoodPulse 0.6s ease-out;
+        }
+
+        /* Animació shake per moviment incorrecte */
+        @keyframes precisionErrorShake {
+            0%, 100% { transform: translateX(0); }
+            20% { transform: translateX(-5px); }
+            40% { transform: translateX(5px); }
+            60% { transform: translateX(-5px); }
+            80% { transform: translateX(5px); }
+        }
+        .precision-error-anim {
+            animation: precisionErrorShake 0.5s ease-out;
+        }
+
+        /* Indicador d'estadístiques de sessió */
+        .opening-session-stats {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            font-size: 0.85em;
+            margin-top: 10px;
+            padding: 6px 12px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 8px;
+            transition: color 0.3s ease, background 0.3s ease;
+            color: var(--text-secondary);
+        }
+        .opening-session-stats .stats-label {
+            opacity: 0.7;
+            font-size: 0.9em;
+        }
+        .opening-session-stats .stats-value {
+            font-weight: 700;
+            font-family: 'Cinzel', serif;
+        }
+        .opening-session-stats .stats-percent {
+            opacity: 0.9;
+        }
+        .opening-session-stats.stats-good {
+            color: #4CAF50;
+            background: rgba(76, 175, 80, 0.1);
+        }
+        .opening-session-stats.stats-warning {
+            color: #FF9800;
+            background: rgba(255, 152, 0, 0.1);
+        }
+        .opening-session-stats.stats-danger {
+            color: #f44336;
+            background: rgba(244, 67, 54, 0.1);
+        }
+
         /* Botó undo per al tauler d'obertures */
         .btn-undo-opening {
             background: var(--bg-dark);
@@ -2286,6 +2421,7 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- App Logic -->
+    <script src="obertures.js?v=1.0.1"></script>
     <script>
         window.APP_VERSION = '1.0.4';
     </script>
