@@ -6699,7 +6699,6 @@ function showOpeningErrorSuccessOverlay(noMore) {
     }
 
     const remaining = openingErrorCurrentPositions.length;
-    console.log('[ErrorOverlay] remaining:', remaining, 'noMore:', noMore);
 
     $('#opening-error-remaining').text(
         noMore ? 'Has resolt tots els errors!' :
@@ -6707,40 +6706,32 @@ function showOpeningErrorSuccessOverlay(noMore) {
         'No en queden més!'
     );
 
-    // Activar/desactivar botó
-    const btnAgain = $('#btn-opening-error-again');
-    const shouldEnable = remaining > 0 && !noMore;
-    console.log('[ErrorOverlay] btn trobat:', btnAgain.length, 'activar:', shouldEnable);
-
-    btnAgain.prop('disabled', !shouldEnable);
-    if (shouldEnable) {
-        btnAgain.removeAttr('disabled').css('pointer-events', 'auto');
+    // Mostrar/amagar botó segons si queden errors
+    if (remaining > 0 && !noMore) {
+        $('#btn-opening-error-again').show();
     } else {
-        btnAgain.attr('disabled', 'disabled').css('pointer-events', 'none');
+        $('#btn-opening-error-again').hide();
     }
 
     overlay.css('display', 'flex');
 
-    $('#btn-opening-error-home').off('click').on('click', () => {
-        console.log('[ErrorOverlay] Tornar clicked');
+    // Event handlers
+    document.getElementById('btn-opening-error-home').onclick = function() {
         overlay.hide();
         exitOpeningErrorPractice();
-    });
+    };
 
-    $('#btn-opening-error-again').off('click').on('click', () => {
-        console.log('[ErrorOverlay] Altre aleatori clicked, remaining:', openingErrorCurrentPositions.length);
+    document.getElementById('btn-opening-error-again').onclick = function() {
         overlay.hide();
         if (openingErrorCurrentPositions.length > 0) {
-            // Assegurar que el tauler és visible
             $('.opening-section').first().hide();
             $('.opening-section').last().show();
-            // Reset variables necessàries
             openingErrorMovesRemaining = 2;
             loadRandomOpeningError();
         } else {
             exitOpeningErrorPractice();
         }
-    });
+    };
 }
 
 function exitOpeningErrorPractice() {
