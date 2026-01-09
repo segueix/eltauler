@@ -6472,13 +6472,23 @@ function buildOpeningMoveStats() {
 // Variable global per guardar estadístiques d'obertura
 let openingStatsData = [];
 
-function renderOpeningStatsScreen() {
+function renderOpeningStatsScreen(useExistingData = false) {
     const listEl = $('#opening-stats-list');
     const noteEl = $('#opening-stats-note');
     if (!listEl.length) return;
 
-    const { stats, totalEntries } = buildOpeningMoveStats();
-    openingStatsData = stats; // Guardar per accedir després
+    let stats, totalEntries;
+    if (useExistingData && openingStatsData && openingStatsData.length > 0) {
+        // Usar dades existents (actualitzades després de pràctica)
+        stats = openingStatsData;
+        totalEntries = stats.reduce((max, s) => Math.max(max, s.total), 0);
+    } else {
+        // Reconstruir des de gameHistory
+        const result = buildOpeningMoveStats();
+        stats = result.stats;
+        totalEntries = result.totalEntries;
+        openingStatsData = stats;
+    }
 
     // Separar per color
     const whiteStats = stats.filter(s => s.colorKey === 'w');
@@ -6635,6 +6645,22 @@ function handleOpeningErrorSuccess() {
         openingErrorCurrentPositions.splice(openingErrorCurrentIndex, 1);
     }
 
+    // Actualitzar també openingStatsData per reflectir l'error resolt
+    if (openingErrorColorFilter && openingErrorMoveFilter) {
+        const stat = openingStatsData.find(s =>
+            s.colorKey === openingErrorColorFilter && s.moveNumber === openingErrorMoveFilter
+        );
+        if (stat && stat.errorPositions && stat.errorPositions.length > 0) {
+            // Eliminar la posició resolta dels stats
+            if (openingErrorCurrentFen) {
+                stat.errorPositions = stat.errorPositions.filter(p => p.fen !== openingErrorCurrentFen);
+            } else if (stat.errorPositions.length > 0) {
+                stat.errorPositions.shift(); // Eliminar el primer si no tenim FEN
+            }
+            stat.countBelow75 = stat.errorPositions.length;
+        }
+    }
+
     openingErrorCurrentFen = null;
     openingErrorBestMove = null;
     openingErrorCurrentIndex = -1;
@@ -6699,6 +6725,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
     }
 
     const remaining = openingErrorCurrentPositions.length;
+    const showAgainBtn = remaining > 0 && !noMore;
 
     $('#opening-error-remaining').text(
         noMore ? 'Has resolt tots els errors!' :
@@ -6707,31 +6734,35 @@ function showOpeningErrorSuccessOverlay(noMore) {
     );
 
     // Mostrar/amagar botó segons si queden errors
-    if (remaining > 0 && !noMore) {
-        $('#btn-opening-error-again').show();
-    } else {
-        $('#btn-opening-error-again').hide();
+    const btnAgain = document.getElementById('btn-opening-error-again');
+    if (btnAgain) {
+        btnAgain.style.display = showAgainBtn ? 'inline-block' : 'none';
     }
 
     overlay.css('display', 'flex');
 
     // Event handlers
-    document.getElementById('btn-opening-error-home').onclick = function() {
-        overlay.hide();
-        exitOpeningErrorPractice();
-    };
-
-    document.getElementById('btn-opening-error-again').onclick = function() {
-        overlay.hide();
-        if (openingErrorCurrentPositions.length > 0) {
-            $('.opening-section').first().hide();
-            $('.opening-section').last().show();
-            openingErrorMovesRemaining = 2;
-            loadRandomOpeningError();
-        } else {
+    const btnHome = document.getElementById('btn-opening-error-home');
+    if (btnHome) {
+        btnHome.onclick = function() {
+            overlay.hide();
             exitOpeningErrorPractice();
-        }
-    };
+        };
+    }
+
+    if (btnAgain) {
+        btnAgain.onclick = function() {
+            overlay.hide();
+            if (openingErrorCurrentPositions.length > 0) {
+                $('.opening-section').first().hide();
+                $('.opening-section').last().show();
+                openingErrorMovesRemaining = 2;
+                loadRandomOpeningError();
+            } else {
+                exitOpeningErrorPractice();
+            }
+        };
+    }
 }
 
 function exitOpeningErrorPractice() {
@@ -6744,8 +6775,8 @@ function exitOpeningErrorPractice() {
     $('.opening-section').first().show();
     $('.opening-section').last().hide();
 
-    // Tornar a renderitzar estadístiques
-    renderOpeningStatsScreen();
+    // Tornar a renderitzar estadístiques amb dades actualitzades
+    renderOpeningStatsScreen(true);
 
     // Reset tauler
     resetOpeningPracticeBoard();
