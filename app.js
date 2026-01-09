@@ -39,6 +39,9 @@ let openingPracticeLastFen = null;
 let openingPracticeLastMove = null;
 let openingPracticePendingAnalysis = null; // Guardar anàlisi pendent mentre l'engine pensa
 let openingPracticeHistory = []; // Historial de moviments per undo
+let openingPracticeAwaitingOk = false;
+let openingPracticeOkAnalysisActive = false;
+let openingPracticeOkPendingEngineMove = false;
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -893,6 +896,12 @@ function updateOpeningPrecisionDisplay() {
     else barEl.addClass('danger');
 }
 
+function updateOpeningOkButton() {
+    const btn = document.getElementById('btn-opening-ok');
+    if (!btn) return;
+    btn.disabled = !openingPracticeAwaitingOk;
+}
+
 function analyzeOpeningMoveQuality(fenBefore, movePlayed) {
     if (!fenBefore || !movePlayed) return;
 
@@ -909,6 +918,19 @@ function analyzeOpeningMoveQuality(fenBefore, movePlayed) {
     }
 
     executeOpeningMoveAnalysis(fenBefore, movePlayed);
+}
+
+function startOpeningOkAnalysis(fenBefore, movePlayed) {
+    if (!stockfish && !ensureStockfish()) return;
+
+    openingPracticeAnalysisPending = true;
+    openingPracticeLastFen = fenBefore;
+    openingPracticeLastMove = movePlayed;
+    openingPracticeOkAnalysisActive = true;
+
+    try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+    stockfish.postMessage(`position fen ${fenBefore}`);
+    stockfish.postMessage('go infinite');
 }
 
 function executeOpeningMoveAnalysis(fenBefore, movePlayed) {
@@ -967,6 +989,14 @@ function processOpeningMoveAnalysis(bestMove) {
     } finally {
         openingPracticeLastFen = null;
         openingPracticeLastMove = null;
+        if (openingPracticeOkAnalysisActive) {
+            openingPracticeOkAnalysisActive = false;
+        }
+        if (openingPracticeOkPendingEngineMove) {
+            openingPracticeOkPendingEngineMove = false;
+            requestOpeningPracticeEngineMove();
+        }
+        updateOpeningOkButton();
     }
 }
 
@@ -1020,18 +1050,29 @@ function commitOpeningMoveFromTap(from, to) {
                            !openingPracticeGame.game_over() &&
                            openingPracticeGame.turn() === 'b';
 
-    if (needsEngineMove) {
-        requestOpeningPracticeEngineMove();
-    }
+    const isFirstUserMove = wasWhiteTurn && openingPracticeMoveCount === 1;
 
-    // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
-    if (wasWhiteTurn) {
+    if (isFirstUserMove && needsEngineMove) {
+        openingPracticeAwaitingOk = true;
+        openingPracticeOkPendingEngineMove = false;
+        startOpeningOkAnalysis(fenBefore, movePlayed);
+        updateOpeningPracticeStatus();
+        updateOpeningOkButton();
+        updateOpeningUndoButton();
+    } else {
         if (needsEngineMove) {
-            // L'engine està pensant, guardem l'anàlisi pendent
-            openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
-        } else {
-            // No hi ha moviment de l'engine, analitzem directament
-            analyzeOpeningMoveQuality(fenBefore, movePlayed);
+            requestOpeningPracticeEngineMove();
+        }
+
+        // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
+        if (wasWhiteTurn) {
+            if (needsEngineMove) {
+                // L'engine està pensant, guardem l'anàlisi pendent
+                openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+            } else {
+                // No hi ha moviment de l'engine, analitzem directament
+                analyzeOpeningMoveQuality(fenBefore, movePlayed);
+            }
         }
     }
 
@@ -1048,7 +1089,7 @@ function enableOpeningTapToMove() {
         .on(`pointerdown.opening-tapmove touchstart.opening-tapmove`, '.square-55d63', function(e) {
             if (!openingPracticeGame || openingPracticeGame.game_over()) return;
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
-            if (openingPracticeEngineThinking) return;
+            if (openingPracticeEngineThinking || openingPracticeOkAnalysisActive) return;
 
             if (e && e.preventDefault) e.preventDefault();
 
@@ -5663,6 +5704,7 @@ function initOpeningBundleBoard() {
             if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
             if (openingPracticeEngineThinking) return false;
+            if (openingPracticeOkAnalysisActive) return false;
             if (openingPracticeGame.turn() === 'w' && piece.search(/^b/) !== -1) return false;
             if (openingPracticeGame.turn() === 'b' && piece.search(/^w/) !== -1) return false;
         },
@@ -5695,18 +5737,29 @@ function initOpeningBundleBoard() {
                                    !openingPracticeGame.game_over() &&
                                    openingPracticeGame.turn() === 'b';
 
-            if (needsEngineMove) {
-                requestOpeningPracticeEngineMove();
-            }
+            const isFirstUserMove = wasWhiteTurn && openingPracticeMoveCount === 1;
 
-            // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
-            if (wasWhiteTurn) {
+            if (isFirstUserMove && needsEngineMove) {
+                openingPracticeAwaitingOk = true;
+                openingPracticeOkPendingEngineMove = false;
+                startOpeningOkAnalysis(fenBefore, movePlayed);
+                updateOpeningPracticeStatus();
+                updateOpeningOkButton();
+                updateOpeningUndoButton();
+            } else {
                 if (needsEngineMove) {
-                    // L'engine està pensant, guardem l'anàlisi pendent
-                    openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
-                } else {
-                    // No hi ha moviment de l'engine, analitzem directament
-                    analyzeOpeningMoveQuality(fenBefore, movePlayed);
+                    requestOpeningPracticeEngineMove();
+                }
+
+                // Després guardar l'anàlisi de precisió per executar quan l'engine acabi
+                if (wasWhiteTurn) {
+                    if (needsEngineMove) {
+                        // L'engine està pensant, guardem l'anàlisi pendent
+                        openingPracticePendingAnalysis = { fen: fenBefore, move: movePlayed };
+                    } else {
+                        // No hi ha moviment de l'engine, analitzem directament
+                        analyzeOpeningMoveQuality(fenBefore, movePlayed);
+                    }
                 }
             }
         },
@@ -5719,6 +5772,7 @@ function initOpeningBundleBoard() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
+    updateOpeningOkButton();
     if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
 
     // Aplicar mode de control tàctil
@@ -5737,6 +5791,10 @@ function updateOpeningPracticeStatus() {
     }
     if (openingPracticeGame.game_over()) {
         noteEl.textContent = 'Partida finalitzada.';
+        return;
+    }
+    if (openingPracticeAwaitingOk) {
+        noteEl.textContent = 'Prem OK per validar la precisió i activar el moviment de Stockfish.';
         return;
     }
     if (remaining === 0) {
@@ -5765,7 +5823,9 @@ function updateOpeningUndoButton() {
     const btn = document.getElementById('btn-opening-undo');
     if (!btn) return;
     // Deshabilitar si no hi ha historial o l'engine està pensant
-    const canUndo = openingPracticeHistory.length > 0 && !openingPracticeEngineThinking;
+    const canUndo = openingPracticeHistory.length > 0 &&
+        !openingPracticeEngineThinking &&
+        !openingPracticeOkAnalysisActive;
     btn.disabled = !canUndo;
 }
 
@@ -5793,6 +5853,14 @@ function undoOpeningPracticeMove() {
     openingPracticeHintPending = false;
     openingPracticeBestMove = null;
 
+    // Cancel·lar espera d'OK i anàlisi infinita
+    openingPracticeAwaitingOk = false;
+    openingPracticeOkPendingEngineMove = false;
+    if (openingPracticeOkAnalysisActive && stockfish) {
+        try { stockfish.postMessage('stop'); } catch (e) {}
+    }
+    openingPracticeOkAnalysisActive = false;
+
     // Cancel·lar màxima pendent (evitar que s'actualitzi després de l'undo)
     openingMaximPending = false;
 
@@ -5809,6 +5877,7 @@ function undoOpeningPracticeMove() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
+    updateOpeningOkButton();
 
     // Missatge
     const noteEl = document.getElementById('opening-practice-note');
@@ -5825,6 +5894,9 @@ function resetOpeningPracticeBoard() {
     lastOpeningMaxim = null;
     openingPracticeHintPending = false;
     openingPracticeBestMove = null;
+    openingPracticeAwaitingOk = false;
+    openingPracticeOkAnalysisActive = false;
+    openingPracticeOkPendingEngineMove = false;
     // Reset precisió
     openingPracticeGoodMoves = 0;
     openingPracticeTotalMoves = 0;
@@ -5842,6 +5914,27 @@ function resetOpeningPracticeBoard() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
+    updateOpeningOkButton();
+}
+
+function confirmOpeningPracticeOk() {
+    if (!openingPracticeAwaitingOk) return;
+    openingPracticeAwaitingOk = false;
+    openingPracticeOkPendingEngineMove = true;
+    updateOpeningPracticeStatus();
+    updateOpeningOkButton();
+    updateOpeningUndoButton();
+
+    if (!stockfish && !ensureStockfish()) {
+        processOpeningMoveAnalysis(null);
+        return;
+    }
+
+    if (openingPracticeOkAnalysisActive || openingPracticeAnalysisPending) {
+        try { stockfish.postMessage('stop'); } catch (e) {}
+    } else {
+        processOpeningMoveAnalysis(null);
+    }
 }
 
 function requestOpeningPracticeEngineMove() {
@@ -5910,13 +6003,16 @@ function setupEvents() {
         $('#opening-screen').hide();
         $('#start-screen').show();
     });
+    $('#btn-opening-ok').click(() => {
+        confirmOpeningPracticeOk();
+    });
     $('#btn-opening-bundle-menu').click(() => {
         $('#opening-screen').hide();
         $('#start-screen').show();
     });
     $('#btn-opening-bundle-hint').click(() => {
         if (!openingPracticeGame || openingPracticeGame.game_over()) return;
-        if (openingPracticeEngineThinking || openingPracticeHintPending) {
+        if (openingPracticeEngineThinking || openingPracticeHintPending || openingPracticeOkAnalysisActive) {
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,200,100,0.2); border-radius:8px;">⏳ Espera que l\'engine acabi...</div>';
             return;
