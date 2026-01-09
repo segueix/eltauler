@@ -6705,7 +6705,12 @@ function showOpeningErrorSuccessOverlay(noMore) {
         remaining > 0 ? `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}` :
         'No en queden més!'
     );
-    $('#btn-opening-error-again').prop('disabled', remaining === 0);
+    // Activar/desactivar botó explícitament
+    if (remaining > 0 && !noMore) {
+        $('#btn-opening-error-again').prop('disabled', false).removeAttr('disabled');
+    } else {
+        $('#btn-opening-error-again').prop('disabled', true);
+    }
     overlay.css('display', 'flex');
 
     $('#btn-opening-error-home').off('click').on('click', () => {
