@@ -61,6 +61,8 @@ let stockfishRequestor = null; // Identificador de qui ha fet l'última petició
 let openingTrie = null; // Estructura trie per cercar obertures
 let openingCurrentSequence = []; // Seqüència actual de moviments (SAN)
 let openingMatchedOpenings = []; // Obertures que coincideixen amb la seqüència actual
+let openingSelectedOpening = null; // Obertura seleccionada (la més llarga que coincideix)
+let openingNextMoveHint = null; // Següent moviment de l'obertura per a la pista
 
 let gameHistory = [];
 let historyBoard = null;
@@ -994,6 +996,73 @@ function selectBestOpeningByEngine(sequence, engineMove) {
     return validMoves[0];
 }
 
+// Actualitza l'obertura seleccionada basant-se en la seqüència actual
+// Selecciona l'obertura més llarga que coincideix exactament amb la seqüència
+function updateSelectedOpening() {
+    if (!openingTrie || openingCurrentSequence.length === 0) {
+        openingSelectedOpening = null;
+        openingNextMoveHint = null;
+        return;
+    }
+
+    let node = openingTrie;
+    let lastMatchingOpening = null;
+
+    // Recórrer la seqüència i trobar l'obertura que coincideix
+    for (let i = 0; i < openingCurrentSequence.length; i++) {
+        const move = openingCurrentSequence[i];
+        if (!node.children[move]) {
+            break; // Hem sortit de les obertures conegudes
+        }
+        node = node.children[move];
+
+        // Si aquest node té obertures, guardar la més llarga
+        if (node.openings && node.openings.length > 0) {
+            // Preferir l'obertura amb més moviments (més específica)
+            lastMatchingOpening = node.openings.reduce((best, current) => {
+                return (!best || current.moves.length > best.moves.length) ? current : best;
+            }, null);
+        }
+    }
+
+    openingSelectedOpening = lastMatchingOpening;
+
+    // Calcular el següent moviment de l'obertura (pista)
+    if (openingSelectedOpening && openingSelectedOpening.moves.length > openingCurrentSequence.length) {
+        openingNextMoveHint = openingSelectedOpening.moves[openingCurrentSequence.length];
+        console.log(`[Openings] Obertura seleccionada: ${openingSelectedOpening.name}`);
+        console.log(`[Openings] Següent moviment (pista): ${openingNextMoveHint}`);
+    } else {
+        // Buscar qualsevol moviment vàlid d'obertura
+        const validMoves = getValidOpeningMoves(openingCurrentSequence);
+        openingNextMoveHint = validMoves.length > 0 ? validMoves[0] : null;
+        if (openingNextMoveHint) {
+            console.log(`[Openings] Fora d'obertura específica, pista genèrica: ${openingNextMoveHint}`);
+        }
+    }
+}
+
+// Obté el següent moviment de l'obertura per a la pista
+// Retorna { move: 'Nf3', from: 'g1', to: 'f3', openingName: 'Italian Game' } o null
+function getOpeningHint() {
+    if (!openingNextMoveHint || !openingPracticeGame) return null;
+
+    // Buscar el moviment en format verbose per obtenir from/to
+    const moves = openingPracticeGame.moves({ verbose: true });
+    const matchingMove = moves.find(m => m.san === openingNextMoveHint);
+
+    if (matchingMove) {
+        return {
+            move: openingNextMoveHint,
+            from: matchingMove.from,
+            to: matchingMove.to,
+            openingName: openingSelectedOpening ? openingSelectedOpening.name : null
+        };
+    }
+
+    return null;
+}
+
 // Avalua la precisió d'un moviment basat en obertures
 // Retorna: { quality: 'correct'|'good'|'incorrect', isOpeningMove: boolean, validMoves: [] }
 function evaluateOpeningMovePrecision(sequence, movePlayed) {
@@ -1306,6 +1375,7 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
         openingPracticeGoodMoves++;
         updateOpeningPrecisionDisplay(true);
         openingCurrentSequence.push(movePlayed);
+        updateSelectedOpening();
         console.log(`[OpeningAnalysis] Moviment d'obertura correcte: ${movePlayed}`);
 
         if (needsEngineMove) {
@@ -1323,6 +1393,7 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
         openingPracticeGoodMoves += 1;
         updateOpeningPrecisionDisplay(true);
         openingCurrentSequence.push(movePlayed);
+        updateSelectedOpening();
         console.log(`[OpeningAnalysis] Primer moviment no estàndard: ${movePlayed} - 50%`);
 
         if (needsEngineMove) {
@@ -1340,6 +1411,7 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
             fenBefore = openingPracticeHistory[openingPracticeHistory.length - 1].fen;
         }
         openingCurrentSequence.push(movePlayed);
+        updateSelectedOpening();
         console.log(`[OpeningAnalysis] Fora d'obertures, usant engine per: ${movePlayed}`);
         analyzeOpeningMoveQuality(fenBefore, movePlayed, fenAfter);
         return;
@@ -1351,6 +1423,7 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
     openingPracticeTotalMoves++;
     updateOpeningPrecisionDisplay(true);
     openingCurrentSequence.push(movePlayed);
+    updateSelectedOpening();
     console.log(`[OpeningAnalysis] Moviment incorrecte: ${movePlayed}, esperats: [${evaluation.validMoves.join(', ')}]`);
 
     if (needsEngineMove) {
@@ -6457,6 +6530,8 @@ function resetOpeningPracticeBoard() {
     // Reset seqüència d'obertures
     openingCurrentSequence = [];
     openingMatchedOpenings = [];
+    openingSelectedOpening = null;
+    openingNextMoveHint = null;
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
     clearOpeningMoveVisualFeedback();
@@ -6550,22 +6625,38 @@ function setupEvents() {
             return;
         }
 
-        // Si ja tenim la millor jugada calculada, mostrar-la directament
+        // PRIMER: Intentar usar la pista de l'obertura seleccionada
+        const openingHint = getOpeningHint();
+        if (openingHint) {
+            highlightOpeningHint(openingHint.from, openingHint.to);
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) {
+                const openingInfo = openingHint.openingName
+                    ? `<br><small style="opacity:0.8">📖 ${openingHint.openingName}</small>`
+                    : '';
+                noteEl.innerHTML = `<div style="padding:12px; background:rgba(76,175,80,0.15); border-left:3px solid var(--accent-green); border-radius:8px;">
+                    <strong>💡 Pista d'obertura:</strong> <strong>${openingHint.move}</strong> (${openingHint.from} → ${openingHint.to})${openingInfo}
+                </div>`;
+            }
+            console.log(`[OpeningHint] Pista d'obertura: ${openingHint.move} (${openingHint.openingName || 'sense nom'})`);
+            return;
+        }
+
+        // SEGON: Si ja tenim la millor jugada calculada per Stockfish, mostrar-la
         if (openingPracticeBestMove && openingPracticeBestMove.length >= 4) {
             const fromSquare = openingPracticeBestMove.substring(0, 2);
             const toSquare = openingPracticeBestMove.substring(2, 4);
-            // Marcar visualment les caselles
             highlightOpeningHint(fromSquare, toSquare);
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) {
                 noteEl.innerHTML = `<div style="padding:12px; background:rgba(156,39,176,0.15); border-left:3px solid var(--accent-purple); border-radius:8px;">
-                    <strong>💡 Pista:</strong> Mou de <strong>${fromSquare}</strong> a <strong>${toSquare}</strong>
+                    <strong>💡 Pista (Stockfish):</strong> Mou de <strong>${fromSquare}</strong> a <strong>${toSquare}</strong>
                 </div>`;
             }
             return;
         }
 
-        // Si no, calcular-la
+        // TERCER: Calcular amb Stockfish
         if (!stockfish && !ensureStockfish()) {
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ Stockfish no disponible</div>';
@@ -7554,6 +7645,8 @@ function handleEngineMessage(rawMsg) {
                 if (move.san) {
                     openingCurrentSequence.push(move.san);
                     console.log(`[OpeningEngine] Moviment engine afegit: ${move.san}, seqüència: [${openingCurrentSequence.join(', ')}]`);
+                    // Actualitzar l'obertura seleccionada i la pista
+                    updateSelectedOpening();
                 }
             }
 
