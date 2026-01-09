@@ -6563,6 +6563,7 @@ function startOpeningErrorPractice(color, moveNum) {
 
     openingErrorPracticeActive = true;
     openingErrorCurrentPositions = [...stat.errorPositions];
+    console.log('[StartPractice] Posicions inicials:', openingErrorCurrentPositions.length);
     openingErrorColorFilter = color;
     openingErrorMoveFilter = moveNum;
     openingErrorMovesRemaining = 2; // Dues jugades per resoldre
@@ -6641,9 +6642,11 @@ function handleOpeningErrorSuccess() {
     }
 
     // Treure la posició resolta de la llista per índex
+    console.log('[ErrorSuccess] Abans splice:', openingErrorCurrentPositions.length, 'index:', openingErrorCurrentIndex);
     if (openingErrorCurrentIndex >= 0 && openingErrorCurrentIndex < openingErrorCurrentPositions.length) {
         openingErrorCurrentPositions.splice(openingErrorCurrentIndex, 1);
     }
+    console.log('[ErrorSuccess] Després splice:', openingErrorCurrentPositions.length);
 
     // Actualitzar també openingStatsData per reflectir l'error resolt
     if (openingErrorColorFilter && openingErrorMoveFilter) {
@@ -6726,6 +6729,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
 
     const remaining = openingErrorCurrentPositions.length;
     const showAgainBtn = remaining > 0 && !noMore;
+    console.log('[Overlay] remaining:', remaining, 'noMore:', noMore, 'showBtn:', showAgainBtn);
 
     $('#opening-error-remaining').text(
         noMore ? 'Has resolt tots els errors!' :
@@ -6735,8 +6739,10 @@ function showOpeningErrorSuccessOverlay(noMore) {
 
     // Mostrar/amagar botó segons si queden errors
     const btnAgain = document.getElementById('btn-opening-error-again');
+    console.log('[Overlay] btnAgain element:', btnAgain);
     if (btnAgain) {
         btnAgain.style.display = showAgainBtn ? 'inline-block' : 'none';
+        console.log('[Overlay] btnAgain.style.display:', btnAgain.style.display);
     }
 
     overlay.css('display', 'flex');
