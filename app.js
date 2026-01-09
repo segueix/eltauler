@@ -6476,14 +6476,14 @@ function renderOpeningStatsScreen() {
     whiteStats.forEach((item, idx) => {
         const precisionClass = item.avgPrecision !== null && item.avgPrecision < 75 ? 'color:var(--severity-med)' : '';
         const hasErrors = item.countBelow75 > 0;
-        const moveDisplay = hasErrors
-            ? `<span class="move-link" data-color="w" data-move="${item.moveNumber}">${item.moveNumber}</span>`
-            : item.moveNumber;
+        const errorDisplay = hasErrors
+            ? `<span class="move-link" data-color="w" data-move="${item.moveNumber}">${item.countBelow75}</span>`
+            : '—';
         html += `
             <div class="opening-stats-row">
-                <div class="move-cell">${moveDisplay}</div>
+                <div class="move-cell">${item.moveNumber}</div>
                 <div style="${precisionClass}">${item.avgPrecision === null ? '—' : `${item.avgPrecision}%`}</div>
-                <div>${item.countBelow75 === 0 ? '—' : item.countBelow75}</div>
+                <div>${errorDisplay}</div>
             </div>
         `;
     });
@@ -6493,14 +6493,14 @@ function renderOpeningStatsScreen() {
     blackStats.forEach((item, idx) => {
         const precisionClass = item.avgPrecision !== null && item.avgPrecision < 75 ? 'color:var(--severity-med)' : '';
         const hasErrors = item.countBelow75 > 0;
-        const moveDisplay = hasErrors
-            ? `<span class="move-link" data-color="b" data-move="${item.moveNumber}">${item.moveNumber}</span>`
-            : item.moveNumber;
+        const errorDisplay = hasErrors
+            ? `<span class="move-link" data-color="b" data-move="${item.moveNumber}">${item.countBelow75}</span>`
+            : '—';
         html += `
             <div class="opening-stats-row">
-                <div class="move-cell">${moveDisplay}</div>
+                <div class="move-cell">${item.moveNumber}</div>
                 <div style="${precisionClass}">${item.avgPrecision === null ? '—' : `${item.avgPrecision}%`}</div>
-                <div>${item.countBelow75 === 0 ? '—' : item.countBelow75}</div>
+                <div>${errorDisplay}</div>
             </div>
         `;
     });
