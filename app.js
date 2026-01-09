@@ -6699,26 +6699,36 @@ function showOpeningErrorSuccessOverlay(noMore) {
     }
 
     const remaining = openingErrorCurrentPositions.length;
+    console.log('[ErrorOverlay] remaining:', remaining, 'noMore:', noMore);
 
     $('#opening-error-remaining').text(
         noMore ? 'Has resolt tots els errors!' :
         remaining > 0 ? `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}` :
         'No en queden més!'
     );
-    // Activar/desactivar botó explícitament
-    if (remaining > 0 && !noMore) {
-        $('#btn-opening-error-again').prop('disabled', false).removeAttr('disabled');
+
+    // Activar/desactivar botó
+    const btnAgain = $('#btn-opening-error-again');
+    const shouldEnable = remaining > 0 && !noMore;
+    console.log('[ErrorOverlay] btn trobat:', btnAgain.length, 'activar:', shouldEnable);
+
+    btnAgain.prop('disabled', !shouldEnable);
+    if (shouldEnable) {
+        btnAgain.removeAttr('disabled').css('pointer-events', 'auto');
     } else {
-        $('#btn-opening-error-again').prop('disabled', true);
+        btnAgain.attr('disabled', 'disabled').css('pointer-events', 'none');
     }
+
     overlay.css('display', 'flex');
 
     $('#btn-opening-error-home').off('click').on('click', () => {
+        console.log('[ErrorOverlay] Tornar clicked');
         overlay.hide();
         exitOpeningErrorPractice();
     });
 
     $('#btn-opening-error-again').off('click').on('click', () => {
+        console.log('[ErrorOverlay] Altre aleatori clicked, remaining:', openingErrorCurrentPositions.length);
         overlay.hide();
         if (openingErrorCurrentPositions.length > 0) {
             // Assegurar que el tauler és visible
