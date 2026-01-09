@@ -5081,21 +5081,26 @@ function getOpeningContinuations(sequence) {
 function buildOpeningEncouragementPrompt() {
     return `Ets Sun Tzu, mestre estrateg, donant consell abans d'una partida d'escacs.
 
-TASCA: Escriu UNA SOLA frase d'encoratjament en català, estil "L'Art de la Guerra".
+TASCA: Escriu un paràgraf d'encoratjament en català, estil "L'Art de la Guerra".
+
+CONTINGUT:
+- Parla de la importància de la preparació mental abans de la batalla
+- Menciona els principis estratègics que s'apliquen a l'obertura d'escacs
+- Pots incloure citacions o paràfrasis de "L'Art de la Guerra"
+- Acaba amb un consell inspirador per començar la partida
 
 REGLES:
-- Exactament 1 frase (màxim 120 caràcters)
+- Entre 3 i 6 frases
 - To filosòfic i inspirador
-- Sobre preparació, estratègia o inici de batalla
 - Sense emojis
-- Sense cometes
+- Sense cometes al voltant de tot el text
 - En català
+- IMPORTANT: Acaba sempre amb un punt final
 
-EXEMPLES D'ESTIL (NO COPIAR):
-"Qui coneix el terreny abans de la batalla ja ha guanyat la meitat."
-"El primer moviment revela la intenció; escull-lo amb saviesa."
+EXEMPLE D'ESTIL (NO COPIAR):
+"L'estrateg savi prepara la victòria abans que comenci la batalla. Conèixer el terreny és conèixer les possibilitats. El centre del tauler és com la plana central on es decideixen els imperis. Qui el domina, controla els camins de la victòria."
 
-Escriu la frase:`
+Escriu ara:`
 }
 
 function buildOpeningAlternativesPrompt(sequence, continuations, selectedOpening) {
@@ -5105,9 +5110,9 @@ function buildOpeningAlternativesPrompt(sequence, continuations, selectedOpening
     let alternativesText = '';
     const moves = Object.keys(continuations);
 
-    for (const move of moves.slice(0, 4)) { // Màxim 4 alternatives
+    for (const move of moves.slice(0, 5)) { // Màxim 5 alternatives
         const openings = continuations[move];
-        const names = openings.map(o => o.name).slice(0, 2).join(', ');
+        const names = openings.map(o => o.name).slice(0, 3).join(', ');
         alternativesText += `- ${move}: ${names}\n`;
     }
 
@@ -5123,17 +5128,23 @@ ${currentOpeningInfo}
 CONTINUACIONS POSSIBLES:
 ${alternativesText || 'Cap continuació teòrica'}
 
-TASCA: En 2-3 frases curtes en català:
-1. Descriu breument l'obertura actual o la posició
-2. Presenta les alternatives de continuació amb metàfores militars de Sun Tzu
+TASCA: Escriu un anàlisi complet en català (entre 5 i 10 frases):
+
+1. OBERTURA ACTUAL: Explica què és aquesta obertura, el seu origen històric si el coneixes, i quin és el seu objectiu estratègic principal.
+
+2. ALTERNATIVES: Per cada continuació possible, descriu-la amb metàfores militars de Sun Tzu:
    - NO diguis els moviments directament (${moves.slice(0, 3).join(', ')})
-   - Usa al·lusions: "el camí del centre", "el flanc de rei", "la diagonal oculta"
+   - Usa al·lusions: "el camí del centre", "el flanc de rei", "la diagonal oculta", "l'avanç dels peons", "el salt del cavall"
+   - Explica quina filosofia estratègica representa cada camí
+
+3. CONSELL: Acaba amb un consell estratègic inspirat en Sun Tzu sobre com escollir entre les alternatives.
 
 REGLES:
-- Màxim 3 frases
+- Entre 5 i 10 frases
 - Sense emojis ni numeració
-- To estratègic militar
+- To estratègic militar profund
 - En català
+- IMPORTANT: Acaba sempre amb un punt final
 
 Respon:`
 }
@@ -5186,7 +5197,7 @@ async function requestOpeningMaximLlull() {
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
                 generationConfig: {
                     temperature: isStart ? 0.9 : 0.7,
-                    maxOutputTokens: isStart ? 200 : 600,
+                    maxOutputTokens: isStart ? 1000 : 3000,
                     topP: 0.9,
                     topK: 30
                 }
@@ -5210,6 +5221,11 @@ async function requestOpeningMaximLlull() {
             .replace(/\*\*/g, '') // Treure bold markdown
             .replace(/^["«]|["»]$/g, '') // Treure cometes
             .trim();
+
+        // Assegurar que acaba en punt final
+        if (cleanText && !/[.!?]$/.test(cleanText)) {
+            cleanText += '.';
+        }
 
         // Verificar que no s'hagi cancel·lat (p.ex. per undo)
         if (!openingMaximPending) {
