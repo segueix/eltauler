@@ -6474,7 +6474,7 @@ function renderOpeningStatsScreen() {
 
     whiteStats.forEach((item, idx) => {
         const precisionClass = item.avgPrecision !== null && item.avgPrecision < 75 ? 'color:var(--severity-med)' : '';
-        const hasErrors = item.countBelow75 > 0 && item.errorPositions.length > 0;
+        const hasErrors = item.countBelow75 > 0;
         const moveDisplay = hasErrors
             ? `<span class="move-link" data-color="w" data-move="${item.moveNumber}">${item.moveNumber}</span>`
             : item.moveNumber;
@@ -6491,7 +6491,7 @@ function renderOpeningStatsScreen() {
 
     blackStats.forEach((item, idx) => {
         const precisionClass = item.avgPrecision !== null && item.avgPrecision < 75 ? 'color:var(--severity-med)' : '';
-        const hasErrors = item.countBelow75 > 0 && item.errorPositions.length > 0;
+        const hasErrors = item.countBelow75 > 0;
         const moveDisplay = hasErrors
             ? `<span class="move-link" data-color="b" data-move="${item.moveNumber}">${item.moveNumber}</span>`
             : item.moveNumber;
@@ -6523,7 +6523,7 @@ function startOpeningErrorPractice(color, moveNum) {
     // Buscar les posicions d'error per aquest color i moviment
     const stat = openingStatsData.find(s => s.colorKey === color && s.moveNumber === moveNum);
     if (!stat || !stat.errorPositions || stat.errorPositions.length === 0) {
-        alert('No hi ha errors disponibles per practicar.');
+        alert('No hi ha posicions disponibles per practicar.\n\nLes partides antigues no tenen aquesta informació. Juga noves partides per poder practicar els errors.');
         return;
     }
 
