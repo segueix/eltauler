@@ -619,22 +619,32 @@
             border: 1px solid rgba(201, 162, 39, 0.12);
             font-size: 0.85rem;
         }
+        .opening-stats-row .move-cell {
+            color: var(--accent-gold);
+            font-family: 'Cinzel', serif;
+            font-size: 0.95rem;
+            font-weight: bold;
+        }
         .opening-stats-row .move-link {
             cursor: pointer;
             text-decoration: underline;
             text-decoration-style: dotted;
+            color: var(--accent-purple);
+            padding: 2px 6px;
+            border-radius: 4px;
+            background: rgba(156, 39, 176, 0.15);
         }
         .opening-stats-row .move-link:hover {
-            color: var(--accent-gold);
+            color: #fff;
+            background: var(--accent-purple);
         }
         body.epaper-mode .opening-stats-row {
             background: #efefef;
             border: 1px solid #cfcfcf;
         }
-        .opening-stats-row strong {
-            color: var(--accent-gold);
-            font-family: 'Cinzel', serif;
-            font-size: 0.95rem;
+        body.epaper-mode .opening-stats-row .move-link {
+            color: #9c27b0;
+            background: rgba(156, 39, 176, 0.1);
         }
         .opening-stats-note {
             margin-top: 10px;

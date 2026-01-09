@@ -6481,7 +6481,7 @@ function renderOpeningStatsScreen() {
             : item.moveNumber;
         html += `
             <div class="opening-stats-row">
-                <div><strong>${moveDisplay}</strong></div>
+                <div class="move-cell">${moveDisplay}</div>
                 <div style="${precisionClass}">${item.avgPrecision === null ? '—' : `${item.avgPrecision}%`}</div>
                 <div>${item.countBelow75 === 0 ? '—' : item.countBelow75}</div>
             </div>
@@ -6498,7 +6498,7 @@ function renderOpeningStatsScreen() {
             : item.moveNumber;
         html += `
             <div class="opening-stats-row">
-                <div><strong>${moveDisplay}</strong></div>
+                <div class="move-cell">${moveDisplay}</div>
                 <div style="${precisionClass}">${item.avgPrecision === null ? '—' : `${item.avgPrecision}%`}</div>
                 <div>${item.countBelow75 === 0 ? '—' : item.countBelow75}</div>
             </div>
