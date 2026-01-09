@@ -6563,13 +6563,19 @@ function renderOpeningStatsScreen() {
 
 // Inicia la pràctica d'un error d'obertura
 function startOpeningErrorPractice(color, moveNum) {
+    console.log('[OpeningStats] startOpeningErrorPractice:', color, moveNum);
     // Buscar les posicions d'error per aquest color i moviment
     const stat = openingStatsData.find(s => s.colorKey === color && s.moveNumber === moveNum);
+    console.log('[OpeningStats] stat trobat:', stat);
+    console.log('[OpeningStats] errorPositions:', stat?.errorPositions);
+
     if (!stat || !stat.errorPositions || stat.errorPositions.length === 0) {
+        console.log('[OpeningStats] No hi ha posicions!');
         alert('No hi ha posicions disponibles per practicar.\n\nLes partides antigues no tenen aquesta informació. Juga noves partides per poder practicar els errors.');
         return;
     }
 
+    console.log('[OpeningStats] Iniciant pràctica amb', stat.errorPositions.length, 'posicions');
     openingErrorPracticeActive = true;
     openingErrorCurrentPositions = [...stat.errorPositions];
     openingErrorColorFilter = color;
