@@ -6415,11 +6415,6 @@ function renderOpeningStatsScreen() {
     if (!listEl.length) return;
 
     const { stats, totalEntries } = buildOpeningMoveStats();
-    if (!totalEntries) {
-        listEl.html('<div class="opening-stats-row">Encara no hi ha dades per mostrar.</div>');
-        if (noteEl.length) noteEl.text('Juga algunes partides perquè puguem calcular la mitja.');
-        return;
-    }
 
     // Separar per color
     const whiteStats = stats.filter(s => s.colorKey === 'w');
@@ -6463,7 +6458,7 @@ function renderOpeningStatsScreen() {
 
     listEl.html(html);
     if (noteEl.length) {
-        noteEl.text(`Basat en les últimes ${totalEntries} partides.`);
+        noteEl.text(totalEntries > 0 ? `Basat en les últimes ${totalEntries} partides.` : '—');
     }
 }
 
