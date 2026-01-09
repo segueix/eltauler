@@ -599,7 +599,7 @@
         }
         .opening-stats-header {
             display: grid;
-            grid-template-columns: 0.6fr 1fr 1fr 1fr;
+            grid-template-columns: 0.6fr 1fr 1fr;
             font-size: 0.7rem;
             text-transform: uppercase;
             letter-spacing: 0.5px;
@@ -610,7 +610,7 @@
         }
         .opening-stats-row {
             display: grid;
-            grid-template-columns: 0.6fr 1fr 1fr 1fr;
+            grid-template-columns: 0.6fr 1fr 1fr;
             gap: 8px;
             align-items: center;
             padding: 6px 10px;
@@ -618,6 +618,14 @@
             background: rgba(0,0,0,0.2);
             border: 1px solid rgba(201, 162, 39, 0.12);
             font-size: 0.85rem;
+        }
+        .opening-stats-row .move-link {
+            cursor: pointer;
+            text-decoration: underline;
+            text-decoration-style: dotted;
+        }
+        .opening-stats-row .move-link:hover {
+            color: var(--accent-gold);
         }
         body.epaper-mode .opening-stats-row {
             background: #efefef;
@@ -2321,6 +2329,19 @@
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-back-opening">Menú</button>
+            </div>
+
+            <!-- Overlay d'èxit per errors d'obertura -->
+            <div id="opening-error-success-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center;">
+                <div style="background:var(--bg-card); padding:30px; border-radius:16px; text-align:center; max-width:320px; border:2px solid var(--accent-gold);">
+                    <div style="font-size:3em; margin-bottom:15px;">🏆</div>
+                    <div style="font-family:'Cinzel',serif; font-size:1.3em; color:var(--accent-gold); margin-bottom:10px;">Correcte!</div>
+                    <div style="color:var(--text-secondary); margin-bottom:20px; font-size:0.9em;" id="opening-error-remaining">—</div>
+                    <div style="display:flex; gap:10px; justify-content:center;">
+                        <button class="btn btn-secondary" id="btn-opening-error-home">Tornar</button>
+                        <button class="btn btn-primary" id="btn-opening-error-again">Altre aleatori</button>
+                    </div>
+                </div>
             </div>
         </div>
 

@@ -64,6 +64,14 @@ let openingMatchedOpenings = []; // Obertures que coincideixen amb la seqüènci
 let openingSelectedOpening = null; // Obertura seleccionada (la més llarga que coincideix)
 let openingNextMoveHint = null; // Següent moviment de l'obertura per a la pista
 
+// Pràctica d'errors d'obertura
+let openingErrorPracticeActive = false;
+let openingErrorCurrentPositions = []; // Posicions d'error disponibles
+let openingErrorCurrentFen = null; // FEN actual que s'està practicant
+let openingErrorBestMove = null; // Millor moviment esperat
+let openingErrorColorFilter = null; // 'w' o 'b'
+let openingErrorMoveFilter = null; // Número de moviment
+
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
@@ -1653,6 +1661,30 @@ function highlightOpeningTapSelection(square) {
 function commitOpeningMoveFromTap(from, to) {
     if (!openingPracticeGame) return false;
     if (openingPracticeGame.game_over()) return false;
+
+    // Mode pràctica d'errors d'obertura
+    if (openingErrorPracticeActive) {
+        const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
+        if (!move) return false;
+
+        const moveUci = from + to;
+        openingBundleBoard.position(openingPracticeGame.fen());
+
+        if (openingErrorBestMove && moveUci === openingErrorBestMove.substring(0, 4)) {
+            // Moviment correcte
+            showOpeningMoveVisualFeedback(from, to, 'correct');
+            setTimeout(() => handleOpeningErrorSuccess(), 800);
+        } else {
+            // Moviment incorrecte
+            showOpeningMoveVisualFeedback(from, to, 'incorrect');
+            setTimeout(() => {
+                openingPracticeGame.undo();
+                openingBundleBoard.position(openingPracticeGame.fen());
+            }, 600);
+        }
+        return true;
+    }
+
     if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
 
     // Guardar estat per poder desfer
@@ -6371,7 +6403,7 @@ function buildOpeningMoveStats() {
             let total = 0;
             let totalPrecision = 0;
             let countBelow75 = 0;
-            let sumErrorBelow75 = 0;
+            const errorPositions = []; // Guardar posicions amb error
 
             recentEntries.forEach(entry => {
                 const match = entry.moveReviews.find(review => (
@@ -6383,16 +6415,25 @@ function buildOpeningMoveStats() {
                 const precision = qualityToPrecision(match.quality, match.swing);
                 totalPrecision += precision;
 
-                // Si la precisió és inferior al 75%, comptar i sumar error
+                // Si la precisió és inferior al 75%, guardar l'error
                 if (precision < 75) {
                     countBelow75 += 1;
-                    // Error = 100 - precisió (percentatge d'error)
-                    sumErrorBelow75 += (100 - precision);
+                    // Buscar l'error corresponent a entry.errors
+                    if (Array.isArray(entry.errors)) {
+                        const errorMatch = entry.errors.find(err => err.fen);
+                        if (errorMatch) {
+                            errorPositions.push({
+                                fen: errorMatch.fen,
+                                bestMove: errorMatch.bestMove,
+                                playerMove: errorMatch.playerMove,
+                                severity: errorMatch.severity
+                            });
+                        }
+                    }
                 }
             });
 
             const avgPrecision = total > 0 ? Math.round(totalPrecision / total) : null;
-            const avgErrorBelow75 = countBelow75 > 0 ? Math.round(sumErrorBelow75 / countBelow75) : null;
 
             stats.push({
                 moveNumber,
@@ -6401,7 +6442,7 @@ function buildOpeningMoveStats() {
                 total,
                 avgPrecision,
                 countBelow75,
-                avgErrorBelow75
+                errorPositions
             });
         }
     });
@@ -6409,12 +6450,16 @@ function buildOpeningMoveStats() {
     return { stats, totalEntries: recentEntries.length };
 }
 
+// Variable global per guardar estadístiques d'obertura
+let openingStatsData = [];
+
 function renderOpeningStatsScreen() {
     const listEl = $('#opening-stats-list');
     const noteEl = $('#opening-stats-note');
     if (!listEl.length) return;
 
     const { stats, totalEntries } = buildOpeningMoveStats();
+    openingStatsData = stats; // Guardar per accedir després
 
     // Separar per color
     const whiteStats = stats.filter(s => s.colorKey === 'w');
@@ -6424,19 +6469,21 @@ function renderOpeningStatsScreen() {
         <div class="opening-stats-header" style="font-weight:600; margin-bottom:8px;">
             <span>Mov.</span>
             <span>Precisió</span>
-            <span>% Error</span>
-            <span>Partides &lt;75%</span>
+            <span>Errors</span>
         </div>
         <div style="font-weight:600; color:var(--text-secondary); margin:10px 0 5px; font-size:0.85em;">♔ Blanques</div>
     `;
 
-    whiteStats.forEach(item => {
+    whiteStats.forEach((item, idx) => {
         const precisionClass = item.avgPrecision !== null && item.avgPrecision < 75 ? 'color:var(--severity-med)' : '';
+        const hasErrors = item.countBelow75 > 0 && item.errorPositions.length > 0;
+        const moveDisplay = hasErrors
+            ? `<span class="move-link" data-color="w" data-move="${item.moveNumber}">${item.moveNumber}</span>`
+            : item.moveNumber;
         html += `
             <div class="opening-stats-row">
-                <div><strong>${item.moveNumber}</strong></div>
+                <div><strong>${moveDisplay}</strong></div>
                 <div style="${precisionClass}">${item.avgPrecision === null ? '—' : `${item.avgPrecision}%`}</div>
-                <div>${item.avgErrorBelow75 === null ? '—' : `${item.avgErrorBelow75}%`}</div>
                 <div>${item.countBelow75 === 0 ? '—' : item.countBelow75}</div>
             </div>
         `;
@@ -6444,22 +6491,155 @@ function renderOpeningStatsScreen() {
 
     html += `<div style="font-weight:600; color:var(--text-secondary); margin:15px 0 5px; font-size:0.85em;">♚ Negres</div>`;
 
-    blackStats.forEach(item => {
+    blackStats.forEach((item, idx) => {
         const precisionClass = item.avgPrecision !== null && item.avgPrecision < 75 ? 'color:var(--severity-med)' : '';
+        const hasErrors = item.countBelow75 > 0 && item.errorPositions.length > 0;
+        const moveDisplay = hasErrors
+            ? `<span class="move-link" data-color="b" data-move="${item.moveNumber}">${item.moveNumber}</span>`
+            : item.moveNumber;
         html += `
             <div class="opening-stats-row">
-                <div><strong>${item.moveNumber}</strong></div>
+                <div><strong>${moveDisplay}</strong></div>
                 <div style="${precisionClass}">${item.avgPrecision === null ? '—' : `${item.avgPrecision}%`}</div>
-                <div>${item.avgErrorBelow75 === null ? '—' : `${item.avgErrorBelow75}%`}</div>
                 <div>${item.countBelow75 === 0 ? '—' : item.countBelow75}</div>
             </div>
         `;
     });
 
     listEl.html(html);
+
+    // Afegir handlers de clic
+    listEl.find('.move-link').off('click').on('click', function() {
+        const color = $(this).data('color');
+        const moveNum = $(this).data('move');
+        startOpeningErrorPractice(color, moveNum);
+    });
+
     if (noteEl.length) {
         noteEl.text(totalEntries > 0 ? `Basat en les últimes ${totalEntries} partides.` : '—');
     }
+}
+
+// Inicia la pràctica d'un error d'obertura
+function startOpeningErrorPractice(color, moveNum) {
+    // Buscar les posicions d'error per aquest color i moviment
+    const stat = openingStatsData.find(s => s.colorKey === color && s.moveNumber === moveNum);
+    if (!stat || !stat.errorPositions || stat.errorPositions.length === 0) {
+        alert('No hi ha errors disponibles per practicar.');
+        return;
+    }
+
+    openingErrorPracticeActive = true;
+    openingErrorCurrentPositions = [...stat.errorPositions];
+    openingErrorColorFilter = color;
+    openingErrorMoveFilter = moveNum;
+
+    // Seleccionar un error aleatori
+    loadRandomOpeningError();
+}
+
+function loadRandomOpeningError() {
+    if (openingErrorCurrentPositions.length === 0) {
+        showOpeningErrorSuccessOverlay(true); // No en queden
+        return;
+    }
+
+    // Seleccionar aleatori
+    const idx = Math.floor(Math.random() * openingErrorCurrentPositions.length);
+    const error = openingErrorCurrentPositions[idx];
+
+    openingErrorCurrentFen = error.fen;
+    openingErrorBestMove = error.bestMove;
+    openingPracticeBestMove = error.bestMove; // Per a la pista
+
+    // Inicialitzar el tauler d'obertures amb la posició
+    if (!openingBundleBoard) {
+        initOpeningBundleBoard();
+    }
+
+    openingPracticeGame = new Chess(error.fen);
+    openingPracticeMoveCount = 0;
+    openingPracticeEngineThinking = false;
+    openingPracticeGoodMoves = 0;
+    openingPracticeTotalMoves = 0;
+
+    // Determinar orientació segons el torn
+    const turn = openingPracticeGame.turn();
+    openingBundleBoard.orientation(turn === 'w' ? 'white' : 'black');
+    openingBundleBoard.position(error.fen);
+
+    // Amagar secció d'estadístiques, mostrar tauler
+    $('.opening-section').first().hide();
+    $('.opening-section').last().show();
+
+    // Actualitzar nota
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) {
+        noteEl.innerHTML = `<div style="padding:8px; background:rgba(201,162,39,0.15); border-radius:8px;">Practica l'error del moviment ${openingErrorMoveFilter} (${openingErrorColorFilter === 'w' ? 'blanques' : 'negres'})</div>`;
+    }
+
+    updateOpeningPrecisionDisplay();
+    clearOpeningMoveVisualFeedback();
+}
+
+function handleOpeningErrorSuccess() {
+    // Treure la posició resolta de la llista
+    openingErrorCurrentPositions = openingErrorCurrentPositions.filter(
+        p => p.fen !== openingErrorCurrentFen
+    );
+
+    openingErrorCurrentFen = null;
+    openingErrorBestMove = null;
+
+    showOpeningErrorSuccessOverlay(false);
+}
+
+function showOpeningErrorSuccessOverlay(noMore) {
+    const overlay = $('#opening-error-success-overlay');
+    if (!overlay.length) {
+        exitOpeningErrorPractice();
+        return;
+    }
+
+    const remaining = openingErrorCurrentPositions.length;
+    $('#opening-error-remaining').text(
+        noMore ? 'Has resolt tots els errors!' :
+        remaining > 0 ? `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}` :
+        'No en queden més!'
+    );
+    $('#btn-opening-error-again').prop('disabled', remaining === 0);
+    overlay.css('display', 'flex');
+
+    $('#btn-opening-error-home').off('click').on('click', () => {
+        overlay.hide();
+        exitOpeningErrorPractice();
+    });
+
+    $('#btn-opening-error-again').off('click').on('click', () => {
+        overlay.hide();
+        if (openingErrorCurrentPositions.length > 0) {
+            loadRandomOpeningError();
+        } else {
+            exitOpeningErrorPractice();
+        }
+    });
+}
+
+function exitOpeningErrorPractice() {
+    openingErrorPracticeActive = false;
+    openingErrorCurrentPositions = [];
+    openingErrorCurrentFen = null;
+    openingErrorBestMove = null;
+
+    // Mostrar secció d'estadístiques, amagar tauler
+    $('.opening-section').first().show();
+    $('.opening-section').last().hide();
+
+    // Tornar a renderitzar estadístiques
+    renderOpeningStatsScreen();
+
+    // Reset tauler
+    resetOpeningPracticeBoard();
 }
 
 function initOpeningBundleBoard() {
@@ -6480,6 +6660,38 @@ function initOpeningBundleBoard() {
         },
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
+
+            // Mode pràctica d'errors
+            if (openingErrorPracticeActive) {
+                const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
+                if (!move) return 'snapback';
+
+                const moveUci = source + target;
+                clearOpeningHintHighlight();
+
+                // Comprovar si és el moviment correcte
+                if (openingErrorBestMove && moveUci === openingErrorBestMove.substring(0, 4)) {
+                    // Correcte!
+                    showOpeningMoveVisualFeedback(source, target, 'correct');
+                    openingPracticeGoodMoves++;
+                    openingPracticeTotalMoves++;
+                    updateOpeningPrecisionDisplay(true);
+                    setTimeout(() => handleOpeningErrorSuccess(), 800);
+                } else {
+                    // Incorrecte
+                    showOpeningMoveVisualFeedback(source, target, 'incorrect');
+                    openingPracticeTotalMoves++;
+                    updateOpeningPrecisionDisplay(true);
+                    // Desfer el moviment
+                    setTimeout(() => {
+                        openingPracticeGame.undo();
+                        openingBundleBoard.position(openingPracticeGame.fen());
+                        clearOpeningMoveVisualFeedback();
+                    }, 600);
+                }
+                return;
+            }
+
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
 
             // Guardar estat per poder desfer
