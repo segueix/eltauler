@@ -6479,12 +6479,20 @@ function buildOpeningMoveStats() {
 let openingStatsData = [];
 
 function renderOpeningStatsScreen() {
+    console.log('[OpeningStats] renderOpeningStatsScreen called');
     const listEl = $('#opening-stats-list');
     const noteEl = $('#opening-stats-note');
-    if (!listEl.length) return;
+    if (!listEl.length) {
+        console.log('[OpeningStats] listEl not found!');
+        return;
+    }
 
     const { stats, totalEntries } = buildOpeningMoveStats();
     openingStatsData = stats; // Guardar per accedir després
+
+    const errorsFound = stats.filter(s => s.countBelow75 > 0);
+    console.log('[OpeningStats] Stats amb errors:', errorsFound);
+    console.log('[OpeningStats] ErrorPositions:', errorsFound.map(e => ({ move: e.moveNumber, color: e.colorKey, positions: e.errorPositions.length })));
 
     // Separar per color
     const whiteStats = stats.filter(s => s.colorKey === 'w');
@@ -6533,12 +6541,18 @@ function renderOpeningStatsScreen() {
 
     listEl.html(html);
 
+    // Verificar que els move-link s'han creat
+    const moveLinks = listEl.find('.move-link');
+    console.log('[OpeningStats] Move links trobats:', moveLinks.length);
+
     // Afegir handlers de clic amb event delegation
     listEl.off('click', '.move-link').on('click', '.move-link', function(e) {
+        console.log('[OpeningStats] CLICK detectat!');
         e.preventDefault();
         e.stopPropagation();
         const color = $(this).attr('data-color');
         const moveNum = parseInt($(this).attr('data-move'), 10);
+        console.log('[OpeningStats] color:', color, 'moveNum:', moveNum);
         startOpeningErrorPractice(color, moveNum);
     });
 
