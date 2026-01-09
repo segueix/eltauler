@@ -6553,7 +6553,6 @@ function startOpeningErrorPractice(color, moveNum) {
 
     openingErrorPracticeActive = true;
     openingErrorCurrentPositions = [...stat.errorPositions];
-    console.log('[ErrorPractice] START - posicions totals:', openingErrorCurrentPositions.length);
     openingErrorColorFilter = color;
     openingErrorMoveFilter = moveNum;
     openingErrorMovesRemaining = 2; // Dues jugades per resoldre
@@ -6598,6 +6597,13 @@ function loadRandomOpeningError() {
     $('.opening-section').first().hide();
     $('.opening-section').last().show();
 
+    // Forçar redimensionament del tauler per assegurar visualització
+    setTimeout(() => {
+        if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
+            openingBundleBoard.resize();
+        }
+    }, 100);
+
     // Scroll al tauler
     const boardEl = document.getElementById('opening-board');
     if (boardEl) {
@@ -6625,11 +6631,9 @@ function handleOpeningErrorSuccess() {
     }
 
     // Treure la posició resolta de la llista per índex
-    console.log('[ErrorPractice] handleSuccess - abans splice:', openingErrorCurrentPositions.length, 'index:', openingErrorCurrentIndex);
     if (openingErrorCurrentIndex >= 0 && openingErrorCurrentIndex < openingErrorCurrentPositions.length) {
         openingErrorCurrentPositions.splice(openingErrorCurrentIndex, 1);
     }
-    console.log('[ErrorPractice] handleSuccess - després splice:', openingErrorCurrentPositions.length);
 
     openingErrorCurrentFen = null;
     openingErrorBestMove = null;
@@ -6695,8 +6699,6 @@ function showOpeningErrorSuccessOverlay(noMore) {
     }
 
     const remaining = openingErrorCurrentPositions.length;
-    console.log('[ErrorPractice] showOverlay - remaining:', remaining, 'noMore:', noMore);
-    console.log('[ErrorPractice] positions:', openingErrorCurrentPositions);
 
     $('#opening-error-remaining').text(
         noMore ? 'Has resolt tots els errors!' :
@@ -6712,13 +6714,15 @@ function showOpeningErrorSuccessOverlay(noMore) {
     });
 
     $('#btn-opening-error-again').off('click').on('click', () => {
-        console.log('[ErrorPractice] btn-again clicked, positions:', openingErrorCurrentPositions.length);
         overlay.hide();
         if (openingErrorCurrentPositions.length > 0) {
-            console.log('[ErrorPractice] Loading another random error');
+            // Assegurar que el tauler és visible
+            $('.opening-section').first().hide();
+            $('.opening-section').last().show();
+            // Reset variables necessàries
+            openingErrorMovesRemaining = 2;
             loadRandomOpeningError();
         } else {
-            console.log('[ErrorPractice] No more positions, exiting');
             exitOpeningErrorPractice();
         }
     });
