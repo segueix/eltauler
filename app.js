@@ -1494,6 +1494,24 @@ function clearOpeningMoveVisualFeedback() {
     $('.opening-move-icon').remove();
 }
 
+function showMainMoveVisualFeedback(to, quality) {
+    clearMainMoveVisualFeedback();
+    const toSquare = $(`#myBoard .square-55d63[data-square='${to}']`);
+    if (!toSquare.length) return;
+    if (quality === 'correct') {
+        toSquare.addClass('move-correct');
+    } else if (quality === 'incorrect') {
+        toSquare.addClass('move-incorrect');
+    }
+    setTimeout(() => {
+        toSquare.removeClass('move-correct move-incorrect');
+    }, 1200);
+}
+
+function clearMainMoveVisualFeedback() {
+    $('#myBoard .square-55d63').removeClass('move-correct move-incorrect');
+}
+
 function analyzeOpeningMoveQuality(fenBefore, movePlayed, fenAfter) {
     if (!fenBefore || !movePlayed || !fenAfter) return;
 
@@ -8529,6 +8547,7 @@ function resetBundleToStartPosition() {
     $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
     clearEngineMoveHighlights();
     clearTapSelection();
+    clearMainMoveVisualFeedback();
     $('#blunder-alert').hide();
     
     // CANVI: Restaurar el missatge de Gemini si existeix
@@ -8547,6 +8566,7 @@ function cacheBundleAnswer(fen, mode, bestMove, pvMoves, pvLine = null, pvLines 
 
 function evaluateBundleAttempt(bundleData) {
     const played = lastHumanMoveUci || '';
+    const playedTo = played.length >= 4 ? played.slice(2, 4) : null;
     
     // ✅ SI HI HA SEQÜÈNCIA FIXA, USAR-LA
     if (bundleFixedSequence) {
@@ -8575,6 +8595,7 @@ function evaluateBundleAttempt(bundleData) {
                 pendingMoveEvaluation = false; 
                 updatePrecisionDisplay(); 
             }
+            if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
             
             if (bundleSequenceStep === 1) {
                 // CANVI: Netejar el missatge de Gemini només quan s'avança al pas 2
@@ -8593,6 +8614,7 @@ function evaluateBundleAttempt(bundleData) {
             lastBundleGeminiHint = null;
             handleBundleSuccess();
         } else {
+            if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
             // Error - resetar al pas actual
             if (pendingMoveEvaluation) {
                 pendingMoveEvaluation = false;
@@ -8603,7 +8625,9 @@ function evaluateBundleAttempt(bundleData) {
             if (bundleSequenceStep === 1) {
                 bundleStepStartFen = bundleSequenceStartFen;
             }
-            showBundleTryAgainModal();
+            setTimeout(() => {
+                resetBundleToStartPosition();
+            }, 700);
         }
         return;
     }
@@ -8626,6 +8650,7 @@ function evaluateBundleAttempt(bundleData) {
             pendingMoveEvaluation = false; 
             updatePrecisionDisplay(); 
         }
+        if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
         
         if (bundleSequenceStep === 1) {
             // CANVI: Netejar el missatge de Gemini només quan s'avança al pas 2
@@ -8647,6 +8672,7 @@ function evaluateBundleAttempt(bundleData) {
         lastBundleGeminiHint = null;
         handleBundleSuccess();
     } else {
+        if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
         if (pendingMoveEvaluation) {
             pendingMoveEvaluation = false;
             totalPlayerMoves = Math.max(0, totalPlayerMoves - 1);
@@ -8655,7 +8681,9 @@ function evaluateBundleAttempt(bundleData) {
         if (bundleSequenceStep === 1) {
             bundleStepStartFen = bundleSequenceStartFen;
         }
-        showBundleTryAgainModal();
+        setTimeout(() => {
+            resetBundleToStartPosition();
+        }, 700);
     }
 }
 
