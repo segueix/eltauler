@@ -6508,7 +6508,7 @@ function renderOpeningStatsScreen(useExistingData = false) {
         const hasErrors = item.countBelow75 > 0;
         const errorDisplay = hasErrors
             ? `<span class="move-link" data-color="w" data-move="${item.moveNumber}">${item.countBelow75}</span>`
-            : '—';
+            : item.total > 0 ? '<span class="move-link-disabled">0</span>' : '—';
         html += `
             <div class="opening-stats-row">
                 <div class="move-cell">${item.moveNumber}</div>
@@ -6525,7 +6525,7 @@ function renderOpeningStatsScreen(useExistingData = false) {
         const hasErrors = item.countBelow75 > 0;
         const errorDisplay = hasErrors
             ? `<span class="move-link" data-color="b" data-move="${item.moveNumber}">${item.countBelow75}</span>`
-            : '—';
+            : item.total > 0 ? '<span class="move-link-disabled">0</span>' : '—';
         html += `
             <div class="opening-stats-row">
                 <div class="move-cell">${item.moveNumber}</div>
