@@ -145,10 +145,10 @@ const CALIBRATION_ENGINE_PRECISION_RANGES = [
     { min: 72, max: 78 }
 ];
 const CALIBRATION_GAME_COUNT = 5;
-const CALIBRATION_ELOS = [900, 1100, 1300, 1500, 1700];
+const CALIBRATION_ROCS = [300, 500, 600, 800, 900];
 const CALIBRATION_DEPTHS = [5, 8, 10];
-const CALIBRATION_ELO_MIN = 800;
-const CALIBRATION_ELO_MAX = 2000;
+const CALIBRATION_ROC_MIN = 200;
+const CALIBRATION_ROC_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
 let recentErrors = [];
 let currentElo = clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
@@ -159,14 +159,14 @@ let freeAdjustmentWindow = [];
 let adjustmentLog = [];
 let lastAdjustmentQualityAvg = null;
 let freeLossStreak = 0;
-let calibrationEloFloor = null;
+let calibrationRocFloor = null;
 let unlockedEloMilestones = [];
 let isCalibrating = true;
 let calibrationGames = [];
 let calibrationProfile = null;
 let calibratgeComplet = false;
 let isCalibrationGame = false;
-let currentCalibrationOpponentElo = null;
+let currentCalibrationOpponentRoc = null;
 let isEngineThinking = false;
 let engineMoveCandidates = [];
 let lastReviewSnapshot = null;
@@ -465,7 +465,7 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         freeAdjustmentWindow: freeAdjustmentWindow,
         adjustmentLog: adjustmentLog,
         freeLossStreak: freeLossStreak,
-        calibrationEloFloor: calibrationEloFloor,
+        calibrationRocFloor: calibrationRocFloor,
         eloMilestones: unlockedEloMilestones,
         lastAdjustmentQualityAvg: lastAdjustmentQualityAvg
     };
@@ -503,17 +503,17 @@ function importBackupData(data) {
     freeAdjustmentWindow = Array.isArray(data.freeAdjustmentWindow) ? data.freeAdjustmentWindow : freeAdjustmentWindow;
     adjustmentLog = Array.isArray(data.adjustmentLog) ? data.adjustmentLog : adjustmentLog;
     freeLossStreak = typeof data.freeLossStreak === 'number' ? data.freeLossStreak : freeLossStreak;
-    calibrationEloFloor = typeof data.calibrationEloFloor === 'number' ? data.calibrationEloFloor : calibrationEloFloor;
+    calibrationRocFloor = typeof data.calibrationRocFloor === 'number' ? data.calibrationRocFloor : calibrationRocFloor;
     unlockedEloMilestones = Array.isArray(data.eloMilestones) ? data.eloMilestones : unlockedEloMilestones;
     lastAdjustmentQualityAvg = typeof data.lastAdjustmentQualityAvg === 'number' ? data.lastAdjustmentQualityAvg : lastAdjustmentQualityAvg;
     if (calibrationGames.length >= CALIBRATION_GAME_COUNT || calibratgeComplet || calibrationProfile) {
         isCalibrating = false;
         calibratgeComplet = true;
-        if (calibrationEloFloor === null && calibrationProfile && typeof calibrationProfile.elo === 'number') {
-            calibrationEloFloor = calibrationProfile.elo;
+        if (calibrationRocFloor === null && calibrationProfile && typeof (calibrationProfile.roc ?? calibrationProfile.elo) === 'number') {
+            calibrationRocFloor = calibrationProfile.roc ?? calibrationProfile.elo;
         }
     }
-    currentCalibrationOpponentElo = null;
+    currentCalibrationOpponentRoc = null;
     if (!isCalibrating) {
         userELO = Math.max(50, currentElo);
         syncEngineEloFromUser();
@@ -2462,7 +2462,7 @@ function levelToDifficulty(level) {
 }
 
 function getEffectiveAIDifficulty() {
-    if (isCalibrationGame) return levelToDifficulty(currentCalibrationOpponentElo || CALIBRATION_ELOS[0]);
+    if (isCalibrationGame) return levelToDifficulty(currentCalibrationOpponentRoc || CALIBRATION_ROCS[0]);
     return aiDifficulty;
 }
 
@@ -2518,14 +2518,14 @@ function adjustAIDifficulty(playerWon, precision, resultScore = null) {
     saveStorage();
 }
 
-function getCalibrationEloFloor() {
-    if (typeof calibrationEloFloor === 'number') return calibrationEloFloor;
-    if (calibrationProfile && typeof calibrationProfile.elo === 'number') return calibrationProfile.elo;
+function getCalibrationRocFloor() {
+    if (typeof calibrationRocFloor === 'number') return calibrationRocFloor;
+    if (calibrationProfile && typeof (calibrationProfile.roc ?? calibrationProfile.elo) === 'number') return calibrationProfile.roc ?? calibrationProfile.elo;
     return userELO;
 }
 
 function clampUserElo(value) {
-    const floor = getCalibrationEloFloor();
+    const floor = getCalibrationRocFloor();
     const baseFloor = typeof floor === 'number' ? floor : ELO_MIN;
     const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.7);
     const minValue = Number.isFinite(flexibleFloor) ? flexibleFloor : ELO_MIN;
@@ -2703,13 +2703,13 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
     return Math.min(calibrationGames.length, CALIBRATION_GAME_COUNT - 1);
 }
 
-function getCalibrationOpponentElo() {
+function getCalibrationOpponentRoc() {
     const index = getCalibrationGameIndex();
-    if (index < 3) return CALIBRATION_ELOS[index];
+    if (index < 3) return CALIBRATION_ROCS[index];
     const performance = getCalibrationPerformanceScore(calibrationGames);
-    const base = CALIBRATION_ELOS[Math.min(index, CALIBRATION_ELOS.length - 1)];
+    const base = CALIBRATION_ROCS[Math.min(index, CALIBRATION_ROCS.length - 1)];
     if (performance >= 0.7) return base + 150;
-    if (performance <= 0.45) return Math.max(CALIBRATION_ELO_MIN, base - 150);
+    if (performance <= 0.45) return Math.max(CALIBRATION_ROC_MIN, base - 150);
     return base;
 }
 
@@ -2771,8 +2771,8 @@ function updateCalibrationAccessUI() {
 }
 
 function getCalibrationGameQuality(game) {
-    const avgLoss = typeof game.avgCpLoss === 'number' ? game.avgCpLoss : 120;
-    const precisionScore = typeof game.precision === 'number' ? game.precision / 100 : 0.5;
+    const avgLoss = typeof game.avgCpLoss === 'number' ? game.avgCpLoss : 180;
+    const precisionScore = typeof game.precision === 'number' ? game.precision / 100 : 0.4;
     const lossScore = 1 - Math.min(avgLoss, 300) / 300;
     const blunderPenalty = Math.min(0.3, (game.blunders || 0) * 0.05);
     return Math.max(0, Math.min(1, (lossScore * 0.6) + (precisionScore * 0.4) - blunderPenalty));
@@ -2783,17 +2783,17 @@ function getCalibrationPerformanceScore(games = calibrationGames) {
     const total = games.reduce((sum, game) => {
         const resultScore = game.result === 'win' ? 1 : game.result === 'loss' ? 0 : 0.5;
         const quality = getCalibrationGameQuality(game);
-        return sum + (quality * 0.7) + (resultScore * 0.3);
+        return sum + (quality * 0.4) + (resultScore * 0.6);
     }, 0);
     return total / games.length;
 }
 
-function estimateCalibrationElo() {
+function estimateCalibrationRoc() {
     if (!calibrationGames.length) return clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
     const weighted = calibrationGames.map((game, idx) => {
         const resultScore = game.result === 'win' ? 1 : game.result === 'loss' ? 0 : 0.5;
         const quality = getCalibrationGameQuality(game);
-        const performance = (quality * 0.7) + (resultScore * 0.3);
+        const performance = (quality * 0.4) + (resultScore * 0.6);
         const weight = 1 + (idx * 0.1);
         return { performance, weight, opponentElo: game.opponentElo || null };
     });
@@ -2804,31 +2804,31 @@ function estimateCalibrationElo() {
         .filter(value => typeof value === 'number' && !isNaN(value));
     const avgOpponentElo = opponentEloValues.length
         ? opponentEloValues.reduce((sum, value) => sum + value, 0) / opponentEloValues.length
-        : CALIBRATION_ELOS[Math.min(getCalibrationGameIndex(), CALIBRATION_ELOS.length - 1)];
-    const performanceDelta = (weightedPerformance - 0.5) * 600;
+        : CALIBRATION_ROCS[Math.min(getCalibrationGameIndex(), CALIBRATION_ROCS.length - 1)];
+    const performanceDelta = (weightedPerformance - 0.5) * 400;
     const confidence = Math.min(1, calibrationGames.length / CALIBRATION_GAME_COUNT);
     const eloEstimate = avgOpponentElo + (performanceDelta * confidence);
-    return Math.max(CALIBRATION_ELO_MIN, Math.min(CALIBRATION_ELO_MAX, Math.round(eloEstimate)));
+    return Math.max(CALIBRATION_ROC_MIN, Math.min(CALIBRATION_ROC_MAX, Math.round(eloEstimate)));
 }
 
-function showCalibrationReveal(eloValue) {
+function showCalibrationReveal(rocValue) {
     const statusEl = $('#status');
     if (!statusEl.length) return;
-    statusEl.text(`Calibratge completat! El teu nivell inicial és: ${eloValue} ♟️`).addClass('elo-reveal');
+    statusEl.text(`Calibratge completat! El teu nivell inicial és: ${rocValue} ROC ♟️`).addClass('elo-reveal');
     setTimeout(() => statusEl.removeClass('elo-reveal'), 2200);
 }
 
 function finalizeCalibrationFromGames() {
-    const estimatedElo = estimateCalibrationElo();
-    userELO = Math.max(50, estimatedElo);
-    calibrationEloFloor = userELO;
+    const estimatedRoc = estimateCalibrationRoc();
+    userELO = Math.max(50, estimatedRoc);
+    calibrationRocFloor = userELO;
     updateEloHistory(userELO);
     syncEngineEloFromUser();
     isCalibrating = false;
     calibratgeComplet = true;
-    currentCalibrationOpponentElo = null;
+    currentCalibrationOpponentRoc = null;
     calibrationProfile = {
-        elo: userELO,
+        roc: userELO,
         completedAt: new Date().toISOString(),
         games: calibrationGames.slice()
     };
@@ -2839,7 +2839,7 @@ function finalizeCalibrationFromGames() {
 function recordCalibrationGame(resultScore, precision, metrics) {
     const safePrecision = Math.max(0, Math.min(100, typeof precision === 'number' ? precision : 0));
     const result = resultScore === 1 ? 'win' : resultScore === 0 ? 'loss' : 'draw';
-    const opponentElo = typeof currentCalibrationOpponentElo === 'number' ? currentCalibrationOpponentElo : getCalibrationOpponentElo();
+    const opponentElo = typeof currentCalibrationOpponentRoc === 'number' ? currentCalibrationOpponentRoc : getCalibrationOpponentRoc();
     const gameMetrics = metrics || {};
     calibrationGames.push({
         opponentElo: opponentElo,
@@ -2861,7 +2861,7 @@ function recordCalibrationGame(resultScore, precision, metrics) {
 }
 
 function getOpponentElo() {
-    if (isCalibrationGame && typeof currentCalibrationOpponentElo === 'number') return currentCalibrationOpponentElo;
+    if (isCalibrationGame && typeof currentCalibrationOpponentRoc === 'number') return currentCalibrationOpponentRoc;
     return (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : userELO;
 }
 
@@ -3069,11 +3069,11 @@ function loadStorage() {
     if ((calibrationProfile || calibratgeComplet || calibrationGames.length >= CALIBRATION_GAME_COUNT)) {
         isCalibrating = false;
         calibratgeComplet = true;
-        if (calibrationEloFloor === null && calibrationProfile && typeof calibrationProfile.elo === 'number') {
-            calibrationEloFloor = calibrationProfile.elo;
+        if (calibrationRocFloor === null && calibrationProfile && typeof (calibrationProfile.roc ?? calibrationProfile.elo) === 'number') {
+            calibrationRocFloor = calibrationProfile.roc ?? calibrationProfile.elo;
         }
-        if (calibrationEloFloor === null && typeof userELO === 'number') {
-            calibrationEloFloor = userELO;
+        if (calibrationRocFloor === null && typeof userELO === 'number') {
+            calibrationRocFloor = userELO;
         }
     } else if (calState === null && !calGames) {
         isCalibrating = true;
@@ -3099,10 +3099,10 @@ function loadStorage() {
     }
     const storedFreeLossStreak = localStorage.getItem('chess_freeLossStreak');
     if (storedFreeLossStreak !== null) freeLossStreak = parseInt(storedFreeLossStreak);
-    const storedEloFloor = localStorage.getItem('chess_calibrationEloFloor');
+    const storedEloFloor = localStorage.getItem('chess_calibrationRocFloor');
     if (storedEloFloor !== null) {
         const parsedFloor = parseInt(storedEloFloor);
-        if (!isNaN(parsedFloor)) calibrationEloFloor = parsedFloor;
+        if (!isNaN(parsedFloor)) calibrationRocFloor = parsedFloor;
     }
     const storedEloMilestones = localStorage.getItem('chess_eloMilestones');
     if (storedEloMilestones) {
@@ -3162,10 +3162,10 @@ function saveStorage() {
     localStorage.setItem('chess_freeAdjustmentWindow', JSON.stringify(freeAdjustmentWindow));
     localStorage.setItem('chess_adjustmentLog', JSON.stringify(adjustmentLog));
     localStorage.setItem('chess_freeLossStreak', freeLossStreak);
-    if (calibrationEloFloor !== null && !isNaN(calibrationEloFloor)) {
-        localStorage.setItem('chess_calibrationEloFloor', calibrationEloFloor);
+    if (calibrationRocFloor !== null && !isNaN(calibrationRocFloor)) {
+        localStorage.setItem('chess_calibrationRocFloor', calibrationRocFloor);
     } else {
-        localStorage.removeItem('chess_calibrationEloFloor');
+        localStorage.removeItem('chess_calibrationRocFloor');
     }
     localStorage.setItem('chess_eloMilestones', JSON.stringify(unlockedEloMilestones));
     if (lastAdjustmentQualityAvg !== null && !isNaN(lastAdjustmentQualityAvg)) {
@@ -3232,8 +3232,8 @@ function updateEloHistory(newElo) {
 }
 
 function updateAdaptiveEngineEloLabel() {
-     if (isCalibrationGame && typeof currentCalibrationOpponentElo === 'number') {
-        $('#engine-elo').text(`ELO ${currentCalibrationOpponentElo}`);
+     if (isCalibrationGame && typeof currentCalibrationOpponentRoc === 'number') {
+        $('#engine-elo').text(`ROC ${currentCalibrationOpponentRoc}`);
         return;
     }
     if (isCalibrationActive()) {
@@ -4308,13 +4308,13 @@ function getCalibrationResultsSummary() {
 function buildCalibrationChartData() {
     return calibrationGames.map(game => {
         const quality = getCalibrationGameQuality(game);
-        return CALIBRATION_ELO_MIN + (quality * (CALIBRATION_ELO_MAX - CALIBRATION_ELO_MIN));
+        return CALIBRATION_ROC_MIN + (quality * (CALIBRATION_ROC_MAX - CALIBRATION_ROC_MIN));
     });
 }
 
 function renderCalibrationResults() {
     const summary = getCalibrationResultsSummary();
-    $('#calibration-elo-value').text(`${userELO} ELO`);
+    $('#calibration-elo-value').text(`${userELO} ROC`);
     $('#calibration-wld-summary').text(`W ${summary.wins} · L ${summary.losses} · D ${summary.draws}`);
     const resultRow = $('#calibration-wld-row');
     resultRow.empty();
@@ -6714,6 +6714,25 @@ function handleOpeningErrorSuccess() {
     showOpeningErrorSuccessOverlay(false);
 }
 
+// Recull tots els errors d'obertura disponibles de tots els moviments/colors
+function getAllOpeningErrors() {
+    const allErrors = [];
+    if (!openingStatsData) return allErrors;
+
+    for (const stat of openingStatsData) {
+        if (stat.errorPositions && stat.errorPositions.length > 0) {
+            for (const pos of stat.errorPositions) {
+                allErrors.push({
+                    ...pos,
+                    colorKey: stat.colorKey,
+                    moveNumber: stat.moveNumber
+                });
+            }
+        }
+    }
+    return allErrors;
+}
+
 function requestOpeningErrorOpponentMove() {
     if (!openingPracticeGame || openingPracticeGame.game_over()) {
         // Si la partida ha acabat, completar
@@ -6771,14 +6790,21 @@ function showOpeningErrorSuccessOverlay(noMore) {
     }
 
     const remaining = collectAllOpeningErrorPositions().length;
-    const showAgainBtn = remaining > 0 && !noMore;
-    console.log('[Overlay] remaining:', remaining, 'noMore:', noMore, 'showBtn:', showAgainBtn);
+    const allErrors = getAllOpeningErrors();
+    const globalRemaining = allErrors.length;
+    const showAgainBtn = (remaining > 0 || globalRemaining > 0) && !noMore;
+    console.log('[Overlay] remaining:', remaining, 'globalRemaining:', globalRemaining, 'noMore:', noMore, 'showBtn:', showAgainBtn);
 
-    $('#opening-error-remaining').text(
-        noMore ? 'Has resolt tots els errors!' :
-        remaining > 0 ? `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}` :
-        'No en queden més!'
-    );
+    // Mostrar missatge adequat
+    let message;
+    if (noMore || globalRemaining === 0) {
+        message = 'Has resolt tots els errors!';
+    } else if (remaining > 0) {
+        message = `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}`;
+    } else {
+        message = `${globalRemaining} error${globalRemaining > 1 ? 's' : ''} d'altres moviments`;
+    }
+    $('#opening-error-remaining').text(message);
 
     // Mostrar/amagar botó segons si queden errors
     const btnAgain = document.getElementById('btn-opening-error-again');
@@ -6804,12 +6830,35 @@ function showOpeningErrorSuccessOverlay(noMore) {
             overlay.hide();
             openingErrorCurrentPositions = collectAllOpeningErrorPositions();
             if (openingErrorCurrentPositions.length > 0) {
+                // Encara queden del filtre actual
                 $('.opening-section').first().hide();
                 $('.opening-section').last().show();
                 openingErrorMovesRemaining = 2;
                 loadRandomOpeningError();
             } else {
-                exitOpeningErrorPractice();
+                // Canviar a errors globals
+                const allErrors = getAllOpeningErrors();
+                if (allErrors.length > 0) {
+                    // Seleccionar un aleatori de tots
+                    const idx = Math.floor(Math.random() * allErrors.length);
+                    const error = allErrors[idx];
+                    // Actualitzar filtres al nou error
+                    openingErrorColorFilter = error.colorKey;
+                    openingErrorMoveFilter = error.moveNumber;
+                    // Carregar totes les posicions d'aquest nou filtre
+                    const stat = openingStatsData.find(s =>
+                        s.colorKey === error.colorKey && s.moveNumber === error.moveNumber
+                    );
+                    if (stat && stat.errorPositions) {
+                        openingErrorCurrentPositions = [...stat.errorPositions];
+                    }
+                    $('.opening-section').first().hide();
+                    $('.opening-section').last().show();
+                    openingErrorMovesRemaining = 2;
+                    loadRandomOpeningError();
+                } else {
+                    exitOpeningErrorPractice();
+                }
             }
         };
     }
@@ -7284,12 +7333,12 @@ function setupEvents() {
         freeAdjustmentWindow = [];
         adjustmentLog = [];
         freeLossStreak = 0;
-        calibrationEloFloor = null;
+        calibrationRocFloor = null;
         unlockedEloMilestones = [];
         lastAdjustmentQualityAvg = null;
         isCalibrating = true;
         calibratgeComplet = false;
-        currentCalibrationOpponentElo = null;
+        currentCalibrationOpponentRoc = null;
         saveStorage();
         updateDisplay();
         alert('Calibratge reiniciat. Comença la nova seqüència de 5 partides.');
@@ -7872,10 +7921,10 @@ blunderMode = isBundle;
 
     // Lògica de Modes
     if (isCalibrationGame) {
-        currentCalibrationOpponentElo = getCalibrationOpponentElo();
-        aiDifficulty = levelToDifficulty(currentCalibrationOpponentElo);
-        if (engineReady) applyEngineEloStrength(currentCalibrationOpponentElo);
-        $('#engine-elo').text(`ELO ${currentCalibrationOpponentElo}`);
+        currentCalibrationOpponentRoc = getCalibrationOpponentRoc();
+        aiDifficulty = levelToDifficulty(currentCalibrationOpponentRoc);
+        if (engineReady) applyEngineEloStrength(currentCalibrationOpponentRoc);
+        $('#engine-elo').text(`ROC ${currentCalibrationOpponentRoc}`);
         $('#game-mode-title').text('🎯 Partida de calibratge');
     } else if (isBundle) {
         currentGameMode = 'bundle';
@@ -7897,7 +7946,7 @@ blunderMode = isBundle;
         if (engineReady) applyEngineEloStrength(currentElo);
     }
         if (!isCalibrationGame) {
-        currentCalibrationOpponentElo = null;
+        currentCalibrationOpponentRoc = null;
     }   
     
     $('.square-55d63').removeClass('highlight-hint');
