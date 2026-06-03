@@ -283,12 +283,22 @@ let controlMode = null;
 
 const FONT_SIZE_KEY = 'eltauler_font_size';
 function loadFontSize() {
-    try { return localStorage.getItem(FONT_SIZE_KEY) || 'medium'; } catch (e) { return 'medium'; }
+    try {
+        const v = localStorage.getItem(FONT_SIZE_KEY);
+        if (!v) return 100;
+        const legacy = { small: 85, medium: 100, large: 118, xlarge: 135 };
+        if (legacy[v]) return legacy[v];
+        const n = parseInt(v, 10);
+        return (n >= 70 && n <= 150) ? n : 100;
+    } catch (e) { return 100; }
 }
-function applyFontSize(size) {
-    document.body.classList.remove('font-small', 'font-medium', 'font-large', 'font-xlarge');
-    document.body.classList.add('font-' + size);
-    try { localStorage.setItem(FONT_SIZE_KEY, size); } catch (e) {}
+function applyFontSize(pct) {
+    document.body.style.setProperty('--font-scale', pct / 100);
+    const label = document.getElementById('font-size-value');
+    if (label) label.textContent = pct + '%';
+    const slider = document.getElementById('font-size-range');
+    if (slider && +slider.value !== +pct) slider.value = pct;
+    try { localStorage.setItem(FONT_SIZE_KEY, pct); } catch (e) {}
 }
 
 // Navigation history management for mobile back gesture
@@ -8498,8 +8508,8 @@ function setupEvents() {
         );
     });
 
-    $('#font-size-select').off('change').on('change', function() {
-        applyFontSize($(this).val());
+    $('#font-size-range').off('input').on('input', function() {
+        applyFontSize(+this.value);
     });
 
     $('#control-mode-select').off('change').on('change', function() {
@@ -11189,8 +11199,6 @@ $(document).ready(() => {
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyFontSize(loadFontSize());
-    const fsSel = document.getElementById('font-size-select');
-    if (fsSel) fsSel.value = loadFontSize();
     history.replaceState({ screen: 'start-screen' }, '');
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });

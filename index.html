@@ -133,11 +133,7 @@
         body.day-mode .select-control,
         body.day-mode .text-input { border: 1px solid rgba(120, 95, 40, 0.25); }
 
-        /* Font scale system */
-        body.font-small { --font-scale: 0.85; }
-        body.font-medium { --font-scale: 1; }
-        body.font-large { --font-scale: 1.18; }
-        body.font-xlarge { --font-scale: 1.35; }
+        /* Font scale system — --font-scale is set inline on <body> */
 
         .btn { font-size: calc(0.95rem * var(--font-scale)); padding: calc(14px * var(--font-scale)) calc(18px * var(--font-scale)); }
         .btn-hero { font-size: calc(1.15rem * var(--font-scale)); padding: calc(18px * var(--font-scale)) calc(18px * var(--font-scale)); }
@@ -2474,12 +2470,12 @@
                 <div class="settings-title">Aparença</div>
                 <div class="setting-row">
                     <div class="setting-label">Mida de la lletra</div>
-                    <select id="font-size-select" class="select-control">
-                        <option value="small">Petita</option>
-                        <option value="medium" selected>Normal</option>
-                        <option value="large">Gran</option>
-                        <option value="xlarge">Molt gran</option>
-                    </select>
+                    <div style="display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end;">
+                        <span style="font-size:0.75rem;opacity:0.6;">A</span>
+                        <input type="range" id="font-size-range" min="70" max="150" step="1" value="100" style="flex:1;max-width:140px;accent-color:var(--accent);">
+                        <span style="font-size:1.1rem;opacity:0.6;">A</span>
+                        <span id="font-size-value" style="min-width:38px;text-align:center;font-size:calc(0.82rem * var(--font-scale));font-weight:600;">100%</span>
+                    </div>
                 </div>
                 <div class="setting-help">Ajusta la mida del text, botons i categories de tota l'app. Ideal per a mòbil.</div>
                 <div class="setting-row">
