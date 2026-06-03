@@ -185,6 +185,10 @@ let isRandomBundleSession = false;
 let isSrsReviewSession = false;
 let isDailyPuzzleSession = false;
 let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, lastSolved: null };
+// Progrés d'aprenentatge d'obertures (ids ECO completats) i tàctiques resoltes
+let completedOpenings = [];
+let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
+let isTacticsSession = false;
 // Cau en memòria de respostes Gemini (per FEN+tipus) per estalviar crides
 const geminiResponseCache = {};
 let bundleSequenceStep = 1;
@@ -367,7 +371,31 @@ function applyEpaperMode(enabled, options = {}) {
     document.body.classList.toggle('epaper-mode', epaperEnabled);
     const toggle = document.getElementById('epaper-toggle');
     if (toggle) toggle.checked = epaperEnabled;
+    // ePaper i mode dia són incompatibles: activar ePaper desactiva el mode dia
+    if (epaperEnabled && dayModeEnabled) applyDayMode(false);
     if (!options.skipSave) saveEpaperPreference(epaperEnabled);
+    if (eloChart) updateEloChart();
+    if (reviewChart) updateReviewChart();
+}
+
+const DAY_MODE_KEY = 'eltauler_day_mode';
+let dayModeEnabled = false;
+
+function loadDayModePreference() {
+    try { return localStorage.getItem(DAY_MODE_KEY) === 'on'; }
+    catch (e) { return false; }
+}
+
+function applyDayMode(enabled, options = {}) {
+    dayModeEnabled = !!enabled;
+    document.body.classList.toggle('day-mode', dayModeEnabled);
+    const toggle = document.getElementById('daymode-toggle');
+    if (toggle) toggle.checked = dayModeEnabled;
+    // Mode dia i ePaper són incompatibles
+    if (dayModeEnabled && epaperEnabled) applyEpaperMode(false);
+    if (!options.skipSave) {
+        try { localStorage.setItem(DAY_MODE_KEY, dayModeEnabled ? 'on' : 'off'); } catch (e) {}
+    }
     if (eloChart) updateEloChart();
     if (reviewChart) updateReviewChart();
 }
@@ -523,7 +551,9 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         freeLossStreak: freeLossStreak,
         calibrationRocFloor: calibrationRocFloor,
         eloMilestones: unlockedEloMilestones,
-        lastAdjustmentQualityAvg: lastAdjustmentQualityAvg
+        lastAdjustmentQualityAvg: lastAdjustmentQualityAvg,
+        completedOpenings: completedOpenings,
+        tacticsStats: tacticsStats
     };
     if (includeGameHistory) base.gameHistory = gameHistory;
     return base;
@@ -552,6 +582,8 @@ function importBackupData(data) {
     leagueActiveMatch = data.leagueActiveMatch || null;
     reviewHistory = data.reviewHistory || [];
     gameHistory = data.gameHistory || [];
+    if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
+    if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0 }, data.tacticsStats);
        isCalibrating = typeof data.isCalibrating === 'boolean' ? data.isCalibrating : isCalibrating;
     calibrationGames = Array.isArray(data.calibrationGames) ? data.calibrationGames : calibrationGames;
     calibrationProfile = data.calibrationProfile || calibrationProfile;
@@ -2446,9 +2478,43 @@ function checkNewBadges(oldStars, newStars) {
     });
 }
 
-function showNewBadge(badge) {
+// Trofeus d'obertures i de tàctiques (categories addicionals)
+const OPENING_BADGES = [
+    { id: 'op_first', name: 'Primera obertura', req: 1, icon: '📖' },
+    { id: 'op_five', name: 'Repertori inicial', req: 5, icon: '📚' },
+    { id: 'op_ten', name: 'Estudiós', req: 10, icon: '🎓' },
+    { id: 'op_twenty', name: 'Teòric', req: 20, icon: '🧠' },
+    { id: 'op_all', name: 'Mestre d\'obertures', req: 28, icon: '👑' }
+];
+const TACTICS_BADGES = [
+    { id: 'tac_first', name: 'Primera tàctica', req: 1, icon: '⚡' },
+    { id: 'tac_ten', name: 'Combinador', req: 10, icon: '🗡️' },
+    { id: 'tac_fifty', name: 'Tàctic afinat', req: 50, icon: '🎯' },
+    { id: 'tac_streak', name: 'Ratxa de foc (5 seguides)', req: 5, icon: '🔥', kind: 'streak' }
+];
+
+function checkOpeningBadges() {
+    const count = completedOpenings.filter(e => CURATED_OPENINGS.some(op => op.eco === e)).length;
+    OPENING_BADGES.forEach(b => {
+        if (count >= b.req && !unlockedBadges.includes(b.id)) {
+            unlockedBadges.push(b.id); showNewBadge(b, `${b.req} obertures apreses`); saveStorage();
+        }
+    });
+}
+
+function checkTacticsBadges() {
+    TACTICS_BADGES.forEach(b => {
+        const val = b.kind === 'streak' ? (tacticsStats.best || 0) : tacticsStats.solved;
+        if (val >= b.req && !unlockedBadges.includes(b.id)) {
+            unlockedBadges.push(b.id); showNewBadge(b, b.kind === 'streak' ? `${b.req} seguides` : `${b.req} tàctiques resoltes`); saveStorage();
+        }
+    });
+}
+
+function showNewBadge(badge, subtitle) {
     $('#new-badge-icon').text(badge.icon); $('#new-badge-name').text(badge.name);
-    $('#new-badge-stars').text('★'.repeat(Math.min(badge.stars / 10, 10)) + ` (${badge.stars}★)`);
+    const sub = subtitle || ('★'.repeat(Math.min((badge.stars || 0) / 10, 10)) + ` (${badge.stars}★)`);
+    $('#new-badge-stars').text(sub);
     $('#new-badge-modal').css('display', 'flex');
 }
 
@@ -2457,6 +2523,18 @@ function updateBadgesModal() {
     BADGES.forEach(badge => {
         const isUnlocked = totalStars >= badge.stars; const statusClass = isUnlocked ? 'unlocked' : 'locked';
         grid.append(`<div class="badge-item ${statusClass}"><div class="badge-icon">${badge.icon}</div><div class="badge-name">${badge.name}</div><div class="badge-req">${badge.stars}★</div></div>`);
+    });
+    const opCount = completedOpenings.filter(e => CURATED_OPENINGS.some(op => op.eco === e)).length;
+    grid.append('<div class="badge-cat-title">📖 Obertures</div>');
+    OPENING_BADGES.forEach(b => {
+        const unlocked = opCount >= b.req; const statusClass = unlocked ? 'unlocked' : 'locked';
+        grid.append(`<div class="badge-item ${statusClass}"><div class="badge-icon">${b.icon}</div><div class="badge-name">${b.name}</div><div class="badge-req">${b.req} obert.</div></div>`);
+    });
+    grid.append('<div class="badge-cat-title">⚡ Tàctiques</div>');
+    TACTICS_BADGES.forEach(b => {
+        const val = b.kind === 'streak' ? (tacticsStats.best || 0) : tacticsStats.solved;
+        const unlocked = val >= b.req; const statusClass = unlocked ? 'unlocked' : 'locked';
+        grid.append(`<div class="badge-item ${statusClass}"><div class="badge-icon">${b.icon}</div><div class="badge-name">${b.name}</div><div class="badge-req">${b.kind === 'streak' ? b.req + ' seg.' : b.req}</div></div>`);
     });
 }
 
@@ -3062,6 +3140,8 @@ function loadStorage() {
     // ---------------------------------------------------
 
     const badges = localStorage.getItem('chess_unlockedBadges'); if (badges) unlockedBadges = JSON.parse(badges);
+    const compOp = localStorage.getItem('chess_completedOpenings'); if (compOp) { try { completedOpenings = JSON.parse(compOp); } catch (e) {} }
+    const tacS = localStorage.getItem('chess_tacticsStats'); if (tacS) { try { tacticsStats = Object.assign(tacticsStats, JSON.parse(tacS)); } catch (e) {} }
     const stats = localStorage.getItem('chess_sessionStats'); const statsDate = localStorage.getItem('chess_sessionStatsDate');
     if (stats && statsDate === getToday()) sessionStats = JSON.parse(stats);
     
@@ -3216,6 +3296,8 @@ function saveStorage() {
         localStorage.removeItem(GEMINI_API_KEY_STORAGE);
     }
     localStorage.setItem('chess_dailyPuzzle', JSON.stringify(dailyPuzzle));
+    localStorage.setItem('chess_completedOpenings', JSON.stringify(completedOpenings));
+    localStorage.setItem('chess_tacticsStats', JSON.stringify(tacticsStats));
     localStorage.removeItem('chess_isCalibrationPhase');
     localStorage.removeItem('chess_calibrationMoves');
     localStorage.removeItem('chess_calibrationGoodMoves');
@@ -3338,6 +3420,7 @@ function updateDisplay() {
     $('#srs-info').text(due > 0 ? `${due} per repassar` : 'Al dia');
     ensureDailyPuzzle();
     $('#daily-info').text(dailyPuzzle.solved ? `Fet ✓ · ratxa ${dailyPuzzle.streak}` : 'Disponible');
+    $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
 }
@@ -4755,6 +4838,31 @@ function getHistoryMoves(entry) {
         }
     }
     return baseMoves;
+}
+
+// Construeix un PGN complet (amb capçaleres) a partir d'una entrada de l'historial
+function buildEntryPgn(entry) {
+    if (!entry) return '';
+    const moves = getHistoryMoves(entry);
+    if (!moves.length) return entry.pgn || '';
+    const replay = new Chess();
+    moves.forEach(m => { replay.move(m, { sloppy: true }); });
+    const playerWhite = (entry.playerColor || 'w') === 'w';
+    const oppName = entry.opponent && entry.opponent.name ? entry.opponent.name : 'Stockfish';
+    let resultTag = '*';
+    const res = (entry.result || '').toLowerCase();
+    if (res.includes('victòr') || res.includes('guany') || res.includes('win')) resultTag = playerWhite ? '1-0' : '0-1';
+    else if (res.includes('derrot') || res.includes('perd') || res.includes('loss')) resultTag = playerWhite ? '0-1' : '1-0';
+    else if (res.includes('tau') || res.includes('draw')) resultTag = '1/2-1/2';
+    replay.header(
+        'Event', 'El Tauler',
+        'Site', 'El Tauler PWA',
+        'Date', (entry.date || new Date().toLocaleDateString()),
+        'White', playerWhite ? 'Jugador' : oppName,
+        'Black', playerWhite ? oppName : 'Jugador',
+        'Result', resultTag
+    );
+    return replay.pgn();
 }
 
 function loadHistoryEntry(entry) {
@@ -7171,10 +7279,20 @@ function updateOpeningLessonNote(intro = false) {
 function completeOpeningLesson() {
     openingLessonActive = false;
     const name = openingLessonInfo ? openingLessonInfo.name : 'obertura';
+    const eco = openingLessonInfo ? openingLessonInfo.eco : null;
+    let firstTime = false;
+    if (eco && !completedOpenings.includes(eco)) {
+        completedOpenings.push(eco);
+        firstTime = true;
+        saveStorage();
+        checkOpeningBadges();
+    }
     const noteEl = document.getElementById('opening-practice-note');
     if (noteEl) {
-        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div></div>`;
+        const extra = firstTime ? `<div class="maxim-text" style="color:var(--accent-gold);">Nova obertura desbloquejada! ${completedOpenings.length}/${CURATED_OPENINGS.length} apreses.</div>` : '';
+        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div>${extra}</div>`;
     }
+    renderOpeningLessonButtons();
     showToast(`Has completat: ${name} 📖`, 'success');
 }
 
@@ -7186,14 +7304,20 @@ function renderOpeningLessonButtons() {
     const renderGroup = (label, items) => {
         const btns = items.map(({ op, i }) => {
             const colorIcon = op.userColor === 'w' ? '♔' : '♚';
-            return `<button class="btn btn-secondary opening-lesson-btn" data-lesson="${i}" style="justify-content:space-between;">
+            const done = completedOpenings.includes(op.eco);
+            const check = done ? '<span class="lesson-done-check">✓</span>' : '';
+            return `<button class="btn btn-secondary opening-lesson-btn${done ? ' lesson-done' : ''}" data-lesson="${i}" style="justify-content:space-between;">
                 <span>${colorIcon} ${op.name}</span>
-                <span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span>
+                <span style="display:flex; align-items:center; gap:6px;">${check}<span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span></span>
             </button>`;
         }).join('');
         return `<div class="opening-lesson-group-title">${label}</div><div class="opening-lesson-grid">${btns}</div>`;
     };
-    container.innerHTML = renderGroup('♔ Obertures amb blanques', whites) + renderGroup('♚ Defenses amb negres', blacks);
+    const total = CURATED_OPENINGS.length;
+    const done = completedOpenings.filter(e => CURATED_OPENINGS.some(op => op.eco === e)).length;
+    const pct = Math.round((done / total) * 100);
+    const progress = `<div class="opening-progress-bar"><div class="opening-progress-label">Obertures apreses: <strong>${done}/${total}</strong></div><div class="opening-progress-track"><div class="opening-progress-fill" style="width:${pct}%;"></div></div></div>`;
+    container.innerHTML = progress + renderGroup('♔ Obertures amb blanques', whites) + renderGroup('♚ Defenses amb negres', blacks);
 }
 
 /* ============ EXERCICIS GEROGLÍFICS D'OBERTURA ============ */
@@ -7920,6 +8044,32 @@ function setupEvents() {
         const severeErrors = getEntrySevereErrors(historyReplay.entry);
         void requestGeminiReview(historyReplay.entry, severeErrors);
     });
+    $('#history-export-pgn').off('click').on('click', () => {
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        const pgn = buildEntryPgn(historyReplay.entry);
+        if (!pgn) { showToast('Aquesta partida no té moviments per exportar', 'warn'); return; }
+        const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `eltauler_partida_${(historyReplay.entry.date || 'partida').replace(/[^0-9a-zA-Z]/g, '-')}.pgn`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('PGN exportat ♟', 'success');
+    });
+    $('#history-share-pgn').off('click').on('click', async () => {
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        const pgn = buildEntryPgn(historyReplay.entry);
+        if (!pgn) { showToast('Aquesta partida no té moviments per compartir', 'warn'); return; }
+        if (navigator.share) {
+            try { await navigator.share({ title: 'El Tauler - Partida', text: pgn }); }
+            catch (e) { /* cancel·lat */ }
+        } else if (navigator.clipboard) {
+            try { await navigator.clipboard.writeText(pgn); showToast('PGN copiat al porta-retalls', 'success'); }
+            catch (e) { showToast('No s\'ha pogut compartir en aquest dispositiu', 'warn'); }
+        } else {
+            showToast('No s\'ha pogut compartir en aquest dispositiu', 'warn');
+        }
+    });
     $('#result-indicator').off('click').on('click', () => {
         if (!lastReviewSnapshot) return;
         showPostGameReview(
@@ -7958,6 +8108,10 @@ function setupEvents() {
         applyEpaperMode($(this).is(':checked'));
     });
 
+    $('#daymode-toggle').off('change').on('change', function() {
+        applyDayMode($(this).is(':checked'));
+    });
+
     $('#btn-show-delete').click(() => { $('#confirm-delete-panel').slideDown(); });
     $('#btn-cancel-delete').click(() => { $('#confirm-delete-panel').slideUp(); });
     
@@ -7980,6 +8134,7 @@ function setupEvents() {
             isCalibrating = true; calibrationGames = []; calibrationProfile = null; calibratgeComplet = false;
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = [];
+            completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
             geminiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
@@ -8032,6 +8187,11 @@ function setupEvents() {
 
     $('#btn-srs-review').click(() => startSrsReview());
     $('#btn-daily-puzzle').click(() => startDailyPuzzle());
+    $('#btn-tactics').click(() => {
+        // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
+        tacticsStats.streak = 0;
+        startTacticsPuzzle();
+    });
 
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
@@ -8367,6 +8527,75 @@ function showDailyPuzzleOverlay() {
     });
 }
 
+/* ===================== ENTRENAMENT DE TÀCTIQUES ===================== */
+// Banc de posicions tàctiques: el jugador ha de trobar la millor jugada (verificada per Stockfish).
+const TACTICS_BANK = [
+    'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4',
+    '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1',
+    'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5',
+    '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11',
+    'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9',
+    'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4',
+    'r2qkb1r/pp2nppp/3p4/2pNN1B1/2BnP3/3P4/PPP2PPP/R2bK2R w KQkq - 1 11',
+    'r4rk1/pp1n1ppp/2pb1q2/3p4/3P4/2NBPN2/PP3PPP/R2Q1RK1 w - - 0 12',
+    '3r1rk1/pp3ppp/2p5/2bq4/4nP2/2N1P3/PPQ3PP/R1B2RK1 b - - 0 16',
+    'r1b1k2r/ppppnppp/2n5/2b5/2B1P3/2P2N2/PP1q1PPP/RNBQ1RK1 w kq - 0 8',
+    '2kr3r/ppp2ppp/2n1b3/2b1p1q1/4P3/2NP1N2/PPP1QPPP/R1B2RK1 b - - 0 11',
+    '6k1/pp3ppp/8/8/8/1P3Q2/P4qPP/5RK1 w - - 0 1',
+    'r4rk1/1pp2ppp/p1np1q2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 9',
+    'rnb1kbnr/pppp1ppp/8/4p3/5PPq/8/PPPPP2P/RNBQKBNR w KQkq - 1 3'
+];
+
+function pickTacticsFen() {
+    return TACTICS_BANK[Math.floor(Math.random() * TACTICS_BANK.length)];
+}
+
+function startTacticsPuzzle() {
+    if (!guardCalibrationAccess()) return;
+    isTacticsSession = true;
+    isDailyPuzzleSession = false;
+    isSrsReviewSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'tactics';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, pickTacticsFen());
+}
+
+function completeTacticsPuzzle(success) {
+    tacticsStats.attempts = (tacticsStats.attempts || 0) + 1;
+    if (success) {
+        tacticsStats.solved = (tacticsStats.solved || 0) + 1;
+        tacticsStats.streak = (tacticsStats.streak || 0) + 1;
+        tacticsStats.best = Math.max(tacticsStats.best || 0, tacticsStats.streak);
+        totalStars += 1;
+    } else {
+        tacticsStats.streak = 0;
+    }
+    saveStorage();
+    checkTacticsBadges();
+}
+
+function showTacticsOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
+    overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
+    overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`);
+    overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false);
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide(); startTacticsPuzzle();
+    });
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        isTacticsSession = false; overlay.hide(); returnToMainMenuImmediate();
+    });
+}
+
 /* ===================== BANNER D'INCENTIU ===================== */
 const PLAY_IDEAS = [
     "Domina el centre des de la primera jugada: cada peça hi guanya força.",
@@ -8461,6 +8690,38 @@ function getTopWeaknessTheme() {
     return top;
 }
 
+// Precisió mitjana per fase de la partida (obertura / mig joc / final) a partir de l'historial
+const QUALITY_WEIGHTS = { excel: 100, good: 85, inaccuracy: 50, mistake: 20, blunder: 0 };
+function analyzePhasePrecision() {
+    const phases = {
+        obertura: { sum: 0, n: 0 },
+        migjoc: { sum: 0, n: 0 },
+        final: { sum: 0, n: 0 }
+    };
+    gameHistory.forEach(entry => {
+        if (!Array.isArray(entry.moveReviews)) return;
+        const pColor = entry.playerColor || 'w';
+        entry.moveReviews.forEach(r => {
+            if (r.color && r.color !== pColor) return;
+            const w = QUALITY_WEIGHTS[r.quality];
+            if (typeof w !== 'number') return;
+            const mn = r.moveNumber || 1;
+            const bucket = mn <= 10 ? 'obertura' : (mn <= 30 ? 'migjoc' : 'final');
+            phases[bucket].sum += w;
+            phases[bucket].n++;
+        });
+    });
+    const result = {};
+    let totalN = 0;
+    Object.keys(phases).forEach(k => {
+        result[k] = phases[k].n > 0 ? Math.round(phases[k].sum / phases[k].n) : null;
+        result[k + '_n'] = phases[k].n;
+        totalN += phases[k].n;
+    });
+    result.totalN = totalN;
+    return result;
+}
+
 function startWeaknessTraining(theme) {
     if (!guardCalibrationAccess()) return;
     const candidates = savedErrors.filter(e => classifyPositionTheme(e.fen, e.bestMove || '') === theme);
@@ -8506,6 +8767,24 @@ function renderWeaknesses() {
     ['obertura', 'migjoc', 'final'].forEach(k => {
         html += renderRow(WEAKNESS_LABELS[k], data.phase[k], data.total, '#6d7b87');
     });
+    // Precisió mitjana per fase (a partir de l'historial de partides)
+    const pp = analyzePhasePrecision();
+    if (pp.totalN > 0) {
+        html += '<div class="weakness-group-title">Precisió per fase</div>';
+        const precColor = (v) => v >= 80 ? '#4a7c59' : (v >= 60 ? '#c9a227' : '#c62828');
+        ['obertura', 'migjoc', 'final'].forEach(k => {
+            const v = pp[k];
+            if (v === null) {
+                html += `<div class="weakness-row"><div class="weakness-label">${WEAKNESS_LABELS[k]}</div><div class="weakness-bar-track"></div><div class="weakness-count">—</div></div>`;
+            } else {
+                html += `<div class="weakness-row">
+                    <div class="weakness-label">${WEAKNESS_LABELS[k]}</div>
+                    <div class="weakness-bar-track"><div class="weakness-bar-fill" style="width:${v}%; background:${precColor(v)};"></div></div>
+                    <div class="weakness-count">${v}%</div>
+                </div>`;
+            }
+        });
+    }
     const topTheme = getTopWeaknessTheme();
     if (topTheme && data.theme[topTheme] > 0) {
         html += `<button class="btn btn-secondary" id="btn-train-weakness" style="margin-top:12px;">🎯 Entrena: ${WEAKNESS_LABELS[topTheme]}</button>`;
@@ -9859,6 +10138,7 @@ function returnToMainMenuImmediate() {
     isMatchErrorReviewSession = false;
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
+    isTacticsSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
     currentBundleSource = null;
@@ -9899,6 +10179,12 @@ function handleBundleSuccess() {
     saveStorage(); updateDisplay(); checkMissions();
     board.draggable = false;
 
+    if (isTacticsSession) {
+        completeTacticsPuzzle(true);
+        updateDisplay();
+        showTacticsOverlay();
+        return;
+    }
     if (isDailyPuzzleSession) {
         completeDailyPuzzle();
         updateDisplay();
@@ -10275,6 +10561,7 @@ $(document).ready(() => {
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
+    applyDayMode(loadDayModePreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');

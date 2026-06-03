@@ -95,6 +95,66 @@
         }
         body.epaper-mode img, body.epaper-mode svg { filter: grayscale(100%); }
         body.epaper-mode #app-container { filter: none; }
+
+        /* Mode dia: tema clar i càlid (pergamí) per a ús a l'exterior */
+        body.day-mode {
+            --bg-dark: #f3ead6;
+            --bg-card: #fbf5e6;
+            --bg-warm: #f0e4ca;
+            --accent-gold: #9a7d1f;
+            --accent-green: #3f6b4d;
+            --accent-purple: #7b3f8c;
+            --accent-blue: #1f5fa8;
+            --text-primary: #2e2618;
+            --text-secondary: #6b5e48;
+            --severity-low: #c79a00;
+            --severity-med: #d97300;
+            --severity-high: #c0392b;
+            --streak-fire: #c2632b;
+            --star-gold: #c79a00;
+            background: linear-gradient(180deg, #f3ead6 0%, #ece0c6 50%, #f3ead6 100%);
+            color: var(--text-primary);
+        }
+        body.day-mode .stat-box,
+        body.day-mode .stat-card,
+        body.day-mode .missions-panel,
+        body.day-mode .settings-panel,
+        body.day-mode .chart-container,
+        body.day-mode .opening-section,
+        body.day-mode .danger-zone,
+        body.day-mode .engagement-banner,
+        body.day-mode .header {
+            box-shadow: 0 2px 8px rgba(120, 95, 40, 0.12);
+        }
+        body.day-mode .btn-secondary,
+        body.day-mode .select-control,
+        body.day-mode .text-input { border: 1px solid rgba(120, 95, 40, 0.25); }
+
+        /* Animacions d'entrada subtils */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeInScreen {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        /* Només opacitat als contenidors de pantalla (evita crear containing-block per overlays fixos) */
+        .screen-anim { animation: fadeInScreen 0.28s ease both; }
+        /* Entrada escalonada per a targetes i botons (sense overlays fixos a dins) */
+        .stats-row .stat-box,
+        .stats-grid .stat-card,
+        #start-screen .menu-buttons > .btn {
+            animation: fadeInUp 0.34s ease both;
+        }
+        .stats-row .stat-box:nth-child(2) { animation-delay: 0.05s; }
+        .stats-row .stat-box:nth-child(3) { animation-delay: 0.1s; }
+        #start-screen .menu-buttons > .btn:nth-child(2) { animation-delay: 0.04s; }
+        #start-screen .menu-buttons > .btn:nth-child(3) { animation-delay: 0.08s; }
+        body.epaper-mode .screen-anim,
+        body.epaper-mode .stats-row .stat-box,
+        body.epaper-mode .stats-grid .stat-card,
+        body.epaper-mode #start-screen .menu-buttons > .btn { animation: none !important; }
         
         #app-container { position: relative; z-index: 1; max-width: 480px; width: 100%; }
         body.device-tablet #app-container { max-width: 760px; }
@@ -641,6 +701,19 @@
             margin-bottom: 6px;
             font-style: italic;
         }
+        .lesson-done-check { color: var(--accent-green); font-weight: 700; font-size: 0.95rem; }
+        .opening-lesson-btn.lesson-done { border-left: 3px solid var(--accent-green); }
+        .opening-progress-bar { margin-bottom: 12px; }
+        .opening-progress-label { font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 5px; }
+        .opening-progress-label strong { color: var(--accent-gold); }
+        .opening-progress-track {
+            height: 8px; background: rgba(0,0,0,0.25); border-radius: 5px; overflow: hidden;
+        }
+        .opening-progress-fill {
+            height: 100%; border-radius: 5px;
+            background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-gold) 100%);
+            transition: width 0.5s ease;
+        }
         .btn-opening {
             background: linear-gradient(135deg, #d6b24a 0%, #b48a22 100%);
             color: #2b2118;
@@ -864,7 +937,8 @@
         .badge-icon { font-size: 2.5rem; margin-bottom: 5px; }
         .badge-name { font-size: 0.8rem; color: var(--text-primary); margin-bottom: 3px; }
         .badge-req { font-size: 0.65rem; color: var(--text-secondary); }
-        
+        .badge-cat-title { grid-column: 1 / -1; font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold); margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; }
+
         /* BUNDLE & DRILLS MENU */
         .bundle-list { text-align: left; max-height: 300px; overflow-y: auto; margin-top: 15px; }
         .bundle-item, .drill-item {
@@ -2079,7 +2153,7 @@
     </div>
 
     <div id="app-container">
-        <div id="start-screen">
+        <div id="start-screen" class="screen-anim">
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
             <div class="subtitle">Entrenador d'Escacs</div>
@@ -2152,6 +2226,10 @@
                     🗓️ Repte diari
                     <span style="font-size:0.75rem; opacity:0.8;" id="daily-info">Disponible</span>
                 </button>
+                <button class="btn btn-secondary" id="btn-tactics" style="background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0;">
+                    ⚡ Tàctiques
+                    <span style="font-size:0.75rem; opacity:0.8;" id="tactics-info">Entrena combinacions</span>
+                </button>
                 <button class="btn btn-secondary" id="btn-history" style="background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: white;">📜 Historial</button>
                 <button class="btn btn-secondary" id="btn-stats" style="background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: white;">📊 Estadístiques</button>
             </div>
@@ -2164,7 +2242,7 @@
             </div>
         </div>
 
-        <div id="calibration-result-screen" style="display:none;">
+        <div id="calibration-result-screen" class="screen-anim" style="display:none;">
             <div class="calibration-result-header">
                 <div class="app-logo">🎯</div>
                 <h1>Resultats del calibratge</h1>
@@ -2198,7 +2276,7 @@
             </div>
         </div>
 
-        <div id="stats-screen" style="display:none;">
+        <div id="stats-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">📊</div>
                 <h1>Estadístiques</h1>
@@ -2226,6 +2304,14 @@
                         <option value="top2">Només les dues millors</option>
                     </select>
                 </div>
+                <div class="setting-row">
+                    <div class="setting-label">Mode dia (tema clar)</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="daymode-toggle">
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Tema clar i càlid, ideal per jugar amb molta llum o a l'exterior.</div>
                 <div class="setting-row">
                     <div class="setting-label">Mode ePaper</div>
                     <label class="epaper-toggle">
@@ -2317,7 +2403,7 @@
             </div>
         </div>
    
-        <div id="history-screen" style="display:none;">
+        <div id="history-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">📜</div>
                 <h1>Historial</h1>
@@ -2350,6 +2436,8 @@
                                 </div>
                                 <div class="history-actions">
                                     <button class="btn btn-secondary" id="history-generate-review">✨ Generar ressenya</button>
+                                    <button class="btn btn-secondary" id="history-export-pgn">♟ Exportar PGN</button>
+                                    <button class="btn btn-secondary" id="history-share-pgn">📤 Compartir</button>
                                 </div>
                                 <div class="history-progress" id="history-progress">0/0</div>
                             </div>
@@ -2405,7 +2493,7 @@
         </div>
 
         
-        <div id="league-screen" style="display:none;">
+        <div id="league-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">🏆</div>
                 <h1>Lliga</h1>
@@ -2442,7 +2530,7 @@
             </div>
         </div>
 
-        <div id="opening-screen" style="display:none;">
+        <div id="opening-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">📖</div>
                 <h1>Obertures</h1>
