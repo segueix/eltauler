@@ -175,6 +175,12 @@ let currentBundleSeverity = null;
 let currentBundleSource = null;
 let playerColor = 'w';
 let isRandomBundleSession = false;
+// Repetició espaiada (SRS) i repte diari
+let isSrsReviewSession = false;
+let isDailyPuzzleSession = false;
+let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, lastSolved: null };
+// Cau en memòria de respostes Gemini (per FEN+tipus) per estalviar crides
+const geminiResponseCache = {};
 let bundleSequenceStep = 1;
 let bundleSequenceStartFen = null;
 let bundleStepStartFen = null;
@@ -3095,6 +3101,13 @@ function loadStorage() {
     }
     const storedGeminiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE);
     if (storedGeminiKey) geminiApiKey = storedGeminiKey;
+    const storedDaily = localStorage.getItem('chess_dailyPuzzle');
+    if (storedDaily) {
+        try {
+            const parsed = JSON.parse(storedDaily);
+            if (parsed && typeof parsed === 'object') dailyPuzzle = Object.assign(dailyPuzzle, parsed);
+        } catch (e) {}
+    }
 }
 
 function saveStorage() {
@@ -3145,6 +3158,7 @@ function saveStorage() {
     } else {
         localStorage.removeItem(GEMINI_API_KEY_STORAGE);
     }
+    localStorage.setItem('chess_dailyPuzzle', JSON.stringify(dailyPuzzle));
     localStorage.removeItem('chess_isCalibrationPhase');
     localStorage.removeItem('chess_calibrationMoves');
     localStorage.removeItem('chess_calibrationGoodMoves');
@@ -3178,16 +3192,16 @@ function updateBundleHintButtons() {
     hintBtn.style.display = (bundleVisible || isAssisted) ? 'inline-flex' : 'inline-flex';
     hintBtn.disabled = !stockfish || isAnalyzingHint;
 
-    // Botó Gemini per bundles
+    // Botó Gemini per bundles (funciona també offline amb el banc de màximes)
     if (brainBtn) {
         brainBtn.style.display = bundleVisible ? 'inline-flex' : 'none';
-        brainBtn.disabled = !bundleVisible || !geminiApiKey || bundleGeminiHintPending;
+        brainBtn.disabled = !bundleVisible || bundleGeminiHintPending;
     }
 
-    // Botó de consell estratègic per mode assistit
+    // Botó de consell estratègic per mode assistit (offline o amb Gemini)
     if (assistedBtn) {
         assistedBtn.style.display = isAssisted ? 'inline-flex' : 'none';
-        assistedBtn.disabled = !isAssisted || !geminiApiKey || assistedHintPending;
+        assistedBtn.disabled = !isAssisted || assistedHintPending;
     }
 }
 
@@ -3262,6 +3276,11 @@ function updateDisplay() {
     let total = savedErrors.length;
     $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
     $('#game-bundles').text(total);
+    // Comptadors de repàs espaiat i repte diari al menú principal
+    const due = getDueErrors().length;
+    $('#srs-info').text(due > 0 ? `${due} per repassar` : 'Al dia');
+    ensureDailyPuzzle();
+    $('#daily-info').text(dailyPuzzle.solved ? `Fet ✓ · ratxa ${dailyPuzzle.streak}` : 'Disponible');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
 }
 
@@ -3273,6 +3292,7 @@ function updateStatsDisplay() {
     updateGeminiSettingsUI();
     updateEloChart();
     updateReviewChart();
+    renderWeaknesses();
 }
 
 function updateEloChart() {
@@ -5316,14 +5336,32 @@ async function requestOpeningMaximLlull() {
     }
 }
 
+function showOfflineBundleMaxim() {
+    const theme = classifyPositionTheme(currentBundleFen || '', '');
+    const m1 = pickOfflineMaxim(theme);
+    const m2 = pickOfflineMaxim('general');
+    let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
+    html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
+    html += `<div style="font-style:italic; margin:4px 0;">${m1}</div>`;
+    if (m2 !== m1) html += `<div style="font-style:italic; margin:4px 0;">${m2}</div>`;
+    html += '</div>';
+    lastBundleGeminiHint = html;
+    $('#status').html(html);
+}
+
 async function requestGeminiBundleHint() {
     if (!blunderMode || !currentBundleFen) return;
     if (!geminiApiKey) {
-        const statusEl = $('#status');
-        statusEl.html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px; line-height:1.5;">⚠️ Configura la clau de Gemini a Estadístiques → Configuració per utilitzar aquesta pista.</div>');
+        // Sense clau: banc de màximes local en comptes d'un avís d'error.
+        showOfflineBundleMaxim();
         return;
     }
     if (bundleGeminiHintPending) return;
+
+    // Cau per FEN: reaprofita la màxima si ja s'ha generat per aquesta posició.
+    const cacheKey = `bundle:${currentBundleFen}:${bundleSequenceStep}`;
+    const cached = getCachedGemini(cacheKey);
+    if (cached) { lastBundleGeminiHint = cached; $('#status').html(cached); return; }
     
     bundleGeminiHintPending = true;
     updateBundleHintButtons();
@@ -5415,8 +5453,9 @@ async function requestGeminiBundleHint() {
         
         // CANVI: Guardar el missatge generat
         lastBundleGeminiHint = html;
+        setCachedGemini(`bundle:${currentBundleFen}:${bundleSequenceStep}`, html);
         statusEl.html(html);
-        
+
     } catch (err) {
         console.error(err);
         statusEl.html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut generar la màxima. Torna-ho a provar.</div>');
@@ -5455,13 +5494,18 @@ Escriu la màxima:`;
 
 let assistedHintPending = false;
 
+function showAssistedMaxim(text) {
+    const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+    let html = '<div class="opening-maxim-box">';
+    html += '<div class="maxim-title">Consell estratègic</div>';
+    html += `<div class="maxim-text">${cleanText}</div>`;
+    html += '</div>';
+    $('#status').html(html);
+}
+
 async function requestAssistedHint() {
     if (!game || game.game_over()) return;
     if (currentGameMode !== 'assisted') return;
-    if (!geminiApiKey) {
-        $('#status').html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px; line-height:1.5;">Configura la clau de Gemini a Estadístiques per utilitzar la pista estratègica.</div>');
-        return;
-    }
     if (assistedHintPending) return;
 
     assistedHintPending = true;
@@ -5471,8 +5515,20 @@ async function requestAssistedHint() {
     try {
         const fen = game.fen();
         const bestMove = await getStockfishBestMove(fen, 12);
-        if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
+        const theme = classifyPositionTheme(fen, bestMove || '');
 
+        // Sense clau Gemini: caiem al banc de màximes local (segueix funcionant offline).
+        if (!geminiApiKey) {
+            showAssistedMaxim(pickOfflineMaxim(theme));
+            return;
+        }
+
+        // Cau per FEN: evita repetir crides per la mateixa posició.
+        const cacheKey = `assisted:${fen}`;
+        const cached = getCachedGemini(cacheKey);
+        if (cached) { showAssistedMaxim(cached); return; }
+
+        if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
         const prompt = buildAssistedHintPrompt(fen, bestMove, null);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
         const response = await fetch(url, {
@@ -5489,14 +5545,13 @@ async function requestAssistedHint() {
         if (!text) throw new Error('Resposta buida');
 
         const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
-        let html = '<div class="opening-maxim-box">';
-        html += '<div class="maxim-title">Consell estratègic</div>';
-        html += `<div class="maxim-text">${cleanText}</div>`;
-        html += '</div>';
-        $('#status').html(html);
+        setCachedGemini(cacheKey, cleanText);
+        showAssistedMaxim(cleanText);
     } catch (err) {
         console.error('[AssistedHint]', err);
-        $('#status').html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">No s\'ha pogut generar el consell. Torna-ho a provar.</div>');
+        // Fallback offline davant qualsevol error de xarxa/API
+        const theme = classifyPositionTheme(game.fen(), '');
+        showAssistedMaxim(pickOfflineMaxim(theme));
     } finally {
         assistedHintPending = false;
         $('#btn-assisted-hint').prop('disabled', false);
@@ -7544,6 +7599,9 @@ function setupEvents() {
         startGame(false);
     });
 
+    $('#btn-srs-review').click(() => startSrsReview());
+    $('#btn-daily-puzzle').click(() => startDailyPuzzle());
+
     $('#btn-smart-share').click(async () => {
    const data = buildBackupData();
         const filename = `eltauler_backup_${totalStars}stars.json`;
@@ -7717,6 +7775,308 @@ function setupEvents() {
     });
 }
 
+/* ===================== REPETICIÓ ESPAIADA (SRS) ===================== */
+const SRS_INTERVALS_DAYS = [1, 3, 7, 21];
+
+function getErrorDueTime(err) {
+    return typeof err.srsDue === 'number' ? err.srsDue : 0;
+}
+
+function getDueErrors() {
+    const now = Date.now();
+    return savedErrors.filter(e => getErrorDueTime(e) <= now);
+}
+
+// Reprograma un error després d'encertar-lo. Retorna true si ja s'ha dominat (es pot retirar).
+function scheduleErrorAfterSuccess(err) {
+    err.srsReps = (err.srsReps || 0) + 1;
+    if (err.srsReps > SRS_INTERVALS_DAYS.length) return true;
+    const days = SRS_INTERVALS_DAYS[err.srsReps - 1];
+    err.srsInterval = days;
+    err.srsDue = Date.now() + days * 86400000;
+    return false;
+}
+
+function startSrsReview() {
+    if (!guardCalibrationAccess()) return;
+    const due = getDueErrors();
+    if (!due.length) {
+        alert('No tens cap repàs pendent ara mateix. Resol nous errors o torna més tard!');
+        return;
+    }
+    isSrsReviewSession = true;
+    isDailyPuzzleSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'srs';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, due[0].fen);
+}
+
+function startNextSrsReview() {
+    const due = getDueErrors();
+    if (!due.length) return false;
+    startGame(true, due[0].fen);
+    return true;
+}
+
+function showSrsSuccessOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    const due = getDueErrors().length;
+    if (!overlay.length) {
+        if (!startNextSrsReview()) { isSrsReviewSession = false; returnToMainMenuImmediate(); }
+        return;
+    }
+    overlay.find('.bundle-success-title').text('Repàs fet ✅');
+    overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara');
+    overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0);
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        isSrsReviewSession = false; overlay.hide(); returnToMainMenuImmediate();
+    });
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        if (!startNextSrsReview()) { isSrsReviewSession = false; returnToMainMenuImmediate(); }
+    });
+}
+
+/* ===================== REPTE DIARI ===================== */
+const DAILY_PUZZLE_BANK = [
+    { fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4' },
+    { fen: '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1' },
+    { fen: 'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5' },
+    { fen: '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11' },
+    { fen: 'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9' },
+    { fen: '8/8/8/4k3/8/4K3/4P3/8 w - - 0 1' },
+    { fen: 'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4' }
+];
+
+function hashStr(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) { h = ((h << 5) - h + str.charCodeAt(i)) | 0; }
+    return Math.abs(h);
+}
+
+function yesterdayStr() {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+}
+
+function pickDailyPuzzleFen() {
+    const seed = hashStr(getToday());
+    if (savedErrors.length) return savedErrors[seed % savedErrors.length].fen;
+    return DAILY_PUZZLE_BANK[seed % DAILY_PUZZLE_BANK.length].fen;
+}
+
+function ensureDailyPuzzle() {
+    const today = getToday();
+    if (dailyPuzzle.date !== today) {
+        dailyPuzzle.date = today;
+        dailyPuzzle.solved = false;
+        dailyPuzzle.fen = pickDailyPuzzleFen();
+        saveStorage();
+    }
+}
+
+function startDailyPuzzle() {
+    if (!guardCalibrationAccess()) return;
+    ensureDailyPuzzle();
+    if (dailyPuzzle.solved) {
+        alert("Ja has superat el repte d'avui! Torna demà per mantenir la ratxa.");
+        return;
+    }
+    isDailyPuzzleSession = true;
+    isSrsReviewSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'daily';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, dailyPuzzle.fen);
+}
+
+function completeDailyPuzzle() {
+    if (dailyPuzzle.solved) return;
+    const today = getToday();
+    if (dailyPuzzle.lastSolved === yesterdayStr()) dailyPuzzle.streak = (dailyPuzzle.streak || 0) + 1;
+    else dailyPuzzle.streak = 1;
+    dailyPuzzle.lastSolved = today;
+    dailyPuzzle.solved = true;
+    dailyPuzzle.best = Math.max(dailyPuzzle.best || 0, dailyPuzzle.streak);
+    totalStars += 1;
+    saveStorage();
+}
+
+function showDailyPuzzleOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    if (!overlay.length) { isDailyPuzzleSession = false; returnToMainMenuImmediate(); return; }
+    overlay.find('.bundle-success-title').text('Repte diari superat 🏆 (+1 ★)');
+    overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`);
+    overlay.find('#btn-bundle-random-again').text('Fet').prop('disabled', true);
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        isDailyPuzzleSession = false; overlay.hide(); returnToMainMenuImmediate();
+    });
+}
+
+/* ===================== DEBILITATS TEMÀTIQUES ===================== */
+// Classifica una posició+jugada en un tema: 'king' (atac al rei), 'material', 'center', 'general'.
+function classifyPositionTheme(fen, uci) {
+    try {
+        if (!uci || uci.length < 4) return 'general';
+        const g = new Chess(fen);
+        const mv = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || 'q' });
+        if (mv) {
+            if (mv.san.includes('#') || mv.san.includes('+')) return 'king';
+            if (mv.flags.includes('c') || mv.flags.includes('e')) return 'material';
+            if (['d4', 'd5', 'e4', 'e5', 'c4', 'c5', 'f4', 'f5'].includes(mv.to)) return 'center';
+        }
+    } catch (e) {}
+    return 'general';
+}
+
+const WEAKNESS_LABELS = {
+    king: 'Atacs i seguretat del rei',
+    material: 'Tàctica i guany de material',
+    center: 'Control del centre',
+    general: 'Joc posicional',
+    obertura: "Obertura (primeres jugades)",
+    migjoc: 'Mig joc',
+    final: 'Finals'
+};
+
+function analyzeWeaknesses() {
+    const errors = [];
+    savedErrors.forEach(e => errors.push(e));
+    gameHistory.forEach(g => { if (Array.isArray(g.errors)) g.errors.forEach(e => errors.push(e)); });
+
+    const phase = { obertura: 0, migjoc: 0, final: 0 };
+    const theme = { king: 0, material: 0, center: 0, general: 0 };
+    const severity = { low: 0, med: 0, high: 0 };
+
+    errors.forEach(e => {
+        let fullmove = 10;
+        try { fullmove = parseInt((e.fen || '').split(' ')[5]) || 10; } catch (_) {}
+        if (fullmove <= 10) phase.obertura++;
+        else if (fullmove <= 30) phase.migjoc++;
+        else phase.final++;
+        theme[classifyPositionTheme(e.fen, e.bestMove || '')]++;
+        if (e.severity === 'high') severity.high++;
+        else if (e.severity === 'med') severity.med++;
+        else severity.low++;
+    });
+
+    return { total: errors.length, phase, theme, severity };
+}
+
+function getTopWeaknessTheme() {
+    const data = analyzeWeaknesses();
+    let top = null, max = -1;
+    Object.keys(data.theme).forEach(k => { if (data.theme[k] > max) { max = data.theme[k]; top = k; } });
+    return top;
+}
+
+function startWeaknessTraining(theme) {
+    if (!guardCalibrationAccess()) return;
+    const candidates = savedErrors.filter(e => classifyPositionTheme(e.fen, e.bestMove || '') === theme);
+    const pool = candidates.length ? candidates : savedErrors;
+    if (!pool.length) { alert('Encara no tens errors guardats per entrenar aquesta debilitat.'); return; }
+    const choice = pool[Math.floor(Math.random() * pool.length)];
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isRandomBundleSession = true;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'random';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, choice.fen);
+}
+
+function renderWeaknesses() {
+    const container = document.getElementById('stats-weaknesses');
+    if (!container) return;
+    const data = analyzeWeaknesses();
+    if (data.total === 0) {
+        container.innerHTML = '<div style="color:var(--text-secondary); font-size:0.9rem;">Encara no hi ha prou dades. Juga partides i revisa errors per veure les teves debilitats.</div>';
+        return;
+    }
+    const renderRow = (label, count, total, color) => {
+        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+        return `<div class="weakness-row">
+            <div class="weakness-label">${label}</div>
+            <div class="weakness-bar-track"><div class="weakness-bar-fill" style="width:${pct}%; background:${color};"></div></div>
+            <div class="weakness-count">${count}</div>
+        </div>`;
+    };
+    let html = '<div class="weakness-group-title">Per temàtica</div>';
+    const themeColors = { king: '#c62828', material: '#c9a227', center: '#3a6b8c', general: '#4a7c59' };
+    Object.keys(data.theme).sort((a, b) => data.theme[b] - data.theme[a]).forEach(k => {
+        html += renderRow(WEAKNESS_LABELS[k], data.theme[k], data.total, themeColors[k]);
+    });
+    html += '<div class="weakness-group-title">Per fase de la partida</div>';
+    ['obertura', 'migjoc', 'final'].forEach(k => {
+        html += renderRow(WEAKNESS_LABELS[k], data.phase[k], data.total, '#6d7b87');
+    });
+    const topTheme = getTopWeaknessTheme();
+    if (topTheme && data.theme[topTheme] > 0) {
+        html += `<button class="btn btn-secondary" id="btn-train-weakness" style="margin-top:12px;">🎯 Entrena: ${WEAKNESS_LABELS[topTheme]}</button>`;
+    }
+    container.innerHTML = html;
+    const trainBtn = document.getElementById('btn-train-weakness');
+    if (trainBtn) trainBtn.onclick = () => startWeaknessTraining(topTheme);
+}
+
+/* ===================== BANC DE MÀXIMES OFFLINE + CAU ===================== */
+const OFFLINE_MAXIMS = {
+    king: [
+        "Quan el rei enemic queda exposat, tota maniobra ha d'apuntar a la seva posició; la pressa sense objectiu malgasta forces.",
+        "El general savi no persegueix peces, sinó el monarca: dirigeix les teves columnes cap al refugi del rei.",
+        "Una escac no és un crit buit si obre el camí cap a la victòria; busca el xec que guanya temps o material."
+    ],
+    material: [
+        "Abans de capturar, compta els defensors: el guany aparent sovint amaga una trampa preparada.",
+        "Qui sobrecarrega una peça defensora obre una bretxa; ataca el punt que el rival no pot protegir dues vegades.",
+        "La forquilla i la clavada són les emboscades del tauler: cerca la casella des d'on una sola peça amenaça dues."
+    ],
+    center: [
+        "Qui domina el centre domina les rutes; situa-hi els peons i les peces abans de llançar l'atac als flancs.",
+        "El terreny central és la plana on es decideixen els imperis: no el cedeixis sense compensació.",
+        "Des del centre, cada peça irradia la seva força; un cavall a la quarta fila val per dos a la vora."
+    ],
+    general: [
+        "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges és un exèrcit derrotat.",
+        "Coneix la teva posició i la del rival, i en cent jugades no temeràs el resultat.",
+        "La paciència posicional precedeix la tempesta tàctica: millora la pitjor peça abans de buscar el cop."
+    ]
+};
+
+function pickOfflineMaxim(theme) {
+    const arr = OFFLINE_MAXIMS[theme] || OFFLINE_MAXIMS.general;
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function getCachedGemini(key) {
+    return geminiResponseCache[key] || null;
+}
+
+function setCachedGemini(key, value) {
+    geminiResponseCache[key] = value;
+}
+
 function showBundleMenu() {
     if (savedErrors.length === 0) { alert('No tens errors guardats'); return; }
 
@@ -7800,6 +8160,8 @@ window.startBundleGame = function(fen, severity = null) {
     isMatchErrorReviewSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     currentBundleSource = 'category';
     currentBundleSeverity = (severity === 'low' || severity === 'med' || severity === 'high') ? severity : null;
     $('#bundle-modal').remove(); currentGameMode = 'bundle';
@@ -7812,10 +8174,12 @@ function startRandomBundleGame() {
     const choice = savedErrors[Math.floor(Math.random() * savedErrors.length)];
     isRandomBundleSession = true;
     isMatchErrorReviewSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
     currentBundleSource = 'random';
-    currentBundleSeverity = null;  
+    currentBundleSeverity = null;
     $('#bundle-modal').remove();
     currentGameMode = 'bundle';
     currentOpponent = null;
@@ -7829,6 +8193,8 @@ function startSelectedBundleGame(entry) {
     isMatchErrorReviewSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     currentBundleSource = 'manual';
     currentBundleSeverity = null;
     $('#bundle-modal').remove();
@@ -7844,6 +8210,8 @@ function startMatchErrorReview() {
         return;
     }
     isRandomBundleSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     matchErrorQueue = currentGameErrors.slice();
     isMatchErrorReviewSession = true;
     currentMatchError = null;
@@ -9016,12 +9384,15 @@ function returnToMainMenuImmediate() {
     if (stockfish) stockfish.postMessage('stop');
     clearTapSelection();
     isMatchErrorReviewSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
     currentBundleSource = null;
     currentBundleSeverity = null;
     blunderMode = false;
     updateBundleHintButtons();
+    updateDisplay();
 }
 
 function handleBundleSuccess() {
@@ -9032,24 +9403,39 @@ function handleBundleSuccess() {
     if (stockfish) stockfish.postMessage('stop');
     
     if (currentBundleFen) {
-        const solvedErr = savedErrors.find(e => e.fen === currentBundleFen);
+        const solvedFen = currentBundleFen;
+        const solvedErr = savedErrors.find(e => e.fen === solvedFen);
         if (solvedErr) {
             if (solvedErr.severity === 'high') sessionStats.bundlesSolvedHigh++;
             else if (solvedErr.severity === 'med') sessionStats.bundlesSolvedMed++;
             else sessionStats.bundlesSolvedLow++;
+            // Repetició espaiada: en comptes d'eliminar l'error, el reprogramem.
+            // Només es retira definitivament quan s'ha dominat (prou repassos correctes).
+            const mastered = scheduleErrorAfterSuccess(solvedErr);
+            if (mastered) savedErrors = savedErrors.filter(e => e.fen !== solvedFen);
         }
-        savedErrors = savedErrors.filter(e => e.fen !== currentBundleFen);
+        // Netejar l'error de les partides guardades (manté coherent "errors de la partida")
+        gameHistory.forEach(entry => {
+            if (entry.severeErrors && Array.isArray(entry.severeErrors)) {
+                entry.severeErrors = entry.severeErrors.filter(err => err.fen !== solvedFen);
+            }
+        });
         currentBundleFen = null;
     }
-    // Netejar l'error també de les partides guardades
-    gameHistory.forEach(entry => {
-    if (entry.severeErrors && Array.isArray(entry.severeErrors)) {
-        entry.severeErrors = entry.severeErrors.filter(err => err.fen !== currentBundleFen);
-    }
-});
-    
+
     saveStorage(); updateDisplay(); checkMissions();
     board.draggable = false;
+
+    if (isDailyPuzzleSession) {
+        completeDailyPuzzle();
+        updateDisplay();
+        showDailyPuzzleOverlay();
+        return;
+    }
+    if (isSrsReviewSession) {
+        showSrsSuccessOverlay();
+        return;
+    }
 
     if (isMatchErrorReviewSession) {
         promptMatchErrorNext();
@@ -9072,10 +9458,11 @@ function showRandomBundleSuccessOverlay() {
     }
 
     const remaining = savedErrors.length;
+    overlay.find('.bundle-success-title').text('Bundle resolt');
     overlay.find('.bundle-success-remaining').text(
         remaining > 0 ? `${remaining} bundles pendents` : 'No queda cap bundle pendent'
     );
-    overlay.find('#btn-bundle-random-again').prop('disabled', remaining === 0);
+    overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0);
     overlay.css('display', 'flex');
 
     $('#btn-bundle-random-home').off('click').on('click', () => {
@@ -9214,7 +9601,10 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
             elo: userELO,
             bestMove: bestMove || null,
             playerMove: playerMove || lastHumanMoveUci || null,
-            bestMovePv: bestMovePv || []
+            bestMovePv: bestMovePv || [],
+            srsReps: 0,
+            srsInterval: 0,
+            srsDue: Date.now()
         });
         saveStorage(); 
         updateDisplay(); 

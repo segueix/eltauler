@@ -1644,7 +1644,33 @@
             padding: 12px;
             text-align: center;
         }
-        
+
+        .weakness-group-title {
+            font-family: 'Cinzel', serif;
+            color: var(--accent-gold);
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+            margin: 12px 0 6px;
+        }
+        .weakness-row {
+            display: grid;
+            grid-template-columns: 1.4fr 2fr 0.4fr;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .weakness-label { font-size: 0.85rem; color: var(--text-primary); }
+        .weakness-bar-track {
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+            height: 12px;
+            overflow: hidden;
+        }
+        .weakness-bar-fill { height: 100%; border-radius: 6px; transition: width 0.3s; }
+        .weakness-count { font-size: 0.8rem; color: var(--text-secondary); text-align: right; }
+        body.epaper-mode .weakness-bar-track { background: #d8d8d8; }
+        body.epaper-mode .weakness-bar-fill { background: #888 !important; }
+
         .stat-card-value {
             font-family: 'Cinzel', serif;
             font-size: 1.8rem;
@@ -2037,6 +2063,14 @@
                     📚 Revisa Errors
                     <span style="font-size:0.75rem; opacity:0.8;" id="bundle-info">Cap error desat</span>
                 </button>
+                <button class="btn btn-secondary" id="btn-srs-review" style="background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7;">
+                    🔁 Repàs intel·ligent
+                    <span style="font-size:0.75rem; opacity:0.8;" id="srs-info">Al dia</span>
+                </button>
+                <button class="btn btn-secondary" id="btn-daily-puzzle" style="background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf;">
+                    🗓️ Repte diari
+                    <span style="font-size:0.75rem; opacity:0.8;" id="daily-info">Disponible</span>
+                </button>
                 <button class="btn btn-secondary" id="btn-history" style="background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: white;">📜 Historial</button>
                 <button class="btn btn-secondary" id="btn-stats" style="background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: white;">📊 Estadístiques</button>
             </div>
@@ -2175,6 +2209,11 @@
                     <div class="stat-card-value" id="stats-max-streak">0</div>
                     <div class="stat-card-label">Millor Ratxa</div>
                 </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Les teves debilitats</div>
+                <div id="stats-weaknesses"></div>
             </div>
 
             <div class="danger-zone">
