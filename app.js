@@ -293,7 +293,7 @@ function loadFontSize() {
     } catch (e) { return 100; }
 }
 function applyFontSize(pct) {
-    document.body.style.setProperty('--font-scale', pct / 100);
+    document.documentElement.style.setProperty('--font-scale', pct / 100);
     const label = document.getElementById('font-size-value');
     if (label) label.textContent = pct + '%';
     const slider = document.getElementById('font-size-range');
