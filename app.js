@@ -123,14 +123,14 @@ const CONTINUOUS_ADJUST_CONFIG = {
     WIN_THRESHOLD: 2,
     LOSS_THRESHOLD: 2,
     WIN_ELO: 50,
-    LOSS_ELO: -30,
+    LOSS_ELO: -50,
     MAX_CYCLE_DELTA: 100,
     QUALITY_HIGH: 0.7,
     ERROR_PRECISION_MAX: 60,
     ERROR_CPLOSS_MIN: 140,
     ERROR_BLUNDERS_MIN: 2,
-    LOSS_STREAK_TRIGGER: 5,
-    LOSS_STREAK_DELTA: -50
+    LOSS_STREAK_TRIGGER: 3,
+    LOSS_STREAK_DELTA: -70
 };
 const ELO_MILESTONES = [800, 1000, 1200, 1400, 1600, 1800, 2000];
 const ERROR_WINDOW_N = 30;
@@ -138,15 +138,15 @@ const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
 const CALIBRATION_ENGINE_PRECISION_RANGES = [
-    { min: 45, max: 50 },
+    { min: 40, max: 46 },
+    { min: 46, max: 52 },
     { min: 52, max: 58 },
     { min: 58, max: 65 },
-    { min: 65, max: 72 },
-    { min: 72, max: 78 }
+    { min: 65, max: 72 }
 ];
 const CALIBRATION_GAME_COUNT = 5;
-const CALIBRATION_ROCS = [300, 500, 600, 800, 900];
-const CALIBRATION_DEPTHS = [5, 8, 10];
+const CALIBRATION_ROCS = [200, 350, 500, 650, 800];
+const CALIBRATION_DEPTHS = [4, 6, 8];
 const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
@@ -2527,7 +2527,7 @@ function getCalibrationRocFloor() {
 function clampUserElo(value) {
     const floor = getCalibrationRocFloor();
     const baseFloor = typeof floor === 'number' ? floor : ELO_MIN;
-    const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.7);
+    const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.45);
     const minValue = Number.isFinite(flexibleFloor) ? flexibleFloor : ELO_MIN;
     return Math.round(Math.max(minValue, Math.min(ELO_MAX, value)));
 }
@@ -2601,7 +2601,7 @@ function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
         return qualityScore >= 0.65 ? 10 : 6;
     }
     if (resultLabel === 'loss') {
-        return qualityScore >= 0.6 ? -6 : -12;
+        return qualityScore >= 0.6 ? -10 : -18;
     }
     return 0;
 }
@@ -2708,8 +2708,8 @@ function getCalibrationOpponentRoc() {
     if (index < 3) return CALIBRATION_ROCS[index];
     const performance = getCalibrationPerformanceScore(calibrationGames);
     const base = CALIBRATION_ROCS[Math.min(index, CALIBRATION_ROCS.length - 1)];
-    if (performance >= 0.7) return base + 150;
-    if (performance <= 0.45) return Math.max(CALIBRATION_ROC_MIN, base - 150);
+    if (performance >= 0.7) return base + 75;
+    if (performance <= 0.45) return Math.max(CALIBRATION_ROC_MIN, base - 100);
     return base;
 }
 
@@ -2722,9 +2722,9 @@ function getCalibrationGameDepth(gameIndex = null) {
     const index = typeof gameIndex === 'number' ? gameIndex : getCalibrationGameIndex();
     if (index < CALIBRATION_DEPTHS.length) return CALIBRATION_DEPTHS[index];
     const performance = getCalibrationPerformanceScore(calibrationGames);
-    if (performance >= 0.7) return 12;
-    if (performance >= 0.55) return 10;
-    return 8;
+    if (performance >= 0.7) return 10;
+    if (performance >= 0.55) return 8;
+    return 6;
 }
 
 function getCalibrationSkillLevel() {
@@ -2805,9 +2805,10 @@ function estimateCalibrationRoc() {
     const avgOpponentElo = opponentEloValues.length
         ? opponentEloValues.reduce((sum, value) => sum + value, 0) / opponentEloValues.length
         : CALIBRATION_ROCS[Math.min(getCalibrationGameIndex(), CALIBRATION_ROCS.length - 1)];
-    const performanceDelta = (weightedPerformance - 0.5) * 400;
+    const performanceDelta = (weightedPerformance - 0.5) * 250;
     const confidence = Math.min(1, calibrationGames.length / CALIBRATION_GAME_COUNT);
-    const eloEstimate = avgOpponentElo + (performanceDelta * confidence);
+    const conservativeBias = -50;
+    const eloEstimate = avgOpponentElo + (performanceDelta * confidence) + conservativeBias;
     return Math.max(CALIBRATION_ROC_MIN, Math.min(CALIBRATION_ROC_MAX, Math.round(eloEstimate)));
 }
 
