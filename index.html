@@ -24,7 +24,7 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=Cinzel:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@500;700&display=swap" rel="stylesheet">
     
     <!-- Chessboard CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
@@ -72,7 +72,7 @@
         }
    
         body {
-            font-family: 'Crimson Pro', Georgia, serif;
+            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
             background: linear-gradient(180deg, var(--bg-dark) 0%, #251c15 50%, var(--bg-dark) 100%);
             color: var(--text-primary);
             min-height: 100vh;
@@ -95,6 +95,66 @@
         }
         body.epaper-mode img, body.epaper-mode svg { filter: grayscale(100%); }
         body.epaper-mode #app-container { filter: none; }
+
+        /* Mode dia: tema clar i càlid (pergamí) per a ús a l'exterior */
+        body.day-mode {
+            --bg-dark: #f3ead6;
+            --bg-card: #fbf5e6;
+            --bg-warm: #f0e4ca;
+            --accent-gold: #9a7d1f;
+            --accent-green: #3f6b4d;
+            --accent-purple: #7b3f8c;
+            --accent-blue: #1f5fa8;
+            --text-primary: #2e2618;
+            --text-secondary: #6b5e48;
+            --severity-low: #c79a00;
+            --severity-med: #d97300;
+            --severity-high: #c0392b;
+            --streak-fire: #c2632b;
+            --star-gold: #c79a00;
+            background: linear-gradient(180deg, #f3ead6 0%, #ece0c6 50%, #f3ead6 100%);
+            color: var(--text-primary);
+        }
+        body.day-mode .stat-box,
+        body.day-mode .stat-card,
+        body.day-mode .missions-panel,
+        body.day-mode .settings-panel,
+        body.day-mode .chart-container,
+        body.day-mode .opening-section,
+        body.day-mode .danger-zone,
+        body.day-mode .engagement-banner,
+        body.day-mode .header {
+            box-shadow: 0 2px 8px rgba(120, 95, 40, 0.12);
+        }
+        body.day-mode .btn-secondary,
+        body.day-mode .select-control,
+        body.day-mode .text-input { border: 1px solid rgba(120, 95, 40, 0.25); }
+
+        /* Animacions d'entrada subtils */
+        @keyframes fadeInUp {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+        @keyframes fadeInScreen {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        /* Només opacitat als contenidors de pantalla (evita crear containing-block per overlays fixos) */
+        .screen-anim { animation: fadeInScreen 0.28s ease both; }
+        /* Entrada escalonada per a targetes i seccions (sense overlays fixos a dins) */
+        .stats-row .stat-box,
+        .stats-grid .stat-card,
+        #start-screen .menu-section {
+            animation: fadeInUp 0.34s ease both;
+        }
+        .stats-row .stat-box:nth-child(2) { animation-delay: 0.05s; }
+        .stats-row .stat-box:nth-child(3) { animation-delay: 0.1s; }
+        #start-screen .menu-section:nth-child(2) { animation-delay: 0.05s; }
+        #start-screen .menu-section:nth-child(3) { animation-delay: 0.1s; }
+        body.epaper-mode .screen-anim,
+        body.epaper-mode .stats-row .stat-box,
+        body.epaper-mode .stats-grid .stat-card,
+        body.epaper-mode #start-screen .menu-section { animation: none !important; }
         
         #app-container { position: relative; z-index: 1; max-width: 480px; width: 100%; }
         body.device-tablet #app-container { max-width: 760px; }
@@ -171,6 +231,12 @@
             ) !important;
         }
         
+        @keyframes illegal-flash {
+            0% { box-shadow: inset 0 0 0 3px rgba(192,57,43,0.9); }
+            100% { box-shadow: inset 0 0 0 3px rgba(192,57,43,0); }
+        }
+        .square-illegal { animation: illegal-flash 0.45s ease-out; }
+
         @keyframes pulse-purple {
             0% { box-shadow: inset 0 0 5px 4px var(--accent-purple); }
             50% { box-shadow: inset 0 0 10px 6px var(--accent-purple); }
@@ -206,6 +272,24 @@
         .streak-pending { background: rgba(212, 118, 59, 0.2); color: var(--streak-fire); }
         
         /* MISSIONS */
+        .engagement-banner {
+            display: flex; align-items: center; gap: 10px;
+            background: linear-gradient(135deg, rgba(201,162,39,0.16), rgba(58,107,140,0.16));
+            border: 1px solid rgba(201, 162, 39, 0.3);
+            border-radius: 12px; padding: 10px 12px; margin: 12px 0;
+        }
+        .engagement-banner .eng-icon { font-size: 1.4rem; flex-shrink: 0; }
+        .engagement-banner .eng-text { flex: 1; font-size: 0.88rem; color: var(--text-primary); line-height: 1.35; }
+        .engagement-banner .eng-cta {
+            width: auto; flex-shrink: 0; padding: 8px 14px; font-size: 0.82rem;
+            background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark);
+        }
+        body.epaper-mode .engagement-banner { background: #ededed; border-color: #cfcfcf; }
+        @media (max-width: 420px) {
+            .engagement-banner { flex-wrap: wrap; }
+            .engagement-banner .eng-cta { width: 100%; }
+        }
+
         .missions-panel {
             background: rgba(0,0,0,0.2);
             border: 1px solid rgba(201, 162, 39, 0.2);
@@ -218,7 +302,7 @@
         .missions-title { font-family: 'Cinzel', serif; font-size: 0.9rem; color: var(--accent-gold); }
         .badges-btn {
             background: rgba(255,215,0,0.15); border: 1px solid var(--star-gold); color: var(--star-gold);
-            padding: 4px 10px; border-radius: 15px; font-size: 0.7rem; cursor: pointer; font-family: 'Crimson Pro', serif;
+            padding: 4px 10px; border-radius: 15px; font-size: 0.7rem; cursor: pointer; font-family: 'Inter', sans-serif;
         }
         .mission-item {
             display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 6px;
@@ -290,7 +374,7 @@
             color: var(--text-primary);
             padding: 8px 10px;
             border-radius: 10px;
-            font-family: 'Crimson Pro', serif;
+            font-family: 'Inter', sans-serif;
             font-size: 0.9rem;
         }
         .text-input {
@@ -299,7 +383,7 @@
             color: var(--text-primary);
             padding: 8px 10px;
             border-radius: 10px;
-            font-family: 'Crimson Pro', serif;
+            font-family: 'Inter', sans-serif;
             font-size: 0.9rem;
             flex: 1 1 auto;
             min-width: 160px;
@@ -566,6 +650,50 @@
         .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: var(--accent-cream); }
         .btn-blue { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: white; }
 
+        /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
+        .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
+        .btn-bundle   { background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc; }
+        .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
+        .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
+        .btn-tactics  { background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0; }
+        .btn-history  { background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: #fff; }
+        .btn-stats    { background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: #fff; }
+
+        /* Estructura del menú principal per seccions */
+        .menu-section { margin-top: 16px; }
+        .menu-section:first-child { margin-top: 0; }
+        .menu-section-title {
+            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--text-secondary);
+            text-align: left; margin: 0 0 8px 2px; opacity: 0.85;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .menu-section-title::after { content: ''; flex: 1; height: 1px; background: rgba(201,162,39,0.18); }
+        .menu-section .menu-buttons { margin-top: 0; gap: 10px; }
+        /* Acció principal destacada */
+        .btn-hero {
+            font-size: 1.15rem; padding: 18px 18px; border-radius: 14px;
+            box-shadow: 0 6px 18px rgba(201, 162, 39, 0.35);
+        }
+        /* Graella compacta de 2 columnes per a botons secundaris */
+        .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .menu-grid .btn {
+            flex-direction: column; gap: 2px; padding: 12px 10px;
+            font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
+        }
+        .menu-grid .btn span { font-weight: 400; letter-spacing: 0; }
+        @media (max-width: 360px) { .menu-grid { grid-template-columns: 1fr; } }
+        /* Separador de la zona de dades/sync */
+        .sync-divider {
+            margin: 22px 0 12px; height: 1px;
+            background: rgba(201,162,39,0.18); position: relative;
+        }
+        .sync-divider span {
+            position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+            background: var(--bg-card); padding: 0 12px; font-size: 0.72rem;
+            color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;
+        }
+
         .opening-section {
             margin-top: 12px;
             background: var(--bg-warm);
@@ -586,10 +714,82 @@
             font-size: 0.85rem;
             margin-bottom: 10px;
         }
+        .opening-lesson-list { display: flex; flex-direction: column; gap: 12px; }
+        .opening-lesson-grid { display: flex; flex-direction: column; gap: 8px; }
+        .opening-lesson-btn { font-size: 0.9rem; padding: 11px 14px; }
+        .opening-lesson-group-title {
+            font-family: 'Cinzel', serif;
+            font-size: 0.85rem;
+            color: var(--accent-gold);
+            padding: 6px 0 2px;
+            letter-spacing: 0.03em;
+        }
+        @media (min-width: 640px) {
+            .opening-lesson-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        }
+        .hieroglyphic-section {
+            text-align: center;
+            padding: 16px 0 8px;
+        }
+        .btn-hieroglyphic {
+            background: linear-gradient(135deg, #5b3a7a 0%, #3a1d5c 100%);
+            color: #e8d8f6;
+            box-shadow: 0 4px 14px rgba(91, 58, 122, 0.4);
+            font-size: 1rem;
+            padding: 14px 24px;
+            border-radius: 12px;
+            border: 1px solid rgba(180, 140, 220, 0.25);
+        }
+        .btn-hieroglyphic:hover { opacity: 0.9; }
+        .hieroglyphic-clue {
+            border-left: 3px solid #8b5fc7;
+        }
+        .maxim-voice {
+            font-size: 0.78rem;
+            color: var(--accent-gold);
+            opacity: 0.8;
+            margin-bottom: 6px;
+            font-style: italic;
+        }
+        .opening-theory-line {
+            font-size: 0.85rem; line-height: 1.4; padding: 9px 12px; border-radius: 10px;
+            text-align: left;
+        }
+        .opening-theory-line.theory-on { background: rgba(74,124,89,0.15); border-left: 3px solid var(--accent-green); color: var(--text-primary); }
+        .opening-theory-line.theory-off { background: rgba(212,118,59,0.15); border-left: 3px solid var(--streak-fire); color: var(--text-primary); }
+        .opening-theory-line.theory-neutral { background: rgba(0,0,0,0.18); border-left: 3px solid var(--text-secondary); color: var(--text-secondary); }
+        .opening-theory-line strong { color: var(--accent-gold); }
+        .opening-stat-row {
+            display: flex; align-items: center; gap: 10px; padding: 8px 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.86rem;
+        }
+        .opening-stat-name { flex: 1; color: var(--text-primary); }
+        .opening-stat-eco { color: var(--text-secondary); font-size: 0.72rem; }
+        .opening-stat-record { color: var(--text-secondary); font-size: 0.78rem; min-width: 90px; text-align: right; }
+        .opening-stat-wr { font-weight: 700; min-width: 42px; text-align: right; }
+        .lesson-done-check { color: var(--accent-green); font-weight: 700; font-size: 0.95rem; }
+        .opening-lesson-btn.lesson-done { border-left: 3px solid var(--accent-green); }
+        .opening-progress-bar { margin-bottom: 12px; }
+        .opening-progress-label { font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 5px; }
+        .opening-progress-label strong { color: var(--accent-gold); }
+        .opening-progress-track {
+            height: 8px; background: rgba(0,0,0,0.25); border-radius: 5px; overflow: hidden;
+        }
+        .opening-progress-fill {
+            height: 100%; border-radius: 5px;
+            background: linear-gradient(90deg, var(--accent-green) 0%, var(--accent-gold) 100%);
+            transition: width 0.5s ease;
+        }
         .btn-opening {
             background: linear-gradient(135deg, #d6b24a 0%, #b48a22 100%);
             color: #2b2118;
             box-shadow: 0 4px 12px rgba(201, 162, 39, 0.35);
+        }
+        .btn-assisted {
+            background: linear-gradient(135deg, #3a6b8c 0%, #1e3f54 100%);
+            color: #e8f0f6;
+            box-shadow: 0 4px 12px rgba(58, 107, 140, 0.35);
+            border: 1px solid rgba(255,255,255,0.12);
         }
         .opening-stats {
             display: flex;
@@ -750,7 +950,12 @@
             height: 20px;
             filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
         }
-        
+        .btn-analyze {
+            background: linear-gradient(135deg, #607d8b 0%, #455a64 100%);
+            color: #eef3f5;
+            border: 1px solid rgba(255,255,255,0.14);
+        }
+
         .btn-danger {
             background: linear-gradient(135deg, #c62828, #8b0000);
             color: white;
@@ -759,7 +964,7 @@
         
         .sync-container { display: flex; gap: 8px; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }
         .btn-file {
-            background: var(--bg-warm); color: var(--text-secondary); font-family: 'Crimson Pro', serif;
+            background: var(--bg-warm); color: var(--text-secondary); font-family: 'Inter', sans-serif;
             font-size: 0.8rem; padding: 10px; flex: 1; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
         }
         .btn-share { background: linear-gradient(135deg, #673ab7, #9c27b0); color: white; width: 100%; margin-bottom: 5px; display: none; font-weight: bold; }
@@ -769,9 +974,29 @@
         .modal-content { background: var(--bg-card); padding: 25px; border-radius: 16px; text-align: center; width: 100%; max-width: 380px; border: 1px solid rgba(201, 162, 39, 0.3); max-height: 80vh; overflow-y: auto; }
         body.epaper-mode .modal-overlay { background: rgba(0,0,0,0.15); }
         body.epaper-mode .modal-content { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
+
+        /* Notificacions internes (toast) */
+        #toast-container {
+            position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+            z-index: 11000; width: calc(100% - 28px); max-width: 420px;
+            display: flex; flex-direction: column; gap: 8px; pointer-events: none;
+        }
+        .toast {
+            pointer-events: auto; cursor: pointer;
+            background: var(--bg-card); color: var(--text-primary);
+            border: 1px solid rgba(201, 162, 39, 0.35); border-left: 4px solid var(--accent-gold);
+            border-radius: 10px; padding: 12px 14px; font-size: 0.92rem; line-height: 1.45;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+            opacity: 0; transform: translateY(-10px); transition: opacity 0.25s, transform 0.25s;
+        }
+        .toast.show { opacity: 1; transform: translateY(0); }
+        .toast.toast-success { border-left-color: var(--accent-green); }
+        .toast.toast-error { border-left-color: #c62828; }
+        .toast.toast-warn { border-left-color: #d6a020; }
+        body.epaper-mode .toast { background: #ededed; color: #222; border-color: #cfcfcf; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
         
         .modal-title { font-family: 'Cinzel', serif; font-size: 1.5rem; color: var(--accent-gold); margin-bottom: 15px; }
-        .close-modal { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-top: 15px; font-family: 'Crimson Pro', serif; }
+        .close-modal { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-top: 15px; font-family: 'Inter', sans-serif; }
         
         .new-badge { width: 80px; height: 80px; font-size: 3.5rem; margin: 0 auto 15px; }
         .new-badge-name { font-size: 1.3rem; color: var(--text-primary); margin-bottom: 5px; font-weight: bold; }
@@ -783,7 +1008,8 @@
         .badge-icon { font-size: 2.5rem; margin-bottom: 5px; }
         .badge-name { font-size: 0.8rem; color: var(--text-primary); margin-bottom: 3px; }
         .badge-req { font-size: 0.65rem; color: var(--text-secondary); }
-        
+        .badge-cat-title { grid-column: 1 / -1; font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold); margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; }
+
         /* BUNDLE & DRILLS MENU */
         .bundle-list { text-align: left; max-height: 300px; overflow-y: auto; margin-top: 15px; }
         .bundle-item, .drill-item {
@@ -871,7 +1097,27 @@
         .header-title { font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 8px; }
         .game-info { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary); }
         .streak-badge { color: var(--star-gold); font-weight: bold; }
-        
+
+        /* Rellotge de partida */
+        .game-clocks { display: flex; gap: 8px; margin-top: 8px; }
+        .clock-pill {
+            flex: 1; display: flex; align-items: center; justify-content: space-between;
+            background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 6px 12px; transition: all 0.2s;
+        }
+        .clock-tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary); }
+        .clock-time { font-family: 'Cinzel', serif; font-size: 1.25rem; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+        .clock-pill.clock-active {
+            border-color: var(--accent-gold);
+            background: rgba(201,162,39,0.18);
+            box-shadow: 0 0 12px rgba(201,162,39,0.25);
+        }
+        .clock-pill.clock-active .clock-time { color: var(--accent-gold); }
+        .clock-pill.clock-low .clock-time { color: var(--severity-high); }
+        .clock-pill.clock-active.clock-low { border-color: var(--severity-high); box-shadow: 0 0 12px rgba(192,57,43,0.35); }
+        body.epaper-mode .clock-pill { background: #ededed; border-color: #cfcfcf; }
+        body.epaper-mode .clock-pill.clock-active { border-color: #444; background: #e0e0e0; box-shadow: none; }
+
         .precision-panel { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .precision-stat { text-align: center; min-width: 70px; }
         .precision-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 3px; }
@@ -1151,6 +1397,9 @@
             position: absolute; inset: 0; background: rgba(0,0,0,0.75);
             display: none; align-items: center; justify-content: center; z-index: 150; padding: 16px;
         }
+        .bundle-success-overlay.overlay-fixed {
+            position: fixed; z-index: 1000;
+        }
         .bundle-success-content {
             background: rgba(45, 36, 28, 0.95);
             border: 1px solid rgba(201, 162, 39, 0.4);
@@ -1318,6 +1567,10 @@
             color: var(--accent-gold);
             margin-bottom: 10px;
         }
+        .history-filters {
+            display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+        }
+        .history-filters .select-control { flex: 1; min-width: 120px; font-size: 0.82rem; padding: 7px 8px; }
         .history-layout {
             display: grid;
             grid-template-columns: 1fr;
@@ -1635,7 +1888,33 @@
             padding: 12px;
             text-align: center;
         }
-        
+
+        .weakness-group-title {
+            font-family: 'Cinzel', serif;
+            color: var(--accent-gold);
+            font-size: 0.85rem;
+            letter-spacing: 0.5px;
+            margin: 12px 0 6px;
+        }
+        .weakness-row {
+            display: grid;
+            grid-template-columns: 1.4fr 2fr 0.4fr;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 6px;
+        }
+        .weakness-label { font-size: 0.85rem; color: var(--text-primary); }
+        .weakness-bar-track {
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+            height: 12px;
+            overflow: hidden;
+        }
+        .weakness-bar-fill { height: 100%; border-radius: 6px; transition: width 0.3s; }
+        .weakness-count { font-size: 0.8rem; color: var(--text-secondary); text-align: right; }
+        body.epaper-mode .weakness-bar-track { background: #d8d8d8; }
+        body.epaper-mode .weakness-bar-fill { background: #888 !important; }
+
         .stat-card-value {
             font-family: 'Cinzel', serif;
             font-size: 1.8rem;
@@ -1744,6 +2023,24 @@
             -webkit-overflow-scrolling: touch;
             border: 1px solid rgba(201, 162, 39, 0.12);
         }
+        .league-history { margin-top: 14px; text-align: left; }
+        .league-history-title {
+            font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
+            margin-bottom: 8px; letter-spacing: 0.5px;
+        }
+        .league-history-empty { font-size: 0.82rem; color: var(--text-secondary); }
+        .league-history-row {
+            display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-bottom: 6px;
+            background: var(--bg-warm); border-radius: 8px; font-size: 0.85rem;
+            border-left: 3px solid var(--text-secondary);
+        }
+        .league-history-row .lh-round { font-weight: 700; color: var(--accent-gold); min-width: 28px; }
+        .league-history-row .lh-opp { flex: 1; color: var(--text-primary); }
+        .league-history-row .lh-result { font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+        .lh-win { background: rgba(74,124,89,0.25); color: var(--accent-green); }
+        .lh-loss { background: rgba(198,40,40,0.2); color: var(--severity-high); }
+        .lh-draw { background: rgba(201,162,39,0.2); color: var(--accent-gold); }
+        .league-history-row.lh-win-row { border-left-color: var(--accent-green); }
         table.league-table { width: 100%; border-collapse: collapse; }
         .league-table thead th {
             text-align: left;
@@ -1907,6 +2204,17 @@
             color: var(--text-secondary);
             margin-bottom: 10px;
         }
+        .review-opening-note {
+            background: rgba(201,162,39,0.12);
+            border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 10px; padding: 10px 12px; margin: 10px 0;
+            font-size: 0.85rem; color: var(--text-primary); line-height: 1.4; text-align: left;
+        }
+        .review-opening-note strong { color: var(--accent-gold); }
+        .review-newerrors {
+            font-size: 0.85rem; color: var(--text-secondary); margin: 6px 0 4px;
+        }
+        .review-newerrors strong { color: var(--severity-med); }
         .checkmate-image {
             display: none;
             width: min(220px, 70%);
@@ -1958,7 +2266,7 @@
 </head>
 <body>
     <!-- Banner d'actualització del Service Worker -->
-    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Crimson Pro',serif;">
+    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
         <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
             <span style="font-size:14px;">Nova versió disponible</span>
             <div style="display:flex; gap:8px;">
@@ -1969,7 +2277,7 @@
     </div>
 
     <div id="app-container">
-        <div id="start-screen">
+        <div id="start-screen" class="screen-anim">
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
             <div class="subtitle">Entrenador d'Escacs</div>
@@ -1990,6 +2298,12 @@
                 </div>
             </div>
             
+            <div class="engagement-banner" id="engagement-banner" style="display:none;">
+                <span class="eng-icon">💡</span>
+                <span class="eng-text"></span>
+                <button class="btn eng-cta" data-eng-action="play"></button>
+            </div>
+
             <div class="missions-panel">
                 <div class="missions-header">
                     <div class="missions-title">Missions Diàries</div>
@@ -1997,40 +2311,72 @@
                 </div>
                 <div id="missions-list"></div>
             </div>
-            
-            <div class="menu-buttons">
-                <button class="btn btn-primary" id="btn-new-game">♟ Nova Partida</button>
-                <div class="league-banner" id="league-banner" style="display:none;">
-                    <div class="league-banner-header">
-                        <span>🏅 Proper partit de lliga</span>
-                        <span class="league-badge" id="league-banner-opp-rank">#—</span>
-                    </div>
-                    <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
-                    <div class="league-banner-body">
-                        <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
-                        <div class="league-banner-ranks">
-                            <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
-                            <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
+
+            <!-- JUGA -->
+            <div class="menu-section">
+                <div class="menu-section-title">Juga</div>
+                <div class="menu-buttons">
+                    <button class="btn btn-primary btn-hero" id="btn-new-game">♟ Nova Partida</button>
+                    <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida Assistida</button>
+                    <div class="league-banner" id="league-banner" style="display:none;">
+                        <div class="league-banner-header">
+                            <span>🏅 Proper partit de lliga</span>
+                            <span class="league-badge" id="league-banner-opp-rank">#—</span>
+                        </div>
+                        <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
+                        <div class="league-banner-body">
+                            <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
+                            <div class="league-banner-ranks">
+                                <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
+                                <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
+                            </div>
+                        </div>
+                        <div class="league-banner-actions">
+                            <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
                         </div>
                     </div>
-                    <div class="league-banner-actions">
-                        <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
+                    <button class="btn btn-league" id="btn-league">🏆 Lliga</button>
+                </div>
+            </div>
+
+            <!-- ENTRENA -->
+            <div class="menu-section">
+                <div class="menu-section-title">Entrena</div>
+                <div class="menu-buttons">
+                    <button class="btn btn-opening" id="btn-opening">📖 Obertures</button>
+                    <div class="menu-grid">
+                        <button class="btn btn-tactics" id="btn-tactics">
+                            ⚡ Tàctiques
+                            <span style="font-size:0.72rem; opacity:0.85;" id="tactics-info">Entrena combinacions</span>
+                        </button>
+                        <button class="btn btn-bundle" id="btn-bundle-menu">
+                            📚 Revisa Errors
+                            <span style="font-size:0.72rem; opacity:0.85;" id="bundle-info">Cap error desat</span>
+                        </button>
+                        <button class="btn btn-srs" id="btn-srs-review">
+                            🔁 Repàs intel·ligent
+                            <span style="font-size:0.72rem; opacity:0.85;" id="srs-info">Al dia</span>
+                        </button>
+                        <button class="btn btn-daily" id="btn-daily-puzzle">
+                            🗓️ Repte diari
+                            <span style="font-size:0.72rem; opacity:0.85;" id="daily-info">Disponible</span>
+                        </button>
                     </div>
                 </div>
-                <button class="btn btn-secondary" id="btn-league" style="background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc;">🏆 Lliga</button>
-                <div class="opening-section">
-                    <div class="opening-section-title">Secció d'obertura</div>
-                    <div class="opening-section-desc">Explora idees bàsiques per començar la partida.</div>
-                    <button class="btn btn-opening" id="btn-opening">OBERTURA</button>
-                </div>
-                <button class="btn btn-secondary" id="btn-bundle-menu" style="background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc;">
-                    📚 Revisa Errors
-                    <span style="font-size:0.75rem; opacity:0.8;" id="bundle-info">Cap error desat</span>
-                </button>
-                <button class="btn btn-secondary" id="btn-history" style="background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: white;">📜 Historial</button>
-                <button class="btn btn-secondary" id="btn-stats" style="background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: white;">📊 Estadístiques</button>
             </div>
-            
+
+            <!-- PROGRÉS -->
+            <div class="menu-section">
+                <div class="menu-section-title">Progrés</div>
+                <div class="menu-buttons">
+                    <div class="menu-grid">
+                        <button class="btn btn-history" id="btn-history">📜 Historial</button>
+                        <button class="btn btn-stats" id="btn-stats">📊 Estadístiques</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sync-divider"><span>Dades</span></div>
             <div class="sync-container">
                 <button class="btn btn-share" id="btn-smart-share">📤 Compartir Progrés</button>
                 <button class="btn btn-file" id="btn-export">💾 Exportar</button>
@@ -2039,7 +2385,7 @@
             </div>
         </div>
 
-        <div id="calibration-result-screen" style="display:none;">
+        <div id="calibration-result-screen" class="screen-anim" style="display:none;">
             <div class="calibration-result-header">
                 <div class="app-logo">🎯</div>
                 <h1>Resultats del calibratge</h1>
@@ -2073,7 +2419,7 @@
             </div>
         </div>
 
-        <div id="stats-screen" style="display:none;">
+        <div id="stats-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">📊</div>
                 <h1>Estadístiques</h1>
@@ -2095,12 +2441,31 @@
                 </div>
                 <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar".</div>
                 <div class="setting-row">
+                    <div class="setting-label">Rellotge de partida</div>
+                    <select id="time-control-select" class="select-control">
+                        <option value="none">Sense rellotge</option>
+                        <option value="3+2">Blitz 3+2</option>
+                        <option value="5+0">Blitz 5+0</option>
+                        <option value="10+0">Ràpid 10+0</option>
+                        <option value="15+10">Clàssic 15+10</option>
+                    </select>
+                </div>
+                <div class="setting-help">S'aplica a les partides amistoses, assistides i de lliga. Si esgotes el temps, perds la partida.</div>
+                <div class="setting-row">
                     <div class="setting-label">Revisió d'errors (Bundle)</div>
                     <select id="bundle-accept-select" class="select-control">
                         <option value="top1">Només la millor</option>
                         <option value="top2">Només les dues millors</option>
                     </select>
                 </div>
+                <div class="setting-row">
+                    <div class="setting-label">Mode dia (tema clar)</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="daymode-toggle">
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Tema clar i càlid, ideal per jugar amb molta llum o a l'exterior.</div>
                 <div class="setting-row">
                     <div class="setting-label">Mode ePaper</div>
                     <label class="epaper-toggle">
@@ -2167,6 +2532,16 @@
                 </div>
             </div>
 
+            <div class="chart-container">
+                <div class="chart-title">Les teves debilitats</div>
+                <div id="stats-weaknesses"></div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">Les teves obertures</div>
+                <div id="stats-openings"></div>
+            </div>
+
             <div class="danger-zone">
                 <div class="danger-zone-title">⚠️ Zona Perillosa</div>
                 <button class="btn btn-danger" id="btn-show-delete" style="width:100%;">
@@ -2187,13 +2562,33 @@
             </div>
         </div>
    
-        <div id="history-screen" style="display:none;">
+        <div id="history-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">📜</div>
                 <h1>Historial</h1>
             </div>
             <div class="history-section">
                 <div class="history-title">Partides guardades</div>
+                <div class="history-filters">
+                    <select id="history-filter-result" class="select-control">
+                        <option value="all">Tots els resultats</option>
+                        <option value="win">Victòries</option>
+                        <option value="loss">Derrotes</option>
+                        <option value="draw">Taules</option>
+                    </select>
+                    <select id="history-filter-mode" class="select-control">
+                        <option value="all">Tots els modes</option>
+                        <option value="free">Amistoses</option>
+                        <option value="assisted">Assistides</option>
+                        <option value="league">Lliga</option>
+                    </select>
+                    <select id="history-filter-prec" class="select-control">
+                        <option value="0">Tota precisió</option>
+                        <option value="60">Precisió ≥ 60%</option>
+                        <option value="75">Precisió ≥ 75%</option>
+                        <option value="85">Precisió ≥ 85%</option>
+                    </select>
+                </div>
                 <div class="history-layout">
                     <div class="history-list" id="history-list"></div>
                     <div class="history-detail">
@@ -2220,6 +2615,8 @@
                                 </div>
                                 <div class="history-actions">
                                     <button class="btn btn-secondary" id="history-generate-review">✨ Generar ressenya</button>
+                                    <button class="btn btn-secondary" id="history-export-pgn">♟ Exportar PGN</button>
+                                    <button class="btn btn-secondary" id="history-share-pgn">📤 Compartir</button>
                                 </div>
                                 <div class="history-progress" id="history-progress">0/0</div>
                             </div>
@@ -2228,6 +2625,7 @@
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
                 <button class="btn btn-primary" id="btn-back-history">Tornar al Menú</button>
             </div>
         </div>
@@ -2265,9 +2663,12 @@
                 <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>
                 <div class="review-highlight">Com han estat les teves jugades?</div>
                 <div class="review-legend" id="review-breakdown"></div>
+                <div class="review-opening-note" id="review-opening-note" style="display:none;"></div>
+                <div class="review-newerrors" id="review-newerrors" style="display:none;"></div>
                 <div class="review-actions">
+                    <button class="btn btn-primary" id="btn-review-again" style="display:none;">🔁 Tornar a jugar</button>
                     <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
-                    <button class="btn btn-primary" id="btn-review-stats">📊 Veure evolució</button>
+                    <button class="btn btn-secondary" id="btn-review-stats">📊 Veure evolució</button>
                     <button class="btn btn-secondary" id="btn-review-menu">Menú</button>
                     <button class="close-modal" id="btn-review-close">Tancar</button>
                 </div>
@@ -2275,7 +2676,7 @@
         </div>
 
         
-        <div id="league-screen" style="display:none;">
+        <div id="league-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">🏆</div>
                 <h1>Lliga</h1>
@@ -2305,6 +2706,8 @@
                 </table>
             </div>
 
+            <div class="league-history" id="league-history"></div>
+
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-primary" id="btn-league-play">Jugar</button>
                 <button class="btn btn-secondary" id="btn-league-new" style="display:none;">Generar nova lliga</button>
@@ -2312,10 +2715,22 @@
             </div>
         </div>
 
-        <div id="opening-screen" style="display:none;">
+        <div id="opening-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo">📖</div>
                 <h1>Obertures</h1>
+            </div>
+            <div class="opening-section">
+                <div class="opening-section-title">Aprèn una obertura</div>
+                <div class="opening-section-desc">Tria una obertura clàssica i practica la línia principal jugada a jugada amb guia.</div>
+                <div class="opening-lesson-list" id="opening-lesson-list"></div>
+            </div>
+            <div class="opening-section">
+                <div class="opening-section-title">🔮 Exercicis Geroglífics</div>
+                <div class="opening-section-desc">Desxifra la pista estratègica i troba la jugada teòrica correcta. Un mestre estrateg t'oferirà una màxima xifrada com a única guia.</div>
+                <div class="hieroglyphic-section">
+                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise">🔮 Començar exercici</button>
+                </div>
             </div>
             <div class="opening-section">
                 <div class="opening-section-title">Estadístiques d'obertura (últimes 10 partides)</div>
@@ -2359,12 +2774,12 @@
             </div>
 
             <!-- Overlay d'èxit per errors d'obertura -->
-            <div id="opening-error-success-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center;">
-                <div style="background:var(--bg-card); padding:30px; border-radius:16px; text-align:center; max-width:320px; border:2px solid var(--accent-gold);">
-                    <div style="font-size:3em; margin-bottom:15px;">✅</div>
-                    <div style="font-family:'Cinzel',serif; font-size:1.3em; color:var(--accent-gold); margin-bottom:10px;">Bundle resolt</div>
-                    <div style="color:var(--text-secondary); margin-bottom:20px; font-size:0.9em;" id="opening-error-remaining">—</div>
-                    <div style="display:flex; gap:10px; justify-content:center;">
+            <div class="bundle-success-overlay overlay-fixed" id="opening-error-success-overlay">
+                <div class="bundle-success-content">
+                    <div class="bundle-success-icon">✅</div>
+                    <div class="bundle-success-title">Bundle resolt</div>
+                    <div class="bundle-success-remaining" id="opening-error-remaining">—</div>
+                    <div class="bundle-success-actions">
                         <button class="btn btn-secondary" id="btn-opening-error-home">Tornar</button>
                         <button class="btn btn-primary" id="btn-opening-error-again">Un altre</button>
                     </div>
@@ -2386,7 +2801,11 @@
                     <div class="calibration-progress-bar">
                         <div class="calibration-progress-fill" id="calibration-progress-fill"></div>
                     </div>
-                </div>            
+                </div>
+                <div class="game-clocks" id="game-clocks" style="display:none;">
+                    <div class="clock-pill"><span class="clock-tag">IA</span><span class="clock-time" id="clock-opp">5:00</span></div>
+                    <div class="clock-pill"><span class="clock-tag">Tu</span><span class="clock-time" id="clock-you">5:00</span></div>
+                </div>
             </div>
             
             <div class="precision-panel">
@@ -2429,12 +2848,12 @@
                         </div>
                     </div>
                 </div>           
-                <div id="match-error-success-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center;">
-                    <div style="background:var(--bg-card); padding:30px; border-radius:16px; text-align:center; max-width:320px; border:2px solid var(--accent-gold);">
-                        <div style="font-size:3em; margin-bottom:15px;">✅</div>
-                        <div style="font-family:'Cinzel',serif; font-size:1.3em; color:var(--accent-gold); margin-bottom:10px;">Error revisat</div>
-                        <div style="color:var(--text-secondary); margin-bottom:20px; font-size:0.9em;" id="match-error-remaining">—</div>
-                        <div style="display:flex; gap:10px; justify-content:center;">
+                <div class="bundle-success-overlay overlay-fixed" id="match-error-success-overlay">
+                    <div class="bundle-success-content">
+                        <div class="bundle-success-icon">✅</div>
+                        <div class="bundle-success-title">Error revisat</div>
+                        <div class="bundle-success-remaining" id="match-error-remaining">—</div>
+                        <div class="bundle-success-actions">
                             <button class="btn btn-secondary" id="btn-match-error-home">Tornar</button>
                             <button class="btn btn-primary" id="btn-match-error-again">Un altre</button>
                         </div>
@@ -2455,6 +2874,11 @@
                         <img src="brain.svg" alt="Cervell">
                         <span>Màxima</span>
                     </button>
+                    <button class="btn btn-brain-hint" id="btn-assisted-hint" title="Consell estratègic" style="display:none;">
+                        <img src="brain.svg" alt="Cervell">
+                        <span>Consell</span>
+                    </button>
+                    <button class="btn btn-analyze" id="btn-analyze" title="Analitza la posició actual" style="display:none;">🔬 Analitza</button>
                     <button class="btn btn-secondary" id="btn-back">Menú</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
                 </div>
@@ -2483,7 +2907,22 @@
             </div>
         </div>
     </div>
-    
+
+    <!-- Notificacions internes (toast) -->
+    <div id="toast-container" aria-live="polite"></div>
+
+    <!-- Confirmació interna genèrica -->
+    <div class="modal-overlay" id="app-confirm-modal">
+        <div class="modal-content">
+            <div class="modal-title" id="app-confirm-title">Confirmar</div>
+            <div class="subtitle" id="app-confirm-message"></div>
+            <div class="resign-modal-actions">
+                <button class="btn btn-primary" id="app-confirm-yes">D'acord</button>
+                <button class="btn btn-secondary" id="app-confirm-no">Cancel·la</button>
+            </div>
+        </div>
+    </div>
+
     <!-- PWA Install Banner -->
     <div class="install-banner" id="install-banner">
         <div style="color: var(--text-primary); margin-bottom: 8px;">📲 Instal·la El Tauler al teu dispositiu</div>

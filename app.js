@@ -66,6 +66,12 @@ let openingNextMoveHint = null; // Següent moviment de l'obertura per a la pist
 
 // Pràctica d'errors d'obertura
 let openingErrorPracticeActive = false;
+// Lliçons guiades d'obertures ("Aprèn una obertura")
+let openingLessonActive = false;
+let openingLessonLine = [];
+let openingLessonStep = 0;
+let openingLessonInfo = null;
+let openingLessonUserColor = 'w';
 let openingErrorCurrentPositions = []; // Posicions d'error disponibles
 let openingErrorCurrentFen = null; // FEN actual que s'està practicant
 let openingErrorBestMove = null; // Millor moviment esperat
@@ -123,30 +129,25 @@ const CONTINUOUS_ADJUST_CONFIG = {
     WIN_THRESHOLD: 2,
     LOSS_THRESHOLD: 2,
     WIN_ELO: 50,
-    LOSS_ELO: -30,
+    LOSS_ELO: -50,
     MAX_CYCLE_DELTA: 100,
     QUALITY_HIGH: 0.7,
     ERROR_PRECISION_MAX: 60,
     ERROR_CPLOSS_MIN: 140,
     ERROR_BLUNDERS_MIN: 2,
-    LOSS_STREAK_TRIGGER: 5,
-    LOSS_STREAK_DELTA: -50
+    LOSS_STREAK_TRIGGER: 3,
+    LOSS_STREAK_DELTA: -70
 };
 const ELO_MILESTONES = [800, 1000, 1200, 1400, 1600, 1800, 2000];
 const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
-const CALIBRATION_ENGINE_PRECISION_RANGES = [
-    { min: 45, max: 50 },
-    { min: 52, max: 58 },
-    { min: 58, max: 65 },
-    { min: 65, max: 72 },
-    { min: 72, max: 78 }
-];
 const CALIBRATION_GAME_COUNT = 5;
-const CALIBRATION_ROCS = [300, 500, 600, 800, 900];
-const CALIBRATION_DEPTHS = [5, 8, 10];
+// Oponents de calibratge per partida (ROC). La força de cada partida es deriva d'aquest ROC
+// amb el MATEIX model que el joc lliure (UCI_Elo + profunditat + selecció humana de moviments),
+// de manera que el nivell estimat reflecteix el que el jugador trobarà realment després.
+const CALIBRATION_ROCS = [200, 350, 500, 650, 800];
 const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
@@ -170,6 +171,16 @@ let currentCalibrationOpponentRoc = null;
 let isEngineThinking = false;
 let engineMoveCandidates = [];
 let lastReviewSnapshot = null;
+// Rellotge de partida (mode contrarellotge)
+const TIME_CONTROLS = [
+    { id: 'none', label: 'Sense rellotge' },
+    { id: '3+2', label: 'Blitz 3+2', base: 180, inc: 2 },
+    { id: '5+0', label: 'Blitz 5+0', base: 300, inc: 0 },
+    { id: '10+0', label: 'Ràpid 10+0', base: 600, inc: 0 },
+    { id: '15+10', label: 'Clàssic 15+10', base: 900, inc: 10 }
+];
+const TIME_CONTROL_KEY = 'chess_timeControl';
+let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
 let calibrationResultsChart = null;
 let currentGameStartTs = null;
 
@@ -180,6 +191,16 @@ let currentBundleSeverity = null;
 let currentBundleSource = null;
 let playerColor = 'w';
 let isRandomBundleSession = false;
+// Repetició espaiada (SRS) i repte diari
+let isSrsReviewSession = false;
+let isDailyPuzzleSession = false;
+let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, lastSolved: null };
+// Progrés d'aprenentatge d'obertures (ids ECO completats) i tàctiques resoltes
+let completedOpenings = [];
+let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
+let isTacticsSession = false;
+// Cau en memòria de respostes Gemini (per FEN+tipus) per estalviar crides
+const geminiResponseCache = {};
 let bundleSequenceStep = 1;
 let bundleSequenceStartFen = null;
 let bundleStepStartFen = null;
@@ -260,13 +281,63 @@ function isTouchDevice() {
 const CONTROL_MODE_KEY = 'eltauler_control_mode';
 let controlMode = null;
 
+/* ============ NOTIFICACIONS INTERNES (toast + confirm) ============ */
+// Mostra un missatge intern de l'app (substitueix les finestres del sistema).
+function showToast(message, type = 'info', duration = null) {
+    const text = (message === undefined || message === null) ? '' : String(message);
+    if (!text) return;
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = text;
+    container.appendChild(toast);
+    // Durada proporcional a la longitud del missatge; els errors/avisos es queden més estona
+    const cap = (type === 'error' || type === 'warn') ? 10000 : 7000;
+    const ms = duration || Math.max(2500, Math.min(cap, 1500 + text.length * 55));
+    requestAnimationFrame(() => toast.classList.add('show'));
+    const dismiss = () => {
+        toast.classList.remove('show');
+        setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+    };
+    toast.addEventListener('click', dismiss);
+    setTimeout(dismiss, ms);
+}
+
+// Internalitza qualsevol alert() del sistema com a toast de l'app.
+window.alert = function(message) { showToast(message, 'info'); };
+
+// Confirmació interna (asíncrona, amb callbacks) que substitueix confirm().
+function showAppConfirm(message, onConfirm, opts = {}) {
+    const modal = document.getElementById('app-confirm-modal');
+    if (!modal) {
+        // Fallback segur si el modal no existeix
+        if (typeof onConfirm === 'function') onConfirm();
+        return;
+    }
+    document.getElementById('app-confirm-title').textContent = opts.title || 'Confirmar';
+    document.getElementById('app-confirm-message').textContent = message || '';
+    const yesBtn = $('#app-confirm-yes');
+    const noBtn = $('#app-confirm-no');
+    yesBtn.text(opts.confirmText || "D'acord");
+    noBtn.text(opts.cancelText || 'Cancel·la');
+    const close = () => { modal.style.display = 'none'; yesBtn.off('click'); noBtn.off('click'); };
+    yesBtn.off('click').on('click', () => { close(); if (typeof onConfirm === 'function') onConfirm(); });
+    noBtn.off('click').on('click', () => { close(); if (typeof opts.onCancel === 'function') opts.onCancel(); });
+    modal.style.display = 'flex';
+}
+
 // Revisió d'errors (Bundle): validar només la millor jugada o les 2 millors
 const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
 
 const GEMINI_API_KEY_STORAGE = 'chess_gemini_api_key';
-const GEMINI_MODEL_ID = 'gemini-3-flash-preview';
+const GEMINI_MODEL_ID = 'gemini-3.5-flash';
 let geminiApiKey = null;
 
 const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
@@ -311,7 +382,31 @@ function applyEpaperMode(enabled, options = {}) {
     document.body.classList.toggle('epaper-mode', epaperEnabled);
     const toggle = document.getElementById('epaper-toggle');
     if (toggle) toggle.checked = epaperEnabled;
+    // ePaper i mode dia són incompatibles: activar ePaper desactiva el mode dia
+    if (epaperEnabled && dayModeEnabled) applyDayMode(false);
     if (!options.skipSave) saveEpaperPreference(epaperEnabled);
+    if (eloChart) updateEloChart();
+    if (reviewChart) updateReviewChart();
+}
+
+const DAY_MODE_KEY = 'eltauler_day_mode';
+let dayModeEnabled = false;
+
+function loadDayModePreference() {
+    try { return localStorage.getItem(DAY_MODE_KEY) === 'on'; }
+    catch (e) { return false; }
+}
+
+function applyDayMode(enabled, options = {}) {
+    dayModeEnabled = !!enabled;
+    document.body.classList.toggle('day-mode', dayModeEnabled);
+    const toggle = document.getElementById('daymode-toggle');
+    if (toggle) toggle.checked = dayModeEnabled;
+    // Mode dia i ePaper són incompatibles
+    if (dayModeEnabled && epaperEnabled) applyEpaperMode(false);
+    if (!options.skipSave) {
+        try { localStorage.setItem(DAY_MODE_KEY, dayModeEnabled ? 'on' : 'off'); } catch (e) {}
+    }
     if (eloChart) updateEloChart();
     if (reviewChart) updateReviewChart();
 }
@@ -467,7 +562,9 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         freeLossStreak: freeLossStreak,
         calibrationRocFloor: calibrationRocFloor,
         eloMilestones: unlockedEloMilestones,
-        lastAdjustmentQualityAvg: lastAdjustmentQualityAvg
+        lastAdjustmentQualityAvg: lastAdjustmentQualityAvg,
+        completedOpenings: completedOpenings,
+        tacticsStats: tacticsStats
     };
     if (includeGameHistory) base.gameHistory = gameHistory;
     return base;
@@ -496,6 +593,8 @@ function importBackupData(data) {
     leagueActiveMatch = data.leagueActiveMatch || null;
     reviewHistory = data.reviewHistory || [];
     gameHistory = data.gameHistory || [];
+    if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
+    if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0 }, data.tacticsStats);
        isCalibrating = typeof data.isCalibrating === 'boolean' ? data.isCalibrating : isCalibrating;
     calibrationGames = Array.isArray(data.calibrationGames) ? data.calibrationGames : calibrationGames;
     calibrationProfile = data.calibrationProfile || calibrationProfile;
@@ -518,7 +617,7 @@ function importBackupData(data) {
         userELO = Math.max(50, currentElo);
         syncEngineEloFromUser();
     }
-    saveStorage(); updateDisplay(); alert('Dades importades!');
+    saveStorage(); updateDisplay(); showToast('Dades importades!', 'success');
 }
 
 async function handleBackupImportFile(file) {
@@ -526,11 +625,13 @@ async function handleBackupImportFile(file) {
     try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (confirm(`Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`)) {
-            importBackupData(data);
-        }
+        showAppConfirm(
+            `Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`,
+            () => importBackupData(data),
+            { title: 'Importar dades', confirmText: 'Importar' }
+        );
     } catch (err) {
-        alert('Error llegint l\'arxiu');
+        showToast('Error llegint l\'arxiu', 'error');
     }
 }
 
@@ -779,8 +880,9 @@ function commitHumanMoveFromTap(from, to) {
     $('.square-55d63').removeClass('highlight-hint');
     const prevFen = game.fen();
     const move = game.move({ from: from, to: to, promotion: 'q' });
-    if (move === null) return false;
+    if (move === null) { showIllegalMoveFeedback(from); return false; }
     clearEngineMoveHighlights();
+    clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
     lastPosition = prevFen;
@@ -957,6 +1059,42 @@ function getValidOpeningMoves(sequence) {
 
     // Retorna tots els moviments possibles des d'aquest node
     return Object.keys(node.children);
+}
+
+// Analitza fins on una partida ha seguit la teoria d'obertures
+// Retorna { depth, name, eco, deviationMove, deviationBy, theoryMoves } o null
+function analyzeGameOpening(moves) {
+    if (!openingTrie || !Array.isArray(moves) || moves.length === 0) return null;
+    let node = openingTrie;
+    let depth = 0;
+    let lastOpening = null;
+    for (let i = 0; i < moves.length; i++) {
+        const mv = moves[i];
+        if (!node.children[mv]) {
+            // Desviació: el moviment i (0-indexat) no segueix cap línia coneguda
+            const theoryMoves = Object.keys(node.children);
+            if (theoryMoves.length === 0 || depth < 2) return lastOpening ? { depth, name: lastOpening.name, eco: lastOpening.eco, deviationMove: null } : null;
+            return {
+                depth,
+                name: lastOpening ? lastOpening.name : null,
+                eco: lastOpening ? lastOpening.eco : null,
+                deviationMove: mv,
+                deviationPly: i,
+                deviationBy: (i % 2 === 0) ? 'w' : 'b',
+                theoryMoves: theoryMoves.slice(0, 3)
+            };
+        }
+        node = node.children[mv];
+        depth++;
+        if (node.openings && node.openings.length) lastOpening = node.openings[0];
+    }
+    // Tota la seqüència segueix la teoria
+    return {
+        depth,
+        name: lastOpening ? lastOpening.name : null,
+        eco: lastOpening ? lastOpening.eco : null,
+        deviationMove: null
+    };
 }
 
 // Comprova si un moviment és vàlid dins d'alguna obertura
@@ -1970,7 +2108,8 @@ function createNewLeague(force = false) {
         players: players,
         schedule: schedule,
         currentRound: 1,
-        completed: false
+        completed: false,
+        history: []
     };
     leagueActiveMatch = null;
     saveStorage();
@@ -2149,6 +2288,29 @@ function renderLeague() {
         tr.append(`<td class="num">${formatPts(p.pts)}</td>`);
         tbody.append(tr);
     });
+
+    renderLeagueHistory();
+}
+
+function renderLeagueHistory() {
+    const container = document.getElementById('league-history');
+    if (!container) return;
+    const hist = (currentLeague && Array.isArray(currentLeague.history)) ? currentLeague.history : [];
+    if (!hist.length) {
+        container.innerHTML = '<div class="league-history-empty">Encara no has jugat cap jornada en aquesta lliga.</div>';
+        return;
+    }
+    const label = { win: 'Victòria', loss: 'Derrota', draw: 'Taules' };
+    const cls = { win: 'lh-win', loss: 'lh-loss', draw: 'lh-draw' };
+    let html = '<div class="league-history-title">Les teves jornades</div>';
+    hist.slice().reverse().forEach(h => {
+        html += `<div class="league-history-row">
+            <span class="lh-round">J${h.round}</span>
+            <span class="lh-opp">vs ${h.oppName}${h.oppElo ? ` · ${h.oppElo}` : ''}</span>
+            <span class="lh-result ${cls[h.outcome] || ''}">${label[h.outcome] || '—'}</span>
+        </div>`;
+    });
+    container.innerHTML = html;
 }
 
 function simulateOutcomeByElo(eloA, eloB) {
@@ -2223,6 +2385,16 @@ function applyLeagueAfterGame(myOutcome) {
     if (myOutcome === 'win') applyResult('me', oppId, 'winA');
     else if (myOutcome === 'loss') applyResult('me', oppId, 'winB');
     else applyResult('me', oppId, 'draw');
+
+    // Desa el resultat de la meva ronda per a l'historial de la lliga
+    const oppForHist = getLeaguePlayer(oppId);
+    if (!Array.isArray(currentLeague.history)) currentLeague.history = [];
+    currentLeague.history.push({
+        round: roundNumber,
+        oppName: oppForHist ? oppForHist.name : 'Rival',
+        oppElo: oppForHist ? oppForHist.elo : null,
+        outcome: myOutcome
+    });
 
     const pairings = currentLeague.schedule[roundIdx] || [];
     for (const [aId, bId] of pairings) {
@@ -2388,9 +2560,43 @@ function checkNewBadges(oldStars, newStars) {
     });
 }
 
-function showNewBadge(badge) {
+// Trofeus d'obertures i de tàctiques (categories addicionals)
+const OPENING_BADGES = [
+    { id: 'op_first', name: 'Primera obertura', req: 1, icon: '📖' },
+    { id: 'op_five', name: 'Repertori inicial', req: 5, icon: '📚' },
+    { id: 'op_ten', name: 'Estudiós', req: 10, icon: '🎓' },
+    { id: 'op_twenty', name: 'Teòric', req: 20, icon: '🧠' },
+    { id: 'op_all', name: 'Mestre d\'obertures', req: 28, icon: '👑' }
+];
+const TACTICS_BADGES = [
+    { id: 'tac_first', name: 'Primera tàctica', req: 1, icon: '⚡' },
+    { id: 'tac_ten', name: 'Combinador', req: 10, icon: '🗡️' },
+    { id: 'tac_fifty', name: 'Tàctic afinat', req: 50, icon: '🎯' },
+    { id: 'tac_streak', name: 'Ratxa de foc (5 seguides)', req: 5, icon: '🔥', kind: 'streak' }
+];
+
+function checkOpeningBadges() {
+    const count = completedOpenings.filter(e => CURATED_OPENINGS.some(op => op.eco === e)).length;
+    OPENING_BADGES.forEach(b => {
+        if (count >= b.req && !unlockedBadges.includes(b.id)) {
+            unlockedBadges.push(b.id); showNewBadge(b, `${b.req} obertures apreses`); saveStorage();
+        }
+    });
+}
+
+function checkTacticsBadges() {
+    TACTICS_BADGES.forEach(b => {
+        const val = b.kind === 'streak' ? (tacticsStats.best || 0) : tacticsStats.solved;
+        if (val >= b.req && !unlockedBadges.includes(b.id)) {
+            unlockedBadges.push(b.id); showNewBadge(b, b.kind === 'streak' ? `${b.req} seguides` : `${b.req} tàctiques resoltes`); saveStorage();
+        }
+    });
+}
+
+function showNewBadge(badge, subtitle) {
     $('#new-badge-icon').text(badge.icon); $('#new-badge-name').text(badge.name);
-    $('#new-badge-stars').text('★'.repeat(Math.min(badge.stars / 10, 10)) + ` (${badge.stars}★)`);
+    const sub = subtitle || ('★'.repeat(Math.min((badge.stars || 0) / 10, 10)) + ` (${badge.stars}★)`);
+    $('#new-badge-stars').text(sub);
     $('#new-badge-modal').css('display', 'flex');
 }
 
@@ -2399,6 +2605,18 @@ function updateBadgesModal() {
     BADGES.forEach(badge => {
         const isUnlocked = totalStars >= badge.stars; const statusClass = isUnlocked ? 'unlocked' : 'locked';
         grid.append(`<div class="badge-item ${statusClass}"><div class="badge-icon">${badge.icon}</div><div class="badge-name">${badge.name}</div><div class="badge-req">${badge.stars}★</div></div>`);
+    });
+    const opCount = completedOpenings.filter(e => CURATED_OPENINGS.some(op => op.eco === e)).length;
+    grid.append('<div class="badge-cat-title">📖 Obertures</div>');
+    OPENING_BADGES.forEach(b => {
+        const unlocked = opCount >= b.req; const statusClass = unlocked ? 'unlocked' : 'locked';
+        grid.append(`<div class="badge-item ${statusClass}"><div class="badge-icon">${b.icon}</div><div class="badge-name">${b.name}</div><div class="badge-req">${b.req} obert.</div></div>`);
+    });
+    grid.append('<div class="badge-cat-title">⚡ Tàctiques</div>');
+    TACTICS_BADGES.forEach(b => {
+        const val = b.kind === 'streak' ? (tacticsStats.best || 0) : tacticsStats.solved;
+        const unlocked = val >= b.req; const statusClass = unlocked ? 'unlocked' : 'locked';
+        grid.append(`<div class="badge-item ${statusClass}"><div class="badge-icon">${b.icon}</div><div class="badge-name">${b.name}</div><div class="badge-req">${b.kind === 'streak' ? b.req + ' seg.' : b.req}</div></div>`);
     });
 }
 
@@ -2461,13 +2679,25 @@ function levelToDifficulty(level) {
     return Math.round(5 + normalized * 10);
 }
 
-function getEffectiveAIDifficulty() {
-    if (isCalibrationGame) return levelToDifficulty(currentCalibrationOpponentRoc || CALIBRATION_ROCS[0]);
-    return aiDifficulty;
-}
-
 function getAdaptiveNormalized() {
      return Math.max(0, Math.min(1, (currentElo - ADAPTIVE_CONFIG.MIN_LEVEL) / (ADAPTIVE_CONFIG.MAX_LEVEL - ADAPTIVE_CONFIG.MIN_LEVEL)));
+}
+
+// Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
+function getActiveStrengthElo() {
+    if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
+    return currentElo;
+}
+
+// Normalitza l'ELO actiu dins el rang jugable (200-2000) per modular profunditat i qualitat de moviments.
+// Substitueix l'antic mapatge comprimit (5-15) perquè l'adaptació es noti a tot el rang.
+function getStrengthNormalized() {
+    return Math.max(0, Math.min(1, (getActiveStrengthElo() - ELO_MIN) / (ELO_MAX - ELO_MIN)));
+}
+
+function eloToSearchDepth(elo) {
+    const normalized = Math.max(0, Math.min(1, (elo - ELO_MIN) / (ELO_MAX - ELO_MIN)));
+    return Math.round(2 + normalized * 12); // rang 2..14
 }
 
 function adjustAIDifficulty(playerWon, precision, resultScore = null) {
@@ -2527,7 +2757,7 @@ function getCalibrationRocFloor() {
 function clampUserElo(value) {
     const floor = getCalibrationRocFloor();
     const baseFloor = typeof floor === 'number' ? floor : ELO_MIN;
-    const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.7);
+    const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.45);
     const minValue = Number.isFinite(flexibleFloor) ? flexibleFloor : ELO_MIN;
     return Math.round(Math.max(minValue, Math.min(ELO_MAX, value)));
 }
@@ -2601,7 +2831,7 @@ function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
         return qualityScore >= 0.65 ? 10 : 6;
     }
     if (resultLabel === 'loss') {
-        return qualityScore >= 0.6 ? -6 : -12;
+        return qualityScore >= 0.6 ? -10 : -18;
     }
     return 0;
 }
@@ -2609,6 +2839,11 @@ function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
 function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
     const quality = evaluateGameQuality(precision, metrics.avgCpLoss, metrics.blunders);
     const resultLabel = resultScore === 1 ? 'win' : resultScore === 0 ? 'loss' : 'draw';
+
+    // Mantenim un historial recent també en joc lliure per al control de win-rate (flow).
+    recentGames.push({ result: resultScore, precision: precision });
+    if (recentGames.length > 20) recentGames.shift();
+
     freeAdjustmentWindow.push({
         result: resultLabel,
         precision: precision,
@@ -2649,6 +2884,21 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
             feedback = 'Prova hints o mode entrenament';
         }
         freeLossStreak = 0;
+    }
+
+    // Control proactiu de win-rate: manté el jugador "enganxat" apuntant a ~50% de victòries.
+    // Si guanya massa, apugem el repte; si perd massa, l'abaixem de seguida (sense esperar el cicle).
+    if (recentGames.length >= ADAPTIVE_CONFIG.FLOW_WINDOW_MIN) {
+        const sample = recentGames.slice(-ADAPTIVE_CONFIG.FLOW_SAMPLE_SIZE);
+        const wins = sample.filter(g => g.result === 1).length;
+        const winRate = wins / sample.length;
+        if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH) {
+            const flow = applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow' });
+            if (flow) feedback = flow.message;
+        } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW) {
+            const flow = applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow' });
+            if (flow) feedback = flow.message;
+        }
     }
 
     if (freeAdjustmentWindow.length < CONTINUOUS_ADJUST_CONFIG.WINDOW_SIZE) {
@@ -2708,41 +2958,14 @@ function getCalibrationOpponentRoc() {
     if (index < 3) return CALIBRATION_ROCS[index];
     const performance = getCalibrationPerformanceScore(calibrationGames);
     const base = CALIBRATION_ROCS[Math.min(index, CALIBRATION_ROCS.length - 1)];
-    if (performance >= 0.7) return base + 150;
-    if (performance <= 0.45) return Math.max(CALIBRATION_ROC_MIN, base - 150);
+    if (performance >= 0.7) return base + 75;
+    if (performance <= 0.45) return Math.max(CALIBRATION_ROC_MIN, base - 100);
     return base;
 }
 
 function getCalibrationProgressCount() {
     const extra = isCalibrationGame ? 1 : 0;
     return Math.min(calibrationGames.length + extra, CALIBRATION_GAME_COUNT);
-}
-
-function getCalibrationGameDepth(gameIndex = null) {
-    const index = typeof gameIndex === 'number' ? gameIndex : getCalibrationGameIndex();
-    if (index < CALIBRATION_DEPTHS.length) return CALIBRATION_DEPTHS[index];
-    const performance = getCalibrationPerformanceScore(calibrationGames);
-    if (performance >= 0.7) return 12;
-    if (performance >= 0.55) return 10;
-    return 8;
-}
-
-function getCalibrationSkillLevel() {
-    const depth = getCalibrationGameDepth(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
-    const normalized = Math.max(0, Math.min(1, (depth - 5) / 10));
-    const minSkill = 6;
-    const maxSkill = 18;
-    return Math.round(minSkill + (maxSkill - minSkill) * normalized);
-}
-
-function getCalibrationPrecisionRange(gameIndex = null) {
-    const index = typeof gameIndex === 'number' ? gameIndex : getCalibrationGameIndex();
-    return CALIBRATION_ENGINE_PRECISION_RANGES[index] || CALIBRATION_ENGINE_PRECISION_RANGES[CALIBRATION_ENGINE_PRECISION_RANGES.length - 1];
-}
-
-function getCalibrationPrecisionTargetText() {
-    const range = getCalibrationPrecisionRange(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
-    return `${range.min}-${range.max}%`;
 }
 
 function updateCalibrationProgressUI() {
@@ -2805,9 +3028,10 @@ function estimateCalibrationRoc() {
     const avgOpponentElo = opponentEloValues.length
         ? opponentEloValues.reduce((sum, value) => sum + value, 0) / opponentEloValues.length
         : CALIBRATION_ROCS[Math.min(getCalibrationGameIndex(), CALIBRATION_ROCS.length - 1)];
-    const performanceDelta = (weightedPerformance - 0.5) * 400;
+    const performanceDelta = (weightedPerformance - 0.5) * 250;
     const confidence = Math.min(1, calibrationGames.length / CALIBRATION_GAME_COUNT);
-    const eloEstimate = avgOpponentElo + (performanceDelta * confidence);
+    const conservativeBias = -50;
+    const eloEstimate = avgOpponentElo + (performanceDelta * confidence) + conservativeBias;
     return Math.max(CALIBRATION_ROC_MIN, Math.min(CALIBRATION_ROC_MAX, Math.round(eloEstimate)));
 }
 
@@ -2867,14 +3091,10 @@ function getOpponentElo() {
 
 function getAIDepth() {
     const randomness = Math.floor(Math.random() * 3) - 1;
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    
-    if (isCalibrationGame) {
-        return Math.max(1, Math.min(15, getCalibrationGameDepth(calibrationGames.length) + randomness));
-    }
 
-    if (currentGameMode !== 'league') {
-        return Math.max(1, Math.min(15, effectiveDifficulty + randomness));
+    if (isCalibrationGame || currentGameMode !== 'league') {
+        // Mateixa corba de profunditat per calibratge i joc lliure: deriva de l'ELO actiu.
+        return Math.max(1, Math.min(15, eloToSearchDepth(getActiveStrengthElo()) + randomness));
     }
 
     const oppElo = getOpponentElo();
@@ -2884,13 +3104,6 @@ function getAIDepth() {
     return Math.max(1, Math.min(15, base + randomness));
 }
 
-function getEngineSkillLevel() {
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
-    const minSkill = 2;
-    const maxSkill = 18;
-    return Math.round(minSkill + (maxSkill - minSkill) * normalized);
-}
 function calculateEloDelta(resultScore) {
     const oppElo = getOpponentElo();
     const expected = 1 / (1 + Math.pow(10, (oppElo - userELO) / 400));
@@ -2936,8 +3149,7 @@ function chooseHumanLikeMove(candidates) {
     if (!candidates || candidates.length === 0) return null;
     const sorted = candidates.slice().sort((a, b) => b.score - a.score);
 
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
+    const normalized = getStrengthNormalized();
     const bestScore = sorted[0].score;
     const maxDelta = 250 - (normalized * 170); // Més desviació a nivells baixos
 
@@ -2965,30 +3177,6 @@ function chooseHumanLikeMove(candidates) {
         if (roll <= 0) return trimmed[i];
     }
     return trimmed[trimmed.length - 1];
-}
-
-function chooseCalibrationMove(candidates, fallbackMove) {
-    if (!candidates || candidates.length === 0) return { move: fallbackMove };
-    const sorted = candidates.slice().sort((a, b) => b.score - a.score);
-    const bestScore = sorted[0].score;
-    const goodCandidates = sorted.filter(c => (bestScore - c.score) <= 80);
-    const badCandidates = sorted.filter(c => (bestScore - c.score) > 80);
-    const range = getCalibrationPrecisionRange(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
-    const minTarget = range.min / 100;
-    const maxTarget = range.max / 100;
-    const target = (minTarget + maxTarget) / 2;
-    const currentPrecision = totalEngineMoves > 0 ? (goodEngineMoves / totalEngineMoves) : target;
-
-    let pickGood = true;
-    if (badCandidates.length === 0) pickGood = true;
-    else if (goodCandidates.length === 0) pickGood = false;
-    else if (currentPrecision < minTarget) pickGood = true;
-    else if (currentPrecision > maxTarget) pickGood = false;
-    else pickGood = Math.random() < target;
-
-    const pool = pickGood ? goodCandidates : badCandidates;
-    const choice = pool[Math.floor(Math.random() * pool.length)];
-    return choice || { move: fallbackMove };
 }
 
 // MODIFICAT: Ara carrega directament el fitxer local
@@ -3034,6 +3222,8 @@ function loadStorage() {
     // ---------------------------------------------------
 
     const badges = localStorage.getItem('chess_unlockedBadges'); if (badges) unlockedBadges = JSON.parse(badges);
+    const compOp = localStorage.getItem('chess_completedOpenings'); if (compOp) { try { completedOpenings = JSON.parse(compOp); } catch (e) {} }
+    const tacS = localStorage.getItem('chess_tacticsStats'); if (tacS) { try { tacticsStats = Object.assign(tacticsStats, JSON.parse(tacS)); } catch (e) {} }
     const stats = localStorage.getItem('chess_sessionStats'); const statsDate = localStorage.getItem('chess_sessionStatsDate');
     if (stats && statsDate === getToday()) sessionStats = JSON.parse(stats);
     
@@ -3130,6 +3320,13 @@ function loadStorage() {
     }
     const storedGeminiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE);
     if (storedGeminiKey) geminiApiKey = storedGeminiKey;
+    const storedDaily = localStorage.getItem('chess_dailyPuzzle');
+    if (storedDaily) {
+        try {
+            const parsed = JSON.parse(storedDaily);
+            if (parsed && typeof parsed === 'object') dailyPuzzle = Object.assign(dailyPuzzle, parsed);
+        } catch (e) {}
+    }
 }
 
 function saveStorage() {
@@ -3180,6 +3377,9 @@ function saveStorage() {
     } else {
         localStorage.removeItem(GEMINI_API_KEY_STORAGE);
     }
+    localStorage.setItem('chess_dailyPuzzle', JSON.stringify(dailyPuzzle));
+    localStorage.setItem('chess_completedOpenings', JSON.stringify(completedOpenings));
+    localStorage.setItem('chess_tacticsStats', JSON.stringify(tacticsStats));
     localStorage.removeItem('chess_isCalibrationPhase');
     localStorage.removeItem('chess_calibrationMoves');
     localStorage.removeItem('chess_calibrationGoodMoves');
@@ -3202,15 +3402,28 @@ function updateGeminiSettingsUI() {
 
 function updateBundleHintButtons() {
     const brainBtn = document.getElementById('btn-brain-hint');
+    const assistedBtn = document.getElementById('btn-assisted-hint');
     const hintBtn = document.getElementById('btn-hint');
-    if (!brainBtn || !hintBtn) return;
-    
-    const visible = blunderMode && bundleSequenceStep <= 2;
-    brainBtn.style.display = visible ? 'inline-flex' : 'none';
-    hintBtn.style.display = visible ? 'inline-flex' : 'none';
-    
-    brainBtn.disabled = !visible || !geminiApiKey || bundleGeminiHintPending;
-    hintBtn.disabled = !visible || !stockfish || isAnalyzingHint;
+    if (!hintBtn) return;
+
+    const isAssisted = currentGameMode === 'assisted';
+    const bundleVisible = blunderMode && bundleSequenceStep <= 2;
+
+    // Botó de pista Stockfish: sempre visible en bundle i partida assistida; ocult en free/league
+    hintBtn.style.display = (bundleVisible || isAssisted) ? 'inline-flex' : 'inline-flex';
+    hintBtn.disabled = !stockfish || isAnalyzingHint;
+
+    // Botó Gemini per bundles (funciona també offline amb el banc de màximes)
+    if (brainBtn) {
+        brainBtn.style.display = bundleVisible ? 'inline-flex' : 'none';
+        brainBtn.disabled = !bundleVisible || bundleGeminiHintPending;
+    }
+
+    // Botó de consell estratègic per mode assistit (offline o amb Gemini)
+    if (assistedBtn) {
+        assistedBtn.style.display = isAssisted ? 'inline-flex' : 'none';
+        assistedBtn.disabled = !isAssisted || assistedHintPending;
+    }
 }
 
 function saveGeminiApiKey(rawKey) {
@@ -3231,6 +3444,15 @@ function updateEloHistory(newElo) {
     saveStorage();
 }
 
+// Etiqueta de nivell segons l'ELO, per donar context a l'usuari
+function eloLevelLabel(elo) {
+    if (elo < 600) return 'Principiant';
+    if (elo < 1000) return 'Bàsic';
+    if (elo < 1400) return 'Intermedi';
+    if (elo < 1800) return 'Avançat';
+    return 'Expert';
+}
+
 function updateAdaptiveEngineEloLabel() {
      if (isCalibrationGame && typeof currentCalibrationOpponentRoc === 'number') {
         $('#engine-elo').text(`ROC ${currentCalibrationOpponentRoc}`);
@@ -3240,11 +3462,12 @@ function updateAdaptiveEngineEloLabel() {
         $('#engine-elo').text('Calibratge');
         return;
     }
-    if (currentGameMode === 'free' && !blunderMode) {
-        $('#engine-elo').text('Adaptativa');
+    const elo = Math.round(currentElo);
+    if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
+        $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo} (adaptatiu)`);
         return;
     }
-    $('#engine-elo').text(`Adaptativa · ELO ${Math.round(currentElo)}`);
+    $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo}`);
 }
 
 function applyEngineEloStrength(eloValue) {
@@ -3284,7 +3507,14 @@ function updateDisplay() {
     let total = savedErrors.length;
     $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
     $('#game-bundles').text(total);
+    // Comptadors de repàs espaiat i repte diari al menú principal
+    const due = getDueErrors().length;
+    $('#srs-info').text(due > 0 ? `${due} per repassar` : 'Al dia');
+    ensureDailyPuzzle();
+    $('#daily-info').text(dailyPuzzle.solved ? `Fet ✓ · ratxa ${dailyPuzzle.streak}` : 'Disponible');
+    $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
+    updateEngagementBanner();
 }
 
 function updateStatsDisplay() {
@@ -3295,6 +3525,58 @@ function updateStatsDisplay() {
     updateGeminiSettingsUI();
     updateEloChart();
     updateReviewChart();
+    renderWeaknesses();
+    renderOpeningStats();
+}
+
+// Determina el resultat de la partida des de la perspectiva del jugador
+function entryOutcome(entry) {
+    const r = (entry.result || '').toLowerCase();
+    if (r.includes('victòr') || r.includes('guany')) return 'win';
+    if (r.includes('derrot') || r.includes('perd') || r.includes('rendit')) return 'loss';
+    if (r.includes('tau')) return 'draw';
+    return null;
+}
+
+// Agrega estadístiques per obertura jugada a partir de l'historial (punt 4)
+function analyzeOpeningStatsData() {
+    const map = {};
+    gameHistory.forEach(entry => {
+        if (entry.mode === 'bundle') return;
+        const moves = getHistoryMoves(entry);
+        const oa = analyzeGameOpening(moves);
+        if (!oa || !oa.name) return;
+        const key = oa.eco ? `${oa.name}|${oa.eco}` : oa.name;
+        if (!map[key]) map[key] = { name: oa.name, eco: oa.eco, games: 0, win: 0, loss: 0, draw: 0 };
+        map[key].games++;
+        const o = entryOutcome(entry);
+        if (o === 'win') map[key].win++;
+        else if (o === 'loss') map[key].loss++;
+        else if (o === 'draw') map[key].draw++;
+    });
+    return Object.values(map).sort((a, b) => b.games - a.games);
+}
+
+function renderOpeningStats() {
+    const container = document.getElementById('stats-openings');
+    if (!container) return;
+    const data = analyzeOpeningStatsData();
+    if (!data.length) {
+        container.innerHTML = '<div style="color:var(--text-secondary); font-size:0.9rem;">Encara no hi ha prou partides per analitzar les teves obertures.</div>';
+        return;
+    }
+    let html = '';
+    data.slice(0, 8).forEach(d => {
+        const decided = d.win + d.loss;
+        const wr = decided > 0 ? Math.round((d.win / decided) * 100) : 0;
+        const wrColor = wr >= 60 ? '#4a7c59' : (wr >= 40 ? '#c9a227' : '#c62828');
+        html += `<div class="opening-stat-row">
+            <div class="opening-stat-name">${d.name}${d.eco ? ` <span class="opening-stat-eco">${d.eco}</span>` : ''}</div>
+            <div class="opening-stat-record">${d.win}V · ${d.draw}T · ${d.loss}D</div>
+            <div class="opening-stat-wr" style="color:${wrColor};">${decided > 0 ? wr + '%' : '—'}</div>
+        </div>`;
+    });
+    container.innerHTML = html;
 }
 
 function updateEloChart() {
@@ -3925,7 +4207,7 @@ async function prepareBundleSequence(fen) {
         
     } catch (error) {
         console.error('[Bundle] Error preparant seqüència:', error);
-        alert('Error inesperat preparant l\'exercici. Torna-ho a provar.');
+        showToast('Error inesperat preparant l\'exercici. Torna-ho a provar.', 'error');
         return null;
     }
 }
@@ -4457,6 +4739,7 @@ function updateReviewChart() {
 function formatHistoryMode(mode) {
     if (mode === 'league') return 'Lliga';
     if (mode === 'free') return 'Amistosa';
+    if (mode === 'assisted') return 'Assistida';
     return 'Partida';
 }
 
@@ -4698,6 +4981,31 @@ function getHistoryMoves(entry) {
         }
     }
     return baseMoves;
+}
+
+// Construeix un PGN complet (amb capçaleres) a partir d'una entrada de l'historial
+function buildEntryPgn(entry) {
+    if (!entry) return '';
+    const moves = getHistoryMoves(entry);
+    if (!moves.length) return entry.pgn || '';
+    const replay = new Chess();
+    moves.forEach(m => { replay.move(m, { sloppy: true }); });
+    const playerWhite = (entry.playerColor || 'w') === 'w';
+    const oppName = entry.opponent && entry.opponent.name ? entry.opponent.name : 'Stockfish';
+    let resultTag = '*';
+    const res = (entry.result || '').toLowerCase();
+    if (res.includes('victòr') || res.includes('guany') || res.includes('win')) resultTag = playerWhite ? '1-0' : '0-1';
+    else if (res.includes('derrot') || res.includes('perd') || res.includes('loss')) resultTag = playerWhite ? '0-1' : '1-0';
+    else if (res.includes('tau') || res.includes('draw')) resultTag = '1/2-1/2';
+    replay.header(
+        'Event', 'El Tauler',
+        'Site', 'El Tauler PWA',
+        'Date', (entry.date || new Date().toLocaleDateString()),
+        'White', playerWhite ? 'Jugador' : oppName,
+        'Black', playerWhite ? oppName : 'Jugador',
+        'Result', resultTag
+    );
+    return replay.pgn();
 }
 
 function loadHistoryEntry(entry) {
@@ -5029,11 +5337,12 @@ Genera ara ${sentenceText} específica${sentenceCount === 1 ? '' : 's'} per aque
 
 function buildBundleGeminiPromptWithFixedSequence(step) {
     if (!bundleFixedSequence) return null;
-    
+
     const stepData = step === 1 ? bundleFixedSequence.step1 : bundleFixedSequence.step2;
-    
+    const voice = getStrategicVoice();
+
     if (step === 1) {
-        return `Ets un mestre d'escacs que aplica els principis de l'Art de la Guerra de Sun Tzu als escacs.
+        return `Ets un mestre d'escacs que aplica els principis de "${voice.work}" de ${voice.name} als escacs.
 
 SEQÜÈNCIA TÀCTICA COMPLETA (no revelar):
 1. Jugador: ${bundleFixedSequence.fullSequenceSan[0]}
@@ -5047,15 +5356,15 @@ Balanç material: ${stepData.position.material.balance}
 Temes tàctics: ${stepData.threats.themes.join(', ') || 'Cap'}
 
 INSTRUCCIONS:
-Genera exactament 2 màximes o principis d'escacs inspirats en l'Art de la Guerra:
+Genera exactament 2 màximes o principis d'escacs inspirats en "${voice.work}":
 
 1. Primera màxima: Visió estratègica general que engloba els dos moviments de la seqüència sencera
 2. Segona màxima: Principi tàctic específic pel primer moviment concret
 
 REGLES IMPERATIVES:
 - Només les màximes, res més
-- Cada màxima entre 20-200 caràcters
-- Inspirades en l'Art de la Guerra de Sun Tzu
+- Cada màxima entre 20-250 caràcters
+- Inspirades en "${voice.work}" de ${voice.name}
 - NO revelar directament la solució
 - NO numerar les màximes
 - NO afegir comentaris explicatius
@@ -5064,7 +5373,7 @@ FORMAT DE SORTIDA:
 Màxima general
 Màxima específica`;
     } else {
-        return `Ets un mestre d'escacs que aplica els principis de l'Art de la Guerra de Sun Tzu als escacs.
+        return `Ets un mestre d'escacs que aplica els principis de "${voice.work}" de ${voice.name} als escacs.
 
 CONTEXT DEL SEGON PAS:
 Posició (FEN): ${stepData.fen}
@@ -5073,12 +5382,12 @@ Balanç material: ${stepData.position.material.balance}
 Temes tàctics: ${stepData.threats.themes.join(', ') || 'Cap'}
 
 INSTRUCCIONS:
-Genera exactament 1 màxima o principi d'escacs inspirat en l'Art de la Guerra per al segon moviment de la seqüència.
+Genera exactament 1 màxima o principi d'escacs inspirat en "${voice.work}" per al segon moviment de la seqüència.
 
 REGLES IMPERATIVES:
 - Només la màxima, res més
-- Entre 20-200 caràcters
-- Inspirada en l'Art de la Guerra de Sun Tzu
+- Entre 20-250 caràcters
+- Inspirada en "${voice.work}" de ${voice.name}
 - NO revelar directament la solució
 - NO numerar
 - NO afegir comentaris explicatius
@@ -5130,15 +5439,27 @@ function getOpeningContinuations(sequence) {
     return { continuations, total };
 }
 
-function buildOpeningEncouragementPrompt() {
-    return `Ets Sun Tzu, mestre estrateg, donant consell abans d'una partida d'escacs.
+function getStrategicVoice() {
+    const voices = [
+        { name: 'Sun Tzu', work: "L'Art de la Guerra", style: 'militar i filosòfic', example: "L'estrateg savi prepara la victòria abans que comenci la batalla. Conèixer el terreny és conèixer les possibilitats." },
+        { name: 'Miyamoto Musashi', work: 'El Llibre dels Cinc Anells', style: "marcial i contemplatiu, centrat en la percepció i el ritme", example: "Observa l'adversari com l'aigua observa la pedra: sense pressa, però sense pausa. El ritme correcte desarma qualsevol defensa." },
+        { name: 'Nicolau Maquiavel', work: 'El Príncep', style: "pragmàtic i incisiu, centrat en el poder i l'oportunitat", example: "Qui domina el centre domina les rutes, i qui domina les rutes decideix on es lliura la batalla." },
+        { name: 'Carl von Clausewitz', work: 'De la Guerra', style: "analític i metòdic, centrat en la fricció i la incertesa", example: "Cap pla sobreviu al primer contacte amb l'enemic. La victòria pertany a qui s'adapta més ràpid al caos del tauler." }
+    ];
+    return voices[Math.floor(Math.random() * voices.length)];
+}
 
-TASCA: Escriu un paràgraf d'encoratjament en català, estil "L'Art de la Guerra".
+function buildOpeningEncouragementPrompt() {
+    const voice = getStrategicVoice();
+    return `Ets ${voice.name}, mestre estrateg, donant consell abans d'una partida d'escacs.
+
+TASCA: Escriu un paràgraf d'encoratjament en català, estil "${voice.work}".
 
 CONTINGUT:
 - Parla de la importància de la preparació mental abans de la batalla
 - Menciona els principis estratègics que s'apliquen a l'obertura d'escacs
-- Pots incloure citacions o paràfrasis de "L'Art de la Guerra"
+- Pots incloure citacions o paràfrasis de "${voice.work}"
+- To ${voice.style}
 - Acaba amb un consell inspirador per començar la partida
 
 REGLES:
@@ -5150,7 +5471,7 @@ REGLES:
 - IMPORTANT: Acaba sempre amb un punt final
 
 EXEMPLE D'ESTIL (NO COPIAR):
-"L'estrateg savi prepara la victòria abans que comenci la batalla. Conèixer el terreny és conèixer les possibilitats. El centre del tauler és com la plana central on es decideixen els imperis. Qui el domina, controla els camins de la victòria."
+"${voice.example}"
 
 Escriu ara:`
 }
@@ -5172,7 +5493,8 @@ function buildOpeningAlternativesPrompt(sequence, continuations, selectedOpening
         ? `OBERTURA ACTUAL: [${selectedOpening.eco || '??'}] ${selectedOpening.name}`
         : 'POSICIÓ: Sense obertura específica detectada';
 
-    return `Ets Sun Tzu aplicant "L'Art de la Guerra" als escacs.
+    const voice = getStrategicVoice();
+    return `Ets ${voice.name} aplicant "${voice.work}" als escacs.
 
 SEQÜÈNCIA JUGADA: ${movesStr || '(inici)'}
 ${currentOpeningInfo}
@@ -5184,17 +5506,17 @@ TASCA: Escriu un anàlisi complet en català (entre 5 i 10 frases):
 
 1. OBERTURA ACTUAL: Explica què és aquesta obertura, el seu origen històric si el coneixes, i quin és el seu objectiu estratègic principal.
 
-2. ALTERNATIVES: Per cada continuació possible, descriu-la amb metàfores militars de Sun Tzu:
+2. ALTERNATIVES: Per cada continuació possible, descriu-la amb metàfores ${voice.style}:
    - NO diguis els moviments directament (${moves.slice(0, 3).join(', ')})
    - Usa al·lusions: "el camí del centre", "el flanc de rei", "la diagonal oculta", "l'avanç dels peons", "el salt del cavall"
    - Explica quina filosofia estratègica representa cada camí
 
-3. CONSELL: Acaba amb un consell estratègic inspirat en Sun Tzu sobre com escollir entre les alternatives.
+3. CONSELL: Acaba amb un consell estratègic inspirat en ${voice.name} sobre com escollir entre les alternatives.
 
 REGLES:
 - Entre 5 i 10 frases
 - Sense emojis ni numeració
-- To estratègic militar profund
+- To estratègic ${voice.style}
 - En català
 - IMPORTANT: Acaba sempre amb un punt final
 
@@ -5204,9 +5526,11 @@ Respon:`
 async function requestOpeningMaximLlull() {
     if (!openingPracticeGame) return;
     if (!geminiApiKey) {
+        // Fallback offline: banc local de màximes (centre/general) en comptes d'un avís.
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) {
-            noteEl.innerHTML = '<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px; line-height:1.5;">Configura la clau de Gemini a Estadístiques per utilitzar aquesta funció.</div>';
+            const m = pickOfflineMaxim('center');
+            noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">Consell estratègic</div><div class="maxim-text">${m}</div><div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— El Mestre Estrateg</div></div>`;
         }
         return;
     }
@@ -5220,7 +5544,7 @@ async function requestOpeningMaximLlull() {
 
     if (noteEl) {
         noteEl.innerHTML = isStart
-            ? '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant Sun Tzu...</div>'
+            ? '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estrateg...</div>'
             : '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Analitzant alternatives...</div>';
     }
 
@@ -5291,7 +5615,7 @@ async function requestOpeningMaximLlull() {
         if (isStart) {
             // Frase d'encoratjament simple
             html += `<div style="font-style:italic; color:var(--text-primary); font-size:1em;">"${cleanText}"</div>`;
-            html += '<div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— Sun Tzu</div>';
+            html += '<div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— El Mestre Estrateg</div>';
         } else {
             // Mostrar obertura actual si existeix
             if (openingSelectedOpening) {
@@ -5323,14 +5647,32 @@ async function requestOpeningMaximLlull() {
     }
 }
 
+function showOfflineBundleMaxim() {
+    const theme = classifyPositionTheme(currentBundleFen || '', '');
+    const m1 = pickOfflineMaxim(theme);
+    const m2 = pickOfflineMaxim('general');
+    let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
+    html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
+    html += `<div style="font-style:italic; margin:4px 0;">${m1}</div>`;
+    if (m2 !== m1) html += `<div style="font-style:italic; margin:4px 0;">${m2}</div>`;
+    html += '</div>';
+    lastBundleGeminiHint = html;
+    $('#status').html(html);
+}
+
 async function requestGeminiBundleHint() {
     if (!blunderMode || !currentBundleFen) return;
     if (!geminiApiKey) {
-        const statusEl = $('#status');
-        statusEl.html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px; line-height:1.5;">⚠️ Configura la clau de Gemini a Estadístiques → Configuració per utilitzar aquesta pista.</div>');
+        // Sense clau: banc de màximes local en comptes d'un avís d'error.
+        showOfflineBundleMaxim();
         return;
     }
     if (bundleGeminiHintPending) return;
+
+    // Cau per FEN: reaprofita la màxima si ja s'ha generat per aquesta posició.
+    const cacheKey = `bundle:${currentBundleFen}:${bundleSequenceStep}`;
+    const cached = getCachedGemini(cacheKey);
+    if (cached) { lastBundleGeminiHint = cached; $('#status').html(cached); return; }
     
     bundleGeminiHintPending = true;
     updateBundleHintButtons();
@@ -5411,19 +5753,7 @@ async function requestGeminiBundleHint() {
             throw new Error('Respostes massa curtes');
         }
               
-        const MAX_GEMINI_HINT_CHARS = 350;
-        let remainingChars = MAX_GEMINI_HINT_CHARS;
-        const trimmedLines = [];
-        for (const line of validLines) {
-            if (remainingChars <= 0) break;
-            let trimmedLine = line.trim();
-            if (trimmedLine.length > remainingChars) {
-                const sliceLength = Math.max(remainingChars - 1, 0);
-                trimmedLine = `${trimmedLine.slice(0, sliceLength).trim()}…`.trim();
-            }
-            trimmedLines.push(trimmedLine);
-            remainingChars -= trimmedLine.length;
-        }
+        const trimmedLines = validLines.map(l => l.trim());
         
         let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
         html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
@@ -5434,14 +5764,216 @@ async function requestGeminiBundleHint() {
         
         // CANVI: Guardar el missatge generat
         lastBundleGeminiHint = html;
+        setCachedGemini(`bundle:${currentBundleFen}:${bundleSequenceStep}`, html);
         statusEl.html(html);
-        
+
     } catch (err) {
         console.error(err);
         statusEl.html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut generar la màxima. Torna-ho a provar.</div>');
     } finally {
         bundleGeminiHintPending = false;
         updateBundleHintButtons();
+    }
+}
+
+function buildAssistedHintPrompt(fen, bestMove, evaluation) {
+    const voice = getStrategicVoice();
+    const evalInfo = typeof evaluation === 'number' ? `Avaluació actual: ${evaluation > 0 ? '+' : ''}${evaluation} centipawns.` : '';
+    return `Ets ${voice.name}, mestre estrateg, guiant un alumne durant una partida d'escacs.
+
+POSICIÓ ACTUAL (FEN): ${fen}
+MILLOR JUGADA SEGONS L'ENGINY: ${bestMove}
+${evalInfo}
+
+TASCA: Escriu UNA màxima xifrada en català, estil "${voice.work}", que orienti l'alumne cap a la idea correcta SENSE dir la jugada directament.
+
+INSTRUCCIONS:
+- Usa al·lusions estratègiques: "el camí del centre", "la diagonal oculta", "el flanc desprotegit", "la torre que domina la columna", "el cavall que salta a la fortalesa", "la dama que travessa el camp"
+- La màxima ha de ser específica a aquesta posició, no genèrica
+- Ha de contenir prou informació per orientar un jugador atent, però no revelar la jugada
+- To ${voice.style}
+- Acaba amb un punt final
+
+REGLES:
+- Una sola frase, entre 30 i 150 caràcters
+- Sense emojis, sense cometes, sense numeració
+- En català
+- NO mencionar la notació de la jugada (${bestMove})
+
+Escriu la màxima:`;
+}
+
+let assistedHintPending = false;
+
+function showAssistedMaxim(text) {
+    const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+    let html = '<div class="opening-maxim-box">';
+    html += '<div class="maxim-title">Consell estratègic</div>';
+    html += `<div class="maxim-text">${cleanText}</div>`;
+    html += '</div>';
+    $('#status').html(html);
+}
+
+async function requestAssistedHint() {
+    if (!game || game.game_over()) return;
+    if (currentGameMode !== 'assisted') return;
+    if (assistedHintPending) return;
+
+    assistedHintPending = true;
+    $('#btn-assisted-hint').prop('disabled', true);
+    $('#status').html('<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estrateg...</div>');
+
+    try {
+        const fen = game.fen();
+        const bestMove = await getStockfishBestMove(fen, 12);
+        const theme = classifyPositionTheme(fen, bestMove || '');
+
+        // Sense clau Gemini: caiem al banc de màximes local (segueix funcionant offline).
+        if (!geminiApiKey) {
+            showAssistedMaxim(pickOfflineMaxim(theme));
+            return;
+        }
+
+        // Cau per FEN: evita repetir crides per la mateixa posició.
+        const cacheKey = `assisted:${fen}`;
+        const cached = getCachedGemini(cacheKey);
+        if (cached) { showAssistedMaxim(cached); return; }
+
+        if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
+        const prompt = buildAssistedHintPrompt(fen, bestMove, null);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.85, maxOutputTokens: 500, topP: 0.95, topK: 40 }
+            })
+        });
+        if (!response.ok) throw new Error(`Gemini error ${response.status}`);
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+        if (!text) throw new Error('Resposta buida');
+
+        const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+        setCachedGemini(cacheKey, cleanText);
+        showAssistedMaxim(cleanText);
+    } catch (err) {
+        console.error('[AssistedHint]', err);
+        // Fallback offline davant qualsevol error de xarxa/API
+        const theme = classifyPositionTheme(game.fen(), '');
+        showAssistedMaxim(pickOfflineMaxim(theme));
+    } finally {
+        assistedHintPending = false;
+        $('#btn-assisted-hint').prop('disabled', false);
+    }
+}
+
+function getStockfishBestMove(fen, depth) {
+    return new Promise((resolve) => {
+        if (!stockfish && !ensureStockfish()) { resolve(null); return; }
+        const prevRequestor = stockfishRequestor;
+        stockfishRequestor = 'assisted-hint';
+        const handler = function(event) {
+            const msg = typeof event === 'string' ? event : event.data;
+            if (typeof msg !== 'string') return;
+            if (msg.indexOf('bestmove') === 0 && stockfishRequestor === 'assisted-hint') {
+                stockfish.removeEventListener('message', handler);
+                stockfishRequestor = prevRequestor;
+                const m = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+                resolve(m ? m[1] + m[2] + (m[3] || '') : null);
+            }
+        };
+        stockfish.addEventListener('message', handler);
+        try {
+            stockfish.postMessage('setoption name MultiPV value 1');
+            stockfish.postMessage(`position fen ${fen}`);
+            stockfish.postMessage(`go depth ${depth}`);
+        } catch (e) { resolve(null); }
+        setTimeout(() => { resolve(null); }, 10000);
+    });
+}
+
+// Analitza la posició actual i retorna { scoreCp, mate, bestMove } des de la perspectiva del color a moure
+function analyzePositionForUser(fen, depth = 14) {
+    return new Promise((resolve) => {
+        if (!stockfish && !ensureStockfish()) { resolve(null); return; }
+        const prevRequestor = stockfishRequestor;
+        stockfishRequestor = 'user-analysis';
+        let lastScoreCp = null, lastMate = null;
+        let resolved = false;
+        const finish = (val) => {
+            if (resolved) return; resolved = true;
+            stockfish.removeEventListener('message', handler);
+            stockfishRequestor = prevRequestor;
+            resolve(val);
+        };
+        const handler = function(event) {
+            const msg = typeof event === 'string' ? event : event.data;
+            if (typeof msg !== 'string' || stockfishRequestor !== 'user-analysis') return;
+            if (msg.indexOf('info') === 0) {
+                const cpM = msg.match(/score cp (-?\d+)/);
+                const mateM = msg.match(/score mate (-?\d+)/);
+                if (cpM) { lastScoreCp = parseInt(cpM[1], 10); lastMate = null; }
+                else if (mateM) { lastMate = parseInt(mateM[1], 10); lastScoreCp = null; }
+            } else if (msg.indexOf('bestmove') === 0) {
+                const m = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+                finish({ scoreCp: lastScoreCp, mate: lastMate, bestMove: m ? m[1] + m[2] + (m[3] || '') : null });
+            }
+        };
+        stockfish.addEventListener('message', handler);
+        try {
+            stockfish.postMessage('setoption name MultiPV value 1');
+            stockfish.postMessage(`position fen ${fen}`);
+            stockfish.postMessage(`go depth ${depth}`);
+        } catch (e) { finish(null); }
+        setTimeout(() => finish(null), 12000);
+    });
+}
+
+let userAnalysisPending = false;
+async function requestPositionAnalysis() {
+    if (!game || game.game_over() || userAnalysisPending) return;
+    if (isEngineThinking) { showToast('Espera que el rival mogui', 'info'); return; }
+    userAnalysisPending = true;
+    const btn = $('#btn-analyze');
+    btn.prop('disabled', true);
+    const prevStatus = $('#status').html();
+    $('#status').html('<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">Analitzant la posició…</div>');
+    try {
+        const turn = game.turn();
+        const res = await analyzePositionForUser(game.fen(), 14);
+        if (!res) { $('#status').html(prevStatus); showToast('No s\'ha pogut analitzar ara mateix', 'warn'); return; }
+        // Converteix a la perspectiva del jugador
+        let evalText;
+        if (res.mate != null) {
+            const mateForPlayer = (turn === playerColor) ? res.mate : -res.mate;
+            evalText = mateForPlayer > 0 ? `Mat en ${Math.abs(mateForPlayer)} a favor teu` : `Mat en ${Math.abs(mateForPlayer)} en contra`;
+        } else if (res.scoreCp != null) {
+            const cpForPlayer = (turn === playerColor) ? res.scoreCp : -res.scoreCp;
+            const pawns = (cpForPlayer / 100).toFixed(1);
+            const sign = cpForPlayer > 0 ? '+' : '';
+            const who = cpForPlayer > 50 ? ' (avantatge teu)' : (cpForPlayer < -50 ? ' (avantatge del rival)' : ' (igualada)');
+            evalText = `Avaluació: ${sign}${pawns}${who}`;
+        } else {
+            evalText = 'Avaluació no disponible';
+        }
+        let bestText = '';
+        if (res.bestMove && turn === playerColor) {
+            // Tradueix l'UCI a SAN sense alterar la partida
+            try {
+                const tmp = new Chess(game.fen());
+                const mv = tmp.move({ from: res.bestMove.slice(0,2), to: res.bestMove.slice(2,4), promotion: res.bestMove[4] || 'q' });
+                if (mv) bestText = ` · La màquina recomana <strong>${mv.san}</strong>`;
+            } catch (e) {}
+        }
+        $('#status').html(`<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">🔬 ${evalText}${bestText}</div>`);
+    } catch (e) {
+        $('#status').html(prevStatus);
+        showToast('Error analitzant la posició', 'warn');
+    } finally {
+        userAnalysisPending = false;
+        btn.prop('disabled', false);
     }
 }
 
@@ -5466,7 +5998,8 @@ function buildGeminiReviewPrompt(entry, severeErrors) {
 
     const totalMoves = moves.length;
     
-    return `Ets un mestre d'escacs amable que ensenya amb màximes memorables.
+    const voice = getStrategicVoice();
+    return `Ets un mestre d'escacs que ensenya amb l'esperit de "${voice.work}" de ${voice.name}: to ${voice.style}.
 
 DADES DE LA PARTIDA
 - Resultat: ${entry.result || '—'}
@@ -5543,9 +6076,6 @@ async function requestGeminiReview(entry, severeErrors) {
         const data = await response.json();
         let text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('')?.trim();
         if (!text) throw new Error('Resposta buida de Gemini');
-        if (text.length > 4000) {
-            text = text.slice(0, 4000).trim();
-        }
         entry.geminiReview = { status: 'done', text };
     } catch (error) {
         entry.geminiReview = {
@@ -6285,6 +6815,15 @@ function resetTvReplay() {
     updateTvBoard();
 }
 
+let historyFilters = { result: 'all', mode: 'all', prec: 0 };
+
+function historyEntryPasses(entry) {
+    if (historyFilters.result !== 'all' && entryOutcome(entry) !== historyFilters.result) return false;
+    if (historyFilters.mode !== 'all' && entry.mode !== historyFilters.mode) return false;
+    if (historyFilters.prec > 0 && (typeof entry.precision !== 'number' || entry.precision < historyFilters.prec)) return false;
+    return true;
+}
+
 function renderGameHistory() {
     const container = $('#history-list');
     if (!container.length) return;
@@ -6294,7 +6833,12 @@ function renderGameHistory() {
         updateHistoryDetails(null);
         return;
     }
-    const items = gameHistory
+    const filtered = gameHistory.filter(historyEntryPasses);
+    if (!filtered.length) {
+        container.html('<div class="history-empty">Cap partida coincideix amb els filtres.</div>');
+        return;
+    }
+    const items = filtered
         .slice()
         .reverse()
         .map(entry => {
@@ -6590,7 +7134,7 @@ function startOpeningErrorPractice(color, moveNum) {
     const stat = openingStatsData.find(s => s.colorKey === color && s.moveNumber === moveNum);
 
     if (!stat || !stat.errorPositions || stat.errorPositions.length === 0) {
-        alert('No hi ha posicions disponibles per practicar.\n\nLes partides antigues no tenen aquesta informació. Juga noves partides per poder practicar els errors.');
+        showToast('No hi ha posicions disponibles. Juga noves partides per practicar errors.', 'warn');
         return;
     }
 
@@ -6788,6 +7332,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
         exitOpeningErrorPractice();
         return;
     }
+    overlay.find('.bundle-success-title').text('Error d\'obertura resolt');
 
     const remaining = collectAllOpeningErrorPositions().length;
     const allErrors = getAllOpeningErrors();
@@ -6881,6 +7426,393 @@ function exitOpeningErrorPractice() {
     resetOpeningPracticeBoard();
 }
 
+/* ============ APRÈN UNA OBERTURA (lliçons guiades) ============ */
+const CURATED_OPENINGS = [
+    // === Obertures amb blanques ===
+    { eco: 'C50', name: 'Obertura Italiana', userColor: 'w', cat: 'white', idea: 'Desenvolupa ràpid i apunta el punt feble f7.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3'] },
+    { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', userColor: 'w', cat: 'white', idea: 'Pressiona el cavall que defensa el centre i prepara l\'enroc.', moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7'] },
+    { eco: 'C21', name: 'Gambit de Rei', userColor: 'w', cat: 'white', idea: 'Sacrifica un peó per obrir la columna f i atacar ràpid el rei.', moves: ['e4','e5','f4','exf4','Nf3','g5','Bc4','Bg7'] },
+    { eco: 'C25', name: 'Obertura de Viena', userColor: 'w', cat: 'white', idea: 'Prepara f4 amb suport del cavall; manté flexibilitat central.', moves: ['e4','e5','Nc3','Nf6','Bc4','Bc5','d3','d6'] },
+    { eco: 'C44', name: 'Obertura Escocesa', userColor: 'w', cat: 'white', idea: 'Obre el centre immediatament amb d4 i guanya espai.', moves: ['e4','e5','Nf3','Nc6','d4','exd4','Nxd4','Bc5','Be3'] },
+    { eco: 'D06', name: 'Gambit de Dama Refusat', userColor: 'w', cat: 'white', idea: 'Tensa el centre i desenvolupa amb harmonia.', moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7'] },
+    { eco: 'D20', name: 'Gambit de Dama Acceptat', userColor: 'w', cat: 'white', idea: 'El blanc recupera el peó i guanya temps de desenvolupament.', moves: ['d4','d5','c4','dxc4','Nf3','Nf6','e3','e6','Bxc4','c5'] },
+    { eco: 'D02', name: 'Sistema Londres', userColor: 'w', cat: 'white', idea: 'Estructura sòlida i fàcil: alfil a f4 abans d\'e3.', moves: ['d4','d5','Nf3','Nf6','Bf4','e6','e3','c5','c3'] },
+    { eco: 'A20', name: 'Obertura Anglesa', userColor: 'w', cat: 'white', idea: 'Control del centre des dels flancs amb c4 i fianchetto.', moves: ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5'] },
+    { eco: 'A04', name: 'Atac Reti', userColor: 'w', cat: 'white', idea: 'Hipermodern: controla el centre amb peces i fianchetto.', moves: ['Nf3','d5','g3','Nf6','Bg2','c6','O-O','Bg4','d3'] },
+    { eco: 'B03', name: 'Atac dels Quatre Peons', userColor: 'w', cat: 'white', idea: 'Avança quatre peons al centre contra l\'Alekhine; aposta per l\'espai.', moves: ['e4','Nf6','e5','Nd5','d4','d6','c4','Nb6','f4'] },
+    { eco: 'D43', name: 'Semieslava', userColor: 'w', cat: 'white', idea: 'Pressió central amb c4 contra l\'estructura sòlida negra.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','e6','Bg5'] },
+    // === Defenses amb negres ===
+    { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', cat: 'black', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
+    { eco: 'B90', name: 'Siciliana Najdorf', userColor: 'b', cat: 'black', idea: 'La més ambiciosa: a6 prepara contrajoc als dos flancs.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6','Be2','e5'] },
+    { eco: 'C00', name: 'Defensa Francesa', userColor: 'b', cat: 'black', idea: 'Cadena de peons sòlida; contraatac a la columna c i f.', moves: ['e4','e6','d4','d5','Nc3','Nf6'] },
+    { eco: 'B10', name: 'Defensa Caro-Kann', userColor: 'b', cat: 'black', idea: 'Defensa sòlida que allibera l\'alfil de caselles clares.', moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5'] },
+    { eco: 'C42', name: 'Defensa Petrov', userColor: 'b', cat: 'black', idea: 'Resposta simètrica i sòlida: negres ataquen el peó e4 immediatament.', moves: ['e4','e5','Nf3','Nf6','Nxe5','d6','Nf3','Nxe4','d4'] },
+    { eco: 'C41', name: 'Defensa Philidor', userColor: 'b', cat: 'black', idea: 'Enforteix e5 amb d6; joc sòlid i sense compromisos.', moves: ['e4','e5','Nf3','d6','d4','Nf6','Nc3','Nbd7'] },
+    { eco: 'B02', name: 'Defensa Alekhine', userColor: 'b', cat: 'black', idea: 'Provoca l\'avanç dels peons blancs per atacar-los després.', moves: ['e4','Nf6','e5','Nd5','d4','d6','Nf3','Bg4'] },
+    { eco: 'B06', name: 'Defensa Pirc', userColor: 'b', cat: 'black', idea: 'Hipermoderna: fianchetto de rei i contraatac diferit.', moves: ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2','O-O'] },
+    { eco: 'E60', name: 'Defensa Índia de Rei', userColor: 'b', cat: 'black', idea: 'Cedeix el centre per atacar-lo després amb peces i peons.', moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O'] },
+    { eco: 'E20', name: 'Defensa Nimzo-Índia', userColor: 'b', cat: 'black', idea: 'Clava el cavall c3 per controlar el centre; joc posicional ric.', moves: ['d4','Nf6','c4','e6','Nc3','Bb4','e3','O-O','Bd3','d5'] },
+    { eco: 'E10', name: 'Defensa Índia de Dama', userColor: 'b', cat: 'black', idea: 'Fianchetto de dama; pressiona la diagonal llarga.', moves: ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7','Bg2','Be7'] },
+    { eco: 'D80', name: 'Defensa Grünfeld', userColor: 'b', cat: 'black', idea: 'Cedeix el centre amb d5xc4 per destruir-lo amb peces i Bg7.', moves: ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3','bxc3','Bg7'] },
+    { eco: 'A60', name: 'Defensa Benoni Moderna', userColor: 'b', cat: 'black', idea: 'Accepta espai inferior a canvi de contrajoc dinàmic al flanc de dama.', moves: ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6'] },
+    { eco: 'A80', name: 'Defensa Holandesa', userColor: 'b', cat: 'black', idea: 'f5 controla e4 i prepara un atac al flanc de rei.', moves: ['d4','f5','g3','Nf6','Bg2','e6','Nf3','Be7','O-O','O-O'] },
+    { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', cat: 'black', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5'] },
+    { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] }
+];
+
+function startOpeningLesson(idx) {
+    const op = CURATED_OPENINGS[idx];
+    if (!op) return;
+    openingErrorPracticeActive = false;
+    hieroglyphicExerciseActive = false;
+    openingLessonActive = true;
+    openingLessonInfo = op;
+    openingLessonLine = op.moves.slice();
+    openingLessonStep = 0;
+    openingLessonUserColor = op.userColor || 'w';
+    if (!openingBundleBoard) initOpeningBundleBoard();
+    openingPracticeGame = new Chess();
+    openingPracticeMoveCount = 0;
+    openingPracticeGoodMoves = 0;
+    openingPracticeTotalMoves = 0;
+    clearOpeningHintHighlight();
+    clearOpeningMoveVisualFeedback();
+    if (openingBundleBoard) {
+        openingBundleBoard.orientation(openingLessonUserColor === 'w' ? 'white' : 'black');
+        openingBundleBoard.position('start');
+    }
+    updateOpeningLessonNote(true);
+    // Si l'usuari juga amb negres, el blanc (rival) fa la primera jugada de la línia
+    if (openingLessonUserColor === 'b') {
+        setTimeout(() => playOpeningLessonOpponentMove(), 600);
+    }
+    const boardEl = document.getElementById('opening-board');
+    if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+}
+
+function playOpeningLessonOpponentMove() {
+    if (!openingLessonActive) return;
+    if (openingLessonStep >= openingLessonLine.length) { completeOpeningLesson(); return; }
+    const san = openingLessonLine[openingLessonStep];
+    const mv = openingPracticeGame.move(san, { sloppy: true });
+    if (!mv) { completeOpeningLesson(); return; }
+    openingLessonStep++;
+    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+    if (openingLessonStep >= openingLessonLine.length) { setTimeout(() => completeOpeningLesson(), 500); return; }
+    updateOpeningLessonNote();
+}
+
+function updateOpeningLessonNote(intro = false) {
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl || !openingLessonInfo) return;
+    const total = openingLessonLine.length;
+    const done = openingLessonStep;
+    const yourTurn = openingLessonActive && openingPracticeGame.turn() === openingLessonUserColor && done < total;
+    const colorTxt = openingLessonUserColor === 'w' ? 'blanques' : 'negres';
+    let html = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name} (${openingLessonInfo.eco})</div>`;
+    if (intro && openingLessonInfo.idea) html += `<div class="maxim-text">${openingLessonInfo.idea}</div>`;
+    const status = done >= total ? 'Línia completada!' : (yourTurn ? `El teu torn (${colorTxt}): troba la jugada de la teoria.` : 'Observa la resposta del rival...');
+    html += `<div class="maxim-text" style="opacity:0.85;">${status} · ${done}/${total} jugades</div></div>`;
+    noteEl.innerHTML = html;
+}
+
+function completeOpeningLesson() {
+    openingLessonActive = false;
+    const name = openingLessonInfo ? openingLessonInfo.name : 'obertura';
+    const eco = openingLessonInfo ? openingLessonInfo.eco : null;
+    let firstTime = false;
+    if (eco && !completedOpenings.includes(eco)) {
+        completedOpenings.push(eco);
+        firstTime = true;
+        saveStorage();
+        checkOpeningBadges();
+    }
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) {
+        const extra = firstTime ? `<div class="maxim-text" style="color:var(--accent-gold);">Nova obertura desbloquejada! ${completedOpenings.length}/${CURATED_OPENINGS.length} apreses.</div>` : '';
+        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div>${extra}</div>`;
+    }
+    renderOpeningLessonButtons();
+    showToast(`Has completat: ${name} 📖`, 'success');
+}
+
+function renderOpeningLessonButtons() {
+    const container = document.getElementById('opening-lesson-list');
+    if (!container) return;
+    const whites = CURATED_OPENINGS.map((op, i) => ({ op, i })).filter(x => x.op.cat === 'white');
+    const blacks = CURATED_OPENINGS.map((op, i) => ({ op, i })).filter(x => x.op.cat === 'black');
+    const renderGroup = (label, items) => {
+        const btns = items.map(({ op, i }) => {
+            const colorIcon = op.userColor === 'w' ? '♔' : '♚';
+            const done = completedOpenings.includes(op.eco);
+            const check = done ? '<span class="lesson-done-check">✓</span>' : '';
+            return `<button class="btn btn-secondary opening-lesson-btn${done ? ' lesson-done' : ''}" data-lesson="${i}" style="justify-content:space-between;">
+                <span>${colorIcon} ${op.name}</span>
+                <span style="display:flex; align-items:center; gap:6px;">${check}<span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span></span>
+            </button>`;
+        }).join('');
+        return `<div class="opening-lesson-group-title">${label}</div><div class="opening-lesson-grid">${btns}</div>`;
+    };
+    const total = CURATED_OPENINGS.length;
+    const done = completedOpenings.filter(e => CURATED_OPENINGS.some(op => op.eco === e)).length;
+    const pct = Math.round((done / total) * 100);
+    const progress = `<div class="opening-progress-bar"><div class="opening-progress-label">Obertures apreses: <strong>${done}/${total}</strong></div><div class="opening-progress-track"><div class="opening-progress-fill" style="width:${pct}%;"></div></div></div>`;
+    container.innerHTML = progress + renderGroup('♔ Obertures amb blanques', whites) + renderGroup('♚ Defenses amb negres', blacks);
+}
+
+/* ============ EXERCICIS GEROGLÍFICS D'OBERTURA ============ */
+let hieroglyphicExerciseActive = false;
+let hieroglyphicOpening = null;
+let hieroglyphicGame = null;
+let hieroglyphicStep = 0;
+let hieroglyphicExpectedMove = null;
+let hieroglyphicClue = null;
+let hieroglyphicAttempts = 0;
+let hieroglyphicScore = { correct: 0, total: 0 };
+let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides Gemini asíncrones
+
+const HIEROGLYPHIC_CLUES = {
+    'e4': ["El guerrer obre el camp central amb decisió; el peó del rei avança dos passos cap a la conquesta.", "La primera llança es clava al cor del tauler: el centre és la plana on es decidiran les batalles."],
+    'e5': ["L'adversari reclama el seu territori al centre; la simetria és l'escut del prudent.", "Respondre amb la mateixa moneda: ocupar el centre és el dret de tot defensor."],
+    'd4': ["El segon pilar del centre s'alça: qui controla dues columnes centrals controla l'horitzó.", "La dama obre pas al seu exèrcit: el peó de dama estableix el domini territorial."],
+    'd5': ["Desafia el centre amb fermesa: cedeix qui no planta cara a la primera amenaça.", "La resposta simètrica al centre: dos pilars enfrontats, la tensió és l'ànima de la lluita."],
+    'Nf3': ["El cavaller surt a protegir el centre i prepara l'avanç; el saltador ocupa la casella natural.", "Desenvolupar primer els cavallers, deia el mestre: el corser es col·loca on controla més terreny."],
+    'Nc3': ["El segon cavaller entra en joc; un exèrcit complet al centre supera l'avantguarda solitària.", "El cavall del flanc de dama reforça el pilar central: dues peces desenvolupades valen més que una."],
+    'Nc6': ["El defensor envia el seu cavaller a protegir el centre; cada peça té la seva missió natural.", "La defensa del punt central és prioritària: el corser negre ocupa la seva casella ideal."],
+    'Bc4': ["L'alfil mira la debilitat del rei enemic: f7 és el punt que el prudent reforça i l'audaç ataca.", "La diagonal apunta al cor del campament rival: l'alfil busca la casella des d'on amenaça el flanc del rei."],
+    'Bc5': ["L'alfil es col·loca en la diagonal activa: des d'aquí controla el centre i vigila el rei blanc.", "Mirror l'ambició blanca: l'alfil negre reclama la mateixa diagonal d'atac."],
+    'Bb5': ["L'alfil clava el cavaller defensor: si la peça que protegeix el centre cau, tot l'edifici s'ensorra.", "La pressió indirecta és l'art del mestre: no calen amenaces directes quan la clavada fa la feina."],
+    'c4': ["El flanc de dama estén la seva influència al centre: un peó lateral que controla caselles centrals.", "La idea anglesa: controlar sense ocupar, influir sense comprometre's."],
+    'c5': ["El contra-cop al flanc desafia l'estructura central blanca; l'asimetria genera oportunitats per al qui sap explotar-les.", "No tot s'ha de disputar al centre: el flanc és un camí alternatiu cap al control."],
+    'c3': ["Prepara l'avanç del peó de dama al centre; el petit pas avui és la base del gran atac demà.", "Reforçar abans d'avançar: el savi assegura la rereguarda."],
+    'c6': ["El peó defensa la casella d5 des de l'ombra; la modèstia del moviment amaga una ambició profunda.", "Preparar la defensa del centre amb subtilesa: c6 és l'escut silenciós."],
+    'd3': ["El desenvolupament prudent: protegeix el peó central i obre pas a l'alfil sense compromís.", "La paciència del mestre: no avançar més del necessari per mantenir l'harmonia."],
+    'd6': ["Enfortir el punt e5 amb el peó veí: la cadena de peons és la columna vertebral de tota posició.", "La defensa preventiva: d6 diu 'no passaràs' al centre blanc."],
+    'Bf4': ["L'alfil surt abans de tancar la diagonal amb e3; el general del Londres coneix l'ordre de marxa.", "Primer l'alfil, després la muralla: qui inverteix l'ordre perd la peça a la presó."],
+    'O-O': ["El rei busca refugi darrere els seus peons; l'enroc és la retirada que guanya seguretat.", "Protegir el monarca és prioritat abans de qualsevol aventura; un rei al centre és un rei en perill."],
+    'g3': ["El fianchetto es prepara: l'alfil governarà la gran diagonal des de la fortalesa.", "La serpent s'enrosca: g3 obre la cova des d'on l'alfil controlarà el tauler sencer."],
+    'g6': ["Preparar la casa de l'alfil: el fianchetto de rei és la defensa flexible per excel·lència.", "L'alfil buscarà la gran diagonal: des de g7 controlarà el centre sense exposar-se."],
+    'Bg7': ["L'alfil pren la gran diagonal: des d'aquí pressiona el centre i el flanc de dama alhora.", "El dragó obre els ulls: la diagonal llarga és la seva arma secreta."],
+    'Bg2': ["L'alfil blanc es col·loca a la gran diagonal: visió llarga i control subtil.", "Des de la torre de guaita, l'alfil ho veu tot: la gran diagonal és el seu domini."],
+    'f4': ["L'avanç del peó d'alfil de rei obre línies d'atac; el sacrifici d'estructura val la iniciativa.", "El gambit ensenya que de vegades perdre un soldat guanya una batalla."],
+    'f5': ["El peó avança al cor del camp enemic: controlar e4 és la clau de la defensa holandesa.", "L'ambició del peó de l'alfil: f5 desafia el centre blanc des del flanc."],
+    'Nf6': ["El cavaller defensa i ataca: des de f6 vigila d5, e4 i prepara l'enroc.", "El corser negre ocupa la seva posició natural: defensa, desenvolupament i pressió en un sol moviment."],
+    'e6': ["El peó tanca la diagonal de l'alfil però enforteix el centre; la solidesa té un preu.", "La cadena francesa es construeix: e6 és el fonament d'una defensa impenetrable."],
+    'a6': ["El petit moviment que fa gran la defensa: a6 expulsa l'alfil i prepara el contra-atac.", "L'avanç modest del peó de torre: amaga plans ambiciosos al flanc de dama."],
+    'b6': ["El fianchetto de dama: l'alfil buscarà la diagonal llarga des de b7.", "La serp de la diagonal: b6 prepara l'alfil que llançarà el seu verí a la gran diagonal."],
+    'Bb7': ["L'alfil pren possessió de la diagonal llarga: des d'aquí pressiona e4 i el flanc de rei.", "L'alfil des de l'ombra: b7 és la posició d'emboscada perfecta."],
+    'Bb4': ["L'alfil clava el cavall de c3: la pressió sobre el centre és indirecta però mortal.", "Nimzo va ensenyar: no cal ocupar el centre, cal controlar-lo. La clavada és l'arma."],
+    'Be7': ["L'alfil es desenvolupa amb modèstia: no ataca però prepara l'enroc amb seguretat.", "Desenvolupament sense compromís: l'alfil a e7 manté totes les opcions obertes."],
+    'dxe4': ["Capturar al centre per redefinir l'estructura: el canvi de peons obre noves línies.", "El contra-cop que allibera: capturar obre la diagonal per a l'alfil empresonat."],
+    'Nxe4': ["El cavall ocupa el centre triomfant: des d'e4 controla les caselles clau.", "El cavaller al tron central: la peça més forta des del cor del tauler."],
+    'Bf5': ["L'alfil s'allibera de la cadena de peons: des de f5 és actiu i lliure.", "El secret de la Caro-Kann: l'alfil surt abans que e6 el tanqui per sempre."],
+    'exd5': ["Capturar al centre canvia l'estructura i obre línies; el canvi és una arma estratègica.", "El peons desapareixen però les línies s'obren: qui controla les noves rutes guanya."],
+    'Qxd5': ["La dama recupera el peó amb activitat: des del centre, la dama ho veu tot.", "L'audàcia escandinava: la dama al centre és una peça poderosa, si sap esquivar els atacs."],
+    'Qa5': ["La dama busca seguretat fora del centre: des d'a5 manté pressió sense exposar-se.", "La retirada estratègica: la dama a a5 observa des de la distància i manté el control."],
+    'cxd4': ["La captura canvia l'estructura central: les regles del joc es reescriuen amb cada canvi de peons.", "El canvi al centre obre noves possibilitats: qui s'adapta primer guanya l'avantatge."],
+    'Nxd4': ["El cavaller recupera al centre amb força: des de d4 domina tot el tauler.", "El cavaller central és el pilar de l'ofensiva: des de d4 irradia poder."],
+    'Bg5': ["L'alfil pressiona el cavall clavat: la peça que no es pot moure és una peça perduda.", "La clavada subtil: l'alfil a g5 paralitza la defensa enemiga."],
+    'Bxc4': ["Recuperar el peó amb l'alfil i guanyar una diagonal activa: material i posició en un sol moviment.", "La captura que guanya temps: l'alfil s'activa mentre recupera el material."],
+    'Be3': ["L'alfil es desenvolupa amb solidesa i protegeix el punt d4.", "El reforç del centre: l'alfil a e3 és el guardià fidel de l'estructura."],
+    'Bd3': ["L'alfil es col·loca en una diagonal activa apuntant cap al flanc de rei.", "Des de d3, l'alfil vigila les caselles clau del flanc de rei enemic."],
+    'Nb6': ["El cavall es retira a un lloc segur des d'on pressiona c4 i a4.", "La retirada del cavall no és debilitat: des de b6, manté opcions de contra-atac."],
+    'Nxc3': ["El canvi del cavall central força la recaptura i deforma l'estructura de peons.", "El sacrifici estratègic: canviar el cavall per danyar els peons rivals."],
+    'bxc3': ["Recapturar amb el peó b obre la columna b però dobla els peons.", "L'estructura doblada: una feblesa estàtica a canvi de la columna oberta."],
+    'Nbd7': ["El cavall es desenvolupa sense bloquejar l'alfil: harmonia entre les peces.", "El cavall a d7 prepara re-encaminament a e5 o c5."],
+    'exd5': ["Capturar al centre canvia l'estructura: qui controla les noves línies guanya.", "El canvi central obre camins nous."],
+    'dxc4': ["El peó captura al flanc de dama: ara el blanc ha de recuperar el material amb temps.", "Acceptar el gambit canvia la naturalesa de la lluita."],
+    'exf4': ["Acceptar el gambit: el peó extra pot ser un tresor o una càrrega.", "El preu del gambit: el defensor guanya material però cedeix la iniciativa."],
+    'g5': ["El peó avança per protegir el peó capturat: ambició o imprudència?", "L'avanç agressiu: g5 defensa f4 però debilita el rei."],
+    'a4': ["El peó avança al flanc de dama per guanyar espai i restringir el rival.", "El flanc de dama s'obre: a4 impedeix l'expansió negra."],
+    'exd4': ["Capturar al centre amb el peó obre la posició i canvia el caràcter de la partida.", "El canvi central: cada captura reescriu les regles del tauler."],
+    'exd5': ["Capturar al centre obre línies i transforma l'estructura.", "El peó captura i les línies s'obren."],
+    'exd6': ["Capturar el peó avançat del rival: eliminar la debilitat abans que esdevingui força.", "La captura que simplifica: menys material, menys complicacions."],
+    'Nd5': ["El cavall salta al centre amb força: des de d5 domina el tauler sencer.", "El post avançat al centre: un cavall a d5 val per una torre."],
+    'cxd5': ["La captura amb el peó c obre la columna c per a la torre.", "El canvi central que activa la torre de c."],
+    'Be2': ["L'alfil es col·loca amb modèstia: no la diagonal més agressiva, però sí la més segura.", "Desenvolupament sòlid: l'alfil a e2 prepara l'enroc sense compromisos."],
+    'e3': ["El peó tanca la diagonal de l'alfil: sacrifica activitat per solidesa.", "Tancar la porta: e3 protegeix d4 però l'alfil haurà de buscar una altra ruta."],
+    'e5': ["El peó avança al centre: ocupar espai és la primera llei de l'obertura.", "L'avançada central: e5 reclama el domini del territori."]
+};
+
+function getHieroglyphicClue(san) {
+    const clues = HIEROGLYPHIC_CLUES[san];
+    if (clues) return clues[Math.floor(Math.random() * clues.length)];
+    return "El mestre no revela la jugada, però assenyala el camí: observa el centre, les diagonals i les columnes obertes. La resposta és on convergeixen les forces.";
+}
+
+function buildHieroglyphicPrompt(fen, expectedMove, op) {
+    const voice = getStrategicVoice();
+    return `Ets ${voice.name}, mestre estrateg, autor de "${voice.work}".
+
+CONTEXT: En una posició d'escacs (FEN: ${fen}), de l'obertura "${op.name}" (${op.eco}), la jugada teòrica correcta és ${expectedMove}. L'estudiant ha de DEDUIR aquesta jugada per ell mateix.
+
+TASCA: Escriu UNA màxima estratègica xifrada (críptica) en català, a l'estil de "${voice.work}", que insinuï la idea darrere de ${expectedMove} SENSE dir mai la jugada, ni la casella, ni la peça concreta de manera explícita. Ha de ser una pista filosòfica que faci pensar.
+
+REGLES:
+- 1 o 2 frases màxim
+- To ${voice.style}
+- NO mencionis notació d'escacs (res de "${expectedMove}", caselles com e4, ni noms de peces evidents)
+- Sense emojis, sense cometes embolcallant tot el text
+- En català`;
+}
+
+async function fetchHieroglyphicClue(fen, expectedMove, op) {
+    if (!geminiApiKey) return null;
+    const cacheKey = `hiero:${fen}`;
+    const cached = getCachedGemini(cacheKey);
+    if (cached) return cached;
+    try {
+        const prompt = buildHieroglyphicPrompt(fen, expectedMove, op);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.95, maxOutputTokens: 200, topP: 0.95, topK: 40 }
+            })
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+        if (!text) return null;
+        const clean = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+        setCachedGemini(cacheKey, clean);
+        return clean;
+    } catch (e) {
+        console.warn('[Hieroglyphic] Gemini fallback:', e);
+        return null;
+    }
+}
+
+function startHieroglyphicExercise() {
+    const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
+    if (pool.length === 0) return;
+    const op = pool[Math.floor(Math.random() * pool.length)];
+    hieroglyphicOpening = op;
+    hieroglyphicGame = new Chess();
+    hieroglyphicAttempts = 0;
+
+    const userMoveIndices = [];
+    for (let i = 0; i < op.moves.length; i++) {
+        const isUserMove = (op.userColor === 'w' && i % 2 === 0) || (op.userColor === 'b' && i % 2 === 1);
+        if (isUserMove) userMoveIndices.push(i);
+    }
+    if (userMoveIndices.length === 0) return;
+
+    const targetIdx = userMoveIndices[Math.floor(Math.random() * userMoveIndices.length)];
+    for (let i = 0; i < targetIdx; i++) {
+        hieroglyphicGame.move(op.moves[i], { sloppy: true });
+    }
+
+    hieroglyphicStep = targetIdx;
+    hieroglyphicExpectedMove = op.moves[targetIdx];
+    hieroglyphicClue = getHieroglyphicClue(hieroglyphicExpectedMove);
+    hieroglyphicExerciseActive = true;
+    const myToken = ++hieroglyphicToken;
+
+    if (!openingBundleBoard) initOpeningBundleBoard();
+    openingLessonActive = false;
+    openingErrorPracticeActive = false;
+    openingPracticeGame = hieroglyphicGame;
+    openingPracticeMoveCount = targetIdx;
+    if (openingBundleBoard) {
+        openingBundleBoard.orientation(op.userColor === 'w' ? 'white' : 'black');
+        openingBundleBoard.position(hieroglyphicGame.fen());
+    }
+
+    const voice = getStrategicVoice();
+    const renderClue = (loading) => {
+        const noteEl = document.getElementById('opening-practice-note');
+        if (!noteEl) return;
+        const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
+        noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
+            <div class="maxim-title">🔮 Exercici Geroglífic — ${op.name}</div>
+            <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
+            <div class="maxim-text">"${hieroglyphicClue}"</div>
+            <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Troba la jugada teòrica correcta. Tens 3 intents.</div>
+        </div>`;
+    };
+    // Pista offline immediata; si hi ha Gemini, la millorem amb una màxima contextual
+    renderClue(!!geminiApiKey);
+    if (geminiApiKey) {
+        const fen = hieroglyphicGame.fen();
+        fetchHieroglyphicClue(fen, hieroglyphicExpectedMove, op).then((text) => {
+            // Només actualitza si seguim al mateix exercici i sense intents fallits encara
+            if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === 0) {
+                hieroglyphicClue = text;
+                renderClue(false);
+            } else {
+                renderClue(false);
+            }
+        });
+    }
+
+    const boardEl = document.getElementById('opening-board');
+    if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+}
+
+function handleHieroglyphicMove(source, target) {
+    if (!hieroglyphicExerciseActive || !hieroglyphicGame) return 'snapback';
+    const move = hieroglyphicGame.move({ from: source, to: target, promotion: 'q' });
+    if (!move) return 'snapback';
+
+    if (move.san === hieroglyphicExpectedMove) {
+        hieroglyphicScore.correct++;
+        hieroglyphicScore.total++;
+        hieroglyphicExerciseActive = false;
+        if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+        showOpeningMoveVisualFeedback(source, target, 'correct');
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) {
+            noteEl.innerHTML = `<div class="opening-maxim-box">
+                <div class="maxim-title">✅ Correcte!</div>
+                <div class="maxim-text">Has trobat ${hieroglyphicExpectedMove} — la jugada teòrica de ${hieroglyphicOpening.name}.</div>
+                <div class="maxim-text" style="opacity:0.7; margin-top:6px;">Puntuació: ${hieroglyphicScore.correct}/${hieroglyphicScore.total}</div>
+                <button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>
+            </div>`;
+        }
+        showToast('Jugada correcta! 🔮', 'success');
+        return;
+    }
+
+    hieroglyphicGame.undo();
+    hieroglyphicAttempts++;
+    showOpeningMoveVisualFeedback(source, target, 'incorrect');
+
+    if (hieroglyphicAttempts >= 3) {
+        hieroglyphicScore.total++;
+        hieroglyphicExerciseActive = false;
+        hieroglyphicGame.move(hieroglyphicExpectedMove, { sloppy: true });
+        if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) {
+            noteEl.innerHTML = `<div class="opening-maxim-box">
+                <div class="maxim-title">💡 La resposta era: ${hieroglyphicExpectedMove}</div>
+                <div class="maxim-text">${hieroglyphicOpening.idea}</div>
+                <div class="maxim-text" style="opacity:0.7; margin-top:6px;">Puntuació: ${hieroglyphicScore.correct}/${hieroglyphicScore.total}</div>
+                <button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>
+            </div>`;
+        }
+        showToast('La jugada era ' + hieroglyphicExpectedMove, 'warn');
+        return;
+    }
+
+    if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) {
+        const remaining = 3 - hieroglyphicAttempts;
+        const voice = getStrategicVoice();
+        noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
+            <div class="maxim-title">🔮 Exercici Geroglífic — ${hieroglyphicOpening.name}</div>
+            <div class="maxim-voice">${voice.name}, ${voice.work}</div>
+            <div class="maxim-text">"${hieroglyphicClue}"</div>
+            <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">Incorrecte. ${remaining} intent${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}.</div>
+        </div>`;
+    }
+    return 'snapback';
+}
+
 function initOpeningBundleBoard() {
     if (openingBundleBoard) return;
     const boardEl = document.getElementById('opening-board');
@@ -6899,6 +7831,42 @@ function initOpeningBundleBoard() {
         },
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
+
+            // Mode exercici geroglífic
+            if (hieroglyphicExerciseActive) {
+                return handleHieroglyphicMove(source, target);
+            }
+
+            // Mode lliçó guiada: el jugador ha de trobar la jugada de la teoria
+            if (openingLessonActive) {
+                const expected = openingLessonLine[openingLessonStep];
+                const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
+                if (!move) return 'snapback';
+                clearOpeningHintHighlight();
+                if (move.san !== expected) {
+                    showOpeningMoveVisualFeedback(source, target, 'incorrect');
+                    const noteEl = document.getElementById('opening-practice-note');
+                    if (noteEl && openingLessonInfo) {
+                        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
+                    }
+                    setTimeout(() => {
+                        openingPracticeGame.undo();
+                        openingBundleBoard.position(openingPracticeGame.fen());
+                        clearOpeningMoveVisualFeedback();
+                    }, 700);
+                    return;
+                }
+                showOpeningMoveVisualFeedback(source, target, 'correct');
+                openingLessonStep++;
+                openingBundleBoard.position(openingPracticeGame.fen());
+                if (openingLessonStep >= openingLessonLine.length) {
+                    setTimeout(() => completeOpeningLesson(), 500);
+                    return;
+                }
+                updateOpeningLessonNote();
+                setTimeout(() => playOpeningLessonOpponentMove(), 650);
+                return;
+            }
 
             // Mode pràctica d'errors
             if (openingErrorPracticeActive) {
@@ -6990,6 +7958,8 @@ function initOpeningBundleBoard() {
 function updateOpeningPracticeStatus() {
     const noteEl = document.getElementById('opening-practice-note');
     if (!noteEl) return;
+    // Aquests modes gestionen la nota pel seu compte
+    if (openingLessonActive || hieroglyphicExerciseActive || openingErrorPracticeActive) return;
     const remaining = Math.max(OPENING_PRACTICE_MAX_PLIES - openingPracticeMoveCount, 0);
     if (!openingPracticeGame) {
         noteEl.textContent = '—';
@@ -7003,8 +7973,22 @@ function updateOpeningPracticeStatus() {
         noteEl.textContent = 'Límit de 10 moviments assolit.';
         return;
     }
-    // No mostrar res per defecte - l'usuari pot prémer el botó Gemini per informació
-    noteEl.textContent = '—';
+    // Anàlisi de teoria en directe (punt 2)
+    const moves = openingPracticeGame.history();
+    if (!moves.length) {
+        noteEl.innerHTML = '<div class="opening-theory-line theory-neutral">Comença una obertura: t\'aniré dient si segueixes la teoria.</div>';
+        return;
+    }
+    const oa = analyzeGameOpening(moves);
+    const validNext = getValidOpeningMoves(moves);
+    if (validNext.length > 0) {
+        const name = (oa && oa.name) ? `${oa.name}${oa.eco ? ` (${oa.eco})` : ''}` : 'una línia coneguda';
+        noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 Ets a la teoria: <strong>${name}</strong>. Continuació habitual: ${validNext.slice(0, 3).join(', ')}.</div>`;
+    } else if (oa && oa.name) {
+        noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 <strong>${oa.name}${oa.eco ? ` (${oa.eco})` : ''}</strong>: has arribat al final de la línia teòrica. Bona feina!</div>`;
+    } else {
+        noteEl.innerHTML = '<div class="opening-theory-line theory-off">📙 Has sortit del repertori conegut. Pots continuar lliurement o desfer la jugada.</div>';
+    }
 }
 
 // Guardar estat per undo (només un moviment)
@@ -7066,6 +8050,11 @@ function undoOpeningPracticeMove() {
     // Cancel·lar màxima pendent (evitar que s'actualitzi després de l'undo)
     openingMaximPending = false;
 
+    // Sortir de la lliçó guiada si estava activa
+    openingLessonActive = false;
+    openingLessonInfo = null;
+    openingLessonStep = 0;
+
     // Cancel·lar variables de feedback instantani
     openingPreCalcBestMove = null;
     openingPreCalcPending = false;
@@ -7106,6 +8095,7 @@ function resetOpeningPracticeBoard() {
     openingPracticeGame = new Chess();
     openingPracticeMoveCount = 0;
     openingPracticeEngineThinking = false;
+    hieroglyphicExerciseActive = false;
     openingMaximPending = false;
     lastOpeningMaxim = null;
     openingPracticeHintPending = false;
@@ -7174,7 +8164,11 @@ function checkShareSupport() {
 
 function guardCalibrationAccess() {
     if (!isCalibrationRequired()) return true;
-    alert('Has de completar el calibratge inicial abans de jugar aquest mode.');
+    const remaining = Math.max(0, CALIBRATION_GAME_COUNT - calibrationGames.length);
+    const txt = remaining > 0
+        ? `Juga ${remaining} ${remaining === 1 ? 'partida' : 'partides'} de calibratge més per desbloquejar aquest mode.`
+        : 'Completa el calibratge inicial per desbloquejar aquest mode.';
+    showToast(txt, 'warn');
     return false;
 }
 
@@ -7203,12 +8197,31 @@ function setupEvents() {
         initHistoryBoard();
         renderGameHistory();
     });
+    $('#history-filter-result, #history-filter-mode, #history-filter-prec').off('change').on('change', () => {
+        historyFilters.result = $('#history-filter-result').val();
+        historyFilters.mode = $('#history-filter-mode').val();
+        historyFilters.prec = parseInt($('#history-filter-prec').val(), 10) || 0;
+        renderGameHistory();
+    });
+    $('#btn-export-all-pgn').off('click').on('click', () => {
+        if (!gameHistory.length) { showToast('No hi ha partides per exportar', 'warn'); return; }
+        const pgns = gameHistory.map(e => buildEntryPgn(e)).filter(p => p && p.trim());
+        if (!pgns.length) { showToast('No hi ha partides amb moviments per exportar', 'warn'); return; }
+        const blob = new Blob([pgns.join('\n\n\n')], { type: 'application/x-chess-pgn' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `eltauler_historial_${pgns.length}partides.pgn`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`Exportades ${pgns.length} partides ♟`, 'success');
+    });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) openLeague(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
+        renderOpeningLessonButtons();
         initOpeningBundleBoard();
         resetOpeningPracticeBoard();
         $('#start-screen').hide();
@@ -7216,6 +8229,14 @@ function setupEvents() {
         if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
             setTimeout(() => openingBundleBoard.resize(), 50);
         }
+    });
+    $(document).on('click', '.opening-lesson-btn', function() {
+        const idx = parseInt($(this).attr('data-lesson'), 10);
+        if (!isNaN(idx)) startOpeningLesson(idx);
+    });
+    $('#btn-hieroglyphic-exercise').click(() => {
+        initOpeningBundleBoard();
+        startHieroglyphicExercise();
     });
     $('#btn-back-opening').click(() => {
         $('#opening-screen').hide();
@@ -7284,7 +8305,13 @@ function setupEvents() {
         void requestOpeningMaximLlull();
     });
     $('#btn-opening-bundle-resign').click(() => {
-        resetOpeningPracticeBoard();
+        showAppConfirm('Vols reiniciar el tauler d\'obertures?', () => {
+            openingErrorPracticeActive = false;
+            openingLessonActive = false;
+            resetOpeningPracticeBoard();
+            renderOpeningStatsScreen();
+            showToast('Tauler reiniciat.', 'info');
+        }, { title: 'Reiniciar', confirmText: 'Reiniciar' });
     });
     $('#btn-opening-undo').click(() => {
         undoOpeningPracticeMove();
@@ -7296,11 +8323,15 @@ function setupEvents() {
             alert(`La lliga s'activa després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
             return;
         }
-        const ok = confirm("Vols reiniciar la lliga actual? Se'n crearà una de nova segons el teu ELO actual.");
-        if (!ok) return;
-        createNewLeague(true);
-        updateLeagueBanner();
-        alert('Lliga reiniciada.');
+        showAppConfirm(
+            "Vols reiniciar la lliga actual? Se'n crearà una de nova segons el teu ELO actual.",
+            () => {
+                createNewLeague(true);
+                updateLeagueBanner();
+                showToast('Lliga reiniciada.', 'success');
+            },
+            { title: 'Reiniciar lliga', confirmText: 'Reiniciar' }
+        );
     });
 
     $('#btn-back-stats').click(() => {
@@ -7320,7 +8351,7 @@ function setupEvents() {
     });
 
     $('#btn-recalibrate').click(() => {
-        if (!confirm("Això resetarà el teu perfil actual. Vols continuar?")) return;
+        showAppConfirm("Això resetarà el teu perfil actual. Vols continuar?", () => {
         userELO = 50;
         currentElo = clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
         aiDifficulty = levelToDifficulty(currentElo);
@@ -7341,9 +8372,10 @@ function setupEvents() {
         currentCalibrationOpponentRoc = null;
         saveStorage();
         updateDisplay();
-        alert('Calibratge reiniciat. Comença la nova seqüència de 5 partides.');
+        showToast('Calibratge reiniciat. Comença la nova seqüència de 5 partides.', 'success');
+        }, { title: 'Reiniciar calibratge', confirmText: 'Reiniciar' });
     });
-    
+
     $('#history-play').off('click').on('click', () => { startHistoryPlayback(); });
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
@@ -7352,6 +8384,32 @@ function setupEvents() {
         if (!historyReplay || !historyReplay.entry) return;
         const severeErrors = getEntrySevereErrors(historyReplay.entry);
         void requestGeminiReview(historyReplay.entry, severeErrors);
+    });
+    $('#history-export-pgn').off('click').on('click', () => {
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        const pgn = buildEntryPgn(historyReplay.entry);
+        if (!pgn) { showToast('Aquesta partida no té moviments per exportar', 'warn'); return; }
+        const blob = new Blob([pgn], { type: 'application/x-chess-pgn' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `eltauler_partida_${(historyReplay.entry.date || 'partida').replace(/[^0-9a-zA-Z]/g, '-')}.pgn`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast('PGN exportat ♟', 'success');
+    });
+    $('#history-share-pgn').off('click').on('click', async () => {
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        const pgn = buildEntryPgn(historyReplay.entry);
+        if (!pgn) { showToast('Aquesta partida no té moviments per compartir', 'warn'); return; }
+        if (navigator.share) {
+            try { await navigator.share({ title: 'El Tauler - Partida', text: pgn }); }
+            catch (e) { /* cancel·lat */ }
+        } else if (navigator.clipboard) {
+            try { await navigator.clipboard.writeText(pgn); showToast('PGN copiat al porta-retalls', 'success'); }
+            catch (e) { showToast('No s\'ha pogut compartir en aquest dispositiu', 'warn'); }
+        } else {
+            showToast('No s\'ha pogut compartir en aquest dispositiu', 'warn');
+        }
     });
     $('#result-indicator').off('click').on('click', () => {
         if (!lastReviewSnapshot) return;
@@ -7375,6 +8433,14 @@ function setupEvents() {
         saveBundleAcceptMode($(this).val());
     });
 
+    // Control de temps (rellotge)
+    $('#time-control-select').off('change').on('change', function() {
+        try { localStorage.setItem(TIME_CONTROL_KEY, $(this).val()); } catch (e) {}
+    });
+
+    // Analitza la posició actual
+    $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
+
     $('#btn-save-gemini-key').off('click').on('click', () => {
         const input = document.getElementById('gemini-key-input');
         if (!input) return;
@@ -7391,11 +8457,15 @@ function setupEvents() {
         applyEpaperMode($(this).is(':checked'));
     });
 
+    $('#daymode-toggle').off('change').on('change', function() {
+        applyDayMode($(this).is(':checked'));
+    });
+
     $('#btn-show-delete').click(() => { $('#confirm-delete-panel').slideDown(); });
     $('#btn-cancel-delete').click(() => { $('#confirm-delete-panel').slideUp(); });
     
     $('#btn-confirm-delete').click(() => {
-        if (confirm('Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.')) {
+        showAppConfirm('Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.', () => {
             localStorage.clear();
             saveEpaperPreference(epaperEnabled);
             applyControlMode(getDefaultControlMode(), { save: true, rebuild: false });
@@ -7413,11 +8483,12 @@ function setupEvents() {
             isCalibrating = true; calibrationGames = []; calibrationProfile = null; calibratgeComplet = false;
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = [];
+            completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
             geminiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
-            alert('Totes les dades han estat esborrades. Comença de nou!');
-        }
+            showToast('Totes les dades han estat esborrades. Comença de nou!', 'success');
+        }, { title: 'Esborrar totes les dades', confirmText: 'Esborrar-ho tot' });
     });
     
     $('#btn-hint').click(() => {
@@ -7451,6 +8522,31 @@ function setupEvents() {
 
     $('#btn-brain-hint').click(() => {
         void requestGeminiBundleHint();
+    });
+
+    $('#btn-assisted-hint').click(() => {
+        void requestAssistedHint();
+    });
+
+    $('#btn-assisted-game').click(() => {
+        if (!guardCalibrationAccess()) return;
+        window._startAssistedGame = true;
+        startGame(false);
+    });
+
+    $('#btn-srs-review').click(() => startSrsReview());
+    $('#btn-daily-puzzle').click(() => startDailyPuzzle());
+    $('#btn-tactics').click(() => {
+        // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
+        tacticsStats.streak = 0;
+        startTacticsPuzzle();
+    });
+
+    $(document).on('click', '.eng-cta', function() {
+        const action = $(this).attr('data-eng-action');
+        if (action === 'daily') startDailyPuzzle();
+        else if (action === 'srs') startSrsReview();
+        else { if (!guardCalibrationAccess()) return; window._startAssistedGame = false; startGame(false); }
     });
 
     $('#btn-smart-share').click(async () => {
@@ -7560,10 +8656,12 @@ function setupEvents() {
             : "Vols sortir de la partida?";
         $('#menu-exit-message').text(message);
         $('#menu-exit-modal').css('display', 'flex');
+        pauseGameClock();
     };
 
     const hideMenuExitModal = () => {
         $('#menu-exit-modal').hide();
+        resumeGameClock();
     };
 
     $('#btn-back').click(() => {
@@ -7574,10 +8672,12 @@ function setupEvents() {
         // No permetre rendir-se si el joc ja ha acabat
         if (!game || game.game_over()) return;
         $('#resign-modal').css('display', 'flex');
+        pauseGameClock();
     };
 
     const hideResignModal = () => {
         $('#resign-modal').hide();
+        resumeGameClock();
     };
 
     $('#btn-resign').click(() => {
@@ -7624,6 +8724,471 @@ function setupEvents() {
         if (!guardCalibrationAccess()) return;
         showBundleMenu();
     });
+}
+
+/* ===================== REPETICIÓ ESPAIADA (SRS) ===================== */
+const SRS_INTERVALS_DAYS = [1, 3, 7, 21];
+
+function getErrorDueTime(err) {
+    return typeof err.srsDue === 'number' ? err.srsDue : 0;
+}
+
+function getDueErrors() {
+    const now = Date.now();
+    return savedErrors.filter(e => getErrorDueTime(e) <= now);
+}
+
+// Reprograma un error després d'encertar-lo. Retorna true si ja s'ha dominat (es pot retirar).
+function scheduleErrorAfterSuccess(err) {
+    err.srsReps = (err.srsReps || 0) + 1;
+    if (err.srsReps > SRS_INTERVALS_DAYS.length) return true;
+    const days = SRS_INTERVALS_DAYS[err.srsReps - 1];
+    err.srsInterval = days;
+    err.srsDue = Date.now() + days * 86400000;
+    return false;
+}
+
+function startSrsReview() {
+    if (!guardCalibrationAccess()) return;
+    const due = getDueErrors();
+    if (!due.length) {
+        alert('No tens cap repàs pendent ara mateix. Resol nous errors o torna més tard!');
+        return;
+    }
+    isSrsReviewSession = true;
+    isDailyPuzzleSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'srs';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, due[0].fen);
+}
+
+function startNextSrsReview() {
+    const due = getDueErrors();
+    if (!due.length) return false;
+    startGame(true, due[0].fen);
+    return true;
+}
+
+function showSrsSuccessOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    const due = getDueErrors().length;
+    if (!overlay.length) {
+        if (!startNextSrsReview()) { isSrsReviewSession = false; returnToMainMenuImmediate(); }
+        return;
+    }
+    overlay.find('.bundle-success-title').text('Repàs fet ✅');
+    overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara');
+    overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0);
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        isSrsReviewSession = false; overlay.hide(); returnToMainMenuImmediate();
+    });
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        if (!startNextSrsReview()) { isSrsReviewSession = false; returnToMainMenuImmediate(); }
+    });
+}
+
+/* ===================== REPTE DIARI ===================== */
+const DAILY_PUZZLE_BANK = [
+    { fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4' },
+    { fen: '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1' },
+    { fen: 'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5' },
+    { fen: '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11' },
+    { fen: 'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9' },
+    { fen: '8/8/8/4k3/8/4K3/4P3/8 w - - 0 1' },
+    { fen: 'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4' }
+];
+
+function hashStr(str) {
+    let h = 0;
+    for (let i = 0; i < str.length; i++) { h = ((h << 5) - h + str.charCodeAt(i)) | 0; }
+    return Math.abs(h);
+}
+
+function yesterdayStr() {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+}
+
+function pickDailyPuzzleFen() {
+    const seed = hashStr(getToday());
+    // Conjunt curat de posicions tàctiques amb una millor jugada clara (verificada per Stockfish),
+    // complementat amb els errors greus reals del jugador per donar varietat i rellevància.
+    const curated = (typeof TACTICS_BANK !== 'undefined' && TACTICS_BANK.length)
+        ? TACTICS_BANK.slice()
+        : DAILY_PUZZLE_BANK.map(p => p.fen);
+    const severeOwn = savedErrors.filter(e => e.severity === 'high').map(e => e.fen);
+    const pool = curated.concat(severeOwn);
+    if (!pool.length) return DAILY_PUZZLE_BANK[seed % DAILY_PUZZLE_BANK.length].fen;
+    return pool[seed % pool.length];
+}
+
+function ensureDailyPuzzle() {
+    const today = getToday();
+    if (dailyPuzzle.date !== today) {
+        dailyPuzzle.date = today;
+        dailyPuzzle.solved = false;
+        dailyPuzzle.fen = pickDailyPuzzleFen();
+        saveStorage();
+    }
+}
+
+function startDailyPuzzle() {
+    if (!guardCalibrationAccess()) return;
+    ensureDailyPuzzle();
+    if (dailyPuzzle.solved) {
+        alert("Ja has superat el repte d'avui! Torna demà per mantenir la ratxa.");
+        return;
+    }
+    isDailyPuzzleSession = true;
+    isSrsReviewSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'daily';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, dailyPuzzle.fen);
+}
+
+function completeDailyPuzzle() {
+    if (dailyPuzzle.solved) return;
+    const today = getToday();
+    if (dailyPuzzle.lastSolved === yesterdayStr()) dailyPuzzle.streak = (dailyPuzzle.streak || 0) + 1;
+    else dailyPuzzle.streak = 1;
+    dailyPuzzle.lastSolved = today;
+    dailyPuzzle.solved = true;
+    dailyPuzzle.best = Math.max(dailyPuzzle.best || 0, dailyPuzzle.streak);
+    totalStars += 1;
+    saveStorage();
+}
+
+function showDailyPuzzleOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    if (!overlay.length) { isDailyPuzzleSession = false; returnToMainMenuImmediate(); return; }
+    overlay.find('.bundle-success-title').text('Repte diari superat 🏆 (+1 ★)');
+    overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`);
+    overlay.find('#btn-bundle-random-again').text('Fet').prop('disabled', true);
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        isDailyPuzzleSession = false; overlay.hide(); returnToMainMenuImmediate();
+    });
+}
+
+/* ===================== ENTRENAMENT DE TÀCTIQUES ===================== */
+// Banc de posicions tàctiques: el jugador ha de trobar la millor jugada (verificada per Stockfish).
+const TACTICS_BANK = [
+    'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4',
+    '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1',
+    'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5',
+    '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11',
+    'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9',
+    'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4',
+    'r2qkb1r/pp2nppp/3p4/2pNN1B1/2BnP3/3P4/PPP2PPP/R2bK2R w KQkq - 1 11',
+    'r4rk1/pp1n1ppp/2pb1q2/3p4/3P4/2NBPN2/PP3PPP/R2Q1RK1 w - - 0 12',
+    '3r1rk1/pp3ppp/2p5/2bq4/4nP2/2N1P3/PPQ3PP/R1B2RK1 b - - 0 16',
+    'r1b1k2r/ppppnppp/2n5/2b5/2B1P3/2P2N2/PP1q1PPP/RNBQ1RK1 w kq - 0 8',
+    '2kr3r/ppp2ppp/2n1b3/2b1p1q1/4P3/2NP1N2/PPP1QPPP/R1B2RK1 b - - 0 11',
+    '6k1/pp3ppp/8/8/8/1P3Q2/P4qPP/5RK1 w - - 0 1',
+    'r4rk1/1pp2ppp/p1np1q2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 9',
+    'rnb1kbnr/pppp1ppp/8/4p3/5PPq/8/PPPPP2P/RNBQKBNR w KQkq - 1 3'
+];
+
+function pickTacticsFen() {
+    return TACTICS_BANK[Math.floor(Math.random() * TACTICS_BANK.length)];
+}
+
+function startTacticsPuzzle() {
+    if (!guardCalibrationAccess()) return;
+    isTacticsSession = true;
+    isDailyPuzzleSession = false;
+    isSrsReviewSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'tactics';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, pickTacticsFen());
+}
+
+function completeTacticsPuzzle(success) {
+    tacticsStats.attempts = (tacticsStats.attempts || 0) + 1;
+    if (success) {
+        tacticsStats.solved = (tacticsStats.solved || 0) + 1;
+        tacticsStats.streak = (tacticsStats.streak || 0) + 1;
+        tacticsStats.best = Math.max(tacticsStats.best || 0, tacticsStats.streak);
+        totalStars += 1;
+    } else {
+        tacticsStats.streak = 0;
+    }
+    saveStorage();
+    checkTacticsBadges();
+}
+
+function showTacticsOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
+    overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
+    overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`);
+    overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false);
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide(); startTacticsPuzzle();
+    });
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        isTacticsSession = false; overlay.hide(); returnToMainMenuImmediate();
+    });
+}
+
+/* ===================== BANNER D'INCENTIU ===================== */
+const PLAY_IDEAS = [
+    "Domina el centre des de la primera jugada: cada peça hi guanya força.",
+    "Prova una Partida Assistida: el mestre estrateg et xifra el millor pla.",
+    "Aprèn una obertura nova avui; la victòria es prepara abans de la batalla.",
+    "Repassa un error antic: qui no repassa, repeteix.",
+    "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges perd.",
+    "Abans de moure, mira sempre què amenaça el rival."
+];
+
+// Un únic banner contextual al menú, per incitar a jugar sense ser excessiu.
+function updateEngagementBanner() {
+    const el = document.getElementById('engagement-banner');
+    if (!el) return;
+    if (isCalibrationRequired()) { el.style.display = 'none'; return; }
+    const iconEl = el.querySelector('.eng-icon');
+    const textEl = el.querySelector('.eng-text');
+    const ctaEl = el.querySelector('.eng-cta');
+    if (!iconEl || !textEl || !ctaEl) return;
+
+    let icon, text, cta, action;
+    ensureDailyPuzzle();
+    const due = getDueErrors().length;
+    if (!dailyPuzzle.solved) {
+        icon = '🗓️'; text = 'El repte diari t\'espera. Mantingues viva la ratxa!'; cta = 'Jugar repte'; action = 'daily';
+    } else if (due > 0) {
+        icon = '🔁'; text = `Tens ${due} ${due > 1 ? 'repassos a punt' : 'repàs a punt'}. Consolida el que has après.`; cta = 'Repassar'; action = 'srs';
+    } else {
+        icon = '💡'; text = PLAY_IDEAS[hashStr(getToday()) % PLAY_IDEAS.length]; cta = 'Nova partida'; action = 'play';
+    }
+    iconEl.textContent = icon;
+    textEl.textContent = text;
+    ctaEl.textContent = cta;
+    ctaEl.setAttribute('data-eng-action', action);
+    el.style.display = 'flex';
+}
+
+/* ===================== DEBILITATS TEMÀTIQUES ===================== */
+// Classifica una posició+jugada en un tema: 'king' (atac al rei), 'material', 'center', 'general'.
+function classifyPositionTheme(fen, uci) {
+    try {
+        if (!uci || uci.length < 4) return 'general';
+        const g = new Chess(fen);
+        const mv = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || 'q' });
+        if (mv) {
+            if (mv.san.includes('#') || mv.san.includes('+')) return 'king';
+            if (mv.flags.includes('c') || mv.flags.includes('e')) return 'material';
+            if (['d4', 'd5', 'e4', 'e5', 'c4', 'c5', 'f4', 'f5'].includes(mv.to)) return 'center';
+        }
+    } catch (e) {}
+    return 'general';
+}
+
+const WEAKNESS_LABELS = {
+    king: 'Atacs i seguretat del rei',
+    material: 'Tàctica i guany de material',
+    center: 'Control del centre',
+    general: 'Joc posicional',
+    obertura: "Obertura (primeres jugades)",
+    migjoc: 'Mig joc',
+    final: 'Finals'
+};
+
+function analyzeWeaknesses() {
+    const errors = [];
+    savedErrors.forEach(e => errors.push(e));
+    gameHistory.forEach(g => { if (Array.isArray(g.errors)) g.errors.forEach(e => errors.push(e)); });
+
+    const phase = { obertura: 0, migjoc: 0, final: 0 };
+    const theme = { king: 0, material: 0, center: 0, general: 0 };
+    const severity = { low: 0, med: 0, high: 0 };
+
+    errors.forEach(e => {
+        let fullmove = 10;
+        try { fullmove = parseInt((e.fen || '').split(' ')[5]) || 10; } catch (_) {}
+        if (fullmove <= 10) phase.obertura++;
+        else if (fullmove <= 30) phase.migjoc++;
+        else phase.final++;
+        theme[classifyPositionTheme(e.fen, e.bestMove || '')]++;
+        if (e.severity === 'high') severity.high++;
+        else if (e.severity === 'med') severity.med++;
+        else severity.low++;
+    });
+
+    return { total: errors.length, phase, theme, severity };
+}
+
+function getTopWeaknessTheme() {
+    const data = analyzeWeaknesses();
+    let top = null, max = -1;
+    Object.keys(data.theme).forEach(k => { if (data.theme[k] > max) { max = data.theme[k]; top = k; } });
+    return top;
+}
+
+// Precisió mitjana per fase de la partida (obertura / mig joc / final) a partir de l'historial
+const QUALITY_WEIGHTS = { excel: 100, good: 85, inaccuracy: 50, mistake: 20, blunder: 0 };
+function analyzePhasePrecision() {
+    const phases = {
+        obertura: { sum: 0, n: 0 },
+        migjoc: { sum: 0, n: 0 },
+        final: { sum: 0, n: 0 }
+    };
+    gameHistory.forEach(entry => {
+        if (!Array.isArray(entry.moveReviews)) return;
+        const pColor = entry.playerColor || 'w';
+        entry.moveReviews.forEach(r => {
+            if (r.color && r.color !== pColor) return;
+            const w = QUALITY_WEIGHTS[r.quality];
+            if (typeof w !== 'number') return;
+            const mn = r.moveNumber || 1;
+            const bucket = mn <= 10 ? 'obertura' : (mn <= 30 ? 'migjoc' : 'final');
+            phases[bucket].sum += w;
+            phases[bucket].n++;
+        });
+    });
+    const result = {};
+    let totalN = 0;
+    Object.keys(phases).forEach(k => {
+        result[k] = phases[k].n > 0 ? Math.round(phases[k].sum / phases[k].n) : null;
+        result[k + '_n'] = phases[k].n;
+        totalN += phases[k].n;
+    });
+    result.totalN = totalN;
+    return result;
+}
+
+function startWeaknessTraining(theme) {
+    if (!guardCalibrationAccess()) return;
+    const candidates = savedErrors.filter(e => classifyPositionTheme(e.fen, e.bestMove || '') === theme);
+    const pool = candidates.length ? candidates : savedErrors;
+    if (!pool.length) { alert('Encara no tens errors guardats per entrenar aquesta debilitat.'); return; }
+    const choice = pool[Math.floor(Math.random() * pool.length)];
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isRandomBundleSession = true;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'random';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, choice.fen);
+}
+
+function renderWeaknesses() {
+    const container = document.getElementById('stats-weaknesses');
+    if (!container) return;
+    const data = analyzeWeaknesses();
+    if (data.total === 0) {
+        container.innerHTML = '<div style="color:var(--text-secondary); font-size:0.9rem;">Encara no hi ha prou dades. Juga partides i revisa errors per veure les teves debilitats.</div>';
+        return;
+    }
+    const renderRow = (label, count, total, color) => {
+        const pct = total > 0 ? Math.round((count / total) * 100) : 0;
+        return `<div class="weakness-row">
+            <div class="weakness-label">${label}</div>
+            <div class="weakness-bar-track"><div class="weakness-bar-fill" style="width:${pct}%; background:${color};"></div></div>
+            <div class="weakness-count">${count}</div>
+        </div>`;
+    };
+    let html = '<div class="weakness-group-title">Per temàtica</div>';
+    const themeColors = { king: '#c62828', material: '#c9a227', center: '#3a6b8c', general: '#4a7c59' };
+    Object.keys(data.theme).sort((a, b) => data.theme[b] - data.theme[a]).forEach(k => {
+        html += renderRow(WEAKNESS_LABELS[k], data.theme[k], data.total, themeColors[k]);
+    });
+    html += '<div class="weakness-group-title">Per fase de la partida</div>';
+    ['obertura', 'migjoc', 'final'].forEach(k => {
+        html += renderRow(WEAKNESS_LABELS[k], data.phase[k], data.total, '#6d7b87');
+    });
+    // Precisió mitjana per fase (a partir de l'historial de partides)
+    const pp = analyzePhasePrecision();
+    if (pp.totalN > 0) {
+        html += '<div class="weakness-group-title">Precisió per fase</div>';
+        const precColor = (v) => v >= 80 ? '#4a7c59' : (v >= 60 ? '#c9a227' : '#c62828');
+        ['obertura', 'migjoc', 'final'].forEach(k => {
+            const v = pp[k];
+            if (v === null) {
+                html += `<div class="weakness-row"><div class="weakness-label">${WEAKNESS_LABELS[k]}</div><div class="weakness-bar-track"></div><div class="weakness-count">—</div></div>`;
+            } else {
+                html += `<div class="weakness-row">
+                    <div class="weakness-label">${WEAKNESS_LABELS[k]}</div>
+                    <div class="weakness-bar-track"><div class="weakness-bar-fill" style="width:${v}%; background:${precColor(v)};"></div></div>
+                    <div class="weakness-count">${v}%</div>
+                </div>`;
+            }
+        });
+    }
+    const topTheme = getTopWeaknessTheme();
+    if (topTheme && data.theme[topTheme] > 0) {
+        html += `<button class="btn btn-secondary" id="btn-train-weakness" style="margin-top:12px;">🎯 Entrena: ${WEAKNESS_LABELS[topTheme]}</button>`;
+    }
+    container.innerHTML = html;
+    const trainBtn = document.getElementById('btn-train-weakness');
+    if (trainBtn) trainBtn.onclick = () => startWeaknessTraining(topTheme);
+}
+
+/* ===================== BANC DE MÀXIMES OFFLINE + CAU ===================== */
+const OFFLINE_MAXIMS = {
+    king: [
+        "Quan el rei enemic queda exposat, tota maniobra ha d'apuntar a la seva posició; la pressa sense objectiu malgasta forces.",
+        "El general savi no persegueix peces, sinó el monarca: dirigeix les teves columnes cap al refugi del rei.",
+        "Una escac no és un crit buit si obre el camí cap a la victòria; busca el xec que guanya temps o material."
+    ],
+    material: [
+        "Abans de capturar, compta els defensors: el guany aparent sovint amaga una trampa preparada.",
+        "Qui sobrecarrega una peça defensora obre una bretxa; ataca el punt que el rival no pot protegir dues vegades.",
+        "La forquilla i la clavada són les emboscades del tauler: cerca la casella des d'on una sola peça amenaça dues."
+    ],
+    center: [
+        "Qui domina el centre domina les rutes; situa-hi els peons i les peces abans de llançar l'atac als flancs.",
+        "El terreny central és la plana on es decideixen els imperis: no el cedeixis sense compensació.",
+        "Des del centre, cada peça irradia la seva força; un cavall a la quarta fila val per dos a la vora."
+    ],
+    general: [
+        "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges és un exèrcit derrotat.",
+        "Coneix la teva posició i la del rival, i en cent jugades no temeràs el resultat.",
+        "La paciència posicional precedeix la tempesta tàctica: millora la pitjor peça abans de buscar el cop."
+    ]
+};
+
+function pickOfflineMaxim(theme) {
+    const arr = OFFLINE_MAXIMS[theme] || OFFLINE_MAXIMS.general;
+    return arr[Math.floor(Math.random() * arr.length)];
+}
+
+function getCachedGemini(key) {
+    return geminiResponseCache[key] || null;
+}
+
+function setCachedGemini(key, value) {
+    geminiResponseCache[key] = value;
 }
 
 function showBundleMenu() {
@@ -7698,10 +9263,10 @@ function showBundleMenu() {
 }
 
 function removeBundle(idx) {
-    if (confirm('Esborrar aquest error?')) {
+    showAppConfirm('Esborrar aquest error?', () => {
         savedErrors.splice(idx, 1); saveStorage(); updateDisplay();
         $('#bundle-modal').remove(); if (savedErrors.length > 0) showBundleMenu();
-    }
+    }, { title: 'Esborrar error', confirmText: 'Esborrar' });
 }
 
 window.startBundleGame = function(fen, severity = null) {
@@ -7709,6 +9274,8 @@ window.startBundleGame = function(fen, severity = null) {
     isMatchErrorReviewSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     currentBundleSource = 'category';
     currentBundleSeverity = (severity === 'low' || severity === 'med' || severity === 'high') ? severity : null;
     $('#bundle-modal').remove(); currentGameMode = 'bundle';
@@ -7721,10 +9288,12 @@ function startRandomBundleGame() {
     const choice = savedErrors[Math.floor(Math.random() * savedErrors.length)];
     isRandomBundleSession = true;
     isMatchErrorReviewSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
     currentBundleSource = 'random';
-    currentBundleSeverity = null;  
+    currentBundleSeverity = null;
     $('#bundle-modal').remove();
     currentGameMode = 'bundle';
     currentOpponent = null;
@@ -7738,6 +9307,8 @@ function startSelectedBundleGame(entry) {
     isMatchErrorReviewSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     currentBundleSource = 'manual';
     currentBundleSeverity = null;
     $('#bundle-modal').remove();
@@ -7753,6 +9324,8 @@ function startMatchErrorReview() {
         return;
     }
     isRandomBundleSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
     matchErrorQueue = currentGameErrors.slice();
     isMatchErrorReviewSession = true;
     currentMatchError = null;
@@ -7789,14 +9362,12 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
     const overlay = $('#match-error-success-overlay');
     if (!overlay.length) {
         if (remaining > 0) {
-            const wantsMore = confirm(`Vols revisar un altre error? En queden ${remaining}.`);
-            if (wantsMore) {
-                launchNextMatchError();
-            } else {
-                endMatchErrorReviewSession();
-            }
+            showAppConfirm(`Vols revisar un altre error? En queden ${remaining}.`,
+                () => launchNextMatchError(),
+                { title: 'Revisar errors', confirmText: 'Sí', cancelText: 'No', onCancel: () => endMatchErrorReviewSession() }
+            );
         } else {
-            alert('Ja has revisat tots els errors de la partida.');
+            showToast('Ja has revisat tots els errors de la partida.', 'success');
             endMatchErrorReviewSession();
         }
         return;
@@ -7834,6 +9405,114 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
 function promptMatchErrorNext() {
     const remaining = matchErrorQueue.length;
     showMatchErrorReviewOverlay(remaining, remaining === 0);
+}
+
+/* ===================== RELLOTGE DE PARTIDA ===================== */
+function loadTimeControl() {
+    try { return localStorage.getItem(TIME_CONTROL_KEY) || 'none'; }
+    catch (e) { return 'none'; }
+}
+function getTimeControlConfig() {
+    return TIME_CONTROLS.find(t => t.id === loadTimeControl()) || TIME_CONTROLS[0];
+}
+function formatClock(ms) {
+    if (ms < 0) ms = 0;
+    const total = Math.ceil(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    if (m >= 1) return `${m}:${s.toString().padStart(2, '0')}`;
+    // Sota el minut, mostra dècimes per tensió
+    const tenths = Math.floor((ms % 1000) / 100);
+    return `0:${s.toString().padStart(2, '0')}.${tenths}`;
+}
+function stopGameClock() {
+    if (gameClock.interval) { clearInterval(gameClock.interval); gameClock.interval = null; }
+    gameClock.active = null;
+}
+// Pausa sense perdre el torn (per a modals dins la partida)
+function pauseGameClock() {
+    if (gameClock.enabled && gameClock.interval) {
+        clearInterval(gameClock.interval);
+        gameClock.interval = null;
+        gameClock.paused = true;
+    }
+}
+function resumeGameClock() {
+    if (gameClock.enabled && gameClock.paused && gameClock.active && !gameClock.interval) {
+        gameClock.paused = false;
+        gameClock.lastTs = Date.now();
+        gameClock.interval = setInterval(clockTick, 200);
+    }
+}
+function initGameClock(applies) {
+    stopGameClock();
+    const cfg = getTimeControlConfig();
+    const enabled = applies && cfg.id !== 'none';
+    gameClock = {
+        enabled,
+        white: enabled ? cfg.base * 1000 : 0,
+        black: enabled ? cfg.base * 1000 : 0,
+        inc: enabled ? cfg.inc * 1000 : 0,
+        active: null,
+        interval: null,
+        lastTs: 0,
+        paused: false
+    };
+    const wrap = document.getElementById('game-clocks');
+    if (wrap) wrap.style.display = enabled ? 'flex' : 'none';
+    if (!enabled) return;
+    renderClock();
+    // Comença a córrer pel costat que té el torn
+    gameClock.active = game.turn();
+    gameClock.lastTs = Date.now();
+    gameClock.interval = setInterval(clockTick, 200);
+    renderClock();
+}
+function clockTick() {
+    if (!gameClock.enabled || !gameClock.active) return;
+    const now = Date.now();
+    const delta = now - gameClock.lastTs;
+    gameClock.lastTs = now;
+    if (gameClock.active === 'w') gameClock.white -= delta;
+    else gameClock.black -= delta;
+    renderClock();
+    if (gameClock.white <= 0 || gameClock.black <= 0) {
+        const flagged = gameClock.white <= 0 ? 'w' : 'b';
+        stopGameClock();
+        renderClock();
+        handleGameOver(false, flagged);
+    }
+}
+// Quan algú acaba de moure: afegeix l'increment a qui ha mogut i passa el torn
+function clockOnMove() {
+    if (!gameClock.enabled) return;
+    const justMoved = (game.turn() === 'w') ? 'b' : 'w';
+    if (gameClock.inc > 0) {
+        if (justMoved === 'w') gameClock.white += gameClock.inc;
+        else gameClock.black += gameClock.inc;
+    }
+    gameClock.active = game.turn();
+    gameClock.lastTs = Date.now();
+    renderClock();
+}
+function renderClock() {
+    if (!gameClock.enabled) return;
+    const youColor = playerColor;
+    const oppColor = youColor === 'w' ? 'b' : 'w';
+    const youMs = youColor === 'w' ? gameClock.white : gameClock.black;
+    const oppMs = oppColor === 'w' ? gameClock.white : gameClock.black;
+    const youEl = document.getElementById('clock-you');
+    const oppEl = document.getElementById('clock-opp');
+    if (youEl) {
+        youEl.textContent = formatClock(youMs);
+        youEl.parentElement.classList.toggle('clock-active', gameClock.active === youColor);
+        youEl.parentElement.classList.toggle('clock-low', youMs <= 20000);
+    }
+    if (oppEl) {
+        oppEl.textContent = formatClock(oppMs);
+        oppEl.parentElement.classList.toggle('clock-active', gameClock.active === oppColor);
+        oppEl.parentElement.classList.toggle('clock-low', oppMs <= 20000);
+    }
 }
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
@@ -7976,6 +9655,13 @@ blunderMode = isBundle;
         const label = opp ? `${opp.name} (${opp.elo})` : 'Rival de lliga';
         $('#engine-elo').text(label);
         $('#game-mode-title').text(`🏆 Lliga · Jornada ${leagueActiveMatch.round}/9`);
+    } else if (window._startAssistedGame) {
+        currentGameMode = 'assisted';
+        currentOpponent = null;
+        window._startAssistedGame = false;
+        updateAdaptiveEngineEloLabel();
+        $('#game-mode-title').text('🧭 Partida Assistida');
+        if (engineReady) applyEngineEloStrength(currentElo);
     } else {
         currentGameMode = 'free';
         currentOpponent = null;
@@ -7985,13 +9671,19 @@ blunderMode = isBundle;
     }
         if (!isCalibrationGame) {
         currentCalibrationOpponentRoc = null;
-    }   
-    
+    }
+
+    // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
+    $('#btn-analyze').toggle((currentGameMode === 'free' || currentGameMode === 'assisted') && !isCalibrationGame);
+
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
     updateStatus();
     updateBundleHintButtons();
-    
+
+    // Inicialitza el rellotge (només modes de partida real, no exercicis ni calibratge)
+    initGameClock(!isBundle && !isCalibrationGame);
+
     // Forçar actualització visual després de 100ms
     setTimeout(() => {
         updateBundleHintButtons();
@@ -8029,11 +9721,12 @@ function onDrop(source, target) {
     $('.square-55d63').removeClass('highlight-hint');
     lastPosition = game.fen(); 
     var move = game.move({ from: source, to: target, promotion: 'q' });
-    if (move === null) return 'snapback';
+    if (move === null) { showIllegalMoveFeedback(source); return 'snapback'; }
     clearEngineMoveHighlights();
+    clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
-    
-    totalPlayerMoves++; 
+
+    totalPlayerMoves++;
     pendingMoveEvaluation = true; 
     updateStatus();
     
@@ -8047,17 +9740,29 @@ function onDrop(source, target) {
 
 function onSnapEnd() { board.position(game.fen()); }
 
+// Feedback visual breu quan s'intenta una jugada il·legal (punt 7)
+function showIllegalMoveFeedback(square) {
+    const el = document.querySelector('#myBoard .square-' + square);
+    if (el) {
+        el.classList.add('square-illegal');
+        setTimeout(() => el.classList.remove('square-illegal'), 450);
+    }
+}
+
 function makeEngineMove() {
     if (!stockfish && !ensureStockfish()) return;
 
     isEngineThinking = true; 
     $('#status').text("L'adversari pensa...");
 
-    const depth = getAIDepth(); 
-    const skillLevel = isCalibrationGame ? getCalibrationSkillLevel() : getEngineSkillLevel();
+    const depth = getAIDepth();
     resetEngineMoveCandidates();
 
-    try { stockfish.postMessage(`setoption name Skill Level value ${skillLevel}`); } catch (e) {}
+    // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
+    // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
+    // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada
+    // jugada per no heretar opcions d'altres modes (p. ex. pràctica d'obertures).
+    applyEngineEloStrength(getActiveStrengthElo());
     const multiPvValue = isCalibrationGame ? 7 : 5;
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     stockfish.postMessage(`position fen ${game.fen()}`); 
@@ -8065,8 +9770,7 @@ function makeEngineMove() {
 }
 
 function chooseFallbackMove(fallbackMove) {
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
+    const normalized = getStrengthNormalized();
     const mistakeChance = Math.max(0.1, 0.35 - (normalized * 0.25));
     if (Math.random() > mistakeChance) return fallbackMove;
     const legalMoves = game ? game.moves({ verbose: true }) : [];
@@ -8502,7 +10206,7 @@ function handleEngineMessage(rawMsg) {
         else if (analysisStep === 2) {
             pendingEvalAfter = tempAnalysisScore;
             let swing = pendingEvalAfter + (pendingEvalBefore || 0);
-            if (!isCalibrationGame && !blunderMode && currentGameMode === 'free') {
+            if (!isCalibrationGame && !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted')) {
                 const delta = swing;
                 const isError = delta > TH_ERR;
                 recentErrors.push(isError);
@@ -8564,9 +10268,9 @@ function handleEngineMessage(rawMsg) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
-            const chosen = isCalibrationGame
-                ? chooseCalibrationMove(engineMoveCandidates, fallbackMove)
-                : (chooseHumanLikeMove(engineMoveCandidates) || { move: null });
+            // Mateix model de selecció per calibratge i joc lliure: així el ROC estimat
+            // durant el calibratge reflecteix la força real que el jugador trobarà després.
+            const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
             const moveStr = (engineMoveCandidates.length > 0 && chosen.move)
                 ? chosen.move
                 : chooseFallbackMove(fallbackMove);
@@ -8579,6 +10283,7 @@ function handleEngineMessage(rawMsg) {
             setTimeout(() => {
                 isEngineThinking = false;
                 game.move({ from: fromSq, to: toSq, promotion: promotion });
+                clockOnMove();
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
                 updateStatus();
@@ -8867,6 +10572,55 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         });
     }
 
+    // Comptador d'errors nous desats en aquesta partida
+    const newErrorsEl = $('#review-newerrors');
+    if (newErrorsEl.length) {
+        if (hasMatchErrors) {
+            newErrorsEl.html(`S'han desat <strong>${currentGameErrors.length}</strong> ${currentGameErrors.length === 1 ? 'posició' : 'posicions'} per repassar.`).show();
+        } else {
+            newErrorsEl.hide();
+        }
+    }
+
+    // Anàlisi d'obertura post-partida (punt 9)
+    const openingNoteEl = $('#review-opening-note');
+    if (openingNoteEl.length) {
+        let oa = null;
+        try { oa = analyzeGameOpening(game ? game.history() : []); } catch (e) { oa = null; }
+        if (oa && oa.name) {
+            const moveNum = oa.deviationPly != null ? Math.floor(oa.deviationPly / 2) + 1 : null;
+            let html = `Obertura: <strong>${oa.name}</strong>${oa.eco ? ` (${oa.eco})` : ''}.`;
+            if (oa.deviationMove && moveNum) {
+                const who = oa.deviationBy === playerColor ? 'Tu' : 'el rival';
+                const theory = oa.theoryMoves && oa.theoryMoves.length ? ` La teoria solia jugar ${oa.theoryMoves.join(', ')}.` : '';
+                html += ` ${who} va deixar la teoria al moviment ${moveNum} amb <strong>${oa.deviationMove}</strong>.${theory}`;
+            } else {
+                html += ` Vau seguir la teoria durant ${Math.floor(oa.depth / 2)} moviments.`;
+            }
+            openingNoteEl.html(html).show();
+        } else {
+            openingNoteEl.hide();
+        }
+    }
+
+    // Botó "Tornar a jugar" per a modes lliure/assistit (punt 6)
+    const againBtn = $('#btn-review-again');
+    if (againBtn.length) {
+        const replayable = (currentGameMode === 'free' || currentGameMode === 'assisted');
+        againBtn.toggle(replayable);
+        if (replayable) {
+            const wasAssisted = (currentGameMode === 'assisted');
+            againBtn.off('click').on('click', () => {
+                if (reviewAutoCloseTimer) { clearTimeout(reviewAutoCloseTimer); reviewAutoCloseTimer = null; }
+                if (reviewOpenDelayTimer) { clearTimeout(reviewOpenDelayTimer); reviewOpenDelayTimer = null; }
+                checkmateOverlay.hide();
+                modal.hide();
+                if (wasAssisted) { window._startAssistedGame = true; startGame(false); }
+                else { novaPartida(); }
+            });
+        }
+    }
+
     $('#btn-review-close').off('click').on('click', () => {
          if (reviewAutoCloseTimer) {
             clearTimeout(reviewAutoCloseTimer);
@@ -8912,16 +10666,21 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 }
 
 function returnToMainMenuImmediate() {
+    stopGameClock();
     $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#calibration-result-screen').hide(); $('#start-screen').show();
     if (stockfish) stockfish.postMessage('stop');
     clearTapSelection();
     isMatchErrorReviewSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isTacticsSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
     currentBundleSource = null;
     currentBundleSeverity = null;
     blunderMode = false;
     updateBundleHintButtons();
+    updateDisplay();
 }
 
 function handleBundleSuccess() {
@@ -8932,24 +10691,45 @@ function handleBundleSuccess() {
     if (stockfish) stockfish.postMessage('stop');
     
     if (currentBundleFen) {
-        const solvedErr = savedErrors.find(e => e.fen === currentBundleFen);
+        const solvedFen = currentBundleFen;
+        const solvedErr = savedErrors.find(e => e.fen === solvedFen);
         if (solvedErr) {
             if (solvedErr.severity === 'high') sessionStats.bundlesSolvedHigh++;
             else if (solvedErr.severity === 'med') sessionStats.bundlesSolvedMed++;
             else sessionStats.bundlesSolvedLow++;
+            // Repetició espaiada: en comptes d'eliminar l'error, el reprogramem.
+            // Només es retira definitivament quan s'ha dominat (prou repassos correctes).
+            const mastered = scheduleErrorAfterSuccess(solvedErr);
+            if (mastered) savedErrors = savedErrors.filter(e => e.fen !== solvedFen);
         }
-        savedErrors = savedErrors.filter(e => e.fen !== currentBundleFen);
+        // Netejar l'error de les partides guardades (manté coherent "errors de la partida")
+        gameHistory.forEach(entry => {
+            if (entry.severeErrors && Array.isArray(entry.severeErrors)) {
+                entry.severeErrors = entry.severeErrors.filter(err => err.fen !== solvedFen);
+            }
+        });
         currentBundleFen = null;
     }
-    // Netejar l'error també de les partides guardades
-    gameHistory.forEach(entry => {
-    if (entry.severeErrors && Array.isArray(entry.severeErrors)) {
-        entry.severeErrors = entry.severeErrors.filter(err => err.fen !== currentBundleFen);
-    }
-});
-    
+
     saveStorage(); updateDisplay(); checkMissions();
     board.draggable = false;
+
+    if (isTacticsSession) {
+        completeTacticsPuzzle(true);
+        updateDisplay();
+        showTacticsOverlay();
+        return;
+    }
+    if (isDailyPuzzleSession) {
+        completeDailyPuzzle();
+        updateDisplay();
+        showDailyPuzzleOverlay();
+        return;
+    }
+    if (isSrsReviewSession) {
+        showSrsSuccessOverlay();
+        return;
+    }
 
     if (isMatchErrorReviewSession) {
         promptMatchErrorNext();
@@ -8972,10 +10752,11 @@ function showRandomBundleSuccessOverlay() {
     }
 
     const remaining = savedErrors.length;
+    overlay.find('.bundle-success-title').text('Bundle resolt');
     overlay.find('.bundle-success-remaining').text(
         remaining > 0 ? `${remaining} bundles pendents` : 'No queda cap bundle pendent'
     );
-    overlay.find('#btn-bundle-random-again').prop('disabled', remaining === 0);
+    overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0);
     overlay.css('display', 'flex');
 
     $('#btn-bundle-random-home').off('click').on('click', () => {
@@ -9070,7 +10851,9 @@ function updateAIPrecisionDisplay() {
 function updateAIPrecisionTarget() {
     const targetEl = $('#ai-precision-target');
     if (!targetEl.length) return;
-    targetEl.text(isCalibrationGame ? getCalibrationPrecisionTargetText() : '—');
+    // La força de l'enginy es controla amb UCI_Elo (no amb una precisió objectiu),
+    // tant en calibratge com en joc lliure, així que no mostrem cap objectiu fix.
+    targetEl.text('—');
 }
 
 function registerEngineMovePrecision(moveStr, candidates) {
@@ -9112,15 +10895,19 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
             elo: userELO,
             bestMove: bestMove || null,
             playerMove: playerMove || lastHumanMoveUci || null,
-            bestMovePv: bestMovePv || []
+            bestMovePv: bestMovePv || [],
+            srsReps: 0,
+            srsInterval: 0,
+            srsDue: Date.now()
         });
         saveStorage(); 
         updateDisplay(); 
     }
 }
 
-function handleGameOver(manualResign = false) {
+function handleGameOver(manualResign = false, timeoutColor = null) {
     pendingMoveEvaluation = false;
+    stopGameClock();
     let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
     const wasLeagueMatch = (currentGameMode === 'league') && !!leagueActiveMatch;
     let leagueOutcome = 'draw';
@@ -9131,12 +10918,21 @@ function handleGameOver(manualResign = false) {
     const tacticalPatterns = identifyTacticalPatterns(currentReview, avgCpLoss, blundersOver200);
     const calibrationGameWasActive = isCalibrationGame;
     let calibrationJustCompleted = false;
-    const isFreeMode = currentGameMode === 'free';
+    const isFreeMode = currentGameMode === 'free' || currentGameMode === 'assisted';
     const isLeagueMode = currentGameMode === 'league';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     
-    if (manualResign) { 
-        msg = "T'has rendit."; resultScore = 0; leagueOutcome = 'loss'; 
+    if (timeoutColor) {
+        if (timeoutColor === playerColor) {
+            msg = "Has perdut per temps."; resultScore = 0; leagueOutcome = 'loss';
+        } else {
+            msg = "Victòria per temps!"; resultScore = 1; playerWon = true; leagueOutcome = 'win';
+            sessionStats.gamesWon++; totalWins++;
+            if (playerColor === 'b') sessionStats.blackWins++;
+        }
+    }
+    else if (manualResign) {
+        msg = "T'has rendit."; resultScore = 0; leagueOutcome = 'loss';
     }
     else if (game.in_checkmate()) {
         if (game.turn() !== playerColor) { 
@@ -9149,7 +10945,7 @@ function handleGameOver(manualResign = false) {
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
     if (currentGameMode === 'league') sessionStats.leagueGamesPlayed++;
-    else if (currentGameMode === 'free') sessionStats.freeGamesPlayed++;
+    else if (currentGameMode === 'free' || currentGameMode === 'assisted') sessionStats.freeGamesPlayed++;
 
     if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
     if (finalPrecision >= 85) sessionStats.perfectGames++;
@@ -9310,10 +11106,13 @@ $(document).ready(() => {
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
+    applyDayMode(loadDayModePreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
+    const tcSel = document.getElementById('time-control-select');
+    if (tcSel) tcSel.value = loadTimeControl();
     generateDailyMissions(); checkStreak(); updateDisplay(); setupEvents(); 
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
