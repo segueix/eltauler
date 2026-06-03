@@ -141,20 +141,20 @@
         }
         /* Només opacitat als contenidors de pantalla (evita crear containing-block per overlays fixos) */
         .screen-anim { animation: fadeInScreen 0.28s ease both; }
-        /* Entrada escalonada per a targetes i botons (sense overlays fixos a dins) */
+        /* Entrada escalonada per a targetes i seccions (sense overlays fixos a dins) */
         .stats-row .stat-box,
         .stats-grid .stat-card,
-        #start-screen .menu-buttons > .btn {
+        #start-screen .menu-section {
             animation: fadeInUp 0.34s ease both;
         }
         .stats-row .stat-box:nth-child(2) { animation-delay: 0.05s; }
         .stats-row .stat-box:nth-child(3) { animation-delay: 0.1s; }
-        #start-screen .menu-buttons > .btn:nth-child(2) { animation-delay: 0.04s; }
-        #start-screen .menu-buttons > .btn:nth-child(3) { animation-delay: 0.08s; }
+        #start-screen .menu-section:nth-child(2) { animation-delay: 0.05s; }
+        #start-screen .menu-section:nth-child(3) { animation-delay: 0.1s; }
         body.epaper-mode .screen-anim,
         body.epaper-mode .stats-row .stat-box,
         body.epaper-mode .stats-grid .stat-card,
-        body.epaper-mode #start-screen .menu-buttons > .btn { animation: none !important; }
+        body.epaper-mode #start-screen .menu-section { animation: none !important; }
         
         #app-container { position: relative; z-index: 1; max-width: 480px; width: 100%; }
         body.device-tablet #app-container { max-width: 760px; }
@@ -643,6 +643,50 @@
         .btn-primary { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
         .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: var(--accent-cream); }
         .btn-blue { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: white; }
+
+        /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
+        .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
+        .btn-bundle   { background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc; }
+        .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
+        .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
+        .btn-tactics  { background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0; }
+        .btn-history  { background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: #fff; }
+        .btn-stats    { background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: #fff; }
+
+        /* Estructura del menú principal per seccions */
+        .menu-section { margin-top: 16px; }
+        .menu-section:first-child { margin-top: 0; }
+        .menu-section-title {
+            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--text-secondary);
+            text-align: left; margin: 0 0 8px 2px; opacity: 0.85;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .menu-section-title::after { content: ''; flex: 1; height: 1px; background: rgba(201,162,39,0.18); }
+        .menu-section .menu-buttons { margin-top: 0; gap: 10px; }
+        /* Acció principal destacada */
+        .btn-hero {
+            font-size: 1.15rem; padding: 18px 18px; border-radius: 14px;
+            box-shadow: 0 6px 18px rgba(201, 162, 39, 0.35);
+        }
+        /* Graella compacta de 2 columnes per a botons secundaris */
+        .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .menu-grid .btn {
+            flex-direction: column; gap: 2px; padding: 12px 10px;
+            font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
+        }
+        .menu-grid .btn span { font-weight: 400; letter-spacing: 0; }
+        @media (max-width: 360px) { .menu-grid { grid-template-columns: 1fr; } }
+        /* Separador de la zona de dades/sync */
+        .sync-divider {
+            margin: 22px 0 12px; height: 1px;
+            background: rgba(201,162,39,0.18); position: relative;
+        }
+        .sync-divider span {
+            position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
+            background: var(--bg-card); padding: 0 12px; font-size: 0.72rem;
+            color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;
+        }
 
         .opening-section {
             margin-top: 12px;
@@ -1928,6 +1972,24 @@
             -webkit-overflow-scrolling: touch;
             border: 1px solid rgba(201, 162, 39, 0.12);
         }
+        .league-history { margin-top: 14px; text-align: left; }
+        .league-history-title {
+            font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
+            margin-bottom: 8px; letter-spacing: 0.5px;
+        }
+        .league-history-empty { font-size: 0.82rem; color: var(--text-secondary); }
+        .league-history-row {
+            display: flex; align-items: center; gap: 10px; padding: 8px 10px; margin-bottom: 6px;
+            background: var(--bg-warm); border-radius: 8px; font-size: 0.85rem;
+            border-left: 3px solid var(--text-secondary);
+        }
+        .league-history-row .lh-round { font-weight: 700; color: var(--accent-gold); min-width: 28px; }
+        .league-history-row .lh-opp { flex: 1; color: var(--text-primary); }
+        .league-history-row .lh-result { font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+        .lh-win { background: rgba(74,124,89,0.25); color: var(--accent-green); }
+        .lh-loss { background: rgba(198,40,40,0.2); color: var(--severity-high); }
+        .lh-draw { background: rgba(201,162,39,0.2); color: var(--accent-gold); }
+        .league-history-row.lh-win-row { border-left-color: var(--accent-green); }
         table.league-table { width: 100%; border-collapse: collapse; }
         .league-table thead th {
             text-align: left;
@@ -2091,6 +2153,17 @@
             color: var(--text-secondary);
             margin-bottom: 10px;
         }
+        .review-opening-note {
+            background: rgba(201,162,39,0.12);
+            border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 10px; padding: 10px 12px; margin: 10px 0;
+            font-size: 0.85rem; color: var(--text-primary); line-height: 1.4; text-align: left;
+        }
+        .review-opening-note strong { color: var(--accent-gold); }
+        .review-newerrors {
+            font-size: 0.85rem; color: var(--text-secondary); margin: 6px 0 4px;
+        }
+        .review-newerrors strong { color: var(--severity-med); }
         .checkmate-image {
             display: none;
             width: min(220px, 70%);
@@ -2188,52 +2261,71 @@
                 <div id="missions-list"></div>
             </div>
 
-            <div class="menu-buttons">
-                <button class="btn btn-primary" id="btn-new-game">♟ Nova Partida</button>
-                <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida Assistida</button>
-                <div class="league-banner" id="league-banner" style="display:none;">
-                    <div class="league-banner-header">
-                        <span>🏅 Proper partit de lliga</span>
-                        <span class="league-badge" id="league-banner-opp-rank">#—</span>
-                    </div>
-                    <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
-                    <div class="league-banner-body">
-                        <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
-                        <div class="league-banner-ranks">
-                            <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
-                            <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
+            <!-- JUGA -->
+            <div class="menu-section">
+                <div class="menu-section-title">Juga</div>
+                <div class="menu-buttons">
+                    <button class="btn btn-primary btn-hero" id="btn-new-game">♟ Nova Partida</button>
+                    <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida Assistida</button>
+                    <div class="league-banner" id="league-banner" style="display:none;">
+                        <div class="league-banner-header">
+                            <span>🏅 Proper partit de lliga</span>
+                            <span class="league-badge" id="league-banner-opp-rank">#—</span>
+                        </div>
+                        <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
+                        <div class="league-banner-body">
+                            <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
+                            <div class="league-banner-ranks">
+                                <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
+                                <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
+                            </div>
+                        </div>
+                        <div class="league-banner-actions">
+                            <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
                         </div>
                     </div>
-                    <div class="league-banner-actions">
-                        <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
+                    <button class="btn btn-league" id="btn-league">🏆 Lliga</button>
+                </div>
+            </div>
+
+            <!-- ENTRENA -->
+            <div class="menu-section">
+                <div class="menu-section-title">Entrena</div>
+                <div class="menu-buttons">
+                    <button class="btn btn-opening" id="btn-opening">📖 Obertures</button>
+                    <div class="menu-grid">
+                        <button class="btn btn-tactics" id="btn-tactics">
+                            ⚡ Tàctiques
+                            <span style="font-size:0.72rem; opacity:0.85;" id="tactics-info">Entrena combinacions</span>
+                        </button>
+                        <button class="btn btn-bundle" id="btn-bundle-menu">
+                            📚 Revisa Errors
+                            <span style="font-size:0.72rem; opacity:0.85;" id="bundle-info">Cap error desat</span>
+                        </button>
+                        <button class="btn btn-srs" id="btn-srs-review">
+                            🔁 Repàs intel·ligent
+                            <span style="font-size:0.72rem; opacity:0.85;" id="srs-info">Al dia</span>
+                        </button>
+                        <button class="btn btn-daily" id="btn-daily-puzzle">
+                            🗓️ Repte diari
+                            <span style="font-size:0.72rem; opacity:0.85;" id="daily-info">Disponible</span>
+                        </button>
                     </div>
                 </div>
-                <button class="btn btn-secondary" id="btn-league" style="background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc;">🏆 Lliga</button>
-                <div class="opening-section">
-                    <div class="opening-section-title">Secció d'obertura</div>
-                    <div class="opening-section-desc">Explora idees bàsiques per començar la partida.</div>
-                    <button class="btn btn-opening" id="btn-opening">OBERTURA</button>
-                </div>
-                <button class="btn btn-secondary" id="btn-bundle-menu" style="background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc;">
-                    📚 Revisa Errors
-                    <span style="font-size:0.75rem; opacity:0.8;" id="bundle-info">Cap error desat</span>
-                </button>
-                <button class="btn btn-secondary" id="btn-srs-review" style="background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7;">
-                    🔁 Repàs intel·ligent
-                    <span style="font-size:0.75rem; opacity:0.8;" id="srs-info">Al dia</span>
-                </button>
-                <button class="btn btn-secondary" id="btn-daily-puzzle" style="background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf;">
-                    🗓️ Repte diari
-                    <span style="font-size:0.75rem; opacity:0.8;" id="daily-info">Disponible</span>
-                </button>
-                <button class="btn btn-secondary" id="btn-tactics" style="background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0;">
-                    ⚡ Tàctiques
-                    <span style="font-size:0.75rem; opacity:0.8;" id="tactics-info">Entrena combinacions</span>
-                </button>
-                <button class="btn btn-secondary" id="btn-history" style="background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: white;">📜 Historial</button>
-                <button class="btn btn-secondary" id="btn-stats" style="background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: white;">📊 Estadístiques</button>
             </div>
-            
+
+            <!-- PROGRÉS -->
+            <div class="menu-section">
+                <div class="menu-section-title">Progrés</div>
+                <div class="menu-buttons">
+                    <div class="menu-grid">
+                        <button class="btn btn-history" id="btn-history">📜 Historial</button>
+                        <button class="btn btn-stats" id="btn-stats">📊 Estadístiques</button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sync-divider"><span>Dades</span></div>
             <div class="sync-container">
                 <button class="btn btn-share" id="btn-smart-share">📤 Compartir Progrés</button>
                 <button class="btn btn-file" id="btn-export">💾 Exportar</button>
@@ -2483,9 +2575,12 @@
                 <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>
                 <div class="review-highlight">Com han estat les teves jugades?</div>
                 <div class="review-legend" id="review-breakdown"></div>
+                <div class="review-opening-note" id="review-opening-note" style="display:none;"></div>
+                <div class="review-newerrors" id="review-newerrors" style="display:none;"></div>
                 <div class="review-actions">
+                    <button class="btn btn-primary" id="btn-review-again" style="display:none;">🔁 Tornar a jugar</button>
                     <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
-                    <button class="btn btn-primary" id="btn-review-stats">📊 Veure evolució</button>
+                    <button class="btn btn-secondary" id="btn-review-stats">📊 Veure evolució</button>
                     <button class="btn btn-secondary" id="btn-review-menu">Menú</button>
                     <button class="close-modal" id="btn-review-close">Tancar</button>
                 </div>
@@ -2522,6 +2617,8 @@
                     <tbody id="league-table-body"></tbody>
                 </table>
             </div>
+
+            <div class="league-history" id="league-history"></div>
 
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-primary" id="btn-league-play">Jugar</button>

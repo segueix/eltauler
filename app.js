@@ -286,8 +286,9 @@ function showToast(message, type = 'info', duration = null) {
     toast.className = `toast toast-${type}`;
     toast.textContent = text;
     container.appendChild(toast);
-    // Durada proporcional a la longitud del missatge (mín 2.5s, màx 7s)
-    const ms = duration || Math.max(2500, Math.min(7000, 1500 + text.length * 45));
+    // Durada proporcional a la longitud del missatge; els errors/avisos es queden més estona
+    const cap = (type === 'error' || type === 'warn') ? 10000 : 7000;
+    const ms = duration || Math.max(2500, Math.min(cap, 1500 + text.length * 55));
     requestAnimationFrame(() => toast.classList.add('show'));
     const dismiss = () => {
         toast.classList.remove('show');
@@ -1047,6 +1048,42 @@ function getValidOpeningMoves(sequence) {
 
     // Retorna tots els moviments possibles des d'aquest node
     return Object.keys(node.children);
+}
+
+// Analitza fins on una partida ha seguit la teoria d'obertures
+// Retorna { depth, name, eco, deviationMove, deviationBy, theoryMoves } o null
+function analyzeGameOpening(moves) {
+    if (!openingTrie || !Array.isArray(moves) || moves.length === 0) return null;
+    let node = openingTrie;
+    let depth = 0;
+    let lastOpening = null;
+    for (let i = 0; i < moves.length; i++) {
+        const mv = moves[i];
+        if (!node.children[mv]) {
+            // Desviació: el moviment i (0-indexat) no segueix cap línia coneguda
+            const theoryMoves = Object.keys(node.children);
+            if (theoryMoves.length === 0 || depth < 2) return lastOpening ? { depth, name: lastOpening.name, eco: lastOpening.eco, deviationMove: null } : null;
+            return {
+                depth,
+                name: lastOpening ? lastOpening.name : null,
+                eco: lastOpening ? lastOpening.eco : null,
+                deviationMove: mv,
+                deviationPly: i,
+                deviationBy: (i % 2 === 0) ? 'w' : 'b',
+                theoryMoves: theoryMoves.slice(0, 3)
+            };
+        }
+        node = node.children[mv];
+        depth++;
+        if (node.openings && node.openings.length) lastOpening = node.openings[0];
+    }
+    // Tota la seqüència segueix la teoria
+    return {
+        depth,
+        name: lastOpening ? lastOpening.name : null,
+        eco: lastOpening ? lastOpening.eco : null,
+        deviationMove: null
+    };
 }
 
 // Comprova si un moviment és vàlid dins d'alguna obertura
@@ -2060,7 +2097,8 @@ function createNewLeague(force = false) {
         players: players,
         schedule: schedule,
         currentRound: 1,
-        completed: false
+        completed: false,
+        history: []
     };
     leagueActiveMatch = null;
     saveStorage();
@@ -2239,6 +2277,29 @@ function renderLeague() {
         tr.append(`<td class="num">${formatPts(p.pts)}</td>`);
         tbody.append(tr);
     });
+
+    renderLeagueHistory();
+}
+
+function renderLeagueHistory() {
+    const container = document.getElementById('league-history');
+    if (!container) return;
+    const hist = (currentLeague && Array.isArray(currentLeague.history)) ? currentLeague.history : [];
+    if (!hist.length) {
+        container.innerHTML = '<div class="league-history-empty">Encara no has jugat cap jornada en aquesta lliga.</div>';
+        return;
+    }
+    const label = { win: 'Victòria', loss: 'Derrota', draw: 'Taules' };
+    const cls = { win: 'lh-win', loss: 'lh-loss', draw: 'lh-draw' };
+    let html = '<div class="league-history-title">Les teves jornades</div>';
+    hist.slice().reverse().forEach(h => {
+        html += `<div class="league-history-row">
+            <span class="lh-round">J${h.round}</span>
+            <span class="lh-opp">vs ${h.oppName}${h.oppElo ? ` · ${h.oppElo}` : ''}</span>
+            <span class="lh-result ${cls[h.outcome] || ''}">${label[h.outcome] || '—'}</span>
+        </div>`;
+    });
+    container.innerHTML = html;
 }
 
 function simulateOutcomeByElo(eloA, eloB) {
@@ -2313,6 +2374,16 @@ function applyLeagueAfterGame(myOutcome) {
     if (myOutcome === 'win') applyResult('me', oppId, 'winA');
     else if (myOutcome === 'loss') applyResult('me', oppId, 'winB');
     else applyResult('me', oppId, 'draw');
+
+    // Desa el resultat de la meva ronda per a l'historial de la lliga
+    const oppForHist = getLeaguePlayer(oppId);
+    if (!Array.isArray(currentLeague.history)) currentLeague.history = [];
+    currentLeague.history.push({
+        round: roundNumber,
+        oppName: oppForHist ? oppForHist.name : 'Rival',
+        oppElo: oppForHist ? oppForHist.elo : null,
+        outcome: myOutcome
+    });
 
     const pairings = currentLeague.schedule[roundIdx] || [];
     for (const [aId, bId] of pairings) {
@@ -3362,6 +3433,15 @@ function updateEloHistory(newElo) {
     saveStorage();
 }
 
+// Etiqueta de nivell segons l'ELO, per donar context a l'usuari
+function eloLevelLabel(elo) {
+    if (elo < 600) return 'Principiant';
+    if (elo < 1000) return 'Bàsic';
+    if (elo < 1400) return 'Intermedi';
+    if (elo < 1800) return 'Avançat';
+    return 'Expert';
+}
+
 function updateAdaptiveEngineEloLabel() {
      if (isCalibrationGame && typeof currentCalibrationOpponentRoc === 'number') {
         $('#engine-elo').text(`ROC ${currentCalibrationOpponentRoc}`);
@@ -3371,11 +3451,12 @@ function updateAdaptiveEngineEloLabel() {
         $('#engine-elo').text('Calibratge');
         return;
     }
+    const elo = Math.round(currentElo);
     if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
-        $('#engine-elo').text('Adaptativa');
+        $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo} (adaptatiu)`);
         return;
     }
-    $('#engine-elo').text(`Adaptativa · ELO ${Math.round(currentElo)}`);
+    $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo}`);
 }
 
 function applyEngineEloStrength(eloValue) {
@@ -7329,6 +7410,7 @@ let hieroglyphicExpectedMove = null;
 let hieroglyphicClue = null;
 let hieroglyphicAttempts = 0;
 let hieroglyphicScore = { correct: 0, total: 0 };
+let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides Gemini asíncrones
 
 const HIEROGLYPHIC_CLUES = {
     'e4': ["El guerrer obre el camp central amb decisió; el peó del rei avança dos passos cap a la conquesta.", "La primera llança es clava al cor del tauler: el centre és la plana on es decidiran les batalles."],
@@ -7399,6 +7481,51 @@ function getHieroglyphicClue(san) {
     return "El mestre no revela la jugada, però assenyala el camí: observa el centre, les diagonals i les columnes obertes. La resposta és on convergeixen les forces.";
 }
 
+function buildHieroglyphicPrompt(fen, expectedMove, op) {
+    const voice = getStrategicVoice();
+    return `Ets ${voice.name}, mestre estrateg, autor de "${voice.work}".
+
+CONTEXT: En una posició d'escacs (FEN: ${fen}), de l'obertura "${op.name}" (${op.eco}), la jugada teòrica correcta és ${expectedMove}. L'estudiant ha de DEDUIR aquesta jugada per ell mateix.
+
+TASCA: Escriu UNA màxima estratègica xifrada (críptica) en català, a l'estil de "${voice.work}", que insinuï la idea darrere de ${expectedMove} SENSE dir mai la jugada, ni la casella, ni la peça concreta de manera explícita. Ha de ser una pista filosòfica que faci pensar.
+
+REGLES:
+- 1 o 2 frases màxim
+- To ${voice.style}
+- NO mencionis notació d'escacs (res de "${expectedMove}", caselles com e4, ni noms de peces evidents)
+- Sense emojis, sense cometes embolcallant tot el text
+- En català`;
+}
+
+async function fetchHieroglyphicClue(fen, expectedMove, op) {
+    if (!geminiApiKey) return null;
+    const cacheKey = `hiero:${fen}`;
+    const cached = getCachedGemini(cacheKey);
+    if (cached) return cached;
+    try {
+        const prompt = buildHieroglyphicPrompt(fen, expectedMove, op);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.95, maxOutputTokens: 200, topP: 0.95, topK: 40 }
+            })
+        });
+        if (!response.ok) return null;
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+        if (!text) return null;
+        const clean = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+        setCachedGemini(cacheKey, clean);
+        return clean;
+    } catch (e) {
+        console.warn('[Hieroglyphic] Gemini fallback:', e);
+        return null;
+    }
+}
+
 function startHieroglyphicExercise() {
     const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
     if (pool.length === 0) return;
@@ -7423,6 +7550,7 @@ function startHieroglyphicExercise() {
     hieroglyphicExpectedMove = op.moves[targetIdx];
     hieroglyphicClue = getHieroglyphicClue(hieroglyphicExpectedMove);
     hieroglyphicExerciseActive = true;
+    const myToken = ++hieroglyphicToken;
 
     if (!openingBundleBoard) initOpeningBundleBoard();
     openingLessonActive = false;
@@ -7434,15 +7562,31 @@ function startHieroglyphicExercise() {
         openingBundleBoard.position(hieroglyphicGame.fen());
     }
 
-    const noteEl = document.getElementById('opening-practice-note');
-    if (noteEl) {
-        const voice = getStrategicVoice();
+    const voice = getStrategicVoice();
+    const renderClue = (loading) => {
+        const noteEl = document.getElementById('opening-practice-note');
+        if (!noteEl) return;
+        const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
         noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
             <div class="maxim-title">🔮 Exercici Geroglífic — ${op.name}</div>
-            <div class="maxim-voice">${voice.name}, ${voice.work}</div>
+            <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
             <div class="maxim-text">"${hieroglyphicClue}"</div>
             <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Troba la jugada teòrica correcta. Tens 3 intents.</div>
         </div>`;
+    };
+    // Pista offline immediata; si hi ha Gemini, la millorem amb una màxima contextual
+    renderClue(!!geminiApiKey);
+    if (geminiApiKey) {
+        const fen = hieroglyphicGame.fen();
+        fetchHieroglyphicClue(fen, hieroglyphicExpectedMove, op).then((text) => {
+            // Només actualitza si seguim al mateix exercici i sense intents fallits encara
+            if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === 0) {
+                hieroglyphicClue = text;
+                renderClue(false);
+            } else {
+                renderClue(false);
+            }
+        });
     }
 
     const boardEl = document.getElementById('opening-board');
@@ -7845,7 +7989,11 @@ function checkShareSupport() {
 
 function guardCalibrationAccess() {
     if (!isCalibrationRequired()) return true;
-    alert('Has de completar el calibratge inicial abans de jugar aquest mode.');
+    const remaining = Math.max(0, CALIBRATION_GAME_COUNT - calibrationGames.length);
+    const txt = remaining > 0
+        ? `Juga ${remaining} ${remaining === 1 ? 'partida' : 'partides'} de calibratge més per desbloquejar aquest mode.`
+        : 'Completa el calibratge inicial per desbloquejar aquest mode.';
+    showToast(txt, 'warn');
     return false;
 }
 
@@ -10085,6 +10233,55 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
             modal.hide();
             startMatchErrorReview();
         });
+    }
+
+    // Comptador d'errors nous desats en aquesta partida
+    const newErrorsEl = $('#review-newerrors');
+    if (newErrorsEl.length) {
+        if (hasMatchErrors) {
+            newErrorsEl.html(`S'han desat <strong>${currentGameErrors.length}</strong> ${currentGameErrors.length === 1 ? 'posició' : 'posicions'} per repassar.`).show();
+        } else {
+            newErrorsEl.hide();
+        }
+    }
+
+    // Anàlisi d'obertura post-partida (punt 9)
+    const openingNoteEl = $('#review-opening-note');
+    if (openingNoteEl.length) {
+        let oa = null;
+        try { oa = analyzeGameOpening(game ? game.history() : []); } catch (e) { oa = null; }
+        if (oa && oa.name) {
+            const moveNum = oa.deviationPly != null ? Math.floor(oa.deviationPly / 2) + 1 : null;
+            let html = `Obertura: <strong>${oa.name}</strong>${oa.eco ? ` (${oa.eco})` : ''}.`;
+            if (oa.deviationMove && moveNum) {
+                const who = oa.deviationBy === playerColor ? 'Tu' : 'el rival';
+                const theory = oa.theoryMoves && oa.theoryMoves.length ? ` La teoria solia jugar ${oa.theoryMoves.join(', ')}.` : '';
+                html += ` ${who} va deixar la teoria al moviment ${moveNum} amb <strong>${oa.deviationMove}</strong>.${theory}`;
+            } else {
+                html += ` Vau seguir la teoria durant ${Math.floor(oa.depth / 2)} moviments.`;
+            }
+            openingNoteEl.html(html).show();
+        } else {
+            openingNoteEl.hide();
+        }
+    }
+
+    // Botó "Tornar a jugar" per a modes lliure/assistit (punt 6)
+    const againBtn = $('#btn-review-again');
+    if (againBtn.length) {
+        const replayable = (currentGameMode === 'free' || currentGameMode === 'assisted');
+        againBtn.toggle(replayable);
+        if (replayable) {
+            const wasAssisted = (currentGameMode === 'assisted');
+            againBtn.off('click').on('click', () => {
+                if (reviewAutoCloseTimer) { clearTimeout(reviewAutoCloseTimer); reviewAutoCloseTimer = null; }
+                if (reviewOpenDelayTimer) { clearTimeout(reviewOpenDelayTimer); reviewOpenDelayTimer = null; }
+                checkmateOverlay.hide();
+                modal.hide();
+                if (wasAssisted) { window._startAssistedGame = true; startGame(false); }
+                else { novaPartida(); }
+            });
+        }
     }
 
     $('#btn-review-close').off('click').on('click', () => {
