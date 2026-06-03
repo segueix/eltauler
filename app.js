@@ -3167,15 +3167,28 @@ function updateGeminiSettingsUI() {
 
 function updateBundleHintButtons() {
     const brainBtn = document.getElementById('btn-brain-hint');
+    const assistedBtn = document.getElementById('btn-assisted-hint');
     const hintBtn = document.getElementById('btn-hint');
-    if (!brainBtn || !hintBtn) return;
-    
-    const visible = blunderMode && bundleSequenceStep <= 2;
-    brainBtn.style.display = visible ? 'inline-flex' : 'none';
-    hintBtn.style.display = visible ? 'inline-flex' : 'none';
-    
-    brainBtn.disabled = !visible || !geminiApiKey || bundleGeminiHintPending;
-    hintBtn.disabled = !visible || !stockfish || isAnalyzingHint;
+    if (!hintBtn) return;
+
+    const isAssisted = currentGameMode === 'assisted';
+    const bundleVisible = blunderMode && bundleSequenceStep <= 2;
+
+    // Botó de pista Stockfish: sempre visible en bundle i partida assistida; ocult en free/league
+    hintBtn.style.display = (bundleVisible || isAssisted) ? 'inline-flex' : 'inline-flex';
+    hintBtn.disabled = !stockfish || isAnalyzingHint;
+
+    // Botó Gemini per bundles
+    if (brainBtn) {
+        brainBtn.style.display = bundleVisible ? 'inline-flex' : 'none';
+        brainBtn.disabled = !bundleVisible || !geminiApiKey || bundleGeminiHintPending;
+    }
+
+    // Botó de consell estratègic per mode assistit
+    if (assistedBtn) {
+        assistedBtn.style.display = isAssisted ? 'inline-flex' : 'none';
+        assistedBtn.disabled = !isAssisted || !geminiApiKey || assistedHintPending;
+    }
 }
 
 function saveGeminiApiKey(rawKey) {
@@ -3205,7 +3218,7 @@ function updateAdaptiveEngineEloLabel() {
         $('#engine-elo').text('Calibratge');
         return;
     }
-    if (currentGameMode === 'free' && !blunderMode) {
+    if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
         $('#engine-elo').text('Adaptativa');
         return;
     }
@@ -4422,6 +4435,7 @@ function updateReviewChart() {
 function formatHistoryMode(mode) {
     if (mode === 'league') return 'Lliga';
     if (mode === 'free') return 'Amistosa';
+    if (mode === 'assisted') return 'Assistida';
     return 'Partida';
 }
 
@@ -4994,11 +5008,12 @@ Genera ara ${sentenceText} específica${sentenceCount === 1 ? '' : 's'} per aque
 
 function buildBundleGeminiPromptWithFixedSequence(step) {
     if (!bundleFixedSequence) return null;
-    
+
     const stepData = step === 1 ? bundleFixedSequence.step1 : bundleFixedSequence.step2;
-    
+    const voice = getStrategicVoice();
+
     if (step === 1) {
-        return `Ets un mestre d'escacs que aplica els principis de l'Art de la Guerra de Sun Tzu als escacs.
+        return `Ets un mestre d'escacs que aplica els principis de "${voice.work}" de ${voice.name} als escacs.
 
 SEQÜÈNCIA TÀCTICA COMPLETA (no revelar):
 1. Jugador: ${bundleFixedSequence.fullSequenceSan[0]}
@@ -5012,15 +5027,15 @@ Balanç material: ${stepData.position.material.balance}
 Temes tàctics: ${stepData.threats.themes.join(', ') || 'Cap'}
 
 INSTRUCCIONS:
-Genera exactament 2 màximes o principis d'escacs inspirats en l'Art de la Guerra:
+Genera exactament 2 màximes o principis d'escacs inspirats en "${voice.work}":
 
 1. Primera màxima: Visió estratègica general que engloba els dos moviments de la seqüència sencera
 2. Segona màxima: Principi tàctic específic pel primer moviment concret
 
 REGLES IMPERATIVES:
 - Només les màximes, res més
-- Cada màxima entre 20-200 caràcters
-- Inspirades en l'Art de la Guerra de Sun Tzu
+- Cada màxima entre 20-250 caràcters
+- Inspirades en "${voice.work}" de ${voice.name}
 - NO revelar directament la solució
 - NO numerar les màximes
 - NO afegir comentaris explicatius
@@ -5029,7 +5044,7 @@ FORMAT DE SORTIDA:
 Màxima general
 Màxima específica`;
     } else {
-        return `Ets un mestre d'escacs que aplica els principis de l'Art de la Guerra de Sun Tzu als escacs.
+        return `Ets un mestre d'escacs que aplica els principis de "${voice.work}" de ${voice.name} als escacs.
 
 CONTEXT DEL SEGON PAS:
 Posició (FEN): ${stepData.fen}
@@ -5038,12 +5053,12 @@ Balanç material: ${stepData.position.material.balance}
 Temes tàctics: ${stepData.threats.themes.join(', ') || 'Cap'}
 
 INSTRUCCIONS:
-Genera exactament 1 màxima o principi d'escacs inspirat en l'Art de la Guerra per al segon moviment de la seqüència.
+Genera exactament 1 màxima o principi d'escacs inspirat en "${voice.work}" per al segon moviment de la seqüència.
 
 REGLES IMPERATIVES:
 - Només la màxima, res més
-- Entre 20-200 caràcters
-- Inspirada en l'Art de la Guerra de Sun Tzu
+- Entre 20-250 caràcters
+- Inspirada en "${voice.work}" de ${voice.name}
 - NO revelar directament la solució
 - NO numerar
 - NO afegir comentaris explicatius
@@ -5095,15 +5110,27 @@ function getOpeningContinuations(sequence) {
     return { continuations, total };
 }
 
-function buildOpeningEncouragementPrompt() {
-    return `Ets Sun Tzu, mestre estrateg, donant consell abans d'una partida d'escacs.
+function getStrategicVoice() {
+    const voices = [
+        { name: 'Sun Tzu', work: "L'Art de la Guerra", style: 'militar i filosòfic', example: "L'estrateg savi prepara la victòria abans que comenci la batalla. Conèixer el terreny és conèixer les possibilitats." },
+        { name: 'Miyamoto Musashi', work: 'El Llibre dels Cinc Anells', style: "marcial i contemplatiu, centrat en la percepció i el ritme", example: "Observa l'adversari com l'aigua observa la pedra: sense pressa, però sense pausa. El ritme correcte desarma qualsevol defensa." },
+        { name: 'Nicolau Maquiavel', work: 'El Príncep', style: "pragmàtic i incisiu, centrat en el poder i l'oportunitat", example: "Qui domina el centre domina les rutes, i qui domina les rutes decideix on es lliura la batalla." },
+        { name: 'Carl von Clausewitz', work: 'De la Guerra', style: "analític i metòdic, centrat en la fricció i la incertesa", example: "Cap pla sobreviu al primer contacte amb l'enemic. La victòria pertany a qui s'adapta més ràpid al caos del tauler." }
+    ];
+    return voices[Math.floor(Math.random() * voices.length)];
+}
 
-TASCA: Escriu un paràgraf d'encoratjament en català, estil "L'Art de la Guerra".
+function buildOpeningEncouragementPrompt() {
+    const voice = getStrategicVoice();
+    return `Ets ${voice.name}, mestre estrateg, donant consell abans d'una partida d'escacs.
+
+TASCA: Escriu un paràgraf d'encoratjament en català, estil "${voice.work}".
 
 CONTINGUT:
 - Parla de la importància de la preparació mental abans de la batalla
 - Menciona els principis estratègics que s'apliquen a l'obertura d'escacs
-- Pots incloure citacions o paràfrasis de "L'Art de la Guerra"
+- Pots incloure citacions o paràfrasis de "${voice.work}"
+- To ${voice.style}
 - Acaba amb un consell inspirador per començar la partida
 
 REGLES:
@@ -5115,7 +5142,7 @@ REGLES:
 - IMPORTANT: Acaba sempre amb un punt final
 
 EXEMPLE D'ESTIL (NO COPIAR):
-"L'estrateg savi prepara la victòria abans que comenci la batalla. Conèixer el terreny és conèixer les possibilitats. El centre del tauler és com la plana central on es decideixen els imperis. Qui el domina, controla els camins de la victòria."
+"${voice.example}"
 
 Escriu ara:`
 }
@@ -5137,7 +5164,8 @@ function buildOpeningAlternativesPrompt(sequence, continuations, selectedOpening
         ? `OBERTURA ACTUAL: [${selectedOpening.eco || '??'}] ${selectedOpening.name}`
         : 'POSICIÓ: Sense obertura específica detectada';
 
-    return `Ets Sun Tzu aplicant "L'Art de la Guerra" als escacs.
+    const voice = getStrategicVoice();
+    return `Ets ${voice.name} aplicant "${voice.work}" als escacs.
 
 SEQÜÈNCIA JUGADA: ${movesStr || '(inici)'}
 ${currentOpeningInfo}
@@ -5149,17 +5177,17 @@ TASCA: Escriu un anàlisi complet en català (entre 5 i 10 frases):
 
 1. OBERTURA ACTUAL: Explica què és aquesta obertura, el seu origen històric si el coneixes, i quin és el seu objectiu estratègic principal.
 
-2. ALTERNATIVES: Per cada continuació possible, descriu-la amb metàfores militars de Sun Tzu:
+2. ALTERNATIVES: Per cada continuació possible, descriu-la amb metàfores ${voice.style}:
    - NO diguis els moviments directament (${moves.slice(0, 3).join(', ')})
    - Usa al·lusions: "el camí del centre", "el flanc de rei", "la diagonal oculta", "l'avanç dels peons", "el salt del cavall"
    - Explica quina filosofia estratègica representa cada camí
 
-3. CONSELL: Acaba amb un consell estratègic inspirat en Sun Tzu sobre com escollir entre les alternatives.
+3. CONSELL: Acaba amb un consell estratègic inspirat en ${voice.name} sobre com escollir entre les alternatives.
 
 REGLES:
 - Entre 5 i 10 frases
 - Sense emojis ni numeració
-- To estratègic militar profund
+- To estratègic ${voice.style}
 - En català
 - IMPORTANT: Acaba sempre amb un punt final
 
@@ -5185,7 +5213,7 @@ async function requestOpeningMaximLlull() {
 
     if (noteEl) {
         noteEl.innerHTML = isStart
-            ? '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant Sun Tzu...</div>'
+            ? '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estrateg...</div>'
             : '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Analitzant alternatives...</div>';
     }
 
@@ -5256,7 +5284,7 @@ async function requestOpeningMaximLlull() {
         if (isStart) {
             // Frase d'encoratjament simple
             html += `<div style="font-style:italic; color:var(--text-primary); font-size:1em;">"${cleanText}"</div>`;
-            html += '<div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— Sun Tzu</div>';
+            html += '<div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— El Mestre Estrateg</div>';
         } else {
             // Mostrar obertura actual si existeix
             if (openingSelectedOpening) {
@@ -5376,19 +5404,7 @@ async function requestGeminiBundleHint() {
             throw new Error('Respostes massa curtes');
         }
               
-        const MAX_GEMINI_HINT_CHARS = 350;
-        let remainingChars = MAX_GEMINI_HINT_CHARS;
-        const trimmedLines = [];
-        for (const line of validLines) {
-            if (remainingChars <= 0) break;
-            let trimmedLine = line.trim();
-            if (trimmedLine.length > remainingChars) {
-                const sliceLength = Math.max(remainingChars - 1, 0);
-                trimmedLine = `${trimmedLine.slice(0, sliceLength).trim()}…`.trim();
-            }
-            trimmedLines.push(trimmedLine);
-            remainingChars -= trimmedLine.length;
-        }
+        const trimmedLines = validLines.map(l => l.trim());
         
         let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
         html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
@@ -5408,6 +5424,108 @@ async function requestGeminiBundleHint() {
         bundleGeminiHintPending = false;
         updateBundleHintButtons();
     }
+}
+
+function buildAssistedHintPrompt(fen, bestMove, evaluation) {
+    const voice = getStrategicVoice();
+    const evalInfo = typeof evaluation === 'number' ? `Avaluació actual: ${evaluation > 0 ? '+' : ''}${evaluation} centipawns.` : '';
+    return `Ets ${voice.name}, mestre estrateg, guiant un alumne durant una partida d'escacs.
+
+POSICIÓ ACTUAL (FEN): ${fen}
+MILLOR JUGADA SEGONS L'ENGINY: ${bestMove}
+${evalInfo}
+
+TASCA: Escriu UNA màxima xifrada en català, estil "${voice.work}", que orienti l'alumne cap a la idea correcta SENSE dir la jugada directament.
+
+INSTRUCCIONS:
+- Usa al·lusions estratègiques: "el camí del centre", "la diagonal oculta", "el flanc desprotegit", "la torre que domina la columna", "el cavall que salta a la fortalesa", "la dama que travessa el camp"
+- La màxima ha de ser específica a aquesta posició, no genèrica
+- Ha de contenir prou informació per orientar un jugador atent, però no revelar la jugada
+- To ${voice.style}
+- Acaba amb un punt final
+
+REGLES:
+- Una sola frase, entre 30 i 150 caràcters
+- Sense emojis, sense cometes, sense numeració
+- En català
+- NO mencionar la notació de la jugada (${bestMove})
+
+Escriu la màxima:`;
+}
+
+let assistedHintPending = false;
+
+async function requestAssistedHint() {
+    if (!game || game.game_over()) return;
+    if (currentGameMode !== 'assisted') return;
+    if (!geminiApiKey) {
+        $('#status').html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px; line-height:1.5;">Configura la clau de Gemini a Estadístiques per utilitzar la pista estratègica.</div>');
+        return;
+    }
+    if (assistedHintPending) return;
+
+    assistedHintPending = true;
+    $('#btn-assisted-hint').prop('disabled', true);
+    $('#status').html('<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estrateg...</div>');
+
+    try {
+        const fen = game.fen();
+        const bestMove = await getStockfishBestMove(fen, 12);
+        if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
+
+        const prompt = buildAssistedHintPrompt(fen, bestMove, null);
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                contents: [{ role: 'user', parts: [{ text: prompt }] }],
+                generationConfig: { temperature: 0.85, maxOutputTokens: 500, topP: 0.95, topK: 40 }
+            })
+        });
+        if (!response.ok) throw new Error(`Gemini error ${response.status}`);
+        const data = await response.json();
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
+        if (!text) throw new Error('Resposta buida');
+
+        const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+        let html = '<div class="opening-maxim-box">';
+        html += '<div class="maxim-title">Consell estratègic</div>';
+        html += `<div class="maxim-text">${cleanText}</div>`;
+        html += '</div>';
+        $('#status').html(html);
+    } catch (err) {
+        console.error('[AssistedHint]', err);
+        $('#status').html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">No s\'ha pogut generar el consell. Torna-ho a provar.</div>');
+    } finally {
+        assistedHintPending = false;
+        $('#btn-assisted-hint').prop('disabled', false);
+    }
+}
+
+function getStockfishBestMove(fen, depth) {
+    return new Promise((resolve) => {
+        if (!stockfish && !ensureStockfish()) { resolve(null); return; }
+        const prevRequestor = stockfishRequestor;
+        stockfishRequestor = 'assisted-hint';
+        const handler = function(event) {
+            const msg = typeof event === 'string' ? event : event.data;
+            if (typeof msg !== 'string') return;
+            if (msg.indexOf('bestmove') === 0 && stockfishRequestor === 'assisted-hint') {
+                stockfish.removeEventListener('message', handler);
+                stockfishRequestor = prevRequestor;
+                const m = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+                resolve(m ? m[1] + m[2] + (m[3] || '') : null);
+            }
+        };
+        stockfish.addEventListener('message', handler);
+        try {
+            stockfish.postMessage('setoption name MultiPV value 1');
+            stockfish.postMessage(`position fen ${fen}`);
+            stockfish.postMessage(`go depth ${depth}`);
+        } catch (e) { resolve(null); }
+        setTimeout(() => { resolve(null); }, 10000);
+    });
 }
 
 function buildGeminiReviewPrompt(entry, severeErrors) {
@@ -5431,7 +5549,8 @@ function buildGeminiReviewPrompt(entry, severeErrors) {
 
     const totalMoves = moves.length;
     
-    return `Ets un mestre d'escacs amable que ensenya amb màximes memorables.
+    const voice = getStrategicVoice();
+    return `Ets un mestre d'escacs que ensenya amb l'esperit de "${voice.work}" de ${voice.name}: to ${voice.style}.
 
 DADES DE LA PARTIDA
 - Resultat: ${entry.result || '—'}
@@ -5508,9 +5627,6 @@ async function requestGeminiReview(entry, severeErrors) {
         const data = await response.json();
         let text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('')?.trim();
         if (!text) throw new Error('Resposta buida de Gemini');
-        if (text.length > 4000) {
-            text = text.slice(0, 4000).trim();
-        }
         entry.geminiReview = { status: 'done', text };
     } catch (error) {
         entry.geminiReview = {
@@ -7418,6 +7534,16 @@ function setupEvents() {
         void requestGeminiBundleHint();
     });
 
+    $('#btn-assisted-hint').click(() => {
+        void requestAssistedHint();
+    });
+
+    $('#btn-assisted-game').click(() => {
+        if (!guardCalibrationAccess()) return;
+        window._startAssistedGame = true;
+        startGame(false);
+    });
+
     $('#btn-smart-share').click(async () => {
    const data = buildBackupData();
         const filename = `eltauler_backup_${totalStars}stars.json`;
@@ -7941,6 +8067,13 @@ blunderMode = isBundle;
         const label = opp ? `${opp.name} (${opp.elo})` : 'Rival de lliga';
         $('#engine-elo').text(label);
         $('#game-mode-title').text(`🏆 Lliga · Jornada ${leagueActiveMatch.round}/9`);
+    } else if (window._startAssistedGame) {
+        currentGameMode = 'assisted';
+        currentOpponent = null;
+        window._startAssistedGame = false;
+        updateAdaptiveEngineEloLabel();
+        $('#game-mode-title').text('🧭 Partida Assistida');
+        if (engineReady) applyEngineEloStrength(currentElo);
     } else {
         currentGameMode = 'free';
         currentOpponent = null;
@@ -8469,7 +8602,7 @@ function handleEngineMessage(rawMsg) {
         else if (analysisStep === 2) {
             pendingEvalAfter = tempAnalysisScore;
             let swing = pendingEvalAfter + (pendingEvalBefore || 0);
-            if (!isCalibrationGame && !blunderMode && currentGameMode === 'free') {
+            if (!isCalibrationGame && !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted')) {
                 const delta = swing;
                 const isError = delta > TH_ERR;
                 recentErrors.push(isError);
@@ -9100,7 +9233,7 @@ function handleGameOver(manualResign = false) {
     const tacticalPatterns = identifyTacticalPatterns(currentReview, avgCpLoss, blundersOver200);
     const calibrationGameWasActive = isCalibrationGame;
     let calibrationJustCompleted = false;
-    const isFreeMode = currentGameMode === 'free';
+    const isFreeMode = currentGameMode === 'free' || currentGameMode === 'assisted';
     const isLeagueMode = currentGameMode === 'league';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     
@@ -9118,7 +9251,7 @@ function handleGameOver(manualResign = false) {
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
     if (currentGameMode === 'league') sessionStats.leagueGamesPlayed++;
-    else if (currentGameMode === 'free') sessionStats.freeGamesPlayed++;
+    else if (currentGameMode === 'free' || currentGameMode === 'assisted') sessionStats.freeGamesPlayed++;
 
     if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
     if (finalPrecision >= 85) sessionStats.perfectGames++;

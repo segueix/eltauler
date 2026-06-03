@@ -591,6 +591,12 @@
             color: #2b2118;
             box-shadow: 0 4px 12px rgba(201, 162, 39, 0.35);
         }
+        .btn-assisted {
+            background: linear-gradient(135deg, #3a6b8c 0%, #1e3f54 100%);
+            color: #e8f0f6;
+            box-shadow: 0 4px 12px rgba(58, 107, 140, 0.35);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
         .opening-stats {
             display: flex;
             flex-direction: column;
@@ -1150,6 +1156,9 @@
         .bundle-success-overlay {
             position: absolute; inset: 0; background: rgba(0,0,0,0.75);
             display: none; align-items: center; justify-content: center; z-index: 150; padding: 16px;
+        }
+        .bundle-success-overlay.overlay-fixed {
+            position: fixed; z-index: 1000;
         }
         .bundle-success-content {
             background: rgba(45, 36, 28, 0.95);
@@ -2000,6 +2009,7 @@
             
             <div class="menu-buttons">
                 <button class="btn btn-primary" id="btn-new-game">♟ Nova Partida</button>
+                <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida Assistida</button>
                 <div class="league-banner" id="league-banner" style="display:none;">
                     <div class="league-banner-header">
                         <span>🏅 Proper partit de lliga</span>
@@ -2359,12 +2369,12 @@
             </div>
 
             <!-- Overlay d'èxit per errors d'obertura -->
-            <div id="opening-error-success-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center;">
-                <div style="background:var(--bg-card); padding:30px; border-radius:16px; text-align:center; max-width:320px; border:2px solid var(--accent-gold);">
-                    <div style="font-size:3em; margin-bottom:15px;">✅</div>
-                    <div style="font-family:'Cinzel',serif; font-size:1.3em; color:var(--accent-gold); margin-bottom:10px;">Bundle resolt</div>
-                    <div style="color:var(--text-secondary); margin-bottom:20px; font-size:0.9em;" id="opening-error-remaining">—</div>
-                    <div style="display:flex; gap:10px; justify-content:center;">
+            <div class="bundle-success-overlay overlay-fixed" id="opening-error-success-overlay">
+                <div class="bundle-success-content">
+                    <div class="bundle-success-icon">✅</div>
+                    <div class="bundle-success-title">Bundle resolt</div>
+                    <div class="bundle-success-remaining" id="opening-error-remaining">—</div>
+                    <div class="bundle-success-actions">
                         <button class="btn btn-secondary" id="btn-opening-error-home">Tornar</button>
                         <button class="btn btn-primary" id="btn-opening-error-again">Un altre</button>
                     </div>
@@ -2429,12 +2439,12 @@
                         </div>
                     </div>
                 </div>           
-                <div id="match-error-success-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.85); z-index:1000; justify-content:center; align-items:center;">
-                    <div style="background:var(--bg-card); padding:30px; border-radius:16px; text-align:center; max-width:320px; border:2px solid var(--accent-gold);">
-                        <div style="font-size:3em; margin-bottom:15px;">✅</div>
-                        <div style="font-family:'Cinzel',serif; font-size:1.3em; color:var(--accent-gold); margin-bottom:10px;">Error revisat</div>
-                        <div style="color:var(--text-secondary); margin-bottom:20px; font-size:0.9em;" id="match-error-remaining">—</div>
-                        <div style="display:flex; gap:10px; justify-content:center;">
+                <div class="bundle-success-overlay overlay-fixed" id="match-error-success-overlay">
+                    <div class="bundle-success-content">
+                        <div class="bundle-success-icon">✅</div>
+                        <div class="bundle-success-title">Error revisat</div>
+                        <div class="bundle-success-remaining" id="match-error-remaining">—</div>
+                        <div class="bundle-success-actions">
                             <button class="btn btn-secondary" id="btn-match-error-home">Tornar</button>
                             <button class="btn btn-primary" id="btn-match-error-again">Un altre</button>
                         </div>
@@ -2454,6 +2464,10 @@
                     <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb Gemini" style="display:none;">
                         <img src="brain.svg" alt="Cervell">
                         <span>Màxima</span>
+                    </button>
+                    <button class="btn btn-brain-hint" id="btn-assisted-hint" title="Consell estratègic" style="display:none;">
+                        <img src="brain.svg" alt="Cervell">
+                        <span>Consell</span>
                     </button>
                     <button class="btn btn-secondary" id="btn-back">Menú</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
