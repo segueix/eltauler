@@ -206,6 +206,24 @@
         .streak-pending { background: rgba(212, 118, 59, 0.2); color: var(--streak-fire); }
         
         /* MISSIONS */
+        .engagement-banner {
+            display: flex; align-items: center; gap: 10px;
+            background: linear-gradient(135deg, rgba(201,162,39,0.16), rgba(58,107,140,0.16));
+            border: 1px solid rgba(201, 162, 39, 0.3);
+            border-radius: 12px; padding: 10px 12px; margin: 12px 0;
+        }
+        .engagement-banner .eng-icon { font-size: 1.4rem; flex-shrink: 0; }
+        .engagement-banner .eng-text { flex: 1; font-size: 0.88rem; color: var(--text-primary); line-height: 1.35; }
+        .engagement-banner .eng-cta {
+            width: auto; flex-shrink: 0; padding: 8px 14px; font-size: 0.82rem;
+            background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark);
+        }
+        body.epaper-mode .engagement-banner { background: #ededed; border-color: #cfcfcf; }
+        @media (max-width: 420px) {
+            .engagement-banner { flex-wrap: wrap; }
+            .engagement-banner .eng-cta { width: 100%; }
+        }
+
         .missions-panel {
             background: rgba(0,0,0,0.2);
             border: 1px solid rgba(201, 162, 39, 0.2);
@@ -585,6 +603,11 @@
             color: var(--text-secondary);
             font-size: 0.85rem;
             margin-bottom: 10px;
+        }
+        .opening-lesson-list { display: flex; flex-direction: column; gap: 8px; }
+        .opening-lesson-btn { font-size: 0.9rem; padding: 11px 14px; }
+        @media (min-width: 640px) {
+            .opening-lesson-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         }
         .btn-opening {
             background: linear-gradient(135deg, #d6b24a 0%, #b48a22 100%);
@@ -2045,6 +2068,12 @@
                 </div>
             </div>
             
+            <div class="engagement-banner" id="engagement-banner" style="display:none;">
+                <span class="eng-icon">💡</span>
+                <span class="eng-text"></span>
+                <button class="btn eng-cta" data-eng-action="play"></button>
+            </div>
+
             <div class="missions-panel">
                 <div class="missions-header">
                     <div class="missions-title">Missions Diàries</div>
@@ -2052,7 +2081,7 @@
                 </div>
                 <div id="missions-list"></div>
             </div>
-            
+
             <div class="menu-buttons">
                 <button class="btn btn-primary" id="btn-new-game">♟ Nova Partida</button>
                 <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida Assistida</button>
@@ -2385,6 +2414,11 @@
             <div class="stats-header">
                 <div class="app-logo">📖</div>
                 <h1>Obertures</h1>
+            </div>
+            <div class="opening-section">
+                <div class="opening-section-title">Aprèn una obertura</div>
+                <div class="opening-section-desc">Tria una obertura clàssica i practica la línia principal jugada a jugada amb guia.</div>
+                <div class="opening-lesson-list" id="opening-lesson-list"></div>
             </div>
             <div class="opening-section">
                 <div class="opening-section-title">Estadístiques d'obertura (últimes 10 partides)</div>

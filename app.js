@@ -66,6 +66,12 @@ let openingNextMoveHint = null; // Següent moviment de l'obertura per a la pist
 
 // Pràctica d'errors d'obertura
 let openingErrorPracticeActive = false;
+// Lliçons guiades d'obertures ("Aprèn una obertura")
+let openingLessonActive = false;
+let openingLessonLine = [];
+let openingLessonStep = 0;
+let openingLessonInfo = null;
+let openingLessonUserColor = 'w';
 let openingErrorCurrentPositions = []; // Posicions d'error disponibles
 let openingErrorCurrentFen = null; // FEN actual que s'està practicant
 let openingErrorBestMove = null; // Millor moviment esperat
@@ -3333,6 +3339,7 @@ function updateDisplay() {
     ensureDailyPuzzle();
     $('#daily-info').text(dailyPuzzle.solved ? `Fet ✓ · ratxa ${dailyPuzzle.streak}` : 'Disponible');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
+    updateEngagementBanner();
 }
 
 function updateStatsDisplay() {
@@ -5268,9 +5275,11 @@ Respon:`
 async function requestOpeningMaximLlull() {
     if (!openingPracticeGame) return;
     if (!geminiApiKey) {
+        // Fallback offline: banc local de màximes (centre/general) en comptes d'un avís.
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) {
-            noteEl.innerHTML = '<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px; line-height:1.5;">Configura la clau de Gemini a Estadístiques per utilitzar aquesta funció.</div>';
+            const m = pickOfflineMaxim('center');
+            noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">Consell estratègic</div><div class="maxim-text">${m}</div><div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— El Mestre Estrateg</div></div>`;
         }
         return;
     }
@@ -6975,6 +6984,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
         exitOpeningErrorPractice();
         return;
     }
+    overlay.find('.bundle-success-title').text('Error d\'obertura resolt');
 
     const remaining = collectAllOpeningErrorPositions().length;
     const allErrors = getAllOpeningErrors();
@@ -7068,6 +7078,97 @@ function exitOpeningErrorPractice() {
     resetOpeningPracticeBoard();
 }
 
+/* ============ APRÈN UNA OBERTURA (lliçons guiades) ============ */
+const CURATED_OPENINGS = [
+    { eco: 'C50', name: 'Obertura Italiana', userColor: 'w', idea: 'Desenvolupa ràpid i apunta el punt feble f7.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3'] },
+    { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', userColor: 'w', idea: 'Pressiona el cavall que defensa el centre i prepara l\'enroc.', moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7'] },
+    { eco: 'D06', name: 'Gambit de Dama Refusat', userColor: 'w', idea: 'Tensa el centre i desenvolupa amb harmonia.', moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7'] },
+    { eco: 'D02', name: 'Sistema Londres', userColor: 'w', idea: 'Estructura sòlida i fàcil: alfil a f4 abans d\'e3.', moves: ['d4','d5','Nf3','Nf6','Bf4','e6','e3','c5','c3'] },
+    { eco: 'A20', name: 'Obertura Anglesa', userColor: 'w', idea: 'Control del centre des dels flancs amb c4 i fianchetto.', moves: ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5'] },
+    { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
+    { eco: 'C00', name: 'Defensa Francesa', userColor: 'b', idea: 'Cadena de peons sòlida; contraatac a la columna c i f.', moves: ['e4','e6','d4','d5','Nc3','Nf6'] },
+    { eco: 'B10', name: 'Defensa Caro-Kann', userColor: 'b', idea: 'Defensa sòlida que allibera l\'alfil de caselles clares.', moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5'] },
+    { eco: 'E60', name: 'Defensa Índia de Rei', userColor: 'b', idea: 'Cedeix el centre per atacar-lo després amb peces i peons.', moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O'] },
+    { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5'] }
+];
+
+function startOpeningLesson(idx) {
+    const op = CURATED_OPENINGS[idx];
+    if (!op) return;
+    openingErrorPracticeActive = false;
+    openingLessonActive = true;
+    openingLessonInfo = op;
+    openingLessonLine = op.moves.slice();
+    openingLessonStep = 0;
+    openingLessonUserColor = op.userColor || 'w';
+    if (!openingBundleBoard) initOpeningBundleBoard();
+    openingPracticeGame = new Chess();
+    openingPracticeMoveCount = 0;
+    openingPracticeGoodMoves = 0;
+    openingPracticeTotalMoves = 0;
+    clearOpeningHintHighlight();
+    clearOpeningMoveVisualFeedback();
+    if (openingBundleBoard) {
+        openingBundleBoard.orientation(openingLessonUserColor === 'w' ? 'white' : 'black');
+        openingBundleBoard.position('start');
+    }
+    updateOpeningLessonNote(true);
+    // Si l'usuari juga amb negres, el blanc (rival) fa la primera jugada de la línia
+    if (openingLessonUserColor === 'b') {
+        setTimeout(() => playOpeningLessonOpponentMove(), 600);
+    }
+    const boardEl = document.getElementById('opening-board');
+    if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+}
+
+function playOpeningLessonOpponentMove() {
+    if (!openingLessonActive) return;
+    if (openingLessonStep >= openingLessonLine.length) { completeOpeningLesson(); return; }
+    const san = openingLessonLine[openingLessonStep];
+    const mv = openingPracticeGame.move(san, { sloppy: true });
+    if (!mv) { completeOpeningLesson(); return; }
+    openingLessonStep++;
+    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+    if (openingLessonStep >= openingLessonLine.length) { setTimeout(() => completeOpeningLesson(), 500); return; }
+    updateOpeningLessonNote();
+}
+
+function updateOpeningLessonNote(intro = false) {
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl || !openingLessonInfo) return;
+    const total = openingLessonLine.length;
+    const done = openingLessonStep;
+    const yourTurn = openingLessonActive && openingPracticeGame.turn() === openingLessonUserColor && done < total;
+    const colorTxt = openingLessonUserColor === 'w' ? 'blanques' : 'negres';
+    let html = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name} (${openingLessonInfo.eco})</div>`;
+    if (intro && openingLessonInfo.idea) html += `<div class="maxim-text">${openingLessonInfo.idea}</div>`;
+    const status = done >= total ? 'Línia completada!' : (yourTurn ? `El teu torn (${colorTxt}): troba la jugada de la teoria.` : 'Observa la resposta del rival...');
+    html += `<div class="maxim-text" style="opacity:0.85;">${status} · ${done}/${total} jugades</div></div>`;
+    noteEl.innerHTML = html;
+}
+
+function completeOpeningLesson() {
+    openingLessonActive = false;
+    const name = openingLessonInfo ? openingLessonInfo.name : 'obertura';
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) {
+        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div></div>`;
+    }
+    showToast(`Has completat: ${name} 📖`, 'success');
+}
+
+function renderOpeningLessonButtons() {
+    const container = document.getElementById('opening-lesson-list');
+    if (!container) return;
+    container.innerHTML = CURATED_OPENINGS.map((op, i) => {
+        const colorIcon = op.userColor === 'w' ? '♔' : '♚';
+        return `<button class="btn btn-secondary opening-lesson-btn" data-lesson="${i}" style="justify-content:space-between;">
+            <span>${colorIcon} ${op.name}</span>
+            <span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span>
+        </button>`;
+    }).join('');
+}
+
 function initOpeningBundleBoard() {
     if (openingBundleBoard) return;
     const boardEl = document.getElementById('opening-board');
@@ -7086,6 +7187,37 @@ function initOpeningBundleBoard() {
         },
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
+
+            // Mode lliçó guiada: el jugador ha de trobar la jugada de la teoria
+            if (openingLessonActive) {
+                const expected = openingLessonLine[openingLessonStep];
+                const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
+                if (!move) return 'snapback';
+                clearOpeningHintHighlight();
+                if (move.san !== expected) {
+                    showOpeningMoveVisualFeedback(source, target, 'incorrect');
+                    const noteEl = document.getElementById('opening-practice-note');
+                    if (noteEl && openingLessonInfo) {
+                        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
+                    }
+                    setTimeout(() => {
+                        openingPracticeGame.undo();
+                        openingBundleBoard.position(openingPracticeGame.fen());
+                        clearOpeningMoveVisualFeedback();
+                    }, 700);
+                    return;
+                }
+                showOpeningMoveVisualFeedback(source, target, 'correct');
+                openingLessonStep++;
+                openingBundleBoard.position(openingPracticeGame.fen());
+                if (openingLessonStep >= openingLessonLine.length) {
+                    setTimeout(() => completeOpeningLesson(), 500);
+                    return;
+                }
+                updateOpeningLessonNote();
+                setTimeout(() => playOpeningLessonOpponentMove(), 650);
+                return;
+            }
 
             // Mode pràctica d'errors
             if (openingErrorPracticeActive) {
@@ -7253,6 +7385,11 @@ function undoOpeningPracticeMove() {
     // Cancel·lar màxima pendent (evitar que s'actualitzi després de l'undo)
     openingMaximPending = false;
 
+    // Sortir de la lliçó guiada si estava activa
+    openingLessonActive = false;
+    openingLessonInfo = null;
+    openingLessonStep = 0;
+
     // Cancel·lar variables de feedback instantani
     openingPreCalcBestMove = null;
     openingPreCalcPending = false;
@@ -7396,6 +7533,7 @@ function setupEvents() {
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
+        renderOpeningLessonButtons();
         initOpeningBundleBoard();
         resetOpeningPracticeBoard();
         $('#start-screen').hide();
@@ -7403,6 +7541,10 @@ function setupEvents() {
         if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
             setTimeout(() => openingBundleBoard.resize(), 50);
         }
+    });
+    $(document).on('click', '.opening-lesson-btn', function() {
+        const idx = parseInt($(this).attr('data-lesson'), 10);
+        if (!isNaN(idx)) startOpeningLesson(idx);
     });
     $('#btn-back-opening').click(() => {
         $('#opening-screen').hide();
@@ -7471,7 +7613,13 @@ function setupEvents() {
         void requestOpeningMaximLlull();
     });
     $('#btn-opening-bundle-resign').click(() => {
-        resetOpeningPracticeBoard();
+        showAppConfirm('Vols reiniciar el tauler d\'obertures?', () => {
+            openingErrorPracticeActive = false;
+            openingLessonActive = false;
+            resetOpeningPracticeBoard();
+            renderOpeningStatsScreen();
+            showToast('Tauler reiniciat.', 'info');
+        }, { title: 'Reiniciar', confirmText: 'Reiniciar' });
     });
     $('#btn-opening-undo').click(() => {
         undoOpeningPracticeMove();
@@ -7657,6 +7805,13 @@ function setupEvents() {
 
     $('#btn-srs-review').click(() => startSrsReview());
     $('#btn-daily-puzzle').click(() => startDailyPuzzle());
+
+    $(document).on('click', '.eng-cta', function() {
+        const action = $(this).attr('data-eng-action');
+        if (action === 'daily') startDailyPuzzle();
+        else if (action === 'srs') startSrsReview();
+        else { if (!guardCalibrationAccess()) return; window._startAssistedGame = false; startGame(false); }
+    });
 
     $('#btn-smart-share').click(async () => {
    const data = buildBackupData();
@@ -7983,6 +8138,43 @@ function showDailyPuzzleOverlay() {
     overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
         isDailyPuzzleSession = false; overlay.hide(); returnToMainMenuImmediate();
     });
+}
+
+/* ===================== BANNER D'INCENTIU ===================== */
+const PLAY_IDEAS = [
+    "Domina el centre des de la primera jugada: cada peça hi guanya força.",
+    "Prova una Partida Assistida: el mestre estrateg et xifra el millor pla.",
+    "Aprèn una obertura nova avui; la victòria es prepara abans de la batalla.",
+    "Repassa un error antic: qui no repassa, repeteix.",
+    "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges perd.",
+    "Abans de moure, mira sempre què amenaça el rival."
+];
+
+// Un únic banner contextual al menú, per incitar a jugar sense ser excessiu.
+function updateEngagementBanner() {
+    const el = document.getElementById('engagement-banner');
+    if (!el) return;
+    if (isCalibrationRequired()) { el.style.display = 'none'; return; }
+    const iconEl = el.querySelector('.eng-icon');
+    const textEl = el.querySelector('.eng-text');
+    const ctaEl = el.querySelector('.eng-cta');
+    if (!iconEl || !textEl || !ctaEl) return;
+
+    let icon, text, cta, action;
+    ensureDailyPuzzle();
+    const due = getDueErrors().length;
+    if (!dailyPuzzle.solved) {
+        icon = '🗓️'; text = 'El repte diari t\'espera. Mantingues viva la ratxa!'; cta = 'Jugar repte'; action = 'daily';
+    } else if (due > 0) {
+        icon = '🔁'; text = `Tens ${due} ${due > 1 ? 'repassos a punt' : 'repàs a punt'}. Consolida el que has après.`; cta = 'Repassar'; action = 'srs';
+    } else {
+        icon = '💡'; text = PLAY_IDEAS[hashStr(getToday()) % PLAY_IDEAS.length]; cta = 'Nova partida'; action = 'play';
+    }
+    iconEl.textContent = icon;
+    textEl.textContent = text;
+    ctaEl.textContent = cta;
+    ctaEl.setAttribute('data-eng-action', action);
+    el.style.display = 'flex';
 }
 
 /* ===================== DEBILITATS TEMÀTIQUES ===================== */
