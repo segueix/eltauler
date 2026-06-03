@@ -171,6 +171,16 @@ let currentCalibrationOpponentRoc = null;
 let isEngineThinking = false;
 let engineMoveCandidates = [];
 let lastReviewSnapshot = null;
+// Rellotge de partida (mode contrarellotge)
+const TIME_CONTROLS = [
+    { id: 'none', label: 'Sense rellotge' },
+    { id: '3+2', label: 'Blitz 3+2', base: 180, inc: 2 },
+    { id: '5+0', label: 'Blitz 5+0', base: 300, inc: 0 },
+    { id: '10+0', label: 'Ràpid 10+0', base: 600, inc: 0 },
+    { id: '15+10', label: 'Clàssic 15+10', base: 900, inc: 10 }
+];
+const TIME_CONTROL_KEY = 'chess_timeControl';
+let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
 let calibrationResultsChart = null;
 let currentGameStartTs = null;
 
@@ -870,8 +880,9 @@ function commitHumanMoveFromTap(from, to) {
     $('.square-55d63').removeClass('highlight-hint');
     const prevFen = game.fen();
     const move = game.move({ from: from, to: to, promotion: 'q' });
-    if (move === null) return false;
+    if (move === null) { showIllegalMoveFeedback(from); return false; }
     clearEngineMoveHighlights();
+    clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
     lastPosition = prevFen;
@@ -3515,6 +3526,57 @@ function updateStatsDisplay() {
     updateEloChart();
     updateReviewChart();
     renderWeaknesses();
+    renderOpeningStats();
+}
+
+// Determina el resultat de la partida des de la perspectiva del jugador
+function entryOutcome(entry) {
+    const r = (entry.result || '').toLowerCase();
+    if (r.includes('victòr') || r.includes('guany')) return 'win';
+    if (r.includes('derrot') || r.includes('perd') || r.includes('rendit')) return 'loss';
+    if (r.includes('tau')) return 'draw';
+    return null;
+}
+
+// Agrega estadístiques per obertura jugada a partir de l'historial (punt 4)
+function analyzeOpeningStatsData() {
+    const map = {};
+    gameHistory.forEach(entry => {
+        if (entry.mode === 'bundle') return;
+        const moves = getHistoryMoves(entry);
+        const oa = analyzeGameOpening(moves);
+        if (!oa || !oa.name) return;
+        const key = oa.eco ? `${oa.name}|${oa.eco}` : oa.name;
+        if (!map[key]) map[key] = { name: oa.name, eco: oa.eco, games: 0, win: 0, loss: 0, draw: 0 };
+        map[key].games++;
+        const o = entryOutcome(entry);
+        if (o === 'win') map[key].win++;
+        else if (o === 'loss') map[key].loss++;
+        else if (o === 'draw') map[key].draw++;
+    });
+    return Object.values(map).sort((a, b) => b.games - a.games);
+}
+
+function renderOpeningStats() {
+    const container = document.getElementById('stats-openings');
+    if (!container) return;
+    const data = analyzeOpeningStatsData();
+    if (!data.length) {
+        container.innerHTML = '<div style="color:var(--text-secondary); font-size:0.9rem;">Encara no hi ha prou partides per analitzar les teves obertures.</div>';
+        return;
+    }
+    let html = '';
+    data.slice(0, 8).forEach(d => {
+        const decided = d.win + d.loss;
+        const wr = decided > 0 ? Math.round((d.win / decided) * 100) : 0;
+        const wrColor = wr >= 60 ? '#4a7c59' : (wr >= 40 ? '#c9a227' : '#c62828');
+        html += `<div class="opening-stat-row">
+            <div class="opening-stat-name">${d.name}${d.eco ? ` <span class="opening-stat-eco">${d.eco}</span>` : ''}</div>
+            <div class="opening-stat-record">${d.win}V · ${d.draw}T · ${d.loss}D</div>
+            <div class="opening-stat-wr" style="color:${wrColor};">${decided > 0 ? wr + '%' : '—'}</div>
+        </div>`;
+    });
+    container.innerHTML = html;
 }
 
 function updateEloChart() {
@@ -5832,6 +5894,89 @@ function getStockfishBestMove(fen, depth) {
     });
 }
 
+// Analitza la posició actual i retorna { scoreCp, mate, bestMove } des de la perspectiva del color a moure
+function analyzePositionForUser(fen, depth = 14) {
+    return new Promise((resolve) => {
+        if (!stockfish && !ensureStockfish()) { resolve(null); return; }
+        const prevRequestor = stockfishRequestor;
+        stockfishRequestor = 'user-analysis';
+        let lastScoreCp = null, lastMate = null;
+        let resolved = false;
+        const finish = (val) => {
+            if (resolved) return; resolved = true;
+            stockfish.removeEventListener('message', handler);
+            stockfishRequestor = prevRequestor;
+            resolve(val);
+        };
+        const handler = function(event) {
+            const msg = typeof event === 'string' ? event : event.data;
+            if (typeof msg !== 'string' || stockfishRequestor !== 'user-analysis') return;
+            if (msg.indexOf('info') === 0) {
+                const cpM = msg.match(/score cp (-?\d+)/);
+                const mateM = msg.match(/score mate (-?\d+)/);
+                if (cpM) { lastScoreCp = parseInt(cpM[1], 10); lastMate = null; }
+                else if (mateM) { lastMate = parseInt(mateM[1], 10); lastScoreCp = null; }
+            } else if (msg.indexOf('bestmove') === 0) {
+                const m = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
+                finish({ scoreCp: lastScoreCp, mate: lastMate, bestMove: m ? m[1] + m[2] + (m[3] || '') : null });
+            }
+        };
+        stockfish.addEventListener('message', handler);
+        try {
+            stockfish.postMessage('setoption name MultiPV value 1');
+            stockfish.postMessage(`position fen ${fen}`);
+            stockfish.postMessage(`go depth ${depth}`);
+        } catch (e) { finish(null); }
+        setTimeout(() => finish(null), 12000);
+    });
+}
+
+let userAnalysisPending = false;
+async function requestPositionAnalysis() {
+    if (!game || game.game_over() || userAnalysisPending) return;
+    if (isEngineThinking) { showToast('Espera que el rival mogui', 'info'); return; }
+    userAnalysisPending = true;
+    const btn = $('#btn-analyze');
+    btn.prop('disabled', true);
+    const prevStatus = $('#status').html();
+    $('#status').html('<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">Analitzant la posició…</div>');
+    try {
+        const turn = game.turn();
+        const res = await analyzePositionForUser(game.fen(), 14);
+        if (!res) { $('#status').html(prevStatus); showToast('No s\'ha pogut analitzar ara mateix', 'warn'); return; }
+        // Converteix a la perspectiva del jugador
+        let evalText;
+        if (res.mate != null) {
+            const mateForPlayer = (turn === playerColor) ? res.mate : -res.mate;
+            evalText = mateForPlayer > 0 ? `Mat en ${Math.abs(mateForPlayer)} a favor teu` : `Mat en ${Math.abs(mateForPlayer)} en contra`;
+        } else if (res.scoreCp != null) {
+            const cpForPlayer = (turn === playerColor) ? res.scoreCp : -res.scoreCp;
+            const pawns = (cpForPlayer / 100).toFixed(1);
+            const sign = cpForPlayer > 0 ? '+' : '';
+            const who = cpForPlayer > 50 ? ' (avantatge teu)' : (cpForPlayer < -50 ? ' (avantatge del rival)' : ' (igualada)');
+            evalText = `Avaluació: ${sign}${pawns}${who}`;
+        } else {
+            evalText = 'Avaluació no disponible';
+        }
+        let bestText = '';
+        if (res.bestMove && turn === playerColor) {
+            // Tradueix l'UCI a SAN sense alterar la partida
+            try {
+                const tmp = new Chess(game.fen());
+                const mv = tmp.move({ from: res.bestMove.slice(0,2), to: res.bestMove.slice(2,4), promotion: res.bestMove[4] || 'q' });
+                if (mv) bestText = ` · La màquina recomana <strong>${mv.san}</strong>`;
+            } catch (e) {}
+        }
+        $('#status').html(`<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">🔬 ${evalText}${bestText}</div>`);
+    } catch (e) {
+        $('#status').html(prevStatus);
+        showToast('Error analitzant la posició', 'warn');
+    } finally {
+        userAnalysisPending = false;
+        btn.prop('disabled', false);
+    }
+}
+
 function buildGeminiReviewPrompt(entry, severeErrors) {
     const summary = entry.counts || {};
     const moves = getHistoryMoves(entry);
@@ -6670,6 +6815,15 @@ function resetTvReplay() {
     updateTvBoard();
 }
 
+let historyFilters = { result: 'all', mode: 'all', prec: 0 };
+
+function historyEntryPasses(entry) {
+    if (historyFilters.result !== 'all' && entryOutcome(entry) !== historyFilters.result) return false;
+    if (historyFilters.mode !== 'all' && entry.mode !== historyFilters.mode) return false;
+    if (historyFilters.prec > 0 && (typeof entry.precision !== 'number' || entry.precision < historyFilters.prec)) return false;
+    return true;
+}
+
 function renderGameHistory() {
     const container = $('#history-list');
     if (!container.length) return;
@@ -6679,7 +6833,12 @@ function renderGameHistory() {
         updateHistoryDetails(null);
         return;
     }
-    const items = gameHistory
+    const filtered = gameHistory.filter(historyEntryPasses);
+    if (!filtered.length) {
+        container.html('<div class="history-empty">Cap partida coincideix amb els filtres.</div>');
+        return;
+    }
+    const items = filtered
         .slice()
         .reverse()
         .map(entry => {
@@ -7799,6 +7958,8 @@ function initOpeningBundleBoard() {
 function updateOpeningPracticeStatus() {
     const noteEl = document.getElementById('opening-practice-note');
     if (!noteEl) return;
+    // Aquests modes gestionen la nota pel seu compte
+    if (openingLessonActive || hieroglyphicExerciseActive || openingErrorPracticeActive) return;
     const remaining = Math.max(OPENING_PRACTICE_MAX_PLIES - openingPracticeMoveCount, 0);
     if (!openingPracticeGame) {
         noteEl.textContent = '—';
@@ -7812,8 +7973,22 @@ function updateOpeningPracticeStatus() {
         noteEl.textContent = 'Límit de 10 moviments assolit.';
         return;
     }
-    // No mostrar res per defecte - l'usuari pot prémer el botó Gemini per informació
-    noteEl.textContent = '—';
+    // Anàlisi de teoria en directe (punt 2)
+    const moves = openingPracticeGame.history();
+    if (!moves.length) {
+        noteEl.innerHTML = '<div class="opening-theory-line theory-neutral">Comença una obertura: t\'aniré dient si segueixes la teoria.</div>';
+        return;
+    }
+    const oa = analyzeGameOpening(moves);
+    const validNext = getValidOpeningMoves(moves);
+    if (validNext.length > 0) {
+        const name = (oa && oa.name) ? `${oa.name}${oa.eco ? ` (${oa.eco})` : ''}` : 'una línia coneguda';
+        noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 Ets a la teoria: <strong>${name}</strong>. Continuació habitual: ${validNext.slice(0, 3).join(', ')}.</div>`;
+    } else if (oa && oa.name) {
+        noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 <strong>${oa.name}${oa.eco ? ` (${oa.eco})` : ''}</strong>: has arribat al final de la línia teòrica. Bona feina!</div>`;
+    } else {
+        noteEl.innerHTML = '<div class="opening-theory-line theory-off">📙 Has sortit del repertori conegut. Pots continuar lliurement o desfer la jugada.</div>';
+    }
 }
 
 // Guardar estat per undo (només un moviment)
@@ -8021,6 +8196,24 @@ function setupEvents() {
         $('#history-screen').show();
         initHistoryBoard();
         renderGameHistory();
+    });
+    $('#history-filter-result, #history-filter-mode, #history-filter-prec').off('change').on('change', () => {
+        historyFilters.result = $('#history-filter-result').val();
+        historyFilters.mode = $('#history-filter-mode').val();
+        historyFilters.prec = parseInt($('#history-filter-prec').val(), 10) || 0;
+        renderGameHistory();
+    });
+    $('#btn-export-all-pgn').off('click').on('click', () => {
+        if (!gameHistory.length) { showToast('No hi ha partides per exportar', 'warn'); return; }
+        const pgns = gameHistory.map(e => buildEntryPgn(e)).filter(p => p && p.trim());
+        if (!pgns.length) { showToast('No hi ha partides amb moviments per exportar', 'warn'); return; }
+        const blob = new Blob([pgns.join('\n\n\n')], { type: 'application/x-chess-pgn' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = `eltauler_historial_${pgns.length}partides.pgn`;
+        a.click();
+        URL.revokeObjectURL(url);
+        showToast(`Exportades ${pgns.length} partides ♟`, 'success');
     });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) openLeague(); });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
@@ -8240,6 +8433,14 @@ function setupEvents() {
         saveBundleAcceptMode($(this).val());
     });
 
+    // Control de temps (rellotge)
+    $('#time-control-select').off('change').on('change', function() {
+        try { localStorage.setItem(TIME_CONTROL_KEY, $(this).val()); } catch (e) {}
+    });
+
+    // Analitza la posició actual
+    $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
+
     $('#btn-save-gemini-key').off('click').on('click', () => {
         const input = document.getElementById('gemini-key-input');
         if (!input) return;
@@ -8455,10 +8656,12 @@ function setupEvents() {
             : "Vols sortir de la partida?";
         $('#menu-exit-message').text(message);
         $('#menu-exit-modal').css('display', 'flex');
+        pauseGameClock();
     };
 
     const hideMenuExitModal = () => {
         $('#menu-exit-modal').hide();
+        resumeGameClock();
     };
 
     $('#btn-back').click(() => {
@@ -8469,10 +8672,12 @@ function setupEvents() {
         // No permetre rendir-se si el joc ja ha acabat
         if (!game || game.game_over()) return;
         $('#resign-modal').css('display', 'flex');
+        pauseGameClock();
     };
 
     const hideResignModal = () => {
         $('#resign-modal').hide();
+        resumeGameClock();
     };
 
     $('#btn-resign').click(() => {
@@ -8616,8 +8821,15 @@ function yesterdayStr() {
 
 function pickDailyPuzzleFen() {
     const seed = hashStr(getToday());
-    if (savedErrors.length) return savedErrors[seed % savedErrors.length].fen;
-    return DAILY_PUZZLE_BANK[seed % DAILY_PUZZLE_BANK.length].fen;
+    // Conjunt curat de posicions tàctiques amb una millor jugada clara (verificada per Stockfish),
+    // complementat amb els errors greus reals del jugador per donar varietat i rellevància.
+    const curated = (typeof TACTICS_BANK !== 'undefined' && TACTICS_BANK.length)
+        ? TACTICS_BANK.slice()
+        : DAILY_PUZZLE_BANK.map(p => p.fen);
+    const severeOwn = savedErrors.filter(e => e.severity === 'high').map(e => e.fen);
+    const pool = curated.concat(severeOwn);
+    if (!pool.length) return DAILY_PUZZLE_BANK[seed % DAILY_PUZZLE_BANK.length].fen;
+    return pool[seed % pool.length];
 }
 
 function ensureDailyPuzzle() {
@@ -9195,6 +9407,114 @@ function promptMatchErrorNext() {
     showMatchErrorReviewOverlay(remaining, remaining === 0);
 }
 
+/* ===================== RELLOTGE DE PARTIDA ===================== */
+function loadTimeControl() {
+    try { return localStorage.getItem(TIME_CONTROL_KEY) || 'none'; }
+    catch (e) { return 'none'; }
+}
+function getTimeControlConfig() {
+    return TIME_CONTROLS.find(t => t.id === loadTimeControl()) || TIME_CONTROLS[0];
+}
+function formatClock(ms) {
+    if (ms < 0) ms = 0;
+    const total = Math.ceil(ms / 1000);
+    const m = Math.floor(total / 60);
+    const s = total % 60;
+    if (m >= 1) return `${m}:${s.toString().padStart(2, '0')}`;
+    // Sota el minut, mostra dècimes per tensió
+    const tenths = Math.floor((ms % 1000) / 100);
+    return `0:${s.toString().padStart(2, '0')}.${tenths}`;
+}
+function stopGameClock() {
+    if (gameClock.interval) { clearInterval(gameClock.interval); gameClock.interval = null; }
+    gameClock.active = null;
+}
+// Pausa sense perdre el torn (per a modals dins la partida)
+function pauseGameClock() {
+    if (gameClock.enabled && gameClock.interval) {
+        clearInterval(gameClock.interval);
+        gameClock.interval = null;
+        gameClock.paused = true;
+    }
+}
+function resumeGameClock() {
+    if (gameClock.enabled && gameClock.paused && gameClock.active && !gameClock.interval) {
+        gameClock.paused = false;
+        gameClock.lastTs = Date.now();
+        gameClock.interval = setInterval(clockTick, 200);
+    }
+}
+function initGameClock(applies) {
+    stopGameClock();
+    const cfg = getTimeControlConfig();
+    const enabled = applies && cfg.id !== 'none';
+    gameClock = {
+        enabled,
+        white: enabled ? cfg.base * 1000 : 0,
+        black: enabled ? cfg.base * 1000 : 0,
+        inc: enabled ? cfg.inc * 1000 : 0,
+        active: null,
+        interval: null,
+        lastTs: 0,
+        paused: false
+    };
+    const wrap = document.getElementById('game-clocks');
+    if (wrap) wrap.style.display = enabled ? 'flex' : 'none';
+    if (!enabled) return;
+    renderClock();
+    // Comença a córrer pel costat que té el torn
+    gameClock.active = game.turn();
+    gameClock.lastTs = Date.now();
+    gameClock.interval = setInterval(clockTick, 200);
+    renderClock();
+}
+function clockTick() {
+    if (!gameClock.enabled || !gameClock.active) return;
+    const now = Date.now();
+    const delta = now - gameClock.lastTs;
+    gameClock.lastTs = now;
+    if (gameClock.active === 'w') gameClock.white -= delta;
+    else gameClock.black -= delta;
+    renderClock();
+    if (gameClock.white <= 0 || gameClock.black <= 0) {
+        const flagged = gameClock.white <= 0 ? 'w' : 'b';
+        stopGameClock();
+        renderClock();
+        handleGameOver(false, flagged);
+    }
+}
+// Quan algú acaba de moure: afegeix l'increment a qui ha mogut i passa el torn
+function clockOnMove() {
+    if (!gameClock.enabled) return;
+    const justMoved = (game.turn() === 'w') ? 'b' : 'w';
+    if (gameClock.inc > 0) {
+        if (justMoved === 'w') gameClock.white += gameClock.inc;
+        else gameClock.black += gameClock.inc;
+    }
+    gameClock.active = game.turn();
+    gameClock.lastTs = Date.now();
+    renderClock();
+}
+function renderClock() {
+    if (!gameClock.enabled) return;
+    const youColor = playerColor;
+    const oppColor = youColor === 'w' ? 'b' : 'w';
+    const youMs = youColor === 'w' ? gameClock.white : gameClock.black;
+    const oppMs = oppColor === 'w' ? gameClock.white : gameClock.black;
+    const youEl = document.getElementById('clock-you');
+    const oppEl = document.getElementById('clock-opp');
+    if (youEl) {
+        youEl.textContent = formatClock(youMs);
+        youEl.parentElement.classList.toggle('clock-active', gameClock.active === youColor);
+        youEl.parentElement.classList.toggle('clock-low', youMs <= 20000);
+    }
+    if (oppEl) {
+        oppEl.textContent = formatClock(oppMs);
+        oppEl.parentElement.classList.toggle('clock-active', gameClock.active === oppColor);
+        oppEl.parentElement.classList.toggle('clock-low', oppMs <= 20000);
+    }
+}
+
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     currentReview = [];
     lastReviewSnapshot = null;
@@ -9351,13 +9671,19 @@ blunderMode = isBundle;
     }
         if (!isCalibrationGame) {
         currentCalibrationOpponentRoc = null;
-    }   
-    
+    }
+
+    // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
+    $('#btn-analyze').toggle((currentGameMode === 'free' || currentGameMode === 'assisted') && !isCalibrationGame);
+
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
     updateStatus();
     updateBundleHintButtons();
-    
+
+    // Inicialitza el rellotge (només modes de partida real, no exercicis ni calibratge)
+    initGameClock(!isBundle && !isCalibrationGame);
+
     // Forçar actualització visual després de 100ms
     setTimeout(() => {
         updateBundleHintButtons();
@@ -9395,11 +9721,12 @@ function onDrop(source, target) {
     $('.square-55d63').removeClass('highlight-hint');
     lastPosition = game.fen(); 
     var move = game.move({ from: source, to: target, promotion: 'q' });
-    if (move === null) return 'snapback';
+    if (move === null) { showIllegalMoveFeedback(source); return 'snapback'; }
     clearEngineMoveHighlights();
+    clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
-    
-    totalPlayerMoves++; 
+
+    totalPlayerMoves++;
     pendingMoveEvaluation = true; 
     updateStatus();
     
@@ -9412,6 +9739,15 @@ function onDrop(source, target) {
 }
 
 function onSnapEnd() { board.position(game.fen()); }
+
+// Feedback visual breu quan s'intenta una jugada il·legal (punt 7)
+function showIllegalMoveFeedback(square) {
+    const el = document.querySelector('#myBoard .square-' + square);
+    if (el) {
+        el.classList.add('square-illegal');
+        setTimeout(() => el.classList.remove('square-illegal'), 450);
+    }
+}
 
 function makeEngineMove() {
     if (!stockfish && !ensureStockfish()) return;
@@ -9947,6 +10283,7 @@ function handleEngineMessage(rawMsg) {
             setTimeout(() => {
                 isEngineThinking = false;
                 game.move({ from: fromSq, to: toSq, promotion: promotion });
+                clockOnMove();
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
                 updateStatus();
@@ -10329,6 +10666,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 }
 
 function returnToMainMenuImmediate() {
+    stopGameClock();
     $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#calibration-result-screen').hide(); $('#start-screen').show();
     if (stockfish) stockfish.postMessage('stop');
     clearTapSelection();
@@ -10567,8 +10905,9 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
     }
 }
 
-function handleGameOver(manualResign = false) {
+function handleGameOver(manualResign = false, timeoutColor = null) {
     pendingMoveEvaluation = false;
+    stopGameClock();
     let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
     const wasLeagueMatch = (currentGameMode === 'league') && !!leagueActiveMatch;
     let leagueOutcome = 'draw';
@@ -10583,8 +10922,17 @@ function handleGameOver(manualResign = false) {
     const isLeagueMode = currentGameMode === 'league';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     
-    if (manualResign) { 
-        msg = "T'has rendit."; resultScore = 0; leagueOutcome = 'loss'; 
+    if (timeoutColor) {
+        if (timeoutColor === playerColor) {
+            msg = "Has perdut per temps."; resultScore = 0; leagueOutcome = 'loss';
+        } else {
+            msg = "Victòria per temps!"; resultScore = 1; playerWon = true; leagueOutcome = 'win';
+            sessionStats.gamesWon++; totalWins++;
+            if (playerColor === 'b') sessionStats.blackWins++;
+        }
+    }
+    else if (manualResign) {
+        msg = "T'has rendit."; resultScore = 0; leagueOutcome = 'loss';
     }
     else if (game.in_checkmate()) {
         if (game.turn() !== playerColor) { 
@@ -10763,6 +11111,8 @@ $(document).ready(() => {
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
+    const tcSel = document.getElementById('time-control-select');
+    if (tcSel) tcSel.value = loadTimeControl();
     generateDailyMissions(); checkStreak(); updateDisplay(); setupEvents(); 
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;

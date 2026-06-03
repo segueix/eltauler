@@ -231,6 +231,12 @@
             ) !important;
         }
         
+        @keyframes illegal-flash {
+            0% { box-shadow: inset 0 0 0 3px rgba(192,57,43,0.9); }
+            100% { box-shadow: inset 0 0 0 3px rgba(192,57,43,0); }
+        }
+        .square-illegal { animation: illegal-flash 0.45s ease-out; }
+
         @keyframes pulse-purple {
             0% { box-shadow: inset 0 0 5px 4px var(--accent-purple); }
             50% { box-shadow: inset 0 0 10px 6px var(--accent-purple); }
@@ -745,6 +751,22 @@
             margin-bottom: 6px;
             font-style: italic;
         }
+        .opening-theory-line {
+            font-size: 0.85rem; line-height: 1.4; padding: 9px 12px; border-radius: 10px;
+            text-align: left;
+        }
+        .opening-theory-line.theory-on { background: rgba(74,124,89,0.15); border-left: 3px solid var(--accent-green); color: var(--text-primary); }
+        .opening-theory-line.theory-off { background: rgba(212,118,59,0.15); border-left: 3px solid var(--streak-fire); color: var(--text-primary); }
+        .opening-theory-line.theory-neutral { background: rgba(0,0,0,0.18); border-left: 3px solid var(--text-secondary); color: var(--text-secondary); }
+        .opening-theory-line strong { color: var(--accent-gold); }
+        .opening-stat-row {
+            display: flex; align-items: center; gap: 10px; padding: 8px 4px;
+            border-bottom: 1px solid rgba(255,255,255,0.06); font-size: 0.86rem;
+        }
+        .opening-stat-name { flex: 1; color: var(--text-primary); }
+        .opening-stat-eco { color: var(--text-secondary); font-size: 0.72rem; }
+        .opening-stat-record { color: var(--text-secondary); font-size: 0.78rem; min-width: 90px; text-align: right; }
+        .opening-stat-wr { font-weight: 700; min-width: 42px; text-align: right; }
         .lesson-done-check { color: var(--accent-green); font-weight: 700; font-size: 0.95rem; }
         .opening-lesson-btn.lesson-done { border-left: 3px solid var(--accent-green); }
         .opening-progress-bar { margin-bottom: 12px; }
@@ -928,7 +950,12 @@
             height: 20px;
             filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
         }
-        
+        .btn-analyze {
+            background: linear-gradient(135deg, #607d8b 0%, #455a64 100%);
+            color: #eef3f5;
+            border: 1px solid rgba(255,255,255,0.14);
+        }
+
         .btn-danger {
             background: linear-gradient(135deg, #c62828, #8b0000);
             color: white;
@@ -1070,7 +1097,27 @@
         .header-title { font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 8px; }
         .game-info { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary); }
         .streak-badge { color: var(--star-gold); font-weight: bold; }
-        
+
+        /* Rellotge de partida */
+        .game-clocks { display: flex; gap: 8px; margin-top: 8px; }
+        .clock-pill {
+            flex: 1; display: flex; align-items: center; justify-content: space-between;
+            background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px; padding: 6px 12px; transition: all 0.2s;
+        }
+        .clock-tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary); }
+        .clock-time { font-family: 'Cinzel', serif; font-size: 1.25rem; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+        .clock-pill.clock-active {
+            border-color: var(--accent-gold);
+            background: rgba(201,162,39,0.18);
+            box-shadow: 0 0 12px rgba(201,162,39,0.25);
+        }
+        .clock-pill.clock-active .clock-time { color: var(--accent-gold); }
+        .clock-pill.clock-low .clock-time { color: var(--severity-high); }
+        .clock-pill.clock-active.clock-low { border-color: var(--severity-high); box-shadow: 0 0 12px rgba(192,57,43,0.35); }
+        body.epaper-mode .clock-pill { background: #ededed; border-color: #cfcfcf; }
+        body.epaper-mode .clock-pill.clock-active { border-color: #444; background: #e0e0e0; box-shadow: none; }
+
         .precision-panel { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .precision-stat { text-align: center; min-width: 70px; }
         .precision-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 3px; }
@@ -1520,6 +1567,10 @@
             color: var(--accent-gold);
             margin-bottom: 10px;
         }
+        .history-filters {
+            display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
+        }
+        .history-filters .select-control { flex: 1; min-width: 120px; font-size: 0.82rem; padding: 7px 8px; }
         .history-layout {
             display: grid;
             grid-template-columns: 1fr;
@@ -2390,6 +2441,17 @@
                 </div>
                 <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar".</div>
                 <div class="setting-row">
+                    <div class="setting-label">Rellotge de partida</div>
+                    <select id="time-control-select" class="select-control">
+                        <option value="none">Sense rellotge</option>
+                        <option value="3+2">Blitz 3+2</option>
+                        <option value="5+0">Blitz 5+0</option>
+                        <option value="10+0">Ràpid 10+0</option>
+                        <option value="15+10">Clàssic 15+10</option>
+                    </select>
+                </div>
+                <div class="setting-help">S'aplica a les partides amistoses, assistides i de lliga. Si esgotes el temps, perds la partida.</div>
+                <div class="setting-row">
                     <div class="setting-label">Revisió d'errors (Bundle)</div>
                     <select id="bundle-accept-select" class="select-control">
                         <option value="top1">Només la millor</option>
@@ -2475,6 +2537,11 @@
                 <div id="stats-weaknesses"></div>
             </div>
 
+            <div class="chart-container">
+                <div class="chart-title">Les teves obertures</div>
+                <div id="stats-openings"></div>
+            </div>
+
             <div class="danger-zone">
                 <div class="danger-zone-title">⚠️ Zona Perillosa</div>
                 <button class="btn btn-danger" id="btn-show-delete" style="width:100%;">
@@ -2502,6 +2569,26 @@
             </div>
             <div class="history-section">
                 <div class="history-title">Partides guardades</div>
+                <div class="history-filters">
+                    <select id="history-filter-result" class="select-control">
+                        <option value="all">Tots els resultats</option>
+                        <option value="win">Victòries</option>
+                        <option value="loss">Derrotes</option>
+                        <option value="draw">Taules</option>
+                    </select>
+                    <select id="history-filter-mode" class="select-control">
+                        <option value="all">Tots els modes</option>
+                        <option value="free">Amistoses</option>
+                        <option value="assisted">Assistides</option>
+                        <option value="league">Lliga</option>
+                    </select>
+                    <select id="history-filter-prec" class="select-control">
+                        <option value="0">Tota precisió</option>
+                        <option value="60">Precisió ≥ 60%</option>
+                        <option value="75">Precisió ≥ 75%</option>
+                        <option value="85">Precisió ≥ 85%</option>
+                    </select>
+                </div>
                 <div class="history-layout">
                     <div class="history-list" id="history-list"></div>
                     <div class="history-detail">
@@ -2538,6 +2625,7 @@
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
                 <button class="btn btn-primary" id="btn-back-history">Tornar al Menú</button>
             </div>
         </div>
@@ -2713,7 +2801,11 @@
                     <div class="calibration-progress-bar">
                         <div class="calibration-progress-fill" id="calibration-progress-fill"></div>
                     </div>
-                </div>            
+                </div>
+                <div class="game-clocks" id="game-clocks" style="display:none;">
+                    <div class="clock-pill"><span class="clock-tag">IA</span><span class="clock-time" id="clock-opp">5:00</span></div>
+                    <div class="clock-pill"><span class="clock-tag">Tu</span><span class="clock-time" id="clock-you">5:00</span></div>
+                </div>
             </div>
             
             <div class="precision-panel">
@@ -2786,6 +2878,7 @@
                         <img src="brain.svg" alt="Cervell">
                         <span>Consell</span>
                     </button>
+                    <button class="btn btn-analyze" id="btn-analyze" title="Analitza la posició actual" style="display:none;">🔬 Analitza</button>
                     <button class="btn btn-secondary" id="btn-back">Menú</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
                 </div>
