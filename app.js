@@ -261,6 +261,55 @@ function isTouchDevice() {
 const CONTROL_MODE_KEY = 'eltauler_control_mode';
 let controlMode = null;
 
+/* ============ NOTIFICACIONS INTERNES (toast + confirm) ============ */
+// Mostra un missatge intern de l'app (substitueix les finestres del sistema).
+function showToast(message, type = 'info', duration = null) {
+    const text = (message === undefined || message === null) ? '' : String(message);
+    if (!text) return;
+    let container = document.getElementById('toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'toast-container';
+        document.body.appendChild(container);
+    }
+    const toast = document.createElement('div');
+    toast.className = `toast toast-${type}`;
+    toast.textContent = text;
+    container.appendChild(toast);
+    // Durada proporcional a la longitud del missatge (mín 2.5s, màx 7s)
+    const ms = duration || Math.max(2500, Math.min(7000, 1500 + text.length * 45));
+    requestAnimationFrame(() => toast.classList.add('show'));
+    const dismiss = () => {
+        toast.classList.remove('show');
+        setTimeout(() => { if (toast.parentNode) toast.parentNode.removeChild(toast); }, 300);
+    };
+    toast.addEventListener('click', dismiss);
+    setTimeout(dismiss, ms);
+}
+
+// Internalitza qualsevol alert() del sistema com a toast de l'app.
+window.alert = function(message) { showToast(message, 'info'); };
+
+// Confirmació interna (asíncrona, amb callbacks) que substitueix confirm().
+function showAppConfirm(message, onConfirm, opts = {}) {
+    const modal = document.getElementById('app-confirm-modal');
+    if (!modal) {
+        // Fallback segur si el modal no existeix
+        if (typeof onConfirm === 'function') onConfirm();
+        return;
+    }
+    document.getElementById('app-confirm-title').textContent = opts.title || 'Confirmar';
+    document.getElementById('app-confirm-message').textContent = message || '';
+    const yesBtn = $('#app-confirm-yes');
+    const noBtn = $('#app-confirm-no');
+    yesBtn.text(opts.confirmText || "D'acord");
+    noBtn.text(opts.cancelText || 'Cancel·la');
+    const close = () => { modal.style.display = 'none'; yesBtn.off('click'); noBtn.off('click'); };
+    yesBtn.off('click').on('click', () => { close(); if (typeof onConfirm === 'function') onConfirm(); });
+    noBtn.off('click').on('click', () => { close(); if (typeof opts.onCancel === 'function') opts.onCancel(); });
+    modal.style.display = 'flex';
+}
+
 // Revisió d'errors (Bundle): validar només la millor jugada o les 2 millors
 const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
@@ -527,11 +576,13 @@ async function handleBackupImportFile(file) {
     try {
         const text = await file.text();
         const data = JSON.parse(text);
-        if (confirm(`Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`)) {
-            importBackupData(data);
-        }
+        showAppConfirm(
+            `Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`,
+            () => importBackupData(data),
+            { title: 'Importar dades', confirmText: 'Importar' }
+        );
     } catch (err) {
-        alert('Error llegint l\'arxiu');
+        showToast('Error llegint l\'arxiu', 'error');
     }
 }
 
@@ -7432,11 +7483,15 @@ function setupEvents() {
             alert(`La lliga s'activa després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
             return;
         }
-        const ok = confirm("Vols reiniciar la lliga actual? Se'n crearà una de nova segons el teu ELO actual.");
-        if (!ok) return;
-        createNewLeague(true);
-        updateLeagueBanner();
-        alert('Lliga reiniciada.');
+        showAppConfirm(
+            "Vols reiniciar la lliga actual? Se'n crearà una de nova segons el teu ELO actual.",
+            () => {
+                createNewLeague(true);
+                updateLeagueBanner();
+                showToast('Lliga reiniciada.', 'success');
+            },
+            { title: 'Reiniciar lliga', confirmText: 'Reiniciar' }
+        );
     });
 
     $('#btn-back-stats').click(() => {
@@ -7456,7 +7511,7 @@ function setupEvents() {
     });
 
     $('#btn-recalibrate').click(() => {
-        if (!confirm("Això resetarà el teu perfil actual. Vols continuar?")) return;
+        showAppConfirm("Això resetarà el teu perfil actual. Vols continuar?", () => {
         userELO = 50;
         currentElo = clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
         aiDifficulty = levelToDifficulty(currentElo);
@@ -7477,9 +7532,10 @@ function setupEvents() {
         currentCalibrationOpponentRoc = null;
         saveStorage();
         updateDisplay();
-        alert('Calibratge reiniciat. Comença la nova seqüència de 5 partides.');
+        showToast('Calibratge reiniciat. Comença la nova seqüència de 5 partides.', 'success');
+        }, { title: 'Reiniciar calibratge', confirmText: 'Reiniciar' });
     });
-    
+
     $('#history-play').off('click').on('click', () => { startHistoryPlayback(); });
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
@@ -7531,7 +7587,7 @@ function setupEvents() {
     $('#btn-cancel-delete').click(() => { $('#confirm-delete-panel').slideUp(); });
     
     $('#btn-confirm-delete').click(() => {
-        if (confirm('Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.')) {
+        showAppConfirm('Estàs completament segur? Aquesta acció NO es pot desfer i perdràs TOTES les teves dades.', () => {
             localStorage.clear();
             saveEpaperPreference(epaperEnabled);
             applyControlMode(getDefaultControlMode(), { save: true, rebuild: false });
@@ -7552,8 +7608,8 @@ function setupEvents() {
             geminiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
-            alert('Totes les dades han estat esborrades. Comença de nou!');
-        }
+            showToast('Totes les dades han estat esborrades. Comença de nou!', 'success');
+        }, { title: 'Esborrar totes les dades', confirmText: 'Esborrar-ho tot' });
     });
     
     $('#btn-hint').click(() => {
@@ -8149,10 +8205,10 @@ function showBundleMenu() {
 }
 
 function removeBundle(idx) {
-    if (confirm('Esborrar aquest error?')) {
+    showAppConfirm('Esborrar aquest error?', () => {
         savedErrors.splice(idx, 1); saveStorage(); updateDisplay();
         $('#bundle-modal').remove(); if (savedErrors.length > 0) showBundleMenu();
-    }
+    }, { title: 'Esborrar error', confirmText: 'Esborrar' });
 }
 
 window.startBundleGame = function(fen, severity = null) {
@@ -8248,14 +8304,12 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
     const overlay = $('#match-error-success-overlay');
     if (!overlay.length) {
         if (remaining > 0) {
-            const wantsMore = confirm(`Vols revisar un altre error? En queden ${remaining}.`);
-            if (wantsMore) {
-                launchNextMatchError();
-            } else {
-                endMatchErrorReviewSession();
-            }
+            showAppConfirm(`Vols revisar un altre error? En queden ${remaining}.`,
+                () => launchNextMatchError(),
+                { title: 'Revisar errors', confirmText: 'Sí', cancelText: 'No', onCancel: () => endMatchErrorReviewSession() }
+            );
         } else {
-            alert('Ja has revisat tots els errors de la partida.');
+            showToast('Ja has revisat tots els errors de la partida.', 'success');
             endMatchErrorReviewSession();
         }
         return;
