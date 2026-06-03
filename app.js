@@ -299,6 +299,9 @@ function applyFontSize(pct) {
     const slider = document.getElementById('font-size-range');
     if (slider && +slider.value !== +pct) slider.value = pct;
     try { localStorage.setItem(FONT_SIZE_KEY, pct); } catch (e) {}
+    // El canvi de mida de lletra pot alterar l'amplada disponible: re-ajustar taulers
+    // perquè tot segueixi visible (sobretot el tauler de l'historial).
+    if (typeof scheduleBoardResize === 'function') scheduleBoardResize();
 }
 
 // Navigation history management for mobile back gesture
@@ -889,11 +892,20 @@ function resizeTvBoardToViewport() {
     if (tvBoard && typeof tvBoard.resize === 'function') tvBoard.resize();
 }
 
+function resizeHistoryBoardToViewport() {
+    const historyScreen = document.getElementById('history-screen');
+    if (!historyScreen || !historyBoard) return;
+    const isVisible = (historyScreen.style.display !== 'none') && (historyScreen.offsetParent !== null);
+    if (!isVisible) return;
+    if (typeof historyBoard.resize === 'function') historyBoard.resize();
+}
+
 function scheduleBoardResize() {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
         resizeBoardToViewport();
         resizeTvBoardToViewport();
+        resizeHistoryBoardToViewport();
     }, 60);
 }
 
@@ -8271,6 +8283,8 @@ function setupEvents() {
         initHistoryBoard();
         renderGameHistory();
         navPush('history-screen');
+        // Assegurar que el tauler s'ajusti a l'amplada real un cop la pantalla és visible
+        setTimeout(() => resizeHistoryBoardToViewport(), 0);
     });
     $('#history-filter-result, #history-filter-mode, #history-filter-prec').off('change').on('change', () => {
         historyFilters.result = $('#history-filter-result').val();

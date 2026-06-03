@@ -1707,7 +1707,7 @@
         .history-detail-meta { font-size: 0.8rem; color: var(--text-secondary); }
         .history-board {
             width: 100%;
-            max-width: 360px;
+            max-width: min(360px, 100%);
             margin: 10px auto 12px;
         }
         .history-review {
@@ -1760,6 +1760,9 @@
             border-radius: 12px;
             overflow: hidden;
             border: 2px solid rgba(201, 162, 39, 0.3);
+            /* Marge intern perquè la vora del tauler (chessboard.js, content-box)
+               no quedi tallada per overflow:hidden i la torre de la dreta es vegi sencera */
+            padding: 4px;
         }
                 #tv-board {
             width: 100%;
@@ -2267,12 +2270,28 @@
             order: 1;
             display: flex;
             flex-direction: column;
+            align-items: center;
+            width: 100%;
+            min-width: 0;
         }
-        body.device-mobile .history-controls { order: 1; margin-bottom: 10px; }
+        body.device-mobile .history-controls { order: 1; margin-bottom: 10px; width: 100%; }
         body.device-mobile .history-board { order: 2; }
-        body.device-mobile .history-actions { order: 3; }
-        body.device-mobile .history-progress { order: 4; }
-        body.device-mobile .history-review { order: 2; }
+        body.device-mobile .history-actions { order: 3; width: 100%; }
+        body.device-mobile .history-progress { order: 4; width: 100%; }
+        body.device-mobile .history-review { order: 2; width: 100%; }
+        /* Evitar desbordament horitzontal i mantenir tot centrat en mòbil */
+        body.device-mobile .history-detail,
+        body.device-mobile .history-detail-body,
+        body.device-mobile .history-detail-header,
+        body.device-mobile #history-breakdown {
+            width: 100%;
+            min-width: 0;
+            max-width: 100%;
+        }
+        body.device-mobile .history-review-content {
+            overflow-wrap: anywhere;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
