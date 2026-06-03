@@ -281,6 +281,67 @@ function isTouchDevice() {
 const CONTROL_MODE_KEY = 'eltauler_control_mode';
 let controlMode = null;
 
+const FONT_SIZE_KEY = 'eltauler_font_size';
+function loadFontSize() {
+    try { return localStorage.getItem(FONT_SIZE_KEY) || 'medium'; } catch (e) { return 'medium'; }
+}
+function applyFontSize(size) {
+    document.body.classList.remove('font-small', 'font-medium', 'font-large', 'font-xlarge');
+    document.body.classList.add('font-' + size);
+    try { localStorage.setItem(FONT_SIZE_KEY, size); } catch (e) {}
+}
+
+// Navigation history management for mobile back gesture
+let navStack = [];
+function getCurrentScreen() {
+    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen'];
+    for (const s of screens) {
+        const el = document.getElementById(s);
+        if (el && el.style.display !== 'none' && (s !== 'game-screen' || el.classList.contains('active'))) return s;
+    }
+    return 'start-screen';
+}
+function navPush(screenId) {
+    navStack.push(screenId);
+    history.pushState({ screen: screenId }, '');
+}
+function navGoBack() {
+    const current = getCurrentScreen();
+    if (current === 'start-screen') return;
+    if (current === 'game-screen') {
+        $('#game-screen').removeClass('active').hide();
+        $('#start-screen').show();
+    } else if (current === 'stats-screen') {
+        $('#stats-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'history-screen') {
+        if (typeof stopHistoryPlayback === 'function') stopHistoryPlayback();
+        $('#history-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'league-screen') {
+        $('#league-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'opening-screen') {
+        $('#opening-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'settings-screen') {
+        $('#settings-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'calibration-result-screen') {
+        $('#calibration-result-screen').hide();
+        $('#start-screen').show();
+    }
+    navStack.pop();
+}
+window.addEventListener('popstate', function(e) {
+    const current = getCurrentScreen();
+    if (current === 'start-screen') {
+        history.pushState({ screen: 'start-screen' }, '');
+        return;
+    }
+    navGoBack();
+});
+
 /* ============ NOTIFICACIONS INTERNES (toast + confirm) ============ */
 // Mostra un missatge intern de l'app (substitueix les finestres del sistema).
 function showToast(message, type = 'info', duration = null) {
@@ -2236,7 +2297,7 @@ function openLeague() {
         return;
     }
     createNewLeague(false);
-    $('#start-screen').hide(); $('#stats-screen').hide(); $('#game-screen').removeClass('active').hide();
+    $('#start-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#game-screen').removeClass('active').hide();
     $('#league-screen').show();
     renderLeague();
 }
@@ -4653,9 +4714,11 @@ function showCalibrationResultsScreen() {
     $('#game-screen').removeClass('active').hide();
     $('#league-screen').hide();
     $('#stats-screen').hide();
+    $('#settings-screen').hide();
     $('#history-screen').hide();
     $('#start-screen').hide();
     $('#calibration-result-screen').show();
+    navPush('calibration-result-screen');
 }
 
 function persistReviewSummary(finalPrecision, resultLabel) {
@@ -8190,12 +8253,14 @@ function setupEvents() {
 
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
     
-    $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); });
+    $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
+    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); });
     $('#btn-history').click(() => {
         $('#start-screen').hide();
         $('#history-screen').show();
         initHistoryBoard();
         renderGameHistory();
+        navPush('history-screen');
     });
     $('#history-filter-result, #history-filter-mode, #history-filter-prec').off('change').on('change', () => {
         historyFilters.result = $('#history-filter-result').val();
@@ -8215,8 +8280,8 @@ function setupEvents() {
         URL.revokeObjectURL(url);
         showToast(`Exportades ${pgns.length} partides ♟`, 'success');
     });
-    $('#btn-league').click(() => { if (guardCalibrationAccess()) openLeague(); });
-    $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); });
+    $('#btn-league').click(() => { if (guardCalibrationAccess()) { openLeague(); navPush('league-screen'); } });
+    $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); navStack.pop(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-opening').click(() => {
@@ -8226,6 +8291,7 @@ function setupEvents() {
         resetOpeningPracticeBoard();
         $('#start-screen').hide();
         $('#opening-screen').show();
+        navPush('opening-screen');
         if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
             setTimeout(() => openingBundleBoard.resize(), 50);
         }
@@ -8241,10 +8307,12 @@ function setupEvents() {
     $('#btn-back-opening').click(() => {
         $('#opening-screen').hide();
         $('#start-screen').show();
+        navStack.pop();
     });
     $('#btn-opening-bundle-menu').click(() => {
         $('#opening-screen').hide();
         $('#start-screen').show();
+        navStack.pop();
     });
     $('#btn-opening-bundle-hint').click(() => {
         if (!openingPracticeGame || openingPracticeGame.game_over()) return;
@@ -8338,16 +8406,24 @@ function setupEvents() {
         stopHistoryPlayback();
         $('#stats-screen').hide();
         $('#start-screen').show();
+        navStack.pop();
+    });
+    $('#btn-back-settings').click(() => {
+        $('#settings-screen').hide();
+        $('#start-screen').show();
+        navStack.pop();
     });
     $('#btn-back-history').click(() => {
         stopHistoryPlayback();
         $('#history-screen').hide();
         $('#start-screen').show();
+        navStack.pop();
     });
     $('#btn-calibration-continue').click(() => {
         $('#calibration-result-screen').hide();
         $('#start-screen').show();
         updateDisplay();
+        navStack.pop();
     });
 
     $('#btn-recalibrate').click(() => {
@@ -8422,6 +8498,10 @@ function setupEvents() {
         );
     });
 
+    $('#font-size-select').off('change').on('change', function() {
+        applyFontSize($(this).val());
+    });
+
     $('#control-mode-select').off('change').on('change', function() {
         const mode = $(this).val();
         const shouldRebuild = $('#game-screen').is(':visible');
@@ -8486,7 +8566,7 @@ function setupEvents() {
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
             geminiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
-            $('#stats-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
+            $('#settings-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             showToast('Totes les dades han estat esborrades. Comença de nou!', 'success');
         }, { title: 'Esborrar totes les dades', confirmText: 'Esborrar-ho tot' });
     });
@@ -8707,6 +8787,7 @@ function setupEvents() {
         }
         $('#game-screen').removeClass('active').hide();
         $('#start-screen').show();
+        navStack.pop();
         if (stockfish) stockfish.postMessage('stop');
     });
 
@@ -9538,10 +9619,12 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     
     $('#start-screen').hide();
     $('#stats-screen').hide();
+    $('#settings-screen').hide();
     $('#league-screen').hide();
     $('#history-screen').hide();
     $('#calibration-result-screen').hide();
     $('#game-screen').addClass('active').show();
+    navPush('game-screen');
     
 blunderMode = isBundle; 
     isCalibrationGame = isCalibrationActive() && !isBundle;
@@ -10645,8 +10728,8 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         }
         checkmateOverlay.hide();
         modal.hide();
-        $('#start-screen').hide(); $('#league-screen').hide(); $('#game-screen').removeClass('active').hide(); $('#stats-screen').show();
-        updateStatsDisplay();
+        $('#start-screen').hide(); $('#league-screen').hide(); $('#game-screen').removeClass('active').hide(); $('#settings-screen').hide(); $('#stats-screen').show();
+        updateStatsDisplay(); navStack = []; navPush('stats-screen');
         if (typeof onClose === 'function') onClose();
     });
 
@@ -10667,7 +10750,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 
 function returnToMainMenuImmediate() {
     stopGameClock();
-    $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#calibration-result-screen').hide(); $('#start-screen').show();
+    $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#calibration-result-screen').hide(); $('#start-screen').show(); navStack = [];
     if (stockfish) stockfish.postMessage('stop');
     clearTapSelection();
     isMatchErrorReviewSession = false;
@@ -11105,6 +11188,10 @@ $(document).ready(() => {
         syncEngineEloFromUser();
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
+    applyFontSize(loadFontSize());
+    const fsSel = document.getElementById('font-size-select');
+    if (fsSel) fsSel.value = loadFontSize();
+    history.replaceState({ screen: 'start-screen' }, '');
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
