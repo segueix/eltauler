@@ -137,16 +137,11 @@ const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
-const CALIBRATION_ENGINE_PRECISION_RANGES = [
-    { min: 40, max: 46 },
-    { min: 46, max: 52 },
-    { min: 52, max: 58 },
-    { min: 58, max: 65 },
-    { min: 65, max: 72 }
-];
 const CALIBRATION_GAME_COUNT = 5;
+// Oponents de calibratge per partida (ROC). La força de cada partida es deriva d'aquest ROC
+// amb el MATEIX model que el joc lliure (UCI_Elo + profunditat + selecció humana de moviments),
+// de manera que el nivell estimat reflecteix el que el jugador trobarà realment després.
 const CALIBRATION_ROCS = [200, 350, 500, 650, 800];
-const CALIBRATION_DEPTHS = [4, 6, 8];
 const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
@@ -2461,13 +2456,25 @@ function levelToDifficulty(level) {
     return Math.round(5 + normalized * 10);
 }
 
-function getEffectiveAIDifficulty() {
-    if (isCalibrationGame) return levelToDifficulty(currentCalibrationOpponentRoc || CALIBRATION_ROCS[0]);
-    return aiDifficulty;
-}
-
 function getAdaptiveNormalized() {
      return Math.max(0, Math.min(1, (currentElo - ADAPTIVE_CONFIG.MIN_LEVEL) / (ADAPTIVE_CONFIG.MAX_LEVEL - ADAPTIVE_CONFIG.MIN_LEVEL)));
+}
+
+// Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
+function getActiveStrengthElo() {
+    if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
+    return currentElo;
+}
+
+// Normalitza l'ELO actiu dins el rang jugable (200-2000) per modular profunditat i qualitat de moviments.
+// Substitueix l'antic mapatge comprimit (5-15) perquè l'adaptació es noti a tot el rang.
+function getStrengthNormalized() {
+    return Math.max(0, Math.min(1, (getActiveStrengthElo() - ELO_MIN) / (ELO_MAX - ELO_MIN)));
+}
+
+function eloToSearchDepth(elo) {
+    const normalized = Math.max(0, Math.min(1, (elo - ELO_MIN) / (ELO_MAX - ELO_MIN)));
+    return Math.round(2 + normalized * 12); // rang 2..14
 }
 
 function adjustAIDifficulty(playerWon, precision, resultScore = null) {
@@ -2609,6 +2616,11 @@ function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
 function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
     const quality = evaluateGameQuality(precision, metrics.avgCpLoss, metrics.blunders);
     const resultLabel = resultScore === 1 ? 'win' : resultScore === 0 ? 'loss' : 'draw';
+
+    // Mantenim un historial recent també en joc lliure per al control de win-rate (flow).
+    recentGames.push({ result: resultScore, precision: precision });
+    if (recentGames.length > 20) recentGames.shift();
+
     freeAdjustmentWindow.push({
         result: resultLabel,
         precision: precision,
@@ -2649,6 +2661,21 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
             feedback = 'Prova hints o mode entrenament';
         }
         freeLossStreak = 0;
+    }
+
+    // Control proactiu de win-rate: manté el jugador "enganxat" apuntant a ~50% de victòries.
+    // Si guanya massa, apugem el repte; si perd massa, l'abaixem de seguida (sense esperar el cicle).
+    if (recentGames.length >= ADAPTIVE_CONFIG.FLOW_WINDOW_MIN) {
+        const sample = recentGames.slice(-ADAPTIVE_CONFIG.FLOW_SAMPLE_SIZE);
+        const wins = sample.filter(g => g.result === 1).length;
+        const winRate = wins / sample.length;
+        if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH) {
+            const flow = applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow' });
+            if (flow) feedback = flow.message;
+        } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW) {
+            const flow = applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow' });
+            if (flow) feedback = flow.message;
+        }
     }
 
     if (freeAdjustmentWindow.length < CONTINUOUS_ADJUST_CONFIG.WINDOW_SIZE) {
@@ -2716,33 +2743,6 @@ function getCalibrationOpponentRoc() {
 function getCalibrationProgressCount() {
     const extra = isCalibrationGame ? 1 : 0;
     return Math.min(calibrationGames.length + extra, CALIBRATION_GAME_COUNT);
-}
-
-function getCalibrationGameDepth(gameIndex = null) {
-    const index = typeof gameIndex === 'number' ? gameIndex : getCalibrationGameIndex();
-    if (index < CALIBRATION_DEPTHS.length) return CALIBRATION_DEPTHS[index];
-    const performance = getCalibrationPerformanceScore(calibrationGames);
-    if (performance >= 0.7) return 10;
-    if (performance >= 0.55) return 8;
-    return 6;
-}
-
-function getCalibrationSkillLevel() {
-    const depth = getCalibrationGameDepth(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
-    const normalized = Math.max(0, Math.min(1, (depth - 5) / 10));
-    const minSkill = 6;
-    const maxSkill = 18;
-    return Math.round(minSkill + (maxSkill - minSkill) * normalized);
-}
-
-function getCalibrationPrecisionRange(gameIndex = null) {
-    const index = typeof gameIndex === 'number' ? gameIndex : getCalibrationGameIndex();
-    return CALIBRATION_ENGINE_PRECISION_RANGES[index] || CALIBRATION_ENGINE_PRECISION_RANGES[CALIBRATION_ENGINE_PRECISION_RANGES.length - 1];
-}
-
-function getCalibrationPrecisionTargetText() {
-    const range = getCalibrationPrecisionRange(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
-    return `${range.min}-${range.max}%`;
 }
 
 function updateCalibrationProgressUI() {
@@ -2868,14 +2868,10 @@ function getOpponentElo() {
 
 function getAIDepth() {
     const randomness = Math.floor(Math.random() * 3) - 1;
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    
-    if (isCalibrationGame) {
-        return Math.max(1, Math.min(15, getCalibrationGameDepth(calibrationGames.length) + randomness));
-    }
 
-    if (currentGameMode !== 'league') {
-        return Math.max(1, Math.min(15, effectiveDifficulty + randomness));
+    if (isCalibrationGame || currentGameMode !== 'league') {
+        // Mateixa corba de profunditat per calibratge i joc lliure: deriva de l'ELO actiu.
+        return Math.max(1, Math.min(15, eloToSearchDepth(getActiveStrengthElo()) + randomness));
     }
 
     const oppElo = getOpponentElo();
@@ -2885,13 +2881,6 @@ function getAIDepth() {
     return Math.max(1, Math.min(15, base + randomness));
 }
 
-function getEngineSkillLevel() {
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
-    const minSkill = 2;
-    const maxSkill = 18;
-    return Math.round(minSkill + (maxSkill - minSkill) * normalized);
-}
 function calculateEloDelta(resultScore) {
     const oppElo = getOpponentElo();
     const expected = 1 / (1 + Math.pow(10, (oppElo - userELO) / 400));
@@ -2937,8 +2926,7 @@ function chooseHumanLikeMove(candidates) {
     if (!candidates || candidates.length === 0) return null;
     const sorted = candidates.slice().sort((a, b) => b.score - a.score);
 
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
+    const normalized = getStrengthNormalized();
     const bestScore = sorted[0].score;
     const maxDelta = 250 - (normalized * 170); // Més desviació a nivells baixos
 
@@ -2966,30 +2954,6 @@ function chooseHumanLikeMove(candidates) {
         if (roll <= 0) return trimmed[i];
     }
     return trimmed[trimmed.length - 1];
-}
-
-function chooseCalibrationMove(candidates, fallbackMove) {
-    if (!candidates || candidates.length === 0) return { move: fallbackMove };
-    const sorted = candidates.slice().sort((a, b) => b.score - a.score);
-    const bestScore = sorted[0].score;
-    const goodCandidates = sorted.filter(c => (bestScore - c.score) <= 80);
-    const badCandidates = sorted.filter(c => (bestScore - c.score) > 80);
-    const range = getCalibrationPrecisionRange(isCalibrationGame ? calibrationGames.length : getCalibrationGameIndex());
-    const minTarget = range.min / 100;
-    const maxTarget = range.max / 100;
-    const target = (minTarget + maxTarget) / 2;
-    const currentPrecision = totalEngineMoves > 0 ? (goodEngineMoves / totalEngineMoves) : target;
-
-    let pickGood = true;
-    if (badCandidates.length === 0) pickGood = true;
-    else if (goodCandidates.length === 0) pickGood = false;
-    else if (currentPrecision < minTarget) pickGood = true;
-    else if (currentPrecision > maxTarget) pickGood = false;
-    else pickGood = Math.random() < target;
-
-    const pool = pickGood ? goodCandidates : badCandidates;
-    const choice = pool[Math.floor(Math.random() * pool.length)];
-    return choice || { move: fallbackMove };
 }
 
 // MODIFICAT: Ara carrega directament el fitxer local
@@ -8054,11 +8018,14 @@ function makeEngineMove() {
     isEngineThinking = true; 
     $('#status').text("L'adversari pensa...");
 
-    const depth = getAIDepth(); 
-    const skillLevel = isCalibrationGame ? getCalibrationSkillLevel() : getEngineSkillLevel();
+    const depth = getAIDepth();
     resetEngineMoveCandidates();
 
-    try { stockfish.postMessage(`setoption name Skill Level value ${skillLevel}`); } catch (e) {}
+    // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
+    // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
+    // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada
+    // jugada per no heretar opcions d'altres modes (p. ex. pràctica d'obertures).
+    applyEngineEloStrength(getActiveStrengthElo());
     const multiPvValue = isCalibrationGame ? 7 : 5;
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     stockfish.postMessage(`position fen ${game.fen()}`); 
@@ -8066,8 +8033,7 @@ function makeEngineMove() {
 }
 
 function chooseFallbackMove(fallbackMove) {
-    const effectiveDifficulty = getEffectiveAIDifficulty();
-    const normalized = Math.max(0, Math.min(1, (effectiveDifficulty - 5) / 10));
+    const normalized = getStrengthNormalized();
     const mistakeChance = Math.max(0.1, 0.35 - (normalized * 0.25));
     if (Math.random() > mistakeChance) return fallbackMove;
     const legalMoves = game ? game.moves({ verbose: true }) : [];
@@ -8565,9 +8531,9 @@ function handleEngineMessage(rawMsg) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
-            const chosen = isCalibrationGame
-                ? chooseCalibrationMove(engineMoveCandidates, fallbackMove)
-                : (chooseHumanLikeMove(engineMoveCandidates) || { move: null });
+            // Mateix model de selecció per calibratge i joc lliure: així el ROC estimat
+            // durant el calibratge reflecteix la força real que el jugador trobarà després.
+            const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
             const moveStr = (engineMoveCandidates.length > 0 && chosen.move)
                 ? chosen.move
                 : chooseFallbackMove(fallbackMove);
@@ -9071,7 +9037,9 @@ function updateAIPrecisionDisplay() {
 function updateAIPrecisionTarget() {
     const targetEl = $('#ai-precision-target');
     if (!targetEl.length) return;
-    targetEl.text(isCalibrationGame ? getCalibrationPrecisionTargetText() : '—');
+    // La força de l'enginy es controla amb UCI_Elo (no amb una precisió objectiu),
+    // tant en calibratge com en joc lliure, així que no mostrem cap objectiu fix.
+    targetEl.text('—');
 }
 
 function registerEngineMovePrecision(moveStr, candidates) {
