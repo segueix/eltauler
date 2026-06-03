@@ -8508,7 +8508,7 @@ function setupEvents() {
         );
     });
 
-    $('#font-size-range').off('input').on('input', function() {
+    $('#font-size-range').off('input change').on('input change', function() {
         applyFontSize(+this.value);
     });
 

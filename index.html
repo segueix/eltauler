@@ -134,7 +134,7 @@
         body.day-mode .text-input { border: 1px solid rgba(120, 95, 40, 0.25); }
 
         /* Font scale system — --font-scale scales the root font-size so all rem units follow */
-        html { font-size: calc(16px * var(--font-scale)); }
+        html { font-size: calc(16px * var(--font-scale)); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
         .font-size-preview { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
         .font-size-preview .preview-text { color: var(--text-primary); }
@@ -2443,7 +2443,7 @@
                     <div class="setting-label">Mida de la lletra</div>
                     <div style="display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end;">
                         <span style="font-size:0.75rem;opacity:0.6;">A</span>
-                        <input type="range" id="font-size-range" min="70" max="150" step="1" value="100" style="flex:1;max-width:140px;accent-color:var(--accent);">
+                        <input type="range" id="font-size-range" min="70" max="150" step="1" value="100" style="flex:1;max-width:140px;accent-color:var(--accent);touch-action:none;">
                         <span style="font-size:1.1rem;opacity:0.6;">A</span>
                         <span id="font-size-value" style="min-width:38px;text-align:center;font-size:0.82rem;font-weight:600;">100%</span>
                     </div>
