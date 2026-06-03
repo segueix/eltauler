@@ -574,7 +574,7 @@ function importBackupData(data) {
         userELO = Math.max(50, currentElo);
         syncEngineEloFromUser();
     }
-    saveStorage(); updateDisplay(); alert('Dades importades!');
+    saveStorage(); updateDisplay(); showToast('Dades importades!', 'success');
 }
 
 async function handleBackupImportFile(file) {
@@ -3981,7 +3981,7 @@ async function prepareBundleSequence(fen) {
         
     } catch (error) {
         console.error('[Bundle] Error preparant seqüència:', error);
-        alert('Error inesperat preparant l\'exercici. Torna-ho a provar.');
+        showToast('Error inesperat preparant l\'exercici. Torna-ho a provar.', 'error');
         return null;
     }
 }
@@ -6786,7 +6786,7 @@ function startOpeningErrorPractice(color, moveNum) {
     const stat = openingStatsData.find(s => s.colorKey === color && s.moveNumber === moveNum);
 
     if (!stat || !stat.errorPositions || stat.errorPositions.length === 0) {
-        alert('No hi ha posicions disponibles per practicar.\n\nLes partides antigues no tenen aquesta informació. Juga noves partides per poder practicar els errors.');
+        showToast('No hi ha posicions disponibles. Juga noves partides per practicar errors.', 'warn');
         return;
     }
 
@@ -7080,22 +7080,43 @@ function exitOpeningErrorPractice() {
 
 /* ============ APRÈN UNA OBERTURA (lliçons guiades) ============ */
 const CURATED_OPENINGS = [
-    { eco: 'C50', name: 'Obertura Italiana', userColor: 'w', idea: 'Desenvolupa ràpid i apunta el punt feble f7.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3'] },
-    { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', userColor: 'w', idea: 'Pressiona el cavall que defensa el centre i prepara l\'enroc.', moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7'] },
-    { eco: 'D06', name: 'Gambit de Dama Refusat', userColor: 'w', idea: 'Tensa el centre i desenvolupa amb harmonia.', moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7'] },
-    { eco: 'D02', name: 'Sistema Londres', userColor: 'w', idea: 'Estructura sòlida i fàcil: alfil a f4 abans d\'e3.', moves: ['d4','d5','Nf3','Nf6','Bf4','e6','e3','c5','c3'] },
-    { eco: 'A20', name: 'Obertura Anglesa', userColor: 'w', idea: 'Control del centre des dels flancs amb c4 i fianchetto.', moves: ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5'] },
-    { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
-    { eco: 'C00', name: 'Defensa Francesa', userColor: 'b', idea: 'Cadena de peons sòlida; contraatac a la columna c i f.', moves: ['e4','e6','d4','d5','Nc3','Nf6'] },
-    { eco: 'B10', name: 'Defensa Caro-Kann', userColor: 'b', idea: 'Defensa sòlida que allibera l\'alfil de caselles clares.', moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5'] },
-    { eco: 'E60', name: 'Defensa Índia de Rei', userColor: 'b', idea: 'Cedeix el centre per atacar-lo després amb peces i peons.', moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O'] },
-    { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5'] }
+    // === Obertures amb blanques ===
+    { eco: 'C50', name: 'Obertura Italiana', userColor: 'w', cat: 'white', idea: 'Desenvolupa ràpid i apunta el punt feble f7.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3'] },
+    { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', userColor: 'w', cat: 'white', idea: 'Pressiona el cavall que defensa el centre i prepara l\'enroc.', moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7'] },
+    { eco: 'C21', name: 'Gambit de Rei', userColor: 'w', cat: 'white', idea: 'Sacrifica un peó per obrir la columna f i atacar ràpid el rei.', moves: ['e4','e5','f4','exf4','Nf3','g5','Bc4','Bg7'] },
+    { eco: 'C25', name: 'Obertura de Viena', userColor: 'w', cat: 'white', idea: 'Prepara f4 amb suport del cavall; manté flexibilitat central.', moves: ['e4','e5','Nc3','Nf6','Bc4','Bc5','d3','d6'] },
+    { eco: 'C44', name: 'Obertura Escocesa', userColor: 'w', cat: 'white', idea: 'Obre el centre immediatament amb d4 i guanya espai.', moves: ['e4','e5','Nf3','Nc6','d4','exd4','Nxd4','Bc5','Be3'] },
+    { eco: 'D06', name: 'Gambit de Dama Refusat', userColor: 'w', cat: 'white', idea: 'Tensa el centre i desenvolupa amb harmonia.', moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7'] },
+    { eco: 'D20', name: 'Gambit de Dama Acceptat', userColor: 'w', cat: 'white', idea: 'El blanc recupera el peó i guanya temps de desenvolupament.', moves: ['d4','d5','c4','dxc4','Nf3','Nf6','e3','e6','Bxc4','c5'] },
+    { eco: 'D02', name: 'Sistema Londres', userColor: 'w', cat: 'white', idea: 'Estructura sòlida i fàcil: alfil a f4 abans d\'e3.', moves: ['d4','d5','Nf3','Nf6','Bf4','e6','e3','c5','c3'] },
+    { eco: 'A20', name: 'Obertura Anglesa', userColor: 'w', cat: 'white', idea: 'Control del centre des dels flancs amb c4 i fianchetto.', moves: ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5'] },
+    { eco: 'A04', name: 'Atac Reti', userColor: 'w', cat: 'white', idea: 'Hipermodern: controla el centre amb peces i fianchetto.', moves: ['Nf3','d5','g3','Nf6','Bg2','c6','O-O','Bg4','d3'] },
+    { eco: 'B03', name: 'Atac dels Quatre Peons', userColor: 'w', cat: 'white', idea: 'Avança quatre peons al centre contra l\'Alekhine; aposta per l\'espai.', moves: ['e4','Nf6','e5','Nd5','d4','d6','c4','Nb6','f4'] },
+    { eco: 'D43', name: 'Semieslava', userColor: 'w', cat: 'white', idea: 'Pressió central amb c4 contra l\'estructura sòlida negra.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','e6','Bg5'] },
+    // === Defenses amb negres ===
+    { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', cat: 'black', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
+    { eco: 'B90', name: 'Siciliana Najdorf', userColor: 'b', cat: 'black', idea: 'La més ambiciosa: a6 prepara contrajoc als dos flancs.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6','Be2','e5'] },
+    { eco: 'C00', name: 'Defensa Francesa', userColor: 'b', cat: 'black', idea: 'Cadena de peons sòlida; contraatac a la columna c i f.', moves: ['e4','e6','d4','d5','Nc3','Nf6'] },
+    { eco: 'B10', name: 'Defensa Caro-Kann', userColor: 'b', cat: 'black', idea: 'Defensa sòlida que allibera l\'alfil de caselles clares.', moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5'] },
+    { eco: 'C42', name: 'Defensa Petrov', userColor: 'b', cat: 'black', idea: 'Resposta simètrica i sòlida: negres ataquen el peó e4 immediatament.', moves: ['e4','e5','Nf3','Nf6','Nxe5','d6','Nf3','Nxe4','d4'] },
+    { eco: 'C41', name: 'Defensa Philidor', userColor: 'b', cat: 'black', idea: 'Enforteix e5 amb d6; joc sòlid i sense compromisos.', moves: ['e4','e5','Nf3','d6','d4','Nf6','Nc3','Nbd7'] },
+    { eco: 'B02', name: 'Defensa Alekhine', userColor: 'b', cat: 'black', idea: 'Provoca l\'avanç dels peons blancs per atacar-los després.', moves: ['e4','Nf6','e5','Nd5','d4','d6','Nf3','Bg4'] },
+    { eco: 'B06', name: 'Defensa Pirc', userColor: 'b', cat: 'black', idea: 'Hipermoderna: fianchetto de rei i contraatac diferit.', moves: ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2','O-O'] },
+    { eco: 'E60', name: 'Defensa Índia de Rei', userColor: 'b', cat: 'black', idea: 'Cedeix el centre per atacar-lo després amb peces i peons.', moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O'] },
+    { eco: 'E20', name: 'Defensa Nimzo-Índia', userColor: 'b', cat: 'black', idea: 'Clava el cavall c3 per controlar el centre; joc posicional ric.', moves: ['d4','Nf6','c4','e6','Nc3','Bb4','e3','O-O','Bd3','d5'] },
+    { eco: 'E10', name: 'Defensa Índia de Dama', userColor: 'b', cat: 'black', idea: 'Fianchetto de dama; pressiona la diagonal llarga.', moves: ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7','Bg2','Be7'] },
+    { eco: 'D80', name: 'Defensa Grünfeld', userColor: 'b', cat: 'black', idea: 'Cedeix el centre amb d5xc4 per destruir-lo amb peces i Bg7.', moves: ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3','bxc3','Bg7'] },
+    { eco: 'A60', name: 'Defensa Benoni Moderna', userColor: 'b', cat: 'black', idea: 'Accepta espai inferior a canvi de contrajoc dinàmic al flanc de dama.', moves: ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6'] },
+    { eco: 'A80', name: 'Defensa Holandesa', userColor: 'b', cat: 'black', idea: 'f5 controla e4 i prepara un atac al flanc de rei.', moves: ['d4','f5','g3','Nf6','Bg2','e6','Nf3','Be7','O-O','O-O'] },
+    { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', cat: 'black', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5'] },
+    { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] }
 ];
 
 function startOpeningLesson(idx) {
     const op = CURATED_OPENINGS[idx];
     if (!op) return;
     openingErrorPracticeActive = false;
+    hieroglyphicExerciseActive = false;
     openingLessonActive = true;
     openingLessonInfo = op;
     openingLessonLine = op.moves.slice();
@@ -7160,13 +7181,209 @@ function completeOpeningLesson() {
 function renderOpeningLessonButtons() {
     const container = document.getElementById('opening-lesson-list');
     if (!container) return;
-    container.innerHTML = CURATED_OPENINGS.map((op, i) => {
-        const colorIcon = op.userColor === 'w' ? '♔' : '♚';
-        return `<button class="btn btn-secondary opening-lesson-btn" data-lesson="${i}" style="justify-content:space-between;">
-            <span>${colorIcon} ${op.name}</span>
-            <span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span>
-        </button>`;
-    }).join('');
+    const whites = CURATED_OPENINGS.map((op, i) => ({ op, i })).filter(x => x.op.cat === 'white');
+    const blacks = CURATED_OPENINGS.map((op, i) => ({ op, i })).filter(x => x.op.cat === 'black');
+    const renderGroup = (label, items) => {
+        const btns = items.map(({ op, i }) => {
+            const colorIcon = op.userColor === 'w' ? '♔' : '♚';
+            return `<button class="btn btn-secondary opening-lesson-btn" data-lesson="${i}" style="justify-content:space-between;">
+                <span>${colorIcon} ${op.name}</span>
+                <span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span>
+            </button>`;
+        }).join('');
+        return `<div class="opening-lesson-group-title">${label}</div><div class="opening-lesson-grid">${btns}</div>`;
+    };
+    container.innerHTML = renderGroup('♔ Obertures amb blanques', whites) + renderGroup('♚ Defenses amb negres', blacks);
+}
+
+/* ============ EXERCICIS GEROGLÍFICS D'OBERTURA ============ */
+let hieroglyphicExerciseActive = false;
+let hieroglyphicOpening = null;
+let hieroglyphicGame = null;
+let hieroglyphicStep = 0;
+let hieroglyphicExpectedMove = null;
+let hieroglyphicClue = null;
+let hieroglyphicAttempts = 0;
+let hieroglyphicScore = { correct: 0, total: 0 };
+
+const HIEROGLYPHIC_CLUES = {
+    'e4': ["El guerrer obre el camp central amb decisió; el peó del rei avança dos passos cap a la conquesta.", "La primera llança es clava al cor del tauler: el centre és la plana on es decidiran les batalles."],
+    'e5': ["L'adversari reclama el seu territori al centre; la simetria és l'escut del prudent.", "Respondre amb la mateixa moneda: ocupar el centre és el dret de tot defensor."],
+    'd4': ["El segon pilar del centre s'alça: qui controla dues columnes centrals controla l'horitzó.", "La dama obre pas al seu exèrcit: el peó de dama estableix el domini territorial."],
+    'd5': ["Desafia el centre amb fermesa: cedeix qui no planta cara a la primera amenaça.", "La resposta simètrica al centre: dos pilars enfrontats, la tensió és l'ànima de la lluita."],
+    'Nf3': ["El cavaller surt a protegir el centre i prepara l'avanç; el saltador ocupa la casella natural.", "Desenvolupar primer els cavallers, deia el mestre: el corser es col·loca on controla més terreny."],
+    'Nc3': ["El segon cavaller entra en joc; un exèrcit complet al centre supera l'avantguarda solitària.", "El cavall del flanc de dama reforça el pilar central: dues peces desenvolupades valen més que una."],
+    'Nc6': ["El defensor envia el seu cavaller a protegir el centre; cada peça té la seva missió natural.", "La defensa del punt central és prioritària: el corser negre ocupa la seva casella ideal."],
+    'Bc4': ["L'alfil mira la debilitat del rei enemic: f7 és el punt que el prudent reforça i l'audaç ataca.", "La diagonal apunta al cor del campament rival: l'alfil busca la casella des d'on amenaça el flanc del rei."],
+    'Bc5': ["L'alfil es col·loca en la diagonal activa: des d'aquí controla el centre i vigila el rei blanc.", "Mirror l'ambició blanca: l'alfil negre reclama la mateixa diagonal d'atac."],
+    'Bb5': ["L'alfil clava el cavaller defensor: si la peça que protegeix el centre cau, tot l'edifici s'ensorra.", "La pressió indirecta és l'art del mestre: no calen amenaces directes quan la clavada fa la feina."],
+    'c4': ["El flanc de dama estén la seva influència al centre: un peó lateral que controla caselles centrals.", "La idea anglesa: controlar sense ocupar, influir sense comprometre's."],
+    'c5': ["El contra-cop al flanc desafia l'estructura central blanca; l'asimetria genera oportunitats per al qui sap explotar-les.", "No tot s'ha de disputar al centre: el flanc és un camí alternatiu cap al control."],
+    'c3': ["Prepara l'avanç del peó de dama al centre; el petit pas avui és la base del gran atac demà.", "Reforçar abans d'avançar: el savi assegura la rereguarda."],
+    'c6': ["El peó defensa la casella d5 des de l'ombra; la modèstia del moviment amaga una ambició profunda.", "Preparar la defensa del centre amb subtilesa: c6 és l'escut silenciós."],
+    'd3': ["El desenvolupament prudent: protegeix el peó central i obre pas a l'alfil sense compromís.", "La paciència del mestre: no avançar més del necessari per mantenir l'harmonia."],
+    'd6': ["Enfortir el punt e5 amb el peó veí: la cadena de peons és la columna vertebral de tota posició.", "La defensa preventiva: d6 diu 'no passaràs' al centre blanc."],
+    'Bf4': ["L'alfil surt abans de tancar la diagonal amb e3; el general del Londres coneix l'ordre de marxa.", "Primer l'alfil, després la muralla: qui inverteix l'ordre perd la peça a la presó."],
+    'O-O': ["El rei busca refugi darrere els seus peons; l'enroc és la retirada que guanya seguretat.", "Protegir el monarca és prioritat abans de qualsevol aventura; un rei al centre és un rei en perill."],
+    'g3': ["El fianchetto es prepara: l'alfil governarà la gran diagonal des de la fortalesa.", "La serpent s'enrosca: g3 obre la cova des d'on l'alfil controlarà el tauler sencer."],
+    'g6': ["Preparar la casa de l'alfil: el fianchetto de rei és la defensa flexible per excel·lència.", "L'alfil buscarà la gran diagonal: des de g7 controlarà el centre sense exposar-se."],
+    'Bg7': ["L'alfil pren la gran diagonal: des d'aquí pressiona el centre i el flanc de dama alhora.", "El dragó obre els ulls: la diagonal llarga és la seva arma secreta."],
+    'Bg2': ["L'alfil blanc es col·loca a la gran diagonal: visió llarga i control subtil.", "Des de la torre de guaita, l'alfil ho veu tot: la gran diagonal és el seu domini."],
+    'f4': ["L'avanç del peó d'alfil de rei obre línies d'atac; el sacrifici d'estructura val la iniciativa.", "El gambit ensenya que de vegades perdre un soldat guanya una batalla."],
+    'f5': ["El peó avança al cor del camp enemic: controlar e4 és la clau de la defensa holandesa.", "L'ambició del peó de l'alfil: f5 desafia el centre blanc des del flanc."],
+    'Nf6': ["El cavaller defensa i ataca: des de f6 vigila d5, e4 i prepara l'enroc.", "El corser negre ocupa la seva posició natural: defensa, desenvolupament i pressió en un sol moviment."],
+    'e6': ["El peó tanca la diagonal de l'alfil però enforteix el centre; la solidesa té un preu.", "La cadena francesa es construeix: e6 és el fonament d'una defensa impenetrable."],
+    'a6': ["El petit moviment que fa gran la defensa: a6 expulsa l'alfil i prepara el contra-atac.", "L'avanç modest del peó de torre: amaga plans ambiciosos al flanc de dama."],
+    'b6': ["El fianchetto de dama: l'alfil buscarà la diagonal llarga des de b7.", "La serp de la diagonal: b6 prepara l'alfil que llançarà el seu verí a la gran diagonal."],
+    'Bb7': ["L'alfil pren possessió de la diagonal llarga: des d'aquí pressiona e4 i el flanc de rei.", "L'alfil des de l'ombra: b7 és la posició d'emboscada perfecta."],
+    'Bb4': ["L'alfil clava el cavall de c3: la pressió sobre el centre és indirecta però mortal.", "Nimzo va ensenyar: no cal ocupar el centre, cal controlar-lo. La clavada és l'arma."],
+    'Be7': ["L'alfil es desenvolupa amb modèstia: no ataca però prepara l'enroc amb seguretat.", "Desenvolupament sense compromís: l'alfil a e7 manté totes les opcions obertes."],
+    'dxe4': ["Capturar al centre per redefinir l'estructura: el canvi de peons obre noves línies.", "El contra-cop que allibera: capturar obre la diagonal per a l'alfil empresonat."],
+    'Nxe4': ["El cavall ocupa el centre triomfant: des d'e4 controla les caselles clau.", "El cavaller al tron central: la peça més forta des del cor del tauler."],
+    'Bf5': ["L'alfil s'allibera de la cadena de peons: des de f5 és actiu i lliure.", "El secret de la Caro-Kann: l'alfil surt abans que e6 el tanqui per sempre."],
+    'exd5': ["Capturar al centre canvia l'estructura i obre línies; el canvi és una arma estratègica.", "El peons desapareixen però les línies s'obren: qui controla les noves rutes guanya."],
+    'Qxd5': ["La dama recupera el peó amb activitat: des del centre, la dama ho veu tot.", "L'audàcia escandinava: la dama al centre és una peça poderosa, si sap esquivar els atacs."],
+    'Qa5': ["La dama busca seguretat fora del centre: des d'a5 manté pressió sense exposar-se.", "La retirada estratègica: la dama a a5 observa des de la distància i manté el control."],
+    'cxd4': ["La captura canvia l'estructura central: les regles del joc es reescriuen amb cada canvi de peons.", "El canvi al centre obre noves possibilitats: qui s'adapta primer guanya l'avantatge."],
+    'Nxd4': ["El cavaller recupera al centre amb força: des de d4 domina tot el tauler.", "El cavaller central és el pilar de l'ofensiva: des de d4 irradia poder."],
+    'Bg5': ["L'alfil pressiona el cavall clavat: la peça que no es pot moure és una peça perduda.", "La clavada subtil: l'alfil a g5 paralitza la defensa enemiga."],
+    'Bxc4': ["Recuperar el peó amb l'alfil i guanyar una diagonal activa: material i posició en un sol moviment.", "La captura que guanya temps: l'alfil s'activa mentre recupera el material."],
+    'Be3': ["L'alfil es desenvolupa amb solidesa i protegeix el punt d4.", "El reforç del centre: l'alfil a e3 és el guardià fidel de l'estructura."],
+    'Bd3': ["L'alfil es col·loca en una diagonal activa apuntant cap al flanc de rei.", "Des de d3, l'alfil vigila les caselles clau del flanc de rei enemic."],
+    'Nb6': ["El cavall es retira a un lloc segur des d'on pressiona c4 i a4.", "La retirada del cavall no és debilitat: des de b6, manté opcions de contra-atac."],
+    'Nxc3': ["El canvi del cavall central força la recaptura i deforma l'estructura de peons.", "El sacrifici estratègic: canviar el cavall per danyar els peons rivals."],
+    'bxc3': ["Recapturar amb el peó b obre la columna b però dobla els peons.", "L'estructura doblada: una feblesa estàtica a canvi de la columna oberta."],
+    'Nbd7': ["El cavall es desenvolupa sense bloquejar l'alfil: harmonia entre les peces.", "El cavall a d7 prepara re-encaminament a e5 o c5."],
+    'exd5': ["Capturar al centre canvia l'estructura: qui controla les noves línies guanya.", "El canvi central obre camins nous."],
+    'dxc4': ["El peó captura al flanc de dama: ara el blanc ha de recuperar el material amb temps.", "Acceptar el gambit canvia la naturalesa de la lluita."],
+    'exf4': ["Acceptar el gambit: el peó extra pot ser un tresor o una càrrega.", "El preu del gambit: el defensor guanya material però cedeix la iniciativa."],
+    'g5': ["El peó avança per protegir el peó capturat: ambició o imprudència?", "L'avanç agressiu: g5 defensa f4 però debilita el rei."],
+    'a4': ["El peó avança al flanc de dama per guanyar espai i restringir el rival.", "El flanc de dama s'obre: a4 impedeix l'expansió negra."],
+    'exd4': ["Capturar al centre amb el peó obre la posició i canvia el caràcter de la partida.", "El canvi central: cada captura reescriu les regles del tauler."],
+    'exd5': ["Capturar al centre obre línies i transforma l'estructura.", "El peó captura i les línies s'obren."],
+    'exd6': ["Capturar el peó avançat del rival: eliminar la debilitat abans que esdevingui força.", "La captura que simplifica: menys material, menys complicacions."],
+    'Nd5': ["El cavall salta al centre amb força: des de d5 domina el tauler sencer.", "El post avançat al centre: un cavall a d5 val per una torre."],
+    'cxd5': ["La captura amb el peó c obre la columna c per a la torre.", "El canvi central que activa la torre de c."],
+    'Be2': ["L'alfil es col·loca amb modèstia: no la diagonal més agressiva, però sí la més segura.", "Desenvolupament sòlid: l'alfil a e2 prepara l'enroc sense compromisos."],
+    'e3': ["El peó tanca la diagonal de l'alfil: sacrifica activitat per solidesa.", "Tancar la porta: e3 protegeix d4 però l'alfil haurà de buscar una altra ruta."],
+    'e5': ["El peó avança al centre: ocupar espai és la primera llei de l'obertura.", "L'avançada central: e5 reclama el domini del territori."]
+};
+
+function getHieroglyphicClue(san) {
+    const clues = HIEROGLYPHIC_CLUES[san];
+    if (clues) return clues[Math.floor(Math.random() * clues.length)];
+    return "El mestre no revela la jugada, però assenyala el camí: observa el centre, les diagonals i les columnes obertes. La resposta és on convergeixen les forces.";
+}
+
+function startHieroglyphicExercise() {
+    const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
+    if (pool.length === 0) return;
+    const op = pool[Math.floor(Math.random() * pool.length)];
+    hieroglyphicOpening = op;
+    hieroglyphicGame = new Chess();
+    hieroglyphicAttempts = 0;
+
+    const userMoveIndices = [];
+    for (let i = 0; i < op.moves.length; i++) {
+        const isUserMove = (op.userColor === 'w' && i % 2 === 0) || (op.userColor === 'b' && i % 2 === 1);
+        if (isUserMove) userMoveIndices.push(i);
+    }
+    if (userMoveIndices.length === 0) return;
+
+    const targetIdx = userMoveIndices[Math.floor(Math.random() * userMoveIndices.length)];
+    for (let i = 0; i < targetIdx; i++) {
+        hieroglyphicGame.move(op.moves[i], { sloppy: true });
+    }
+
+    hieroglyphicStep = targetIdx;
+    hieroglyphicExpectedMove = op.moves[targetIdx];
+    hieroglyphicClue = getHieroglyphicClue(hieroglyphicExpectedMove);
+    hieroglyphicExerciseActive = true;
+
+    if (!openingBundleBoard) initOpeningBundleBoard();
+    openingLessonActive = false;
+    openingErrorPracticeActive = false;
+    openingPracticeGame = hieroglyphicGame;
+    openingPracticeMoveCount = targetIdx;
+    if (openingBundleBoard) {
+        openingBundleBoard.orientation(op.userColor === 'w' ? 'white' : 'black');
+        openingBundleBoard.position(hieroglyphicGame.fen());
+    }
+
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) {
+        const voice = getStrategicVoice();
+        noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
+            <div class="maxim-title">🔮 Exercici Geroglífic — ${op.name}</div>
+            <div class="maxim-voice">${voice.name}, ${voice.work}</div>
+            <div class="maxim-text">"${hieroglyphicClue}"</div>
+            <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Troba la jugada teòrica correcta. Tens 3 intents.</div>
+        </div>`;
+    }
+
+    const boardEl = document.getElementById('opening-board');
+    if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+}
+
+function handleHieroglyphicMove(source, target) {
+    if (!hieroglyphicExerciseActive || !hieroglyphicGame) return 'snapback';
+    const move = hieroglyphicGame.move({ from: source, to: target, promotion: 'q' });
+    if (!move) return 'snapback';
+
+    if (move.san === hieroglyphicExpectedMove) {
+        hieroglyphicScore.correct++;
+        hieroglyphicScore.total++;
+        hieroglyphicExerciseActive = false;
+        if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+        showOpeningMoveVisualFeedback(source, target, 'correct');
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) {
+            noteEl.innerHTML = `<div class="opening-maxim-box">
+                <div class="maxim-title">✅ Correcte!</div>
+                <div class="maxim-text">Has trobat ${hieroglyphicExpectedMove} — la jugada teòrica de ${hieroglyphicOpening.name}.</div>
+                <div class="maxim-text" style="opacity:0.7; margin-top:6px;">Puntuació: ${hieroglyphicScore.correct}/${hieroglyphicScore.total}</div>
+                <button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>
+            </div>`;
+        }
+        showToast('Jugada correcta! 🔮', 'success');
+        return;
+    }
+
+    hieroglyphicGame.undo();
+    hieroglyphicAttempts++;
+    showOpeningMoveVisualFeedback(source, target, 'incorrect');
+
+    if (hieroglyphicAttempts >= 3) {
+        hieroglyphicScore.total++;
+        hieroglyphicExerciseActive = false;
+        hieroglyphicGame.move(hieroglyphicExpectedMove, { sloppy: true });
+        if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) {
+            noteEl.innerHTML = `<div class="opening-maxim-box">
+                <div class="maxim-title">💡 La resposta era: ${hieroglyphicExpectedMove}</div>
+                <div class="maxim-text">${hieroglyphicOpening.idea}</div>
+                <div class="maxim-text" style="opacity:0.7; margin-top:6px;">Puntuació: ${hieroglyphicScore.correct}/${hieroglyphicScore.total}</div>
+                <button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>
+            </div>`;
+        }
+        showToast('La jugada era ' + hieroglyphicExpectedMove, 'warn');
+        return;
+    }
+
+    if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) {
+        const remaining = 3 - hieroglyphicAttempts;
+        const voice = getStrategicVoice();
+        noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
+            <div class="maxim-title">🔮 Exercici Geroglífic — ${hieroglyphicOpening.name}</div>
+            <div class="maxim-voice">${voice.name}, ${voice.work}</div>
+            <div class="maxim-text">"${hieroglyphicClue}"</div>
+            <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">Incorrecte. ${remaining} intent${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}.</div>
+        </div>`;
+    }
+    return 'snapback';
 }
 
 function initOpeningBundleBoard() {
@@ -7187,6 +7404,11 @@ function initOpeningBundleBoard() {
         },
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
+
+            // Mode exercici geroglífic
+            if (hieroglyphicExerciseActive) {
+                return handleHieroglyphicMove(source, target);
+            }
 
             // Mode lliçó guiada: el jugador ha de trobar la jugada de la teoria
             if (openingLessonActive) {
@@ -7430,6 +7652,7 @@ function resetOpeningPracticeBoard() {
     openingPracticeGame = new Chess();
     openingPracticeMoveCount = 0;
     openingPracticeEngineThinking = false;
+    hieroglyphicExerciseActive = false;
     openingMaximPending = false;
     lastOpeningMaxim = null;
     openingPracticeHintPending = false;
@@ -7545,6 +7768,10 @@ function setupEvents() {
     $(document).on('click', '.opening-lesson-btn', function() {
         const idx = parseInt($(this).attr('data-lesson'), 10);
         if (!isNaN(idx)) startOpeningLesson(idx);
+    });
+    $('#btn-hieroglyphic-exercise').click(() => {
+        initOpeningBundleBoard();
+        startHieroglyphicExercise();
     });
     $('#btn-back-opening').click(() => {
         $('#opening-screen').hide();

@@ -604,10 +604,42 @@
             font-size: 0.85rem;
             margin-bottom: 10px;
         }
-        .opening-lesson-list { display: flex; flex-direction: column; gap: 8px; }
+        .opening-lesson-list { display: flex; flex-direction: column; gap: 12px; }
+        .opening-lesson-grid { display: flex; flex-direction: column; gap: 8px; }
         .opening-lesson-btn { font-size: 0.9rem; padding: 11px 14px; }
+        .opening-lesson-group-title {
+            font-family: 'Cinzel', serif;
+            font-size: 0.85rem;
+            color: var(--accent-gold);
+            padding: 6px 0 2px;
+            letter-spacing: 0.03em;
+        }
         @media (min-width: 640px) {
-            .opening-lesson-list { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+            .opening-lesson-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+        }
+        .hieroglyphic-section {
+            text-align: center;
+            padding: 16px 0 8px;
+        }
+        .btn-hieroglyphic {
+            background: linear-gradient(135deg, #5b3a7a 0%, #3a1d5c 100%);
+            color: #e8d8f6;
+            box-shadow: 0 4px 14px rgba(91, 58, 122, 0.4);
+            font-size: 1rem;
+            padding: 14px 24px;
+            border-radius: 12px;
+            border: 1px solid rgba(180, 140, 220, 0.25);
+        }
+        .btn-hieroglyphic:hover { opacity: 0.9; }
+        .hieroglyphic-clue {
+            border-left: 3px solid #8b5fc7;
+        }
+        .maxim-voice {
+            font-size: 0.78rem;
+            color: var(--accent-gold);
+            opacity: 0.8;
+            margin-bottom: 6px;
+            font-style: italic;
         }
         .btn-opening {
             background: linear-gradient(135deg, #d6b24a 0%, #b48a22 100%);
@@ -2419,6 +2451,13 @@
                 <div class="opening-section-title">Aprèn una obertura</div>
                 <div class="opening-section-desc">Tria una obertura clàssica i practica la línia principal jugada a jugada amb guia.</div>
                 <div class="opening-lesson-list" id="opening-lesson-list"></div>
+            </div>
+            <div class="opening-section">
+                <div class="opening-section-title">🔮 Exercicis Geroglífics</div>
+                <div class="opening-section-desc">Desxifra la pista estratègica i troba la jugada teòrica correcta. Un mestre estrateg t'oferirà una màxima xifrada com a única guia.</div>
+                <div class="hieroglyphic-section">
+                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise">🔮 Començar exercici</button>
+                </div>
             </div>
             <div class="opening-section">
                 <div class="opening-section-title">Estadístiques d'obertura (últimes 10 partides)</div>
