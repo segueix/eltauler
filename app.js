@@ -2799,11 +2799,14 @@ function clampEngineElo(elo) {
 // Converteix un ROC (escala pròpia 200-2000) a un UCI_Elo VÀLID per a Stockfish.
 //
 // Model de força en dues etapes (coherent i interpretable pel motor):
-//   - ROC <= terra del motor (~1350): el motor no pot jugar tan fluix amb UCI_Elo,
-//     així que el fixem al terra i la debilitat real la creen la profunditat reduïda
-//     (eloToSearchDepth) + la selecció humana de moviments (chooseHumanLikeMove).
-//   - ROC > terra del motor: ROC == UCI_Elo real, de manera que el nivell mostrat
-//     coincideix amb la força efectiva que Stockfish reprodueix.
+//   - ROC < terra del motor (~1350): el motor no pot jugar tan fluix amb UCI_Elo, així que el
+//     fixem al terra i la força efectiva és PROPORCIONAL a la fracció ROC/terra (vegeu
+//     getStrengthNormalized): la profunditat reduïda (eloToSearchDepth) i la selecció humana de
+//     moviments (chooseHumanLikeMove) escalen linealment amb aquesta proporció. Així un ROC X
+//     equival al X/1350 de la força del motor al seu terra: relació proporcional amb Stockfish,
+//     que és la franja on jugarà la majoria d'usuaris.
+//   - ROC >= terra del motor: ROC == UCI_Elo real, de manera que el nivell mostrat
+//     coincideix amb la força exacta que Stockfish reprodueix.
 //
 // Així evitem el retall silenciós que abans feia que tots els ROC baixos fossin idèntics
 // per al motor, i el rang s'adapta automàticament al binari realment carregat.
@@ -2834,15 +2837,27 @@ function getActiveStrengthElo() {
     return currentElo;
 }
 
-// Normalitza l'ELO actiu dins el rang jugable (200-2000) per modular profunditat i qualitat de moviments.
-// Substitueix l'antic mapatge comprimit (5-15) perquè l'adaptació es noti a tot el rang.
+// Fracció de força respecte el TERRA real de Stockfish (~1350, detectat dinàmicament): roc/terra,
+// limitada a [0.05, 1]. Aquesta és la clau de la relació PROPORCIONAL amb Stockfish: per sota del
+// terra, la força efectiva (profunditat + humanització) escala proporcionalment amb aquesta fracció,
+// de manera que un ROC X equival a la fracció X/1350 de la força del motor al seu terra. Al terra i
+// per sobre val 1: Stockfish ja controla la força amb UCI_Elo i no cal afegir-hi soroll.
 function getStrengthNormalized() {
-    return Math.max(0, Math.min(1, (getActiveStrengthElo() - ELO_MIN) / (ELO_MAX - ELO_MIN)));
+    const floor = engineEloMin || 1350;
+    return Math.max(0.05, Math.min(1, getActiveStrengthElo() / floor));
 }
 
 function eloToSearchDepth(elo) {
-    const normalized = Math.max(0, Math.min(1, (elo - ELO_MIN) / (ELO_MAX - ELO_MIN)));
-    return Math.round(2 + normalized * 12); // rang 2..14
+    const floor = engineEloMin || 1350;
+    if (elo >= floor) {
+        // Per sobre del terra, Stockfish limita la força amb UCI_Elo; donem profunditat alta i
+        // creixent fins al sostre de l'escala.
+        const n = Math.max(0, Math.min(1, (elo - floor) / (ELO_MAX - floor)));
+        return Math.round(12 + n * 4); // 12..16
+    }
+    // Per sota del terra: profunditat PROPORCIONAL a la fracció elo/terra (relació proporcional amb SF).
+    const fraction = Math.max(0, Math.min(1, elo / floor));
+    return Math.max(1, Math.round(2 + fraction * 10)); // ~2..12 segons la proporció
 }
 
 function adjustAIDifficulty(playerWon, precision, resultScore = null) {
