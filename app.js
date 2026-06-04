@@ -656,7 +656,8 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         eloMilestones: unlockedEloMilestones,
         lastAdjustmentQualityAvg: lastAdjustmentQualityAvg,
         completedOpenings: completedOpenings,
-        tacticsStats: tacticsStats
+        tacticsStats: tacticsStats,
+        hieroglyphicStats: hieroglyphicStats
     };
     if (includeGameHistory) base.gameHistory = gameHistory;
     return base;
@@ -687,6 +688,7 @@ function importBackupData(data) {
     gameHistory = data.gameHistory || [];
     if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
     if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0 }, data.tacticsStats);
+    if (data.hieroglyphicStats && typeof data.hieroglyphicStats === 'object') hieroglyphicStats = Object.assign(hieroglyphicStats, data.hieroglyphicStats);
        isCalibrating = typeof data.isCalibrating === 'boolean' ? data.isCalibrating : isCalibrating;
     calibrationGames = Array.isArray(data.calibrationGames) ? data.calibrationGames : calibrationGames;
     calibrationProfile = data.calibrationProfile || calibrationProfile;
@@ -3535,6 +3537,7 @@ function loadStorage() {
     const badges = localStorage.getItem('chess_unlockedBadges'); if (badges) unlockedBadges = JSON.parse(badges);
     const compOp = localStorage.getItem('chess_completedOpenings'); if (compOp) { try { completedOpenings = JSON.parse(compOp); } catch (e) {} }
     const tacS = localStorage.getItem('chess_tacticsStats'); if (tacS) { try { tacticsStats = Object.assign(tacticsStats, JSON.parse(tacS)); } catch (e) {} }
+    loadHieroglyphicStats();
     const stats = localStorage.getItem('chess_sessionStats'); const statsDate = localStorage.getItem('chess_sessionStatsDate');
     if (stats && statsDate === getToday()) sessionStats = JSON.parse(stats);
     
@@ -3691,6 +3694,7 @@ function saveStorage() {
     localStorage.setItem('chess_dailyPuzzle', JSON.stringify(dailyPuzzle));
     localStorage.setItem('chess_completedOpenings', JSON.stringify(completedOpenings));
     localStorage.setItem('chess_tacticsStats', JSON.stringify(tacticsStats));
+    saveHieroglyphicStats();
     localStorage.removeItem('chess_isCalibrationPhase');
     localStorage.removeItem('chess_calibrationMoves');
     localStorage.removeItem('chess_calibrationGoodMoves');
@@ -3839,6 +3843,11 @@ function updateStatsDisplay() {
     $('#stats-total-wins').text(totalWins);
     $('#stats-bundles-count').text(savedErrors.length);
     $('#stats-max-streak').text(maxStreak);
+    $('#stats-hiero-solved').text(hieroglyphicStats.solved || 0);
+    $('#stats-hiero-personal').text(hieroglyphicStats.personalSolved || 0);
+    $('#stats-hiero-streak').text(hieroglyphicStats.bestStreak || 0);
+    const masteredThemes = Object.keys(hieroglyphicStats.themes || {}).filter(t => (hieroglyphicStats.themes[t] || 0) >= 2).length;
+    $('#stats-hiero-themes').text(masteredThemes || '—');
     updateGeminiSettingsUI();
     updateEloChart();
     updateReviewChart();
@@ -5356,6 +5365,7 @@ function updateHistoryDetails(entry) {
         metaEl.text('Selecciona una partida per veure detalls.');
         breakdown.empty();
         if (reviewContent.length) reviewContent.text('—');
+        $('#history-personal-hieroglyphic').prop('disabled', true);
         updateHistoryProgress();
         updateHistoryControls();
         return;
@@ -5376,6 +5386,7 @@ function updateHistoryDetails(entry) {
         <div class="review-chip blunder">Blunders <strong>${counts.blunder || 0}</strong></div>
     `);
     updateHistoryReview(entry);
+    $('#history-personal-hieroglyphic').prop('disabled', !hasPersonalHieroglyphicCandidate(entry));
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -7237,7 +7248,12 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             color: review.color,
             swing: review.swing || 0,
             fen: review.fen || null,
-            bestMove: review.bestMove || null
+            bestMove: review.bestMove || null,
+            playerMove: review.playerMove || null,
+            bestMovePv: review.bestMovePv || [],
+            alternatives: review.alternatives || [],
+            evalBefore: review.evalBefore ?? null,
+            evalAfter: review.evalAfter ?? null
         })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
         severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
@@ -7890,112 +7906,558 @@ let hieroglyphicAttempts = 0;
 let hieroglyphicScore = { correct: 0, total: 0 };
 let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides Gemini asíncrones
 
-const HIEROGLYPHIC_CLUES = {
-    'e4': ["El guerrer obre el camp central amb decisió; el peó del rei avança dos passos cap a la conquesta.", "La primera llança es clava al cor del tauler: el centre és la plana on es decidiran les batalles."],
-    'e5': ["L'adversari reclama el seu territori al centre; la simetria és l'escut del prudent.", "Respondre amb la mateixa moneda: ocupar el centre és el dret de tot defensor."],
-    'd4': ["El segon pilar del centre s'alça: qui controla dues columnes centrals controla l'horitzó.", "La dama obre pas al seu exèrcit: el peó de dama estableix el domini territorial."],
-    'd5': ["Desafia el centre amb fermesa: cedeix qui no planta cara a la primera amenaça.", "La resposta simètrica al centre: dos pilars enfrontats, la tensió és l'ànima de la lluita."],
-    'Nf3': ["El cavaller surt a protegir el centre i prepara l'avanç; el saltador ocupa la casella natural.", "Desenvolupar primer els cavallers, deia el mestre: el corser es col·loca on controla més terreny."],
-    'Nc3': ["El segon cavaller entra en joc; un exèrcit complet al centre supera l'avantguarda solitària.", "El cavall del flanc de dama reforça el pilar central: dues peces desenvolupades valen més que una."],
-    'Nc6': ["El defensor envia el seu cavaller a protegir el centre; cada peça té la seva missió natural.", "La defensa del punt central és prioritària: el corser negre ocupa la seva casella ideal."],
-    'Bc4': ["L'alfil mira la debilitat del rei enemic: f7 és el punt que el prudent reforça i l'audaç ataca.", "La diagonal apunta al cor del campament rival: l'alfil busca la casella des d'on amenaça el flanc del rei."],
-    'Bc5': ["L'alfil es col·loca en la diagonal activa: des d'aquí controla el centre i vigila el rei blanc.", "Mirror l'ambició blanca: l'alfil negre reclama la mateixa diagonal d'atac."],
-    'Bb5': ["L'alfil clava el cavaller defensor: si la peça que protegeix el centre cau, tot l'edifici s'ensorra.", "La pressió indirecta és l'art del mestre: no calen amenaces directes quan la clavada fa la feina."],
-    'c4': ["El flanc de dama estén la seva influència al centre: un peó lateral que controla caselles centrals.", "La idea anglesa: controlar sense ocupar, influir sense comprometre's."],
-    'c5': ["El contra-cop al flanc desafia l'estructura central blanca; l'asimetria genera oportunitats per al qui sap explotar-les.", "No tot s'ha de disputar al centre: el flanc és un camí alternatiu cap al control."],
-    'c3': ["Prepara l'avanç del peó de dama al centre; el petit pas avui és la base del gran atac demà.", "Reforçar abans d'avançar: el savi assegura la rereguarda."],
-    'c6': ["El peó defensa la casella d5 des de l'ombra; la modèstia del moviment amaga una ambició profunda.", "Preparar la defensa del centre amb subtilesa: c6 és l'escut silenciós."],
-    'd3': ["El desenvolupament prudent: protegeix el peó central i obre pas a l'alfil sense compromís.", "La paciència del mestre: no avançar més del necessari per mantenir l'harmonia."],
-    'd6': ["Enfortir el punt e5 amb el peó veí: la cadena de peons és la columna vertebral de tota posició.", "La defensa preventiva: d6 diu 'no passaràs' al centre blanc."],
-    'Bf4': ["L'alfil surt abans de tancar la diagonal amb e3; el general del Londres coneix l'ordre de marxa.", "Primer l'alfil, després la muralla: qui inverteix l'ordre perd la peça a la presó."],
-    'O-O': ["El rei busca refugi darrere els seus peons; l'enroc és la retirada que guanya seguretat.", "Protegir el monarca és prioritat abans de qualsevol aventura; un rei al centre és un rei en perill."],
-    'g3': ["El fianchetto es prepara: l'alfil governarà la gran diagonal des de la fortalesa.", "La serpent s'enrosca: g3 obre la cova des d'on l'alfil controlarà el tauler sencer."],
-    'g6': ["Preparar la casa de l'alfil: el fianchetto de rei és la defensa flexible per excel·lència.", "L'alfil buscarà la gran diagonal: des de g7 controlarà el centre sense exposar-se."],
-    'Bg7': ["L'alfil pren la gran diagonal: des d'aquí pressiona el centre i el flanc de dama alhora.", "El dragó obre els ulls: la diagonal llarga és la seva arma secreta."],
-    'Bg2': ["L'alfil blanc es col·loca a la gran diagonal: visió llarga i control subtil.", "Des de la torre de guaita, l'alfil ho veu tot: la gran diagonal és el seu domini."],
-    'f4': ["L'avanç del peó d'alfil de rei obre línies d'atac; el sacrifici d'estructura val la iniciativa.", "El gambit ensenya que de vegades perdre un soldat guanya una batalla."],
-    'f5': ["El peó avança al cor del camp enemic: controlar e4 és la clau de la defensa holandesa.", "L'ambició del peó de l'alfil: f5 desafia el centre blanc des del flanc."],
-    'Nf6': ["El cavaller defensa i ataca: des de f6 vigila d5, e4 i prepara l'enroc.", "El corser negre ocupa la seva posició natural: defensa, desenvolupament i pressió en un sol moviment."],
-    'e6': ["El peó tanca la diagonal de l'alfil però enforteix el centre; la solidesa té un preu.", "La cadena francesa es construeix: e6 és el fonament d'una defensa impenetrable."],
-    'a6': ["El petit moviment que fa gran la defensa: a6 expulsa l'alfil i prepara el contra-atac.", "L'avanç modest del peó de torre: amaga plans ambiciosos al flanc de dama."],
-    'b6': ["El fianchetto de dama: l'alfil buscarà la diagonal llarga des de b7.", "La serp de la diagonal: b6 prepara l'alfil que llançarà el seu verí a la gran diagonal."],
-    'Bb7': ["L'alfil pren possessió de la diagonal llarga: des d'aquí pressiona e4 i el flanc de rei.", "L'alfil des de l'ombra: b7 és la posició d'emboscada perfecta."],
-    'Bb4': ["L'alfil clava el cavall de c3: la pressió sobre el centre és indirecta però mortal.", "Nimzo va ensenyar: no cal ocupar el centre, cal controlar-lo. La clavada és l'arma."],
-    'Be7': ["L'alfil es desenvolupa amb modèstia: no ataca però prepara l'enroc amb seguretat.", "Desenvolupament sense compromís: l'alfil a e7 manté totes les opcions obertes."],
-    'dxe4': ["Capturar al centre per redefinir l'estructura: el canvi de peons obre noves línies.", "El contra-cop que allibera: capturar obre la diagonal per a l'alfil empresonat."],
-    'Nxe4': ["El cavall ocupa el centre triomfant: des d'e4 controla les caselles clau.", "El cavaller al tron central: la peça més forta des del cor del tauler."],
-    'Bf5': ["L'alfil s'allibera de la cadena de peons: des de f5 és actiu i lliure.", "El secret de la Caro-Kann: l'alfil surt abans que e6 el tanqui per sempre."],
-    'exd5': ["Capturar al centre canvia l'estructura i obre línies; el canvi és una arma estratègica.", "El peons desapareixen però les línies s'obren: qui controla les noves rutes guanya."],
-    'Qxd5': ["La dama recupera el peó amb activitat: des del centre, la dama ho veu tot.", "L'audàcia escandinava: la dama al centre és una peça poderosa, si sap esquivar els atacs."],
-    'Qa5': ["La dama busca seguretat fora del centre: des d'a5 manté pressió sense exposar-se.", "La retirada estratègica: la dama a a5 observa des de la distància i manté el control."],
-    'cxd4': ["La captura canvia l'estructura central: les regles del joc es reescriuen amb cada canvi de peons.", "El canvi al centre obre noves possibilitats: qui s'adapta primer guanya l'avantatge."],
-    'Nxd4': ["El cavaller recupera al centre amb força: des de d4 domina tot el tauler.", "El cavaller central és el pilar de l'ofensiva: des de d4 irradia poder."],
-    'Bg5': ["L'alfil pressiona el cavall clavat: la peça que no es pot moure és una peça perduda.", "La clavada subtil: l'alfil a g5 paralitza la defensa enemiga."],
-    'Bxc4': ["Recuperar el peó amb l'alfil i guanyar una diagonal activa: material i posició en un sol moviment.", "La captura que guanya temps: l'alfil s'activa mentre recupera el material."],
-    'Be3': ["L'alfil es desenvolupa amb solidesa i protegeix el punt d4.", "El reforç del centre: l'alfil a e3 és el guardià fidel de l'estructura."],
-    'Bd3': ["L'alfil es col·loca en una diagonal activa apuntant cap al flanc de rei.", "Des de d3, l'alfil vigila les caselles clau del flanc de rei enemic."],
-    'Nb6': ["El cavall es retira a un lloc segur des d'on pressiona c4 i a4.", "La retirada del cavall no és debilitat: des de b6, manté opcions de contra-atac."],
-    'Nxc3': ["El canvi del cavall central força la recaptura i deforma l'estructura de peons.", "El sacrifici estratègic: canviar el cavall per danyar els peons rivals."],
-    'bxc3': ["Recapturar amb el peó b obre la columna b però dobla els peons.", "L'estructura doblada: una feblesa estàtica a canvi de la columna oberta."],
-    'Nbd7': ["El cavall es desenvolupa sense bloquejar l'alfil: harmonia entre les peces.", "El cavall a d7 prepara re-encaminament a e5 o c5."],
-    'exd5': ["Capturar al centre canvia l'estructura: qui controla les noves línies guanya.", "El canvi central obre camins nous."],
-    'dxc4': ["El peó captura al flanc de dama: ara el blanc ha de recuperar el material amb temps.", "Acceptar el gambit canvia la naturalesa de la lluita."],
-    'exf4': ["Acceptar el gambit: el peó extra pot ser un tresor o una càrrega.", "El preu del gambit: el defensor guanya material però cedeix la iniciativa."],
-    'g5': ["El peó avança per protegir el peó capturat: ambició o imprudència?", "L'avanç agressiu: g5 defensa f4 però debilita el rei."],
-    'a4': ["El peó avança al flanc de dama per guanyar espai i restringir el rival.", "El flanc de dama s'obre: a4 impedeix l'expansió negra."],
-    'exd4': ["Capturar al centre amb el peó obre la posició i canvia el caràcter de la partida.", "El canvi central: cada captura reescriu les regles del tauler."],
-    'exd5': ["Capturar al centre obre línies i transforma l'estructura.", "El peó captura i les línies s'obren."],
-    'exd6': ["Capturar el peó avançat del rival: eliminar la debilitat abans que esdevingui força.", "La captura que simplifica: menys material, menys complicacions."],
-    'Nd5': ["El cavall salta al centre amb força: des de d5 domina el tauler sencer.", "El post avançat al centre: un cavall a d5 val per una torre."],
-    'cxd5': ["La captura amb el peó c obre la columna c per a la torre.", "El canvi central que activa la torre de c."],
-    'Be2': ["L'alfil es col·loca amb modèstia: no la diagonal més agressiva, però sí la més segura.", "Desenvolupament sòlid: l'alfil a e2 prepara l'enroc sense compromisos."],
-    'e3': ["El peó tanca la diagonal de l'alfil: sacrifica activitat per solidesa.", "Tancar la porta: e3 protegeix d4 però l'alfil haurà de buscar una altra ruta."],
-    'e5': ["El peó avança al centre: ocupar espai és la primera llei de l'obertura.", "L'avançada central: e5 reclama el domini del territori."]
+const HIEROLAST_KEY = 'eltauler_recent_hieroglyphics';
+const HIERO_STATS_KEY = 'eltauler_hieroglyphic_stats';
+const HIEROS = {
+    voices: [
+        { id: 'llull', name: 'Ramon Llull', work: 'l’Ars Magna', style: 'simbòlic i contemplatiu' },
+        { id: 'sunzi', name: 'Sunzi', work: 'L’art de la guerra', style: 'breu, afilat i militar' },
+        { id: 'monastic', name: 'Monjo de la torre', work: 'el còdex del silenci', style: 'serè i enigmàtic' },
+        { id: 'mercader', name: 'Mercader de Damasc', work: 'el llibre dels intercanvis', style: 'pràctic i astut' },
+        { id: 'cavaller', name: 'Cavaller errant', work: 'la crònica del setge', style: 'heroic però precís' },
+        { id: 'mestre_calmat', name: 'Mestre calmat', work: 'les lliçons del tauler', style: 'clar, pacient i profund' },
+        { id: 'cartograf', name: 'Cartògraf reial', work: 'l’atles de les caselles invisibles', style: 'visual i territorial' },
+        { id: 'orfebre', name: 'Orfebre d’escacs', work: 'el tractat de les peces fines', style: 'delicat i calculador' }
+    ],
+    openings: [
+        'Abans de tocar el ferro', 'Quan la pols encara no ha caigut', 'Sota la llum obliqua del tauler',
+        'El mapa mostra una esquerda', 'El silenci amaga una ordre', 'La clau no és al soroll',
+        'En aquesta cruïlla', 'El bon navegant mira el corrent', 'Quan dues forces es miren',
+        'El mestre assenyala l’ombra', 'La balança tremola', 'La porta sembla tancada',
+        'Un fil tibant travessa el camp', 'El jardí té una pedra fora de lloc', 'La fortalesa respira malament',
+        'Hi ha una peça que demana camí', 'El tauler parla baix', 'La resposta no crida',
+        'El perill vesteix de calma', 'La millor espurna neix d’una restricció'
+    ],
+    closings: [
+        'fes que l’altre contesti, no que triï', 'busca la jugada que canvia la pregunta',
+        'no agafis el fruit abans de tallar la branca', 'obre una porta i tanca dues respostes',
+        'la pressa és enemiga de la precisió', 'mou la causa, no el símptoma',
+        'primer fixa l’aire, després compta el material', 'la línia útil pesa més que la captura vistosa',
+        'quan una peça queda lligada, tot l’exèrcit camina més lent', 'fes parlar la peça que encara no ha dit res',
+        'el guany real és el temps que l’altre perd', 'la millor defensa sovint és una amenaça ordenada',
+        'si tot sembla igual, pregunta quin rei respira pitjor', 'no cerquis una casella: cerca una funció',
+        'un pas discret pot canviar tot el paisatge', 'l’harmonia és més forta que l’aventura',
+        'la columna buida és un camí, no un adorn', 'la diagonal llarga recorda allò que ningú defensa',
+        'la peça activa val més que la peça orgullosa', 'la tensió bona no es resol: es dirigeix'
+    ],
+    verbs: ['desvetlla', 'estreny', 'desvia', 'deslliga', 'obre', 'tanca', 'fixa', 'atrau', 'ordena', 'encén', 'refreda', 'transforma'],
+    images: ['fil de seda', 'porta estreta', 'pont de boira', 'clau enterrada', 'llum lateral', 'martell petit', 'campana muda', 'riu tallat', 'xarxa fina', 'balança antiga', 'escala secreta', 'sostre prim'],
+    sectors: { kingside: 'ala del rei', queenside: 'ala de dama', center: 'franja central', back: 'rereguarda', promotion: 'vora de coronació' },
+    pieces: { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' },
+    themes: {
+        king_attack: {
+            metaphors: ['un sostre massa prim', 'una corona amb corrent d’aire', 'un castell amb la porta interior oberta', 'un refugi que ja no refugia', 'una flama massa prop del tron', 'una guàrdia clavada al seu lloc'],
+            advice: ['posa pressió abans de cobrar', 'fes que la defensa camini d’esquena', 'busca una jugada amb ritme', 'obliga el rei a escoltar', 'entra per la línia que ja respira', 'no canviïs atac per engrunes'],
+            warnings: ['si captures massa aviat, la xarxa es desfà', 'el rei no cau per pes, cau per falta d’aire', 'la primera amenaça ha de portar una segona ombra']
+        },
+        fork: {
+            metaphors: ['una forca de dues dents', 'dos cofres sota una sola clau', 'un camí que es bifurca contra l’enemic', 'una pregunta amb dues víctimes', 'un compàs obert sobre peces pesants', 'dues ombres al mateix llum'],
+            advice: ['mira quina peça pot mirar dos tresors', 'troba el salt que pregunta dues coses', 'posa una amenaça que no es pugui respondre sencera', 'cerca doble pressió, no pressió doblegada', 'fes que una defensa deixi l’altra nua'],
+            warnings: ['no tota captura és guany: el doble atac pesa més', 'si només amenaces una cosa, l’altre respirarà']
+        },
+        pin: {
+            metaphors: ['un clau invisible', 'una peça cosida al seu rei', 'una ombra que no pot fugir', 'una porta subjectada per una agulla', 'un guardià lligat a la paret', 'una línia que immobilitza'],
+            advice: ['mira què no es pot moure sense trencar el regne', 'posa pes sobre la peça lligada', 'ataca allò que defensa per obligació', 'la immobilitat és material futur', 'la línia val més que el cop'],
+            warnings: ['si la peça pot marxar, no és presó', 'no trenquis la línia que et fa guanyar temps']
+        },
+        skewer: {
+            metaphors: ['una llança que travessa rangs', 'el primer noble amagant el segon', 'una fila massa recta', 'una agulla que troba metall darrere metall', 'un camí sense escapatòria'],
+            advice: ['fes moure el gran per descobrir el valuós', 'pressiona la peça de davant per cobrar la de darrere', 'busca alineació, no només contacte', 'la recta és una trampa quan no hi ha desviació'],
+            warnings: ['si no hi ha peça darrere, la llança és només fusta']
+        },
+        center_break: {
+            metaphors: ['una esquerda al paviment central', 'un pont que cedeix al mig', 'la plaça que canvia de propietari', 'una llavor al cor del camp', 'un cop de cisell al centre', 'dues portes que s’obren alhora'],
+            advice: ['canvia la tensió abans que es torni contra tu', 'obre el centre quan el rival encara ordena peces', 'fes que els peons preguntin a les peces', 'no ocupis per orgull: trenca per funció', 'converteix espai en línies'],
+            warnings: ['si el teu rei no respira, obrir el centre pot ser verí', 'el centre no es toca sense calcular la resposta']
+        },
+        development: {
+            metaphors: ['una peça que surt del claustre', 'un soldat que troba la plaça natural', 'una roda que encaixa al mecanisme', 'un pont per a l’exèrcit adormit', 'una finestra oberta abans de la tempesta'],
+            advice: ['activa abans d’atacar', 'porta una força nova al lloc on mira més lluny', 'guanya temps fent una cosa útil', 'no repeteixis la veu que ja ha parlat', 'prepara el refugi mentre controles el camp'],
+            warnings: ['la mateixa peça no ha de demanar tres torns', 'una aventura prematura deixa la casa buida']
+        },
+        material_win: {
+            metaphors: ['una moneda que cau després del tempo', 'un tresor defensat per un fil', 'una peça sense prou guardians', 'una balança que ja s’inclina', 'un mercat on l’altre paga dues vegades'],
+            advice: ['guanya material sense perdre el fil', 'cobra només quan la recaptura no et mossega', 'compta defensors abans de mirar la brillantor', 'la millor captura és la que deixa una amenaça', 'pren allò que queda sense casa'],
+            warnings: ['l’or enverinat pesa més del que sembla', 'si el guany obre el teu rei, no és guany']
+        },
+        passed_pawn: {
+            metaphors: ['un infant que camina cap a la corona', 'una llavor sense mur al davant', 'una escala fins a la vuitena ombra', 'un peó que ja no coneix fronteres', 'un viatger amb el camí net'],
+            advice: ['fes avançar el futur abans que el bloquegin', 'acompanya el caminant, no el deixis sol', 'canvia guardians quan el camí és net', 'la promoció comença abans de veure la corona'],
+            warnings: ['un peó passat sense rei és una promesa fràgil', 'si avances sense suport, el camí es tanca']
+        },
+        defensive_move: {
+            metaphors: ['un escut posat abans de la fletxa', 'una porta tancada sense soroll', 'una mà que apaga la metxa', 'un nus desfet abans que estrenyi', 'una ombra greu aturada a temps'],
+            advice: ['atura l’amenaça gran i conserva iniciativa', 'defensa creant una pregunta nova', 'mira la PV com qui escolta passos darrere la porta', 'la calma bona elimina el verí', 'no totes les millors jugades ataquen'],
+            warnings: ['ignorar l’amenaça és donar-li nom', 'si només defenses, potser arribes tard']
+        },
+        endgame_activity: {
+            metaphors: ['un rei que surt del palau', 'una torre que troba carretera', 'un peó que necessita escorta', 'una peça llunyana que torna a treballar', 'un final on el temps pesa com material'],
+            advice: ['activa el rei quan les tempestes han passat', 'posa la torre darrere del caminant', 'guanya caselles abans de guanyar peons', 'l’activitat és el material del final', 'talla el rei contrari'],
+            warnings: ['un rei passiu perd finals igualats', 'la torre al marge veu poc i cobra menys']
+        },
+        quiet_improvement: {
+            metaphors: ['una clau que gira sense soroll', 'una peça que millora la respiració del conjunt', 'un pas que no captura però obliga', 'una cadira posada al lloc exacte', 'un petit ordre abans del gran cop'],
+            advice: ['millora la pitjor peça', 'fes una amenaça que no necessiti pressa', 'posa ordre abans de calcular focs artificials', 'augmenta la pressió sense donar contrajoc', 'troba el moviment útil que no es veu primer'],
+            warnings: ['si tot crema, una jugada tranquil·la pot arribar tard', 'la bellesa quieta també ha de tenir amenaça']
+        },
+        simplification: {
+            metaphors: ['un mercat que tanca parades', 'un camí net després de canviar soroll per ordre', 'una balança que prefereix menys peces', 'un nus tallat en lloc de pentinat', 'una tempesta convertida en pluja fina'],
+            advice: ['canvia quan el final et somriu', 'redueix les peces atacants del rival', 'conserva el que pesa i canvia el que complica', 'fes que l’avantatge sigui fàcil de portar'],
+            warnings: ['simplificar sense avantatge és regalar preguntes', 'no canviïs la peça que manté la xarxa']
+        },
+        piece_activity: {
+            metaphors: ['una peça empresonada que troba finestra', 'una torre que olora columna', 'un alfil que desperta la diagonal', 'un cavall que busca post avançat', 'una eina que per fi toca la feina'],
+            advice: ['porta força a la línia oberta', 'canvia una peça muda per una peça amb veu', 'mira quin camí nou s’ha obert', 'la millor peça és la que crea problemes reals'],
+            warnings: ['activitat sense objectiu és turisme', 'una peça bonica però indefensa pot ser un luxe']
+        },
+        default: {
+            metaphors: ['un signe petit al marge del mapa', 'una porta que només s’obre des de dins', 'un fil que uneix dues debilitats', 'una balança que demana paciència', 'un camí secundari més curt que la via gran'],
+            advice: ['busca la funció més urgent', 'troba la peça que millora amb tempo', 'no revelis el pla abans de preparar-lo', 'fes una pregunta difícil al rival', 'tria la jugada que deixa menys respostes bones'],
+            warnings: ['la primera idea no sempre és la més profunda', 'si sembla massa fàcil, compta una vegada més']
+        }
+    }
 };
+let hieroglyphicContext = null;
+let hieroglyphicExpectedUci = null;
+let hieroglyphicSource = 'opening';
+let hieroglyphicStats = { solved: 0, personalSolved: 0, currentStreak: 0, bestStreak: 0, themes: {}, solvedFens: [] };
 
-function getHieroglyphicClue(san) {
-    const clues = HIEROGLYPHIC_CLUES[san];
-    if (clues) return clues[Math.floor(Math.random() * clues.length)];
-    return "El mestre no revela la jugada, però assenyala el camí: observa el centre, les diagonals i les columnes obertes. La resposta és on convergeixen les forces.";
+function clamp01(value) { return Math.max(0, Math.min(1, value)); }
+function randItem(list) { return list[Math.floor(Math.random() * list.length)]; }
+function readJsonStorage(key, fallback) {
+    try {
+        const raw = localStorage.getItem(key);
+        if (!raw) return fallback;
+        const parsed = JSON.parse(raw);
+        return parsed ?? fallback;
+    } catch (e) { return fallback; }
 }
+function writeJsonStorage(key, value) {
+    try { localStorage.setItem(key, JSON.stringify(value)); } catch (e) {}
+}
+function loadHieroglyphicRecent() {
+    const recent = readJsonStorage(HIEROLAST_KEY, []);
+    return Array.isArray(recent) ? recent : [];
+}
+function rememberHieroglyphicClue(entry) {
+    const recent = loadHieroglyphicRecent();
+    recent.unshift({ ...entry, ts: Date.now() });
+    writeJsonStorage(HIEROLAST_KEY, recent.slice(0, 30));
+}
+function getRecentHieroglyphicMeta() {
+    const recent = loadHieroglyphicRecent();
+    return {
+        texts: recent.map(r => r.text).filter(Boolean),
+        structures: recent.map(r => r.structure).filter(Boolean),
+        voices: recent.map(r => r.voice).filter(Boolean)
+    };
+}
+function loadHieroglyphicStats() {
+    const stored = readJsonStorage(HIERO_STATS_KEY, null);
+    if (stored && typeof stored === 'object') hieroglyphicStats = Object.assign(hieroglyphicStats, stored);
+}
+function saveHieroglyphicStats() {
+    writeJsonStorage(HIERO_STATS_KEY, hieroglyphicStats);
+}
+function sanitizeHieroglyphicText(text, context = {}, opts = {}) {
+    let clean = String(text || '').replace(/\s+/g, ' ').trim();
+    const forbidden = [context.bestMove, context.bestMoveSan, context.from, context.to, context.playerMove].filter(Boolean);
+    forbidden.forEach(token => {
+        clean = clean.replace(new RegExp(token.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi'), 'el signe');
+    });
+    clean = clean.replace(/\b[a-h][1-8]\b/gi, 'una casella');
+    if (opts.hidePiece && context.movingPiece) {
+        const name = HIEROS.pieces[context.movingPiece];
+        if (name) clean = clean.replace(new RegExp(`\\b${name}\\b`, 'gi'), 'peça');
+    }
+    if (clean.length > 230) clean = clean.slice(0, 227).replace(/[,;:]?\s+\S*$/, '…');
+    return clean;
+}
+function fenPieceStats(fen) {
+    const boardFen = (fen || '').split(' ')[0] || '';
+    const stats = { pieces: 0, material: { w: 0, b: 0 }, pawns: { w: [], b: [] }, board: {} };
+    const values = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    const rows = boardFen.split('/');
+    for (let r = 0; r < rows.length; r++) {
+        let file = 0;
+        for (const ch of rows[r]) {
+            if (/\d/.test(ch)) { file += parseInt(ch, 10); continue; }
+            const color = ch === ch.toUpperCase() ? 'w' : 'b';
+            const piece = ch.toLowerCase();
+            const sq = String.fromCharCode(97 + file) + (8 - r);
+            stats.pieces++;
+            stats.material[color] += values[piece] || 0;
+            stats.board[sq] = { type: piece, color };
+            if (piece === 'p') stats.pawns[color].push(sq);
+            file++;
+        }
+    }
+    return stats;
+}
+function squareFileIdx(sq) { return sq ? sq.charCodeAt(0) - 97 : 0; }
+function squareRankIdx(sq) { return sq ? parseInt(sq[1], 10) : 1; }
+function classifyBoardSector(square) {
+    const file = squareFileIdx(square);
+    const rank = squareRankIdx(square);
+    if (rank <= 2 || rank >= 7) return 'back';
+    if (rank <= 2.5 || rank >= 6.5) return 'promotion';
+    if (file >= 2 && file <= 5) return 'center';
+    return file < 3 ? 'queenside' : 'kingside';
+}
+function getOpenFilesFromStats(stats) {
+    const pawnFiles = new Set([...stats.pawns.w, ...stats.pawns.b].map(sq => sq[0]));
+    return 'abcdefgh'.split('').filter(f => !pawnFiles.has(f));
+}
+function estimateCenterTension(chess, stats) {
+    const center = ['d4', 'e4', 'd5', 'e5'];
+    let tension = center.filter(sq => stats.board[sq]).length;
+    try {
+        tension += chess.moves({ verbose: true }).filter(m => center.includes(m.to) || center.includes(m.from) || m.captured).length * 0.25;
+    } catch (e) {}
+    return Math.min(10, Math.round(tension * 10) / 10);
+}
+function estimateKingSafety(fen, stats) {
+    const result = { w: { exposed: false, shield: 0 }, b: { exposed: false, shield: 0 } };
+    ['w', 'b'].forEach(color => {
+        const kingSq = Object.keys(stats.board).find(sq => stats.board[sq].type === 'k' && stats.board[sq].color === color);
+        if (!kingSq) return;
+        const kFile = squareFileIdx(kingSq);
+        const kRank = squareRankIdx(kingSq);
+        const forward = color === 'w' ? 1 : -1;
+        let shield = 0;
+        for (let df = -1; df <= 1; df++) {
+            const f = kFile + df;
+            const r = kRank + forward;
+            if (f < 0 || f > 7 || r < 1 || r > 8) continue;
+            const sq = String.fromCharCode(97 + f) + r;
+            const p = stats.board[sq];
+            if (p && p.type === 'p' && p.color === color) shield++;
+        }
+        result[color] = { exposed: shield <= 1, shield };
+    });
+    return result;
+}
+function makeMoveOnFen(fen, moveText) {
+    const chess = new Chess(fen);
+    if (!moveText) return { chess, move: null, uci: null, san: null };
+    let move = null;
+    if (/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(moveText)) {
+        move = chess.move({ from: moveText.slice(0, 2), to: moveText.slice(2, 4), promotion: moveText.length > 4 ? moveText[4] : 'q' });
+    }
+    if (!move) move = chess.move(moveText, { sloppy: true });
+    const uci = move ? `${move.from}${move.to}${move.promotion || ''}` : null;
+    return { chess, move, uci, san: move ? move.san : null };
+}
+function analyzeMoveConsequences(fen, bestMove, pv = []) {
+    const before = new Chess(fen);
+    const applied = makeMoveOnFen(fen, bestMove);
+    const after = applied.chess;
+    const move = applied.move;
+    const pvChecks = [];
+    const pvCaptures = [];
+    try {
+        const pvGame = new Chess(fen);
+        (pv || []).slice(0, 8).forEach(uci => {
+            const m = /^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(uci)
+                ? pvGame.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' })
+                : pvGame.move(uci, { sloppy: true });
+            if (m) {
+                if (m.san.includes('+') || m.san.includes('#')) pvChecks.push(m.san);
+                if (m.captured) pvCaptures.push(m.san);
+            }
+        });
+    } catch (e) {}
+    return { before, after, move, uci: applied.uci, san: applied.san, pvChecks, pvCaptures };
+}
+function detectKingPressure(fen, bestMove, pv = []) {
+    const c = analyzeMoveConsequences(fen, bestMove, pv);
+    if (!c.move) return { score: 0, motifs: [] };
+    const motifs = [];
+    if ((c.move.san || '').includes('+') || (c.move.san || '').includes('#')) motifs.push('check');
+    if (c.pvChecks.length >= 2) motifs.push('repeated_checks');
+    const stats = fenPieceStats(c.after.fen());
+    const safety = estimateKingSafety(c.after.fen(), stats);
+    const target = c.move.color === 'w' ? 'b' : 'w';
+    if (safety[target]?.exposed) motifs.push('exposed_king');
+    return { score: motifs.length, motifs };
+}
+function detectMaterialIdea(fen, bestMove, pv = []) {
+    const c = analyzeMoveConsequences(fen, bestMove, pv);
+    if (!c.move) return { score: 0, motifs: [] };
+    const motifs = [];
+    if (c.move.captured) motifs.push('capture');
+    if (c.pvCaptures.length >= 2) motifs.push('sequence_captures');
+    const loss = immediateMaterialLoss(c.uci || bestMove, new Chess(fen));
+    if (c.move.captured && loss <= 1) motifs.push('safe_capture');
+    return { score: motifs.length, motifs };
+}
+function detectCenterIdea(fen, bestMove) {
+    const c = analyzeMoveConsequences(fen, bestMove, []);
+    if (!c.move) return { score: 0, motifs: [] };
+    const centerBreaks = ['c4', 'd4', 'e4', 'f4', 'c5', 'd5', 'e5', 'f5'];
+    const motifs = [];
+    if (centerBreaks.includes(c.move.to) && c.move.piece === 'p') motifs.push('center_break');
+    if (['d4', 'e4', 'd5', 'e5'].includes(c.move.to)) motifs.push('center_occupation');
+    return { score: motifs.length, motifs };
+}
+function detectPieceActivityIdea(fen, bestMove) {
+    const c = analyzeMoveConsequences(fen, bestMove, []);
+    if (!c.move) return { score: 0, motifs: [] };
+    const motifs = [];
+    const moveNo = Number((fen || '').split(' ')[5] || 1);
+    if (moveNo <= 10 && ['n', 'b'].includes(c.move.piece)) motifs.push('development');
+    if (c.move.flags && (c.move.flags.includes('k') || c.move.flags.includes('q'))) motifs.push('castle');
+    const openFiles = getOpenFilesFromStats(fenPieceStats(fen));
+    if (c.move.piece === 'r' && openFiles.includes(c.move.to[0])) motifs.push('rook_open_file');
+    return { score: motifs.length, motifs };
+}
+function detectEndgameIdea(fen, bestMove) {
+    const stats = fenPieceStats(fen);
+    const c = analyzeMoveConsequences(fen, bestMove, []);
+    if (!c.move) return { score: 0, motifs: [] };
+    const motifs = [];
+    if (stats.pieces <= 12 && c.move.piece === 'k') motifs.push('king_activity');
+    if (stats.pieces <= 14 && c.move.piece === 'p') motifs.push('pawn_race');
+    if (stats.pieces <= 10) motifs.push('endgame_precision');
+    return { score: motifs.length, motifs };
+}
+function attacksFrom(board, from, piece, color) {
+    const file = squareFileIdx(from), rank = squareRankIdx(from);
+    const enemy = color === 'w' ? 'b' : 'w';
+    const hits = [];
+    const add = (f, r) => {
+        if (f < 0 || f > 7 || r < 1 || r > 8) return false;
+        const sq = String.fromCharCode(97 + f) + r;
+        const target = board[sq];
+        if (target && target.color === enemy) hits.push({ square: sq, piece: target.type });
+        return !target;
+    };
+    const slide = dirs => dirs.forEach(([df, dr]) => { for (let f = file + df, r = rank + dr; f >= 0 && f <= 7 && r >= 1 && r <= 8; f += df, r += dr) { if (!add(f, r)) break; } });
+    if (piece === 'n') [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]].forEach(([df,dr]) => add(file+df, rank+dr));
+    else if (piece === 'b') slide([[1,1],[-1,1],[1,-1],[-1,-1]]);
+    else if (piece === 'r') slide([[1,0],[-1,0],[0,1],[0,-1]]);
+    else if (piece === 'q') slide([[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]]);
+    else if (piece === 'p') [[-1, color === 'w' ? 1 : -1], [1, color === 'w' ? 1 : -1]].forEach(([df,dr]) => add(file+df, rank+dr));
+    else if (piece === 'k') [[1,1],[-1,1],[1,-1],[-1,-1],[1,0],[-1,0],[0,1],[0,-1]].forEach(([df,dr]) => add(file+df, rank+dr));
+    return hits;
+}
+function detectTacticalShapes(context) {
+    const motifs = [];
+    if (!context.moveAfterFen || !context.to || !context.movingPiece) return motifs;
+    const stats = fenPieceStats(context.moveAfterFen);
+    const color = context.sideToMove;
+    const hits = attacksFrom(stats.board, context.to, context.movingPiece, color);
+    const valuableHits = hits.filter(h => (PIECE_VALUE[h.piece] || 0) >= 3);
+    if (valuableHits.length >= 2) motifs.push('fork');
+    if (['b', 'r', 'q'].includes(context.movingPiece) && valuableHits.some(h => h.piece === 'k' || h.piece === 'q' || h.piece === 'r')) {
+        motifs.push(context.isCheck ? 'skewer' : 'pin');
+    }
+    return motifs;
+}
+function inferHieroglyphicThemes(context) {
+    const themes = [];
+    const add = t => { if (t && !themes.includes(t)) themes.push(t); };
+    (context.tacticalMotifs || []).forEach(add);
+    if (context.isMate || context.isCheck || context.kingPressure?.score > 0) add('king_attack');
+    if (context.materialIdea?.score > 0 || context.isCapture) add('material_win');
+    if (context.centerIdea?.motifs?.length) add('center_break');
+    if (context.activityIdea?.motifs?.includes('development')) add('development');
+    if (context.activityIdea?.motifs?.includes('rook_open_file')) add('piece_activity');
+    if (context.endgameIdea?.score > 0) add('endgame_activity');
+    if (context.isPromotion || context.strategicMotifs?.includes('passed_pawn')) add('passed_pawn');
+    if (context.swing >= 250 && context.playerMove) add('defensive_move');
+    if (!themes.length && context.phaseScore > 0.68) add('endgame_activity');
+    if (!themes.length) add('quiet_improvement');
+    context.subthemes = themes.slice(1, 6);
+    context.theme = themes[0];
+    return context;
+}
+function buildHieroglyphicContext(fen, bestMove, options = {}) {
+    const chess = new Chess(fen);
+    const stats = fenPieceStats(fen);
+    const moveNumber = Number((fen || '').split(' ')[5] || 1);
+    const sideToMove = chess.turn();
+    const pv = Array.isArray(options.pv) ? options.pv : (Array.isArray(options.bestMovePv) ? options.bestMovePv : []);
+    const consequences = analyzeMoveConsequences(fen, bestMove, pv);
+    const move = consequences.move;
+    const materialBalance = stats.material.w - stats.material.b;
+    const phaseScore = clamp01((moveNumber / 45) * 0.42 + ((32 - stats.pieces) / 26) * 0.58);
+    const phaseLabel = phaseScore < 0.28 ? 'desplegament' : (phaseScore < 0.66 ? 'lluita densa' : 'conversió');
+    const context = {
+        fen,
+        bestMove,
+        bestMoveSan: consequences.san,
+        bestMoveUci: consequences.uci,
+        playerMove: options.playerMove || null,
+        pv,
+        alternatives: options.alternatives || [],
+        evalBefore: options.evalBefore ?? null,
+        evalAfter: options.evalAfter ?? null,
+        swing: options.swing || 0,
+        moveNumber,
+        phaseScore,
+        phaseLabel,
+        sideToMove,
+        movingPiece: move ? move.piece : null,
+        from: move ? move.from : null,
+        to: move ? move.to : null,
+        isCapture: move ? !!move.captured : false,
+        capturedPiece: move ? (move.captured || null) : null,
+        isCheck: move ? (move.san.includes('+') || move.san.includes('#')) : false,
+        isMate: move ? move.san.includes('#') : false,
+        isPromotion: move ? !!move.promotion : false,
+        isCastle: move ? (move.flags && (move.flags.includes('k') || move.flags.includes('q'))) : false,
+        isEnPassant: move ? (move.flags && move.flags.includes('e')) : false,
+        givesThreat: !!(pv && pv.length > 1),
+        theme: 'quiet_improvement',
+        subthemes: [],
+        materialBalance,
+        kingSafety: estimateKingSafety(fen, stats),
+        centerTension: estimateCenterTension(chess, stats),
+        openFiles: getOpenFilesFromStats(stats),
+        diagonals: [],
+        weakSquares: [],
+        tacticalMotifs: [],
+        strategicMotifs: [],
+        urgency: options.swing >= 600 ? 'critical' : (options.swing >= 200 ? 'high' : (options.swing >= 80 ? 'medium' : 'low')),
+        difficulty: options.swing >= 600 ? 3 : (options.swing >= 200 ? 2 : 1),
+        opening: options.opening || null,
+        source: options.source || 'opening',
+        sector: move ? classifyBoardSector(move.to) : 'center',
+        moveAfterFen: consequences.after ? consequences.after.fen() : null
+    };
+    context.kingPressure = detectKingPressure(fen, bestMove, pv);
+    context.materialIdea = detectMaterialIdea(fen, bestMove, pv);
+    context.centerIdea = detectCenterIdea(fen, bestMove, pv);
+    context.activityIdea = detectPieceActivityIdea(fen, bestMove, pv);
+    context.endgameIdea = detectEndgameIdea(fen, bestMove, pv);
+    context.tacticalMotifs = detectTacticalShapes(context);
+    if (context.isPromotion || (context.movingPiece === 'p' && (squareRankIdx(context.to) >= 7 || squareRankIdx(context.to) <= 2))) context.strategicMotifs.push('passed_pawn');
+    return inferHieroglyphicThemes(context);
+}
+function pickHieroglyphicVoice() {
+    const recent = getRecentHieroglyphicMeta();
+    for (let i = 0; i < 8; i++) {
+        const voice = randItem(HIEROS.voices);
+        const lastTwo = recent.voices.slice(0, 2);
+        if (!(lastTwo.length === 2 && lastTwo.every(v => v === voice.id))) return voice;
+    }
+    return randItem(HIEROS.voices);
+}
+const HIEROS_STRUCTURES = [
+    (p) => `${p.opening}, ${p.metaphor} ${p.verb} la ${p.sector}: ${p.advice}.`,
+    (p) => `${p.opening}: no miris ${p.decoy}; mira ${p.image}. ${p.closing}.`,
+    (p) => `${p.voiceName} diria que ${p.metaphor} pesa més que ${p.decoy}; ${p.advice}.`,
+    (p) => `Quan ${p.metaphor} apareix a la ${p.sector}, ${p.closing}.`,
+    (p) => `${p.opening}, la ${p.sector} demana ${p.image}; ${p.warning}.`,
+    (p) => `El signe és ${p.metaphor}: ${p.advice}, i deixa que el rival carregui el pes.`,
+    (p) => `No és una caça de material; és ${p.image} sobre la ${p.sector}. ${p.closing}.`,
+    (p) => `${p.opening}, ${p.pieceHint} ha de servir la idea, no lluir-se: ${p.advice}.`,
+    (p) => `Si la balança sembla quieta, escolta ${p.metaphor}; ${p.closing}.`,
+    (p) => `${p.warning}; abans, ${p.advice} a la ${p.sector}.`,
+    (p) => `La PV xiuxiueja ${p.metaphor}; transforma la tensió en una pregunta forçada.`,
+    (p) => `${p.opening}: ${p.image} no revela la casella, però sí la funció — ${p.closing}.`
+];
+function generateDynamicHieroglyphicClue(context, opts = {}) {
+    const level = opts.level || 1;
+    const hidePiece = opts.hidePiece ?? (level === 1);
+    const themePack = HIEROS.themes[context.theme] || HIEROS.themes.default;
+    const voice = opts.voice || pickHieroglyphicVoice();
+    const recent = getRecentHieroglyphicMeta();
+    let text = '';
+    let structureIdx = 0;
+    for (let attempt = 0; attempt < 18; attempt++) {
+        structureIdx = Math.floor(Math.random() * HIEROS_STRUCTURES.length);
+        if (recent.structures[0] === String(structureIdx) && attempt < 8) continue;
+        const pieceName = context.movingPiece ? HIEROS.pieces[context.movingPiece] : 'peça';
+        const params = {
+            opening: randItem(HIEROS.openings),
+            closing: randItem(HIEROS.closings),
+            verb: randItem(HIEROS.verbs),
+            image: randItem(HIEROS.images),
+            metaphor: randItem(themePack.metaphors || HIEROS.themes.default.metaphors),
+            advice: level >= 3 ? themeToPlainAdvice(context) : randItem(themePack.advice || HIEROS.themes.default.advice),
+            warning: randItem(themePack.warnings || HIEROS.themes.default.warnings),
+            sector: HIEROS.sectors[context.sector] || HIEROS.sectors.center,
+            decoy: context.isCapture ? 'l’or immediat' : (context.centerTension > 4 ? 'el soroll del centre' : 'la primera aparença'),
+            pieceHint: hidePiece ? 'la peça adequada' : `el ${pieceName}`,
+            voiceName: voice.name
+        };
+        text = sanitizeHieroglyphicText(HIEROS_STRUCTURES[structureIdx](params), context, { hidePiece });
+        if (!recent.texts.includes(text)) break;
+    }
+    rememberHieroglyphicClue({ text, structure: String(structureIdx), voice: voice.id, theme: context.theme, level });
+    return text;
+}
+function themeToPlainAdvice(context) {
+    const map = {
+        king_attack: 'busca un escac o una amenaça que obligui la defensa',
+        fork: 'hi ha doble atac sobre peces valuoses',
+        pin: 'aprofita una peça que no es pot moure lliurement',
+        skewer: 'la línia recta força una peça gran a descobrir-ne una altra',
+        center_break: 'la ruptura central canvia la posició a favor teu',
+        development: 'desenvolupa amb tempo i control',
+        material_win: 'el material cau si primer controles la recaptura',
+        passed_pawn: 'el peó avançat necessita suport i ritme',
+        defensive_move: 'atura l’amenaça principal sense quedar passiu',
+        endgame_activity: 'activa el rei o la torre abans de comptar peons',
+        piece_activity: 'porta la peça a una línia oberta o una millor funció',
+        quiet_improvement: 'la jugada tranquil·la crea una amenaça més forta'
+    };
+    return map[context.theme] || 'troba la funció que deixa menys defenses bones';
+}
+function generateHieroglyphicHint(context, level) {
+    const opts = { level, hidePiece: level === 1 };
+    const clue = generateDynamicHieroglyphicClue(context, opts);
+    if (level <= 1) return clue;
+    if (level === 2) {
+        const sector = HIEROS.sectors[context.sector] || 'zona crítica';
+        return `${clue} La idea viu a la ${sector}, no en la notació.`;
+    }
+    return `${clue} Motiu principal: ${themeToPlainAdvice(context)}.`;
+}
+function buildDynamicHieroglyphicPrompt(context, level = 1) {
+    const hidePieceRule = level === 1 ? '- No diguis el nom de la peça que mou.' : '- Pots insinuar el tipus de peça o sector, però no la jugada.';
+    return `Genera una pista jeroglífica d'escacs en català (1 o 2 frases, màxim 42 paraules).
 
-function buildHieroglyphicPrompt(fen, expectedMove, op) {
-    const voice = getStrategicVoice();
-    return `Ets ${voice.name}, mestre estrateg, autor de "${voice.work}".
-
-CONTEXT: En una posició d'escacs (FEN: ${fen}), de l'obertura "${op.name}" (${op.eco}), la jugada teòrica correcta és ${expectedMove}. L'estudiant ha de DEDUIR aquesta jugada per ell mateix.
-
-TASCA: Escriu UNA màxima estratègica xifrada (críptica) en català, a l'estil de "${voice.work}", que insinuï la idea darrere de ${expectedMove} SENSE dir mai la jugada, ni la casella, ni la peça concreta de manera explícita. Ha de ser una pista filosòfica que faci pensar.
+CONTEXT ESTRATÈGIC:
+- FEN: ${context.fen}
+- Millor jugada interna (NO revelar): ${context.bestMove}
+- PV: ${(context.pv || []).slice(0, 6).join(' ') || 'desconeguda'}
+- Tema: ${context.theme}; subtemes: ${(context.subthemes || []).join(', ') || 'cap'}
+- Swing: ${context.swing || 0} cp; eval abans/després: ${context.evalBefore ?? '—'} / ${context.evalAfter ?? '—'}
+- Material: ${context.materialBalance}; seguretat reis: ${JSON.stringify(context.kingSafety)}
+- Tensió central: ${context.centerTension}; columnes obertes: ${(context.openFiles || []).join(', ') || 'cap'}
+- Fase gradual: ${context.phaseScore.toFixed(2)} (${context.phaseLabel}); urgència: ${context.urgency}
 
 REGLES:
-- 1 o 2 frases màxim
-- To ${voice.style}
-- NO mencionis notació d'escacs (res de "${expectedMove}", caselles com e4, ni noms de peces evidents)
-- Sense emojis, sense cometes embolcallant tot el text
-- En català`;
+- Català natural, críptic però útil.
+- No diguis la millor jugada, ni cap casella exacta, ni notació.
+${hidePieceRule}
+- No facis una explicació plana; ha de semblar un enigma didàctic.
+- Sense emojis ni cometes embolcallant tot el text.`;
 }
-
-async function fetchHieroglyphicClue(fen, expectedMove, op) {
+async function fetchHieroglyphicClue(context, level = 1) {
     if (!geminiApiKey) return null;
-    const cacheKey = `hiero:${fen}`;
+    const cacheKey = `hiero:${context.fen}:${context.bestMove}:${context.theme}:L${level}`;
     const cached = getCachedGemini(cacheKey);
-    if (cached) return cached;
+    if (cached) return sanitizeHieroglyphicText(cached, context, { hidePiece: level === 1 });
     try {
-        const prompt = buildHieroglyphicPrompt(fen, expectedMove, op);
+        const prompt = buildDynamicHieroglyphicPrompt(context, level);
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
         const response = await fetch(url, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.95, maxOutputTokens: 200, topP: 0.95, topK: 40 }
+                generationConfig: { temperature: 1.05, maxOutputTokens: 120, topP: 0.95, topK: 40 }
             })
         });
         if (!response.ok) return null;
         const data = await response.json();
         const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
         if (!text) return null;
-        const clean = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+        const clean = sanitizeHieroglyphicText(text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim(), context, { hidePiece: level === 1 });
         setCachedGemini(cacheKey, clean);
         return clean;
     } catch (e) {
@@ -8003,7 +8465,239 @@ async function fetchHieroglyphicClue(fen, expectedMove, op) {
         return null;
     }
 }
+function getHieroglyphicClue(san) {
+    const context = buildHieroglyphicContext(hieroglyphicGame ? hieroglyphicGame.fen() : new Chess().fen(), san, { source: 'legacy' });
+    return generateDynamicHieroglyphicClue(context, { level: 1 });
+}
+function buildHieroglyphicPrompt(fen, expectedMove, op) {
+    const context = buildHieroglyphicContext(fen, expectedMove, { opening: op, source: 'opening' });
+    return buildDynamicHieroglyphicPrompt(context, 1);
+}
+function getHieroglyphicRewardText() {
+    return randItem([
+        'Has convertit un error en coneixement.',
+        'L’error ja no mana: ara ensenya.',
+        'Has fet de la ferida un mapa.',
+        'Una ombra menys al teu repertori.',
+        'El tauler recorda: avui has entès el signe.'
+    ]);
+}
 
+function getHieroglyphicTitle() {
+    if (hieroglyphicSource === 'personal') return '🔮 Desxifra el teu error';
+    return `🔮 Exercici Geroglífic — ${hieroglyphicOpening ? hieroglyphicOpening.name : 'posició'}`;
+}
+function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl) return;
+    const recentVoiceId = loadHieroglyphicRecent()[0]?.voice;
+    const voice = HIEROS.voices.find(v => v.id === recentVoiceId) || pickHieroglyphicVoice();
+    const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
+    const level = Math.min(3, hieroglyphicAttempts + 1);
+    const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${statusText}</div>` : '';
+    noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
+        <div class="maxim-title">${getHieroglyphicTitle()}</div>
+        <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
+        <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
+        <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · Troba la millor jugada. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
+        ${extra}
+    </div>`;
+}
+function moveToUci(move) {
+    return move ? `${move.from}${move.to}${move.promotion || ''}` : null;
+}
+function isHieroglyphicMoveCorrect(move) {
+    const uci = moveToUci(move);
+    if (hieroglyphicExpectedUci && uci === hieroglyphicExpectedUci) return true;
+    return !!(move && hieroglyphicExpectedMove && move.san === hieroglyphicExpectedMove);
+}
+function applyHieroglyphicExpectedMove() {
+    if (!hieroglyphicGame || !hieroglyphicExpectedMove) return null;
+    if (hieroglyphicExpectedUci) {
+        return hieroglyphicGame.move({
+            from: hieroglyphicExpectedUci.slice(0, 2),
+            to: hieroglyphicExpectedUci.slice(2, 4),
+            promotion: hieroglyphicExpectedUci.length > 4 ? hieroglyphicExpectedUci[4] : 'q'
+        });
+    }
+    return hieroglyphicGame.move(hieroglyphicExpectedMove, { sloppy: true });
+}
+function registerHieroglyphicSolved() {
+    hieroglyphicScore.correct++;
+    hieroglyphicScore.total++;
+    hieroglyphicStats.solved++;
+    hieroglyphicStats.currentStreak = (hieroglyphicStats.currentStreak || 0) + 1;
+    hieroglyphicStats.bestStreak = Math.max(hieroglyphicStats.bestStreak || 0, hieroglyphicStats.currentStreak);
+    const theme = hieroglyphicContext?.theme || 'unknown';
+    hieroglyphicStats.themes[theme] = (hieroglyphicStats.themes[theme] || 0) + 1;
+    if (hieroglyphicSource === 'personal') {
+        hieroglyphicStats.personalSolved++;
+        totalStars += 1;
+        if (hieroglyphicContext?.fen && !hieroglyphicStats.solvedFens.includes(hieroglyphicContext.fen)) {
+            hieroglyphicStats.solvedFens.push(hieroglyphicContext.fen);
+            hieroglyphicStats.solvedFens = hieroglyphicStats.solvedFens.slice(-200);
+        }
+    }
+    saveHieroglyphicStats();
+    saveStorage();
+    updateDisplay();
+}
+function registerHieroglyphicFailed() {
+    hieroglyphicScore.total++;
+    hieroglyphicStats.currentStreak = 0;
+    saveHieroglyphicStats();
+}
+function explainHieroglyphicAnswer() {
+    if (!hieroglyphicContext) return hieroglyphicOpening?.idea || 'La millor jugada resol la tensió principal de la posició.';
+    const theme = themeToPlainAdvice(hieroglyphicContext);
+    const swing = hieroglyphicContext.swing ? ` Evitava una pèrdua d’uns ${Math.round(hieroglyphicContext.swing)} cp.` : '';
+    return `${theme.charAt(0).toUpperCase()}${theme.slice(1)}.${swing}`;
+}
+
+function normalizeHieroglyphicCandidate(raw, source, entry = null) {
+    if (!raw || !raw.fen || !raw.bestMove) return null;
+    const severityRank = raw.severity === 'high' || raw.quality === 'blunder' ? 4
+        : raw.severity === 'med' || raw.quality === 'mistake' ? 3
+            : raw.severity === 'low' || raw.quality === 'inaccuracy' ? 2 : 1;
+    const swing = raw.swing || raw.cpLoss || (severityRank * 120);
+    return {
+        fen: raw.fen,
+        bestMove: raw.bestMove,
+        playerMove: raw.playerMove || null,
+        pv: raw.bestMovePv || raw.pv || [],
+        alternatives: raw.alternatives || [],
+        evalBefore: raw.evalBefore ?? null,
+        evalAfter: raw.evalAfter ?? null,
+        swing,
+        severity: raw.severity || raw.quality || 'critical',
+        source,
+        entryId: entry?.id || null,
+        score: severityRank * 1000 + (swing || 0)
+    };
+}
+function collectPersonalHieroglyphicCandidates(preferredEntry = null) {
+    const list = [];
+    (currentReview || []).forEach(r => {
+        if (['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80) {
+            const c = normalizeHieroglyphicCandidate(r, 'currentReview');
+            if (c) list.push(c);
+        }
+    });
+    (currentGameErrors || []).forEach(e => {
+        const c = normalizeHieroglyphicCandidate(e, 'currentGameErrors');
+        if (c) list.push(c);
+    });
+    const latest = preferredEntry || (gameHistory && gameHistory.length ? gameHistory[gameHistory.length - 1] : null);
+    if (latest) {
+        (latest.errors || []).forEach(e => {
+            const c = normalizeHieroglyphicCandidate(e, 'gameHistory.errors', latest);
+            if (c) list.push(c);
+        });
+        (latest.moveReviews || []).forEach(r => {
+            if (['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80) {
+                const c = normalizeHieroglyphicCandidate(r, 'gameHistory.review', latest);
+                if (c) list.push(c);
+            }
+        });
+    }
+    (savedErrors || []).forEach(e => {
+        const c = normalizeHieroglyphicCandidate(e, 'savedErrors');
+        if (c) list.push(c);
+    });
+    // Si no hi ha errors clars, també podem convertir una bona posició crítica en enigma:
+    // tensió central, PV disponible o swing moderat són suficients per practicar càlcul real.
+    if (!list.length) {
+        const quietSources = [];
+        (currentReview || []).forEach(r => quietSources.push({ raw: r, source: 'currentReview.quiet' }));
+        if (latest) (latest.moveReviews || []).forEach(r => quietSources.push({ raw: r, source: 'gameHistory.quiet' }));
+        quietSources
+            .filter(item => item.raw && item.raw.fen && item.raw.bestMove)
+            .map(item => {
+                const c = normalizeHieroglyphicCandidate(Object.assign({ severity: 'critical' }, item.raw, { swing: item.raw.swing || 60 }), item.source);
+                if (c) c.score += 100;
+                return c;
+            })
+            .filter(Boolean)
+            .sort((a, b) => b.score - a.score)
+            .slice(0, 3)
+            .forEach(c => list.push(c));
+    }
+    const solved = new Set(hieroglyphicStats.solvedFens || []);
+    const unique = [];
+    const seen = new Set();
+    list.sort((a, b) => b.score - a.score).forEach(c => {
+        const key = `${c.fen}|${c.bestMove}`;
+        if (!seen.has(key) && !solved.has(c.fen)) {
+            seen.add(key);
+            unique.push(c);
+        }
+    });
+    return unique;
+}
+function hasPersonalHieroglyphicCandidate(entry = null) {
+    return collectPersonalHieroglyphicCandidates(entry).length > 0;
+}
+function startPersonalHieroglyphicFromLastGame(entry = null) {
+    loadHieroglyphicStats();
+    const candidates = collectPersonalHieroglyphicCandidates(entry);
+    if (!candidates.length) {
+        showToast('Encara no hi ha cap posició crítica per convertir en jeroglífic.', 'warn');
+        return;
+    }
+    const chosen = candidates[0];
+    try {
+        hieroglyphicOpening = { name: 'El teu error', idea: 'Converteix la posició crítica en una idea recordable.' };
+        hieroglyphicGame = new Chess(chosen.fen);
+        hieroglyphicAttempts = 0;
+        hieroglyphicStep = 0;
+        hieroglyphicExpectedMove = chosen.bestMove;
+        hieroglyphicContext = buildHieroglyphicContext(chosen.fen, chosen.bestMove, {
+            source: 'personal',
+            playerMove: chosen.playerMove,
+            pv: chosen.pv,
+            alternatives: chosen.alternatives,
+            evalBefore: chosen.evalBefore,
+            evalAfter: chosen.evalAfter,
+            swing: chosen.swing
+        });
+        hieroglyphicExpectedUci = hieroglyphicContext.bestMoveUci || chosen.bestMove;
+        hieroglyphicSource = 'personal';
+        hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
+        hieroglyphicExerciseActive = true;
+        openingLessonActive = false;
+        openingErrorPracticeActive = false;
+        openingPracticeEngineThinking = false;
+
+        renderOpeningStatsScreen(true);
+        renderOpeningLessonButtons();
+        initOpeningBundleBoard();
+        openingPracticeGame = hieroglyphicGame;
+        openingPracticeMoveCount = 0;
+        clearOpeningHintHighlight();
+        clearOpeningMoveVisualFeedback();
+        $('#start-screen,#game-screen,#history-screen,#league-screen,#stats-screen,#settings-screen,#calibration-result-screen').hide();
+        $('#opening-screen').show();
+        navPush('opening-screen');
+        if (openingBundleBoard) {
+            openingBundleBoard.orientation(hieroglyphicGame.turn() === 'w' ? 'white' : 'black');
+            openingBundleBoard.position(hieroglyphicGame.fen());
+            if (typeof openingBundleBoard.resize === 'function') setTimeout(() => openingBundleBoard.resize(), 50);
+        }
+        const myToken = ++hieroglyphicToken;
+        renderHieroglyphicExerciseNote(!!geminiApiKey);
+        if (geminiApiKey) {
+            fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
+                if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicSource === 'personal' && hieroglyphicAttempts === 0) {
+                    hieroglyphicClue = text;
+                }
+                renderHieroglyphicExerciseNote(false);
+            });
+        }
+    } catch (e) {
+        console.warn('[Hieroglyphic] No s’ha pogut crear el jeroglífic personal', e);
+        showToast('No s’ha pogut convertir aquesta posició en jeroglífic.', 'warn');
+    }
+}
 function startHieroglyphicExercise() {
     const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
     if (pool.length === 0) return;
@@ -8026,7 +8720,10 @@ function startHieroglyphicExercise() {
 
     hieroglyphicStep = targetIdx;
     hieroglyphicExpectedMove = op.moves[targetIdx];
-    hieroglyphicClue = getHieroglyphicClue(hieroglyphicExpectedMove);
+    hieroglyphicContext = buildHieroglyphicContext(hieroglyphicGame.fen(), hieroglyphicExpectedMove, { opening: op, source: 'opening' });
+    hieroglyphicExpectedUci = hieroglyphicContext.bestMoveUci;
+    hieroglyphicSource = 'opening';
+    hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
     hieroglyphicExerciseActive = true;
     const myToken = ++hieroglyphicToken;
 
@@ -8040,30 +8737,15 @@ function startHieroglyphicExercise() {
         openingBundleBoard.position(hieroglyphicGame.fen());
     }
 
-    const voice = getStrategicVoice();
-    const renderClue = (loading) => {
-        const noteEl = document.getElementById('opening-practice-note');
-        if (!noteEl) return;
-        const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
-        noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
-            <div class="maxim-title">🔮 Exercici Geroglífic — ${op.name}</div>
-            <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
-            <div class="maxim-text">"${hieroglyphicClue}"</div>
-            <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Troba la jugada teòrica correcta. Tens 3 intents.</div>
-        </div>`;
-    };
-    // Pista offline immediata; si hi ha Gemini, la millorem amb una màxima contextual
-    renderClue(!!geminiApiKey);
+    // Pista offline immediata; si hi ha Gemini, la millorem amb el mateix context ric.
+    renderHieroglyphicExerciseNote(!!geminiApiKey);
     if (geminiApiKey) {
-        const fen = hieroglyphicGame.fen();
-        fetchHieroglyphicClue(fen, hieroglyphicExpectedMove, op).then((text) => {
+        fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
             // Només actualitza si seguim al mateix exercici i sense intents fallits encara
             if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === 0) {
                 hieroglyphicClue = text;
-                renderClue(false);
-            } else {
-                renderClue(false);
             }
+            renderHieroglyphicExerciseNote(false);
         });
     }
 
@@ -8076,22 +8758,25 @@ function handleHieroglyphicMove(source, target) {
     const move = hieroglyphicGame.move({ from: source, to: target, promotion: 'q' });
     if (!move) return 'snapback';
 
-    if (move.san === hieroglyphicExpectedMove) {
-        hieroglyphicScore.correct++;
-        hieroglyphicScore.total++;
+    if (isHieroglyphicMoveCorrect(move)) {
+        registerHieroglyphicSolved();
         hieroglyphicExerciseActive = false;
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
         showOpeningMoveVisualFeedback(source, target, 'correct');
         const noteEl = document.getElementById('opening-practice-note');
+        const reward = hieroglyphicSource === 'personal' ? getHieroglyphicRewardText() : 'Has desxifrat el signe.';
         if (noteEl) {
+            const nextButton = hieroglyphicSource === 'personal'
+                ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Desxifra un altre error</button>'
+                : '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>';
             noteEl.innerHTML = `<div class="opening-maxim-box">
                 <div class="maxim-title">✅ Correcte!</div>
-                <div class="maxim-text">Has trobat ${hieroglyphicExpectedMove} — la jugada teòrica de ${hieroglyphicOpening.name}.</div>
-                <div class="maxim-text" style="opacity:0.7; margin-top:6px;">Puntuació: ${hieroglyphicScore.correct}/${hieroglyphicScore.total}</div>
-                <button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>
+                <div class="maxim-text">${escapeHtml(reward)}</div>
+                <div class="maxim-text" style="opacity:0.78; margin-top:6px;">Tema: ${escapeHtml(hieroglyphicContext?.theme || 'estratègia')} · Jeroglífics resolts: ${hieroglyphicStats.solved}</div>
+                ${nextButton}
             </div>`;
         }
-        showToast('Jugada correcta! 🔮', 'success');
+        showToast(reward, 'success');
         return;
     }
 
@@ -8100,34 +8785,40 @@ function handleHieroglyphicMove(source, target) {
     showOpeningMoveVisualFeedback(source, target, 'incorrect');
 
     if (hieroglyphicAttempts >= 3) {
-        hieroglyphicScore.total++;
+        registerHieroglyphicFailed();
         hieroglyphicExerciseActive = false;
-        hieroglyphicGame.move(hieroglyphicExpectedMove, { sloppy: true });
+        applyHieroglyphicExpectedMove();
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) {
+            const nextButton = hieroglyphicSource === 'personal'
+                ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Provar un altre jeroglífic</button>'
+                : '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>';
             noteEl.innerHTML = `<div class="opening-maxim-box">
-                <div class="maxim-title">💡 La resposta era: ${hieroglyphicExpectedMove}</div>
-                <div class="maxim-text">${hieroglyphicOpening.idea}</div>
+                <div class="maxim-title">💡 La resposta era: ${escapeHtml(hieroglyphicContext?.bestMoveSan || hieroglyphicExpectedMove || hieroglyphicExpectedUci || '')}</div>
+                <div class="maxim-text">${escapeHtml(explainHieroglyphicAnswer())}</div>
                 <div class="maxim-text" style="opacity:0.7; margin-top:6px;">Puntuació: ${hieroglyphicScore.correct}/${hieroglyphicScore.total}</div>
-                <button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>
+                ${nextButton}
             </div>`;
         }
-        showToast('La jugada era ' + hieroglyphicExpectedMove, 'warn');
+        showToast('La resposta s’ha revelat.', 'warn');
         return;
     }
 
     if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
-    const noteEl = document.getElementById('opening-practice-note');
-    if (noteEl) {
-        const remaining = 3 - hieroglyphicAttempts;
-        const voice = getStrategicVoice();
-        noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
-            <div class="maxim-title">🔮 Exercici Geroglífic — ${hieroglyphicOpening.name}</div>
-            <div class="maxim-voice">${voice.name}, ${voice.work}</div>
-            <div class="maxim-text">"${hieroglyphicClue}"</div>
-            <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">Incorrecte. ${remaining} intent${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}.</div>
-        </div>`;
+    if (hieroglyphicContext) {
+        const nextLevel = Math.min(3, hieroglyphicAttempts + 1);
+        hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, nextLevel);
+        const myToken = ++hieroglyphicToken;
+        renderHieroglyphicExerciseNote(!!geminiApiKey, `Incorrecte. ${3 - hieroglyphicAttempts} intents restants.`);
+        if (geminiApiKey) {
+            fetchHieroglyphicClue(hieroglyphicContext, nextLevel).then((text) => {
+                if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === nextLevel - 1) {
+                    hieroglyphicClue = text;
+                }
+                renderHieroglyphicExerciseNote(false, `Incorrecte. ${3 - hieroglyphicAttempts} intents restants.`);
+            });
+        }
     }
     return 'snapback';
 }
@@ -8593,6 +9284,9 @@ function setupEvents() {
     $('#btn-hieroglyphic-exercise').click(() => {
         initOpeningBundleBoard();
         startHieroglyphicExercise();
+    });
+    $('#history-personal-hieroglyphic').click(() => {
+        startPersonalHieroglyphicFromLastGame(historyReplay ? historyReplay.entry : null);
     });
     $('#btn-back-opening').click(() => {
         $('#opening-screen').hide();
@@ -10999,6 +11693,14 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         reviewErrorsBtn.off('click').on('click', () => {
             modal.hide();
             startMatchErrorReview();
+        });
+    }
+    const reviewHieroglyphicBtn = $('#btn-review-hieroglyphic');
+    if (reviewHieroglyphicBtn.length) {
+        reviewHieroglyphicBtn.toggle(hasPersonalHieroglyphicCandidate());
+        reviewHieroglyphicBtn.off('click').on('click', () => {
+            modal.hide();
+            startPersonalHieroglyphicFromLastGame();
         });
     }
 
