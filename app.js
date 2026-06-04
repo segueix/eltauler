@@ -144,13 +144,15 @@ const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
 const CALIBRATION_GAME_COUNT = 5;
-// Oponents de calibratge per partida (ROC). La força de cada partida es deriva d'aquest ROC
-// amb el MATEIX model en dues etapes que el joc lliure: UCI_Elo projectat al rang vàlid real
-// del motor (rocToEngineElo) + profunditat (eloToSearchDepth) + selecció humana de moviments
-// (chooseHumanLikeMove). Com que aquests ROC són inferiors al terra del motor (~1350), la
-// diferència de força entre partides la posen la profunditat i la humanització, no UCI_Elo;
-// així el nivell estimat reflecteix el que el jugador trobarà realment després.
-const CALIBRATION_ROCS = [200, 350, 500, 650, 800];
+// El calibratge és una CERCA ADAPTATIVA del nivell del jugador, no una escala fixa que sempre
+// puja. Es parteix d'un ROC inicial i, després de cada partida, el rival s'adapta al resultat:
+// si el jugador guanya, puja; si perd, baixa; amb passos decreixents per convergir cap al seu
+// nivell real en 5 partides. La força de cada rival es deriva del seu ROC amb el MATEIX model
+// en dues etapes que el joc lliure (rocToEngineElo + eloToSearchDepth + selecció humana de
+// moviments), de manera que el nivell estimat reflecteix el que el jugador trobarà realment.
+const CALIBRATION_START_ROC = 500;            // punt de partida de la cerca (partida 1)
+const CALIBRATION_STEPS = [220, 160, 110, 80]; // passos decreixents (transicions partida 1→2…4→5)
+const CALIBRATION_ROCS = [200, 350, 500, 650, 800]; // referència/llindar de compatibilitat
 const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
@@ -3113,14 +3115,27 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
     return Math.min(calibrationGames.length, CALIBRATION_GAME_COUNT - 1);
 }
 
+function clampCalibrationRoc(roc) {
+    return Math.max(CALIBRATION_ROC_MIN, Math.min(CALIBRATION_ROC_MAX, Math.round(roc)));
+}
+
+// Cerca adaptativa del nivell: parteix del ROC inicial i, segons el resultat de l'última
+// partida, adapta el rival (guanya → puja; perd → baixa; taules → lleugera pujada) amb passos
+// decreixents perquè convergeixi cap al nivell real del jugador. No segueix una escala fixa.
 function getCalibrationOpponentRoc() {
-    const index = getCalibrationGameIndex();
-    if (index < 3) return CALIBRATION_ROCS[index];
-    const performance = getCalibrationPerformanceScore(calibrationGames);
-    const base = CALIBRATION_ROCS[Math.min(index, CALIBRATION_ROCS.length - 1)];
-    if (performance >= 0.7) return base + 75;
-    if (performance <= 0.45) return Math.max(CALIBRATION_ROC_MIN, base - 100);
-    return base;
+    const games = calibrationGames;
+    if (!games.length) return clampCalibrationRoc(CALIBRATION_START_ROC);
+
+    const last = games[games.length - 1];
+    let roc = typeof last.opponentElo === 'number' ? last.opponentElo : CALIBRATION_START_ROC;
+    const stepIdx = Math.min(games.length - 1, CALIBRATION_STEPS.length - 1);
+    const step = CALIBRATION_STEPS[stepIdx];
+
+    if (last.result === 'win') roc += step;            // ha guanyat → rival més fort
+    else if (last.result === 'loss') roc -= step;       // ha perdut → rival més fluix
+    else roc += Math.round(step * 0.2);                 // taules → ajust petit a l'alça
+
+    return clampCalibrationRoc(roc);
 }
 
 function getCalibrationProgressCount() {
@@ -3182,12 +3197,13 @@ function estimateCalibrationRoc() {
     });
     const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
     const weightedPerformance = weighted.reduce((sum, item) => sum + (item.performance * item.weight), 0) / (totalWeight || 1);
-    const opponentEloValues = weighted
-        .map(item => item.opponentElo)
-        .filter(value => typeof value === 'number' && !isNaN(value));
-    const avgOpponentElo = opponentEloValues.length
-        ? opponentEloValues.reduce((sum, value) => sum + value, 0) / opponentEloValues.length
-        : CALIBRATION_ROCS[Math.min(getCalibrationGameIndex(), CALIBRATION_ROCS.length - 1)];
+    // Mitjana del ROC dels rivals ponderada cap a les últimes partides: així el valor on ha
+    // convergit la cerca adaptativa (el nivell trobat) domina sobre el punt de partida inicial.
+    const opponentItems = weighted.filter(item => typeof item.opponentElo === 'number' && !isNaN(item.opponentElo));
+    const opponentWeight = opponentItems.reduce((sum, item) => sum + item.weight, 0);
+    const avgOpponentElo = opponentItems.length
+        ? opponentItems.reduce((sum, item) => sum + (item.opponentElo * item.weight), 0) / (opponentWeight || 1)
+        : clampCalibrationRoc(CALIBRATION_START_ROC);
     const performanceDelta = (weightedPerformance - 0.5) * 250;
     const confidence = Math.min(1, calibrationGames.length / CALIBRATION_GAME_COUNT);
     const conservativeBias = -50;
