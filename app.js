@@ -191,6 +191,10 @@ const TIME_CONTROLS = [
     { id: '15+10', label: 'Clàssic 15+10', base: 900, inc: 10 }
 ];
 const TIME_CONTROL_KEY = 'chess_timeControl';
+// Ritme escollit per a la propera partida lliure/assistida. Comença sempre "sense rellotge";
+// es tria a la pantalla de joc abans de cada nova partida. La lliga té el seu propi ritme
+// fixat (currentLeague.timeControl), independent d'aquest.
+let pendingFreeTimeControl = 'none';
 let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
 let calibrationResultsChart = null;
 let currentGameStartTs = null;
@@ -2203,7 +2207,10 @@ function createNewLeague(force = false) {
         schedule: schedule,
         currentRound: 1,
         completed: false,
-        history: []
+        history: [],
+        // Ritme de la temporada. Es pot triar mentre no s'hagi jugat cap partit;
+        // un cop començada, queda fixat (vegeu isLeagueTimeControlLocked).
+        timeControl: 'none'
     };
     leagueActiveMatch = null;
     saveStorage();
@@ -2335,10 +2342,38 @@ function openLeague() {
     renderLeague();
 }
 
+// La lliga queda fixada en el ritme escollit tan bon punt s'ha jugat el primer partit
+// (o si ja ha acabat). Abans d'això, el ritme encara es pot canviar.
+function isLeagueTimeControlLocked() {
+    if (!currentLeague) return false;
+    if (currentLeague.completed) return true;
+    if (currentLeague.currentRound > 1) return true;
+    const me = currentLeague.players ? currentLeague.players.find(p => p.id === 'me') : null;
+    return !!(me && me.pj > 0);
+}
+
+function renderLeagueTimeControl() {
+    if (!currentLeague) return;
+    const id = currentLeague.timeControl || 'none';
+    const cfg = TIME_CONTROLS.find(t => t.id === id) || TIME_CONTROLS[0];
+    const locked = isLeagueTimeControlLocked();
+    const sel = $('#league-tc-select');
+    const lockedEl = $('#league-tc-locked');
+    if (sel.length) {
+        sel.val(id);
+        sel.prop('disabled', locked).toggle(!locked);
+    }
+    if (lockedEl.length) {
+        if (locked) lockedEl.text(`Rellotge: ${cfg.label} · fixat 🔒`).show();
+        else lockedEl.hide();
+    }
+}
+
 function renderLeague() {
     if (!currentLeague) return;
 
     $('#league-name').text(currentLeague.name);
+    renderLeagueTimeControl();
 
     if (currentLeague.completed) {
         $('#league-round').text('Lliga acabada');
@@ -8637,9 +8672,19 @@ function setupEvents() {
         saveBundleAcceptMode($(this).val());
     });
 
-    // Control de temps (rellotge)
-    $('#time-control-select').off('change').on('change', function() {
-        try { localStorage.setItem(TIME_CONTROL_KEY, $(this).val()); } catch (e) {}
+    // Rellotge de la nova partida (lliure/assistida): es tria abans de cada partida i
+    // comença sempre a "sense rellotge".
+    $('#new-game-tc-select').off('change').on('change', function() {
+        pendingFreeTimeControl = $(this).val() || 'none';
+    });
+
+    // Rellotge de la lliga: només es pot triar abans de jugar el primer partit; un cop
+    // començada, queda fixat per a tota la temporada i el selector es bloqueja.
+    $('#league-tc-select').off('change').on('change', function() {
+        if (!currentLeague || isLeagueTimeControlLocked()) { renderLeagueTimeControl(); return; }
+        currentLeague.timeControl = $(this).val() || 'none';
+        saveStorage();
+        renderLeagueTimeControl();
     });
 
     // Analitza la posició actual
@@ -9613,12 +9658,16 @@ function promptMatchErrorNext() {
 }
 
 /* ===================== RELLOTGE DE PARTIDA ===================== */
-function loadTimeControl() {
-    try { return localStorage.getItem(TIME_CONTROL_KEY) || 'none'; }
-    catch (e) { return 'none'; }
+// Ritme actiu segons el context: a la lliga, el ritme fixat de la temporada; en
+// qualsevol altra partida, el triat per a la nova partida (per defecte, sense rellotge).
+function getActiveTimeControlId() {
+    if (currentGameMode === 'league' && currentLeague) {
+        return currentLeague.timeControl || 'none';
+    }
+    return pendingFreeTimeControl || 'none';
 }
 function getTimeControlConfig() {
-    return TIME_CONTROLS.find(t => t.id === loadTimeControl()) || TIME_CONTROLS[0];
+    return TIME_CONTROLS.find(t => t.id === getActiveTimeControlId()) || TIME_CONTROLS[0];
 }
 function formatClock(ms) {
     if (ms < 0) ms = 0;
@@ -11353,8 +11402,9 @@ $(document).ready(() => {
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
-    const tcSel = document.getElementById('time-control-select');
-    if (tcSel) tcSel.value = loadTimeControl();
+    pendingFreeTimeControl = 'none';
+    const tcSel = document.getElementById('new-game-tc-select');
+    if (tcSel) tcSel.value = pendingFreeTimeControl;
     generateDailyMissions(); checkStreak(); updateDisplay(); setupEvents(); 
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
