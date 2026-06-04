@@ -3255,6 +3255,67 @@ function trackEngineCandidate(msg) {
     else engineMoveCandidates.push(candidate);
 }
 
+const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+// Heurística d'"atractiu humà": com de natural sembla una jugada per a una persona.
+// Els errors humans solen ser jugades amb intenció aparent (capturar material, fer escac,
+// desenvolupar peces, ocupar el centre, enrocar), NO moviments aleatoris (peons de banda
+// sense motiu, passejar el rei). Com més alt l'atractiu, més probable que un humà la jugui.
+function humanMoveAppeal(mv) {
+    if (!mv) return 1;
+    let appeal = 1;
+    const san = mv.san || '';
+    if (san.includes('#')) appeal += 40;            // ningú falla un mat evident
+    else if (san.includes('+')) appeal += 1.5;      // els escacs semblen forçats
+    if (mv.captured) appeal += 2 + (PIECE_VALUE[mv.captured] || 0); // copejar material atrau (sovint massa)
+    if (mv.flags && (mv.flags.includes('k') || mv.flags.includes('q'))) appeal += 1.5; // enrocar
+    if (mv.piece === 'n' || mv.piece === 'b') appeal += 0.8; // desenvolupar peces menors
+    const file = mv.to.charCodeAt(0) - 97;
+    const rank = parseInt(mv.to[1], 10) - 1;
+    const centerDist = Math.abs(3.5 - file) + Math.abs(3.5 - rank);
+    appeal += (7 - centerDist) * 0.15;              // el centre crida més que la banda
+    if (mv.piece === 'p' && !mv.captured && (file === 0 || file === 7)) appeal -= 1.5; // peó de banda sense motiu
+    if (mv.piece === 'k' && !(mv.flags && (mv.flags.includes('k') || mv.flags.includes('q')))) appeal -= 1.2; // passejar el rei
+    return Math.max(0.05, appeal);
+}
+
+// Pèrdua de material immediata (en peons) després d'una jugada, amb una recaptura simple
+// a la mateixa casella (SEE-lite a 1 jugada). Serveix per evitar regals catastròfics —p. ex.
+// penjar la dama en una jugada tranquil·la— que cap humà del nivell faria. Els errors
+// "lògics" són no veure tàctiques, no regalar peces sense cap intenció.
+function immediateMaterialLoss(uciMove) {
+    if (!game) return 0;
+    const from = uciMove.substring(0, 2);
+    const to = uciMove.substring(2, 4);
+    const promotion = uciMove.length > 4 ? uciMove[4] : 'q';
+    const played = game.move({ from, to, promotion });
+    if (!played) return 0;
+    let worst = 0;
+    const replies = game.moves({ verbose: true });
+    for (const r of replies) {
+        if (!r.captured) continue;
+        const gain = PIECE_VALUE[r.captured] || 0;
+        let recap = 0;
+        const opp = game.move({ from: r.from, to: r.to, promotion: 'q' });
+        if (opp) {
+            const canRecapture = game.moves({ verbose: true }).some(m => m.to === r.to && m.captured);
+            if (canRecapture) recap = PIECE_VALUE[opp.piece] || 0;
+            game.undo();
+        }
+        const net = gain - recap;
+        if (net > worst) worst = net;
+    }
+    game.undo();
+    return worst;
+}
+
+// Magnitud d'error "lògica" per al nivell (en peons): com més baix el nivell, més gran
+// l'error tolerat, però sempre dins el que una persona d'aquell nivell faria de manera
+// natural. ROC ~200 => ~3.6 peons; ROC ~2000 => ~0.6 peons.
+function levelTolerableLossPawns(normalized) {
+    return 0.6 + (1 - normalized) * 3.0;
+}
+
 function chooseHumanLikeMove(candidates) {
     if (!candidates || candidates.length === 0) return null;
     const sorted = candidates.slice().sort((a, b) => b.score - a.score);
@@ -3274,11 +3335,17 @@ function chooseHumanLikeMove(candidates) {
     const explore = Math.random() < offPathChance;
     if (!explore) return trimmed[0];
 
+    // Quan es desvia del millor, biaixem cap a la jugada més natural (humana), no només
+    // per puntuació: així l'error sembla una decisió humana plausible i no arbitrària.
+    const verboseByUci = {};
+    if (game) game.moves({ verbose: true }).forEach(m => { verboseByUci[`${m.from}${m.to}${m.promotion || ''}`] = m; });
+
     const temperature = 1.4 - (normalized * 0.8);
     const weights = trimmed.map((c, idx) => {
         const relativeScore = c.score - trimmed[0].score;
         const softness = Math.exp(relativeScore / (50 * temperature));
-        return softness / (idx + 1);
+        const appeal = humanMoveAppeal(verboseByUci[c.move]);
+        return (softness / (idx + 1)) * appeal;
     });
     const total = weights.reduce((sum, w) => sum + w, 0);
     let roll = Math.random() * total;
@@ -9915,8 +9982,30 @@ function chooseFallbackMove(fallbackMove) {
     if (Math.random() > mistakeChance) return fallbackMove;
     const legalMoves = game ? game.moves({ verbose: true }) : [];
     if (!legalMoves || legalMoves.length === 0) return fallbackMove;
-    const choice = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-    return `${choice.from}${choice.to}${choice.promotion || ''}`;
+
+    // Filtre d'humanització: en lloc d'una jugada aleatòria (que pot ser un disbarat que
+    // cap humà faria), triem entre les jugades MÉS NATURALS i només si l'error de material
+    // és coherent amb el nivell. Així els errors són "lògics": no veure la millor jugada,
+    // no regalar peces sense intenció.
+    const tolerableLoss = levelTolerableLossPawns(normalized);
+    const candidates = legalMoves
+        .map(mv => ({ mv, appeal: humanMoveAppeal(mv) }))
+        .sort((a, b) => b.appeal - a.appeal)
+        .slice(0, 8) // avaluem la seguretat només de les més naturals (cost acotat)
+        .map(item => {
+            const uci = `${item.mv.from}${item.mv.to}${item.mv.promotion || ''}`;
+            return { uci, appeal: item.appeal, loss: immediateMaterialLoss(uci) };
+        });
+
+    const safe = candidates.filter(c => c.loss <= tolerableLoss && c.uci !== fallbackMove);
+    // Si cap alternativa natural és prou segura, no forcem un disbarat: juguem la millor.
+    if (!safe.length) return fallbackMove;
+
+    // Tria ponderada per atractiu humà: l'error és una jugada amb intenció, no aleatòria.
+    const total = safe.reduce((sum, c) => sum + c.appeal, 0);
+    let roll = Math.random() * total;
+    for (const c of safe) { roll -= c.appeal; if (roll <= 0) return c.uci; }
+    return safe[safe.length - 1].uci;
 }
 
 function analyzeMove() {
