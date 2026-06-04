@@ -1492,6 +1492,28 @@
             font-size: 0.85rem;
         }
 
+        .opening-practice-actions,
+        body.device-desktop .opening-practice-actions,
+        body.device-tablet .opening-practice-actions,
+        body.device-mobile .opening-practice-actions {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            max-width: 520px;
+            margin: 12px auto 0;
+        }
+        .opening-practice-actions .btn {
+            width: 100%;
+            min-width: 0;
+            white-space: normal;
+            justify-content: center;
+            text-align: center;
+        }
+        body.device-mobile .opening-practice-actions {
+            gap: 8px;
+            padding: 0 8px;
+        }
+
         body.device-desktop .game-buttons .btn {
             padding: 14px 12px;
             font-size: 0.9rem;
@@ -2847,14 +2869,14 @@
                     <button class="btn-undo-opening" id="btn-opening-undo" title="Desfer moviment">↩</button>
                 </div>
                 <div class="opening-stats-note" id="opening-practice-note">—</div>
-                <div class="game-buttons" style="margin-top:12px;">
+                <div class="game-buttons opening-practice-actions">
                     <button class="btn btn-hint" id="btn-opening-bundle-hint">💡 Pista</button>
                     <button class="btn btn-brain-hint" id="btn-opening-bundle-maxim">
                         <img src="brain.svg" alt="Cervell">
                         <span>Màxima</span>
                     </button>
-                    <button class="btn btn-secondary" id="btn-opening-bundle-menu">Menú</button>
                     <button class="btn btn-primary" id="btn-opening-bundle-resign">Rendir-se</button>
+                    <button class="btn btn-secondary" id="btn-opening-bundle-menu">Menú</button>
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
