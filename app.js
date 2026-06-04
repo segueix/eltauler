@@ -144,13 +144,26 @@ const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
 const CALIBRATION_GAME_COUNT = 5;
-// Oponents de calibratge per partida (ROC). La força de cada partida es deriva d'aquest ROC
-// amb el MATEIX model que el joc lliure (UCI_Elo + profunditat + selecció humana de moviments),
-// de manera que el nivell estimat reflecteix el que el jugador trobarà realment després.
-const CALIBRATION_ROCS = [200, 350, 500, 650, 800];
+// El calibratge és una CERCA ADAPTATIVA del nivell del jugador, no una escala fixa que sempre
+// puja. Es parteix d'un ROC inicial i, després de cada partida, el rival s'adapta al resultat:
+// si el jugador guanya, puja; si perd, baixa; amb passos decreixents per convergir cap al seu
+// nivell real en 5 partides. La força de cada rival es deriva del seu ROC amb el MATEIX model
+// en dues etapes que el joc lliure (rocToEngineElo + eloToSearchDepth + selecció humana de
+// moviments), de manera que el nivell estimat reflecteix el que el jugador trobarà realment.
+const CALIBRATION_START_ROC = 300;            // punt de partida de la cerca (partida 1)
+const CALIBRATION_STEPS = [220, 160, 110, 80]; // passos decreixents (transicions partida 1→2…4→5)
+const CALIBRATION_ROCS = [200, 350, 500, 650, 800]; // referència/llindar de compatibilitat
 const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
+// Rang REAL de UCI_Elo que accepta el binari de Stockfish inclòs. El build
+// (niklasf/stockfish.js, fork ddugovic) té un terra al voltant de 1350: per sota,
+// Stockfish retalla el valor silenciosament i juga sempre a la mateixa força. Aquests
+// valors es detecten dinàmicament en rebre la llista d'opcions UCI ('option name UCI_Elo
+// ... min X max Y'); els valors per defecte són només un fallback robust.
+let engineEloMin = 1350;
+let engineEloMax = 2850;
+let engineRangeDetected = false;
 let recentErrors = [];
 let currentElo = clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
 aiDifficulty = levelToDifficulty(currentElo);
@@ -180,6 +193,10 @@ const TIME_CONTROLS = [
     { id: '15+10', label: 'Clàssic 15+10', base: 900, inc: 10 }
 ];
 const TIME_CONTROL_KEY = 'chess_timeControl';
+// Ritme escollit per a la propera partida lliure/assistida. Comença sempre "sense rellotge";
+// es tria a la pantalla de joc abans de cada nova partida. La lliga té el seu propi ritme
+// fixat (currentLeague.timeControl), independent d'aquest.
+let pendingFreeTimeControl = 'none';
 let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
 let calibrationResultsChart = null;
 let currentGameStartTs = null;
@@ -2192,7 +2209,10 @@ function createNewLeague(force = false) {
         schedule: schedule,
         currentRound: 1,
         completed: false,
-        history: []
+        history: [],
+        // Ritme de la temporada. Es pot triar mentre no s'hagi jugat cap partit;
+        // un cop començada, queda fixat (vegeu isLeagueTimeControlLocked).
+        timeControl: 'none'
     };
     leagueActiveMatch = null;
     saveStorage();
@@ -2324,10 +2344,38 @@ function openLeague() {
     renderLeague();
 }
 
+// La lliga queda fixada en el ritme escollit tan bon punt s'ha jugat el primer partit
+// (o si ja ha acabat). Abans d'això, el ritme encara es pot canviar.
+function isLeagueTimeControlLocked() {
+    if (!currentLeague) return false;
+    if (currentLeague.completed) return true;
+    if (currentLeague.currentRound > 1) return true;
+    const me = currentLeague.players ? currentLeague.players.find(p => p.id === 'me') : null;
+    return !!(me && me.pj > 0);
+}
+
+function renderLeagueTimeControl() {
+    if (!currentLeague) return;
+    const id = currentLeague.timeControl || 'none';
+    const cfg = TIME_CONTROLS.find(t => t.id === id) || TIME_CONTROLS[0];
+    const locked = isLeagueTimeControlLocked();
+    const sel = $('#league-tc-select');
+    const lockedEl = $('#league-tc-locked');
+    if (sel.length) {
+        sel.val(id);
+        sel.prop('disabled', locked).toggle(!locked);
+    }
+    if (lockedEl.length) {
+        if (locked) lockedEl.text(`Rellotge: ${cfg.label} · fixat 🔒`).show();
+        else lockedEl.hide();
+    }
+}
+
 function renderLeague() {
     if (!currentLeague) return;
 
     $('#league-name').text(currentLeague.name);
+    renderLeagueTimeControl();
 
     if (currentLeague.completed) {
         $('#league-round').text('Lliga acabada');
@@ -2750,6 +2798,25 @@ function clampEngineElo(elo) {
     return Math.round(Math.max(ELO_MIN, Math.min(ELO_MAX, elo)));
 }
 
+// Converteix un ROC (escala pròpia 200-2000) a un UCI_Elo VÀLID per a Stockfish.
+//
+// Model de força en dues etapes (coherent i interpretable pel motor):
+//   - ROC < terra del motor (~1350): el motor no pot jugar tan fluix amb UCI_Elo, així que el
+//     fixem al terra i la força efectiva és PROPORCIONAL a la fracció ROC/terra (vegeu
+//     getStrengthNormalized): la profunditat reduïda (eloToSearchDepth) i la selecció humana de
+//     moviments (chooseHumanLikeMove) escalen linealment amb aquesta proporció. Així un ROC X
+//     equival al X/1350 de la força del motor al seu terra: relació proporcional amb Stockfish,
+//     que és la franja on jugarà la majoria d'usuaris.
+//   - ROC >= terra del motor: ROC == UCI_Elo real, de manera que el nivell mostrat
+//     coincideix amb la força exacta que Stockfish reprodueix.
+//
+// Així evitem el retall silenciós que abans feia que tots els ROC baixos fossin idèntics
+// per al motor, i el rang s'adapta automàticament al binari realment carregat.
+function rocToEngineElo(roc) {
+    const value = isNaN(roc) ? engineEloMin : roc;
+    return Math.round(Math.max(engineEloMin, Math.min(engineEloMax, value)));
+}
+
 function difficultyToLevel(legacyDifficulty) {
     // Converteix l'antic rang 5-15 a ELO adaptatiu 400-3000
     const normalized = Math.max(0, Math.min(1, ((legacyDifficulty || 8) - 5) / 10));
@@ -2772,15 +2839,27 @@ function getActiveStrengthElo() {
     return currentElo;
 }
 
-// Normalitza l'ELO actiu dins el rang jugable (200-2000) per modular profunditat i qualitat de moviments.
-// Substitueix l'antic mapatge comprimit (5-15) perquè l'adaptació es noti a tot el rang.
+// Fracció de força respecte el TERRA real de Stockfish (~1350, detectat dinàmicament): roc/terra,
+// limitada a [0.05, 1]. Aquesta és la clau de la relació PROPORCIONAL amb Stockfish: per sota del
+// terra, la força efectiva (profunditat + humanització) escala proporcionalment amb aquesta fracció,
+// de manera que un ROC X equival a la fracció X/1350 de la força del motor al seu terra. Al terra i
+// per sobre val 1: Stockfish ja controla la força amb UCI_Elo i no cal afegir-hi soroll.
 function getStrengthNormalized() {
-    return Math.max(0, Math.min(1, (getActiveStrengthElo() - ELO_MIN) / (ELO_MAX - ELO_MIN)));
+    const floor = engineEloMin || 1350;
+    return Math.max(0.05, Math.min(1, getActiveStrengthElo() / floor));
 }
 
 function eloToSearchDepth(elo) {
-    const normalized = Math.max(0, Math.min(1, (elo - ELO_MIN) / (ELO_MAX - ELO_MIN)));
-    return Math.round(2 + normalized * 12); // rang 2..14
+    const floor = engineEloMin || 1350;
+    if (elo >= floor) {
+        // Per sobre del terra, Stockfish limita la força amb UCI_Elo; donem profunditat alta i
+        // creixent fins al sostre de l'escala.
+        const n = Math.max(0, Math.min(1, (elo - floor) / (ELO_MAX - floor)));
+        return Math.round(12 + n * 4); // 12..16
+    }
+    // Per sota del terra: profunditat PROPORCIONAL a la fracció elo/terra (relació proporcional amb SF).
+    const fraction = Math.max(0, Math.min(1, elo / floor));
+    return Math.max(1, Math.round(2 + fraction * 10)); // ~2..12 segons la proporció
 }
 
 function adjustAIDifficulty(playerWon, precision, resultScore = null) {
@@ -3036,14 +3115,27 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
     return Math.min(calibrationGames.length, CALIBRATION_GAME_COUNT - 1);
 }
 
+function clampCalibrationRoc(roc) {
+    return Math.max(CALIBRATION_ROC_MIN, Math.min(CALIBRATION_ROC_MAX, Math.round(roc)));
+}
+
+// Cerca adaptativa del nivell: parteix del ROC inicial i, segons el resultat de l'última
+// partida, adapta el rival (guanya → puja; perd → baixa; taules → lleugera pujada) amb passos
+// decreixents perquè convergeixi cap al nivell real del jugador. No segueix una escala fixa.
 function getCalibrationOpponentRoc() {
-    const index = getCalibrationGameIndex();
-    if (index < 3) return CALIBRATION_ROCS[index];
-    const performance = getCalibrationPerformanceScore(calibrationGames);
-    const base = CALIBRATION_ROCS[Math.min(index, CALIBRATION_ROCS.length - 1)];
-    if (performance >= 0.7) return base + 75;
-    if (performance <= 0.45) return Math.max(CALIBRATION_ROC_MIN, base - 100);
-    return base;
+    const games = calibrationGames;
+    if (!games.length) return clampCalibrationRoc(CALIBRATION_START_ROC);
+
+    const last = games[games.length - 1];
+    let roc = typeof last.opponentElo === 'number' ? last.opponentElo : CALIBRATION_START_ROC;
+    const stepIdx = Math.min(games.length - 1, CALIBRATION_STEPS.length - 1);
+    const step = CALIBRATION_STEPS[stepIdx];
+
+    if (last.result === 'win') roc += step;            // ha guanyat → rival més fort
+    else if (last.result === 'loss') roc -= step;       // ha perdut → rival més fluix
+    else roc += Math.round(step * 0.2);                 // taules → ajust petit a l'alça
+
+    return clampCalibrationRoc(roc);
 }
 
 function getCalibrationProgressCount() {
@@ -3105,12 +3197,13 @@ function estimateCalibrationRoc() {
     });
     const totalWeight = weighted.reduce((sum, item) => sum + item.weight, 0);
     const weightedPerformance = weighted.reduce((sum, item) => sum + (item.performance * item.weight), 0) / (totalWeight || 1);
-    const opponentEloValues = weighted
-        .map(item => item.opponentElo)
-        .filter(value => typeof value === 'number' && !isNaN(value));
-    const avgOpponentElo = opponentEloValues.length
-        ? opponentEloValues.reduce((sum, value) => sum + value, 0) / opponentEloValues.length
-        : CALIBRATION_ROCS[Math.min(getCalibrationGameIndex(), CALIBRATION_ROCS.length - 1)];
+    // Mitjana del ROC dels rivals ponderada cap a les últimes partides: així el valor on ha
+    // convergit la cerca adaptativa (el nivell trobat) domina sobre el punt de partida inicial.
+    const opponentItems = weighted.filter(item => typeof item.opponentElo === 'number' && !isNaN(item.opponentElo));
+    const opponentWeight = opponentItems.reduce((sum, item) => sum + item.weight, 0);
+    const avgOpponentElo = opponentItems.length
+        ? opponentItems.reduce((sum, item) => sum + (item.opponentElo * item.weight), 0) / (opponentWeight || 1)
+        : clampCalibrationRoc(CALIBRATION_START_ROC);
     const performanceDelta = (weightedPerformance - 0.5) * 250;
     const confidence = Math.min(1, calibrationGames.length / CALIBRATION_GAME_COUNT);
     const conservativeBias = -50;
@@ -3228,6 +3321,67 @@ function trackEngineCandidate(msg) {
     else engineMoveCandidates.push(candidate);
 }
 
+const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+// Heurística d'"atractiu humà": com de natural sembla una jugada per a una persona.
+// Els errors humans solen ser jugades amb intenció aparent (capturar material, fer escac,
+// desenvolupar peces, ocupar el centre, enrocar), NO moviments aleatoris (peons de banda
+// sense motiu, passejar el rei). Com més alt l'atractiu, més probable que un humà la jugui.
+function humanMoveAppeal(mv) {
+    if (!mv) return 1;
+    let appeal = 1;
+    const san = mv.san || '';
+    if (san.includes('#')) appeal += 40;            // ningú falla un mat evident
+    else if (san.includes('+')) appeal += 1.5;      // els escacs semblen forçats
+    if (mv.captured) appeal += 2 + (PIECE_VALUE[mv.captured] || 0); // copejar material atrau (sovint massa)
+    if (mv.flags && (mv.flags.includes('k') || mv.flags.includes('q'))) appeal += 1.5; // enrocar
+    if (mv.piece === 'n' || mv.piece === 'b') appeal += 0.8; // desenvolupar peces menors
+    const file = mv.to.charCodeAt(0) - 97;
+    const rank = parseInt(mv.to[1], 10) - 1;
+    const centerDist = Math.abs(3.5 - file) + Math.abs(3.5 - rank);
+    appeal += (7 - centerDist) * 0.15;              // el centre crida més que la banda
+    if (mv.piece === 'p' && !mv.captured && (file === 0 || file === 7)) appeal -= 1.5; // peó de banda sense motiu
+    if (mv.piece === 'k' && !(mv.flags && (mv.flags.includes('k') || mv.flags.includes('q')))) appeal -= 1.2; // passejar el rei
+    return Math.max(0.05, appeal);
+}
+
+// Pèrdua de material immediata (en peons) després d'una jugada, amb una recaptura simple
+// a la mateixa casella (SEE-lite a 1 jugada). Serveix per evitar regals catastròfics —p. ex.
+// penjar la dama en una jugada tranquil·la— que cap humà del nivell faria. Els errors
+// "lògics" són no veure tàctiques, no regalar peces sense cap intenció.
+function immediateMaterialLoss(uciMove) {
+    if (!game) return 0;
+    const from = uciMove.substring(0, 2);
+    const to = uciMove.substring(2, 4);
+    const promotion = uciMove.length > 4 ? uciMove[4] : 'q';
+    const played = game.move({ from, to, promotion });
+    if (!played) return 0;
+    let worst = 0;
+    const replies = game.moves({ verbose: true });
+    for (const r of replies) {
+        if (!r.captured) continue;
+        const gain = PIECE_VALUE[r.captured] || 0;
+        let recap = 0;
+        const opp = game.move({ from: r.from, to: r.to, promotion: 'q' });
+        if (opp) {
+            const canRecapture = game.moves({ verbose: true }).some(m => m.to === r.to && m.captured);
+            if (canRecapture) recap = PIECE_VALUE[opp.piece] || 0;
+            game.undo();
+        }
+        const net = gain - recap;
+        if (net > worst) worst = net;
+    }
+    game.undo();
+    return worst;
+}
+
+// Magnitud d'error "lògica" per al nivell (en peons): com més baix el nivell, més gran
+// l'error tolerat, però sempre dins el que una persona d'aquell nivell faria de manera
+// natural. ROC ~200 => ~3.6 peons; ROC ~2000 => ~0.6 peons.
+function levelTolerableLossPawns(normalized) {
+    return 0.6 + (1 - normalized) * 3.0;
+}
+
 function chooseHumanLikeMove(candidates) {
     if (!candidates || candidates.length === 0) return null;
     const sorted = candidates.slice().sort((a, b) => b.score - a.score);
@@ -3247,11 +3401,17 @@ function chooseHumanLikeMove(candidates) {
     const explore = Math.random() < offPathChance;
     if (!explore) return trimmed[0];
 
+    // Quan es desvia del millor, biaixem cap a la jugada més natural (humana), no només
+    // per puntuació: així l'error sembla una decisió humana plausible i no arbitrària.
+    const verboseByUci = {};
+    if (game) game.moves({ verbose: true }).forEach(m => { verboseByUci[`${m.from}${m.to}${m.promotion || ''}`] = m; });
+
     const temperature = 1.4 - (normalized * 0.8);
     const weights = trimmed.map((c, idx) => {
         const relativeScore = c.score - trimmed[0].score;
         const softness = Math.exp(relativeScore / (50 * temperature));
-        return softness / (idx + 1);
+        const appeal = humanMoveAppeal(verboseByUci[c.move]);
+        return (softness / (idx + 1)) * appeal;
     });
     const total = weights.reduce((sum, w) => sum + w, 0);
     let roll = Math.random() * total;
@@ -3546,16 +3706,22 @@ function updateAdaptiveEngineEloLabel() {
         return;
     }
     const elo = Math.round(currentElo);
+    // Per sobre del terra del motor el número és un UCI_Elo real de Stockfish ("ELO");
+    // per sota és l'escala pròpia adaptativa ("ROC"), que el motor no reprodueix exactament.
+    const unit = elo >= engineEloMin ? 'ELO' : 'ROC';
     if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
-        $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo} (adaptatiu)`);
+        $('#engine-elo').text(`${eloLevelLabel(elo)} · ${unit} ${elo} (adaptatiu)`);
         return;
     }
-    $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo}`);
+    $('#engine-elo').text(`${eloLevelLabel(elo)} · ${unit} ${elo}`);
 }
 
 function applyEngineEloStrength(eloValue) {
     if (!stockfish) return;
-    const safeElo = clampEngineElo(eloValue);
+    // El ROC es manté dins l'escala pròpia (200-2000) i després es projecta al rang
+    // vàlid real del motor. Per sota del terra, UCI_Elo queda al mínim del motor i la
+    // resta de la debilitat la posen profunditat + selecció humana de moviments.
+    const safeElo = rocToEngineElo(clampEngineElo(eloValue));
     try {
         stockfish.postMessage('setoption name UCI_LimitStrength value true');
         stockfish.postMessage(`setoption name UCI_Elo value ${safeElo}`);
@@ -8537,9 +8703,19 @@ function setupEvents() {
         saveBundleAcceptMode($(this).val());
     });
 
-    // Control de temps (rellotge)
-    $('#time-control-select').off('change').on('change', function() {
-        try { localStorage.setItem(TIME_CONTROL_KEY, $(this).val()); } catch (e) {}
+    // Rellotge de la nova partida (lliure/assistida): es tria abans de cada partida i
+    // comença sempre a "sense rellotge".
+    $('#new-game-tc-select').off('change').on('change', function() {
+        pendingFreeTimeControl = $(this).val() || 'none';
+    });
+
+    // Rellotge de la lliga: només es pot triar abans de jugar el primer partit; un cop
+    // començada, queda fixat per a tota la temporada i el selector es bloqueja.
+    $('#league-tc-select').off('change').on('change', function() {
+        if (!currentLeague || isLeagueTimeControlLocked()) { renderLeagueTimeControl(); return; }
+        currentLeague.timeControl = $(this).val() || 'none';
+        saveStorage();
+        renderLeagueTimeControl();
     });
 
     // Analitza la posició actual
@@ -9513,12 +9689,16 @@ function promptMatchErrorNext() {
 }
 
 /* ===================== RELLOTGE DE PARTIDA ===================== */
-function loadTimeControl() {
-    try { return localStorage.getItem(TIME_CONTROL_KEY) || 'none'; }
-    catch (e) { return 'none'; }
+// Ritme actiu segons el context: a la lliga, el ritme fixat de la temporada; en
+// qualsevol altra partida, el triat per a la nova partida (per defecte, sense rellotge).
+function getActiveTimeControlId() {
+    if (currentGameMode === 'league' && currentLeague) {
+        return currentLeague.timeControl || 'none';
+    }
+    return pendingFreeTimeControl || 'none';
 }
 function getTimeControlConfig() {
-    return TIME_CONTROLS.find(t => t.id === loadTimeControl()) || TIME_CONTROLS[0];
+    return TIME_CONTROLS.find(t => t.id === getActiveTimeControlId()) || TIME_CONTROLS[0];
 }
 function formatClock(ms) {
     if (ms < 0) ms = 0;
@@ -9882,8 +10062,30 @@ function chooseFallbackMove(fallbackMove) {
     if (Math.random() > mistakeChance) return fallbackMove;
     const legalMoves = game ? game.moves({ verbose: true }) : [];
     if (!legalMoves || legalMoves.length === 0) return fallbackMove;
-    const choice = legalMoves[Math.floor(Math.random() * legalMoves.length)];
-    return `${choice.from}${choice.to}${choice.promotion || ''}`;
+
+    // Filtre d'humanització: en lloc d'una jugada aleatòria (que pot ser un disbarat que
+    // cap humà faria), triem entre les jugades MÉS NATURALS i només si l'error de material
+    // és coherent amb el nivell. Així els errors són "lògics": no veure la millor jugada,
+    // no regalar peces sense intenció.
+    const tolerableLoss = levelTolerableLossPawns(normalized);
+    const candidates = legalMoves
+        .map(mv => ({ mv, appeal: humanMoveAppeal(mv) }))
+        .sort((a, b) => b.appeal - a.appeal)
+        .slice(0, 8) // avaluem la seguretat només de les més naturals (cost acotat)
+        .map(item => {
+            const uci = `${item.mv.from}${item.mv.to}${item.mv.promotion || ''}`;
+            return { uci, appeal: item.appeal, loss: immediateMaterialLoss(uci) };
+        });
+
+    const safe = candidates.filter(c => c.loss <= tolerableLoss && c.uci !== fallbackMove);
+    // Si cap alternativa natural és prou segura, no forcem un disbarat: juguem la millor.
+    if (!safe.length) return fallbackMove;
+
+    // Tria ponderada per atractiu humà: l'error és una jugada amb intenció, no aleatòria.
+    const total = safe.reduce((sum, c) => sum + c.appeal, 0);
+    let roll = Math.random() * total;
+    for (const c of safe) { roll -= c.appeal; if (roll <= 0) return c.uci; }
+    return safe[safe.length - 1].uci;
 }
 
 function analyzeMove() {
@@ -10016,6 +10218,17 @@ function resetEnrichedAnalysisBuffer() {
 function handleEngineMessage(rawMsg) {
     if (typeof rawMsg !== 'string') return;
     const msg = rawMsg.trim();
+    // Detecta el rang real de UCI_Elo del binari carregat per no dependre de valors
+    // codificats ni del retall silenciós del motor.
+    if (!engineRangeDetected && msg.indexOf('option name UCI_Elo') !== -1) {
+        const rangeMatch = msg.match(/min\s+(\d+)\s+max\s+(\d+)/);
+        if (rangeMatch) {
+            engineEloMin = parseInt(rangeMatch[1], 10);
+            engineEloMax = parseInt(rangeMatch[2], 10);
+            engineRangeDetected = true;
+        }
+        return;
+    }
     if (msg === 'uciok') {
         try { stockfish.postMessage('isready'); } catch (e) {}
         return;
@@ -11220,8 +11433,9 @@ $(document).ready(() => {
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
-    const tcSel = document.getElementById('time-control-select');
-    if (tcSel) tcSel.value = loadTimeControl();
+    pendingFreeTimeControl = 'none';
+    const tcSel = document.getElementById('new-game-tc-select');
+    if (tcSel) tcSel.value = pendingFreeTimeControl;
     generateDailyMissions(); checkStreak(); updateDisplay(); setupEvents(); 
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;

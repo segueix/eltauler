@@ -2348,6 +2348,16 @@
                 <div class="menu-buttons">
                     <button class="btn btn-primary btn-hero" id="btn-new-game">♟ Nova Partida</button>
                     <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida Assistida</button>
+                    <div class="setting-row" style="margin: 2px 4px 4px;">
+                        <div class="setting-label">Rellotge</div>
+                        <select id="new-game-tc-select" class="select-control">
+                            <option value="none">Sense rellotge</option>
+                            <option value="3+2">Blitz 3+2</option>
+                            <option value="5+0">Blitz 5+0</option>
+                            <option value="10+0">Ràpid 10+0</option>
+                            <option value="15+10">Clàssic 15+10</option>
+                        </select>
+                    </div>
                     <div class="league-banner" id="league-banner" style="display:none;">
                         <div class="league-banner-header">
                             <span>🏅 Proper partit de lliga</span>
@@ -2496,17 +2506,6 @@
                     </select>
                 </div>
                 <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar".</div>
-                <div class="setting-row">
-                    <div class="setting-label">Rellotge de partida</div>
-                    <select id="time-control-select" class="select-control">
-                        <option value="none">Sense rellotge</option>
-                        <option value="3+2">Blitz 3+2</option>
-                        <option value="5+0">Blitz 5+0</option>
-                        <option value="10+0">Ràpid 10+0</option>
-                        <option value="15+10">Clàssic 15+10</option>
-                    </select>
-                </div>
-                <div class="setting-help">S'aplica a les partides amistoses, assistides i de lliga. Si esgotes el temps, perds la partida.</div>
                 <div class="setting-row">
                     <div class="setting-label">Revisió d'errors (Bundle)</div>
                     <select id="bundle-accept-select" class="select-control">
@@ -2746,6 +2745,17 @@
                 <div class="league-name" id="league-name">—</div>
                 <div class="league-round" id="league-round">Jornada 1/9</div>
                 <div class="league-next" id="league-next">Proper rival: —</div>
+                <div class="setting-row" id="league-tc-row" style="margin-top:6px;">
+                    <div class="setting-label">Rellotge</div>
+                    <select id="league-tc-select" class="select-control">
+                        <option value="none">Sense rellotge</option>
+                        <option value="3+2">Blitz 3+2</option>
+                        <option value="5+0">Blitz 5+0</option>
+                        <option value="10+0">Ràpid 10+0</option>
+                        <option value="15+10">Clàssic 15+10</option>
+                    </select>
+                    <span id="league-tc-locked" style="display:none; font-size:0.9rem; color: var(--text-secondary);"></span>
+                </div>
                 <div class="league-note">Punts: Victòria 1 · Taules 0,5 · Derrota 0</div>
             </div>
 
