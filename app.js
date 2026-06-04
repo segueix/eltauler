@@ -145,12 +145,23 @@ const ELO_MIN = 200;
 const ELO_MAX = 2000;
 const CALIBRATION_GAME_COUNT = 5;
 // Oponents de calibratge per partida (ROC). La força de cada partida es deriva d'aquest ROC
-// amb el MATEIX model que el joc lliure (UCI_Elo + profunditat + selecció humana de moviments),
-// de manera que el nivell estimat reflecteix el que el jugador trobarà realment després.
+// amb el MATEIX model en dues etapes que el joc lliure: UCI_Elo projectat al rang vàlid real
+// del motor (rocToEngineElo) + profunditat (eloToSearchDepth) + selecció humana de moviments
+// (chooseHumanLikeMove). Com que aquests ROC són inferiors al terra del motor (~1350), la
+// diferència de força entre partides la posen la profunditat i la humanització, no UCI_Elo;
+// així el nivell estimat reflecteix el que el jugador trobarà realment després.
 const CALIBRATION_ROCS = [200, 350, 500, 650, 800];
 const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
+// Rang REAL de UCI_Elo que accepta el binari de Stockfish inclòs. El build
+// (niklasf/stockfish.js, fork ddugovic) té un terra al voltant de 1350: per sota,
+// Stockfish retalla el valor silenciosament i juga sempre a la mateixa força. Aquests
+// valors es detecten dinàmicament en rebre la llista d'opcions UCI ('option name UCI_Elo
+// ... min X max Y'); els valors per defecte són només un fallback robust.
+let engineEloMin = 1350;
+let engineEloMax = 2850;
+let engineRangeDetected = false;
 let recentErrors = [];
 let currentElo = clampEngineElo(ADAPTIVE_CONFIG.DEFAULT_LEVEL);
 aiDifficulty = levelToDifficulty(currentElo);
@@ -2750,6 +2761,22 @@ function clampEngineElo(elo) {
     return Math.round(Math.max(ELO_MIN, Math.min(ELO_MAX, elo)));
 }
 
+// Converteix un ROC (escala pròpia 200-2000) a un UCI_Elo VÀLID per a Stockfish.
+//
+// Model de força en dues etapes (coherent i interpretable pel motor):
+//   - ROC <= terra del motor (~1350): el motor no pot jugar tan fluix amb UCI_Elo,
+//     així que el fixem al terra i la debilitat real la creen la profunditat reduïda
+//     (eloToSearchDepth) + la selecció humana de moviments (chooseHumanLikeMove).
+//   - ROC > terra del motor: ROC == UCI_Elo real, de manera que el nivell mostrat
+//     coincideix amb la força efectiva que Stockfish reprodueix.
+//
+// Així evitem el retall silenciós que abans feia que tots els ROC baixos fossin idèntics
+// per al motor, i el rang s'adapta automàticament al binari realment carregat.
+function rocToEngineElo(roc) {
+    const value = isNaN(roc) ? engineEloMin : roc;
+    return Math.round(Math.max(engineEloMin, Math.min(engineEloMax, value)));
+}
+
 function difficultyToLevel(legacyDifficulty) {
     // Converteix l'antic rang 5-15 a ELO adaptatiu 400-3000
     const normalized = Math.max(0, Math.min(1, ((legacyDifficulty || 8) - 5) / 10));
@@ -3546,16 +3573,22 @@ function updateAdaptiveEngineEloLabel() {
         return;
     }
     const elo = Math.round(currentElo);
+    // Per sobre del terra del motor el número és un UCI_Elo real de Stockfish ("ELO");
+    // per sota és l'escala pròpia adaptativa ("ROC"), que el motor no reprodueix exactament.
+    const unit = elo >= engineEloMin ? 'ELO' : 'ROC';
     if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
-        $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo} (adaptatiu)`);
+        $('#engine-elo').text(`${eloLevelLabel(elo)} · ${unit} ${elo} (adaptatiu)`);
         return;
     }
-    $('#engine-elo').text(`${eloLevelLabel(elo)} · ELO ${elo}`);
+    $('#engine-elo').text(`${eloLevelLabel(elo)} · ${unit} ${elo}`);
 }
 
 function applyEngineEloStrength(eloValue) {
     if (!stockfish) return;
-    const safeElo = clampEngineElo(eloValue);
+    // El ROC es manté dins l'escala pròpia (200-2000) i després es projecta al rang
+    // vàlid real del motor. Per sota del terra, UCI_Elo queda al mínim del motor i la
+    // resta de la debilitat la posen profunditat + selecció humana de moviments.
+    const safeElo = rocToEngineElo(clampEngineElo(eloValue));
     try {
         stockfish.postMessage('setoption name UCI_LimitStrength value true');
         stockfish.postMessage(`setoption name UCI_Elo value ${safeElo}`);
@@ -10016,6 +10049,17 @@ function resetEnrichedAnalysisBuffer() {
 function handleEngineMessage(rawMsg) {
     if (typeof rawMsg !== 'string') return;
     const msg = rawMsg.trim();
+    // Detecta el rang real de UCI_Elo del binari carregat per no dependre de valors
+    // codificats ni del retall silenciós del motor.
+    if (!engineRangeDetected && msg.indexOf('option name UCI_Elo') !== -1) {
+        const rangeMatch = msg.match(/min\s+(\d+)\s+max\s+(\d+)/);
+        if (rangeMatch) {
+            engineEloMin = parseInt(rangeMatch[1], 10);
+            engineEloMax = parseInt(rangeMatch[2], 10);
+            engineRangeDetected = true;
+        }
+        return;
+    }
     if (msg === 'uciok') {
         try { stockfish.postMessage('isready'); } catch (e) {}
         return;
