@@ -1519,6 +1519,36 @@
             font-size: 0.9rem;
         }
 
+        .controls .game-buttons,
+        body.device-desktop .controls .game-buttons,
+        body.device-tablet .controls .game-buttons,
+        body.device-mobile .controls .game-buttons {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+            width: 100%;
+            max-width: 420px;
+            margin: 0 auto;
+        }
+        .controls .game-buttons .btn {
+            min-width: 0;
+            width: 100%;
+            margin-left: 0;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            text-align: center;
+        }
+        .controls .game-buttons #btn-hint { order: 1; }
+        .controls .game-buttons #btn-brain-hint { order: 2; }
+        .controls .game-buttons #btn-assisted-hint { order: 2; }
+        .controls .game-buttons #btn-analyze { order: 2; }
+        .controls .game-buttons #btn-resign { order: 3; }
+        .controls .game-buttons #btn-back { order: 4; }
+        body.device-mobile .controls .game-buttons {
+            gap: 8px;
+            max-width: none;
+        }
+
         /* Botó de rendir-se integrat al requadre de joc (desktop) */
         @media (min-width: 769px) {
             .controls {
@@ -2989,8 +3019,8 @@
                         <span>Consell</span>
                     </button>
                     <button class="btn btn-analyze" id="btn-analyze" title="Analitza la posició actual" style="display:none;">🔬 Analitza</button>
-                    <button class="btn btn-secondary" id="btn-back">Menú</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
+                    <button class="btn btn-secondary" id="btn-back">Menú</button>
                 </div>
             </div>
    
