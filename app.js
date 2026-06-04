@@ -183,6 +183,7 @@ let isCalibrationGame = false;
 let currentCalibrationOpponentRoc = null;
 let isEngineThinking = false;
 let engineMoveCandidates = [];
+let openingEngineMoveCandidates = [];
 let lastReviewSnapshot = null;
 // Rellotge de partida (mode contrarellotge)
 const TIME_CONTROLS = [
@@ -3299,8 +3300,16 @@ function resetEngineMoveCandidates() {
     engineMoveCandidates = [];
 }
 
+function resetOpeningEngineMoveCandidates() {
+    openingEngineMoveCandidates = [];
+}
+
 function trackEngineCandidate(msg) {
-    if (!isEngineThinking || msg.indexOf('multipv') === -1 || msg.indexOf(' pv ') === -1) return;
+    if (msg.indexOf('multipv') === -1 || msg.indexOf(' pv ') === -1) return;
+    const targetCandidates = isEngineThinking
+        ? engineMoveCandidates
+        : ((openingPracticeEngineThinking && stockfishRequestor === 'opening-engine') ? openingEngineMoveCandidates : null);
+    if (!targetCandidates) return;
     const pvMatch = msg.match(/multipv\s+(\d+).*?\spv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
     if (!pvMatch) return;
 
@@ -3315,10 +3324,10 @@ function trackEngineCandidate(msg) {
 
     const multipv = parseInt(pvMatch[1]);
     const move = pvMatch[2];
-    const existingIdx = engineMoveCandidates.findIndex(c => c.multipv === multipv);
+    const existingIdx = targetCandidates.findIndex(c => c.multipv === multipv);
     const candidate = { multipv, move, score };
-    if (existingIdx >= 0) engineMoveCandidates[existingIdx] = candidate;
-    else engineMoveCandidates.push(candidate);
+    if (existingIdx >= 0) targetCandidates[existingIdx] = candidate;
+    else targetCandidates.push(candidate);
 }
 
 const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
@@ -3349,30 +3358,60 @@ function humanMoveAppeal(mv) {
 // a la mateixa casella (SEE-lite a 1 jugada). Serveix per evitar regals catastròfics —p. ex.
 // penjar la dama en una jugada tranquil·la— que cap humà del nivell faria. Els errors
 // "lògics" són no veure tàctiques, no regalar peces sense cap intenció.
-function immediateMaterialLoss(uciMove) {
-    if (!game) return 0;
+function immediateMaterialLoss(uciMove, chessInstance = game) {
+    if (!chessInstance) return 0;
     const from = uciMove.substring(0, 2);
     const to = uciMove.substring(2, 4);
     const promotion = uciMove.length > 4 ? uciMove[4] : 'q';
-    const played = game.move({ from, to, promotion });
+    const played = chessInstance.move({ from, to, promotion });
     if (!played) return 0;
     let worst = 0;
-    const replies = game.moves({ verbose: true });
+    const replies = chessInstance.moves({ verbose: true });
     for (const r of replies) {
         if (!r.captured) continue;
         const gain = PIECE_VALUE[r.captured] || 0;
         let recap = 0;
-        const opp = game.move({ from: r.from, to: r.to, promotion: 'q' });
+        const opp = chessInstance.move({ from: r.from, to: r.to, promotion: 'q' });
         if (opp) {
-            const canRecapture = game.moves({ verbose: true }).some(m => m.to === r.to && m.captured);
+            const canRecapture = chessInstance.moves({ verbose: true }).some(m => m.to === r.to && m.captured);
             if (canRecapture) recap = PIECE_VALUE[opp.piece] || 0;
-            game.undo();
+            chessInstance.undo();
         }
         const net = gain - recap;
         if (net > worst) worst = net;
     }
-    game.undo();
+    chessInstance.undo();
     return worst;
+}
+
+function interpolateByRoc(roc, points) {
+    const safeRoc = Math.max(ELO_MIN, Math.min(ELO_MAX, isNaN(roc) ? getActiveStrengthElo() : roc));
+    for (let i = 0; i < points.length - 1; i++) {
+        const [x1, y1] = points[i];
+        const [x2, y2] = points[i + 1];
+        if (safeRoc <= x2) {
+            const t = Math.max(0, Math.min(1, (safeRoc - x1) / Math.max(1, x2 - x1)));
+            return y1 + (y2 - y1) * t;
+        }
+    }
+    return points[points.length - 1][1];
+}
+
+function getHumanLikeMaxCpLoss(roc = getActiveStrengthElo()) {
+    const floor = engineEloMin || 1350;
+    const strictLoss = 80; // comportament actual aproximat quan Stockfish ja pot usar UCI_Elo real
+    if (roc >= floor) return strictLoss;
+
+    // Per sota del terra real del motor, UCI_Elo queda retallat: la profunditat + aquesta
+    // finestra de selecció humana són les que creen nivells ROC realment diferents. La corba
+    // és suau per evitar salts perceptibles entre 600/1000/1230.
+    return interpolateByRoc(roc, [
+        [ELO_MIN, 900],
+        [600, 700],
+        [1000, 350],
+        [1230, 220],
+        [floor, strictLoss]
+    ]);
 }
 
 // Magnitud d'error "lògica" per al nivell (en peons): com més baix el nivell, més gran
@@ -3382,36 +3421,65 @@ function levelTolerableLossPawns(normalized) {
     return 0.6 + (1 - normalized) * 3.0;
 }
 
-function chooseHumanLikeMove(candidates) {
+function chooseHumanLikeMove(candidates, chessInstance = game) {
     if (!candidates || candidates.length === 0) return null;
     const sorted = candidates.slice().sort((a, b) => b.score - a.score);
 
+    const roc = getActiveStrengthElo();
     const normalized = getStrengthNormalized();
     const bestScore = sorted[0].score;
-    const maxDelta = 250 - (normalized * 170); // Més desviació a nivells baixos
+    const maxDelta = getHumanLikeMaxCpLoss(roc);
+    const tolerableLoss = levelTolerableLossPawns(normalized);
 
-    const plausible = sorted.filter(c => (bestScore - c.score) <= maxDelta);
-    const pool = plausible.length ? plausible : [sorted[0]];
-    const maxCandidates = normalized < 0.3 ? 4 : (normalized < 0.7 ? 3 : 2);
+    const verboseByUci = {};
+    if (chessInstance) {
+        chessInstance.moves({ verbose: true }).forEach(m => {
+            verboseByUci[`${m.from}${m.to}${m.promotion || ''}`] = m;
+        });
+    }
+
+    // No generem jugades aleatòries: només triem entre línies que Stockfish ja ha proposat
+    // via MultiPV, i les filtrem perquè l'error sigui humà (natural) però no una peça penjada.
+    const enriched = sorted.map(c => {
+        const mv = verboseByUci[c.move];
+        const loss = immediateMaterialLoss(c.move, chessInstance);
+        return {
+            ...c,
+            cpLoss: bestScore - c.score,
+            appeal: humanMoveAppeal(mv),
+            materialLoss: loss,
+            legal: !!mv
+        };
+    }).filter(c => c.legal);
+
+    if (!enriched.length) return sorted[0];
+
+    // El filtre de material immediat evita regals de dama/torre o material enorme sense
+    // compensació aparent. Si cap línia passa el filtre, no forcem cap disbarat: tornem al millor.
+    const safeCandidates = enriched.filter(c => c.materialLoss <= tolerableLoss);
+    if (!safeCandidates.length) return sorted[0];
+
+    const plausible = safeCandidates.filter(c => c.cpLoss <= maxDelta);
+    const pool = (plausible.length ? plausible : [safeCandidates[0]]);
+    const maxCandidates = normalized < 0.35 ? 7 : (normalized < 0.75 ? 5 : (roc < (engineEloMin || 1350) ? 4 : 2));
     const trimmed = pool.slice(0, maxCandidates);
 
     if (trimmed.length === 1) return trimmed[0];
 
-    const offPathChance = Math.max(0.1, 0.35 - (normalized * 0.22));
+    // Als ROC baixos explorem alternatives MultiPV molt més sovint; als ROC alts el motor
+    // gairebé sempre manté la millor línia o una alternativa molt propera.
+    const offPathChance = Math.max(0.06, Math.min(0.68, 0.72 - (normalized * 0.62)));
     const explore = Math.random() < offPathChance;
     if (!explore) return trimmed[0];
 
-    // Quan es desvia del millor, biaixem cap a la jugada més natural (humana), no només
-    // per puntuació: així l'error sembla una decisió humana plausible i no arbitrària.
-    const verboseByUci = {};
-    if (game) game.moves({ verbose: true }).forEach(m => { verboseByUci[`${m.from}${m.to}${m.promotion || ''}`] = m; });
-
-    const temperature = 1.4 - (normalized * 0.8);
+    // La ponderació combina naturalitat humana, pèrdua en centipeons i rang MultiPV. Això permet
+    // errors visibles sota ROC 1230 sense convertir Stockfish en un generador de jugades absurdes.
+    const temperature = 3.0 - (normalized * 2.2);
     const weights = trimmed.map((c, idx) => {
-        const relativeScore = c.score - trimmed[0].score;
-        const softness = Math.exp(relativeScore / (50 * temperature));
-        const appeal = humanMoveAppeal(verboseByUci[c.move]);
-        return (softness / (idx + 1)) * appeal;
+        const cpPenalty = Math.exp(-Math.max(0, c.cpLoss) / (Math.max(90, maxDelta) * temperature));
+        const rankPenalty = 1 / Math.pow(idx + 1, normalized < 0.35 ? 0.35 : 0.8);
+        const materialPenalty = Math.max(0.2, 1 - (c.materialLoss / Math.max(0.1, tolerableLoss + 1)));
+        return Math.max(0.001, c.appeal * cpPenalty * rankPenalty * materialPenalty);
     });
     const total = weights.reduce((sum, w) => sum + w, 0);
     let roll = Math.random() * total;
@@ -8351,6 +8419,7 @@ function resetOpeningPracticeBoard() {
     lastOpeningMaxim = null;
     openingPracticeHintPending = false;
     openingPracticeBestMove = null;
+    resetOpeningEngineMoveCandidates();
     // Reset precisió
     openingPracticeGoodMoves = 0;
     openingPracticeTotalMoves = 0;
@@ -8396,17 +8465,48 @@ function resetOpeningPracticeBoard() {
 }
 
 function requestOpeningPracticeEngineMove() {
+    // El tauler d'obertures separa Stockfish fort (pistes, validacions i lliçons guiades)
+    // d'un rival adaptatiu per a la pràctica normal. Validar exercicis requereix exactitud;
+    // jugar contra el bot requereix la mateixa experiència humana que la partida lliure.
+    if (openingLessonActive || openingErrorPracticeActive) {
+        requestOpeningPracticeStrongEngineMove();
+        return;
+    }
+    requestOpeningPracticeAdaptiveEngineMove();
+}
+
+function requestOpeningPracticeStrongEngineMove() {
     if (!openingPracticeGame || openingPracticeGame.game_over()) return;
     if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
     if (!stockfish && !ensureStockfish()) return;
     openingPracticeEngineThinking = true;
     updateOpeningUndoButton(); // Deshabilitar undo mentre l'engine pensa
     stockfishRequestor = 'opening-engine';
+    resetOpeningEngineMoveCandidates();
     try { stockfish.postMessage('setoption name UCI_LimitStrength value false'); } catch (e) {}
     try { stockfish.postMessage('setoption name Skill Level value 20'); } catch (e) {}
     try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
     stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
     stockfish.postMessage('go depth 12');
+}
+
+function requestOpeningPracticeAdaptiveEngineMove() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return;
+    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
+    if (!stockfish && !ensureStockfish()) return;
+    openingPracticeEngineThinking = true;
+    updateOpeningUndoButton(); // Deshabilitar undo mentre l'engine pensa
+    stockfishRequestor = 'opening-engine';
+    resetOpeningEngineMoveCandidates();
+
+    // En pràctica normal d'obertures, ROC < engineEloMin necessita la mateixa combinació de
+    // UCI_Elo adaptatiu, profunditat baixa i selecció humana: si no, Stockfish respondria sempre
+    // amb una línia massa perfecta per a principiants.
+    applyEngineEloStrength(getActiveStrengthElo());
+    const multiPvValue = getActiveStrengthElo() < (engineEloMin || 1350) ? 7 : 5;
+    try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
+    stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
+    stockfish.postMessage(`go depth ${getAIDepth()}`);
 }
 
 function checkShareSupport() {
@@ -10056,11 +10156,11 @@ function makeEngineMove() {
     stockfish.postMessage(`go depth ${depth}`);
 }
 
-function chooseFallbackMove(fallbackMove) {
+function chooseFallbackMove(fallbackMove, chessInstance = game) {
     const normalized = getStrengthNormalized();
     const mistakeChance = Math.max(0.1, 0.35 - (normalized * 0.25));
     if (Math.random() > mistakeChance) return fallbackMove;
-    const legalMoves = game ? game.moves({ verbose: true }) : [];
+    const legalMoves = chessInstance ? chessInstance.moves({ verbose: true }) : [];
     if (!legalMoves || legalMoves.length === 0) return fallbackMove;
 
     // Filtre d'humanització: en lloc d'una jugada aleatòria (que pot ser un disbarat que
@@ -10074,7 +10174,7 @@ function chooseFallbackMove(fallbackMove) {
         .slice(0, 8) // avaluem la seguretat només de les més naturals (cost acotat)
         .map(item => {
             const uci = `${item.mv.from}${item.mv.to}${item.mv.promotion || ''}`;
-            return { uci, appeal: item.appeal, loss: immediateMaterialLoss(uci) };
+            return { uci, appeal: item.appeal, loss: immediateMaterialLoss(uci, chessInstance) };
         });
 
     const safe = candidates.filter(c => c.loss <= tolerableLoss && c.uci !== fallbackMove);
@@ -10296,9 +10396,19 @@ function handleEngineMessage(rawMsg) {
         stockfishRequestor = null;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match && openingPracticeGame) {
-            const from = match[1];
-            const to = match[2];
-            const promotion = match[3] || 'q';
+            const fallbackMove = match[1] + match[2] + (match[3] || '');
+            const useAdaptiveOpeningOpponent = !openingLessonActive && !openingErrorPracticeActive;
+            const chosen = useAdaptiveOpeningOpponent
+                ? (chooseHumanLikeMove(openingEngineMoveCandidates, openingPracticeGame) || { move: null })
+                : { move: fallbackMove };
+            const moveStr = (useAdaptiveOpeningOpponent && openingEngineMoveCandidates.length > 0 && chosen.move)
+                ? chosen.move
+                : (useAdaptiveOpeningOpponent ? chooseFallbackMove(fallbackMove, openingPracticeGame) : fallbackMove);
+            const from = moveStr.substring(0, 2);
+            const to = moveStr.substring(2, 4);
+            const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
+            resetOpeningEngineMoveCandidates();
+            try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
 
             // Fer el moviment de l'engine immediatament en chess.js (per evitar que l'usuari mogui abans)
             const move = openingPracticeGame.move({
