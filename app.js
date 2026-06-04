@@ -150,7 +150,7 @@ const CALIBRATION_GAME_COUNT = 5;
 // nivell real en 5 partides. La força de cada rival es deriva del seu ROC amb el MATEIX model
 // en dues etapes que el joc lliure (rocToEngineElo + eloToSearchDepth + selecció humana de
 // moviments), de manera que el nivell estimat reflecteix el que el jugador trobarà realment.
-const CALIBRATION_START_ROC = 500;            // punt de partida de la cerca (partida 1)
+const CALIBRATION_START_ROC = 300;            // punt de partida de la cerca (partida 1)
 const CALIBRATION_STEPS = [220, 160, 110, 80]; // passos decreixents (transicions partida 1→2…4→5)
 const CALIBRATION_ROCS = [200, 350, 500, 650, 800]; // referència/llindar de compatibilitat
 const CALIBRATION_ROC_MIN = 200;
