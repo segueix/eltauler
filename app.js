@@ -217,6 +217,34 @@ let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, la
 let completedOpenings = [];
 let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
 let isTacticsSession = false;
+
+// Entrenador invisible: domini temàtic, recomanacions i estadístiques de creixement
+const TARGET_SUCCESS_RATE = 0.72;
+const THEME_MASTERY_KEY = 'chess_themeMastery';
+const GROWTH_TASK_HISTORY_KEY = 'eltauler_growth_task_history';
+const GROWTH_STATS_KEY = 'chess_growthStats';
+const THEME_MASTERY_DEFAULTS = {
+    fork: 0.0,
+    pin: 0.0,
+    skewer: 0.0,
+    king_attack: 0.0,
+    material: 0.0,
+    center: 0.0,
+    opening: 0.0,
+    endgame: 0.0,
+    general: 0.0
+};
+let themeMastery = { ...THEME_MASTERY_DEFAULTS };
+let growthStats = {
+    tasksRecommended: 0,
+    tasksStarted: 0,
+    tasksCompleted: 0,
+    personalErrorsConverted: 0,
+    srsCompleted: 0,
+    weaknessSessionsCompleted: 0,
+    lastRecommendedAt: null
+};
+let currentGrowthTask = null;
 // Cau en memòria de respostes Gemini (per FEN+tipus) per estalviar crides
 const geminiResponseCache = {};
 let bundleSequenceStep = 1;
@@ -3538,6 +3566,8 @@ function loadStorage() {
     const compOp = localStorage.getItem('chess_completedOpenings'); if (compOp) { try { completedOpenings = JSON.parse(compOp); } catch (e) {} }
     const tacS = localStorage.getItem('chess_tacticsStats'); if (tacS) { try { tacticsStats = Object.assign(tacticsStats, JSON.parse(tacS)); } catch (e) {} }
     loadHieroglyphicStats();
+    loadThemeMastery();
+    loadGrowthStats();
     const stats = localStorage.getItem('chess_sessionStats'); const statsDate = localStorage.getItem('chess_sessionStatsDate');
     if (stats && statsDate === getToday()) sessionStats = JSON.parse(stats);
     
@@ -3695,6 +3725,8 @@ function saveStorage() {
     localStorage.setItem('chess_completedOpenings', JSON.stringify(completedOpenings));
     localStorage.setItem('chess_tacticsStats', JSON.stringify(tacticsStats));
     saveHieroglyphicStats();
+    saveThemeMastery();
+    saveGrowthStats();
     localStorage.removeItem('chess_isCalibrationPhase');
     localStorage.removeItem('chess_calibrationMoves');
     localStorage.removeItem('chess_calibrationGoodMoves');
@@ -8533,6 +8565,7 @@ function registerHieroglyphicSolved() {
     if (hieroglyphicSource === 'personal') {
         hieroglyphicStats.personalSolved++;
         totalStars += 1;
+        markGrowthTaskCompleted(currentGrowthTask && currentGrowthTask.type === 'personal_hieroglyphic' ? currentGrowthTask : { type: 'personal_hieroglyphic', theme, source: 'last_game' }, 'success');
         if (hieroglyphicContext?.fen && !hieroglyphicStats.solvedFens.includes(hieroglyphicContext.fen)) {
             hieroglyphicStats.solvedFens.push(hieroglyphicContext.fen);
             hieroglyphicStats.solvedFens = hieroglyphicStats.solvedFens.slice(-200);
@@ -9801,6 +9834,591 @@ function setupEvents() {
     });
 }
 
+
+/* ===================== ENTRENADOR INVISIBLE DE CREIXEMENT ===================== */
+function normalizeGrowthTheme(theme) {
+    const raw = (theme || 'general').toString().toLowerCase();
+    const aliases = {
+        king: 'king_attack',
+        attack: 'king_attack',
+        obertura: 'opening',
+        opening_error: 'opening',
+        final: 'endgame',
+        endgames: 'endgame',
+        fork_tactic: 'fork',
+        pins: 'pin'
+    };
+    const normalized = aliases[raw] || raw;
+    return Object.prototype.hasOwnProperty.call(THEME_MASTERY_DEFAULTS, normalized) ? normalized : 'general';
+}
+
+function getThemeLabel(theme) {
+    const labels = {
+        fork: 'forquilla',
+        pin: 'clavada',
+        skewer: 'raig X',
+        king_attack: 'atac al rei',
+        material: 'material',
+        center: 'centre',
+        opening: 'obertura',
+        endgame: 'final',
+        general: 'joc general'
+    };
+    return labels[normalizeGrowthTheme(theme)] || 'joc general';
+}
+
+function loadThemeMastery() {
+    const stored = readJsonStorage(THEME_MASTERY_KEY, {});
+    themeMastery = { ...THEME_MASTERY_DEFAULTS };
+    Object.keys(themeMastery).forEach(theme => {
+        const value = parseFloat(stored?.[theme]);
+        themeMastery[theme] = isNaN(value) ? 0 : clamp01(value);
+    });
+    return themeMastery;
+}
+
+function saveThemeMastery() {
+    writeJsonStorage(THEME_MASTERY_KEY, themeMastery);
+}
+
+function updateThemeMastery(theme, result, meta = {}) {
+    const key = normalizeGrowthTheme(theme);
+    if (!themeMastery || typeof themeMastery !== 'object') loadThemeMastery();
+    const severity = meta.severity || null;
+    const source = meta.source || null;
+    let delta = 0;
+
+    if (result === 'real_game_error') {
+        delta = severity === 'high' ? -0.08 : severity === 'med' ? -0.05 : -0.03;
+    } else if (result === 'personal_hieroglyphic_solved') {
+        delta = 0.06;
+    } else if (result === 'srs_solved') {
+        delta = 0.08;
+    } else if (result === 'srs_failed') {
+        delta = -0.05;
+    } else if (result === 'weakness_solved') {
+        delta = 0.05;
+    } else if (result === 'tactics_solved') {
+        delta = 0.04;
+    } else if (result === 'opening_solved') {
+        delta = 0.05;
+    } else if (result === 'solved' || result === 'success') {
+        delta = source === 'srs' ? 0.08 : 0.04;
+    } else if (result === 'failed' || result === 'error') {
+        delta = source === 'srs' ? -0.05 : -0.04;
+    }
+
+    if (meta.differentDayBonus) delta += 0.01;
+    themeMastery[key] = clamp01((themeMastery[key] || 0) + delta);
+    saveThemeMastery();
+    return themeMastery[key];
+}
+
+function loadGrowthStats() {
+    const stored = readJsonStorage(GROWTH_STATS_KEY, {});
+    growthStats = Object.assign({
+        tasksRecommended: 0,
+        tasksStarted: 0,
+        tasksCompleted: 0,
+        personalErrorsConverted: 0,
+        srsCompleted: 0,
+        weaknessSessionsCompleted: 0,
+        lastRecommendedAt: null
+    }, stored && typeof stored === 'object' ? stored : {});
+    return growthStats;
+}
+
+function saveGrowthStats() {
+    writeJsonStorage(GROWTH_STATS_KEY, growthStats);
+}
+
+function updateGrowthStats(event, task) {
+    if (!growthStats || typeof growthStats !== 'object') loadGrowthStats();
+    if (event === 'recommended') {
+        growthStats.tasksRecommended = (growthStats.tasksRecommended || 0) + 1;
+        growthStats.lastRecommendedAt = Date.now();
+    } else if (event === 'started') {
+        growthStats.tasksStarted = (growthStats.tasksStarted || 0) + 1;
+    } else if (event === 'completed') {
+        growthStats.tasksCompleted = (growthStats.tasksCompleted || 0) + 1;
+        if (task?.type === 'personal_hieroglyphic') growthStats.personalErrorsConverted = (growthStats.personalErrorsConverted || 0) + 1;
+        if (task?.type === 'srs_review') growthStats.srsCompleted = (growthStats.srsCompleted || 0) + 1;
+        if (task?.type === 'weakness_training') growthStats.weaknessSessionsCompleted = (growthStats.weaknessSessionsCompleted || 0) + 1;
+    }
+    saveGrowthStats();
+}
+
+function loadGrowthTaskHistory() {
+    const stored = readJsonStorage(GROWTH_TASK_HISTORY_KEY, []);
+    return Array.isArray(stored) ? stored : [];
+}
+
+function saveGrowthTaskHistory(history) {
+    writeJsonStorage(GROWTH_TASK_HISTORY_KEY, Array.isArray(history) ? history.slice(0, 20) : []);
+}
+
+function rememberGrowthTask(task) {
+    if (!task) return;
+    const history = loadGrowthTaskHistory();
+    history.unshift({
+        type: task.type,
+        theme: normalizeGrowthTheme(task.theme),
+        fen: task.fen || null,
+        timestamp: Date.now()
+    });
+    saveGrowthTaskHistory(history.slice(0, 20));
+}
+
+function wasRecentlyRecommended(task) {
+    if (!task) return false;
+    const history = loadGrowthTaskHistory();
+    const sameFen = task.fen && history.slice(0, 5).some(item => item.fen === task.fen && item.type === task.type);
+    const recentThemes = history.slice(0, 3);
+    const sameThemeStreak = task.theme && recentThemes.length >= 3 && recentThemes.every(item => item.theme === normalizeGrowthTheme(task.theme));
+    return !!(sameFen || sameThemeStreak);
+}
+
+function severityRank(severity) {
+    if (severity === 'high' || severity === 'blunder' || severity === 'critical') return 3;
+    if (severity === 'med' || severity === 'mistake') return 2;
+    if (severity === 'low' || severity === 'inaccuracy') return 1;
+    return 0;
+}
+
+function normalizeSeverity(severity) {
+    const rank = severityRank(severity);
+    return rank >= 3 ? 'high' : rank === 2 ? 'med' : rank === 1 ? 'low' : null;
+}
+
+function getTaskTheme(fen, bestMove, fallback = 'general') {
+    try {
+        if (typeof classifyPositionTheme === 'function') return normalizeGrowthTheme(classifyPositionTheme(fen, bestMove || ''));
+    } catch (e) {}
+    return normalizeGrowthTheme(fallback);
+}
+
+function createGrowthTask(overrides = {}) {
+    const task = Object.assign({
+        type: 'free_game',
+        title: 'Juga una partida amb intenció',
+        message: '',
+        cta: 'Jugar igualment',
+        reason: 'Encara no hi ha cap urgència clara.',
+        theme: null,
+        fen: null,
+        bestMove: null,
+        playerMove: null,
+        severity: null,
+        source: 'default',
+        growthScore: 0,
+        action: 'start_free_game',
+        pedagogicalValue: 0.5,
+        dueAt: null,
+        occurrences: 0
+    }, overrides);
+    task.theme = task.theme ? normalizeGrowthTheme(task.theme) : null;
+    task.severity = normalizeSeverity(task.severity);
+    return task;
+}
+
+function buildLastGameErrorCandidates() {
+    const candidates = [];
+    const sources = [];
+    (currentGameErrors || []).forEach(err => sources.push(err));
+    const latest = gameHistory && gameHistory.length ? gameHistory[gameHistory.length - 1] : null;
+    if (latest && Array.isArray(latest.errors)) latest.errors.forEach(err => sources.push(err));
+    if (latest && Array.isArray(latest.moveReviews)) {
+        latest.moveReviews
+            .filter(r => ['blunder', 'mistake'].includes(r.quality) || (r.swing || 0) >= 120)
+            .forEach(r => sources.push(Object.assign({}, r, { severity: r.quality === 'blunder' ? 'high' : 'med' })));
+    }
+    const seen = new Set();
+    sources.forEach(err => {
+        if (!err || !err.fen || !err.bestMove) return;
+        const key = `${err.fen}|${err.bestMove}`;
+        if (seen.has(key)) return;
+        seen.add(key);
+        const severity = normalizeSeverity(err.severity || err.quality || ((err.swing || 0) >= 200 ? 'high' : 'med'));
+        const theme = getTaskTheme(err.fen, err.bestMove, err.theme || 'general');
+        candidates.push(createGrowthTask({
+            type: 'personal_hieroglyphic',
+            title: 'Desxifra el teu error',
+            cta: 'Desxifrar',
+            reason: severity === 'high' ? 'Error greu detectat a l’última partida.' : 'Una posició recent encara pot donar-te una lliçó clara.',
+            theme,
+            fen: err.fen,
+            bestMove: err.bestMove,
+            playerMove: err.playerMove || null,
+            severity,
+            source: 'last_game',
+            action: 'start_personal_hieroglyphic',
+            pedagogicalValue: severity === 'high' ? 0.95 : 0.82,
+            occurrences: 1,
+            raw: err
+        }));
+    });
+    return candidates;
+}
+
+function buildDueSrsCandidates() {
+    const now = Date.now();
+    return (typeof getDueErrors === 'function' ? getDueErrors() : [])
+        .filter(err => err && err.fen)
+        .map(err => {
+            const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
+            const overdueDays = Math.max(0, (now - getErrorDueTime(err)) / 86400000);
+            return createGrowthTask({
+                type: 'srs_review',
+                title: 'Repàs pendent',
+                cta: 'Repassar',
+                reason: overdueDays >= 1 ? 'Aquest error ja ha vençut a la repetició espaiada.' : 'Toca consolidar un error abans que es refredi.',
+                theme,
+                fen: err.fen,
+                bestMove: err.bestMove || null,
+                playerMove: err.playerMove || null,
+                severity: err.severity || null,
+                source: 'srs',
+                action: 'start_srs_review',
+                dueAt: getErrorDueTime(err),
+                pedagogicalValue: 0.9,
+                occurrences: (err.srsReps || 0) + 1,
+                raw: err
+            });
+        });
+}
+
+function collectAllTrainingErrors() {
+    const errors = [];
+    (savedErrors || []).forEach(e => errors.push(e));
+    (gameHistory || []).forEach(entry => {
+        (entry.errors || []).forEach(e => errors.push(e));
+        (entry.moveReviews || [])
+            .filter(r => ['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80)
+            .forEach(r => errors.push(Object.assign({}, r, { severity: r.severity || r.quality })));
+    });
+    return errors;
+}
+
+function buildWeaknessCandidates() {
+    const byTheme = {};
+    collectAllTrainingErrors().forEach(err => {
+        if (!err || !err.fen) return;
+        const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
+        if (theme === 'opening') return;
+        if (!byTheme[theme]) byTheme[theme] = { count: 0, severe: 0, example: err };
+        byTheme[theme].count++;
+        byTheme[theme].severe += severityRank(err.severity || err.quality);
+        if (severityRank(err.severity || err.quality) > severityRank(byTheme[theme].example?.severity || byTheme[theme].example?.quality)) byTheme[theme].example = err;
+    });
+    return Object.keys(byTheme)
+        .filter(theme => byTheme[theme].count >= 2)
+        .map(theme => {
+            const data = byTheme[theme];
+            return createGrowthTask({
+                type: 'weakness_training',
+                title: `Reforça ${getThemeLabel(theme)}`,
+                cta: 'Entrenar debilitat',
+                reason: `Aquest patró surt repetit (${data.count} vegades) al teu historial.`,
+                theme,
+                fen: data.example?.fen || null,
+                bestMove: data.example?.bestMove || null,
+                playerMove: data.example?.playerMove || null,
+                severity: data.severe / Math.max(1, data.count) >= 2.2 ? 'high' : 'med',
+                source: 'weakness',
+                action: 'start_weakness_training',
+                occurrences: data.count,
+                pedagogicalValue: Math.min(1, 0.65 + data.count * 0.05)
+            });
+        });
+}
+
+function buildOpeningWeaknessCandidates() {
+    const openingErrors = [];
+    collectAllTrainingErrors().forEach(err => {
+        if (!err || !err.fen) return;
+        let fullmove = 20;
+        try { fullmove = parseInt((err.fen || '').split(' ')[5], 10) || 20; } catch (e) {}
+        const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || (fullmove <= 10 ? 'opening' : 'general'));
+        if (fullmove <= 10 || theme === 'opening') openingErrors.push(err);
+    });
+    if (!openingErrors.length) return [];
+    const best = openingErrors.slice().sort((a, b) => severityRank(b.severity || b.quality) - severityRank(a.severity || a.quality))[0];
+    return [createGrowthTask({
+        type: 'opening_training',
+        title: 'Reforça l’obertura',
+        cta: 'Practicar obertura',
+        reason: openingErrors.length >= 2 ? 'Hi ha errors recurrents en les primeres jugades.' : 'Una desviació d’obertura recent mereix reforç.',
+        theme: 'opening',
+        fen: best?.fen || null,
+        bestMove: best?.bestMove || null,
+        playerMove: best?.playerMove || null,
+        severity: best?.severity || best?.quality || 'med',
+        source: 'opening',
+        action: 'start_opening_training',
+        occurrences: openingErrors.length,
+        pedagogicalValue: openingErrors.length >= 2 ? 0.85 : 0.62
+    })];
+}
+
+function buildVarietyCandidates() {
+    const history = loadGrowthTaskHistory();
+    const lastTypes = history.slice(0, 5).map(item => item.type);
+    const lowVariety = lastTypes.length >= 3 && new Set(lastTypes).size <= 2;
+    const attempts = tacticsStats?.attempts || 0;
+    const solved = tacticsStats?.solved || 0;
+    const tacticSuccess = attempts ? solved / attempts : 0.5;
+    if (!lowVariety && attempts >= 3 && tacticSuccess >= 0.75) return [];
+    return [createGrowthTask({
+        type: 'tactics',
+        title: 'Canvia el ritme amb una tàctica',
+        cta: 'Fer tàctica',
+        reason: lowVariety ? 'Una mica de varietat evita entrenar sempre el mateix patró.' : 'Una tàctica curta manté viu el càlcul.',
+        theme: 'general',
+        source: 'history',
+        action: 'start_tactics',
+        pedagogicalValue: 0.58,
+        occurrences: 0
+    })];
+}
+
+function buildDefaultTrainingTask() {
+    return createGrowthTask({
+        type: 'free_game',
+        title: 'Partida amb objectiu',
+        message: 'Juga una partida normal: el mestre observarà els patrons per preparar el següent entrenament.',
+        cta: 'Jugar igualment',
+        reason: 'Encara no hi ha prou dades urgents per prescriure un exercici concret.',
+        theme: 'general',
+        source: 'default',
+        action: 'start_free_game',
+        pedagogicalValue: 0.45
+    });
+}
+
+function getWeaknessWeight(theme) {
+    const key = normalizeGrowthTheme(theme);
+    const data = typeof analyzeWeaknesses === 'function' ? analyzeWeaknesses() : null;
+    const total = data?.total || 0;
+    const legacyTheme = key === 'king_attack' ? 'king' : key;
+    const count = (data?.theme?.[key] || data?.theme?.[legacyTheme] || 0);
+    const masteryGap = 1 - (themeMastery?.[key] ?? 0);
+    return clamp01((total ? count / Math.max(1, total) : 0) * 0.65 + masteryGap * 0.35);
+}
+
+function getDueWeight(task) {
+    if (!task || task.type !== 'srs_review') return 0;
+    const dueAt = typeof task.dueAt === 'number' ? task.dueAt : 0;
+    const overdueDays = Math.max(0, (Date.now() - dueAt) / 86400000);
+    return clamp01(0.7 + overdueDays * 0.1);
+}
+
+function getSeverityWeight(task) {
+    const rank = severityRank(task?.severity);
+    return rank === 3 ? 1 : rank === 2 ? 0.65 : rank === 1 ? 0.35 : 0.15;
+}
+
+function estimateUserSuccess(task) {
+    const elo = typeof currentElo === 'number' ? currentElo : (typeof userELO === 'number' ? userELO : 700);
+    const normalizedElo = clamp01((elo - 200) / 1800);
+    const mastery = task?.theme ? (themeMastery?.[normalizeGrowthTheme(task.theme)] ?? 0.35) : 0.45;
+    const severityPenalty = severityRank(task?.severity) * 0.08;
+    const typePenalty = task?.type === 'personal_hieroglyphic' ? 0.08 : task?.type === 'srs_review' ? 0.02 : 0.04;
+    return clamp01(0.42 + normalizedElo * 0.18 + mastery * 0.38 - severityPenalty - typePenalty);
+}
+
+function getChallengeFit(task) {
+    const expected = estimateUserSuccess(task);
+    const distance = Math.abs(expected - TARGET_SUCCESS_RATE);
+    return clamp01(1 - distance / 0.45);
+}
+
+function getNoveltyWeight(task) {
+    if (!task) return 0.5;
+    const history = loadGrowthTaskHistory();
+    if (!history.length) return 1;
+    let novelty = 1;
+    if (task.fen && history.slice(0, 10).some(item => item.fen === task.fen)) novelty -= 0.45;
+    if (task.theme && history.slice(0, 3).every(item => item.theme === normalizeGrowthTheme(task.theme))) novelty -= 0.35;
+    if (history[0]?.type === task.type) novelty -= 0.15;
+    return clamp01(novelty);
+}
+
+function scoreGrowthTask(task) {
+    const weaknessWeight = Math.max(getWeaknessWeight(task.theme), clamp01((task.occurrences || 0) / 6));
+    const dueWeight = getDueWeight(task);
+    const severityWeight = getSeverityWeight(task);
+    const challengeFit = getChallengeFit(task);
+    const noveltyWeight = getNoveltyWeight(task);
+    let growthScore = weaknessWeight * 0.35 + dueWeight * 0.25 + severityWeight * 0.20 + challengeFit * 0.15 + noveltyWeight * 0.05;
+    growthScore += (task.pedagogicalValue || 0) * 0.08;
+    if (task.type === 'srs_review') growthScore += 0.08;
+    if (task.type === 'personal_hieroglyphic' && task.severity === 'high') growthScore += 0.09;
+    if (wasRecentlyRecommended(task) && !(task.type === 'srs_review' || task.severity === 'high')) growthScore -= 0.25;
+    return Math.round(clamp01(growthScore) * 100) / 100;
+}
+
+function buildGrowthTaskMessage(task) {
+    if (!task) return '';
+    const themeLabel = getThemeLabel(task.theme);
+    const fragmentsByType = {
+        personal_hieroglyphic: [
+            `Has deixat escapar una idea de ${themeLabel}. La desxifrem?`,
+            `Aquest error encara té una lliçó amagada.`,
+            `Converteix aquest error en coneixement.`
+        ],
+        srs_review: [
+            `Toca repassar ${themeLabel}; és el moment exacte perquè quedi fixat.`,
+            `Aquest patró torna a trucar a la porta. Fem-lo teu.`,
+            `La memòria et demana un repàs curt de ${themeLabel}.`
+        ],
+        weakness_training: [
+            `La partida t’ha mostrat una esquerda: ${themeLabel}. Vols tancar-la?`,
+            `Toca reforçar ${themeLabel}; és el patró que més es repeteix.`,
+            `Entrena ${themeLabel} ara que el patró és fresc.`
+        ],
+        opening_training: [
+            `Les primeres jugades estan deixant pistes. Reforcem l’obertura.`,
+            `Una obertura més sòlida farà que el mig joc sigui més fàcil.`,
+            `Tanca aquesta esquerda d’obertura abans de la propera partida.`
+        ],
+        tactics: [
+            `Canviem el ritme amb una tàctica curta i precisa.`,
+            `Una espurna de càlcul ara et farà veure més patrons.`,
+            `Fem una tàctica ràpida per mantenir les peces despertes.`
+        ],
+        free_game: [
+            `Juga una partida normal: cada decisió alimentarà el teu pròxim entrenament.`,
+            `No hi ha cap urgència clara; juguem i deixem que la partida ens ensenyi.`,
+            `La millor pràctica ara és una partida amb atenció plena.`
+        ]
+    };
+    const list = fragmentsByType[task.type] || fragmentsByType.free_game;
+    const seed = hashStr(`${task.type}|${task.theme || ''}|${task.fen || ''}|${getToday()}`);
+    return list[seed % list.length];
+}
+
+function getNextBestTrainingTask(options = {}) {
+    loadThemeMastery();
+    const candidates = []
+        .concat(buildDueSrsCandidates())
+        .concat(buildLastGameErrorCandidates())
+        .concat(buildWeaknessCandidates())
+        .concat(buildOpeningWeaknessCandidates())
+        .concat(buildVarietyCandidates());
+
+    const defaultTask = buildDefaultTrainingTask();
+    const scored = candidates
+        .filter(Boolean)
+        .map(task => Object.assign(task, { growthScore: scoreGrowthTask(task) }))
+        .sort((a, b) => b.growthScore - a.growthScore);
+
+    let best = scored[0] || defaultTask;
+    if (scored.length > 1 && wasRecentlyRecommended(best) && !(best.type === 'srs_review' || best.severity === 'high')) {
+        const alternative = scored.find(task => !wasRecentlyRecommended(task));
+        if (alternative) best = alternative;
+    }
+    best.growthScore = scoreGrowthTask(best);
+    if (!best.message) best.message = buildGrowthTaskMessage(best);
+    currentGrowthTask = best;
+    if (!options.previewOnly) {
+        rememberGrowthTask(best);
+        updateGrowthStats('recommended', best);
+        saveStorage();
+    }
+    return best;
+}
+
+function executeGrowthTask(task) {
+    const selected = task || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true });
+    if (!selected) return;
+    currentGrowthTask = selected;
+    updateGrowthStats('started', selected);
+    try {
+        if (selected.type === 'personal_hieroglyphic') {
+            if (typeof startPersonalHieroglyphicFromTask === 'function') return startPersonalHieroglyphicFromTask(selected);
+            if (typeof startPersonalHieroglyphicFromLastGame === 'function') return startPersonalHieroglyphicFromLastGame();
+            if (selected.fen && typeof startGame === 'function') return startGame(true, selected.fen);
+            showToast('No he trobat cap motor de jeroglífic personal disponible.', 'warn');
+        } else if (selected.type === 'srs_review') {
+            if (typeof startSrsReview === 'function') return startSrsReview();
+            showToast('El repàs SRS no està disponible ara mateix.', 'warn');
+        } else if (selected.type === 'weakness_training') {
+            if (typeof startWeaknessTraining === 'function') return startWeaknessTraining(selected.theme);
+            showToast('L’entrenament de debilitats no està disponible ara mateix.', 'warn');
+        } else if (selected.type === 'opening_training') {
+            if (typeof startOpeningErrorPractice === 'function' && selected.openingColor && selected.openingMoveNum) return startOpeningErrorPractice(selected.openingColor, selected.openingMoveNum);
+            if (typeof renderOpeningStatsScreen === 'function') {
+                $('#start-screen,#game-screen,#history-screen,#league-screen,#stats-screen,#settings-screen,#calibration-result-screen').hide();
+                $('#opening-screen').show();
+                navPush('opening-screen');
+                renderOpeningStatsScreen();
+                return;
+            }
+            showToast('La pràctica d’obertures no està disponible ara mateix.', 'warn');
+        } else if (selected.type === 'tactics') {
+            if (typeof startTacticsPuzzle === 'function') return startTacticsPuzzle();
+            showToast('Les tàctiques no estan disponibles ara mateix.', 'warn');
+        } else {
+            if (typeof novaPartida === 'function') return novaPartida();
+            if (typeof startGame === 'function') return startGame(false);
+            showToast('No puc iniciar una partida ara mateix.', 'warn');
+        }
+    } catch (e) {
+        console.error('No s’ha pogut executar la recomanació', e);
+        showToast('No he pogut iniciar aquesta recomanació. Pots jugar igualment.', 'warn');
+    }
+}
+
+function markGrowthTaskCompleted(task, result) {
+    const completedTask = task || currentGrowthTask;
+    if (!completedTask) return;
+    updateGrowthStats('completed', completedTask);
+    const theme = completedTask.theme || 'general';
+    if (completedTask.type === 'personal_hieroglyphic' && result !== 'failed') updateThemeMastery(theme, 'personal_hieroglyphic_solved', completedTask);
+    else if (completedTask.type === 'srs_review') updateThemeMastery(theme, result === 'failed' ? 'srs_failed' : 'srs_solved', completedTask);
+    else if (completedTask.type === 'weakness_training') updateThemeMastery(theme, result === 'failed' ? 'failed' : 'weakness_solved', completedTask);
+    else if (completedTask.type === 'opening_training') updateThemeMastery('opening', result === 'failed' ? 'failed' : 'opening_solved', completedTask);
+    else if (completedTask.type === 'tactics') updateThemeMastery(theme, result === 'failed' ? 'failed' : 'tactics_solved', completedTask);
+    saveStorage();
+}
+
+function renderGrowthRecommendation(task, onClose) {
+    const modeAtRender = currentGameMode;
+    const modal = $('#review-modal');
+    if (!modal.length) return;
+    let box = $('#review-growth-recommendation');
+    if (!box.length) {
+        box = $(`
+            <div class="review-growth-recommendation" id="review-growth-recommendation" style="margin:14px 0; padding:14px; border:1px solid rgba(201,162,39,.35); border-radius:12px; background:rgba(201,162,39,.08); text-align:left;">
+                <div class="growth-rec-kicker" style="font-size:.78rem; text-transform:uppercase; letter-spacing:.08em; color:var(--accent-gold); font-weight:700;">Recomanació del mestre</div>
+                <div class="growth-rec-title" style="font-weight:700; margin-top:6px;"></div>
+                <div class="growth-rec-message" style="margin-top:6px; color:var(--text-secondary);"></div>
+                <div class="growth-rec-reason" style="margin-top:6px; font-size:.86rem; opacity:.85;"></div>
+                <div class="growth-rec-actions" style="display:flex; flex-wrap:wrap; gap:8px; margin-top:12px;">
+                    <button class="btn btn-primary" id="btn-growth-task-now">Entrena això ara</button>
+                    <button class="btn btn-secondary" id="btn-growth-task-skip">Jugar igualment</button>
+                </div>
+            </div>
+        `);
+        const anchor = $('#review-newerrors');
+        if (anchor.length) anchor.after(box); else modal.find('.modal-content').append(box);
+    }
+    if (!task) { box.hide(); return; }
+    box.find('.growth-rec-title').text(task.title || 'El teu següent pas');
+    box.find('.growth-rec-message').text(task.message || buildGrowthTaskMessage(task));
+    box.find('.growth-rec-reason').text(task.reason || 'Triat per maximitzar la millora ara mateix.');
+    box.find('#btn-growth-task-now').text(task.cta || 'Entrena això ara').off('click').on('click', () => {
+        modal.hide();
+        executeGrowthTask(task);
+    });
+    box.find('#btn-growth-task-skip').off('click').on('click', () => {
+        modal.hide();
+        if (typeof onClose === 'function') onClose();
+        if ((modeAtRender === 'free' || modeAtRender === 'assisted') && typeof novaPartida === 'function') novaPartida();
+    });
+    box.show();
+}
+
 /* ===================== REPETICIÓ ESPAIADA (SRS) ===================== */
 const SRS_INTERVALS_DAYS = [1, 3, 7, 21];
 
@@ -10005,11 +10623,13 @@ function startTacticsPuzzle() {
 function completeTacticsPuzzle(success) {
     tacticsStats.attempts = (tacticsStats.attempts || 0) + 1;
     if (success) {
+        markGrowthTaskCompleted(currentGrowthTask && currentGrowthTask.type === 'tactics' ? currentGrowthTask : { type: 'tactics', theme: 'general', source: 'history' }, 'success');
         tacticsStats.solved = (tacticsStats.solved || 0) + 1;
         tacticsStats.streak = (tacticsStats.streak || 0) + 1;
         tacticsStats.best = Math.max(tacticsStats.best || 0, tacticsStats.streak);
         totalStars += 1;
     } else {
+        markGrowthTaskCompleted(currentGrowthTask && currentGrowthTask.type === 'tactics' ? currentGrowthTask : { type: 'tactics', theme: 'general', source: 'history' }, 'failed');
         tacticsStats.streak = 0;
     }
     saveStorage();
@@ -10069,16 +10689,29 @@ function updateEngagementBanner() {
 }
 
 /* ===================== DEBILITATS TEMÀTIQUES ===================== */
-// Classifica una posició+jugada en un tema: 'king' (atac al rei), 'material', 'center', 'general'.
+// Classifica una posició+jugada en un tema: tàctiques bàsiques, atac al rei, material, centre, obertura, final o general.
 function classifyPositionTheme(fen, uci) {
     try {
         if (!uci || uci.length < 4) return 'general';
+        const parts = (fen || '').split(' ');
+        const fullmove = parseInt(parts[5], 10) || 1;
         const g = new Chess(fen);
+        const before = g.board().flat().filter(Boolean).length;
         const mv = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || 'q' });
         if (mv) {
-            if (mv.san.includes('#') || mv.san.includes('+')) return 'king';
+            const san = mv.san || '';
+            if (san.includes('#') || san.includes('+')) return 'king_attack';
+            if (/N.[a-h][1-8][+#]?/.test(san) && san.includes('+')) return 'fork';
+            if (mv.piece === 'b' || mv.piece === 'r' || mv.piece === 'q') {
+                const lowerSan = san.toLowerCase();
+                if (lowerSan.includes('pin')) return 'pin';
+            }
             if (mv.flags.includes('c') || mv.flags.includes('e')) return 'material';
+            if (fullmove <= 10) return 'opening';
+            const after = g.board().flat().filter(Boolean).length;
+            if (after <= 10 || fullmove >= 35) return 'endgame';
             if (['d4', 'd5', 'e4', 'e5', 'c4', 'c5', 'f4', 'f5'].includes(mv.to)) return 'center';
+            if (before <= 10) return 'endgame';
         }
     } catch (e) {}
     return 'general';
@@ -10086,8 +10719,14 @@ function classifyPositionTheme(fen, uci) {
 
 const WEAKNESS_LABELS = {
     king: 'Atacs i seguretat del rei',
+    king_attack: 'Atacs i seguretat del rei',
     material: 'Tàctica i guany de material',
     center: 'Control del centre',
+    opening: "Obertura (primeres jugades)",
+    endgame: 'Finals',
+    fork: 'Forquilles',
+    pin: 'Clavades',
+    skewer: 'Raigs X',
     general: 'Joc posicional',
     obertura: "Obertura (primeres jugades)",
     migjoc: 'Mig joc',
@@ -10100,7 +10739,7 @@ function analyzeWeaknesses() {
     gameHistory.forEach(g => { if (Array.isArray(g.errors)) g.errors.forEach(e => errors.push(e)); });
 
     const phase = { obertura: 0, migjoc: 0, final: 0 };
-    const theme = { king: 0, material: 0, center: 0, general: 0 };
+    const theme = { king_attack: 0, material: 0, center: 0, opening: 0, endgame: 0, fork: 0, pin: 0, skewer: 0, general: 0 };
     const severity = { low: 0, med: 0, high: 0 };
 
     errors.forEach(e => {
@@ -10109,7 +10748,8 @@ function analyzeWeaknesses() {
         if (fullmove <= 10) phase.obertura++;
         else if (fullmove <= 30) phase.migjoc++;
         else phase.final++;
-        theme[classifyPositionTheme(e.fen, e.bestMove || '')]++;
+        const classifiedTheme = normalizeGrowthTheme(classifyPositionTheme(e.fen, e.bestMove || ''));
+        theme[classifiedTheme] = (theme[classifiedTheme] || 0) + 1;
         if (e.severity === 'high') severity.high++;
         else if (e.severity === 'med') severity.med++;
         else severity.low++;
@@ -10159,7 +10799,8 @@ function analyzePhasePrecision() {
 
 function startWeaknessTraining(theme) {
     if (!guardCalibrationAccess()) return;
-    const candidates = savedErrors.filter(e => classifyPositionTheme(e.fen, e.bestMove || '') === theme);
+    const normalizedTheme = normalizeGrowthTheme(theme);
+    const candidates = savedErrors.filter(e => normalizeGrowthTheme(classifyPositionTheme(e.fen, e.bestMove || '')) === normalizedTheme);
     const pool = candidates.length ? candidates : savedErrors;
     if (!pool.length) { alert('Encara no tens errors guardats per entrenar aquesta debilitat.'); return; }
     const choice = pool[Math.floor(Math.random() * pool.length)];
@@ -10194,9 +10835,9 @@ function renderWeaknesses() {
         </div>`;
     };
     let html = '<div class="weakness-group-title">Per temàtica</div>';
-    const themeColors = { king: '#c62828', material: '#c9a227', center: '#3a6b8c', general: '#4a7c59' };
+    const themeColors = { king_attack: '#c62828', material: '#c9a227', center: '#3a6b8c', opening: '#7b4fa3', endgame: '#607d8b', fork: '#d97706', pin: '#8e24aa', skewer: '#546e7a', general: '#4a7c59' };
     Object.keys(data.theme).sort((a, b) => data.theme[b] - data.theme[a]).forEach(k => {
-        html += renderRow(WEAKNESS_LABELS[k], data.theme[k], data.total, themeColors[k]);
+        html += renderRow(WEAKNESS_LABELS[k] || getThemeLabel(k), data.theme[k], data.total, themeColors[k] || '#4a7c59');
     });
     html += '<div class="weakness-group-title">Per fase de la partida</div>';
     ['obertura', 'migjoc', 'final'].forEach(k => {
@@ -11704,6 +12345,9 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         });
     }
 
+    const taskForReview = options.disableGrowth ? null : (options.growthTask || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true, source: 'review' }));
+    renderGrowthRecommendation(taskForReview, onClose);
+
     // Comptador d'errors nous desats en aquesta partida
     const newErrorsEl = $('#review-newerrors');
     if (newErrorsEl.length) {
@@ -11821,10 +12465,10 @@ function handleBundleSuccess() {
     $('#status').text("EXCEL·LENT! Problema resolt 🏆").css('color', '#4a7c59').css('font-weight', 'bold');
     sessionStats.bundlesSolved++;
     if (stockfish) stockfish.postMessage('stop');
+    const solvedFen = currentBundleFen;
+    let solvedErr = solvedFen ? savedErrors.find(e => e.fen === solvedFen) : null;
     
     if (currentBundleFen) {
-        const solvedFen = currentBundleFen;
-        const solvedErr = savedErrors.find(e => e.fen === solvedFen);
         if (solvedErr) {
             if (solvedErr.severity === 'high') sessionStats.bundlesSolvedHigh++;
             else if (solvedErr.severity === 'med') sessionStats.bundlesSolvedMed++;
@@ -11859,8 +12503,13 @@ function handleBundleSuccess() {
         return;
     }
     if (isSrsReviewSession) {
+        markGrowthTaskCompleted(currentGrowthTask && currentGrowthTask.type === 'srs_review' ? currentGrowthTask : { type: 'srs_review', theme: getTaskTheme(solvedFen || currentBundleFen, solvedErr?.bestMove || '', 'general'), source: 'srs' }, 'success');
         showSrsSuccessOverlay();
         return;
+    }
+
+    if (currentGrowthTask && currentGrowthTask.type === 'weakness_training' && isRandomBundleSession) {
+        markGrowthTaskCompleted(currentGrowthTask, 'success');
     }
 
     if (isMatchErrorReviewSession) {
@@ -12127,8 +12776,13 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     const reviewCounts = summarizeReview(currentReview);
     const severeErrors = currentGameErrors.slice(); // ← Usar currentGameErrors
     recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors });
+    severeErrors.forEach(err => {
+        const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
+        updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
+    });
     persistReviewSummary(finalPrecision, msg);
     recordActivity(); saveStorage(); checkMissions(); updateDisplay(); updateReviewChart();
+    const growthTask = calibrationGameWasActive ? null : getNextBestTrainingTask({ source: 'postgame' });
     $('#status').text(msg);
     // Gestió de l'indicador de resultat
     if (leagueOutcome === 'win') setResultIndicator('win');
@@ -12165,7 +12819,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     }
     $('#btn-resign').prop('disabled', true);
     
-    showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate });
+    showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive });
     if (calibrationJustCompleted) {
         showCalibrationReveal(userELO);
     }
