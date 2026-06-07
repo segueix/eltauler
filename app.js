@@ -5,6 +5,26 @@ const APP_VERSION = window.APP_VERSION || 'dev';
 const STOCKFISH_URL = `stockfish.js?v=${APP_VERSION}`;
 const DEBUG_ENRICHED_ANALYSIS = false;
 
+const DEBUG_WEAK_AI = false;
+const WEAK_AI_CONFIG = {
+    // Corba específica per ROC baixos: per sota del terra real d'UCI_Elo el motor no baixa més,
+    // així que aquesta capa força errors humans controlats sense sortir de les jugades legals MultiPV.
+    rocPoints: [
+        { roc: 200, offPathChance: 0.75, maxCandidates: 12, tolerableLossPawns: 5.8, cpLossWindow: 1150, minAltCpLoss: 45, temperature: 5.2, rankPower: 0.12 },
+        { roc: 400, offPathChance: 0.60, maxCandidates: 12, tolerableLossPawns: 5.1, cpLossWindow: 950, minAltCpLoss: 35, temperature: 4.5, rankPower: 0.18 },
+        { roc: 600, offPathChance: 0.43, maxCandidates: 10, tolerableLossPawns: 4.3, cpLossWindow: 760, minAltCpLoss: 25, temperature: 3.8, rankPower: 0.28 },
+        { roc: 800, offPathChance: 0.28, maxCandidates: 8, tolerableLossPawns: 3.5, cpLossWindow: 560, minAltCpLoss: 15, temperature: 3.1, rankPower: 0.45 },
+        { roc: 1000, offPathChance: 0.12, maxCandidates: 6, tolerableLossPawns: 2.8, cpLossWindow: 360, minAltCpLoss: 10, temperature: 2.5, rankPower: 0.75 }
+    ],
+    multipv: {
+        below600: 12,
+        below1000: 8,
+        defaultLow: 6
+    },
+    queenHangLossPawns: 8.5,
+    reasonableFallbackLossPawns: 6.2
+};
+
 let game = null;
 let board = null;
 let stockfish = null;
@@ -3444,11 +3464,121 @@ function getHumanLikeMaxCpLoss(roc = getActiveStrengthElo()) {
     ]);
 }
 
+function getWeakAiTuning(roc = getActiveStrengthElo()) {
+    const points = WEAK_AI_CONFIG.rocPoints;
+    const safeRoc = Math.max(ELO_MIN, Math.min(ELO_MAX, isNaN(roc) ? getActiveStrengthElo() : roc));
+    if (safeRoc <= points[0].roc) return { ...points[0] };
+    for (let i = 0; i < points.length - 1; i++) {
+        const a = points[i];
+        const b = points[i + 1];
+        if (safeRoc <= b.roc) {
+            const t = Math.max(0, Math.min(1, (safeRoc - a.roc) / Math.max(1, b.roc - a.roc)));
+            const mixed = { roc: safeRoc };
+            Object.keys(a).forEach(key => {
+                if (key === 'roc') return;
+                mixed[key] = a[key] + (b[key] - a[key]) * t;
+            });
+            mixed.maxCandidates = Math.round(mixed.maxCandidates);
+            return mixed;
+        }
+    }
+    return { ...points[points.length - 1], roc: safeRoc };
+}
+
+function getEngineMoveMultiPvValue(roc = getActiveStrengthElo(), fallback = 5) {
+    if (roc < 600) return WEAK_AI_CONFIG.multipv.below600;
+    if (roc < 1000) return WEAK_AI_CONFIG.multipv.below1000;
+    if (roc < (engineEloMin || 1350)) return Math.max(fallback, WEAK_AI_CONFIG.multipv.defaultLow);
+    return fallback;
+}
+
 // Magnitud d'error "lògica" per al nivell (en peons): com més baix el nivell, més gran
 // l'error tolerat, però sempre dins el que una persona d'aquell nivell faria de manera
-// natural. ROC ~200 => ~3.6 peons; ROC ~2000 => ~0.6 peons.
-function levelTolerableLossPawns(normalized) {
+// natural. ROC ~200 => fins a ~5-6 peons; ROC ~2000 => ~0.6 peons.
+function levelTolerableLossPawns(normalized, roc = getActiveStrengthElo()) {
+    if (roc < 1000) return getWeakAiTuning(roc).tolerableLossPawns;
     return 0.6 + (1 - normalized) * 3.0;
+}
+
+function beginnerMistakeAppeal(candidate) {
+    const mv = candidate && candidate.mv;
+    if (!mv) return 1;
+    let appeal = 1;
+    const fromFile = mv.from.charCodeAt(0) - 97;
+    const toFile = mv.to.charCodeAt(0) - 97;
+    const fromRank = parseInt(mv.from[1], 10);
+    const san = mv.san || '';
+
+    // 1) Tornar a moure una peça ja desenvolupada: freqüent en principiants però no absurd.
+    if (mv.piece !== 'p' && mv.piece !== 'k') {
+        const homeRank = mv.color === 'w' ? 1 : 8;
+        if (fromRank !== homeRank) appeal += 1.2;
+    }
+    // 2) Avançar peons laterals: és humà a nivell baix, però no ho premiem si penja massa material.
+    if (mv.piece === 'p' && !mv.captured && (fromFile === 0 || fromFile === 7 || toFile === 0 || toFile === 7)) {
+        appeal += 1.4;
+    }
+    // 3) Capturar material aparent i permetre recaptura.
+    if (mv.captured && candidate.materialLoss > 0) appeal += 1.8 + Math.min(2, candidate.materialLoss * 0.35);
+    // 4) Ignorar una amenaça tàctica no immediatament òbvia: es modela acceptant pèrdues en cp sense pèrdua material immediata.
+    if (!mv.captured && candidate.cpLoss >= 120 && candidate.materialLoss <= 1.5) appeal += 1.0;
+    // 5) Jugada natural però inferior.
+    if (candidate.cpLoss >= 60 && candidate.cpLoss <= 550) appeal += Math.min(2.4, candidate.cpLoss / 180);
+    if (san.includes('+')) appeal += 0.5;
+    if (san.includes('#')) appeal -= 5; // un mat trobat no és un error de principiant.
+    if (mv.piece === 'k' && !(mv.flags && (mv.flags.includes('k') || mv.flags.includes('q')))) appeal -= 1.6;
+    return Math.max(0.05, appeal);
+}
+
+function logWeakAiSelection(roc, selected, reason) {
+    if (!DEBUG_WEAK_AI || !selected) return;
+    console.log('[WeakAI]', {
+        roc,
+        selectedMove: selected.move,
+        cpLoss: selected.cpLoss,
+        materialLoss: selected.materialLoss,
+        reason
+    });
+}
+
+function chooseWeightedCandidate(candidates, weightFn) {
+    const weights = candidates.map((c, idx) => Math.max(0.001, weightFn(c, idx)));
+    const total = weights.reduce((sum, w) => sum + w, 0);
+    let roll = Math.random() * total;
+    for (let i = 0; i < candidates.length; i++) {
+        roll -= weights[i];
+        if (roll <= 0) return candidates[i];
+    }
+    return candidates[candidates.length - 1];
+}
+
+function chooseBeginnerMistakeMove(enriched, chessInstance, roc) {
+    if (!enriched || enriched.length < 2 || roc >= 1000) return null;
+    const tuning = getWeakAiTuning(roc);
+    if (Math.random() >= tuning.offPathChance) return undefined;
+
+    const safe = enriched.filter(c => c.materialLoss <= tuning.tolerableLossPawns);
+    const reasonable = safe.length
+        ? safe
+        : enriched.filter(c => c.materialLoss <= WEAK_AI_CONFIG.reasonableFallbackLossPawns);
+    if (reasonable.length < 2) return null;
+
+    const pool = reasonable
+        .filter(c => c.cpLoss >= tuning.minAltCpLoss && c.cpLoss <= tuning.cpLossWindow)
+        .slice(0, tuning.maxCandidates);
+    const alternatives = (pool.length ? pool : reasonable.slice(1, tuning.maxCandidates))
+        .filter(c => c.multipv !== enriched[0].multipv || c.move !== enriched[0].move)
+        .filter(c => !(c.mv && c.mv.piece === 'q' && c.materialLoss >= WEAK_AI_CONFIG.queenHangLossPawns));
+    if (!alternatives.length) return null;
+
+    const selected = chooseWeightedCandidate(alternatives, (c, idx) => {
+        const cpSweetSpot = Math.exp(-Math.abs(c.cpLoss - (tuning.cpLossWindow * 0.38)) / Math.max(120, tuning.cpLossWindow * 0.55));
+        const rankPenalty = 1 / Math.pow(idx + 1, tuning.rankPower);
+        const materialPenalty = Math.max(0.25, 1 - (c.materialLoss / Math.max(0.1, tuning.tolerableLossPawns + 1)));
+        return (c.appeal + c.beginnerAppeal) * (0.45 + cpSweetSpot) * rankPenalty * materialPenalty;
+    });
+    logWeakAiSelection(roc, selected, 'beginner-mistake');
+    return selected;
 }
 
 function chooseHumanLikeMove(candidates, chessInstance = game) {
@@ -3458,8 +3588,8 @@ function chooseHumanLikeMove(candidates, chessInstance = game) {
     const roc = getActiveStrengthElo();
     const normalized = getStrengthNormalized();
     const bestScore = sorted[0].score;
-    const maxDelta = getHumanLikeMaxCpLoss(roc);
-    const tolerableLoss = levelTolerableLossPawns(normalized);
+    const maxDelta = roc < 1000 ? getWeakAiTuning(roc).cpLossWindow : getHumanLikeMaxCpLoss(roc);
+    const tolerableLoss = levelTolerableLossPawns(normalized, roc);
 
     const verboseByUci = {};
     if (chessInstance) {
@@ -3473,51 +3603,63 @@ function chooseHumanLikeMove(candidates, chessInstance = game) {
     const enriched = sorted.map(c => {
         const mv = verboseByUci[c.move];
         const loss = immediateMaterialLoss(c.move, chessInstance);
-        return {
+        const base = {
             ...c,
+            mv,
             cpLoss: bestScore - c.score,
             appeal: humanMoveAppeal(mv),
             materialLoss: loss,
             legal: !!mv
         };
+        base.beginnerAppeal = beginnerMistakeAppeal(base);
+        return base;
     }).filter(c => c.legal);
 
     if (!enriched.length) return sorted[0];
 
+    const beginnerChoice = chooseBeginnerMistakeMove(enriched, chessInstance, roc);
+    if (beginnerChoice) return beginnerChoice;
+    if (beginnerChoice === undefined && roc < 1000) return enriched[0];
+
     // El filtre de material immediat evita regals de dama/torre o material enorme sense
-    // compensació aparent. Si cap línia passa el filtre, no forcem cap disbarat: tornem al millor.
-    const safeCandidates = enriched.filter(c => c.materialLoss <= tolerableLoss);
+    // compensació aparent. A ROC baix, si el filtre queda buit busquem alternatives moderades
+    // abans de tornar a la millor línia, per no fer el nivell 200 gairebé perfecte.
+    let safeCandidates = enriched.filter(c => c.materialLoss <= tolerableLoss);
+    if (!safeCandidates.length && roc < 1000) {
+        safeCandidates = enriched.filter(c => c.materialLoss <= WEAK_AI_CONFIG.reasonableFallbackLossPawns);
+    }
     if (!safeCandidates.length) return sorted[0];
 
     const plausible = safeCandidates.filter(c => c.cpLoss <= maxDelta);
-    const pool = (plausible.length ? plausible : [safeCandidates[0]]);
-    const maxCandidates = normalized < 0.35 ? 7 : (normalized < 0.75 ? 5 : (roc < (engineEloMin || 1350) ? 4 : 2));
+    const pool = (plausible.length ? plausible : (roc < 1000 ? safeCandidates : [safeCandidates[0]]));
+    const weakMax = roc < 1000 ? getWeakAiTuning(roc).maxCandidates : null;
+    const maxCandidates = weakMax || (normalized < 0.35 ? 7 : (normalized < 0.75 ? 5 : (roc < (engineEloMin || 1350) ? 4 : 2)));
     const trimmed = pool.slice(0, maxCandidates);
 
     if (trimmed.length === 1) return trimmed[0];
 
     // Als ROC baixos explorem alternatives MultiPV molt més sovint; als ROC alts el motor
     // gairebé sempre manté la millor línia o una alternativa molt propera.
-    const offPathChance = Math.max(0.06, Math.min(0.68, 0.72 - (normalized * 0.62)));
+    const offPathChance = roc < 1000
+        ? getWeakAiTuning(roc).offPathChance
+        : Math.max(0.06, Math.min(0.68, 0.72 - (normalized * 0.62)));
     const explore = Math.random() < offPathChance;
     if (!explore) return trimmed[0];
 
     // La ponderació combina naturalitat humana, pèrdua en centipeons i rang MultiPV. Això permet
     // errors visibles sota ROC 1230 sense convertir Stockfish en un generador de jugades absurdes.
-    const temperature = 3.0 - (normalized * 2.2);
+    const temperature = roc < 1000 ? getWeakAiTuning(roc).temperature : (3.0 - (normalized * 2.2));
+    const rankPower = roc < 1000 ? getWeakAiTuning(roc).rankPower : (normalized < 0.35 ? 0.35 : 0.8);
     const weights = trimmed.map((c, idx) => {
         const cpPenalty = Math.exp(-Math.max(0, c.cpLoss) / (Math.max(90, maxDelta) * temperature));
-        const rankPenalty = 1 / Math.pow(idx + 1, normalized < 0.35 ? 0.35 : 0.8);
+        const rankPenalty = 1 / Math.pow(idx + 1, rankPower);
         const materialPenalty = Math.max(0.2, 1 - (c.materialLoss / Math.max(0.1, tolerableLoss + 1)));
-        return Math.max(0.001, c.appeal * cpPenalty * rankPenalty * materialPenalty);
+        const beginnerBoost = roc < 1000 ? c.beginnerAppeal : 1;
+        return Math.max(0.001, c.appeal * beginnerBoost * cpPenalty * rankPenalty * materialPenalty);
     });
-    const total = weights.reduce((sum, w) => sum + w, 0);
-    let roll = Math.random() * total;
-    for (let i = 0; i < trimmed.length; i++) {
-        roll -= weights[i];
-        if (roll <= 0) return trimmed[i];
-    }
-    return trimmed[trimmed.length - 1];
+    const selected = chooseWeightedCandidate(trimmed, (c, idx) => weights[idx]);
+    logWeakAiSelection(roc, selected, 'human-like-weighted');
+    return selected;
 }
 
 // MODIFICAT: Ara carrega directament el fitxer local
@@ -9227,7 +9369,7 @@ function requestOpeningPracticeAdaptiveEngineMove() {
     // UCI_Elo adaptatiu, profunditat baixa i selecció humana: si no, Stockfish respondria sempre
     // amb una línia massa perfecta per a principiants.
     applyEngineEloStrength(getActiveStrengthElo());
-    const multiPvValue = getActiveStrengthElo() < (engineEloMin || 1350) ? 7 : 5;
+    const multiPvValue = getEngineMoveMultiPvValue(getActiveStrengthElo(), 5);
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     stockfish.postMessage(`position fen ${openingPracticeGame.fen()}`);
     stockfish.postMessage(`go depth ${getAIDepth()}`);
@@ -11485,7 +11627,7 @@ function makeEngineMove() {
     // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada
     // jugada per no heretar opcions d'altres modes (p. ex. pràctica d'obertures).
     applyEngineEloStrength(getActiveStrengthElo());
-    const multiPvValue = isCalibrationGame ? 7 : 5;
+    const multiPvValue = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     stockfish.postMessage(`position fen ${game.fen()}`); 
     stockfish.postMessage(`go depth ${depth}`);
