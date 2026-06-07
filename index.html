@@ -1704,6 +1704,8 @@
             border-radius: 12px;
             padding: 12px;
             border: 1px solid rgba(201, 162, 39, 0.15);
+            min-width: 0;
+            max-width: 100%;
         }
         body.epaper-mode .history-detail {
             background: #ededed;
@@ -1717,9 +1719,11 @@
         }
         body.device-desktop .history-detail-body {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(240px, 0.9fr);
+            grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
             gap: 12px;
             align-items: start;
+            min-width: 0;
+            max-width: 100%;
         }
         body.device-desktop .history-side {
             position: sticky;
@@ -1728,6 +1732,8 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            min-width: 0;
+            max-width: 100%;
         }
         body.device-desktop .history-review {
             align-self: stretch;
@@ -1760,6 +1766,7 @@
         .history-board {
             width: 100%;
             max-width: min(360px, 100%);
+            min-width: 0;
             margin: 10px auto 12px;
         }
         .history-review {
@@ -1833,12 +1840,25 @@
             margin-bottom: 8px;
         }
         .history-actions {
-            display: flex;
-            justify-content: center;
-            margin-bottom: 8px;
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            width: 100%;
+            max-width: 100%;
+            margin: 8px auto;
+            min-width: 0;
         }
         .history-actions .btn {
-            max-width: 240px;
+            width: 100%;
+            max-width: none;
+            min-width: 0;
+            white-space: normal;
+            overflow-wrap: anywhere;
+            text-align: center;
+            justify-content: center;
+            line-height: 1.15;
+            padding: 10px 8px;
+            font-size: 0.78rem;
         }
         .history-progress {
             text-align: center;
@@ -2317,6 +2337,8 @@
             display: flex;
             flex-direction: column;
             gap: 10px;
+            min-width: 0;
+            max-width: 100%;
         }
         body.device-mobile .history-side {
             order: 1;
@@ -2325,10 +2347,24 @@
             align-items: center;
             width: 100%;
             min-width: 0;
+            max-width: 100%;
         }
         body.device-mobile .history-controls { order: 1; margin-bottom: 10px; width: 100%; }
-        body.device-mobile .history-board { order: 2; }
-        body.device-mobile .history-actions { order: 3; width: 100%; }
+        body.device-mobile .history-board { order: 2; max-width: 100%; }
+        body.device-mobile .history-actions {
+            order: 3;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            width: 100%;
+            padding: 0 4px;
+        }
+        body.device-mobile .history-actions .btn {
+            min-height: 54px;
+        }
+        @media (max-width: 360px) {
+            body.device-mobile .history-actions {
+                grid-template-columns: 1fr;
+            }
+        }
         body.device-mobile .history-progress { order: 4; width: 100%; }
         body.device-mobile .history-review { order: 2; width: 100%; }
         /* Evitar desbordament horitzontal i mantenir tot centrat en mòbil */
@@ -2580,7 +2616,7 @@
                 </div>
                 <div class="setting-help">Això resetarà el teu perfil actual.</div>
                 <div class="setting-row" style="margin-top:10px;">
-                    <div class="setting-label">Clau API Gemini (gemini-3-flash-preview)</div>
+                    <div class="setting-label">Clau API Gemini (gemini-3.5-flash)</div>
                 </div>
                 <div class="gemini-config">
                     <div class="gemini-input-row">
