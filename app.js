@@ -191,6 +191,10 @@ let consecutiveWins = 0;
 let consecutiveLosses = 0;
 let freeAdjustmentWindow = [];
 let adjustmentLog = [];
+let adaptationReport = [];
+let currentGameEngineDepth = null;
+let currentGameActiveStrengthElo = null;
+let lastAdaptationGameRecord = null;
 let lastAdjustmentQualityAvg = null;
 let freeLossStreak = 0;
 let calibrationRocFloor = null;
@@ -699,6 +703,7 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         calibratgeComplet: calibratgeComplet,
         freeAdjustmentWindow: freeAdjustmentWindow,
         adjustmentLog: adjustmentLog,
+        adaptationReport: adaptationReport,
         freeLossStreak: freeLossStreak,
         calibrationRocFloor: calibrationRocFloor,
         eloMilestones: unlockedEloMilestones,
@@ -709,6 +714,220 @@ function buildBackupData({ includeGameHistory = false } = {}) {
     };
     if (includeGameHistory) base.gameHistory = gameHistory;
     return base;
+}
+
+
+function normalizeAdaptationReport(report) {
+    return (Array.isArray(report) ? report : [])
+        .filter(entry => entry && typeof entry === 'object')
+        .map((entry, index) => Object.assign({ id: entry.id || `adapt_legacy_${index}` }, entry));
+}
+
+function getAdaptationWinRate(windowSize, extraResultScore = null) {
+    const historical = adaptationReport
+        .filter(entry => typeof entry.resultScore === 'number')
+        .map(entry => entry.resultScore);
+    if (typeof extraResultScore === 'number') historical.push(extraResultScore);
+    const slice = historical.slice(-windowSize);
+    if (!slice.length) return null;
+    return Math.round((slice.reduce((sum, score) => sum + score, 0) / slice.length) * 1000) / 1000;
+}
+
+function getLastAdjustmentSummary(startIndex) {
+    const entries = adjustmentLog.slice(Math.max(0, startIndex || 0));
+    if (!entries.length) {
+        return { appliedDelta: 0, reason: 'Sense ajust adaptatiu', adjustments: [] };
+    }
+    const appliedDelta = entries.reduce((sum, item) => sum + (typeof item.delta === 'number' ? item.delta : 0), 0);
+    const reason = entries.map(item => item.reason).filter(Boolean).join(' · ') || 'Ajust adaptatiu';
+    return { appliedDelta, reason, adjustments: entries };
+}
+
+function buildAdaptationGameRecord({
+    timestamp,
+    mode,
+    color,
+    resultLabel,
+    resultScore,
+    playerEloBefore,
+    playerEloAfter,
+    currentEloBefore,
+    currentEloAfter,
+    engineRocOrElo,
+    appliedDelta,
+    adjustmentReason,
+    precision,
+    avgCpLoss,
+    counts,
+    moveCount,
+    durationSeconds,
+    freeLossStreakValue,
+    calibrationGameNumber,
+    engineDepth,
+    activeStrengthElo,
+    adjustments
+}) {
+    return {
+        id: `adapt_${Date.parse(timestamp) || Date.now()}_${adaptationReport.length + 1}`,
+        timestamp,
+        mode,
+        playerColor: color,
+        result: resultLabel,
+        resultScore,
+        playerEloBefore,
+        playerEloAfter,
+        engineRocOrElo,
+        currentEloBefore,
+        currentEloAfter,
+        appliedDelta,
+        adjustmentReason,
+        precision,
+        avgCpLoss,
+        blunders: (counts || {}).blunder || 0,
+        mistakes: (counts || {}).mistake || 0,
+        inaccuracies: (counts || {}).inaccuracy || 0,
+        moveCount,
+        durationSeconds,
+        winRateLast5: getAdaptationWinRate(5, resultScore),
+        winRateLast10: getAdaptationWinRate(10, resultScore),
+        winRateLast20: getAdaptationWinRate(20, resultScore),
+        freeLossStreak: freeLossStreakValue,
+        calibrationGameNumber: calibrationGameNumber || null,
+        engineDepth: engineDepth || null,
+        activeStrengthElo: activeStrengthElo || engineRocOrElo || null,
+        adjustments: adjustments || []
+    };
+}
+
+function recordAdaptationGame(entry) {
+    if (!entry || blunderMode) return null;
+    adaptationReport.push(entry);
+    lastAdaptationGameRecord = entry;
+    return entry;
+}
+
+function diagnoseAdaptation(reportGames = adaptationReport, adjustments = adjustmentLog) {
+    const diagnostics = [];
+    const games = Array.isArray(reportGames) ? reportGames : [];
+    const recent10 = games.slice(-10);
+    const winRateLast10 = recent10.length
+        ? recent10.reduce((sum, game) => sum + (typeof game.resultScore === 'number' ? game.resultScore : 0), 0) / recent10.length
+        : null;
+
+    if (winRateLast10 !== null && winRateLast10 > 0.65) diagnostics.push({ code: 'too_easy', label: 'massa fàcil', severity: 'warning', detail: `Win-rate últimes ${recent10.length}: ${Math.round(winRateLast10 * 100)}%.` });
+    if (winRateLast10 !== null && winRateLast10 < 0.35) diagnostics.push({ code: 'too_hard', label: 'massa difícil', severity: 'warning', detail: `Win-rate últimes ${recent10.length}: ${Math.round(winRateLast10 * 100)}%.` });
+
+    const adjustmentDirections = (Array.isArray(adjustments) ? adjustments : [])
+        .filter(item => typeof item.delta === 'number' && item.delta !== 0)
+        .map(item => Math.sign(item.delta));
+    let sameDirectionCount = 1;
+    for (let i = adjustmentDirections.length - 1; i > 0; i--) {
+        if (adjustmentDirections[i] !== adjustmentDirections[i - 1]) break;
+        sameDirectionCount++;
+    }
+    if (sameDirectionCount > 3) diagnostics.push({ code: 'same_direction_streak', label: 'possible oscil·lació', severity: 'warning', detail: `${sameDirectionCount} ajustos seguits en la mateixa direcció.` });
+
+    if (games.length >= 6) {
+        const window = games.slice(-10);
+        const half = Math.floor(window.length / 2);
+        const first = window.slice(0, half);
+        const second = window.slice(half);
+        const avg = list => list.reduce((sum, game) => sum + (typeof game.precision === 'number' ? game.precision : 0), 0) / (list.length || 1);
+        const precisionImproves = second.length && avg(second) > avg(first) + 2;
+        if (precisionImproves && winRateLast10 !== null && winRateLast10 >= 0.40 && winRateLast10 <= 0.60) {
+            diagnostics.push({ code: 'good_adaptation', label: 'adaptació bona', severity: 'success', detail: 'La precisió mitjana puja i el win-rate es manté entre el 40% i el 60%.' });
+        }
+    }
+
+    const recentAdjustments = (Array.isArray(adjustments) ? adjustments : []).filter(item => typeof item.delta === 'number').slice(-10);
+    const largeAdjustments = recentAdjustments.filter(item => Math.abs(item.delta) >= 50);
+    const avgAbsDelta = recentAdjustments.length
+        ? recentAdjustments.reduce((sum, item) => sum + Math.abs(item.delta), 0) / recentAdjustments.length
+        : 0;
+    if (largeAdjustments.length >= 4 || (recentAdjustments.length >= 5 && avgAbsDelta > 45)) {
+        diagnostics.push({ code: 'too_aggressive', label: 'ajust massa agressiu', severity: 'warning', detail: 'Els deltes recents són grans i freqüents.' });
+    }
+
+    if (!diagnostics.length) diagnostics.push({ code: 'no_flags', label: 'sense alertes', severity: 'info', detail: 'No hi ha prou senyals problemàtics en les dades locals actuals.' });
+    return diagnostics;
+}
+
+function buildAdaptationReport() {
+    const games = normalizeAdaptationReport(adaptationReport);
+    const completedGames = games.length;
+    const avg = (field) => completedGames
+        ? Math.round((games.reduce((sum, game) => sum + (typeof game[field] === 'number' ? game[field] : 0), 0) / completedGames) * 100) / 100
+        : 0;
+    const latest = games[games.length - 1] || null;
+    const wins = games.filter(game => game.resultScore === 1).length;
+    const losses = games.filter(game => game.resultScore === 0).length;
+    const draws = games.filter(game => game.resultScore === 0.5).length;
+    return {
+        metadata: {
+            appName: 'El Tauler',
+            appVersion: APP_VERSION,
+            generatedAt: new Date().toISOString(),
+            source: 'localStorage',
+            privacy: 'Informe generat localment; no s’envia cap dada a cap servidor.'
+        },
+        summary: {
+            completedGames,
+            wins,
+            losses,
+            draws,
+            winRate: completedGames ? Math.round(((wins + draws * 0.5) / completedGames) * 1000) / 1000 : null,
+            avgPrecision: avg('precision'),
+            avgCpLoss: avg('avgCpLoss'),
+            avgAppliedDelta: avg('appliedDelta'),
+            currentPlayerElo: userELO,
+            currentAdaptiveElo: currentElo,
+            currentFreeLossStreak: freeLossStreak,
+            latestGame: latest ? { timestamp: latest.timestamp, result: latest.result, winRateLast10: latest.winRateLast10 } : null
+        },
+        games,
+        adjustments: Array.isArray(adjustmentLog) ? adjustmentLog.slice() : [],
+        diagnostics: diagnoseAdaptation(games, adjustmentLog)
+    };
+}
+
+function csvEscape(value) {
+    if (value === null || value === undefined) return '';
+    const text = String(value);
+    return /[",\n\r;]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function buildAdaptationReportCsv(report = buildAdaptationReport()) {
+    const fields = [
+        'timestamp', 'mode', 'playerColor', 'result', 'playerEloBefore', 'playerEloAfter', 'engineRocOrElo',
+        'currentEloBefore', 'currentEloAfter', 'appliedDelta', 'adjustmentReason', 'precision', 'avgCpLoss',
+        'blunders', 'mistakes', 'inaccuracies', 'moveCount', 'durationSeconds', 'winRateLast5', 'winRateLast10',
+        'winRateLast20', 'freeLossStreak', 'calibrationGameNumber', 'engineDepth', 'activeStrengthElo'
+    ];
+    const rows = [fields.join(',')];
+    (report.games || []).forEach(game => {
+        rows.push(fields.map(field => csvEscape(game[field])).join(','));
+    });
+    return rows.join('\n');
+}
+
+function downloadTextFile(filename, content, mimeType) {
+    const blob = new Blob([content], { type: mimeType });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+}
+
+function exportAdaptationReport() {
+    const report = buildAdaptationReport();
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
+    downloadTextFile(`eltauler_informe_adaptacio_${stamp}.json`, JSON.stringify(report, null, 2), 'application/json;charset=utf-8');
+    downloadTextFile(`eltauler_informe_adaptacio_${stamp}.csv`, buildAdaptationReportCsv(report), 'text/csv;charset=utf-8');
+    showToast(`Informe d’adaptació exportat (${report.games.length} partides)`, 'success');
 }
 
 function importBackupData(data) {
@@ -743,6 +962,7 @@ function importBackupData(data) {
     calibratgeComplet = typeof data.calibratgeComplet === 'boolean' ? data.calibratgeComplet : calibratgeComplet;
     freeAdjustmentWindow = Array.isArray(data.freeAdjustmentWindow) ? data.freeAdjustmentWindow : freeAdjustmentWindow;
     adjustmentLog = Array.isArray(data.adjustmentLog) ? data.adjustmentLog : adjustmentLog;
+    adaptationReport = Array.isArray(data.adaptationReport) ? normalizeAdaptationReport(data.adaptationReport) : adaptationReport;
     freeLossStreak = typeof data.freeLossStreak === 'number' ? data.freeLossStreak : freeLossStreak;
     calibrationRocFloor = typeof data.calibrationRocFloor === 'number' ? data.calibrationRocFloor : calibrationRocFloor;
     unlockedEloMilestones = Array.isArray(data.eloMilestones) ? data.eloMilestones : unlockedEloMilestones;
@@ -3773,6 +3993,13 @@ function loadStorage() {
             if (Array.isArray(parsed)) adjustmentLog = parsed;
         } catch (e) {}
     }
+    const storedAdaptationReport = localStorage.getItem('chess_adaptationReport');
+    if (storedAdaptationReport) {
+        try {
+            const parsed = JSON.parse(storedAdaptationReport);
+            if (Array.isArray(parsed)) adaptationReport = normalizeAdaptationReport(parsed);
+        } catch (e) {}
+    }
     const storedFreeLossStreak = localStorage.getItem('chess_freeLossStreak');
     if (storedFreeLossStreak !== null) freeLossStreak = parseInt(storedFreeLossStreak);
     const storedEloFloor = localStorage.getItem('chess_calibrationRocFloor');
@@ -3844,6 +4071,7 @@ function saveStorage() {
     localStorage.setItem('chess_recentErrors', JSON.stringify(recentErrors));
     localStorage.setItem('chess_freeAdjustmentWindow', JSON.stringify(freeAdjustmentWindow));
     localStorage.setItem('chess_adjustmentLog', JSON.stringify(adjustmentLog));
+    localStorage.setItem('chess_adaptationReport', JSON.stringify(adaptationReport));
     localStorage.setItem('chess_freeLossStreak', freeLossStreak);
     if (calibrationRocFloor !== null && !isNaN(calibrationRocFloor)) {
         localStorage.setItem('chess_calibrationRocFloor', calibrationRocFloor);
@@ -9567,6 +9795,7 @@ function setupEvents() {
         $('#start-screen').show();
         navStack.pop();
     });
+    $('#btn-export-adaptation-report, #btn-export-adaptation-report-settings').off('click').on('click', exportAdaptationReport);
     $('#btn-back-settings').click(() => {
         $('#settings-screen').hide();
         $('#start-screen').show();
@@ -9598,6 +9827,7 @@ function setupEvents() {
         calibrationProfile = null;
         freeAdjustmentWindow = [];
         adjustmentLog = [];
+        adaptationReport = [];
         freeLossStreak = 0;
         calibrationRocFloor = null;
         unlockedEloMilestones = [];
@@ -9731,7 +9961,7 @@ function setupEvents() {
             aiDifficulty = levelToDifficulty(currentElo); recentGames = []; consecutiveWins = 0; consecutiveLosses = 0;
             isCalibrating = true; calibrationGames = []; calibrationProfile = null; calibratgeComplet = false;
             currentLeague = null; leagueActiveMatch = null;
-            reviewHistory = []; currentReview = []; gameHistory = [];
+            reviewHistory = []; currentReview = []; gameHistory = []; adaptationReport = [];
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
             geminiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
@@ -11448,6 +11678,8 @@ blunderMode = isBundle;
     isEngineThinking = false;
     pendingMoveEvaluation = false;
     currentGameStartTs = Date.now();
+    currentGameEngineDepth = null;
+    currentGameActiveStrengthElo = null;
     
     updatePrecisionDisplay();
     updateAIPrecisionDisplay();
@@ -11536,6 +11768,8 @@ blunderMode = isBundle;
         if (!isCalibrationGame) {
         currentCalibrationOpponentRoc = null;
     }
+    currentGameActiveStrengthElo = getActiveStrengthElo();
+    currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
 
     // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
     $('#btn-analyze').toggle((currentGameMode === 'free' || currentGameMode === 'assisted') && !isCalibrationGame);
@@ -11620,6 +11854,8 @@ function makeEngineMove() {
     $('#status').text("L'adversari pensa...");
 
     const depth = getAIDepth();
+    currentGameEngineDepth = depth;
+    currentGameActiveStrengthElo = getActiveStrengthElo();
     resetEngineMoveCandidates();
 
     // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
@@ -12844,6 +13080,13 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     const isFreeMode = currentGameMode === 'free' || currentGameMode === 'assisted';
     const isLeagueMode = currentGameMode === 'league';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
+    const adaptationPlayerEloBefore = userELO;
+    const adaptationCurrentEloBefore = currentElo;
+    const adaptationAdjustmentLogStart = adjustmentLog.length;
+    const adaptationTimestamp = new Date().toISOString();
+    const adaptationCalibrationGameNumber = calibrationGameWasActive ? calibrationGames.length + 1 : null;
+    const adaptationActiveStrengthElo = currentGameActiveStrengthElo || getActiveStrengthElo();
+    const adaptationEngineDepth = currentGameEngineDepth || eloToSearchDepth(adaptationActiveStrengthElo);
     
     if (timeoutColor) {
         if (timeoutColor === playerColor) {
@@ -12916,6 +13159,45 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         applyLeagueAfterGame(leagueOutcome);
     }
     const reviewCounts = summarizeReview(currentReview);
+    if (!blunderMode) {
+        const adjustmentSummary = getLastAdjustmentSummary(adaptationAdjustmentLogStart);
+        let appliedDelta = adjustmentSummary.appliedDelta;
+        if (!appliedDelta) {
+            const playerDelta = userELO - adaptationPlayerEloBefore;
+            const currentDelta = currentElo - adaptationCurrentEloBefore;
+            appliedDelta = playerDelta || currentDelta || 0;
+        }
+        let adjustmentReason = adjustmentSummary.reason;
+        if (adjustmentReason === 'Sense ajust adaptatiu') {
+            if (calibrationGameWasActive) adjustmentReason = 'Partida de calibratge';
+            else if (isLeagueMode) adjustmentReason = 'Mode lliga: sense ajust adaptatiu';
+            else if (!shouldContinuousAdjust) adjustmentReason = 'Ajust adaptatiu inicial per resultat';
+        }
+        recordAdaptationGame(buildAdaptationGameRecord({
+            timestamp: adaptationTimestamp,
+            mode: calibrationGameWasActive ? 'calibration' : currentGameMode,
+            color: playerColor,
+            resultLabel: leagueOutcome,
+            resultScore: resultScore,
+            playerEloBefore: adaptationPlayerEloBefore,
+            playerEloAfter: userELO,
+            currentEloBefore: adaptationCurrentEloBefore,
+            currentEloAfter: currentElo,
+            engineRocOrElo: adaptationActiveStrengthElo,
+            appliedDelta: appliedDelta,
+            adjustmentReason: adjustmentReason,
+            precision: finalPrecision,
+            avgCpLoss: avgCpLoss,
+            counts: reviewCounts,
+            moveCount: game.history().length,
+            durationSeconds: durationSeconds,
+            freeLossStreakValue: freeLossStreak,
+            calibrationGameNumber: adaptationCalibrationGameNumber,
+            engineDepth: adaptationEngineDepth,
+            activeStrengthElo: adaptationActiveStrengthElo,
+            adjustments: adjustmentSummary.adjustments
+        }));
+    }
     const severeErrors = currentGameErrors.slice(); // ← Usar currentGameErrors
     recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors });
     severeErrors.forEach(err => {
