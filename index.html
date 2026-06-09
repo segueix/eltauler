@@ -387,6 +387,50 @@
         body.epaper-mode .coach-kicker { color: #222; }
         body.epaper-mode .coach-item { border-left-color: #cfcfcf !important; }
 
+        /* CONTEXT DE L'ERRADA en exercicis (bundles, SRS, debilitats) */
+        #error-context-banner {
+            background: rgba(198, 40, 40, 0.1);
+            border: 1px solid rgba(198, 40, 40, 0.35);
+            border-left: 4px solid #c62828;
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap;
+            text-align: left;
+        }
+        .error-context-text { flex: 1 1 220px; min-width: 0; font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
+        .error-context-text strong { color: #ef6e6e; font-size: 1rem; }
+        .error-context-date { color: var(--text-secondary); }
+        #error-context-banner .btn.error-context-replay {
+            width: auto; flex: 0 0 auto; padding: 8px 12px; font-size: 0.78rem;
+            border-radius: 8px; letter-spacing: 0.5px;
+            background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0;
+        }
+        @media (max-width: 480px) {
+            #error-context-banner .btn.error-context-replay { flex: 1 1 100%; width: 100%; padding: 9px 12px; }
+        }
+        body.device-mobile #error-context-banner { margin-left: 8px; margin-right: 8px; margin-bottom: 8px; }
+        body.epaper-mode #error-context-banner {
+            background: #ededed !important; border-color: #cfcfcf !important;
+            border-left: 4px solid #777 !important; color: #222;
+        }
+        body.epaper-mode .error-context-text strong { color: #222; }
+
+        /* Caselles de la jugada errònia marcades al tauler */
+        #myBoard .square-55d63.square-error-played {
+            box-shadow: inset 0 0 0 4px rgba(198, 40, 40, 0.75) !important;
+            background-color: rgba(198, 40, 40, 0.22) !important;
+        }
+        body.epaper-mode #myBoard .square-55d63.square-error-played {
+            box-shadow: inset 0 0 0 3px #5c5c5c !important;
+            background-color: #cfcfcf !important;
+        }
+        .error-move-cross {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 1.7rem; font-weight: bold; color: #e53935;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.6); z-index: 90; pointer-events: none;
+        }
+
                 .epaper-toggle {
             position: relative;
             width: 54px;
@@ -3125,7 +3169,12 @@
                     <div class="precision-value precision-target-text">75%</div>
                 </div>
             </div>
-   
+
+            <div id="error-context-banner" style="display:none;">
+                <div class="error-context-text" id="error-context-text"></div>
+                <button class="btn error-context-replay" id="btn-error-replay">👁 Reviu l'errada</button>
+            </div>
+
             <div class="board-container">
                 <div id="myBoard"></div>
                 <div class="bundle-success-overlay" id="bundle-success-overlay">

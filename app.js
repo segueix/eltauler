@@ -1258,6 +1258,7 @@ function commitHumanMoveFromTap(from, to) {
     const move = game.move({ from: from, to: to, promotion: 'q' });
     if (move === null) { showIllegalMoveFeedback(from); return false; }
     clearEngineMoveHighlights();
+    onErrorContextPlayerMoved();
     clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
@@ -12177,6 +12178,7 @@ blunderMode = isBundle;
 
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
+    renderBundleErrorContext();
     updateStatus();
     updateBundleHintButtons();
 
@@ -12188,8 +12190,10 @@ blunderMode = isBundle;
         updateBundleHintButtons();
         if (blunderMode) {
             const statusEl = $('#status');
-            const msg = bundleSequenceStep === 1 
-                ? 'Pas 1 de 2: Troba la millor jugada'
+            const msg = bundleSequenceStep === 1
+                ? (currentErrorContext
+                    ? `Rectifica l'errada: què calia jugar en lloc de ${currentErrorContext.san}?`
+                    : 'Pas 1 de 2: Troba la millor jugada')
                 : 'Pas 2 de 2: Completa la seqüència';
             statusEl.text(msg);
         }
@@ -12222,6 +12226,7 @@ function onDrop(source, target) {
     var move = game.move({ from: source, to: target, promotion: 'q' });
     if (move === null) { showIllegalMoveFeedback(source); return 'snapback'; }
     clearEngineMoveHighlights();
+    onErrorContextPlayerMoved();
     clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
@@ -14166,6 +14171,107 @@ function renderWeeklyPlan() {
             summaryEl.text(text);
         }).finally(() => { coachPlanGeminiPending = false; });
     }
+}
+
+/* ===================== CONTEXT DE L'ERRADA EN EXERCICIS =====================
+   Quan un exercici prové d'un error real de l'usuari (savedErrors o errors de
+   la partida acabada), mostrem QUÈ va jugar, QUAN i QUÈ va costar, amb la
+   jugada errònia marcada al tauler. Així l'exercici és "rectifica la teva
+   errada", no un genèric "troba la millor jugada". */
+
+let currentErrorContext = null;
+let errorReplayTimer = null;
+
+const ERROR_SEVERITY_INFO = {
+    low: { phrase: "una imprecisió que va deixar escapar una opció millor" },
+    med: { phrase: "un error que et va costar part de l'avantatge" },
+    high: { phrase: "una errada greu que va canviar el signe de la partida" }
+};
+
+function uciToSanForFen(fen, uci) {
+    if (!fen || !uci || String(uci).length < 4) return null;
+    try {
+        const probe = new Chess(fen);
+        const mv = probe.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
+        return mv ? mv.san : null;
+    } catch (e) { return null; }
+}
+
+function findBundleErrorRecord(fen) {
+    if (!fen) return null;
+    if (currentMatchError && currentMatchError.fen === fen && currentMatchError.playerMove) return currentMatchError;
+    const saved = savedErrors.find(e => e.fen === fen && e.playerMove);
+    if (saved) return saved;
+    const inGame = (currentGameErrors || []).find(e => e.fen === fen && e.playerMove);
+    return inGame || null;
+}
+
+function highlightErrorMove() {
+    if (!currentErrorContext) return;
+    $(`#myBoard .square-${currentErrorContext.from}`).addClass('square-error-played');
+    const toSquare = $(`#myBoard .square-${currentErrorContext.to}`);
+    toSquare.addClass('square-error-played');
+    if (toSquare.length && !toSquare.find('.error-move-cross').length) {
+        toSquare.css('position', 'relative').append('<div class="error-move-cross">✗</div>');
+    }
+}
+
+function clearErrorMoveHighlights() {
+    $('#myBoard .square-error-played').removeClass('square-error-played');
+    $('#myBoard .error-move-cross').remove();
+}
+
+// Mostra o amaga el bàner segons el mode i l'origen de la posició. Es crida a startGame.
+function renderBundleErrorContext() {
+    const banner = $('#error-context-banner');
+    if (!banner.length) return;
+    if (errorReplayTimer) { clearTimeout(errorReplayTimer); errorReplayTimer = null; }
+    clearErrorMoveHighlights();
+    currentErrorContext = null;
+    if (!blunderMode || !currentBundleFen) { banner.hide(); return; }
+    const record = findBundleErrorRecord(currentBundleFen);
+    const san = record ? uciToSanForFen(currentBundleFen, record.playerMove) : null;
+    if (!san) { banner.hide(); return; }
+
+    currentErrorContext = {
+        from: record.playerMove.slice(0, 2),
+        to: record.playerMove.slice(2, 4),
+        san
+    };
+    const sev = ERROR_SEVERITY_INFO[record.severity] || ERROR_SEVERITY_INFO.med;
+    const intro = record.date
+        ? `El ${record.date} aquí vas jugar `
+        : (isMatchErrorReviewSession ? 'En aquesta partida aquí has jugat ' : 'Aquí vas jugar ');
+
+    const textEl = $('#error-context-text').empty();
+    textEl.append($('<span class="error-context-date"></span>').text('❌ '));
+    textEl.append($('<span></span>').text(intro));
+    textEl.append($('<strong></strong>').text(`${san}?`));
+    textEl.append($('<span></span>').text(`, ${sev.phrase}. Ara rectifica-la: juga el que hauries d'haver jugat.`));
+
+    $('#btn-error-replay').show().off('click').on('click', previewErrorMove);
+    banner.css('display', 'flex');
+    // El tauler es crea de forma asíncrona; marquem les caselles quan ja existeix
+    setTimeout(highlightErrorMove, 150);
+}
+
+// Reprodueix visualment la jugada errònia sobre el tauler i torna a la posició inicial.
+function previewErrorMove() {
+    if (!currentErrorContext || !board || errorReplayTimer) return;
+    try { board.move(`${currentErrorContext.from}-${currentErrorContext.to}`); } catch (e) { return; }
+    errorReplayTimer = setTimeout(() => {
+        errorReplayTimer = null;
+        try { board.position(game.fen()); } catch (e) {}
+        highlightErrorMove();
+    }, 1300);
+}
+
+// Quan l'usuari comença a resoldre, retirem les marques perquè no facin nosa.
+function onErrorContextPlayerMoved() {
+    if (!currentErrorContext) return;
+    if (errorReplayTimer) { clearTimeout(errorReplayTimer); errorReplayTimer = null; }
+    clearErrorMoveHighlights();
+    $('#btn-error-replay').hide();
 }
 
 // PWA Install functionality
