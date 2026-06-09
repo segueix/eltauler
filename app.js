@@ -95,6 +95,7 @@ let openingLessonLine = [];
 let openingLessonStep = 0;
 let openingLessonInfo = null;
 let openingLessonUserColor = 'w';
+let openingLessonLastDetected = null; // Últim tipus d'obertura detectat (per avisar de canvis amb negres)
 let openingErrorCurrentPositions = []; // Posicions d'error disponibles
 let openingErrorCurrentFen = null; // FEN actual que s'està practicant
 let openingErrorBestMove = null; // Millor moviment esperat
@@ -8429,6 +8430,7 @@ function startOpeningLesson(idx) {
     openingLessonInfo = op;
     openingLessonLine = op.moves.slice();
     openingLessonStep = 0;
+    openingLessonLastDetected = null;
     openingLessonUserColor = op.userColor || 'w';
     openingPracticeUserColor = openingLessonUserColor;
     const colorSelect = document.getElementById('opening-practice-color-select');
@@ -8482,6 +8484,34 @@ function updateOpeningLessonNote(intro = false) {
     let html = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name} (${openingLessonInfo.eco})</div>`;
     if (intro && openingLessonInfo.idea) html += `<div class="maxim-text">${openingLessonInfo.idea}</div>`;
     const status = done >= total ? 'Línia completada!' : (yourTurn ? `El teu torn (${colorTxt}): troba la jugada de la teoria.` : 'Observa la resposta del rival...');
+
+    // Defenses amb negres: marcador d'encerts en verd + avís de canvi de tipus d'obertura.
+    // Les obertures amb blanques es deixen igual que estan.
+    if (openingLessonUserColor === 'b') {
+        const target = targetUserMoves > 0 ? targetUserMoves : total;
+        const counter = `<span style="display:inline-block; padding:2px 10px; border-radius:999px; background:rgba(76,175,80,0.18); color:var(--accent-green); font-weight:700;">✓ encerts ${openingPracticeGoodMoves}/${target}</span>`;
+        html += `<div class="maxim-text" style="margin-top:6px;">${counter}</div>`;
+        const detected = analyzeGameOpening(openingPracticeGame.history());
+        if (detected && detected.name) {
+            const display = `${detected.name}${detected.eco ? ` (${detected.eco})` : ''}`;
+            // Família base (sense subvariant ni ECO) per detectar canvis de tipus reals
+            const baseFamily = s => (s || '').split(':')[0].trim();
+            // Obertures genèriques d'arrencada: en passar d'aquí a la defensa real no és un "canvi"
+            const GENERIC_ROOTS = ["King's Pawn Game", "Queen's Pawn Game", "Indian Defense", "King's Pawn Opening", "Queen's Pawn Opening"];
+            const prevBase = baseFamily(openingLessonLastDetected);
+            const currBase = baseFamily(detected.name);
+            const changed = openingLessonLastDetected && prevBase !== currBase && !GENERIC_ROOTS.includes(prevBase);
+            const label = changed
+                ? `🔀 Has canviat d'obertura: <strong>${display}</strong>`
+                : `📗 Obertura: <strong>${display}</strong>`;
+            html += `<div class="maxim-text" style="opacity:0.9;">${label}</div>`;
+            openingLessonLastDetected = detected.name;
+        }
+        html += `<div class="maxim-text" style="opacity:0.85;">${status}</div></div>`;
+        noteEl.innerHTML = html;
+        return;
+    }
+
     html += `<div class="maxim-text" style="opacity:0.85;">${status} · ${progressText}</div></div>`;
     noteEl.innerHTML = html;
 }
