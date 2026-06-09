@@ -9361,6 +9361,13 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
 function startHieroglyphicExercise() {
     const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
     if (pool.length === 0) return;
+    // Neteja qualsevol feina pendent de la pràctica anterior perquè no interfereixi
+    // amb l'exercici (rival pendent, anàlisi de Stockfish, pista o pre-càlcul).
+    openingPracticeEngineThinking = false;
+    openingPracticeAnalysisPending = false;
+    openingPracticeHintPending = false;
+    openingPreCalcPending = false;
+    stockfishRequestor = null;
     const op = pool[Math.floor(Math.random() * pool.length)];
     hieroglyphicOpening = op;
     hieroglyphicGame = new Chess();
@@ -9908,11 +9915,16 @@ function resetOpeningPracticeBoard() {
 
 function playOpeningTheoryOpponentMove() {
     if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+    // No moguis si hem sortit de la pràctica cap a un exercici jeroglífic: una crida
+    // pendent no ha de tocar el tauler de l'exercici.
+    if (hieroglyphicExerciseActive) return false;
     const san = chooseOpeningTheoryMoveForCurrentPosition();
     return applyOpeningOpponentSanMove(san);
 }
 
 function requestOpeningPracticeEngineMove() {
+    // Si ja estem en un exercici jeroglífic, no demanis cap jugada del rival de pràctica.
+    if (hieroglyphicExerciseActive) return;
     // El tauler d'obertures separa Stockfish fort (pistes, validacions i lliçons guiades)
     // d'un rival adaptatiu per a la pràctica normal. Validar exercicis requereix exactitud;
     // jugar contra el bot requereix la mateixa experiència humana que la partida lliure.
@@ -12495,6 +12507,12 @@ function handleEngineMessage(rawMsg) {
 
     if (openingPracticeEngineThinking && stockfishRequestor === 'opening-engine' && msg.indexOf('bestmove') !== -1) {
         stockfishRequestor = null;
+        // Si mentrestant hem entrat en un exercici jeroglífic, descarta aquesta resposta:
+        // openingPracticeGame ara apunta al tauler de l'exercici i no s'ha de tocar.
+        if (hieroglyphicExerciseActive) {
+            openingPracticeEngineThinking = false;
+            return;
+        }
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match && openingPracticeGame) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
