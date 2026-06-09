@@ -4427,6 +4427,7 @@ function updateDisplay() {
     $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
+    renderWeeklyPlan();
 }
 
 function updateStatsDisplay() {
@@ -13088,6 +13089,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         $('#review-result-text').text(msg);
         $('#review-precision-value').text(finalPrecision ? `${finalPrecision}%` : '—');
         renderReviewBreakdown(counts || summarizeReview(currentReview));
+        renderGameDebrief();
         modal.css('display', 'flex');
     };
     
@@ -13690,6 +13692,482 @@ function updateStatus() {
     }
 }
 
+/* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA SETMANAL) =====================
+   Arquitectura en dues capes: els FETS es calculen sempre en local a partir de les dades
+   que ja recull l'app (gameHistory, savedErrors, themeMastery). La redacció per defecte
+   surt d'un banc de plantilles en català; si hi ha clau Gemini, només poleix el text
+   a partir dels mateixos fets (mai analitza la partida ell sol). */
+
+const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
+let weeklyPlan = null;
+let coachCatalanVoice = null;
+let coachDebriefPending = false;
+let coachPlanGeminiPending = false;
+
+const COACH_PHASE_LABELS = { opening: "l'obertura", middlegame: 'el mig joc', endgame: 'el final' };
+
+function debriefResultKind(label) {
+    const s = String(label || '').toLowerCase();
+    if (/vict/.test(s)) return 'win';
+    if (/taules|empat/.test(s)) return 'draw';
+    return 'loss';
+}
+
+// Capa 1: motor de diagnòstic. Només fets, cap text.
+function buildDebriefFacts(entry) {
+    if (!entry) return null;
+    const counts = entry.counts || {};
+    const totalMoves = ['excel', 'good', 'inaccuracy', 'mistake', 'blunder'].reduce((s, k) => s + (counts[k] || 0), 0);
+    const prev = gameHistory.filter(g => g.id !== entry.id && typeof g.precision === 'number');
+    const avgPrecision = prev.length ? Math.round(prev.reduce((s, g) => s + g.precision, 0) / prev.length) : null;
+
+    // Tema més repetit entre els errors greus de la partida
+    const themeCounts = {};
+    (entry.errors || []).forEach(err => {
+        const t = normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''));
+        themeCounts[t] = (themeCounts[t] || 0) + 1;
+    });
+    let topErrorTheme = null, topErrorCount = 0;
+    Object.keys(themeCounts).forEach(t => {
+        if (themeCounts[t] > topErrorCount) { topErrorTheme = t; topErrorCount = themeCounts[t]; }
+    });
+
+    // Fase de la partida on es concentren les errades
+    const phaseCounts = { opening: 0, middlegame: 0, endgame: 0 };
+    (entry.moveReviews || []).forEach(r => {
+        if (r.quality !== 'mistake' && r.quality !== 'blunder') return;
+        const n = r.moveNumber || 0;
+        if (n <= 10) phaseCounts.opening++; else if (n <= 28) phaseCounts.middlegame++; else phaseCounts.endgame++;
+    });
+    let worstPhase = null, worstPhaseCount = 0;
+    Object.keys(phaseCounts).forEach(p => {
+        if (phaseCounts[p] > worstPhaseCount) { worstPhase = p; worstPhaseCount = phaseCounts[p]; }
+    });
+
+    loadThemeMastery();
+    let weakestTheme = 'general', weakestVal = Infinity;
+    Object.keys(themeMastery).forEach(t => {
+        if (t !== 'general' && themeMastery[t] < weakestVal) { weakestVal = themeMastery[t]; weakestTheme = t; }
+    });
+
+    const mistakes = (counts.mistake || 0) + (counts.blunder || 0);
+    return {
+        result: debriefResultKind(entry.result),
+        precision: typeof entry.precision === 'number' ? entry.precision : null,
+        avgPrecision,
+        totalMoves,
+        mistakes,
+        blunders: counts.blunder || 0,
+        topErrorTheme, topErrorCount,
+        worstPhase, worstPhaseCount,
+        weakestTheme,
+        weakestMastery: isFinite(weakestVal) ? Math.round(weakestVal * 100) : 0,
+        srsDue: getDueErrors().length,
+        cleanGame: mistakes === 0 && totalMoves >= 10
+    };
+}
+
+function fillCoachTemplate(tpl, data) {
+    return tpl.replace(/\{(\w+)\}/g, (m, k) => (data[k] !== undefined && data[k] !== null) ? data[k] : m);
+}
+
+const COACH_DEBRIEF_TEMPLATES = {
+    win_high: [
+        "Victòria amb un {prec}% de precisió: avui has jugat com volies jugar.",
+        "Bona feina: has guanyat i, a més, ho has fet amb criteri ({prec}% de precisió).",
+        "Has guanyat sense regalar res: {prec}% de precisió. Així es construeix nivell."
+    ],
+    win_low: [
+        "Has guanyat, però la precisió ({prec}%) diu que el rival t'ha perdonat alguna.",
+        "Victòria treballada: el resultat és bo, però hi ha hagut moments delicats ({prec}%).",
+        "Punt a la butxaca, tot i que la partida ha estat més bruta del que voldríem ({prec}%)."
+    ],
+    draw: [
+        "Taules. No és el resultat que volíem, però hi ha coses aprofitables en aquesta partida.",
+        "Empat: partida igualada i ben disputada. Mirem què en podem treure.",
+        "Taules. De vegades el rival també juga; quedem-nos amb el que has fet bé."
+    ],
+    loss_high: [
+        "Has perdut, però amb un {prec}% de precisió: la derrota és més del rival que teva.",
+        "Derrota dura d'encaixar perquè has jugat bé ({prec}%). Així és aquest joc.",
+        "Has caigut jugant a bon nivell ({prec}%). Aquestes derrotes ensenyen més que moltes victòries."
+    ],
+    loss_low: [
+        "Derrota, i avui la precisió ({prec}%) explica per què. Toca revisar amb calma.",
+        "Has perdut i hi ha hagut massa errades ({prec}% de precisió). Cap drama: ho treballem.",
+        "Partida per oblidar el resultat ({prec}%), però no les lliçons que porta dins."
+    ],
+    highlight_clean: [
+        "El més destacable: cap error greu en tota la partida. Això és or.",
+        "Zero errades greus avui. La teva solidesa comença a notar-se.",
+        "Has jugat tota la partida sense cap error seriós: senyal de maduresa al tauler."
+    ],
+    highlight_above_avg: [
+        "Has jugat {diff} punts per sobre de la teva mitjana de precisió ({avg}%). Vas en bona direcció.",
+        "La teva mitjana és del {avg}% i avui has fet {prec}%: progrés clar.",
+        "Avui has superat la teva mitjana ({avg}%): el treball es comença a veure."
+    ],
+    highlight_no_blunders: [
+        "Cap blunder avui: les errades han estat menors, i això ja és un pas.",
+        "Has evitat els errors greus; les imprecisions es poleixen amb més facilitat."
+    ],
+    weak_theme: [
+        "El punt feble d'avui: {cops} amb {tema}.",
+        "On t'ha fet mal la partida és en {tema} ({moments}).",
+        "Si mirem els errors, el patró que es repeteix és {tema}."
+    ],
+    weak_phase: [
+        "Les errades s'han concentrat a {fase}: és on perds més punts.",
+        "T'has mantingut bé fins que ha arribat {fase}; allà s'ha torçat la cosa.",
+        "El tram fluix d'avui ha estat {fase}."
+    ],
+    weak_mastery: [
+        "No hi ha hagut errors greus, però recorda que {tema} segueix sent el teu punt més fluix.",
+        "Per seguir creixent, el tema que demana feina és {tema}."
+    ],
+    advice_srs: [
+        "Tens {due} repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
+        "Abans de la pròxima partida, passa pels {due} repassos pendents; és memòria que no vols perdre.",
+        "Consell: tens {due} errors esperant repàs. Tanca'ls i notaràs la diferència."
+    ],
+    advice_theme: [
+        "Aquesta setmana toca {tema}: entrena'l i aquest tipus de partida canviarà de color.",
+        "El meu consell: una sessió curta de {tema} abans de tornar a jugar.",
+        "Si dediques deu minuts a {tema}, la pròxima vegada aquest moment caurà del teu costat."
+    ],
+    advice_keep: [
+        "Continua així: ara mateix el millor entrenament és seguir jugant amb aquesta concentració.",
+        "Poc a corregir avui. Mantén el ritme i puja una mica el nivell del rival si et veus còmode.",
+        "Quan es juga així, el pla és simple: més partides com aquesta."
+    ]
+};
+
+// Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
+function composeDebriefText(facts, seedStr) {
+    const rng = mulberry32(hashStr(String(seedStr || 'debrief')));
+    const pick = arr => arr[Math.floor(rng() * arr.length)];
+    const data = {
+        prec: facts.precision !== null ? facts.precision : '—',
+        avg: facts.avgPrecision,
+        diff: (facts.precision !== null && facts.avgPrecision !== null) ? facts.precision - facts.avgPrecision : 0,
+        cops: facts.topErrorCount === 1 ? 'una errada relacionada' : `${facts.topErrorCount} errades relacionades`,
+        moments: facts.topErrorCount === 1 ? 'un moment delicat' : `${facts.topErrorCount} moments delicats`,
+        tema: getThemeLabel(facts.topErrorTheme || facts.weakestTheme),
+        fase: COACH_PHASE_LABELS[facts.worstPhase] || 'el mig joc',
+        due: facts.srsDue
+    };
+    const goodPrecision = facts.precision !== null
+        && (facts.precision >= 70 || (facts.avgPrecision !== null && facts.precision >= facts.avgPrecision));
+    const sentences = [];
+
+    if (facts.result === 'win') sentences.push(pick(goodPrecision ? COACH_DEBRIEF_TEMPLATES.win_high : COACH_DEBRIEF_TEMPLATES.win_low));
+    else if (facts.result === 'draw') sentences.push(pick(COACH_DEBRIEF_TEMPLATES.draw));
+    else sentences.push(pick(goodPrecision ? COACH_DEBRIEF_TEMPLATES.loss_high : COACH_DEBRIEF_TEMPLATES.loss_low));
+
+    if (facts.cleanGame) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_clean));
+    } else if (facts.avgPrecision !== null && facts.precision !== null && facts.precision - facts.avgPrecision >= 5) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_above_avg));
+    } else if (facts.blunders === 0 && facts.mistakes > 0) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_no_blunders));
+    }
+
+    if (facts.topErrorTheme && facts.topErrorCount > 0) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_theme));
+    } else if (facts.worstPhase && facts.worstPhaseCount >= 2) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_phase));
+    } else if (facts.cleanGame && facts.weakestMastery < 50) {
+        data.tema = getThemeLabel(facts.weakestTheme);
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_mastery));
+    }
+
+    if (facts.cleanGame && facts.srsDue < 3) sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_keep));
+    else if (facts.srsDue >= 3) sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_srs));
+    else sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_theme));
+
+    return sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
+}
+
+// Tradueix els fets a claus llegibles perquè Gemini redacti en català sense inventar res.
+function debriefFactsForPrompt(facts) {
+    const resultLabels = { win: 'victòria', draw: 'taules', loss: 'derrota' };
+    const out = {
+        resultat: resultLabels[facts.result] || facts.result,
+        precisio_percent: facts.precision,
+        precisio_mitjana_anteriors: facts.avgPrecision,
+        errors_greus: facts.mistakes,
+        blunders: facts.blunders,
+        partida_neta_sense_errors: facts.cleanGame,
+        repassos_pendents: facts.srsDue
+    };
+    if (facts.topErrorTheme) {
+        out.tema_amb_mes_errors = getThemeLabel(facts.topErrorTheme);
+        out.quants_errors_del_tema = facts.topErrorCount;
+    }
+    if (facts.worstPhase && facts.worstPhaseCount >= 2) out.fase_amb_mes_errades = COACH_PHASE_LABELS[facts.worstPhase];
+    out.punt_feble_historic = getThemeLabel(facts.weakestTheme);
+    return out;
+}
+
+function buildDebriefGeminiPrompt(facts) {
+    return `Ets un entrenador d'escacs proper, honest i motivador que parla en català (tutejant).
+Redacta un resum post-partida de 60 a 100 paraules NOMÉS a partir d'aquests fets. No inventis jugades, xifres ni dades que no hi siguin:
+${JSON.stringify(debriefFactsForPrompt(facts), null, 2)}
+Regles:
+- Comença pel resultat, destaca un punt fort si n'hi ha, assenyala el punt feble i acaba amb un consell concret.
+- Un sol paràgraf, sense llistes, sense markdown, sense emojis.
+- Català natural i directe, com un entrenador de club.`;
+}
+
+// Capa Gemini opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
+async function requestGeminiCoachText(cacheKey, prompt, onText) {
+    if (!geminiApiKey) return;
+    const cached = getCachedGemini(cacheKey);
+    if (cached) { onText(cached); return; }
+    const result = await callGemini(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 1024 } });
+    if (!result.ok) return;
+    const text = (result.text || '').trim();
+    if (!text || text.length < 40 || text.length > 900) return;
+    setCachedGemini(cacheKey, text);
+    onText(text);
+}
+
+function renderGameDebrief() {
+    const box = $('#review-debrief');
+    if (!box.length) return;
+    box.hide();
+    if (blunderMode) return;
+    const entry = gameHistory[gameHistory.length - 1];
+    // Només mostrem el debrief si l'última entrada de l'historial és la partida que s'acaba de jugar.
+    const fresh = entry && entry.date && (Date.now() - new Date(entry.date).getTime() < 30000);
+    if (!fresh) return;
+    let facts = null;
+    try { facts = buildDebriefFacts(entry); } catch (e) { console.warn('No s\'ha pogut generar el debrief', e); }
+    if (!facts) return;
+
+    const localText = composeDebriefText(facts, entry.id);
+    box.empty().show();
+    box.append($('<div class="coach-kicker"></div>').append(
+        $('<span></span>').text("🎓 L'entrenador diu"),
+        $('<button class="coach-speak-btn" title="Escolta-ho en veu alta">🔊</button>')
+    ));
+    const textEl = $('<div class="coach-text"></div>').text(localText);
+    box.append(textEl);
+    box.find('.coach-speak-btn').on('click', () => speakCoachText(textEl.text()));
+    updateCoachSpeakButtons();
+
+    if (!coachDebriefPending) {
+        coachDebriefPending = true;
+        requestGeminiCoachText(`debrief:${entry.id}`, buildDebriefGeminiPrompt(facts), text => textEl.text(text))
+            .finally(() => { coachDebriefPending = false; });
+    }
+}
+
+/* --------------------- Veu (TTS en català, opcional) --------------------- */
+
+function initCoachVoice() {
+    if (!('speechSynthesis' in window)) return;
+    const pickVoice = () => {
+        try {
+            const voices = window.speechSynthesis.getVoices() || [];
+            coachCatalanVoice = voices.find(v => /^ca([-_]|$)/i.test(v.lang || '')) || null;
+        } catch (e) { coachCatalanVoice = null; }
+        updateCoachSpeakButtons();
+    };
+    pickVoice();
+    try { window.speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {}
+}
+
+function isCoachTtsAvailable() {
+    return ('speechSynthesis' in window) && !!coachCatalanVoice;
+}
+
+function updateCoachSpeakButtons() {
+    $('.coach-speak-btn').toggle(isCoachTtsAvailable());
+}
+
+function speakCoachText(text) {
+    if (!isCoachTtsAvailable() || !text) return;
+    try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.voice = coachCatalanVoice;
+        utterance.lang = coachCatalanVoice.lang || 'ca-ES';
+        utterance.rate = 0.95;
+        window.speechSynthesis.speak(utterance);
+    } catch (e) { console.warn('TTS no disponible', e); }
+}
+
+/* --------------------- Pla setmanal de l'entrenador --------------------- */
+
+function getISOWeekKey(d = new Date()) {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+// Regles locals: tria el focus de la setmana a partir de mastery + errors recents,
+// i fixa objectius mesurables amb comptadors que ja existeixen (baseline al moment de crear el pla).
+function buildWeeklyPlan() {
+    loadThemeMastery();
+    loadGrowthStats();
+    const errorThemes = {};
+    savedErrors.slice(-30).forEach(err => {
+        const t = normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''));
+        errorThemes[t] = (errorThemes[t] || 0) + 1;
+    });
+    const themes = Object.keys(THEME_MASTERY_DEFAULTS).filter(t => t !== 'general');
+    themes.sort((a, b) => (themeMastery[a] - themeMastery[b]) || ((errorThemes[b] || 0) - (errorThemes[a] || 0)));
+    const focusTheme = themes.find(t => (errorThemes[t] || 0) > 0) || themes[0];
+    const due = getDueErrors().length;
+
+    const items = [];
+    if (savedErrors.length > 0) {
+        items.push({
+            id: 'focus', type: 'weakness_training', theme: focusTheme, metric: 'weakness',
+            title: `Entrena ${getThemeLabel(focusTheme)} (2 sessions)`,
+            target: 2, baseline: growthStats.weaknessSessionsCompleted || 0
+        });
+    }
+    if (due > 0) {
+        items.push({
+            id: 'srs', type: 'srs_review', theme: null, metric: 'srs',
+            title: `Buida els repassos pendents (${Math.min(due, 6)})`,
+            target: Math.min(due, 6), baseline: growthStats.srsCompleted || 0
+        });
+    }
+    items.push({
+        id: 'tactics', type: 'tactics', theme: null, metric: 'tactics',
+        title: 'Resol 5 exercicis de tàctica',
+        target: 5, baseline: tacticsStats.solved || 0
+    });
+    items.push({
+        id: 'games', type: 'free_game', theme: null, metric: 'games',
+        title: 'Juga 3 partides amb atenció plena',
+        target: 3, baseline: totalGamesPlayed || 0
+    });
+
+    return {
+        week: getISOWeekKey(),
+        createdAt: Date.now(),
+        focusTheme,
+        focusMastery: Math.round((themeMastery[focusTheme] || 0) * 100),
+        srsAtStart: due,
+        geminiSummary: null,
+        items: items.slice(0, 4)
+    };
+}
+
+function weeklyPlanItemProgress(item) {
+    let current = 0;
+    if (item.metric === 'weakness') current = (growthStats.weaknessSessionsCompleted || 0) - item.baseline;
+    else if (item.metric === 'srs') current = (growthStats.srsCompleted || 0) - item.baseline;
+    else if (item.metric === 'tactics') current = (tacticsStats.solved || 0) - item.baseline;
+    else if (item.metric === 'games') current = (totalGamesPlayed || 0) - item.baseline;
+    return Math.max(0, Math.min(item.target, current));
+}
+
+const COACH_PLAN_TEMPLATES = [
+    "Aquesta setmana ens centrem en {tema}: és on més punts deixes escapar ara mateix (domini del {pct}%). Pas a pas, sense pressa.",
+    "He mirat les teves últimes partides i el tema que demana feina és {tema} (domini del {pct}%). Aquest és el pla per atacar-lo.",
+    "Pla de la setmana: reforçar {tema}, que és el teu punt més fluix (domini del {pct}%). Si completes la llista, diumenge ho notaràs al tauler."
+];
+
+function composeWeeklyPlanText(plan) {
+    const rng = mulberry32(hashStr(`plan:${plan.week}`));
+    const tpl = COACH_PLAN_TEMPLATES[Math.floor(rng() * COACH_PLAN_TEMPLATES.length)];
+    return fillCoachTemplate(tpl, { tema: getThemeLabel(plan.focusTheme), pct: plan.focusMastery });
+}
+
+function buildWeeklyPlanGeminiPrompt(plan) {
+    return `Ets un entrenador d'escacs proper que parla en català (tutejant).
+Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament setmanal d'un alumne, NOMÉS amb aquests fets:
+${JSON.stringify({
+        tema_a_reforcar: getThemeLabel(plan.focusTheme),
+        domini_del_tema_percent: plan.focusMastery,
+        repassos_pendents: plan.srsAtStart,
+        tasques: plan.items.map(i => i.title)
+    }, null, 2)}
+Sense llistes, sense markdown, sense emojis. To motivador però concret.`;
+}
+
+function ensureWeeklyPlan() {
+    const week = getISOWeekKey();
+    const stored = readJsonStorage(WEEKLY_PLAN_KEY, null);
+    if (stored && stored.week === week && Array.isArray(stored.items) && stored.items.length) {
+        weeklyPlan = stored;
+    } else {
+        weeklyPlan = buildWeeklyPlan();
+        writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
+    }
+    renderWeeklyPlan();
+}
+
+function launchWeeklyPlanItem(item) {
+    try {
+        if (item.type === 'free_game') {
+            if (typeof novaPartida === 'function') return novaPartida();
+        }
+        // Reutilitzem el flux de tasques de creixement: fixa currentGrowthTask i
+        // així el comptador de sessions completades també compta per al pla.
+        return executeGrowthTask({ type: item.type, theme: item.theme || 'general', source: 'weekly_plan' });
+    } catch (e) {
+        console.warn('No s\'ha pogut iniciar la tasca del pla setmanal', e);
+        showToast('No he pogut iniciar aquesta tasca ara mateix.', 'warn');
+    }
+}
+
+function renderWeeklyPlan() {
+    const panel = $('#weekly-plan-panel');
+    if (!panel.length || !weeklyPlan) return;
+    panel.show();
+    const summaryEl = $('#weekly-plan-summary');
+    const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
+    summaryEl.text(summary);
+
+    const list = $('#weekly-plan-list').empty();
+    weeklyPlan.items.forEach(item => {
+        const progress = weeklyPlanItemProgress(item);
+        const done = progress >= item.target;
+        const pct = Math.round((progress / item.target) * 100);
+        const row = $(`
+            <div class="coach-item${done ? ' done' : ''}">
+                <div class="coach-item-main">
+                    <div class="coach-item-title"></div>
+                    <div class="coach-item-progress">
+                        <div class="coach-item-bar"><div class="coach-item-fill" style="width:${pct}%"></div></div>
+                        <span class="coach-item-count">${progress}/${item.target}</span>
+                    </div>
+                </div>
+                <button class="btn coach-item-go">${done ? '✓ Fet' : 'Fes-ho'}</button>
+            </div>`);
+        row.find('.coach-item-title').text(item.title);
+        const goBtn = row.find('.coach-item-go');
+        if (done) goBtn.prop('disabled', true);
+        else goBtn.on('click', () => launchWeeklyPlanItem(item));
+        list.append(row);
+    });
+
+    $('#btn-plan-speak').off('click').on('click', () => {
+        const pending = weeklyPlan.items.filter(i => weeklyPlanItemProgress(i) < i.target).map(i => i.title);
+        speakCoachText(summaryEl.text() + (pending.length ? ' Tasques pendents: ' + pending.join('. ') + '.' : ' Pla completat, enhorabona!'));
+    });
+    updateCoachSpeakButtons();
+
+    // Poliment Gemini un sol cop per setmana (es persisteix dins del pla).
+    if (!weeklyPlan.geminiSummary && geminiApiKey && !coachPlanGeminiPending) {
+        coachPlanGeminiPending = true;
+        requestGeminiCoachText(`weeklyplan:${weeklyPlan.week}`, buildWeeklyPlanGeminiPrompt(weeklyPlan), text => {
+            weeklyPlan.geminiSummary = text;
+            writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
+            summaryEl.text(text);
+        }).finally(() => { coachPlanGeminiPending = false; });
+    }
+}
+
 // PWA Install functionality
 let deferredPrompt;
 
@@ -13732,11 +14210,14 @@ $(document).ready(() => {
     pendingFreeTimeControl = 'none';
     const tcSel = document.getElementById('new-game-tc-select');
     if (tcSel) tcSel.value = pendingFreeTimeControl;
-    generateDailyMissions(); checkStreak(); updateDisplay(); setupEvents(); 
+    generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
         window.addEventListener('resize', () => { if (board) board.resize(); });
     }
 
-    setInterval(() => { if (getToday() !== missionsDate) generateDailyMissions(); }, 60000);
+    setInterval(() => {
+        if (getToday() !== missionsDate) generateDailyMissions();
+        if (weeklyPlan && weeklyPlan.week !== getISOWeekKey()) ensureWeeklyPlan();
+    }, 60000);
 });

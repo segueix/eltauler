@@ -330,6 +330,56 @@
         .mission-trophies { font-size: 0.9rem; text-align: right; min-width: 70px; opacity: 0.95; }
         .mission-trophies.empty { opacity: 0.25; }
 
+        /* ENTRENADOR (debrief de partida + pla setmanal) */
+        .coach-panel {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            margin: 12px 0;
+            text-align: left;
+        }
+        .coach-kicker {
+            font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
+            margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        }
+        .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
+        .coach-speak-btn {
+            background: rgba(201,162,39,0.15); border: 1px solid rgba(201,162,39,0.4);
+            color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;
+            cursor: pointer; font-size: 0.95rem; display: none; flex-shrink: 0;
+        }
+        #review-debrief {
+            margin: 12px 0; padding: 12px; text-align: left;
+            background: rgba(201,162,39,0.08); border: 1px solid rgba(201, 162, 39, 0.3); border-radius: 12px;
+        }
+        .coach-item {
+            display: flex; align-items: center; gap: 10px; padding: 8px; margin-top: 6px;
+            background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid var(--accent-gold);
+        }
+        .coach-item.done { border-left-color: var(--accent-green); opacity: 0.75; }
+        .coach-item-main { flex: 1; min-width: 0; }
+        .coach-item-title { font-size: 0.85rem; color: var(--text-primary); }
+        .coach-item-progress { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+        .coach-item-bar { flex: 1; height: 6px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden; }
+        .coach-item-fill {
+            height: 100%; border-radius: 4px; transition: width 0.4s ease;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-gold));
+        }
+        .coach-item-count { font-size: 0.72rem; color: var(--text-secondary); min-width: 30px; text-align: right; }
+        .coach-item-go {
+            width: auto; padding: 8px 12px; font-size: 0.78rem; flex-shrink: 0;
+            background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark);
+        }
+        .coach-item.done .coach-item-go { background: rgba(74,124,89,0.4); color: var(--accent-green); cursor: default; }
+        body.epaper-mode .coach-panel,
+        body.epaper-mode #review-debrief,
+        body.epaper-mode .coach-item {
+            background: #e6e6e6 !important; border-color: #cfcfcf !important; box-shadow: none !important; color: #222;
+        }
+        body.epaper-mode .coach-kicker { color: #222; }
+        body.epaper-mode .coach-item { border-left-color: #cfcfcf !important; }
+
                 .epaper-toggle {
             position: relative;
             width: 54px;
@@ -2464,6 +2514,15 @@
                 <div id="missions-list"></div>
             </div>
 
+            <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                <div class="coach-kicker">
+                    <span>🎓 El pla de l'entrenador</span>
+                    <button class="coach-speak-btn" id="btn-plan-speak" title="Escolta-ho en veu alta">🔊</button>
+                </div>
+                <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                <div id="weekly-plan-list"></div>
+            </div>
+
             <!-- JUGA -->
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
@@ -2875,6 +2934,7 @@
                 <div class="review-legend" id="review-breakdown"></div>
                 <div class="review-opening-note" id="review-opening-note" style="display:none;"></div>
                 <div class="review-newerrors" id="review-newerrors" style="display:none;"></div>
+                <div id="review-debrief" style="display:none;"></div>
                 <div class="review-actions">
                     <button class="btn btn-primary" id="btn-review-again" style="display:none;">🔁 Tornar a jugar</button>
                     <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
