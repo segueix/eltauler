@@ -85,6 +85,7 @@ let openingCurrentSequence = []; // Seqüència actual de moviments (SAN)
 let openingMatchedOpenings = []; // Obertures que coincideixen amb la seqüència actual
 let openingSelectedOpening = null; // Obertura seleccionada (la més llarga que coincideix)
 let openingNextMoveHint = null; // Següent moviment de l'obertura per a la pista
+let openingPracticeLastDetected = null; // Últim tipus d'obertura detectat a la pràctica lliure (per avisar de canvis amb negres)
 let openingPracticeOpponentMode = 'theory'; // 'theory' o 'adaptive'
 
 // Pràctica d'errors d'obertura
@@ -9601,8 +9602,29 @@ function updateOpeningPracticeStatus() {
     const validNext = getValidOpeningMoves(moves);
     if (openingPracticeUserColor === 'b' && isOpeningUserTurn()) {
         const whiteMove = moves[moves.length - 1];
-        const replies = validNext.length ? validNext.slice(0, 5).join(', ') : 'cap continuació teòrica disponible';
-        noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 Blanques han jugat <strong>${whiteMove}</strong>. Respostes teòriques: ${replies}.</div>`;
+        let html = '';
+        // Marcador d'encerts en verd (mateix disseny que les obertures amb blanques)
+        if (openingPracticeTotalMoves > 0) {
+            html += `<div style="margin-bottom:6px;"><span style="display:inline-block; padding:2px 10px; border-radius:999px; background:rgba(76,175,80,0.18); color:var(--accent-green); font-weight:700;">✓ encerts ${openingPracticeGoodMoves}/${openingPracticeTotalMoves}</span></div>`;
+        }
+        // Tipus d'obertura detectat + avís de canvi de família
+        if (oa && oa.name) {
+            const display = `${oa.name}${oa.eco ? ` (${oa.eco})` : ''}`;
+            const baseFamily = s => (s || '').split(':')[0].trim();
+            const GENERIC_ROOTS = ["King's Pawn Game", "Queen's Pawn Game", "Indian Defense", "King's Pawn Opening", "Queen's Pawn Opening"];
+            const prevBase = baseFamily(openingPracticeLastDetected);
+            const changed = openingPracticeLastDetected && prevBase !== baseFamily(oa.name) && !GENERIC_ROOTS.includes(prevBase);
+            html += changed
+                ? `<div class="opening-theory-line theory-on">🔀 Has canviat d'obertura: <strong>${display}</strong></div>`
+                : `<div class="opening-theory-line theory-on">📗 Obertura: <strong>${display}</strong></div>`;
+            openingPracticeLastDetected = oa.name;
+        }
+        if (validNext.length > 0) {
+            html += `<div class="opening-theory-line theory-on">Blanques han jugat <strong>${whiteMove}</strong>. Respostes teòriques: ${validNext.slice(0, 5).join(', ')}.</div>`;
+        } else {
+            html += `<div class="opening-theory-line theory-off">📙 Blanques han jugat <strong>${whiteMove}</strong>. Has sortit del repertori conegut; pots continuar lliurement o desfer.</div>`;
+        }
+        noteEl.innerHTML = html;
         return;
     }
     if (validNext.length > 0) {
@@ -9866,6 +9888,7 @@ function resetOpeningPracticeBoard() {
     openingMatchedOpenings = [];
     openingSelectedOpening = null;
     openingNextMoveHint = null;
+    openingPracticeLastDetected = null;
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
     clearOpeningMoveVisualFeedback();
