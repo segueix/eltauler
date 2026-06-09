@@ -2263,6 +2263,45 @@ function highlightOpeningTapSelection(square) {
     }
 }
 
+function handleOpeningLessonUserMove(from, to) {
+    if (!openingLessonActive || !openingPracticeGame) return false;
+    if (openingPracticeGame.turn() !== openingLessonUserColor) {
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) noteEl.textContent = 'Observa la resposta del rival...';
+        return false;
+    }
+
+    const expected = openingLessonLine[openingLessonStep];
+    const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
+    if (!move) return false;
+
+    clearOpeningHintHighlight();
+    if (move.san !== expected) {
+        showOpeningMoveVisualFeedback(from, to, 'incorrect');
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl && openingLessonInfo) {
+            noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
+        }
+        setTimeout(() => {
+            openingPracticeGame.undo();
+            openingBundleBoard.position(openingPracticeGame.fen());
+            clearOpeningMoveVisualFeedback();
+        }, 700);
+        return true;
+    }
+
+    showOpeningMoveVisualFeedback(from, to, 'correct');
+    openingLessonStep++;
+    openingBundleBoard.position(openingPracticeGame.fen());
+    if (openingLessonStep >= openingLessonLine.length) {
+        setTimeout(() => completeOpeningLesson(), 500);
+        return true;
+    }
+    updateOpeningLessonNote();
+    setTimeout(() => playOpeningLessonOpponentMove(), 650);
+    return true;
+}
+
 function commitOpeningMoveFromTap(from, to) {
     if (!openingPracticeGame) return false;
     if (openingPracticeGame.game_over()) return false;
@@ -2270,6 +2309,11 @@ function commitOpeningMoveFromTap(from, to) {
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) noteEl.textContent = 'Espera la jugada del rival.';
         return false;
+    }
+
+    // Mode lliçó guiada
+    if (openingLessonActive) {
+        return handleOpeningLessonUserMove(from, to);
     }
 
     // Mode pràctica d'errors d'obertura
@@ -8362,6 +8406,9 @@ function startOpeningLesson(idx) {
     openingLessonLine = op.moves.slice();
     openingLessonStep = 0;
     openingLessonUserColor = op.userColor || 'w';
+    openingPracticeUserColor = openingLessonUserColor;
+    const colorSelect = document.getElementById('opening-practice-color-select');
+    if (colorSelect) colorSelect.value = openingPracticeUserColor;
     if (!openingBundleBoard) initOpeningBundleBoard();
     openingPracticeGame = new Chess();
     openingPracticeMoveCount = 0;
@@ -9407,33 +9454,7 @@ function initOpeningBundleBoard() {
 
             // Mode lliçó guiada: el jugador ha de trobar la jugada de la teoria
             if (openingLessonActive) {
-                const expected = openingLessonLine[openingLessonStep];
-                const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
-                if (!move) return 'snapback';
-                clearOpeningHintHighlight();
-                if (move.san !== expected) {
-                    showOpeningMoveVisualFeedback(source, target, 'incorrect');
-                    const noteEl = document.getElementById('opening-practice-note');
-                    if (noteEl && openingLessonInfo) {
-                        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
-                    }
-                    setTimeout(() => {
-                        openingPracticeGame.undo();
-                        openingBundleBoard.position(openingPracticeGame.fen());
-                        clearOpeningMoveVisualFeedback();
-                    }, 700);
-                    return;
-                }
-                showOpeningMoveVisualFeedback(source, target, 'correct');
-                openingLessonStep++;
-                openingBundleBoard.position(openingPracticeGame.fen());
-                if (openingLessonStep >= openingLessonLine.length) {
-                    setTimeout(() => completeOpeningLesson(), 500);
-                    return;
-                }
-                updateOpeningLessonNote();
-                setTimeout(() => playOpeningLessonOpponentMove(), 650);
-                return;
+                return handleOpeningLessonUserMove(source, target) ? undefined : 'snapback';
             }
 
             // Mode pràctica d'errors
