@@ -1419,6 +1419,14 @@ function initOpeningSystem() {
     // NO resetejar openingCurrentSequence aquí - només es reseteja a resetOpeningPracticeBoard
 }
 
+function isOpeningUserTurn() {
+    return openingPracticeGame && openingPracticeGame.turn() === openingPracticeUserColor;
+}
+
+function isOpeningOpponentTurn() {
+    return openingPracticeGame && openingPracticeGame.turn() !== openingPracticeUserColor;
+}
+
 // Obté els moviments vàlids d'obertura per a la posició actual
 function getValidOpeningMoves(sequence) {
     if (!openingTrie) return [];
@@ -1872,9 +1880,23 @@ function evaluateOpeningMoveInstantly(movePlayed, moveFrom, moveTo) {
     return 'incorrect';
 }
 
+function setOpeningPracticeUserMoveNote(quality, validMoves = []) {
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl) return;
+
+    if (quality === 'correct') {
+        noteEl.textContent = 'Correcte: aquesta jugada segueix la teoria.';
+    } else if (quality === 'good') {
+        noteEl.textContent = 'Acceptable: no és la línia principal, però és jugable.';
+    } else if (quality === 'incorrect') {
+        const continuations = validMoves.length ? validMoves.slice(0, 5).join(', ') : 'cap continuació teòrica disponible';
+        noteEl.textContent = `Incorrecte: has sortit de la teoria. Continuacions habituals: ${continuations}.`;
+    }
+}
+
 // Gestiona el flux complet: primer precisió, després moviment de l'engine
 // Utilitza el sistema d'anàlisi en dos passos (igual que partida lliure)
-function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
+function handleOpeningUserMove(movePlayed, from, to, needsOpponentMove) {
     console.log(`[OpeningAnalysis] handleOpeningUserMove cridat amb movePlayed="${movePlayed}"`);
 
     // Inicialitzar sistema d'obertures si cal
@@ -1883,8 +1905,8 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
         initOpeningSystem();
     }
 
-    // Guardar si cal moure l'engine després de l'anàlisi
-    openingNeedsEngineMove = needsEngineMove;
+    // Guardar si cal moure el rival després de l'anàlisi
+    openingNeedsEngineMove = needsOpponentMove;
 
     // Usar el sistema d'obertures per avaluar el moviment
     const validMovesDebug = getValidOpeningMoves(openingCurrentSequence);
@@ -1903,11 +1925,12 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
         openingPracticeTotalMoves++;
         openingPracticeGoodMoves++;
         updateOpeningPrecisionDisplay(true);
+        setOpeningPracticeUserMoveNote('correct', evaluation.validMoves);
         openingCurrentSequence.push(movePlayed);
         updateSelectedOpening();
         console.log(`[OpeningAnalysis] Moviment d'obertura correcte: ${movePlayed}`);
 
-        if (needsEngineMove) {
+        if (needsOpponentMove) {
             setTimeout(() => requestOpeningPracticeEngineMove(), 700);
         }
         return;
@@ -1921,11 +1944,12 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
         openingPracticeTotalMoves += 2;
         openingPracticeGoodMoves += 1;
         updateOpeningPrecisionDisplay(true);
+        setOpeningPracticeUserMoveNote('good', evaluation.validMoves);
         openingCurrentSequence.push(movePlayed);
         updateSelectedOpening();
         console.log(`[OpeningAnalysis] Primer moviment no estàndard: ${movePlayed} - 50%`);
 
-        if (needsEngineMove) {
+        if (needsOpponentMove) {
             setTimeout(() => requestOpeningPracticeEngineMove(), 700);
         }
         return;
@@ -1941,6 +1965,7 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
         }
         openingCurrentSequence.push(movePlayed);
         updateSelectedOpening();
+        setOpeningPracticeUserMoveNote('good', evaluation.validMoves);
         console.log(`[OpeningAnalysis] Fora d'obertures, usant engine per: ${movePlayed}`);
         analyzeOpeningMoveQuality(fenBefore, movePlayed, fenAfter);
         return;
@@ -1951,11 +1976,12 @@ function handleOpeningUserMove(movePlayed, from, to, needsEngineMove) {
     showOpeningMoveVisualFeedback(from, to, 'incorrect');
     openingPracticeTotalMoves++;
     updateOpeningPrecisionDisplay(true);
+    setOpeningPracticeUserMoveNote('incorrect', evaluation.validMoves);
     openingCurrentSequence.push(movePlayed);
     updateSelectedOpening();
     console.log(`[OpeningAnalysis] Moviment incorrecte: ${movePlayed}, esperats: [${evaluation.validMoves.join(', ')}]`);
 
-    if (needsEngineMove) {
+    if (needsOpponentMove) {
         setTimeout(() => requestOpeningPracticeEngineMove(), 700);
     }
 }
@@ -2179,6 +2205,46 @@ function finalizeOpeningMoveAnalysis() {
     }
 }
 
+function handleOpeningPracticeUserMove(from, to) {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return 'snapback';
+    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
+    if (!isOpeningUserTurn()) {
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) noteEl.textContent = 'Espera la jugada del rival.';
+        return 'snapback';
+    }
+
+    const fenBefore = openingPracticeGame.fen();
+    const sequenceBeforeMove = [...openingCurrentSequence];
+
+    saveOpeningPracticeState();
+
+    const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
+    if (!move) {
+        openingPracticeHistory.pop();
+        openingCurrentSequence = sequenceBeforeMove;
+        return 'snapback';
+    }
+
+    openingCurrentSequence = sequenceBeforeMove;
+    const movePlayed = move.san;
+    clearOpeningHintHighlight();
+    openingPracticeBestMove = null;
+    openingPracticeMoveCount += 1;
+
+    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+    updateOpeningPracticeStatus();
+
+    const needsOpponentMove =
+        openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
+        !openingPracticeGame.game_over() &&
+        openingPracticeGame.turn() !== openingPracticeUserColor;
+
+    console.log(`[OpeningPracticeMove] fenBefore=${fenBefore}, sequenceBefore=[${sequenceBeforeMove.join(', ')}], san=${movePlayed}, needsOpponentMove=${needsOpponentMove}`);
+    handleOpeningUserMove(movePlayed, from, to, needsOpponentMove);
+    return true;
+}
+
 // Funcions tap-to-move per al tauler d'obertures
 function clearOpeningTapSelection() {
     openingTapSelectedSquare = null;
@@ -2229,43 +2295,7 @@ function commitOpeningMoveFromTap(from, to) {
         return true;
     }
 
-    if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
-
-    // Guardar estat per poder desfer
-    saveOpeningPracticeState();
-
-    const wasUserTurn = openingPracticeGame.turn() === openingPracticeUserColor;
-
-    const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
-    if (!move) {
-        // Moviment invàlid, treure l'estat guardat
-        openingPracticeHistory.pop();
-        return false;
-    }
-
-    // Obtenir moviment en format SAN per al sistema d'obertures
-    const movePlayed = move.san;
-
-    // Netejar pista visual i estat
-    clearOpeningHintHighlight();
-    openingPracticeBestMove = null;
-    openingPracticeMoveCount += 1;
-    openingBundleBoard.position(openingPracticeGame.fen());
-    updateOpeningPracticeStatus();
-
-    // Determinar si cal moviment de l'engine
-    const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
-                           !openingPracticeGame.game_over() &&
-                           openingPracticeGame.turn() !== openingPracticeUserColor;
-
-    // FLUX: Primer precisió del moviment de l'usuari, després moviment del rival
-    if (wasUserTurn) {
-        handleOpeningUserMove(movePlayed, from, to, needsEngineMove);
-    } else if (needsEngineMove) {
-        setTimeout(() => requestOpeningPracticeEngineMove(), 300);
-    }
-
-    return true;
+    return handleOpeningPracticeUserMove(from, to) === true;
 }
 
 function enableOpeningTapToMove() {
@@ -9437,45 +9467,7 @@ function initOpeningBundleBoard() {
                 return;
             }
 
-            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
-            if (openingPracticeGame.turn() !== openingPracticeUserColor) {
-                const noteEl = document.getElementById('opening-practice-note');
-                if (noteEl) noteEl.textContent = 'Espera la jugada del rival.';
-                return 'snapback';
-            }
-
-            // Guardar estat per poder desfer
-            saveOpeningPracticeState();
-
-            const wasUserTurn = openingPracticeGame.turn() === openingPracticeUserColor;
-
-            const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
-            if (!move) {
-                // Moviment invàlid, treure l'estat guardat
-                openingPracticeHistory.pop();
-                return 'snapback';
-            }
-
-            // Obtenir moviment en format SAN per al sistema d'obertures
-            const movePlayed = move.san;
-
-            // Netejar pista visual i estat
-            clearOpeningHintHighlight();
-            openingPracticeBestMove = null;
-            openingPracticeMoveCount += 1;
-            updateOpeningPracticeStatus();
-
-            // Determinar si cal moviment de l'engine
-            const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
-                                   !openingPracticeGame.game_over() &&
-                                   openingPracticeGame.turn() !== openingPracticeUserColor;
-
-            // FLUX: Primer precisió del moviment de l'usuari, després moviment del rival
-            if (wasUserTurn) {
-                handleOpeningUserMove(movePlayed, source, target, needsEngineMove);
-            } else if (needsEngineMove) {
-                setTimeout(() => requestOpeningPracticeEngineMove(), 300);
-            }
+            return handleOpeningPracticeUserMove(source, target);
         },
         onSnapEnd: () => {
             if (!openingPracticeGame) return;
@@ -9516,6 +9508,7 @@ function updateOpeningPracticeStatus() {
         return;
     }
     // Anàlisi de teoria en directe (punt 2)
+    if (!openingTrie) initOpeningSystem();
     const moves = openingPracticeGame.history();
     if (!moves.length) {
         noteEl.innerHTML = '<div class="opening-theory-line theory-neutral">Comença una obertura: t\'aniré dient si segueixes la teoria.</div>';
@@ -9523,6 +9516,12 @@ function updateOpeningPracticeStatus() {
     }
     const oa = analyzeGameOpening(moves);
     const validNext = getValidOpeningMoves(moves);
+    if (openingPracticeUserColor === 'b' && isOpeningUserTurn()) {
+        const whiteMove = moves[moves.length - 1];
+        const replies = validNext.length ? validNext.slice(0, 5).join(', ') : 'cap continuació teòrica disponible';
+        noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 Blanques han jugat <strong>${whiteMove}</strong>. Respostes teòriques: ${replies}.</div>`;
+        return;
+    }
     if (validNext.length > 0) {
         const name = (oa && oa.name) ? `${oa.name}${oa.eco ? ` (${oa.eco})` : ''}` : 'una línia coneguda';
         noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 Ets a la teoria: <strong>${name}</strong>. Continuació habitual: ${validNext.slice(0, 3).join(', ')}.</div>`;
