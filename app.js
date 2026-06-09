@@ -44,6 +44,7 @@ let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
 let openingBundleBoard = null;
 let openingPracticeGame = null;
+let openingPracticeUserColor = 'w';
 let openingPracticeMoveCount = 0;
 const OPENING_PRACTICE_MAX_PLIES = 20;
 let openingPracticeEngineThinking = false;
@@ -1521,6 +1522,7 @@ function selectBestOpeningByEngine(sequence, engineMove) {
 // Selecciona l'obertura més llarga que coincideix exactament amb la seqüència
 function updateSelectedOpening() {
     if (!openingTrie || openingCurrentSequence.length === 0) {
+        openingMatchedOpenings = [];
         openingSelectedOpening = null;
         openingNextMoveHint = null;
         return;
@@ -1546,6 +1548,12 @@ function updateSelectedOpening() {
         }
     }
 
+    openingMatchedOpenings = getMatchingOpenings(openingCurrentSequence);
+    if (!lastMatchingOpening) {
+        lastMatchingOpening = openingMatchedOpenings.reduce((best, current) => {
+            return (!best || current.moves.length > best.moves.length) ? current : best;
+        }, null);
+    }
     openingSelectedOpening = lastMatchingOpening;
 
     // Calcular el següent moviment de l'obertura (pista)
@@ -2192,6 +2200,11 @@ function highlightOpeningTapSelection(square) {
 function commitOpeningMoveFromTap(from, to) {
     if (!openingPracticeGame) return false;
     if (openingPracticeGame.game_over()) return false;
+    if (!openingLessonActive && !openingErrorPracticeActive && !hieroglyphicExerciseActive && openingPracticeGame.turn() !== openingPracticeUserColor) {
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) noteEl.textContent = 'Espera la jugada del rival.';
+        return false;
+    }
 
     // Mode pràctica d'errors d'obertura
     if (openingErrorPracticeActive) {
@@ -2221,7 +2234,7 @@ function commitOpeningMoveFromTap(from, to) {
     // Guardar estat per poder desfer
     saveOpeningPracticeState();
 
-    const wasWhiteTurn = openingPracticeGame.turn() === 'w';
+    const wasUserTurn = openingPracticeGame.turn() === openingPracticeUserColor;
 
     const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
     if (!move) {
@@ -2243,13 +2256,12 @@ function commitOpeningMoveFromTap(from, to) {
     // Determinar si cal moviment de l'engine
     const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
                            !openingPracticeGame.game_over() &&
-                           openingPracticeGame.turn() === 'b';
+                           openingPracticeGame.turn() !== openingPracticeUserColor;
 
-    // FLUX: Primer precisió, després moviment de l'engine
-    if (wasWhiteTurn) {
+    // FLUX: Primer precisió del moviment de l'usuari, després moviment del rival
+    if (wasUserTurn) {
         handleOpeningUserMove(movePlayed, from, to, needsEngineMove);
     } else if (needsEngineMove) {
-        // Si no era torn de l'usuari però cal engine, demanar-lo directament
         setTimeout(() => requestOpeningPracticeEngineMove(), 300);
     }
 
@@ -2278,6 +2290,11 @@ function enableOpeningTapToMove() {
             if (!square) return;
 
             if (!openingTapSelectedSquare) {
+                if (!openingLessonActive && !openingErrorPracticeActive && !hieroglyphicExerciseActive && openingPracticeGame.turn() !== openingPracticeUserColor) {
+                    const noteEl = document.getElementById('opening-practice-note');
+                    if (noteEl) noteEl.textContent = 'Espera la jugada del rival.';
+                    return;
+                }
                 const p = openingPracticeGame.get(square);
                 if (!p || p.color !== openingPracticeGame.turn()) return;
                 openingTapSelectedSquare = square;
@@ -2297,7 +2314,7 @@ function enableOpeningTapToMove() {
             }
 
             const p2 = openingPracticeGame.get(square);
-            if (p2 && p2.color === openingPracticeGame.turn()) {
+            if (p2 && p2.color === openingPracticeGame.turn() && (openingLessonActive || openingErrorPracticeActive || hieroglyphicExerciseActive || openingPracticeGame.turn() === openingPracticeUserColor)) {
                 openingTapSelectedSquare = square;
                 highlightOpeningTapSelection(square);
             }
@@ -8267,7 +8284,7 @@ function exitOpeningErrorPractice() {
     renderOpeningStatsScreen(true);
 
     // Reset tauler
-    resetOpeningPracticeBoard();
+    startOpeningPracticeAsColor(openingPracticeUserColor);
 }
 
 /* ============ APRÈN UNA OBERTURA (lliçons guiades) ============ */
@@ -9342,6 +9359,11 @@ function initOpeningBundleBoard() {
             if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
             if (openingPracticeEngineThinking) return false;
+            if (!openingLessonActive && !openingErrorPracticeActive && !hieroglyphicExerciseActive && openingPracticeGame.turn() !== openingPracticeUserColor) {
+                const noteEl = document.getElementById('opening-practice-note');
+                if (noteEl) noteEl.textContent = 'Espera la jugada del rival.';
+                return false;
+            }
             if (openingPracticeGame.turn() === 'w' && piece.search(/^b/) !== -1) return false;
             if (openingPracticeGame.turn() === 'b' && piece.search(/^w/) !== -1) return false;
         },
@@ -9416,11 +9438,16 @@ function initOpeningBundleBoard() {
             }
 
             if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return 'snapback';
+            if (openingPracticeGame.turn() !== openingPracticeUserColor) {
+                const noteEl = document.getElementById('opening-practice-note');
+                if (noteEl) noteEl.textContent = 'Espera la jugada del rival.';
+                return 'snapback';
+            }
 
             // Guardar estat per poder desfer
             saveOpeningPracticeState();
 
-            const wasWhiteTurn = openingPracticeGame.turn() === 'w';
+            const wasUserTurn = openingPracticeGame.turn() === openingPracticeUserColor;
 
             const move = openingPracticeGame.move({ from: source, to: target, promotion: 'q' });
             if (!move) {
@@ -9441,13 +9468,12 @@ function initOpeningBundleBoard() {
             // Determinar si cal moviment de l'engine
             const needsEngineMove = openingPracticeMoveCount < OPENING_PRACTICE_MAX_PLIES &&
                                    !openingPracticeGame.game_over() &&
-                                   openingPracticeGame.turn() === 'b';
+                                   openingPracticeGame.turn() !== openingPracticeUserColor;
 
-            // FLUX: Primer precisió, després moviment de l'engine
-            if (wasWhiteTurn) {
+            // FLUX: Primer precisió del moviment de l'usuari, després moviment del rival
+            if (wasUserTurn) {
                 handleOpeningUserMove(movePlayed, source, target, needsEngineMove);
             } else if (needsEngineMove) {
-                // Si no era torn de l'usuari però cal engine, demanar-lo directament
                 setTimeout(() => requestOpeningPracticeEngineMove(), 300);
             }
         },
@@ -9545,6 +9571,7 @@ function undoOpeningPracticeMove() {
     openingPracticeTotalMoves = lastState.totalMoves;
     // Restaurar seqüència d'obertures
     openingCurrentSequence = lastState.openingSequence ? [...lastState.openingSequence] : [];
+    updateSelectedOpening();
 
     // Cancel·lar qualsevol anàlisi de precisió pendent
     openingPracticeAnalysisPending = false;
@@ -9589,8 +9616,14 @@ function undoOpeningPracticeMove() {
     clearOpeningHintHighlight();
     clearOpeningMoveVisualFeedback();
 
+    if (openingPracticeUserColor === 'b' && openingPracticeGame.turn() === 'w') {
+        playOpeningInitialWhiteMove();
+        return;
+    }
+
     // Actualitzar el tauler
     if (openingBundleBoard) {
+        orientOpeningPracticeBoard(openingPracticeUserColor);
         openingBundleBoard.position(openingPracticeGame.fen());
     }
 
@@ -9607,6 +9640,106 @@ function undoOpeningPracticeMove() {
 
     // Pre-calcular el millor moviment per a la posició restaurada
     setTimeout(() => preCalculateOpeningBestMove(), 200);
+}
+
+
+function getOpeningPracticeBoardOrientation(color = openingPracticeUserColor) {
+    return color === 'b' ? 'black' : 'white';
+}
+
+function orientOpeningPracticeBoard(color = openingPracticeUserColor) {
+    if (!openingBundleBoard || typeof openingBundleBoard.orientation !== 'function') return;
+    openingBundleBoard.orientation(getOpeningPracticeBoardOrientation(color));
+}
+
+function chooseOpeningNaturalWhiteMove() {
+    if (!openingPracticeGame || openingPracticeGame.turn() !== 'w') return null;
+
+    const legalSans = openingPracticeGame.moves();
+    const repertoireFirstMoves = (typeof CURATED_OPENINGS !== 'undefined' ? CURATED_OPENINGS : [])
+        .filter(op => op && op.userColor === 'b' && Array.isArray(op.moves) && op.moves.length > 0)
+        .map(op => op.moves[0]);
+    const candidates = [...repertoireFirstMoves, 'e4', 'd4', 'Nf3', 'c4'];
+
+    for (const san of candidates) {
+        if (legalSans.includes(san)) return san;
+    }
+    return null;
+}
+
+function chooseOpeningTheoryMoveForCurrentPosition() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return null;
+    if (!openingTrie) initOpeningSystem();
+
+    updateSelectedOpening();
+    const validMoves = getValidOpeningMoves(openingCurrentSequence);
+    const normalFirstMoves = ['e4', 'd4', 'Nf3', 'c4'];
+    const candidates = openingCurrentSequence.length === 0
+        ? [...normalFirstMoves.filter(m => validMoves.includes(m)), ...validMoves, ...normalFirstMoves]
+        : [openingNextMoveHint, ...validMoves];
+    const legalSans = openingPracticeGame.moves();
+
+    for (const san of candidates) {
+        if (san && legalSans.includes(san)) return san;
+    }
+    return null;
+}
+
+function applyOpeningOpponentSanMove(san, noteText = null) {
+    if (!openingPracticeGame || openingPracticeGame.game_over() || !san) return false;
+    const move = openingPracticeGame.move(san, { sloppy: true });
+    if (!move) return false;
+
+    clearOpeningHintHighlight();
+    openingPracticeBestMove = null;
+    openingPracticeMoveCount += 1;
+    if (move.san) {
+        openingCurrentSequence.push(move.san);
+        updateSelectedOpening();
+    }
+    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+    openingPracticeEngineThinking = false;
+    updateOpeningPracticeStatus();
+    updateOpeningPrecisionDisplay();
+    updateOpeningUndoButton();
+    if (noteText) {
+        const noteEl = document.getElementById('opening-practice-note');
+        if (noteEl) noteEl.textContent = noteText;
+    }
+    setTimeout(() => preCalculateOpeningBestMove(), 200);
+    return true;
+}
+
+function playOpeningInitialWhiteMove() {
+    if (!openingPracticeGame || openingPracticeGame.game_over() || openingPracticeGame.turn() !== 'w') return false;
+
+    const san = openingPracticeOpponentMode === 'theory'
+        ? chooseOpeningTheoryMoveForCurrentPosition()
+        : chooseOpeningNaturalWhiteMove();
+
+    if (applyOpeningOpponentSanMove(san, 'Les blanques han començat. Ara et toca jugar amb negres.')) {
+        return true;
+    }
+
+    // Fallback teòric segur abans d'anar a Stockfish: evita una primera jugada absurda en mode adaptatiu.
+    const naturalSan = chooseOpeningNaturalWhiteMove();
+    if (applyOpeningOpponentSanMove(naturalSan, 'Les blanques han començat. Ara et toca jugar amb negres.')) {
+        return true;
+    }
+
+    requestOpeningPracticeStrongEngineMove();
+    return false;
+}
+
+function startOpeningPracticeAsColor(color) {
+    openingPracticeUserColor = color === 'b' ? 'b' : 'w';
+    const colorSelect = document.getElementById('opening-practice-color-select');
+    if (colorSelect) colorSelect.value = openingPracticeUserColor;
+    resetOpeningPracticeBoard();
+    orientOpeningPracticeBoard(openingPracticeUserColor);
+    if (openingPracticeUserColor === 'b') {
+        setTimeout(() => playOpeningInitialWhiteMove(), 150);
+    }
 }
 
 function resetOpeningPracticeBoard() {
@@ -9655,37 +9788,23 @@ function resetOpeningPracticeBoard() {
     clearOpeningHintHighlight();
     clearOpeningMoveVisualFeedback();
     if (openingBundleBoard) {
+        orientOpeningPracticeBoard(openingPracticeUserColor);
         openingBundleBoard.position('start');
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
     }
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
-    // Pre-calcular el millor moviment per al primer torn de l'usuari
-    setTimeout(() => preCalculateOpeningBestMove(), 300);
+    // Pre-calcular el millor moviment només si el primer torn és de l'usuari.
+    if (openingPracticeGame.turn() === openingPracticeUserColor) {
+        setTimeout(() => preCalculateOpeningBestMove(), 300);
+    }
 }
 
 function playOpeningTheoryOpponentMove() {
     if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
-    updateSelectedOpening();
-    const san = openingNextMoveHint;
-    if (!san) return false;
-    const move = openingPracticeGame.move(san, { sloppy: true });
-    if (!move) return false;
-    clearOpeningHintHighlight();
-    openingPracticeBestMove = null;
-    openingPracticeMoveCount += 1;
-    if (move.san) {
-        openingCurrentSequence.push(move.san);
-        updateSelectedOpening();
-    }
-    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
-    openingPracticeEngineThinking = false;
-    updateOpeningPracticeStatus();
-    updateOpeningPrecisionDisplay();
-    updateOpeningUndoButton();
-    setTimeout(() => preCalculateOpeningBestMove(), 200);
-    return true;
+    const san = chooseOpeningTheoryMoveForCurrentPosition();
+    return applyOpeningOpponentSanMove(san);
 }
 
 function requestOpeningPracticeEngineMove() {
@@ -9810,7 +9929,7 @@ function setupEvents() {
         renderOpeningStatsScreen();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
-        resetOpeningPracticeBoard();
+        startOpeningPracticeAsColor(openingPracticeUserColor);
         setOpeningScreenMode('overview');
         $('#start-screen').hide();
         $('#opening-screen').show();
@@ -9902,7 +10021,7 @@ function setupEvents() {
         showAppConfirm('Vols reiniciar el tauler d\'obertures?', () => {
             openingErrorPracticeActive = false;
             openingLessonActive = false;
-            resetOpeningPracticeBoard();
+            startOpeningPracticeAsColor(openingPracticeUserColor);
             renderOpeningStatsScreen();
             showToast('Tauler reiniciat.', 'info');
         }, { title: 'Reiniciar', confirmText: 'Reiniciar' });
@@ -10087,7 +10206,12 @@ function setupEvents() {
 
     $('#opening-practice-mode-select').off('change').on('change', function() {
         openingPracticeOpponentMode = ($(this).val() === 'adaptive') ? 'adaptive' : 'theory';
+        startOpeningPracticeAsColor(openingPracticeUserColor);
         updateOpeningPracticeStatus();
+    });
+
+    $('#opening-practice-color-select').off('change').on('change', function() {
+        startOpeningPracticeAsColor($(this).val() === 'b' ? 'b' : 'w');
     });
 
     $('#epaper-toggle').off('change').on('change', function() {
