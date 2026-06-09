@@ -85,6 +85,7 @@ let openingCurrentSequence = []; // Seqüència actual de moviments (SAN)
 let openingMatchedOpenings = []; // Obertures que coincideixen amb la seqüència actual
 let openingSelectedOpening = null; // Obertura seleccionada (la més llarga que coincideix)
 let openingNextMoveHint = null; // Següent moviment de l'obertura per a la pista
+let openingPracticeLastDetected = null; // Últim tipus d'obertura detectat a la pràctica lliure (per avisar de canvis amb negres)
 let openingPracticeOpponentMode = 'theory'; // 'theory' o 'adaptive'
 
 // Pràctica d'errors d'obertura
@@ -95,6 +96,7 @@ let openingLessonLine = [];
 let openingLessonStep = 0;
 let openingLessonInfo = null;
 let openingLessonUserColor = 'w';
+let openingLessonLastDetected = null; // Últim tipus d'obertura detectat (per avisar de canvis amb negres)
 let openingErrorCurrentPositions = []; // Posicions d'error disponibles
 let openingErrorCurrentFen = null; // FEN actual que s'està practicant
 let openingErrorBestMove = null; // Millor moviment esperat
@@ -8401,21 +8403,21 @@ const CURATED_OPENINGS = [
     { eco: 'B03', name: 'Atac dels Quatre Peons', userColor: 'w', cat: 'white', idea: 'Avança quatre peons al centre contra l\'Alekhine; aposta per l\'espai.', moves: ['e4','Nf6','e5','Nd5','d4','d6','c4','Nb6','f4'] },
     { eco: 'D43', name: 'Semieslava', userColor: 'w', cat: 'white', idea: 'Pressió central amb c4 contra l\'estructura sòlida negra.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','e6','Bg5'] },
     // === Defenses amb negres ===
-    { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', cat: 'black', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
-    { eco: 'B90', name: 'Siciliana Najdorf', userColor: 'b', cat: 'black', idea: 'La més ambiciosa: a6 prepara contrajoc als dos flancs.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6','Be2','e5'] },
-    { eco: 'C00', name: 'Defensa Francesa', userColor: 'b', cat: 'black', idea: 'Cadena de peons sòlida; contraatac a la columna c i f.', moves: ['e4','e6','d4','d5','Nc3','Nf6'] },
-    { eco: 'B10', name: 'Defensa Caro-Kann', userColor: 'b', cat: 'black', idea: 'Defensa sòlida que allibera l\'alfil de caselles clares.', moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5'] },
-    { eco: 'C42', name: 'Defensa Petrov', userColor: 'b', cat: 'black', idea: 'Resposta simètrica i sòlida: negres ataquen el peó e4 immediatament.', moves: ['e4','e5','Nf3','Nf6','Nxe5','d6','Nf3','Nxe4','d4'] },
-    { eco: 'C41', name: 'Defensa Philidor', userColor: 'b', cat: 'black', idea: 'Enforteix e5 amb d6; joc sòlid i sense compromisos.', moves: ['e4','e5','Nf3','d6','d4','Nf6','Nc3','Nbd7'] },
-    { eco: 'B02', name: 'Defensa Alekhine', userColor: 'b', cat: 'black', idea: 'Provoca l\'avanç dels peons blancs per atacar-los després.', moves: ['e4','Nf6','e5','Nd5','d4','d6','Nf3','Bg4'] },
+    { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', cat: 'black', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','Nf6','Nc3','d6'] },
+    { eco: 'B90', name: 'Siciliana Najdorf', userColor: 'b', cat: 'black', idea: 'La més ambiciosa: a6 prepara contrajoc als dos flancs.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
+    { eco: 'C00', name: 'Defensa Francesa', userColor: 'b', cat: 'black', idea: 'Cadena de peons sòlida; contraatac a la columna c i f.', moves: ['e4','e6','d4','d5','Nc3','Nf6','Bg5','Be7','e5','Nfd7'] },
+    { eco: 'B10', name: 'Defensa Caro-Kann', userColor: 'b', cat: 'black', idea: 'Defensa sòlida que allibera l\'alfil de caselles clares.', moves: ['e4','c6','d4','d5','Nc3','dxe4','Nxe4','Bf5','Ng3','Bg6'] },
+    { eco: 'C42', name: 'Defensa Petrov', userColor: 'b', cat: 'black', idea: 'Resposta simètrica i sòlida: negres ataquen el peó e4 immediatament.', moves: ['e4','e5','Nf3','Nf6','Nxe5','d6','Nf3','Nxe4','d4','d5'] },
+    { eco: 'C41', name: 'Defensa Philidor', userColor: 'b', cat: 'black', idea: 'Enforteix e5 amb d6; joc sòlid i sense compromisos.', moves: ['e4','e5','Nf3','d6','d4','Nf6','Nc3','Nbd7','Bc4','Be7'] },
+    { eco: 'B02', name: 'Defensa Alekhine', userColor: 'b', cat: 'black', idea: 'Provoca l\'avanç dels peons blancs per atacar-los després.', moves: ['e4','Nf6','e5','Nd5','d4','d6','Nf3','Bg4','Be2','e6'] },
     { eco: 'B06', name: 'Defensa Pirc', userColor: 'b', cat: 'black', idea: 'Hipermoderna: fianchetto de rei i contraatac diferit.', moves: ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2','O-O'] },
     { eco: 'E60', name: 'Defensa Índia de Rei', userColor: 'b', cat: 'black', idea: 'Cedeix el centre per atacar-lo després amb peces i peons.', moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O'] },
     { eco: 'E20', name: 'Defensa Nimzo-Índia', userColor: 'b', cat: 'black', idea: 'Clava el cavall c3 per controlar el centre; joc posicional ric.', moves: ['d4','Nf6','c4','e6','Nc3','Bb4','e3','O-O','Bd3','d5'] },
     { eco: 'E10', name: 'Defensa Índia de Dama', userColor: 'b', cat: 'black', idea: 'Fianchetto de dama; pressiona la diagonal llarga.', moves: ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7','Bg2','Be7'] },
-    { eco: 'D80', name: 'Defensa Grünfeld', userColor: 'b', cat: 'black', idea: 'Cedeix el centre amb d5xc4 per destruir-lo amb peces i Bg7.', moves: ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3','bxc3','Bg7'] },
+    { eco: 'D80', name: 'Defensa Grünfeld', userColor: 'b', cat: 'black', idea: 'Cedeix el centre amb d5xc4 per destruir-lo amb peces i Bg7.', moves: ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3'] },
     { eco: 'A60', name: 'Defensa Benoni Moderna', userColor: 'b', cat: 'black', idea: 'Accepta espai inferior a canvi de contrajoc dinàmic al flanc de dama.', moves: ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6'] },
     { eco: 'A80', name: 'Defensa Holandesa', userColor: 'b', cat: 'black', idea: 'f5 controla e4 i prepara un atac al flanc de rei.', moves: ['d4','f5','g3','Nf6','Bg2','e6','Nf3','Be7','O-O','O-O'] },
-    { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', cat: 'black', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5'] },
+    { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', cat: 'black', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5','d4','Nf6','Nf3','c6'] },
     { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] }
 ];
 
@@ -8429,6 +8431,7 @@ function startOpeningLesson(idx) {
     openingLessonInfo = op;
     openingLessonLine = op.moves.slice();
     openingLessonStep = 0;
+    openingLessonLastDetected = null;
     openingLessonUserColor = op.userColor || 'w';
     openingPracticeUserColor = openingLessonUserColor;
     const colorSelect = document.getElementById('opening-practice-color-select');
@@ -8482,6 +8485,34 @@ function updateOpeningLessonNote(intro = false) {
     let html = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name} (${openingLessonInfo.eco})</div>`;
     if (intro && openingLessonInfo.idea) html += `<div class="maxim-text">${openingLessonInfo.idea}</div>`;
     const status = done >= total ? 'Línia completada!' : (yourTurn ? `El teu torn (${colorTxt}): troba la jugada de la teoria.` : 'Observa la resposta del rival...');
+
+    // Defenses amb negres: marcador d'encerts en verd + avís de canvi de tipus d'obertura.
+    // Les obertures amb blanques es deixen igual que estan.
+    if (openingLessonUserColor === 'b') {
+        const target = targetUserMoves > 0 ? targetUserMoves : total;
+        const counter = `<span style="display:inline-block; padding:2px 10px; border-radius:999px; background:rgba(76,175,80,0.18); color:var(--accent-green); font-weight:700;">✓ encerts ${openingPracticeGoodMoves}/${target}</span>`;
+        html += `<div class="maxim-text" style="margin-top:6px;">${counter}</div>`;
+        const detected = analyzeGameOpening(openingPracticeGame.history());
+        if (detected && detected.name) {
+            const display = `${detected.name}${detected.eco ? ` (${detected.eco})` : ''}`;
+            // Família base (sense subvariant ni ECO) per detectar canvis de tipus reals
+            const baseFamily = s => (s || '').split(':')[0].trim();
+            // Obertures genèriques d'arrencada: en passar d'aquí a la defensa real no és un "canvi"
+            const GENERIC_ROOTS = ["King's Pawn Game", "Queen's Pawn Game", "Indian Defense", "King's Pawn Opening", "Queen's Pawn Opening"];
+            const prevBase = baseFamily(openingLessonLastDetected);
+            const currBase = baseFamily(detected.name);
+            const changed = openingLessonLastDetected && prevBase !== currBase && !GENERIC_ROOTS.includes(prevBase);
+            const label = changed
+                ? `🔀 Has canviat d'obertura: <strong>${display}</strong>`
+                : `📗 Obertura: <strong>${display}</strong>`;
+            html += `<div class="maxim-text" style="opacity:0.9;">${label}</div>`;
+            openingLessonLastDetected = detected.name;
+        }
+        html += `<div class="maxim-text" style="opacity:0.85;">${status}</div></div>`;
+        noteEl.innerHTML = html;
+        return;
+    }
+
     html += `<div class="maxim-text" style="opacity:0.85;">${status} · ${progressText}</div></div>`;
     noteEl.innerHTML = html;
 }
@@ -9330,6 +9361,13 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
 function startHieroglyphicExercise() {
     const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
     if (pool.length === 0) return;
+    // Neteja qualsevol feina pendent de la pràctica anterior perquè no interfereixi
+    // amb l'exercici (rival pendent, anàlisi de Stockfish, pista o pre-càlcul).
+    openingPracticeEngineThinking = false;
+    openingPracticeAnalysisPending = false;
+    openingPracticeHintPending = false;
+    openingPreCalcPending = false;
+    stockfishRequestor = null;
     const op = pool[Math.floor(Math.random() * pool.length)];
     hieroglyphicOpening = op;
     hieroglyphicGame = new Chess();
@@ -9571,8 +9609,29 @@ function updateOpeningPracticeStatus() {
     const validNext = getValidOpeningMoves(moves);
     if (openingPracticeUserColor === 'b' && isOpeningUserTurn()) {
         const whiteMove = moves[moves.length - 1];
-        const replies = validNext.length ? validNext.slice(0, 5).join(', ') : 'cap continuació teòrica disponible';
-        noteEl.innerHTML = `<div class="opening-theory-line theory-on">📗 Blanques han jugat <strong>${whiteMove}</strong>. Respostes teòriques: ${replies}.</div>`;
+        let html = '';
+        // Marcador d'encerts en verd (mateix disseny que les obertures amb blanques)
+        if (openingPracticeTotalMoves > 0) {
+            html += `<div style="margin-bottom:6px;"><span style="display:inline-block; padding:2px 10px; border-radius:999px; background:rgba(76,175,80,0.18); color:var(--accent-green); font-weight:700;">✓ encerts ${openingPracticeGoodMoves}/${openingPracticeTotalMoves}</span></div>`;
+        }
+        // Tipus d'obertura detectat + avís de canvi de família
+        if (oa && oa.name) {
+            const display = `${oa.name}${oa.eco ? ` (${oa.eco})` : ''}`;
+            const baseFamily = s => (s || '').split(':')[0].trim();
+            const GENERIC_ROOTS = ["King's Pawn Game", "Queen's Pawn Game", "Indian Defense", "King's Pawn Opening", "Queen's Pawn Opening"];
+            const prevBase = baseFamily(openingPracticeLastDetected);
+            const changed = openingPracticeLastDetected && prevBase !== baseFamily(oa.name) && !GENERIC_ROOTS.includes(prevBase);
+            html += changed
+                ? `<div class="opening-theory-line theory-on">🔀 Has canviat d'obertura: <strong>${display}</strong></div>`
+                : `<div class="opening-theory-line theory-on">📗 Obertura: <strong>${display}</strong></div>`;
+            openingPracticeLastDetected = oa.name;
+        }
+        if (validNext.length > 0) {
+            html += `<div class="opening-theory-line theory-on">Blanques han jugat <strong>${whiteMove}</strong>. Respostes teòriques: ${validNext.slice(0, 5).join(', ')}.</div>`;
+        } else {
+            html += `<div class="opening-theory-line theory-off">📙 Blanques han jugat <strong>${whiteMove}</strong>. Has sortit del repertori conegut; pots continuar lliurement o desfer.</div>`;
+        }
+        noteEl.innerHTML = html;
         return;
     }
     if (validNext.length > 0) {
@@ -9836,6 +9895,7 @@ function resetOpeningPracticeBoard() {
     openingMatchedOpenings = [];
     openingSelectedOpening = null;
     openingNextMoveHint = null;
+    openingPracticeLastDetected = null;
     clearOpeningTapSelection();
     clearOpeningHintHighlight();
     clearOpeningMoveVisualFeedback();
@@ -9855,11 +9915,16 @@ function resetOpeningPracticeBoard() {
 
 function playOpeningTheoryOpponentMove() {
     if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+    // No moguis si hem sortit de la pràctica cap a un exercici jeroglífic: una crida
+    // pendent no ha de tocar el tauler de l'exercici.
+    if (hieroglyphicExerciseActive) return false;
     const san = chooseOpeningTheoryMoveForCurrentPosition();
     return applyOpeningOpponentSanMove(san);
 }
 
 function requestOpeningPracticeEngineMove() {
+    // Si ja estem en un exercici jeroglífic, no demanis cap jugada del rival de pràctica.
+    if (hieroglyphicExerciseActive) return;
     // El tauler d'obertures separa Stockfish fort (pistes, validacions i lliçons guiades)
     // d'un rival adaptatiu per a la pràctica normal. Validar exercicis requereix exactitud;
     // jugar contra el bot requereix la mateixa experiència humana que la partida lliure.
@@ -12442,6 +12507,12 @@ function handleEngineMessage(rawMsg) {
 
     if (openingPracticeEngineThinking && stockfishRequestor === 'opening-engine' && msg.indexOf('bestmove') !== -1) {
         stockfishRequestor = null;
+        // Si mentrestant hem entrat en un exercici jeroglífic, descarta aquesta resposta:
+        // openingPracticeGame ara apunta al tauler de l'exercici i no s'ha de tocar.
+        if (hieroglyphicExerciseActive) {
+            openingPracticeEngineThinking = false;
+            return;
+        }
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match && openingPracticeGame) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
