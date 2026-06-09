@@ -48,6 +48,7 @@ let openingPracticeMoveCount = 0;
 const OPENING_PRACTICE_MAX_PLIES = 20;
 let openingPracticeEngineThinking = false;
 let openingMaximPending = false;
+let openingMaximRequestCounter = 0;
 let lastOpeningMaxim = null;
 let openingPracticeHintPending = false;
 let openingPracticeBestMove = null;
@@ -83,6 +84,7 @@ let openingCurrentSequence = []; // Seqüència actual de moviments (SAN)
 let openingMatchedOpenings = []; // Obertures que coincideixen amb la seqüència actual
 let openingSelectedOpening = null; // Obertura seleccionada (la més llarga que coincideix)
 let openingNextMoveHint = null; // Següent moviment de l'obertura per a la pista
+let openingPracticeOpponentMode = 'theory'; // 'theory' o 'adaptive'
 
 // Pràctica d'errors d'obertura
 let openingErrorPracticeActive = false;
@@ -4109,7 +4111,7 @@ function updateGeminiSettingsUI() {
     if (geminiApiKey) {
         input.value = '';
         input.placeholder = 'Clau desada';
-        status.textContent = '✅ OK';
+        status.textContent = 'Connectat a Gemini';
     } else {
         input.placeholder = 'Enganxa la clau';
         status.textContent = 'No configurada';
@@ -4141,6 +4143,76 @@ function updateBundleHintButtons() {
         assistedBtn.style.display = isAssisted ? 'inline-flex' : 'none';
         assistedBtn.disabled = !isAssisted || assistedHintPending;
     }
+}
+
+function getGeminiErrorMessage(status, fallback = '') {
+    if (status === 400) return 'Petició incorrecta o payload mal format';
+    if (status === 401 || status === 403) return 'Clau invàlida, restringida o sense accés a Gemini';
+    if (status === 429) return 'Quota o límit superat';
+    if (status === 500 || status === 503) return 'Error temporal de Google';
+    return fallback || 'No s’ha pogut contactar amb Gemini';
+}
+
+function getGeminiStatusLabel(result) {
+    if (result && result.ok) return 'Connectat a Gemini';
+    const status = result ? result.status : 0;
+    if (status === 401 || status === 403 || status === 400) return 'Clau invàlida o restringida';
+    if (status === 429) return 'Quota superada';
+    if (status === 500 || status === 503) return 'Error temporal';
+    if (result && /xarxa|CORS|domini|bloqueig|fetch/i.test(result.errorMessage || '')) return 'Problema de xarxa o domini';
+    return 'Error temporal';
+}
+
+async function callGemini(prompt, options = {}) {
+    if (!geminiApiKey) {
+        return { ok: false, text: '', status: 0, errorMessage: 'Clau Gemini no configurada' };
+    }
+    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent`;
+    const generationConfig = Object.assign({ temperature: 0.8, maxOutputTokens: 1024, topP: 0.9, topK: 40 }, options.generationConfig || {});
+    const payload = Object.assign({
+        contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
+        generationConfig
+    }, options.payload || {});
+    try {
+        const response = await fetch(endpoint, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-goog-api-key': geminiApiKey
+            },
+            body: JSON.stringify(payload)
+        });
+        let data = null;
+        let errorText = '';
+        try { data = await response.json(); } catch (e) { try { errorText = await response.text(); } catch (e2) {} }
+        if (!response.ok) {
+            const apiMsg = data?.error?.message || errorText || '';
+            return { ok: false, text: '', status: response.status, errorMessage: getGeminiErrorMessage(response.status, apiMsg) };
+        }
+        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim() || '';
+        if (!text) return { ok: false, text: '', status: response.status, errorMessage: 'Resposta buida de Gemini' };
+        return { ok: true, text, status: response.status, errorMessage: '' };
+    } catch (error) {
+        const isNetwork = error instanceof TypeError || /fetch failed|Failed to fetch|NetworkError/i.test(error?.message || '');
+        return {
+            ok: false,
+            text: '',
+            status: 0,
+            errorMessage: isNetwork ? 'Problema de xarxa, CORS, domini o bloqueig del navegador' : (error?.message || 'Error desconegut')
+        };
+    }
+}
+
+async function testGeminiConnection(key) {
+    const previousKey = geminiApiKey;
+    geminiApiKey = (key || '').trim();
+    if (!geminiApiKey) {
+        geminiApiKey = previousKey;
+        return { ok: false, text: '', status: 0, errorMessage: 'Clau Gemini no configurada' };
+    }
+    const result = await callGemini('Respon només amb la paraula OK en català.', { generationConfig: { temperature: 0, maxOutputTokens: 8, topP: 1, topK: 1 } });
+    geminiApiKey = previousKey;
+    return result;
 }
 
 function saveGeminiApiKey(rawKey) {
@@ -6181,16 +6253,27 @@ function getStrategicVoice() {
     return voices[Math.floor(Math.random() * voices.length)];
 }
 
+function getOpeningStrategicVoice() {
+    return {
+        name: 'Sun Tzu',
+        work: "L'Art de la Guerra",
+        style: 'breu, estratègic, militar i filosòfic',
+        example: "L'estrateg prepara el camp abans que soni el primer tambor: pren el centre, oculta el pla i converteix el primer avantatge en domini del mig joc."
+    };
+}
+
 function buildOpeningEncouragementPrompt() {
-    const voice = getStrategicVoice();
+    const voice = getOpeningStrategicVoice();
     return `Ets ${voice.name}, mestre estrateg, donant consell abans d'una partida d'escacs.
 
 TASCA: Escriu un paràgraf d'encoratjament en català, estil "${voice.work}".
 
 CONTINGUT:
-- Parla de la importància de la preparació mental abans de la batalla
-- Menciona els principis estratègics que s'apliquen a l'obertura d'escacs
-- Pots incloure citacions o paràfrasis de "${voice.work}"
+- Parla de la preparació abans de la batalla
+- Relaciona el domini del centre amb el terreny
+- Menciona iniciativa, amenaça latent i adaptació al rival
+- Recorda que no cal revelar el pla abans d'hora
+- Indica com l'obertura ha de convertir-se en avantatge de mig joc
 - To ${voice.style}
 - Acaba amb un consell inspirador per començar la partida
 
@@ -6225,7 +6308,7 @@ function buildOpeningAlternativesPrompt(sequence, continuations, selectedOpening
         ? `OBERTURA ACTUAL: [${selectedOpening.eco || '??'}] ${selectedOpening.name}`
         : 'POSICIÓ: Sense obertura específica detectada';
 
-    const voice = getStrategicVoice();
+    const voice = getOpeningStrategicVoice();
     return `Ets ${voice.name} aplicant "${voice.work}" als escacs.
 
 SEQÜÈNCIA JUGADA: ${movesStr || '(inici)'}
@@ -6243,7 +6326,7 @@ TASCA: Escriu un anàlisi complet en català (entre 5 i 10 frases):
    - Usa al·lusions: "el camí del centre", "el flanc de rei", "la diagonal oculta", "l'avanç dels peons", "el salt del cavall"
    - Explica quina filosofia estratègica representa cada camí
 
-3. CONSELL: Acaba amb un consell estratègic inspirat en ${voice.name} sobre com escollir entre les alternatives.
+3. CONSELL: Acaba amb un consell estratègic inspirat en ${voice.name} sobre preparació, terreny central, iniciativa, engany, pressió, atac indirecte, adaptació i conversió de l'obertura en avantatge de mig joc.
 
 REGLES:
 - Entre 5 i 10 frases
@@ -6255,127 +6338,183 @@ REGLES:
 Respon:`
 }
 
+function updateOpeningMaximButton() {
+    const btn = document.getElementById('btn-opening-bundle-maxim');
+    if (!btn) return;
+    const label = btn.querySelector('span');
+    const disabledByMode = !!hieroglyphicExerciseActive;
+    btn.style.display = disabledByMode ? 'none' : 'inline-flex';
+    btn.disabled = disabledByMode || !!openingMaximPending;
+    btn.classList.toggle('thinking', !!openingMaximPending);
+    if (label) label.textContent = openingMaximPending ? 'Pensant...' : 'Màxima';
+}
+
+function getOpeningMaximContextToken() {
+    return {
+        fen: openingPracticeGame ? openingPracticeGame.fen() : '',
+        sequence: JSON.stringify(openingCurrentSequence || []),
+        lesson: !!openingLessonActive,
+        hieroglyphic: !!hieroglyphicExerciseActive,
+        errorPractice: !!openingErrorPracticeActive,
+        id: ++openingMaximRequestCounter
+    };
+}
+
+function isOpeningMaximContextCurrent(token) {
+    return !!token
+        && openingPracticeGame
+        && token.fen === openingPracticeGame.fen()
+        && token.sequence === JSON.stringify(openingCurrentSequence || [])
+        && token.lesson === !!openingLessonActive
+        && token.hieroglyphic === !!hieroglyphicExerciseActive
+        && token.errorPractice === !!openingErrorPracticeActive
+        && token.id === openingMaximRequestCounter;
+}
+
+function classifyOpeningPositionForMaxim() {
+    const fen = openingPracticeGame ? openingPracticeGame.fen() : '';
+    const moves = openingPracticeGame ? openingPracticeGame.history() : [];
+    const oa = moves.length ? analyzeGameOpening(moves) : null;
+    const validNext = getValidOpeningMoves(moves);
+    if (openingLessonActive) return { theme: 'lesson', title: 'Màxima de lliçó', opening: openingLessonInfo, fen, moves, detected: oa, validNext };
+    if (openingErrorPracticeActive) return { theme: 'error', title: 'Màxima per corregir l’error', opening: null, fen, moves, detected: oa, validNext };
+    if (oa && oa.name) return { theme: 'detected', title: 'Base teòrica detectada', opening: oa, fen, moves, validNext };
+    if (openingSelectedOpening) return { theme: 'opening', title: 'Màxima d’obertura', opening: openingSelectedOpening, fen, moves, detected: oa, validNext };
+    return { theme: moves.length ? 'position' : 'general', title: 'Màxima d’obertura', opening: null, fen, moves, detected: oa, validNext };
+}
+
+function buildOfflineOpeningMaxim(info = classifyOpeningPositionForMaxim()) {
+    const voice = getOpeningStrategicVoice();
+    const openingName = info.opening?.name || info.detected?.name || '';
+    const lines = {
+        lesson: `Abans de moure, aprèn el camí com qui estudia el terreny abans de la batalla: cada peça desenvolupada ha de preparar el centre i guardar una amenaça latent. No revelis tot el pla; deixa que la línia et porti a un mig joc favorable.`,
+        error: `Quan una esquerda apareix a les primeres jugades, el general savi no corre cap al soroll: reforça el terreny, recupera la iniciativa i corregeix sense mostrar la jugada decisiva abans d’hora.`,
+        detected: `La línia ${openingName ? openingName + ' ' : ''}ja ha dibuixat el camp: domina el centre, mantén pressió invisible i prepara l’atac indirecte que transforma l’obertura en avantatge de mig joc.`,
+        opening: `En l’obertura, el centre és el terreny alt: ocupa’l amb ritme, amaga la intenció i adapta el pla quan el rival canvia la forma de la batalla.`,
+        position: `Si la teoria s’esvaeix, conserva els principis: peces actives, rei segur, centre vigilat i iniciativa prou forta perquè l’enemic respongui als teus plans.`,
+        general: `La victòria es prepara abans del combat: coneix el terreny, ordena les forces, no revelis el pla i entra al mig joc amb iniciativa.`
+    };
+    return { voice, title: info.title || 'Màxima d’obertura', text: lines[info.theme] || lines.general, openingName };
+}
+
+function renderOpeningMaximHtml(text, title = 'Màxima d’obertura', meta = '') {
+    const voice = getOpeningStrategicVoice();
+    const safeText = escapeHtml(text || '');
+    const safeTitle = escapeHtml(title || 'Màxima d’obertura');
+    const safeMeta = meta ? `<div style="font-weight:600; color:#c9a227; margin-bottom:8px; font-size:0.9em;">${escapeHtml(meta)}</div>` : '';
+    return `<div class="opening-maxim-box">
+        <div class="maxim-title">${safeTitle}</div>
+        <div class="maxim-voice">${escapeHtml(voice.name)} · ${escapeHtml(voice.work)}</div>
+        ${safeMeta}
+        <div class="maxim-text">"${safeText}"</div>
+    </div>`;
+}
+
+function showOfflineOpeningMaxim() {
+    const info = classifyOpeningPositionForMaxim();
+    const offline = buildOfflineOpeningMaxim(info);
+    const meta = offline.openingName ? `Base teòrica detectada: ${offline.openingName}` : '';
+    const html = renderOpeningMaximHtml(offline.text, offline.title, meta);
+    lastOpeningMaxim = html;
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl) noteEl.innerHTML = html;
+}
+
 async function requestOpeningMaximLlull() {
     if (!openingPracticeGame) return;
+    if (hieroglyphicExerciseActive) {
+        updateOpeningMaximButton();
+        return;
+    }
     if (!geminiApiKey) {
-        // Fallback offline: banc local de màximes (centre/general) en comptes d'un avís.
-        const noteEl = document.getElementById('opening-practice-note');
-        if (noteEl) {
-            const m = pickOfflineMaxim('center');
-            noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">Consell estratègic</div><div class="maxim-text">${m}</div><div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— El Mestre Estrateg</div></div>`;
-        }
+        showOfflineOpeningMaxim();
         return;
     }
     if (openingMaximPending) return;
 
     openingMaximPending = true;
+    const contextToken = getOpeningMaximContextToken();
+    updateOpeningMaximButton();
     const noteEl = document.getElementById('opening-practice-note');
 
-    // Determinar si és inici o continuació
-    const isStart = openingCurrentSequence.length === 0;
+    const info = classifyOpeningPositionForMaxim();
+    const isStart = openingCurrentSequence.length === 0 && !openingLessonActive && !openingErrorPracticeActive;
 
     if (noteEl) {
-        noteEl.innerHTML = isStart
-            ? '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estrateg...</div>'
-            : '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Analitzant alternatives...</div>';
+        noteEl.innerHTML = '<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Sun Tzu medita sobre el terreny...</div>';
     }
 
-    // Construir prompt segons l'estat
     let prompt;
     let continuationsData = null;
+    if (openingLessonActive) {
+        const voice = getOpeningStrategicVoice();
+        prompt = `Ets ${voice.name} escrivint en l'estil de ${voice.work}.
 
-    if (isStart) {
+LLIÇÓ ACTUAL: ${openingLessonInfo ? `${openingLessonInfo.name} (${openingLessonInfo.eco})` : 'obertura'}
+IDEA: ${openingLessonInfo?.idea || 'preparació, centre i iniciativa'}
+SEQÜÈNCIA: ${(openingLessonLine || []).join(' ')}
+PROGRÉS: ${openingLessonStep}/${openingLessonLine.length}
+
+Escriu una màxima breu en català per ajudar l'alumne a entendre la lliçó actual. Parla de preparació abans de la batalla, terreny central, ritme, iniciativa i conversió al mig joc. No revelis la jugada concreta. 2 o 3 frases, sense emojis, sense cometes embolcallant tot el text.`;
+    } else if (openingErrorPracticeActive) {
+        const voice = getOpeningStrategicVoice();
+        prompt = `Ets ${voice.name} escrivint en l'estil de ${voice.work}.
+
+MODE: correcció d'un error d'obertura en les primeres 10 jugades.
+FEN: ${openingPracticeGame.fen()}
+MOVIMENT: ${openingErrorMoveFilter || '—'} (${openingErrorColorFilter === 'w' ? 'blanques' : openingErrorColorFilter === 'b' ? 'negres' : '—'})
+
+Escriu una màxima breu en català sobre corregir l'error sense revelar la jugada exacta, ni caselles, ni notació. Ha de parlar de recuperar el centre, no precipitar l'atac, conservar iniciativa i adaptar-se al rival. 2 o 3 frases, sense emojis.`;
+    } else if (isStart) {
         prompt = buildOpeningEncouragementPrompt();
     } else {
         continuationsData = getOpeningContinuations(openingCurrentSequence);
-        prompt = buildOpeningAlternativesPrompt(
-            openingCurrentSequence,
-            continuationsData.continuations,
-            openingSelectedOpening
-        );
+        prompt = buildOpeningAlternativesPrompt(openingCurrentSequence, continuationsData.continuations, openingSelectedOpening);
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
-
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: isStart ? 0.9 : 0.7,
-                    maxOutputTokens: isStart ? 1000 : 3000,
-                    topP: 0.9,
-                    topK: 30
-                }
-            })
+        const result = await callGemini(prompt, {
+            generationConfig: {
+                temperature: isStart ? 0.85 : 0.7,
+                maxOutputTokens: isStart ? 700 : 1800,
+                topP: 0.9,
+                topK: 30
+            }
         });
+        if (!result.ok) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
+        if (!isOpeningMaximContextCurrent(contextToken)) return;
 
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error('[Gemini Opening] Error response:', response.status, errorBody);
-            throw new Error(`Gemini error ${response.status}: ${errorBody}`);
-        }
-
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
-        if (!text) throw new Error('Resposta buida de Gemini');
-
-        // Netejar el text de possibles artefactes
-        let cleanText = text
-            .replace(/^\d+\.\s*/gm, '') // Treure numeracions
-            .replace(/^[-•]\s*/gm, '') // Treure bullets
-            .replace(/\*\*/g, '') // Treure bold markdown
-            .replace(/^["«]|["»]$/g, '') // Treure cometes
+        let cleanText = result.text
+            .replace(/^\d+\.\s*/gm, '')
+            .replace(/^[-•]\s*/gm, '')
+            .replace(/\*\*/g, '')
+            .replace(/^["«]|["»]$/g, '')
             .trim();
+        if (cleanText && !/[.!?]$/.test(cleanText)) cleanText += '.';
 
-        // Assegurar que acaba en punt final
-        if (cleanText && !/[.!?]$/.test(cleanText)) {
-            cleanText += '.';
+        let meta = '';
+        if (!isStart && openingSelectedOpening) {
+            meta = `[${openingSelectedOpening.eco || '??'}] ${openingSelectedOpening.name}`;
+        } else if (info.opening?.name || info.detected?.name) {
+            meta = `Base teòrica detectada: ${info.opening?.name || info.detected?.name}`;
+        }
+        if (continuationsData && Object.keys(continuationsData.continuations).length > 0) {
+            meta += `${meta ? ' · ' : ''}${Object.keys(continuationsData.continuations).length} continuacions possibles`;
         }
 
-        // Verificar que no s'hagi cancel·lat (p.ex. per undo)
-        if (!openingMaximPending) {
-            console.log('[Gemini Opening] Petició cancel·lada (probablement per undo)');
-            return;
-        }
-
-        // Construir HTML segons tipus
-        let html = '<div style="padding:12px; background:rgba(139,0,0,0.10); border-left:3px solid #8b0000; border-radius:8px; line-height:1.6;">';
-
-        if (isStart) {
-            // Frase d'encoratjament simple
-            html += `<div style="font-style:italic; color:var(--text-primary); font-size:1em;">"${cleanText}"</div>`;
-            html += '<div style="text-align:right; margin-top:6px; font-size:0.8em; color:var(--text-secondary);">— El Mestre Estrateg</div>';
-        } else {
-            // Mostrar obertura actual si existeix
-            if (openingSelectedOpening) {
-                html += `<div style="font-weight:600; color:#c9a227; margin-bottom:8px; font-size:0.9em;">[${openingSelectedOpening.eco || '??'}] ${openingSelectedOpening.name}</div>`;
-            }
-
-            // Mostrar alternatives disponibles
-            if (continuationsData && Object.keys(continuationsData.continuations).length > 0) {
-                const numAlternatives = Object.keys(continuationsData.continuations).length;
-                html += `<div style="font-size:0.8em; color:var(--text-secondary); margin-bottom:6px;">${numAlternatives} continuacions possibles (${continuationsData.total} obertures)</div>`;
-            }
-
-            html += `<div style="color:var(--text-primary); font-size:0.95em;">${cleanText}</div>`;
-        }
-
-        html += '</div>';
-
+        const html = renderOpeningMaximHtml(cleanText, info.title || 'Màxima d’obertura', meta);
         lastOpeningMaxim = html;
         if (noteEl) noteEl.innerHTML = html;
-
     } catch (err) {
-        console.error('[Gemini Opening]', err);
-        // Només mostrar error si no s'ha cancel·lat
-        if (openingMaximPending && noteEl) {
-            noteEl.innerHTML = '<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">No s\'ha pogut consultar. Torna-ho a provar.</div>';
+        console.error('[Gemini Opening]', err?.message || err);
+        if (isOpeningMaximContextCurrent(contextToken) && noteEl) {
+            const msg = getGeminiStatusLabel({ ok: false, status: 0, errorMessage: err?.message || '' });
+            noteEl.innerHTML = `<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">${escapeHtml(msg)}. S'usa una màxima local.</div>`;
+            showOfflineOpeningMaxim();
         }
     } finally {
-        openingMaximPending = false;
+        if (contextToken.id === openingMaximRequestCounter) openingMaximPending = false;
+        updateOpeningMaximButton();
     }
 }
 
@@ -6448,32 +6587,10 @@ async function requestGeminiBundleHint() {
         return;
     }
     
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
-    
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: 0.85,
-                    maxOutputTokens: 2000,
-                    topP: 0.95,
-                    topK: 40
-                }
-            })
-        });
-        
-        if (!response.ok) {
-            const errorBody = await response.text();
-            console.error('[Gemini] Error response:', response.status, errorBody);
-            throw new Error(`Gemini error ${response.status}: ${errorBody}`);
-        }
-        
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
-        if (!text) throw new Error('Resposta buida de Gemini');
+        const result = await callGemini(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 2000, topP: 0.95, topK: 40 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
+        const text = result.text;
         
         const lines = text.split('\n').filter(l => l.trim());
         const validLines = lines.filter(line => {
@@ -6573,19 +6690,9 @@ async function requestAssistedHint() {
 
         if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
         const prompt = buildAssistedHintPrompt(fen, bestMove, null);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 0.85, maxOutputTokens: 500, topP: 0.95, topK: 40 }
-            })
-        });
-        if (!response.ok) throw new Error(`Gemini error ${response.status}`);
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
-        if (!text) throw new Error('Resposta buida');
+        const result = await callGemini(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 500, topP: 0.95, topK: 40 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
+        const text = result.text;
 
         const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
         setCachedGemini(cacheKey, cleanText);
@@ -6787,28 +6894,10 @@ async function requestGeminiReview(entry, severeErrors) {
     saveStorage();
     updateHistoryReview(historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id ? historyReplay.entry : entry);
     const prompt = buildGeminiReviewPrompt(entry, resolvedErrors);
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
     try {
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: {
-                    temperature: 0.9,
-                    maxOutputTokens: 4096,
-                    topP: 0.95,
-                    topK: 40
-                }
-            })
-        });
-        if (!response.ok) {
-            throw new Error(`Gemini error ${response.status}`);
-        }
-        const data = await response.json();
-        let text = data?.candidates?.[0]?.content?.parts?.map(part => part.text).join('')?.trim();
-        if (!text) throw new Error('Resposta buida de Gemini');
-        entry.geminiReview = { status: 'done', text };
+        const result = await callGemini(prompt, { generationConfig: { temperature: 0.9, maxOutputTokens: 4096, topP: 0.95, topK: 40 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
+        entry.geminiReview = { status: 'done', text: result.text };
     } catch (error) {
         entry.geminiReview = {
             status: 'error',
@@ -7768,6 +7857,30 @@ function buildOpeningMoveStats() {
     return { stats, totalEntries: recentEntries.length };
 }
 
+function setOpeningScreenMode(mode = 'overview') {
+    const sections = {
+        lessons: $('#opening-lessons-section'),
+        practice: $('#opening-practice-section'),
+        stats: $('#opening-stats-section'),
+        hieroglyphic: $('#opening-hieroglyphic-section')
+    };
+    Object.values(sections).forEach($el => { if ($el && $el.length) $el.show(); });
+    if (mode === 'lesson' || mode === 'practice') {
+        sections.practice.show();
+    } else if (mode === 'error-practice') {
+        sections.lessons.hide();
+        sections.stats.hide();
+        sections.hieroglyphic.hide();
+        sections.practice.show();
+    } else if (mode === 'hieroglyphic') {
+        sections.lessons.hide();
+        sections.stats.hide();
+        sections.practice.show();
+        sections.hieroglyphic.show();
+    }
+    updateOpeningMaximButton();
+}
+
 // Variable global per guardar estadístiques d'obertura
 let openingStatsData = [];
 
@@ -7928,9 +8041,7 @@ function loadRandomOpeningError() {
     openingBundleBoard.orientation(turn === 'w' ? 'white' : 'black');
     openingBundleBoard.position(error.fen);
 
-    // Amagar secció d'estadístiques, mostrar tauler
-    $('.opening-section').first().hide();
-    $('.opening-section').last().show();
+    setOpeningScreenMode('error-practice');
 
     // Forçar redimensionament del tauler per assegurar visualització
     setTimeout(() => {
@@ -8113,8 +8224,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
             openingErrorCurrentPositions = collectAllOpeningErrorPositions();
             if (openingErrorCurrentPositions.length > 0) {
                 // Encara queden del filtre actual
-                $('.opening-section').first().hide();
-                $('.opening-section').last().show();
+                setOpeningScreenMode('error-practice');
                 openingErrorMovesRemaining = 2;
                 loadRandomOpeningError();
             } else {
@@ -8134,8 +8244,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
                     if (stat && stat.errorPositions) {
                         openingErrorCurrentPositions = [...stat.errorPositions];
                     }
-                    $('.opening-section').first().hide();
-                    $('.opening-section').last().show();
+                    setOpeningScreenMode('error-practice');
                     openingErrorMovesRemaining = 2;
                     loadRandomOpeningError();
                 } else {
@@ -8152,9 +8261,7 @@ function exitOpeningErrorPractice() {
     openingErrorCurrentFen = null;
     openingErrorBestMove = null;
 
-    // Mostrar secció d'estadístiques, amagar tauler
-    $('.opening-section').first().show();
-    $('.opening-section').last().hide();
+    setOpeningScreenMode('overview');
 
     // Tornar a renderitzar estadístiques amb dades actualitzades
     renderOpeningStatsScreen(true);
@@ -8202,6 +8309,7 @@ function startOpeningLesson(idx) {
     if (!op) return;
     openingErrorPracticeActive = false;
     hieroglyphicExerciseActive = false;
+    updateOpeningMaximButton();
     openingLessonActive = true;
     openingLessonInfo = op;
     openingLessonLine = op.moves.slice();
@@ -8218,6 +8326,7 @@ function startOpeningLesson(idx) {
         openingBundleBoard.orientation(openingLessonUserColor === 'w' ? 'white' : 'black');
         openingBundleBoard.position('start');
     }
+    setOpeningScreenMode('lesson');
     updateOpeningLessonNote(true);
     // Si l'usuari juga amb negres, el blanc (rival) fa la primera jugada de la línia
     if (openingLessonUserColor === 'b') {
@@ -8846,19 +8955,9 @@ async function fetchHieroglyphicClue(context, level = 1) {
     if (cached) return sanitizeHieroglyphicText(cached, context, { hidePiece: level === 1 });
     try {
         const prompt = buildDynamicHieroglyphicPrompt(context, level);
-        const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
-        const response = await fetch(url, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                contents: [{ role: 'user', parts: [{ text: prompt }] }],
-                generationConfig: { temperature: 1.05, maxOutputTokens: 120, topP: 0.95, topK: 40 }
-            })
-        });
-        if (!response.ok) return null;
-        const data = await response.json();
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text).join('').trim();
-        if (!text) return null;
+        const result = await callGemini(prompt, { generationConfig: { temperature: 1.05, maxOutputTokens: 120, topP: 0.95, topK: 40 } });
+        if (!result.ok || !result.text) return null;
+        const text = result.text;
         const clean = sanitizeHieroglyphicText(text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim(), context, { hidePiece: level === 1 });
         setCachedGemini(cacheKey, clean);
         return clean;
@@ -8887,7 +8986,7 @@ function getHieroglyphicRewardText() {
 
 function getHieroglyphicTitle() {
     if (hieroglyphicSource === 'personal') return '🔮 Desxifra el teu error';
-    return `🔮 Exercici Geroglífic — ${hieroglyphicOpening ? hieroglyphicOpening.name : 'posició'}`;
+    return `🔮 Exercici Jeroglífic — ${hieroglyphicOpening ? hieroglyphicOpening.name : 'posició'}`;
 }
 function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const noteEl = document.getElementById('opening-practice-note');
@@ -9080,6 +9179,7 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
         clearOpeningMoveVisualFeedback();
         $('#start-screen,#game-screen,#history-screen,#league-screen,#stats-screen,#settings-screen,#calibration-result-screen').hide();
         $('#opening-screen').show();
+        setOpeningScreenMode('hieroglyphic');
         navPush('opening-screen');
         if (openingBundleBoard) {
             openingBundleBoard.orientation(hieroglyphicGame.turn() === 'w' ? 'white' : 'black');
@@ -9128,6 +9228,7 @@ function startHieroglyphicExercise() {
     hieroglyphicSource = 'opening';
     hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
     hieroglyphicExerciseActive = true;
+    setOpeningScreenMode('hieroglyphic');
     const myToken = ++hieroglyphicToken;
 
     if (!openingBundleBoard) initOpeningBundleBoard();
@@ -9164,6 +9265,7 @@ function handleHieroglyphicMove(source, target) {
     if (isHieroglyphicMoveCorrect(move)) {
         registerHieroglyphicSolved();
         hieroglyphicExerciseActive = false;
+        updateOpeningMaximButton();
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
         showOpeningMoveVisualFeedback(source, target, 'correct');
         const noteEl = document.getElementById('opening-practice-note');
@@ -9190,6 +9292,7 @@ function handleHieroglyphicMove(source, target) {
     if (hieroglyphicAttempts >= 3) {
         registerHieroglyphicFailed();
         hieroglyphicExerciseActive = false;
+        updateOpeningMaximButton();
         applyHieroglyphicExpectedMove();
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
         const noteEl = document.getElementById('opening-practice-note');
@@ -9462,6 +9565,8 @@ function undoOpeningPracticeMove() {
 
     // Cancel·lar màxima pendent (evitar que s'actualitzi després de l'undo)
     openingMaximPending = false;
+    openingMaximRequestCounter++;
+    updateOpeningMaximButton();
 
     // Sortir de la lliçó guiada si estava activa
     openingLessonActive = false;
@@ -9510,6 +9615,8 @@ function resetOpeningPracticeBoard() {
     openingPracticeEngineThinking = false;
     hieroglyphicExerciseActive = false;
     openingMaximPending = false;
+    openingMaximRequestCounter++;
+    updateOpeningMaximButton();
     lastOpeningMaxim = null;
     openingPracticeHintPending = false;
     openingPracticeBestMove = null;
@@ -9558,12 +9665,43 @@ function resetOpeningPracticeBoard() {
     setTimeout(() => preCalculateOpeningBestMove(), 300);
 }
 
+function playOpeningTheoryOpponentMove() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+    updateSelectedOpening();
+    const san = openingNextMoveHint;
+    if (!san) return false;
+    const move = openingPracticeGame.move(san, { sloppy: true });
+    if (!move) return false;
+    clearOpeningHintHighlight();
+    openingPracticeBestMove = null;
+    openingPracticeMoveCount += 1;
+    if (move.san) {
+        openingCurrentSequence.push(move.san);
+        updateSelectedOpening();
+    }
+    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+    openingPracticeEngineThinking = false;
+    updateOpeningPracticeStatus();
+    updateOpeningPrecisionDisplay();
+    updateOpeningUndoButton();
+    setTimeout(() => preCalculateOpeningBestMove(), 200);
+    return true;
+}
+
 function requestOpeningPracticeEngineMove() {
     // El tauler d'obertures separa Stockfish fort (pistes, validacions i lliçons guiades)
     // d'un rival adaptatiu per a la pràctica normal. Validar exercicis requereix exactitud;
     // jugar contra el bot requereix la mateixa experiència humana que la partida lliure.
     if (openingLessonActive || openingErrorPracticeActive) {
         requestOpeningPracticeStrongEngineMove();
+        return;
+    }
+    if (openingPracticeOpponentMode === 'theory') {
+        openingPracticeEngineThinking = true;
+        updateOpeningUndoButton();
+        setTimeout(() => {
+            if (!playOpeningTheoryOpponentMove()) requestOpeningPracticeStrongEngineMove();
+        }, 450);
         return;
     }
     requestOpeningPracticeAdaptiveEngineMove();
@@ -9673,6 +9811,7 @@ function setupEvents() {
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
         resetOpeningPracticeBoard();
+        setOpeningScreenMode('overview');
         $('#start-screen').hide();
         $('#opening-screen').show();
         navPush('opening-screen');
@@ -9920,16 +10059,35 @@ function setupEvents() {
     // Analitza la posició actual
     $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
 
-    $('#btn-save-gemini-key').off('click').on('click', () => {
+    $('#btn-save-gemini-key').off('click').on('click', async () => {
         const input = document.getElementById('gemini-key-input');
+        const status = document.getElementById('gemini-key-status');
+        const btn = document.getElementById('btn-save-gemini-key');
         if (!input) return;
-        const ok = saveGeminiApiKey(input.value);
-        if (ok) {
+        const key = (input.value || '').trim();
+        if (!key) {
+            if (status) status.textContent = 'Clau invàlida o restringida';
+            alert('Introdueix una clau vàlida.');
+            return;
+        }
+        if (btn) btn.disabled = true;
+        if (status) status.textContent = 'Provant connexió...';
+        const result = await testGeminiConnection(key);
+        if (result.ok) {
+            saveGeminiApiKey(key);
             input.value = '';
+            if (status) status.textContent = 'Connectat a Gemini';
             alert('Clau de Gemini guardada.');
         } else {
-            alert('Introdueix una clau vàlida.');
+            if (status) status.textContent = getGeminiStatusLabel(result);
+            alert(getGeminiStatusLabel(result));
         }
+        if (btn) btn.disabled = false;
+    });
+
+    $('#opening-practice-mode-select').off('change').on('change', function() {
+        openingPracticeOpponentMode = ($(this).val() === 'adaptive') ? 'adaptive' : 'theory';
+        updateOpeningPracticeStatus();
     });
 
     $('#epaper-toggle').off('change').on('change', function() {
@@ -10724,6 +10882,7 @@ function executeGrowthTask(task) {
                 $('#opening-screen').show();
                 navPush('opening-screen');
                 renderOpeningStatsScreen();
+                setOpeningScreenMode('overview');
                 return;
             }
             showToast('La pràctica d’obertures no està disponible ara mateix.', 'warn');

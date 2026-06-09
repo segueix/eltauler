@@ -1588,6 +1588,40 @@
             filter: brightness(1.2) drop-shadow(0 1px 2px rgba(0,0,0,0.3));
         }
 
+        .btn-brain-hint.thinking {
+            opacity: 0.88;
+            cursor: progress;
+            box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.45), 0 4px 18px rgba(94, 53, 177, 0.55);
+            animation: brainButtonPulse 1.15s ease-in-out infinite;
+        }
+
+        .btn-brain-hint.thinking img {
+            animation: brainThinking 1.05s ease-in-out infinite;
+            filter: brightness(1.45) drop-shadow(0 0 6px rgba(201,162,39,0.65));
+        }
+
+        @keyframes brainButtonPulse {
+            0%, 100% { transform: translateY(0); box-shadow: 0 0 0 0 rgba(201, 162, 39, 0.32), 0 4px 18px rgba(94, 53, 177, 0.55); }
+            50% { transform: translateY(-1px); box-shadow: 0 0 0 6px rgba(201, 162, 39, 0), 0 6px 22px rgba(201, 162, 39, 0.28); }
+        }
+
+        @keyframes brainThinking {
+            0%, 100% { transform: scale(1) rotate(0deg); }
+            25% { transform: scale(1.08) rotate(-3deg); }
+            50% { transform: scale(1.12) rotate(0deg); }
+            75% { transform: scale(1.08) rotate(3deg); }
+        }
+
+        .opening-mode-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            margin: 0 auto 12px;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+        }
+
         body.epaper-mode .btn-brain-hint img {
             filter: grayscale(100%) brightness(0.3);
         }
@@ -2728,7 +2762,7 @@
             </div>
 
             <div class="chart-container">
-                <div class="chart-title">Les teves obertures</div>
+                <div class="chart-title">Repertori jugat</div>
                 <div id="stats-openings"></div>
             </div>
 
@@ -2908,27 +2942,21 @@
                 <div class="app-logo">📖</div>
                 <h1>Obertures</h1>
             </div>
-            <div class="opening-section">
-                <div class="opening-section-title">Aprèn una obertura</div>
-                <div class="opening-section-desc">Tria una obertura clàssica i practica la línia principal jugada a jugada amb guia.</div>
+            <div class="opening-section" id="opening-lessons-section">
+                <div class="opening-section-title">Bloc 1 · Repertori recomanat</div>
+                <div class="opening-section-desc"><strong>Aprèn una obertura</strong> del repertori recomanat. Progrés, obertures amb blanques i defenses amb negres queden separats per estudiar amb ordre.</div>
                 <div class="opening-lesson-list" id="opening-lesson-list"></div>
             </div>
-            <div class="opening-section">
-                <div class="opening-section-title">🔮 Exercicis Geroglífics</div>
-                <div class="opening-section-desc">Desxifra la pista estratègica i troba la jugada teòrica correcta. Un mestre estrateg t'oferirà una màxima xifrada com a única guia.</div>
-                <div class="hieroglyphic-section">
-                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise">🔮 Començar exercici</button>
+            <div class="opening-section" id="opening-practice-section">
+                <div class="opening-section-title">Bloc 2 · Pràctica de línia</div>
+                <div class="opening-section-desc">Practica obertures amb un màxim de 10 moviments per bàndol. La base teòrica detectada només identifica línies; el repertori recomanat és la guia pedagògica principal.</div>
+                <div class="opening-mode-row">
+                    <label for="opening-practice-mode-select">Rival</label>
+                    <select id="opening-practice-mode-select" class="select-control">
+                        <option value="theory">Mode teoria</option>
+                        <option value="adaptive">Mode rival adaptatiu</option>
+                    </select>
                 </div>
-            </div>
-            <div class="opening-section">
-                <div class="opening-section-title">Estadístiques d'obertura (últimes 10 partides)</div>
-                <div class="opening-section-desc">Precisió mitjana per moviment i percentatge d'error en imprecisions (&lt;75%).</div>
-                <div class="opening-stats" id="opening-stats-list"></div>
-                <div class="opening-stats-note" id="opening-stats-note">—</div>
-            </div>
-            <div class="opening-section">
-                <div class="opening-section-title">Tauler Obertures</div>
-                <div class="opening-section-desc">Practica obertures amb un màxim de 10 moviments per bàndol.</div>
                 <div class="opening-bundle-board board-container">
                     <div id="opening-board"></div>
                 </div>
@@ -2955,6 +2983,19 @@
                     </button>
                     <button class="btn btn-primary" id="btn-opening-bundle-resign">Rendir-se</button>
                     <button class="btn btn-secondary" id="btn-opening-bundle-menu">Menú</button>
+                </div>
+            </div>
+            <div class="opening-section" id="opening-stats-section">
+                <div class="opening-section-title">Bloc 3 · Errors en les primeres 10 jugades</div>
+                <div class="opening-section-desc">Mostra errors d'obertura per moviment a les primeres 10 jugades. Clica un error per entrar en pràctica enfocada.</div>
+                <div class="opening-stats" id="opening-stats-list"></div>
+                <div class="opening-stats-note" id="opening-stats-note">—</div>
+            </div>
+            <div class="opening-section" id="opening-hieroglyphic-section">
+                <div class="opening-section-title">Bloc 4 · 🔮 Jeroglífics d'obertura</div>
+                <div class="opening-section-desc">Exercici especial: desxifra la pista estratègica i troba la jugada teòrica correcta sense barrejar-lo amb la pràctica principal.</div>
+                <div class="hieroglyphic-section">
+                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise">🔮 Començar exercici</button>
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
