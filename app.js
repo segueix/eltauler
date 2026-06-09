@@ -1739,11 +1739,15 @@ function updateOpeningSessionStats() {
     const valueEl = document.getElementById('session-stats-value');
     const percentEl = document.getElementById('session-stats-percent');
 
-    // No mostrar estadístiques fins tenir dades vàlides de Stockfish
-    // (openingLastMoveQuality ha de ser 'correct', 'good' o 'incorrect', no null ni 'unknown')
-    const hasValidData = openingPracticeTotalMoves > 0 &&
-                         openingLastMoveQuality !== null &&
-                         openingLastMoveQuality !== 'unknown';
+    const lessonTarget = openingLessonActive ? getOpeningLessonUserMoveTarget() : 0;
+    const denominator = lessonTarget > 0 ? lessonTarget : openingPracticeTotalMoves;
+
+    // No mostrar estadístiques fins tenir dades vàlides, excepte a les lliçons:
+    // allà sí que volem ensenyar el comptador 0/N des del primer torn, també amb negres.
+    const hasValidData = denominator > 0 && (
+        lessonTarget > 0 ||
+        (openingPracticeTotalMoves > 0 && openingLastMoveQuality !== null && openingLastMoveQuality !== 'unknown')
+    );
 
     if (!hasValidData) {
         if (valueEl) valueEl.textContent = '—/—';
@@ -1752,9 +1756,9 @@ function updateOpeningSessionStats() {
         return;
     }
 
-    const avgPrecision = Math.round((openingPracticeGoodMoves / openingPracticeTotalMoves) * 100);
+    const avgPrecision = Math.round((openingPracticeGoodMoves / denominator) * 100);
 
-    if (valueEl) valueEl.textContent = `${openingPracticeGoodMoves}/${openingPracticeTotalMoves}`;
+    if (valueEl) valueEl.textContent = `${openingPracticeGoodMoves}/${denominator}`;
     if (percentEl) percentEl.textContent = `(${avgPrecision}%)`;
 
     // Color segons el percentatge
@@ -1766,6 +1770,24 @@ function updateOpeningSessionStats() {
     } else {
         statsEl.classList.add('stats-danger');
     }
+}
+
+function getOpeningLessonUserMoveTarget() {
+    if (!Array.isArray(openingLessonLine) || !openingLessonLine.length) return 0;
+    const userColor = openingLessonUserColor || 'w';
+    return openingLessonLine.reduce((total, _san, idx) => {
+        const moveColor = idx % 2 === 0 ? 'w' : 'b';
+        return total + (moveColor === userColor ? 1 : 0);
+    }, 0);
+}
+
+function registerOpeningLessonAttempt(quality) {
+    openingLastMoveQuality = quality;
+    openingPracticeTotalMoves++;
+    if (quality === 'correct' || quality === 'good') {
+        openingPracticeGoodMoves++;
+    }
+    updateOpeningPrecisionDisplay(true);
 }
 
 // ========== SISTEMA DE FEEDBACK INSTANTANI PER OBERTURES ==========
@@ -2278,6 +2300,7 @@ function handleOpeningLessonUserMove(from, to) {
     clearOpeningHintHighlight();
     if (move.san !== expected) {
         showOpeningMoveVisualFeedback(from, to, 'incorrect');
+        registerOpeningLessonAttempt('incorrect');
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl && openingLessonInfo) {
             noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
@@ -2291,6 +2314,7 @@ function handleOpeningLessonUserMove(from, to) {
     }
 
     showOpeningMoveVisualFeedback(from, to, 'correct');
+    registerOpeningLessonAttempt('correct');
     openingLessonStep++;
     openingBundleBoard.position(openingPracticeGame.fen());
     if (openingLessonStep >= openingLessonLine.length) {
@@ -8414,12 +8438,14 @@ function startOpeningLesson(idx) {
     openingPracticeMoveCount = 0;
     openingPracticeGoodMoves = 0;
     openingPracticeTotalMoves = 0;
+    openingLastMoveQuality = null;
     clearOpeningHintHighlight();
     clearOpeningMoveVisualFeedback();
     if (openingBundleBoard) {
         openingBundleBoard.orientation(openingLessonUserColor === 'w' ? 'white' : 'black');
         openingBundleBoard.position('start');
     }
+    updateOpeningPrecisionDisplay();
     setOpeningScreenMode('lesson');
     updateOpeningLessonNote(true);
     // Si l'usuari juga amb negres, el blanc (rival) fa la primera jugada de la línia
@@ -8449,10 +8475,14 @@ function updateOpeningLessonNote(intro = false) {
     const done = openingLessonStep;
     const yourTurn = openingLessonActive && openingPracticeGame.turn() === openingLessonUserColor && done < total;
     const colorTxt = openingLessonUserColor === 'w' ? 'blanques' : 'negres';
+    const targetUserMoves = getOpeningLessonUserMoveTarget();
+    const progressText = targetUserMoves > 0
+        ? `${openingPracticeGoodMoves}/${targetUserMoves} jugades correctes`
+        : `${done}/${total} jugades`;
     let html = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name} (${openingLessonInfo.eco})</div>`;
     if (intro && openingLessonInfo.idea) html += `<div class="maxim-text">${openingLessonInfo.idea}</div>`;
     const status = done >= total ? 'Línia completada!' : (yourTurn ? `El teu torn (${colorTxt}): troba la jugada de la teoria.` : 'Observa la resposta del rival...');
-    html += `<div class="maxim-text" style="opacity:0.85;">${status} · ${done}/${total} jugades</div></div>`;
+    html += `<div class="maxim-text" style="opacity:0.85;">${status} · ${progressText}</div></div>`;
     noteEl.innerHTML = html;
 }
 
@@ -8470,7 +8500,9 @@ function completeOpeningLesson() {
     const noteEl = document.getElementById('opening-practice-note');
     if (noteEl) {
         const extra = firstTime ? `<div class="maxim-text" style="color:var(--accent-gold);">Nova obertura desbloquejada! ${completedOpenings.length}/${CURATED_OPENINGS.length} apreses.</div>` : '';
-        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div>${extra}</div>`;
+        const targetUserMoves = getOpeningLessonUserMoveTarget();
+        const progress = targetUserMoves > 0 ? `<div class="maxim-text" style="opacity:0.85;">Resultat: ${openingPracticeGoodMoves}/${targetUserMoves} jugades correctes.</div>` : '';
+        noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div>${progress}${extra}</div>`;
     }
     renderOpeningLessonButtons();
     showToast(`Has completat: ${name} 📖`, 'success');
