@@ -14856,8 +14856,16 @@ $('#btn-dismiss-install').on('click', () => {
 });
 
 // X de les finestres d'èxit: tanca l'overlay per poder veure la posició final
-// de l'exercici al tauler (gestor delegat: serveix per a tots els overlays).
-$(document).on('click', '.overlay-close-x', function () {
+// de l'exercici al tauler. Responem també a touchend/pointerup perquè en mòbil
+// el click pot quedar suprimit pels gestors tàctils del tauler; el timestamp
+// evita el doble dispar (touchend + click sintètic).
+let overlayCloseLastTs = 0;
+$(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const now = Date.now();
+    if (now - overlayCloseLastTs < 400) return;
+    overlayCloseLastTs = now;
     $(this).closest('.bundle-success-overlay').hide();
 });
 

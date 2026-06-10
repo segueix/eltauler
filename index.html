@@ -1555,10 +1555,13 @@
         }
         /* X per tancar l'overlay d'èxit i poder veure la posició final al tauler */
         .overlay-close-x {
-            position: absolute; top: 6px; right: 8px;
+            position: absolute; top: 0; right: 0;
             background: none; border: none; cursor: pointer;
-            color: var(--text-secondary); font-size: 1.15rem; line-height: 1;
-            padding: 6px 8px; border-radius: 8px;
+            color: var(--text-secondary); font-size: 1.3rem; line-height: 1;
+            padding: 12px 14px; border-radius: 8px;
+            z-index: 5;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
         }
         .overlay-close-x:hover, .overlay-close-x:active { color: var(--accent-gold); background: rgba(201,162,39,0.12); }
         body.epaper-mode .overlay-close-x { color: #444; }
