@@ -679,27 +679,18 @@ async function writeBackupToDirectory(data, filename, { prompt = true, forceDire
     return fileHandle;
 }
 
-const BACKUP_FILE_ACCEPT = '.json,application/json,text/json,text/plain,application/octet-stream';
-const BACKUP_PICKER_TYPES = [{
-    description: 'Backup El Tauler (.json)',
-    accept: {
-        'application/json': ['.json'],
-        'text/json': ['.json'],
-        'text/plain': ['.json'],
-        'application/octet-stream': ['.json']
-    }
-}];
+// No filtrem el selector d'importació per MIME/extensió: alguns navegadors
+// (sobretot mòbil/Android) no classifiquen els backups .json com application/json
+// i els deixen grisos. Mostrem tots els fitxers i validem després a JS.
+const BACKUP_FILE_ACCEPT = '';
 
 async function importBackupFromPicker() {
-    const handle = await ensureBackupDirHandle({ prompt: true, mode: 'read' });
-    if (!handle || !supportsFilePicker()) return null;
+    if (!supportsFilePicker()) return null;
+    const handle = await ensureBackupDirHandle({ prompt: false, mode: 'read' });
     try {
-        const [fileHandle] = await window.showOpenFilePicker({
-            startIn: handle,
-            multiple: false,
-            types: BACKUP_PICKER_TYPES,
-            excludeAcceptAllOption: false
-        });
+        const pickerOptions = { multiple: false, excludeAcceptAllOption: false };
+        if (handle) pickerOptions.startIn = handle;
+        const [fileHandle] = await window.showOpenFilePicker(pickerOptions);
         return await fileHandle.getFile();
     } catch (e) {
         console.log('Importació cancel·lada');
@@ -10601,15 +10592,11 @@ function setupEvents() {
         URL.revokeObjectURL(url);
     });
 
-      $('#btn-import').click(async () => {
-        const file = await importBackupFromPicker();
-        if (file) {
-            await handleBackupImportFile(file);
-            return;
-        }
+      $('#btn-import').click(() => {
         $('#file-input').click();
     });
-    $('#file-input').attr('accept', BACKUP_FILE_ACCEPT);
+    if (BACKUP_FILE_ACCEPT) $('#file-input').attr('accept', BACKUP_FILE_ACCEPT);
+    else $('#file-input').removeAttr('accept');
     $('#file-input').change(async (e) => {
         const file = e.target.files[0];
         if (!file) return;
