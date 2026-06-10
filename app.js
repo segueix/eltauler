@@ -679,6 +679,17 @@ async function writeBackupToDirectory(data, filename, { prompt = true, forceDire
     return fileHandle;
 }
 
+const BACKUP_FILE_ACCEPT = '.json,application/json,text/json,text/plain,application/octet-stream';
+const BACKUP_PICKER_TYPES = [{
+    description: 'Backup El Tauler (.json)',
+    accept: {
+        'application/json': ['.json'],
+        'text/json': ['.json'],
+        'text/plain': ['.json'],
+        'application/octet-stream': ['.json']
+    }
+}];
+
 async function importBackupFromPicker() {
     const handle = await ensureBackupDirHandle({ prompt: true, mode: 'read' });
     if (!handle || !supportsFilePicker()) return null;
@@ -686,7 +697,8 @@ async function importBackupFromPicker() {
         const [fileHandle] = await window.showOpenFilePicker({
             startIn: handle,
             multiple: false,
-            types: [{ description: 'Backup El Tauler', accept: { 'application/json': ['.json'] } }]
+            types: BACKUP_PICKER_TYPES,
+            excludeAcceptAllOption: false
         });
         return await fileHandle.getFile();
     } catch (e) {
@@ -991,16 +1003,25 @@ function importBackupData(data) {
 
 async function handleBackupImportFile(file) {
     if (!file) return;
+    const fileName = file.name || '';
+    if (fileName && !fileName.toLowerCase().endsWith('.json')) {
+        showToast('Selecciona un backup en format .json', 'error');
+        return;
+    }
     try {
         const text = await file.text();
         const data = JSON.parse(text);
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            throw new Error('El backup no és un objecte JSON vàlid');
+        }
         showAppConfirm(
             `Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`,
             () => importBackupData(data),
             { title: 'Importar dades', confirmText: 'Importar' }
         );
     } catch (err) {
-        showToast('Error llegint l\'arxiu', 'error');
+        console.error('Error important backup JSON:', err);
+        showToast('No s’ha pogut llegir el .json. Comprova que sigui un backup vàlid d’El Tauler.', 'error');
     }
 }
 
@@ -10577,10 +10598,12 @@ function setupEvents() {
         }
         $('#file-input').click();
     });
+    $('#file-input').attr('accept', BACKUP_FILE_ACCEPT);
     $('#file-input').change(async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         await handleBackupImportFile(file);
+        e.target.value = '';
     });
 
     // Click per desfer
