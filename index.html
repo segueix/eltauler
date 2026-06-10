@@ -330,6 +330,137 @@
         .mission-trophies { font-size: 0.9rem; text-align: right; min-width: 70px; opacity: 0.95; }
         .mission-trophies.empty { opacity: 0.25; }
 
+        /* ENTRENADOR (debrief de partida + pla setmanal) */
+        .coach-panel {
+            background: rgba(0,0,0,0.2);
+            border: 1px solid rgba(201, 162, 39, 0.2);
+            border-radius: 12px;
+            padding: 12px;
+            margin: 12px 0;
+            text-align: left;
+        }
+        .coach-kicker {
+            font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
+            margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        }
+        .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
+        /* El resum del pla pot ser llarg: alçada limitada amb scroll tàctil */
+        .coach-plan-summary {
+            max-height: 9em;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            padding-right: 4px;
+        }
+        .coach-plan-summary::-webkit-scrollbar { width: 5px; }
+        .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
+        .coach-plan-summary::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.4); border-radius: 3px; }
+        .coach-speak-btn {
+            background: rgba(201,162,39,0.15); border: 1px solid rgba(201,162,39,0.4);
+            color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;
+            cursor: pointer; font-size: 0.95rem; display: none; flex-shrink: 0;
+        }
+        #review-debrief {
+            margin: 12px 0; padding: 12px; text-align: left;
+            background: rgba(201,162,39,0.08); border: 1px solid rgba(201, 162, 39, 0.3); border-radius: 12px;
+        }
+        .coach-item {
+            display: flex; align-items: center; gap: 8px 10px; padding: 8px; margin-top: 6px;
+            flex-wrap: wrap;
+            background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid var(--accent-gold);
+        }
+        .coach-item.done { border-left-color: var(--accent-green); opacity: 0.75; }
+        /* flex-basis ampla: si no hi cap al costat del botó, el text ocupa tota la fila i el botó baixa a sota */
+        .coach-item-main { flex: 1 1 220px; min-width: 0; }
+        .coach-item-title { font-size: 0.85rem; color: var(--text-primary); overflow-wrap: break-word; line-height: 1.35; }
+        .coach-item-progress { display: flex; align-items: center; gap: 8px; margin-top: 4px; }
+        .coach-item-bar { flex: 1; height: 6px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden; }
+        .coach-item-fill {
+            height: 100%; border-radius: 4px; transition: width 0.4s ease;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-gold));
+        }
+        .coach-item-count { font-size: 0.72rem; color: var(--text-secondary); min-width: 30px; text-align: right; }
+        /* Selector amb 2 classes per guanyar a la regla genèrica .btn { width:100% } definida més avall */
+        .coach-item .btn.coach-item-go {
+            width: auto; flex: 0 0 auto; padding: 8px 14px; font-size: 0.78rem;
+            border-radius: 8px; letter-spacing: 0.5px;
+            background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark);
+        }
+        @media (max-width: 480px) {
+            .coach-item .btn.coach-item-go { flex: 1 1 100%; width: 100%; padding: 9px 12px; }
+        }
+        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--accent-green); cursor: default; }
+        body.epaper-mode .coach-panel,
+        body.epaper-mode #review-debrief,
+        body.epaper-mode .coach-item {
+            background: #e6e6e6 !important; border-color: #cfcfcf !important; box-shadow: none !important; color: #222;
+        }
+        body.epaper-mode .coach-kicker { color: #222; }
+        body.epaper-mode .coach-item { border-left-color: #cfcfcf !important; }
+
+        /* CONTEXT DE L'ERRADA en exercicis (bundles, SRS, debilitats) */
+        #error-context-banner {
+            background: rgba(198, 40, 40, 0.1);
+            border: 1px solid rgba(198, 40, 40, 0.35);
+            border-left: 4px solid #c62828;
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap;
+            text-align: left;
+        }
+        .error-context-text { flex: 1 1 220px; min-width: 0; font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
+        .error-context-text strong { color: #ef6e6e; font-size: 1rem; }
+        .error-context-date { color: var(--text-secondary); }
+        #error-context-banner .btn.error-context-replay {
+            width: auto; flex: 0 0 auto; padding: 8px 12px; font-size: 0.78rem;
+            border-radius: 8px; letter-spacing: 0.5px;
+            background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0;
+        }
+        @media (max-width: 480px) {
+            #error-context-banner .btn.error-context-replay { flex: 1 1 100%; width: 100%; padding: 9px 12px; }
+        }
+        body.device-mobile #error-context-banner { margin-left: 8px; margin-right: 8px; margin-bottom: 8px; }
+        body.epaper-mode #error-context-banner {
+            background: #ededed !important; border-color: #cfcfcf !important;
+            border-left: 4px solid #777 !important; color: #222;
+        }
+        body.epaper-mode .error-context-text strong { color: #222; }
+
+        /* Caselles de la jugada errònia marcades al tauler */
+        #myBoard .square-55d63.square-error-played {
+            box-shadow: inset 0 0 0 4px rgba(198, 40, 40, 0.75) !important;
+            background-color: rgba(198, 40, 40, 0.22) !important;
+        }
+        body.epaper-mode #myBoard .square-55d63.square-error-played {
+            box-shadow: inset 0 0 0 3px #5c5c5c !important;
+            background-color: #cfcfcf !important;
+        }
+        .error-move-cross {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 1.7rem; font-weight: bold; color: #e53935;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.6); z-index: 90; pointer-events: none;
+        }
+
+        /* TEMA TÀCTIC de l'exercici (tàctiques, repte diari) */
+        #tactic-theme-banner {
+            background: rgba(201, 162, 39, 0.1);
+            border: 1px solid rgba(201, 162, 39, 0.35);
+            border-left: 4px solid var(--accent-gold);
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+        .tactic-theme-text { font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
+        .tactic-theme-text strong { color: var(--accent-gold); }
+        body.device-mobile #tactic-theme-banner { margin-left: 8px; margin-right: 8px; margin-bottom: 8px; }
+        body.epaper-mode #tactic-theme-banner {
+            background: #ededed !important; border-color: #cfcfcf !important;
+            border-left: 4px solid #777 !important; color: #222;
+        }
+        body.epaper-mode .tactic-theme-text strong { color: #222; }
+
                 .epaper-toggle {
             position: relative;
             width: 54px;
@@ -1420,7 +1551,20 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08);
             width: 100%;
             max-width: 340px;
+            position: relative;
         }
+        /* X per tancar l'overlay d'èxit i poder veure la posició final al tauler */
+        .overlay-close-x {
+            position: absolute; top: 0; right: 0;
+            background: none; border: none; cursor: pointer;
+            color: var(--text-secondary); font-size: 1.3rem; line-height: 1;
+            padding: 12px 14px; border-radius: 8px;
+            z-index: 5;
+            touch-action: manipulation;
+            -webkit-tap-highlight-color: transparent;
+        }
+        .overlay-close-x:hover, .overlay-close-x:active { color: var(--accent-gold); background: rgba(201,162,39,0.12); }
+        body.epaper-mode .overlay-close-x { color: #444; }
         .bundle-success-icon {
             font-size: 3rem;
             margin-bottom: 8px;
@@ -2528,6 +2672,15 @@
             </div>
 
             <!-- PROGRÉS -->
+            <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                <div class="coach-kicker">
+                    <span>🎓 El pla de l'entrenador</span>
+                    <button class="coach-speak-btn" id="btn-plan-speak" title="Escolta-ho en veu alta">🔊</button>
+                </div>
+                <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                <div id="weekly-plan-list"></div>
+            </div>
+
             <div class="menu-section">
                 <div class="menu-section-title">Progrés</div>
                 <div class="menu-buttons">
@@ -2875,6 +3028,7 @@
                 <div class="review-legend" id="review-breakdown"></div>
                 <div class="review-opening-note" id="review-opening-note" style="display:none;"></div>
                 <div class="review-newerrors" id="review-newerrors" style="display:none;"></div>
+                <div id="review-debrief" style="display:none;"></div>
                 <div class="review-actions">
                     <button class="btn btn-primary" id="btn-review-again" style="display:none;">🔁 Tornar a jugar</button>
                     <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
@@ -3012,6 +3166,7 @@
             <!-- Overlay d'èxit per errors d'obertura -->
             <div class="bundle-success-overlay overlay-fixed" id="opening-error-success-overlay">
                 <div class="bundle-success-content">
+                    <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                     <div class="bundle-success-icon">✅</div>
                     <div class="bundle-success-title">Bundle resolt</div>
                     <div class="bundle-success-remaining" id="opening-error-remaining">—</div>
@@ -3058,11 +3213,21 @@
                     <div class="precision-value precision-target-text">75%</div>
                 </div>
             </div>
-   
+
+            <div id="error-context-banner" style="display:none;">
+                <div class="error-context-text" id="error-context-text"></div>
+                <button class="btn error-context-replay" id="btn-error-replay">👁 Reviu l'errada</button>
+            </div>
+
+            <div id="tactic-theme-banner" style="display:none;">
+                <div class="tactic-theme-text" id="tactic-theme-text"></div>
+            </div>
+
             <div class="board-container">
                 <div id="myBoard"></div>
                 <div class="bundle-success-overlay" id="bundle-success-overlay">
                     <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                         <div class="bundle-success-icon">✅</div>
                         <div class="bundle-success-title">Bundle resolt</div>
                         <div class="bundle-success-remaining">Bundles pendents</div>
@@ -3074,6 +3239,7 @@
                 </div> 
                 <div class="bundle-success-overlay" id="bundle-category-success-overlay">
                     <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                         <div class="bundle-success-icon">✅</div>
                         <div class="bundle-success-title">Error resolt</div>
                         <div class="bundle-success-remaining">Queden errors d'aquesta categoria</div>
@@ -3086,6 +3252,7 @@
                 </div>           
                 <div class="bundle-success-overlay overlay-fixed" id="match-error-success-overlay">
                     <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                         <div class="bundle-success-icon">✅</div>
                         <div class="bundle-success-title">Error revisat</div>
                         <div class="bundle-success-remaining" id="match-error-remaining">—</div>

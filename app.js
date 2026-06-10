@@ -271,6 +271,8 @@ let growthStats = {
     personalErrorsConverted: 0,
     srsCompleted: 0,
     weaknessSessionsCompleted: 0,
+    openingDrillsCompleted: 0,
+    mateDrillsCompleted: 0,
     lastRecommendedAt: null
 };
 let currentGrowthTask = null;
@@ -1258,6 +1260,7 @@ function commitHumanMoveFromTap(from, to) {
     const move = game.move({ from: from, to: to, promotion: 'q' });
     if (move === null) { showIllegalMoveFeedback(from); return false; }
     clearEngineMoveHighlights();
+    onErrorContextPlayerMoved();
     clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
@@ -1267,9 +1270,9 @@ function commitHumanMoveFromTap(from, to) {
 
     board.position(game.fen());
     updateStatus();
-    
+
     if (game.game_over()) {
-        handleGameOver();
+        if (blunderMode) handleBundleGameOver(); else handleGameOver();
         return true;
     }
 
@@ -4243,7 +4246,7 @@ function updateBundleHintButtons() {
     if (!hintBtn) return;
 
     const isAssisted = currentGameMode === 'assisted';
-    const bundleVisible = blunderMode && bundleSequenceStep <= 2;
+    const bundleVisible = blunderMode && bundleSequenceStep <= 3;
 
     // Botó de pista Stockfish: sempre visible en bundle i partida assistida; ocult en free/league
     hintBtn.style.display = (bundleVisible || isAssisted) ? 'inline-flex' : 'inline-flex';
@@ -4427,6 +4430,7 @@ function updateDisplay() {
     $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
+    renderWeeklyPlan();
 }
 
 function updateStatsDisplay() {
@@ -4727,6 +4731,98 @@ function analyzePositionEnriched(stockfishInstance, fen, depth = 20, multiPv = 3
     });
 }
 
+// Variant amb límit de temps real: el motor s'atura al primer límit (depth o movetime),
+// així cap anàlisi pot quedar-se penjada en dispositius lents.
+function analyzePositionEnrichedTimed(stockfishInstance, fen, depth, multiPv, moveTimeMs, timeoutMs) {
+    return new Promise((resolve) => {
+        const analysis = new EnrichedAnalysis(fen, depth, multiPv);
+        let timeoutId = null;
+        const cleanup = () => {
+            stockfishInstance.removeEventListener('message', messageHandler);
+            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+        };
+        const finish = (timedOut) => {
+            cleanup();
+            analysis.complete();
+            resolve({
+                fen,
+                depth: analysis.maxDepthReached,
+                bestMove: analysis.getBestMove(),
+                alternatives: analysis.getAlternatives(),
+                timedOut: !!timedOut
+            });
+        };
+        const messageHandler = (event) => {
+            const line = event.data;
+            if (typeof line !== 'string') return;
+            if (line.startsWith('info')) analysis.processLine(line);
+            if (line.startsWith('bestmove')) finish(false);
+        };
+        timeoutId = setTimeout(() => {
+            try { stockfishInstance.postMessage('stop'); } catch (e) {}
+            finish(true);
+        }, timeoutMs);
+        stockfishInstance.addEventListener('message', messageHandler);
+        try { stockfishInstance.postMessage(`setoption name MultiPV value ${multiPv}`); } catch (e) {}
+        stockfishInstance.postMessage(`position fen ${fen}`);
+        stockfishInstance.postMessage(`go depth ${depth} movetime ${moveTimeMs}`);
+    });
+}
+
+// Handshake UCI: confirma que el motor és viu i ha buidat la cua de missatges.
+function waitForEngineReady(timeoutMs = 4000) {
+    return new Promise(resolve => {
+        if (!stockfish) { resolve(false); return; }
+        let done = false;
+        let tid = null;
+        const onMsg = (e) => {
+            if (typeof e.data === 'string' && e.data.indexOf('readyok') === 0) finish(true);
+        };
+        const finish = (ok) => {
+            if (done) return;
+            done = true;
+            try { stockfish.removeEventListener('message', onMsg); } catch (e) {}
+            if (tid) clearTimeout(tid);
+            resolve(ok);
+        };
+        tid = setTimeout(() => finish(false), timeoutMs);
+        try {
+            stockfish.addEventListener('message', onMsg);
+            stockfish.postMessage('isready');
+        } catch (e) { finish(false); }
+    });
+}
+
+function restartStockfishWorker() {
+    try { if (stockfish && stockfish.terminate) stockfish.terminate(); } catch (e) {}
+    stockfish = null;
+    stockfishReady = false;
+    return ensureStockfish();
+}
+
+// Anàlisi robusta per a la preparació d'exercicis: handshake previ, límit de temps,
+// validació que la jugada és legal per a AQUEST fen (descarta respostes de cerques
+// antigues) i un reintent amb reinici del worker si el motor no respon.
+async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        if (!stockfish) ensureStockfish();
+        if (!stockfish) return null;
+        try { stockfish.postMessage('stop'); } catch (e) {}
+        let ready = await waitForEngineReady(4000);
+        if (!ready) {
+            console.warn('[Anàlisi] Motor sense resposta; es reinicia el worker');
+            restartStockfishWorker();
+            ready = await waitForEngineReady(6000);
+            if (!ready) continue;
+        }
+        const analysis = await analyzePositionEnrichedTimed(stockfish, fen, depth, multiPv, moveTimeMs, moveTimeMs + 6000);
+        const best = analysis?.bestMove?.move;
+        if (best && uciToSanForFen(fen, best)) return analysis;
+        console.warn('[Anàlisi] Jugada invàlida o buida per al fen; reintent', best || '(cap)');
+    }
+    return null;
+}
+
 function uciToSan(fen, uciMove) {
     if (typeof Chess === 'undefined') return uciMove;
     const chess = new Chess(fen);
@@ -4988,7 +5084,7 @@ async function prepareBundleSequence(fen) {
         
         // 1. Analitzar posició inicial (Pas 1)
         console.log('[Bundle] Pas 1: Analitzant posició inicial...');
-        const step1Analysis = await analyzePositionEnriched(stockfish, fen, 15, 2);
+        const step1Analysis = await analyzeFenRobust(fen, 15, 2);
         
         if (!step1Analysis || !step1Analysis.bestMove || !step1Analysis.bestMove.move) {
             console.error('[Bundle] Pas 1 fallit: no hi ha bestMove', step1Analysis);
@@ -5025,7 +5121,7 @@ async function prepareBundleSequence(fen) {
         
         // 3. Calcular millor resposta de l'oponent
         console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
-        const opponentAnalysis = await analyzePositionEnriched(stockfish, afterPlayerFen, 15, 1);
+        const opponentAnalysis = await analyzeFenRobust(afterPlayerFen, 15, 1);
         
         if (!opponentAnalysis || !opponentAnalysis.bestMove || !opponentAnalysis.bestMove.move) {
             console.error('[Bundle] Pas 2 fallit: no hi ha bestMove oponent', opponentAnalysis);
@@ -5061,7 +5157,7 @@ async function prepareBundleSequence(fen) {
         
         // 5. Calcular millor segona jugada del jugador (Pas 3)
         console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
-        const step2Analysis = await analyzePositionEnriched(stockfish, afterOpponentFen, 15, 2);
+        const step2Analysis = await analyzeFenRobust(afterOpponentFen, 15, 2);
         
         if (!step2Analysis || !step2Analysis.bestMove || !step2Analysis.bestMove.move) {
             console.error('[Bundle] Pas 3 fallit: no hi ha bestMove pas 2', step2Analysis);
@@ -10694,6 +10790,8 @@ function loadGrowthStats() {
         personalErrorsConverted: 0,
         srsCompleted: 0,
         weaknessSessionsCompleted: 0,
+        openingDrillsCompleted: 0,
+        mateDrillsCompleted: 0,
         lastRecommendedAt: null
     }, stored && typeof stored === 'object' ? stored : {});
     return growthStats;
@@ -11465,6 +11563,9 @@ function updateEngagementBanner() {
 function classifyPositionTheme(fen, uci) {
     try {
         if (!uci || uci.length < 4) return 'general';
+        // Primer, el motiu tàctic derivat de la jugada (forquilla, clavada, mat, material...)
+        const motive = analyzeTacticalMotive(fen, uci);
+        if (motive && motive.theme) return motive.theme;
         const parts = (fen || '').split(' ');
         const fullmove = parseInt(parts[5], 10) || 1;
         const g = new Chess(fen);
@@ -12044,15 +12145,21 @@ blunderMode = isBundle;
     // ✅ CALCULAR SEQÜÈNCIA FIXA PER BUNDLES
     bundleFixedSequence = null;
     if (isBundle && fen) {
-        $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
-        bundleFixedSequence = await prepareBundleSequence(fen);
-        
-        if (!bundleFixedSequence) {
-            alert("No s'ha pogut preparar l'exercici. Es retornarà al menú.");
-            returnToMainMenuImmediate();
-            return;
+        if (pendingPreparedSequence && pendingPreparedSequence.initialFen === fen) {
+            // Seqüència ja preparada i verificada (p. ex. mat en 3)
+            bundleFixedSequence = pendingPreparedSequence;
+            pendingPreparedSequence = null;
+        } else {
+            $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
+            bundleFixedSequence = await prepareBundleSequence(fen);
+
+            if (!bundleFixedSequence) {
+                alert("No s'ha pogut preparar l'exercici. Es retornarà al menú.");
+                returnToMainMenuImmediate();
+                return;
+            }
         }
-        
+
         // Guardar seqüència per validació
         bundleStrictPvLine = bundleFixedSequence.fullSequence;
     }
@@ -12143,7 +12250,10 @@ blunderMode = isBundle;
         currentGameMode = 'bundle';
         currentOpponent = null;
         $('#engine-elo').text('Anàlisi');
-        $('#game-mode-title').text(isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Bundle');
+        let bundleTitle = isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Bundle';
+        if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
+        else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
+        $('#game-mode-title').text(bundleTitle);
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -12176,6 +12286,8 @@ blunderMode = isBundle;
 
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
+    renderBundleErrorContext();
+    renderTacticThemeHint();
     updateStatus();
     updateBundleHintButtons();
 
@@ -12187,9 +12299,15 @@ blunderMode = isBundle;
         updateBundleHintButtons();
         if (blunderMode) {
             const statusEl = $('#status');
-            const msg = bundleSequenceStep === 1 
-                ? 'Pas 1 de 2: Troba la millor jugada'
-                : 'Pas 2 de 2: Completa la seqüència';
+            const totalSteps = (bundleFixedSequence && bundleFixedSequence.totalSteps) || 2;
+            let msg;
+            if (bundleSequenceStep === 1) {
+                if (currentErrorContext) msg = `Rectifica l'errada: què calia jugar en lloc de ${currentErrorContext.san}?`;
+                else if (currentBundleSource === 'mate_drill') msg = 'Fes escac i mat en 3 jugades';
+                else msg = `Pas 1 de ${totalSteps}: Troba la millor jugada`;
+            } else {
+                msg = `Pas ${bundleSequenceStep} de ${totalSteps}: Completa la seqüència`;
+            }
             statusEl.text(msg);
         }
     }, 100);
@@ -12221,19 +12339,20 @@ function onDrop(source, target) {
     var move = game.move({ from: source, to: target, promotion: 'q' });
     if (move === null) { showIllegalMoveFeedback(source); return 'snapback'; }
     clearEngineMoveHighlights();
+    onErrorContextPlayerMoved();
     clockOnMove();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
     totalPlayerMoves++;
-    pendingMoveEvaluation = true; 
+    pendingMoveEvaluation = true;
     updateStatus();
-    
+
     if (game.game_over()) {
-        handleGameOver();
+        if (blunderMode) handleBundleGameOver(); else handleGameOver();
         return;
     }
-    
-    analyzeMove(); 
+
+    analyzeMove();
 }
 
 function onSnapEnd() { board.position(game.fen()); }
@@ -12909,48 +13028,50 @@ function evaluateBundleAttempt(bundleData) {
     const played = lastHumanMoveUci || '';
     const playedTo = played.length >= 4 ? played.slice(2, 4) : null;
     
-    // ✅ SI HI HA SEQÜÈNCIA FIXA, USAR-LA
+    // ✅ SI HI HA SEQÜÈNCIA FIXA, USAR-LA (2 o 3 passos de jugador)
     if (bundleFixedSequence) {
         const step = bundleSequenceStep;
-        
+        const totalSteps = bundleFixedSequence.totalSteps || 2;
+
         // Validar segons el pas actual
-        const expectedMove = step === 1 
-            ? bundleFixedSequence.step1.playerMove 
-            : bundleFixedSequence.step2.playerMove;
-        
-        const alternatives = step === 1
-            ? bundleFixedSequence.step1.alternatives
-            : bundleFixedSequence.step2.alternatives;
-        
+        const stepData = step === 1
+            ? bundleFixedSequence.step1
+            : (step === 2 ? bundleFixedSequence.step2 : bundleFixedSequence.step3);
+
+        const expectedMove = stepData ? stepData.playerMove : null;
+        const alternatives = (stepData && stepData.alternatives) || [];
+
         // Validar jugada
         let ok = played === expectedMove;
-        
+
         // Si mode top2, acceptar també alternatives
         if (!ok && bundleAcceptMode === 'top2' && alternatives.length > 0) {
             ok = alternatives.some(alt => alt.move === played);
         }
-        
+
         if (ok) {
-            if (pendingMoveEvaluation) { 
-                goodMoves++; 
-                pendingMoveEvaluation = false; 
-                updatePrecisionDisplay(); 
+            if (pendingMoveEvaluation) {
+                goodMoves++;
+                pendingMoveEvaluation = false;
+                updatePrecisionDisplay();
             }
             if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
-            
-            if (bundleSequenceStep === 1) {
-                // CANVI: Netejar el missatge de Gemini només quan s'avança al pas 2
+
+            if (step < totalSteps) {
+                // CANVI: Netejar el missatge de Gemini només quan s'avança de pas
                 lastBundleGeminiHint = null;
-                
-                bundleSequenceStep = 2;
-                const replyMove = bundleFixedSequence.opponentMove.move;
+
+                bundleSequenceStep = step + 1;
+                const replyMove = step === 1
+                    ? bundleFixedSequence.opponentMove.move
+                    : bundleFixedSequence.opponentMove2.move;
                 applyBundleAutoReply(replyMove);
                 bundleStepStartFen = game.fen();
-                
-                $('#status').text('Pas 2 de 2: Completa la seqüència');
+
+                $('#status').text(`Pas ${step + 1} de ${totalSteps}: Completa la seqüència`);
                 return;
             }
-            
+
             // CANVI: Netejar el missatge quan s'acaba l'exercici
             lastBundleGeminiHint = null;
             handleBundleSuccess();
@@ -13088,6 +13209,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         $('#review-result-text').text(msg);
         $('#review-precision-value').text(finalPrecision ? `${finalPrecision}%` : '—');
         renderReviewBreakdown(counts || summarizeReview(currentReview));
+        renderGameDebrief();
         modal.css('display', 'flex');
     };
     
@@ -13289,6 +13411,21 @@ function handleBundleSuccess() {
     if (isSrsReviewSession) {
         markGrowthTaskCompleted(currentGrowthTask && currentGrowthTask.type === 'srs_review' ? currentGrowthTask : { type: 'srs_review', theme: getTaskTheme(solvedFen || currentBundleFen, solvedErr?.bestMove || '', 'general'), source: 'srs' }, 'success');
         showSrsSuccessOverlay();
+        return;
+    }
+
+    if (currentBundleSource === 'opening_drill' || currentBundleSource === 'mate_drill') {
+        const isMate = currentBundleSource === 'mate_drill';
+        if (!growthStats || typeof growthStats !== 'object') loadGrowthStats();
+        if (isMate) growthStats.mateDrillsCompleted = (growthStats.mateDrillsCompleted || 0) + 1;
+        else growthStats.openingDrillsCompleted = (growthStats.openingDrillsCompleted || 0) + 1;
+        saveGrowthStats();
+        updateThemeMastery(isMate ? 'endgame' : 'opening', 'weakness_solved', { source: currentBundleSource });
+        renderWeeklyPlan();
+        showDrillSuccessOverlay(
+            isMate ? 'Escac i mat! 🏁' : 'Obertura rectificada ✅',
+            () => { if (isMate) startMateDrill(); else startOpeningErrorDrill(); }
+        );
         return;
     }
 
@@ -13690,6 +13827,1011 @@ function updateStatus() {
     }
 }
 
+/* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA SETMANAL) =====================
+   Arquitectura en dues capes: els FETS es calculen sempre en local a partir de les dades
+   que ja recull l'app (gameHistory, savedErrors, themeMastery). La redacció per defecte
+   surt d'un banc de plantilles en català; si hi ha clau Gemini, només poleix el text
+   a partir dels mateixos fets (mai analitza la partida ell sol). */
+
+const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
+const WEEKLY_PLAN_VERSION = 2;
+let weeklyPlan = null;
+let coachCatalanVoice = null;
+let coachDebriefPending = false;
+let coachPlanGeminiPending = false;
+
+const COACH_PHASE_LABELS = { opening: "l'obertura", middlegame: 'el mig joc', endgame: 'el final' };
+
+function debriefResultKind(label) {
+    const s = String(label || '').toLowerCase();
+    if (/vict/.test(s)) return 'win';
+    if (/taules|empat/.test(s)) return 'draw';
+    return 'loss';
+}
+
+// Capa 1: motor de diagnòstic. Només fets, cap text.
+function buildDebriefFacts(entry) {
+    if (!entry) return null;
+    const counts = entry.counts || {};
+    const totalMoves = ['excel', 'good', 'inaccuracy', 'mistake', 'blunder'].reduce((s, k) => s + (counts[k] || 0), 0);
+    const prev = gameHistory.filter(g => g.id !== entry.id && typeof g.precision === 'number');
+    const avgPrecision = prev.length ? Math.round(prev.reduce((s, g) => s + g.precision, 0) / prev.length) : null;
+
+    // Tema més repetit entre els errors greus de la partida
+    const themeCounts = {};
+    (entry.errors || []).forEach(err => {
+        const t = normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''));
+        themeCounts[t] = (themeCounts[t] || 0) + 1;
+    });
+    let topErrorTheme = null, topErrorCount = 0;
+    Object.keys(themeCounts).forEach(t => {
+        if (themeCounts[t] > topErrorCount) { topErrorTheme = t; topErrorCount = themeCounts[t]; }
+    });
+
+    // Fase de la partida on es concentren les errades
+    const phaseCounts = { opening: 0, middlegame: 0, endgame: 0 };
+    (entry.moveReviews || []).forEach(r => {
+        if (r.quality !== 'mistake' && r.quality !== 'blunder') return;
+        const n = r.moveNumber || 0;
+        if (n <= 10) phaseCounts.opening++; else if (n <= 28) phaseCounts.middlegame++; else phaseCounts.endgame++;
+    });
+    let worstPhase = null, worstPhaseCount = 0;
+    Object.keys(phaseCounts).forEach(p => {
+        if (phaseCounts[p] > worstPhaseCount) { worstPhase = p; worstPhaseCount = phaseCounts[p]; }
+    });
+
+    loadThemeMastery();
+    let weakestTheme = 'general', weakestVal = Infinity;
+    Object.keys(themeMastery).forEach(t => {
+        if (t !== 'general' && themeMastery[t] < weakestVal) { weakestVal = themeMastery[t]; weakestTheme = t; }
+    });
+
+    const mistakes = (counts.mistake || 0) + (counts.blunder || 0);
+    return {
+        result: debriefResultKind(entry.result),
+        precision: typeof entry.precision === 'number' ? entry.precision : null,
+        avgPrecision,
+        totalMoves,
+        mistakes,
+        blunders: counts.blunder || 0,
+        topErrorTheme, topErrorCount,
+        worstPhase, worstPhaseCount,
+        weakestTheme,
+        weakestMastery: isFinite(weakestVal) ? Math.round(weakestVal * 100) : 0,
+        srsDue: getDueErrors().length,
+        cleanGame: mistakes === 0 && totalMoves >= 10
+    };
+}
+
+function fillCoachTemplate(tpl, data) {
+    return tpl.replace(/\{(\w+)\}/g, (m, k) => (data[k] !== undefined && data[k] !== null) ? data[k] : m);
+}
+
+const COACH_DEBRIEF_TEMPLATES = {
+    win_high: [
+        "Victòria amb un {prec}% de precisió: avui has jugat com volies jugar.",
+        "Bona feina: has guanyat i, a més, ho has fet amb criteri ({prec}% de precisió).",
+        "Has guanyat sense regalar res: {prec}% de precisió. Així es construeix nivell."
+    ],
+    win_low: [
+        "Has guanyat, però la precisió ({prec}%) diu que el rival t'ha perdonat alguna.",
+        "Victòria treballada: el resultat és bo, però hi ha hagut moments delicats ({prec}%).",
+        "Punt a la butxaca, tot i que la partida ha estat més bruta del que voldríem ({prec}%)."
+    ],
+    draw: [
+        "Taules. No és el resultat que volíem, però hi ha coses aprofitables en aquesta partida.",
+        "Empat: partida igualada i ben disputada. Mirem què en podem treure.",
+        "Taules. De vegades el rival també juga; quedem-nos amb el que has fet bé."
+    ],
+    loss_high: [
+        "Has perdut, però amb un {prec}% de precisió: la derrota és més del rival que teva.",
+        "Derrota dura d'encaixar perquè has jugat bé ({prec}%). Així és aquest joc.",
+        "Has caigut jugant a bon nivell ({prec}%). Aquestes derrotes ensenyen més que moltes victòries."
+    ],
+    loss_low: [
+        "Derrota, i avui la precisió ({prec}%) explica per què. Toca revisar amb calma.",
+        "Has perdut i hi ha hagut massa errades ({prec}% de precisió). Cap drama: ho treballem.",
+        "Partida per oblidar el resultat ({prec}%), però no les lliçons que porta dins."
+    ],
+    highlight_clean: [
+        "El més destacable: cap error greu en tota la partida. Això és or.",
+        "Zero errades greus avui. La teva solidesa comença a notar-se.",
+        "Has jugat tota la partida sense cap error seriós: senyal de maduresa al tauler."
+    ],
+    highlight_above_avg: [
+        "Has jugat {diff} punts per sobre de la teva mitjana de precisió ({avg}%). Vas en bona direcció.",
+        "La teva mitjana és del {avg}% i avui has fet {prec}%: progrés clar.",
+        "Avui has superat la teva mitjana ({avg}%): el treball es comença a veure."
+    ],
+    highlight_no_blunders: [
+        "Cap blunder avui: les errades han estat menors, i això ja és un pas.",
+        "Has evitat els errors greus; les imprecisions es poleixen amb més facilitat."
+    ],
+    weak_theme: [
+        "El punt feble d'avui: {cops} amb {tema}.",
+        "On t'ha fet mal la partida és en {tema} ({moments}).",
+        "Si mirem els errors, el patró que es repeteix és {tema}."
+    ],
+    weak_phase: [
+        "Les errades s'han concentrat a {fase}: és on perds més punts.",
+        "T'has mantingut bé fins que ha arribat {fase}; allà s'ha torçat la cosa.",
+        "El tram fluix d'avui ha estat {fase}."
+    ],
+    weak_mastery: [
+        "No hi ha hagut errors greus, però recorda que {tema} segueix sent el teu punt més fluix.",
+        "Per seguir creixent, el tema que demana feina és {tema}."
+    ],
+    advice_srs: [
+        "Tens {due} repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
+        "Abans de la pròxima partida, passa pels {due} repassos pendents; és memòria que no vols perdre.",
+        "Consell: tens {due} errors esperant repàs. Tanca'ls i notaràs la diferència."
+    ],
+    advice_theme: [
+        "Aquesta setmana toca {tema}: entrena'l i aquest tipus de partida canviarà de color.",
+        "El meu consell: una sessió curta de {tema} abans de tornar a jugar.",
+        "Si dediques deu minuts a {tema}, la pròxima vegada aquest moment caurà del teu costat."
+    ],
+    advice_keep: [
+        "Continua així: ara mateix el millor entrenament és seguir jugant amb aquesta concentració.",
+        "Poc a corregir avui. Mantén el ritme i puja una mica el nivell del rival si et veus còmode.",
+        "Quan es juga així, el pla és simple: més partides com aquesta."
+    ]
+};
+
+// Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
+function composeDebriefText(facts, seedStr) {
+    const rng = mulberry32(hashStr(String(seedStr || 'debrief')));
+    const pick = arr => arr[Math.floor(rng() * arr.length)];
+    const data = {
+        prec: facts.precision !== null ? facts.precision : '—',
+        avg: facts.avgPrecision,
+        diff: (facts.precision !== null && facts.avgPrecision !== null) ? facts.precision - facts.avgPrecision : 0,
+        cops: facts.topErrorCount === 1 ? 'una errada relacionada' : `${facts.topErrorCount} errades relacionades`,
+        moments: facts.topErrorCount === 1 ? 'un moment delicat' : `${facts.topErrorCount} moments delicats`,
+        tema: getThemeLabel(facts.topErrorTheme || facts.weakestTheme),
+        fase: COACH_PHASE_LABELS[facts.worstPhase] || 'el mig joc',
+        due: facts.srsDue
+    };
+    const goodPrecision = facts.precision !== null
+        && (facts.precision >= 70 || (facts.avgPrecision !== null && facts.precision >= facts.avgPrecision));
+    const sentences = [];
+
+    if (facts.result === 'win') sentences.push(pick(goodPrecision ? COACH_DEBRIEF_TEMPLATES.win_high : COACH_DEBRIEF_TEMPLATES.win_low));
+    else if (facts.result === 'draw') sentences.push(pick(COACH_DEBRIEF_TEMPLATES.draw));
+    else sentences.push(pick(goodPrecision ? COACH_DEBRIEF_TEMPLATES.loss_high : COACH_DEBRIEF_TEMPLATES.loss_low));
+
+    if (facts.cleanGame) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_clean));
+    } else if (facts.avgPrecision !== null && facts.precision !== null && facts.precision - facts.avgPrecision >= 5) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_above_avg));
+    } else if (facts.blunders === 0 && facts.mistakes > 0) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_no_blunders));
+    }
+
+    if (facts.topErrorTheme && facts.topErrorCount > 0) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_theme));
+    } else if (facts.worstPhase && facts.worstPhaseCount >= 2) {
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_phase));
+    } else if (facts.cleanGame && facts.weakestMastery < 50) {
+        data.tema = getThemeLabel(facts.weakestTheme);
+        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_mastery));
+    }
+
+    if (facts.cleanGame && facts.srsDue < 3) sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_keep));
+    else if (facts.srsDue >= 3) sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_srs));
+    else sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_theme));
+
+    return sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
+}
+
+// Tradueix els fets a claus llegibles perquè Gemini redacti en català sense inventar res.
+function debriefFactsForPrompt(facts) {
+    const resultLabels = { win: 'victòria', draw: 'taules', loss: 'derrota' };
+    const out = {
+        resultat: resultLabels[facts.result] || facts.result,
+        precisio_percent: facts.precision,
+        precisio_mitjana_anteriors: facts.avgPrecision,
+        errors_greus: facts.mistakes,
+        blunders: facts.blunders,
+        partida_neta_sense_errors: facts.cleanGame,
+        repassos_pendents: facts.srsDue
+    };
+    if (facts.topErrorTheme) {
+        out.tema_amb_mes_errors = getThemeLabel(facts.topErrorTheme);
+        out.quants_errors_del_tema = facts.topErrorCount;
+    }
+    if (facts.worstPhase && facts.worstPhaseCount >= 2) out.fase_amb_mes_errades = COACH_PHASE_LABELS[facts.worstPhase];
+    out.punt_feble_historic = getThemeLabel(facts.weakestTheme);
+    return out;
+}
+
+function buildDebriefGeminiPrompt(facts) {
+    return `Ets un entrenador d'escacs proper, honest i motivador que parla en català (tutejant).
+Redacta un resum post-partida de 60 a 100 paraules NOMÉS a partir d'aquests fets. No inventis jugades, xifres ni dades que no hi siguin:
+${JSON.stringify(debriefFactsForPrompt(facts), null, 2)}
+Regles:
+- Comença pel resultat, destaca un punt fort si n'hi ha, assenyala el punt feble i acaba amb un consell concret.
+- Un sol paràgraf, sense llistes, sense markdown, sense emojis.
+- Català natural i directe, com un entrenador de club.`;
+}
+
+// Capa Gemini opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
+async function requestGeminiCoachText(cacheKey, prompt, onText) {
+    if (!geminiApiKey) return;
+    const cached = getCachedGemini(cacheKey);
+    if (cached) { onText(cached); return; }
+    const result = await callGemini(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 1024 } });
+    if (!result.ok) return;
+    const text = (result.text || '').trim();
+    if (!text || text.length < 40 || text.length > 900) return;
+    setCachedGemini(cacheKey, text);
+    onText(text);
+}
+
+function renderGameDebrief() {
+    const box = $('#review-debrief');
+    if (!box.length) return;
+    box.hide();
+    if (blunderMode) return;
+    const entry = gameHistory[gameHistory.length - 1];
+    // Només mostrem el debrief si l'última entrada de l'historial és la partida que s'acaba de jugar.
+    const fresh = entry && entry.date && (Date.now() - new Date(entry.date).getTime() < 30000);
+    if (!fresh) return;
+    let facts = null;
+    try { facts = buildDebriefFacts(entry); } catch (e) { console.warn('No s\'ha pogut generar el debrief', e); }
+    if (!facts) return;
+
+    const localText = composeDebriefText(facts, entry.id);
+    box.empty().show();
+    box.append($('<div class="coach-kicker"></div>').append(
+        $('<span></span>').text("🎓 L'entrenador diu"),
+        $('<button class="coach-speak-btn" title="Escolta-ho en veu alta">🔊</button>')
+    ));
+    const textEl = $('<div class="coach-text"></div>').text(localText);
+    box.append(textEl);
+    box.find('.coach-speak-btn').on('click', () => speakCoachText(textEl.text()));
+    updateCoachSpeakButtons();
+
+    if (!coachDebriefPending) {
+        coachDebriefPending = true;
+        requestGeminiCoachText(`debrief:${entry.id}`, buildDebriefGeminiPrompt(facts), text => textEl.text(text))
+            .finally(() => { coachDebriefPending = false; });
+    }
+}
+
+/* --------------------- Veu (TTS en català, opcional) --------------------- */
+
+function initCoachVoice() {
+    if (!('speechSynthesis' in window)) return;
+    const pickVoice = () => {
+        try {
+            const voices = window.speechSynthesis.getVoices() || [];
+            coachCatalanVoice = voices.find(v => /^ca([-_]|$)/i.test(v.lang || '')) || null;
+        } catch (e) { coachCatalanVoice = null; }
+        updateCoachSpeakButtons();
+    };
+    pickVoice();
+    try { window.speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {}
+}
+
+function isCoachTtsAvailable() {
+    return ('speechSynthesis' in window) && !!coachCatalanVoice;
+}
+
+function updateCoachSpeakButtons() {
+    $('.coach-speak-btn').toggle(isCoachTtsAvailable());
+}
+
+function speakCoachText(text) {
+    if (!isCoachTtsAvailable() || !text) return;
+    try {
+        window.speechSynthesis.cancel();
+        const utterance = new SpeechSynthesisUtterance(text);
+        utterance.voice = coachCatalanVoice;
+        utterance.lang = coachCatalanVoice.lang || 'ca-ES';
+        utterance.rate = 0.95;
+        window.speechSynthesis.speak(utterance);
+    } catch (e) { console.warn('TTS no disponible', e); }
+}
+
+/* --------------------- Pla setmanal de l'entrenador --------------------- */
+
+function getISOWeekKey(d = new Date()) {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
+    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+    return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
+}
+
+// Regles locals: tria el focus de la setmana a partir de mastery + errors recents,
+// i fixa objectius mesurables amb comptadors que ja existeixen (baseline al moment de crear el pla).
+function buildWeeklyPlan() {
+    loadThemeMastery();
+    loadGrowthStats();
+    const errorThemes = {};
+    savedErrors.slice(-30).forEach(err => {
+        const t = normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''));
+        errorThemes[t] = (errorThemes[t] || 0) + 1;
+    });
+    const themes = Object.keys(THEME_MASTERY_DEFAULTS).filter(t => t !== 'general');
+    themes.sort((a, b) => (themeMastery[a] - themeMastery[b]) || ((errorThemes[b] || 0) - (errorThemes[a] || 0)));
+    const focusTheme = themes.find(t => (errorThemes[t] || 0) > 0) || themes[0];
+    const due = getDueErrors().length;
+
+    const items = [];
+    if (savedErrors.length > 0) {
+        items.push({
+            id: 'focus', type: 'weakness_training', theme: focusTheme, metric: 'weakness',
+            title: `Entrena ${getThemeLabel(focusTheme)} (2 sessions)`,
+            target: 2, baseline: growthStats.weaknessSessionsCompleted || 0
+        });
+    }
+    if (getOpeningPhaseErrors().length > 0) {
+        items.push({
+            id: 'openings', type: 'opening_drill', theme: 'opening', metric: 'opening_drill',
+            title: "Rectifica 3 errors d'obertura (2 jugades correctes)",
+            target: 3, baseline: growthStats.openingDrillsCompleted || 0
+        });
+    }
+    items.push({
+        id: 'mates', type: 'mate_drill', theme: 'endgame', metric: 'mate_drill',
+        title: 'Remata 2 finals amb mat en 3 jugades',
+        target: 2, baseline: growthStats.mateDrillsCompleted || 0
+    });
+    items.push({
+        id: 'tactics', type: 'tactics', theme: null, metric: 'tactics',
+        title: 'Resol 5 exercicis de tàctica',
+        target: 5, baseline: tacticsStats.solved || 0
+    });
+
+    return {
+        week: getISOWeekKey(),
+        createdAt: Date.now(),
+        version: WEEKLY_PLAN_VERSION,
+        focusTheme,
+        focusMastery: Math.round((themeMastery[focusTheme] || 0) * 100),
+        srsAtStart: due,
+        geminiSummary: null,
+        items: items.slice(0, 4)
+    };
+}
+
+function weeklyPlanItemProgress(item) {
+    let current = 0;
+    if (item.metric === 'weakness') current = (growthStats.weaknessSessionsCompleted || 0) - item.baseline;
+    else if (item.metric === 'srs') current = (growthStats.srsCompleted || 0) - item.baseline;
+    else if (item.metric === 'tactics') current = (tacticsStats.solved || 0) - item.baseline;
+    else if (item.metric === 'games') current = (totalGamesPlayed || 0) - item.baseline;
+    else if (item.metric === 'opening_drill') current = (growthStats.openingDrillsCompleted || 0) - item.baseline;
+    else if (item.metric === 'mate_drill') current = (growthStats.mateDrillsCompleted || 0) - item.baseline;
+    return Math.max(0, Math.min(item.target, current));
+}
+
+const COACH_PLAN_TEMPLATES = [
+    "Aquesta setmana el focus és {tema} (domini del {pct}%). El pla té tres fronts: rectifica els errors que vas cometre a l'obertura amb dues jugades correctes, afina la vista amb la tàctica, i remata finals fent escac i mat en 3 jugades. Pas a pas, sense pressa.",
+    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho de totes bandes, aquesta setmana combinem la correcció dels teus errors d'obertura, exercicis de tàctica i mats en 3 jugades als finals.",
+    "Pla de la setmana: corregeix les errades que vas fer a l'obertura, resol els mats en 3 jugades per dominar els finals, i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
+];
+
+function composeWeeklyPlanText(plan) {
+    const rng = mulberry32(hashStr(`plan:${plan.week}`));
+    const tpl = COACH_PLAN_TEMPLATES[Math.floor(rng() * COACH_PLAN_TEMPLATES.length)];
+    return fillCoachTemplate(tpl, { tema: getThemeLabel(plan.focusTheme), pct: plan.focusMastery });
+}
+
+function buildWeeklyPlanGeminiPrompt(plan) {
+    return `Ets un entrenador d'escacs proper que parla en català (tutejant).
+Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament setmanal d'un alumne, NOMÉS amb aquests fets:
+${JSON.stringify({
+        tema_a_reforcar: getThemeLabel(plan.focusTheme),
+        domini_del_tema_percent: plan.focusMastery,
+        repassos_pendents: plan.srsAtStart,
+        tasques: plan.items.map(i => i.title)
+    }, null, 2)}
+Sense llistes, sense markdown, sense emojis. To motivador però concret.`;
+}
+
+function ensureWeeklyPlan() {
+    const week = getISOWeekKey();
+    const stored = readJsonStorage(WEEKLY_PLAN_KEY, null);
+    if (stored && stored.week === week && stored.version === WEEKLY_PLAN_VERSION && Array.isArray(stored.items) && stored.items.length) {
+        weeklyPlan = stored;
+    } else {
+        weeklyPlan = buildWeeklyPlan();
+        writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
+    }
+    renderWeeklyPlan();
+}
+
+function launchWeeklyPlanItem(item) {
+    try {
+        if (item.type === 'opening_drill') return startOpeningErrorDrill();
+        if (item.type === 'mate_drill') return void startMateDrill();
+        if (item.type === 'free_game') {
+            if (typeof novaPartida === 'function') return novaPartida();
+        }
+        // Reutilitzem el flux de tasques de creixement: fixa currentGrowthTask i
+        // així el comptador de sessions completades també compta per al pla.
+        return executeGrowthTask({ type: item.type, theme: item.theme || 'general', source: 'weekly_plan' });
+    } catch (e) {
+        console.warn('No s\'ha pogut iniciar la tasca del pla setmanal', e);
+        showToast('No he pogut iniciar aquesta tasca ara mateix.', 'warn');
+    }
+}
+
+function renderWeeklyPlan() {
+    const panel = $('#weekly-plan-panel');
+    if (!panel.length || !weeklyPlan) return;
+    panel.show();
+    const summaryEl = $('#weekly-plan-summary');
+    const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
+    summaryEl.text(summary);
+
+    const list = $('#weekly-plan-list').empty();
+    weeklyPlan.items.forEach(item => {
+        const progress = weeklyPlanItemProgress(item);
+        const done = progress >= item.target;
+        const pct = Math.round((progress / item.target) * 100);
+        const row = $(`
+            <div class="coach-item${done ? ' done' : ''}">
+                <div class="coach-item-main">
+                    <div class="coach-item-title"></div>
+                    <div class="coach-item-progress">
+                        <div class="coach-item-bar"><div class="coach-item-fill" style="width:${pct}%"></div></div>
+                        <span class="coach-item-count">${progress}/${item.target}</span>
+                    </div>
+                </div>
+                <button class="btn coach-item-go">${done ? '✓ Fet' : 'Fes-ho'}</button>
+            </div>`);
+        row.find('.coach-item-title').text(item.title);
+        const goBtn = row.find('.coach-item-go');
+        if (done) goBtn.prop('disabled', true);
+        else goBtn.on('click', () => launchWeeklyPlanItem(item));
+        list.append(row);
+    });
+
+    $('#btn-plan-speak').off('click').on('click', () => {
+        const pending = weeklyPlan.items.filter(i => weeklyPlanItemProgress(i) < i.target).map(i => i.title);
+        speakCoachText(summaryEl.text() + (pending.length ? ' Tasques pendents: ' + pending.join('. ') + '.' : ' Pla completat, enhorabona!'));
+    });
+    updateCoachSpeakButtons();
+
+    // Poliment Gemini un sol cop per setmana (es persisteix dins del pla).
+    if (!weeklyPlan.geminiSummary && geminiApiKey && !coachPlanGeminiPending) {
+        coachPlanGeminiPending = true;
+        requestGeminiCoachText(`weeklyplan:${weeklyPlan.week}`, buildWeeklyPlanGeminiPrompt(weeklyPlan), text => {
+            weeklyPlan.geminiSummary = text;
+            writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
+            summaryEl.text(text);
+        }).finally(() => { coachPlanGeminiPending = false; });
+    }
+}
+
+/* ===================== MOTIUS TÀCTICS I NOUS EXERCICIS DEL PLA =====================
+   1) analyzeTacticalMotive: tradueix la línia de Stockfish (jugada + PV) a un motiu
+      tàctic concret (mat, forquilla, clavada, raig X, peça sense defensa, canvi
+      guanyador, atac al rei) de manera determinista amb chess.js.
+   2) Exercicis d'obertura: errors reals de les teves 10 primeres jugades, amb el
+      flux de 2 jugades correctes i el bàner de context.
+   3) Mats en 3: posicions de final verificades pel motor (s'accepten només si el
+      mat arriba exactament a la 3a jugada del jugador). */
+
+const MOTIVE_PIECE_NAMES = { p: 'el peó', n: 'el cavall', b: "l'alfil", r: 'la torre', q: 'la dama', k: 'el rei' };
+const MOTIVE_PIECE_VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 99 };
+
+// Contracció "de + article" en català: "de el cavall" → "del cavall"
+function deCasella(sq) {
+    return (sq && (sq[0] === 'a' || sq[0] === 'e')) ? `d'${sq}` : `de ${sq}`;
+}
+
+function deNom(name) {
+    if (!name) return "de la peça";
+    if (name.startsWith('el ')) return 'del ' + name.slice(3);
+    if (name.startsWith("l'")) return "de l'" + name.slice(2);
+    return 'de ' + name;
+}
+
+function pvMatePlies(fen, pv) {
+    try {
+        const g = new Chess(fen);
+        for (let i = 0; i < pv.length; i++) {
+            const u = pv[i];
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) return 0;
+            if (g.in_checkmate()) return i + 1;
+        }
+    } catch (e) {}
+    return 0;
+}
+
+function findPinOrSkewer(gAfter, square, piece, color) {
+    const dirsDiag = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+    const dirsOrto = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const dirs = piece === 'b' ? dirsDiag : (piece === 'r' ? dirsOrto : dirsDiag.concat(dirsOrto));
+    const file = square.charCodeAt(0) - 97;
+    const rank = parseInt(square[1], 10) - 1;
+    for (const [df, dr] of dirs) {
+        let f = file + df, r = rank + dr;
+        let first = null;
+        while (f >= 0 && f < 8 && r >= 0 && r < 8) {
+            const sq = String.fromCharCode(97 + f) + (r + 1);
+            const p = gAfter.get(sq);
+            if (p) {
+                if (p.color === color) break;
+                if (!first) {
+                    if (p.type === 'k') break; // escac directe, no és clavada
+                    first = { piece: p, sq };
+                } else {
+                    if (p.type === 'k') {
+                        return { theme: 'pin', text: `una clavada sobre ${MOTIVE_PIECE_NAMES[first.piece.type]} ${deCasella(first.sq)} contra el rei` };
+                    }
+                    if (MOTIVE_PIECE_VALUES[p.type] > MOTIVE_PIECE_VALUES[first.piece.type]) {
+                        return { theme: 'pin', text: `una clavada sobre ${MOTIVE_PIECE_NAMES[first.piece.type]} ${deCasella(first.sq)} davant ${deNom(MOTIVE_PIECE_NAMES[p.type])}` };
+                    }
+                    if (MOTIVE_PIECE_VALUES[first.piece.type] > MOTIVE_PIECE_VALUES[p.type]) {
+                        return { theme: 'skewer', text: `un raig X que travessava ${MOTIVE_PIECE_NAMES[first.piece.type]} ${deCasella(first.sq)}` };
+                    }
+                    break;
+                }
+            }
+            f += df; r += dr;
+        }
+    }
+    return null;
+}
+
+// Retorna { theme, text } amb el motiu tàctic que la millor jugada aprofitava, o null.
+function analyzeTacticalMotive(fen, bestMove, bestMovePv = []) {
+    if (!fen || !bestMove || String(bestMove).length < 4) return null;
+    let g, mv;
+    try {
+        g = new Chess(fen);
+        mv = g.move({ from: bestMove.slice(0, 2), to: bestMove.slice(2, 4), promotion: bestMove.length > 4 ? bestMove[4] : 'q' });
+    } catch (e) { return null; }
+    if (!mv) return null;
+
+    // 1) Mat immediat o mat forçat dins la línia del motor
+    if (g.in_checkmate()) return { theme: 'king_attack', text: 'hi havia escac i mat immediat' };
+    const pv = Array.isArray(bestMovePv) ? bestMovePv : [];
+    const matePlies = pvMatePlies(fen, pv);
+    if (matePlies > 0) {
+        const mateMoves = Math.ceil(matePlies / 2);
+        return { theme: 'king_attack', text: `hi havia un mat forçat en ${mateMoves} jugad${mateMoves === 1 ? 'a' : 'es'}` };
+    }
+
+    const gaveCheck = !!(mv.san && mv.san.includes('+'));
+
+    // 2) Forquilla: des de la nova casella, la peça ataca 2+ peces valuoses
+    if (!gaveCheck && mv.piece !== 'k') {
+        try {
+            const parts = g.fen().split(' ');
+            parts[1] = mv.color; parts[3] = '-';
+            const g2 = new Chess(parts.join(' '));
+            const targets = (g2.moves({ square: mv.to, verbose: true }) || [])
+                .filter(m => m.captured && MOTIVE_PIECE_VALUES[m.captured] >= 3);
+            if (targets.length >= 2) {
+                const names = targets.slice(0, 2).map(m => MOTIVE_PIECE_NAMES[m.captured] || 'una peça');
+                return { theme: 'fork', text: `una forquilla ${deNom(MOTIVE_PIECE_NAMES[mv.piece])} a ${mv.to} sobre ${names.join(' i ')}` };
+            }
+        } catch (e) {}
+    }
+
+    // 3) Clavada o raig X amb peces de línia
+    if (['b', 'r', 'q'].includes(mv.piece)) {
+        const ray = findPinOrSkewer(g, mv.to, mv.piece, mv.color);
+        if (ray) return ray;
+    }
+
+    // 4) Captures: peça sense defensa o canvi guanyador
+    if (mv.captured) {
+        const capturedName = MOTIVE_PIECE_NAMES[mv.captured] || 'una peça';
+        const reply = pv.length > 1 ? pv[1] : null;
+        const recaptures = !!(reply && reply.slice(2, 4) === mv.to);
+        if (!recaptures) return { theme: 'material', text: `podies capturar ${capturedName} ${deCasella(mv.to)}, que estava sense defensa` };
+        if (MOTIVE_PIECE_VALUES[mv.captured] > MOTIVE_PIECE_VALUES[mv.piece]) {
+            return { theme: 'material', text: `un canvi guanyador: ${capturedName} a canvi ${deNom(MOTIVE_PIECE_NAMES[mv.piece])}` };
+        }
+        return { theme: 'material', text: `una combinació de captures a ${mv.to} que guanyava material` };
+    }
+
+    // 5) Atac persistent al rei: dos o més escacs dins la línia
+    if (gaveCheck && pv.length) {
+        let checks = 0;
+        try {
+            const gc = new Chess(fen);
+            for (const u of pv) {
+                const m2 = gc.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+                if (!m2) break;
+                if (m2.san.includes('+') || m2.san.includes('#')) checks++;
+            }
+        } catch (e) {}
+        if (checks >= 2) return { theme: 'king_attack', text: 'un atac directe al rei amb escacs seguits' };
+    }
+    return null;
+}
+
+/* --------------------- Tema tàctic de l'exercici --------------------- */
+// Orienta sense revelar: diu QUIN tipus de cop cal buscar, mai les caselles.
+const TACTIC_THEME_HINTS = {
+    fork: { label: 'Forquilla', tip: 'Busca una jugada que ataqui dues peces alhora.' },
+    pin: { label: 'Clavada', tip: 'Busca una peça rival que no es pugui moure sense exposar-ne una de més valuosa.' },
+    skewer: { label: 'Raig X', tip: "Obliga una peça valuosa a apartar-se per guanyar la que té al darrere." },
+    king_attack: { label: 'Atac al rei', tip: 'El rei rival és el blanc: pensa en escacs i amenaces de mat.' },
+    material: { label: 'Guany de material', tip: 'Hi ha material per guanyar: revisa captures i peces sense defensa.' },
+    calc: { label: 'Combinació', tip: 'Calcula amb ordre: revisa escacs, captures i amenaces abans de decidir.' }
+};
+
+// Deriva el tema de l'exercici. Si la primera jugada no té motiu clar (pot ser
+// preparatòria), busca'l a les jugades del jugador més endins de la línia; si
+// tampoc, dedueix-lo del conjunt de la línia. Mai retorna null.
+function deriveTacticTheme(fen, step1) {
+    const pv = (step1 && step1.playerMovePv) || [];
+    try {
+        const direct = analyzeTacticalMotive(fen, step1.playerMove, pv);
+        if (direct && TACTIC_THEME_HINTS[direct.theme]) return direct.theme;
+    } catch (e) {}
+    // Motiu a les jugades següents del jugador dins la PV (índexs parells)
+    try {
+        const g = new Chess(fen);
+        for (let i = 0; i < pv.length && i < 6; i++) {
+            if (i > 0 && i % 2 === 0) {
+                const m = analyzeTacticalMotive(g.fen(), pv[i], pv.slice(i));
+                if (m && TACTIC_THEME_HINTS[m.theme]) return m.theme;
+            }
+            const u = pv[i];
+            if (!g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined })) break;
+        }
+    } catch (e) {}
+    // Heurística agregada: escacs del jugador → atac al rei; captures → material
+    try {
+        const g = new Chess(fen);
+        let checks = 0, captures = 0;
+        for (let i = 0; i < pv.length && i < 8; i++) {
+            const u = pv[i];
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) break;
+            if (i % 2 === 0) {
+                if (mv.san.includes('+') || mv.san.includes('#')) checks++;
+                if (mv.captured) captures++;
+            }
+        }
+        if (checks >= 1) return 'king_attack';
+        if (captures >= 1) return 'material';
+    } catch (e) {}
+    return 'calc';
+}
+
+// Mostra el tipus de tema tàctic en exercicis sense context d'error propi
+// (tàctiques del banc, repte diari). Es crida a startGame, després del bàner d'error.
+function renderTacticThemeHint() {
+    const banner = $('#tactic-theme-banner');
+    if (!banner.length) return;
+    banner.hide();
+    if (!blunderMode || !bundleFixedSequence) return;
+    // Si ja hi ha bàner d'error propi, aquell ja explica el motiu; no dupliquem.
+    if (currentErrorContext) return;
+    // Al mat en 3, el títol ja anuncia l'objectiu.
+    if (currentBundleSource === 'mate_drill') return;
+    const step1 = bundleFixedSequence.step1 || {};
+    let theme = 'calc';
+    try { theme = deriveTacticTheme(bundleFixedSequence.initialFen, step1); } catch (e) {}
+    const hint = TACTIC_THEME_HINTS[theme] || TACTIC_THEME_HINTS.calc;
+    const textEl = $('#tactic-theme-text').empty();
+    textEl.append($('<span></span>').text('🎯 Tema: '));
+    textEl.append($('<strong></strong>').text(hint.label));
+    textEl.append($('<span></span>').text(` · ${hint.tip}`));
+    banner.show();
+}
+
+/* --------------------- Exercicis d'errors d'obertura --------------------- */
+
+function getOpeningPhaseErrors() {
+    return savedErrors.filter(e => {
+        const fm = parseInt((e.fen || '').split(' ')[5]) || 99;
+        return fm <= 10 && e.playerMove;
+    });
+}
+
+function startOpeningErrorDrill() {
+    if (!guardCalibrationAccess()) return;
+    const pool = getOpeningPhaseErrors();
+    if (!pool.length) {
+        showToast("No tens errors d'obertura guardats. Juga partides i tornaran a aparèixer aquí.", 'warn');
+        return;
+    }
+    const choice = pool[Math.floor(Math.random() * pool.length)];
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    isTacticsSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'opening_drill';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    startGame(true, choice.fen);
+}
+
+/* --------------------- Mats en 3 jugades (finals) --------------------- */
+
+// Candidats KQ/KR contra rei sol; el motor només accepta els que són mat EXACTE en 3.
+const MATE_DRILL_BANK = [
+    '6k1/8/6K1/8/8/8/8/4Q3 w - - 0 1',
+    '7k/8/5K2/8/8/8/8/6Q1 w - - 0 1',
+    '5k2/8/4K3/8/8/8/8/Q7 w - - 0 1',
+    '6k1/8/5K2/8/8/8/8/3Q4 w - - 0 1',
+    '1k6/8/2K5/8/8/8/8/5Q2 w - - 0 1',
+    'k7/8/2K5/8/8/8/8/6Q1 w - - 0 1',
+    '6k1/8/8/6K1/8/8/8/4Q3 w - - 0 1',
+    '5k2/8/8/4K3/8/8/8/7Q w - - 0 1',
+    '7k/8/5K2/8/8/8/8/6R1 w - - 0 1',
+    '4k3/8/3K4/8/8/8/8/7Q w - - 0 1',
+    '8/7Q/8/8/8/4K3/8/3k4 w - - 0 1',
+    '2k5/8/3K4/8/8/8/8/7Q w - - 0 1'
+];
+
+let pendingPreparedSequence = null;
+let mateDrillPreparing = false;
+let lastMateDrillFen = null;
+
+function buildMateSequenceObject(fen, steps, replies, sans) {
+    const emptyThreats = { threats: [], themes: [], immediateThreats: [] };
+    const decorate = s => Object.assign({ alternatives: [], position: null, threats: emptyThreats }, s);
+    return {
+        initialFen: fen,
+        step1: decorate(steps[0]),
+        opponentMove: { move: replies[0].move, moveSan: replies[0].san },
+        step2: decorate(steps[1]),
+        opponentMove2: { move: replies[1].move, moveSan: replies[1].san },
+        step3: decorate(steps[2]),
+        totalSteps: 3,
+        fullSequence: [steps[0].playerMove, replies[0].move, steps[1].playerMove, replies[1].move, steps[2].playerMove],
+        fullSequenceSan: sans
+    };
+}
+
+// Construeix i VERIFICA una seqüència de mat en 3: segueix la línia del motor i
+// només retorna la seqüència si l'escac i mat arriba a la 3a jugada del jugador.
+async function prepareMateSequence(fen) {
+    if (!stockfish) { ensureStockfish(); await new Promise(r => setTimeout(r, 500)); }
+    if (!stockfish) return null;
+    let waitCount = 0;
+    while (!stockfishReady && waitCount < 20) { await new Promise(r => setTimeout(r, 100)); waitCount++; }
+    if (!stockfishReady) return null;
+    try {
+        stockfish.postMessage('stop');
+        stockfish.postMessage('setoption name MultiPV value 1');
+        await new Promise(r => setTimeout(r, 200));
+
+        const steps = [], replies = [], sans = [];
+        let curFen = fen;
+        for (let i = 0; i < 3; i++) {
+            const analysis = await analyzeFenRobust(curFen, 14, 1, 6000);
+            const pm = analysis?.bestMove?.move;
+            if (!pm) return null;
+            const g = new Chess(curFen);
+            const mv = g.move({ from: pm.slice(0, 2), to: pm.slice(2, 4), promotion: pm.length > 4 ? pm[4] : undefined });
+            if (!mv) return null;
+            steps.push({ fen: curFen, playerMove: pm, playerMoveSan: mv.san });
+            sans.push(mv.san);
+            if (g.in_checkmate()) return i === 2 ? buildMateSequenceObject(fen, steps, replies, sans) : null;
+            if (i === 2 || g.game_over()) return null; // 3 jugades sense mat, o ofegat
+            await new Promise(r => setTimeout(r, 250));
+            const replyAnalysis = await analyzeFenRobust(g.fen(), 14, 1, 6000);
+            const rm = replyAnalysis?.bestMove?.move;
+            if (!rm) return null;
+            const rmv = g.move({ from: rm.slice(0, 2), to: rm.slice(2, 4), promotion: rm.length > 4 ? rm[4] : undefined });
+            if (!rmv || g.game_over()) return null;
+            replies.push({ move: rm, san: rmv.san });
+            sans.push(rmv.san);
+            curFen = g.fen();
+            await new Promise(r => setTimeout(r, 250));
+        }
+        return null;
+    } catch (e) {
+        console.warn('[MateDrill] Error preparant seqüència', e);
+        return null;
+    }
+}
+
+async function startMateDrill() {
+    if (!guardCalibrationAccess() || mateDrillPreparing) return;
+    mateDrillPreparing = true;
+    showToast('Preparant un mat en 3 jugades... ⏳', 'info');
+    try {
+        const candidates = MATE_DRILL_BANK.slice();
+        for (let i = candidates.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [candidates[i], candidates[j]] = [candidates[j], candidates[i]];
+        }
+        let seq = null;
+        let tried = 0;
+        for (const candidate of candidates) {
+            if (candidate === lastMateDrillFen && candidates.length > 1) continue;
+            if (tried >= 5) break;
+            tried++;
+            seq = await prepareMateSequence(candidate);
+            if (seq) break;
+        }
+        if (!seq) {
+            showToast('No he pogut preparar cap mat ara mateix. Torna-ho a provar.', 'warn');
+            return;
+        }
+        lastMateDrillFen = seq.initialFen;
+        isSrsReviewSession = false;
+        isDailyPuzzleSession = false;
+        isRandomBundleSession = false;
+        isMatchErrorReviewSession = false;
+        isTacticsSession = false;
+        matchErrorQueue = [];
+        currentMatchError = null;
+        currentBundleSource = 'mate_drill';
+        currentBundleSeverity = null;
+        $('#bundle-modal').remove();
+        currentGameMode = 'bundle';
+        currentOpponent = null;
+        pendingPreparedSequence = seq;
+        startGame(true, seq.initialFen);
+    } finally {
+        mateDrillPreparing = false;
+    }
+}
+
+// Mat o taules dins d'un exercici: el mat és èxit; l'ofegat és error i es reintenta.
+function handleBundleGameOver() {
+    if (game.in_checkmate()) {
+        if (pendingMoveEvaluation) { goodMoves++; pendingMoveEvaluation = false; updatePrecisionDisplay(); }
+        const played = lastHumanMoveUci || '';
+        const playedTo = played.length >= 4 ? played.slice(2, 4) : null;
+        if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
+        lastBundleGeminiHint = null;
+        handleBundleSuccess();
+        return;
+    }
+    if (pendingMoveEvaluation) {
+        pendingMoveEvaluation = false;
+        totalPlayerMoves = Math.max(0, totalPlayerMoves - 1);
+        updatePrecisionDisplay();
+    }
+    showToast('La posició ha quedat en taules: aquest no era el camí.', 'warn');
+    setTimeout(() => resetBundleToStartPosition(), 700);
+}
+
+function showDrillSuccessOverlay(titleText, onAgain) {
+    const overlay = $('#bundle-success-overlay');
+    if (!overlay.length) {
+        alert(titleText);
+        returnToMainMenuImmediate();
+        return;
+    }
+    overlay.find('.bundle-success-title').text(titleText);
+    overlay.find('.bundle-success-remaining').text('Pla setmanal actualitzat');
+    overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false);
+    overlay.css('display', 'flex');
+    $('#btn-bundle-random-home').off('click').on('click', () => {
+        overlay.hide();
+        returnToMainMenuImmediate();
+    });
+    $('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        onAgain();
+    });
+}
+
+/* ===================== CONTEXT DE L'ERRADA EN EXERCICIS =====================
+   Quan un exercici prové d'un error real de l'usuari (savedErrors o errors de
+   la partida acabada), mostrem QUÈ va jugar, QUAN i QUÈ va costar, amb la
+   jugada errònia marcada al tauler. Així l'exercici és "rectifica la teva
+   errada", no un genèric "troba la millor jugada". */
+
+let currentErrorContext = null;
+let errorReplayTimer = null;
+
+const ERROR_SEVERITY_INFO = {
+    low: { phrase: "una imprecisió que va deixar escapar una opció millor" },
+    med: { phrase: "un error que et va costar part de l'avantatge" },
+    high: { phrase: "una errada greu que va canviar el signe de la partida" }
+};
+
+function uciToSanForFen(fen, uci) {
+    if (!fen || !uci || String(uci).length < 4) return null;
+    try {
+        const probe = new Chess(fen);
+        const mv = probe.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
+        return mv ? mv.san : null;
+    } catch (e) { return null; }
+}
+
+function findBundleErrorRecord(fen) {
+    if (!fen) return null;
+    if (currentMatchError && currentMatchError.fen === fen && currentMatchError.playerMove) return currentMatchError;
+    const saved = savedErrors.find(e => e.fen === fen && e.playerMove);
+    if (saved) return saved;
+    const inGame = (currentGameErrors || []).find(e => e.fen === fen && e.playerMove);
+    return inGame || null;
+}
+
+function highlightErrorMove() {
+    if (!currentErrorContext) return;
+    $(`#myBoard .square-${currentErrorContext.from}`).addClass('square-error-played');
+    const toSquare = $(`#myBoard .square-${currentErrorContext.to}`);
+    toSquare.addClass('square-error-played');
+    if (toSquare.length && !toSquare.find('.error-move-cross').length) {
+        toSquare.css('position', 'relative').append('<div class="error-move-cross">✗</div>');
+    }
+}
+
+function clearErrorMoveHighlights() {
+    $('#myBoard .square-error-played').removeClass('square-error-played');
+    $('#myBoard .error-move-cross').remove();
+}
+
+// Mostra o amaga el bàner segons el mode i l'origen de la posició. Es crida a startGame.
+function renderBundleErrorContext() {
+    const banner = $('#error-context-banner');
+    if (!banner.length) return;
+    if (errorReplayTimer) { clearTimeout(errorReplayTimer); errorReplayTimer = null; }
+    clearErrorMoveHighlights();
+    currentErrorContext = null;
+    if (!blunderMode || !currentBundleFen) { banner.hide(); return; }
+    const record = findBundleErrorRecord(currentBundleFen);
+    const san = record ? uciToSanForFen(currentBundleFen, record.playerMove) : null;
+    if (!san) { banner.hide(); return; }
+
+    currentErrorContext = {
+        from: record.playerMove.slice(0, 2),
+        to: record.playerMove.slice(2, 4),
+        san
+    };
+    const sev = ERROR_SEVERITY_INFO[record.severity] || ERROR_SEVERITY_INFO.med;
+    const intro = record.date
+        ? `El ${record.date} aquí vas jugar `
+        : (isMatchErrorReviewSession ? 'En aquesta partida aquí has jugat ' : 'Aquí vas jugar ');
+
+    const motive = record.bestMove
+        ? analyzeTacticalMotive(currentBundleFen, record.bestMove, record.bestMovePv || [])
+        : null;
+
+    const textEl = $('#error-context-text').empty();
+    textEl.append($('<span class="error-context-date"></span>').text('❌ '));
+    textEl.append($('<span></span>').text(intro));
+    textEl.append($('<strong></strong>').text(`${san}?`));
+    textEl.append($('<span></span>').text(`, ${sev.phrase}.`));
+    if (motive && motive.text) {
+        textEl.append($('<span></span>').text(` El que vas deixar escapar: ${motive.text}.`));
+    }
+    textEl.append($('<span></span>').text(" Ara rectifica-la: juga el que hauries d'haver jugat."));
+
+    $('#btn-error-replay').show().off('click').on('click', previewErrorMove);
+    banner.css('display', 'flex');
+    // El tauler es crea de forma asíncrona; marquem les caselles quan ja existeix
+    setTimeout(highlightErrorMove, 150);
+}
+
+// Reprodueix visualment la jugada errònia sobre el tauler i torna a la posició inicial.
+function previewErrorMove() {
+    if (!currentErrorContext || !board || errorReplayTimer) return;
+    try { board.move(`${currentErrorContext.from}-${currentErrorContext.to}`); } catch (e) { return; }
+    errorReplayTimer = setTimeout(() => {
+        errorReplayTimer = null;
+        try { board.position(game.fen()); } catch (e) {}
+        highlightErrorMove();
+    }, 1300);
+}
+
+// Quan l'usuari comença a resoldre, retirem les marques perquè no facin nosa.
+function onErrorContextPlayerMoved() {
+    if (!currentErrorContext) return;
+    if (errorReplayTimer) { clearTimeout(errorReplayTimer); errorReplayTimer = null; }
+    clearErrorMoveHighlights();
+    $('#btn-error-replay').hide();
+}
+
 // PWA Install functionality
 let deferredPrompt;
 
@@ -13713,6 +14855,20 @@ $('#btn-dismiss-install').on('click', () => {
     $('#install-banner').removeClass('show');
 });
 
+// X de les finestres d'èxit: tanca l'overlay per poder veure la posició final
+// de l'exercici al tauler. Responem també a touchend/pointerup perquè en mòbil
+// el click pot quedar suprimit pels gestors tàctils del tauler; el timestamp
+// evita el doble dispar (touchend + click sintètic).
+let overlayCloseLastTs = 0;
+$(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
+    e.preventDefault();
+    e.stopPropagation();
+    const now = Date.now();
+    if (now - overlayCloseLastTs < 400) return;
+    overlayCloseLastTs = now;
+    $(this).closest('.bundle-success-overlay').hide();
+});
+
 // Inicialització
 $(document).ready(() => {
     updateDeviceType();
@@ -13732,11 +14888,14 @@ $(document).ready(() => {
     pendingFreeTimeControl = 'none';
     const tcSel = document.getElementById('new-game-tc-select');
     if (tcSel) tcSel.value = pendingFreeTimeControl;
-    generateDailyMissions(); checkStreak(); updateDisplay(); setupEvents(); 
+    generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
         window.addEventListener('resize', () => { if (board) board.resize(); });
     }
 
-    setInterval(() => { if (getToday() !== missionsDate) generateDailyMissions(); }, 60000);
+    setInterval(() => {
+        if (getToday() !== missionsDate) generateDailyMissions();
+        if (weeklyPlan && weeklyPlan.week !== getISOWeekKey()) ensureWeeklyPlan();
+    }, 60000);
 });
