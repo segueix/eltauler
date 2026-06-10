@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ AUTOMÀTICA: Canvia cada vegada que es modifica el fitxer
-const SW_VERSION = '2.5.1781327200';
+const SW_VERSION = '2.6.1781330800';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 
 // DEBUG: Log de versió

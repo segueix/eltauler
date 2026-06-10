@@ -4731,6 +4731,98 @@ function analyzePositionEnriched(stockfishInstance, fen, depth = 20, multiPv = 3
     });
 }
 
+// Variant amb límit de temps real: el motor s'atura al primer límit (depth o movetime),
+// així cap anàlisi pot quedar-se penjada en dispositius lents.
+function analyzePositionEnrichedTimed(stockfishInstance, fen, depth, multiPv, moveTimeMs, timeoutMs) {
+    return new Promise((resolve) => {
+        const analysis = new EnrichedAnalysis(fen, depth, multiPv);
+        let timeoutId = null;
+        const cleanup = () => {
+            stockfishInstance.removeEventListener('message', messageHandler);
+            if (timeoutId) { clearTimeout(timeoutId); timeoutId = null; }
+        };
+        const finish = (timedOut) => {
+            cleanup();
+            analysis.complete();
+            resolve({
+                fen,
+                depth: analysis.maxDepthReached,
+                bestMove: analysis.getBestMove(),
+                alternatives: analysis.getAlternatives(),
+                timedOut: !!timedOut
+            });
+        };
+        const messageHandler = (event) => {
+            const line = event.data;
+            if (typeof line !== 'string') return;
+            if (line.startsWith('info')) analysis.processLine(line);
+            if (line.startsWith('bestmove')) finish(false);
+        };
+        timeoutId = setTimeout(() => {
+            try { stockfishInstance.postMessage('stop'); } catch (e) {}
+            finish(true);
+        }, timeoutMs);
+        stockfishInstance.addEventListener('message', messageHandler);
+        try { stockfishInstance.postMessage(`setoption name MultiPV value ${multiPv}`); } catch (e) {}
+        stockfishInstance.postMessage(`position fen ${fen}`);
+        stockfishInstance.postMessage(`go depth ${depth} movetime ${moveTimeMs}`);
+    });
+}
+
+// Handshake UCI: confirma que el motor és viu i ha buidat la cua de missatges.
+function waitForEngineReady(timeoutMs = 4000) {
+    return new Promise(resolve => {
+        if (!stockfish) { resolve(false); return; }
+        let done = false;
+        let tid = null;
+        const onMsg = (e) => {
+            if (typeof e.data === 'string' && e.data.indexOf('readyok') === 0) finish(true);
+        };
+        const finish = (ok) => {
+            if (done) return;
+            done = true;
+            try { stockfish.removeEventListener('message', onMsg); } catch (e) {}
+            if (tid) clearTimeout(tid);
+            resolve(ok);
+        };
+        tid = setTimeout(() => finish(false), timeoutMs);
+        try {
+            stockfish.addEventListener('message', onMsg);
+            stockfish.postMessage('isready');
+        } catch (e) { finish(false); }
+    });
+}
+
+function restartStockfishWorker() {
+    try { if (stockfish && stockfish.terminate) stockfish.terminate(); } catch (e) {}
+    stockfish = null;
+    stockfishReady = false;
+    return ensureStockfish();
+}
+
+// Anàlisi robusta per a la preparació d'exercicis: handshake previ, límit de temps,
+// validació que la jugada és legal per a AQUEST fen (descarta respostes de cerques
+// antigues) i un reintent amb reinici del worker si el motor no respon.
+async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000) {
+    for (let attempt = 0; attempt < 2; attempt++) {
+        if (!stockfish) ensureStockfish();
+        if (!stockfish) return null;
+        try { stockfish.postMessage('stop'); } catch (e) {}
+        let ready = await waitForEngineReady(4000);
+        if (!ready) {
+            console.warn('[Anàlisi] Motor sense resposta; es reinicia el worker');
+            restartStockfishWorker();
+            ready = await waitForEngineReady(6000);
+            if (!ready) continue;
+        }
+        const analysis = await analyzePositionEnrichedTimed(stockfish, fen, depth, multiPv, moveTimeMs, moveTimeMs + 6000);
+        const best = analysis?.bestMove?.move;
+        if (best && uciToSanForFen(fen, best)) return analysis;
+        console.warn('[Anàlisi] Jugada invàlida o buida per al fen; reintent', best || '(cap)');
+    }
+    return null;
+}
+
 function uciToSan(fen, uciMove) {
     if (typeof Chess === 'undefined') return uciMove;
     const chess = new Chess(fen);
@@ -4992,7 +5084,7 @@ async function prepareBundleSequence(fen) {
         
         // 1. Analitzar posició inicial (Pas 1)
         console.log('[Bundle] Pas 1: Analitzant posició inicial...');
-        const step1Analysis = await analyzePositionEnriched(stockfish, fen, 15, 2);
+        const step1Analysis = await analyzeFenRobust(fen, 15, 2);
         
         if (!step1Analysis || !step1Analysis.bestMove || !step1Analysis.bestMove.move) {
             console.error('[Bundle] Pas 1 fallit: no hi ha bestMove', step1Analysis);
@@ -5029,7 +5121,7 @@ async function prepareBundleSequence(fen) {
         
         // 3. Calcular millor resposta de l'oponent
         console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
-        const opponentAnalysis = await analyzePositionEnriched(stockfish, afterPlayerFen, 15, 1);
+        const opponentAnalysis = await analyzeFenRobust(afterPlayerFen, 15, 1);
         
         if (!opponentAnalysis || !opponentAnalysis.bestMove || !opponentAnalysis.bestMove.move) {
             console.error('[Bundle] Pas 2 fallit: no hi ha bestMove oponent', opponentAnalysis);
@@ -5065,7 +5157,7 @@ async function prepareBundleSequence(fen) {
         
         // 5. Calcular millor segona jugada del jugador (Pas 3)
         console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
-        const step2Analysis = await analyzePositionEnriched(stockfish, afterOpponentFen, 15, 2);
+        const step2Analysis = await analyzeFenRobust(afterOpponentFen, 15, 2);
         
         if (!step2Analysis || !step2Analysis.bestMove || !step2Analysis.bestMove.move) {
             console.error('[Bundle] Pas 3 fallit: no hi ha bestMove pas 2', step2Analysis);
@@ -14367,8 +14459,49 @@ const TACTIC_THEME_HINTS = {
     pin: { label: 'Clavada', tip: 'Busca una peça rival que no es pugui moure sense exposar-ne una de més valuosa.' },
     skewer: { label: 'Raig X', tip: "Obliga una peça valuosa a apartar-se per guanyar la que té al darrere." },
     king_attack: { label: 'Atac al rei', tip: 'El rei rival és el blanc: pensa en escacs i amenaces de mat.' },
-    material: { label: 'Guany de material', tip: 'Hi ha material per guanyar: revisa captures i peces sense defensa.' }
+    material: { label: 'Guany de material', tip: 'Hi ha material per guanyar: revisa captures i peces sense defensa.' },
+    calc: { label: 'Combinació', tip: 'Calcula amb ordre: revisa escacs, captures i amenaces abans de decidir.' }
 };
+
+// Deriva el tema de l'exercici. Si la primera jugada no té motiu clar (pot ser
+// preparatòria), busca'l a les jugades del jugador més endins de la línia; si
+// tampoc, dedueix-lo del conjunt de la línia. Mai retorna null.
+function deriveTacticTheme(fen, step1) {
+    const pv = (step1 && step1.playerMovePv) || [];
+    try {
+        const direct = analyzeTacticalMotive(fen, step1.playerMove, pv);
+        if (direct && TACTIC_THEME_HINTS[direct.theme]) return direct.theme;
+    } catch (e) {}
+    // Motiu a les jugades següents del jugador dins la PV (índexs parells)
+    try {
+        const g = new Chess(fen);
+        for (let i = 0; i < pv.length && i < 6; i++) {
+            if (i > 0 && i % 2 === 0) {
+                const m = analyzeTacticalMotive(g.fen(), pv[i], pv.slice(i));
+                if (m && TACTIC_THEME_HINTS[m.theme]) return m.theme;
+            }
+            const u = pv[i];
+            if (!g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined })) break;
+        }
+    } catch (e) {}
+    // Heurística agregada: escacs del jugador → atac al rei; captures → material
+    try {
+        const g = new Chess(fen);
+        let checks = 0, captures = 0;
+        for (let i = 0; i < pv.length && i < 8; i++) {
+            const u = pv[i];
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) break;
+            if (i % 2 === 0) {
+                if (mv.san.includes('+') || mv.san.includes('#')) checks++;
+                if (mv.captured) captures++;
+            }
+        }
+        if (checks >= 1) return 'king_attack';
+        if (captures >= 1) return 'material';
+    } catch (e) {}
+    return 'calc';
+}
 
 // Mostra el tipus de tema tàctic en exercicis sense context d'error propi
 // (tàctiques del banc, repte diari). Es crida a startGame, després del bàner d'error.
@@ -14382,12 +14515,9 @@ function renderTacticThemeHint() {
     // Al mat en 3, el títol ja anuncia l'objectiu.
     if (currentBundleSource === 'mate_drill') return;
     const step1 = bundleFixedSequence.step1 || {};
-    let motive = null;
-    try {
-        motive = analyzeTacticalMotive(bundleFixedSequence.initialFen, step1.playerMove, step1.playerMovePv || []);
-    } catch (e) {}
-    const hint = motive && TACTIC_THEME_HINTS[motive.theme];
-    if (!hint) return;
+    let theme = 'calc';
+    try { theme = deriveTacticTheme(bundleFixedSequence.initialFen, step1); } catch (e) {}
+    const hint = TACTIC_THEME_HINTS[theme] || TACTIC_THEME_HINTS.calc;
     const textEl = $('#tactic-theme-text').empty();
     textEl.append($('<span></span>').text('🎯 Tema: '));
     textEl.append($('<strong></strong>').text(hint.label));
@@ -14481,7 +14611,7 @@ async function prepareMateSequence(fen) {
         const steps = [], replies = [], sans = [];
         let curFen = fen;
         for (let i = 0; i < 3; i++) {
-            const analysis = await analyzePositionEnriched(stockfish, curFen, 14, 1);
+            const analysis = await analyzeFenRobust(curFen, 14, 1, 6000);
             const pm = analysis?.bestMove?.move;
             if (!pm) return null;
             const g = new Chess(curFen);
@@ -14492,7 +14622,7 @@ async function prepareMateSequence(fen) {
             if (g.in_checkmate()) return i === 2 ? buildMateSequenceObject(fen, steps, replies, sans) : null;
             if (i === 2 || g.game_over()) return null; // 3 jugades sense mat, o ofegat
             await new Promise(r => setTimeout(r, 250));
-            const replyAnalysis = await analyzePositionEnriched(stockfish, g.fen(), 14, 1);
+            const replyAnalysis = await analyzeFenRobust(g.fen(), 14, 1, 6000);
             const rm = replyAnalysis?.bestMove?.move;
             if (!rm) return null;
             const rmv = g.move({ from: rm.slice(0, 2), to: rm.slice(2, 4), promotion: rm.length > 4 ? rm[4] : undefined });
