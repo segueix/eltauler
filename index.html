@@ -344,6 +344,17 @@
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
+        /* El resum del pla pot ser llarg: alçada limitada amb scroll tàctil */
+        .coach-plan-summary {
+            max-height: 9em;
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+            padding-right: 4px;
+        }
+        .coach-plan-summary::-webkit-scrollbar { width: 5px; }
+        .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
+        .coach-plan-summary::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.4); border-radius: 3px; }
         .coach-speak-btn {
             background: rgba(201,162,39,0.15); border: 1px solid rgba(201,162,39,0.4);
             color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;
