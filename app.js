@@ -14725,6 +14725,12 @@ $('#btn-dismiss-install').on('click', () => {
     $('#install-banner').removeClass('show');
 });
 
+// X de les finestres d'èxit: tanca l'overlay per poder veure la posició final
+// de l'exercici al tauler (gestor delegat: serveix per a tots els overlays).
+$(document).on('click', '.overlay-close-x', function () {
+    $(this).closest('.bundle-success-overlay').hide();
+});
+
 // Inicialització
 $(document).ready(() => {
     updateDeviceType();

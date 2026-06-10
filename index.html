@@ -1551,7 +1551,17 @@
             box-shadow: 0 10px 30px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.08);
             width: 100%;
             max-width: 340px;
+            position: relative;
         }
+        /* X per tancar l'overlay d'èxit i poder veure la posició final al tauler */
+        .overlay-close-x {
+            position: absolute; top: 6px; right: 8px;
+            background: none; border: none; cursor: pointer;
+            color: var(--text-secondary); font-size: 1.15rem; line-height: 1;
+            padding: 6px 8px; border-radius: 8px;
+        }
+        .overlay-close-x:hover, .overlay-close-x:active { color: var(--accent-gold); background: rgba(201,162,39,0.12); }
+        body.epaper-mode .overlay-close-x { color: #444; }
         .bundle-success-icon {
             font-size: 3rem;
             margin-bottom: 8px;
@@ -3153,6 +3163,7 @@
             <!-- Overlay d'èxit per errors d'obertura -->
             <div class="bundle-success-overlay overlay-fixed" id="opening-error-success-overlay">
                 <div class="bundle-success-content">
+                    <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                     <div class="bundle-success-icon">✅</div>
                     <div class="bundle-success-title">Bundle resolt</div>
                     <div class="bundle-success-remaining" id="opening-error-remaining">—</div>
@@ -3213,6 +3224,7 @@
                 <div id="myBoard"></div>
                 <div class="bundle-success-overlay" id="bundle-success-overlay">
                     <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                         <div class="bundle-success-icon">✅</div>
                         <div class="bundle-success-title">Bundle resolt</div>
                         <div class="bundle-success-remaining">Bundles pendents</div>
@@ -3224,6 +3236,7 @@
                 </div> 
                 <div class="bundle-success-overlay" id="bundle-category-success-overlay">
                     <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                         <div class="bundle-success-icon">✅</div>
                         <div class="bundle-success-title">Error resolt</div>
                         <div class="bundle-success-remaining">Queden errors d'aquesta categoria</div>
@@ -3236,6 +3249,7 @@
                 </div>           
                 <div class="bundle-success-overlay overlay-fixed" id="match-error-success-overlay">
                     <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
                         <div class="bundle-success-icon">✅</div>
                         <div class="bundle-success-title">Error revisat</div>
                         <div class="bundle-success-remaining" id="match-error-remaining">—</div>
