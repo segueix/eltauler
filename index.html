@@ -442,6 +442,25 @@
             text-shadow: 0 1px 3px rgba(0,0,0,0.6); z-index: 90; pointer-events: none;
         }
 
+        /* TEMA TÀCTIC de l'exercici (tàctiques, repte diari) */
+        #tactic-theme-banner {
+            background: rgba(201, 162, 39, 0.1);
+            border: 1px solid rgba(201, 162, 39, 0.35);
+            border-left: 4px solid var(--accent-gold);
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+        .tactic-theme-text { font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
+        .tactic-theme-text strong { color: var(--accent-gold); }
+        body.device-mobile #tactic-theme-banner { margin-left: 8px; margin-right: 8px; margin-bottom: 8px; }
+        body.epaper-mode #tactic-theme-banner {
+            background: #ededed !important; border-color: #cfcfcf !important;
+            border-left: 4px solid #777 !important; color: #222;
+        }
+        body.epaper-mode .tactic-theme-text strong { color: #222; }
+
                 .epaper-toggle {
             position: relative;
             width: 54px;
@@ -3184,6 +3203,10 @@
             <div id="error-context-banner" style="display:none;">
                 <div class="error-context-text" id="error-context-text"></div>
                 <button class="btn error-context-replay" id="btn-error-replay">👁 Reviu l'errada</button>
+            </div>
+
+            <div id="tactic-theme-banner" style="display:none;">
+                <div class="tactic-theme-text" id="tactic-theme-text"></div>
             </div>
 
             <div class="board-container">

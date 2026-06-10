@@ -12195,6 +12195,7 @@ blunderMode = isBundle;
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
     renderBundleErrorContext();
+    renderTacticThemeHint();
     updateStatus();
     updateBundleHintButtons();
 
@@ -14357,6 +14358,41 @@ function analyzeTacticalMotive(fen, bestMove, bestMovePv = []) {
         if (checks >= 2) return { theme: 'king_attack', text: 'un atac directe al rei amb escacs seguits' };
     }
     return null;
+}
+
+/* --------------------- Tema tàctic de l'exercici --------------------- */
+// Orienta sense revelar: diu QUIN tipus de cop cal buscar, mai les caselles.
+const TACTIC_THEME_HINTS = {
+    fork: { label: 'Forquilla', tip: 'Busca una jugada que ataqui dues peces alhora.' },
+    pin: { label: 'Clavada', tip: 'Busca una peça rival que no es pugui moure sense exposar-ne una de més valuosa.' },
+    skewer: { label: 'Raig X', tip: "Obliga una peça valuosa a apartar-se per guanyar la que té al darrere." },
+    king_attack: { label: 'Atac al rei', tip: 'El rei rival és el blanc: pensa en escacs i amenaces de mat.' },
+    material: { label: 'Guany de material', tip: 'Hi ha material per guanyar: revisa captures i peces sense defensa.' }
+};
+
+// Mostra el tipus de tema tàctic en exercicis sense context d'error propi
+// (tàctiques del banc, repte diari). Es crida a startGame, després del bàner d'error.
+function renderTacticThemeHint() {
+    const banner = $('#tactic-theme-banner');
+    if (!banner.length) return;
+    banner.hide();
+    if (!blunderMode || !bundleFixedSequence) return;
+    // Si ja hi ha bàner d'error propi, aquell ja explica el motiu; no dupliquem.
+    if (currentErrorContext) return;
+    // Al mat en 3, el títol ja anuncia l'objectiu.
+    if (currentBundleSource === 'mate_drill') return;
+    const step1 = bundleFixedSequence.step1 || {};
+    let motive = null;
+    try {
+        motive = analyzeTacticalMotive(bundleFixedSequence.initialFen, step1.playerMove, step1.playerMovePv || []);
+    } catch (e) {}
+    const hint = motive && TACTIC_THEME_HINTS[motive.theme];
+    if (!hint) return;
+    const textEl = $('#tactic-theme-text').empty();
+    textEl.append($('<span></span>').text('🎯 Tema: '));
+    textEl.append($('<strong></strong>').text(hint.label));
+    textEl.append($('<span></span>').text(` · ${hint.tip}`));
+    banner.show();
 }
 
 /* --------------------- Exercicis d'errors d'obertura --------------------- */
