@@ -2629,6 +2629,26 @@ function getLeaguePlayer(id) {
     return currentLeague.players.find(p => p.id === id) || null;
 }
 
+function getCurrentUserLeagueRoc() {
+    const value = (typeof userELO === 'number') ? userELO : currentElo;
+    return Math.max(50, Math.round(value || 50));
+}
+
+function syncLeagueUserRoc() {
+    const me = getLeaguePlayer('me');
+    if (!me) return;
+    // La lliga congela el ROC dels rivals quan es crea, però el jugador ha de
+    // mostrar sempre el seu ROC actual si ha pujat o baixat fora de la lliga.
+    me.elo = getCurrentUserLeagueRoc();
+}
+
+function getLeagueOpponentRoc(match = leagueActiveMatch) {
+    if (match && typeof match.opponentRoc === 'number') return match.opponentRoc;
+    const opponent = match ? getLeaguePlayer(match.opponentId) : null;
+    if (opponent && typeof opponent.elo === 'number') return opponent.elo;
+    return (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : currentElo;
+}
+
 function getLeaguePlayerElo(id) {
     const player = getLeaguePlayer(id);
     return player && typeof player.elo === 'number' ? player.elo : userELO;
@@ -2712,6 +2732,7 @@ function updateLeagueBanner() {
     }
 
     createNewLeague(false);
+    syncLeagueUserRoc();
     if (!currentLeague || currentLeague.completed) {
         banner.hide();
         return;
@@ -2778,6 +2799,7 @@ function renderLeagueTimeControl() {
 
 function renderLeague() {
     if (!currentLeague) return;
+    syncLeagueUserRoc();
 
     $('#league-name').text(currentLeague.name);
     renderLeagueTimeControl();
@@ -2895,16 +2917,24 @@ function startLeagueRound() {
         return;
     }   
     if (!currentLeague) createNewLeague(false);
+    syncLeagueUserRoc();
     if (currentLeague.completed) return;
 
     const roundIdx = currentLeague.currentRound - 1;
     const oppId = getMyOpponentForRound(roundIdx);
     if (!oppId) { alert('No s\'ha pogut trobar rival'); return; }
 
-    leagueActiveMatch = { leagueId: currentLeague.id, round: currentLeague.currentRound, opponentId: oppId };
-    currentGameMode = 'league';
     const opp = getLeaguePlayer(oppId);
-    currentOpponent = opp ? { id: opp.id, name: opp.name, elo: opp.elo } : { id: oppId, name: 'Rival', elo: userELO };
+    const opponentRoc = opp && typeof opp.elo === 'number' ? opp.elo : getCurrentUserLeagueRoc();
+    leagueActiveMatch = {
+        leagueId: currentLeague.id,
+        round: currentLeague.currentRound,
+        opponentId: oppId,
+        opponentRoc,
+        opponentName: opp ? opp.name : 'Rival'
+    };
+    currentGameMode = 'league';
+    currentOpponent = { id: oppId, name: opp ? opp.name : 'Rival', elo: opponentRoc };
     saveStorage();
 
     startGame(false);
@@ -3241,6 +3271,7 @@ function getAdaptiveNormalized() {
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
 function getActiveStrengthElo() {
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
+    if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
     return currentElo;
 }
 
@@ -12284,10 +12315,12 @@ blunderMode = isBundle;
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
-        if (opp) currentOpponent = { id: opp.id, name: opp.name, elo: opp.elo };
-        const label = opp ? `${opp.name} (${opp.elo})` : 'Rival de lliga';
+        const opponentRoc = getLeagueOpponentRoc(leagueActiveMatch);
+        currentOpponent = { id: leagueActiveMatch.opponentId, name: leagueActiveMatch.opponentName || (opp ? opp.name : 'Rival'), elo: opponentRoc };
+        const label = `${currentOpponent.name} · ROC ${opponentRoc}`;
         $('#engine-elo').text(label);
         $('#game-mode-title').text(`🏆 Lliga · Jornada ${leagueActiveMatch.round}/9`);
+        if (engineReady) applyEngineEloStrength(opponentRoc);
     } else if (window._startAssistedGame) {
         currentGameMode = 'assisted';
         currentOpponent = null;
