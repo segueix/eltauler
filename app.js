@@ -8419,12 +8419,12 @@ function showOpeningErrorSuccessOverlay(noMore) {
     const remaining = collectAllOpeningErrorPositions().length;
     const allErrors = getAllOpeningErrors();
     const globalRemaining = allErrors.length;
-    const showAgainBtn = (remaining > 0 || globalRemaining > 0) && !noMore;
+    const showAgainBtn = remaining > 0 || globalRemaining > 0;
     console.log('[Overlay] remaining:', remaining, 'globalRemaining:', globalRemaining, 'noMore:', noMore, 'showBtn:', showAgainBtn);
 
     // Mostrar missatge adequat
     let message;
-    if (noMore || globalRemaining === 0) {
+    if (globalRemaining === 0) {
         message = 'Has resolt tots els errors!';
     } else if (remaining > 0) {
         message = `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}`;
@@ -9538,6 +9538,21 @@ function startHieroglyphicExercise() {
     if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
 }
 
+function hasOpeningHieroglyphicCandidate() {
+    return Array.isArray(CURATED_OPENINGS) && CURATED_OPENINGS.some(op => op && Array.isArray(op.moves) && op.moves.length >= 4);
+}
+
+function getHieroglyphicNextButtonHtml() {
+    if (hieroglyphicSource === 'personal') {
+        return hasPersonalHieroglyphicCandidate()
+            ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Desxifra un altre error</button>'
+            : '';
+    }
+    return hasOpeningHieroglyphicCandidate()
+        ? '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent jeroglífic</button>'
+        : '';
+}
+
 function handleHieroglyphicMove(source, target) {
     if (!hieroglyphicExerciseActive || !hieroglyphicGame) return 'snapback';
     const move = hieroglyphicGame.move({ from: source, to: target, promotion: 'q' });
@@ -9552,9 +9567,7 @@ function handleHieroglyphicMove(source, target) {
         const noteEl = document.getElementById('opening-practice-note');
         const reward = hieroglyphicSource === 'personal' ? getHieroglyphicRewardText() : 'Has desxifrat el signe.';
         if (noteEl) {
-            const nextButton = hieroglyphicSource === 'personal'
-                ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Desxifra un altre error</button>'
-                : '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>';
+            const nextButton = getHieroglyphicNextButtonHtml();
             noteEl.innerHTML = `<div class="opening-maxim-box">
                 <div class="maxim-title">✅ Correcte!</div>
                 <div class="maxim-text">${escapeHtml(reward)}</div>
@@ -9578,9 +9591,7 @@ function handleHieroglyphicMove(source, target) {
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) {
-            const nextButton = hieroglyphicSource === 'personal'
-                ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Provar un altre jeroglífic</button>'
-                : '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>';
+            const nextButton = getHieroglyphicNextButtonHtml();
             noteEl.innerHTML = `<div class="opening-maxim-box">
                 <div class="maxim-title">💡 La resposta era: ${escapeHtml(hieroglyphicContext?.bestMoveSan || hieroglyphicExpectedMove || hieroglyphicExpectedUci || '')}</div>
                 <div class="maxim-text">${escapeHtml(explainHieroglyphicAnswer())}</div>
@@ -11371,7 +11382,7 @@ function showSrsSuccessOverlay() {
     }
     overlay.find('.bundle-success-title').text('Repàs fet ✅');
     overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara');
-    overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0);
+    overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0).toggle(due > 0);
     overlay.css('display', 'flex');
     overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
         isSrsReviewSession = false; overlay.hide(); returnToMainMenuImmediate();
@@ -11466,8 +11477,14 @@ function showDailyPuzzleOverlay() {
     if (!overlay.length) { isDailyPuzzleSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Repte diari superat 🏆 (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`);
-    overlay.find('#btn-bundle-random-again').text('Fet').prop('disabled', true);
+    const hasMoreProblems = Array.isArray(TACTICS_BANK) && TACTICS_BANK.length > 0;
+    overlay.find('#btn-bundle-random-again').text('⚡ Un altre problema').prop('disabled', !hasMoreProblems).toggle(hasMoreProblems);
     overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        isDailyPuzzleSession = false;
+        startTacticsPuzzle();
+    });
     overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
         isDailyPuzzleSession = false; overlay.hide(); returnToMainMenuImmediate();
     });
@@ -11534,7 +11551,7 @@ function showTacticsOverlay() {
     if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`);
-    overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false);
+    overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
     overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
         overlay.hide(); startTacticsPuzzle();
@@ -13481,7 +13498,7 @@ function showRandomBundleSuccessOverlay() {
     overlay.find('.bundle-success-remaining').text(
         remaining > 0 ? `${remaining} bundles pendents` : 'No queda cap bundle pendent'
     );
-    overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0);
+    overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
     overlay.css('display', 'flex');
 
     $('#btn-bundle-random-home').off('click').on('click', () => {
@@ -14734,7 +14751,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
     }
     overlay.find('.bundle-success-title').text(titleText);
     overlay.find('.bundle-success-remaining').text('Pla setmanal actualitzat');
-    overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false);
+    overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
     $('#btn-bundle-random-home').off('click').on('click', () => {
         overlay.hide();
