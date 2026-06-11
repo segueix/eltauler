@@ -339,39 +339,21 @@
             margin: 12px 0;
             text-align: left;
         }
-        /* Al mòbil tot el pla és desplaçable amb el dit, sense menjar-se la pantalla */
-        body.device-mobile #weekly-plan-panel { max-height: 60vh; }
-        @media (max-width: 768px) {
-            #weekly-plan-panel {
-                max-height: 60vh;
-                overflow-y: auto;
-                -webkit-overflow-scrolling: touch;
-                overscroll-behavior: contain;
-            }
-            /* Si el panell sencer ja fa scroll, el resum no necessita el seu propi scroll intern */
-            #weekly-plan-panel .coach-plan-summary { max-height: none; overflow-y: visible; }
-        }
-        body.device-mobile #weekly-plan-panel {
-            overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
-            overscroll-behavior: contain;
-        }
-        body.device-mobile #weekly-plan-panel .coach-plan-summary { max-height: none; overflow-y: visible; }
-        #weekly-plan-panel::-webkit-scrollbar { width: 5px; }
-        #weekly-plan-panel::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
-        #weekly-plan-panel::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.4); border-radius: 3px; }
         .coach-kicker {
             font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
-        /* El resum del pla pot ser llarg: alçada limitada amb scroll tàctil */
+        /* El text descriptiu del dia pot ser llarg: alçada fixa amb scroll tàctil
+           perquè no quedi tallat (la resta del panell no es mou) */
         .coach-plan-summary {
             max-height: 9em;
             overflow-y: auto;
             -webkit-overflow-scrolling: touch;
             overscroll-behavior: contain;
-            padding-right: 4px;
+            touch-action: pan-y;
+            padding-right: 6px;
+            scrollbar-width: thin;
         }
         .coach-plan-summary::-webkit-scrollbar { width: 5px; }
         .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
