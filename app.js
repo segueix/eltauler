@@ -14425,6 +14425,11 @@ function updatePlanSummaryToggle() {
             el.classList.toggle('expanded');
             updatePlanSummaryToggle();
         });
+        // El panell pot estar ocult quan es renderitza (mesura impossible): recalcula
+        // el botó quan el resum es faci visible o canviï de mida.
+        if (window.ResizeObserver) {
+            new ResizeObserver(() => updatePlanSummaryToggle()).observe(el);
+        }
     }
     const expanded = el.classList.contains('expanded');
     btn.textContent = expanded ? "▲ Mostra'n menys" : '▼ Llegeix-ho tot';
@@ -14482,12 +14487,6 @@ function renderWeeklyPlan() {
         else goBtn.on('click', () => launchWeeklyPlanItem(item));
         list.append(row);
     });
-
-    $('#btn-plan-speak').off('click').on('click', () => {
-        const pending = weeklyPlan.items.filter(i => weeklyPlanItemProgress(i) < i.target).map(i => i.title);
-        speakCoachText(summaryEl.text() + (pending.length ? ' Tasques pendents: ' + pending.join('. ') + '.' : ' Pla completat, enhorabona!'));
-    });
-    updateCoachSpeakButtons();
 
     // Poliment Gemini un sol cop per dia (es persisteix dins del pla).
     if (!weeklyPlan.geminiSummary && geminiApiKey && !coachPlanGeminiPending) {
