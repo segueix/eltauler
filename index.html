@@ -3744,40 +3744,64 @@
             return !!(value && typeof Element !== 'undefined' && value instanceof Element);
         }
 
-        function sanitizeFirestoreData(value, options = {}, seen = new WeakSet(), depth = 0) {
-            const { allowNestedArrays = false, dropHeavyFields = true } = options;
-            if (value === undefined || typeof value === 'function' || typeof value === 'symbol' || isDomElement(value)) return undefined;
+        function isFirestoreFieldValue(value) {
+            return !!(
+                value &&
+                typeof value === 'object' &&
+                typeof value.isEqual === 'function' &&
+                typeof value._methodName === 'string'
+            );
+        }
+
+        function findNestedArrays(value, path = 'root', insideArray = false, results = []) {
+            if (Array.isArray(value)) {
+                if (insideArray) results.push(path);
+                value.forEach((item, index) => {
+                    findNestedArrays(item, `${path}[${index}]`, true, results);
+                });
+                return results;
+            }
+
+            if (value && typeof value === 'object' && !isFirestoreFieldValue(value)) {
+                Object.entries(value).forEach(([key, child]) => {
+                    findNestedArrays(child, `${path}.${key}`, false, results);
+                });
+            }
+
+            return results;
+        }
+
+        function sanitizeFirestoreData(value, seen = new WeakSet(), insideArray = false) {
+            if (value === undefined) return null;
+            if (typeof value === 'function' || typeof value === 'symbol') return null;
+            if (value instanceof Date) return value.toISOString();
             if (value === null || typeof value !== 'object') {
                 if (typeof value === 'number' && !Number.isFinite(value)) return null;
                 if (typeof value === 'string' && value.length > MAX_STRING_FIELD_LENGTH) return value.slice(0, MAX_STRING_FIELD_LENGTH);
                 return value;
             }
-            if (value instanceof Date) return value.toISOString();
-            if (seen.has(value)) return undefined;
+            if (isFirestoreFieldValue(value)) return value;
+            if (isDomElement(value)) return null;
+            if (seen.has(value)) return null;
             seen.add(value);
+
             if (Array.isArray(value)) {
-                const output = [];
-                value.forEach(item => {
-                    if (Array.isArray(item) && !allowNestedArrays) {
-                        const nested = sanitizeFirestoreData(item, { ...options, allowNestedArrays: true }, seen, depth + 1);
-                        if (nested !== undefined) output.push({ values: nested });
-                        return;
-                    }
-                    const clean = sanitizeFirestoreData(item, options, seen, depth + 1);
-                    if (clean !== undefined) output.push(clean);
-                });
+                const cleanArray = value
+                    .map(item => sanitizeFirestoreData(item, seen, true))
+                    .filter(item => item !== undefined);
+
                 seen.delete(value);
-                return output;
+                if (insideArray) return { items: cleanArray };
+                return cleanArray;
             }
-            const plainSource = Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null
-                ? value
-                : Object.assign({}, value);
+
+            const prototype = Object.getPrototypeOf(value);
+            const plainSource = prototype === Object.prototype || prototype === null ? value : Object.assign({}, value);
             const result = {};
             Object.entries(plainSource).forEach(([key, val]) => {
                 if (!key || PRIVATE_KEY_PATTERN.test(key)) return;
-                if (dropHeavyFields && depth <= 1 && HEAVY_FIELD_PATTERN.test(key)) return;
-                const clean = sanitizeFirestoreData(val, options, seen, depth + 1);
-                if (clean !== undefined) result[key] = clean;
+                const cleanVal = sanitizeFirestoreData(val, seen, false);
+                if (cleanVal !== undefined) result[key] = cleanVal;
             });
             seen.delete(value);
             return result;
@@ -3803,41 +3827,56 @@
             return [];
         }
 
-        function compactErrorData(errorData = {}, fallbackIndex = 0) {
-            const data = sanitizeFirestoreData(errorData, { dropHeavyFields: false }) || {};
-            const createdAt = data.createdAt || data.date || data.timestamp || new Date().toISOString();
+        function compactErrorForFirestore(error = {}, sourceGameId = null) {
+            const data = sanitizeFirestoreData(error) || {};
             return sanitizeFirestoreData({
-                id: String(data.id || data.errorId || `${createdAt}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
-                fen: data.fen || data.position || null,
-                bestMove: data.bestMove || data.best || data.expectedMove || null,
+                id: data.id || `error_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+                fen: data.fen || null,
                 playerMove: data.playerMove || data.move || data.playedMove || null,
+                bestMove: data.bestMove || data.best || data.expectedMove || null,
                 severity: data.severity || data.type || data.kind || null,
+                quality: data.quality || null,
                 theme: data.theme || data.motif || data.category || null,
-                createdAt,
-                pv: compactPv(data.pv || data.principalVariation || data.line)
-            }, { dropHeavyFields: false }) || {};
+                sourceGameId,
+                createdAt: data.createdAt || data.date || data.timestamp || new Date().toISOString(),
+                pv: Array.isArray(data.bestMovePv)
+                    ? data.bestMovePv.flat().join(' ')
+                    : compactPv(data.pv || data.principalVariation || data.line).join(' ')
+            }) || {};
         }
 
-        function compactGameData(gameData = {}, fallbackIndex = 0) {
-            const data = sanitizeFirestoreData(gameData, { dropHeavyFields: false }) || {};
-            const createdAt = data.createdAt || data.date || data.timestamp || new Date().toISOString();
-            const compactErrors = Array.isArray(data.errors) ? data.errors : (Array.isArray(data.currentGameErrors) ? data.currentGameErrors : []);
+        function compactErrorData(errorData = {}, fallbackIndex = 0, sourceGameId = null) {
+            const compact = compactErrorForFirestore(errorData, sourceGameId);
+            compact.id = String(compact.id || `error_${Date.now()}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+            return sanitizeFirestoreData(compact) || {};
+        }
+
+        function compactGameForFirestore(entry = {}) {
+            const data = sanitizeFirestoreData(entry) || {};
             return sanitizeFirestoreData({
-                id: String(data.id || data.gameId || `${createdAt}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
-                createdAt,
-                pgn: typeof data.pgn === 'string' ? data.pgn.slice(0, MAX_STRING_FIELD_LENGTH) : null,
-                fen: data.fen || data.finalFen || data.finalFEN || null,
+                id: data.id || data.gameId || `game_${Date.now()}`,
+                createdAt: data.createdAt || data.date || new Date().toISOString(),
                 result: data.result || null,
+                pgn: typeof data.pgn === 'string' ? data.pgn.slice(0, MAX_STRING_FIELD_LENGTH) : null,
+                finalFen: data.finalFen || data.fen || data.finalFEN || null,
                 userELO: data.userELO ?? data.userElo ?? null,
                 engineELO: data.engineELO ?? data.engineElo ?? data.roc ?? data.engineRocOrElo ?? null,
                 accuracy: data.accuracy ?? data.precision ?? null,
-                errors: compactErrors.slice(0, 20).map(compactErrorData),
-                moves: Array.isArray(data.moves) ? data.moves.filter(move => typeof move === 'string').slice(0, 300) : []
-            }, { dropHeavyFields: false }) || {};
+                moves: Array.isArray(data.moves)
+                    ? data.moves.map(m => typeof m === 'string' ? m : JSON.stringify(m)).slice(0, 300)
+                    : [],
+                errorsCount: Array.isArray(data.errors) ? data.errors.length : 0
+            }) || {};
+        }
+
+        function compactGameData(gameData = {}, fallbackIndex = 0) {
+            const compact = compactGameForFirestore(gameData);
+            compact.id = String(compact.id || `game_${Date.now()}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+            return sanitizeFirestoreData(compact) || {};
         }
 
         function compactReviewData(reviewData = {}, fallbackIndex = 0) {
-            const data = sanitizeFirestoreData(reviewData, { dropHeavyFields: false }) || {};
+            const data = sanitizeFirestoreData(reviewData) || {};
             const createdAt = data.createdAt || data.date || data.timestamp || new Date().toISOString();
             const moves = Array.isArray(data.moves) ? data.moves : (Array.isArray(data.moveReviews) ? data.moveReviews : []);
             return sanitizeFirestoreData({
@@ -3845,21 +3884,21 @@
                 createdAt,
                 gameId: data.gameId || null,
                 pgn: typeof data.pgn === 'string' ? data.pgn.slice(0, MAX_STRING_FIELD_LENGTH) : null,
-                fen: data.fen || data.finalFen || null,
+                finalFen: data.finalFen || data.fen || null,
                 result: data.result || null,
                 accuracy: data.accuracy ?? data.precision ?? null,
                 moves: moves.slice(0, 120).map((move, index) => {
                     if (typeof move === 'string') return move;
-                    const cleanMove = sanitizeFirestoreData(move, { dropHeavyFields: false }) || {};
-                    return {
+                    const cleanMove = sanitizeFirestoreData(move) || {};
+                    return JSON.stringify({
                         move: cleanMove.move || cleanMove.san || cleanMove.uci || `move_${index}`,
                         fen: cleanMove.fen || null,
                         eval: cleanMove.eval ?? cleanMove.evaluation ?? null,
                         bestMove: cleanMove.bestMove || null,
-                        pv: compactPv(cleanMove.pv || cleanMove.principalVariation)
-                    };
+                        pv: compactPv(cleanMove.pv || cleanMove.principalVariation).join(' ')
+                    });
                 })
-            }, { dropHeavyFields: false }) || {};
+            }) || {};
         }
 
 
@@ -3876,8 +3915,8 @@
 
         function buildCentralStatePayload(captured = {}, user, reason, now) {
             const stats = captured.stats || {};
-            return sanitizeFirestoreData({
-                schemaVersion: Math.max(Number(captured.schemaVersion) || 2, 2),
+            const rawPayload = {
+                schemaVersion: captured.schemaVersion || 1,
                 uid: user.uid,
                 userELO: captured.userELO ?? stats.userELO ?? null,
                 engineELO: captured.engineELO ?? captured.currentElo ?? null,
@@ -3889,13 +3928,17 @@
                 maxStreak: captured.maxStreak ?? stats.maxStreak ?? 0,
                 settings: captured.settings || {},
                 stats: compactCentralStats(captured.stats || {}),
-                openingProgress: captured.openingProgress || {},
-                trainingProgress: captured.trainingProgress || {},
                 updatedAt: serverTimestamp(),
                 updatedAtClient: now,
                 deviceId: cloudSyncState.deviceId,
                 lastSyncReason: reason
-            }) || {};
+            };
+            const payload = sanitizeFirestoreData(rawPayload) || {};
+            const nestedArrayPaths = findNestedArrays(payload);
+            if (nestedArrayPaths.length) {
+                console.warn('[CloudSync] Nested arrays detectades abans de guardar:', nestedArrayPaths);
+            }
+            return payload;
         }
 
         function getCollectionState(stateOverride = null) {
@@ -3948,11 +3991,13 @@
             try {
                 const data = normalizeGameData(gameData);
                 const gameId = data.gameId || data.id || `game_${Date.now()}`;
-                await setDoc(userDoc(user.uid, 'games', gameId), {
+                const path = `users/${user.uid}/games/${gameId}`;
+                const result = await guardedSetDoc(userDoc(user.uid, 'games', gameId), path, {
                     ...data,
                     id: gameId,
                     uid: user.uid
                 }, { merge: true });
+                if (!result.ok) throw result.error;
                 return { id: gameId };
             } catch (error) {
                 showCloudError('Error escrivint Firestore: no s’ha pogut desar la partida.', error);
@@ -3977,10 +4022,12 @@
             const user = requireAuthenticatedUser('saveTrainingHistory');
             if (!user) return null;
             try {
-                await setDoc(userDoc(user.uid, 'training', 'history'), {
+                const path = `users/${user.uid}/training/history`;
+                const result = await guardedSetDoc(userDoc(user.uid, 'training', 'history'), path, {
                     ...(sanitizeFirestoreData(historyData) || {}),
                     updatedAt: serverTimestamp()
                 }, { merge: true });
+                if (!result.ok) throw result.error;
                 return true;
             } catch (error) {
                 showCloudError('Error escrivint Firestore: no s’ha pogut desar l’entrenament.', error);
@@ -4004,10 +4051,12 @@
             const user = requireAuthenticatedUser('saveCloudSettings');
             if (!user) return null;
             try {
-                await setDoc(userDoc(user.uid, 'settings', 'main'), {
+                const path = `users/${user.uid}/settings/main`;
+                const result = await guardedSetDoc(userDoc(user.uid, 'settings', 'main'), path, {
                     ...(sanitizeFirestoreData(settingsData) || {}),
                     updatedAt: serverTimestamp()
                 }, { merge: true });
+                if (!result.ok) throw result.error;
                 return true;
             } catch (error) {
                 showCloudError('Error escrivint Firestore: no s’han pogut desar les preferències.', error);
@@ -4046,14 +4095,29 @@
             });
         }
 
+        function buildNestedArrayError(paths, path) {
+            return buildFirestoreWriteError(`Nested arrays a ${paths.join(', ')}`, {
+                code: 'invalid-argument',
+                message: `nested arrays a ${paths.join(', ')} (${path})`
+            });
+        }
+
         async function guardedSetDoc(ref, path, payload, options = { merge: true }) {
-            const payloadSizeBytes = getPayloadSizeBytes(payload);
-            console.log('[CloudSync] upload payload', { path, payloadSizeBytes, payloadKeys: Object.keys(payload || {}) });
+            const safePayload = sanitizeFirestoreData(payload) || {};
+            const nestedArrayPaths = findNestedArrays(safePayload);
+            if (nestedArrayPaths.length) {
+                console.error('[CloudSync] Payload encara invàlid per Firestore:', nestedArrayPaths);
+                const error = buildNestedArrayError(nestedArrayPaths, path);
+                logFirestoreWriteFailure(error, path, safePayload);
+                return { ok: false, error, payloadSizeBytes: getPayloadSizeBytes(safePayload) };
+            }
+            const payloadSizeBytes = getPayloadSizeBytes(safePayload);
+            console.log('[CloudSync] upload payload', { path, payloadSizeBytes, payloadKeys: Object.keys(safePayload || {}) });
             try {
-                await setDoc(ref, payload, options);
-                return { ok: true, payloadSizeBytes };
+                await setDoc(ref, safePayload, options);
+                return { ok: true, payloadSizeBytes, payload: safePayload };
             } catch (error) {
-                logFirestoreWriteFailure(error, path, payload, payloadSizeBytes);
+                logFirestoreWriteFailure(error, path, safePayload, payloadSizeBytes);
                 return { ok: false, error, payloadSizeBytes };
             }
         }
@@ -4128,6 +4192,13 @@
             const now = new Date().toISOString();
             const captured = stateOverride || getAppLocalState();
             const payload = buildCentralStatePayload(captured, user, reason, now);
+            const nestedArrayPaths = findNestedArrays(payload);
+            if (nestedArrayPaths.length) {
+                console.error('[CloudSync] Payload encara invàlid per Firestore:', nestedArrayPaths);
+                const error = buildNestedArrayError(nestedArrayPaths, path);
+                showCloudError('Error escrivint Firestore', error);
+                return { ok: false, error, payload, payloadSizeBytes: getPayloadSizeBytes(payload) };
+            }
             const payloadSizeBytes = getPayloadSizeBytes(payload);
             if (payloadSizeBytes > MAX_CENTRAL_STATE_BYTES) {
                 const error = buildFirestoreWriteError('L’estat central és massa gran; cal dividir-lo en subcol·leccions.', {
