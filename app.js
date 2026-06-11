@@ -13973,6 +13973,9 @@ function updateStatus() {
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
 const WEEKLY_PLAN_VERSION = 3;
+// Quan puja, el resum desat del pla d'avui es descarta i es regenera (text local
+// i, si hi ha clau Gemini, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
+const PLAN_SUMMARY_REFRESH_VERSION = 1;
 let weeklyPlan = null;
 let coachCatalanVoice = null;
 let coachDebriefPending = false;
@@ -14337,6 +14340,7 @@ function buildWeeklyPlan() {
         focusMastery: Math.round((themeMastery[focusTheme] || 0) * 100),
         srsAtStart: due,
         geminiSummary: null,
+        summaryVersion: PLAN_SUMMARY_REFRESH_VERSION,
         items: items.slice(0, 4)
     };
 }
@@ -14381,6 +14385,11 @@ function ensureWeeklyPlan() {
     const stored = readJsonStorage(WEEKLY_PLAN_KEY, null);
     if (stored && stored.day === day && stored.version === WEEKLY_PLAN_VERSION && Array.isArray(stored.items) && stored.items.length) {
         weeklyPlan = stored;
+        if ((weeklyPlan.summaryVersion || 0) < PLAN_SUMMARY_REFRESH_VERSION) {
+            weeklyPlan.geminiSummary = null;
+            weeklyPlan.summaryVersion = PLAN_SUMMARY_REFRESH_VERSION;
+            writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
+        }
     } else {
         weeklyPlan = buildWeeklyPlan();
         writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);

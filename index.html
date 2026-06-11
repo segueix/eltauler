@@ -15,7 +15,7 @@
     <title>El Tauler - Entrenador d'Escacs</title>
     
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json?v=1.0.8">
+    <link rel="manifest" href="manifest.json?v=1.0.9">
     
     <!-- Icons -->
     <link rel="apple-touch-icon" href="novaicon.png">
@@ -3427,13 +3427,13 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.1"></script>
     <script>
-        window.APP_VERSION = '1.0.8';
+        window.APP_VERSION = '1.0.9';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.8"></script>
+    <script src="app.js?v=1.0.9"></script>
     
     <!-- Service Worker Registration -->
     <script>
@@ -3487,7 +3487,7 @@
 
             // Registra el service worker
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js?v=' + encodeURIComponent(window.APP_VERSION || '1.0.8'))
+                navigator.serviceWorker.register('./sw.js?v=' + encodeURIComponent(window.APP_VERSION || '1.0.9'))
                     .then((reg) => {
                         console.log('[App] Service Worker registrat:', reg.scope);
 
