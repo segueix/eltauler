@@ -15,7 +15,7 @@
     <title>El Tauler - Entrenador d'Escacs</title>
     
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json?v=1.0.6">
+    <link rel="manifest" href="manifest.json?v=1.0.7">
     
     <!-- Icons -->
     <link rel="apple-touch-icon" href="novaicon.png">
@@ -381,18 +381,12 @@
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
-        /* El text descriptiu del dia pot ser llarg: el retallem a 6 línies i un botó
-           el desplega sencer. Res de scroll intern, que en alguns mòbils no responia
-           al tacte i el text quedava inaccessible. */
+        /* El resum llarg es retalla per JS a 40 caràcters i el botó
+           [Continuar llegint] el desplega sencer sense scroll intern. */
         .coach-plan-summary {
-            display: -webkit-box;
-            -webkit-box-orient: vertical;
-            -webkit-line-clamp: 6;
             overflow: hidden;
         }
         .coach-plan-summary.expanded {
-            display: block;
-            -webkit-line-clamp: none;
             overflow: visible;
         }
         .coach-plan-toggle {
@@ -2738,7 +2732,7 @@
                     </span>
                 </div>
                 <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button">▼ Llegeix-ho tot</button>
+                <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
                 <div id="weekly-plan-list"></div>
             </div>
 
@@ -3428,13 +3422,13 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.1"></script>
     <script>
-        window.APP_VERSION = '1.0.6';
+        window.APP_VERSION = '1.0.7';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.6"></script>
+    <script src="app.js?v=1.0.7"></script>
     
     <!-- Service Worker Registration -->
     <script>
@@ -3488,7 +3482,7 @@
 
             // Registra el service worker
             window.addEventListener('load', () => {
-                navigator.serviceWorker.register('./sw.js')
+                navigator.serviceWorker.register('./sw.js?v=' + encodeURIComponent(window.APP_VERSION || '1.0.7'))
                     .then((reg) => {
                         console.log('[App] Service Worker registrat:', reg.scope);
 

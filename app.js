@@ -14411,10 +14411,39 @@ function updatePlanCountdown() {
     if (weeklyPlan && weeklyPlan.day !== getPlanDayKey()) ensureWeeklyPlan();
 }
 
-/* En alguns mòbils el scroll intern del resum no responia al tacte i el text
-   quedava tallat i inaccessible. En lloc d'un requadre amb scroll, el CSS retalla
-   el text a 6 línies i aquest botó el desplega sencer: un toc funciona a tot arreu.
-   El botó només apareix si el text realment sobreïx. */
+const PLAN_SUMMARY_COLLAPSE_CHARS = 40;
+
+function getCollapsedPlanSummary(text) {
+    if (text.length <= PLAN_SUMMARY_COLLAPSE_CHARS) return text;
+    return `${text.slice(0, PLAN_SUMMARY_COLLAPSE_CHARS).trimEnd()}…`;
+}
+
+function renderPlanSummaryText() {
+    const el = document.getElementById('weekly-plan-summary');
+    const btn = document.getElementById('btn-plan-summary-toggle');
+    if (!el || !btn) return;
+
+    const fullText = el.dataset.fullText || '';
+    const shouldCollapse = fullText.length > PLAN_SUMMARY_COLLAPSE_CHARS;
+    const expanded = el.dataset.expanded === 'true';
+
+    el.classList.toggle('expanded', expanded || !shouldCollapse);
+    el.textContent = shouldCollapse && !expanded ? getCollapsedPlanSummary(fullText) : fullText;
+    btn.style.display = shouldCollapse ? 'inline-block' : 'none';
+    btn.textContent = expanded ? "▲ Mostra'n menys" : '[Continuar llegint]';
+    btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+}
+
+function setPlanSummaryText(text) {
+    const el = document.getElementById('weekly-plan-summary');
+    if (!el) return;
+    el.dataset.fullText = text || '';
+    el.dataset.expanded = 'false';
+    renderPlanSummaryText();
+}
+
+/* El resum del pla només mostra els primers 40 caràcters quan és llarg.
+   El botó [Continuar llegint] desplega el text sencer sense scroll intern. */
 function updatePlanSummaryToggle() {
     const el = document.getElementById('weekly-plan-summary');
     const btn = document.getElementById('btn-plan-summary-toggle');
@@ -14422,21 +14451,11 @@ function updatePlanSummaryToggle() {
     if (!btn.dataset.bound) {
         btn.dataset.bound = '1';
         btn.addEventListener('click', () => {
-            el.classList.toggle('expanded');
-            updatePlanSummaryToggle();
+            el.dataset.expanded = el.dataset.expanded === 'true' ? 'false' : 'true';
+            renderPlanSummaryText();
         });
-        // El panell pot estar ocult quan es renderitza (mesura impossible): recalcula
-        // el botó quan el resum es faci visible o canviï de mida.
-        if (window.ResizeObserver) {
-            new ResizeObserver(() => updatePlanSummaryToggle()).observe(el);
-        }
     }
-    const expanded = el.classList.contains('expanded');
-    btn.textContent = expanded ? "▲ Mostra'n menys" : '▼ Llegeix-ho tot';
-    // Si el panell està amagat (clientHeight 0) no podem mesurar: deixem el botó com està.
-    if (el.clientHeight > 0) {
-        btn.style.display = (expanded || el.scrollHeight > el.clientHeight + 1) ? 'inline-block' : 'none';
-    }
+    renderPlanSummaryText();
 }
 
 function launchWeeklyPlanItem(item) {
@@ -14460,9 +14479,8 @@ function renderWeeklyPlan() {
     if (!panel.length || !weeklyPlan) return;
     panel.show();
     startPlanCountdown();
-    const summaryEl = $('#weekly-plan-summary');
     const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
-    summaryEl.text(summary);
+    setPlanSummaryText(summary);
     updatePlanSummaryToggle();
 
     const list = $('#weekly-plan-list').empty();
@@ -14494,7 +14512,7 @@ function renderWeeklyPlan() {
         requestGeminiCoachText(`dailyplan:${weeklyPlan.day}`, buildWeeklyPlanGeminiPrompt(weeklyPlan), text => {
             weeklyPlan.geminiSummary = text;
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
-            summaryEl.text(text);
+            setPlanSummaryText(text);
             updatePlanSummaryToggle();
         }).finally(() => { coachPlanGeminiPending = false; });
     }
