@@ -517,6 +517,7 @@ function saveBundleAcceptMode(mode) {
     try { localStorage.setItem(BUNDLE_ACCEPT_MODE_KEY, bundleAcceptMode); } catch (e) {}
     const sel = document.getElementById('bundle-accept-select');
     if (sel) sel.value = bundleAcceptMode;
+    if (!window.__eltaulerApplyingCloudState) { touchCloudSyncLocalUpdate(); syncLocalStateToCloud('bundle-accept-mode'); }
 }
 
 function loadEpaperPreference() {
@@ -535,7 +536,10 @@ function applyEpaperMode(enabled, options = {}) {
     if (toggle) toggle.checked = epaperEnabled;
     // ePaper i mode dia són incompatibles: activar ePaper desactiva el mode dia
     if (epaperEnabled && dayModeEnabled) applyDayMode(false);
-    if (!options.skipSave) saveEpaperPreference(epaperEnabled);
+    if (!options.skipSave) {
+        saveEpaperPreference(epaperEnabled);
+        if (!window.__eltaulerApplyingCloudState) { touchCloudSyncLocalUpdate(); syncLocalStateToCloud('epaper-mode'); }
+    }
     if (eloChart) updateEloChart();
     if (reviewChart) updateReviewChart();
 }
@@ -557,6 +561,7 @@ function applyDayMode(enabled, options = {}) {
     if (dayModeEnabled && epaperEnabled) applyEpaperMode(false);
     if (!options.skipSave) {
         try { localStorage.setItem(DAY_MODE_KEY, dayModeEnabled ? 'on' : 'off'); } catch (e) {}
+        if (!window.__eltaulerApplyingCloudState) { touchCloudSyncLocalUpdate(); syncLocalStateToCloud('day-mode'); }
     }
     if (eloChart) updateEloChart();
     if (reviewChart) updateReviewChart();
@@ -1020,7 +1025,10 @@ function applyTvJeroglyphicsMode(enabled, options = {}) {
     tvJeroglyphicsEnabled = !!enabled;
     const toggle = document.getElementById('tv-jeroglyphics-toggle');
     if (toggle) toggle.checked = tvJeroglyphicsEnabled;
-    if (!options.skipSave) saveTvJeroglyphicsPreference(tvJeroglyphicsEnabled);
+    if (!options.skipSave) {
+        saveTvJeroglyphicsPreference(tvJeroglyphicsEnabled);
+        if (!window.__eltaulerApplyingCloudState) { touchCloudSyncLocalUpdate(); syncLocalStateToCloud('tv-jeroglyphics'); }
+    }
     if (!tvJeroglyphicsEnabled && tvJeroglyphicsActive) {
         cancelTvJeroglyphics('Jeroglífics desactivats.');
     }
@@ -1119,6 +1127,7 @@ function applyControlMode(mode, opts) {
 
     if (o.save !== false) {
         try { localStorage.setItem(CONTROL_MODE_KEY, mode); } catch (e) {}
+        if (!window.__eltaulerApplyingCloudState) { touchCloudSyncLocalUpdate(); syncLocalStateToCloud('control-mode'); }
     }
 
     const sel = document.getElementById('control-mode-select');
@@ -4250,6 +4259,7 @@ function loadStorage() {
 }
 
 function saveStorage() {
+    if (!window.__eltaulerApplyingCloudState) touchCloudSyncLocalUpdate();
     localStorage.setItem('chess_userELO', userELO);
     localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
     localStorage.setItem('chess_streak', currentStreak);
@@ -4311,6 +4321,299 @@ function saveStorage() {
 }
 
 
+
+function getCloudSyncUpdatedAtClient() {
+    try {
+        return localStorage.getItem('eltaulerLastLocalUpdateAt') || null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function touchCloudSyncLocalUpdate() {
+    const ts = new Date().toISOString();
+    try { localStorage.setItem('eltaulerLastLocalUpdateAt', ts); } catch (e) {}
+    return ts;
+}
+
+function cloneCloudValue(value) {
+    if (value === undefined) return undefined;
+    try { return JSON.parse(JSON.stringify(value)); } catch (e) { return value; }
+}
+
+function parseCloudTime(value) {
+    if (!value) return 0;
+    if (typeof value === 'number') return value;
+    if (value instanceof Date) return value.getTime();
+    if (typeof value === 'string') {
+        const parsed = Date.parse(value);
+        return Number.isFinite(parsed) ? parsed : 0;
+    }
+    if (typeof value === 'object') {
+        if (typeof value.toDate === 'function') {
+            try { return value.toDate().getTime(); } catch (e) {}
+        }
+        if (typeof value.seconds === 'number') return value.seconds * 1000 + Math.floor((value.nanoseconds || 0) / 1000000);
+    }
+    return 0;
+}
+
+function stableCloudArrayKey(item, index, prefix) {
+    if (!item || typeof item !== 'object') return `${prefix || 'item'}:primitive:${JSON.stringify(item)}:${index}`;
+    return item.id || item.gameId || item.createdAt || item.timestamp || item.date || item.fen || item.pgn || item.label || `${prefix || 'item'}:${index}:${JSON.stringify(item).slice(0, 160)}`;
+}
+
+function mergeCloudArrays(localArray, cloudArray, prefix) {
+    const result = [];
+    const seen = new Set();
+    const add = (item, index, source) => {
+        if (item === undefined || item === null) return;
+        const key = stableCloudArrayKey(item, index, `${prefix || 'array'}:${source}`);
+        if (seen.has(key)) {
+            if (item && typeof item === 'object') {
+                const existingIndex = result.findIndex(existing => stableCloudArrayKey(existing, 0, prefix) === key);
+                if (existingIndex >= 0) result[existingIndex] = Object.assign({}, result[existingIndex], cloneCloudValue(item));
+            }
+            return;
+        }
+        seen.add(key);
+        result.push(cloneCloudValue(item));
+    };
+    (Array.isArray(cloudArray) ? cloudArray : []).forEach((item, index) => add(item, index, 'cloud'));
+    (Array.isArray(localArray) ? localArray : []).forEach((item, index) => add(item, index, 'local'));
+    return result;
+}
+
+function newerCloudObject(localObject, cloudObject) {
+    const localTime = parseCloudTime(localObject && (localObject.updatedAtClient || localObject.updatedAtLocal || localObject.updatedAt));
+    const cloudTime = parseCloudTime(cloudObject && (cloudObject.updatedAtClient || cloudObject.updatedAtLocal || cloudObject.updatedAt));
+    if (cloudTime > localTime) return Object.assign({}, cloneCloudValue(localObject) || {}, cloneCloudValue(cloudObject) || {});
+    return Object.assign({}, cloneCloudValue(cloudObject) || {}, cloneCloudValue(localObject) || {});
+}
+
+function maxCloudNumber(localValue, cloudValue, fallback = 0) {
+    const l = Number(localValue);
+    const c = Number(cloudValue);
+    if (Number.isFinite(l) && Number.isFinite(c)) return Math.max(l, c);
+    if (Number.isFinite(l)) return l;
+    if (Number.isFinite(c)) return c;
+    return fallback;
+}
+
+function captureCurrentAppState() {
+    const updatedAtClient = getCloudSyncUpdatedAtClient() || new Date().toISOString();
+    return {
+        schemaVersion: 1,
+        userELO,
+        engineELO: Math.round(currentElo || engineELO || userELO || 0),
+        currentElo,
+        aiDifficulty,
+        savedErrors: cloneCloudValue(savedErrors) || [],
+        currentReview: cloneCloudValue(currentReview) || [],
+        reviewHistory: cloneCloudValue(reviewHistory) || [],
+        currentGameErrors: cloneCloudValue(currentGameErrors) || [],
+        matchErrorQueue: cloneCloudValue(matchErrorQueue) || [],
+        gameHistory: cloneCloudValue(gameHistory) || [],
+        settings: {
+            updatedAtClient,
+            controlMode,
+            bundleAcceptMode,
+            epaperMode: epaperEnabled,
+            dayMode: dayModeEnabled,
+            tvJeroglyphics: tvJeroglyphicsEnabled,
+            fontSize: loadFontSize(),
+            pendingFreeTimeControl
+        },
+        stats: {
+            totalStars,
+            currentStreak,
+            maxStreak,
+            lastPracticeDate,
+            totalGamesPlayed,
+            totalWins,
+            sessionStats: cloneCloudValue(sessionStats) || {},
+            eloHistory: cloneCloudValue(eloHistory) || [],
+            recentGames: cloneCloudValue(recentGames) || [],
+            consecutiveWins,
+            consecutiveLosses,
+            recentErrors: cloneCloudValue(recentErrors) || [],
+            freeAdjustmentWindow: cloneCloudValue(freeAdjustmentWindow) || [],
+            adjustmentLog: cloneCloudValue(adjustmentLog) || [],
+            adaptationReport: cloneCloudValue(adaptationReport) || [],
+            freeLossStreak,
+            calibrationRocFloor,
+            eloMilestones: cloneCloudValue(unlockedEloMilestones) || [],
+            lastAdjustmentQualityAvg,
+            hieroglyphicStats: cloneCloudValue(hieroglyphicStats) || {},
+            themeMastery: cloneCloudValue(themeMastery) || {},
+            growthStats: cloneCloudValue(growthStats) || {}
+        },
+        openingProgress: {
+            completedOpenings: cloneCloudValue(completedOpenings) || [],
+            openingPracticeGoodMoves,
+            openingPracticeTotalMoves
+        },
+        trainingProgress: {
+            tacticsStats: cloneCloudValue(tacticsStats) || {},
+            todayMissions: cloneCloudValue(todayMissions) || [],
+            missionsDate,
+            missionsCompletionTime,
+            dailyPuzzle: cloneCloudValue(dailyPuzzle) || {},
+            currentLeague: cloneCloudValue(currentLeague) || null,
+            leagueActiveMatch: cloneCloudValue(leagueActiveMatch) || null,
+            isCalibrating,
+            calibrationGames: cloneCloudValue(calibrationGames) || [],
+            calibrationProfile: cloneCloudValue(calibrationProfile) || null,
+            calibratgeComplet
+        },
+        updatedAtClient,
+        lastMergeAt: null
+    };
+}
+
+function mergeLocalAndCloudState(localState = {}, cloudState = {}) {
+    const local = localState || {};
+    const cloud = cloudState || {};
+    const merged = Object.assign({}, cloneCloudValue(cloud) || {}, cloneCloudValue(local) || {});
+    merged.schemaVersion = Math.max(Number(local.schemaVersion) || 1, Number(cloud.schemaVersion) || 1);
+    merged.userELO = maxCloudNumber(local.userELO, cloud.userELO, userELO);
+    merged.engineELO = maxCloudNumber(local.engineELO ?? local.currentElo, cloud.engineELO ?? cloud.currentElo, engineELO);
+    merged.currentElo = maxCloudNumber(local.currentElo ?? local.engineELO, cloud.currentElo ?? cloud.engineELO, currentElo);
+    merged.aiDifficulty = maxCloudNumber(local.aiDifficulty, cloud.aiDifficulty, aiDifficulty);
+    merged.savedErrors = mergeCloudArrays(local.savedErrors, cloud.savedErrors, 'savedErrors');
+    merged.currentReview = Array.isArray(local.currentReview) && local.currentReview.length ? cloneCloudValue(local.currentReview) : (cloneCloudValue(cloud.currentReview) || []);
+    merged.reviewHistory = mergeCloudArrays(local.reviewHistory, cloud.reviewHistory, 'reviewHistory');
+    merged.currentGameErrors = mergeCloudArrays(local.currentGameErrors, cloud.currentGameErrors, 'currentGameErrors');
+    merged.matchErrorQueue = mergeCloudArrays(local.matchErrorQueue, cloud.matchErrorQueue, 'matchErrorQueue');
+    merged.gameHistory = mergeCloudArrays(local.gameHistory, cloud.gameHistory, 'gameHistory');
+    merged.settings = newerCloudObject(local.settings, cloud.settings);
+    const localStats = local.stats || {};
+    const cloudStats = cloud.stats || {};
+    merged.stats = newerCloudObject(localStats, cloudStats);
+    ['totalStars', 'currentStreak', 'maxStreak', 'totalGamesPlayed', 'totalWins', 'consecutiveWins', 'consecutiveLosses'].forEach(key => {
+        merged.stats[key] = maxCloudNumber(localStats[key], cloudStats[key], merged.stats[key] || 0);
+    });
+    merged.stats.eloHistory = mergeCloudArrays(localStats.eloHistory, cloudStats.eloHistory, 'eloHistory');
+    merged.stats.recentGames = mergeCloudArrays(localStats.recentGames, cloudStats.recentGames, 'recentGames').slice(-30);
+    merged.stats.recentErrors = mergeCloudArrays(localStats.recentErrors, cloudStats.recentErrors, 'recentErrors').slice(-ERROR_WINDOW_N);
+    merged.stats.freeAdjustmentWindow = mergeCloudArrays(localStats.freeAdjustmentWindow, cloudStats.freeAdjustmentWindow, 'freeAdjustmentWindow').slice(-20);
+    merged.stats.adjustmentLog = mergeCloudArrays(localStats.adjustmentLog, cloudStats.adjustmentLog, 'adjustmentLog');
+    merged.stats.adaptationReport = mergeCloudArrays(localStats.adaptationReport, cloudStats.adaptationReport, 'adaptationReport');
+    merged.stats.eloMilestones = Array.from(new Set([...(cloudStats.eloMilestones || []), ...(localStats.eloMilestones || [])]));
+    merged.stats.hieroglyphicStats = newerCloudObject(localStats.hieroglyphicStats, cloudStats.hieroglyphicStats);
+    merged.stats.themeMastery = newerCloudObject(localStats.themeMastery, cloudStats.themeMastery);
+    merged.stats.growthStats = newerCloudObject(localStats.growthStats, cloudStats.growthStats);
+    const localOpening = local.openingProgress || {};
+    const cloudOpening = cloud.openingProgress || {};
+    merged.openingProgress = newerCloudObject(localOpening, cloudOpening);
+    merged.openingProgress.completedOpenings = Array.from(new Set([...(cloudOpening.completedOpenings || []), ...(localOpening.completedOpenings || [])]));
+    merged.openingProgress.openingPracticeGoodMoves = maxCloudNumber(localOpening.openingPracticeGoodMoves, cloudOpening.openingPracticeGoodMoves, 0);
+    merged.openingProgress.openingPracticeTotalMoves = maxCloudNumber(localOpening.openingPracticeTotalMoves, cloudOpening.openingPracticeTotalMoves, 0);
+    const localTraining = local.trainingProgress || {};
+    const cloudTraining = cloud.trainingProgress || {};
+    merged.trainingProgress = newerCloudObject(localTraining, cloudTraining);
+    merged.trainingProgress.todayMissions = mergeCloudArrays(localTraining.todayMissions, cloudTraining.todayMissions, 'todayMissions');
+    merged.trainingProgress.calibrationGames = mergeCloudArrays(localTraining.calibrationGames, cloudTraining.calibrationGames, 'calibrationGames');
+    merged.trainingProgress.tacticsStats = newerCloudObject(localTraining.tacticsStats, cloudTraining.tacticsStats);
+    merged.trainingProgress.dailyPuzzle = newerCloudObject(localTraining.dailyPuzzle, cloudTraining.dailyPuzzle);
+    merged.updatedAtClient = new Date().toISOString();
+    merged.lastMergeAt = merged.updatedAtClient;
+    return merged;
+}
+
+function applyAppState(state = {}) {
+    if (!state || typeof state !== 'object') return;
+    window.__eltaulerApplyingCloudState = true;
+    try {
+        if (typeof state.userELO === 'number') userELO = state.userELO;
+        if (typeof state.currentElo === 'number') currentElo = clampEngineElo(state.currentElo);
+        else if (typeof state.engineELO === 'number') currentElo = clampEngineElo(state.engineELO);
+        engineELO = Math.round(currentElo || userELO || engineELO);
+        aiDifficulty = levelToDifficulty(currentElo);
+        if (Array.isArray(state.savedErrors)) savedErrors = cloneCloudValue(state.savedErrors);
+        if (Array.isArray(state.currentReview)) currentReview = cloneCloudValue(state.currentReview);
+        if (Array.isArray(state.reviewHistory)) reviewHistory = cloneCloudValue(state.reviewHistory);
+        if (Array.isArray(state.currentGameErrors)) currentGameErrors = cloneCloudValue(state.currentGameErrors);
+        if (Array.isArray(state.matchErrorQueue)) matchErrorQueue = cloneCloudValue(state.matchErrorQueue);
+        if (Array.isArray(state.gameHistory)) gameHistory = cloneCloudValue(state.gameHistory);
+        const settings = state.settings || {};
+        if (settings.controlMode) controlMode = settings.controlMode;
+        if (settings.bundleAcceptMode) bundleAcceptMode = settings.bundleAcceptMode;
+        if (typeof settings.pendingFreeTimeControl === 'string') pendingFreeTimeControl = settings.pendingFreeTimeControl;
+        if (typeof settings.epaperMode === 'boolean') applyEpaperMode(settings.epaperMode, { skipSave: true });
+        if (typeof settings.dayMode === 'boolean') applyDayMode(settings.dayMode, { skipSave: true });
+        if (typeof settings.tvJeroglyphics === 'boolean') applyTvJeroglyphicsMode(settings.tvJeroglyphics, { skipSave: true });
+        if (typeof settings.fontSize === 'number') applyFontSize(settings.fontSize);
+        if (settings.controlMode) applyControlMode(settings.controlMode, { save: false, rebuild: false });
+        const stats = state.stats || {};
+        if (typeof stats.totalStars === 'number') totalStars = stats.totalStars;
+        if (typeof stats.currentStreak === 'number') currentStreak = stats.currentStreak;
+        if (typeof stats.maxStreak === 'number') maxStreak = stats.maxStreak;
+        if (stats.lastPracticeDate) lastPracticeDate = stats.lastPracticeDate;
+        if (typeof stats.totalGamesPlayed === 'number') totalGamesPlayed = stats.totalGamesPlayed;
+        if (typeof stats.totalWins === 'number') totalWins = stats.totalWins;
+        if (stats.sessionStats && typeof stats.sessionStats === 'object') sessionStats = cloneCloudValue(stats.sessionStats);
+        if (Array.isArray(stats.eloHistory)) eloHistory = cloneCloudValue(stats.eloHistory);
+        if (Array.isArray(stats.recentGames)) recentGames = cloneCloudValue(stats.recentGames);
+        if (typeof stats.consecutiveWins === 'number') consecutiveWins = stats.consecutiveWins;
+        if (typeof stats.consecutiveLosses === 'number') consecutiveLosses = stats.consecutiveLosses;
+        if (Array.isArray(stats.recentErrors)) recentErrors = cloneCloudValue(stats.recentErrors).slice(-ERROR_WINDOW_N);
+        if (Array.isArray(stats.freeAdjustmentWindow)) freeAdjustmentWindow = cloneCloudValue(stats.freeAdjustmentWindow);
+        if (Array.isArray(stats.adjustmentLog)) adjustmentLog = cloneCloudValue(stats.adjustmentLog);
+        if (Array.isArray(stats.adaptationReport)) adaptationReport = normalizeAdaptationReport(stats.adaptationReport);
+        if (typeof stats.freeLossStreak === 'number') freeLossStreak = stats.freeLossStreak;
+        if (typeof stats.calibrationRocFloor === 'number') calibrationRocFloor = stats.calibrationRocFloor;
+        if (Array.isArray(stats.eloMilestones)) unlockedEloMilestones = cloneCloudValue(stats.eloMilestones);
+        if (typeof stats.lastAdjustmentQualityAvg === 'number') lastAdjustmentQualityAvg = stats.lastAdjustmentQualityAvg;
+        if (stats.hieroglyphicStats && typeof stats.hieroglyphicStats === 'object') hieroglyphicStats = Object.assign({}, hieroglyphicStats, cloneCloudValue(stats.hieroglyphicStats));
+        if (stats.themeMastery && typeof stats.themeMastery === 'object') themeMastery = Object.assign({}, THEME_MASTERY_DEFAULTS, cloneCloudValue(stats.themeMastery));
+        if (stats.growthStats && typeof stats.growthStats === 'object') growthStats = Object.assign({}, growthStats, cloneCloudValue(stats.growthStats));
+        const opening = state.openingProgress || {};
+        if (Array.isArray(opening.completedOpenings)) completedOpenings = cloneCloudValue(opening.completedOpenings);
+        if (typeof opening.openingPracticeGoodMoves === 'number') openingPracticeGoodMoves = opening.openingPracticeGoodMoves;
+        if (typeof opening.openingPracticeTotalMoves === 'number') openingPracticeTotalMoves = opening.openingPracticeTotalMoves;
+        const training = state.trainingProgress || {};
+        if (training.tacticsStats && typeof training.tacticsStats === 'object') tacticsStats = Object.assign({}, tacticsStats, cloneCloudValue(training.tacticsStats));
+        if (Array.isArray(training.todayMissions)) todayMissions = restoreMissions(cloneCloudValue(training.todayMissions));
+        if (training.missionsDate) missionsDate = training.missionsDate;
+        if (typeof training.missionsCompletionTime === 'number') missionsCompletionTime = training.missionsCompletionTime;
+        if (training.dailyPuzzle && typeof training.dailyPuzzle === 'object') dailyPuzzle = Object.assign(dailyPuzzle, cloneCloudValue(training.dailyPuzzle));
+        if (training.currentLeague !== undefined) currentLeague = cloneCloudValue(training.currentLeague);
+        if (training.leagueActiveMatch !== undefined) leagueActiveMatch = cloneCloudValue(training.leagueActiveMatch);
+        if (typeof training.isCalibrating === 'boolean') isCalibrating = training.isCalibrating;
+        if (Array.isArray(training.calibrationGames)) calibrationGames = cloneCloudValue(training.calibrationGames);
+        if (training.calibrationProfile !== undefined) calibrationProfile = cloneCloudValue(training.calibrationProfile);
+        if (typeof training.calibratgeComplet === 'boolean') calibratgeComplet = training.calibratgeComplet;
+        syncEngineEloFromUser();
+        saveStorage();
+        if (state.updatedAtClient) {
+            try { localStorage.setItem('eltaulerLastLocalUpdateAt', state.updatedAtClient); } catch (e) {}
+        }
+    } finally {
+        window.__eltaulerApplyingCloudState = false;
+    }
+}
+
+function renderAfterCloudSync() {
+    updateDisplay();
+    if ($('#stats-screen').is(':visible')) updateStatsDisplay();
+    if ($('#history-screen').is(':visible')) renderGameHistory();
+    if ($('#opening-screen').is(':visible')) {
+        renderOpeningStatsScreen();
+        renderOpeningLessonButtons();
+    }
+    if ($('#league-screen').is(':visible')) renderLeague();
+    updateReviewChart();
+    updateBadgesModal();
+}
+
+Object.assign(window, {
+    captureCurrentAppState,
+    applyAppState,
+    renderAfterCloudSync,
+    mergeLocalAndCloudState
+});
+
 function buildCloudSettingsData() {
     return {
         version: APP_VERSION,
@@ -4347,9 +4650,13 @@ function buildCloudTrainingHistoryData() {
     };
 }
 
-function syncLocalStateToCloud() {
+function syncLocalStateToCloud(reason = 'saveStorage') {
     try {
-        if (typeof window === 'undefined') return;
+        if (typeof window === 'undefined' || window.__eltaulerApplyingCloudState) return;
+        if (typeof window.scheduleCloudSync === 'function') {
+            window.scheduleCloudSync(reason);
+            return;
+        }
         if (typeof window.queueCloudSettingsSync === 'function') {
             void window.queueCloudSettingsSync(buildCloudSettingsData());
         }
@@ -4363,8 +4670,9 @@ function syncLocalStateToCloud() {
 
 function syncLatestGameToCloud(entry) {
     try {
-        if (!entry || typeof window === 'undefined' || typeof window.saveCloudGame !== 'function') return;
-        void window.saveCloudGame(entry);
+        if (!entry || typeof window === 'undefined') return;
+        if (typeof window.saveCloudGame === 'function') void window.saveCloudGame(entry);
+        if (typeof window.scheduleCloudSync === 'function') window.scheduleCloudSync('latest-game');
     } catch (error) {
         console.warn('[Firebase] Error preparant sincronització de partida:', error);
     }
@@ -10736,6 +11044,7 @@ function setupEvents() {
 
     $('#font-size-range').off('input change').on('input change', function() {
         applyFontSize(+this.value);
+        if (!window.__eltaulerApplyingCloudState) { touchCloudSyncLocalUpdate(); syncLocalStateToCloud('font-size'); }
     });
 
     $('#control-mode-select').off('change').on('change', function() {
