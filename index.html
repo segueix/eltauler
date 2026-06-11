@@ -330,7 +330,7 @@
         .mission-trophies { font-size: 0.9rem; text-align: right; min-width: 70px; opacity: 0.95; }
         .mission-trophies.empty { opacity: 0.25; }
 
-        /* ENTRENADOR (debrief de partida + pla setmanal) */
+        /* ENTRENADOR (debrief de partida + pla diari) */
         .coach-panel {
             background: rgba(0,0,0,0.2);
             border: 1px solid rgba(201, 162, 39, 0.2);
@@ -339,6 +339,27 @@
             margin: 12px 0;
             text-align: left;
         }
+        /* Al mòbil tot el pla és desplaçable amb el dit, sense menjar-se la pantalla */
+        body.device-mobile #weekly-plan-panel { max-height: 60vh; }
+        @media (max-width: 768px) {
+            #weekly-plan-panel {
+                max-height: 60vh;
+                overflow-y: auto;
+                -webkit-overflow-scrolling: touch;
+                overscroll-behavior: contain;
+            }
+            /* Si el panell sencer ja fa scroll, el resum no necessita el seu propi scroll intern */
+            #weekly-plan-panel .coach-plan-summary { max-height: none; overflow-y: visible; }
+        }
+        body.device-mobile #weekly-plan-panel {
+            overflow-y: auto;
+            -webkit-overflow-scrolling: touch;
+            overscroll-behavior: contain;
+        }
+        body.device-mobile #weekly-plan-panel .coach-plan-summary { max-height: none; overflow-y: visible; }
+        #weekly-plan-panel::-webkit-scrollbar { width: 5px; }
+        #weekly-plan-panel::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
+        #weekly-plan-panel::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.4); border-radius: 3px; }
         .coach-kicker {
             font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
@@ -360,6 +381,15 @@
             color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;
             cursor: pointer; font-size: 0.95rem; display: none; flex-shrink: 0;
         }
+        .coach-kicker-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        /* Compte enrere fins al pla de demà (hores:minuts:segons) */
+        .plan-countdown {
+            font-family: 'Courier New', monospace; font-size: 0.78rem; color: var(--text-secondary);
+            background: rgba(0,0,0,0.25); border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 6px; padding: 2px 7px; letter-spacing: 0.5px;
+            white-space: nowrap; font-variant-numeric: tabular-nums;
+        }
+        body.epaper-mode .plan-countdown { background: #ededed !important; border-color: #cfcfcf !important; color: #222; }
         #review-debrief {
             margin: 12px 0; padding: 12px; text-align: left;
             background: rgba(201,162,39,0.08); border: 1px solid rgba(201, 162, 39, 0.3); border-radius: 12px;
@@ -2675,7 +2705,10 @@
             <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
                 <div class="coach-kicker">
                     <span>🎓 El pla de l'entrenador</span>
-                    <button class="coach-speak-btn" id="btn-plan-speak" title="Escolta-ho en veu alta">🔊</button>
+                    <span class="coach-kicker-right">
+                        <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                        <button class="coach-speak-btn" id="btn-plan-speak" title="Escolta-ho en veu alta">🔊</button>
+                    </span>
                 </div>
                 <div class="coach-plan-summary" id="weekly-plan-summary"></div>
                 <div id="weekly-plan-list"></div>

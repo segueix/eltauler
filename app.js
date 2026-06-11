@@ -13948,14 +13948,14 @@ function updateStatus() {
     }
 }
 
-/* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA SETMANAL) =====================
+/* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA DIARI) =====================
    Arquitectura en dues capes: els FETS es calculen sempre en local a partir de les dades
    que ja recull l'app (gameHistory, savedErrors, themeMastery). La redacció per defecte
    surt d'un banc de plantilles en català; si hi ha clau Gemini, només poleix el text
    a partir dels mateixos fets (mai analitza la partida ell sol). */
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
-const WEEKLY_PLAN_VERSION = 2;
+const WEEKLY_PLAN_VERSION = 3;
 let weeklyPlan = null;
 let coachCatalanVoice = null;
 let coachDebriefPending = false;
@@ -14255,22 +14255,19 @@ function speakCoachText(text) {
     } catch (e) { console.warn('TTS no disponible', e); }
 }
 
-/* --------------------- Pla setmanal de l'entrenador --------------------- */
+/* --------------------- Pla diari de l'entrenador --------------------- */
 
-function getISOWeekKey(d = new Date()) {
-    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
-    const dayNum = date.getUTCDay() || 7;
-    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
-    const yearStart = new Date(Date.UTC(date.getUTCFullYear(), 0, 1));
-    const weekNo = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
-    return `${date.getUTCFullYear()}-W${String(weekNo).padStart(2, '0')}`;
-}
+// Clau del dia (UTC, igual que getToday/missions): el pla canvia cada mitjanit UTC.
+function getPlanDayKey() { return getToday(); }
 
-// Regles locals: tria el focus de la setmana a partir de mastery + errors recents,
+// Regles locals: tria el focus del dia a partir de mastery + errors recents,
 // i fixa objectius mesurables amb comptadors que ja existeixen (baseline al moment de crear el pla).
+// La llavor diària fa que el focus i les quantitats variïn d'un dia a l'altre.
 function buildWeeklyPlan() {
     loadThemeMastery();
     loadGrowthStats();
+    const day = getPlanDayKey();
+    const rng = mulberry32(hashStr(`plan:${day}`));
     const errorThemes = {};
     savedErrors.slice(-30).forEach(err => {
         const t = normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''));
@@ -14278,37 +14275,45 @@ function buildWeeklyPlan() {
     });
     const themes = Object.keys(THEME_MASTERY_DEFAULTS).filter(t => t !== 'general');
     themes.sort((a, b) => (themeMastery[a] - themeMastery[b]) || ((errorThemes[b] || 0) - (errorThemes[a] || 0)));
-    const focusTheme = themes.find(t => (errorThemes[t] || 0) > 0) || themes[0];
+    // El focus rota cada dia entre els temes més fluixos (prioritzant els que tenen errors recents)
+    const withErrors = themes.filter(t => (errorThemes[t] || 0) > 0);
+    const pool = (withErrors.length ? withErrors : themes).slice(0, 3);
+    const focusTheme = pool[Math.floor(rng() * pool.length)] || themes[0];
     const due = getDueErrors().length;
 
     const items = [];
     if (savedErrors.length > 0) {
         items.push({
             id: 'focus', type: 'weakness_training', theme: focusTheme, metric: 'weakness',
-            title: `Entrena ${getThemeLabel(focusTheme)} (2 sessions)`,
-            target: 2, baseline: growthStats.weaknessSessionsCompleted || 0
+            title: `Entrena ${getThemeLabel(focusTheme)} (1 sessió)`,
+            target: 1, baseline: growthStats.weaknessSessionsCompleted || 0
         });
     }
     if (getOpeningPhaseErrors().length > 0) {
+        const openTarget = 1 + Math.floor(rng() * 2);
         items.push({
             id: 'openings', type: 'opening_drill', theme: 'opening', metric: 'opening_drill',
-            title: "Rectifica 3 errors d'obertura (2 jugades correctes)",
-            target: 3, baseline: growthStats.openingDrillsCompleted || 0
+            title: openTarget === 1
+                ? "Rectifica 1 error d'obertura (2 jugades correctes)"
+                : `Rectifica ${openTarget} errors d'obertura (2 jugades correctes)`,
+            target: openTarget, baseline: growthStats.openingDrillsCompleted || 0
         });
     }
+    const mateTarget = 1 + Math.floor(rng() * 2);
     items.push({
         id: 'mates', type: 'mate_drill', theme: 'endgame', metric: 'mate_drill',
-        title: 'Remata 2 finals amb mat en 3 jugades',
-        target: 2, baseline: growthStats.mateDrillsCompleted || 0
+        title: mateTarget === 1 ? 'Remata 1 final amb mat en 3 jugades' : `Remata ${mateTarget} finals amb mat en 3 jugades`,
+        target: mateTarget, baseline: growthStats.mateDrillsCompleted || 0
     });
+    const tacticsTarget = 3 + Math.floor(rng() * 3);
     items.push({
         id: 'tactics', type: 'tactics', theme: null, metric: 'tactics',
-        title: 'Resol 5 exercicis de tàctica',
-        target: 5, baseline: tacticsStats.solved || 0
+        title: `Resol ${tacticsTarget} exercicis de tàctica`,
+        target: tacticsTarget, baseline: tacticsStats.solved || 0
     });
 
     return {
-        week: getISOWeekKey(),
+        day,
         createdAt: Date.now(),
         version: WEEKLY_PLAN_VERSION,
         focusTheme,
@@ -14331,20 +14336,20 @@ function weeklyPlanItemProgress(item) {
 }
 
 const COACH_PLAN_TEMPLATES = [
-    "Aquesta setmana el focus és {tema} (domini del {pct}%). El pla té tres fronts: rectifica els errors que vas cometre a l'obertura amb dues jugades correctes, afina la vista amb la tàctica, i remata finals fent escac i mat en 3 jugades. Pas a pas, sense pressa.",
-    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho de totes bandes, aquesta setmana combinem la correcció dels teus errors d'obertura, exercicis de tàctica i mats en 3 jugades als finals.",
-    "Pla de la setmana: corregeix les errades que vas fer a l'obertura, resol els mats en 3 jugades per dominar els finals, i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
+    "Avui el focus és {tema} (domini del {pct}%). El pla té tres fronts: rectifica els errors que vas cometre a l'obertura amb dues jugades correctes, afina la vista amb la tàctica, i remata finals fent escac i mat en 3 jugades. Pas a pas, sense pressa.",
+    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho de totes bandes, avui combinem la correcció dels teus errors d'obertura, exercicis de tàctica i mats en 3 jugades als finals.",
+    "Pla d'avui: corregeix les errades que vas fer a l'obertura, resol els mats en 3 jugades per dominar els finals, i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
 ];
 
 function composeWeeklyPlanText(plan) {
-    const rng = mulberry32(hashStr(`plan:${plan.week}`));
+    const rng = mulberry32(hashStr(`plan:${plan.day}`));
     const tpl = COACH_PLAN_TEMPLATES[Math.floor(rng() * COACH_PLAN_TEMPLATES.length)];
     return fillCoachTemplate(tpl, { tema: getThemeLabel(plan.focusTheme), pct: plan.focusMastery });
 }
 
 function buildWeeklyPlanGeminiPrompt(plan) {
     return `Ets un entrenador d'escacs proper que parla en català (tutejant).
-Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament setmanal d'un alumne, NOMÉS amb aquests fets:
+Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament d'avui d'un alumne, NOMÉS amb aquests fets:
 ${JSON.stringify({
         tema_a_reforcar: getThemeLabel(plan.focusTheme),
         domini_del_tema_percent: plan.focusMastery,
@@ -14355,15 +14360,38 @@ Sense llistes, sense markdown, sense emojis. To motivador però concret.`;
 }
 
 function ensureWeeklyPlan() {
-    const week = getISOWeekKey();
+    const day = getPlanDayKey();
     const stored = readJsonStorage(WEEKLY_PLAN_KEY, null);
-    if (stored && stored.week === week && stored.version === WEEKLY_PLAN_VERSION && Array.isArray(stored.items) && stored.items.length) {
+    if (stored && stored.day === day && stored.version === WEEKLY_PLAN_VERSION && Array.isArray(stored.items) && stored.items.length) {
         weeklyPlan = stored;
     } else {
         weeklyPlan = buildWeeklyPlan();
         writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
     }
     renderWeeklyPlan();
+}
+
+/* Rellotge de compte enrere fins al pla de demà (canvia a mitjanit UTC, com getToday).
+   Quan arriba a 0, el pla es regenera automàticament. */
+let planCountdownTimer = null;
+
+function startPlanCountdown() {
+    if (planCountdownTimer) return;
+    updatePlanCountdown();
+    planCountdownTimer = setInterval(updatePlanCountdown, 1000);
+}
+
+function updatePlanCountdown() {
+    const el = document.getElementById('plan-countdown');
+    if (!el) return;
+    const now = new Date();
+    const nextChange = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1);
+    const ms = Math.max(0, nextChange - now.getTime());
+    const h = Math.floor(ms / 3600000);
+    const m = Math.floor(ms / 60000) % 60;
+    const s = Math.floor(ms / 1000) % 60;
+    el.textContent = `⏳ ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    if (weeklyPlan && weeklyPlan.day !== getPlanDayKey()) ensureWeeklyPlan();
 }
 
 function launchWeeklyPlanItem(item) {
@@ -14377,7 +14405,7 @@ function launchWeeklyPlanItem(item) {
         // així el comptador de sessions completades també compta per al pla.
         return executeGrowthTask({ type: item.type, theme: item.theme || 'general', source: 'weekly_plan' });
     } catch (e) {
-        console.warn('No s\'ha pogut iniciar la tasca del pla setmanal', e);
+        console.warn('No s\'ha pogut iniciar la tasca del pla diari', e);
         showToast('No he pogut iniciar aquesta tasca ara mateix.', 'warn');
     }
 }
@@ -14386,6 +14414,7 @@ function renderWeeklyPlan() {
     const panel = $('#weekly-plan-panel');
     if (!panel.length || !weeklyPlan) return;
     panel.show();
+    startPlanCountdown();
     const summaryEl = $('#weekly-plan-summary');
     const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
     summaryEl.text(summary);
@@ -14419,10 +14448,10 @@ function renderWeeklyPlan() {
     });
     updateCoachSpeakButtons();
 
-    // Poliment Gemini un sol cop per setmana (es persisteix dins del pla).
+    // Poliment Gemini un sol cop per dia (es persisteix dins del pla).
     if (!weeklyPlan.geminiSummary && geminiApiKey && !coachPlanGeminiPending) {
         coachPlanGeminiPending = true;
-        requestGeminiCoachText(`weeklyplan:${weeklyPlan.week}`, buildWeeklyPlanGeminiPrompt(weeklyPlan), text => {
+        requestGeminiCoachText(`dailyplan:${weeklyPlan.day}`, buildWeeklyPlanGeminiPrompt(weeklyPlan), text => {
             weeklyPlan.geminiSummary = text;
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
             summaryEl.text(text);
@@ -14831,7 +14860,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
         return;
     }
     overlay.find('.bundle-success-title').text(titleText);
-    overlay.find('.bundle-success-remaining').text('Pla setmanal actualitzat');
+    overlay.find('.bundle-success-remaining').text('Pla diari actualitzat');
     overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
     $('#btn-bundle-random-home').off('click').on('click', () => {
@@ -15186,7 +15215,7 @@ $(document).ready(() => {
 
     setInterval(() => {
         if (getToday() !== missionsDate) generateDailyMissions();
-        if (weeklyPlan && weeklyPlan.week !== getISOWeekKey()) ensureWeeklyPlan();
+        if (weeklyPlan && weeklyPlan.day !== getPlanDayKey()) ensureWeeklyPlan();
     }, 60000);
 
     // Rebost d'exercicis: recupera les seqüències desades i comença a omplir-lo
