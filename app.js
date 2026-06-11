@@ -14411,24 +14411,27 @@ function updatePlanCountdown() {
     if (weeklyPlan && weeklyPlan.day !== getPlanDayKey()) ensureWeeklyPlan();
 }
 
-/* En alguns mòbils el scroll natiu del requadre del resum no respon al tacte
-   (div petit amb overflow + contingut injectat per JS). Movem scrollTop a mà:
-   si el text sobreïx, el dit el desplaça i la pàgina no es mou; si no sobreïx,
-   el gest passa de llarg i la pàgina es desplaça amb normalitat. */
-function bindPlanSummaryTouchScroll() {
+/* En alguns mòbils el scroll intern del resum no responia al tacte i el text
+   quedava tallat i inaccessible. En lloc d'un requadre amb scroll, el CSS retalla
+   el text a 6 línies i aquest botó el desplega sencer: un toc funciona a tot arreu.
+   El botó només apareix si el text realment sobreïx. */
+function updatePlanSummaryToggle() {
     const el = document.getElementById('weekly-plan-summary');
-    if (!el || el.dataset.touchScrollBound) return;
-    el.dataset.touchScrollBound = '1';
-    let startY = 0, startTop = 0;
-    el.addEventListener('touchstart', (e) => {
-        startY = e.touches[0].clientY;
-        startTop = el.scrollTop;
-    }, { passive: true });
-    el.addEventListener('touchmove', (e) => {
-        if (el.scrollHeight <= el.clientHeight + 1) return;
-        el.scrollTop = startTop - (e.touches[0].clientY - startY);
-        e.preventDefault();
-    }, { passive: false });
+    const btn = document.getElementById('btn-plan-summary-toggle');
+    if (!el || !btn) return;
+    if (!btn.dataset.bound) {
+        btn.dataset.bound = '1';
+        btn.addEventListener('click', () => {
+            el.classList.toggle('expanded');
+            updatePlanSummaryToggle();
+        });
+    }
+    const expanded = el.classList.contains('expanded');
+    btn.textContent = expanded ? "▲ Mostra'n menys" : '▼ Llegeix-ho tot';
+    // Si el panell està amagat (clientHeight 0) no podem mesurar: deixem el botó com està.
+    if (el.clientHeight > 0) {
+        btn.style.display = (expanded || el.scrollHeight > el.clientHeight + 1) ? 'inline-block' : 'none';
+    }
 }
 
 function launchWeeklyPlanItem(item) {
@@ -14455,7 +14458,7 @@ function renderWeeklyPlan() {
     const summaryEl = $('#weekly-plan-summary');
     const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
     summaryEl.text(summary);
-    bindPlanSummaryTouchScroll();
+    updatePlanSummaryToggle();
 
     const list = $('#weekly-plan-list').empty();
     weeklyPlan.items.forEach(item => {
@@ -14493,6 +14496,7 @@ function renderWeeklyPlan() {
             weeklyPlan.geminiSummary = text;
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
             summaryEl.text(text);
+            updatePlanSummaryToggle();
         }).finally(() => { coachPlanGeminiPending = false; });
     }
 }

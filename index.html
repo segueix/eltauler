@@ -381,20 +381,25 @@
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
-        /* El text descriptiu del dia pot ser llarg: alçada fixa amb scroll tàctil
-           perquè no quedi tallat (la resta del panell no es mou). El scroll amb el
-           dit el gestiona bindPlanSummaryTouchScroll() a app.js. */
+        /* El text descriptiu del dia pot ser llarg: el retallem a 6 línies i un botó
+           el desplega sencer. Res de scroll intern, que en alguns mòbils no responia
+           al tacte i el text quedava inaccessible. */
         .coach-plan-summary {
-            max-height: 9em;
-            overflow-y: auto;
-            overscroll-behavior: contain;
-            touch-action: pan-y;
-            padding-right: 6px;
-            scrollbar-width: thin;
+            display: -webkit-box;
+            -webkit-box-orient: vertical;
+            -webkit-line-clamp: 6;
+            overflow: hidden;
         }
-        .coach-plan-summary::-webkit-scrollbar { width: 5px; }
-        .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
-        .coach-plan-summary::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.4); border-radius: 3px; }
+        .coach-plan-summary.expanded {
+            display: block;
+            -webkit-line-clamp: none;
+            overflow: visible;
+        }
+        .coach-plan-toggle {
+            display: none; background: none; border: none; cursor: pointer;
+            color: var(--accent-gold); font-size: 0.78rem; padding: 4px 0 0;
+        }
+        body.epaper-mode .coach-plan-toggle { color: #222; }
         .coach-speak-btn {
             background: rgba(201,162,39,0.15); border: 1px solid rgba(201,162,39,0.4);
             color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;
@@ -2731,6 +2736,7 @@
                     </span>
                 </div>
                 <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button">▼ Llegeix-ho tot</button>
                 <div id="weekly-plan-list"></div>
             </div>
 
