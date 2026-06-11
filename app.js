@@ -2311,6 +2311,7 @@ function handleOpeningLessonUserMove(from, to) {
     }
 
     const expected = openingLessonLine[openingLessonStep];
+    const fenBefore = openingPracticeGame.fen();
     const move = openingPracticeGame.move({ from: from, to: to, promotion: 'q' });
     if (!move) return false;
 
@@ -2322,6 +2323,7 @@ function handleOpeningLessonUserMove(from, to) {
         if (noteEl && openingLessonInfo) {
             noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
         }
+        void requestOpeningLessonExplanation(fenBefore, expected, move.san);
         setTimeout(() => {
             openingPracticeGame.undo();
             openingBundleBoard.position(openingPracticeGame.fen());
@@ -2341,6 +2343,46 @@ function handleOpeningLessonUserMove(from, to) {
     updateOpeningLessonNote();
     setTimeout(() => playOpeningLessonOpponentMove(), 650);
     return true;
+}
+
+/* ===================== EXPLICACIONS DE TEORIA A LES LLIÇONS D'OBERTURA =====================
+   Quan l'alumne s'equivoca en una lliçó, el missatge estàtic surt a l'instant i
+   DeepSeek hi afegeix després el perquè de la jugada de la teoria. Amb cau per
+   posició perquè repetir la mateixa errada no torni a cridar l'API. */
+
+let openingLessonExplainToken = 0;
+
+function buildOpeningLessonExplanationPrompt(fen, expectedSan, playedSan, openingName) {
+    return `Ets un professor d'obertures d'escacs que parla català (tutejant).
+Obertura: ${openingName}
+Posició abans de la jugada (FEN): ${fen}
+L'alumne ha jugat ${playedSan}, però la teoria recomana ${expectedSan}.
+
+Explica en 2 frases (màxim 45 paraules) quina idea de l'obertura segueix ${expectedSan} i què deixa de fer ${playedSan}. Sense markdown, llistes ni cometes: només text pla.`;
+}
+
+async function requestOpeningLessonExplanation(fen, expectedSan, playedSan) {
+    if (!deepseekApiKey || !openingLessonInfo || !fen) return;
+    const lessonName = openingLessonInfo.name;
+    const stepAtRequest = openingLessonStep;
+    const myToken = ++openingLessonExplainToken;
+    const cacheKey = `openinglesson:${fen}:${expectedSan}:${playedSan}`;
+    let text = getCachedDeepSeek(cacheKey);
+    if (!text) {
+        const prompt = buildOpeningLessonExplanationPrompt(fen, expectedSan, playedSan, lessonName);
+        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 400, topP: 0.9 } });
+        if (!result.ok || !result.text) return;
+        text = result.text.replace(/\*\*/g, '').replace(/["«»]/g, '').trim();
+        if (!text) return;
+        setCachedDeepSeek(cacheKey, text);
+    }
+    // Només actualitza si seguim a la mateixa lliçó i al mateix pas, i cap petició més nova
+    if (myToken !== openingLessonExplainToken) return;
+    if (!openingLessonActive || !openingLessonInfo || openingLessonInfo.name !== lessonName) return;
+    if (openingLessonStep !== stepAtRequest) return;
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl) return;
+    noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${escapeHtml(expectedSan)}</strong>. Torna-ho a provar.</div><div class="maxim-text" style="opacity:0.92; margin-top:6px;">💬 ${escapeHtml(text)}</div></div>`;
 }
 
 function commitOpeningMoveFromTap(from, to) {
@@ -4505,6 +4547,7 @@ function updateStatsDisplay() {
     updateEloChart();
     updateReviewChart();
     renderWeaknesses();
+    renderCoachDiagnosis();
     renderOpeningStats();
 }
 
@@ -6121,6 +6164,7 @@ function updateHistoryDetails(entry) {
         metaEl.text('Selecciona una partida per veure detalls.');
         breakdown.empty();
         if (reviewContent.length) reviewContent.text('—');
+        updateHistoryErrorNotes(null);
         $('#history-personal-hieroglyphic').prop('disabled', true);
         updateHistoryProgress();
         updateHistoryControls();
@@ -6142,6 +6186,8 @@ function updateHistoryDetails(entry) {
         <div class="review-chip blunder">Blunders <strong>${counts.blunder || 0}</strong></div>
     `);
     updateHistoryReview(entry);
+    updateHistoryErrorNotes(entry);
+    void requestErrorNotes(entry);
     $('#history-personal-hieroglyphic').prop('disabled', !hasPersonalHieroglyphicCandidate(entry));
     updateHistoryProgress();
     updateHistoryControls();
@@ -6366,6 +6412,127 @@ function getEntrySevereErrors(entry) {
         return getSevereErrors(entry.review);
     }
     return [];
+}
+
+/* ===================== ERRADES COMENTADES (DeepSeek) =====================
+   Explicació breu i individual per a cada errada greu de la partida. Es
+   genera automàticament (el cost per crida ho permet), es guarda dins de
+   l'entrada de l'historial (entry.errorNotes, indexat per FEN) i per tant
+   persisteix amb gameHistory a localStorage. */
+
+const ERROR_NOTES_MAX = 4;
+
+// Converteix UCI a SAN quan cal; si ja sembla SAN, es retorna tal qual.
+function uciToSanSafe(fen, moveStr) {
+    if (!moveStr) return null;
+    if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(moveStr)) return moveStr;
+    try {
+        const g = new Chess(fen);
+        const mv = g.move({ from: moveStr.slice(0, 2).toLowerCase(), to: moveStr.slice(2, 4).toLowerCase(), promotion: (moveStr[4] || 'q').toLowerCase() });
+        return mv ? mv.san : moveStr;
+    } catch (e) { return moveStr; }
+}
+
+function describeSevereError(err) {
+    const parts = (err.fen || '').split(' ');
+    return {
+        moveNumber: err.moveNumber || parseInt(parts[5], 10) || '?',
+        played: uciToSanSafe(err.fen, err.playerMoveSan || err.playerMove) || '?',
+        best: uciToSanSafe(err.fen, err.bestMoveSan || err.bestMove) || '?',
+        pv: (err.bestMovePvSan || err.bestMovePv || []).slice(0, 4).map(m => uciToSanSafe(err.fen, m)).join(' ')
+    };
+}
+
+function buildErrorNotePrompt(err) {
+    const d = describeSevereError(err);
+    return `Ets un entrenador d'escacs que parla català (tutejant), directe i clar.
+Posició abans de la jugada (FEN): ${err.fen}
+A la jugada ${d.moveNumber} l'alumne va jugar ${d.played}, però la millor jugada era ${d.best}.${d.pv ? `\nContinuació correcta: ${d.pv}` : ''}
+
+Explica en 2 o 3 frases (màxim 70 paraules):
+1. Quina amenaça o oportunitat hi havia a la posició.
+2. Per què ${d.played} fallava i quina idea seguia ${d.best}.
+3. Acaba amb un consell d'una frase aplicable a partides futures.
+
+REGLES
+- Només text pla, sense markdown, llistes ni cometes.
+- No inventis jugades que no es dedueixin de la posició.`;
+}
+
+function getErrorNoteKey(err) { return err && err.fen ? err.fen : ''; }
+
+// Claus (id de partida + FEN) amb una crida en curs: l'estat 'pending' persistit
+// no és fiable (l'app es pot tancar a mig generar), així que el control de
+// duplicats viu només en memòria i una nota no acabada es torna a demanar.
+const errorNotesInFlight = new Set();
+
+async function requestErrorNotes(entry, severeErrors) {
+    if (!entry || !deepseekApiKey) return;
+    const errors = (Array.isArray(severeErrors) && severeErrors.length ? severeErrors : getEntrySevereErrors(entry)).slice(0, ERROR_NOTES_MAX);
+    if (!errors.length) return;
+    if (!entry.errorNotes) entry.errorNotes = {};
+    const pending = errors.filter(err => {
+        const key = getErrorNoteKey(err);
+        if (!key || errorNotesInFlight.has(`${entry.id}:${key}`)) return false;
+        const note = entry.errorNotes[key];
+        return !(note && note.status === 'done' && note.text);
+    });
+    if (!pending.length) return;
+    pending.forEach(err => {
+        const key = getErrorNoteKey(err);
+        errorNotesInFlight.add(`${entry.id}:${key}`);
+        entry.errorNotes[key] = { status: 'pending', text: '' };
+    });
+    refreshHistoryErrorNotes(entry);
+    await Promise.all(pending.map(async err => {
+        const key = getErrorNoteKey(err);
+        try {
+            const result = await callDeepSeek(buildErrorNotePrompt(err), { generationConfig: { temperature: 0.7, maxOutputTokens: 600, topP: 0.9 } });
+            if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
+            entry.errorNotes[key] = { status: 'done', text: result.text.replace(/\*\*/g, '').trim() };
+        } catch (e) {
+            entry.errorNotes[key] = { status: 'error', text: '' };
+        } finally {
+            errorNotesInFlight.delete(`${entry.id}:${key}`);
+        }
+    }));
+    saveStorage();
+    refreshHistoryErrorNotes(entry);
+}
+
+function refreshHistoryErrorNotes(entry) {
+    if (historyReplay && historyReplay.entry && entry && historyReplay.entry.id === entry.id) {
+        updateHistoryErrorNotes(historyReplay.entry);
+    }
+}
+
+function updateHistoryErrorNotes(entry) {
+    const container = $('#history-error-notes');
+    const block = $('#history-error-notes-block');
+    if (!container.length) return;
+    const errors = entry ? getEntrySevereErrors(entry).slice(0, ERROR_NOTES_MAX) : [];
+    if (!errors.length) {
+        if (block.length) block.hide();
+        container.empty();
+        return;
+    }
+    if (block.length) block.show();
+    const notes = entry.errorNotes || {};
+    let html = '';
+    errors.forEach(err => {
+        const d = describeSevereError(err);
+        const note = notes[getErrorNoteKey(err)] || null;
+        let body;
+        if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
+        else if (note && note.status === 'pending') body = '<em>Generant explicació...</em>';
+        else if (!deepseekApiKey) body = "<em>Configura la clau de DeepSeek per veure l'explicació.</em>";
+        else body = '<em>Explicació no disponible.</em>';
+        html += `<div class="error-note">
+            <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(String(d.played))}</strong> · millor <strong>${escapeHtml(String(d.best))}</strong></div>
+            <div class="error-note-body">${body}</div>
+        </div>`;
+    });
+    container.html(html);
 }
 
 function buildDeepSeekBundleHintPrompt(step, context = {}) {
@@ -11882,6 +12049,98 @@ function renderWeaknesses() {
     if (trainBtn) trainBtn.onclick = () => startWeaknessTraining(topTheme);
 }
 
+/* ===================== DIAGNÒSTIC LONGITUDINAL DE L'ENTRENADOR =====================
+   Mira TOT l'historial acumulat (errors guardats, precisió per fase, últimes
+   partides) i en treu un diagnòstic redactat: patró recurrent, punt fort i
+   prioritat. Els fets es calculen en local; DeepSeek només els redacta.
+   Es regenera quan hi ha dades noves (empremta per recompte de partides/errors). */
+
+const COACH_DIAGNOSIS_KEY = 'chess_coachDiagnosis';
+let coachDiagnosisPending = false;
+
+function buildCoachDiagnosisFacts() {
+    const weaknesses = analyzeWeaknesses();
+    const phasePrecision = analyzePhasePrecision();
+    const recent = gameHistory.slice(-10);
+    const results = { victories: 0, taules: 0, derrotes: 0 };
+    const precisions = [];
+    recent.forEach(g => {
+        const r = (g.result || '').toLowerCase();
+        if (/guany|victòria|win/.test(r)) results.victories++;
+        else if (/taules|draw|empat/.test(r)) results.taules++;
+        else results.derrotes++;
+        if (typeof g.precision === 'number') precisions.push(g.precision);
+    });
+    const topThemes = Object.keys(weaknesses.theme)
+        .filter(k => weaknesses.theme[k] > 0)
+        .sort((a, b) => weaknesses.theme[b] - weaknesses.theme[a])
+        .slice(0, 3)
+        .map(k => ({ tema: WEAKNESS_LABELS[k] || getThemeLabel(k), errors: weaknesses.theme[k] }));
+    return {
+        partidesTotals: gameHistory.length,
+        errorsAcumulats: weaknesses.total,
+        temesAmbMesErrors: topThemes,
+        errorsPerFase: weaknesses.phase,
+        precisioPerFase: {
+            obertura: phasePrecision.obertura,
+            migjoc: phasePrecision.migjoc,
+            final: phasePrecision.final
+        },
+        ultimesPartides: {
+            quantes: recent.length,
+            resultats: results,
+            precisioMitjana: precisions.length ? Math.round(precisions.reduce((a, b) => a + b, 0) / precisions.length) : null
+        }
+    };
+}
+
+function buildCoachDiagnosisPrompt(facts) {
+    return `Ets un entrenador d'escacs veterà que parla català (tutejant), honest i concret.
+A partir NOMÉS d'aquests fets acumulats de l'alumne (no inventis res que no hi sigui):
+${JSON.stringify(facts, null, 2)}
+
+Escriu un diagnòstic de 70 a 110 paraules en 1 o 2 paràgrafs:
+- El patró d'error més recurrent i en quina fase de la partida apareix.
+- Un punt fort real que es vegi a les dades.
+- La prioritat d'entrenament per als pròxims dies, en imperatiu.
+Sense llistes, sense markdown i sense xifres que no surtin dels fets.`;
+}
+
+function coachDiagnosisFingerprint() {
+    return `${gameHistory.length}:${savedErrors.length}`;
+}
+
+function renderCoachDiagnosis() {
+    const el = document.getElementById('coach-diagnosis');
+    if (!el) return;
+    if (gameHistory.length < 3 && savedErrors.length < 5) {
+        el.innerHTML = '<span style="color:var(--text-secondary);">Juga unes quantes partides més i l\'entrenador escriurà aquí el teu diagnòstic.</span>';
+        return;
+    }
+    const fingerprint = coachDiagnosisFingerprint();
+    const stored = readJsonStorage(COACH_DIAGNOSIS_KEY, null);
+    if (stored && stored.text) {
+        el.textContent = stored.text;
+        if (stored.fingerprint === fingerprint) return;
+    }
+    if (!deepseekApiKey) {
+        if (!stored || !stored.text) el.innerHTML = '<span style="color:var(--text-secondary);">Configura la clau de DeepSeek per rebre el diagnòstic de l\'entrenador.</span>';
+        return;
+    }
+    if (coachDiagnosisPending) return;
+    coachDiagnosisPending = true;
+    if (!stored || !stored.text) el.innerHTML = '<em>L\'entrenador està repassant les teves partides...</em>';
+    const prompt = buildCoachDiagnosisPrompt(buildCoachDiagnosisFacts());
+    callDeepSeek(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 900, topP: 0.9 } }).then(result => {
+        if (!result.ok || !result.text) return;
+        const text = result.text.replace(/\*\*/g, '').trim();
+        if (text.length < 40) return;
+        writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text, day: getPlanDayKey() });
+        const target = document.getElementById('coach-diagnosis');
+        if (target) target.textContent = text;
+    }).finally(() => { coachDiagnosisPending = false; });
+}
+
 /* ===================== BANC DE MÀXIMES OFFLINE + CAU ===================== */
 const OFFLINE_MAXIMS = {
     king: [
@@ -13946,6 +14205,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     if (!blunderMode && !calibrationGameWasActive) {
         const latestEntry = gameHistory[gameHistory.length - 1];
         void requestDeepSeekReview(latestEntry, severeErrors);
+        void requestErrorNotes(latestEntry, severeErrors);
     }
 }
 
