@@ -141,6 +141,55 @@
 
         .btn-settings { background: linear-gradient(135deg, #6d635a 0%, #4a423b 100%); color: #f4e4bc; }
 
+        .cloud-session {
+            margin: 12px auto 14px;
+            padding: 10px;
+            width: min(100%, 420px);
+            background: rgba(45, 36, 28, 0.82);
+            border: 1px solid rgba(201, 162, 39, 0.28);
+            border-radius: 14px;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.22);
+        }
+        .cloud-session-status {
+            color: var(--text-secondary);
+            font-size: 0.82rem;
+            line-height: 1.25;
+            margin-bottom: 8px;
+            overflow-wrap: anywhere;
+        }
+        .cloud-session-status strong { color: var(--text-primary); }
+        .cloud-session-hint {
+            color: var(--accent-gold);
+            font-size: 0.76rem;
+            margin-top: 6px;
+        }
+        .cloud-session-error {
+            color: #ffb4a8;
+            font-size: 0.76rem;
+            margin-top: 6px;
+        }
+        .cloud-session-actions {
+            display: flex;
+            gap: 8px;
+            justify-content: center;
+            flex-wrap: wrap;
+        }
+        .cloud-session-actions .btn {
+            flex: 1 1 150px;
+            min-width: 0;
+            padding: 9px 12px;
+            font-size: 0.82rem;
+            margin: 0;
+        }
+        body.day-mode .cloud-session {
+            background: rgba(251, 245, 230, 0.9);
+            border-color: rgba(154, 125, 31, 0.28);
+        }
+        body.epaper-mode .cloud-session {
+            background: var(--bg-card);
+            border-color: #777;
+        }
+
         /* Animacions d'entrada subtils */
         @keyframes fadeInUp {
             from { opacity: 0; transform: translateY(10px); }
@@ -2660,6 +2709,16 @@
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
             <div class="subtitle">Entrenador d'Escacs</div>
+
+            <section class="cloud-session" aria-label="Sessió i sincronització al núvol">
+                <div class="cloud-session-status" id="cloud-auth-status">No connectat</div>
+                <div class="cloud-session-actions">
+                    <button class="btn btn-primary" id="btn-login-google" type="button">Entrar amb Google</button>
+                    <button class="btn btn-secondary" id="btn-logout-google" type="button" style="display:none;">Sortir</button>
+                </div>
+                <div class="cloud-session-hint" id="cloud-sync-hint">Inicia sessió per sincronitzar entre dispositius.</div>
+                <div class="cloud-session-error" id="cloud-sync-error" style="display:none;"></div>
+            </section>
             
             <div class="stats-row">
                 <div class="stat-box">
@@ -3460,13 +3519,356 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.1"></script>
     <script>
-        window.APP_VERSION = '1.0.9';
+        window.APP_VERSION = '1.0.10';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.9"></script>
+    <script src="app.js?v=1.0.10"></script>
+
+    <!-- Firebase Authentication + Firestore (modular SDK via official CDN) -->
+    <script type="module">
+        import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-app.js';
+        import {
+            getAuth,
+            GoogleAuthProvider,
+            onAuthStateChanged as firebaseOnAuthStateChanged,
+            signInWithPopup,
+            signOut
+        } from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-auth.js';
+        import {
+            collection,
+            doc,
+            getDoc,
+            getDocs,
+            getFirestore,
+            limit,
+            orderBy,
+            query,
+            serverTimestamp,
+            setDoc
+        } from 'https://www.gstatic.com/firebasejs/12.7.0/firebase-firestore.js';
+
+        const firebaseConfig = {
+            apiKey: 'AIzaSyBJzcouhGkno0ZHqKLkDLUBr-2032ptDjc',
+            authDomain: 'eltauler-c1299.firebaseapp.com',
+            projectId: 'eltauler-c1299',
+            storageBucket: 'eltauler-c1299.firebasestorage.app',
+            messagingSenderId: '677946490853',
+            appId: '1:677946490853:web:29a24f02cdfc348a61390c',
+            measurementId: 'G-SNVS8XHCJ4'
+        };
+
+        const cloudState = {
+            app: null,
+            auth: null,
+            db: null,
+            user: null,
+            ready: false,
+            lastSettingsSyncAt: 0,
+            lastTrainingSyncAt: 0
+        };
+        const loginButton = document.getElementById('btn-login-google');
+        const logoutButton = document.getElementById('btn-logout-google');
+        const statusText = document.getElementById('cloud-auth-status');
+        const hintText = document.getElementById('cloud-sync-hint');
+        const errorText = document.getElementById('cloud-sync-error');
+
+        function showCloudError(message, error) {
+            console.error(`[Firebase] ${message}`, error || '');
+            if (errorText) {
+                errorText.textContent = message;
+                errorText.style.display = 'block';
+            }
+        }
+
+        function clearCloudError() {
+            if (errorText) {
+                errorText.textContent = '';
+                errorText.style.display = 'none';
+            }
+        }
+
+        function setCloudUi(user) {
+            const label = user ? (user.displayName || user.email || 'usuari') : null;
+            if (statusText) {
+                statusText.innerHTML = user
+                    ? `Connectat com: <strong>${escapeHtml(label)}</strong>`
+                    : 'No connectat';
+            }
+            if (hintText) {
+                hintText.textContent = user
+                    ? 'La sincronització amb Firestore està activa.'
+                    : 'Inicia sessió per sincronitzar entre dispositius.';
+            }
+            if (loginButton) loginButton.style.display = user ? 'none' : '';
+            if (logoutButton) logoutButton.style.display = user ? '' : 'none';
+        }
+
+        function escapeHtml(value) {
+            return String(value || '').replace(/[&<>'"]/g, char => ({
+                '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;'
+            }[char]));
+        }
+
+        function publicUser(user) {
+            if (!user) return null;
+            return {
+                uid: user.uid,
+                displayName: user.displayName || '',
+                email: user.email || '',
+                photoURL: user.photoURL || ''
+            };
+        }
+
+        function requireAuthenticatedUser(operationName) {
+            if (!cloudState.user) {
+                console.warn(`[Firebase] Usuari no autenticat: ${operationName}`);
+                return null;
+            }
+            return cloudState.user;
+        }
+
+        function userDoc(uid, ...segments) {
+            return doc(cloudState.db, 'users', uid, ...segments);
+        }
+
+        function sanitizeFirestoreData(value) {
+            if (value === undefined || typeof value === 'function') return null;
+            if (value === null || typeof value !== 'object') return value;
+            if (value instanceof Date) return value.toISOString();
+            if (Array.isArray(value)) return value.map(sanitizeFirestoreData);
+            return Object.fromEntries(
+                Object.entries(value)
+                    .filter(([key]) => !/^deepseek|apiKey|token|secret|password$/i.test(key))
+                    .map(([key, val]) => [key, sanitizeFirestoreData(val)])
+            );
+        }
+
+        function normalizeGameData(gameData = {}) {
+            const data = sanitizeFirestoreData(gameData) || {};
+            const now = new Date().toISOString();
+            return {
+                fen: data.fen || null,
+                pgn: data.pgn || null,
+                moves: Array.isArray(data.moves) ? data.moves : [],
+                result: data.result || null,
+                roc: data.roc ?? data.engineRocOrElo ?? data.currentElo ?? null,
+                level: data.level ?? data.mode ?? null,
+                accuracy: data.accuracy ?? data.precision ?? null,
+                mistakes: data.mistakes ?? data.counts?.mistake ?? null,
+                createdAt: data.createdAt || data.date || now,
+                ...data,
+                updatedAt: serverTimestamp()
+            };
+        }
+
+        async function saveUserProfile(userInput) {
+            const user = publicUser(userInput || cloudState.user);
+            if (!user) {
+                showCloudError('Usuari no autenticat');
+                return null;
+            }
+            try {
+                const profileRef = userDoc(user.uid, 'profile', 'main');
+                await setDoc(profileRef, {
+                    ...user,
+                    lastLoginAt: serverTimestamp(),
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+                return user;
+            } catch (error) {
+                showCloudError('Error escrivint Firestore: no s’ha pogut desar el perfil.', error);
+                return null;
+            }
+        }
+
+        async function saveCloudGame(gameData) {
+            const user = requireAuthenticatedUser('saveCloudGame');
+            if (!user) return null;
+            try {
+                const data = normalizeGameData(gameData);
+                const gameId = data.gameId || data.id || `game_${Date.now()}`;
+                await setDoc(userDoc(user.uid, 'games', gameId), {
+                    ...data,
+                    id: gameId,
+                    uid: user.uid
+                }, { merge: true });
+                return { id: gameId };
+            } catch (error) {
+                showCloudError('Error escrivint Firestore: no s’ha pogut desar la partida.', error);
+                return null;
+            }
+        }
+
+        async function loadCloudGames() {
+            const user = requireAuthenticatedUser('loadCloudGames');
+            if (!user) return [];
+            try {
+                const gamesRef = collection(cloudState.db, 'users', user.uid, 'games');
+                const snapshot = await getDocs(query(gamesRef, orderBy('createdAt', 'desc'), limit(100)));
+                return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+            } catch (error) {
+                showCloudError('Error llegint Firestore: no s’han pogut carregar les partides.', error);
+                return [];
+            }
+        }
+
+        async function saveTrainingHistory(historyData) {
+            const user = requireAuthenticatedUser('saveTrainingHistory');
+            if (!user) return null;
+            try {
+                await setDoc(userDoc(user.uid, 'training', 'history'), {
+                    ...(sanitizeFirestoreData(historyData) || {}),
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+                return true;
+            } catch (error) {
+                showCloudError('Error escrivint Firestore: no s’ha pogut desar l’entrenament.', error);
+                return null;
+            }
+        }
+
+        async function loadTrainingHistory() {
+            const user = requireAuthenticatedUser('loadTrainingHistory');
+            if (!user) return null;
+            try {
+                const snapshot = await getDoc(userDoc(user.uid, 'training', 'history'));
+                return snapshot.exists() ? snapshot.data() : null;
+            } catch (error) {
+                showCloudError('Error llegint Firestore: no s’ha pogut carregar l’entrenament.', error);
+                return null;
+            }
+        }
+
+        async function saveCloudSettings(settingsData) {
+            const user = requireAuthenticatedUser('saveCloudSettings');
+            if (!user) return null;
+            try {
+                await setDoc(userDoc(user.uid, 'settings', 'main'), {
+                    ...(sanitizeFirestoreData(settingsData) || {}),
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+                return true;
+            } catch (error) {
+                showCloudError('Error escrivint Firestore: no s’han pogut desar les preferències.', error);
+                return null;
+            }
+        }
+
+        async function loadCloudSettings() {
+            const user = requireAuthenticatedUser('loadCloudSettings');
+            if (!user) return null;
+            try {
+                const snapshot = await getDoc(userDoc(user.uid, 'settings', 'main'));
+                return snapshot.exists() ? snapshot.data() : null;
+            } catch (error) {
+                showCloudError('Error llegint Firestore: no s’han pogut carregar les preferències.', error);
+                return null;
+            }
+        }
+
+        async function loginWithGoogle() {
+            clearCloudError();
+            if (!cloudState.auth) {
+                showCloudError('Error iniciant sessió: Firebase encara no està preparat.');
+                return null;
+            }
+            try {
+                const provider = new GoogleAuthProvider();
+                provider.setCustomParameters({ prompt: 'select_account' });
+                const result = await signInWithPopup(cloudState.auth, provider);
+                return publicUser(result.user);
+            } catch (error) {
+                showCloudError('Error iniciant sessió amb Google.', error);
+                return null;
+            }
+        }
+
+        async function logoutFromGoogle() {
+            clearCloudError();
+            if (!cloudState.auth) return null;
+            try {
+                await signOut(cloudState.auth);
+                return true;
+            } catch (error) {
+                showCloudError('Error tancant sessió.', error);
+                return null;
+            }
+        }
+
+        function onAuthStateChanged(callback) {
+            if (!cloudState.auth) return () => {};
+            return firebaseOnAuthStateChanged(cloudState.auth, callback);
+        }
+
+        function queueCloudSettingsSync(settingsData) {
+            if (!cloudState.user) return null;
+            const now = Date.now();
+            if (now - cloudState.lastSettingsSyncAt < 15000) return null;
+            cloudState.lastSettingsSyncAt = now;
+            return saveCloudSettings(settingsData);
+        }
+
+        function queueTrainingHistorySync(historyData) {
+            if (!cloudState.user) return null;
+            const now = Date.now();
+            if (now - cloudState.lastTrainingSyncAt < 15000) return null;
+            cloudState.lastTrainingSyncAt = now;
+            return saveTrainingHistory(historyData);
+        }
+
+        Object.assign(window, {
+            loginWithGoogle,
+            logoutFromGoogle,
+            onAuthStateChanged,
+            saveUserProfile,
+            saveCloudGame,
+            loadCloudGames,
+            saveTrainingHistory,
+            loadTrainingHistory,
+            saveCloudSettings,
+            loadCloudSettings,
+            queueCloudSettingsSync,
+            queueTrainingHistorySync
+        });
+        Object.defineProperty(window, 'currentFirebaseUser', {
+            configurable: true,
+            get: () => publicUser(cloudState.user)
+        });
+
+        try {
+            cloudState.app = initializeApp(firebaseConfig);
+            cloudState.auth = getAuth(cloudState.app);
+            cloudState.db = getFirestore(cloudState.app);
+            cloudState.ready = true;
+            console.log('[Firebase] Inicialitzat correctament.');
+
+            onAuthStateChanged(async (firebaseUser) => {
+                clearCloudError();
+                cloudState.user = publicUser(firebaseUser);
+                setCloudUi(cloudState.user);
+                if (!firebaseUser) {
+                    console.log('[Firebase] Usuari no autenticat. Mode local/offline actiu.');
+                    return;
+                }
+                console.log('[Firebase] Usuari autenticat:', cloudState.user.uid);
+                await saveUserProfile(firebaseUser);
+                await Promise.allSettled([
+                    saveTrainingHistory({ initialized: true }),
+                    saveCloudSettings({ initialized: true })
+                ]);
+            });
+        } catch (error) {
+            showCloudError('Error inicialitzant Firebase. L’app continuarà funcionant en mode local.', error);
+            setCloudUi(null);
+        }
+
+        if (loginButton) loginButton.addEventListener('click', loginWithGoogle);
+        if (logoutButton) logoutButton.addEventListener('click', logoutFromGoogle);
+        setCloudUi(null);
+    </script>
     
     <!-- Service Worker Registration -->
     <script>
