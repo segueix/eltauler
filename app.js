@@ -10206,7 +10206,24 @@ function setupEvents() {
     $('#btn-league-banner-play').on('click', (e) => { e.stopPropagation(); if (guardCalibrationAccess()) startLeagueRound(); });
 
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
-    
+
+    // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau Gemini
+    $('#btn-ai-info').click(() => { $('#ai-info-modal').css('display', 'flex'); });
+    $('#btn-ai-info-settings').click(() => {
+        $('#ai-info-modal').hide();
+        $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen');
+        const target = document.querySelector('.gemini-config');
+        if (target) {
+            setTimeout(() => {
+                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                target.classList.remove('gemini-highlight');
+                void target.offsetWidth;
+                target.classList.add('gemini-highlight');
+                setTimeout(() => target.classList.remove('gemini-highlight'), 3000);
+            }, 120);
+        }
+    });
+
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
     $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); });
     $('#btn-history').click(() => {
