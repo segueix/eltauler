@@ -15,7 +15,7 @@
     <title>El Tauler - Entrenador d'Escacs</title>
     
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json?v=1.0.5">
+    <link rel="manifest" href="manifest.json?v=1.0.6">
     
     <!-- Icons -->
     <link rel="apple-touch-icon" href="novaicon.png">
@@ -2735,7 +2735,6 @@
                     <span>🎓 El pla de l'entrenador</span>
                     <span class="coach-kicker-right">
                         <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                        <button class="coach-speak-btn" id="btn-plan-speak" title="Escolta-ho en veu alta">🔊</button>
                     </span>
                 </div>
                 <div class="coach-plan-summary" id="weekly-plan-summary"></div>
@@ -3429,13 +3428,13 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.1"></script>
     <script>
-        window.APP_VERSION = '1.0.5';
+        window.APP_VERSION = '1.0.6';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.5"></script>
+    <script src="app.js?v=1.0.6"></script>
     
     <!-- Service Worker Registration -->
     <script>
