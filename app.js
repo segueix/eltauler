@@ -14407,7 +14407,8 @@ function updatePlanCountdown() {
     const h = Math.floor(ms / 3600000);
     const m = Math.floor(ms / 60000) % 60;
     const s = Math.floor(ms / 1000) % 60;
-    el.textContent = `⏳ ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    const text = `⏳ ${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    if (el.textContent !== text) el.textContent = text;
     if (weeklyPlan && weeklyPlan.day !== getPlanDayKey()) ensureWeeklyPlan();
 }
 
