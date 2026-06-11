@@ -4304,9 +4304,70 @@ function saveStorage() {
     saveHieroglyphicStats();
     saveThemeMastery();
     saveGrowthStats();
+    syncLocalStateToCloud();
     localStorage.removeItem('chess_isCalibrationPhase');
     localStorage.removeItem('chess_calibrationMoves');
     localStorage.removeItem('chess_calibrationGoodMoves');
+}
+
+
+function buildCloudSettingsData() {
+    return {
+        version: APP_VERSION,
+        elo: userELO,
+        currentElo: currentElo,
+        aiDifficulty: aiDifficulty,
+        totalStars: totalStars,
+        currentStreak: currentStreak,
+        maxStreak: maxStreak,
+        totalGamesPlayed: totalGamesPlayed,
+        totalWins: totalWins,
+        controlMode: controlMode,
+        epaperMode: epaperEnabled,
+        dayMode: dayModeEnabled,
+        tvJeroglyphics: tvJeroglyphicsEnabled,
+        completedOpenings: completedOpenings,
+        tacticsStats: tacticsStats,
+        updatedAtLocal: new Date().toISOString()
+    };
+}
+
+function buildCloudTrainingHistoryData() {
+    return {
+        reviewHistory: reviewHistory,
+        gameHistory: gameHistory,
+        adaptationReport: adaptationReport,
+        savedErrors: savedErrors,
+        recentErrors: recentErrors,
+        eloHistory: eloHistory,
+        todayMissions: todayMissions,
+        missionsDate: missionsDate,
+        dailyPuzzle: dailyPuzzle,
+        updatedAtLocal: new Date().toISOString()
+    };
+}
+
+function syncLocalStateToCloud() {
+    try {
+        if (typeof window === 'undefined') return;
+        if (typeof window.queueCloudSettingsSync === 'function') {
+            void window.queueCloudSettingsSync(buildCloudSettingsData());
+        }
+        if (typeof window.queueTrainingHistorySync === 'function') {
+            void window.queueTrainingHistorySync(buildCloudTrainingHistoryData());
+        }
+    } catch (error) {
+        console.warn('[Firebase] Error preparant sincronització local:', error);
+    }
+}
+
+function syncLatestGameToCloud(entry) {
+    try {
+        if (!entry || typeof window === 'undefined' || typeof window.saveCloudGame !== 'function') return;
+        void window.saveCloudGame(entry);
+    } catch (error) {
+        console.warn('[Firebase] Error preparant sincronització de partida:', error);
+    }
 }
 
 function updateDeepSeekSettingsUI() {
@@ -8207,7 +8268,14 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         deepseekReview: options.deepseekReview || options.geminiReview || null,
         playerColor: playerColor,
         opponent: currentOpponent || null,
-        pgn: game.pgn()
+        fen: game.fen(),
+        pgn: game.pgn(),
+        roc: currentElo,
+        level: aiDifficulty,
+        accuracy: finalPrecision,
+        mistakes: counts?.mistake || 0,
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
     };
     gameHistory.push(entry);
     if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
@@ -14211,6 +14279,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     }
     if (!blunderMode && !calibrationGameWasActive) {
         const latestEntry = gameHistory[gameHistory.length - 1];
+        syncLatestGameToCloud(latestEntry);
         void requestDeepSeekReview(latestEntry, severeErrors);
         void requestErrorNotes(latestEntry, severeErrors);
     }
