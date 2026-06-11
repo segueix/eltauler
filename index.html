@@ -399,6 +399,7 @@
         .coach-plan-summary[data-scrollable="true"] {
             border-bottom: 1px solid rgba(201,162,39,0.16);
             padding-bottom: 4px;
+            touch-action: none;
         }
         .coach-plan-summary::-webkit-scrollbar { width: 5px; }
         .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
@@ -407,6 +408,7 @@
             .coach-plan-summary {
                 max-height: 7.5rem;
                 max-height: clamp(6rem, 26svh, 10.5rem);
+                overflow-y: scroll;
             }
         }
         .coach-speak-btn {

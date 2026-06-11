@@ -14427,20 +14427,27 @@ function bindPlanSummaryTouchScroll() {
     const el = document.getElementById('weekly-plan-summary');
     if (!el || el.dataset.touchScrollBound) return;
     el.dataset.touchScrollBound = '1';
-    let startY = 0, startTop = 0;
+    let lastY = 0;
+    const canScroll = () => el.scrollHeight > el.clientHeight + 1;
+    const scrollByDelta = (deltaY) => {
+        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
+        const nextTop = Math.max(0, Math.min(maxTop, el.scrollTop + deltaY));
+        el.scrollTop = nextTop;
+    };
+
     el.addEventListener('touchstart', (e) => {
-        startY = e.touches[0].clientY;
-        startTop = el.scrollTop;
+        if (!e.touches.length) return;
+        lastY = e.touches[0].clientY;
     }, { passive: true });
     el.addEventListener('touchmove', (e) => {
-        if (el.scrollHeight <= el.clientHeight + 1) return;
-        const deltaY = e.touches[0].clientY - startY;
-        const nextTop = startTop - deltaY;
-        const maxTop = el.scrollHeight - el.clientHeight;
-        if ((nextTop < 0 && el.scrollTop <= 0) || (nextTop > maxTop && el.scrollTop >= maxTop)) return;
-        el.scrollTop = Math.max(0, Math.min(maxTop, nextTop));
+        if (!canScroll() || !e.touches.length) return;
+        const y = e.touches[0].clientY;
+        scrollByDelta(lastY - y);
+        lastY = y;
+        // Quan el resum sobreïx, aquest gest ha de moure el requadre, no la pàgina.
         e.preventDefault();
     }, { passive: false });
+    window.addEventListener('resize', updatePlanSummaryOverflow, { passive: true });
 }
 
 function launchWeeklyPlanItem(item) {
