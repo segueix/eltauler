@@ -4385,12 +4385,17 @@ async function callDeepSeek(prompt, options = {}) {
     }
     const endpoint = 'https://api.deepseek.com/chat/completions';
     const generationConfig = Object.assign({ temperature: 0.8, maxOutputTokens: 1024, topP: 0.9 }, options.generationConfig || {});
+    // DeepSeek V4 raona ("thinking") per defecte i aquests tokens gasten el mateix
+    // pressupost de max_tokens: amb límits petits el content arriba buit i a més
+    // es crema saldo. Per a textos curts d'entrenador no cal raonar, així que es
+    // desactiva sempre (mateixa decisió que el thinkingLevel minimal de Gemini).
     const payload = Object.assign({
         model: DEEPSEEK_MODEL_ID,
         messages: [{ role: 'user', content: String(prompt || '') }],
         temperature: generationConfig.temperature,
         max_tokens: generationConfig.maxOutputTokens,
         top_p: generationConfig.topP,
+        thinking: { type: 'disabled' },
         stream: false
     }, options.payload || {});
     try {
@@ -6491,7 +6496,8 @@ async function requestErrorNotes(entry, severeErrors) {
             if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
             entry.errorNotes[key] = { status: 'done', text: result.text.replace(/\*\*/g, '').trim() };
         } catch (e) {
-            entry.errorNotes[key] = { status: 'error', text: '' };
+            console.error('[ErrorNotes]', e?.message || e);
+            entry.errorNotes[key] = { status: 'error', text: '', message: e?.message || '' };
         } finally {
             errorNotesInFlight.delete(`${entry.id}:${key}`);
         }
@@ -6526,7 +6532,8 @@ function updateHistoryErrorNotes(entry) {
         if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
         else if (note && note.status === 'pending') body = '<em>Generant explicació...</em>';
         else if (!deepseekApiKey) body = "<em>Configura la clau de DeepSeek per veure l'explicació.</em>";
-        else body = '<em>Explicació no disponible.</em>';
+        else if (note && note.status === 'error' && note.message) body = `<em>No s'ha pogut generar (${escapeHtml(note.message)}). Torna a obrir la partida per reintentar-ho.</em>`;
+        else body = '<em>Explicació no disponible. Torna a obrir la partida per reintentar-ho.</em>';
         html += `<div class="error-note">
             <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(String(d.played))}</strong> · millor <strong>${escapeHtml(String(d.best))}</strong></div>
             <div class="error-note-body">${body}</div>
