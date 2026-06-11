@@ -4400,72 +4400,94 @@ function maxCloudNumber(localValue, cloudValue, fallback = 0) {
     return fallback;
 }
 
-function captureCurrentAppState() {
-    const updatedAtClient = getCloudSyncUpdatedAtClient() || new Date().toISOString();
+function captureSettingsState(updatedAtClient = new Date().toISOString()) {
     return {
-        schemaVersion: 1,
-        userELO,
-        engineELO: Math.round(currentElo || engineELO || userELO || 0),
-        currentElo,
-        aiDifficulty,
+        updatedAtClient,
+        controlMode,
+        bundleAcceptMode,
+        epaperMode: epaperEnabled,
+        dayMode: dayModeEnabled,
+        tvJeroglyphics: tvJeroglyphicsEnabled,
+        fontSize: loadFontSize(),
+        pendingFreeTimeControl
+    };
+}
+
+function captureStatsState() {
+    return {
+        totalStars,
+        currentStreak,
+        maxStreak,
+        lastPracticeDate,
+        totalGamesPlayed,
+        totalWins,
+        sessionStats: cloneCloudValue(sessionStats) || {},
+        eloHistory: (cloneCloudValue(eloHistory) || []).slice(-100),
+        recentGames: (cloneCloudValue(recentGames) || []).slice(-30),
+        consecutiveWins,
+        consecutiveLosses,
+        recentErrors: (cloneCloudValue(recentErrors) || []).slice(-ERROR_WINDOW_N),
+        freeAdjustmentWindow: (cloneCloudValue(freeAdjustmentWindow) || []).slice(-20),
+        adjustmentLog: (cloneCloudValue(adjustmentLog) || []).slice(-100),
+        adaptationReport: (cloneCloudValue(adaptationReport) || []).slice(-50),
+        freeLossStreak,
+        calibrationRocFloor,
+        eloMilestones: cloneCloudValue(unlockedEloMilestones) || [],
+        lastAdjustmentQualityAvg,
+        hieroglyphicStats: cloneCloudValue(hieroglyphicStats) || {},
+        themeMastery: cloneCloudValue(themeMastery) || {},
+        growthStats: cloneCloudValue(growthStats) || {}
+    };
+}
+
+function captureTrainingProgressState() {
+    return {
+        tacticsStats: cloneCloudValue(tacticsStats) || {},
+        todayMissions: cloneCloudValue(todayMissions) || [],
+        missionsDate,
+        missionsCompletionTime,
+        dailyPuzzle: cloneCloudValue(dailyPuzzle) || {},
+        currentLeague: cloneCloudValue(currentLeague) || null,
+        leagueActiveMatch: cloneCloudValue(leagueActiveMatch) || null,
+        isCalibrating,
+        calibrationGames: (cloneCloudValue(calibrationGames) || []).slice(-20),
+        calibrationProfile: cloneCloudValue(calibrationProfile) || null,
+        calibratgeComplet
+    };
+}
+
+function captureCloudCollectionState() {
+    return {
         savedErrors: cloneCloudValue(savedErrors) || [],
         currentReview: cloneCloudValue(currentReview) || [],
         reviewHistory: cloneCloudValue(reviewHistory) || [],
         currentGameErrors: cloneCloudValue(currentGameErrors) || [],
         matchErrorQueue: cloneCloudValue(matchErrorQueue) || [],
-        gameHistory: cloneCloudValue(gameHistory) || [],
-        settings: {
-            updatedAtClient,
-            controlMode,
-            bundleAcceptMode,
-            epaperMode: epaperEnabled,
-            dayMode: dayModeEnabled,
-            tvJeroglyphics: tvJeroglyphicsEnabled,
-            fontSize: loadFontSize(),
-            pendingFreeTimeControl
-        },
-        stats: {
-            totalStars,
-            currentStreak,
-            maxStreak,
-            lastPracticeDate,
-            totalGamesPlayed,
-            totalWins,
-            sessionStats: cloneCloudValue(sessionStats) || {},
-            eloHistory: cloneCloudValue(eloHistory) || [],
-            recentGames: cloneCloudValue(recentGames) || [],
-            consecutiveWins,
-            consecutiveLosses,
-            recentErrors: cloneCloudValue(recentErrors) || [],
-            freeAdjustmentWindow: cloneCloudValue(freeAdjustmentWindow) || [],
-            adjustmentLog: cloneCloudValue(adjustmentLog) || [],
-            adaptationReport: cloneCloudValue(adaptationReport) || [],
-            freeLossStreak,
-            calibrationRocFloor,
-            eloMilestones: cloneCloudValue(unlockedEloMilestones) || [],
-            lastAdjustmentQualityAvg,
-            hieroglyphicStats: cloneCloudValue(hieroglyphicStats) || {},
-            themeMastery: cloneCloudValue(themeMastery) || {},
-            growthStats: cloneCloudValue(growthStats) || {}
-        },
+        gameHistory: cloneCloudValue(gameHistory) || []
+    };
+}
+
+function captureCurrentAppState() {
+    const updatedAtClient = getCloudSyncUpdatedAtClient() || new Date().toISOString();
+    return {
+        schemaVersion: 2,
+        userELO,
+        engineELO: Math.round(currentElo || engineELO || userELO || 0),
+        currentElo,
+        aiDifficulty,
+        totalStars,
+        totalGamesPlayed,
+        totalWins,
+        currentStreak,
+        maxStreak,
+        settings: captureSettingsState(updatedAtClient),
+        stats: captureStatsState(),
         openingProgress: {
             completedOpenings: cloneCloudValue(completedOpenings) || [],
             openingPracticeGoodMoves,
             openingPracticeTotalMoves
         },
-        trainingProgress: {
-            tacticsStats: cloneCloudValue(tacticsStats) || {},
-            todayMissions: cloneCloudValue(todayMissions) || [],
-            missionsDate,
-            missionsCompletionTime,
-            dailyPuzzle: cloneCloudValue(dailyPuzzle) || {},
-            currentLeague: cloneCloudValue(currentLeague) || null,
-            leagueActiveMatch: cloneCloudValue(leagueActiveMatch) || null,
-            isCalibrating,
-            calibrationGames: cloneCloudValue(calibrationGames) || [],
-            calibrationProfile: cloneCloudValue(calibrationProfile) || null,
-            calibratgeComplet
-        },
+        trainingProgress: captureTrainingProgressState(),
         updatedAtClient,
         lastMergeAt: null
     };
@@ -4609,6 +4631,9 @@ function renderAfterCloudSync() {
 
 Object.assign(window, {
     captureCurrentAppState,
+    captureCloudCollectionState,
+    captureSettingsState,
+    captureStatsState,
     applyAppState,
     renderAfterCloudSync,
     mergeLocalAndCloudState

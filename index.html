@@ -3649,14 +3649,34 @@
             if (forceSyncButton) forceSyncButton.style.display = cloudSyncState.user ? '' : 'none';
         }
 
+        function getFirebaseErrorCode(error) {
+            return error?.code || error?.name || 'unknown';
+        }
+
+        function formatCloudErrorMessage(prefix, error) {
+            const code = getFirebaseErrorCode(error);
+            const message = error?.message ? `: ${error.message}` : '';
+            return `${prefix}: ${code}${message}`;
+        }
+
         function showCloudError(message, error) {
-            console.error(`[Firebase] ${message}`, error || '');
-            cloudSyncState.lastError = message;
+            const displayMessage = error ? formatCloudErrorMessage(message, error) : message;
+            console.error(`[Firebase] ${displayMessage}`, error || '');
+            cloudSyncState.lastError = displayMessage;
             updateCloudDiagnostic();
             if (errorText) {
-                errorText.textContent = message;
+                errorText.textContent = displayMessage;
                 errorText.style.display = 'block';
             }
+        }
+
+        function showCloudStatus(message) {
+            cloudSyncState.lastError = null;
+            if (errorText) {
+                errorText.textContent = message || '';
+                errorText.style.display = message ? 'block' : 'none';
+            }
+            updateCloudDiagnostic();
         }
 
         function clearCloudError() {
@@ -3711,16 +3731,177 @@
             return doc(cloudState.db, 'users', uid, ...segments);
         }
 
-        function sanitizeFirestoreData(value) {
-            if (value === undefined || typeof value === 'function') return null;
-            if (value === null || typeof value !== 'object') return value;
+        const MAX_CENTRAL_STATE_BYTES = 800 * 1024;
+        const MAX_SYNCED_GAMES = 200;
+        const MAX_SYNCED_ERRORS = 200;
+        const MAX_SYNCED_REVIEWS = 100;
+        const MAX_STRING_FIELD_LENGTH = 120000;
+        const MAX_PV_MOVES = 12;
+        const PRIVATE_KEY_PATTERN = /(^|_)?(deepseekApiKey|deepseek|apiKey|token|secret|password)(_|$)?/i;
+        const HEAVY_FIELD_PATTERN = /^(currentReview|currentGameErrors|gameHistory|reviewHistory|savedErrors|matchErrorQueue|moveReviews|pv|principalVariation|stockfish|engine|chess|board|domElement|element|node)$/i;
+
+        function isDomElement(value) {
+            return !!(value && typeof Element !== 'undefined' && value instanceof Element);
+        }
+
+        function sanitizeFirestoreData(value, options = {}, seen = new WeakSet(), depth = 0) {
+            const { allowNestedArrays = false, dropHeavyFields = true } = options;
+            if (value === undefined || typeof value === 'function' || typeof value === 'symbol' || isDomElement(value)) return undefined;
+            if (value === null || typeof value !== 'object') {
+                if (typeof value === 'number' && !Number.isFinite(value)) return null;
+                if (typeof value === 'string' && value.length > MAX_STRING_FIELD_LENGTH) return value.slice(0, MAX_STRING_FIELD_LENGTH);
+                return value;
+            }
             if (value instanceof Date) return value.toISOString();
-            if (Array.isArray(value)) return value.map(sanitizeFirestoreData);
-            return Object.fromEntries(
-                Object.entries(value)
-                    .filter(([key]) => !/^deepseek|apiKey|token|secret|password$/i.test(key))
-                    .map(([key, val]) => [key, sanitizeFirestoreData(val)])
-            );
+            if (seen.has(value)) return undefined;
+            seen.add(value);
+            if (Array.isArray(value)) {
+                const output = [];
+                value.forEach(item => {
+                    if (Array.isArray(item) && !allowNestedArrays) {
+                        const nested = sanitizeFirestoreData(item, { ...options, allowNestedArrays: true }, seen, depth + 1);
+                        if (nested !== undefined) output.push({ values: nested });
+                        return;
+                    }
+                    const clean = sanitizeFirestoreData(item, options, seen, depth + 1);
+                    if (clean !== undefined) output.push(clean);
+                });
+                seen.delete(value);
+                return output;
+            }
+            const plainSource = Object.getPrototypeOf(value) === Object.prototype || Object.getPrototypeOf(value) === null
+                ? value
+                : Object.assign({}, value);
+            const result = {};
+            Object.entries(plainSource).forEach(([key, val]) => {
+                if (!key || PRIVATE_KEY_PATTERN.test(key)) return;
+                if (dropHeavyFields && depth <= 1 && HEAVY_FIELD_PATTERN.test(key)) return;
+                const clean = sanitizeFirestoreData(val, options, seen, depth + 1);
+                if (clean !== undefined) result[key] = clean;
+            });
+            seen.delete(value);
+            return result;
+        }
+
+        function getPayloadSizeBytes(payload) {
+            try {
+                return new Blob([JSON.stringify(payload)]).size;
+            } catch (error) {
+                return Number.POSITIVE_INFINITY;
+            }
+        }
+
+        function buildFirestoreWriteError(prefix, details = {}) {
+            const error = new Error(details.message || prefix);
+            error.code = details.code || 'document-too-large';
+            return error;
+        }
+
+        function compactPv(pv) {
+            if (Array.isArray(pv)) return pv.filter(item => typeof item === 'string').slice(0, MAX_PV_MOVES);
+            if (typeof pv === 'string') return pv.split(/\s+/).filter(Boolean).slice(0, MAX_PV_MOVES);
+            return [];
+        }
+
+        function compactErrorData(errorData = {}, fallbackIndex = 0) {
+            const data = sanitizeFirestoreData(errorData, { dropHeavyFields: false }) || {};
+            const createdAt = data.createdAt || data.date || data.timestamp || new Date().toISOString();
+            return sanitizeFirestoreData({
+                id: String(data.id || data.errorId || `${createdAt}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
+                fen: data.fen || data.position || null,
+                bestMove: data.bestMove || data.best || data.expectedMove || null,
+                playerMove: data.playerMove || data.move || data.playedMove || null,
+                severity: data.severity || data.type || data.kind || null,
+                theme: data.theme || data.motif || data.category || null,
+                createdAt,
+                pv: compactPv(data.pv || data.principalVariation || data.line)
+            }, { dropHeavyFields: false }) || {};
+        }
+
+        function compactGameData(gameData = {}, fallbackIndex = 0) {
+            const data = sanitizeFirestoreData(gameData, { dropHeavyFields: false }) || {};
+            const createdAt = data.createdAt || data.date || data.timestamp || new Date().toISOString();
+            const compactErrors = Array.isArray(data.errors) ? data.errors : (Array.isArray(data.currentGameErrors) ? data.currentGameErrors : []);
+            return sanitizeFirestoreData({
+                id: String(data.id || data.gameId || `${createdAt}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
+                createdAt,
+                pgn: typeof data.pgn === 'string' ? data.pgn.slice(0, MAX_STRING_FIELD_LENGTH) : null,
+                fen: data.fen || data.finalFen || data.finalFEN || null,
+                result: data.result || null,
+                userELO: data.userELO ?? data.userElo ?? null,
+                engineELO: data.engineELO ?? data.engineElo ?? data.roc ?? data.engineRocOrElo ?? null,
+                accuracy: data.accuracy ?? data.precision ?? null,
+                errors: compactErrors.slice(0, 20).map(compactErrorData),
+                moves: Array.isArray(data.moves) ? data.moves.filter(move => typeof move === 'string').slice(0, 300) : []
+            }, { dropHeavyFields: false }) || {};
+        }
+
+        function compactReviewData(reviewData = {}, fallbackIndex = 0) {
+            const data = sanitizeFirestoreData(reviewData, { dropHeavyFields: false }) || {};
+            const createdAt = data.createdAt || data.date || data.timestamp || new Date().toISOString();
+            const moves = Array.isArray(data.moves) ? data.moves : (Array.isArray(data.moveReviews) ? data.moveReviews : []);
+            return sanitizeFirestoreData({
+                id: String(data.id || data.reviewId || `${createdAt}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120),
+                createdAt,
+                gameId: data.gameId || null,
+                pgn: typeof data.pgn === 'string' ? data.pgn.slice(0, MAX_STRING_FIELD_LENGTH) : null,
+                fen: data.fen || data.finalFen || null,
+                result: data.result || null,
+                accuracy: data.accuracy ?? data.precision ?? null,
+                moves: moves.slice(0, 120).map((move, index) => {
+                    if (typeof move === 'string') return move;
+                    const cleanMove = sanitizeFirestoreData(move, { dropHeavyFields: false }) || {};
+                    return {
+                        move: cleanMove.move || cleanMove.san || cleanMove.uci || `move_${index}`,
+                        fen: cleanMove.fen || null,
+                        eval: cleanMove.eval ?? cleanMove.evaluation ?? null,
+                        bestMove: cleanMove.bestMove || null,
+                        pv: compactPv(cleanMove.pv || cleanMove.principalVariation)
+                    };
+                })
+            }, { dropHeavyFields: false }) || {};
+        }
+
+
+        function compactCentralStats(stats = {}) {
+            const clean = sanitizeFirestoreData(stats) || {};
+            if (Array.isArray(clean.eloHistory)) clean.eloHistory = clean.eloHistory.slice(-100);
+            if (Array.isArray(clean.recentGames)) clean.recentGames = clean.recentGames.slice(-30);
+            if (Array.isArray(clean.recentErrors)) clean.recentErrors = clean.recentErrors.slice(-50);
+            if (Array.isArray(clean.freeAdjustmentWindow)) clean.freeAdjustmentWindow = clean.freeAdjustmentWindow.slice(-20);
+            if (Array.isArray(clean.adjustmentLog)) clean.adjustmentLog = clean.adjustmentLog.slice(-100);
+            if (Array.isArray(clean.adaptationReport)) clean.adaptationReport = clean.adaptationReport.slice(-50);
+            return clean;
+        }
+
+        function buildCentralStatePayload(captured = {}, user, reason, now) {
+            const stats = captured.stats || {};
+            return sanitizeFirestoreData({
+                schemaVersion: Math.max(Number(captured.schemaVersion) || 2, 2),
+                uid: user.uid,
+                userELO: captured.userELO ?? stats.userELO ?? null,
+                engineELO: captured.engineELO ?? captured.currentElo ?? null,
+                currentElo: captured.currentElo ?? captured.engineELO ?? null,
+                totalStars: captured.totalStars ?? stats.totalStars ?? 0,
+                totalGamesPlayed: captured.totalGamesPlayed ?? stats.totalGamesPlayed ?? 0,
+                totalWins: captured.totalWins ?? stats.totalWins ?? 0,
+                currentStreak: captured.currentStreak ?? stats.currentStreak ?? 0,
+                maxStreak: captured.maxStreak ?? stats.maxStreak ?? 0,
+                settings: captured.settings || {},
+                stats: compactCentralStats(captured.stats || {}),
+                openingProgress: captured.openingProgress || {},
+                trainingProgress: captured.trainingProgress || {},
+                updatedAt: serverTimestamp(),
+                updatedAtClient: now,
+                deviceId: cloudSyncState.deviceId,
+                lastSyncReason: reason
+            }) || {};
+        }
+
+        function getCollectionState(stateOverride = null) {
+            if (stateOverride && (stateOverride.gameHistory || stateOverride.savedErrors || stateOverride.reviewHistory)) return stateOverride;
+            if (typeof window.captureCloudCollectionState === 'function') return window.captureCloudCollectionState() || {};
+            return stateOverride || {};
         }
 
         function normalizeGameData(gameData = {}) {
@@ -3784,7 +3965,7 @@
             if (!user) return [];
             try {
                 const gamesRef = collection(cloudState.db, 'users', user.uid, 'games');
-                const snapshot = await getDocs(query(gamesRef, orderBy('createdAt', 'desc'), limit(100)));
+                const snapshot = await getDocs(query(gamesRef, orderBy('createdAt', 'desc'), limit(MAX_SYNCED_GAMES)));
                 return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
             } catch (error) {
                 showCloudError('Error llegint Firestore: no s’han pogut carregar les partides.', error);
@@ -3855,8 +4036,30 @@
             return { schemaVersion: 1, updatedAtClient: new Date().toISOString() };
         }
 
-        async function loadFullUserStateFromCloud() {
-            const user = requireAuthenticatedUser('loadFullUserStateFromCloud');
+        function logFirestoreWriteFailure(error, path, payload, payloadSizeBytes = getPayloadSizeBytes(payload)) {
+            console.error('[CloudSync] Firestore write failed', {
+                code: error?.code,
+                message: error?.message,
+                path,
+                payloadSizeBytes,
+                payloadKeys: Object.keys(payload || {})
+            });
+        }
+
+        async function guardedSetDoc(ref, path, payload, options = { merge: true }) {
+            const payloadSizeBytes = getPayloadSizeBytes(payload);
+            console.log('[CloudSync] upload payload', { path, payloadSizeBytes, payloadKeys: Object.keys(payload || {}) });
+            try {
+                await setDoc(ref, payload, options);
+                return { ok: true, payloadSizeBytes };
+            } catch (error) {
+                logFirestoreWriteFailure(error, path, payload, payloadSizeBytes);
+                return { ok: false, error, payloadSizeBytes };
+            }
+        }
+
+        async function loadCentralStateFromCloud() {
+            const user = requireAuthenticatedUser('loadCentralStateFromCloud');
             if (!user) return null;
             const path = `users/${user.uid}/state/main`;
             try {
@@ -3867,37 +4070,175 @@
                 updateCloudDiagnostic();
                 return data;
             } catch (error) {
-                showCloudError('Error llegint Firestore: no s’ha pogut carregar l’estat central.', error);
+                showCloudError('Error llegint Firestore', error);
                 return null;
             }
+        }
+
+        async function loadGameHistoryFromCloud() {
+            return loadCloudGames();
+        }
+
+        async function loadErrorsFromCloud() {
+            const user = requireAuthenticatedUser('loadErrorsFromCloud');
+            if (!user) return [];
+            try {
+                const errorsRef = collection(cloudState.db, 'users', user.uid, 'errors');
+                const snapshot = await getDocs(query(errorsRef, orderBy('createdAt', 'desc'), limit(MAX_SYNCED_ERRORS)));
+                return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+            } catch (error) {
+                showCloudError('Error llegint Firestore', error);
+                return [];
+            }
+        }
+
+        async function loadReviewsFromCloud() {
+            const user = requireAuthenticatedUser('loadReviewsFromCloud');
+            if (!user) return [];
+            try {
+                const reviewsRef = collection(cloudState.db, 'users', user.uid, 'reviews');
+                const snapshot = await getDocs(query(reviewsRef, orderBy('createdAt', 'desc'), limit(MAX_SYNCED_REVIEWS)));
+                return snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+            } catch (error) {
+                showCloudError('Error llegint Firestore', error);
+                return [];
+            }
+        }
+
+        async function loadFullUserStateFromCloud() {
+            const central = await loadCentralStateFromCloud();
+            if (!central) return null;
+            const [gameHistory, savedErrors, reviewHistory] = await Promise.all([
+                loadGameHistoryFromCloud(),
+                loadErrorsFromCloud(),
+                loadReviewsFromCloud()
+            ]);
+            return {
+                ...central,
+                gameHistory: gameHistory.slice().reverse(),
+                savedErrors: savedErrors.slice().reverse(),
+                reviewHistory: reviewHistory.slice().reverse()
+            };
+        }
+
+        async function saveCentralStateToCloud(reason = 'manual', stateOverride = null) {
+            const user = requireAuthenticatedUser('saveCentralStateToCloud');
+            if (!user) return { ok: false, error: buildFirestoreWriteError('Usuari no autenticat', { code: 'unauthenticated' }) };
+            const path = `users/${user.uid}/state/main`;
+            const now = new Date().toISOString();
+            const captured = stateOverride || getAppLocalState();
+            const payload = buildCentralStatePayload(captured, user, reason, now);
+            const payloadSizeBytes = getPayloadSizeBytes(payload);
+            if (payloadSizeBytes > MAX_CENTRAL_STATE_BYTES) {
+                const error = buildFirestoreWriteError('L’estat central és massa gran; cal dividir-lo en subcol·leccions.', {
+                    code: 'document-too-large',
+                    message: 'L’estat central és massa gran; cal dividir-lo en subcol·leccions.'
+                });
+                logFirestoreWriteFailure(error, path, payload, payloadSizeBytes);
+                showCloudError('Error escrivint Firestore', error);
+                return { ok: false, error, payload, payloadSizeBytes };
+            }
+            const result = await guardedSetDoc(mainStateDoc(user.uid), path, payload, { merge: true });
+            if (!result.ok) showCloudError('Error escrivint Firestore', result.error);
+            return { ...result, payload, path, updatedAtClient: now };
+        }
+
+        async function saveGameHistoryToCloud(stateOverride = null) {
+            const user = requireAuthenticatedUser('saveGameHistoryToCloud');
+            if (!user) return { ok: false, error: buildFirestoreWriteError('Usuari no autenticat', { code: 'unauthenticated' }) };
+            const collectionState = getCollectionState(stateOverride);
+            const games = (Array.isArray(collectionState.gameHistory) ? collectionState.gameHistory : [])
+                .slice(-MAX_SYNCED_GAMES)
+                .map(compactGameData);
+            const failures = [];
+            for (const [index, game] of games.entries()) {
+                const gameId = game.id || `game_${Date.now()}_${index}`;
+                const path = `users/${user.uid}/games/${gameId}`;
+                const payload = { ...game, id: gameId, uid: user.uid, updatedAt: serverTimestamp() };
+                const result = await guardedSetDoc(userDoc(user.uid, 'games', gameId), path, payload, { merge: true });
+                if (!result.ok) failures.push({ path, error: result.error });
+            }
+            return { ok: failures.length === 0, count: games.length, failures };
+        }
+
+        async function saveErrorsToCloud(stateOverride = null) {
+            const user = requireAuthenticatedUser('saveErrorsToCloud');
+            if (!user) return { ok: false, error: buildFirestoreWriteError('Usuari no autenticat', { code: 'unauthenticated' }) };
+            const collectionState = getCollectionState(stateOverride);
+            const errors = (Array.isArray(collectionState.savedErrors) ? collectionState.savedErrors : [])
+                .slice(-MAX_SYNCED_ERRORS)
+                .map(compactErrorData);
+            const failures = [];
+            for (const [index, item] of errors.entries()) {
+                const errorId = item.id || `error_${Date.now()}_${index}`;
+                const path = `users/${user.uid}/errors/${errorId}`;
+                const payload = { ...item, id: errorId, uid: user.uid, updatedAt: serverTimestamp() };
+                const result = await guardedSetDoc(userDoc(user.uid, 'errors', errorId), path, payload, { merge: true });
+                if (!result.ok) failures.push({ path, error: result.error });
+            }
+            return { ok: failures.length === 0, count: errors.length, failures };
+        }
+
+        async function saveReviewsToCloud(stateOverride = null) {
+            const user = requireAuthenticatedUser('saveReviewsToCloud');
+            if (!user) return { ok: false, error: buildFirestoreWriteError('Usuari no autenticat', { code: 'unauthenticated' }) };
+            const collectionState = getCollectionState(stateOverride);
+            const reviews = (Array.isArray(collectionState.reviewHistory) ? collectionState.reviewHistory : [])
+                .slice(-MAX_SYNCED_REVIEWS)
+                .map(compactReviewData);
+            const failures = [];
+            for (const [index, review] of reviews.entries()) {
+                const reviewId = review.id || `review_${Date.now()}_${index}`;
+                const path = `users/${user.uid}/reviews/${reviewId}`;
+                const payload = { ...review, id: reviewId, uid: user.uid, updatedAt: serverTimestamp() };
+                const result = await guardedSetDoc(userDoc(user.uid, 'reviews', reviewId), path, payload, { merge: true });
+                if (!result.ok) failures.push({ path, error: result.error });
+            }
+            return { ok: failures.length === 0, count: reviews.length, failures };
         }
 
         async function saveFullUserStateToCloud(reason = 'manual', stateOverride = null) {
             const user = requireAuthenticatedUser('saveFullUserStateToCloud');
             if (!user) return null;
-            const path = `users/${user.uid}/state/main`;
+            cloudSyncState.pending = true;
+            const captured = stateOverride || getAppLocalState();
+            const collectionState = getCollectionState(stateOverride);
             try {
-                const captured = stateOverride || getAppLocalState();
-                const now = new Date().toISOString();
-                const payload = {
-                    ...(sanitizeFirestoreData(captured) || {}),
-                    schemaVersion: captured.schemaVersion || 1,
-                    uid: user.uid,
-                    updatedAt: serverTimestamp(),
-                    updatedAtClient: now,
-                    deviceId: cloudSyncState.deviceId,
-                    lastSyncReason: reason
+                const central = await saveCentralStateToCloud(reason, captured);
+                if (!central.ok) {
+                    cloudSyncState.pending = false;
+                    return null;
+                }
+                const [games, errors, reviews, training, settings] = await Promise.all([
+                    saveGameHistoryToCloud(collectionState),
+                    saveErrorsToCloud(collectionState),
+                    saveReviewsToCloud(collectionState),
+                    saveTrainingHistory(captured.trainingProgress || {}),
+                    saveCloudSettings(captured.settings || {})
+                ]);
+                const failedSections = [];
+                const sectionFailure = (label, result) => {
+                    const firstError = result?.failures?.[0]?.error || result?.error;
+                    const code = firstError ? ` (${getFirebaseErrorCode(firstError)})` : '';
+                    failedSections.push(`${label}${code}`);
                 };
-                console.log('[CloudSync] upload', reason, path, payload);
-                await setDoc(mainStateDoc(user.uid), payload, { merge: true });
-                cloudSyncState.lastUploadAt = now;
+                if (!games.ok) sectionFailure('partides pendents', games);
+                if (!errors.ok) sectionFailure('errors pendents', errors);
+                if (!reviews.ok) sectionFailure('revisions pendents', reviews);
+                if (!training) failedSections.push('entrenament pendent');
+                if (!settings) failedSections.push('preferències pendents');
+                cloudSyncState.lastUploadAt = central.updatedAtClient;
                 cloudSyncState.pending = false;
-                clearCloudError();
+                if (failedSections.length) {
+                    showCloudStatus(`Sincronització parcial: estat guardat, ${failedSections.join(', ')}`);
+                } else {
+                    clearCloudError();
+                }
                 updateCloudDiagnostic();
-                return payload;
+                return central.payload;
             } catch (error) {
                 cloudSyncState.pending = false;
-                showCloudError('Error escrivint Firestore: no s’ha pogut desar l’estat central.', error);
+                showCloudError('Error escrivint Firestore', error);
                 console.warn('[CloudSync] error', error);
                 return null;
             }
@@ -4072,6 +4413,14 @@
             loadTrainingHistory,
             saveCloudSettings,
             loadCloudSettings,
+            saveCentralStateToCloud,
+            saveGameHistoryToCloud,
+            saveErrorsToCloud,
+            saveReviewsToCloud,
+            loadCentralStateFromCloud,
+            loadGameHistoryFromCloud,
+            loadErrorsFromCloud,
+            loadReviewsFromCloud,
             saveFullUserStateToCloud,
             loadFullUserStateFromCloud,
             scheduleCloudSync,
