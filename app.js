@@ -169,6 +169,7 @@ const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
 const CALIBRATION_GAME_COUNT = 5;
+const MAX_SYNCED_GAMES = 200;
 // El calibratge és una CERCA ADAPTATIVA del nivell del jugador, no una escala fixa que sempre
 // puja. Es parteix d'un ROC inicial i, després de cada partida, el rival s'adapta al resultat:
 // si el jugador guanya, puja; si perd, baixa; amb passos decreixents per convergir cap al seu
@@ -4358,9 +4359,48 @@ function parseCloudTime(value) {
     return 0;
 }
 
+function simpleHashString(input = '') {
+    let hash = 0;
+    const str = String(input || '');
+    for (let i = 0; i < str.length; i++) {
+        hash = ((hash << 5) - hash) + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash).toString(36);
+}
+
+function stableGameId(entry = {}, fallbackIndex = 0) {
+    if (entry.id) return String(entry.id);
+    if (entry.gameId) return String(entry.gameId);
+
+    const created = entry.createdAt || entry.date || entry.timestamp || '';
+    const pgn = entry.pgn || '';
+    const fen = entry.finalFen || entry.fen || '';
+    const moves = Array.isArray(entry.moves) ? entry.moves.join(' ') : '';
+
+    const base = `${created}|${pgn}|${fen}|${moves}|${fallbackIndex}`;
+    return `game_${simpleHashString(base)}_${fallbackIndex}`;
+}
+
 function stableCloudArrayKey(item, index, prefix) {
     if (!item || typeof item !== 'object') return `${prefix || 'item'}:primitive:${JSON.stringify(item)}:${index}`;
+    if (prefix === 'gameHistory' || String(prefix || '').startsWith('gameHistory:')) {
+        if (item.id) return String(item.id);
+        if (item.gameId) return String(item.gameId);
+        if (item.createdAt && item.pgn) return `game:created-pgn:${item.createdAt}:${simpleHashString(item.pgn)}`;
+        if (item.createdAt && (item.finalFen || item.fen)) return `game:created-fen:${item.createdAt}:${item.finalFen || item.fen}`;
+        if (item.date && item.pgn) return `game:date-pgn:${item.date}:${simpleHashString(item.pgn)}`;
+        if (item.pgn) return `game:pgn:${simpleHashString(item.pgn)}`;
+        if (Array.isArray(item.moves) && item.moves.length) return `game:moves:${simpleHashString(item.moves.join(' '))}`;
+        return stableGameId(item, index);
+    }
     return item.id || item.gameId || item.createdAt || item.timestamp || item.date || item.fen || item.pgn || item.label || `${prefix || 'item'}:${index}:${JSON.stringify(item).slice(0, 160)}`;
+}
+
+function isCalibrationDoneState(training = {}) {
+    return training.calibratgeComplet === true
+        || !!training.calibrationProfile
+        || (Array.isArray(training.calibrationGames) && training.calibrationGames.length >= CALIBRATION_GAME_COUNT);
 }
 
 function mergeCloudArrays(localArray, cloudArray, prefix) {
@@ -4441,7 +4481,10 @@ function captureStatsState() {
 }
 
 function captureTrainingProgressState() {
+    const updatedAtClient = getCloudSyncUpdatedAtClient() || new Date().toISOString();
+
     return {
+        updatedAtClient,
         tacticsStats: cloneCloudValue(tacticsStats) || {},
         todayMissions: cloneCloudValue(todayMissions) || [],
         missionsDate,
@@ -4507,7 +4550,7 @@ function mergeLocalAndCloudState(localState = {}, cloudState = {}) {
     merged.reviewHistory = mergeCloudArrays(local.reviewHistory, cloud.reviewHistory, 'reviewHistory');
     merged.currentGameErrors = mergeCloudArrays(local.currentGameErrors, cloud.currentGameErrors, 'currentGameErrors');
     merged.matchErrorQueue = mergeCloudArrays(local.matchErrorQueue, cloud.matchErrorQueue, 'matchErrorQueue');
-    merged.gameHistory = mergeCloudArrays(local.gameHistory, cloud.gameHistory, 'gameHistory');
+    merged.gameHistory = mergeCloudArrays(local.gameHistory, cloud.gameHistory, 'gameHistory').slice(-MAX_SYNCED_GAMES);
     merged.settings = newerCloudObject(local.settings, cloud.settings);
     const localStats = local.stats || {};
     const cloudStats = cloud.stats || {};
@@ -4533,11 +4576,32 @@ function mergeLocalAndCloudState(localState = {}, cloudState = {}) {
     merged.openingProgress.openingPracticeTotalMoves = maxCloudNumber(localOpening.openingPracticeTotalMoves, cloudOpening.openingPracticeTotalMoves, 0);
     const localTraining = local.trainingProgress || {};
     const cloudTraining = cloud.trainingProgress || {};
+    const localCalibrationDone = isCalibrationDoneState(localTraining);
+    const cloudCalibrationDone = isCalibrationDoneState(cloudTraining);
+
     merged.trainingProgress = newerCloudObject(localTraining, cloudTraining);
     merged.trainingProgress.todayMissions = mergeCloudArrays(localTraining.todayMissions, cloudTraining.todayMissions, 'todayMissions');
-    merged.trainingProgress.calibrationGames = mergeCloudArrays(localTraining.calibrationGames, cloudTraining.calibrationGames, 'calibrationGames');
     merged.trainingProgress.tacticsStats = newerCloudObject(localTraining.tacticsStats, cloudTraining.tacticsStats);
     merged.trainingProgress.dailyPuzzle = newerCloudObject(localTraining.dailyPuzzle, cloudTraining.dailyPuzzle);
+
+    if (cloudCalibrationDone || localCalibrationDone) {
+        merged.trainingProgress.calibratgeComplet = true;
+        merged.trainingProgress.isCalibrating = false;
+
+        if (cloudTraining.calibrationProfile || localTraining.calibrationProfile) {
+            merged.trainingProgress.calibrationProfile = newerCloudObject(localTraining.calibrationProfile, cloudTraining.calibrationProfile);
+        }
+
+        merged.trainingProgress.calibrationGames = mergeCloudArrays(
+            localTraining.calibrationGames,
+            cloudTraining.calibrationGames,
+            'calibrationGames'
+        ).slice(-CALIBRATION_GAME_COUNT);
+    } else {
+        merged.trainingProgress.calibratgeComplet = false;
+        merged.trainingProgress.isCalibrating = true;
+        merged.trainingProgress.calibrationGames = mergeCloudArrays(localTraining.calibrationGames, cloudTraining.calibrationGames, 'calibrationGames');
+    }
     merged.updatedAtClient = new Date().toISOString();
     merged.lastMergeAt = merged.updatedAtClient;
     return merged;
@@ -4606,6 +4670,18 @@ function applyAppState(state = {}) {
         if (Array.isArray(training.calibrationGames)) calibrationGames = cloneCloudValue(training.calibrationGames);
         if (training.calibrationProfile !== undefined) calibrationProfile = cloneCloudValue(training.calibrationProfile);
         if (typeof training.calibratgeComplet === 'boolean') calibratgeComplet = training.calibratgeComplet;
+        const calibrationDone =
+            calibratgeComplet === true
+            || !!calibrationProfile
+            || (Array.isArray(calibrationGames) && calibrationGames.length >= CALIBRATION_GAME_COUNT);
+
+        if (calibrationDone) {
+            calibratgeComplet = true;
+            isCalibrating = false;
+        } else {
+            calibratgeComplet = false;
+            isCalibrating = true;
+        }
         syncEngineEloFromUser();
         saveStorage();
         if (state.updatedAtClient) {
