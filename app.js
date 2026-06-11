@@ -4846,8 +4846,9 @@ function restartStockfishWorker() {
 // Anàlisi robusta per a la preparació d'exercicis: handshake previ, límit de temps,
 // validació que la jugada és legal per a AQUEST fen (descarta respostes de cerques
 // antigues) i un reintent amb reinici del worker si el motor no respon.
-async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000) {
+async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null) {
     for (let attempt = 0; attempt < 2; attempt++) {
+        if (shouldAbort && shouldAbort()) return null;
         if (!stockfish) ensureStockfish();
         if (!stockfish) return null;
         try { stockfish.postMessage('stop'); } catch (e) {}
@@ -5092,7 +5093,11 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
     return safety;
 }
 
-async function prepareBundleSequence(fen) {
+async function prepareBundleSequence(fen, opts = {}) {
+    // silent: no mostra alertes (preparació en background)
+    // shouldAbort: permet interrompre la preparació entre anàlisis
+    const silent = !!opts.silent;
+    const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
     // Validació inicial més robusta
     if (!stockfish) {
         console.error('[Bundle] Stockfish no existeix');
@@ -5124,14 +5129,16 @@ async function prepareBundleSequence(fen) {
         await new Promise(resolve => setTimeout(resolve, 300)); // Temps augmentat
         
         console.log('[Bundle] Iniciant preparació seqüència per FEN:', fen);
-        
+
+        if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 1'); return null; }
         // 1. Analitzar posició inicial (Pas 1)
         console.log('[Bundle] Pas 1: Analitzant posició inicial...');
-        const step1Analysis = await analyzeFenRobust(fen, 15, 2);
-        
+        const step1Analysis = await analyzeFenRobust(fen, 15, 2, 8000, shouldAbort);
+
+        if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda després del pas 1'); return null; }
         if (!step1Analysis || !step1Analysis.bestMove || !step1Analysis.bestMove.move) {
             console.error('[Bundle] Pas 1 fallit: no hi ha bestMove', step1Analysis);
-            alert('Error: No es pot analitzar la posició inicial. Torna-ho a provar.');
+            if (!silent) alert('Error: No es pot analitzar la posició inicial. Torna-ho a provar.');
             return null;
         }
         
@@ -5152,7 +5159,7 @@ async function prepareBundleSequence(fen) {
         
         if (!move1) {
             console.error('[Bundle] No es pot aplicar jugada 1:', playerMove1);
-            alert('Error: Jugada no vàlida. Prova un altre error.');
+            if (!silent) alert('Error: Jugada no vàlida. Prova un altre error.');
             return null;
         }
         
@@ -5162,13 +5169,15 @@ async function prepareBundleSequence(fen) {
         // Pausa més llarga entre anàlisis
         await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
         
+        if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 2'); return null; }
         // 3. Calcular millor resposta de l'oponent
         console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
-        const opponentAnalysis = await analyzeFenRobust(afterPlayerFen, 15, 1);
-        
+        const opponentAnalysis = await analyzeFenRobust(afterPlayerFen, 15, 1, 8000, shouldAbort);
+
+        if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda després del pas 2'); return null; }
         if (!opponentAnalysis || !opponentAnalysis.bestMove || !opponentAnalysis.bestMove.move) {
             console.error('[Bundle] Pas 2 fallit: no hi ha bestMove oponent', opponentAnalysis);
-            alert('Error: No es pot calcular la resposta. Prova un altre error.');
+            if (!silent) alert('Error: No es pot calcular la resposta. Prova un altre error.');
             return null;
         }
         
@@ -5188,7 +5197,7 @@ async function prepareBundleSequence(fen) {
         
         if (!move2) {
             console.error('[Bundle] No es pot aplicar jugada oponent:', opponentMove);
-            alert('Error: Resposta no vàlida. Prova un altre error.');
+            if (!silent) alert('Error: Resposta no vàlida. Prova un altre error.');
             return null;
         }
         
@@ -5198,13 +5207,15 @@ async function prepareBundleSequence(fen) {
         // Pausa abans de l'anàlisi final
         await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
         
+        if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 3'); return null; }
         // 5. Calcular millor segona jugada del jugador (Pas 3)
         console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
-        const step2Analysis = await analyzeFenRobust(afterOpponentFen, 15, 2);
-        
+        const step2Analysis = await analyzeFenRobust(afterOpponentFen, 15, 2, 8000, shouldAbort);
+
+        if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda després del pas 3'); return null; }
         if (!step2Analysis || !step2Analysis.bestMove || !step2Analysis.bestMove.move) {
             console.error('[Bundle] Pas 3 fallit: no hi ha bestMove pas 2', step2Analysis);
-            alert('Error: No es pot calcular la segona jugada. Prova un altre error.');
+            if (!silent) alert('Error: No es pot calcular la segona jugada. Prova un altre error.');
             return null;
         }
         
@@ -5263,7 +5274,7 @@ async function prepareBundleSequence(fen) {
         
     } catch (error) {
         console.error('[Bundle] Error preparant seqüència:', error);
-        showToast('Error inesperat preparant l\'exercici. Torna-ho a provar.', 'error');
+        if (!silent) showToast('Error inesperat preparant l\'exercici. Torna-ho a provar.', 'error');
         return null;
     }
 }
@@ -9497,9 +9508,53 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
         showToast('No s’ha pogut convertir aquesta posició en jeroglífic.', 'warn');
     }
 }
-function startHieroglyphicExercise() {
+// Tria aleatòria d'un exercici jeroglífic (obertura + jugada objectiu de l'usuari).
+function drawHieroglyphicExercise() {
     const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
-    if (pool.length === 0) return;
+    if (pool.length === 0) return null;
+    const op = pool[Math.floor(Math.random() * pool.length)];
+    const userMoveIndices = [];
+    for (let i = 0; i < op.moves.length; i++) {
+        const isUserMove = (op.userColor === 'w' && i % 2 === 0) || (op.userColor === 'b' && i % 2 === 1);
+        if (isUserMove) userMoveIndices.push(i);
+    }
+    if (userMoveIndices.length === 0) return null;
+    const targetIdx = userMoveIndices[Math.floor(Math.random() * userMoveIndices.length)];
+    return { op, targetIdx };
+}
+
+// Cua de jeroglífics a punt: pre-tria els exercicis següents i, si hi ha Gemini,
+// en pre-carrega la pista al cau perquè aparegui a l'instant en començar.
+let hieroglyphicUpNext = [];
+
+function prefetchHieroglyphicClue(draw) {
+    if (!geminiApiKey || !draw) return;
+    try {
+        const g = new Chess();
+        for (let i = 0; i < draw.targetIdx; i++) g.move(draw.op.moves[i], { sloppy: true });
+        const context = buildHieroglyphicContext(g.fen(), draw.op.moves[draw.targetIdx], { opening: draw.op, source: 'opening' });
+        fetchHieroglyphicClue(context, 1).catch(() => {});
+    } catch (e) {}
+}
+
+function refillHieroglyphicQueue() {
+    let guard = 0;
+    while (hieroglyphicUpNext.length < 3 && guard < 25) {
+        guard++;
+        const draw = drawHieroglyphicExercise();
+        if (!draw) break;
+        if (hieroglyphicUpNext.some(d => d.op === draw.op && d.targetIdx === draw.targetIdx)) continue;
+        hieroglyphicUpNext.push(draw);
+    }
+    hieroglyphicUpNext.forEach(d => {
+        if (!d.prefetched && geminiApiKey) { d.prefetched = true; prefetchHieroglyphicClue(d); }
+    });
+}
+
+function startHieroglyphicExercise() {
+    const draw = hieroglyphicUpNext.shift() || drawHieroglyphicExercise();
+    refillHieroglyphicQueue();
+    if (!draw) return;
     // Neteja qualsevol feina pendent de la pràctica anterior perquè no interfereixi
     // amb l'exercici (rival pendent, anàlisi de Stockfish, pista o pre-càlcul).
     openingPracticeEngineThinking = false;
@@ -9507,19 +9562,12 @@ function startHieroglyphicExercise() {
     openingPracticeHintPending = false;
     openingPreCalcPending = false;
     stockfishRequestor = null;
-    const op = pool[Math.floor(Math.random() * pool.length)];
+    const op = draw.op;
     hieroglyphicOpening = op;
     hieroglyphicGame = new Chess();
     hieroglyphicAttempts = 0;
 
-    const userMoveIndices = [];
-    for (let i = 0; i < op.moves.length; i++) {
-        const isUserMove = (op.userColor === 'w' && i % 2 === 0) || (op.userColor === 'b' && i % 2 === 1);
-        if (isUserMove) userMoveIndices.push(i);
-    }
-    if (userMoveIndices.length === 0) return;
-
-    const targetIdx = userMoveIndices[Math.floor(Math.random() * userMoveIndices.length)];
+    const targetIdx = draw.targetIdx;
     for (let i = 0; i < targetIdx; i++) {
         hieroglyphicGame.move(op.moves[i], { sloppy: true });
     }
@@ -11528,7 +11576,8 @@ const TACTICS_BANK = [
 ];
 
 function pickTacticsFen() {
-    return TACTICS_BANK[Math.floor(Math.random() * TACTICS_BANK.length)];
+    // Prefereix una posició amb la seqüència ja preparada en background (inici instantani)
+    return pickPreferPrepared(TACTICS_BANK) || TACTICS_BANK[Math.floor(Math.random() * TACTICS_BANK.length)];
 }
 
 function startTacticsPuzzle() {
@@ -11734,7 +11783,7 @@ function startWeaknessTraining(theme) {
     const candidates = savedErrors.filter(e => normalizeGrowthTheme(classifyPositionTheme(e.fen, e.bestMove || '')) === normalizedTheme);
     const pool = candidates.length ? candidates : savedErrors;
     if (!pool.length) { alert('Encara no tens errors guardats per entrenar aquesta debilitat.'); return; }
-    const choice = pool[Math.floor(Math.random() * pool.length)];
+    const choice = pickPreferPrepared(pool, e => e.fen);
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
     isRandomBundleSession = true;
@@ -11932,7 +11981,7 @@ window.startBundleGame = function(fen, severity = null) {
 
 function startRandomBundleGame() {
     if (savedErrors.length === 0) { alert('No tens errors guardats'); return false; }
-    const choice = savedErrors[Math.floor(Math.random() * savedErrors.length)];
+    const choice = pickPreferPrepared(savedErrors, e => e.fen);
     isRandomBundleSession = true;
     isMatchErrorReviewSession = false;
     isSrsReviewSession = false;
@@ -12167,6 +12216,9 @@ function renderClock() {
 }
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
+    // Cedeix el motor: atura la pre-generació en background (tret que estigui
+    // preparant justament aquest exercici, que llavors es recull del rebost).
+    requestBackgroundPrepAbort(isBundle ? fen : null);
     currentReview = [];
     lastReviewSnapshot = null;
     setResultIndicator(null);
@@ -12208,8 +12260,15 @@ blunderMode = isBundle;
             bundleFixedSequence = pendingPreparedSequence;
             pendingPreparedSequence = null;
         } else {
+            // Primer mira el rebost d'exercicis pre-generats en background
+            bundleFixedSequence = takePreparedSequence(fen);
+        }
+        if (!bundleFixedSequence) {
             $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
-            bundleFixedSequence = await prepareBundleSequence(fen);
+            // Espera que acabi la preparació en background en curs (s'ha demanat
+            // aturar-la o és justament aquest FEN) per no barrejar anàlisis.
+            if (backgroundPrepPromise) { try { await backgroundPrepPromise; } catch (e) {} }
+            bundleFixedSequence = takePreparedSequence(fen) || await prepareBundleSequence(fen);
 
             if (!bundleFixedSequence) {
                 alert("No s'ha pogut preparar l'exercici. Es retornarà al menú.");
@@ -13423,6 +13482,8 @@ function returnToMainMenuImmediate() {
     blunderMode = false;
     updateBundleHintButtons();
     updateDisplay();
+    // De tornada al menú el motor queda lliure: reprèn la pre-generació d'exercicis
+    setTimeout(backgroundPrepTick, 1200);
 }
 
 function handleBundleSuccess() {
@@ -14601,7 +14662,7 @@ function startOpeningErrorDrill() {
         showToast("No tens errors d'obertura guardats. Juga partides i tornaran a aparèixer aquí.", 'warn');
         return;
     }
-    const choice = pool[Math.floor(Math.random() * pool.length)];
+    const choice = pickPreferPrepared(pool, e => e.fen);
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
     isRandomBundleSession = false;
@@ -14930,6 +14991,175 @@ $(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
 });
 
 // Inicialització
+/* ===================== REBOST D'EXERCICIS (pre-generació en background) ===================== */
+// Manté sempre uns quants exercicis "bundle" (tàctiques, correccions d'errors,
+// errors d'obertura i repte diari) ja analitzats per Stockfish perquè comencin
+// a l'instant, sense esperes ni errors de preparació. Les seqüències es desen a
+// localStorage i només es calculen quan el motor està lliure (pantalles de menú).
+const PREPARED_SEQ_STORAGE_KEY = 'chess_preparedSequences';
+const PREPARED_SEQ_TARGET = 3;            // exercicis a punt per categoria
+const PREPARED_SEQ_MAX = 20;              // límit total d'entrades al rebost
+const PREPARED_SEQ_TTL_MS = 7 * 86400000; // caducitat d'una seqüència preparada
+let preparedSequences = {};               // fen -> { seq, ts }
+let backgroundPrepPromise = null;
+let backgroundPrepCurrentFen = null;
+let backgroundPrepAbortRequested = false;
+let backgroundPrepProtected = false;      // no interrompre: és l'exercici que vol l'usuari
+
+function savePreparedSequences() {
+    try {
+        localStorage.setItem(PREPARED_SEQ_STORAGE_KEY, JSON.stringify(preparedSequences));
+    } catch (e) {
+        console.warn('[PrepBG] No s\'ha pogut desar el rebost d\'exercicis:', e);
+        preparedSequences = {};
+        try { localStorage.removeItem(PREPARED_SEQ_STORAGE_KEY); } catch (e2) {}
+    }
+}
+
+function loadPreparedSequences() {
+    try {
+        const raw = localStorage.getItem(PREPARED_SEQ_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw);
+        if (!parsed || typeof parsed !== 'object') return;
+        const now = Date.now();
+        Object.keys(parsed).forEach(fen => {
+            const entry = parsed[fen];
+            const seq = entry && entry.seq;
+            if (seq && seq.initialFen === fen && seq.step1 && seq.step2
+                && Array.isArray(seq.fullSequence) && seq.fullSequence.length >= 3
+                && now - (entry.ts || 0) <= PREPARED_SEQ_TTL_MS) {
+                preparedSequences[fen] = entry;
+            }
+        });
+    } catch (e) {
+        console.warn('[PrepBG] Rebost corrupte; es descarta:', e);
+        preparedSequences = {};
+    }
+}
+
+function prunePreparedSequences() {
+    const now = Date.now();
+    let changed = false;
+    Object.keys(preparedSequences).forEach(fen => {
+        if (now - (preparedSequences[fen].ts || 0) > PREPARED_SEQ_TTL_MS) {
+            delete preparedSequences[fen];
+            changed = true;
+        }
+    });
+    const fens = Object.keys(preparedSequences);
+    if (fens.length > PREPARED_SEQ_MAX) {
+        fens.sort((a, b) => (preparedSequences[a].ts || 0) - (preparedSequences[b].ts || 0));
+        fens.slice(0, fens.length - PREPARED_SEQ_MAX).forEach(fen => { delete preparedSequences[fen]; });
+        changed = true;
+    }
+    if (changed) savePreparedSequences();
+}
+
+// Treu del rebost la seqüència preparada per aquest FEN (si hi és) i la consumeix.
+function takePreparedSequence(fen) {
+    const entry = preparedSequences[fen];
+    if (!entry || !entry.seq || entry.seq.initialFen !== fen) return null;
+    delete preparedSequences[fen];
+    savePreparedSequences();
+    return entry.seq;
+}
+
+// Tria aleatòria que prefereix elements amb la seqüència ja preparada.
+function pickPreferPrepared(items, fenOf = (x) => x) {
+    if (!items || !items.length) return null;
+    const ready = items.filter(it => preparedSequences[fenOf(it)]);
+    const pool = ready.length ? ready : items;
+    return pool[Math.floor(Math.random() * pool.length)];
+}
+
+// Mostra estable: primer els FEN ja preparats (per no refer feina), després
+// aleatoris nous fins a `count`.
+function samplePreferPrepared(fens, count) {
+    const unique = Array.from(new Set((fens || []).filter(Boolean)));
+    const prepared = unique.filter(f => preparedSequences[f]);
+    const rest = unique.filter(f => !preparedSequences[f]);
+    for (let i = rest.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [rest[i], rest[j]] = [rest[j], rest[i]];
+    }
+    return prepared.concat(rest).slice(0, count);
+}
+
+// FENs que volem tenir sempre a punt, per ordre de prioritat.
+function getBackgroundPrepCandidates() {
+    const out = [];
+    const seen = {};
+    const add = (fen) => { if (fen && !seen[fen]) { seen[fen] = true; out.push(fen); } };
+    try { ensureDailyPuzzle(); } catch (e) {}
+    if (dailyPuzzle && dailyPuzzle.fen && !dailyPuzzle.solved) add(dailyPuzzle.fen);
+    samplePreferPrepared(TACTICS_BANK, PREPARED_SEQ_TARGET).forEach(add);
+    getDueErrors().slice(0, PREPARED_SEQ_TARGET).forEach(e => add(e.fen));
+    samplePreferPrepared(savedErrors.map(e => e.fen), PREPARED_SEQ_TARGET).forEach(add);
+    samplePreferPrepared(getOpeningPhaseErrors().map(e => e.fen), PREPARED_SEQ_TARGET).forEach(add);
+    return out;
+}
+
+// Només preparem en background quan el motor segur que no fa cap altra feina:
+// a les pantalles de menú/estadístiques/configuració i sense cap petició pendent.
+function isIdleForBackgroundPrep() {
+    const idleScreenVisible = $('#start-screen').is(':visible') || $('#stats-screen').is(':visible') || $('#settings-screen').is(':visible');
+    if (!idleScreenVisible || $('#game-screen').hasClass('active')) return false;
+    return !isEngineThinking && !pendingMoveEvaluation && !mateDrillPreparing &&
+        !openingPracticeEngineThinking && !openingPracticeAnalysisPending &&
+        !openingPracticeHintPending && !openingPreCalcPending && !stockfishRequestor;
+}
+
+// Demana aturar la preparació en background perquè l'usuari necessita el motor.
+// Si està preparant justament l'exercici demanat, la deixem acabar i es
+// recollirà del rebost en lloc de refer-la.
+function requestBackgroundPrepAbort(fenWanted = null) {
+    if (!backgroundPrepPromise) return;
+    if (fenWanted && backgroundPrepCurrentFen === fenWanted) {
+        backgroundPrepProtected = true;
+        return;
+    }
+    backgroundPrepAbortRequested = true;
+    try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
+}
+
+async function backgroundPrepTick() {
+    try { refillHieroglyphicQueue(); } catch (e) {}
+    if (backgroundPrepPromise) return;
+    if (typeof isCalibrationActive === 'function' && isCalibrationActive()) return;
+    if (!isIdleForBackgroundPrep()) return;
+    prunePreparedSequences();
+    const next = getBackgroundPrepCandidates().find(f => !preparedSequences[f]);
+    if (!next) return;
+    if (!ensureStockfish()) return;
+    backgroundPrepAbortRequested = false;
+    backgroundPrepProtected = false;
+    backgroundPrepCurrentFen = next;
+    backgroundPrepPromise = (async () => {
+        try {
+            const seq = await prepareBundleSequence(next, {
+                silent: true,
+                shouldAbort: () => backgroundPrepAbortRequested || (!backgroundPrepProtected && !isIdleForBackgroundPrep())
+            });
+            if (seq) {
+                preparedSequences[next] = { seq, ts: Date.now() };
+                prunePreparedSequences();
+                savePreparedSequences();
+                console.log('[PrepBG] Exercici a punt:', next);
+            }
+        } catch (e) {
+            console.warn('[PrepBG] Error preparant en background:', e);
+        } finally {
+            backgroundPrepCurrentFen = null;
+            backgroundPrepProtected = false;
+            backgroundPrepPromise = null;
+        }
+    })();
+    await backgroundPrepPromise;
+    // Si seguim en repòs i queda rebost per omplir, continua aviat
+    if (!backgroundPrepAbortRequested) setTimeout(backgroundPrepTick, 1500);
+}
+
 $(document).ready(() => {
     updateDeviceType();
     loadStorage();
@@ -14958,4 +15188,10 @@ $(document).ready(() => {
         if (getToday() !== missionsDate) generateDailyMissions();
         if (weeklyPlan && weeklyPlan.week !== getISOWeekKey()) ensureWeeklyPlan();
     }, 60000);
+
+    // Rebost d'exercicis: recupera les seqüències desades i comença a omplir-lo
+    // en background perquè els exercicis arrenquin sense espera.
+    loadPreparedSequences();
+    setTimeout(backgroundPrepTick, 3000);
+    setInterval(backgroundPrepTick, 8000);
 });
