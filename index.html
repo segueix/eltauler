@@ -168,6 +168,17 @@
             font-size: 0.76rem;
             margin-top: 6px;
         }
+        .cloud-sync-diagnostic {
+            margin-top: 10px;
+            padding: 8px 10px;
+            border-radius: 10px;
+            background: rgba(0,0,0,0.16);
+            color: var(--text-secondary);
+            font-size: 0.74rem;
+            line-height: 1.35;
+            word-break: break-word;
+        }
+        .cloud-sync-diagnostic strong { color: var(--text-primary); }
         .cloud-session-actions {
             display: flex;
             gap: 8px;
@@ -2714,9 +2725,11 @@
                 <div class="cloud-session-status" id="cloud-auth-status">No connectat</div>
                 <div class="cloud-session-actions">
                     <button class="btn btn-primary" id="btn-login-google" type="button">Entrar amb Google</button>
+                    <button class="btn btn-secondary" id="btn-force-cloud-sync" type="button" style="display:none;">Forçar sincronització</button>
                     <button class="btn btn-secondary" id="btn-logout-google" type="button" style="display:none;">Sortir</button>
                 </div>
                 <div class="cloud-session-hint" id="cloud-sync-hint">Inicia sessió per sincronitzar entre dispositius.</div>
+                <div class="cloud-sync-diagnostic" id="cloud-sync-diagnostic">Google: desconnectat<br>UID: —<br>Dispositiu: —<br>Última pujada: —<br>Última baixada: —<br>Últim error: cap</div>
                 <div class="cloud-session-error" id="cloud-sync-error" style="display:none;"></div>
             </section>
             
@@ -3517,15 +3530,15 @@
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     
     <!-- App Logic -->
-    <script src="obertures.js?v=1.0.1"></script>
+    <script src="obertures.js?v=1.0.2"></script>
     <script>
-        window.APP_VERSION = '1.0.10';
+        window.APP_VERSION = '1.0.11';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.10"></script>
+    <script src="app.js?v=1.0.11"></script>
 
     <!-- Firebase Authentication + Firestore (modular SDK via official CDN) -->
     <script type="module">
@@ -3544,6 +3557,7 @@
             getDocs,
             getFirestore,
             limit,
+            onSnapshot,
             orderBy,
             query,
             serverTimestamp,
@@ -3569,14 +3583,76 @@
             lastSettingsSyncAt: 0,
             lastTrainingSyncAt: 0
         };
+        const cloudSyncState = {
+            enabled: false,
+            user: null,
+            uid: null,
+            lastUploadAt: null,
+            lastDownloadAt: null,
+            lastError: null,
+            unsubscribe: null,
+            isApplyingRemote: false,
+            pending: false,
+            timer: null,
+            deviceId: null
+        };
         const loginButton = document.getElementById('btn-login-google');
+        const forceSyncButton = document.getElementById('btn-force-cloud-sync');
         const logoutButton = document.getElementById('btn-logout-google');
         const statusText = document.getElementById('cloud-auth-status');
         const hintText = document.getElementById('cloud-sync-hint');
         const errorText = document.getElementById('cloud-sync-error');
+        const diagnosticText = document.getElementById('cloud-sync-diagnostic');
+
+        function getOrCreateDeviceId() {
+            try {
+                let id = localStorage.getItem('eltaulerDeviceId');
+                if (!id) {
+                    id = (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function')
+                        ? crypto.randomUUID()
+                        : `device_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+                    localStorage.setItem('eltaulerDeviceId', id);
+                }
+                return id;
+            } catch (error) {
+                return `volatile_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+            }
+        }
+        cloudSyncState.deviceId = getOrCreateDeviceId();
+        window.cloudSyncState = cloudSyncState;
+
+        function formatSyncTime(value) {
+            if (!value) return '—';
+            try { return new Date(value).toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit', second: '2-digit' }); }
+            catch (error) { return String(value); }
+        }
+
+        function updateCloudDiagnostic() {
+            if (diagnosticText) {
+                diagnosticText.innerHTML = [
+                    `Google: <strong>${cloudSyncState.user ? 'connectat' : 'desconnectat'}</strong>`,
+                    `UID: ${escapeHtml(cloudSyncState.uid || '—')}`,
+                    `Dispositiu: ${escapeHtml((cloudSyncState.deviceId || '—').slice(0, 12))}`,
+                    `Última pujada: ${escapeHtml(formatSyncTime(cloudSyncState.lastUploadAt))}`,
+                    `Última baixada: ${escapeHtml(formatSyncTime(cloudSyncState.lastDownloadAt))}`,
+                    `Últim error: ${escapeHtml(cloudSyncState.lastError || 'cap')}`
+                ].join('<br>');
+            }
+            if (hintText) {
+                if (!cloudSyncState.user) hintText.textContent = 'Inicia sessió per sincronitzar entre dispositius.';
+                else if (cloudSyncState.lastError) hintText.textContent = `Error de sincronització: ${cloudSyncState.lastError}`;
+                else if (cloudSyncState.pending) hintText.textContent = 'Connectat amb Google · Sincronització pendent…';
+                else if (cloudSyncState.lastUploadAt || cloudSyncState.lastDownloadAt) {
+                    hintText.textContent = `Connectat amb Google · Última pujada: ${formatSyncTime(cloudSyncState.lastUploadAt)} · Última baixada: ${formatSyncTime(cloudSyncState.lastDownloadAt)}`;
+                } else hintText.textContent = 'Connectat amb Google · Sincronització pendent';
+            }
+            if (forceSyncButton) forceSyncButton.style.display = cloudSyncState.user ? '' : 'none';
+        }
 
         function showCloudError(message, error) {
             console.error(`[Firebase] ${message}`, error || '');
+            cloudSyncState.lastError = message;
+            updateCloudDiagnostic();
             if (errorText) {
                 errorText.textContent = message;
                 errorText.style.display = 'block';
@@ -3584,10 +3660,12 @@
         }
 
         function clearCloudError() {
+            cloudSyncState.lastError = null;
             if (errorText) {
                 errorText.textContent = '';
                 errorText.style.display = 'none';
             }
+            updateCloudDiagnostic();
         }
 
         function setCloudUi(user) {
@@ -3597,11 +3675,10 @@
                     ? `Connectat com: <strong>${escapeHtml(label)}</strong>`
                     : 'No connectat';
             }
-            if (hintText) {
-                hintText.textContent = user
-                    ? 'La sincronització amb Firestore està activa.'
-                    : 'Inicia sessió per sincronitzar entre dispositius.';
-            }
+            cloudSyncState.user = user;
+            cloudSyncState.uid = user ? user.uid : null;
+            cloudSyncState.enabled = !!user;
+            updateCloudDiagnostic();
             if (loginButton) loginButton.style.display = user ? 'none' : '';
             if (logoutButton) logoutButton.style.display = user ? '' : 'none';
         }
@@ -3769,6 +3846,170 @@
             }
         }
 
+        function mainStateDoc(uid) {
+            return userDoc(uid, 'state', 'main');
+        }
+
+        function getAppLocalState() {
+            if (typeof window.captureCurrentAppState === 'function') return window.captureCurrentAppState();
+            return { schemaVersion: 1, updatedAtClient: new Date().toISOString() };
+        }
+
+        async function loadFullUserStateFromCloud() {
+            const user = requireAuthenticatedUser('loadFullUserStateFromCloud');
+            if (!user) return null;
+            const path = `users/${user.uid}/state/main`;
+            try {
+                const snapshot = await getDoc(mainStateDoc(user.uid));
+                const data = snapshot.exists() ? snapshot.data() : null;
+                cloudSyncState.lastDownloadAt = new Date().toISOString();
+                console.log('[CloudSync] download', path, data);
+                updateCloudDiagnostic();
+                return data;
+            } catch (error) {
+                showCloudError('Error llegint Firestore: no s’ha pogut carregar l’estat central.', error);
+                return null;
+            }
+        }
+
+        async function saveFullUserStateToCloud(reason = 'manual', stateOverride = null) {
+            const user = requireAuthenticatedUser('saveFullUserStateToCloud');
+            if (!user) return null;
+            const path = `users/${user.uid}/state/main`;
+            try {
+                const captured = stateOverride || getAppLocalState();
+                const now = new Date().toISOString();
+                const payload = {
+                    ...(sanitizeFirestoreData(captured) || {}),
+                    schemaVersion: captured.schemaVersion || 1,
+                    uid: user.uid,
+                    updatedAt: serverTimestamp(),
+                    updatedAtClient: now,
+                    deviceId: cloudSyncState.deviceId,
+                    lastSyncReason: reason
+                };
+                console.log('[CloudSync] upload', reason, path, payload);
+                await setDoc(mainStateDoc(user.uid), payload, { merge: true });
+                cloudSyncState.lastUploadAt = now;
+                cloudSyncState.pending = false;
+                clearCloudError();
+                updateCloudDiagnostic();
+                return payload;
+            } catch (error) {
+                cloudSyncState.pending = false;
+                showCloudError('Error escrivint Firestore: no s’ha pogut desar l’estat central.', error);
+                console.warn('[CloudSync] error', error);
+                return null;
+            }
+        }
+
+        function scheduleCloudSync(reason = 'change') {
+            if (!cloudSyncState.user || cloudSyncState.isApplyingRemote) return null;
+            cloudSyncState.pending = true;
+            updateCloudDiagnostic();
+            if (cloudSyncState.timer) clearTimeout(cloudSyncState.timer);
+            cloudSyncState.timer = setTimeout(() => {
+                cloudSyncState.timer = null;
+                void saveFullUserStateToCloud(reason);
+            }, 1800);
+            return true;
+        }
+
+        async function mergeApplyAndUploadCloudState(reason = 'login') {
+            const localState = getAppLocalState();
+            const cloudStateData = await loadFullUserStateFromCloud();
+            const mergedState = (typeof window.mergeLocalAndCloudState === 'function')
+                ? window.mergeLocalAndCloudState(localState, cloudStateData || {})
+                : { ...(cloudStateData || {}), ...localState };
+            console.log('[CloudSync] merge result', mergedState);
+            cloudSyncState.isApplyingRemote = true;
+            try {
+                if (typeof window.applyAppState === 'function') window.applyAppState(mergedState);
+                if (typeof window.renderAfterCloudSync === 'function') window.renderAfterCloudSync();
+            } finally {
+                cloudSyncState.isApplyingRemote = false;
+            }
+            await saveFullUserStateToCloud(reason, mergedState);
+            return mergedState;
+        }
+
+        function stopCloudStateListener() {
+            if (typeof cloudSyncState.unsubscribe === 'function') {
+                try { cloudSyncState.unsubscribe(); } catch (error) { console.warn('[CloudSync] unsubscribe error', error); }
+            }
+            cloudSyncState.unsubscribe = null;
+        }
+
+        function comparableCloudState(state) {
+            const clone = sanitizeFirestoreData(state || {}) || {};
+            ['updatedAt', 'updatedAtClient', 'deviceId', 'lastMergeAt', 'lastSyncReason', 'uid'].forEach(key => delete clone[key]);
+            return clone;
+        }
+
+        function shouldUploadMergedRemoteState(remoteState, mergedState) {
+            try {
+                return JSON.stringify(comparableCloudState(remoteState)) !== JSON.stringify(comparableCloudState(mergedState));
+            } catch (error) {
+                return true;
+            }
+        }
+
+        function startCloudStateListener(uid) {
+            stopCloudStateListener();
+            const ref = mainStateDoc(uid);
+            const path = `users/${uid}/state/main`;
+            cloudSyncState.unsubscribe = onSnapshot(ref, async (snapshot) => {
+                if (!snapshot.exists()) return;
+                const remoteState = snapshot.data();
+                console.log('[CloudSync] download', path, remoteState);
+                cloudSyncState.lastDownloadAt = new Date().toISOString();
+                updateCloudDiagnostic();
+                if (remoteState.deviceId && remoteState.deviceId === cloudSyncState.deviceId) return;
+                if (cloudSyncState.isApplyingRemote) return;
+                try {
+                    cloudSyncState.isApplyingRemote = true;
+                    const localState = getAppLocalState();
+                    const mergedState = (typeof window.mergeLocalAndCloudState === 'function')
+                        ? window.mergeLocalAndCloudState(localState, remoteState)
+                        : { ...localState, ...remoteState };
+                    console.log('[CloudSync] merge result', mergedState);
+                    if (typeof window.applyAppState === 'function') window.applyAppState(mergedState);
+                    if (typeof window.renderAfterCloudSync === 'function') window.renderAfterCloudSync();
+                    if (shouldUploadMergedRemoteState(remoteState, mergedState)) {
+                        await saveFullUserStateToCloud('remote-listener-merge', mergedState);
+                    }
+                } catch (error) {
+                    showCloudError('Error aplicant una actualització remota.', error);
+                    console.warn('[CloudSync] error', error);
+                } finally {
+                    cloudSyncState.isApplyingRemote = false;
+                    updateCloudDiagnostic();
+                }
+            }, (error) => {
+                showCloudError('Error escoltant Firestore en temps real.', error);
+                console.warn('[CloudSync] error', error);
+            });
+        }
+
+        async function forceCloudSync() {
+            const uploaded = await saveFullUserStateToCloud('manual-force');
+            const downloaded = await loadFullUserStateFromCloud();
+            if (downloaded && typeof window.mergeLocalAndCloudState === 'function') {
+                const merged = window.mergeLocalAndCloudState(getAppLocalState(), downloaded);
+                console.log('[CloudSync] merge result', merged);
+                cloudSyncState.isApplyingRemote = true;
+                try {
+                    if (typeof window.applyAppState === 'function') window.applyAppState(merged);
+                    if (typeof window.renderAfterCloudSync === 'function') window.renderAfterCloudSync();
+                } finally {
+                    cloudSyncState.isApplyingRemote = false;
+                }
+            }
+            alert(uploaded ? 'Sincronització forçada completada.' : 'No s’ha pogut completar la sincronització. Mira el diagnòstic.');
+            updateCloudDiagnostic();
+            return uploaded;
+        }
+
         async function loginWithGoogle() {
             clearCloudError();
             if (!cloudState.auth) {
@@ -3788,6 +4029,7 @@
 
         async function logoutFromGoogle() {
             clearCloudError();
+            stopCloudStateListener();
             if (!cloudState.auth) return null;
             try {
                 await signOut(cloudState.auth);
@@ -3830,6 +4072,10 @@
             loadTrainingHistory,
             saveCloudSettings,
             loadCloudSettings,
+            saveFullUserStateToCloud,
+            loadFullUserStateFromCloud,
+            scheduleCloudSync,
+            forceCloudSync,
             queueCloudSettingsSync,
             queueTrainingHistorySync
         });
@@ -3850,11 +4096,17 @@
                 cloudState.user = publicUser(firebaseUser);
                 setCloudUi(cloudState.user);
                 if (!firebaseUser) {
+                    stopCloudStateListener();
+                    cloudSyncState.enabled = false;
+                    cloudSyncState.pending = false;
                     console.log('[Firebase] Usuari no autenticat. Mode local/offline actiu.');
+                    updateCloudDiagnostic();
                     return;
                 }
                 console.log('[Firebase] Usuari autenticat:', cloudState.user.uid);
                 await saveUserProfile(firebaseUser);
+                await mergeApplyAndUploadCloudState('login');
+                startCloudStateListener(firebaseUser.uid);
                 await Promise.allSettled([
                     saveTrainingHistory({ initialized: true }),
                     saveCloudSettings({ initialized: true })
@@ -3866,6 +4118,7 @@
         }
 
         if (loginButton) loginButton.addEventListener('click', loginWithGoogle);
+        if (forceSyncButton) forceSyncButton.addEventListener('click', forceCloudSync);
         if (logoutButton) logoutButton.addEventListener('click', logoutFromGoogle);
         setCloudUi(null);
     </script>
