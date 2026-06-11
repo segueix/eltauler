@@ -14426,19 +14426,26 @@ function renderPlanSummaryText() {
     const fullText = el.dataset.fullText || '';
     const shouldCollapse = fullText.length > PLAN_SUMMARY_COLLAPSE_CHARS;
     const expanded = el.dataset.expanded === 'true';
+    const visibleText = shouldCollapse && !expanded ? getCollapsedPlanSummary(fullText) : fullText;
 
     el.classList.toggle('expanded', expanded || !shouldCollapse);
-    el.textContent = shouldCollapse && !expanded ? getCollapsedPlanSummary(fullText) : fullText;
+    el.textContent = visibleText;
     btn.style.display = shouldCollapse ? 'inline-block' : 'none';
     btn.textContent = expanded ? "▲ Mostra'n menys" : '[Continuar llegint]';
     btn.setAttribute('aria-expanded', expanded ? 'true' : 'false');
+    btn.setAttribute('aria-label', expanded ? 'Mostra menys text del pla de l\'entrenador' : 'Continua llegint el pla complet de l\'entrenador');
 }
 
 function setPlanSummaryText(text) {
     const el = document.getElementById('weekly-plan-summary');
     if (!el) return;
-    el.dataset.fullText = text || '';
-    el.dataset.expanded = 'false';
+    const nextText = text || '';
+    const previousFullText = el.dataset.fullText || '';
+    const wasExpanded = el.dataset.expanded === 'true';
+    el.dataset.fullText = nextText;
+    // No pleguem de nou el resum cada vegada que es refresca la pantalla: si el
+    // text és el mateix, respectem que l'usuari ja havia premut [Continuar llegint].
+    el.dataset.expanded = previousFullText === nextText && wasExpanded ? 'true' : 'false';
     renderPlanSummaryText();
 }
 
@@ -14450,7 +14457,8 @@ function updatePlanSummaryToggle() {
     if (!el || !btn) return;
     if (!btn.dataset.bound) {
         btn.dataset.bound = '1';
-        btn.addEventListener('click', () => {
+        btn.addEventListener('click', event => {
+            event.preventDefault();
             el.dataset.expanded = el.dataset.expanded === 'true' ? 'false' : 'true';
             renderPlanSummaryText();
         });
