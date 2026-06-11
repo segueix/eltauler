@@ -400,6 +400,9 @@
             color: var(--accent-gold); font-size: 0.78rem; padding: 4px 0 0;
         }
         body.epaper-mode .coach-plan-toggle { color: #222; }
+        /* Versió de l'app al peu del menú: permet comprovar d'un cop d'ull si el
+           dispositiu ha rebut l'última actualització o serveix una còpia antiga. */
+        .app-version-tag { text-align: center; font-size: 0.68rem; color: var(--text-secondary); opacity: 0.6; margin: 10px 0 4px; }
         .coach-speak-btn {
             background: rgba(201,162,39,0.15); border: 1px solid rgba(201,162,39,0.4);
             color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;
@@ -2758,6 +2761,7 @@
                 <button class="btn btn-file" id="btn-import">📂 Importar</button>
                 <input type="file" id="file-input" style="display:none;">
             </div>
+            <div class="app-version-tag" id="app-version-tag"></div>
         </div>
 
         <div id="calibration-result-screen" class="screen-anim" style="display:none;">
@@ -3426,6 +3430,10 @@
     <script src="obertures.js?v=1.0.1"></script>
     <script>
         window.APP_VERSION = '1.0.5';
+        (function () {
+            const tag = document.getElementById('app-version-tag');
+            if (tag) tag.textContent = 'v' + window.APP_VERSION;
+        })();
     </script>
     <script src="app.js?v=1.0.5"></script>
     
@@ -3522,6 +3530,22 @@
                         }, 60000);
                     })
                     .catch((err) => console.log('[App] Error registrant SW:', err));
+            });
+
+            // Chrome a Android sovint reprèn la PWA des de memòria sense recarregar-la
+            // i amb els timers aturats, de manera que l'interval de 60 segons pot no
+            // executar-se mai: comprovem actualitzacions a l'instant en tornar a primer pla.
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState !== 'visible') return;
+                navigator.serviceWorker.getRegistration().then((reg) => {
+                    if (!reg) return;
+                    if (reg.waiting) {
+                        pendingWorker = reg.waiting;
+                        applyUpdate();
+                        return;
+                    }
+                    reg.update().catch(() => {});
+                });
             });
 
             // Escolta missatges del service worker
