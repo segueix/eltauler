@@ -679,15 +679,18 @@ async function writeBackupToDirectory(data, filename, { prompt = true, forceDire
     return fileHandle;
 }
 
+// No filtrem el selector d'importació per MIME/extensió: alguns navegadors
+// (sobretot mòbil/Android) no classifiquen els backups .json com application/json
+// i els deixen grisos. Mostrem tots els fitxers i validem després a JS.
+const BACKUP_FILE_ACCEPT = '';
+
 async function importBackupFromPicker() {
-    const handle = await ensureBackupDirHandle({ prompt: true, mode: 'read' });
-    if (!handle || !supportsFilePicker()) return null;
+    if (!supportsFilePicker()) return null;
+    const handle = await ensureBackupDirHandle({ prompt: false, mode: 'read' });
     try {
-        const [fileHandle] = await window.showOpenFilePicker({
-            startIn: handle,
-            multiple: false,
-            types: [{ description: 'Backup El Tauler', accept: { 'application/json': ['.json'] } }]
-        });
+        const pickerOptions = { multiple: false, excludeAcceptAllOption: false };
+        if (handle) pickerOptions.startIn = handle;
+        const [fileHandle] = await window.showOpenFilePicker(pickerOptions);
         return await fileHandle.getFile();
     } catch (e) {
         console.log('Importació cancel·lada');
@@ -991,16 +994,25 @@ function importBackupData(data) {
 
 async function handleBackupImportFile(file) {
     if (!file) return;
+    const fileName = file.name || '';
+    if (fileName && !fileName.toLowerCase().endsWith('.json')) {
+        showToast('Selecciona un backup en format .json', 'error');
+        return;
+    }
     try {
         const text = await file.text();
         const data = JSON.parse(text);
+        if (!data || typeof data !== 'object' || Array.isArray(data)) {
+            throw new Error('El backup no és un objecte JSON vàlid');
+        }
         showAppConfirm(
             `Importar dades? ELO: ${data.elo || 50}, Estrelles: ${data.totalStars || 0}`,
             () => importBackupData(data),
             { title: 'Importar dades', confirmText: 'Importar' }
         );
     } catch (err) {
-        showToast('Error llegint l\'arxiu', 'error');
+        console.error('Error important backup JSON:', err);
+        showToast('No s’ha pogut llegir el .json. Comprova que sigui un backup vàlid d’El Tauler.', 'error');
     }
 }
 
@@ -2617,6 +2629,26 @@ function getLeaguePlayer(id) {
     return currentLeague.players.find(p => p.id === id) || null;
 }
 
+function getCurrentUserLeagueRoc() {
+    const value = (typeof userELO === 'number') ? userELO : currentElo;
+    return Math.max(50, Math.round(value || 50));
+}
+
+function syncLeagueUserRoc() {
+    const me = getLeaguePlayer('me');
+    if (!me) return;
+    // La lliga congela el ROC dels rivals quan es crea, però el jugador ha de
+    // mostrar sempre el seu ROC actual si ha pujat o baixat fora de la lliga.
+    me.elo = getCurrentUserLeagueRoc();
+}
+
+function getLeagueOpponentRoc(match = leagueActiveMatch) {
+    if (match && typeof match.opponentRoc === 'number') return match.opponentRoc;
+    const opponent = match ? getLeaguePlayer(match.opponentId) : null;
+    if (opponent && typeof opponent.elo === 'number') return opponent.elo;
+    return (currentOpponent && typeof currentOpponent.elo === 'number') ? currentOpponent.elo : currentElo;
+}
+
 function getLeaguePlayerElo(id) {
     const player = getLeaguePlayer(id);
     return player && typeof player.elo === 'number' ? player.elo : userELO;
@@ -2700,6 +2732,7 @@ function updateLeagueBanner() {
     }
 
     createNewLeague(false);
+    syncLeagueUserRoc();
     if (!currentLeague || currentLeague.completed) {
         banner.hide();
         return;
@@ -2766,6 +2799,7 @@ function renderLeagueTimeControl() {
 
 function renderLeague() {
     if (!currentLeague) return;
+    syncLeagueUserRoc();
 
     $('#league-name').text(currentLeague.name);
     renderLeagueTimeControl();
@@ -2883,16 +2917,24 @@ function startLeagueRound() {
         return;
     }   
     if (!currentLeague) createNewLeague(false);
+    syncLeagueUserRoc();
     if (currentLeague.completed) return;
 
     const roundIdx = currentLeague.currentRound - 1;
     const oppId = getMyOpponentForRound(roundIdx);
     if (!oppId) { alert('No s\'ha pogut trobar rival'); return; }
 
-    leagueActiveMatch = { leagueId: currentLeague.id, round: currentLeague.currentRound, opponentId: oppId };
-    currentGameMode = 'league';
     const opp = getLeaguePlayer(oppId);
-    currentOpponent = opp ? { id: opp.id, name: opp.name, elo: opp.elo } : { id: oppId, name: 'Rival', elo: userELO };
+    const opponentRoc = opp && typeof opp.elo === 'number' ? opp.elo : getCurrentUserLeagueRoc();
+    leagueActiveMatch = {
+        leagueId: currentLeague.id,
+        round: currentLeague.currentRound,
+        opponentId: oppId,
+        opponentRoc,
+        opponentName: opp ? opp.name : 'Rival'
+    };
+    currentGameMode = 'league';
+    currentOpponent = { id: oppId, name: opp ? opp.name : 'Rival', elo: opponentRoc };
     saveStorage();
 
     startGame(false);
@@ -3229,6 +3271,7 @@ function getAdaptiveNormalized() {
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
 function getActiveStrengthElo() {
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
+    if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
     return currentElo;
 }
 
@@ -8398,12 +8441,12 @@ function showOpeningErrorSuccessOverlay(noMore) {
     const remaining = collectAllOpeningErrorPositions().length;
     const allErrors = getAllOpeningErrors();
     const globalRemaining = allErrors.length;
-    const showAgainBtn = (remaining > 0 || globalRemaining > 0) && !noMore;
+    const showAgainBtn = remaining > 0 || globalRemaining > 0;
     console.log('[Overlay] remaining:', remaining, 'globalRemaining:', globalRemaining, 'noMore:', noMore, 'showBtn:', showAgainBtn);
 
     // Mostrar missatge adequat
     let message;
-    if (noMore || globalRemaining === 0) {
+    if (globalRemaining === 0) {
         message = 'Has resolt tots els errors!';
     } else if (remaining > 0) {
         message = `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}`;
@@ -9517,6 +9560,21 @@ function startHieroglyphicExercise() {
     if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
 }
 
+function hasOpeningHieroglyphicCandidate() {
+    return Array.isArray(CURATED_OPENINGS) && CURATED_OPENINGS.some(op => op && Array.isArray(op.moves) && op.moves.length >= 4);
+}
+
+function getHieroglyphicNextButtonHtml() {
+    if (hieroglyphicSource === 'personal') {
+        return hasPersonalHieroglyphicCandidate()
+            ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Desxifra un altre error</button>'
+            : '';
+    }
+    return hasOpeningHieroglyphicCandidate()
+        ? '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent jeroglífic</button>'
+        : '';
+}
+
 function handleHieroglyphicMove(source, target) {
     if (!hieroglyphicExerciseActive || !hieroglyphicGame) return 'snapback';
     const move = hieroglyphicGame.move({ from: source, to: target, promotion: 'q' });
@@ -9531,9 +9589,7 @@ function handleHieroglyphicMove(source, target) {
         const noteEl = document.getElementById('opening-practice-note');
         const reward = hieroglyphicSource === 'personal' ? getHieroglyphicRewardText() : 'Has desxifrat el signe.';
         if (noteEl) {
-            const nextButton = hieroglyphicSource === 'personal'
-                ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Desxifra un altre error</button>'
-                : '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>';
+            const nextButton = getHieroglyphicNextButtonHtml();
             noteEl.innerHTML = `<div class="opening-maxim-box">
                 <div class="maxim-title">✅ Correcte!</div>
                 <div class="maxim-text">${escapeHtml(reward)}</div>
@@ -9557,9 +9613,7 @@ function handleHieroglyphicMove(source, target) {
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl) {
-            const nextButton = hieroglyphicSource === 'personal'
-                ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Provar un altre jeroglífic</button>'
-                : '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent exercici</button>';
+            const nextButton = getHieroglyphicNextButtonHtml();
             noteEl.innerHTML = `<div class="opening-maxim-box">
                 <div class="maxim-title">💡 La resposta era: ${escapeHtml(hieroglyphicContext?.bestMoveSan || hieroglyphicExpectedMove || hieroglyphicExpectedUci || '')}</div>
                 <div class="maxim-text">${escapeHtml(explainHieroglyphicAnswer())}</div>
@@ -10569,18 +10623,16 @@ function setupEvents() {
         URL.revokeObjectURL(url);
     });
 
-      $('#btn-import').click(async () => {
-        const file = await importBackupFromPicker();
-        if (file) {
-            await handleBackupImportFile(file);
-            return;
-        }
+      $('#btn-import').click(() => {
         $('#file-input').click();
     });
+    if (BACKUP_FILE_ACCEPT) $('#file-input').attr('accept', BACKUP_FILE_ACCEPT);
+    else $('#file-input').removeAttr('accept');
     $('#file-input').change(async (e) => {
         const file = e.target.files[0];
         if (!file) return;
         await handleBackupImportFile(file);
+        e.target.value = '';
     });
 
     // Click per desfer
@@ -11348,7 +11400,7 @@ function showSrsSuccessOverlay() {
     }
     overlay.find('.bundle-success-title').text('Repàs fet ✅');
     overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara');
-    overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0);
+    overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0).toggle(due > 0);
     overlay.css('display', 'flex');
     overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
         isSrsReviewSession = false; overlay.hide(); returnToMainMenuImmediate();
@@ -11443,8 +11495,14 @@ function showDailyPuzzleOverlay() {
     if (!overlay.length) { isDailyPuzzleSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Repte diari superat 🏆 (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`);
-    overlay.find('#btn-bundle-random-again').text('Fet').prop('disabled', true);
+    const hasMoreProblems = Array.isArray(TACTICS_BANK) && TACTICS_BANK.length > 0;
+    overlay.find('#btn-bundle-random-again').text('⚡ Un altre problema').prop('disabled', !hasMoreProblems).toggle(hasMoreProblems);
     overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        isDailyPuzzleSession = false;
+        startTacticsPuzzle();
+    });
     overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
         isDailyPuzzleSession = false; overlay.hide(); returnToMainMenuImmediate();
     });
@@ -11511,7 +11569,7 @@ function showTacticsOverlay() {
     if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`);
-    overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false);
+    overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
     overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
         overlay.hide(); startTacticsPuzzle();
@@ -12257,10 +12315,12 @@ blunderMode = isBundle;
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
-        if (opp) currentOpponent = { id: opp.id, name: opp.name, elo: opp.elo };
-        const label = opp ? `${opp.name} (${opp.elo})` : 'Rival de lliga';
+        const opponentRoc = getLeagueOpponentRoc(leagueActiveMatch);
+        currentOpponent = { id: leagueActiveMatch.opponentId, name: leagueActiveMatch.opponentName || (opp ? opp.name : 'Rival'), elo: opponentRoc };
+        const label = `${currentOpponent.name} · ROC ${opponentRoc}`;
         $('#engine-elo').text(label);
         $('#game-mode-title').text(`🏆 Lliga · Jornada ${leagueActiveMatch.round}/9`);
+        if (engineReady) applyEngineEloStrength(opponentRoc);
     } else if (window._startAssistedGame) {
         currentGameMode = 'assisted';
         currentOpponent = null;
@@ -13458,7 +13518,7 @@ function showRandomBundleSuccessOverlay() {
     overlay.find('.bundle-success-remaining').text(
         remaining > 0 ? `${remaining} bundles pendents` : 'No queda cap bundle pendent'
     );
-    overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0);
+    overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
     overlay.css('display', 'flex');
 
     $('#btn-bundle-random-home').off('click').on('click', () => {
@@ -14711,7 +14771,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
     }
     overlay.find('.bundle-success-title').text(titleText);
     overlay.find('.bundle-success-remaining').text('Pla setmanal actualitzat');
-    overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false);
+    overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
     $('#btn-bundle-random-home').off('click').on('click', () => {
         overlay.hide();
