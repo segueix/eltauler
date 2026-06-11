@@ -3862,11 +3862,36 @@
             return sanitizeFirestoreData(compact) || {};
         }
 
-        function compactGameForFirestore(entry = {}) {
+        function simpleHashString(input = '') {
+            let hash = 0;
+            const str = String(input || '');
+            for (let i = 0; i < str.length; i++) {
+                hash = ((hash << 5) - hash) + str.charCodeAt(i);
+                hash |= 0;
+            }
+            return Math.abs(hash).toString(36);
+        }
+
+        function stableGameId(entry = {}, fallbackIndex = 0) {
+            if (entry.id) return String(entry.id);
+            if (entry.gameId) return String(entry.gameId);
+
+            const created = entry.createdAt || entry.date || entry.timestamp || '';
+            const pgn = entry.pgn || '';
+            const fen = entry.finalFen || entry.fen || '';
+            const moves = Array.isArray(entry.moves) ? entry.moves.join(' ') : '';
+
+            const base = `${created}|${pgn}|${fen}|${moves}|${fallbackIndex}`;
+            return `game_${simpleHashString(base)}_${fallbackIndex}`;
+        }
+
+        function compactGameForFirestore(entry = {}, fallbackIndex = 0) {
             const data = sanitizeFirestoreData(entry) || {};
+            const id = stableGameId(data, fallbackIndex);
+
             return sanitizeFirestoreData({
-                id: data.id || data.gameId || `game_${Date.now()}`,
-                createdAt: data.createdAt || data.date || new Date().toISOString(),
+                id,
+                createdAt: data.createdAt || data.date || data.timestamp || new Date().toISOString(),
                 result: data.result || null,
                 pgn: typeof data.pgn === 'string' ? data.pgn.slice(0, MAX_STRING_FIELD_LENGTH) : null,
                 finalFen: data.finalFen || data.fen || data.finalFEN || null,
@@ -3881,8 +3906,11 @@
         }
 
         function compactGameData(gameData = {}, fallbackIndex = 0) {
-            const compact = compactGameForFirestore(gameData);
-            compact.id = String(compact.id || `game_${Date.now()}_${fallbackIndex}`).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+            const compact = compactGameForFirestore(gameData, fallbackIndex);
+            compact.id = String(compact.id || stableGameId(gameData, fallbackIndex))
+                .replace(/[^a-zA-Z0-9_-]/g, '_')
+                .slice(0, 120);
+
             return sanitizeFirestoreData(compact) || {};
         }
 
@@ -4002,7 +4030,7 @@
             if (!user) return null;
             try {
                 const data = normalizeGameData(gameData);
-                const gameId = data.gameId || data.id || `game_${Date.now()}`;
+                const gameId = String(stableGameId(data)).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
                 const path = `users/${user.uid}/games/${gameId}`;
                 const result = await guardedSetDoc(userDoc(user.uid, 'games', gameId), path, {
                     ...data,
@@ -4035,10 +4063,20 @@
             if (!user) return null;
             try {
                 const path = `users/${user.uid}/training/history`;
-                const result = await guardedSetDoc(userDoc(user.uid, 'training', 'history'), path, {
-                    ...(sanitizeFirestoreData(historyData) || {}),
+                const cleanHistory = sanitizeFirestoreData(historyData) || {};
+                const trainingPayload = {
+                    ...cleanHistory,
+                    updatedAtClient: cleanHistory.updatedAtClient || new Date().toISOString(),
                     updatedAt: serverTimestamp()
-                }, { merge: true });
+                };
+                if ('isCalibrating' in cleanHistory) trainingPayload.isCalibrating = cleanHistory.isCalibrating;
+                if ('calibrationGames' in cleanHistory) trainingPayload.calibrationGames = Array.isArray(cleanHistory.calibrationGames) ? cleanHistory.calibrationGames : [];
+                if ('calibrationProfile' in cleanHistory) trainingPayload.calibrationProfile = cleanHistory.calibrationProfile || null;
+                if ('calibratgeComplet' in cleanHistory) trainingPayload.calibratgeComplet = cleanHistory.calibratgeComplet;
+                if ('currentLeague' in cleanHistory) trainingPayload.currentLeague = cleanHistory.currentLeague || null;
+                if ('leagueActiveMatch' in cleanHistory) trainingPayload.leagueActiveMatch = cleanHistory.leagueActiveMatch || null;
+
+                const result = await guardedSetDoc(userDoc(user.uid, 'training', 'history'), path, trainingPayload, { merge: true });
                 if (!result.ok) throw result.error;
                 return true;
             } catch (error) {
@@ -4230,6 +4268,15 @@
                 reviews: fullState.reviewHistory.length,
                 hasLeague: !!fullState.trainingProgress?.currentLeague
             };
+            console.log('[CloudSync] full downloaded counts', {
+                games: fullState?.gameHistory?.length || 0,
+                errors: fullState?.savedErrors?.length || 0,
+                reviews: fullState?.reviewHistory?.length || 0,
+                calibrationDone: fullState?.trainingProgress?.calibratgeComplet,
+                isCalibrating: fullState?.trainingProgress?.isCalibrating,
+                calibrationGames: fullState?.trainingProgress?.calibrationGames?.length || 0,
+                hasCalibrationProfile: !!fullState?.trainingProgress?.calibrationProfile
+            });
             updateCloudDiagnostic();
 
             return fullState;
@@ -4270,10 +4317,20 @@
             const collectionState = getCollectionState(stateOverride);
             const games = (Array.isArray(collectionState.gameHistory) ? collectionState.gameHistory : [])
                 .slice(-MAX_SYNCED_GAMES)
-                .map(compactGameData);
+                .map((entry, index) => compactGameData(entry, index));
+            const ids = games.map(g => g.id);
+            const uniqueIds = new Set(ids);
+            if (uniqueIds.size !== ids.length) {
+                console.warn('[CloudSync] IDs de partides duplicats', ids);
+            }
+            const seenGameIds = new Set();
             const failures = [];
             for (const [index, game] of games.entries()) {
-                const gameId = game.id || `game_${Date.now()}_${index}`;
+                let gameId = game.id || stableGameId(game, index);
+                if (seenGameIds.has(gameId)) gameId = `${gameId}_${index}`;
+                seenGameIds.add(gameId);
+                gameId = String(gameId).replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 120);
+
                 const path = `users/${user.uid}/games/${gameId}`;
                 const payload = { ...game, id: gameId, uid: user.uid, updatedAt: serverTimestamp() };
                 const result = await guardedSetDoc(userDoc(user.uid, 'games', gameId), path, payload, { merge: true });
