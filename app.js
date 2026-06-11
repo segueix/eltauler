@@ -108,7 +108,7 @@ let openingErrorCurrentIndex = -1; // Índex de la posició actual
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
-let lastBundleGeminiHint = null
+let lastBundleDeepSeekHint = null
 let tvBoard = null;
 let tvReplay = null;
 let tvJeroglyphicsActive = false;
@@ -276,8 +276,8 @@ let growthStats = {
     lastRecommendedAt: null
 };
 let currentGrowthTask = null;
-// Cau en memòria de respostes Gemini (per FEN+tipus) per estalviar crides
-const geminiResponseCache = {};
+// Cau en memòria de respostes DeepSeek (per FEN+tipus) per estalviar crides
+const deepseekResponseCache = {};
 let bundleSequenceStep = 1;
 let bundleSequenceStartFen = null;
 let bundleStepStartFen = null;
@@ -285,7 +285,7 @@ let bundleStrictPvLine = [];
 let bundleStrictPvDepth = 0;
 let bundleFixedSequence = null;
 let bundleAutoReplyPending = false;
-let bundleGeminiHintPending = false;
+let bundleDeepSeekHintPending = false;
 const LEAGUE_QUOTES = [
     "“El millor moment per jugar és ara.”",
     "“La sort somriu als valents.”",
@@ -487,9 +487,9 @@ const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
 
-const GEMINI_API_KEY_STORAGE = 'chess_gemini_api_key';
-const GEMINI_MODEL_ID = 'gemini-3.5-flash';
-let geminiApiKey = null;
+const DEEPSEEK_API_KEY_STORAGE = 'chess_deepseek_api_key';
+const DEEPSEEK_MODEL_ID = 'deepseek-v4-flash';
+let deepseekApiKey = null;
 
 const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
 let epaperEnabled = false;
@@ -4196,8 +4196,8 @@ function loadStorage() {
             }
         } catch (e) {}
     }
-    const storedGeminiKey = localStorage.getItem(GEMINI_API_KEY_STORAGE);
-    if (storedGeminiKey) geminiApiKey = storedGeminiKey;
+    const storedDeepSeekKey = localStorage.getItem(DEEPSEEK_API_KEY_STORAGE);
+    if (storedDeepSeekKey) deepseekApiKey = storedDeepSeekKey;
     const storedDaily = localStorage.getItem('chess_dailyPuzzle');
     if (storedDaily) {
         try {
@@ -4251,10 +4251,10 @@ function saveStorage() {
     }
     if (currentLeague) localStorage.setItem('chess_currentLeague', JSON.stringify(currentLeague)); else localStorage.removeItem('chess_currentLeague');
     if (leagueActiveMatch) localStorage.setItem('chess_leagueActiveMatch', JSON.stringify(leagueActiveMatch)); else localStorage.removeItem('chess_leagueActiveMatch');
-    if (geminiApiKey) {
-        localStorage.setItem(GEMINI_API_KEY_STORAGE, geminiApiKey);
+    if (deepseekApiKey) {
+        localStorage.setItem(DEEPSEEK_API_KEY_STORAGE, deepseekApiKey);
     } else {
-        localStorage.removeItem(GEMINI_API_KEY_STORAGE);
+        localStorage.removeItem(DEEPSEEK_API_KEY_STORAGE);
     }
     localStorage.setItem('chess_dailyPuzzle', JSON.stringify(dailyPuzzle));
     localStorage.setItem('chess_completedOpenings', JSON.stringify(completedOpenings));
@@ -4267,14 +4267,14 @@ function saveStorage() {
     localStorage.removeItem('chess_calibrationGoodMoves');
 }
 
-function updateGeminiSettingsUI() {
-    const input = document.getElementById('gemini-key-input');
-    const status = document.getElementById('gemini-key-status');
+function updateDeepSeekSettingsUI() {
+    const input = document.getElementById('deepseek-key-input');
+    const status = document.getElementById('deepseek-key-status');
     if (!input || !status) return;
-    if (geminiApiKey) {
+    if (deepseekApiKey) {
         input.value = '';
         input.placeholder = 'Clau desada';
-        status.textContent = 'Connectat a Gemini';
+        status.textContent = 'Connectat a DeepSeek';
     } else {
         input.placeholder = 'Enganxa la clau';
         status.textContent = 'No configurada';
@@ -4295,56 +4295,68 @@ function updateBundleHintButtons() {
     hintBtn.style.display = (bundleVisible || isAssisted) ? 'inline-flex' : 'inline-flex';
     hintBtn.disabled = !stockfish || isAnalyzingHint;
 
-    // Botó Gemini per bundles (funciona també offline amb el banc de màximes)
+    // Botó DeepSeek per bundles (funciona també offline amb el banc de màximes)
     if (brainBtn) {
         brainBtn.style.display = bundleVisible ? 'inline-flex' : 'none';
-        brainBtn.disabled = !bundleVisible || bundleGeminiHintPending;
+        brainBtn.disabled = !bundleVisible || bundleDeepSeekHintPending;
     }
 
-    // Botó de consell estratègic per mode assistit (offline o amb Gemini)
+    // Botó de consell estratègic per mode assistit (offline o amb DeepSeek)
     if (assistedBtn) {
         assistedBtn.style.display = isAssisted ? 'inline-flex' : 'none';
         assistedBtn.disabled = !isAssisted || assistedHintPending;
     }
 }
 
-function getGeminiErrorMessage(status, fallback = '') {
-    if (status === 400) return 'Petició incorrecta o payload mal format';
-    if (status === 401 || status === 403) return 'Clau invàlida, restringida o sense accés a Gemini';
-    if (status === 429) return 'Quota o límit superat';
-    if (status === 500 || status === 503) return 'Error temporal de Google';
-    return fallback || 'No s’ha pogut contactar amb Gemini';
+function getDeepSeekErrorMessage(status, fallback = '') {
+    if (status === 400) return fallback || 'Petició incorrecta o payload mal format';
+    if (status === 401 || status === 403) return fallback || 'Clau invàlida, restringida o sense accés a DeepSeek';
+    if (status === 402) return fallback || 'Saldo insuficient al compte de DeepSeek';
+    if (status === 422) return fallback || 'Paràmetres invàlids per a DeepSeek';
+    if (status === 429) return fallback || 'Quota o límit superat';
+    if (status === 500 || status === 503) return fallback || 'Error temporal de DeepSeek';
+    return fallback || 'No s’ha pogut contactar amb DeepSeek';
 }
 
-function getGeminiStatusLabel(result) {
-    if (result && result.ok) return 'Connectat a Gemini';
+function getDeepSeekStatusLabel(result) {
+    if (result && result.ok) return 'Connectat a DeepSeek';
     const status = result ? result.status : 0;
-    if (status === 401 || status === 403 || status === 400) return 'Clau invàlida o restringida';
+    if (status === 0) return 'Problema de xarxa o CORS';
+    if (status === 400 || status === 422) return 'Petició DeepSeek invàlida';
+    if (status === 401 || status === 403) return 'Clau invàlida o restringida';
+    if (status === 402) return 'Saldo insuficient a DeepSeek';
     if (status === 429) return 'Quota superada';
-    if (status === 500 || status === 503) return 'Error temporal';
+    if (status === 500 || status === 503) return 'Error temporal de DeepSeek';
     if (result && /xarxa|CORS|domini|bloqueig|fetch/i.test(result.errorMessage || '')) return 'Problema de xarxa o domini';
-    return 'Error temporal';
+    return result?.errorMessage || 'Error de DeepSeek';
 }
 
-async function callGemini(prompt, options = {}) {
-    if (!geminiApiKey) {
-        return { ok: false, text: '', status: 0, errorMessage: 'Clau Gemini no configurada' };
+function getDeepSeekAlertMessage(result) {
+    const label = getDeepSeekStatusLabel(result);
+    const detail = (result && result.errorMessage && result.errorMessage !== label) ? `\n\nDetall: ${result.errorMessage}` : '';
+    return `${label}${detail}`;
+}
+
+async function callDeepSeek(prompt, options = {}) {
+    if (!deepseekApiKey) {
+        return { ok: false, text: '', status: 0, errorMessage: 'Clau DeepSeek no configurada' };
     }
-    const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent`;
-    // Gemini 3.x raona ("thinking") per defecte i aquests tokens gasten el mateix
-    // pressupost de maxOutputTokens: amb límits petits la resposta arriba buida i
-    // a més es crema quota. thinkingLevel minimal ho evita.
-    const generationConfig = Object.assign({ temperature: 0.8, maxOutputTokens: 1024, topP: 0.9, topK: 40, thinkingConfig: { thinkingLevel: 'minimal' } }, options.generationConfig || {});
+    const endpoint = 'https://api.deepseek.com/chat/completions';
+    const generationConfig = Object.assign({ temperature: 0.8, maxOutputTokens: 1024, topP: 0.9 }, options.generationConfig || {});
     const payload = Object.assign({
-        contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
-        generationConfig
+        model: DEEPSEEK_MODEL_ID,
+        messages: [{ role: 'user', content: String(prompt || '') }],
+        temperature: generationConfig.temperature,
+        max_tokens: generationConfig.maxOutputTokens,
+        top_p: generationConfig.topP,
+        stream: false
     }, options.payload || {});
     try {
         const response = await fetch(endpoint, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'x-goog-api-key': geminiApiKey
+                'Authorization': `Bearer ${deepseekApiKey}`
             },
             body: JSON.stringify(payload)
         });
@@ -4353,10 +4365,10 @@ async function callGemini(prompt, options = {}) {
         try { data = await response.json(); } catch (e) { try { errorText = await response.text(); } catch (e2) {} }
         if (!response.ok) {
             const apiMsg = data?.error?.message || errorText || '';
-            return { ok: false, text: '', status: response.status, errorMessage: getGeminiErrorMessage(response.status, apiMsg) };
+            return { ok: false, text: '', status: response.status, errorMessage: getDeepSeekErrorMessage(response.status, apiMsg) };
         }
-        const text = data?.candidates?.[0]?.content?.parts?.map(p => p.text || '').join('').trim() || '';
-        if (!text) return { ok: false, text: '', status: response.status, errorMessage: 'Resposta buida de Gemini' };
+        const text = (data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || '').trim();
+        if (!text) return { ok: false, text: '', status: response.status, errorMessage: 'Resposta buida de DeepSeek' };
         return { ok: true, text, status: response.status, errorMessage: '' };
     } catch (error) {
         const isNetwork = error instanceof TypeError || /fetch failed|Failed to fetch|NetworkError/i.test(error?.message || '');
@@ -4369,24 +4381,24 @@ async function callGemini(prompt, options = {}) {
     }
 }
 
-async function testGeminiConnection(key) {
-    const previousKey = geminiApiKey;
-    geminiApiKey = (key || '').trim();
-    if (!geminiApiKey) {
-        geminiApiKey = previousKey;
-        return { ok: false, text: '', status: 0, errorMessage: 'Clau Gemini no configurada' };
+async function testDeepSeekConnection(key) {
+    const previousKey = deepseekApiKey;
+    deepseekApiKey = (key || '').trim();
+    if (!deepseekApiKey) {
+        deepseekApiKey = previousKey;
+        return { ok: false, text: '', status: 0, errorMessage: 'Clau DeepSeek no configurada' };
     }
-    const result = await callGemini('Respon només amb la paraula OK en català.', { generationConfig: { temperature: 0, maxOutputTokens: 64, topP: 1, topK: 1 } });
-    geminiApiKey = previousKey;
+    const result = await callDeepSeek('Respon només amb la paraula OK en català.', { generationConfig: { temperature: 0, maxOutputTokens: 64, topP: 1, topK: 1 } });
+    deepseekApiKey = previousKey;
     return result;
 }
 
-function saveGeminiApiKey(rawKey) {
+function saveDeepSeekApiKey(rawKey) {
     const key = (rawKey || '').trim();
     if (!key) return false;
-    geminiApiKey = key;
+    deepseekApiKey = key;
     saveStorage();
-    updateGeminiSettingsUI();
+    updateDeepSeekSettingsUI();
     return true;
 }
 
@@ -4489,7 +4501,7 @@ function updateStatsDisplay() {
     $('#stats-hiero-streak').text(hieroglyphicStats.bestStreak || 0);
     const masteredThemes = Object.keys(hieroglyphicStats.themes || {}).filter(t => (hieroglyphicStats.themes[t] || 0) >= 2).length;
     $('#stats-hiero-themes').text(masteredThemes || '—');
-    updateGeminiSettingsUI();
+    updateDeepSeekSettingsUI();
     updateEloChart();
     updateReviewChart();
     renderWeaknesses();
@@ -6144,25 +6156,25 @@ function updateHistoryReview(entry) {
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
-    const review = entry.geminiReview || null;
+    const review = entry.deepseekReview || entry.geminiReview || null;
     if (review && review.text) {
-        reviewContent.html(formatGeminiReviewText(review.text));
-        bindGeminiMoveLinks(reviewContent);
+        reviewContent.html(formatDeepSeekReviewText(review.text));
+        bindDeepSeekMoveLinks(reviewContent);
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     if (review && review.status === 'pending') {
-        reviewContent.text('Generant revisió amb Gemini...');
+        reviewContent.text('Generant revisió amb DeepSeek...');
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     if (review && review.status === 'error') {
         reviewContent.text(review.message || "No s'ha pogut generar la revisió.");
-        if (generateBtn.length) generateBtn.prop('disabled', !geminiApiKey);
+        if (generateBtn.length) generateBtn.prop('disabled', !deepseekApiKey);
         return;
     }
-    if (!geminiApiKey) {
-        reviewContent.text('Configura la clau de Gemini per generar revisions.');
+    if (!deepseekApiKey) {
+        reviewContent.text('Configura la clau de DeepSeek per generar revisions.');
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
@@ -6179,7 +6191,7 @@ function escapeHtml(text) {
         .replace(/'/g, '&#39;');
 }
 
-function formatGeminiReviewText(text) {
+function formatDeepSeekReviewText(text) {
     const safe = escapeHtml(text || '');
     
     // Primer, formatem les cometes per a màximes
@@ -6211,16 +6223,16 @@ function formatGeminiReviewText(text) {
                 .replace(/&quot;/g, '"')
                 .replace(/&#39;/g, "'");
             
-            return `<a href="#" class="gemini-move-link" data-move-number="${moveNumber}" data-san="${cleanSan}">${match}</a>`;
+            return `<a href="#" class="deepseek-move-link" data-move-number="${moveNumber}" data-san="${cleanSan}">${match}</a>`;
         });
     });
     
     return formatted;
 }
 
-function bindGeminiMoveLinks(container) {
+function bindDeepSeekMoveLinks(container) {
     if (!container || !container.length) return;
-    container.find('.gemini-move-link').off('click').on('click', function(event) {
+    container.find('.deepseek-move-link').off('click').on('click', function(event) {
         event.preventDefault();
         const moveNumber = Number($(this).data('move-number'));
         const san = String($(this).data('san') || '').trim();
@@ -6356,7 +6368,7 @@ function getEntrySevereErrors(entry) {
     return [];
 }
 
-function buildGeminiBundleHintPrompt(step, context = {}) {
+function buildDeepSeekBundleHintPrompt(step, context = {}) {
     const stepNumber = step === 2 ? 2 : 1;
     const sentenceCount = stepNumber === 1 ? 2 : 1;
     const sentenceText = sentenceCount === 1 ? '1 frase' : '2 frases';
@@ -6409,7 +6421,7 @@ Mantén la pressió sobre els punts febles abans que l'adversari pugui reagrupar
 Genera ara ${sentenceText} específica${sentenceCount === 1 ? '' : 's'} per aquesta posició:`;
 }
 
-function buildBundleGeminiPromptWithFixedSequence(step) {
+function buildBundleDeepSeekPromptWithFixedSequence(step) {
     if (!bundleFixedSequence) return null;
 
     const stepData = step === 1 ? bundleFixedSequence.step1 : bundleFixedSequence.step2;
@@ -6696,7 +6708,7 @@ async function requestOpeningMaximLlull() {
         updateOpeningMaximButton();
         return;
     }
-    if (!geminiApiKey) {
+    if (!deepseekApiKey) {
         showOfflineOpeningMaxim();
         return;
     }
@@ -6743,7 +6755,7 @@ Escriu una màxima breu en català sobre corregir l'error sense revelar la jugad
     }
 
     try {
-        const result = await callGemini(prompt, {
+        const result = await callDeepSeek(prompt, {
             generationConfig: {
                 temperature: isStart ? 0.85 : 0.7,
                 maxOutputTokens: isStart ? 700 : 1800,
@@ -6751,7 +6763,7 @@ Escriu una màxima breu en català sobre corregir l'error sense revelar la jugad
                 topK: 30
             }
         });
-        if (!result.ok) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
+        if (!result.ok) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
         if (!isOpeningMaximContextCurrent(contextToken)) return;
 
         let cleanText = result.text
@@ -6776,9 +6788,9 @@ Escriu una màxima breu en català sobre corregir l'error sense revelar la jugad
         lastOpeningMaxim = html;
         if (noteEl) noteEl.innerHTML = html;
     } catch (err) {
-        console.error('[Gemini Opening]', err?.message || err);
+        console.error('[DeepSeek Opening]', err?.message || err);
         if (isOpeningMaximContextCurrent(contextToken) && noteEl) {
-            const msg = getGeminiStatusLabel({ ok: false, status: 0, errorMessage: err?.message || '' });
+            const msg = getDeepSeekStatusLabel({ ok: false, status: 0, errorMessage: err?.message || '' });
             noteEl.innerHTML = `<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">${escapeHtml(msg)}. S'usa una màxima local.</div>`;
             showOfflineOpeningMaxim();
         }
@@ -6797,25 +6809,25 @@ function showOfflineBundleMaxim() {
     html += `<div style="font-style:italic; margin:4px 0;">${m1}</div>`;
     if (m2 !== m1) html += `<div style="font-style:italic; margin:4px 0;">${m2}</div>`;
     html += '</div>';
-    lastBundleGeminiHint = html;
+    lastBundleDeepSeekHint = html;
     $('#status').html(html);
 }
 
-async function requestGeminiBundleHint() {
+async function requestDeepSeekBundleHint() {
     if (!blunderMode || !currentBundleFen) return;
-    if (!geminiApiKey) {
+    if (!deepseekApiKey) {
         // Sense clau: banc de màximes local en comptes d'un avís d'error.
         showOfflineBundleMaxim();
         return;
     }
-    if (bundleGeminiHintPending) return;
+    if (bundleDeepSeekHintPending) return;
 
     // Cau per FEN: reaprofita la màxima si ja s'ha generat per aquesta posició.
     const cacheKey = `bundle:${currentBundleFen}:${bundleSequenceStep}`;
-    const cached = getCachedGemini(cacheKey);
-    if (cached) { lastBundleGeminiHint = cached; $('#status').html(cached); return; }
+    const cached = getCachedDeepSeek(cacheKey);
+    if (cached) { lastBundleDeepSeekHint = cached; $('#status').html(cached); return; }
     
-    bundleGeminiHintPending = true;
+    bundleDeepSeekHintPending = true;
     updateBundleHintButtons();
     
     const statusEl = $('#status');
@@ -6823,7 +6835,7 @@ async function requestGeminiBundleHint() {
     
     let prompt;
     if (bundleFixedSequence) {
-        prompt = buildBundleGeminiPromptWithFixedSequence(bundleSequenceStep);
+        prompt = buildBundleDeepSeekPromptWithFixedSequence(bundleSequenceStep);
     } else {
         const errorContext = {};
         let currentError = savedErrors.find(e => e.fen === currentBundleFen);
@@ -6848,18 +6860,18 @@ async function requestGeminiBundleHint() {
         }
 
         const step = bundleSequenceStep === 2 ? 2 : 1;
-        prompt = buildGeminiBundleHintPrompt(step, errorContext);
+        prompt = buildDeepSeekBundleHintPrompt(step, errorContext);
     }
     
     if (!prompt) {
-        bundleGeminiHintPending = false;
+        bundleDeepSeekHintPending = false;
         updateBundleHintButtons();
         return;
     }
     
     try {
-        const result = await callGemini(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 2000, topP: 0.95, topK: 40 } });
-        if (!result.ok || !result.text) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
+        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 2000, topP: 0.95, topK: 40 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
         const text = result.text;
         
         const lines = text.split('\n').filter(l => l.trim());
@@ -6882,15 +6894,15 @@ async function requestGeminiBundleHint() {
         html += '</div>';
         
         // CANVI: Guardar el missatge generat
-        lastBundleGeminiHint = html;
-        setCachedGemini(`bundle:${currentBundleFen}:${bundleSequenceStep}`, html);
+        lastBundleDeepSeekHint = html;
+        setCachedDeepSeek(`bundle:${currentBundleFen}:${bundleSequenceStep}`, html);
         statusEl.html(html);
 
     } catch (err) {
         console.error(err);
         statusEl.html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut generar la màxima. Torna-ho a provar.</div>');
     } finally {
-        bundleGeminiHintPending = false;
+        bundleDeepSeekHintPending = false;
         updateBundleHintButtons();
     }
 }
@@ -6947,25 +6959,25 @@ async function requestAssistedHint() {
         const bestMove = await getStockfishBestMove(fen, 12);
         const theme = classifyPositionTheme(fen, bestMove || '');
 
-        // Sense clau Gemini: caiem al banc de màximes local (segueix funcionant offline).
-        if (!geminiApiKey) {
+        // Sense clau DeepSeek: caiem al banc de màximes local (segueix funcionant offline).
+        if (!deepseekApiKey) {
             showAssistedMaxim(pickOfflineMaxim(theme));
             return;
         }
 
         // Cau per FEN: evita repetir crides per la mateixa posició.
         const cacheKey = `assisted:${fen}`;
-        const cached = getCachedGemini(cacheKey);
+        const cached = getCachedDeepSeek(cacheKey);
         if (cached) { showAssistedMaxim(cached); return; }
 
         if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
         const prompt = buildAssistedHintPrompt(fen, bestMove, null);
-        const result = await callGemini(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 500, topP: 0.95, topK: 40 } });
-        if (!result.ok || !result.text) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
+        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 500, topP: 0.95, topK: 40 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
         const text = result.text;
 
         const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
-        setCachedGemini(cacheKey, cleanText);
+        setCachedDeepSeek(cacheKey, cleanText);
         showAssistedMaxim(cleanText);
     } catch (err) {
         console.error('[AssistedHint]', err);
@@ -7086,7 +7098,7 @@ async function requestPositionAnalysis() {
     }
 }
 
-function buildGeminiReviewPrompt(entry, severeErrors) {
+function buildDeepSeekReviewPrompt(entry, severeErrors) {
     const summary = entry.counts || {};
     const moves = getHistoryMoves(entry);
     
@@ -7153,25 +7165,25 @@ EXEMPLES DE MÀXIMES
 "Les peces han de treballar juntes"`;
 }
 
-async function requestGeminiReview(entry, severeErrors) {
-    if (!entry || !geminiApiKey) return;
-    if (entry.geminiReview && entry.geminiReview.status === 'pending') return;
-    if (entry.geminiReview && entry.geminiReview.text) return;
+async function requestDeepSeekReview(entry, severeErrors) {
+    if (!entry || !deepseekApiKey) return;
+    if (entry.deepseekReview && entry.deepseekReview.status === 'pending') return;
+    if (entry.deepseekReview && entry.deepseekReview.text) return;
     const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
         ? severeErrors
         : getEntrySevereErrors(entry);
-    entry.geminiReview = { status: 'pending', text: '' };
+    entry.deepseekReview = { status: 'pending', text: '' };
     saveStorage();
     updateHistoryReview(historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id ? historyReplay.entry : entry);
-    const prompt = buildGeminiReviewPrompt(entry, resolvedErrors);
+    const prompt = buildDeepSeekReviewPrompt(entry, resolvedErrors);
     try {
-        const result = await callGemini(prompt, { generationConfig: { temperature: 0.9, maxOutputTokens: 4096, topP: 0.95, topK: 40 } });
-        if (!result.ok || !result.text) throw new Error(result.errorMessage || `Gemini error ${result.status}`);
-        entry.geminiReview = { status: 'done', text: result.text };
+        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.9, maxOutputTokens: 4096, topP: 0.95, topK: 40 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
+        entry.deepseekReview = { status: 'done', text: result.text };
     } catch (error) {
-        entry.geminiReview = {
+        entry.deepseekReview = {
             status: 'error',
-            message: 'No s’ha pogut generar la revisió amb Gemini.'
+            message: 'No s’ha pogut generar la revisió amb DeepSeek.'
         };
     }
     saveStorage();
@@ -8018,7 +8030,7 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
         severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
-        geminiReview: options.geminiReview || null,
+        deepseekReview: options.deepseekReview || options.geminiReview || null,
         playerColor: playerColor,
         opponent: currentOpponent || null,
         pgn: game.pgn()
@@ -8725,7 +8737,7 @@ let hieroglyphicExpectedMove = null;
 let hieroglyphicClue = null;
 let hieroglyphicAttempts = 0;
 let hieroglyphicScore = { correct: 0, total: 0 };
-let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides Gemini asíncrones
+let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides DeepSeek asíncrones
 
 const HIEROLAST_KEY = 'eltauler_recent_hieroglyphics';
 const HIERO_STATS_KEY = 'eltauler_hieroglyphic_stats';
@@ -9259,20 +9271,20 @@ ${hidePieceRule}
 - Sense emojis ni cometes embolcallant tot el text.`;
 }
 async function fetchHieroglyphicClue(context, level = 1) {
-    if (!geminiApiKey) return null;
+    if (!deepseekApiKey) return null;
     const cacheKey = `hiero:${context.fen}:${context.bestMove}:${context.theme}:L${level}`;
-    const cached = getCachedGemini(cacheKey);
+    const cached = getCachedDeepSeek(cacheKey);
     if (cached) return sanitizeHieroglyphicText(cached, context, { hidePiece: level === 1 });
     try {
         const prompt = buildDynamicHieroglyphicPrompt(context, level);
-        const result = await callGemini(prompt, { generationConfig: { temperature: 1.05, maxOutputTokens: 120, topP: 0.95, topK: 40 } });
+        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 1.05, maxOutputTokens: 120, topP: 0.95, topK: 40 } });
         if (!result.ok || !result.text) return null;
         const text = result.text;
         const clean = sanitizeHieroglyphicText(text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim(), context, { hidePiece: level === 1 });
-        setCachedGemini(cacheKey, clean);
+        setCachedDeepSeek(cacheKey, clean);
         return clean;
     } catch (e) {
-        console.warn('[Hieroglyphic] Gemini fallback:', e);
+        console.warn('[Hieroglyphic] DeepSeek fallback:', e);
         return null;
     }
 }
@@ -9497,8 +9509,8 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
             if (typeof openingBundleBoard.resize === 'function') setTimeout(() => openingBundleBoard.resize(), 50);
         }
         const myToken = ++hieroglyphicToken;
-        renderHieroglyphicExerciseNote(!!geminiApiKey);
-        if (geminiApiKey) {
+        renderHieroglyphicExerciseNote(!!deepseekApiKey);
+        if (deepseekApiKey) {
             fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
                 if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicSource === 'personal' && hieroglyphicAttempts === 0) {
                     hieroglyphicClue = text;
@@ -9526,12 +9538,12 @@ function drawHieroglyphicExercise() {
     return { op, targetIdx };
 }
 
-// Cua de jeroglífics a punt: pre-tria els exercicis següents i, si hi ha Gemini,
+// Cua de jeroglífics a punt: pre-tria els exercicis següents i, si hi ha DeepSeek,
 // en pre-carrega la pista al cau perquè aparegui a l'instant en començar.
 let hieroglyphicUpNext = [];
 
 function prefetchHieroglyphicClue(draw) {
-    if (!geminiApiKey || !draw) return;
+    if (!deepseekApiKey || !draw) return;
     try {
         const g = new Chess();
         for (let i = 0; i < draw.targetIdx; i++) g.move(draw.op.moves[i], { sloppy: true });
@@ -9550,7 +9562,7 @@ function refillHieroglyphicQueue() {
         hieroglyphicUpNext.push(draw);
     }
     hieroglyphicUpNext.forEach(d => {
-        if (!d.prefetched && geminiApiKey) { d.prefetched = true; prefetchHieroglyphicClue(d); }
+        if (!d.prefetched && deepseekApiKey) { d.prefetched = true; prefetchHieroglyphicClue(d); }
     });
 }
 
@@ -9595,9 +9607,9 @@ function startHieroglyphicExercise() {
         openingBundleBoard.position(hieroglyphicGame.fen());
     }
 
-    // Pista offline immediata; si hi ha Gemini, la millorem amb el mateix context ric.
-    renderHieroglyphicExerciseNote(!!geminiApiKey);
-    if (geminiApiKey) {
+    // Pista offline immediata; si hi ha DeepSeek, la millorem amb el mateix context ric.
+    renderHieroglyphicExerciseNote(!!deepseekApiKey);
+    if (deepseekApiKey) {
         fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
             // Només actualitza si seguim al mateix exercici i sense intents fallits encara
             if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === 0) {
@@ -9681,8 +9693,8 @@ function handleHieroglyphicMove(source, target) {
         const nextLevel = Math.min(3, hieroglyphicAttempts + 1);
         hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, nextLevel);
         const myToken = ++hieroglyphicToken;
-        renderHieroglyphicExerciseNote(!!geminiApiKey, `Incorrecte. ${3 - hieroglyphicAttempts} intents restants.`);
-        if (geminiApiKey) {
+        renderHieroglyphicExerciseNote(!!deepseekApiKey, `Incorrecte. ${3 - hieroglyphicAttempts} intents restants.`);
+        if (deepseekApiKey) {
             fetchHieroglyphicClue(hieroglyphicContext, nextLevel).then((text) => {
                 if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === nextLevel - 1) {
                     hieroglyphicClue = text;
@@ -10210,19 +10222,19 @@ function setupEvents() {
 
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
 
-    // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau Gemini
+    // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau DeepSeek
     $('#btn-ai-info').click(() => { $('#ai-info-modal').css('display', 'flex'); });
     $('#btn-ai-info-settings').click(() => {
         $('#ai-info-modal').hide();
         $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen');
-        const target = document.querySelector('.gemini-config');
+        const target = document.querySelector('.deepseek-config');
         if (target) {
             setTimeout(() => {
                 target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                target.classList.remove('gemini-highlight');
+                target.classList.remove('deepseek-highlight');
                 void target.offsetWidth;
-                target.classList.add('gemini-highlight');
-                setTimeout(() => target.classList.remove('gemini-highlight'), 3000);
+                target.classList.add('deepseek-highlight');
+                setTimeout(() => target.classList.remove('deepseek-highlight'), 3000);
             }, 120);
         }
     });
@@ -10441,7 +10453,7 @@ function setupEvents() {
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) return;
         const severeErrors = getEntrySevereErrors(historyReplay.entry);
-        void requestGeminiReview(historyReplay.entry, severeErrors);
+        void requestDeepSeekReview(historyReplay.entry, severeErrors);
     });
     $('#history-export-pgn').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
@@ -10513,10 +10525,10 @@ function setupEvents() {
     // Analitza la posició actual
     $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
 
-    $('#btn-save-gemini-key').off('click').on('click', async () => {
-        const input = document.getElementById('gemini-key-input');
-        const status = document.getElementById('gemini-key-status');
-        const btn = document.getElementById('btn-save-gemini-key');
+    $('#btn-save-deepseek-key').off('click').on('click', async () => {
+        const input = document.getElementById('deepseek-key-input');
+        const status = document.getElementById('deepseek-key-status');
+        const btn = document.getElementById('btn-save-deepseek-key');
         if (!input) return;
         const key = (input.value || '').trim();
         if (!key) {
@@ -10526,15 +10538,15 @@ function setupEvents() {
         }
         if (btn) btn.disabled = true;
         if (status) status.textContent = 'Provant connexió...';
-        const result = await testGeminiConnection(key);
+        const result = await testDeepSeekConnection(key);
         if (result.ok) {
-            saveGeminiApiKey(key);
+            saveDeepSeekApiKey(key);
             input.value = '';
-            if (status) status.textContent = 'Connectat a Gemini';
-            alert('Clau de Gemini guardada.');
+            if (status) status.textContent = 'Connectat a DeepSeek';
+            alert('Clau de DeepSeek guardada.');
         } else {
-            if (status) status.textContent = getGeminiStatusLabel(result);
-            alert(getGeminiStatusLabel(result));
+            if (status) status.textContent = getDeepSeekStatusLabel(result);
+            alert(getDeepSeekAlertMessage(result));
         }
         if (btn) btn.disabled = false;
     });
@@ -10580,7 +10592,7 @@ function setupEvents() {
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = []; adaptationReport = [];
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
-            geminiApiKey = null;
+            deepseekApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#settings-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             showToast('Totes les dades han estat esborrades. Comença de nou!', 'success');
@@ -10617,7 +10629,7 @@ function setupEvents() {
 });
 
     $('#btn-brain-hint').click(() => {
-        void requestGeminiBundleHint();
+        void requestDeepSeekBundleHint();
     });
 
     $('#btn-assisted-hint').click(() => {
@@ -11899,12 +11911,12 @@ function pickOfflineMaxim(theme) {
     return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function getCachedGemini(key) {
-    return geminiResponseCache[key] || null;
+function getCachedDeepSeek(key) {
+    return deepseekResponseCache[key] || null;
 }
 
-function setCachedGemini(key, value) {
-    geminiResponseCache[key] = value;
+function setCachedDeepSeek(key, value) {
+    deepseekResponseCache[key] = value;
 }
 
 function showBundleMenu() {
@@ -12312,7 +12324,7 @@ blunderMode = isBundle;
     bundleSequenceStartFen = fen || null;
     bundleStepStartFen = fen || null;
     bundleAutoReplyPending = false;
-    bundleGeminiHintPending = false;
+    bundleDeepSeekHintPending = false;
     if (isBundle) { bundleAcceptMode = loadBundleAcceptMode(); }
 
     totalPlayerMoves = 0; 
@@ -13149,10 +13161,10 @@ function resetBundleToStartPosition() {
     clearMainMoveVisualFeedback();
     $('#blunder-alert').hide();
     
-    // CANVI: Restaurar el missatge de Gemini si existeix
+    // CANVI: Restaurar el missatge de DeepSeek si existeix
     const statusEl = $('#status');
-    if (lastBundleGeminiHint) {
-        statusEl.html(lastBundleGeminiHint);
+    if (lastBundleDeepSeekHint) {
+        statusEl.html(lastBundleDeepSeekHint);
     } else {
         statusEl.text("Torna a intentar-ho");
     }
@@ -13197,8 +13209,8 @@ function evaluateBundleAttempt(bundleData) {
             if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
 
             if (step < totalSteps) {
-                // CANVI: Netejar el missatge de Gemini només quan s'avança de pas
-                lastBundleGeminiHint = null;
+                // CANVI: Netejar el missatge de DeepSeek només quan s'avança de pas
+                lastBundleDeepSeekHint = null;
 
                 bundleSequenceStep = step + 1;
                 const replyMove = step === 1
@@ -13212,7 +13224,7 @@ function evaluateBundleAttempt(bundleData) {
             }
 
             // CANVI: Netejar el missatge quan s'acaba l'exercici
-            lastBundleGeminiHint = null;
+            lastBundleDeepSeekHint = null;
             handleBundleSuccess();
         } else {
             if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
@@ -13254,8 +13266,8 @@ function evaluateBundleAttempt(bundleData) {
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
         
         if (bundleSequenceStep === 1) {
-            // CANVI: Netejar el missatge de Gemini només quan s'avança al pas 2
-            lastBundleGeminiHint = null;
+            // CANVI: Netejar el missatge de DeepSeek només quan s'avança al pas 2
+            lastBundleDeepSeekHint = null;
             
             const pvLine = selectBundlePvLineForMove(bundleData, played);
             const replyMove = pvLine.length > 1 ? pvLine[1] : null;
@@ -13270,7 +13282,7 @@ function evaluateBundleAttempt(bundleData) {
         }
         
         // CANVI: Netejar el missatge quan s'acaba l'exercici
-        lastBundleGeminiHint = null;
+        lastBundleDeepSeekHint = null;
         handleBundleSuccess();
     } else {
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
@@ -13933,7 +13945,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     }
     if (!blunderMode && !calibrationGameWasActive) {
         const latestEntry = gameHistory[gameHistory.length - 1];
-        void requestGeminiReview(latestEntry, severeErrors);
+        void requestDeepSeekReview(latestEntry, severeErrors);
     }
 }
 
@@ -13971,18 +13983,18 @@ function updateStatus() {
 /* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA DIARI) =====================
    Arquitectura en dues capes: els FETS es calculen sempre en local a partir de les dades
    que ja recull l'app (gameHistory, savedErrors, themeMastery). La redacció per defecte
-   surt d'un banc de plantilles en català; si hi ha clau Gemini, només poleix el text
+   surt d'un banc de plantilles en català; si hi ha clau DeepSeek, només poleix el text
    a partir dels mateixos fets (mai analitza la partida ell sol). */
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
 const WEEKLY_PLAN_VERSION = 3;
 // Quan puja, el resum desat del pla d'avui es descarta i es regenera (text local
-// i, si hi ha clau Gemini, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
+// i, si hi ha clau DeepSeek, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
 const PLAN_SUMMARY_REFRESH_VERSION = 1;
 let weeklyPlan = null;
 let coachCatalanVoice = null;
 let coachDebriefPending = false;
-let coachPlanGeminiPending = false;
+let coachPlanDeepSeekPending = false;
 
 const COACH_PHASE_LABELS = { opening: "l'obertura", middlegame: 'el mig joc', endgame: 'el final' };
 
@@ -14168,7 +14180,7 @@ function composeDebriefText(facts, seedStr) {
     return sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
 }
 
-// Tradueix els fets a claus llegibles perquè Gemini redacti en català sense inventar res.
+// Tradueix els fets a claus llegibles perquè DeepSeek redacti en català sense inventar res.
 function debriefFactsForPrompt(facts) {
     const resultLabels = { win: 'victòria', draw: 'taules', loss: 'derrota' };
     const out = {
@@ -14189,7 +14201,7 @@ function debriefFactsForPrompt(facts) {
     return out;
 }
 
-function buildDebriefGeminiPrompt(facts) {
+function buildDebriefDeepSeekPrompt(facts) {
     return `Ets un entrenador d'escacs proper, honest i motivador que parla en català (tutejant).
 Redacta un resum post-partida de 60 a 100 paraules NOMÉS a partir d'aquests fets. No inventis jugades, xifres ni dades que no hi siguin:
 ${JSON.stringify(debriefFactsForPrompt(facts), null, 2)}
@@ -14199,16 +14211,16 @@ Regles:
 - Català natural i directe, com un entrenador de club.`;
 }
 
-// Capa Gemini opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
-async function requestGeminiCoachText(cacheKey, prompt, onText) {
-    if (!geminiApiKey) return;
-    const cached = getCachedGemini(cacheKey);
+// Capa DeepSeek opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
+async function requestDeepSeekCoachText(cacheKey, prompt, onText) {
+    if (!deepseekApiKey) return;
+    const cached = getCachedDeepSeek(cacheKey);
     if (cached) { onText(cached); return; }
-    const result = await callGemini(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 1024 } });
+    const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 1024 } });
     if (!result.ok) return;
     const text = (result.text || '').trim();
     if (!text || text.length < 40 || text.length > 900) return;
-    setCachedGemini(cacheKey, text);
+    setCachedDeepSeek(cacheKey, text);
     onText(text);
 }
 
@@ -14238,7 +14250,7 @@ function renderGameDebrief() {
 
     if (!coachDebriefPending) {
         coachDebriefPending = true;
-        requestGeminiCoachText(`debrief:${entry.id}`, buildDebriefGeminiPrompt(facts), text => textEl.text(text))
+        requestDeepSeekCoachText(`debrief:${entry.id}`, buildDebriefDeepSeekPrompt(facts), text => textEl.text(text))
             .finally(() => { coachDebriefPending = false; });
     }
 }
@@ -14342,7 +14354,7 @@ function buildWeeklyPlan() {
         focusTheme,
         focusMastery: Math.round((themeMastery[focusTheme] || 0) * 100),
         srsAtStart: due,
-        geminiSummary: null,
+        deepseekSummary: null,
         summaryVersion: PLAN_SUMMARY_REFRESH_VERSION,
         items: items.slice(0, 4)
     };
@@ -14371,7 +14383,7 @@ function composeWeeklyPlanText(plan) {
     return fillCoachTemplate(tpl, { tema: getThemeLabel(plan.focusTheme), pct: plan.focusMastery });
 }
 
-function buildWeeklyPlanGeminiPrompt(plan) {
+function buildWeeklyPlanDeepSeekPrompt(plan) {
     return `Ets un entrenador d'escacs proper que parla en català (tutejant).
 Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament d'avui d'un alumne, NOMÉS amb aquests fets:
 ${JSON.stringify({
@@ -14389,7 +14401,7 @@ function ensureWeeklyPlan() {
     if (stored && stored.day === day && stored.version === WEEKLY_PLAN_VERSION && Array.isArray(stored.items) && stored.items.length) {
         weeklyPlan = stored;
         if ((weeklyPlan.summaryVersion || 0) < PLAN_SUMMARY_REFRESH_VERSION) {
-            weeklyPlan.geminiSummary = null;
+            weeklyPlan.deepseekSummary = null;
             weeklyPlan.summaryVersion = PLAN_SUMMARY_REFRESH_VERSION;
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
         }
@@ -14499,7 +14511,7 @@ function renderWeeklyPlan() {
     if (!panel.length || !weeklyPlan) return;
     panel.show();
     startPlanCountdown();
-    const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
+    const summary = weeklyPlan.deepseekSummary || weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
     setPlanSummaryText(summary);
     updatePlanSummaryToggle();
 
@@ -14526,15 +14538,15 @@ function renderWeeklyPlan() {
         list.append(row);
     });
 
-    // Poliment Gemini un sol cop per dia (es persisteix dins del pla).
-    if (!weeklyPlan.geminiSummary && geminiApiKey && !coachPlanGeminiPending) {
-        coachPlanGeminiPending = true;
-        requestGeminiCoachText(`dailyplan:${weeklyPlan.day}`, buildWeeklyPlanGeminiPrompt(weeklyPlan), text => {
-            weeklyPlan.geminiSummary = text;
+    // Poliment DeepSeek un sol cop per dia (es persisteix dins del pla).
+    if (!weeklyPlan.deepseekSummary && deepseekApiKey && !coachPlanDeepSeekPending) {
+        coachPlanDeepSeekPending = true;
+        requestDeepSeekCoachText(`dailyplan:${weeklyPlan.day}`, buildWeeklyPlanDeepSeekPrompt(weeklyPlan), text => {
+            weeklyPlan.deepseekSummary = text;
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
             setPlanSummaryText(text);
             updatePlanSummaryToggle();
-        }).finally(() => { coachPlanGeminiPending = false; });
+        }).finally(() => { coachPlanDeepSeekPending = false; });
     }
 }
 
@@ -14918,7 +14930,7 @@ function handleBundleGameOver() {
         const played = lastHumanMoveUci || '';
         const playedTo = played.length >= 4 ? played.slice(2, 4) : null;
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
-        lastBundleGeminiHint = null;
+        lastBundleDeepSeekHint = null;
         handleBundleSuccess();
         return;
     }

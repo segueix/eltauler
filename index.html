@@ -239,9 +239,9 @@
         .ai-info-link:hover { background: rgba(201,162,39,0.25); }
         body.epaper-mode .ai-info-link { background: #ededed !important; border-color: #777 !important; color: #222; }
 
-        /* Ressalta el camp de la clau Gemini en arribar des del modal d'informació */
-        .gemini-highlight { animation: geminiPulse 1.3s ease 2; border-radius: 10px; }
-        @keyframes geminiPulse {
+        /* Ressalta el camp de la clau DeepSeek en arribar des del modal d'informació */
+        .deepseek-highlight { animation: deepseekPulse 1.3s ease 2; border-radius: 10px; }
+        @keyframes deepseekPulse {
             0%, 100% { box-shadow: 0 0 0 0 rgba(201,162,39,0); }
             50% { box-shadow: 0 0 0 5px rgba(201,162,39,0.55); }
         }
@@ -601,21 +601,21 @@
         body.epaper-mode .select-control { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         body.epaper-mode .text-input { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         .setting-help { margin-top: 8px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.25; }
-        .gemini-config {
+        .deepseek-config {
             display: flex;
             flex-direction: column;
             gap: 12px;
             margin: 16px 0;
         }
 
-        .gemini-input-row {
+        .deepseek-input-row {
             display: flex;
             gap: 8px;
             align-items: stretch;
             flex-wrap: wrap;
         }
 
-        #gemini-key-input {
+        #deepseek-key-input {
             flex: 1;
             min-width: 200px;
             padding: 10px;
@@ -626,13 +626,13 @@
             font-size: 14px;
         }
 
-        #btn-save-gemini-key {
+        #btn-save-deepseek-key {
             flex-shrink: 0;
             white-space: nowrap;
             padding: 10px 16px;
         }
 
-        .gemini-status {
+        .deepseek-status {
             display: flex;
             align-items: center;
             gap: 8px;
@@ -642,26 +642,26 @@
             font-size: 14px;
         }
 
-        #gemini-key-status {
+        #deepseek-key-status {
             font-weight: 600;
         }
 
         /* Mòbil: layout adaptatiu */
         @media (max-width: 520px) {
-            .gemini-input-row {
+            .deepseek-input-row {
                 flex-direction: column;
             }
             
-            #gemini-key-input {
+            #deepseek-key-input {
                 width: 100%;
                 min-width: unset;
             }
             
-            #btn-save-gemini-key {
+            #btn-save-deepseek-key {
                 width: 100%;
             }
             
-            .gemini-status {
+            .deepseek-status {
                 justify-content: space-between;
             }
         }
@@ -2030,22 +2030,22 @@
             line-height: 1.6;
         }
         body.epaper-mode .history-review-content { color: #444; }
-        .gemini-move-link {
+        .deepseek-move-link {
             color: var(--accent-gold);
             text-decoration: underline;
             cursor: pointer;
             font-weight: 600;
             transition: color 0.2s;
         }
-        .gemini-move-link:hover {
+        .deepseek-move-link:hover {
         color: var(--accent-purple);
         text-decoration: none;
         }
-        body.epaper-mode .gemini-move-link {
+        body.epaper-mode .deepseek-move-link {
         color: #333;
         text-decoration: underline;
         }
-        body.epaper-mode .gemini-move-link:hover {
+        body.epaper-mode .deepseek-move-link:hover {
         color: #000;
         }
         #history-board {
@@ -2870,16 +2870,16 @@
                 </div>
                 <div class="setting-help">Això resetarà el teu perfil actual.</div>
                 <div class="setting-row" style="margin-top:10px;">
-                    <div class="setting-label">Clau API Gemini (gemini-3.5-flash)</div>
+                    <div class="setting-label">Clau API DeepSeek (deepseek-v4-flash)</div>
                 </div>
-                <div class="gemini-config">
-                    <div class="gemini-input-row">
-                        <input type="password" id="gemini-key-input" placeholder="Enganxa la clau API" />
-                        <button class="btn btn-secondary" id="btn-save-gemini-key">Guardar</button>
+                <div class="deepseek-config">
+                    <div class="deepseek-input-row">
+                        <input type="password" id="deepseek-key-input" placeholder="Enganxa la clau API" />
+                        <button class="btn btn-secondary" id="btn-save-deepseek-key">Guardar</button>
                     </div>
-                    <div class="gemini-status">
+                    <div class="deepseek-status">
                         <span>Estat:</span>
-                        <span id="gemini-key-status">—</span>
+                        <span id="deepseek-key-status">—</span>
                     </div>
                 </div>
                 <div class="setting-help">La clau queda guardada i les revisions de partides es generen automàticament.</div>
@@ -3063,15 +3063,13 @@
                     i revisions de partida redactades amb IA?
                 </p>
                 <p class="ai-info-text">
-                    Només necessites una <strong>clau API de Gemini</strong>. Crear-la és gratuït:
-                    si no hi poses targeta, tens un nombre limitat de missatges gratuïts cada dia,
-                    més que suficient per entrenar.
+                    Només necessites una <strong>clau API de DeepSeek</strong>. Crea-la des de la plataforma de DeepSeek i afegeix crèdit segons l’ús que en vulguis fer.
                 </p>
-                <a class="ai-info-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">
-                    🔑 Crea la teva clau API de Gemini
+                <a class="ai-info-link" href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer">
+                    🔑 Crea la teva clau API de DeepSeek
                 </a>
                 <p class="ai-info-text">
-                    Quan la tinguis, enganxa-la a l'apartat <strong>«Clau API Gemini»</strong> de la configuració:
+                    Quan la tinguis, enganxa-la a l'apartat <strong>«Clau API DeepSeek»</strong> de la configuració:
                 </p>
                 <button class="btn btn-primary" id="btn-ai-info-settings" style="width:100%;">⚙️ Porta'm a la configuració</button>
                 <button class="close-modal" onclick="$('#ai-info-modal').hide()">Tancar</button>
@@ -3358,7 +3356,7 @@
                 <div class="status-message" id="status">Preparat...</div>
                 <div class="game-buttons">
                     <button class="btn btn-hint" id="btn-hint" title="Demanar pista">💡 Pista</button>
-                    <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb Gemini" style="display:none;">
+                    <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb DeepSeek" style="display:none;">
                         <img src="brain.svg" alt="Cervell">
                         <span>Màxima</span>
                     </button>
