@@ -208,6 +208,43 @@
         }
         
         .app-logo { font-size: 2.5rem; margin-bottom: 5px; }
+
+        /* Botó d'informació (i en cursiva i encerclada) a dalt a la dreta de l'inici */
+        #start-screen { position: relative; }
+        .info-btn {
+            position: absolute; top: 10px; right: 10px;
+            width: 26px; height: 26px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            background: rgba(201,162,39,0.12);
+            border: 1.5px solid rgba(201,162,39,0.65);
+            color: var(--accent-gold);
+            cursor: pointer; padding: 0; z-index: 5;
+        }
+        .info-btn i {
+            font-family: Georgia, 'Times New Roman', serif;
+            font-style: italic; font-weight: 700; font-size: 0.95rem; line-height: 1;
+        }
+        .info-btn:hover { background: rgba(201,162,39,0.25); }
+        body.epaper-mode .info-btn { background: #ededed !important; border-color: #777 !important; color: #222; }
+
+        /* Modal d'informació de les funcions amb IA */
+        .ai-info-text { font-size: 0.9rem; line-height: 1.55; color: var(--text-primary); margin-bottom: 12px; }
+        .ai-info-link {
+            display: block; text-align: center; margin: 4px 0 14px;
+            padding: 10px 12px; border-radius: 10px;
+            background: rgba(201,162,39,0.12); border: 1px solid rgba(201,162,39,0.5);
+            color: var(--accent-gold); font-weight: 600; text-decoration: none;
+            overflow-wrap: anywhere;
+        }
+        .ai-info-link:hover { background: rgba(201,162,39,0.25); }
+        body.epaper-mode .ai-info-link { background: #ededed !important; border-color: #777 !important; color: #222; }
+
+        /* Ressalta el camp de la clau Gemini en arribar des del modal d'informació */
+        .gemini-highlight { animation: geminiPulse 1.3s ease 2; border-radius: 10px; }
+        @keyframes geminiPulse {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(201,162,39,0); }
+            50% { box-shadow: 0 0 0 5px rgba(201,162,39,0.55); }
+        }
         
         h1 {
             font-family: 'Cinzel', serif;
@@ -330,7 +367,7 @@
         .mission-trophies { font-size: 0.9rem; text-align: right; min-width: 70px; opacity: 0.95; }
         .mission-trophies.empty { opacity: 0.25; }
 
-        /* ENTRENADOR (debrief de partida + pla setmanal) */
+        /* ENTRENADOR (debrief de partida + pla diari) */
         .coach-panel {
             background: rgba(0,0,0,0.2);
             border: 1px solid rgba(201, 162, 39, 0.2);
@@ -344,13 +381,16 @@
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
-        /* El resum del pla pot ser llarg: alçada limitada amb scroll tàctil */
+        /* El text descriptiu del dia pot ser llarg: alçada fixa amb scroll tàctil
+           perquè no quedi tallat (la resta del panell no es mou). El scroll amb el
+           dit el gestiona bindPlanSummaryTouchScroll() a app.js. */
         .coach-plan-summary {
             max-height: 9em;
             overflow-y: auto;
-            -webkit-overflow-scrolling: touch;
             overscroll-behavior: contain;
-            padding-right: 4px;
+            touch-action: pan-y;
+            padding-right: 6px;
+            scrollbar-width: thin;
         }
         .coach-plan-summary::-webkit-scrollbar { width: 5px; }
         .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
@@ -360,6 +400,15 @@
             color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;
             cursor: pointer; font-size: 0.95rem; display: none; flex-shrink: 0;
         }
+        .coach-kicker-right { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+        /* Compte enrere fins al pla de demà (hores:minuts:segons) */
+        .plan-countdown {
+            font-family: 'Courier New', monospace; font-size: 0.78rem; color: var(--text-secondary);
+            background: rgba(0,0,0,0.25); border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 6px; padding: 2px 7px; letter-spacing: 0.5px;
+            white-space: nowrap; font-variant-numeric: tabular-nums;
+        }
+        body.epaper-mode .plan-countdown { background: #ededed !important; border-color: #cfcfcf !important; color: #222; }
         #review-debrief {
             margin: 12px 0; padding: 12px; text-align: left;
             background: rgba(201,162,39,0.08); border: 1px solid rgba(201, 162, 39, 0.3); border-radius: 12px;
@@ -2574,6 +2623,7 @@
 
     <div id="app-container">
         <div id="start-screen" class="screen-anim">
+            <button id="btn-ai-info" class="info-btn" title="Funcions avançades amb IA" aria-label="Informació sobre les funcions avançades amb IA"><i>i</i></button>
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
             <div class="subtitle">Entrenador d'Escacs</div>
@@ -2675,7 +2725,10 @@
             <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
                 <div class="coach-kicker">
                     <span>🎓 El pla de l'entrenador</span>
-                    <button class="coach-speak-btn" id="btn-plan-speak" title="Escolta-ho en veu alta">🔊</button>
+                    <span class="coach-kicker-right">
+                        <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                        <button class="coach-speak-btn" id="btn-plan-speak" title="Escolta-ho en veu alta">🔊</button>
+                    </span>
                 </div>
                 <div class="coach-plan-summary" id="weekly-plan-summary"></div>
                 <div id="weekly-plan-list"></div>
@@ -2990,6 +3043,30 @@
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
                 <button class="btn btn-primary" id="btn-back-history">Tornar al Menú</button>
+            </div>
+        </div>
+
+        <div class="modal-overlay" id="ai-info-modal">
+            <div class="modal-content" style="text-align:left;">
+                <div class="modal-title">🧠 Funcions avançades amb IA</div>
+                <p class="ai-info-text">
+                    Vols que l'entrenador et doni <strong>pistes amb màximes inspirades en
+                    <em>L'Art de la Guerra</em></strong> per ajudar-te a trobar els següents moviments,
+                    i revisions de partida redactades amb IA?
+                </p>
+                <p class="ai-info-text">
+                    Només necessites una <strong>clau API de Gemini</strong>. Crear-la és gratuït:
+                    si no hi poses targeta, tens un nombre limitat de missatges gratuïts cada dia,
+                    més que suficient per entrenar.
+                </p>
+                <a class="ai-info-link" href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">
+                    🔑 Crea la teva clau API de Gemini
+                </a>
+                <p class="ai-info-text">
+                    Quan la tinguis, enganxa-la a l'apartat <strong>«Clau API Gemini»</strong> de la configuració:
+                </p>
+                <button class="btn btn-primary" id="btn-ai-info-settings" style="width:100%;">⚙️ Porta'm a la configuració</button>
+                <button class="close-modal" onclick="$('#ai-info-modal').hide()">Tancar</button>
             </div>
         </div>
 
