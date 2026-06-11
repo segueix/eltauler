@@ -3594,7 +3594,14 @@
             isApplyingRemote: false,
             pending: false,
             timer: null,
-            deviceId: null
+            remoteReloadTimer: null,
+            deviceId: null,
+            cloudCounts: {
+                games: 0,
+                errors: 0,
+                reviews: 0,
+                hasLeague: false
+            }
         };
         const loginButton = document.getElementById('btn-login-google');
         const forceSyncButton = document.getElementById('btn-force-cloud-sync');
@@ -3635,6 +3642,10 @@
                     `Dispositiu: ${escapeHtml((cloudSyncState.deviceId || '—').slice(0, 12))}`,
                     `Última pujada: ${escapeHtml(formatSyncTime(cloudSyncState.lastUploadAt))}`,
                     `Última baixada: ${escapeHtml(formatSyncTime(cloudSyncState.lastDownloadAt))}`,
+                    `Partides cloud: ${Number(cloudSyncState.cloudCounts?.games || 0)}`,
+                    `Errors cloud: ${Number(cloudSyncState.cloudCounts?.errors || 0)}`,
+                    `Revisions cloud: ${Number(cloudSyncState.cloudCounts?.reviews || 0)}`,
+                    `Lliga cloud: ${cloudSyncState.cloudCounts?.hasLeague ? 'sí' : 'no'}`,
                     `Últim error: ${escapeHtml(cloudSyncState.lastError || 'cap')}`
                 ].join('<br>');
             }
@@ -3931,6 +3942,7 @@
                 updatedAt: serverTimestamp(),
                 updatedAtClient: now,
                 deviceId: cloudSyncState.deviceId,
+                collectionsUpdatedAtClient: captured.collectionsUpdatedAtClient || null,
                 lastSyncReason: reason
             };
             const payload = sanitizeFirestoreData(rawPayload) || {};
@@ -4170,19 +4182,57 @@
         }
 
         async function loadFullUserStateFromCloud() {
-            const central = await loadCentralStateFromCloud();
-            if (!central) return null;
-            const [gameHistory, savedErrors, reviewHistory] = await Promise.all([
+            const [
+                central,
+                gameHistory,
+                savedErrors,
+                reviewHistory,
+                trainingHistory,
+                cloudSettings
+            ] = await Promise.all([
+                loadCentralStateFromCloud(),
                 loadGameHistoryFromCloud(),
                 loadErrorsFromCloud(),
-                loadReviewsFromCloud()
+                loadReviewsFromCloud(),
+                loadTrainingHistory(),
+                loadCloudSettings()
             ]);
-            return {
-                ...central,
-                gameHistory: gameHistory.slice().reverse(),
-                savedErrors: savedErrors.slice().reverse(),
-                reviewHistory: reviewHistory.slice().reverse()
+
+            const fullState = {
+                ...(central || {}),
+                gameHistory: Array.isArray(gameHistory) ? gameHistory.slice().reverse() : [],
+                savedErrors: Array.isArray(savedErrors) ? savedErrors.slice().reverse() : [],
+                reviewHistory: Array.isArray(reviewHistory) ? reviewHistory.slice().reverse() : [],
+                trainingProgress: {
+                    currentLeague: null,
+                    leagueActiveMatch: null,
+                    tacticsStats: {},
+                    todayMissions: [],
+                    missionsDate: null,
+                    missionsCompletionTime: null,
+                    dailyPuzzle: null,
+                    isCalibrating: false,
+                    calibrationGames: [],
+                    calibrationProfile: null,
+                    calibratgeComplet: false,
+                    ...((central && central.trainingProgress) || {}),
+                    ...((trainingHistory && typeof trainingHistory === 'object') ? trainingHistory : {})
+                },
+                settings: {
+                    ...((central && central.settings) || {}),
+                    ...((cloudSettings && typeof cloudSettings === 'object') ? cloudSettings : {})
+                }
             };
+
+            cloudSyncState.cloudCounts = {
+                games: fullState.gameHistory.length,
+                errors: fullState.savedErrors.length,
+                reviews: fullState.reviewHistory.length,
+                hasLeague: !!fullState.trainingProgress?.currentLeague
+            };
+            updateCloudDiagnostic();
+
+            return fullState;
         }
 
         async function saveCentralStateToCloud(reason = 'manual', stateOverride = null) {
@@ -4271,15 +4321,13 @@
         async function saveFullUserStateToCloud(reason = 'manual', stateOverride = null) {
             const user = requireAuthenticatedUser('saveFullUserStateToCloud');
             if (!user) return null;
+
             cloudSyncState.pending = true;
+
             const captured = stateOverride || getAppLocalState();
             const collectionState = getCollectionState(stateOverride);
+
             try {
-                const central = await saveCentralStateToCloud(reason, captured);
-                if (!central.ok) {
-                    cloudSyncState.pending = false;
-                    return null;
-                }
                 const [games, errors, reviews, training, settings] = await Promise.all([
                     saveGameHistoryToCloud(collectionState),
                     saveErrorsToCloud(collectionState),
@@ -4287,24 +4335,40 @@
                     saveTrainingHistory(captured.trainingProgress || {}),
                     saveCloudSettings(captured.settings || {})
                 ]);
+
+                const central = await saveCentralStateToCloud(reason, {
+                    ...captured,
+                    collectionsUpdatedAtClient: new Date().toISOString()
+                });
+
+                if (!central.ok) {
+                    cloudSyncState.pending = false;
+                    return null;
+                }
+
                 const failedSections = [];
+
                 const sectionFailure = (label, result) => {
                     const firstError = result?.failures?.[0]?.error || result?.error;
                     const code = firstError ? ` (${getFirebaseErrorCode(firstError)})` : '';
                     failedSections.push(`${label}${code}`);
                 };
+
                 if (!games.ok) sectionFailure('partides pendents', games);
                 if (!errors.ok) sectionFailure('errors pendents', errors);
                 if (!reviews.ok) sectionFailure('revisions pendents', reviews);
-                if (!training) failedSections.push('entrenament pendent');
+                if (!training) failedSections.push('entrenament/lliga pendent');
                 if (!settings) failedSections.push('preferències pendents');
+
                 cloudSyncState.lastUploadAt = central.updatedAtClient;
                 cloudSyncState.pending = false;
+
                 if (failedSections.length) {
-                    showCloudStatus(`Sincronització parcial: estat guardat, ${failedSections.join(', ')}`);
+                    showCloudStatus(`Sincronització parcial: ${failedSections.join(', ')}`);
                 } else {
                     clearCloudError();
                 }
+
                 updateCloudDiagnostic();
                 return central.payload;
             } catch (error) {
@@ -4350,6 +4414,10 @@
                 try { cloudSyncState.unsubscribe(); } catch (error) { console.warn('[CloudSync] unsubscribe error', error); }
             }
             cloudSyncState.unsubscribe = null;
+            if (cloudSyncState.remoteReloadTimer) {
+                clearTimeout(cloudSyncState.remoteReloadTimer);
+                cloudSyncState.remoteReloadTimer = null;
+            }
         }
 
         function comparableCloudState(state) {
@@ -4368,35 +4436,52 @@
 
         function startCloudStateListener(uid) {
             stopCloudStateListener();
+
             const ref = mainStateDoc(uid);
             const path = `users/${uid}/state/main`;
-            cloudSyncState.unsubscribe = onSnapshot(ref, async (snapshot) => {
+
+            cloudSyncState.unsubscribe = onSnapshot(ref, (snapshot) => {
                 if (!snapshot.exists()) return;
+
                 const remoteState = snapshot.data();
-                console.log('[CloudSync] download', path, remoteState);
+                console.log('[CloudSync] central changed', path, remoteState);
+
                 cloudSyncState.lastDownloadAt = new Date().toISOString();
                 updateCloudDiagnostic();
+
                 if (remoteState.deviceId && remoteState.deviceId === cloudSyncState.deviceId) return;
                 if (cloudSyncState.isApplyingRemote) return;
-                try {
-                    cloudSyncState.isApplyingRemote = true;
-                    const localState = getAppLocalState();
-                    const mergedState = (typeof window.mergeLocalAndCloudState === 'function')
-                        ? window.mergeLocalAndCloudState(localState, remoteState)
-                        : { ...localState, ...remoteState };
-                    console.log('[CloudSync] merge result', mergedState);
-                    if (typeof window.applyAppState === 'function') window.applyAppState(mergedState);
-                    if (typeof window.renderAfterCloudSync === 'function') window.renderAfterCloudSync();
-                    if (shouldUploadMergedRemoteState(remoteState, mergedState)) {
-                        await saveFullUserStateToCloud('remote-listener-merge', mergedState);
+
+                if (cloudSyncState.remoteReloadTimer) clearTimeout(cloudSyncState.remoteReloadTimer);
+
+                cloudSyncState.remoteReloadTimer = setTimeout(async () => {
+                    try {
+                        cloudSyncState.remoteReloadTimer = null;
+                        cloudSyncState.isApplyingRemote = true;
+
+                        const localState = getAppLocalState();
+                        const fullRemoteState = await loadFullUserStateFromCloud();
+
+                        const mergedState = (typeof window.mergeLocalAndCloudState === 'function')
+                            ? window.mergeLocalAndCloudState(localState, fullRemoteState || {})
+                            : { ...localState, ...(fullRemoteState || {}) };
+
+                        console.log('[CloudSync] full merge result', mergedState);
+
+                        if (typeof window.applyAppState === 'function') window.applyAppState(mergedState);
+                        if (typeof window.renderAfterCloudSync === 'function') window.renderAfterCloudSync();
+
+                        if (shouldUploadMergedRemoteState(fullRemoteState || {}, mergedState)) {
+                            await saveFullUserStateToCloud('remote-listener-merge', mergedState);
+                        }
+                    } catch (error) {
+                        showCloudError('Error aplicant una actualització remota completa.', error);
+                        console.warn('[CloudSync] error', error);
+                    } finally {
+                        cloudSyncState.isApplyingRemote = false;
+                        updateCloudDiagnostic();
                     }
-                } catch (error) {
-                    showCloudError('Error aplicant una actualització remota.', error);
-                    console.warn('[CloudSync] error', error);
-                } finally {
-                    cloudSyncState.isApplyingRemote = false;
-                    updateCloudDiagnostic();
-                }
+                }, 900);
             }, (error) => {
                 showCloudError('Error escoltant Firestore en temps real.', error);
                 console.warn('[CloudSync] error', error);
@@ -4406,6 +4491,13 @@
         async function forceCloudSync() {
             const uploaded = await saveFullUserStateToCloud('manual-force');
             const downloaded = await loadFullUserStateFromCloud();
+            console.log('[CloudSync] force full downloaded', {
+                games: downloaded?.gameHistory?.length || 0,
+                errors: downloaded?.savedErrors?.length || 0,
+                reviews: downloaded?.reviewHistory?.length || 0,
+                hasLeague: !!downloaded?.trainingProgress?.currentLeague,
+                hasActiveLeagueMatch: !!downloaded?.trainingProgress?.leagueActiveMatch
+            });
             if (downloaded && typeof window.mergeLocalAndCloudState === 'function') {
                 const merged = window.mergeLocalAndCloudState(getAppLocalState(), downloaded);
                 console.log('[CloudSync] merge result', merged);
