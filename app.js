@@ -4331,7 +4331,10 @@ async function callGemini(prompt, options = {}) {
         return { ok: false, text: '', status: 0, errorMessage: 'Clau Gemini no configurada' };
     }
     const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL_ID}:generateContent`;
-    const generationConfig = Object.assign({ temperature: 0.8, maxOutputTokens: 1024, topP: 0.9, topK: 40 }, options.generationConfig || {});
+    // Gemini 3.x raona ("thinking") per defecte i aquests tokens gasten el mateix
+    // pressupost de maxOutputTokens: amb límits petits la resposta arriba buida i
+    // a més es crema quota. thinkingLevel minimal ho evita.
+    const generationConfig = Object.assign({ temperature: 0.8, maxOutputTokens: 1024, topP: 0.9, topK: 40, thinkingConfig: { thinkingLevel: 'minimal' } }, options.generationConfig || {});
     const payload = Object.assign({
         contents: [{ role: 'user', parts: [{ text: String(prompt || '') }] }],
         generationConfig
@@ -4373,7 +4376,7 @@ async function testGeminiConnection(key) {
         geminiApiKey = previousKey;
         return { ok: false, text: '', status: 0, errorMessage: 'Clau Gemini no configurada' };
     }
-    const result = await callGemini('Respon només amb la paraula OK en català.', { generationConfig: { temperature: 0, maxOutputTokens: 8, topP: 1, topK: 1 } });
+    const result = await callGemini('Respon només amb la paraula OK en català.', { generationConfig: { temperature: 0, maxOutputTokens: 64, topP: 1, topK: 1 } });
     geminiApiKey = previousKey;
     return result;
 }
