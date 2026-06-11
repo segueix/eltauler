@@ -4309,21 +4309,32 @@ function updateBundleHintButtons() {
 }
 
 function getDeepSeekErrorMessage(status, fallback = '') {
-    if (status === 400) return 'Petició incorrecta o payload mal format';
-    if (status === 401 || status === 403) return 'Clau invàlida, restringida o sense accés a DeepSeek';
-    if (status === 429) return 'Quota o límit superat';
-    if (status === 500 || status === 503) return 'Error temporal de DeepSeek';
+    if (status === 400) return fallback || 'Petició incorrecta o payload mal format';
+    if (status === 401 || status === 403) return fallback || 'Clau invàlida, restringida o sense accés a DeepSeek';
+    if (status === 402) return fallback || 'Saldo insuficient al compte de DeepSeek';
+    if (status === 422) return fallback || 'Paràmetres invàlids per a DeepSeek';
+    if (status === 429) return fallback || 'Quota o límit superat';
+    if (status === 500 || status === 503) return fallback || 'Error temporal de DeepSeek';
     return fallback || 'No s’ha pogut contactar amb DeepSeek';
 }
 
 function getDeepSeekStatusLabel(result) {
     if (result && result.ok) return 'Connectat a DeepSeek';
     const status = result ? result.status : 0;
-    if (status === 401 || status === 403 || status === 400) return 'Clau invàlida o restringida';
+    if (status === 0) return 'Problema de xarxa o CORS';
+    if (status === 400 || status === 422) return 'Petició DeepSeek invàlida';
+    if (status === 401 || status === 403) return 'Clau invàlida o restringida';
+    if (status === 402) return 'Saldo insuficient a DeepSeek';
     if (status === 429) return 'Quota superada';
-    if (status === 500 || status === 503) return 'Error temporal';
+    if (status === 500 || status === 503) return 'Error temporal de DeepSeek';
     if (result && /xarxa|CORS|domini|bloqueig|fetch/i.test(result.errorMessage || '')) return 'Problema de xarxa o domini';
-    return 'Error temporal';
+    return result?.errorMessage || 'Error de DeepSeek';
+}
+
+function getDeepSeekAlertMessage(result) {
+    const label = getDeepSeekStatusLabel(result);
+    const detail = (result && result.errorMessage && result.errorMessage !== label) ? `\n\nDetall: ${result.errorMessage}` : '';
+    return `${label}${detail}`;
 }
 
 async function callDeepSeek(prompt, options = {}) {
@@ -10535,7 +10546,7 @@ function setupEvents() {
             alert('Clau de DeepSeek guardada.');
         } else {
             if (status) status.textContent = getDeepSeekStatusLabel(result);
-            alert(getDeepSeekStatusLabel(result));
+            alert(getDeepSeekAlertMessage(result));
         }
         if (btn) btn.disabled = false;
     });
