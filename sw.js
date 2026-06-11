@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ AUTOMÀTICA: Canvia cada vegada que es modifica el fitxer
-const SW_VERSION = '2.7.1781174359';
+const SW_VERSION = '2.7.1781174757';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 
 // DEBUG: Log de versió
@@ -174,7 +174,10 @@ async function networkFirst(request) {
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segons timeout
 
-    const networkResponse = await fetch(request, { signal: controller.signal });
+    // cache: 'no-cache' obliga a revalidar amb el servidor: sense això, el fetch
+    // pot quedar satisfet per la caché HTTP del navegador (GitHub Pages serveix
+    // amb max-age=600) i el "network-first" acaba retornant codi antic.
+    const networkResponse = await fetch(request, { signal: controller.signal, cache: 'no-cache' });
     clearTimeout(timeoutId);
 
     if (networkResponse && networkResponse.status === 200) {
