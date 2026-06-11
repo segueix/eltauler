@@ -381,20 +381,34 @@
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
-        /* El text descriptiu del dia pot ser llarg: alçada fixa amb scroll tàctil
+        /* El text descriptiu del dia pot ser llarg: alçada adaptativa amb scroll tàctil
            perquè no quedi tallat (la resta del panell no es mou). El scroll amb el
            dit el gestiona bindPlanSummaryTouchScroll() a app.js. */
         .coach-plan-summary {
-            max-height: 9em;
+            max-height: 9rem;
+            max-height: clamp(7.5rem, 30svh, 13.5rem);
             overflow-y: auto;
             overscroll-behavior: contain;
             touch-action: pan-y;
+            -webkit-overflow-scrolling: touch;
             padding-right: 6px;
+            margin-bottom: 10px;
             scrollbar-width: thin;
+            overflow-wrap: anywhere;
+        }
+        .coach-plan-summary[data-scrollable="true"] {
+            border-bottom: 1px solid rgba(201,162,39,0.16);
+            padding-bottom: 4px;
         }
         .coach-plan-summary::-webkit-scrollbar { width: 5px; }
         .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
         .coach-plan-summary::-webkit-scrollbar-thumb { background: rgba(201,162,39,0.4); border-radius: 3px; }
+        @media (max-width: 520px) {
+            .coach-plan-summary {
+                max-height: 7.5rem;
+                max-height: clamp(6rem, 26svh, 10.5rem);
+            }
+        }
         .coach-speak-btn {
             background: rgba(201,162,39,0.15); border: 1px solid rgba(201,162,39,0.4);
             color: var(--accent-gold); border-radius: 8px; padding: 4px 10px;

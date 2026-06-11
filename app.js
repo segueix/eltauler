@@ -14415,6 +14415,14 @@ function updatePlanCountdown() {
    (div petit amb overflow + contingut injectat per JS). Movem scrollTop a mà:
    si el text sobreïx, el dit el desplaça i la pàgina no es mou; si no sobreïx,
    el gest passa de llarg i la pàgina es desplaça amb normalitat. */
+function updatePlanSummaryOverflow() {
+    const el = document.getElementById('weekly-plan-summary');
+    if (!el) return;
+    requestAnimationFrame(() => {
+        el.dataset.scrollable = el.scrollHeight > el.clientHeight + 1 ? 'true' : 'false';
+    });
+}
+
 function bindPlanSummaryTouchScroll() {
     const el = document.getElementById('weekly-plan-summary');
     if (!el || el.dataset.touchScrollBound) return;
@@ -14426,7 +14434,11 @@ function bindPlanSummaryTouchScroll() {
     }, { passive: true });
     el.addEventListener('touchmove', (e) => {
         if (el.scrollHeight <= el.clientHeight + 1) return;
-        el.scrollTop = startTop - (e.touches[0].clientY - startY);
+        const deltaY = e.touches[0].clientY - startY;
+        const nextTop = startTop - deltaY;
+        const maxTop = el.scrollHeight - el.clientHeight;
+        if ((nextTop < 0 && el.scrollTop <= 0) || (nextTop > maxTop && el.scrollTop >= maxTop)) return;
+        el.scrollTop = Math.max(0, Math.min(maxTop, nextTop));
         e.preventDefault();
     }, { passive: false });
 }
@@ -14456,6 +14468,7 @@ function renderWeeklyPlan() {
     const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
     summaryEl.text(summary);
     bindPlanSummaryTouchScroll();
+    updatePlanSummaryOverflow();
 
     const list = $('#weekly-plan-list').empty();
     weeklyPlan.items.forEach(item => {
