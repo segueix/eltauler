@@ -15,7 +15,7 @@
     <title>El Tauler - Entrenador d'Escacs</title>
     
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json?v=1.0.4">
+    <link rel="manifest" href="manifest.json?v=1.0.5">
     
     <!-- Icons -->
     <link rel="apple-touch-icon" href="novaicon.png">
@@ -381,25 +381,17 @@
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
-        /* El text descriptiu del dia pot ser llarg. En pantalles grans queda
-           limitat amb scroll; en mòbil s'expandeix perquè no depengui d'un
-           scroll intern que alguns navegadors tàctils bloquegen. */
+        /* El resum del pla pot ser llarg: en desktop/tablet es manté compacte
+           amb scroll intern; en mòbil s'expandeix del tot i fa scroll la pàgina. */
         .coach-plan-summary {
-            max-height: 9rem;
-            max-height: clamp(7.5rem, 30svh, 13.5rem);
+            max-height: 9em;
             overflow-y: auto;
             overscroll-behavior: contain;
             touch-action: pan-y;
-            -webkit-overflow-scrolling: touch;
             padding-right: 6px;
             margin-bottom: 10px;
             scrollbar-width: thin;
             overflow-wrap: anywhere;
-        }
-        .coach-plan-summary[data-scrollable="true"] {
-            border-bottom: 1px solid rgba(201,162,39,0.16);
-            padding-bottom: 4px;
-            touch-action: none;
         }
         .coach-plan-summary::-webkit-scrollbar { width: 5px; }
         .coach-plan-summary::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); border-radius: 3px; }
@@ -407,13 +399,9 @@
         body.device-mobile .coach-plan-summary {
             max-height: none;
             overflow-y: visible;
-            touch-action: pan-y;
+            overscroll-behavior: auto;
+            touch-action: auto;
             padding-right: 0;
-        }
-        body.device-mobile .coach-plan-summary[data-scrollable="true"] {
-            border-bottom: 0;
-            padding-bottom: 0;
-            touch-action: pan-y;
         }
         @media (max-width: 520px) {
             .coach-kicker {
@@ -426,13 +414,9 @@
             .coach-plan-summary {
                 max-height: none;
                 overflow-y: visible;
-                touch-action: pan-y;
+                overscroll-behavior: auto;
+                touch-action: auto;
                 padding-right: 0;
-            }
-            .coach-plan-summary[data-scrollable="true"] {
-                border-bottom: 0;
-                padding-bottom: 0;
-                touch-action: pan-y;
             }
         }
         .coach-speak-btn {
@@ -3460,9 +3444,9 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.1"></script>
     <script>
-        window.APP_VERSION = '1.0.4';
+        window.APP_VERSION = '1.0.5';
     </script>
-    <script src="app.js?v=1.0.4"></script>
+    <script src="app.js?v=1.0.5"></script>
     
     <!-- Service Worker Registration -->
     <script>

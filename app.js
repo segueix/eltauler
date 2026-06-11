@@ -14412,45 +14412,6 @@ function updatePlanCountdown() {
     if (weeklyPlan && weeklyPlan.day !== getPlanDayKey()) ensureWeeklyPlan();
 }
 
-/* En alguns mòbils el scroll natiu del requadre del resum no respon al tacte
-   (div petit amb overflow + contingut injectat per JS). Movem scrollTop a mà:
-   si el text sobreïx, el dit el desplaça i la pàgina no es mou; si no sobreïx,
-   el gest passa de llarg i la pàgina es desplaça amb normalitat. */
-function updatePlanSummaryOverflow() {
-    const el = document.getElementById('weekly-plan-summary');
-    if (!el) return;
-    requestAnimationFrame(() => {
-        el.dataset.scrollable = el.scrollHeight > el.clientHeight + 1 ? 'true' : 'false';
-    });
-}
-
-function bindPlanSummaryTouchScroll() {
-    const el = document.getElementById('weekly-plan-summary');
-    if (!el || el.dataset.touchScrollBound) return;
-    el.dataset.touchScrollBound = '1';
-    let lastY = 0;
-    const canScroll = () => el.scrollHeight > el.clientHeight + 1;
-    const scrollByDelta = (deltaY) => {
-        const maxTop = Math.max(0, el.scrollHeight - el.clientHeight);
-        const nextTop = Math.max(0, Math.min(maxTop, el.scrollTop + deltaY));
-        el.scrollTop = nextTop;
-    };
-
-    el.addEventListener('touchstart', (e) => {
-        if (!e.touches.length) return;
-        lastY = e.touches[0].clientY;
-    }, { passive: true });
-    el.addEventListener('touchmove', (e) => {
-        if (!canScroll() || !e.touches.length) return;
-        const y = e.touches[0].clientY;
-        scrollByDelta(lastY - y);
-        lastY = y;
-        // Quan el resum sobreïx, aquest gest ha de moure el requadre, no la pàgina.
-        e.preventDefault();
-    }, { passive: false });
-    window.addEventListener('resize', updatePlanSummaryOverflow, { passive: true });
-}
-
 function launchWeeklyPlanItem(item) {
     try {
         if (item.type === 'opening_drill') return startOpeningErrorDrill();
@@ -14475,8 +14436,6 @@ function renderWeeklyPlan() {
     const summaryEl = $('#weekly-plan-summary');
     const summary = weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
     summaryEl.text(summary);
-    bindPlanSummaryTouchScroll();
-    updatePlanSummaryOverflow();
 
     const list = $('#weekly-plan-list').empty();
     weeklyPlan.items.forEach(item => {
