@@ -1267,13 +1267,47 @@ function highlightTvTapSelection(square) {
     sel.addClass('tap-selected');
 }
 
-function commitHumanMoveFromTap(from, to) {
+/* Selector de peça per a la promoció de peons de l'usuari */
+let promotionPickerCallback = null;
+
+function isUserPromotionMove(chessInstance, from, to) {
+    if (!chessInstance || !from || !to) return false;
+    const piece = chessInstance.get(from);
+    if (!piece || piece.type !== 'p' || piece.color !== chessInstance.turn()) return false;
+    return chessInstance.moves({ square: from, verbose: true }).some(m => m.to === to && m.promotion);
+}
+
+function showPromotionPicker(color, callback) {
+    const modal = document.getElementById('promotion-modal');
+    if (!modal) { callback('q'); return; }
+    promotionPickerCallback = callback;
+    const prefix = color === 'b' ? 'b' : 'w';
+    modal.querySelectorAll('.promotion-option').forEach((btn) => {
+        const piece = (btn.getAttribute('data-piece') || 'q').toUpperCase();
+        const img = btn.querySelector('img');
+        if (img) img.src = `https://chessboardjs.com/img/chesspieces/wikipedia/${prefix}${piece}.png`;
+    });
+    $('#promotion-modal').css('display', 'flex');
+}
+
+function resolvePromotionPicker(piece) {
+    const callback = promotionPickerCallback;
+    promotionPickerCallback = null;
+    $('#promotion-modal').hide();
+    if (callback && piece) callback(piece);
+}
+
+function commitHumanMove(from, to, promotionPiece) {
     $('#blunder-alert').hide();
     if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
 
     $('.square-55d63').removeClass('highlight-hint');
+    if (!promotionPiece && isUserPromotionMove(game, from, to)) {
+        showPromotionPicker(game.turn(), (piece) => commitHumanMove(from, to, piece));
+        return true;
+    }
     const prevFen = game.fen();
-    const move = game.move({ from: from, to: to, promotion: 'q' });
+    const move = game.move({ from: from, to: to, promotion: promotionPiece || 'q' });
     if (move === null) { showIllegalMoveFeedback(from); return false; }
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
@@ -1328,7 +1362,7 @@ function enableTapToMove() {
             return;
         }
 
-        const moved = commitHumanMoveFromTap(tapSelectedSquare, square);
+        const moved = commitHumanMove(tapSelectedSquare, square);
         if (moved) {
             clearTapSelection();
             return;
@@ -10405,6 +10439,9 @@ function setupEvents() {
 
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
 
+    $('#promotion-modal .promotion-option').on('click', function () { resolvePromotionPicker($(this).data('piece')); });
+    $('#btn-promotion-cancel').on('click', () => resolvePromotionPicker(null));
+
     // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau OpenAI
     $('#btn-ai-info').click(() => { $('#ai-info-modal').css('display', 'flex'); });
     $('#btn-ai-info-settings').click(() => {
@@ -12757,6 +12794,13 @@ function onDragStart(source, piece, position, orientation) {
 }
 
 function onDrop(source, target) {
+    // Promoció de l'usuari: es deixa triar la peça abans de confirmar la jugada.
+    // El peó torna a la casella d'origen mentre el selector és obert i la jugada
+    // es completa (amb tota la comptabilitat) via commitHumanMove.
+    if (isUserPromotionMove(game, source, target)) {
+        showPromotionPicker(game.turn(), (piece) => commitHumanMove(source, target, piece));
+        return 'snapback';
+    }
     $('#blunder-alert').hide();
     if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
 
