@@ -462,6 +462,22 @@ function showToast(message, type = 'info', duration = null) {
 // Internalitza qualsevol alert() del sistema com a toast de l'app.
 window.alert = function(message) { showToast(message, 'info'); };
 
+// En mòbil, els gestors tàctils del tauler poden suprimir el click sintètic
+// dels botons dels modals que s'obren durant la partida (mateix cas que la X
+// dels overlays d'èxit). S'escolta també touchend/pointerup i una guarda
+// temporal assegura que l'acció s'executi exactament una vegada per toc.
+function onModalAction(target, handler) {
+    let lastTs = 0;
+    $(target).off('click touchend pointerup').on('click touchend pointerup', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        const now = Date.now();
+        if (now - lastTs < 400) return;
+        lastTs = now;
+        handler.call(this, e);
+    });
+}
+
 // Confirmació interna (asíncrona, amb callbacks) que substitueix confirm().
 function showAppConfirm(message, onConfirm, opts = {}) {
     const modal = document.getElementById('app-confirm-modal');
@@ -476,9 +492,9 @@ function showAppConfirm(message, onConfirm, opts = {}) {
     const noBtn = $('#app-confirm-no');
     yesBtn.text(opts.confirmText || "D'acord");
     noBtn.text(opts.cancelText || 'Cancel·la');
-    const close = () => { modal.style.display = 'none'; yesBtn.off('click'); noBtn.off('click'); };
-    yesBtn.off('click').on('click', () => { close(); if (typeof onConfirm === 'function') onConfirm(); });
-    noBtn.off('click').on('click', () => { close(); if (typeof opts.onCancel === 'function') opts.onCancel(); });
+    const close = () => { modal.style.display = 'none'; yesBtn.off('click touchend pointerup'); noBtn.off('click touchend pointerup'); };
+    onModalAction(yesBtn, () => { close(); if (typeof onConfirm === 'function') onConfirm(); });
+    onModalAction(noBtn, () => { close(); if (typeof opts.onCancel === 'function') opts.onCancel(); });
     modal.style.display = 'flex';
 }
 
@@ -10439,8 +10455,8 @@ function setupEvents() {
 
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
 
-    $('#promotion-modal .promotion-option').on('click', function () { resolvePromotionPicker($(this).data('piece')); });
-    $('#btn-promotion-cancel').on('click', () => resolvePromotionPicker(null));
+    onModalAction('#promotion-modal .promotion-option', function () { resolvePromotionPicker($(this).data('piece')); });
+    onModalAction('#btn-promotion-cancel', () => resolvePromotionPicker(null));
 
     // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau OpenAI
     $('#btn-ai-info').click(() => { $('#ai-info-modal').css('display', 'flex'); });
@@ -11010,22 +11026,22 @@ function setupEvents() {
         showResignModal();
     });
 
-    $('#btn-resign-confirm').click(() => {
+    onModalAction('#btn-resign-confirm', () => {
         hideResignModal();
         handleGameOver(true);
     });
 
-    $('#btn-resign-cancel').click(() => {
+    onModalAction('#btn-resign-cancel', () => {
         hideResignModal();
     });
 
-    $('#resign-modal').click((event) => {
+    onModalAction('#resign-modal', (event) => {
         if (event.target.id === 'resign-modal') {
             hideResignModal();
         }
     });
 
-    $('#btn-menu-exit-confirm').click(() => {
+    onModalAction('#btn-menu-exit-confirm', () => {
         hideMenuExitModal();
         if (leagueActiveMatch) {
             handleGameOver(true);
@@ -11037,11 +11053,11 @@ function setupEvents() {
         if (stockfish) stockfish.postMessage('stop');
     });
 
-    $('#btn-menu-exit-cancel').click(() => {
+    onModalAction('#btn-menu-exit-cancel', () => {
         hideMenuExitModal();
     });
 
-    $('#menu-exit-modal').click((event) => {
+    onModalAction('#menu-exit-modal', (event) => {
         if (event.target.id === 'menu-exit-modal') {
             hideMenuExitModal();
         }
