@@ -108,7 +108,7 @@ let openingErrorCurrentIndex = -1; // Índex de la posició actual
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
-let lastBundleDeepSeekHint = null
+let lastBundleOpenAIHint = null
 let tvBoard = null;
 let tvReplay = null;
 let tvJeroglyphicsActive = false;
@@ -276,8 +276,8 @@ let growthStats = {
     lastRecommendedAt: null
 };
 let currentGrowthTask = null;
-// Cau en memòria de respostes DeepSeek (per FEN+tipus) per estalviar crides
-const deepseekResponseCache = {};
+// Cau en memòria de respostes OpenAI (per FEN+tipus) per estalviar crides
+const openaiResponseCache = {};
 let bundleSequenceStep = 1;
 let bundleSequenceStartFen = null;
 let bundleStepStartFen = null;
@@ -285,7 +285,7 @@ let bundleStrictPvLine = [];
 let bundleStrictPvDepth = 0;
 let bundleFixedSequence = null;
 let bundleAutoReplyPending = false;
-let bundleDeepSeekHintPending = false;
+let bundleOpenAIHintPending = false;
 const LEAGUE_QUOTES = [
     "“El millor moment per jugar és ara.”",
     "“La sort somriu als valents.”",
@@ -487,9 +487,9 @@ const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
 
-const DEEPSEEK_API_KEY_STORAGE = 'chess_deepseek_api_key';
-const DEEPSEEK_MODEL_ID = 'deepseek-v4-flash';
-let deepseekApiKey = null;
+const OPENAI_API_KEY_STORAGE = 'chess_openai_api_key';
+const OPENAI_MODEL_ID = 'gpt-5-mini';
+let openaiApiKey = null;
 
 const EPAPER_MODE_KEY = 'eltauler_epaper_mode';
 let epaperEnabled = false;
@@ -2351,7 +2351,7 @@ function handleOpeningLessonUserMove(from, to) {
 
 /* ===================== EXPLICACIONS DE TEORIA A LES LLIÇONS D'OBERTURA =====================
    Quan l'alumne s'equivoca en una lliçó, el missatge estàtic surt a l'instant i
-   DeepSeek hi afegeix després el perquè de la jugada de la teoria. Amb cau per
+   OpenAI hi afegeix després el perquè de la jugada de la teoria. Amb cau per
    posició perquè repetir la mateixa errada no torni a cridar l'API. */
 
 let openingLessonExplainToken = 0;
@@ -2366,19 +2366,19 @@ Explica en 2 frases (màxim 45 paraules) quina idea de l'obertura segueix ${expe
 }
 
 async function requestOpeningLessonExplanation(fen, expectedSan, playedSan) {
-    if (!deepseekApiKey || !openingLessonInfo || !fen) return;
+    if (!openaiApiKey || !openingLessonInfo || !fen) return;
     const lessonName = openingLessonInfo.name;
     const stepAtRequest = openingLessonStep;
     const myToken = ++openingLessonExplainToken;
     const cacheKey = `openinglesson:${fen}:${expectedSan}:${playedSan}`;
-    let text = getCachedDeepSeek(cacheKey);
+    let text = getCachedOpenAI(cacheKey);
     if (!text) {
         const prompt = buildOpeningLessonExplanationPrompt(fen, expectedSan, playedSan, lessonName);
-        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 400, topP: 0.9 } });
+        const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 400 } });
         if (!result.ok || !result.text) return;
         text = result.text.replace(/\*\*/g, '').replace(/["«»]/g, '').trim();
         if (!text) return;
-        setCachedDeepSeek(cacheKey, text);
+        setCachedOpenAI(cacheKey, text);
     }
     // Només actualitza si seguim a la mateixa lliçó i al mateix pas, i cap petició més nova
     if (myToken !== openingLessonExplainToken) return;
@@ -4242,8 +4242,8 @@ function loadStorage() {
             }
         } catch (e) {}
     }
-    const storedDeepSeekKey = localStorage.getItem(DEEPSEEK_API_KEY_STORAGE);
-    if (storedDeepSeekKey) deepseekApiKey = storedDeepSeekKey;
+    const storedOpenAIKey = localStorage.getItem(OPENAI_API_KEY_STORAGE);
+    if (storedOpenAIKey) openaiApiKey = storedOpenAIKey;
     const storedDaily = localStorage.getItem('chess_dailyPuzzle');
     if (storedDaily) {
         try {
@@ -4297,10 +4297,10 @@ function saveStorage() {
     }
     if (currentLeague) localStorage.setItem('chess_currentLeague', JSON.stringify(currentLeague)); else localStorage.removeItem('chess_currentLeague');
     if (leagueActiveMatch) localStorage.setItem('chess_leagueActiveMatch', JSON.stringify(leagueActiveMatch)); else localStorage.removeItem('chess_leagueActiveMatch');
-    if (deepseekApiKey) {
-        localStorage.setItem(DEEPSEEK_API_KEY_STORAGE, deepseekApiKey);
+    if (openaiApiKey) {
+        localStorage.setItem(OPENAI_API_KEY_STORAGE, openaiApiKey);
     } else {
-        localStorage.removeItem(DEEPSEEK_API_KEY_STORAGE);
+        localStorage.removeItem(OPENAI_API_KEY_STORAGE);
     }
     localStorage.setItem('chess_dailyPuzzle', JSON.stringify(dailyPuzzle));
     localStorage.setItem('chess_completedOpenings', JSON.stringify(completedOpenings));
@@ -4313,16 +4313,17 @@ function saveStorage() {
     localStorage.removeItem('chess_calibrationGoodMoves');
     localStorage.removeItem('eltaulerLastLocalUpdateAt');
     localStorage.removeItem('eltaulerDeviceId');
+    localStorage.removeItem('chess_deepseek_api_key');
 }
 
-function updateDeepSeekSettingsUI() {
-    const input = document.getElementById('deepseek-key-input');
-    const status = document.getElementById('deepseek-key-status');
+function updateOpenAISettingsUI() {
+    const input = document.getElementById('openai-key-input');
+    const status = document.getElementById('openai-key-status');
     if (!input || !status) return;
-    if (deepseekApiKey) {
+    if (openaiApiKey) {
         input.value = '';
         input.placeholder = 'Clau desada';
-        status.textContent = 'Connectat a DeepSeek';
+        status.textContent = 'Connectat a OpenAI';
     } else {
         input.placeholder = 'Enganxa la clau';
         status.textContent = 'No configurada';
@@ -4343,65 +4344,62 @@ function updateBundleHintButtons() {
     hintBtn.style.display = (bundleVisible || isAssisted) ? 'inline-flex' : 'inline-flex';
     hintBtn.disabled = !stockfish || isAnalyzingHint;
 
-    // Botó DeepSeek per bundles (funciona també offline amb el banc de màximes)
+    // Botó OpenAI per bundles (funciona també offline amb el banc de màximes)
     if (brainBtn) {
         brainBtn.style.display = bundleVisible ? 'inline-flex' : 'none';
-        brainBtn.disabled = !bundleVisible || bundleDeepSeekHintPending;
+        brainBtn.disabled = !bundleVisible || bundleOpenAIHintPending;
     }
 
-    // Botó de consell estratègic per mode assistit (offline o amb DeepSeek)
+    // Botó de consell estratègic per mode assistit (offline o amb OpenAI)
     if (assistedBtn) {
         assistedBtn.style.display = isAssisted ? 'inline-flex' : 'none';
         assistedBtn.disabled = !isAssisted || assistedHintPending;
     }
 }
 
-function getDeepSeekErrorMessage(status, fallback = '') {
+function getOpenAIErrorMessage(status, fallback = '') {
     if (status === 400) return fallback || 'Petició incorrecta o payload mal format';
-    if (status === 401 || status === 403) return fallback || 'Clau invàlida, restringida o sense accés a DeepSeek';
-    if (status === 402) return fallback || 'Saldo insuficient al compte de DeepSeek';
-    if (status === 422) return fallback || 'Paràmetres invàlids per a DeepSeek';
-    if (status === 429) return fallback || 'Quota o límit superat';
-    if (status === 500 || status === 503) return fallback || 'Error temporal de DeepSeek';
-    return fallback || 'No s’ha pogut contactar amb DeepSeek';
+    if (status === 401 || status === 403) return fallback || 'Clau invàlida, restringida o sense accés a OpenAI';
+    if (status === 422) return fallback || 'Paràmetres invàlids per a OpenAI';
+    if (status === 429) return fallback || 'Límit de peticions o crèdit esgotat a OpenAI';
+    if (status === 500 || status === 503) return fallback || 'Error temporal d’OpenAI';
+    return fallback || 'No s’ha pogut contactar amb OpenAI';
 }
 
-function getDeepSeekStatusLabel(result) {
-    if (result && result.ok) return 'Connectat a DeepSeek';
+function getOpenAIStatusLabel(result) {
+    if (result && result.ok) return 'Connectat a OpenAI';
     const status = result ? result.status : 0;
     if (status === 0) return 'Problema de xarxa o CORS';
-    if (status === 400 || status === 422) return 'Petició DeepSeek invàlida';
+    if (status === 400 || status === 422) return 'Petició OpenAI invàlida';
     if (status === 401 || status === 403) return 'Clau invàlida o restringida';
-    if (status === 402) return 'Saldo insuficient a DeepSeek';
-    if (status === 429) return 'Quota superada';
-    if (status === 500 || status === 503) return 'Error temporal de DeepSeek';
+    if (status === 429) return 'Límit de peticions o crèdit esgotat';
+    if (status === 500 || status === 503) return 'Error temporal d’OpenAI';
     if (result && /xarxa|CORS|domini|bloqueig|fetch/i.test(result.errorMessage || '')) return 'Problema de xarxa o domini';
-    return result?.errorMessage || 'Error de DeepSeek';
+    return result?.errorMessage || 'Error d’OpenAI';
 }
 
-function getDeepSeekAlertMessage(result) {
-    const label = getDeepSeekStatusLabel(result);
+function getOpenAIAlertMessage(result) {
+    const label = getOpenAIStatusLabel(result);
     const detail = (result && result.errorMessage && result.errorMessage !== label) ? `\n\nDetall: ${result.errorMessage}` : '';
     return `${label}${detail}`;
 }
 
-async function callDeepSeek(prompt, options = {}) {
-    if (!deepseekApiKey) {
-        return { ok: false, text: '', status: 0, errorMessage: 'Clau DeepSeek no configurada' };
+async function callOpenAI(prompt, options = {}) {
+    if (!openaiApiKey) {
+        return { ok: false, text: '', status: 0, errorMessage: 'Clau OpenAI no configurada' };
     }
-    const endpoint = 'https://api.deepseek.com/chat/completions';
-    const generationConfig = Object.assign({ temperature: 0.8, maxOutputTokens: 1024, topP: 0.9 }, options.generationConfig || {});
-    // DeepSeek V4 raona ("thinking") per defecte i aquests tokens gasten el mateix
-    // pressupost de max_tokens: amb límits petits el content arriba buit i a més
-    // es crema saldo. Per a textos curts d'entrenador no cal raonar, així que es
-    // desactiva sempre (mateixa decisió que el thinkingLevel minimal de Gemini).
+    const endpoint = 'https://api.openai.com/v1/chat/completions';
+    const generationConfig = Object.assign({ maxOutputTokens: 1024 }, options.generationConfig || {});
+    // GPT-5 mini raona per defecte i els tokens de raonament gasten el mateix
+    // pressupost de max_completion_tokens: amb límits petits el content arribaria
+    // buit i a més es cremaria saldo. Per a textos curts d'entrenador no cal
+    // raonar, així que es demana sempre l'esforç mínim. La família GPT-5 només
+    // accepta els valors per defecte de temperature i top_p, per això no s'envien.
     const payload = Object.assign({
-        model: DEEPSEEK_MODEL_ID,
+        model: OPENAI_MODEL_ID,
         messages: [{ role: 'user', content: String(prompt || '') }],
-        temperature: generationConfig.temperature,
-        max_tokens: generationConfig.maxOutputTokens,
-        top_p: generationConfig.topP,
-        thinking: { type: 'disabled' },
+        max_completion_tokens: generationConfig.maxOutputTokens,
+        reasoning_effort: 'minimal',
         stream: false
     }, options.payload || {});
     try {
@@ -4409,7 +4407,7 @@ async function callDeepSeek(prompt, options = {}) {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
-                'Authorization': `Bearer ${deepseekApiKey}`
+                'Authorization': `Bearer ${openaiApiKey}`
             },
             body: JSON.stringify(payload)
         });
@@ -4418,10 +4416,10 @@ async function callDeepSeek(prompt, options = {}) {
         try { data = await response.json(); } catch (e) { try { errorText = await response.text(); } catch (e2) {} }
         if (!response.ok) {
             const apiMsg = data?.error?.message || errorText || '';
-            return { ok: false, text: '', status: response.status, errorMessage: getDeepSeekErrorMessage(response.status, apiMsg) };
+            return { ok: false, text: '', status: response.status, errorMessage: getOpenAIErrorMessage(response.status, apiMsg) };
         }
         const text = (data?.choices?.[0]?.message?.content || data?.choices?.[0]?.text || '').trim();
-        if (!text) return { ok: false, text: '', status: response.status, errorMessage: 'Resposta buida de DeepSeek' };
+        if (!text) return { ok: false, text: '', status: response.status, errorMessage: 'Resposta buida d’OpenAI' };
         return { ok: true, text, status: response.status, errorMessage: '' };
     } catch (error) {
         const isNetwork = error instanceof TypeError || /fetch failed|Failed to fetch|NetworkError/i.test(error?.message || '');
@@ -4434,24 +4432,24 @@ async function callDeepSeek(prompt, options = {}) {
     }
 }
 
-async function testDeepSeekConnection(key) {
-    const previousKey = deepseekApiKey;
-    deepseekApiKey = (key || '').trim();
-    if (!deepseekApiKey) {
-        deepseekApiKey = previousKey;
-        return { ok: false, text: '', status: 0, errorMessage: 'Clau DeepSeek no configurada' };
+async function testOpenAIConnection(key) {
+    const previousKey = openaiApiKey;
+    openaiApiKey = (key || '').trim();
+    if (!openaiApiKey) {
+        openaiApiKey = previousKey;
+        return { ok: false, text: '', status: 0, errorMessage: 'Clau OpenAI no configurada' };
     }
-    const result = await callDeepSeek('Respon només amb la paraula OK en català.', { generationConfig: { temperature: 0, maxOutputTokens: 64, topP: 1, topK: 1 } });
-    deepseekApiKey = previousKey;
+    const result = await callOpenAI('Respon només amb la paraula OK en català.', { generationConfig: { maxOutputTokens: 256 } });
+    openaiApiKey = previousKey;
     return result;
 }
 
-function saveDeepSeekApiKey(rawKey) {
+function saveOpenAIApiKey(rawKey) {
     const key = (rawKey || '').trim();
     if (!key) return false;
-    deepseekApiKey = key;
+    openaiApiKey = key;
     saveStorage();
-    updateDeepSeekSettingsUI();
+    updateOpenAISettingsUI();
     return true;
 }
 
@@ -4554,7 +4552,7 @@ function updateStatsDisplay() {
     $('#stats-hiero-streak').text(hieroglyphicStats.bestStreak || 0);
     const masteredThemes = Object.keys(hieroglyphicStats.themes || {}).filter(t => (hieroglyphicStats.themes[t] || 0) >= 2).length;
     $('#stats-hiero-themes').text(masteredThemes || '—');
-    updateDeepSeekSettingsUI();
+    updateOpenAISettingsUI();
     updateEloChart();
     updateReviewChart();
     renderWeaknesses();
@@ -6213,25 +6211,25 @@ function updateHistoryReview(entry) {
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
-    const review = entry.deepseekReview || entry.geminiReview || null;
+    const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
     if (review && review.text) {
-        reviewContent.html(formatDeepSeekReviewText(review.text));
-        bindDeepSeekMoveLinks(reviewContent);
+        reviewContent.html(formatOpenAIReviewText(review.text));
+        bindOpenAIMoveLinks(reviewContent);
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     if (review && review.status === 'pending') {
-        reviewContent.text('Generant revisió amb DeepSeek...');
+        reviewContent.text('Generant revisió amb OpenAI...');
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
     if (review && review.status === 'error') {
         reviewContent.text(review.message || "No s'ha pogut generar la revisió.");
-        if (generateBtn.length) generateBtn.prop('disabled', !deepseekApiKey);
+        if (generateBtn.length) generateBtn.prop('disabled', !openaiApiKey);
         return;
     }
-    if (!deepseekApiKey) {
-        reviewContent.text('Configura la clau de DeepSeek per generar revisions.');
+    if (!openaiApiKey) {
+        reviewContent.text('Configura la clau d’OpenAI per generar revisions.');
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
@@ -6248,7 +6246,7 @@ function escapeHtml(text) {
         .replace(/'/g, '&#39;');
 }
 
-function formatDeepSeekReviewText(text) {
+function formatOpenAIReviewText(text) {
     const safe = escapeHtml(text || '');
     
     // Primer, formatem les cometes per a màximes
@@ -6280,16 +6278,16 @@ function formatDeepSeekReviewText(text) {
                 .replace(/&quot;/g, '"')
                 .replace(/&#39;/g, "'");
             
-            return `<a href="#" class="deepseek-move-link" data-move-number="${moveNumber}" data-san="${cleanSan}">${match}</a>`;
+            return `<a href="#" class="openai-move-link" data-move-number="${moveNumber}" data-san="${cleanSan}">${match}</a>`;
         });
     });
     
     return formatted;
 }
 
-function bindDeepSeekMoveLinks(container) {
+function bindOpenAIMoveLinks(container) {
     if (!container || !container.length) return;
-    container.find('.deepseek-move-link').off('click').on('click', function(event) {
+    container.find('.openai-move-link').off('click').on('click', function(event) {
         event.preventDefault();
         const moveNumber = Number($(this).data('move-number'));
         const san = String($(this).data('san') || '').trim();
@@ -6425,7 +6423,7 @@ function getEntrySevereErrors(entry) {
     return [];
 }
 
-/* ===================== ERRADES COMENTADES (DeepSeek) =====================
+/* ===================== ERRADES COMENTADES (OpenAI) =====================
    Explicació breu i individual per a cada errada greu de la partida. Es
    genera automàticament (el cost per crida ho permet), es guarda dins de
    l'entrada de l'historial (entry.errorNotes, indexat per FEN) i per tant
@@ -6478,7 +6476,7 @@ function getErrorNoteKey(err) { return err && err.fen ? err.fen : ''; }
 const errorNotesInFlight = new Set();
 
 async function requestErrorNotes(entry, severeErrors) {
-    if (!entry || !deepseekApiKey) return;
+    if (!entry || !openaiApiKey) return;
     const errors = (Array.isArray(severeErrors) && severeErrors.length ? severeErrors : getEntrySevereErrors(entry)).slice(0, ERROR_NOTES_MAX);
     if (!errors.length) return;
     if (!entry.errorNotes) entry.errorNotes = {};
@@ -6498,8 +6496,8 @@ async function requestErrorNotes(entry, severeErrors) {
     await Promise.all(pending.map(async err => {
         const key = getErrorNoteKey(err);
         try {
-            const result = await callDeepSeek(buildErrorNotePrompt(err), { generationConfig: { temperature: 0.7, maxOutputTokens: 600, topP: 0.9 } });
-            if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
+            const result = await callOpenAI(buildErrorNotePrompt(err), { generationConfig: { maxOutputTokens: 600 } });
+            if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
             entry.errorNotes[key] = { status: 'done', text: result.text.replace(/\*\*/g, '').trim() };
         } catch (e) {
             console.error('[ErrorNotes]', e?.message || e);
@@ -6537,7 +6535,7 @@ function updateHistoryErrorNotes(entry) {
         let body;
         if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
         else if (note && note.status === 'pending') body = '<em>Generant explicació...</em>';
-        else if (!deepseekApiKey) body = "<em>Configura la clau de DeepSeek per veure l'explicació.</em>";
+        else if (!openaiApiKey) body = "<em>Configura la clau d’OpenAI per veure l'explicació.</em>";
         else if (note && note.status === 'error' && note.message) body = `<em>No s'ha pogut generar (${escapeHtml(note.message)}). Torna a obrir la partida per reintentar-ho.</em>`;
         else body = '<em>Explicació no disponible. Torna a obrir la partida per reintentar-ho.</em>';
         html += `<div class="error-note">
@@ -6548,7 +6546,7 @@ function updateHistoryErrorNotes(entry) {
     container.html(html);
 }
 
-function buildDeepSeekBundleHintPrompt(step, context = {}) {
+function buildOpenAIBundleHintPrompt(step, context = {}) {
     const stepNumber = step === 2 ? 2 : 1;
     const sentenceCount = stepNumber === 1 ? 2 : 1;
     const sentenceText = sentenceCount === 1 ? '1 frase' : '2 frases';
@@ -6601,7 +6599,7 @@ Mantén la pressió sobre els punts febles abans que l'adversari pugui reagrupar
 Genera ara ${sentenceText} específica${sentenceCount === 1 ? '' : 's'} per aquesta posició:`;
 }
 
-function buildBundleDeepSeekPromptWithFixedSequence(step) {
+function buildBundleOpenAIPromptWithFixedSequence(step) {
     if (!bundleFixedSequence) return null;
 
     const stepData = step === 1 ? bundleFixedSequence.step1 : bundleFixedSequence.step2;
@@ -6888,7 +6886,7 @@ async function requestOpeningMaximLlull() {
         updateOpeningMaximButton();
         return;
     }
-    if (!deepseekApiKey) {
+    if (!openaiApiKey) {
         showOfflineOpeningMaxim();
         return;
     }
@@ -6935,15 +6933,12 @@ Escriu una màxima breu en català sobre corregir l'error sense revelar la jugad
     }
 
     try {
-        const result = await callDeepSeek(prompt, {
+        const result = await callOpenAI(prompt, {
             generationConfig: {
-                temperature: isStart ? 0.85 : 0.7,
-                maxOutputTokens: isStart ? 700 : 1800,
-                topP: 0.9,
-                topK: 30
+                maxOutputTokens: isStart ? 700 : 1800
             }
         });
-        if (!result.ok) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
+        if (!result.ok) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
         if (!isOpeningMaximContextCurrent(contextToken)) return;
 
         let cleanText = result.text
@@ -6968,9 +6963,9 @@ Escriu una màxima breu en català sobre corregir l'error sense revelar la jugad
         lastOpeningMaxim = html;
         if (noteEl) noteEl.innerHTML = html;
     } catch (err) {
-        console.error('[DeepSeek Opening]', err?.message || err);
+        console.error('[OpenAI Opening]', err?.message || err);
         if (isOpeningMaximContextCurrent(contextToken) && noteEl) {
-            const msg = getDeepSeekStatusLabel({ ok: false, status: 0, errorMessage: err?.message || '' });
+            const msg = getOpenAIStatusLabel({ ok: false, status: 0, errorMessage: err?.message || '' });
             noteEl.innerHTML = `<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">${escapeHtml(msg)}. S'usa una màxima local.</div>`;
             showOfflineOpeningMaxim();
         }
@@ -6989,25 +6984,25 @@ function showOfflineBundleMaxim() {
     html += `<div style="font-style:italic; margin:4px 0;">${m1}</div>`;
     if (m2 !== m1) html += `<div style="font-style:italic; margin:4px 0;">${m2}</div>`;
     html += '</div>';
-    lastBundleDeepSeekHint = html;
+    lastBundleOpenAIHint = html;
     $('#status').html(html);
 }
 
-async function requestDeepSeekBundleHint() {
+async function requestOpenAIBundleHint() {
     if (!blunderMode || !currentBundleFen) return;
-    if (!deepseekApiKey) {
+    if (!openaiApiKey) {
         // Sense clau: banc de màximes local en comptes d'un avís d'error.
         showOfflineBundleMaxim();
         return;
     }
-    if (bundleDeepSeekHintPending) return;
+    if (bundleOpenAIHintPending) return;
 
     // Cau per FEN: reaprofita la màxima si ja s'ha generat per aquesta posició.
     const cacheKey = `bundle:${currentBundleFen}:${bundleSequenceStep}`;
-    const cached = getCachedDeepSeek(cacheKey);
-    if (cached) { lastBundleDeepSeekHint = cached; $('#status').html(cached); return; }
+    const cached = getCachedOpenAI(cacheKey);
+    if (cached) { lastBundleOpenAIHint = cached; $('#status').html(cached); return; }
     
-    bundleDeepSeekHintPending = true;
+    bundleOpenAIHintPending = true;
     updateBundleHintButtons();
     
     const statusEl = $('#status');
@@ -7015,7 +7010,7 @@ async function requestDeepSeekBundleHint() {
     
     let prompt;
     if (bundleFixedSequence) {
-        prompt = buildBundleDeepSeekPromptWithFixedSequence(bundleSequenceStep);
+        prompt = buildBundleOpenAIPromptWithFixedSequence(bundleSequenceStep);
     } else {
         const errorContext = {};
         let currentError = savedErrors.find(e => e.fen === currentBundleFen);
@@ -7040,18 +7035,18 @@ async function requestDeepSeekBundleHint() {
         }
 
         const step = bundleSequenceStep === 2 ? 2 : 1;
-        prompt = buildDeepSeekBundleHintPrompt(step, errorContext);
+        prompt = buildOpenAIBundleHintPrompt(step, errorContext);
     }
     
     if (!prompt) {
-        bundleDeepSeekHintPending = false;
+        bundleOpenAIHintPending = false;
         updateBundleHintButtons();
         return;
     }
     
     try {
-        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 2000, topP: 0.95, topK: 40 } });
-        if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
+        const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 2000 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
         const text = result.text;
         
         const lines = text.split('\n').filter(l => l.trim());
@@ -7074,15 +7069,15 @@ async function requestDeepSeekBundleHint() {
         html += '</div>';
         
         // CANVI: Guardar el missatge generat
-        lastBundleDeepSeekHint = html;
-        setCachedDeepSeek(`bundle:${currentBundleFen}:${bundleSequenceStep}`, html);
+        lastBundleOpenAIHint = html;
+        setCachedOpenAI(`bundle:${currentBundleFen}:${bundleSequenceStep}`, html);
         statusEl.html(html);
 
     } catch (err) {
         console.error(err);
         statusEl.html('<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">❌ No s\'ha pogut generar la màxima. Torna-ho a provar.</div>');
     } finally {
-        bundleDeepSeekHintPending = false;
+        bundleOpenAIHintPending = false;
         updateBundleHintButtons();
     }
 }
@@ -7139,25 +7134,25 @@ async function requestAssistedHint() {
         const bestMove = await getStockfishBestMove(fen, 12);
         const theme = classifyPositionTheme(fen, bestMove || '');
 
-        // Sense clau DeepSeek: caiem al banc de màximes local (segueix funcionant offline).
-        if (!deepseekApiKey) {
+        // Sense clau OpenAI: caiem al banc de màximes local (segueix funcionant offline).
+        if (!openaiApiKey) {
             showAssistedMaxim(pickOfflineMaxim(theme));
             return;
         }
 
         // Cau per FEN: evita repetir crides per la mateixa posició.
         const cacheKey = `assisted:${fen}`;
-        const cached = getCachedDeepSeek(cacheKey);
+        const cached = getCachedOpenAI(cacheKey);
         if (cached) { showAssistedMaxim(cached); return; }
 
         if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
         const prompt = buildAssistedHintPrompt(fen, bestMove, null);
-        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.85, maxOutputTokens: 500, topP: 0.95, topK: 40 } });
-        if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
+        const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 500 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
         const text = result.text;
 
         const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
-        setCachedDeepSeek(cacheKey, cleanText);
+        setCachedOpenAI(cacheKey, cleanText);
         showAssistedMaxim(cleanText);
     } catch (err) {
         console.error('[AssistedHint]', err);
@@ -7278,7 +7273,7 @@ async function requestPositionAnalysis() {
     }
 }
 
-function buildDeepSeekReviewPrompt(entry, severeErrors) {
+function buildOpenAIReviewPrompt(entry, severeErrors) {
     const summary = entry.counts || {};
     const moves = getHistoryMoves(entry);
     
@@ -7345,25 +7340,26 @@ EXEMPLES DE MÀXIMES
 "Les peces han de treballar juntes"`;
 }
 
-async function requestDeepSeekReview(entry, severeErrors) {
-    if (!entry || !deepseekApiKey) return;
-    if (entry.deepseekReview && entry.deepseekReview.status === 'pending') return;
-    if (entry.deepseekReview && entry.deepseekReview.text) return;
+async function requestOpenAIReview(entry, severeErrors) {
+    if (!entry || !openaiApiKey) return;
+    const existingReview = entry.aiReview || entry.deepseekReview;
+    if (existingReview && existingReview.status === 'pending') return;
+    if (existingReview && existingReview.text) return;
     const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
         ? severeErrors
         : getEntrySevereErrors(entry);
-    entry.deepseekReview = { status: 'pending', text: '' };
+    entry.aiReview = { status: 'pending', text: '' };
     saveStorage();
     updateHistoryReview(historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id ? historyReplay.entry : entry);
-    const prompt = buildDeepSeekReviewPrompt(entry, resolvedErrors);
+    const prompt = buildOpenAIReviewPrompt(entry, resolvedErrors);
     try {
-        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.9, maxOutputTokens: 4096, topP: 0.95, topK: 40 } });
-        if (!result.ok || !result.text) throw new Error(result.errorMessage || `DeepSeek error ${result.status}`);
-        entry.deepseekReview = { status: 'done', text: result.text };
+        const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 4096 } });
+        if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
+        entry.aiReview = { status: 'done', text: result.text };
     } catch (error) {
-        entry.deepseekReview = {
+        entry.aiReview = {
             status: 'error',
-            message: 'No s’ha pogut generar la revisió amb DeepSeek.'
+            message: 'No s’ha pogut generar la revisió amb OpenAI.'
         };
     }
     saveStorage();
@@ -8210,7 +8206,7 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
         severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
-        deepseekReview: options.deepseekReview || options.geminiReview || null,
+        aiReview: options.aiReview || options.deepseekReview || options.geminiReview || null,
         playerColor: playerColor,
         opponent: currentOpponent || null,
         fen: game.fen(),
@@ -8924,7 +8920,7 @@ let hieroglyphicExpectedMove = null;
 let hieroglyphicClue = null;
 let hieroglyphicAttempts = 0;
 let hieroglyphicScore = { correct: 0, total: 0 };
-let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides DeepSeek asíncrones
+let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides OpenAI asíncrones
 
 const HIEROLAST_KEY = 'eltauler_recent_hieroglyphics';
 const HIERO_STATS_KEY = 'eltauler_hieroglyphic_stats';
@@ -9458,20 +9454,20 @@ ${hidePieceRule}
 - Sense emojis ni cometes embolcallant tot el text.`;
 }
 async function fetchHieroglyphicClue(context, level = 1) {
-    if (!deepseekApiKey) return null;
+    if (!openaiApiKey) return null;
     const cacheKey = `hiero:${context.fen}:${context.bestMove}:${context.theme}:L${level}`;
-    const cached = getCachedDeepSeek(cacheKey);
+    const cached = getCachedOpenAI(cacheKey);
     if (cached) return sanitizeHieroglyphicText(cached, context, { hidePiece: level === 1 });
     try {
         const prompt = buildDynamicHieroglyphicPrompt(context, level);
-        const result = await callDeepSeek(prompt, { generationConfig: { temperature: 1.05, maxOutputTokens: 120, topP: 0.95, topK: 40 } });
+        const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 120 } });
         if (!result.ok || !result.text) return null;
         const text = result.text;
         const clean = sanitizeHieroglyphicText(text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim(), context, { hidePiece: level === 1 });
-        setCachedDeepSeek(cacheKey, clean);
+        setCachedOpenAI(cacheKey, clean);
         return clean;
     } catch (e) {
-        console.warn('[Hieroglyphic] DeepSeek fallback:', e);
+        console.warn('[Hieroglyphic] OpenAI fallback:', e);
         return null;
     }
 }
@@ -9696,8 +9692,8 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
             if (typeof openingBundleBoard.resize === 'function') setTimeout(() => openingBundleBoard.resize(), 50);
         }
         const myToken = ++hieroglyphicToken;
-        renderHieroglyphicExerciseNote(!!deepseekApiKey);
-        if (deepseekApiKey) {
+        renderHieroglyphicExerciseNote(!!openaiApiKey);
+        if (openaiApiKey) {
             fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
                 if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicSource === 'personal' && hieroglyphicAttempts === 0) {
                     hieroglyphicClue = text;
@@ -9725,12 +9721,12 @@ function drawHieroglyphicExercise() {
     return { op, targetIdx };
 }
 
-// Cua de jeroglífics a punt: pre-tria els exercicis següents i, si hi ha DeepSeek,
+// Cua de jeroglífics a punt: pre-tria els exercicis següents i, si hi ha OpenAI,
 // en pre-carrega la pista al cau perquè aparegui a l'instant en començar.
 let hieroglyphicUpNext = [];
 
 function prefetchHieroglyphicClue(draw) {
-    if (!deepseekApiKey || !draw) return;
+    if (!openaiApiKey || !draw) return;
     try {
         const g = new Chess();
         for (let i = 0; i < draw.targetIdx; i++) g.move(draw.op.moves[i], { sloppy: true });
@@ -9749,7 +9745,7 @@ function refillHieroglyphicQueue() {
         hieroglyphicUpNext.push(draw);
     }
     hieroglyphicUpNext.forEach(d => {
-        if (!d.prefetched && deepseekApiKey) { d.prefetched = true; prefetchHieroglyphicClue(d); }
+        if (!d.prefetched && openaiApiKey) { d.prefetched = true; prefetchHieroglyphicClue(d); }
     });
 }
 
@@ -9794,9 +9790,9 @@ function startHieroglyphicExercise() {
         openingBundleBoard.position(hieroglyphicGame.fen());
     }
 
-    // Pista offline immediata; si hi ha DeepSeek, la millorem amb el mateix context ric.
-    renderHieroglyphicExerciseNote(!!deepseekApiKey);
-    if (deepseekApiKey) {
+    // Pista offline immediata; si hi ha OpenAI, la millorem amb el mateix context ric.
+    renderHieroglyphicExerciseNote(!!openaiApiKey);
+    if (openaiApiKey) {
         fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
             // Només actualitza si seguim al mateix exercici i sense intents fallits encara
             if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === 0) {
@@ -9880,8 +9876,8 @@ function handleHieroglyphicMove(source, target) {
         const nextLevel = Math.min(3, hieroglyphicAttempts + 1);
         hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, nextLevel);
         const myToken = ++hieroglyphicToken;
-        renderHieroglyphicExerciseNote(!!deepseekApiKey, `Incorrecte. ${3 - hieroglyphicAttempts} intents restants.`);
-        if (deepseekApiKey) {
+        renderHieroglyphicExerciseNote(!!openaiApiKey, `Incorrecte. ${3 - hieroglyphicAttempts} intents restants.`);
+        if (openaiApiKey) {
             fetchHieroglyphicClue(hieroglyphicContext, nextLevel).then((text) => {
                 if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === nextLevel - 1) {
                     hieroglyphicClue = text;
@@ -10409,19 +10405,19 @@ function setupEvents() {
 
     $('#btn-badges').click(() => { updateBadgesModal(); $('#badges-modal').css('display', 'flex'); });
 
-    // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau DeepSeek
+    // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau OpenAI
     $('#btn-ai-info').click(() => { $('#ai-info-modal').css('display', 'flex'); });
     $('#btn-ai-info-settings').click(() => {
         $('#ai-info-modal').hide();
         $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen');
-        const target = document.querySelector('.deepseek-config');
+        const target = document.querySelector('.openai-config');
         if (target) {
             setTimeout(() => {
                 target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                target.classList.remove('deepseek-highlight');
+                target.classList.remove('openai-highlight');
                 void target.offsetWidth;
-                target.classList.add('deepseek-highlight');
-                setTimeout(() => target.classList.remove('deepseek-highlight'), 3000);
+                target.classList.add('openai-highlight');
+                setTimeout(() => target.classList.remove('openai-highlight'), 3000);
             }, 120);
         }
     });
@@ -10640,7 +10636,7 @@ function setupEvents() {
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) return;
         const severeErrors = getEntrySevereErrors(historyReplay.entry);
-        void requestDeepSeekReview(historyReplay.entry, severeErrors);
+        void requestOpenAIReview(historyReplay.entry, severeErrors);
     });
     $('#history-export-pgn').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
@@ -10712,10 +10708,10 @@ function setupEvents() {
     // Analitza la posició actual
     $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
 
-    $('#btn-save-deepseek-key').off('click').on('click', async () => {
-        const input = document.getElementById('deepseek-key-input');
-        const status = document.getElementById('deepseek-key-status');
-        const btn = document.getElementById('btn-save-deepseek-key');
+    $('#btn-save-openai-key').off('click').on('click', async () => {
+        const input = document.getElementById('openai-key-input');
+        const status = document.getElementById('openai-key-status');
+        const btn = document.getElementById('btn-save-openai-key');
         if (!input) return;
         const key = (input.value || '').trim();
         if (!key) {
@@ -10725,15 +10721,15 @@ function setupEvents() {
         }
         if (btn) btn.disabled = true;
         if (status) status.textContent = 'Provant connexió...';
-        const result = await testDeepSeekConnection(key);
+        const result = await testOpenAIConnection(key);
         if (result.ok) {
-            saveDeepSeekApiKey(key);
+            saveOpenAIApiKey(key);
             input.value = '';
-            if (status) status.textContent = 'Connectat a DeepSeek';
-            alert('Clau de DeepSeek guardada.');
+            if (status) status.textContent = 'Connectat a OpenAI';
+            alert('Clau d’OpenAI guardada.');
         } else {
-            if (status) status.textContent = getDeepSeekStatusLabel(result);
-            alert(getDeepSeekAlertMessage(result));
+            if (status) status.textContent = getOpenAIStatusLabel(result);
+            alert(getOpenAIAlertMessage(result));
         }
         if (btn) btn.disabled = false;
     });
@@ -10779,7 +10775,7 @@ function setupEvents() {
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = []; adaptationReport = [];
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
-            deepseekApiKey = null;
+            openaiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#settings-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             showToast('Totes les dades han estat esborrades. Comença de nou!', 'success');
@@ -10816,7 +10812,7 @@ function setupEvents() {
 });
 
     $('#btn-brain-hint').click(() => {
-        void requestDeepSeekBundleHint();
+        void requestOpenAIBundleHint();
     });
 
     $('#btn-assisted-hint').click(() => {
@@ -12072,7 +12068,7 @@ function renderWeaknesses() {
 /* ===================== DIAGNÒSTIC LONGITUDINAL DE L'ENTRENADOR =====================
    Mira TOT l'historial acumulat (errors guardats, precisió per fase, últimes
    partides) i en treu un diagnòstic redactat: patró recurrent, punt fort i
-   prioritat. Els fets es calculen en local; DeepSeek només els redacta.
+   prioritat. Els fets es calculen en local; OpenAI només els redacta.
    Es regenera quan hi ha dades noves (empremta per recompte de partides/errors). */
 
 const COACH_DIAGNOSIS_KEY = 'chess_coachDiagnosis';
@@ -12143,15 +12139,15 @@ function renderCoachDiagnosis() {
         el.textContent = stored.text;
         if (stored.fingerprint === fingerprint) return;
     }
-    if (!deepseekApiKey) {
-        if (!stored || !stored.text) el.innerHTML = '<span style="color:var(--text-secondary);">Configura la clau de DeepSeek per rebre el diagnòstic de l\'entrenador.</span>';
+    if (!openaiApiKey) {
+        if (!stored || !stored.text) el.innerHTML = '<span style="color:var(--text-secondary);">Configura la clau d’OpenAI per rebre el diagnòstic de l\'entrenador.</span>';
         return;
     }
     if (coachDiagnosisPending) return;
     coachDiagnosisPending = true;
     if (!stored || !stored.text) el.innerHTML = '<em>L\'entrenador està repassant les teves partides...</em>';
     const prompt = buildCoachDiagnosisPrompt(buildCoachDiagnosisFacts());
-    callDeepSeek(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 900, topP: 0.9 } }).then(result => {
+    callOpenAI(prompt, { generationConfig: { maxOutputTokens: 900 } }).then(result => {
         if (!result.ok || !result.text) return;
         const text = result.text.replace(/\*\*/g, '').trim();
         if (text.length < 40) return;
@@ -12190,12 +12186,12 @@ function pickOfflineMaxim(theme) {
     return arr[Math.floor(Math.random() * arr.length)];
 }
 
-function getCachedDeepSeek(key) {
-    return deepseekResponseCache[key] || null;
+function getCachedOpenAI(key) {
+    return openaiResponseCache[key] || null;
 }
 
-function setCachedDeepSeek(key, value) {
-    deepseekResponseCache[key] = value;
+function setCachedOpenAI(key, value) {
+    openaiResponseCache[key] = value;
 }
 
 function showBundleMenu() {
@@ -12603,7 +12599,7 @@ blunderMode = isBundle;
     bundleSequenceStartFen = fen || null;
     bundleStepStartFen = fen || null;
     bundleAutoReplyPending = false;
-    bundleDeepSeekHintPending = false;
+    bundleOpenAIHintPending = false;
     if (isBundle) { bundleAcceptMode = loadBundleAcceptMode(); }
 
     totalPlayerMoves = 0; 
@@ -13440,10 +13436,10 @@ function resetBundleToStartPosition() {
     clearMainMoveVisualFeedback();
     $('#blunder-alert').hide();
     
-    // CANVI: Restaurar el missatge de DeepSeek si existeix
+    // CANVI: Restaurar el missatge d’OpenAI si existeix
     const statusEl = $('#status');
-    if (lastBundleDeepSeekHint) {
-        statusEl.html(lastBundleDeepSeekHint);
+    if (lastBundleOpenAIHint) {
+        statusEl.html(lastBundleOpenAIHint);
     } else {
         statusEl.text("Torna a intentar-ho");
     }
@@ -13488,8 +13484,8 @@ function evaluateBundleAttempt(bundleData) {
             if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
 
             if (step < totalSteps) {
-                // CANVI: Netejar el missatge de DeepSeek només quan s'avança de pas
-                lastBundleDeepSeekHint = null;
+                // CANVI: Netejar el missatge d’OpenAI només quan s'avança de pas
+                lastBundleOpenAIHint = null;
 
                 bundleSequenceStep = step + 1;
                 const replyMove = step === 1
@@ -13503,7 +13499,7 @@ function evaluateBundleAttempt(bundleData) {
             }
 
             // CANVI: Netejar el missatge quan s'acaba l'exercici
-            lastBundleDeepSeekHint = null;
+            lastBundleOpenAIHint = null;
             handleBundleSuccess();
         } else {
             if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
@@ -13545,8 +13541,8 @@ function evaluateBundleAttempt(bundleData) {
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
         
         if (bundleSequenceStep === 1) {
-            // CANVI: Netejar el missatge de DeepSeek només quan s'avança al pas 2
-            lastBundleDeepSeekHint = null;
+            // CANVI: Netejar el missatge d’OpenAI només quan s'avança al pas 2
+            lastBundleOpenAIHint = null;
             
             const pvLine = selectBundlePvLineForMove(bundleData, played);
             const replyMove = pvLine.length > 1 ? pvLine[1] : null;
@@ -13561,7 +13557,7 @@ function evaluateBundleAttempt(bundleData) {
         }
         
         // CANVI: Netejar el missatge quan s'acaba l'exercici
-        lastBundleDeepSeekHint = null;
+        lastBundleOpenAIHint = null;
         handleBundleSuccess();
     } else {
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
@@ -14224,7 +14220,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     }
     if (!blunderMode && !calibrationGameWasActive) {
         const latestEntry = gameHistory[gameHistory.length - 1];
-        void requestDeepSeekReview(latestEntry, severeErrors);
+        void requestOpenAIReview(latestEntry, severeErrors);
         void requestErrorNotes(latestEntry, severeErrors);
     }
 }
@@ -14263,18 +14259,18 @@ function updateStatus() {
 /* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA DIARI) =====================
    Arquitectura en dues capes: els FETS es calculen sempre en local a partir de les dades
    que ja recull l'app (gameHistory, savedErrors, themeMastery). La redacció per defecte
-   surt d'un banc de plantilles en català; si hi ha clau DeepSeek, només poleix el text
+   surt d'un banc de plantilles en català; si hi ha clau OpenAI, només poleix el text
    a partir dels mateixos fets (mai analitza la partida ell sol). */
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
 const WEEKLY_PLAN_VERSION = 3;
 // Quan puja, el resum desat del pla d'avui es descarta i es regenera (text local
-// i, si hi ha clau DeepSeek, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
+// i, si hi ha clau OpenAI, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
 const PLAN_SUMMARY_REFRESH_VERSION = 1;
 let weeklyPlan = null;
 let coachCatalanVoice = null;
 let coachDebriefPending = false;
-let coachPlanDeepSeekPending = false;
+let coachPlanOpenAIPending = false;
 
 const COACH_PHASE_LABELS = { opening: "l'obertura", middlegame: 'el mig joc', endgame: 'el final' };
 
@@ -14460,7 +14456,7 @@ function composeDebriefText(facts, seedStr) {
     return sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
 }
 
-// Tradueix els fets a claus llegibles perquè DeepSeek redacti en català sense inventar res.
+// Tradueix els fets a claus llegibles perquè OpenAI redacti en català sense inventar res.
 function debriefFactsForPrompt(facts) {
     const resultLabels = { win: 'victòria', draw: 'taules', loss: 'derrota' };
     const out = {
@@ -14481,7 +14477,7 @@ function debriefFactsForPrompt(facts) {
     return out;
 }
 
-function buildDebriefDeepSeekPrompt(facts) {
+function buildDebriefOpenAIPrompt(facts) {
     return `Ets un entrenador d'escacs proper, honest i motivador que parla en català (tutejant).
 Redacta un resum post-partida de 60 a 100 paraules NOMÉS a partir d'aquests fets. No inventis jugades, xifres ni dades que no hi siguin:
 ${JSON.stringify(debriefFactsForPrompt(facts), null, 2)}
@@ -14491,16 +14487,16 @@ Regles:
 - Català natural i directe, com un entrenador de club.`;
 }
 
-// Capa DeepSeek opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
-async function requestDeepSeekCoachText(cacheKey, prompt, onText) {
-    if (!deepseekApiKey) return;
-    const cached = getCachedDeepSeek(cacheKey);
+// Capa OpenAI opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
+async function requestOpenAICoachText(cacheKey, prompt, onText) {
+    if (!openaiApiKey) return;
+    const cached = getCachedOpenAI(cacheKey);
     if (cached) { onText(cached); return; }
-    const result = await callDeepSeek(prompt, { generationConfig: { temperature: 0.6, maxOutputTokens: 1024 } });
+    const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 1024 } });
     if (!result.ok) return;
     const text = (result.text || '').trim();
     if (!text || text.length < 40 || text.length > 900) return;
-    setCachedDeepSeek(cacheKey, text);
+    setCachedOpenAI(cacheKey, text);
     onText(text);
 }
 
@@ -14530,7 +14526,7 @@ function renderGameDebrief() {
 
     if (!coachDebriefPending) {
         coachDebriefPending = true;
-        requestDeepSeekCoachText(`debrief:${entry.id}`, buildDebriefDeepSeekPrompt(facts), text => textEl.text(text))
+        requestOpenAICoachText(`debrief:${entry.id}`, buildDebriefOpenAIPrompt(facts), text => textEl.text(text))
             .finally(() => { coachDebriefPending = false; });
     }
 }
@@ -14634,7 +14630,7 @@ function buildWeeklyPlan() {
         focusTheme,
         focusMastery: Math.round((themeMastery[focusTheme] || 0) * 100),
         srsAtStart: due,
-        deepseekSummary: null,
+        openaiSummary: null,
         summaryVersion: PLAN_SUMMARY_REFRESH_VERSION,
         items: items.slice(0, 4)
     };
@@ -14663,7 +14659,7 @@ function composeWeeklyPlanText(plan) {
     return fillCoachTemplate(tpl, { tema: getThemeLabel(plan.focusTheme), pct: plan.focusMastery });
 }
 
-function buildWeeklyPlanDeepSeekPrompt(plan) {
+function buildWeeklyPlanOpenAIPrompt(plan) {
     return `Ets un entrenador d'escacs proper que parla en català (tutejant).
 Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament d'avui d'un alumne, NOMÉS amb aquests fets:
 ${JSON.stringify({
@@ -14681,7 +14677,7 @@ function ensureWeeklyPlan() {
     if (stored && stored.day === day && stored.version === WEEKLY_PLAN_VERSION && Array.isArray(stored.items) && stored.items.length) {
         weeklyPlan = stored;
         if ((weeklyPlan.summaryVersion || 0) < PLAN_SUMMARY_REFRESH_VERSION) {
-            weeklyPlan.deepseekSummary = null;
+            weeklyPlan.openaiSummary = null;
             weeklyPlan.summaryVersion = PLAN_SUMMARY_REFRESH_VERSION;
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
         }
@@ -14791,7 +14787,7 @@ function renderWeeklyPlan() {
     if (!panel.length || !weeklyPlan) return;
     panel.show();
     startPlanCountdown();
-    const summary = weeklyPlan.deepseekSummary || weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
+    const summary = weeklyPlan.openaiSummary || weeklyPlan.geminiSummary || composeWeeklyPlanText(weeklyPlan);
     setPlanSummaryText(summary);
     updatePlanSummaryToggle();
 
@@ -14818,15 +14814,15 @@ function renderWeeklyPlan() {
         list.append(row);
     });
 
-    // Poliment DeepSeek un sol cop per dia (es persisteix dins del pla).
-    if (!weeklyPlan.deepseekSummary && deepseekApiKey && !coachPlanDeepSeekPending) {
-        coachPlanDeepSeekPending = true;
-        requestDeepSeekCoachText(`dailyplan:${weeklyPlan.day}`, buildWeeklyPlanDeepSeekPrompt(weeklyPlan), text => {
-            weeklyPlan.deepseekSummary = text;
+    // Poliment OpenAI un sol cop per dia (es persisteix dins del pla).
+    if (!weeklyPlan.openaiSummary && openaiApiKey && !coachPlanOpenAIPending) {
+        coachPlanOpenAIPending = true;
+        requestOpenAICoachText(`dailyplan:${weeklyPlan.day}`, buildWeeklyPlanOpenAIPrompt(weeklyPlan), text => {
+            weeklyPlan.openaiSummary = text;
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
             setPlanSummaryText(text);
             updatePlanSummaryToggle();
-        }).finally(() => { coachPlanDeepSeekPending = false; });
+        }).finally(() => { coachPlanOpenAIPending = false; });
     }
 }
 
@@ -15210,7 +15206,7 @@ function handleBundleGameOver() {
         const played = lastHumanMoveUci || '';
         const playedTo = played.length >= 4 ? played.slice(2, 4) : null;
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
-        lastBundleDeepSeekHint = null;
+        lastBundleOpenAIHint = null;
         handleBundleSuccess();
         return;
     }
