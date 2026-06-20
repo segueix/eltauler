@@ -6502,19 +6502,42 @@ function describeSevereError(err) {
     };
 }
 
+function getMoveSquareContext(fen, moveStr) {
+    if (!fen || !moveStr) return null;
+    const raw = String(moveStr).trim();
+    try {
+        const g = new Chess(fen);
+        let mv = null;
+        if (/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)) {
+            mv = g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() });
+        } else {
+            mv = g.move(raw, { sloppy: true });
+        }
+        if (!mv) return null;
+        const names = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
+        return { piece: names[mv.piece] || 'peça', from: mv.from, to: mv.to, san: mv.san };
+    } catch (e) { return null; }
+}
+
 function buildErrorNotePrompt(err) {
     const d = describeSevereError(err);
+    const playedCtx = getMoveSquareContext(err.fen, err.playerMove || err.playerMoveSan);
+    const bestCtx = getMoveSquareContext(err.fen, err.bestMove || err.bestMoveSan);
+    const coordLine = [
+        playedCtx ? `Jugada errònia: ${playedCtx.piece} ${playedCtx.from}-${playedCtx.to}` : '',
+        bestCtx ? `Millor jugada: ${bestCtx.piece} ${bestCtx.from}-${bestCtx.to}` : ''
+    ].filter(Boolean).join('\n');
     return `Ets un entrenador d'escacs que parla català (tutejant), directe i clar.
 Posició abans de la jugada (FEN): ${err.fen}
 A la jugada ${d.moveNumber} l'alumne va jugar ${d.played}, però la millor jugada era ${d.best}.${d.pv ? `\nContinuació correcta: ${d.pv}` : ''}
+${coordLine ? `\n${coordLine}` : ''}
 
-Explica en 2 o 3 frases (màxim 70 paraules):
-1. Quina amenaça o oportunitat hi havia a la posició.
-2. Per què ${d.played} fallava i quina idea seguia ${d.best}.
-3. Acaba amb un consell d'una frase aplicable a partides futures.
+Explica l'error en 2 frases curtes (màxim 45 paraules).
 
-REGLES
-- Només text pla, sense markdown, llistes ni cometes.
+REGLES OBLIGATÒRIES
+- Escriu només noms de peces i caselles amb lletra+número (exemples: cavall f3, dama h5, de e2 a e4).
+- No escriguis notació algebraica/SAN com Nxe5, Qh5+, O-O ni símbols com +, #, ! o ?.
+- No facis servir llistes, markdown ni cometes.
 - No inventis jugades que no es dedueixin de la posició.`;
 }
 
@@ -6588,12 +6611,39 @@ function updateHistoryErrorNotes(entry) {
         else if (!openaiApiKey) body = "<em>Configura la clau d’OpenAI per veure l'explicació.</em>";
         else if (note && note.status === 'error' && note.message) body = `<em>No s'ha pogut generar (${escapeHtml(note.message)}). Torna a obrir la partida per reintentar-ho.</em>`;
         else body = '<em>Explicació no disponible. Torna a obrir la partida per reintentar-ho.</em>';
-        html += `<div class="error-note">
+        const idx = errors.indexOf(err);
+        html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per veure-la al tauler i resoldre-la amb pista i màxima">
             <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(String(d.played))}</strong> · millor <strong>${escapeHtml(String(d.best))}</strong></div>
             <div class="error-note-body">${body}</div>
+            <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
     });
     container.html(html);
+    container.find('.error-note').off('click keydown').on('click keydown', function(event) {
+        if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        const idx = Number(this.dataset.errorIdx);
+        const err = errors[idx];
+        startHistoryErrorPractice(err);
+    });
+}
+
+function startHistoryErrorPractice(err) {
+    if (!err || !err.fen) return false;
+    stopHistoryPlayback();
+    isRandomBundleSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    matchErrorQueue = [];
+    currentMatchError = err;
+    isMatchErrorReviewSession = true;
+    currentBundleSource = 'history';
+    currentBundleSeverity = err.severity || (err.quality === 'blunder' ? 'high' : 'med');
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    showToast('Errada carregada al tauler: resol-la en dos moviments. Pots usar Pista o Màxima.', 'success');
+    startGame(true, err.fen);
+    return true;
 }
 
 function buildOpenAIBundleHintPrompt(step, context = {}) {
