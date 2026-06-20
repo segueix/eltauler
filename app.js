@@ -236,6 +236,7 @@ let blunderMode = false;
 let currentBundleFen = null;
 let currentBundleSeverity = null;
 let currentBundleSource = null;
+let matchErrorReturnReviewSnapshot = null;
 let playerColor = 'w';
 let isRandomBundleSession = false;
 // Repetició espaiada (SRS) i repte diari
@@ -6602,7 +6603,7 @@ function updateHistoryErrorNotes(entry) {
     if (block.length) block.show();
     const notes = entry.errorNotes || {};
     let html = '';
-    errors.forEach(err => {
+    errors.forEach((err, idx) => {
         const d = describeSevereError(err);
         const note = notes[getErrorNoteKey(err)] || null;
         let body;
@@ -6611,7 +6612,6 @@ function updateHistoryErrorNotes(entry) {
         else if (!openaiApiKey) body = "<em>Configura la clau d’OpenAI per veure l'explicació.</em>";
         else if (note && note.status === 'error' && note.message) body = `<em>No s'ha pogut generar (${escapeHtml(note.message)}). Torna a obrir la partida per reintentar-ho.</em>`;
         else body = '<em>Explicació no disponible. Torna a obrir la partida per reintentar-ho.</em>';
-        const idx = errors.indexOf(err);
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per veure-la al tauler i resoldre-la amb pista i màxima">
             <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(String(d.played))}</strong> · millor <strong>${escapeHtml(String(d.best))}</strong></div>
             <div class="error-note-body">${body}</div>
@@ -6630,6 +6630,7 @@ function updateHistoryErrorNotes(entry) {
 
 function startHistoryErrorPractice(err) {
     if (!err || !err.fen) return false;
+    matchErrorReturnReviewSnapshot = null;
     stopHistoryPlayback();
     isRandomBundleSession = false;
     isSrsReviewSession = false;
@@ -12429,6 +12430,7 @@ function startMatchErrorReview() {
         alert('No hi ha errors per revisar en aquesta partida.');
         return;
     }
+    matchErrorReturnReviewSnapshot = lastReviewSnapshot ? { ...lastReviewSnapshot } : null;
     isRandomBundleSession = false;
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
@@ -12456,12 +12458,48 @@ function launchNextMatchError() {
     startGame(true, currentMatchError.fen);
 }
 
+function returnToHistoryScreenFromErrorPractice() {
+    const selectedId = historyReplay && historyReplay.entry ? historyReplay.entry.id : null;
+    returnToMainMenuImmediate();
+    $('#start-screen').hide();
+    $('#history-screen').show();
+    initHistoryBoard();
+    renderGameHistory();
+    if (selectedId) {
+        const entry = gameHistory.find(g => g.id === selectedId);
+        if (entry) loadHistoryEntry(entry);
+    }
+    navPush('history-screen');
+    setTimeout(() => resizeHistoryBoardToViewport(), 0);
+}
+
+function reopenPostGameReviewFromErrorPractice(snapshot) {
+    returnToMainMenuImmediate();
+    if (!snapshot) return;
+    showPostGameReview(
+        snapshot.msg,
+        snapshot.finalPrecision,
+        snapshot.counts,
+        null,
+        { showCheckmate: snapshot.showCheckmate }
+    );
+}
+
 function endMatchErrorReviewSession() {
+    const source = currentBundleSource;
+    const snapshot = matchErrorReturnReviewSnapshot;
     isMatchErrorReviewSession = false;
     matchErrorQueue = [];
     currentMatchError = null;
+    matchErrorReturnReviewSnapshot = null;
     $('#match-error-success-overlay').hide();
-    returnToMainMenuImmediate();
+    if (source === 'history') {
+        returnToHistoryScreenFromErrorPractice();
+    } else if (source === 'match' && snapshot) {
+        reopenPostGameReviewFromErrorPractice(snapshot);
+    } else {
+        returnToMainMenuImmediate();
+    }
 }
 
 function showMatchErrorReviewOverlay(remaining, noMore) {
@@ -13987,7 +14025,7 @@ function showRandomBundleSuccessOverlay() {
     const overlay = $('#bundle-success-overlay');
     if (!overlay.length) {
         alert("Molt bé! Has trobat la millor opció.");
-        returnToMainMenuImmediate();
+        returnToBundleMenu();
         return;
     }
 
@@ -14002,14 +14040,14 @@ function showRandomBundleSuccessOverlay() {
     $('#btn-bundle-random-home').off('click').on('click', () => {
         isRandomBundleSession = false;
         overlay.hide();
-        returnToMainMenuImmediate();
+        returnToBundleMenu();
     });
 
     $('#btn-bundle-random-again').off('click').on('click', () => {
         overlay.hide();
         if (!startRandomBundleGame()) {
             isRandomBundleSession = false;
-            returnToMainMenuImmediate();
+            returnToBundleMenu();
         }
     });
 }
