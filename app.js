@@ -6631,11 +6631,14 @@ function updateHistoryErrorNotes(entry) {
 function startHistoryErrorPractice(err) {
     if (!err || !err.fen) return false;
     matchErrorReturnReviewSnapshot = null;
+    const entry = historyReplay && historyReplay.entry ? historyReplay.entry : null;
+    const siblingErrors = getEntrySevereErrors(entry)
+        .filter(candidate => candidate && candidate.fen && candidate.fen !== err.fen);
     stopHistoryPlayback();
     isRandomBundleSession = false;
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
-    matchErrorQueue = [];
+    matchErrorQueue = siblingErrors;
     currentMatchError = err;
     isMatchErrorReviewSession = true;
     currentBundleSource = 'history';
@@ -12517,11 +12520,20 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
         return;
     }
 
+    const fromHistory = currentBundleSource === 'history';
     $('#match-error-remaining').text(
-        noMore ? 'Has revisat tots els errors!' :
-        remaining > 0 ? `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}` :
+        noMore ? (fromHistory ? 'Has revisat tots els errors d’aquesta partida a l’historial!' : 'Has revisat tots els errors!') :
+        remaining > 0 ? `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''} d’aquesta partida` :
         'No en queden més!'
     );
+
+    if (fromHistory) {
+        $('#btn-match-error-home').text('Tornar a l’historial');
+        $('#btn-match-error-again').text('Un altre error');
+    } else {
+        $('#btn-match-error-home').text('Tornar');
+        $('#btn-match-error-again').text('Un altre');
+    }
 
     const btnAgain = document.getElementById('btn-match-error-again');
     if (btnAgain) {
