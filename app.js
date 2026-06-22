@@ -9483,7 +9483,14 @@ const HUMAN_PLAN_BANK = {
         ]
     }
 };
-let _humanPlanRecent = {};
+const HUMANPLAN_RECENT_KEY = 'eltauler_recent_human_plans';
+let _humanPlanRecent = null;
+function ensureHumanPlanRecent() {
+    if (_humanPlanRecent) return _humanPlanRecent;
+    const stored = readJsonStorage(HUMANPLAN_RECENT_KEY, {});
+    _humanPlanRecent = (stored && typeof stored === 'object') ? stored : {};
+    return _humanPlanRecent;
+}
 function fillPlanTemplate(str, moment) {
     const m = moment || {};
     return String(str || '')
@@ -9492,13 +9499,18 @@ function fillPlanTemplate(str, moment) {
         .replace(/\{best\}/g, m.best || 'una jugada més precisa')
         .replace(/\{swing\}/g, m.swing ?? 0);
 }
+// Tria una variant evitant les usades recentment; l'historial es persisteix a
+// localStorage, així no es repeteix ni entre partides ni entre sessions.
 function pickFreshPlanLine(pool, bucket) {
     if (!Array.isArray(pool) || !pool.length) return '';
     if (pool.length === 1) return pool[0];
-    const recent = _humanPlanRecent[bucket] || [];
+    const store = ensureHumanPlanRecent();
+    const recent = Array.isArray(store[bucket]) ? store[bucket] : [];
     const fresh = pool.filter(x => !recent.includes(x));
     const choice = randItem(fresh.length ? fresh : pool);
-    _humanPlanRecent[bucket] = [choice, ...recent].slice(0, Math.min(3, pool.length - 1));
+    const keep = Math.max(1, Math.min(pool.length - 1, Math.ceil(pool.length / 2)));
+    store[bucket] = [choice, ...recent.filter(x => x !== choice)].slice(0, keep);
+    writeJsonStorage(HUMANPLAN_RECENT_KEY, store);
     return choice;
 }
 function toInlineAdvice(text) {
@@ -9526,6 +9538,128 @@ function resolveHumanPlanThemeKey(moment) {
     }
     return HUMAN_PLAN_BANK[key] ? key : 'general';
 }
+
+// Subtema per gravetat: una frase d'entrada que dona to segons com de greu va ser
+// l'error. No s'aplica sempre (≈65%) perquè no totes les targetes semblin iguals.
+const HUMAN_PLAN_INTROS = {
+    blunder: [
+        'Aquest va ser el moment que va decidir la partida.',
+        'Aquí es va escapar bona part de l’avantatge.',
+        'Un error d’aquesta mida marca tot el que ve després.',
+        'Si haguessis trobat el millor aquí, la partida canviava de color.'
+    ],
+    mistake: [
+        'Aquí la partida va fer un gir evitable.',
+        'Aquest error costa, però s’entén i es corregeix.',
+        'Un pas en fals com aquest sol venir d’anar amb pressa.',
+        'Va ser un d’aquells moments per parar i mirar bé.'
+    ],
+    inaccuracy: [
+        'Un detall petit, però val la pena fixar-s’hi.',
+        'No és greu, però polir-ho et fa pujar de nivell.',
+        'Una imprecisió com aquesta es repeteix si no la nomenes.',
+        'Petit relliscada: la mena de cosa que distingeix nivells.'
+    ],
+    any: [
+        'Mirem-ho amb calma.',
+        'Val la pena entendre què passava aquí.',
+        'Aquí hi havia una lliçó concreta.',
+        'Un moment per aprendre, no per lamentar.'
+    ]
+};
+function buildPlanIntro(moment) {
+    if (Math.random() > 0.65) return '';
+    const sev = (moment && HUMAN_PLAN_INTROS[moment.quality]) ? moment.quality : 'any';
+    const pool = HUMAN_PLAN_INTROS[sev].concat(HUMAN_PLAN_INTROS.any);
+    return pickFreshPlanLine(pool, 'intro:' + sev);
+}
+
+// Amplia encara més els temes freqüents (a banda, per mantenir el bloc llegible).
+// Els nous "objectius" també enriqueixen els jeroglífics via themeToPlainAdvice.
+HUMAN_PLAN_BANK.general.diagnosis.push(
+    'A {n}, {played} buscava activitat però no resolia la pregunta clau de la posició.',
+    'El cost real de {played} (jugada {n}) no van ser {swing} CP, sinó jugar sense un pla clar.',
+    'A la jugada {n}, {played} va deixar la iniciativa a l’aire en un moment delicat.'
+);
+HUMAN_PLAN_BANK.general.plan.push(
+    'El pla humà era guanyar un tempo amb una millora real abans de complicar; {best} ho feia.',
+    'Calia escollir un pla i seguir-lo dues o tres jugades, com permetia {best}.',
+    'El bon pla era reduir les opcions del rival, no obrir-ne de noves; {best} hi anava.'
+);
+HUMAN_PLAN_BANK.general.question.push(
+    'Quin pla seguiria el rival si et saltessis aquest torn?',
+    'Aquesta jugada acosta alguna de les teves peces a una feina millor?',
+    'Has comparat almenys dues jugades candidates abans de decidir?'
+);
+HUMAN_PLAN_BANK.general.objective.push(
+    'Tria una jugada candidata, busca’n una de millor i compara-les abans de moure.',
+    'Digues el pla en veu baixa abans de cada jugada important.',
+    'Pregunta’t què empitjora la teva jugada abans de jugar-la.'
+);
+HUMAN_PLAN_BANK.king_attack.diagnosis.push(
+    'A {n}, {played} va obrir el camí cap al teu rei sense compensació clara.',
+    'El problema de {played} (jugada {n}) era atacar amb el propi rei encara per resoldre.'
+);
+HUMAN_PLAN_BANK.king_attack.plan.push(
+    'El pla humà era portar la torre o la dama a la línia d’atac amb tempo; {best} hi apuntava.',
+    'Calia obrir la columna just davant del rei rival, com preparava {best}.'
+);
+HUMAN_PLAN_BANK.king_attack.question.push(
+    'Quantes peces teves participen de debò en l’atac al rei?',
+    'L’atac avança amb amenaces o només amb desitjos?'
+);
+HUMAN_PLAN_BANK.king_attack.objective.push(
+    'No iniciïs un atac al rei amb menys de tres peces implicades.',
+    'Obre línies cap al rei rival abans de llançar-hi les peces.'
+);
+HUMAN_PLAN_BANK.material.diagnosis.push(
+    'A {n}, {played} va prioritzar un peó per sobre de l’activitat de les peces.',
+    'El problema de {played} (jugada {n}) era guanyar fusta i perdre temps i coordinació.'
+);
+HUMAN_PLAN_BANK.material.plan.push(
+    'El pla humà era guanyar material mantenint la iniciativa, no a canvi d’ella; {best} ho equilibrava.',
+    'Calia assegurar primer les teves peces penjades, com feia {best}.'
+);
+HUMAN_PLAN_BANK.material.question.push(
+    'El material que guanyes compensa el temps que hi inverteixes?',
+    'Tens alguna peça penjada que el rival pugui aprofitar primer?'
+);
+HUMAN_PLAN_BANK.material.objective.push(
+    'Abans de guanyar un peó, comprova que no deixes cap peça teva sense defensa.',
+    'No canviïs iniciativa per material tret que el guany sigui clar i durador.'
+);
+HUMAN_PLAN_BANK.center.diagnosis.push(
+    'A {n}, {played} va definir l’estructura central abans de tenir-ne clar el benefici.',
+    'El problema de {played} (jugada {n}) era jugar al centre sense pla per a les caselles que s’obrien.'
+);
+HUMAN_PLAN_BANK.center.plan.push(
+    'El pla humà era guanyar el centre amb suport, no només ocupar-lo; {best} hi anava.',
+    'Calia preparar la ruptura amb una peça més abans de fer-la, com {best}.'
+);
+HUMAN_PLAN_BANK.center.question.push(
+    'Qui ocuparà les caselles que deixa lliures aquest canvi central?',
+    'La teva estructura de peons et dona un pla clar després d’aquesta jugada?'
+);
+HUMAN_PLAN_BANK.center.objective.push(
+    'Abans de fixar el centre, imagina l’estructura resultant i el teu pla en ella.',
+    'No avancis peons centrals que deixin caselles febles sense vigilància.'
+);
+HUMAN_PLAN_BANK.endgame.diagnosis.push(
+    'A {n}, {played} va tractar el final amb pressa quan tocava precisió.',
+    'El problema de {played} (jugada {n}) era no donar feina a la peça més passiva del final.'
+);
+HUMAN_PLAN_BANK.endgame.plan.push(
+    'El pla humà era millorar la peça pitjor situada abans de forçar res; {best} ho feia.',
+    'Calia avançar el rei cap al centre del final, com indicava {best}.'
+);
+HUMAN_PLAN_BANK.endgame.question.push(
+    'Quin és el pla guanyador en tres jugades, no només la jugada d’ara?',
+    'El teu rei és un espectador o un protagonista d’aquest final?'
+);
+HUMAN_PLAN_BANK.endgame.objective.push(
+    'En cada jugada de final, pregunta’t si pots millorar el rei o la peça més passiva.',
+    'No precipitis els peons sense el suport del rei o d’una torre activa.'
+);
 
 // Amplia el vocabulari críptic dels jeroglífics generals (es comparteix entre tots els temes).
 HIEROS.openings.push(
@@ -15106,8 +15240,10 @@ function getHumanPlanPhase(moveNumber) {
 function buildLocalHumanPlan(moment) {
     const themeKey = resolveHumanPlanThemeKey(moment);
     const pool = HUMAN_PLAN_BANK[themeKey] || HUMAN_PLAN_BANK.general;
+    const intro = buildPlanIntro(moment);
+    const diagnosis = fillPlanTemplate(pickFreshPlanLine(pool.diagnosis, themeKey + ':diagnosis'), moment);
     return {
-        diagnosis: fillPlanTemplate(pickFreshPlanLine(pool.diagnosis, themeKey + ':diagnosis'), moment),
+        diagnosis: intro ? `${intro} ${diagnosis}` : diagnosis,
         plan: fillPlanTemplate(pickFreshPlanLine(pool.plan, themeKey + ':plan'), moment),
         question: fillPlanTemplate(pickFreshPlanLine(pool.question, themeKey + ':question'), moment),
         objective: fillPlanTemplate(pickFreshPlanLine(pool.objective, themeKey + ':objective'), moment)
