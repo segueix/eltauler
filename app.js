@@ -2456,6 +2456,13 @@ function commitOpeningMoveFromTap(from, to) {
         return false;
     }
 
+    // Mode exercici jeroglífic: en mode tocar també ha de consumir l'intent.
+    if (hieroglyphicExerciseActive) {
+        const legalAttempt = openingPracticeGame.moves({ square: from, verbose: true }).some(m => m.to === to);
+        const result = handleHieroglyphicMove(from, to);
+        return legalAttempt || result !== 'snapback';
+    }
+
     // Mode lliçó guiada
     if (openingLessonActive) {
         return handleOpeningLessonUserMove(from, to);
@@ -2496,7 +2503,7 @@ function enableOpeningTapToMove() {
     $('#opening-board').off('.opening-tapmove')
         .on(`pointerdown.opening-tapmove touchstart.opening-tapmove`, '.square-55d63', function(e) {
             if (!openingPracticeGame || openingPracticeGame.game_over()) return;
-            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
+            if (!hieroglyphicExerciseActive && openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return;
             if (openingPracticeEngineThinking) return;
 
             if (e && e.preventDefault) e.preventDefault();
@@ -9791,6 +9798,8 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
         renderOpeningStatsScreen(true);
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
+        updateOpeningBoardInteractivity();
+        clearOpeningTapSelection();
         openingPracticeGame = hieroglyphicGame;
         openingPracticeMoveCount = 0;
         clearOpeningHintHighlight();
@@ -9894,6 +9903,8 @@ function startHieroglyphicExercise() {
     const myToken = ++hieroglyphicToken;
 
     if (!openingBundleBoard) initOpeningBundleBoard();
+    updateOpeningBoardInteractivity();
+    clearOpeningTapSelection();
     openingLessonActive = false;
     openingErrorPracticeActive = false;
     openingPracticeGame = hieroglyphicGame;
@@ -10013,7 +10024,7 @@ function initOpeningBundleBoard() {
         position: 'start',
         onDragStart: (source, piece) => {
             if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
-            if (openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
+            if (!hieroglyphicExerciseActive && openingPracticeMoveCount >= OPENING_PRACTICE_MAX_PLIES) return false;
             if (openingPracticeEngineThinking) return false;
             if (!openingLessonActive && !openingErrorPracticeActive && !hieroglyphicExerciseActive && openingPracticeGame.turn() !== openingPracticeUserColor) {
                 const noteEl = document.getElementById('opening-practice-note');
