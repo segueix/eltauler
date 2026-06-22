@@ -12746,8 +12746,6 @@ blunderMode = isBundle;
             }
         }
 
-        // Guardar seqüència per validació
-        bundleStrictPvLine = bundleFixedSequence.fullSequence;
     }
     
     lastHumanMoveUci = null;
@@ -12755,7 +12753,7 @@ blunderMode = isBundle;
     bundleBestMove = null;
     bundlePvMoves = {};
     bundlePvLines = {};
-    bundleStrictPvLine = [];
+    bundleStrictPvLine = bundleFixedSequence ? (bundleFixedSequence.fullSequence || []) : [];
     bundleStrictPvDepth = 0;
     bundleSequenceStep = 1;
     bundleSequenceStartFen = fen || null;
@@ -14733,6 +14731,7 @@ function buildHumanPlanMoments(entry) {
                 theme: getPlanThemeLabelFromReview(r),
                 played: r.playerMoveSan || r.playerMove || '—',
                 best: r.bestMoveSan || r.bestMove || '—',
+                bestMoveUci: r.bestMove || null,
                 swing: Math.round(r.swing || 0),
                 quality: r.quality || 'inaccuracy',
                 fen: r.fen || null
@@ -14760,6 +14759,66 @@ Objectiu: una microtasca aplicable a la pròxima partida.
 Regles: no facis markdown, no emojis, no llistes amb guions, màxim 90 paraules per bloc, català natural, no inventis variants noves.`;
 }
 
+
+function buildSingleMovePracticeSequence(moment) {
+    if (!moment || !moment.fen || !moment.bestMoveUci) return null;
+    try {
+        const g = new Chess(moment.fen);
+        const move = g.move({
+            from: moment.bestMoveUci.slice(0, 2),
+            to: moment.bestMoveUci.slice(2, 4),
+            promotion: moment.bestMoveUci.length > 4 ? moment.bestMoveUci[4] : undefined
+        });
+        if (!move) return null;
+        const emptyThreats = { threats: [], themes: [], immediateThreats: [] };
+        return {
+            initialFen: moment.fen,
+            totalSteps: 1,
+            step1: {
+                fen: moment.fen,
+                playerMove: moment.bestMoveUci,
+                playerMoveSan: move.san,
+                alternatives: [],
+                position: null,
+                threats: emptyThreats
+            },
+            fullSequence: [moment.bestMoveUci],
+            fullSequenceSan: [move.san]
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+function startHumanPlanPractice(moment) {
+    const seq = buildSingleMovePracticeSequence(moment);
+    if (!seq) {
+        showToast('No puc preparar aquest pla com a exercici jugable.', 'warn');
+        return;
+    }
+    $('#review-modal').hide();
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isTacticsSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'human_plan';
+    currentBundleSeverity = null;
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    pendingPreparedSequence = seq;
+    startGame(true, seq.initialFen);
+}
+
+function appendHumanPlanPracticeButton(card, moment) {
+    if (!moment || !moment.fen || !moment.bestMoveUci) return;
+    const btn = $('<button class="btn btn-secondary human-plan-practice" type="button">Practica aquest pla</button>');
+    btn.on('click', () => startHumanPlanPractice(moment));
+    card.append(btn);
+}
+
 function renderHumanPlanCards(container, moments) {
     const panel = $('<div class="human-plan-panel"></div>');
     panel.append($('<div class="coach-kicker human-plan-title"></div>').append($('<span></span>').text('🧭 Entrenador de plans humans')));
@@ -14775,6 +14834,7 @@ function renderHumanPlanCards(container, moments) {
             `<strong>Objectiu:</strong> ${escapeHtml(m.objective)}`
         ].join('<br>')));
         card.append(main);
+        appendHumanPlanPracticeButton(card, m);
         list.append(card);
     });
     panel.append(list);
@@ -14782,14 +14842,14 @@ function renderHumanPlanCards(container, moments) {
     return panel;
 }
 
-function renderOpenAIHumanPlans(panel, text) {
+function renderOpenAIHumanPlans(panel, text, moments = []) {
     if (!panel || !panel.length || !text) return;
     const blocks = String(text).split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
     if (!blocks.length) return;
     const list = panel.find('.human-plan-list');
     if (!list.length) return;
     list.empty();
-    blocks.forEach(block => {
+    blocks.forEach((block, idx) => {
         const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
         const title = lines.shift() || 'Pla humà';
         const card = $('<div class="coach-item human-plan-card"></div>');
@@ -14797,6 +14857,7 @@ function renderOpenAIHumanPlans(panel, text) {
         main.append($('<div class="coach-item-title"></div>').text(title.replace(/^PLA\s*\d+\s*:\s*/i, '')));
         main.append($('<div class="coach-text human-plan-text"></div>').html(escapeHtml(lines.join('\n')).replace(/\n/g, '<br>')));
         card.append(main);
+        appendHumanPlanPracticeButton(card, moments[idx]);
         list.append(card);
     });
 }
@@ -14840,7 +14901,7 @@ function renderGameDebrief() {
         requestOpenAICoachText(
             `human-plans:${entry.id}:v1`,
             buildHumanPlansOpenAIPrompt(entry, humanPlanMoments),
-            text => renderOpenAIHumanPlans(humanPlansPanel, text)
+            text => renderOpenAIHumanPlans(humanPlansPanel, text, humanPlanMoments)
         );
     }
 }
