@@ -9159,6 +9159,392 @@ const HIEROS = {
         }
     }
 };
+
+/* ============================================================================
+ * BANC DE PLANS HUMANS (100% local, sense dependència de cap clau d'API)
+ * Plantilles riques per tema. Cada camp té diverses variants; es combinen i
+ * s'eviten repeticions recents perquè el text sigui variat com els jeroglífics.
+ * Marcadors: {n} núm. jugada · {played} jugada feta · {best} millor jugada · {swing} CP.
+ * Els "objectius" són frases genèriques i, per això, reaprofitables pels
+ * jeroglífics generals (veure themeToPlainAdvice).
+ * ========================================================================== */
+const HIERO_TO_GROWTH_THEME = {
+    king_attack: 'king_attack', fork: 'fork', pin: 'pin', skewer: 'skewer',
+    center_break: 'center', development: 'opening', material_win: 'material',
+    passed_pawn: 'endgame', defensive_move: 'general', endgame_activity: 'endgame',
+    quiet_improvement: 'general', simplification: 'endgame', piece_activity: 'general',
+    default: 'general'
+};
+const HUMAN_PLAN_BANK = {
+    king_attack: {
+        diagnosis: [
+            'A la jugada {n} ({played}) vas tractar la seguretat del rei com un detall, i el rival va guanyar temps per organitzar l’atac.',
+            'A {n}, {played} va deixar el rei amb menys aire del que semblava; perdre {swing} CP va ser la factura d’aquesta exposició.',
+            'El problema de {played} (jugada {n}) no era estètic: obria línies cap al teu propi rei abans d’hora.',
+            'A la jugada {n} vas comptar material i vas oblidar qui tenia el rei més fràgil després de {played}.',
+            'Amb {played} (jugada {n}) vas convidar les peces rivals a la rodalia del teu rei sense preparar la defensa.',
+            'A {n}, la decisió {played} va prioritzar l’activitat sobre el refugi, i el rei en va pagar {swing} CP.'
+        ],
+        plan: [
+            'El pla humà era sumar defensors o tancar línies abans de buscar res més; {best} respectava aquesta prioritat.',
+            'Calia preguntar quin rei queda més exposat i, com {best}, posar primer la casa en ordre.',
+            'El pla correcte passava per neutralitzar l’amenaça directa i només després contraatacar, just el que insinuava {best}.',
+            'Primer aire per al teu rei, després ambició: {best} portava una peça més a la defensa o creava una casella d’escapament.',
+            'El bon pla era convertir la defensa en amenaça ordenada, sense regalar contrajoc; {best} ho feia millor.',
+            'Volies atacar, però tocava assegurar el rei amb tempo; {best} unia les dues idees.'
+        ],
+        question: [
+            'Qui té el rei més exposat si s’obren línies ara mateix, tu o el rival?',
+            'Abans d’atacar, el teu rei té casella d’escapament i prou defensors?',
+            'Aquesta jugada acosta peces al rei rival o allunya les teves de la pròpia defensa?',
+            'Si el rival contraataca el teu rei, quina peça el defensaria?',
+            'Estàs creant una amenaça real o només un gest vistós a l’ala?',
+            'Quina és l’amenaça més perillosa del rival contra el teu rei i com la pares amb ritme?'
+        ],
+        objective: [
+            'No obris el centre si el teu rei encara necessita un defensor o una casella d’escapament.',
+            'Abans d’atacar, dedica un torn a comptar atacants i defensors al voltant de cada rei.',
+            'Quan ataquis el rei, busca jugades amb ritme (escacs o amenaces) que no donin temps a defensar.',
+            'Cada jugada d’atac al rei ha de portar amagada una segona amenaça.',
+            'Si el teu rei respira malament, atura’t i resol-ho abans de qualsevol aventura.',
+            'Davant d’un atac al rei, primer elimina l’amenaça més immediata i conserva la iniciativa.'
+        ]
+    },
+    material: {
+        diagnosis: [
+            'A la jugada {n} ({played}), la captura vistosa va amagar què quedava penjat després; el saldo va ser de {swing} CP.',
+            'A {n}, {played} va agafar el fruit sense tallar la branca: la recaptura rival va decidir.',
+            'El problema de {played} (jugada {n}) era comptar només el que es guanyava, no el que es deixava sense defensa.',
+            'A la jugada {n} vas entrar en una sèrie de canvis sense calcular l’última jugada, i {played} va costar {swing} CP.',
+            'Amb {played} (jugada {n}) vas confondre material immediat amb avantatge real.',
+            'A {n}, la temptació de guanyar fusta amb {played} va deixar una peça teva sense casa.'
+        ],
+        plan: [
+            'El pla humà era comptar defensors i recaptures abans de decidir; {best} guanyava material sense mossegada.',
+            'Calia preguntar què queda sense defensa després dels canvis, just el que tenia en compte {best}.',
+            'La millor captura és la que deixa una amenaça viva: {best} ho aconseguia.',
+            'El bon pla era cobrar només quan la recaptura no et fa mal; {best} ho complia.',
+            'Abans d’agafar material, tocava assegurar la coordinació; {best} mantenia les peces connectades.',
+            'El pla correcte era prendre allò que de debò queda sense guardians, com mostrava {best}.'
+        ],
+        question: [
+            'Després de la sèrie forçada de canvis, quina peça teva queda sense defensa?',
+            'Qui fa l’última captura d’aquesta sèrie de canvis?',
+            'Aquest material que guanyes obre el teu rei o desordena les teves peces?',
+            'Hi ha una jugada intermèdia (escac o amenaça) que canviï el compte?',
+            'El guany és real o l’or està enverinat?',
+            'Si captures, quina és la millor resposta del rival i la sobrevius?'
+        ],
+        objective: [
+            'Abans de capturar, calcula una jugada més: la recaptura i l’amenaça següent del rival.',
+            'Compta sempre atacants i defensors d’una casella abans de canviar-hi peces.',
+            'No agafis material si això activa les peces del rival o exposa el teu rei.',
+            'Busca jugades intermèdies abans de recapturar de manera automàtica.',
+            'Apunta’t mentalment l’última jugada de cada sèrie de canvis abans de començar-la.',
+            'Tria la captura que, a més de guanyar fusta, deixi una amenaça.'
+        ]
+    },
+    center: {
+        diagnosis: [
+            'A la jugada {n} ({played}), vas resoldre la tensió central en mal moment i vas perdre {swing} CP.',
+            'A {n}, {played} va tocar el centre sense calcular la rèplica que l’obria a favor del rival.',
+            'El problema de {played} (jugada {n}) era deixar que el rival manés al centre sense disputar-lo.',
+            'A la jugada {n} vas alliberar la tensió amb {played} quan et convenia mantenir-la.',
+            'Amb {played} (jugada {n}) vas ocupar el centre per orgull, no per funció.',
+            'A {n}, la ruptura {played} va arribar abans d’hora i el centre es va girar en contra.'
+        ],
+        plan: [
+            'El pla humà era decidir la tensió central segons qui hi guanya en obrir-se; {best} encertava el moment.',
+            'Calia preguntar si obrir el centre afavoria les teves peces o les del rival, com feia {best}.',
+            'El bon pla era convertir espai en línies sense regalar caselles, just el que apuntava {best}.',
+            'Primer ordenar peces, després trencar: {best} mantenia aquesta seqüència.',
+            'El pla correcte era pressionar el centre amb peces i peons coordinats, com {best}.',
+            'Volies activitat, però tocava resoldre la tensió a favor teu; {best} ho feia.'
+        ],
+        question: [
+            'Si s’obre el centre ara, quines peces en surten beneficiades, les teves o les seves?',
+            'Et convé mantenir la tensió central o resoldre-la? Per què?',
+            'Aquesta jugada al centre millora les teves peces o només mou peons?',
+            'Qui té el rei més segur si el centre s’obre?',
+            'Estàs trencant el centre per una funció clara o per impaciència?',
+            'Quina casella central et quedaria feble després d’aquest canvi?'
+        ],
+        objective: [
+            'Abans de tocar el centre, decideix qui guanya si s’obre i actua en conseqüència.',
+            'Mantén la tensió central mentre les teves peces estiguin pitjor coordinades que les del rival.',
+            'Trenca al centre només quan tinguis una funció concreta per a les línies que s’obren.',
+            'Relaciona cada jugada central amb la seguretat del teu rei.',
+            'Abans d’una ruptura, compta com queden les caselles febles del teu camp.',
+            'Disputa el centre amb peces i peons coordinats, no amb un sol cop aïllat.'
+        ]
+    },
+    opening: {
+        diagnosis: [
+            'A la jugada {n} ({played}), el pla d’obertura es va desviar: desenvolupament, centre i rei segur havien de manar.',
+            'A {n}, {played} va moure dues vegades la mateixa peça quan tocava treure’n una de nova.',
+            'El problema de {played} (jugada {n}) era començar operacions laterals amb l’exèrcit encara a casa.',
+            'A la jugada {n} vas descuidar el rei amb {played} en lloc d’enrocar a temps.',
+            'Amb {played} (jugada {n}) vas perseguir material o amenaces menors abans de desenvolupar.',
+            'A {n}, {played} va deixar el centre i el desenvolupament en mans del rival.'
+        ],
+        plan: [
+            'El pla humà era completar desenvolupament i disputar el centre abans de res; {best} mantenia l’harmonia.',
+            'Calia treure peces noves cap a caselles actives i enrocar aviat, com suggeria {best}.',
+            'El bon pla era que cada jugada complís una funció d’obertura, just el que feia {best}.',
+            'Primer desenvolupar amb tempo, després ambició; {best} guanyava temps fent una cosa útil.',
+            'El pla correcte era assegurar el rei i connectar les torres, com apuntava {best}.',
+            'Volies iniciativa, però tocava acabar el desplegament; {best} ho ordenava.'
+        ],
+        question: [
+            'Aquesta jugada desenvolupa, controla el centre o protegeix el rei? Si no, què ho justifica?',
+            'Quantes peces teves encara dormen a la primera fila?',
+            'És el moment d’enrocar o hi ha una raó concreta per ajornar-ho?',
+            'Estàs movent una peça nova o repetint amb una que ja havia jugat?',
+            'El teu pla d’obertura té un rumb o vas reaccionant jugada a jugada?',
+            'Quina és la teva peça pitjor desenvolupada i com la millores ara?'
+        ],
+        objective: [
+            'Durant les 10 primeres jugades, demana que cada moviment compleixi una funció d’obertura clara.',
+            'Treu totes les peces menors abans de llançar atacs o caçar peons.',
+            'Enroca aviat tret que tinguis una raó concreta i calculada per no fer-ho.',
+            'No moguis dues vegades la mateixa peça a l’obertura sense necessitat.',
+            'Lluita pel centre amb peons i peces des del primer moment.',
+            'Connecta les torres com a senyal que has acabat el desenvolupament.'
+        ]
+    },
+    endgame: {
+        diagnosis: [
+            'A la jugada {n} ({played}), el final demanava activitat i precisió, no una decisió automàtica; vas perdre {swing} CP.',
+            'A {n}, {played} va deixar el rei passiu quan tocava activar-lo.',
+            'El problema de {played} (jugada {n}) era canviar peces sense millorar el teu final.',
+            'A la jugada {n} vas oblidar el peó passat amb {played} en comptes d’impulsar-lo o frenar-lo.',
+            'Amb {played} (jugada {n}) vas col·locar la torre passiva, lluny de l’acció.',
+            'A {n}, {played} va empitjorar l’estructura just quan calia mantenir-la sana.'
+        ],
+        plan: [
+            'El pla humà era activar el rei o la peça més passiva i triar canvis favorables; {best} conservava el marge.',
+            'Calia posar la torre darrere del peó passat, com feia {best}.',
+            'El bon pla era guanyar caselles abans que peons, just el que apuntava {best}.',
+            'Primer activitat, després material: {best} portava la peça adormida a la feina.',
+            'El pla correcte era simplificar cap a un final guanyat, com indicava {best}.',
+            'Volies seguretat, però tocava avançar amb el rei; {best} ho aprofitava.'
+        ],
+        question: [
+            'Quina és la teva peça menys activa i com la poses a treballar?',
+            'El teu rei pot entrar en joc ara sense risc?',
+            'Aquest canvi de peces acosta o allunya el final que vols?',
+            'El peó passat (teu o del rival) està prou controlat?',
+            'Quin bàndol té el rei més actiu en aquest final?',
+            'La teva torre està darrere del peó passat o davant?'
+        ],
+        objective: [
+            'En finals, ordena sempre: rei actiu, peons sans, torres darrere dels passats.',
+            'Activa el rei tan aviat com els atacs perillosos hagin passat.',
+            'Col·loca les torres darrere dels peons passats, els teus i els del rival.',
+            'Abans de canviar peces en un final, comprova que el resultat et millora.',
+            'Guanya espai i caselles clau abans de perseguir peons.',
+            'Cuida l’estructura de peons: una debilitat al final pesa més que a l’inici.'
+        ]
+    },
+    fork: {
+        diagnosis: [
+            'A la jugada {n} ({played}), vas passar per alt un doble atac (a favor o en contra) i el compte va caure {swing} CP.',
+            'A {n}, {played} va deixar dues peces teves a l’abast d’un sol salt rival.',
+            'El problema de {played} (jugada {n}) era no veure la casella des d’on una peça amenaça dues coses.',
+            'A la jugada {n} tenies una forquilla a tocar i {played} la va deixar escapar.',
+            'Amb {played} (jugada {n}) vas alinear peces valuoses de manera que un doble atac les castigava.',
+            'A {n}, l’atenció en una amenaça va amagar el doble cop que permetia {played}.'
+        ],
+        plan: [
+            'El pla humà era buscar quina peça pot amenaçar dos objectius alhora; {best} trobava el doble atac.',
+            'Calia posar una amenaça que no es pugui respondre sencera, com feia {best}.',
+            'El bon pla era col·locar el cavall o la dama on miri dos tresors, just el que apuntava {best}.',
+            'Abans de moure, tocava revisar si les teves peces quedaven alineades per a una forquilla; {best} ho evitava.',
+            'El pla correcte era crear doble pressió en lloc de pressió simple, com {best}.',
+            'Volies guanyar una peça, però n’hi havia dues a tir amb {best}.'
+        ],
+        question: [
+            'Hi ha una casella des d’on una peça teva ataqui dos objectius alhora?',
+            'Les teves peces valuoses estan alineades de manera perillosa?',
+            'Quina jugada planteja dues amenaces que el rival no pot parar juntes?',
+            'El cavall rival té un salt que toqui rei i dama o rei i torre?',
+            'Abans de capturar, has mirat si quedes exposat a un doble atac?',
+            'Quina és la peça amb més capacitat de fer forquilla en aquesta posició?'
+        ],
+        objective: [
+            'Abans de cada jugada, comprova si dues peces teves comparteixen una casella d’atac rival.',
+            'Busca activament salts de cavall que amenacin dos objectius alhora.',
+            'Evita alinear el rei i una peça pesant a l’abast de cavalls o dames rivals.',
+            'Quan tinguis avantatge, busca dobles amenaces abans que captures simples.',
+            'Revisa els escacs rivals que, de passada, guanyin una peça.',
+            'Davant d’una peça forta enemiga, vigila les seves forquilles potencials.'
+        ]
+    },
+    pin: {
+        diagnosis: [
+            'A la jugada {n} ({played}), vas ignorar una clavada (a favor o en contra) i la posició va caure {swing} CP.',
+            'A {n}, {played} va descuidar una peça que estava lligada al rei o a la dama.',
+            'El problema de {played} (jugada {n}) era no aprofitar una peça rival que no es podia moure.',
+            'A la jugada {n} tenies pressió sobre una peça clavada i {played} la va deixar respirar.',
+            'Amb {played} (jugada {n}) vas deixar clavada una peça defensora important.',
+            'A {n}, vas tractar una peça lligada com si fos lliure, i {played} ho va pagar.'
+        ],
+        plan: [
+            'El pla humà era acumular pressió sobre la peça clavada; {best} la castigava.',
+            'Calia atacar allò que defensa per obligació i no es pot moure, com feia {best}.',
+            'El bon pla era convertir la immobilitat en material futur, just el que apuntava {best}.',
+            'Abans de res, tocava mantenir viva la línia de clavada; {best} no la trencava.',
+            'El pla correcte era afegir un atacant sobre la peça lligada, com {best}.',
+            'Volies activitat, però la clau era explotar la peça paralitzada amb {best}.'
+        ],
+        question: [
+            'Hi ha alguna peça rival que no es pugui moure sense exposar el rei o la dama?',
+            'Pots afegir pressió sobre una peça clavada en lloc de fer una altra cosa?',
+            'Alguna peça teva està lligada i, per tant, només defensa de mentida?',
+            'Trencaries una clavada útil amb aquesta jugada?',
+            'Quina peça enemiga paga car estar clavada ara mateix?',
+            'La peça que vols moure està realment lliure o sosté alguna cosa?'
+        ],
+        objective: [
+            'Quan una peça rival estigui clavada, suma atacants abans de fer res més.',
+            'No comptis amb una peça teva clavada com a defensora real.',
+            'Busca clavades que immobilitzin peces enemigues clau.',
+            'Abans de moure, comprova quines peces teves estan lligades al rei o a la dama.',
+            'Aprofita les peces paralitzades: la immobilitat és material ajornat.',
+            'Evita trencar una clavada teva favorable sense una raó clara.'
+        ]
+    },
+    skewer: {
+        diagnosis: [
+            'A la jugada {n} ({played}), una enfilada (raig X) va canviar el compte i vas perdre {swing} CP.',
+            'A {n}, {played} va alinear dues peces teves de gran valor en una mateixa línia.',
+            'El problema de {played} (jugada {n}) era no veure que, en moure la peça gran, en queia una de valuosa al darrere.',
+            'A la jugada {n} tenies una enfilada disponible i {played} la va desaprofitar.',
+            'Amb {played} (jugada {n}) vas posar rei i dama (o dama i torre) en una recta perillosa.',
+            'A {n}, la línia oberta amagava una enfilada que {played} no va tenir en compte.'
+        ],
+        plan: [
+            'El pla humà era forçar la peça gran a moure’s per cobrar la de darrere; {best} ho aconseguia.',
+            'Calia buscar alineacions enemigues en línies i diagonals, com feia {best}.',
+            'El bon pla era pressionar la peça de davant per guanyar la del darrere, just el que apuntava {best}.',
+            'Abans de res, tocava no exposar les teves peces grans en la mateixa recta; {best} ho feia.',
+            'El pla correcte era usar una peça de llarg abast sobre la fila o columna clau, com {best}.',
+            'Volies un atac directe, però l’enfilada de {best} guanyava material net.'
+        ],
+        question: [
+            'Hi ha dues peces enemigues valuoses a la mateixa línia o diagonal?',
+            'Si fas un escac en aquesta recta, què queda darrere del rei?',
+            'Les teves peces grans estan alineades de manera que es puguin enfilar?',
+            'Pots obligar una peça important a moure’s i descobrir-ne una altra?',
+            'Quina peça de llarg abast crearia una enfilada aquí?',
+            'Abans de posar el rei en aquesta columna, què hi ha al darrere?'
+        ],
+        objective: [
+            'Busca alineacions de peces enemigues en files, columnes i diagonals.',
+            'Evita posar dues peces teves valuoses en la mateixa recta oberta.',
+            'Aprofita els escacs que, en moure el rei, et facin guanyar la peça del darrere.',
+            'Activa les peces de llarg abast cap a línies amb objectius alineats.',
+            'Abans de cada jugada, revisa les rectes obertes cap al teu rei i la teva dama.',
+            'Quan tinguis una peça gran rival exposada, busca com enfilar-ne una de darrere.'
+        ]
+    },
+    general: {
+        diagnosis: [
+            'A la jugada {n} ({played}), vas triar una acció abans de tenir clar el pla, i va costar {swing} CP.',
+            'A {n}, {played} va respondre a un impuls i no a una valoració de la posició.',
+            'El problema de {played} (jugada {n}) no era una sola línia: faltava un pla que connectés les peces.',
+            'A la jugada {n} vas jugar de pressa amb {played} en un moment que demanava pensar.',
+            'Amb {played} (jugada {n}) vas atendre el detall i vas perdre de vista el conjunt.',
+            'A {n}, {played} va ser una jugada sense funció clara dins el pla general.'
+        ],
+        plan: [
+            'El pla humà era comparar amenaces, millorar la peça pitjor situada i només després buscar tàctica; {best} ho ordenava.',
+            'Calia identificar el pla abans de calcular variants, just el que apuntava {best}.',
+            'El bon pla era fer la pregunta més difícil al rival, com feia {best}.',
+            'Primer entendre la posició, després actuar; {best} triava la jugada amb més funció.',
+            'El pla correcte era millorar la peça menys activa abans de res, com {best}.',
+            'Volies una solució immediata, però tocava preparar-la; {best} guanyava amb mètode.'
+        ],
+        question: [
+            'Quin és el pla en una frase abans de calcular cap variant?',
+            'Quina és la teva peça pitjor situada i com la millores?',
+            'Què vol fer el rival i com ho impedeixes amb la teva jugada?',
+            'Aquesta jugada té una funció clara o és una reacció?',
+            'Quina jugada deixa el rival amb menys respostes bones?',
+            'Estàs resolent la causa del problema o només un símptoma?'
+        ],
+        objective: [
+            'Atura’t un torn en cada moment crític i formula el pla abans de tocar peça.',
+            'Abans de moure, identifica la teva pitjor peça i pensa com activar-la.',
+            'Pregunta sempre què vol fer el rival abans de decidir la teva jugada.',
+            'Tria jugades amb funció: defensa, millora o amenaça concreta.',
+            'Davant del dubte, compara dos plans i queda’t amb el que deixa menys respostes al rival.',
+            'Calcula una jugada més del que et demani l’instint abans de decidir.'
+        ]
+    }
+};
+let _humanPlanRecent = {};
+function fillPlanTemplate(str, moment) {
+    const m = moment || {};
+    return String(str || '')
+        .replace(/\{n\}/g, m.moveNumber ?? '?')
+        .replace(/\{played\}/g, m.played || 'la jugada triada')
+        .replace(/\{best\}/g, m.best || 'una jugada més precisa')
+        .replace(/\{swing\}/g, m.swing ?? 0);
+}
+function pickFreshPlanLine(pool, bucket) {
+    if (!Array.isArray(pool) || !pool.length) return '';
+    if (pool.length === 1) return pool[0];
+    const recent = _humanPlanRecent[bucket] || [];
+    const fresh = pool.filter(x => !recent.includes(x));
+    const choice = randItem(fresh.length ? fresh : pool);
+    _humanPlanRecent[bucket] = [choice, ...recent].slice(0, Math.min(3, pool.length - 1));
+    return choice;
+}
+function toInlineAdvice(text) {
+    const t = String(text || '').trim().replace(/[.…]+$/, '');
+    return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+}
+function resolveHumanPlanThemeKey(moment) {
+    let key = moment && moment.themeKey ? String(moment.themeKey) : '';
+    if (!HUMAN_PLAN_BANK[key]) {
+        const label = String((moment && moment.theme) || '').toLowerCase();
+        if (/rei|atac/.test(label)) key = 'king_attack';
+        else if (/forquilla/.test(label)) key = 'fork';
+        else if (/clavada/.test(label)) key = 'pin';
+        else if (/raig|enfilad|broquet/.test(label)) key = 'skewer';
+        else if (/material/.test(label)) key = 'material';
+        else if (/centre/.test(label)) key = 'center';
+        else if (/obertura/.test(label)) key = 'opening';
+        else if (/final/.test(label)) key = 'endgame';
+        else key = 'general';
+    }
+    const phase = moment && moment.phase;
+    if (key === 'general') {
+        if (phase === 'obertura') key = 'opening';
+        else if (phase === 'final') key = 'endgame';
+    }
+    return HUMAN_PLAN_BANK[key] ? key : 'general';
+}
+
+// Amplia el vocabulari críptic dels jeroglífics generals (es comparteix entre tots els temes).
+HIEROS.openings.push(
+    'On la calma sembla absoluta', 'Quan el corrent canvia de sentit', 'El compàs assenyala un nord fals',
+    'Sota el pes d’una columna oberta', 'La diagonal recorda un deute', 'On dues debilitats es donen la mà',
+    'El tauler ofereix un mirall', 'La peça muda demana torn', 'Quan el rei dorm massa tranquil',
+    'L’estructura xiuxiueja una esquerda', 'El centre conté una pregunta', 'La rereguarda amaga una porta',
+    'Quan el material enganya', 'El temps pesa més que la fusta'
+);
+HIEROS.closings.push(
+    'el ritme val més que la fusta', 'pregunta’t qui mou en el silenci', 'transforma la tensió en una sola pregunta',
+    'deixa que el rival trobi el seu propi laberint', 'la casella feble és una invitació: accepta-la amb ordre',
+    'no confonguis activitat amb soroll', 'qui controla la línia controla el temps', 'el pla curt sovint és el més llarg',
+    'una peça ben posada en val dues d’inquietes', 'mou la causa i el símptoma caurà sol', 'la profilaxi és atac avançat',
+    'compta dues vegades abans de celebrar', 'el rei actiu al final és una peça més'
+);
+HIEROS.verbs.push('aïlla', 'condueix', 'subjecta', 'allibera', 'recondueix', 'serena', 'precipita', 'enverina');
+HIEROS.images.push('agulla d’or', 'mirall trencat', 'corda fluixa', 'far llunyà', 'rellotge de sorra', 'paret mestra', 'cadenat antic', 'brúixola torta');
+
 let hieroglyphicContext = null;
 let hieroglyphicExpectedUci = null;
 let hieroglyphicSource = 'opening';
@@ -9498,7 +9884,13 @@ const HIEROS_STRUCTURES = [
     (p) => `Si la balança sembla quieta, escolta ${p.metaphor}; ${p.closing}.`,
     (p) => `${p.warning}; abans, ${p.advice} a la ${p.sector}.`,
     (p) => `La PV xiuxiueja ${p.metaphor}; transforma la tensió en una pregunta forçada.`,
-    (p) => `${p.opening}: ${p.image} no revela la casella, però sí la funció — ${p.closing}.`
+    (p) => `${p.opening}: ${p.image} no revela la casella, però sí la funció — ${p.closing}.`,
+    (p) => `${p.opening}: la clau no és ${p.decoy}, sinó ${p.image} sobre la ${p.sector}. ${p.closing}.`,
+    (p) => `${p.voiceName} recordaria que ${p.warning}; per això, ${p.advice}.`,
+    (p) => `On sembla que cal pressa, ${p.metaphor} demana ordre: ${p.advice}.`,
+    (p) => `${p.opening}, ${p.verb} la ${p.sector} i ${p.closing}.`,
+    (p) => `El signe amaga ${p.metaphor}; ${p.pieceHint} l’ha de servir, no lluir-s’hi. ${p.closing}.`,
+    (p) => `Llegeix la posició com ${p.image}: ${p.advice}, i deixa que el temps treballi per tu.`
 ];
 function generateDynamicHieroglyphicClue(context, opts = {}) {
     const level = opts.level || 1;
@@ -9546,7 +9938,15 @@ function themeToPlainAdvice(context) {
         piece_activity: 'porta la peça a una línia oberta o una millor funció',
         quiet_improvement: 'la jugada tranquil·la crea una amenaça més forta'
     };
-    return map[context.theme] || 'troba la funció que deixa menys defenses bones';
+    // Incorpora el banc de plans humans: els "objectius" (consells genèrics i
+    // accionables) també nodreixen la pista plana dels jeroglífics generals.
+    const growthTheme = HIERO_TO_GROWTH_THEME[context.theme] || 'general';
+    const pool = [];
+    if (map[context.theme]) pool.push(map[context.theme]);
+    const bankObjectives = (HUMAN_PLAN_BANK[growthTheme] && HUMAN_PLAN_BANK[growthTheme].objective) || [];
+    bankObjectives.forEach(o => pool.push(toInlineAdvice(o)));
+    if (!pool.length) return 'troba la funció que deixa menys defenses bones';
+    return pickFreshPlanLine(pool, 'hiero-advice:' + growthTheme);
 }
 function generateHieroglyphicHint(context, level) {
     const opts = { level, hidePiece: level === 1 };
@@ -14688,9 +15088,12 @@ async function requestOpenAICoachText(cacheKey, prompt, onText, maxLen = 1800) {
 }
 
 
+function getPlanThemeKeyFromReview(review) {
+    return normalizeGrowthTheme(classifyPositionTheme(review?.fen || '', review?.playerMove || '')) || 'general';
+}
+
 function getPlanThemeLabelFromReview(review) {
-    const theme = normalizeGrowthTheme(classifyPositionTheme(review?.fen || '', review?.playerMove || ''));
-    return getThemeLabel(theme || 'general');
+    return getThemeLabel(getPlanThemeKeyFromReview(review));
 }
 
 function getHumanPlanPhase(moveNumber) {
@@ -14701,40 +15104,14 @@ function getHumanPlanPhase(moveNumber) {
 }
 
 function buildLocalHumanPlan(moment) {
-    const theme = String(moment.theme || '').toLowerCase();
-    const phase = moment.phase || 'mig joc';
-    const played = moment.played || 'la jugada triada';
-    const best = moment.best || 'una jugada més precisa';
-    const swing = moment.swing || 0;
-
-    let diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), el problema no era només perdre ${swing} CP: era escollir una acció abans de tenir clar el pla.`;
-    let plan = `El pla humà era comparar amenaces, millorar la peça pitjor situada i només després buscar tàctica concreta; ${best} apuntava millor en aquesta direcció.`;
-    let question = 'Abans de moure aquí, què era més urgent: calcular captures, millorar peces o neutralitzar l’amenaça del rival?';
-    let objective = 'A la pròxima partida, atura’t un torn en cada moment crític i escriu mentalment el pla abans de tocar peça.';
-
-    if (/rei|atac|king|seguretat/.test(theme)) {
-        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), vas deixar que la seguretat del rei pesés més del que semblava a primera vista.`;
-        plan = `El pla humà era portar més peces a la defensa o obrir línies només quan el teu rei ja no fos el primer objectiu; ${best} respectava millor aquesta prioritat.`;
-        question = 'Qui està més exposat si s’obren línies ara: el teu rei o el del rival?';
-        objective = 'No obris el centre si el teu rei encara necessita una peça defensora o una casella d’escapament.';
-    } else if (/centre|obertura/.test(theme) || phase === 'obertura') {
-        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), el pla d’obertura es va desviar: desenvolupament, centre i rei segur havien de manar.`;
-        plan = `El pla humà era completar desenvolupament i lluitar pel centre abans d’iniciar operacions laterals; ${best} mantenia millor aquesta harmonia.`;
-        question = 'Aquesta jugada desenvolupa, controla el centre o protegeix el rei? Si no, què justifica l’excepció?';
-        objective = 'Durant les 10 primeres jugades, demana que cada moviment compleixi almenys una funció d’obertura clara.';
-    } else if (/material|combin/.test(theme)) {
-        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), la tàctica va amagar el balanç real de material i coordinació.`;
-        plan = `El pla humà era preguntar què queda penjat després dels canvis, no només què es pot capturar ara; ${best} reduïa millor aquest risc.`;
-        question = 'Després de la seqüència forçada, quina peça queda sense defensa?';
-        objective = 'Abans de capturar, calcula una jugada més: la recaptura i l’amenaça següent del rival.';
-    } else if (/final/.test(theme) || phase === 'final') {
-        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), el final demanava activitat i simplificació favorable, no una decisió automàtica.`;
-        plan = `El pla humà era activar el rei o la peça més passiva i evitar canvis que empitjoressin l’estructura; ${best} conservava millor el marge pràctic.`;
-        question = 'Quina peça teva és menys activa i quin canvi afavoreix realment el teu final?';
-        objective = 'En finals, ordena sempre: rei actiu, peons sans, torres darrere dels passats.';
-    }
-
-    return { diagnosis, plan, question, objective };
+    const themeKey = resolveHumanPlanThemeKey(moment);
+    const pool = HUMAN_PLAN_BANK[themeKey] || HUMAN_PLAN_BANK.general;
+    return {
+        diagnosis: fillPlanTemplate(pickFreshPlanLine(pool.diagnosis, themeKey + ':diagnosis'), moment),
+        plan: fillPlanTemplate(pickFreshPlanLine(pool.plan, themeKey + ':plan'), moment),
+        question: fillPlanTemplate(pickFreshPlanLine(pool.question, themeKey + ':question'), moment),
+        objective: fillPlanTemplate(pickFreshPlanLine(pool.objective, themeKey + ':objective'), moment)
+    };
 }
 
 function buildHumanPlanMoments(entry) {
@@ -14748,6 +15125,7 @@ function buildHumanPlanMoments(entry) {
             const moment = {
                 moveNumber: r.moveNumber || '?',
                 phase: getHumanPlanPhase(r.moveNumber),
+                themeKey: getPlanThemeKeyFromReview(r),
                 theme: getPlanThemeLabelFromReview(r),
                 played: r.playerMoveSan || r.playerMove || '—',
                 best: r.bestMoveSan || r.bestMove || '—',
