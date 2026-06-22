@@ -6720,22 +6720,27 @@ Genera ara ${sentenceText} específica${sentenceCount === 1 ? '' : 's'} per aque
 function buildBundleOpenAIPromptWithFixedSequence(step) {
     if (!bundleFixedSequence) return null;
 
-    const stepData = step === 1 ? bundleFixedSequence.step1 : bundleFixedSequence.step2;
+    const stepData = (step === 1 ? bundleFixedSequence.step1 : bundleFixedSequence.step2) || {};
     const voice = getStrategicVoice();
+
+    // La seqüència pot tenir 1 sol moviment (p. ex. "Practica aquest pla") o 3 (bundle clàssic).
+    const sequenceText = (bundleFixedSequence.fullSequenceSan || [])
+        .map((san, i) => `${i + 1}. ${i % 2 === 0 ? 'Jugador' : 'Oponent'}: ${san}`)
+        .join('\n') || `1. Jugador: ${stepData.playerMoveSan || '—'}`;
+    const materialBalance = stepData.position?.material?.balance ?? '—';
+    const tacticThemes = (stepData.threats?.themes || []).join(', ') || 'Cap';
 
     if (step === 1) {
         return `Ets un mestre d'escacs que aplica els principis de "${voice.work}" de ${voice.name} als escacs.
 
 SEQÜÈNCIA TÀCTICA COMPLETA (no revelar):
-1. Jugador: ${bundleFixedSequence.fullSequenceSan[0]}
-2. Oponent: ${bundleFixedSequence.fullSequenceSan[1]}
-3. Jugador: ${bundleFixedSequence.fullSequenceSan[2]}
+${sequenceText}
 
 CONTEXT DEL PRIMER PAS:
 Posició (FEN): ${stepData.fen}
 Millor jugada: ${stepData.playerMoveSan}
-Balanç material: ${stepData.position.material.balance}
-Temes tàctics: ${stepData.threats.themes.join(', ') || 'Cap'}
+Balanç material: ${materialBalance}
+Temes tàctics: ${tacticThemes}
 
 INSTRUCCIONS:
 Genera exactament 2 màximes o principis d'escacs inspirats en "${voice.work}":
@@ -6760,8 +6765,8 @@ Màxima específica`;
 CONTEXT DEL SEGON PAS:
 Posició (FEN): ${stepData.fen}
 Millor jugada: ${stepData.playerMoveSan}
-Balanç material: ${stepData.position.material.balance}
-Temes tàctics: ${stepData.threats.themes.join(', ') || 'Cap'}
+Balanç material: ${materialBalance}
+Temes tàctics: ${tacticThemes}
 
 INSTRUCCIONS:
 Genera exactament 1 màxima o principi d'escacs inspirat en "${voice.work}" per al segon moviment de la seqüència.
@@ -14670,14 +14675,14 @@ Regles:
 }
 
 // Capa OpenAI opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
-async function requestOpenAICoachText(cacheKey, prompt, onText) {
+async function requestOpenAICoachText(cacheKey, prompt, onText, maxLen = 1800) {
     if (!openaiApiKey) return;
     const cached = getCachedOpenAI(cacheKey);
     if (cached) { onText(cached); return; }
     const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 1024 } });
     if (!result.ok) return;
     const text = (result.text || '').trim();
-    if (!text || text.length < 40 || text.length > 1800) return;
+    if (!text || text.length < 40 || text.length > maxLen) return;
     setCachedOpenAI(cacheKey, text);
     onText(text);
 }
@@ -14785,7 +14790,10 @@ function buildSingleMovePracticeSequence(moment) {
             promotion: moment.bestMoveUci.length > 4 ? moment.bestMoveUci[4] : undefined
         });
         if (!move) return null;
-        const emptyThreats = { threats: [], themes: [], immediateThreats: [] };
+        let position = null;
+        try { position = parseFenPosition(moment.fen); } catch (e) { position = null; }
+        let threats = { threats: [], themes: [], immediateThreats: [] };
+        try { threats = analyzePvThreats(moment.fen, [moment.bestMoveUci]) || threats; } catch (e) {}
         return {
             initialFen: moment.fen,
             totalSteps: 1,
@@ -14794,8 +14802,8 @@ function buildSingleMovePracticeSequence(moment) {
                 playerMove: moment.bestMoveUci,
                 playerMoveSan: move.san,
                 alternatives: [],
-                position: null,
-                threats: emptyThreats
+                position: position,
+                threats: threats
             },
             fullSequence: [moment.bestMoveUci],
             fullSequenceSan: [move.san]
@@ -14916,7 +14924,8 @@ function renderGameDebrief() {
         requestOpenAICoachText(
             `human-plans:${entry.id}:v1`,
             buildHumanPlansOpenAIPrompt(entry, humanPlanMoments),
-            text => renderOpenAIHumanPlans(humanPlansPanel, text, humanPlanMoments)
+            text => renderOpenAIHumanPlans(humanPlansPanel, text, humanPlanMoments),
+            3000
         );
     }
 }
