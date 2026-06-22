@@ -8309,7 +8309,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             swing: review.swing || 0,
             fen: review.fen || null,
             bestMove: review.bestMove || null,
+            bestMoveSan: review.bestMoveSan || null,
             playerMove: review.playerMove || null,
+            playerMoveSan: review.playerMoveSan || null,
             bestMovePv: review.bestMovePv || [],
             alternatives: review.alternatives || [],
             evalBefore: review.evalBefore ?? null,
@@ -14662,9 +14664,141 @@ async function requestOpenAICoachText(cacheKey, prompt, onText) {
     const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 1024 } });
     if (!result.ok) return;
     const text = (result.text || '').trim();
-    if (!text || text.length < 40 || text.length > 900) return;
+    if (!text || text.length < 40 || text.length > 1800) return;
     setCachedOpenAI(cacheKey, text);
     onText(text);
+}
+
+
+function getPlanThemeLabelFromReview(review) {
+    const theme = normalizeGrowthTheme(classifyPositionTheme(review?.fen || '', review?.playerMove || ''));
+    return getThemeLabel(theme || 'general');
+}
+
+function getHumanPlanPhase(moveNumber) {
+    const n = moveNumber || 0;
+    if (n <= 10) return 'obertura';
+    if (n <= 28) return 'mig joc';
+    return 'final';
+}
+
+function buildLocalHumanPlan(moment) {
+    const theme = String(moment.theme || '').toLowerCase();
+    const phase = moment.phase || 'mig joc';
+    const played = moment.played || 'la jugada triada';
+    const best = moment.best || 'una jugada més precisa';
+    const swing = moment.swing || 0;
+
+    let diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), el problema no era només perdre ${swing} CP: era escollir una acció abans de tenir clar el pla.`;
+    let plan = `El pla humà era comparar amenaces, millorar la peça pitjor situada i només després buscar tàctica concreta; ${best} apuntava millor en aquesta direcció.`;
+    let question = 'Abans de moure aquí, què era més urgent: calcular captures, millorar peces o neutralitzar l’amenaça del rival?';
+    let objective = 'A la pròxima partida, atura’t un torn en cada moment crític i escriu mentalment el pla abans de tocar peça.';
+
+    if (/rei|atac|king|seguretat/.test(theme)) {
+        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), vas deixar que la seguretat del rei pesés més del que semblava a primera vista.`;
+        plan = `El pla humà era portar més peces a la defensa o obrir línies només quan el teu rei ja no fos el primer objectiu; ${best} respectava millor aquesta prioritat.`;
+        question = 'Qui està més exposat si s’obren línies ara: el teu rei o el del rival?';
+        objective = 'No obris el centre si el teu rei encara necessita una peça defensora o una casella d’escapament.';
+    } else if (/centre|obertura/.test(theme) || phase === 'obertura') {
+        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), el pla d’obertura es va desviar: desenvolupament, centre i rei segur havien de manar.`;
+        plan = `El pla humà era completar desenvolupament i lluitar pel centre abans d’iniciar operacions laterals; ${best} mantenia millor aquesta harmonia.`;
+        question = 'Aquesta jugada desenvolupa, controla el centre o protegeix el rei? Si no, què justifica l’excepció?';
+        objective = 'Durant les 10 primeres jugades, demana que cada moviment compleixi almenys una funció d’obertura clara.';
+    } else if (/material|combin/.test(theme)) {
+        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), la tàctica va amagar el balanç real de material i coordinació.`;
+        plan = `El pla humà era preguntar què queda penjat després dels canvis, no només què es pot capturar ara; ${best} reduïa millor aquest risc.`;
+        question = 'Després de la seqüència forçada, quina peça queda sense defensa?';
+        objective = 'Abans de capturar, calcula una jugada més: la recaptura i l’amenaça següent del rival.';
+    } else if (/final/.test(theme) || phase === 'final') {
+        diagnosis = `A la jugada ${moment.moveNumber || '?'} (${played}), el final demanava activitat i simplificació favorable, no una decisió automàtica.`;
+        plan = `El pla humà era activar el rei o la peça més passiva i evitar canvis que empitjoressin l’estructura; ${best} conservava millor el marge pràctic.`;
+        question = 'Quina peça teva és menys activa i quin canvi afavoreix realment el teu final?';
+        objective = 'En finals, ordena sempre: rei actiu, peons sans, torres darrere dels passats.';
+    }
+
+    return { diagnosis, plan, question, objective };
+}
+
+function buildHumanPlanMoments(entry) {
+    const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
+    const priority = { blunder: 4, mistake: 3, inaccuracy: 2, good: 1, excel: 0 };
+    return reviews
+        .filter(r => r && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
+        .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
+        .slice(0, 3)
+        .map(r => {
+            const moment = {
+                moveNumber: r.moveNumber || '?',
+                phase: getHumanPlanPhase(r.moveNumber),
+                theme: getPlanThemeLabelFromReview(r),
+                played: r.playerMoveSan || r.playerMove || '—',
+                best: r.bestMoveSan || r.bestMove || '—',
+                swing: Math.round(r.swing || 0),
+                quality: r.quality || 'inaccuracy',
+                fen: r.fen || null
+            };
+            return { ...moment, ...buildLocalHumanPlan(moment) };
+        });
+}
+
+function buildHumanPlansOpenAIPrompt(entry, moments) {
+    return `Ets un entrenador d'escacs en català. Redacta un "Entrenador de plans humans" variat i gens repetitiu.
+
+DADES DE LA PARTIDA
+${JSON.stringify({ resultat: entry?.result || '—', precisio: entry?.precision ?? null }, null, 2)}
+
+MOMENTS CRÍTICS DETECTATS PEL MOTOR (no els qüestionis ni inventis jugades):
+${JSON.stringify(moments.map(m => ({ jugada: m.moveNumber, fase: m.phase, tema: m.theme, jugada_feta: m.played, millor_jugada: m.best, perdua_cp: m.swing, qualitat: m.quality })), null, 2)}
+
+Retorna exactament ${moments.length} blocs, un per moment, separats per una línia en blanc. Cada bloc ha de tenir aquest format exacte:
+PLA X: títol curt
+Diagnòstic: una frase humana sobre què passava.
+Pla: una frase amb el pla correcte, sense sonar a motor.
+Pregunta: una pregunta que obligui l'alumne a pensar.
+Objectiu: una microtasca aplicable a la pròxima partida.
+
+Regles: no facis markdown, no emojis, no llistes amb guions, màxim 90 paraules per bloc, català natural, no inventis variants noves.`;
+}
+
+function renderHumanPlanCards(container, moments) {
+    const panel = $('<div class="human-plan-panel"></div>');
+    panel.append($('<div class="coach-kicker human-plan-title"></div>').append($('<span></span>').text('🧭 Entrenador de plans humans')));
+    const list = $('<div class="human-plan-list"></div>');
+    moments.forEach((m, idx) => {
+        const card = $('<div class="coach-item human-plan-card"></div>');
+        const main = $('<div class="coach-item-main"></div>');
+        main.append($('<div class="coach-item-title"></div>').text(`Pla ${idx + 1} · Jugada ${m.moveNumber} (${m.played}) · ${m.theme}`));
+        main.append($('<div class="coach-text human-plan-text"></div>').html([
+            `<strong>Diagnòstic:</strong> ${escapeHtml(m.diagnosis)}`,
+            `<strong>Pla:</strong> ${escapeHtml(m.plan)}`,
+            `<strong>Pregunta:</strong> ${escapeHtml(m.question)}`,
+            `<strong>Objectiu:</strong> ${escapeHtml(m.objective)}`
+        ].join('<br>')));
+        card.append(main);
+        list.append(card);
+    });
+    panel.append(list);
+    container.append(panel);
+    return panel;
+}
+
+function renderOpenAIHumanPlans(panel, text) {
+    if (!panel || !panel.length || !text) return;
+    const blocks = String(text).split(/\n\s*\n/).map(b => b.trim()).filter(Boolean);
+    if (!blocks.length) return;
+    const list = panel.find('.human-plan-list');
+    if (!list.length) return;
+    list.empty();
+    blocks.forEach(block => {
+        const lines = block.split('\n').map(l => l.trim()).filter(Boolean);
+        const title = lines.shift() || 'Pla humà';
+        const card = $('<div class="coach-item human-plan-card"></div>');
+        const main = $('<div class="coach-item-main"></div>');
+        main.append($('<div class="coach-item-title"></div>').text(title.replace(/^PLA\s*\d+\s*:\s*/i, '')));
+        main.append($('<div class="coach-text human-plan-text"></div>').html(escapeHtml(lines.join('\n')).replace(/\n/g, '<br>')));
+        card.append(main);
+        list.append(card);
+    });
 }
 
 function renderGameDebrief() {
@@ -14691,10 +14825,23 @@ function renderGameDebrief() {
     box.find('.coach-speak-btn').on('click', () => speakCoachText(textEl.text()));
     updateCoachSpeakButtons();
 
+    const humanPlanMoments = buildHumanPlanMoments(entry);
+    let humanPlansPanel = null;
+    if (humanPlanMoments.length) {
+        humanPlansPanel = renderHumanPlanCards(box, humanPlanMoments);
+    }
+
     if (!coachDebriefPending) {
         coachDebriefPending = true;
         requestOpenAICoachText(`debrief:${entry.id}`, buildDebriefOpenAIPrompt(facts), text => textEl.text(text))
             .finally(() => { coachDebriefPending = false; });
+    }
+    if (humanPlansPanel && humanPlanMoments.length) {
+        requestOpenAICoachText(
+            `human-plans:${entry.id}:v1`,
+            buildHumanPlansOpenAIPrompt(entry, humanPlanMoments),
+            text => renderOpenAIHumanPlans(humanPlansPanel, text)
+        );
     }
 }
 
