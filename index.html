@@ -2543,7 +2543,22 @@
         /* Tap-to-move feedback */
         .board-container { width: 100%; }
         .square-55d63.tap-selected { outline: 3px solid rgba(201, 162, 39, 0.95); outline-offset: -3px; }
-        .square-55d63.tap-move { box-shadow: inset 0 0 0 3px rgba(74, 124, 89, 0.65); }
+        #myBoard .square-55d63.tap-move { position: relative; }
+        #myBoard .square-55d63.tap-move::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            width: 36%;
+            height: 36%;
+            border: 5px solid #111;
+            border-radius: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+            z-index: 3;
+        }
+        #myBoard .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
+        body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
         .square-55d63.engine-move {
             border-radius: 10px;
             box-shadow: inset 0 0 0 3px #4b2f18 !important;

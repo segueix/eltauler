@@ -1245,7 +1245,7 @@ window.addEventListener('orientationchange', () => {
 
 function clearTapSelection() {
     tapSelectedSquare = null;
-    $('.square-55d63').removeClass('tap-selected tap-move');
+    $('#myBoard .square-55d63').removeClass('tap-selected tap-move');
 }
 
 function clearTvTapSelection() {
@@ -1267,14 +1267,17 @@ function highlightEngineMove(from, to) {
 }
 
 function highlightTapSelection(square) {
-    $('.square-55d63').removeClass('tap-selected tap-move');
+    $('#myBoard .square-55d63').removeClass('tap-selected tap-move');
+    const moves = game ? game.moves({ square: square, verbose: true }) : [];
+    if (moves.length === 0) return false;
+
     const sel = $(`#myBoard .square-55d63[data-square='${square}']`);
     sel.addClass('tap-selected');
 
-    const moves = game ? game.moves({ square: square, verbose: true }) : [];
     for (const mv of moves) {
         $(`#myBoard .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
     }
+    return true;
 }
 
 function highlightTvTapSelection(square) {
@@ -1369,8 +1372,9 @@ function enableTapToMove() {
         if (!tapSelectedSquare) {
             const p = game.get(square);
             if (!p || p.color !== game.turn()) return;
-            tapSelectedSquare = square;
-            highlightTapSelection(square);
+            if (highlightTapSelection(square)) {
+                tapSelectedSquare = square;
+            }
             return;
         }
 
@@ -1387,8 +1391,11 @@ function enableTapToMove() {
 
         const p2 = game.get(square);
         if (p2 && p2.color === game.turn()) {
-            tapSelectedSquare = square;
-            highlightTapSelection(square);
+            if (highlightTapSelection(square)) {
+                tapSelectedSquare = square;
+            } else {
+                tapSelectedSquare = null;
+            }
         }
     });
 }
