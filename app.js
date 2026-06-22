@@ -8443,6 +8443,7 @@ function buildOpeningMoveStats() {
 }
 
 function setOpeningScreenMode(mode = 'overview') {
+    document.body.classList.toggle('opening-mode-hieroglyphic', mode === 'hieroglyphic');
     const sections = {
         lessons: $('#opening-lessons-section'),
         practice: $('#opening-practice-section'),
