@@ -10034,13 +10034,16 @@ function initOpeningBundleBoard() {
             }
             if (openingPracticeGame.turn() === 'w' && piece.search(/^b/) !== -1) return false;
             if (openingPracticeGame.turn() === 'b' && piece.search(/^w/) !== -1) return false;
+            if (hieroglyphicExerciseActive) highlightOpeningTapSelection(source);
         },
         onDrop: (source, target) => {
             if (!openingPracticeGame) return 'snapback';
 
             // Mode exercici geroglífic
             if (hieroglyphicExerciseActive) {
-                return handleHieroglyphicMove(source, target);
+                const result = handleHieroglyphicMove(source, target);
+                clearOpeningTapSelection();
+                return result;
             }
 
             // Mode lliçó guiada: el jugador ha de trobar la jugada de la teoria

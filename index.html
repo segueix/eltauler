@@ -2573,8 +2573,10 @@
         /* Tap-to-move feedback */
         .board-container { width: 100%; }
         .square-55d63.tap-selected { outline: 3px solid rgba(201, 162, 39, 0.95); outline-offset: -3px; }
-        #myBoard .square-55d63.tap-move { position: relative; }
-        #myBoard .square-55d63.tap-move::after {
+        #myBoard .square-55d63.tap-move,
+        #opening-board .square-55d63.tap-move { position: relative; }
+        #myBoard .square-55d63.tap-move::after,
+        #opening-board .square-55d63.tap-move::after {
             content: '';
             position: absolute;
             top: 50%;
@@ -2587,8 +2589,12 @@
             pointer-events: none;
             z-index: 3;
         }
-        #myBoard .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
-        body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
+        #myBoard .square-55d63.black-3c85d.tap-move::after,
+        #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
+        body.opening-mode-hieroglyphic #opening-board .square-55d63.tap-move::after { border-color: rgba(139, 95, 199, 0.95); background: rgba(139, 95, 199, 0.14); }
+        body.opening-mode-hieroglyphic #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: rgba(244, 228, 188, 0.95); background: rgba(139, 95, 199, 0.22); }
+        body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after,
+        body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
         .square-55d63.engine-move {
             border-radius: 10px;
             box-shadow: inset 0 0 0 3px #4b2f18 !important;
