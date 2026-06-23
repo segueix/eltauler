@@ -10095,15 +10095,89 @@ function detectTacticalShapes(context) {
     }
     return motifs;
 }
+// TIER 2 — detectors heurístics addicionals (sense LLM) per afinar el subtema.
+function onlyKingsAndPawns(stats) {
+    for (const sq in stats.board) {
+        const t = stats.board[sq].type;
+        if (t !== 'k' && t !== 'p') return false;
+    }
+    return true;
+}
+function canBeHitByEnemyPawn(stats, square, myColor) {
+    const f = squareFileIdx(square), r = squareRankIdx(square);
+    const enemy = myColor === 'w' ? 'b' : 'w';
+    const enemyPawns = (stats.pawns && stats.pawns[enemy]) || [];
+    for (const ps of enemyPawns) {
+        if (Math.abs(squareFileIdx(ps) - f) !== 1) continue;
+        const pr = squareRankIdx(ps);
+        if (myColor === 'w' && pr > r) return true;   // peó negre per sobre pot baixar a atacar
+        if (myColor === 'b' && pr < r) return true;   // peó blanc per sota pot pujar a atacar
+    }
+    return false;
+}
+function backRankTrapped(board, kingColor) {
+    let kSq = null;
+    for (const sq in board) { if (board[sq].type === 'k' && board[sq].color === kingColor) { kSq = sq; break; } }
+    if (!kSq) return false;
+    const r = squareRankIdx(kSq), f = squareFileIdx(kSq);
+    if (r !== (kingColor === 'w' ? 1 : 8)) return false;
+    const fwd = kingColor === 'w' ? 1 : -1;
+    for (const df of [-1, 0, 1]) {
+        const nf = f + df, nr = r + fwd;
+        if (nf < 0 || nf > 7 || nr < 1 || nr > 8) continue;
+        const occ = board[String.fromCharCode(97 + nf) + nr];
+        if (!occ || occ.color !== kingColor) return false; // hi ha sortida (casella lliure o de l'enemic)
+    }
+    return true; // les tres caselles de davant bloquejades per peces pròpies
+}
+function detectAdvancedMotifs(context) {
+    const tags = [], notes = [];
+    try {
+        if (!context.moveAfterFen) return { tags, notes };
+        const stats = fenPieceStats(context.moveAfterFen);
+        const me = context.sideToMove, opp = me === 'w' ? 'b' : 'w';
+
+        // Material net (peça penjada) — reaprofita la detecció de captura segura.
+        if (context.materialIdea && Array.isArray(context.materialIdea.motifs) && context.materialIdea.motifs.includes('safe_capture')) {
+            tags.push('free_material'); notes.push('guanyaves material net');
+        }
+        // Avantpost de cavall: cap peó enemic el pot atacar.
+        if (context.movingPiece === 'n' && context.to) {
+            const r = squareRankIdx(context.to);
+            const advanced = me === 'w' ? r >= 4 : r <= 5;
+            if (advanced && !canBeHitByEnemyPawn(stats, context.to, me)) {
+                tags.push('outpost'); notes.push(`tenies un avantpost per al cavall a ${context.to}`);
+            }
+        }
+        // Debilitat de última fila: rei enemic al fons sense escapatòria i jugada amb escac.
+        if ((context.isCheck || context.isMate) && backRankTrapped(stats.board, opp)) {
+            tags.push('back_rank'); notes.push('hi havia debilitat a la última fila');
+        }
+        // Final de reis i peons: oposició i tempos.
+        if (onlyKingsAndPawns(stats)) {
+            tags.push('kp_endgame');
+            notes.push(context.movingPiece === 'k' ? 'en un final de reis i peons, l’oposició decideix' : 'final de reis i peons: compta bé els tempos');
+        }
+    } catch (e) {}
+    return { tags, notes };
+}
 function inferHieroglyphicThemes(context) {
     const themes = [];
     const add = t => { if (t && !themes.includes(t)) themes.push(t); };
+    const adv = context.advancedMotifs || [];
+    const meExposed = !!(context.kingSafety && context.kingSafety[context.sideToMove] && context.kingSafety[context.sideToMove].exposed);
     (context.tacticalMotifs || []).forEach(add);
+    if (adv.includes('back_rank')) add('king_attack');
     if (context.isMate || context.isCheck || context.kingPressure?.score > 0) add('king_attack');
+    // Atacat vs atacant: si el meu rei està exposat i la jugada és tranquil·la, és defensa.
+    if (meExposed && !context.isCheck && !context.isCapture) add('defensive_move');
+    if (adv.includes('free_material')) add('material_win');
     if (context.materialIdea?.score > 0 || context.isCapture) add('material_win');
     if (context.centerIdea?.motifs?.length) add('center_break');
+    if (adv.includes('outpost')) add('piece_activity');
     if (context.activityIdea?.motifs?.includes('development')) add('development');
     if (context.activityIdea?.motifs?.includes('rook_open_file')) add('piece_activity');
+    if (adv.includes('kp_endgame')) add('endgame_activity');
     if (context.endgameIdea?.score > 0) add('endgame_activity');
     if (context.isPromotion || context.strategicMotifs?.includes('passed_pawn')) add('passed_pawn');
     if (context.swing >= 250 && context.playerMove) add('defensive_move');
@@ -10174,6 +10248,9 @@ function buildHieroglyphicContext(fen, bestMove, options = {}) {
     context.endgameIdea = detectEndgameIdea(fen, bestMove, pv);
     context.tacticalMotifs = detectTacticalShapes(context);
     if (context.isPromotion || (context.movingPiece === 'p' && (squareRankIdx(context.to) >= 7 || squareRankIdx(context.to) <= 2))) context.strategicMotifs.push('passed_pawn');
+    const advMotifs = detectAdvancedMotifs(context);
+    context.advancedMotifs = advMotifs.tags;
+    context.motifNotes = advMotifs.notes;
     return inferHieroglyphicThemes(context);
 }
 function pickHieroglyphicVoice() {
@@ -15588,11 +15665,15 @@ function buildPositionalNote(ctx) {
     if (!ctx) return '';
     const bits = [];
     try {
+        // El motiu concret detectat (avantpost, última fila, final de reis...) va primer.
+        if (Array.isArray(ctx.motifNotes) && ctx.motifNotes.length) bits.push(ctx.motifNotes[0]);
         const me = ctx.sideToMove, opp = me === 'w' ? 'b' : 'w';
         const ks = ctx.kingSafety || {};
-        if (ks[me] && ks[me].exposed) bits.push('el teu rei estava exposat');
-        else if (ks[opp] && ks[opp].exposed) bits.push('el rei rival estava exposat');
-        if (Array.isArray(ctx.openFiles) && ctx.openFiles.length) bits.push(`la columna ${ctx.openFiles[0]} era oberta`);
+        if (bits.length < 2) {
+            if (ks[me] && ks[me].exposed) bits.push('el teu rei estava exposat');
+            else if (ks[opp] && ks[opp].exposed) bits.push('el rei rival estava exposat');
+        }
+        if (bits.length < 2 && Array.isArray(ctx.openFiles) && ctx.openFiles.length) bits.push(`la columna ${ctx.openFiles[0]} era oberta`);
         if (bits.length < 2 && typeof ctx.centerTension === 'number' && ctx.centerTension >= 4) bits.push('hi havia tensió al centre');
         if (bits.length < 2 && typeof ctx.materialBalance === 'number' && Math.abs(ctx.materialBalance) >= 2) {
             bits.push(`el material afavoria les ${ctx.materialBalance > 0 ? 'blanques' : 'negres'}`);
@@ -15691,6 +15772,16 @@ function getHumanPlanPhase(moveNumber) {
     return 'final';
 }
 
+// TIER 2 — fase per material (no només per número de jugada): usa el phaseScore
+// del context, que combina jugades i peces restants.
+function phaseFromContext(ctx, moveNumber) {
+    const score = ctx && typeof ctx.phaseScore === 'number' ? ctx.phaseScore : null;
+    if (score === null) return getHumanPlanPhase(moveNumber);
+    if (score < 0.30) return 'obertura';
+    if (score < 0.66) return 'mig joc';
+    return 'final';
+}
+
 function buildLocalHumanPlan(moment) {
     const themeKey = resolveHumanPlanThemeKey(moment);
     const pool = HUMAN_PLAN_BANK[themeKey] || HUMAN_PLAN_BANK.general;
@@ -15716,7 +15807,7 @@ function buildHumanPlanMoments(entry) {
             const themeKey = detectPlanSubtheme(r, ctx);
             const moment = {
                 moveNumber: r.moveNumber || '?',
-                phase: getHumanPlanPhase(r.moveNumber),
+                phase: phaseFromContext(ctx, r.moveNumber),
                 themeKey,
                 theme: planThemeDisplayLabel(themeKey),
                 played: r.playerMoveSan || r.playerMove || '—',
