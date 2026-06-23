@@ -1104,6 +1104,36 @@
             width: 100vw;
             max-width: 100vw;
         }
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section {
+            padding-left: 0;
+            padding-right: 0;
+            overflow: hidden;
+        }
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section .opening-section-title,
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section .opening-section-desc,
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section .opening-mode-row,
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section #opening-practice-note,
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section .opening-practice-actions,
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section #opening-precision-panel {
+            margin-left: 14px;
+            margin-right: 14px;
+        }
+        body.device-mobile.opening-mode-hieroglyphic #opening-practice-section .opening-bundle-board {
+            width: 100vw;
+            max-width: 100vw;
+            margin-left: calc(50% - 50vw);
+            margin-right: calc(50% - 50vw);
+            padding: 0;
+            border-left: 0;
+            border-right: 0;
+            border-radius: 0;
+            background: transparent;
+        }
+        body.device-mobile.opening-mode-hieroglyphic #opening-board {
+            width: 100vw !important;
+            max-width: 100vw !important;
+            margin: 0 !important;
+        }
         
         body.device-tablet .menu-buttons,
         body.device-desktop .menu-buttons {
@@ -2543,8 +2573,10 @@
         /* Tap-to-move feedback */
         .board-container { width: 100%; }
         .square-55d63.tap-selected { outline: 3px solid rgba(201, 162, 39, 0.95); outline-offset: -3px; }
-        #myBoard .square-55d63.tap-move { position: relative; }
-        #myBoard .square-55d63.tap-move::after {
+        #myBoard .square-55d63.tap-move,
+        #opening-board .square-55d63.tap-move { position: relative; }
+        #myBoard .square-55d63.tap-move::after,
+        #opening-board .square-55d63.tap-move::after {
             content: '';
             position: absolute;
             top: 50%;
@@ -2557,8 +2589,12 @@
             pointer-events: none;
             z-index: 3;
         }
-        #myBoard .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
-        body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
+        #myBoard .square-55d63.black-3c85d.tap-move::after,
+        #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
+        body.opening-mode-hieroglyphic #opening-board .square-55d63.tap-move::after { border-color: rgba(139, 95, 199, 0.95); background: rgba(139, 95, 199, 0.14); }
+        body.opening-mode-hieroglyphic #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: rgba(244, 228, 188, 0.95); background: rgba(139, 95, 199, 0.22); }
+        body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after,
+        body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
         .square-55d63.engine-move {
             border-radius: 10px;
             box-shadow: inset 0 0 0 3px #4b2f18 !important;
