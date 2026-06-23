@@ -45,6 +45,8 @@
             --severity-high: #ff0000;
             --streak-fire: #d4763b;
             --star-gold: #ffd700;
+            --text-positive: #7fcf9a;
+            --text-negative: #ff6f61;
             --font-scale: 1;
         }
                 body.epaper-mode {
@@ -62,6 +64,8 @@
             --severity-high: #777;
             --streak-fire: #444;
             --star-gold: #555;
+            --text-positive: #444;
+            --text-negative: #555;
             background: #f2f2f2 !important;
             color: #222;
             filter: saturate(0) contrast(0.95);
@@ -104,7 +108,7 @@
             --bg-dark: #f3ead6;
             --bg-card: #fbf5e6;
             --bg-warm: #f0e4ca;
-            --accent-gold: #9a7d1f;
+            --accent-gold: #806712;
             --accent-green: #3f6b4d;
             --accent-purple: #7b3f8c;
             --accent-blue: #1f5fa8;
@@ -113,8 +117,10 @@
             --severity-low: #c79a00;
             --severity-med: #d97300;
             --severity-high: #c0392b;
-            --streak-fire: #c2632b;
-            --star-gold: #c79a00;
+            --streak-fire: #a44e1a;
+            --star-gold: #805f00;
+            --text-positive: #285c3c;
+            --text-negative: #b3201f;
             background: linear-gradient(180deg, #f3ead6 0%, #ece0c6 50%, #f3ead6 100%);
             color: var(--text-primary);
         }
@@ -132,6 +138,69 @@
         body.day-mode .btn-secondary,
         body.day-mode .select-control,
         body.day-mode .text-input { border: 1px solid rgba(120, 95, 40, 0.25); }
+
+        /* ============================================================
+           Correccions de contrast — MODE DIA (pergamí)
+           Moltes caixes s'enfosqueixen amb negre translúcid (rgba(0,0,0,..));
+           sobre el crema es tornarien grises i tèrboles, amb els accents
+           daurats il·legibles. Aquí reben un tint càlid clar amb vora
+           visible; els daurats ja s'han enfosquit a les variables de dalt.
+           ============================================================ */
+        body.day-mode .stat-box,
+        body.day-mode .stat-card,
+        body.day-mode .missions-panel,
+        body.day-mode .mission-item,
+        body.day-mode .coach-panel,
+        body.day-mode .coach-item,
+        body.day-mode .settings-panel,
+        body.day-mode .openai-status,
+        body.day-mode .tv-card,
+        body.day-mode .tv-player,
+        body.day-mode .opening-stats-row,
+        body.day-mode .opening-bundle-board,
+        body.day-mode .bundle-item,
+        body.day-mode .drill-item,
+        body.day-mode .bundle-section,
+        body.day-mode .bundle-section-header,
+        body.day-mode .badge-item,
+        body.day-mode .history-section,
+        body.day-mode .history-item,
+        body.day-mode .chart-container,
+        body.day-mode .league-badge,
+        body.day-mode .league-table thead th,
+        body.day-mode .plan-countdown,
+        body.day-mode .opening-theory-line.theory-neutral,
+        body.day-mode .clock-pill {
+            background: rgba(120, 95, 40, 0.08);
+            border-color: rgba(120, 95, 40, 0.22);
+        }
+        /* Camps de formulari: fons clar i vora perquè s'hi vegi el text */
+        body.day-mode .select-control,
+        body.day-mode .text-input,
+        body.day-mode #openai-key-input {
+            background: #fffdf7;
+        }
+        /* Botons daurats: daurat brillant + text fosc (no daurat fosc + text fosc) */
+        body.day-mode .btn-primary,
+        body.day-mode .engagement-banner .eng-cta,
+        body.day-mode .coach-item:not(.done) .btn.coach-item-go {
+            background: linear-gradient(135deg, #e6c24c 0%, #c9a227 100%);
+            color: #2e2618;
+        }
+        /* Xips de revisió de partida: text fosc semàntic sobre fons clar */
+        body.day-mode .review-chip { background: rgba(120,95,40,0.08); border-color: rgba(120,95,40,0.2); color: var(--text-primary); }
+        body.day-mode .review-chip strong { color: #2e2618; }
+        body.day-mode .review-chip.excel { color: #2f6b46; border-color: rgba(63,107,77,0.55); }
+        body.day-mode .review-chip.good { color: #806712; border-color: rgba(154,125,31,0.55); }
+        body.day-mode .review-chip.inaccuracy { color: #985900; border-color: rgba(217,115,0,0.55); }
+        body.day-mode .review-chip.mistake { color: #b22f2f; border-color: rgba(192,57,43,0.55); }
+        body.day-mode .review-chip.blunder { color: #9e1f24; border-color: rgba(183,28,28,0.55); }
+        /* Accents semàntics vius (verd/taronja/vermell) pensats per fons fosc → foscos en dia */
+        body.day-mode .opening-session-stats.stats-good { color: #2f6b46; }
+        body.day-mode .opening-session-stats.stats-warning { color: #985900; }
+        body.day-mode .opening-session-stats.stats-danger { color: #b3201f; }
+        body.day-mode .opening-stats-row .move-link { color: #6a2f80; }
+        body.day-mode .openai-move-link:hover { color: #6a2f80; }
 
         /* Font scale system — --font-scale scales the root font-size so all rem units follow */
         html { font-size: calc(16px * var(--font-scale)); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -316,7 +385,7 @@
         }
         
         .streak-status { font-size: 0.6rem; margin-top: 3px; padding: 2px 6px; border-radius: 8px; display: inline-block; }
-        .streak-done { background: rgba(74, 124, 89, 0.3); color: var(--accent-green); }
+        .streak-done { background: rgba(74, 124, 89, 0.3); color: var(--text-positive); }
         .streak-pending { background: rgba(212, 118, 59, 0.2); color: var(--streak-fire); }
         
         /* MISSIONS */
@@ -445,7 +514,7 @@
         @media (max-width: 480px) {
             .coach-item .btn.coach-item-go { flex: 1 1 100%; width: 100%; padding: 9px 12px; }
         }
-        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--accent-green); cursor: default; }
+        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--text-positive); cursor: default; }
         body.epaper-mode .coach-panel,
         body.epaper-mode #review-debrief,
         body.epaper-mode .coach-item {
@@ -466,7 +535,7 @@
             text-align: left;
         }
         .error-context-text { flex: 1 1 220px; min-width: 0; font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
-        .error-context-text strong { color: #ef6e6e; font-size: 1rem; }
+        .error-context-text strong { color: var(--text-negative); font-size: 1rem; }
         .error-context-date { color: var(--text-secondary); }
         #error-context-banner .btn.error-context-replay {
             width: auto; flex: 0 0 auto; padding: 8px 12px; font-size: 0.78rem;
@@ -724,7 +793,7 @@
         .tv-card.blue { background: linear-gradient(135deg, rgba(25, 118, 210, 0.3), rgba(13, 71, 161, 0.6)); border-color: rgba(25, 118, 210, 0.35); }
         .tv-card.steel { background: linear-gradient(135deg, rgba(96, 125, 139, 0.35), rgba(55, 71, 79, 0.6)); border-color: rgba(96, 125, 139, 0.35); }
         .tv-card.ember { background: linear-gradient(135deg, rgba(212, 118, 59, 0.35), rgba(116, 60, 28, 0.6)); border-color: rgba(212, 118, 59, 0.35); }
-        .tv-card.sand { background: linear-gradient(135deg, rgba(244, 228, 188, 0.25), rgba(168, 154, 138, 0.5)); border-color: rgba(244, 228, 188, 0.35); color: #fef6e6; }
+        .tv-card.sand { background: linear-gradient(135deg, #e8d8b0, #b9a888); border-color: rgba(120, 95, 40, 0.4); color: #2e2618; }
         .tv-card.shadow { background: linear-gradient(135deg, rgba(61, 50, 42, 0.6), rgba(26, 20, 16, 0.9)); border-color: rgba(255, 255, 255, 0.08); }
         body.epaper-mode .tv-card {
             background: #e6e6e6;
@@ -817,7 +886,7 @@
             color: #f0fbf3;
         }
         #tv-hint {
-            background: linear-gradient(135deg, #c3a0f1, #8a63c7);
+            background: linear-gradient(135deg, #8257c0, #5e3a9e);
             color: #fff;
             box-shadow: 0 4px 14px rgba(138, 99, 199, 0.35);
         }
@@ -845,12 +914,12 @@
             filter: grayscale(0.35);
         }
         .btn-primary { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
-        .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: var(--accent-cream); }
+        .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: #fff; }
         .btn-blue { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: white; }
 
         /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
         .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
-        .btn-bundle   { background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc; }
+        .btn-bundle   { background: linear-gradient(135deg, #6e6359 0%, #4f463e 100%); color: #f4e4bc; }
         .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
         .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
         .btn-tactics  { background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0; }
@@ -876,11 +945,24 @@
         /* Graella compacta de 2 columnes per a botons secundaris */
         .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .menu-grid .btn {
-            flex-direction: column; gap: 2px; padding: 12px 10px;
+            flex-direction: column; gap: 4px; padding: 12px 10px;
             font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
         }
         .menu-grid .btn span { font-weight: 400; letter-spacing: 0; }
         @media (max-width: 360px) { .menu-grid { grid-template-columns: 1fr; } }
+
+        /* Icones de menú unificades: line-icons monocromes que hereten el color
+           del text (currentColor) i s'adapten als 3 temes (fosc, dia, e-paper).
+           Mida en em perquè quedin sempre al mateix nivell que el text. */
+        .btn-ic, .coach-ic {
+            flex: 0 0 auto;
+            fill: none; stroke: currentColor;
+            stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+        }
+        .btn-ic { width: 1.25em; height: 1.25em; }
+        .btn-hero .btn-ic { width: 1.35em; height: 1.35em; }
+        .menu-grid .btn .btn-ic { width: 1.7em; height: 1.7em; }
+        .coach-ic { width: 1.2em; height: 1.2em; vertical-align: -0.2em; margin-right: 2px; }
         /* Separador de la zona de dades/sync */
         .sync-divider {
             margin: 22px 0 12px; height: 1px;
@@ -1032,7 +1114,7 @@
             cursor: pointer;
             text-decoration: underline;
             text-decoration-style: dotted;
-            color: var(--accent-purple);
+            color: #c98fe0;
             padding: 2px 6px;
             border-radius: 4px;
             background: rgba(156, 39, 176, 0.15);
@@ -1300,8 +1382,8 @@
         .bundle-item:hover, .drill-item:hover { background: rgba(255,255,255,0.05); }
         .bundle-meta { font-size: 0.75rem; color: var(--text-secondary); }
         .bundle-elo { color: var(--accent-gold); font-weight: bold; }
-        .bundle-remove { color: #8b3a3a; cursor: pointer; padding: 5px 10px; font-size: 0.9rem; }
-        .bundle-remove:hover { color: #c62828; }
+        .bundle-remove { color: var(--text-negative); cursor: pointer; padding: 5px 10px; font-size: 0.9rem; }
+        .bundle-remove:hover { opacity: 0.75; }
         
         /* BUNDLE FOLDERS */
         .bundle-folder-list { text-align: left; margin-top: 10px; }
@@ -2158,7 +2240,7 @@
             transition: color 0.2s;
         }
         .openai-move-link:hover {
-        color: var(--accent-purple);
+        color: #c98fe0;
         text-decoration: none;
         }
         body.epaper-mode .openai-move-link {
@@ -2417,7 +2499,7 @@
         .danger-zone-title {
             font-family: 'Cinzel', serif;
             font-size: 0.9rem;
-            color: #c62828;
+            color: var(--text-negative);
             margin-bottom: 10px;
             text-align: center;
         }
@@ -2477,8 +2559,8 @@
         .league-history-row .lh-round { font-weight: 700; color: var(--accent-gold); min-width: 28px; }
         .league-history-row .lh-opp { flex: 1; color: var(--text-primary); }
         .league-history-row .lh-result { font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
-        .lh-win { background: rgba(74,124,89,0.25); color: var(--accent-green); }
-        .lh-loss { background: rgba(198,40,40,0.2); color: var(--severity-high); }
+        .lh-win { background: rgba(74,124,89,0.25); color: var(--text-positive); }
+        .lh-loss { background: rgba(198,40,40,0.2); color: var(--text-negative); }
         .lh-draw { background: rgba(201,162,39,0.2); color: var(--accent-gold); }
         .league-history-row.lh-win-row { border-left-color: var(--accent-green); }
         table.league-table { width: 100%; border-collapse: collapse; }
@@ -2758,6 +2840,72 @@
     </style>
 </head>
 <body>
+    <!-- Conjunt d'icones de menú (line-icons monocromes, hereten el color del text via currentColor) -->
+    <svg width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false">
+        <symbol id="ic-pawn" viewBox="0 0 24 24">
+            <circle cx="12" cy="6" r="2.6"/>
+            <path d="M9.3 11.2h5.4"/>
+            <path d="M14.5 11.2c0 2.6 1 4.6 2.3 6.3H7.2c1.3-1.7 2.3-3.7 2.3-6.3"/>
+            <path d="M6 20h12l-1-2.5H7z"/>
+        </symbol>
+        <symbol id="ic-compass" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/>
+            <polygon points="15.6 8.4 13.4 13.4 8.4 15.6 10.6 10.6"/>
+        </symbol>
+        <symbol id="ic-trophy" viewBox="0 0 24 24">
+            <path d="M6.5 4h11v3a5.5 5.5 0 0 1-11 0z"/>
+            <path d="M6.5 5h-2a2 2 0 0 0 0 4h2"/>
+            <path d="M17.5 5h2a2 2 0 0 1 0 4h-2"/>
+            <path d="M12 12.5v3.5"/>
+            <path d="M9 16h6l1.4 4h-8.8z"/>
+        </symbol>
+        <symbol id="ic-book" viewBox="0 0 24 24">
+            <path d="M12 6.5C10.6 5.6 8.9 5 7 5H3v12h4c1.9 0 3.6.6 5 1.5"/>
+            <path d="M12 6.5C13.4 5.6 15.1 5 17 5h4v12h-4c-1.9 0-3.6.6-5 1.5"/>
+            <path d="M12 6.5V18"/>
+        </symbol>
+        <symbol id="ic-zap" viewBox="0 0 24 24">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </symbol>
+        <symbol id="ic-search" viewBox="0 0 24 24">
+            <circle cx="10.5" cy="10.5" r="7"/>
+            <path d="M20.5 20.5l-4.7-4.7"/>
+        </symbol>
+        <symbol id="ic-repeat" viewBox="0 0 24 24">
+            <polyline points="17 2 21 6 17 10"/>
+            <path d="M3 12v-2a4 4 0 0 1 4-4h14"/>
+            <polyline points="7 22 3 18 7 14"/>
+            <path d="M21 12v2a4 4 0 0 1-4 4H3"/>
+        </symbol>
+        <symbol id="ic-calendar" viewBox="0 0 24 24">
+            <rect x="3" y="4.5" width="18" height="16.5" rx="2"/>
+            <path d="M3 9.5h18"/>
+            <path d="M8 2.5v4"/>
+            <path d="M16 2.5v4"/>
+            <path d="M9.2 14.8l1.9 1.9 3.7-3.9"/>
+        </symbol>
+        <symbol id="ic-cap" viewBox="0 0 24 24">
+            <path d="M12 4 2.5 8.5 12 13l9.5-4.5z"/>
+            <path d="M6 10.5V15c0 1.3 2.7 2.4 6 2.4s6-1.1 6-2.4v-4.5"/>
+            <path d="M21.5 8.5v5"/>
+        </symbol>
+        <symbol id="ic-history" viewBox="0 0 24 24">
+            <path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.7L3 8"/>
+            <path d="M3 3v5h5"/>
+            <path d="M12 7.5v5l3.5 2"/>
+        </symbol>
+        <symbol id="ic-bars" viewBox="0 0 24 24">
+            <path d="M4 20.5h16"/>
+            <path d="M6.5 20.5v-6"/>
+            <path d="M12 20.5V8"/>
+            <path d="M17.5 20.5v-9"/>
+        </symbol>
+        <symbol id="ic-gear" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </symbol>
+    </svg>
+
     <!-- Banner d'actualització del Service Worker -->
     <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
         <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
@@ -2810,8 +2958,8 @@
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
                 <div class="menu-buttons">
-                    <button class="btn btn-primary btn-hero" id="btn-new-game">♟ Nova partida</button>
-                    <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida assistida</button>
+                    <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
+                    <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
                     <div class="setting-row" style="margin: 2px 4px 4px;">
                         <div class="setting-label">Rellotge</div>
                         <select id="new-game-tc-select" class="select-control">
@@ -2839,7 +2987,7 @@
                             <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
                         </div>
                     </div>
-                    <button class="btn btn-league" id="btn-league">🏆 Lliga</button>
+                    <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                 </div>
             </div>
 
@@ -2847,22 +2995,26 @@
             <div class="menu-section">
                 <div class="menu-section-title">Entrena</div>
                 <div class="menu-buttons">
-                    <button class="btn btn-opening" id="btn-opening">📖 Obertures</button>
+                    <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
                     <div class="menu-grid">
                         <button class="btn btn-tactics" id="btn-tactics">
-                            ⚡ Tàctiques
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
+                            Tàctiques
                             <span style="font-size:0.72rem; opacity:0.85;" id="tactics-info">Entrena combinacions</span>
                         </button>
                         <button class="btn btn-bundle" id="btn-bundle-menu">
-                            📚 Revisa Errors
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>
+                            Revisa Errors
                             <span style="font-size:0.72rem; opacity:0.85;" id="bundle-info">Cap error desat</span>
                         </button>
                         <button class="btn btn-srs" id="btn-srs-review">
-                            🔁 Repàs intel·ligent
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>
+                            Repàs intel·ligent
                             <span style="font-size:0.72rem; opacity:0.85;" id="srs-info">Al dia</span>
                         </button>
                         <button class="btn btn-daily" id="btn-daily-puzzle">
-                            🗓️ Repte diari
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-calendar"/></svg>
+                            Repte diari
                             <span style="font-size:0.72rem; opacity:0.85;" id="daily-info">Disponible</span>
                         </button>
                     </div>
@@ -2872,7 +3024,7 @@
             <!-- PROGRÉS -->
             <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
                 <div class="coach-kicker">
-                    <span>🎓 El pla de l'entrenador</span>
+                    <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
                     <span class="coach-kicker-right">
                         <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
                     </span>
@@ -2886,10 +3038,10 @@
                 <div class="menu-section-title">Progrés</div>
                 <div class="menu-buttons">
                     <div class="menu-grid">
-                        <button class="btn btn-history" id="btn-history">📜 Historial</button>
-                        <button class="btn btn-stats" id="btn-stats">📊 Estadístiques</button>
+                        <button class="btn btn-history" id="btn-history"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
+                        <button class="btn btn-stats" id="btn-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Estadístiques</button>
                     </div>
-                    <button class="btn btn-settings" id="btn-settings">⚙️ Configuració</button>
+                    <button class="btn btn-settings" id="btn-settings"><svg class="btn-ic" aria-hidden="true"><use href="#ic-gear"/></svg>Configuració</button>
                 </div>
             </div>
 
