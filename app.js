@@ -8909,7 +8909,19 @@ function exitOpeningErrorPractice() {
 /* ============ APRÈN UNA OBERTURA (lliçons guiades) ============ */
 const CURATED_OPENINGS = [
     // === Obertures amb blanques ===
-    { eco: 'C50', name: 'Obertura Italiana', userColor: 'w', cat: 'white', idea: 'Desenvolupa ràpid i apunta el punt feble f7.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3'] },
+    { eco: 'E01', name: 'Obertura Catalana', userColor: 'w', cat: 'white', idea: 'Combina d4 i c4 amb el fianchetto de l’alfil de rei per pressionar el centre i el flanc de dama a llarg termini.', moves: ['d4','Nf6','c4','e6','g3','d5','Bg2','Be7','Nf3','O-O','O-O'], movePhrases: [
+        '1.d4 ocupa el centre i prepara una partida posicional amb espai estable.',
+        '...Nf6 desenvolupa una peça i pressiona e4 sense comprometre encara l’estructura negra.',
+        '2.c4 posa tensió sobre d5 i anuncia l’esperit de gambit de dama.',
+        '...e6 reforça d5 i obre la diagonal de l’alfil de f8.',
+        '3.g3 és el segell català: prepara l’alfil llarg a g2.',
+        '...d5 accepta la lluita central i fixa el punt que l’alfil català pressionarà.',
+        '4.Bg2 col·loca l’alfil a la diagonal llarga i apunta cap al flanc de dama.',
+        '...Be7 desenvolupa amb solidesa i prepara l’enroc curt.',
+        '5.Nf3 reforça el centre i deixa el rei blanc a punt d’enrocar.',
+        '...O-O posa el rei negre segur abans de decidir la tensió de c4 i d5.',
+        '6.O-O completa el desenvolupament bàsic: el blanc ja pot augmentar la pressió catalana.'
+    ] },
     { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', userColor: 'w', cat: 'white', idea: 'Pressiona el cavall que defensa el centre i prepara l\'enroc.', moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7'] },
     { eco: 'C21', name: 'Gambit de Rei', userColor: 'w', cat: 'white', idea: 'Sacrifica un peó per obrir la columna f i atacar ràpid el rei.', moves: ['e4','e5','f4','exf4','Nf3','g5','Bc4','Bg7'] },
     { eco: 'C25', name: 'Obertura de Viena', userColor: 'w', cat: 'white', idea: 'Prepara f4 amb suport del cavall; manté flexibilitat central.', moves: ['e4','e5','Nc3','Nf6','Bc4','Bc5','d3','d6'] },
@@ -9027,6 +9039,8 @@ function updateOpeningLessonNote(intro = false) {
         : `${done}/${total} jugades`;
     let html = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name} (${openingLessonInfo.eco})</div>`;
     if (intro && openingLessonInfo.idea) html += `<div class="maxim-text">${openingLessonInfo.idea}</div>`;
+    const movePhrase = Array.isArray(openingLessonInfo.movePhrases) ? openingLessonInfo.movePhrases[done] : null;
+    if (movePhrase && done < total) html += `<div class="maxim-text" style="opacity:0.92;">${movePhrase}</div>`;
     const status = done >= total ? 'Línia completada!' : (yourTurn ? `El teu torn (${colorTxt}): troba la jugada de la teoria.` : 'Observa la resposta del rival...');
 
     // Defenses amb negres: marcador d'encerts en verd + avís de canvi de tipus d'obertura.
