@@ -876,11 +876,24 @@
         /* Graella compacta de 2 columnes per a botons secundaris */
         .menu-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .menu-grid .btn {
-            flex-direction: column; gap: 2px; padding: 12px 10px;
+            flex-direction: column; gap: 4px; padding: 12px 10px;
             font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
         }
         .menu-grid .btn span { font-weight: 400; letter-spacing: 0; }
         @media (max-width: 360px) { .menu-grid { grid-template-columns: 1fr; } }
+
+        /* Icones de menú unificades: line-icons monocromes que hereten el color
+           del text (currentColor) i s'adapten als 3 temes (fosc, dia, e-paper).
+           Mida en em perquè quedin sempre al mateix nivell que el text. */
+        .btn-ic, .coach-ic {
+            flex: 0 0 auto;
+            fill: none; stroke: currentColor;
+            stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+        }
+        .btn-ic { width: 1.25em; height: 1.25em; }
+        .btn-hero .btn-ic { width: 1.35em; height: 1.35em; }
+        .menu-grid .btn .btn-ic { width: 1.7em; height: 1.7em; }
+        .coach-ic { width: 1.2em; height: 1.2em; vertical-align: -0.2em; margin-right: 2px; }
         /* Separador de la zona de dades/sync */
         .sync-divider {
             margin: 22px 0 12px; height: 1px;
@@ -2758,6 +2771,72 @@
     </style>
 </head>
 <body>
+    <!-- Conjunt d'icones de menú (line-icons monocromes, hereten el color del text via currentColor) -->
+    <svg width="0" height="0" style="position:absolute;width:0;height:0;overflow:hidden" aria-hidden="true" focusable="false">
+        <symbol id="ic-pawn" viewBox="0 0 24 24">
+            <circle cx="12" cy="6" r="2.6"/>
+            <path d="M9.3 11.2h5.4"/>
+            <path d="M14.5 11.2c0 2.6 1 4.6 2.3 6.3H7.2c1.3-1.7 2.3-3.7 2.3-6.3"/>
+            <path d="M6 20h12l-1-2.5H7z"/>
+        </symbol>
+        <symbol id="ic-compass" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="9"/>
+            <polygon points="15.6 8.4 13.4 13.4 8.4 15.6 10.6 10.6"/>
+        </symbol>
+        <symbol id="ic-trophy" viewBox="0 0 24 24">
+            <path d="M6.5 4h11v3a5.5 5.5 0 0 1-11 0z"/>
+            <path d="M6.5 5h-2a2 2 0 0 0 0 4h2"/>
+            <path d="M17.5 5h2a2 2 0 0 1 0 4h-2"/>
+            <path d="M12 12.5v3.5"/>
+            <path d="M9 16h6l1.4 4h-8.8z"/>
+        </symbol>
+        <symbol id="ic-book" viewBox="0 0 24 24">
+            <path d="M12 6.5C10.6 5.6 8.9 5 7 5H3v12h4c1.9 0 3.6.6 5 1.5"/>
+            <path d="M12 6.5C13.4 5.6 15.1 5 17 5h4v12h-4c-1.9 0-3.6.6-5 1.5"/>
+            <path d="M12 6.5V18"/>
+        </symbol>
+        <symbol id="ic-zap" viewBox="0 0 24 24">
+            <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
+        </symbol>
+        <symbol id="ic-search" viewBox="0 0 24 24">
+            <circle cx="10.5" cy="10.5" r="7"/>
+            <path d="M20.5 20.5l-4.7-4.7"/>
+        </symbol>
+        <symbol id="ic-repeat" viewBox="0 0 24 24">
+            <polyline points="17 2 21 6 17 10"/>
+            <path d="M3 12v-2a4 4 0 0 1 4-4h14"/>
+            <polyline points="7 22 3 18 7 14"/>
+            <path d="M21 12v2a4 4 0 0 1-4 4H3"/>
+        </symbol>
+        <symbol id="ic-calendar" viewBox="0 0 24 24">
+            <rect x="3" y="4.5" width="18" height="16.5" rx="2"/>
+            <path d="M3 9.5h18"/>
+            <path d="M8 2.5v4"/>
+            <path d="M16 2.5v4"/>
+            <path d="M9.2 14.8l1.9 1.9 3.7-3.9"/>
+        </symbol>
+        <symbol id="ic-cap" viewBox="0 0 24 24">
+            <path d="M12 4 2.5 8.5 12 13l9.5-4.5z"/>
+            <path d="M6 10.5V15c0 1.3 2.7 2.4 6 2.4s6-1.1 6-2.4v-4.5"/>
+            <path d="M21.5 8.5v5"/>
+        </symbol>
+        <symbol id="ic-history" viewBox="0 0 24 24">
+            <path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.7L3 8"/>
+            <path d="M3 3v5h5"/>
+            <path d="M12 7.5v5l3.5 2"/>
+        </symbol>
+        <symbol id="ic-bars" viewBox="0 0 24 24">
+            <path d="M4 20.5h16"/>
+            <path d="M6.5 20.5v-6"/>
+            <path d="M12 20.5V8"/>
+            <path d="M17.5 20.5v-9"/>
+        </symbol>
+        <symbol id="ic-gear" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="3"/>
+            <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </symbol>
+    </svg>
+
     <!-- Banner d'actualització del Service Worker -->
     <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
         <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
@@ -2810,8 +2889,8 @@
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
                 <div class="menu-buttons">
-                    <button class="btn btn-primary btn-hero" id="btn-new-game">♟ Nova partida</button>
-                    <button class="btn btn-assisted" id="btn-assisted-game">🧭 Partida assistida</button>
+                    <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
+                    <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
                     <div class="setting-row" style="margin: 2px 4px 4px;">
                         <div class="setting-label">Rellotge</div>
                         <select id="new-game-tc-select" class="select-control">
@@ -2839,7 +2918,7 @@
                             <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
                         </div>
                     </div>
-                    <button class="btn btn-league" id="btn-league">🏆 Lliga</button>
+                    <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                 </div>
             </div>
 
@@ -2847,22 +2926,26 @@
             <div class="menu-section">
                 <div class="menu-section-title">Entrena</div>
                 <div class="menu-buttons">
-                    <button class="btn btn-opening" id="btn-opening">📖 Obertures</button>
+                    <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
                     <div class="menu-grid">
                         <button class="btn btn-tactics" id="btn-tactics">
-                            ⚡ Tàctiques
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
+                            Tàctiques
                             <span style="font-size:0.72rem; opacity:0.85;" id="tactics-info">Entrena combinacions</span>
                         </button>
                         <button class="btn btn-bundle" id="btn-bundle-menu">
-                            📚 Revisa Errors
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>
+                            Revisa Errors
                             <span style="font-size:0.72rem; opacity:0.85;" id="bundle-info">Cap error desat</span>
                         </button>
                         <button class="btn btn-srs" id="btn-srs-review">
-                            🔁 Repàs intel·ligent
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>
+                            Repàs intel·ligent
                             <span style="font-size:0.72rem; opacity:0.85;" id="srs-info">Al dia</span>
                         </button>
                         <button class="btn btn-daily" id="btn-daily-puzzle">
-                            🗓️ Repte diari
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-calendar"/></svg>
+                            Repte diari
                             <span style="font-size:0.72rem; opacity:0.85;" id="daily-info">Disponible</span>
                         </button>
                     </div>
@@ -2872,7 +2955,7 @@
             <!-- PROGRÉS -->
             <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
                 <div class="coach-kicker">
-                    <span>🎓 El pla de l'entrenador</span>
+                    <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
                     <span class="coach-kicker-right">
                         <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
                     </span>
@@ -2886,10 +2969,10 @@
                 <div class="menu-section-title">Progrés</div>
                 <div class="menu-buttons">
                     <div class="menu-grid">
-                        <button class="btn btn-history" id="btn-history">📜 Historial</button>
-                        <button class="btn btn-stats" id="btn-stats">📊 Estadístiques</button>
+                        <button class="btn btn-history" id="btn-history"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
+                        <button class="btn btn-stats" id="btn-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Estadístiques</button>
                     </div>
-                    <button class="btn btn-settings" id="btn-settings">⚙️ Configuració</button>
+                    <button class="btn btn-settings" id="btn-settings"><svg class="btn-ic" aria-hidden="true"><use href="#ic-gear"/></svg>Configuració</button>
                 </div>
             </div>
 
