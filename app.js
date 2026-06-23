@@ -15606,6 +15606,39 @@ function buildInsightsNote(insights) {
     } catch (e) { return null; }
 }
 
+// TIER 4 — linter de bancs (xarxa de seguretat en dev): duplicats, marcadors
+// desconeguts i pools massa petits. Activa'l amb localStorage 'eltauler_lint'='1'.
+function lintLocalBanks() {
+    const issues = [];
+    const ALLOWED_HUMAN = new Set(['n', 'played', 'best', 'swing']);
+    const ALLOWED_DEBRIEF = new Set(['prec', 'avg', 'diff', 'cops', 'moments', 'tema', 'fase', 'due']);
+    const checkPool = (arr, label, allowed) => {
+        if (!Array.isArray(arr)) { issues.push(`${label}: no és array`); return; }
+        if (arr.length < 2) issues.push(`${label}: només ${arr.length} variant(s)`);
+        const seen = new Set();
+        arr.forEach((s, i) => {
+            if (typeof s !== 'string' || !s.trim()) { issues.push(`${label}[${i}]: buit`); return; }
+            if (seen.has(s)) issues.push(`${label}[${i}]: duplicat`);
+            seen.add(s);
+            if (allowed) (s.match(/\{([a-zA-Z]+)\}/g) || []).forEach(p => {
+                if (!allowed.has(p.slice(1, -1))) issues.push(`${label}[${i}]: marcador desconegut ${p}`);
+            });
+        });
+    };
+    try {
+        Object.keys(HUMAN_PLAN_BANK).forEach(t => ['diagnosis', 'plan', 'question', 'objective']
+            .forEach(f => checkPool(HUMAN_PLAN_BANK[t][f], `HUMAN_PLAN_BANK.${t}.${f}`, ALLOWED_HUMAN)));
+        Object.keys(COACH_DEBRIEF_TEMPLATES).forEach(c => checkPool(COACH_DEBRIEF_TEMPLATES[c], `COACH_DEBRIEF_TEMPLATES.${c}`, ALLOWED_DEBRIEF));
+        Object.keys(OFFLINE_MAXIMS).forEach(k => checkPool(OFFLINE_MAXIMS[k], `OFFLINE_MAXIMS.${k}`, null));
+        Object.keys(COACH_LEVEL_TIPS).forEach(k => checkPool(COACH_LEVEL_TIPS[k], `COACH_LEVEL_TIPS.${k}`, null));
+        COACH_VOICES.forEach(v => { checkPool(v.openers, `voice.${v.id}.openers`, null); checkPool(v.signoffs, `voice.${v.id}.signoffs`, null); });
+    } catch (e) { issues.push('error linter: ' + e.message); }
+    if (issues.length) console.warn(`[BankLint] ${issues.length} problema(es):\n` + issues.join('\n'));
+    else console.log('[BankLint] Tots els bancs locals OK');
+    return issues;
+}
+try { if (typeof localStorage !== 'undefined' && localStorage.getItem('eltauler_lint') === '1') lintLocalBanks(); } catch (e) {}
+
 // Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
 // Usa l'anti-repetició persistent compartida (pickFreshPlanLine) i memoritza el
 // text per partida perquè rerenderitzacions dins la mateixa partida siguin estables.
@@ -15900,6 +15933,7 @@ function buildHumanPlanMoments(entry, insights = null) {
                 swing: Math.round(r.swing || 0),
                 quality: r.quality || 'inaccuracy',
                 fen: r.fen || null,
+                pv: Array.isArray(r.bestMovePv) ? r.bestMovePv : [],
                 positional: buildPositionalNote(ctx),
                 candidates: buildCandidatesNote(r),
                 isPattern
@@ -15961,8 +15995,57 @@ function buildSingleMovePracticeSequence(moment) {
     }
 }
 
+// TIER 4 — exercici de 2-3 jugades a partir de la millor línia (PV), no només 1.
+function buildMultiMovePracticeSequence(moment) {
+    const pv = (moment && Array.isArray(moment.pv)) ? moment.pv : [];
+    if (!moment || !moment.fen || pv.length < 3) return null;
+    try {
+        const g = new Chess(moment.fen);
+        const steps = [], replies = [];
+        for (let i = 0; i < pv.length; i++) {
+            const u = pv[i];
+            if (!u || u.length < 4) break;
+            const before = g.fen();
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) break;
+            if (i % 2 === 0) steps.push({ fen: before, uci: u, san: mv.san });
+            else replies.push({ fen: before, uci: u, san: mv.san });
+            if (steps.length >= 3 && replies.length >= 2) break;
+        }
+        let totalSteps;
+        if (steps.length >= 3 && replies.length >= 2) totalSteps = 3;
+        else if (steps.length >= 2 && replies.length >= 1) totalSteps = 2;
+        else return null;
+        const mkStep = (s) => {
+            let position = null, threats = { threats: [], themes: [], immediateThreats: [] };
+            try { position = parseFenPosition(s.fen); } catch (e) {}
+            try { threats = analyzePvThreats(s.fen, [s.uci]) || threats; } catch (e) {}
+            return { fen: s.fen, playerMove: s.uci, playerMoveSan: s.san, alternatives: [], position, threats };
+        };
+        const mkReply = (r) => ({ fen: r.fen, move: r.uci, moveSan: r.san, eval: 0 });
+        const seq = {
+            initialFen: moment.fen,
+            totalSteps,
+            step1: mkStep(steps[0]),
+            opponentMove: mkReply(replies[0]),
+            step2: mkStep(steps[1]),
+            fullSequence: [steps[0].uci, replies[0].uci, steps[1].uci],
+            fullSequenceSan: [steps[0].san, replies[0].san, steps[1].san]
+        };
+        if (totalSteps === 3) {
+            seq.opponentMove2 = mkReply(replies[1]);
+            seq.step3 = mkStep(steps[2]);
+            seq.fullSequence.push(replies[1].uci, steps[2].uci);
+            seq.fullSequenceSan.push(replies[1].san, steps[2].san);
+        }
+        return seq;
+    } catch (e) {
+        return null;
+    }
+}
+
 function startHumanPlanPractice(moment) {
-    const seq = buildSingleMovePracticeSequence(moment);
+    const seq = buildMultiMovePracticeSequence(moment) || buildSingleMovePracticeSequence(moment);
     if (!seq) {
         showToast('No puc preparar aquest pla com a exercici jugable.', 'warn');
         return;
@@ -16124,11 +16207,37 @@ function updateCoachSpeakButtons() {
     $('.coach-speak-btn').toggle(isCoachTtsAvailable());
 }
 
+// TIER 4 — converteix la notació d'escacs a paraules perquè el TTS la llegeixi bé.
+function speakableChessText(text) {
+    if (!text) return text;
+    const pieces = { K: 'rei', Q: 'dama', R: 'torre', B: 'alfil', N: 'cavall' };
+    let t = String(text);
+    t = t.replace(/\bO-O-O\b/g, 'enroc llarg').replace(/\bO-O\b/g, 'enroc curt');
+    t = t.replace(/\b([KQRBN])([a-h]?[1-8]?)(x?)([a-h][1-8])(=[QRBN])?([+#]?)/g,
+        (m, p, dis, cap, dest, promo, chk) => {
+            let out = pieces[p];
+            if (dis) out += ' ' + dis.split('').join(' ');
+            if (cap) out += ' pren';
+            out += ' ' + dest.split('').join(' ');
+            if (promo) out += ' corona ' + (pieces[promo[1]] || '');
+            if (chk === '+') out += ' escac'; else if (chk === '#') out += ' escac i mat';
+            return out;
+        });
+    t = t.replace(/\b([a-h])x([a-h][1-8])(=[QRBN])?([+#]?)/g,
+        (m, f, dest, promo, chk) => {
+            let out = f + ' pren ' + dest.split('').join(' ');
+            if (promo) out += ' corona ' + (pieces[promo[1]] || '');
+            if (chk === '+') out += ' escac'; else if (chk === '#') out += ' escac i mat';
+            return out;
+        });
+    return t;
+}
+
 function speakCoachText(text) {
     if (!isCoachTtsAvailable() || !text) return;
     try {
         window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(text);
+        const utterance = new SpeechSynthesisUtterance(speakableChessText(text));
         utterance.voice = coachCatalanVoice;
         utterance.lang = coachCatalanVoice.lang || 'ca-ES';
         utterance.rate = 0.95;
