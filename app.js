@@ -7255,11 +7255,10 @@ async function requestAssistedHint() {
     try {
         const fen = game.fen();
         const bestMove = await getStockfishBestMove(fen, 12);
-        const theme = classifyPositionTheme(fen, bestMove || '');
 
-        // Sense clau OpenAI: caiem al banc de màximes local (segueix funcionant offline).
+        // Sense clau OpenAI: màxima local rica (subtema + generador jeroglífic).
         if (!openaiApiKey) {
-            showAssistedMaxim(pickOfflineMaxim(theme));
+            showAssistedMaxim(buildLocalAssistedMaxim(fen, bestMove));
             return;
         }
 
@@ -7280,8 +7279,7 @@ async function requestAssistedHint() {
     } catch (err) {
         console.error('[AssistedHint]', err);
         // Fallback offline davant qualsevol error de xarxa/API
-        const theme = classifyPositionTheme(game.fen(), '');
-        showAssistedMaxim(pickOfflineMaxim(theme));
+        showAssistedMaxim(buildLocalAssistedMaxim(game.fen(), null));
     } finally {
         assistedHintPending = false;
         $('#btn-assisted-hint').prop('disabled', false);
@@ -9518,16 +9516,21 @@ function toInlineAdvice(text) {
     return t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
 }
 function resolveHumanPlanThemeKey(moment) {
-    let key = moment && moment.themeKey ? String(moment.themeKey) : '';
-    if (!HUMAN_PLAN_BANK[key]) {
+    let key = planBankKeyFor(moment && moment.themeKey);
+    if (!key) {
         const label = String((moment && moment.theme) || '').toLowerCase();
         if (/rei|atac/.test(label)) key = 'king_attack';
         else if (/forquilla/.test(label)) key = 'fork';
         else if (/clavada/.test(label)) key = 'pin';
         else if (/raig|enfilad|broquet/.test(label)) key = 'skewer';
+        else if (/peó passat|passat/.test(label)) key = 'passed_pawn';
+        else if (/profilax|defens/.test(label)) key = 'defensive_move';
+        else if (/simplif/.test(label)) key = 'simplification';
+        else if (/activitat/.test(label)) key = 'piece_activity';
+        else if (/tranquil|iniciativa/.test(label)) key = 'quiet_improvement';
         else if (/material/.test(label)) key = 'material';
-        else if (/centre/.test(label)) key = 'center';
-        else if (/obertura/.test(label)) key = 'opening';
+        else if (/centre|ruptura/.test(label)) key = 'center';
+        else if (/obertura|desenvolup/.test(label)) key = 'opening';
         else if (/final/.test(label)) key = 'endgame';
         else key = 'general';
     }
@@ -9660,6 +9663,182 @@ HUMAN_PLAN_BANK.endgame.objective.push(
     'En cada jugada de final, pregunta’t si pots millorar el rei o la peça més passiva.',
     'No precipitis els peons sense el suport del rei o d’una torre activa.'
 );
+
+// SUBTEMES REALS: pools dedicats per a idees que el classificador fi (inferHieroglyphicThemes)
+// sap detectar a partir de la millor jugada. Així el pla és més precís, no només "general".
+HUMAN_PLAN_BANK.passed_pawn = {
+    diagnosis: [
+        'A {n}, {played} va ignorar el peó passat, la peça que mana en aquest tipus de posició.',
+        'El problema de {played} (jugada {n}) era no impulsar ni frenar el peó passat.',
+        'A la jugada {n}, {played} va deixar que el peó passat marqués el ritme sense control ({swing} CP).',
+        'Amb {played} (jugada {n}) vas perdre temps mentre el passat demanava acció.'
+    ],
+    plan: [
+        'El pla humà era empènyer o blocar el peó passat segons a qui afavorís; {best} ho feia.',
+        'Calia posar una peça darrere del peó passat per acompanyar-lo, com {best}.',
+        'El bon pla era avançar el passat amb suport, just el que apuntava {best}.',
+        'Primer neutralitzar el passat rival, després el teu: {best} respectava aquest ordre.'
+    ],
+    question: [
+        'Qui té el peó passat més perillós i qui el controla?',
+        'El teu peó passat avança amb suport o avança sol?',
+        'Pots crear un peó passat amb aquesta jugada?',
+        'Quina peça hauria d’acompanyar el peó passat ara mateix?'
+    ],
+    objective: [
+        'Acompanya el peó passat amb el rei o una torre; no el deixis avançar sol.',
+        'Bloca els peons passats del rival amb la peça menys valuosa possible.',
+        'En posicions amb passat, pregunta’t primer qui corre més de pressa.',
+        'Crea un peó passat només quan el puguis sostenir fins a coronar.'
+    ]
+};
+HUMAN_PLAN_BANK.development = {
+    diagnosis: [
+        'A {n}, {played} va retardar el desenvolupament en lloc d’activar una peça nova.',
+        'El problema de {played} (jugada {n}) era moure peces ja desenvolupades amb l’exèrcit a mig treure.',
+        'A la jugada {n}, {played} va deixar peces dormides mentre el rival agafava espai.',
+        'Amb {played} (jugada {n}) vas ajornar treure les peces menors sense una raó clara.'
+    ],
+    plan: [
+        'El pla humà era activar la peça menys desenvolupada amb tempo; {best} hi anava.',
+        'Calia treure una peça nova cap a una casella útil, com {best}.',
+        'El bon pla era guanyar desenvolupament i preparar l’enroc, just el que feia {best}.',
+        'Primer completar el desplegament, després buscar el cop: {best} ho ordenava.'
+    ],
+    question: [
+        'Quina és la teva peça menys activa i com l’actives ara?',
+        'Estàs traient una peça nova o repetint amb una de ja desenvolupada?',
+        'Tens totes les peces menors en joc abans de complicar?',
+        'Aquesta jugada acosta l’enroc o el retarda?'
+    ],
+    objective: [
+        'Activa una peça nova cada jugada fins a completar el desenvolupament.',
+        'No repeteixis moviments amb una peça ja desenvolupada sense necessitat.',
+        'Desenvolupa cap a l’enroc: lliga desenvolupament i seguretat del rei.',
+        'Compta les peces menors adormides abans de llançar cap atac.'
+    ]
+};
+HUMAN_PLAN_BANK.defensive_move = {
+    diagnosis: [
+        'A {n}, {played} va atacar quan tocava aturar l’amenaça del rival; va costar {swing} CP.',
+        'El problema de {played} (jugada {n}) era no veure el pla rival i no prevenir-lo.',
+        'A la jugada {n}, {played} va ignorar una amenaça concreta del rival.',
+        'Amb {played} (jugada {n}) vas seguir el teu pla sense preguntar-te què volia fer l’altre.'
+    ],
+    plan: [
+        'El pla humà era prevenir la idea del rival sense quedar passiu (profilaxi); {best} ho feia.',
+        'Calia aturar l’amenaça principal i conservar la iniciativa, com {best}.',
+        'El bon pla era una jugada profilàctica que treia el verí a la posició, just {best}.',
+        'Primer neutralitzar, després crear: {best} mantenia l’equilibri.'
+    ],
+    question: [
+        'Què vol fer el rival la pròxima jugada i com ho prevens?',
+        'Aquesta jugada atén l’amenaça més perillosa del rival?',
+        'Pots aturar el pla rival sense quedar del tot a la defensiva?',
+        'Quina seria la millor jugada del rival si et saltessis el torn?'
+    ],
+    objective: [
+        'Abans de cada jugada, pregunta’t quin és el pla del rival i si cal prevenir-lo.',
+        'Practica la profilaxi: dedica una jugada a treure el verí abans d’atacar.',
+        'No segueixis el teu pla a cegues si el rival amenaça alguna cosa concreta.',
+        'Atura l’amenaça més greu conservant tanta iniciativa com puguis.'
+    ]
+};
+HUMAN_PLAN_BANK.simplification = {
+    diagnosis: [
+        'A {n}, {played} va complicar quan simplificar et donava un final millor.',
+        'El problema de {played} (jugada {n}) era evitar canvis que t’afavorien.',
+        'A la jugada {n}, {played} va mantenir peces que ajudaven el rival.',
+        'Amb {played} (jugada {n}) vas deixar passar una simplificació guanyadora ({swing} CP).'
+    ],
+    plan: [
+        'El pla humà era canviar cap a un final favorable; {best} hi portava.',
+        'Calia treure les peces atacants del rival amb canvis, com {best}.',
+        'El bon pla era simplificar conservant l’avantatge, just el que feia {best}.',
+        'Amb avantatge, menys peces i més claredat: {best} ho aplicava.'
+    ],
+    question: [
+        'Quin canvi de peces et porta a un final més fàcil de guanyar?',
+        'Quina peça rival t’interessa eliminar amb un canvi?',
+        'Simplificar aquí t’acosta o t’allunya del resultat que vols?',
+        'Tens avantatge per buscar canvis o et convé mantenir la tensió?'
+    ],
+    objective: [
+        'Amb avantatge, busca canvis que et portin a un final clar.',
+        'Elimina la peça més activa del rival quan puguis fer-ho sense perdre res.',
+        'No canviïs peces si això allibera la posició del rival sense compensació.',
+        'Relaciona cada canvi amb el final que vols assolir.'
+    ]
+};
+HUMAN_PLAN_BANK.piece_activity = {
+    diagnosis: [
+        'A {n}, {played} va deixar una peça passiva quan tenia una casella molt millor.',
+        'El problema de {played} (jugada {n}) era no donar feina a la peça pitjor situada.',
+        'A la jugada {n}, {played} va mantenir una peça muda fora de joc.',
+        'Amb {played} (jugada {n}) vas perdre l’oportunitat d’activar una peça clau.'
+    ],
+    plan: [
+        'El pla humà era portar la peça més passiva a una línia oberta o un bon lloc; {best} ho feia.',
+        'Calia canviar una peça muda per una d’activa, com {best}.',
+        'El bon pla era millorar la pitjor peça abans de res, just el que apuntava {best}.',
+        'Activitat abans que material: {best} donava feina a la peça adormida.'
+    ],
+    question: [
+        'Quina és la teva peça menys activa i quina seria la seva millor casella?',
+        'Tens alguna torre que pugui ocupar una columna oberta?',
+        'Aquesta jugada millora una peça o només mou per moure?',
+        'Quin alfil o cavall teu treballa menys i com el desperta?'
+    ],
+    objective: [
+        'Cada jugada tranquil·la, millora la peça pitjor situada.',
+        'Porta les torres a columnes obertes o semiobertes.',
+        'Busca caselles avançades i segures per als cavalls.',
+        'Abans de cap atac, comprova que totes les peces participen.'
+    ]
+};
+HUMAN_PLAN_BANK.quiet_improvement = {
+    diagnosis: [
+        'A {n}, {played} va buscar foc immediat quan tocava una millora tranquil·la.',
+        'El problema de {played} (jugada {n}) era forçar abans de millorar la posició.',
+        'A la jugada {n}, {played} va deixar escapar la iniciativa per impaciència.',
+        'Amb {played} (jugada {n}) vas jugar de pressa quan una jugada de preparació guanyava ({swing} CP).'
+    ],
+    plan: [
+        'El pla humà era millorar amb una jugada tranquil·la que augmentés la pressió; {best} ho feia.',
+        'Calia preparar el cop abans de donar-lo, com {best}.',
+        'El bon pla era mantenir la iniciativa sense donar contrajoc, just {best}.',
+        'Una jugada útil i sense pressa abans del foc: {best} la trobava.'
+    ],
+    question: [
+        'Hi ha una jugada tranquil·la que millori la teva posició sense donar contrajoc?',
+        'Estàs forçant abans d’hora o has preparat prou el cop?',
+        'Com augmentes la pressió sense alliberar la posició del rival?',
+        'Quina millora discreta deixa el rival sense bones respostes?'
+    ],
+    objective: [
+        'Abans de forçar, busca una jugada tranquil·la que millori la teva posició.',
+        'Mantén la iniciativa amenaçant sense regalar contrajoc.',
+        'Prepara el cop amb una jugada útil abans de calcular combinacions.',
+        'Davant del dubte, millora una peça i deixa la pressió al rival.'
+    ]
+};
+
+// Alies de tema fi (HIEROS) -> clau de banc, per als que no tenen pool propi.
+const PLAN_BANK_ALIAS = { center_break: 'center', material_win: 'material', endgame_activity: 'endgame', default: 'general' };
+function planBankKeyFor(themeKey) {
+    const k = String(themeKey || '');
+    if (HUMAN_PLAN_BANK[k]) return k;
+    if (PLAN_BANK_ALIAS[k] && HUMAN_PLAN_BANK[PLAN_BANK_ALIAS[k]]) return PLAN_BANK_ALIAS[k];
+    return null;
+}
+const PLAN_THEME_LABELS = {
+    passed_pawn: 'peó passat', development: 'desenvolupament', defensive_move: 'profilaxi',
+    simplification: 'simplificació', piece_activity: 'activitat de peces', quiet_improvement: 'millora tranquil·la',
+    center_break: 'ruptura central', material_win: 'guany de material', endgame_activity: 'final actiu', default: 'joc general'
+};
+function planThemeDisplayLabel(themeKey) {
+    return PLAN_THEME_LABELS[themeKey] || getThemeLabel(themeKey);
+}
 
 // Amplia el vocabulari críptic dels jeroglífics generals (es comparteix entre tots els temes).
 HIEROS.openings.push(
@@ -10072,15 +10251,16 @@ function themeToPlainAdvice(context) {
         piece_activity: 'porta la peça a una línia oberta o una millor funció',
         quiet_improvement: 'la jugada tranquil·la crea una amenaça més forta'
     };
-    // Incorpora el banc de plans humans: els "objectius" (consells genèrics i
-    // accionables) també nodreixen la pista plana dels jeroglífics generals.
-    const growthTheme = HIERO_TO_GROWTH_THEME[context.theme] || 'general';
+    // Incorpora el banc de plans humans: ara que hi ha pools per subtema (passed_pawn,
+    // defensive_move, piece_activity...), la pista plana del jeroglífic pren els seus
+    // "objectius" del subtema exacte, no només del tema gruixut.
+    const bankKey = planBankKeyFor(context.theme) || HIERO_TO_GROWTH_THEME[context.theme] || 'general';
     const pool = [];
     if (map[context.theme]) pool.push(map[context.theme]);
-    const bankObjectives = (HUMAN_PLAN_BANK[growthTheme] && HUMAN_PLAN_BANK[growthTheme].objective) || [];
+    const bankObjectives = (HUMAN_PLAN_BANK[bankKey] && HUMAN_PLAN_BANK[bankKey].objective) || [];
     bankObjectives.forEach(o => pool.push(toInlineAdvice(o)));
     if (!pool.length) return 'troba la funció que deixa menys defenses bones';
-    return pickFreshPlanLine(pool, 'hiero-advice:' + growthTheme);
+    return pickFreshPlanLine(pool, 'hiero-advice:' + bankKey);
 }
 function generateHieroglyphicHint(context, level) {
     const opts = { level, hidePiece: level === 1 };
@@ -12851,9 +13031,47 @@ const OFFLINE_MAXIMS = {
     ]
 };
 
+OFFLINE_MAXIMS.king.push(
+    "El rei enemic sense escapatòria és l'objectiu: porta-hi una peça més abans de donar el cop.",
+    "No persegueixis l'escac per l'escac; cada amenaça ha de deixar una segona ombra al darrere."
+);
+OFFLINE_MAXIMS.material.push(
+    "Abans de capturar, calcula la recaptura i la jugada següent: l'or fàcil sovint és enverinat.",
+    "Una peça lligada o sobrecarregada és material futur; ataca el que defensa per obligació."
+);
+OFFLINE_MAXIMS.center.push(
+    "Resol la tensió central quan t'afavoreixi, no quan t'impacientis.",
+    "Espai al centre vol dir línies per a les peces: converteix-lo en pressió, no en orgull."
+);
+OFFLINE_MAXIMS.general.push(
+    "Millora la pitjor peça abans de buscar el cop: l'harmonia pesa més que l'aventura.",
+    "Pregunta't què vol fer el rival; la profilaxi és un atac avançat.",
+    "Activa el rei al final: una passa del monarca pot valer una peça."
+);
+
 function pickOfflineMaxim(theme) {
-    const arr = OFFLINE_MAXIMS[theme] || OFFLINE_MAXIMS.general;
-    return arr[Math.floor(Math.random() * arr.length)];
+    // El classificador retorna king_attack/fork/pin/opening/endgame...; mapem-ho a
+    // les claus reals d'OFFLINE_MAXIMS (abans 'king_attack' queia sempre a 'general').
+    const map = {
+        king_attack: 'king', king: 'king', fork: 'material', pin: 'material', skewer: 'material',
+        material: 'material', center: 'center', opening: 'center', development: 'center',
+        endgame: 'general', endgame_activity: 'general', general: 'general'
+    };
+    const key = OFFLINE_MAXIMS[theme] ? theme : (map[theme] || 'general');
+    return pickFreshPlanLine(OFFLINE_MAXIMS[key] || OFFLINE_MAXIMS.general, 'assistedmaxim:' + key);
+}
+
+// Màxima estratègica local rica: reaprofita el generador de pistes jeroglífiques
+// (temàtic, variat i anti-repetitiu) perquè la partida assistida no depengui de cap clau.
+function buildLocalAssistedMaxim(fen, bestMove) {
+    try {
+        if (bestMove) {
+            const ctx = buildHieroglyphicContext(fen, bestMove, {});
+            const clue = generateDynamicHieroglyphicClue(ctx, { level: 1 });
+            if (clue && clue.length > 12) return clue;
+        }
+    } catch (e) {}
+    return pickOfflineMaxim(classifyPositionTheme(fen, bestMove || ''));
 }
 
 function getCachedOpenAI(key) {
@@ -15339,12 +15557,31 @@ async function requestOpenAICoachText(cacheKey, prompt, onText, maxLen = 1800) {
 }
 
 
-function getPlanThemeKeyFromReview(review) {
+// Detecció de subtema real: reaprofita la inferència fina dels jeroglífics
+// (inferHieroglyphicThemes via buildHieroglyphicContext) sobre la MILLOR jugada,
+// que distingeix peó passat, profilaxi, activitat de peces, desenvolupament, etc.
+function detectPlanSubtheme(review) {
+    try {
+        if (review && review.fen && review.bestMove) {
+            const ctx = buildHieroglyphicContext(review.fen, review.bestMove, {
+                pv: review.bestMovePv || [],
+                playerMove: review.playerMove || null,
+                swing: review.swing || 0,
+                evalBefore: review.evalBefore,
+                evalAfter: review.evalAfter
+            });
+            if (ctx && ctx.theme) return ctx.theme;
+        }
+    } catch (e) {}
     return normalizeGrowthTheme(classifyPositionTheme(review?.fen || '', review?.playerMove || '')) || 'general';
 }
 
+function getPlanThemeKeyFromReview(review) {
+    return detectPlanSubtheme(review);
+}
+
 function getPlanThemeLabelFromReview(review) {
-    return getThemeLabel(getPlanThemeKeyFromReview(review));
+    return planThemeDisplayLabel(getPlanThemeKeyFromReview(review));
 }
 
 function getHumanPlanPhase(moveNumber) {
