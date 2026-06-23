@@ -6728,19 +6728,19 @@ function buildOpenAIBundleHintPrompt(step, context = {}) {
     }
     
     const extraStep1 = stepNumber === 1
-        ? `\n\nPer al pas 1, genera dues frases màxima:\n- La primera frase ha d'apuntar a un concepte tàctic o estratègic general aplicable a aquesta posició.\n- La segona frase ha d'orientar subtilment cap a la peça o zona clau sense revelar directament la jugada.\n`
+        ? `\n\nPer al pas 1, genera dues frases com a màxim:\n- La primera frase ha d'apuntar a un concepte tàctic o estratègic general aplicable a aquesta posició.\n- La segona frase ha d'orientar subtilment cap a la peça o zona clau sense revelar directament la jugada.\n`
         : '';
     
     return `Ets un entrenador d'escacs expert. Analitza aquesta situació i genera ${sentenceText} en català amb màximes o principis d'escacs per ajudar a trobar la millor jugada del pas ${stepNumber}.
 ${contextText}
 
 REGLES IMPERATIVES:
-- Cada frase ha de tenir mínim 20 i 250 màxim caràcters 
+- Cada frase ha de tenir entre 20 i 250 caràcters
 - Les màximes han de ser específiques i accionables, no genèriques
 - NO facis servir frases de menys de 5 paraules
 - NO repeteixis conceptes entre frases
 - NO facis servir cometes, emojis, ni enumeracions
-- Centra't en conceptes tàctics concrets: forquilles, claus, atacs dobles, debilitats de peó, peces sobrecarregades, línies obertes, control del centre
+- Centra't en conceptes tàctics concrets: forquilles, clavades, atacs dobles, debilitats de peó, peces sobrecarregades, línies obertes, control del centre
 - Les màximes han de guiar sense revelar directament la solució
 ${extraStep1}
 BONS EXEMPLES de màximes per al pas 1:
@@ -6938,7 +6938,7 @@ ${currentOpeningInfo}
 CONTINUACIONS POSSIBLES:
 ${alternativesText || 'Cap continuació teòrica'}
 
-TASCA: Escriu un anàlisi complet en català (entre 5 i 10 frases):
+TASCA: Escriu una anàlisi completa en català (entre 5 i 10 frases):
 
 1. OBERTURA ACTUAL: Explica què és aquesta obertura, el seu origen històric si el coneixes, i quin és el seu objectiu estratègic principal.
 
@@ -7472,7 +7472,7 @@ Quan mencionis una jugada específica, SEMPRE utilitza exactament aquest format:
 "jugada X (SAN)" - on X és el número i SAN la notació algebraica.
 Exemples correctes:
 - "A la jugada 12 (Nxe5), vas perdre material..."
-- "L'errada a la jugada 8 (Qd3) va ser decisiu..."
+- "L'errada a la jugada 8 (Qd3) va ser decisiva..."
 - "Calia jugar diferent a la jugada 15 (Bxf7+)..."
 
 INSTRUCCIONS
