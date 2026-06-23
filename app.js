@@ -95,6 +95,7 @@ let openingLessonActive = false;
 let openingLessonLine = [];
 let openingLessonStep = 0;
 let openingLessonInfo = null;
+let openingLessonCurrentIndex = null;
 let openingLessonUserColor = 'w';
 let openingLessonLastDetected = null; // Últim tipus d'obertura detectat (per avisar de canvis amb negres)
 let openingErrorCurrentPositions = []; // Posicions d'error disponibles
@@ -8614,6 +8615,7 @@ function renderOpeningStatsScreen(useExistingData = false) {
 
 // Inicia la pràctica d'un error d'obertura
 function startOpeningErrorPractice(color, moveNum) {
+    hideOpeningRestartOverlay();
     // Buscar les posicions d'error per aquest color i moviment
     const stat = openingStatsData.find(s => s.colorKey === color && s.moveNumber === moveNum);
 
@@ -8907,7 +8909,19 @@ function exitOpeningErrorPractice() {
 /* ============ APRÈN UNA OBERTURA (lliçons guiades) ============ */
 const CURATED_OPENINGS = [
     // === Obertures amb blanques ===
-    { eco: 'C50', name: 'Obertura Italiana', userColor: 'w', cat: 'white', idea: 'Desenvolupa ràpid i apunta el punt feble f7.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3'] },
+    { eco: 'E01', name: 'Obertura Catalana', userColor: 'w', cat: 'white', idea: 'Combina d4 i c4 amb el fianchetto de l’alfil de rei per pressionar el centre i el flanc de dama a llarg termini.', moves: ['d4','Nf6','c4','e6','g3','d5','Bg2','Be7','Nf3','O-O','O-O'], movePhrases: [
+        '1.d4 ocupa el centre i prepara una partida posicional amb espai estable.',
+        '...Nf6 desenvolupa una peça i pressiona e4 sense comprometre encara l’estructura negra.',
+        '2.c4 posa tensió sobre d5 i anuncia l’esperit de gambit de dama.',
+        '...e6 reforça d5 i obre la diagonal de l’alfil de f8.',
+        '3.g3 és el segell català: prepara l’alfil llarg a g2.',
+        '...d5 accepta la lluita central i fixa el punt que l’alfil català pressionarà.',
+        '4.Bg2 col·loca l’alfil a la diagonal llarga i apunta cap al flanc de dama.',
+        '...Be7 desenvolupa amb solidesa i prepara l’enroc curt.',
+        '5.Nf3 reforça el centre i deixa el rei blanc a punt d’enrocar.',
+        '...O-O posa el rei negre segur abans de decidir la tensió de c4 i d5.',
+        '6.O-O completa el desenvolupament bàsic: el blanc ja pot augmentar la pressió catalana.'
+    ] },
     { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', userColor: 'w', cat: 'white', idea: 'Pressiona el cavall que defensa el centre i prepara l\'enroc.', moves: ['e4','e5','Nf3','Nc6','Bb5','a6','Ba4','Nf6','O-O','Be7'] },
     { eco: 'C21', name: 'Gambit de Rei', userColor: 'w', cat: 'white', idea: 'Sacrifica un peó per obrir la columna f i atacar ràpid el rei.', moves: ['e4','e5','f4','exf4','Nf3','g5','Bc4','Bg7'] },
     { eco: 'C25', name: 'Obertura de Viena', userColor: 'w', cat: 'white', idea: 'Prepara f4 amb suport del cavall; manté flexibilitat central.', moves: ['e4','e5','Nc3','Nf6','Bc4','Bc5','d3','d6'] },
@@ -8938,14 +8952,31 @@ const CURATED_OPENINGS = [
     { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] }
 ];
 
+function hideOpeningRestartOverlay() {
+    const overlay = document.getElementById('opening-restart-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function showOpeningRestartOverlay() {
+    const overlay = document.getElementById('opening-restart-overlay');
+    if (overlay) overlay.style.display = 'flex';
+}
+
+function restartCompletedOpeningLesson() {
+    if (openingLessonCurrentIndex === null || openingLessonCurrentIndex === undefined) return;
+    startOpeningLesson(openingLessonCurrentIndex);
+}
+
 function startOpeningLesson(idx) {
     const op = CURATED_OPENINGS[idx];
     if (!op) return;
     openingErrorPracticeActive = false;
     hieroglyphicExerciseActive = false;
     updateOpeningMaximButton();
+    hideOpeningRestartOverlay();
     openingLessonActive = true;
     openingLessonInfo = op;
+    openingLessonCurrentIndex = idx;
     openingLessonLine = op.moves.slice();
     openingLessonStep = 0;
     openingLessonLastDetected = null;
@@ -9008,6 +9039,8 @@ function updateOpeningLessonNote(intro = false) {
         : `${done}/${total} jugades`;
     let html = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name} (${openingLessonInfo.eco})</div>`;
     if (intro && openingLessonInfo.idea) html += `<div class="maxim-text">${openingLessonInfo.idea}</div>`;
+    const movePhrase = Array.isArray(openingLessonInfo.movePhrases) ? openingLessonInfo.movePhrases[done] : null;
+    if (movePhrase && done < total) html += `<div class="maxim-text" style="opacity:0.92;">${movePhrase}</div>`;
     const status = done >= total ? 'Línia completada!' : (yourTurn ? `El teu torn (${colorTxt}): troba la jugada de la teoria.` : 'Observa la resposta del rival...');
 
     // Defenses amb negres: marcador d'encerts en verd + avís de canvi de tipus d'obertura.
@@ -9060,6 +9093,7 @@ function completeOpeningLesson() {
         noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div>${progress}${extra}</div>`;
     }
     renderOpeningLessonButtons();
+    showOpeningRestartOverlay();
     showToast(`Has completat: ${name} 📖`, 'success');
 }
 
@@ -9072,10 +9106,10 @@ function renderOpeningLessonButtons() {
         const btns = items.map(({ op, i }) => {
             const colorIcon = op.userColor === 'w' ? '♔' : '♚';
             const done = completedOpenings.includes(op.eco);
-            const check = done ? '<span class="lesson-done-check">✓</span>' : '';
+            const repeat = done ? '<span class="lesson-repeat-icon" title="Torna a practicar aquesta obertura" aria-label="Torna a practicar">↻</span>' : '';
             return `<button class="btn btn-secondary opening-lesson-btn${done ? ' lesson-done' : ''}" data-lesson="${i}" style="justify-content:space-between;">
                 <span>${colorIcon} ${op.name}</span>
-                <span style="display:flex; align-items:center; gap:6px;">${check}<span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span></span>
+                <span style="display:flex; align-items:center; gap:6px;">${repeat}<span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span></span>
             </button>`;
         }).join('');
         return `<div class="opening-lesson-group-title">${label}</div><div class="opening-lesson-grid">${btns}</div>`;
@@ -10640,6 +10674,7 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
         hieroglyphicSource = 'personal';
         hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
         hieroglyphicExerciseActive = true;
+        hideOpeningRestartOverlay();
         openingLessonActive = false;
         openingErrorPracticeActive = false;
         openingPracticeEngineThinking = false;
@@ -10748,6 +10783,7 @@ function startHieroglyphicExercise() {
     hieroglyphicSource = 'opening';
     hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
     hieroglyphicExerciseActive = true;
+    hideOpeningRestartOverlay();
     setOpeningScreenMode('hieroglyphic');
     const myToken = ++hieroglyphicToken;
 
@@ -11081,6 +11117,7 @@ function undoOpeningPracticeMove() {
     // Sortir de la lliçó guiada si estava activa
     openingLessonActive = false;
     openingLessonInfo = null;
+    openingLessonCurrentIndex = null;
     openingLessonStep = 0;
 
     // Cancel·lar variables de feedback instantani
@@ -11215,6 +11252,7 @@ function playOpeningInitialWhiteMove() {
 }
 
 function startOpeningPracticeAsColor(color) {
+    hideOpeningRestartOverlay();
     openingPracticeUserColor = color === 'b' ? 'b' : 'w';
     const colorSelect = document.getElementById('opening-practice-color-select');
     if (colorSelect) colorSelect.value = openingPracticeUserColor;
@@ -11451,6 +11489,7 @@ function setupEvents() {
         const idx = parseInt($(this).attr('data-lesson'), 10);
         if (!isNaN(idx)) startOpeningLesson(idx);
     });
+    $('#opening-restart-overlay').click(() => restartCompletedOpeningLesson());
     $('#btn-hieroglyphic-exercise').click(() => {
         initOpeningBundleBoard();
         startHieroglyphicExercise();
