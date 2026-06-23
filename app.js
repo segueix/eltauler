@@ -15131,10 +15131,85 @@ const COACH_DEBRIEF_TEMPLATES = {
     ]
 };
 
+// Amplia els pools del debrief (a banda per no tocar el literal) i hi afegeix
+// una categoria per a partides amb errors greus.
+COACH_DEBRIEF_TEMPLATES.win_high.push(
+    "Quina partida: {prec}% de precisió i victòria. Així dona gust.",
+    "Has dominat de principi a fi ({prec}%). Continua per aquest camí.",
+    "Victòria sòlida i neta ({prec}%): el cap ha manat per damunt de l’impuls."
+);
+COACH_DEBRIEF_TEMPLATES.win_low.push(
+    "Tres punts són tres punts, però amb {prec}% hi ha marge per jugar més fi.",
+    "Has guanyat la batalla; ara guanya també la precisió ({prec}%).",
+    "Victòria amb ensurts ({prec}%): repassa els moments on t’has complicat."
+);
+COACH_DEBRIEF_TEMPLATES.draw.push(
+    "Repartiment de punts. Mirem on podies haver inclinat la balança.",
+    "Taules honestes. Hi ha detalls per polir que la pròxima vegada donaran mig punt més.",
+    "Empat: ni drama ni festa, però sí material per aprendre."
+);
+COACH_DEBRIEF_TEMPLATES.loss_high.push(
+    "Derrota amb el cap ben alt ({prec}%): has competit de tu a tu.",
+    "Has perdut, però la precisió ({prec}%) diu que vas pel bon camí.",
+    "Avui no ha entrat, però amb {prec}% de precisió els resultats arribaran."
+);
+COACH_DEBRIEF_TEMPLATES.loss_low.push(
+    "Derrota amb avisos ({prec}%): la bona notícia és que són errors molt corregibles.",
+    "No ha sortit bé ({prec}%), però cada error d’avui és una lliçó per demà.",
+    "Dia complicat al tauler ({prec}%). Respira, revisa i torna-hi."
+);
+COACH_DEBRIEF_TEMPLATES.highlight_clean.push(
+    "Cap relliscada en tota la partida: aquesta és la base del progrés de debò.",
+    "Solidesa total avui, sense errors greus. Quan jugues així, guanyar és qüestió de temps."
+);
+COACH_DEBRIEF_TEMPLATES.highlight_above_avg.push(
+    "Has rendit per sobre del teu nivell habitual ({avg}%): pren-ne nota.",
+    "Avui ({prec}%) has deixat enrere la teva mitjana ({avg}%). Senyal de creixement."
+);
+COACH_DEBRIEF_TEMPLATES.highlight_no_blunders.push(
+    "Sense errors greus: el teu pitjor enemic avui han estat els detalls, no els ensurts.",
+    "Cap blunder, només matisos a polir. Vas afinant."
+);
+COACH_DEBRIEF_TEMPLATES.weak_theme.push(
+    "El fil dels errors d’avui passa per {tema}: hi ha feina concreta a fer.",
+    "Si busques un patró, el trobaràs en {tema} ({moments}).",
+    "On has perdut més terreny ha estat en {tema}."
+);
+COACH_DEBRIEF_TEMPLATES.weak_phase.push(
+    "El moment fluix ha arribat a {fase}: allà és on toca posar atenció.",
+    "Fins a {fase} tot anava bé; aquell tram t’ha costat car."
+);
+COACH_DEBRIEF_TEMPLATES.weak_mastery.push(
+    "Partida neta, però {tema} continua sent l’assignatura pendent.",
+    "Res a retreure avui; tot i així, {tema} és el que més et farà pujar."
+);
+COACH_DEBRIEF_TEMPLATES.advice_srs.push(
+    "Tens {due} repassos a punt: són la teva memòria d’escacs, no la deixis enrere.",
+    "Deu minuts amb els {due} repassos pendents valen més que jugar de seguida."
+);
+COACH_DEBRIEF_TEMPLATES.advice_theme.push(
+    "Una dosi curta de {tema} aquesta setmana i notaràs el canvi.",
+    "Posa el focus en {tema}: és la palanca que et farà guanyar més partides."
+);
+COACH_DEBRIEF_TEMPLATES.advice_keep.push(
+    "Poc a tocar: segueix amb aquesta concentració i puja el repte quan et vegis.",
+    "Així es juga. Mantén el rumb i busca rivals una mica més forts."
+);
+COACH_DEBRIEF_TEMPLATES.advice_blunder = [
+    "Avui el que pesa són els errors greus: revisa’ls un per un, és la via més ràpida de millorar.",
+    "Quan apareixen errors decisius, entén-ne la causa abans de tornar a jugar; els plans d’aquesta partida t’hi ajuden.",
+    "Centra’t a eliminar els errors greus i les imprecisions cauran soles.",
+    "Cada error gran d’avui és una lliçó cara: aprofita-la repassant els moments crítics."
+];
+
 // Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
+// Usa l'anti-repetició persistent compartida (pickFreshPlanLine) i memoritza el
+// text per partida perquè rerenderitzacions dins la mateixa partida siguin estables.
+let _localDebriefCache = {};
 function composeDebriefText(facts, seedStr) {
-    const rng = mulberry32(hashStr(String(seedStr || 'debrief')));
-    const pick = arr => arr[Math.floor(rng() * arr.length)];
+    const cacheKey = String(seedStr || 'debrief');
+    if (_localDebriefCache[cacheKey]) return _localDebriefCache[cacheKey];
+    const pick = cat => pickFreshPlanLine(COACH_DEBRIEF_TEMPLATES[cat] || [], 'debrief:' + cat);
     const data = {
         prec: facts.precision !== null ? facts.precision : '—',
         avg: facts.avgPrecision,
@@ -15149,32 +15224,35 @@ function composeDebriefText(facts, seedStr) {
         && (facts.precision >= 70 || (facts.avgPrecision !== null && facts.precision >= facts.avgPrecision));
     const sentences = [];
 
-    if (facts.result === 'win') sentences.push(pick(goodPrecision ? COACH_DEBRIEF_TEMPLATES.win_high : COACH_DEBRIEF_TEMPLATES.win_low));
-    else if (facts.result === 'draw') sentences.push(pick(COACH_DEBRIEF_TEMPLATES.draw));
-    else sentences.push(pick(goodPrecision ? COACH_DEBRIEF_TEMPLATES.loss_high : COACH_DEBRIEF_TEMPLATES.loss_low));
+    if (facts.result === 'win') sentences.push(pick(goodPrecision ? 'win_high' : 'win_low'));
+    else if (facts.result === 'draw') sentences.push(pick('draw'));
+    else sentences.push(pick(goodPrecision ? 'loss_high' : 'loss_low'));
 
     if (facts.cleanGame) {
-        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_clean));
+        sentences.push(pick('highlight_clean'));
     } else if (facts.avgPrecision !== null && facts.precision !== null && facts.precision - facts.avgPrecision >= 5) {
-        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_above_avg));
+        sentences.push(pick('highlight_above_avg'));
     } else if (facts.blunders === 0 && facts.mistakes > 0) {
-        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.highlight_no_blunders));
+        sentences.push(pick('highlight_no_blunders'));
     }
 
     if (facts.topErrorTheme && facts.topErrorCount > 0) {
-        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_theme));
+        sentences.push(pick('weak_theme'));
     } else if (facts.worstPhase && facts.worstPhaseCount >= 2) {
-        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_phase));
+        sentences.push(pick('weak_phase'));
     } else if (facts.cleanGame && facts.weakestMastery < 50) {
         data.tema = getThemeLabel(facts.weakestTheme);
-        sentences.push(pick(COACH_DEBRIEF_TEMPLATES.weak_mastery));
+        sentences.push(pick('weak_mastery'));
     }
 
-    if (facts.cleanGame && facts.srsDue < 3) sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_keep));
-    else if (facts.srsDue >= 3) sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_srs));
-    else sentences.push(pick(COACH_DEBRIEF_TEMPLATES.advice_theme));
+    if (facts.blunders >= 1 && !facts.cleanGame && facts.srsDue < 3) sentences.push(pick('advice_blunder'));
+    else if (facts.cleanGame && facts.srsDue < 3) sentences.push(pick('advice_keep'));
+    else if (facts.srsDue >= 3) sentences.push(pick('advice_srs'));
+    else sentences.push(pick('advice_theme'));
 
-    return sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
+    const text = sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
+    _localDebriefCache[cacheKey] = text;
+    return text;
 }
 
 // Tradueix els fets a claus llegibles perquè OpenAI redacti en català sense inventar res.
