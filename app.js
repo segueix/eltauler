@@ -1015,7 +1015,7 @@ async function handleBackupImportFile(file) {
     if (!file) return;
     const fileName = file.name || '';
     if (fileName && !fileName.toLowerCase().endsWith('.json')) {
-        showToast('Selecciona un backup en format .json', 'error');
+        showToast('Selecciona una còpia de seguretat en format .json', 'error');
         return;
     }
     try {
@@ -1031,7 +1031,7 @@ async function handleBackupImportFile(file) {
         );
     } catch (err) {
         console.error('Error important backup JSON:', err);
-        showToast('No s’ha pogut llegir el .json. Comprova que sigui un backup vàlid d’El Tauler.', 'error');
+        showToast('No s’ha pogut llegir el .json. Comprova que sigui una còpia de seguretat vàlida d’El Tauler.', 'error');
     }
 }
 
@@ -5264,7 +5264,7 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
 }
 
 async function prepareBundleSequence(fen, opts = {}) {
-    // silent: no mostra alertes (preparació en background)
+    // silent: no mostra alertes (preparació en segon pla)
     // shouldAbort: permet interrompre la preparació entre anàlisis
     const silent = !!opts.silent;
     const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
@@ -6697,7 +6697,7 @@ function startHistoryErrorPractice(err) {
     currentBundleSeverity = err.severity || (err.quality === 'blunder' ? 'high' : 'med');
     currentGameMode = 'bundle';
     currentOpponent = null;
-    showToast('Errada carregada al tauler: resol-la en dos moviments. Pots usar Pista o Màxima.', 'success');
+    showToast('Errada carregada al tauler: resol-la en dos moviments. Pots fer servir Pista o Màxima.', 'success');
     startGame(true, err.fen);
     return true;
 }
@@ -6866,7 +6866,7 @@ function getOpeningContinuations(sequence) {
 
 function getStrategicVoice() {
     const voices = [
-        { name: 'Sun Tzu', work: "L'Art de la Guerra", style: 'militar i filosòfic', example: "L'estrateg savi prepara la victòria abans que comenci la batalla. Conèixer el terreny és conèixer les possibilitats." },
+        { name: 'Sun Tzu', work: "L'Art de la Guerra", style: 'militar i filosòfic', example: "L’estratega savi prepara la victòria abans que comenci la batalla. Conèixer el terreny és conèixer les possibilitats." },
         { name: 'Miyamoto Musashi', work: 'El Llibre dels Cinc Anells', style: "marcial i contemplatiu, centrat en la percepció i el ritme", example: "Observa l'adversari com l'aigua observa la pedra: sense pressa, però sense pausa. El ritme correcte desarma qualsevol defensa." },
         { name: 'Nicolau Maquiavel', work: 'El Príncep', style: "pragmàtic i incisiu, centrat en el poder i l'oportunitat", example: "Qui domina el centre domina les rutes, i qui domina les rutes decideix on es lliura la batalla." },
         { name: 'Carl von Clausewitz', work: 'De la Guerra', style: "analític i metòdic, centrat en la fricció i la incertesa", example: "Cap pla sobreviu al primer contacte amb l'enemic. La victòria pertany a qui s'adapta més ràpid al caos del tauler." }
@@ -6879,13 +6879,13 @@ function getOpeningStrategicVoice() {
         name: 'Sun Tzu',
         work: "L'Art de la Guerra",
         style: 'breu, estratègic, militar i filosòfic',
-        example: "L'estrateg prepara el camp abans que soni el primer tambor: pren el centre, oculta el pla i converteix el primer avantatge en domini del mig joc."
+        example: "L’estratega prepara el camp abans que soni el primer tambor: pren el centre, oculta el pla i converteix el primer avantatge en domini del mig joc."
     };
 }
 
 function buildOpeningEncouragementPrompt() {
     const voice = getOpeningStrategicVoice();
-    return `Ets ${voice.name}, mestre estrateg, donant consell abans d'una partida d'escacs.
+    return `Ets ${voice.name}, mestre estratega, donant consell abans d'una partida d'escacs.
 
 TASCA: Escriu un paràgraf d'encoratjament en català, estil "${voice.work}".
 
@@ -7127,7 +7127,7 @@ Escriu una màxima breu en català sobre corregir l'error sense revelar la jugad
         console.error('[OpenAI Opening]', err?.message || err);
         if (isOpeningMaximContextCurrent(contextToken) && noteEl) {
             const msg = getOpenAIStatusLabel({ ok: false, status: 0, errorMessage: err?.message || '' });
-            noteEl.innerHTML = `<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">${escapeHtml(msg)}. S'usa una màxima local.</div>`;
+            noteEl.innerHTML = `<div style="padding:10px; background:rgba(255,100,100,0.2); border-radius:8px;">${escapeHtml(msg)}. Es fa servir una màxima local.</div>`;
             showOfflineOpeningMaxim();
         }
     } finally {
@@ -7246,7 +7246,7 @@ async function requestOpenAIBundleHint() {
 function buildAssistedHintPrompt(fen, bestMove, evaluation) {
     const voice = getStrategicVoice();
     const evalInfo = typeof evaluation === 'number' ? `Avaluació actual: ${evaluation > 0 ? '+' : ''}${evaluation} centipawns.` : '';
-    return `Ets ${voice.name}, mestre estrateg, guiant un alumne durant una partida d'escacs.
+    return `Ets ${voice.name}, mestre estratega, guiant un alumne durant una partida d'escacs.
 
 POSICIÓ ACTUAL (FEN): ${fen}
 MILLOR JUGADA SEGONS L'ENGINY: ${bestMove}
@@ -7288,7 +7288,7 @@ async function requestAssistedHint() {
 
     assistedHintPending = true;
     $('#btn-assisted-hint').prop('disabled', true);
-    $('#status').html('<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estrateg...</div>');
+    $('#status').html('<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estratega...</div>');
 
     try {
         const fen = game.fen();
@@ -7389,7 +7389,7 @@ function analyzePositionForUser(fen, depth = 14) {
 let userAnalysisPending = false;
 async function requestPositionAnalysis() {
     if (!game || game.game_over() || userAnalysisPending) return;
-    if (isEngineThinking) { showToast('Espera que el rival mogui', 'info'); return; }
+    if (isEngineThinking) { showToast('Espera que el rival faci la seva jugada', 'info'); return; }
     userAnalysisPending = true;
     const btn = $('#btn-analyze');
     btn.prop('disabled', true);
@@ -8693,7 +8693,7 @@ function loadRandomOpeningError() {
     // Actualitzar nota
     const noteEl = document.getElementById('opening-practice-note');
     if (noteEl) {
-        noteEl.innerHTML = `<div style="padding:8px; background:rgba(201,162,39,0.15); border-radius:8px;">Practica l'error del moviment ${openingErrorMoveFilter} (${openingErrorColorFilter === 'w' ? 'blanques' : 'negres'}) - 2 jugades</div>`;
+        noteEl.innerHTML = `<div style="padding:8px; background:rgba(201,162,39,0.15); border-radius:8px;">Practica l'errada de la jugada ${openingErrorMoveFilter} (${openingErrorColorFilter === 'w' ? 'blanques' : 'negres'}) - 2 jugades</div>`;
     }
 
     updateOpeningPrecisionDisplay();
@@ -11472,7 +11472,7 @@ function setupEvents() {
         if (!openingPracticeGame || openingPracticeGame.game_over()) return;
         if (openingPracticeEngineThinking || openingPracticeHintPending) {
             const noteEl = document.getElementById('opening-practice-note');
-            if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,200,100,0.2); border-radius:8px;">⏳ Espera que l\'engine acabi...</div>';
+            if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,200,100,0.2); border-radius:8px;">⏳ Espera que el motor acabi...</div>';
             return;
         }
 
@@ -11757,7 +11757,7 @@ function setupEvents() {
             openaiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#settings-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
-            showToast('Totes les dades han estat esborrades. Comença de nou!', 'success');
+            showToast("S'han esborrat totes les dades. Torna a començar!", 'success');
         }, { title: 'Esborrar totes les dades', confirmText: 'Esborrar-ho tot' });
     });
     
@@ -12770,7 +12770,7 @@ const TACTICS_BANK = [
 ];
 
 function pickTacticsFen() {
-    // Prefereix una posició amb la seqüència ja preparada en background (inici instantani)
+    // Prefereix una posició amb la seqüència ja preparada en segon pla (inici instantani)
     return pickPreferPrepared(TACTICS_BANK) || TACTICS_BANK[Math.floor(Math.random() * TACTICS_BANK.length)];
 }
 
@@ -12825,7 +12825,7 @@ function showTacticsOverlay() {
 /* ===================== BANNER D'INCENTIU ===================== */
 const PLAY_IDEAS = [
     "Domina el centre des de la primera jugada: cada peça hi guanya força.",
-    "Prova una Partida Assistida: el mestre estrateg et xifra el millor pla.",
+    "Prova una Partida assistida: el mestre estratega et planteja el millor pla.",
     "Aprèn una obertura nova avui; la victòria es prepara abans de la batalla.",
     "Repassa un error antic: qui no repassa, repeteix.",
     "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges perd.",
@@ -13229,8 +13229,8 @@ function showBundleMenu() {
     };
 
     let html = '<div class="modal-overlay" id="bundle-modal" style="display:flex;"><div class="modal-content">';
-    html += '<div class="modal-title">📚 Errors Guardats</div>';
-    html += '<button class="btn btn-primary" id="btn-bundle-random" style="margin:0 0 12px 0;">🎲 Resoldre bundle aleatori</button>';
+    html += '<div class="modal-title">📚 Errors guardats</div>';
+    html += '<button class="btn btn-primary" id="btn-bundle-random" style="margin:0 0 12px 0;">🎲 Resoldre un lot aleatori</button>';
     html += '<div class="bundle-folder-list">';
 
     ['high', 'med', 'low'].forEach((sevKey) => {
@@ -13586,7 +13586,7 @@ function renderClock() {
 }
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
-    // Cedeix el motor: atura la pre-generació en background (tret que estigui
+    // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
     // preparant justament aquest exercici, que llavors es recull del rebost).
     requestBackgroundPrepAbort(isBundle ? fen : null);
     currentReview = [];
@@ -13630,12 +13630,12 @@ blunderMode = isBundle;
             bundleFixedSequence = pendingPreparedSequence;
             pendingPreparedSequence = null;
         } else {
-            // Primer mira el rebost d'exercicis pre-generats en background
+            // Primer mira el rebost d'exercicis pre-generats en segon pla
             bundleFixedSequence = takePreparedSequence(fen);
         }
         if (!bundleFixedSequence) {
             $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
-            // Espera que acabi la preparació en background en curs (s'ha demanat
+            // Espera que acabi la preparació en segon pla en curs (s'ha demanat
             // aturar-la o és justament aquest FEN) per no barrejar anàlisis.
             if (backgroundPrepPromise) { try { await backgroundPrepPromise; } catch (e) {} }
             bundleFixedSequence = takePreparedSequence(fen) || await prepareBundleSequence(fen);
@@ -13753,7 +13753,7 @@ blunderMode = isBundle;
         currentOpponent = null;
         window._startAssistedGame = false;
         updateAdaptiveEngineEloLabel();
-        $('#game-mode-title').text('🧭 Partida Assistida');
+        $('#game-mode-title').text('🧭 Partida assistida');
         if (engineReady) applyEngineEloStrength(currentElo);
     } else {
         currentGameMode = 'free';
@@ -14653,7 +14653,7 @@ function showBundleTryAgainModal() {
     html += '<div class="modal-content">';
     html += '<div class="modal-title">Tornar a intentar</div>';
     html += `<div style="margin:12px 0; color:var(--text-secondary); line-height:1.4;">${reasonText}</div>`;
-    html += '<button class="btn btn-primary" id="btn-bundle-retry-ok">OK</button>';
+    html += '<button class="btn btn-primary" id="btn-bundle-retry-ok">D’acord</button>';
     html += '</div></div>';
     $('body').append(html);
 
@@ -15665,7 +15665,7 @@ function lintLocalBanks() {
     const ALLOWED_HUMAN = new Set(['n', 'played', 'best', 'swing']);
     const ALLOWED_DEBRIEF = new Set(['prec', 'avg', 'diff', 'cops', 'moments', 'tema', 'fase', 'due']);
     const checkPool = (arr, label, allowed) => {
-        if (!Array.isArray(arr)) { issues.push(`${label}: no és array`); return; }
+        if (!Array.isArray(arr)) { issues.push(`${label}: no és cap vector`); return; }
         if (arr.length < 2) issues.push(`${label}: només ${arr.length} variant(s)`);
         const seen = new Set();
         arr.forEach((s, i) => {
@@ -17118,9 +17118,9 @@ $(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
 });
 
 // Inicialització
-/* ===================== REBOST D'EXERCICIS (pre-generació en background) ===================== */
-// Manté sempre uns quants exercicis "bundle" (tàctiques, correccions d'errors,
-// errors d'obertura i repte diari) ja analitzats per Stockfish perquè comencin
+/* ===================== REBOST D'EXERCICIS (pre-generació en segon pla) ===================== */
+// Manté sempre uns quants exercicis del lot (tàctiques, correccions d'errades,
+// errades d'obertura i repte diari) ja analitzats per Stockfish perquè comencin
 // a l'instant, sense esperes ni errors de preparació. Les seqüències es desen a
 // localStorage i només es calculen quan el motor està lliure (pantalles de menú).
 const PREPARED_SEQ_STORAGE_KEY = 'chess_preparedSequences';
@@ -17227,7 +17227,7 @@ function getBackgroundPrepCandidates() {
     return out;
 }
 
-// Només preparem en background quan el motor segur que no fa cap altra feina:
+// Només preparem en segon pla quan el motor segur que no fa cap altra feina:
 // a les pantalles de menú/estadístiques/configuració i sense cap petició pendent.
 function isIdleForBackgroundPrep() {
     const idleScreenVisible = $('#start-screen').is(':visible') || $('#stats-screen').is(':visible') || $('#settings-screen').is(':visible');
@@ -17237,7 +17237,7 @@ function isIdleForBackgroundPrep() {
         !openingPracticeHintPending && !openingPreCalcPending && !stockfishRequestor;
 }
 
-// Demana aturar la preparació en background perquè l'usuari necessita el motor.
+// Demana aturar la preparació en segon pla perquè l'usuari necessita el motor.
 // Si està preparant justament l'exercici demanat, la deixem acabar i es
 // recollirà del rebost en lloc de refer-la.
 function requestBackgroundPrepAbort(fenWanted = null) {
@@ -17275,7 +17275,7 @@ async function backgroundPrepTick() {
                 console.log('[PrepBG] Exercici a punt:', next);
             }
         } catch (e) {
-            console.warn('[PrepBG] Error preparant en background:', e);
+            console.warn('[PrepBG] Error preparant en segon pla:', e);
         } finally {
             backgroundPrepCurrentFen = null;
             backgroundPrepProtected = false;
@@ -17317,7 +17317,7 @@ $(document).ready(() => {
     }, 60000);
 
     // Rebost d'exercicis: recupera les seqüències desades i comença a omplir-lo
-    // en background perquè els exercicis arrenquin sense espera.
+    // en segon pla perquè els exercicis arrenquin sense espera.
     loadPreparedSequences();
     setTimeout(backgroundPrepTick, 3000);
     setInterval(backgroundPrepTick, 8000);
