@@ -45,6 +45,8 @@
             --severity-high: #ff0000;
             --streak-fire: #d4763b;
             --star-gold: #ffd700;
+            --text-positive: #7fcf9a;
+            --text-negative: #ff6f61;
             --font-scale: 1;
         }
                 body.epaper-mode {
@@ -62,6 +64,8 @@
             --severity-high: #777;
             --streak-fire: #444;
             --star-gold: #555;
+            --text-positive: #444;
+            --text-negative: #555;
             background: #f2f2f2 !important;
             color: #222;
             filter: saturate(0) contrast(0.95);
@@ -104,7 +108,7 @@
             --bg-dark: #f3ead6;
             --bg-card: #fbf5e6;
             --bg-warm: #f0e4ca;
-            --accent-gold: #9a7d1f;
+            --accent-gold: #806712;
             --accent-green: #3f6b4d;
             --accent-purple: #7b3f8c;
             --accent-blue: #1f5fa8;
@@ -113,8 +117,10 @@
             --severity-low: #c79a00;
             --severity-med: #d97300;
             --severity-high: #c0392b;
-            --streak-fire: #c2632b;
-            --star-gold: #c79a00;
+            --streak-fire: #a44e1a;
+            --star-gold: #805f00;
+            --text-positive: #285c3c;
+            --text-negative: #b3201f;
             background: linear-gradient(180deg, #f3ead6 0%, #ece0c6 50%, #f3ead6 100%);
             color: var(--text-primary);
         }
@@ -132,6 +138,69 @@
         body.day-mode .btn-secondary,
         body.day-mode .select-control,
         body.day-mode .text-input { border: 1px solid rgba(120, 95, 40, 0.25); }
+
+        /* ============================================================
+           Correccions de contrast — MODE DIA (pergamí)
+           Moltes caixes s'enfosqueixen amb negre translúcid (rgba(0,0,0,..));
+           sobre el crema es tornarien grises i tèrboles, amb els accents
+           daurats il·legibles. Aquí reben un tint càlid clar amb vora
+           visible; els daurats ja s'han enfosquit a les variables de dalt.
+           ============================================================ */
+        body.day-mode .stat-box,
+        body.day-mode .stat-card,
+        body.day-mode .missions-panel,
+        body.day-mode .mission-item,
+        body.day-mode .coach-panel,
+        body.day-mode .coach-item,
+        body.day-mode .settings-panel,
+        body.day-mode .openai-status,
+        body.day-mode .tv-card,
+        body.day-mode .tv-player,
+        body.day-mode .opening-stats-row,
+        body.day-mode .opening-bundle-board,
+        body.day-mode .bundle-item,
+        body.day-mode .drill-item,
+        body.day-mode .bundle-section,
+        body.day-mode .bundle-section-header,
+        body.day-mode .badge-item,
+        body.day-mode .history-section,
+        body.day-mode .history-item,
+        body.day-mode .chart-container,
+        body.day-mode .league-badge,
+        body.day-mode .league-table thead th,
+        body.day-mode .plan-countdown,
+        body.day-mode .opening-theory-line.theory-neutral,
+        body.day-mode .clock-pill {
+            background: rgba(120, 95, 40, 0.08);
+            border-color: rgba(120, 95, 40, 0.22);
+        }
+        /* Camps de formulari: fons clar i vora perquè s'hi vegi el text */
+        body.day-mode .select-control,
+        body.day-mode .text-input,
+        body.day-mode #openai-key-input {
+            background: #fffdf7;
+        }
+        /* Botons daurats: daurat brillant + text fosc (no daurat fosc + text fosc) */
+        body.day-mode .btn-primary,
+        body.day-mode .engagement-banner .eng-cta,
+        body.day-mode .coach-item:not(.done) .btn.coach-item-go {
+            background: linear-gradient(135deg, #e6c24c 0%, #c9a227 100%);
+            color: #2e2618;
+        }
+        /* Xips de revisió de partida: text fosc semàntic sobre fons clar */
+        body.day-mode .review-chip { background: rgba(120,95,40,0.08); border-color: rgba(120,95,40,0.2); color: var(--text-primary); }
+        body.day-mode .review-chip strong { color: #2e2618; }
+        body.day-mode .review-chip.excel { color: #2f6b46; border-color: rgba(63,107,77,0.55); }
+        body.day-mode .review-chip.good { color: #806712; border-color: rgba(154,125,31,0.55); }
+        body.day-mode .review-chip.inaccuracy { color: #985900; border-color: rgba(217,115,0,0.55); }
+        body.day-mode .review-chip.mistake { color: #b22f2f; border-color: rgba(192,57,43,0.55); }
+        body.day-mode .review-chip.blunder { color: #9e1f24; border-color: rgba(183,28,28,0.55); }
+        /* Accents semàntics vius (verd/taronja/vermell) pensats per fons fosc → foscos en dia */
+        body.day-mode .opening-session-stats.stats-good { color: #2f6b46; }
+        body.day-mode .opening-session-stats.stats-warning { color: #985900; }
+        body.day-mode .opening-session-stats.stats-danger { color: #b3201f; }
+        body.day-mode .opening-stats-row .move-link { color: #6a2f80; }
+        body.day-mode .openai-move-link:hover { color: #6a2f80; }
 
         /* Font scale system — --font-scale scales the root font-size so all rem units follow */
         html { font-size: calc(16px * var(--font-scale)); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
@@ -316,7 +385,7 @@
         }
         
         .streak-status { font-size: 0.6rem; margin-top: 3px; padding: 2px 6px; border-radius: 8px; display: inline-block; }
-        .streak-done { background: rgba(74, 124, 89, 0.3); color: var(--accent-green); }
+        .streak-done { background: rgba(74, 124, 89, 0.3); color: var(--text-positive); }
         .streak-pending { background: rgba(212, 118, 59, 0.2); color: var(--streak-fire); }
         
         /* MISSIONS */
@@ -445,7 +514,7 @@
         @media (max-width: 480px) {
             .coach-item .btn.coach-item-go { flex: 1 1 100%; width: 100%; padding: 9px 12px; }
         }
-        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--accent-green); cursor: default; }
+        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--text-positive); cursor: default; }
         body.epaper-mode .coach-panel,
         body.epaper-mode #review-debrief,
         body.epaper-mode .coach-item {
@@ -466,7 +535,7 @@
             text-align: left;
         }
         .error-context-text { flex: 1 1 220px; min-width: 0; font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
-        .error-context-text strong { color: #ef6e6e; font-size: 1rem; }
+        .error-context-text strong { color: var(--text-negative); font-size: 1rem; }
         .error-context-date { color: var(--text-secondary); }
         #error-context-banner .btn.error-context-replay {
             width: auto; flex: 0 0 auto; padding: 8px 12px; font-size: 0.78rem;
@@ -724,7 +793,7 @@
         .tv-card.blue { background: linear-gradient(135deg, rgba(25, 118, 210, 0.3), rgba(13, 71, 161, 0.6)); border-color: rgba(25, 118, 210, 0.35); }
         .tv-card.steel { background: linear-gradient(135deg, rgba(96, 125, 139, 0.35), rgba(55, 71, 79, 0.6)); border-color: rgba(96, 125, 139, 0.35); }
         .tv-card.ember { background: linear-gradient(135deg, rgba(212, 118, 59, 0.35), rgba(116, 60, 28, 0.6)); border-color: rgba(212, 118, 59, 0.35); }
-        .tv-card.sand { background: linear-gradient(135deg, rgba(244, 228, 188, 0.25), rgba(168, 154, 138, 0.5)); border-color: rgba(244, 228, 188, 0.35); color: #fef6e6; }
+        .tv-card.sand { background: linear-gradient(135deg, #e8d8b0, #b9a888); border-color: rgba(120, 95, 40, 0.4); color: #2e2618; }
         .tv-card.shadow { background: linear-gradient(135deg, rgba(61, 50, 42, 0.6), rgba(26, 20, 16, 0.9)); border-color: rgba(255, 255, 255, 0.08); }
         body.epaper-mode .tv-card {
             background: #e6e6e6;
@@ -817,7 +886,7 @@
             color: #f0fbf3;
         }
         #tv-hint {
-            background: linear-gradient(135deg, #c3a0f1, #8a63c7);
+            background: linear-gradient(135deg, #8257c0, #5e3a9e);
             color: #fff;
             box-shadow: 0 4px 14px rgba(138, 99, 199, 0.35);
         }
@@ -850,7 +919,7 @@
 
         /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
         .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
-        .btn-bundle   { background: linear-gradient(135deg, #8b8076 0%, #60564d 100%); color: #f4e4bc; }
+        .btn-bundle   { background: linear-gradient(135deg, #6e6359 0%, #4f463e 100%); color: #f4e4bc; }
         .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
         .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
         .btn-tactics  { background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0; }
@@ -1045,7 +1114,7 @@
             cursor: pointer;
             text-decoration: underline;
             text-decoration-style: dotted;
-            color: var(--accent-purple);
+            color: #c98fe0;
             padding: 2px 6px;
             border-radius: 4px;
             background: rgba(156, 39, 176, 0.15);
@@ -1313,8 +1382,8 @@
         .bundle-item:hover, .drill-item:hover { background: rgba(255,255,255,0.05); }
         .bundle-meta { font-size: 0.75rem; color: var(--text-secondary); }
         .bundle-elo { color: var(--accent-gold); font-weight: bold; }
-        .bundle-remove { color: #8b3a3a; cursor: pointer; padding: 5px 10px; font-size: 0.9rem; }
-        .bundle-remove:hover { color: #c62828; }
+        .bundle-remove { color: var(--text-negative); cursor: pointer; padding: 5px 10px; font-size: 0.9rem; }
+        .bundle-remove:hover { opacity: 0.75; }
         
         /* BUNDLE FOLDERS */
         .bundle-folder-list { text-align: left; margin-top: 10px; }
@@ -2171,7 +2240,7 @@
             transition: color 0.2s;
         }
         .openai-move-link:hover {
-        color: var(--accent-purple);
+        color: #c98fe0;
         text-decoration: none;
         }
         body.epaper-mode .openai-move-link {
@@ -2430,7 +2499,7 @@
         .danger-zone-title {
             font-family: 'Cinzel', serif;
             font-size: 0.9rem;
-            color: #c62828;
+            color: var(--text-negative);
             margin-bottom: 10px;
             text-align: center;
         }
@@ -2490,8 +2559,8 @@
         .league-history-row .lh-round { font-weight: 700; color: var(--accent-gold); min-width: 28px; }
         .league-history-row .lh-opp { flex: 1; color: var(--text-primary); }
         .league-history-row .lh-result { font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
-        .lh-win { background: rgba(74,124,89,0.25); color: var(--accent-green); }
-        .lh-loss { background: rgba(198,40,40,0.2); color: var(--severity-high); }
+        .lh-win { background: rgba(74,124,89,0.25); color: var(--text-positive); }
+        .lh-loss { background: rgba(198,40,40,0.2); color: var(--text-negative); }
         .lh-draw { background: rgba(201,162,39,0.2); color: var(--accent-gold); }
         .league-history-row.lh-win-row { border-left-color: var(--accent-green); }
         table.league-table { width: 100%; border-collapse: collapse; }
