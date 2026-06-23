@@ -15529,6 +15529,83 @@ function pickCoachVoiceForKey(key) {
     return voice;
 }
 
+// TIER 3 — personalització amb l'historial local (sense LLM).
+function playerLevelBand() {
+    const elo = (typeof currentElo === 'number' && currentElo > 0) ? currentElo : null;
+    if (elo === null) return 'mig';
+    return elo < 1200 ? 'principiant' : (elo < 1800 ? 'mig' : 'avancat');
+}
+const COACH_LEVEL_TIPS = {
+    principiant: [
+        'Recorda el bàsic: desenvolupa, enroca i no deixis peces penjades.',
+        'A cada jugada, mira primer si el rival t’amenaça alguna cosa.',
+        'Compta sempre què pot capturar el rival abans de moure.'
+    ],
+    mig: [
+        'Treballa els plans: una jugada sense idea sol acabar en imprecisió.',
+        'Abans de complicar, millora la peça pitjor situada.',
+        'Ataca els teus errors recurrents: és on hi ha més punts a guanyar.'
+    ],
+    avancat: [
+        'Afina les decisions en posicions igualades: hi ets a prop.',
+        'Profilaxi i conversió neta: a aquest nivell decideixen els marges petits.',
+        'Compara candidates concretes; el detall et separa del següent esglaó.'
+    ]
+};
+function planThemeToGrowth(themeKey) {
+    if (HIERO_TO_GROWTH_THEME[themeKey]) return HIERO_TO_GROWTH_THEME[themeKey];
+    return normalizeGrowthTheme(themeKey);
+}
+// Analitza les últimes partides: tema d'error recurrent, tendència de precisió i nivell.
+function buildPlayerInsights(excludeId) {
+    try {
+        const games = (Array.isArray(gameHistory) ? gameHistory : [])
+            .filter(g => g && g.id !== excludeId).slice(-10);
+        const themeCounts = {}, gamesWithTheme = {};
+        games.forEach(g => {
+            const errs = Array.isArray(g.errors) ? g.errors : [];
+            const seen = new Set();
+            errs.forEach(e => {
+                const t = normalizeGrowthTheme(classifyPositionTheme(e.fen || '', e.playerMove || ''));
+                if (!t || t === 'general') return;
+                themeCounts[t] = (themeCounts[t] || 0) + 1;
+                seen.add(t);
+            });
+            seen.forEach(t => { gamesWithTheme[t] = (gamesWithTheme[t] || 0) + 1; });
+        });
+        let recurringTheme = null, recurringCount = 0;
+        Object.keys(themeCounts).forEach(t => { if (themeCounts[t] > recurringCount) { recurringCount = themeCounts[t]; recurringTheme = t; } });
+        const precs = games.filter(g => typeof g.precision === 'number').map(g => g.precision);
+        let trend = 'stable';
+        if (precs.length >= 4) {
+            const half = Math.floor(precs.length / 2);
+            const avg = a => a.reduce((s, x) => s + x, 0) / a.length;
+            const diff = avg(precs.slice(half)) - avg(precs.slice(0, half));
+            trend = diff >= 4 ? 'up' : (diff <= -4 ? 'down' : 'stable');
+        }
+        return {
+            games: games.length,
+            recurringTheme, recurringCount,
+            gamesWithTheme: recurringTheme ? (gamesWithTheme[recurringTheme] || 0) : 0,
+            trend, level: playerLevelBand()
+        };
+    } catch (e) { return { games: 0, recurringTheme: null, recurringCount: 0, gamesWithTheme: 0, trend: 'stable', level: playerLevelBand() }; }
+}
+function buildInsightsNote(insights) {
+    try {
+        if (!insights || insights.games < 3) return null;
+        const parts = [];
+        if (insights.recurringTheme && insights.recurringCount >= 3 && insights.gamesWithTheme >= 2) {
+            parts.push(`patró recent en ${getThemeLabel(insights.recurringTheme)} (${insights.recurringCount} errors en ${insights.gamesWithTheme} partides), val la pena entrenar-ho`);
+        }
+        if (insights.trend === 'up') parts.push('la teva precisió mitjana puja respecte a les partides anteriors');
+        else if (insights.trend === 'down') parts.push('la precisió ha baixat una mica últimament: juga amb una mica més de calma');
+        if (!parts.length) return null;
+        const s = parts.join('; ');
+        return '📈 ' + s.charAt(0).toUpperCase() + s.slice(1) + '.';
+    } catch (e) { return null; }
+}
+
 // Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
 // Usa l'anti-repetició persistent compartida (pickFreshPlanLine) i memoritza el
 // text per partida perquè rerenderitzacions dins la mateixa partida siguin estables.
@@ -15583,6 +15660,10 @@ function composeDebriefText(facts, seedStr, voice) {
 
     // Tancament ocasional amb la signatura de la veu.
     if (Math.random() <= 0.4) sentences.push(pickFreshPlanLine(v.signoffs, 'voicesign:' + v.id));
+
+    // Consell adaptat al nivell (ELO) del jugador.
+    const level = playerLevelBand();
+    if (COACH_LEVEL_TIPS[level] && Math.random() <= 0.35) sentences.push(pickFreshPlanLine(COACH_LEVEL_TIPS[level], 'leveltip:' + level));
 
     const text = sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
     _localDebriefCache[cacheKey] = text;
@@ -15795,9 +15876,10 @@ function buildLocalHumanPlan(moment) {
     };
 }
 
-function buildHumanPlanMoments(entry) {
+function buildHumanPlanMoments(entry, insights = null) {
     const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
     const priority = { blunder: 4, mistake: 3, inaccuracy: 2, good: 1, excel: 0 };
+    const ins = insights || buildPlayerInsights(entry && entry.id);
     return reviews
         .filter(r => r && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
         .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
@@ -15805,6 +15887,8 @@ function buildHumanPlanMoments(entry) {
         .map(r => {
             const ctx = buildPlanContext(r);
             const themeKey = detectPlanSubtheme(r, ctx);
+            const isPattern = !!(ins && ins.recurringTheme && ins.recurringCount >= 3
+                && planThemeToGrowth(themeKey) === ins.recurringTheme);
             const moment = {
                 moveNumber: r.moveNumber || '?',
                 phase: phaseFromContext(ctx, r.moveNumber),
@@ -15817,7 +15901,8 @@ function buildHumanPlanMoments(entry) {
                 quality: r.quality || 'inaccuracy',
                 fen: r.fen || null,
                 positional: buildPositionalNote(ctx),
-                candidates: buildCandidatesNote(r)
+                candidates: buildCandidatesNote(r),
+                isPattern
             };
             return { ...moment, ...buildLocalHumanPlan(moment) };
         });
@@ -15925,6 +16010,7 @@ function renderHumanPlanCards(container, moments, voice = null) {
         ];
         if (m.positional) lines.push(`<strong>A la posició:</strong> ${escapeHtml(m.positional)}`);
         if (m.candidates) lines.push(`<strong>Línia:</strong> ${escapeHtml(m.candidates)}`);
+        if (m.isPattern) lines.push(`<strong>⚠️ Patró teu:</strong> aquest tema ja t'ha fallat altres partides recents.`);
         lines.push(`<strong>Pregunta:</strong> ${escapeHtml(m.question)}`);
         lines.push(`<strong>Objectiu:</strong> ${escapeHtml(m.objective)}`);
         main.append($('<div class="coach-text human-plan-text"></div>').html(lines.join('<br>')));
@@ -15990,7 +16076,11 @@ function renderGameDebrief() {
     const openingNote = buildOpeningNote(entry);
     if (openingNote) box.append($('<div class="coach-text"></div>').css({ opacity: 0.85, 'margin-top': '6px' }).text(openingNote));
 
-    const humanPlanMoments = buildHumanPlanMoments(entry);
+    const playerInsights = buildPlayerInsights(entry.id);
+    const insightsNote = buildInsightsNote(playerInsights);
+    if (insightsNote) box.append($('<div class="coach-text"></div>').css({ opacity: 0.85, 'margin-top': '6px' }).text(insightsNote));
+
+    const humanPlanMoments = buildHumanPlanMoments(entry, playerInsights);
     let humanPlansPanel = null;
     if (humanPlanMoments.length) {
         humanPlansPanel = renderHumanPlanCards(box, humanPlanMoments, coachVoice);
