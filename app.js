@@ -2026,7 +2026,7 @@ function setOpeningPracticeUserMoveNote(quality, validMoves = []) {
         noteEl.textContent = 'Acceptable: no és la línia principal, però és jugable.';
     } else if (quality === 'incorrect') {
         const continuations = validMoves.length ? validMoves.slice(0, 5).join(', ') : 'cap continuació teòrica disponible';
-        noteEl.textContent = `Incorrecte: has sortit de la teoria. Continuacions habituals: ${continuations}.`;
+        noteEl.textContent = `Has sortit de la teoria. Continuacions habituals: ${continuations}.`;
     }
 }
 
@@ -2418,7 +2418,7 @@ function handleOpeningLessonUserMove(from, to) {
         registerOpeningLessonAttempt('incorrect');
         const noteEl = document.getElementById('opening-practice-note');
         if (noteEl && openingLessonInfo) {
-            noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
+            noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada teòrica aquí és <strong>${expected}</strong>. Torna-ho a provar.</div></div>`;
         }
         void requestOpeningLessonExplanation(fenBefore, expected, move.san);
         setTimeout(() => {
@@ -2453,12 +2453,12 @@ function handleOpeningLessonUserMove(from, to) {
 let openingLessonExplainToken = 0;
 
 function buildOpeningLessonExplanationPrompt(fen, expectedSan, playedSan, openingName) {
-    return `Ets un professor d'obertures d'escacs que parla català (tutejant).
+    return `Ets un professor d'obertures d'escacs que parla en català i tuteja l'alumne.
 Obertura: ${openingName}
 Posició abans de la jugada (FEN): ${fen}
 L'alumne ha jugat ${playedSan}, però la teoria recomana ${expectedSan}.
 
-Explica en 2 frases (màxim 45 paraules) quina idea de l'obertura segueix ${expectedSan} i què deixa de fer ${playedSan}. Sense markdown, llistes ni cometes: només text pla.`;
+Explica en 2 frases (màxim 45 paraules) quina idea d'obertura segueix ${expectedSan} i què deixa de fer ${playedSan}. Sense markdown, llistes ni cometes: només text pla.`;
 }
 
 async function requestOpeningLessonExplanation(fen, expectedSan, playedSan) {
@@ -2482,7 +2482,7 @@ async function requestOpeningLessonExplanation(fen, expectedSan, playedSan) {
     if (openingLessonStep !== stepAtRequest) return;
     const noteEl = document.getElementById('opening-practice-note');
     if (!noteEl) return;
-    noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada de la teoria aquí és <strong>${escapeHtml(expectedSan)}</strong>. Torna-ho a provar.</div><div class="maxim-text" style="opacity:0.92; margin-top:6px;">💬 ${escapeHtml(text)}</div></div>`;
+    noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">📖 ${openingLessonInfo.name}</div><div class="maxim-text">La jugada teòrica aquí és <strong>${escapeHtml(expectedSan)}</strong>. Torna-ho a provar.</div><div class="maxim-text" style="opacity:0.92; margin-top:6px;">💬 ${escapeHtml(text)}</div></div>`;
 }
 
 function commitOpeningMoveFromTap(from, to) {
@@ -2658,23 +2658,23 @@ let eloChart = null;
 let engineMoveTimeout = null;
 
 const MISSION_TEMPLATES = [
-    { id: 'play1', text: 'Juga 1 Partida', stars: 1, check: () => sessionStats.gamesPlayed >= 1 },
-    { id: 'playLeague', text: 'Juga 1 Lliga', stars: 1, check: () => sessionStats.leagueGamesPlayed >= 1 },
-    { id: 'playFree', text: 'Juga 1 Lliure', stars: 1, check: () => sessionStats.freeGamesPlayed >= 1 },
-    { id: 'bundle1', text: 'Resol 1 Error', stars: 1, check: () => sessionStats.bundlesSolved >= 1 },
-    { id: 'bundleLow', text: 'Resol 1 Lleu', stars: 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
+    { id: 'play1', text: 'Juga 1 partida', stars: 1, check: () => sessionStats.gamesPlayed >= 1 },
+    { id: 'playLeague', text: 'Juga 1 partida de lliga', stars: 1, check: () => sessionStats.leagueGamesPlayed >= 1 },
+    { id: 'playFree', text: 'Juga 1 partida lliure', stars: 1, check: () => sessionStats.freeGamesPlayed >= 1 },
+    { id: 'bundle1', text: 'Resol 1 errada', stars: 1, check: () => sessionStats.bundlesSolved >= 1 },
+    { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
     { id: 'precision70', text: 'Precisió +70%', stars: 1, check: () => sessionStats.highPrecisionGames >= 1 },
     
-    { id: 'play3', text: 'Juga 3 Partides', stars: 2, check: () => sessionStats.gamesPlayed >= 3 },
+    { id: 'play3', text: 'Juga 3 partides', stars: 2, check: () => sessionStats.gamesPlayed >= 3 },
     { id: 'win2', text: 'Guanya 2 partides', stars: 2, check: () => sessionStats.gamesWon >= 2 },
-    { id: 'bundle3', text: 'Resol 3 Errors', stars: 2, check: () => sessionStats.bundlesSolved >= 3 },
-    { id: 'bundleMed', text: 'Resol 1 Mitjà', stars: 2, check: () => sessionStats.bundlesSolvedMed >= 1 },
+    { id: 'bundle3', text: 'Resol 3 errades', stars: 2, check: () => sessionStats.bundlesSolved >= 3 },
+    { id: 'bundleMed', text: 'Resol 1 errada mitjana', stars: 2, check: () => sessionStats.bundlesSolvedMed >= 1 },
     { id: 'precision85', text: 'Precisió +85%', stars: 2, check: () => sessionStats.perfectGames >= 1 },
     
-    { id: 'play5', text: 'Juga 5 Partides', stars: 3, check: () => sessionStats.gamesPlayed >= 5 },
+    { id: 'play5', text: 'Juga 5 partides', stars: 3, check: () => sessionStats.gamesPlayed >= 5 },
     { id: 'win4', text: 'Guanya 4 partides', stars: 3, check: () => sessionStats.gamesWon >= 4 },
-    { id: 'bundleHigh', text: 'Resol 1 Greu', stars: 3, check: () => sessionStats.bundlesSolvedHigh >= 1 },
-    { id: 'blackwin', text: 'Guanya amb Negres', stars: 3, check: () => sessionStats.blackWins >= 1 }
+    { id: 'bundleHigh', text: 'Resol 1 errada greu', stars: 3, check: () => sessionStats.bundlesSolvedHigh >= 1 },
+    { id: 'blackwin', text: 'Guanya amb negres', stars: 3, check: () => sessionStats.blackWins >= 1 }
 ];
 
 const BADGES = [
@@ -2683,7 +2683,7 @@ const BADGES = [
     { id: 'skilled', name: 'Competent', stars: 50, icon: '⚔️' },
     { id: 'expert', name: 'Expert', stars: 100, icon: '🎖️' },
     { id: 'master', name: 'Mestre', stars: 200, icon: '👑' },
-    { id: 'grandmaster', name: 'Gran Mestre', stars: 400, icon: '🏆' },
+    { id: 'grandmaster', name: 'Gran mestre', stars: 400, icon: '🏆' },
     { id: 'legend', name: 'Llegenda', stars: 750, icon: '⭐' },
     { id: 'immortal', name: 'Immortal', stars: 1500, icon: '🔥' }
 ];
@@ -5680,13 +5680,13 @@ function generateCompleteAnalysis(moveReview) {
 function generateLlmPrompt(analysis) {
     const { moveReview, hieroglyphics, llmContext } = analysis;
 
-    return `Analitza aquest error d'escacs i genera una màxima didàctica:
+    return `Analitza aquesta errada d'escacs i genera una màxima didàctica:
 
 POSICIÓ (FEN): ${moveReview.fen}
 JUGAT: ${moveReview.playerMoveSan} ${hieroglyphics.moveSymbol}
 MILLOR: ${llmContext.best}
-LÍNIA CORRECTA: ${llmContext.bestLine?.join(' ') || 'N/A'}
-PÈRDUA: ${moveReview.swing} centipawns
+LÍNIA CORRECTA: ${llmContext.bestLine?.join(' ') || 'No disponible'}
+PÈRDUA: ${moveReview.swing} centipeons
 
 CONTEXT POSICIONAL:
 - Balanç material: ${llmContext.materialBalance > 0 ? '+' : ''}${llmContext.materialBalance}
@@ -5774,7 +5774,7 @@ function identifyTacticalPatterns(entries, avgCpLoss, blunderCount) {
     const patterns = [];
 
     if (blunderCount > 0) {
-        patterns.push('Blunders tàctics (>200 CP)');
+        patterns.push('Errades tàctiques greus (>200 CP)');
     }
     if ((counts.mistake || 0) >= 2 || (counts.blunder || 0) >= 1) {
         patterns.push('Pèrdua de material en combinacions');
@@ -5813,7 +5813,7 @@ function getCalibrationResultsSummary() {
     if (patternCounts['Bona execució tàctica']) strengths.push('Bona execució tàctica');
     if (wins >= 3) strengths.push('Bona capacitat de convertir avantatges');
 
-    if (avgCpLoss > 90) weaknesses.push('Cal reduir pèrdues de centipawns');
+    if (avgCpLoss > 90) weaknesses.push('Cal reduir les pèrdues de centipeons');
     if (blunders > 0) weaknesses.push('Evita blunders crítics (>200 CP)');
     if (patternCounts['Pèrdua de material en combinacions']) weaknesses.push('Vigila les combinacions que perden material');
     if (patternCounts['Imprecisions en la coordinació de peces']) weaknesses.push('Millora la coordinació de peces');
@@ -6580,12 +6580,12 @@ function buildErrorNotePrompt(err) {
         playedCtx ? `Jugada errònia: ${playedCtx.piece} ${playedCtx.from}-${playedCtx.to}` : '',
         bestCtx ? `Millor jugada: ${bestCtx.piece} ${bestCtx.from}-${bestCtx.to}` : ''
     ].filter(Boolean).join('\n');
-    return `Ets un entrenador d'escacs que parla català (tutejant), directe i clar.
+    return `Ets un entrenador d'escacs directe i clar que parla en català i tuteja l'alumne.
 Posició abans de la jugada (FEN): ${err.fen}
 A la jugada ${d.moveNumber} l'alumne va jugar ${d.played}, però la millor jugada era ${d.best}.${d.pv ? `\nContinuació correcta: ${d.pv}` : ''}
 ${coordLine ? `\n${coordLine}` : ''}
 
-Explica l'error en 2 frases curtes (màxim 45 paraules).
+Explica l'errada en 2 frases curtes (màxim 45 paraules).
 
 REGLES OBLIGATÒRIES
 - Escriu només noms de peces i caselles amb lletra+número (exemples: cavall f3, dama h5, de e2 a e4).
@@ -6660,7 +6660,7 @@ function updateHistoryErrorNotes(entry) {
         const note = notes[getErrorNoteKey(err)] || null;
         let body;
         if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
-        else if (note && note.status === 'pending') body = '<em>Generant explicació...</em>';
+        else if (note && note.status === 'pending') body = '<em>Generant l’explicació...</em>';
         else if (!openaiApiKey) body = "<em>Configura la clau d’OpenAI per veure l'explicació.</em>";
         else if (note && note.status === 'error' && note.message) body = `<em>No s'ha pogut generar (${escapeHtml(note.message)}). Torna a obrir la partida per reintentar-ho.</em>`;
         else body = '<em>Explicació no disponible. Torna a obrir la partida per reintentar-ho.</em>';
@@ -6885,9 +6885,9 @@ function getOpeningStrategicVoice() {
 
 function buildOpeningEncouragementPrompt() {
     const voice = getOpeningStrategicVoice();
-    return `Ets ${voice.name}, mestre estratega, donant consell abans d'una partida d'escacs.
+    return `Ets ${voice.name}, mestre estratega, i dones un consell abans d'una partida d'escacs.
 
-TASCA: Escriu un paràgraf d'encoratjament en català, estil "${voice.work}".
+TASCA: Escriu un paràgraf d'encoratjament en català natural, estil "${voice.work}".
 
 CONTINGUT:
 - Parla de la preparació abans de la batalla
@@ -7085,7 +7085,7 @@ MODE: correcció d'un error d'obertura en les primeres 10 jugades.
 FEN: ${openingPracticeGame.fen()}
 MOVIMENT: ${openingErrorMoveFilter || '—'} (${openingErrorColorFilter === 'w' ? 'blanques' : openingErrorColorFilter === 'b' ? 'negres' : '—'})
 
-Escriu una màxima breu en català sobre corregir l'error sense revelar la jugada exacta, ni caselles, ni notació. Ha de parlar de recuperar el centre, no precipitar l'atac, conservar iniciativa i adaptar-se al rival. 2 o 3 frases, sense emojis.`;
+Escriu una màxima breu en català sobre corregir l'errada sense revelar la jugada exacta, ni caselles, ni notació. Ha de parlar de recuperar el centre, no precipitar l'atac, conservar iniciativa i adaptar-se al rival. 2 o 3 frases, sense emojis.`;
     } else if (isStart) {
         prompt = buildOpeningEncouragementPrompt();
     } else {
@@ -7245,11 +7245,11 @@ async function requestOpenAIBundleHint() {
 
 function buildAssistedHintPrompt(fen, bestMove, evaluation) {
     const voice = getStrategicVoice();
-    const evalInfo = typeof evaluation === 'number' ? `Avaluació actual: ${evaluation > 0 ? '+' : ''}${evaluation} centipawns.` : '';
-    return `Ets ${voice.name}, mestre estratega, guiant un alumne durant una partida d'escacs.
+    const evalInfo = typeof evaluation === 'number' ? `Avaluació actual: ${evaluation > 0 ? '+' : ''}${evaluation} centipeons.` : '';
+    return `Ets ${voice.name}, mestre estratega, i guies un alumne durant una partida d'escacs.
 
 POSICIÓ ACTUAL (FEN): ${fen}
-MILLOR JUGADA SEGONS L'ENGINY: ${bestMove}
+MILLOR JUGADA SEGONS EL MOTOR: ${bestMove}
 ${evalInfo}
 
 TASCA: Escriu UNA màxima xifrada en català, estil "${voice.work}", que orienti l'alumne cap a la idea correcta SENSE dir la jugada directament.
@@ -7443,11 +7443,11 @@ function buildOpenAIReviewPrompt(entry, severeErrors) {
         const swing = err.swing || 0;
         const pvLine = (err.bestMovePvSan || err.bestMovePv || []).slice(0, 4).join(' ');
         
-        return `Error ${idx + 1}:
+        return `Errada ${idx + 1}:
   - Número de jugada: ${moveNum}
   - Jugada feta: ${played}
   - Millor jugada: ${best}
-  - Pèrdua: ${swing} centipawns
+  - Pèrdua: ${swing} centipeons
   - Continuació correcta: ${pvLine || '—'}`;
     }).join('\n\n');
 
@@ -7462,17 +7462,17 @@ DADES DE LA PARTIDA
 - Total jugades: ${totalMoves}
 - Jugades bones: ${(summary.excel || 0) + (summary.good || 0)}
 - Imprecisions: ${summary.inaccuracy || 0}
-- Errors greus: ${(summary.mistake || 0) + (summary.blunder || 0)}
+- Errades greus: ${(summary.mistake || 0) + (summary.blunder || 0)}
 
-ERRORS CONCRETS A ANALITZAR
-${errorsDetail || 'Cap error greu detectat.'}
+ERRADES CONCRETES A ANALITZAR
+${errorsDetail || 'Cap errada greu detectada.'}
 
 FORMAT OBLIGATORI PER REFERENCIAR JUGADES
-Quan mensionis una jugada específica, SEMPRE utilitza exactament aquest format:
+Quan mencionis una jugada específica, SEMPRE utilitza exactament aquest format:
 "jugada X (SAN)" - on X és el número i SAN la notació algebraica.
 Exemples correctes:
 - "A la jugada 12 (Nxe5), vas perdre material..."
-- "L'error a la jugada 8 (Qd3) va ser decisiu..."
+- "L'errada a la jugada 8 (Qd3) va ser decisiu..."
 - "Calia jugar diferent a la jugada 15 (Bxf7+)..."
 
 INSTRUCCIONS
@@ -8825,11 +8825,11 @@ function showOpeningErrorSuccessOverlay(noMore) {
     // Mostrar missatge adequat
     let message;
     if (globalRemaining === 0) {
-        message = 'Has resolt tots els errors!';
+        message = 'Has resolt totes les errades!';
     } else if (remaining > 0) {
-        message = `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''}`;
+        message = `${remaining} errada${remaining > 1 ? 'es' : ''} restant${remaining > 1 ? 's' : ''}`;
     } else {
-        message = `${globalRemaining} error${globalRemaining > 1 ? 's' : ''} d'altres moviments`;
+        message = `${globalRemaining} errada${globalRemaining > 1 ? 'es' : ''} d'altres moviments`;
     }
     $('#opening-error-remaining').text(message);
 
@@ -12679,7 +12679,7 @@ function yesterdayStr() {
 function pickDailyPuzzleFen() {
     const seed = hashStr(getToday());
     // Conjunt curat de posicions tàctiques amb una millor jugada clara (verificada per Stockfish),
-    // complementat amb els errors greus reals del jugador per donar varietat i rellevància.
+    // complementat amb les errades greus reals del jugador per donar varietat i rellevància.
     const curated = (typeof TACTICS_BANK !== 'undefined' && TACTICS_BANK.length)
         ? TACTICS_BANK.slice()
         : DAILY_PUZZLE_BANK.map(p => p.fen);
@@ -13090,12 +13090,12 @@ function buildCoachDiagnosisFacts() {
 }
 
 function buildCoachDiagnosisPrompt(facts) {
-    return `Ets un entrenador d'escacs veterà que parla català (tutejant), honest i concret.
+    return `Ets un entrenador d'escacs veterà, honest i concret, que parla en català i tuteja l'alumne.
 A partir NOMÉS d'aquests fets acumulats de l'alumne (no inventis res que no hi sigui):
 ${JSON.stringify(facts, null, 2)}
 
 Escriu un diagnòstic de 70 a 110 paraules en 1 o 2 paràgrafs:
-- El patró d'error més recurrent i en quina fase de la partida apareix.
+- El patró d'errada més recurrent i en quina fase de la partida apareix.
 - Un punt fort real que es vegi a les dades.
 - La prioritat d'entrenament per als pròxims dies, en imperatiu.
 Sense llistes, sense markdown i sense xifres que no surtin dels fets.`;
@@ -13141,7 +13141,7 @@ const OFFLINE_MAXIMS = {
     king: [
         "Quan el rei enemic queda exposat, tota maniobra ha d'apuntar a la seva posició; la pressa sense objectiu malgasta forces.",
         "El general savi no persegueix peces, sinó el monarca: dirigeix les teves columnes cap al refugi del rei.",
-        "Una escac no és un crit buit si obre el camí cap a la victòria; busca el xec que guanya temps o material."
+        "Un escac no és un crit buit si obre el camí cap a la victòria; busca l'escac que guanyi temps o material."
     ],
     material: [
         "Abans de capturar, compta els defensors: el guany aparent sovint amaga una trampa preparada.",
@@ -13165,7 +13165,7 @@ OFFLINE_MAXIMS.king.push(
     "No persegueixis l'escac per l'escac; cada amenaça ha de deixar una segona ombra al darrere."
 );
 OFFLINE_MAXIMS.material.push(
-    "Abans de capturar, calcula la recaptura i la jugada següent: l'or fàcil sovint és enverinat.",
+    "Abans de capturar, calcula la recaptura i la jugada següent: l'or fàcil sovint està enverinat.",
     "Una peça lligada o sobrecarregada és material futur; ataca el que defensa per obligació."
 );
 OFFLINE_MAXIMS.center.push(
@@ -13245,7 +13245,7 @@ function showBundleMenu() {
 
         html += '<div class="bundle-section-content">';
         if (count === 0) {
-            html += '<div class="bundle-empty">Cap bundle en aquesta carpeta</div>';
+            html += '<div class="bundle-empty">Cap errada en aquesta carpeta</div>';
         } else {
             html += '<div class="bundle-list">';
             groups[sevKey].forEach(({ err, idx }) => {
@@ -13283,10 +13283,10 @@ function showBundleMenu() {
 }
 
 function removeBundle(idx) {
-    showAppConfirm('Esborrar aquest error?', () => {
+    showAppConfirm('Vols esborrar aquesta errada?', () => {
         savedErrors.splice(idx, 1); saveStorage(); updateDisplay();
         $('#bundle-modal').remove(); if (savedErrors.length > 0) showBundleMenu();
-    }, { title: 'Esborrar error', confirmText: 'Esborrar' });
+    }, { title: 'Esborrar errada', confirmText: 'Esborrar' });
 }
 
 window.startBundleGame = function(fen, severity = null) {
@@ -13340,7 +13340,7 @@ function startSelectedBundleGame(entry) {
 
 function startMatchErrorReview() {
     if (currentGameErrors.length === 0) {
-        alert('No hi ha errors per revisar en aquesta partida.');
+        alert('No hi ha errades per revisar en aquesta partida.');
         return;
     }
     matchErrorReturnReviewSnapshot = lastReviewSnapshot ? { ...lastReviewSnapshot } : null;
@@ -13419,12 +13419,12 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
     const overlay = $('#match-error-success-overlay');
     if (!overlay.length) {
         if (remaining > 0) {
-            showAppConfirm(`Vols revisar un altre error? En queden ${remaining}.`,
+            showAppConfirm(`Vols revisar una altra errada? En queden ${remaining}.`,
                 () => launchNextMatchError(),
-                { title: 'Revisar errors', confirmText: 'Sí', cancelText: 'No', onCancel: () => endMatchErrorReviewSession() }
+                { title: 'Revisar errades', confirmText: 'Sí', cancelText: 'No', onCancel: () => endMatchErrorReviewSession() }
             );
         } else {
-            showToast('Ja has revisat tots els errors de la partida.', 'success');
+            showToast('Ja has revisat totes les errades de la partida.', 'success');
             endMatchErrorReviewSession();
         }
         return;
@@ -13432,14 +13432,14 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
 
     const fromHistory = currentBundleSource === 'history';
     $('#match-error-remaining').text(
-        noMore ? (fromHistory ? 'Has revisat tots els errors d’aquesta partida a l’historial!' : 'Has revisat tots els errors!') :
-        remaining > 0 ? `${remaining} error${remaining > 1 ? 's' : ''} restant${remaining > 1 ? 's' : ''} d’aquesta partida` :
+        noMore ? (fromHistory ? 'Has revisat totes les errades d’aquesta partida a l’historial!' : 'Has revisat totes les errades!') :
+        remaining > 0 ? `${remaining} errada${remaining > 1 ? 'es' : ''} restant${remaining > 1 ? 's' : ''} d’aquesta partida` :
         'No en queden més!'
     );
 
     if (fromHistory) {
         $('#btn-match-error-home').text('Tornar a l’historial');
-        $('#btn-match-error-again').text('Un altre error');
+        $('#btn-match-error-again').text('Una altra errada');
     } else {
         $('#btn-match-error-home').text('Tornar');
         $('#btn-match-error-again').text('Un altre');
@@ -15357,7 +15357,7 @@ function buildDebriefFacts(entry) {
     const prev = gameHistory.filter(g => g.id !== entry.id && typeof g.precision === 'number');
     const avgPrecision = prev.length ? Math.round(prev.reduce((s, g) => s + g.precision, 0) / prev.length) : null;
 
-    // Tema més repetit entre els errors greus de la partida
+    // Tema més repetit entre les errades greus de la partida
     const themeCounts = {};
     (entry.errors || []).forEach(err => {
         const t = normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''));
@@ -15414,7 +15414,7 @@ const COACH_DEBRIEF_TEMPLATES = {
         "Has guanyat sense regalar res: {prec}% de precisió. Així es construeix nivell."
     ],
     win_low: [
-        "Has guanyat, però la precisió ({prec}%) diu que el rival t'ha perdonat alguna.",
+        "Has guanyat, però la precisió ({prec}%) diu que el rival t'ha perdonat alguna cosa.",
         "Victòria treballada: el resultat és bo, però hi ha hagut moments delicats ({prec}%).",
         "Punt a la butxaca, tot i que la partida ha estat més bruta del que voldríem ({prec}%)."
     ],
@@ -15424,17 +15424,17 @@ const COACH_DEBRIEF_TEMPLATES = {
         "Taules. De vegades el rival també juga; quedem-nos amb el que has fet bé."
     ],
     loss_high: [
-        "Has perdut, però amb un {prec}% de precisió: la derrota és més del rival que teva.",
+        "Has perdut, però amb un {prec}% de precisió: la derrota parla més del mèrit del rival que de demèrit teu.",
         "Derrota dura d'encaixar perquè has jugat bé ({prec}%). Així és aquest joc.",
         "Has caigut jugant a bon nivell ({prec}%). Aquestes derrotes ensenyen més que moltes victòries."
     ],
     loss_low: [
         "Derrota, i avui la precisió ({prec}%) explica per què. Toca revisar amb calma.",
         "Has perdut i hi ha hagut massa errades ({prec}% de precisió). Cap drama: ho treballem.",
-        "Partida per oblidar el resultat ({prec}%), però no les lliçons que porta dins."
+        "Partida per oblidar-ne el resultat ({prec}%), però no pas les lliçons."
     ],
     highlight_clean: [
-        "El més destacable: cap error greu en tota la partida. Això és or.",
+        "El més destacable: cap errada greu en tota la partida. Això és or.",
         "Zero errades greus avui. La teva solidesa comença a notar-se.",
         "Has jugat tota la partida sense cap error seriós: senyal de maduresa al tauler."
     ],
@@ -15444,27 +15444,27 @@ const COACH_DEBRIEF_TEMPLATES = {
         "Avui has superat la teva mitjana ({avg}%): el treball es comença a veure."
     ],
     highlight_no_blunders: [
-        "Cap blunder avui: les errades han estat menors, i això ja és un pas.",
-        "Has evitat els errors greus; les imprecisions es poleixen amb més facilitat."
+        "Cap errada greu avui: les errades han estat menors, i això ja és un pas.",
+        "Has evitat les errades greus; les imprecisions es poleixen amb més facilitat."
     ],
     weak_theme: [
         "El punt feble d'avui: {cops} amb {tema}.",
-        "On t'ha fet mal la partida és en {tema} ({moments}).",
-        "Si mirem els errors, el patró que es repeteix és {tema}."
+        "La partida t'ha fet mal sobretot en {tema} ({moments}).",
+        "Si mirem les errades, el patró que es repeteix és {tema}."
     ],
     weak_phase: [
-        "Les errades s'han concentrat a {fase}: és on perds més punts.",
-        "T'has mantingut bé fins que ha arribat {fase}; allà s'ha torçat la cosa.",
+        "Les errades s'han concentrat en {fase}: és on perds més punts.",
+        "T'has mantingut bé fins que ha arribat {fase}; en aquell tram s'ha torçat la partida.",
         "El tram fluix d'avui ha estat {fase}."
     ],
     weak_mastery: [
-        "No hi ha hagut errors greus, però recorda que {tema} segueix sent el teu punt més fluix.",
-        "Per seguir creixent, el tema que demana feina és {tema}."
+        "No hi ha hagut errades greus, però recorda que {tema} segueix sent el teu punt més fluix.",
+        "Per seguir creixent, el tema que demana més feina és {tema}."
     ],
     advice_srs: [
         "Tens {due} repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
         "Abans de la pròxima partida, passa pels {due} repassos pendents; és memòria que no vols perdre.",
-        "Consell: tens {due} errors esperant repàs. Tanca'ls i notaràs la diferència."
+        "Consell: tens {due} errades esperant repàs. Tanca'ls i notaràs la diferència."
     ],
     advice_theme: [
         "Aquesta setmana toca {tema}: entrena'l i aquest tipus de partida canviarà de color.",
@@ -15479,7 +15479,7 @@ const COACH_DEBRIEF_TEMPLATES = {
 };
 
 // Amplia els pools del debrief (a banda per no tocar el literal) i hi afegeix
-// una categoria per a partides amb errors greus.
+// una categoria per a partides amb errades greus.
 COACH_DEBRIEF_TEMPLATES.win_high.push(
     "Quina partida: {prec}% de precisió i victòria. Així dona gust.",
     "Has dominat de principi a fi ({prec}%). Continua per aquest camí.",
@@ -15488,7 +15488,7 @@ COACH_DEBRIEF_TEMPLATES.win_high.push(
 COACH_DEBRIEF_TEMPLATES.win_low.push(
     "Tres punts són tres punts, però amb {prec}% hi ha marge per jugar més fi.",
     "Has guanyat la batalla; ara guanya també la precisió ({prec}%).",
-    "Victòria amb ensurts ({prec}%): repassa els moments on t’has complicat."
+    "Victòria amb ensurts ({prec}%): repassa els moments en què t’has complicat."
 );
 COACH_DEBRIEF_TEMPLATES.draw.push(
     "Repartiment de punts. Mirem on podies haver inclinat la balança.",
@@ -15501,29 +15501,29 @@ COACH_DEBRIEF_TEMPLATES.loss_high.push(
     "Avui no ha entrat, però amb {prec}% de precisió els resultats arribaran."
 );
 COACH_DEBRIEF_TEMPLATES.loss_low.push(
-    "Derrota amb avisos ({prec}%): la bona notícia és que són errors molt corregibles.",
-    "No ha sortit bé ({prec}%), però cada error d’avui és una lliçó per demà.",
+    "Derrota amb avisos ({prec}%): la bona notícia és que són errades molt corregibles.",
+    "No ha sortit bé ({prec}%), però cada errada d’avui és una lliçó per demà.",
     "Dia complicat al tauler ({prec}%). Respira, revisa i torna-hi."
 );
 COACH_DEBRIEF_TEMPLATES.highlight_clean.push(
     "Cap relliscada en tota la partida: aquesta és la base del progrés de debò.",
-    "Solidesa total avui, sense errors greus. Quan jugues així, guanyar és qüestió de temps."
+    "Solidesa total avui, sense errades greus. Quan jugues així, guanyar és qüestió de temps."
 );
 COACH_DEBRIEF_TEMPLATES.highlight_above_avg.push(
     "Has rendit per sobre del teu nivell habitual ({avg}%): pren-ne nota.",
     "Avui ({prec}%) has deixat enrere la teva mitjana ({avg}%). Senyal de creixement."
 );
 COACH_DEBRIEF_TEMPLATES.highlight_no_blunders.push(
-    "Sense errors greus: el teu pitjor enemic avui han estat els detalls, no els ensurts.",
-    "Cap blunder, només matisos a polir. Vas afinant."
+    "Sense errades greus: el teu pitjor enemic avui han estat els detalls, no els ensurts.",
+    "Cap errada greu, només matisos a polir. Vas afinant."
 );
 COACH_DEBRIEF_TEMPLATES.weak_theme.push(
-    "El fil dels errors d’avui passa per {tema}: hi ha feina concreta a fer.",
-    "Si busques un patró, el trobaràs en {tema} ({moments}).",
+    "El fil de les errades d’avui passa per {tema}: hi ha feina concreta a fer.",
+    "Si busques un patró, el trobaràs a {tema} ({moments}).",
     "On has perdut més terreny ha estat en {tema}."
 );
 COACH_DEBRIEF_TEMPLATES.weak_phase.push(
-    "El moment fluix ha arribat a {fase}: allà és on toca posar atenció.",
+    "El tram fluix ha arribat en {fase}: aquí és on toca posar atenció.",
     "Fins a {fase} tot anava bé; aquell tram t’ha costat car."
 );
 COACH_DEBRIEF_TEMPLATES.weak_mastery.push(
@@ -15543,10 +15543,10 @@ COACH_DEBRIEF_TEMPLATES.advice_keep.push(
     "Així es juga. Mantén el rumb i busca rivals una mica més forts."
 );
 COACH_DEBRIEF_TEMPLATES.advice_blunder = [
-    "Avui el que pesa són els errors greus: revisa’ls un per un, és la via més ràpida de millorar.",
-    "Quan apareixen errors decisius, entén-ne la causa abans de tornar a jugar; els plans d’aquesta partida t’hi ajuden.",
-    "Centra’t a eliminar els errors greus i les imprecisions cauran soles.",
-    "Cada error gran d’avui és una lliçó cara: aprofita-la repassant els moments crítics."
+    "Avui el que pesa són les errades greus: revisa-les una per una, és la via més ràpida de millorar.",
+    "Quan apareixen errades decisives, entén-ne la causa abans de tornar a jugar; els plans d’aquesta partida t'ajudaran a fer-ho.",
+    "Centra’t a eliminar les errades greus i les imprecisions cauran soles.",
+    "Cada errada important d’avui és una lliçó cara: aprofita-la repassant els moments crítics."
 ];
 
 // Veus de l'entrenador (registre de coach, diferents de les veus literàries dels
@@ -15556,17 +15556,17 @@ const COACH_VOICES = [
       openers: ['Respira i mirem-ho amb calma.', 'Sense pressa, anem al fons de la qüestió.', 'Amb tranquil·litat, repassem el que ha passat.', 'La calma també s’entrena: comencem.'],
       signoffs: ['Pas a pas, el nivell puja sol.', 'La constància tranquil·la guanya partides.', 'Demà, una mica millor que avui.'] },
     { id: 'directe', name: 'Entrenador directe', tagline: 'clar i sense embuts',
-      openers: ['Anem al gra.', 'Sense voltes: això és el que compta.', 'Et dic les coses clares.', 'Resumeixo el que importa.'],
+      openers: ['Anem al gra.', 'Sense embuts: això és el que compta.', 'Et dic les coses clares.', 'Resumeixo el que importa.'],
       signoffs: ['Corregeix això i puges de nivell.', 'Menys excuses, més repàs.', 'Ja saps què toca: a la feina.'] },
     { id: 'calid', name: 'Entrenador càlid', tagline: 'proper i motivador',
-      openers: ['Bona feina per seure i revisar; ja és mèrit.', 'M’agrada que vulguis millorar: anem-hi.', 'Estic content de com t’hi poses.', 'Un pas més en el teu camí, ben fet.'],
+      openers: ['Bona feina per seure i revisar; ja és mèrit.', 'M’agrada que vulguis millorar: anem-hi.', 'M’agrada com t’hi poses.', 'Un pas més en el teu camí, ben fet.'],
       signoffs: ['Confio plenament en el teu progrés.', 'Vas pel bon camí, de debò.', 'Orgullós del teu esforç; continua.'] },
     { id: 'analitic', name: 'Analista', tagline: 'precís i objectiu',
       openers: ['Anem als fets.', 'Mirem-ho amb dades, sense emocions.', 'Objectivament, això és el que diu la partida.', 'Repassem-ho amb precisió.'],
       signoffs: ['Les xifres milloren amb el repàs correcte.', 'Mesura, corregeix, repeteix.', 'El patró és clar; ataquem-lo amb mètode.'] },
     { id: 'veteran', name: 'Veterà competitiu', tagline: 'ofici de torneig',
       openers: ['N’he vistes moltes, de partides com aquesta.', 'Com a la sala de torneig: cap drama.', 'Parlem com dos jugadors de club.', 'Això es guanya amb ofici; t’ho explico.'],
-      signoffs: ['Aquestes lliçons et faran fort al rellotge.', 'Els punts arriben quan l’ofici creix.', 'A la pròxima: mateixa sang freda, millor decisió.'] },
+      signoffs: ['Aquestes lliçons et faran més fort amb el rellotge en marxa.', 'Els punts arriben quan l’ofici creix.', 'A la pròxima: mateixa sang freda, millor decisió.'] },
     { id: 'socratic', name: 'Mestre socràtic', tagline: 'aprendre preguntant',
       openers: ['Abans de res, fes-te una pregunta.', 'Pensem junts; no t’ho donaré tot mastegat.', 'La resposta surt millor si la busques tu.', 'Comencem amb un bon dubte.'],
       signoffs: ['La bona pregunta val més que la resposta ràpida.', 'Segueix qüestionant cada jugada.', 'Qui es pregunta, millora.'] }
@@ -15594,14 +15594,14 @@ const COACH_LEVEL_TIPS = {
         'Compta sempre què pot capturar el rival abans de moure.'
     ],
     mig: [
-        'Treballa els plans: una jugada sense idea sol acabar en imprecisió.',
+        'Treballa els plans: una jugada sense idea sol portar a una imprecisió.',
         'Abans de complicar, millora la peça pitjor situada.',
-        'Ataca els teus errors recurrents: és on hi ha més punts a guanyar.'
+        'Ataca les teves errades recurrents: és on hi ha més punts a guanyar.'
     ],
     avancat: [
         'Afina les decisions en posicions igualades: hi ets a prop.',
         'Profilaxi i conversió neta: a aquest nivell decideixen els marges petits.',
-        'Compara candidates concretes; el detall et separa del següent esglaó.'
+        'Compara jugades candidates concretes; el detall et separa del següent esglaó.'
     ]
 };
 function planThemeToGrowth(themeKey) {
@@ -15648,7 +15648,7 @@ function buildInsightsNote(insights) {
         if (!insights || insights.games < 3) return null;
         const parts = [];
         if (insights.recurringTheme && insights.recurringCount >= 3 && insights.gamesWithTheme >= 2) {
-            parts.push(`patró recent en ${getThemeLabel(insights.recurringTheme)} (${insights.recurringCount} errors en ${insights.gamesWithTheme} partides), val la pena entrenar-ho`);
+            parts.push(`patró recent de ${getThemeLabel(insights.recurringTheme)} (${insights.recurringCount} errades en ${insights.gamesWithTheme} partides), val la pena entrenar-lo`);
         }
         if (insights.trend === 'up') parts.push('la teva precisió mitjana puja respecte a les partides anteriors');
         else if (insights.trend === 'down') parts.push('la precisió ha baixat una mica últimament: juga amb una mica més de calma');
@@ -15777,7 +15777,7 @@ function debriefFactsForPrompt(facts) {
 }
 
 function buildDebriefOpenAIPrompt(facts) {
-    return `Ets un entrenador d'escacs proper, honest i motivador que parla en català (tutejant).
+    return `Ets un entrenador d'escacs proper, honest i motivador que parla en català i tuteja l'alumne.
 Redacta un resum post-partida de 60 a 100 paraules NOMÉS a partir d'aquests fets. No inventis jugades, xifres ni dades que no hi siguin:
 ${JSON.stringify(debriefFactsForPrompt(facts), null, 2)}
 Regles:
@@ -15880,7 +15880,7 @@ function buildCandidatesNote(review) {
                 const gap = Math.abs((a0.eval || 0) - (a1.eval || 0));
                 if (gap <= 70) {
                     const altSan = uciLineToSan(fen, [a1.move], 1)[0];
-                    if (altSan && altSan !== bestSan) parts.push(`També era bo ${altSan}.`);
+                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${altSan}.`);
                 }
             }
         }
@@ -15915,9 +15915,9 @@ function buildOpeningNote(entry) {
         let note = `📖 Obertura: ${info.name}${info.eco ? ` (${info.eco})` : ''}.`;
         if (info.deviationMove && info.deviationBy && entry.playerColor && info.deviationBy === entry.playerColor) {
             const moveNum = Math.floor((info.deviationPly || 0) / 2) + 1;
-            note += ` Vas deixar la teoria cap a la jugada ${moveNum} amb ${info.deviationMove}`;
+            note += ` Vas sortir de la teoria cap a la jugada ${moveNum} amb ${info.deviationMove}`;
             note += (Array.isArray(info.theoryMoves) && info.theoryMoves.length)
-                ? `; la línia principal seguia amb ${info.theoryMoves[0]}.` : '.';
+                ? `; la línia principal continuava amb ${info.theoryMoves[0]}.` : '.';
         }
         return note;
     } catch (e) { return null; }
@@ -15995,22 +15995,22 @@ function buildHumanPlanMoments(entry, insights = null) {
 }
 
 function buildHumanPlansOpenAIPrompt(entry, moments) {
-    return `Ets un entrenador d'escacs en català. Redacta un "Entrenador de plans humans" variat i gens repetitiu.
+    return `Ets un entrenador d'escacs que escriu en català natural. Redacta un "Entrenador de plans humans" variat i gens repetitiu.
 
 DADES DE LA PARTIDA
 ${JSON.stringify({ resultat: entry?.result || '—', precisio: entry?.precision ?? null }, null, 2)}
 
 MOMENTS CRÍTICS DETECTATS PEL MOTOR (no els qüestionis ni inventis jugades):
-${JSON.stringify(moments.map(m => ({ jugada: m.moveNumber, fase: m.phase, tema: m.theme, jugada_feta: m.played, millor_jugada: m.best, perdua_cp: m.swing, qualitat: m.quality })), null, 2)}
+${JSON.stringify(moments.map(m => ({ jugada: m.moveNumber, fase: m.phase, tema: m.theme, jugada_feta: m.played, millor_jugada: m.best, perdua_centipeons: m.swing, qualitat: m.quality })), null, 2)}
 
 Retorna exactament ${moments.length} blocs, un per moment, separats per una línia en blanc. Cada bloc ha de tenir aquest format exacte:
 PLA X: títol curt
 Diagnòstic: una frase humana sobre què passava.
-Pla: una frase amb el pla correcte, sense sonar a motor.
+Pla: una frase amb el pla correcte, sense que soni mecànic.
 Pregunta: una pregunta que obligui l'alumne a pensar.
 Objectiu: una microtasca aplicable a la pròxima partida.
 
-Regles: no facis markdown, no emojis, no llistes amb guions, màxim 90 paraules per bloc, català natural, no inventis variants noves.`;
+Regles: no facis markdown, no emojis, no llistes amb guions, màxim 90 paraules per bloc, català natural i precís, no inventis variants noves.`;
 }
 
 
@@ -16336,8 +16336,8 @@ function buildWeeklyPlan() {
         items.push({
             id: 'openings', type: 'opening_drill', theme: 'opening', metric: 'opening_drill',
             title: openTarget === 1
-                ? "Rectifica 1 error d'obertura (2 jugades correctes)"
-                : `Rectifica ${openTarget} errors d'obertura (2 jugades correctes)`,
+                ? "Rectifica 1 errada d'obertura (2 jugades correctes)"
+                : `Rectifica ${openTarget} errades d'obertura (2 jugades correctes)`,
             target: openTarget, baseline: growthStats.openingDrillsCompleted || 0
         });
     }
@@ -16379,9 +16379,9 @@ function weeklyPlanItemProgress(item) {
 }
 
 const COACH_PLAN_TEMPLATES = [
-    "Avui el focus és {tema} (domini del {pct}%). El pla té tres fronts: rectifica els errors que vas cometre a l'obertura amb dues jugades correctes, afina la vista amb la tàctica, i remata finals fent escac i mat en 3 jugades. Pas a pas, sense pressa.",
-    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho de totes bandes, avui combinem la correcció dels teus errors d'obertura, exercicis de tàctica i mats en 3 jugades als finals.",
-    "Pla d'avui: corregeix les errades que vas fer a l'obertura, resol els mats en 3 jugades per dominar els finals, i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
+    "Avui el focus és {tema} (domini del {pct}%). El pla té tres fronts: rectifica les errades que vas cometre a l'obertura amb dues jugades correctes, afina la vista amb la tàctica, i remata finals fent escac i mat en 3 jugades. Pas a pas, sense pressa.",
+    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho de totes bandes, avui combinem la correcció de les teves errades d'obertura, exercicis de tàctica i mats en 3 jugades als finals.",
+    "Pla d'avui: corregeix les errades que vas cometre a l'obertura, resol els mats en 3 jugades per dominar els finals, i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
 ];
 
 function composeWeeklyPlanText(plan) {
@@ -16391,7 +16391,7 @@ function composeWeeklyPlanText(plan) {
 }
 
 function buildWeeklyPlanOpenAIPrompt(plan) {
-    return `Ets un entrenador d'escacs proper que parla en català (tutejant).
+    return `Ets un entrenador d'escacs proper que parla en català i tuteja l'alumne.
 Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament d'avui d'un alumne, NOMÉS amb aquests fets:
 ${JSON.stringify({
         tema_a_reforcar: getThemeLabel(plan.focusTheme),
@@ -16561,7 +16561,7 @@ function renderWeeklyPlan() {
    1) analyzeTacticalMotive: tradueix la línia de Stockfish (jugada + PV) a un motiu
       tàctic concret (mat, forquilla, clavada, raig X, peça sense defensa, canvi
       guanyador, atac al rei) de manera determinista amb chess.js.
-   2) Exercicis d'obertura: errors reals de les teves 10 primeres jugades, amb el
+   2) Exercicis d'obertura: errades reals de les teves 10 primeres jugades, amb el
       flux de 2 jugades correctes i el bàner de context.
    3) Mats en 3: posicions de final verificades pel motor (s'accepten només si el
       mat arriba exactament a la 3a jugada del jugador). */
@@ -16786,7 +16786,7 @@ function startOpeningErrorDrill() {
     if (!guardCalibrationAccess()) return;
     const pool = getOpeningPhaseErrors();
     if (!pool.length) {
-        showToast("No tens errors d'obertura guardats. Juga partides i tornaran a aparèixer aquí.", 'warn');
+        showToast("No tens errades d'obertura guardades. Juga partides i tornaran a aparèixer aquí.", 'warn');
         return;
     }
     const choice = pickPreferPrepared(pool, e => e.fen);
@@ -16972,7 +16972,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
 }
 
 /* ===================== CONTEXT DE L'ERRADA EN EXERCICIS =====================
-   Quan un exercici prové d'un error real de l'usuari (savedErrors o errors de
+   Quan un exercici prové d'una errada real de l'usuari (savedErrors o errors de
    la partida acabada), mostrem QUÈ va jugar, QUAN i QUÈ va costar, amb la
    jugada errònia marcada al tauler. Així l'exercici és "rectifica la teva
    errada", no un genèric "troba la millor jugada". */
@@ -16982,7 +16982,7 @@ let errorReplayTimer = null;
 
 const ERROR_SEVERITY_INFO = {
     low: { phrase: "una imprecisió que va deixar escapar una opció millor" },
-    med: { phrase: "un error que et va costar part de l'avantatge" },
+    med: { phrase: "una errada que et va costar part de l'avantatge" },
     high: { phrase: "una errada greu que va canviar el signe de la partida" }
 };
 
@@ -17051,9 +17051,9 @@ function renderBundleErrorContext() {
     textEl.append($('<strong></strong>').text(`${san}?`));
     textEl.append($('<span></span>').text(`, ${sev.phrase}.`));
     if (motive && motive.text) {
-        textEl.append($('<span></span>').text(` El que vas deixar escapar: ${motive.text}.`));
+        textEl.append($('<span></span>').text(` El que se't va escapar: ${motive.text}.`));
     }
-    textEl.append($('<span></span>').text(" Ara rectifica-la: juga el que hauries d'haver jugat."));
+    textEl.append($('<span></span>').text(" Ara rectifica: juga el que hauries d'haver jugat."));
 
     $('#btn-error-replay').show().off('click').on('click', previewErrorMove);
     banner.css('display', 'flex');
@@ -17121,7 +17121,7 @@ $(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
 /* ===================== REBOST D'EXERCICIS (pre-generació en segon pla) ===================== */
 // Manté sempre uns quants exercicis del lot (tàctiques, correccions d'errades,
 // errades d'obertura i repte diari) ja analitzats per Stockfish perquè comencin
-// a l'instant, sense esperes ni errors de preparació. Les seqüències es desen a
+// a l'instant, sense esperes ni errades de preparació. Les seqüències es desen a
 // localStorage i només es calculen quan el motor està lliure (pantalles de menú).
 const PREPARED_SEQ_STORAGE_KEY = 'chess_preparedSequences';
 const PREPARED_SEQ_TARGET = 3;            // exercicis a punt per categoria
