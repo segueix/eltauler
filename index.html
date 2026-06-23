@@ -670,6 +670,47 @@
         body.epaper-mode .select-control { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         body.epaper-mode .text-input { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         .setting-help { margin-top: 8px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.25; }
+
+        /* Board & piece theme picker */
+        .board-theme-grid {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .board-theme-chip {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 4px;
+            cursor: pointer;
+            background: none;
+            border: none;
+            padding: 0;
+        }
+        .board-theme-chip-swatch {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            grid-template-rows: 1fr 1fr;
+            width: 42px;
+            height: 42px;
+            border-radius: 8px;
+            overflow: hidden;
+            border: 2px solid transparent;
+            transition: border-color 0.15s;
+        }
+        .board-theme-chip.active .board-theme-chip-swatch,
+        .board-theme-chip:hover .board-theme-chip-swatch {
+            border-color: var(--accent-gold);
+        }
+        .board-theme-chip-label {
+            font-size: 0.6rem;
+            color: var(--text-secondary);
+            white-space: nowrap;
+        }
+        .board-theme-chip.active .board-theme-chip-label {
+            color: var(--accent-gold);
+        }
         .openai-config {
             display: flex;
             flex-direction: column;
@@ -3123,6 +3164,73 @@
                     </label>
                 </div>
                 <div class="setting-help">Tons grisos, ombres mínimes i sense animacions per llegir millor.</div>
+            </div>
+
+            <div class="settings-panel">
+                <div class="settings-title">Tauler i peces</div>
+                <div class="setting-label" style="margin-bottom:6px;">Color del tauler</div>
+                <div class="board-theme-grid">
+                    <button class="board-theme-chip active" data-theme="classic" title="Clàssic">
+                        <div class="board-theme-chip-swatch">
+                            <div style="background:#f0d9b5;"></div><div style="background:#b58863;"></div>
+                            <div style="background:#b58863;"></div><div style="background:#f0d9b5;"></div>
+                        </div>
+                        <span class="board-theme-chip-label">Clàssic</span>
+                    </button>
+                    <button class="board-theme-chip" data-theme="marbre" title="Marbre">
+                        <div class="board-theme-chip-swatch">
+                            <div style="background:#e8e8e8;"></div><div style="background:#7a7a7a;"></div>
+                            <div style="background:#7a7a7a;"></div><div style="background:#e8e8e8;"></div>
+                        </div>
+                        <span class="board-theme-chip-label">Marbre</span>
+                    </button>
+                    <button class="board-theme-chip" data-theme="ocea" title="Oceà">
+                        <div class="board-theme-chip-swatch">
+                            <div style="background:#9ecad6;"></div><div style="background:#4682b4;"></div>
+                            <div style="background:#4682b4;"></div><div style="background:#9ecad6;"></div>
+                        </div>
+                        <span class="board-theme-chip-label">Oceà</span>
+                    </button>
+                    <button class="board-theme-chip" data-theme="bosc" title="Bosc">
+                        <div class="board-theme-chip-swatch">
+                            <div style="background:#cfe3cf;"></div><div style="background:#4a7c59;"></div>
+                            <div style="background:#4a7c59;"></div><div style="background:#cfe3cf;"></div>
+                        </div>
+                        <span class="board-theme-chip-label">Bosc</span>
+                    </button>
+                    <button class="board-theme-chip" data-theme="nit" title="Nit">
+                        <div class="board-theme-chip-swatch">
+                            <div style="background:#c8d0d8;"></div><div style="background:#3d4a55;"></div>
+                            <div style="background:#3d4a55;"></div><div style="background:#c8d0d8;"></div>
+                        </div>
+                        <span class="board-theme-chip-label">Nit</span>
+                    </button>
+                    <button class="board-theme-chip" data-theme="sorra" title="Sorra">
+                        <div class="board-theme-chip-swatch">
+                            <div style="background:#f0e9d2;"></div><div style="background:#c0a882;"></div>
+                            <div style="background:#c0a882;"></div><div style="background:#f0e9d2;"></div>
+                        </div>
+                        <span class="board-theme-chip-label">Sorra</span>
+                    </button>
+                </div>
+                <div class="setting-row" style="margin-top:14px;">
+                    <div class="setting-label">Peces</div>
+                    <select id="piece-theme-select" class="select-control">
+                        <option value="wikipedia">Wikipedia</option>
+                        <option value="cburnett">Modern</option>
+                        <option value="merida">Mèrida</option>
+                        <option value="alpha">Alpha</option>
+                    </select>
+                </div>
+                <div class="setting-help">Tria l'estil de les peces del tauler.</div>
+                <div class="setting-row" style="margin-top:12px;">
+                    <div class="setting-label">Sempre tinc sort &#127808;</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="lucky-mode-toggle">
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Cada partida o problema canvia el tauler i les peces de forma aleatòria.</div>
             </div>
 
             <div class="settings-panel">

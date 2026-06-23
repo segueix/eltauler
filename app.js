@@ -591,6 +591,141 @@ function saveTvJeroglyphicsPreference(enabled) {
     try { localStorage.setItem(TV_JEROGLYPHICS_KEY, enabled ? 'on' : 'off'); } catch (e) {}
 }
 
+// ── Tema del tauler i peces ──────────────────────────────────────────────────
+const BOARD_THEME_KEY = 'eltauler_board_theme';
+const PIECE_THEME_KEY = 'eltauler_piece_theme';
+const LUCKY_MODE_KEY  = 'eltauler_lucky_mode';
+
+const BOARD_THEMES = {
+    classic: { light: '#f0d9b5', dark: '#b58863', label: 'Clàssic'  },
+    marbre:  { light: '#e8e8e8', dark: '#7a7a7a', label: 'Marbre'   },
+    ocea:    { light: '#9ecad6', dark: '#4682b4', label: 'Oceà'     },
+    bosc:    { light: '#cfe3cf', dark: '#4a7c59', label: 'Bosc'     },
+    nit:     { light: '#c8d0d8', dark: '#3d4a55', label: 'Nit'      },
+    sorra:   { light: '#f0e9d2', dark: '#c0a882', label: 'Sorra'    },
+};
+
+const PIECE_THEMES = {
+    wikipedia: { url: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png',                              label: 'Wikipedia' },
+    cburnett:  { url: 'https://raw.githubusercontent.com/lichess-org/lila/master/public/piece/cburnett/{piece}.svg', label: 'Modern'    },
+    merida:    { url: 'https://raw.githubusercontent.com/lichess-org/lila/master/public/piece/merida/{piece}.svg',   label: 'Mèrida'   },
+    alpha:     { url: 'https://raw.githubusercontent.com/lichess-org/lila/master/public/piece/alpha/{piece}.svg',    label: 'Alpha'    },
+};
+
+let currentBoardTheme = 'classic';
+let currentPieceTheme = 'wikipedia';
+let luckyMode = false;
+
+function loadBoardTheme() { try { const v = localStorage.getItem(BOARD_THEME_KEY); return BOARD_THEMES[v] ? v : 'classic'; } catch(e) { return 'classic'; } }
+function loadPieceTheme() { try { const v = localStorage.getItem(PIECE_THEME_KEY); return PIECE_THEMES[v] ? v : 'wikipedia'; } catch(e) { return 'wikipedia'; } }
+function loadLuckyMode()  { try { return localStorage.getItem(LUCKY_MODE_KEY) === 'on'; } catch(e) { return false; } }
+
+function getPieceThemeUrl() {
+    return (PIECE_THEMES[currentPieceTheme] || PIECE_THEMES.wikipedia).url;
+}
+
+function applyBoardTheme(themeName, opts) {
+    opts = opts || {};
+    currentBoardTheme = BOARD_THEMES[themeName] ? themeName : 'classic';
+    const theme = BOARD_THEMES[currentBoardTheme];
+    let styleEl = document.getElementById('board-theme-style');
+    if (!styleEl) {
+        styleEl = document.createElement('style');
+        styleEl.id = 'board-theme-style';
+        document.head.appendChild(styleEl);
+    }
+    styleEl.textContent = [
+        `.white-1e1d7 { background-color: ${theme.light} !important; color: ${theme.dark} !important; }`,
+        `.black-3c85d { background-color: ${theme.dark} !important; color: ${theme.light} !important; }`,
+        `body.epaper-mode .white-1e1d7 { background-color: #e0e0e0 !important; color: #555 !important; }`,
+        `body.epaper-mode .black-3c85d { background-color: #555 !important; color: #e0e0e0 !important; }`,
+    ].join('\n');
+    document.querySelectorAll('.board-theme-chip').forEach(el => {
+        el.classList.toggle('active', el.dataset.theme === currentBoardTheme);
+    });
+    if (!opts.skipSave) {
+        try { localStorage.setItem(BOARD_THEME_KEY, currentBoardTheme); } catch(e) {}
+    }
+}
+
+function applyPieceTheme(themeName, opts) {
+    opts = opts || {};
+    currentPieceTheme = PIECE_THEMES[themeName] ? themeName : 'wikipedia';
+    const sel = document.getElementById('piece-theme-select');
+    if (sel) sel.value = currentPieceTheme;
+    // Rebuild active boards with new piece set
+    if (board && game) {
+        try {
+            const fen = game.fen();
+            const orient = board.orientation ? board.orientation() : 'white';
+            board.destroy();
+            board = Chessboard('myBoard', {
+                orientation: orient,
+                draggable: (controlMode === 'drag'),
+                position: fen,
+                onDragStart: onDragStart,
+                onDrop: onDrop,
+                onSnapEnd: onSnapEnd,
+                pieceTheme: getPieceThemeUrl()
+            });
+            setTimeout(() => resizeBoardToViewport(), 0);
+            if (controlMode === 'tap') { detachDragGuards(); enableTapToMove(); }
+            else { disableTapToMove(); attachDragGuards(); }
+        } catch(e) {}
+    }
+    if (historyBoard) { try { historyBoard.destroy(); } catch(e) {} historyBoard = null; }
+    if (tvBoard) {
+        try {
+            const tvFen = tvBoard.fen();
+            const tvOrient = tvBoard.orientation();
+            tvBoard.destroy();
+            tvBoard = Chessboard('tv-board', {
+                draggable: true,
+                position: tvFen,
+                orientation: tvOrient,
+                onDragStart: tvOnDragStart,
+                onDrop: tvOnDrop,
+                onSnapEnd: tvOnSnapEnd,
+                pieceTheme: getPieceThemeUrl()
+            });
+            resizeTvBoardToViewport();
+            updateTvBoardInteractivity();
+        } catch(e) {}
+    }
+    if (openingBundleBoard) {
+        try {
+            const opFen = openingPracticeGame ? openingPracticeGame.fen() : 'start';
+            openingBundleBoard.destroy();
+            openingBundleBoard = null;
+            initOpeningBundleBoard();
+            if (openingBundleBoard) openingBundleBoard.position(opFen);
+        } catch(e) {}
+    }
+    if (!opts.skipSave) {
+        try { localStorage.setItem(PIECE_THEME_KEY, currentPieceTheme); } catch(e) {}
+    }
+}
+
+function applyLuckyMode(enabled, opts) {
+    opts = opts || {};
+    luckyMode = !!enabled;
+    const toggle = document.getElementById('lucky-mode-toggle');
+    if (toggle) toggle.checked = luckyMode;
+    if (!opts.skipSave) {
+        try { localStorage.setItem(LUCKY_MODE_KEY, luckyMode ? 'on' : 'off'); } catch(e) {}
+    }
+}
+
+function maybeShuffleThemes() {
+    if (!luckyMode) return;
+    const boardKeys = Object.keys(BOARD_THEMES);
+    const pieceKeys = Object.keys(PIECE_THEMES);
+    applyBoardTheme(boardKeys[Math.floor(Math.random() * boardKeys.length)], { skipSave: true });
+    currentPieceTheme = pieceKeys[Math.floor(Math.random() * pieceKeys.length)];
+    const sel = document.getElementById('piece-theme-select');
+    if (sel) sel.value = currentPieceTheme;
+}
+
 function openBackupDirDb() {
     return new Promise((resolve, reject) => {
         if (!('indexedDB' in window)) {
@@ -1118,7 +1253,7 @@ function rebuildBoardForControlMode() {
         onDragStart: onDragStart,
         onDrop: onDrop,
         onSnapEnd: onSnapEnd,
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: getPieceThemeUrl()
     });
 
     setTimeout(() => { resizeBoardToViewport(); }, 0);
@@ -1306,7 +1441,7 @@ function showPromotionPicker(color, callback) {
     modal.querySelectorAll('.promotion-option').forEach((btn) => {
         const piece = (btn.getAttribute('data-piece') || 'q').toUpperCase();
         const img = btn.querySelector('img');
-        if (img) img.src = `https://chessboardjs.com/img/chesspieces/wikipedia/${prefix}${piece}.png`;
+        if (img) img.src = getPieceThemeUrl().replace('{piece}', `${prefix}${piece}`);
     });
     $('#promotion-modal').css('display', 'flex');
 }
@@ -6181,7 +6316,7 @@ function initHistoryBoard() {
     historyBoard = Chessboard('history-board', {
         draggable: false,
         position: 'start',
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: getPieceThemeUrl()
     });
 }
 
@@ -6206,7 +6341,7 @@ function initHistoryBoard(entry) {
         draggable: false,
         position: 'start',
         orientation: orientation,
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: getPieceThemeUrl()
     });
 }
 
@@ -7627,7 +7762,7 @@ function initTvBoard() {
         onDragStart: tvOnDragStart,
         onDrop: tvOnDrop,
         onSnapEnd: tvOnSnapEnd,      
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: getPieceThemeUrl()
     });
     resizeTvBoardToViewport();
     updateTvBoardInteractivity();
@@ -10972,7 +11107,7 @@ function initOpeningBundleBoard() {
             if (!openingPracticeGame) return;
             openingBundleBoard.position(openingPracticeGame.fen());
         },
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: getPieceThemeUrl()
     });
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
@@ -11768,6 +11903,18 @@ function setupEvents() {
 
     $('#daymode-toggle').off('change').on('change', function() {
         applyDayMode($(this).is(':checked'));
+    });
+
+    $(document).off('click', '.board-theme-chip').on('click', '.board-theme-chip', function() {
+        applyBoardTheme($(this).data('theme'));
+    });
+
+    $('#piece-theme-select').off('change').on('change', function() {
+        applyPieceTheme($(this).val());
+    });
+
+    $('#lucky-mode-toggle').off('change').on('change', function() {
+        applyLuckyMode($(this).is(':checked'));
     });
 
     $('#btn-show-delete').click(() => { $('#confirm-delete-panel').slideDown(); });
@@ -13732,15 +13879,16 @@ blunderMode = isBundle;
         boardOrientation = isWhite ? 'white' : 'black';
     }
     
+    maybeShuffleThemes();
     if (board) board.destroy();
     board = Chessboard('myBoard', {
         orientation: boardOrientation,
-        draggable: (controlMode === 'drag'), 
-        position: game.fen(), 
-        onDragStart: onDragStart, 
-        onDrop: onDrop, 
+        draggable: (controlMode === 'drag'),
+        position: game.fen(),
+        onDragStart: onDragStart,
+        onDrop: onDrop,
         onSnapEnd: onSnapEnd,
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        pieceTheme: getPieceThemeUrl()
     });
 
     setTimeout(() => { resizeBoardToViewport(); }, 0);
@@ -17338,6 +17486,9 @@ $(document).ready(() => {
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
+    applyBoardTheme(loadBoardTheme(), { skipSave: true });
+    applyPieceTheme(loadPieceTheme(), { skipSave: true });
+    applyLuckyMode(loadLuckyMode(), { skipSave: true });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
