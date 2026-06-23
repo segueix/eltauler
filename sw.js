@@ -8,7 +8,7 @@ const CACHE_NAME = `eltauler-${SW_VERSION}`;
 console.log(`[SW] Service Worker versió: ${SW_VERSION}`);
 console.log(`[SW] Cache name: ${CACHE_NAME}`);
 
-// Assets estàtics (cache-first) - imatges i fonts
+// Recursos estàtics (cache-first) - imatges i fonts
 const STATIC_ASSETS = [
   'https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=Cinzel:wght@500;700&display=swap',
   'https://chessboardjs.com/img/chesspieces/wikipedia/wP.png',
@@ -25,7 +25,7 @@ const STATIC_ASSETS = [
   'https://chessboardjs.com/img/chesspieces/wikipedia/bK.png'
 ];
 
-// Assets dinàmics (network-first) - codi que canvia sovint
+// Recursos dinàmics (network-first) - codi que canvia sovint
 const DYNAMIC_ASSETS = [
   './',
   './index.html',
@@ -73,17 +73,17 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then((cache) => {
-        console.log('[SW] Pre-caching assets estàtics...');
+        console.log('[SW] Precarregant recursos estàtics a la memòria cau...');
         // Primer els estàtics (menys crítics si fallen)
         return cache.addAll(STATIC_ASSETS).catch(err => {
-          console.warn('[SW] Alguns assets estàtics no s\'han pogut cachear:', err);
+          console.warn('[SW] Alguns recursos estàtics no s\'han pogut desar a la memòria cau:', err);
         });
       })
       .then(() => caches.open(CACHE_NAME))
       .then((cache) => {
-        console.log('[SW] Pre-caching assets dinàmics...');
+        console.log('[SW] Precarregant recursos dinàmics a la memòria cau...');
         return cache.addAll(DYNAMIC_ASSETS).catch(err => {
-          console.warn('[SW] Alguns assets dinàmics no s\'han pogut cachear:', err);
+          console.warn('[SW] Alguns recursos dinàmics no s\'han pogut desar a la memòria cau:', err);
         });
       })
       .then(() => {
@@ -106,7 +106,7 @@ self.addEventListener('activate', (event) => {
         return Promise.all(
           cacheNames.map((cacheName) => {
             if (cacheName !== CACHE_NAME && cacheName.startsWith('eltauler-')) {
-              console.log(`[SW] Eliminant cache antic: ${cacheName}`);
+              console.log(`[SW] Eliminant memòria cau antiga: ${cacheName}`);
               return caches.delete(cacheName);
             }
           })
@@ -158,7 +158,7 @@ self.addEventListener('fetch', (event) => {
     // CACHE-FIRST per imatges i fonts
     event.respondWith(cacheFirst(event.request));
   } else {
-    // NETWORK-FIRST per HTML, JS, CSS i tot el reste
+    // NETWORK-FIRST per a HTML, JS, CSS i tota la resta
     event.respondWith(networkFirst(event.request));
   }
 });
@@ -170,9 +170,9 @@ async function networkFirst(request) {
   const url = request.url;
 
   try {
-    // Intenta obtenir de la xarxa amb timeout
+    // Intenta obtenir de la xarxa amb temps d’espera
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 segons timeout
+    const timeoutId = setTimeout(() => controller.abort(), 5000); // temps d’espera de 5 segons
 
     // cache: 'no-cache' obliga a revalidar amb el servidor: sense això, el fetch
     // pot quedar satisfet per la caché HTTP del navegador (GitHub Pages serveix
@@ -181,7 +181,7 @@ async function networkFirst(request) {
     clearTimeout(timeoutId);
 
     if (networkResponse && networkResponse.status === 200) {
-      // Guarda al cache per fallback futur
+      // Desa a la memòria cau per tenir una alternativa futura
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, networkResponse.clone());
       console.log(`[SW] Network-first OK: ${url.substring(0, 50)}...`);
@@ -189,12 +189,12 @@ async function networkFirst(request) {
 
     return networkResponse;
   } catch (error) {
-    // Fallback al cache
+    // Alternativa des de la memòria cau
     console.log(`[SW] Network failed, trying cache: ${url.substring(0, 50)}...`);
     const cachedResponse = await caches.match(request);
 
     if (cachedResponse) {
-      console.log(`[SW] Cache hit: ${url.substring(0, 50)}...`);
+      console.log(`[SW] Trobat a la memòria cau: ${url.substring(0, 50)}...`);
       return cachedResponse;
     }
 
@@ -206,7 +206,7 @@ async function networkFirst(request) {
       }
     }
 
-    console.warn(`[SW] No cache available for: ${url}`);
+    console.warn(`[SW] No hi ha cap memòria cau disponible per a: ${url}`);
     return new Response('Offline - Contingut no disponible', {
       status: 503,
       statusText: 'Service Unavailable',
@@ -224,7 +224,7 @@ async function cacheFirst(request) {
   const cachedResponse = await caches.match(request);
 
   if (cachedResponse) {
-    // Actualitza en background (stale-while-revalidate)
+    // Actualitza en segon pla (stale-while-revalidate)
     fetch(request).then(networkResponse => {
       if (networkResponse && networkResponse.status === 200) {
         caches.open(CACHE_NAME).then(cache => {
@@ -236,7 +236,7 @@ async function cacheFirst(request) {
     return cachedResponse;
   }
 
-  // Si no està al cache, obtén de la xarxa
+  // Si no és a la memòria cau, obtén-lo de la xarxa
   try {
     const networkResponse = await fetch(request);
 
@@ -271,12 +271,12 @@ self.addEventListener('message', (event) => {
   }
 
   if (event.data === 'clearCache' || event.data?.type === 'CLEAR_CACHE') {
-    console.log('[SW] Netejant tots els caches...');
+    console.log('[SW] Netejant totes les memòries cau...');
     caches.keys().then(names => {
       return Promise.all(names.map(name => caches.delete(name)));
     }).then(() => {
       event.source?.postMessage({ type: 'CACHE_CLEARED' });
-      console.log('[SW] Caches netejats');
+      console.log('[SW] Memòries cau netejades');
     });
   }
 });
