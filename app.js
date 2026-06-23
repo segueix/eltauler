@@ -1729,6 +1729,41 @@ function highlightOpeningHint(from, to) {
     }
 }
 
+// Retorna la jugada de la teoria que toca a l'usuari en una lliçó (format verbose
+// de chess.js, amb from/to), o null si no és el seu torn o la línia ja s'ha acabat.
+function getOpeningLessonExpectedMove() {
+    if (!openingLessonActive || !openingPracticeGame) return null;
+    if (openingLessonStep >= openingLessonLine.length) return null;
+    if (openingPracticeGame.turn() !== openingLessonUserColor) return null;
+    const expected = openingLessonLine[openingLessonStep];
+    if (!expected) return null;
+    const norm = s => (s || '').replace(/[+#!?]/g, '');
+    const target = norm(expected);
+    const moves = openingPracticeGame.moves({ verbose: true });
+    return moves.find(m => norm(m.san) === target) || null;
+}
+
+// Marca en lila la casella destí de la jugada que toca a l'usuari en una lliçó.
+// Si no és el seu torn, neteja qualsevol marca anterior.
+function showOpeningLessonTargetHint() {
+    const mv = getOpeningLessonExpectedMove();
+    if (!mv) { clearOpeningHintHighlight(); return; }
+    highlightOpeningHint(null, mv.to);
+}
+
+// Vist-i-plau verd persistent per a la jugada correcta d'una lliçó. A diferència de
+// showOpeningMoveVisualFeedback no s'esvaeix sol: es manté fins que l'enginy mou
+// (quan es crida clearOpeningMoveVisualFeedback).
+function showOpeningLessonCorrectMark(square) {
+    clearOpeningMoveVisualFeedback();
+    const squareEl = $(`#opening-board .square-55d63[data-square='${square}']`);
+    if (!squareEl.length) return;
+    squareEl.addClass('move-correct');
+    const iconEl = $('<div class="opening-move-icon opening-move-icon-correct">✓</div>');
+    squareEl.append(iconEl);
+    setTimeout(() => iconEl.addClass('show'), 10);
+}
+
 // Funcions de precisió per al tauler d'obertures
 // Mostra el resultat del MOVIMENT ACTUAL (no la mitjana)
 function updateOpeningPrecisionDisplay(animate = false) {
@@ -2390,11 +2425,14 @@ function handleOpeningLessonUserMove(from, to) {
             openingPracticeGame.undo();
             openingBundleBoard.position(openingPracticeGame.fen());
             clearOpeningMoveVisualFeedback();
+            // Torna a marcar en lila la casella correcta perquè ho torni a provar
+            showOpeningLessonTargetHint();
         }, 700);
         return true;
     }
 
-    showOpeningMoveVisualFeedback(from, to, 'correct');
+    // Jugada correcta: vist-i-plau verd que es manté fins que l'enginy mou
+    showOpeningLessonCorrectMark(to);
     registerOpeningLessonAttempt('correct');
     openingLessonStep++;
     openingBundleBoard.position(openingPracticeGame.fen());
@@ -8933,6 +8971,9 @@ function startOpeningLesson(idx) {
     // Si l'usuari juga amb negres, el blanc (rival) fa la primera jugada de la línia
     if (openingLessonUserColor === 'b') {
         setTimeout(() => playOpeningLessonOpponentMove(), 600);
+    } else {
+        // L'usuari juga amb blanques: marca ja en lila la casella de la primera jugada
+        setTimeout(() => showOpeningLessonTargetHint(), 60);
     }
     const boardEl = document.getElementById('opening-board');
     if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
@@ -8945,9 +8986,13 @@ function playOpeningLessonOpponentMove() {
     const mv = openingPracticeGame.move(san, { sloppy: true });
     if (!mv) { completeOpeningLesson(); return; }
     openingLessonStep++;
+    // L'enginy ha mogut: treu el vist-i-plau verd de la jugada anterior
+    clearOpeningMoveVisualFeedback();
     if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
     if (openingLessonStep >= openingLessonLine.length) { setTimeout(() => completeOpeningLesson(), 500); return; }
     updateOpeningLessonNote();
+    // Marca en lila la casella de la nova jugada que toca a l'usuari
+    showOpeningLessonTargetHint();
 }
 
 function updateOpeningLessonNote(intro = false) {
