@@ -15560,20 +15560,120 @@ async function requestOpenAICoachText(cacheKey, prompt, onText, maxLen = 1800) {
 // Detecció de subtema real: reaprofita la inferència fina dels jeroglífics
 // (inferHieroglyphicThemes via buildHieroglyphicContext) sobre la MILLOR jugada,
 // que distingeix peó passat, profilaxi, activitat de peces, desenvolupament, etc.
-function detectPlanSubtheme(review) {
+// Construeix una sola vegada el context ric de la posició (subtema + fets concrets).
+function buildPlanContext(review) {
     try {
         if (review && review.fen && review.bestMove) {
-            const ctx = buildHieroglyphicContext(review.fen, review.bestMove, {
+            return buildHieroglyphicContext(review.fen, review.bestMove, {
                 pv: review.bestMovePv || [],
                 playerMove: review.playerMove || null,
                 swing: review.swing || 0,
                 evalBefore: review.evalBefore,
-                evalAfter: review.evalAfter
+                evalAfter: review.evalAfter,
+                alternatives: review.alternatives || []
             });
-            if (ctx && ctx.theme) return ctx.theme;
         }
     } catch (e) {}
+    return null;
+}
+
+function detectPlanSubtheme(review, ctx) {
+    const c = ctx || buildPlanContext(review);
+    if (c && c.theme) return c.theme;
     return normalizeGrowthTheme(classifyPositionTheme(review?.fen || '', review?.playerMove || '')) || 'general';
+}
+
+// TIER 1 — fets concrets de la posició a partir del que ja calculem (sense LLM).
+function buildPositionalNote(ctx) {
+    if (!ctx) return '';
+    const bits = [];
+    try {
+        const me = ctx.sideToMove, opp = me === 'w' ? 'b' : 'w';
+        const ks = ctx.kingSafety || {};
+        if (ks[me] && ks[me].exposed) bits.push('el teu rei estava exposat');
+        else if (ks[opp] && ks[opp].exposed) bits.push('el rei rival estava exposat');
+        if (Array.isArray(ctx.openFiles) && ctx.openFiles.length) bits.push(`la columna ${ctx.openFiles[0]} era oberta`);
+        if (bits.length < 2 && typeof ctx.centerTension === 'number' && ctx.centerTension >= 4) bits.push('hi havia tensió al centre');
+        if (bits.length < 2 && typeof ctx.materialBalance === 'number' && Math.abs(ctx.materialBalance) >= 2) {
+            bits.push(`el material afavoria les ${ctx.materialBalance > 0 ? 'blanques' : 'negres'}`);
+        }
+        if (!bits.length && ctx.sector && HIEROS.sectors[ctx.sector]) bits.push(`l'acció era a ${HIEROS.sectors[ctx.sector]}`);
+    } catch (e) { return ''; }
+    if (!bits.length) return '';
+    const s = bits.slice(0, 2).join(' i ');
+    return s.charAt(0).toUpperCase() + s.slice(1) + '.';
+}
+
+function uciLineToSan(fen, uciList, maxPlies) {
+    const out = [];
+    try {
+        const g = new Chess(fen);
+        for (let i = 0; i < Math.min((uciList || []).length, maxPlies); i++) {
+            const u = uciList[i];
+            if (!u || u.length < 4) break;
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) break;
+            out.push(mv.san);
+        }
+    } catch (e) {}
+    return out;
+}
+
+// TIER 1 — compara candidates (MultiPV ja guardats) i mostra la continuació de la idea.
+function buildCandidatesNote(review) {
+    try {
+        const fen = review && review.fen;
+        if (!fen) return '';
+        const bestSan = review.bestMoveSan || (review.bestMove ? uciLineToSan(fen, [review.bestMove], 1)[0] : null);
+        const parts = [];
+        const alts = Array.isArray(review.alternatives) ? review.alternatives : [];
+        if (alts.length >= 2 && bestSan) {
+            const a0 = alts[0], a1 = alts[1];
+            if (a0 && a1 && a0.evalType === 'cp' && a1.evalType === 'cp' && a1.move) {
+                const gap = Math.abs((a0.eval || 0) - (a1.eval || 0));
+                if (gap <= 70) {
+                    const altSan = uciLineToSan(fen, [a1.move], 1)[0];
+                    if (altSan && altSan !== bestSan) parts.push(`També era bo ${altSan}.`);
+                }
+            }
+        }
+        const pv = Array.isArray(review.bestMovePv) ? review.bestMovePv : [];
+        if (pv.length >= 3) {
+            const sans = uciLineToSan(fen, pv, 3);
+            if (sans.length >= 3) parts.push(`La idea seguia amb ${sans.slice(1, 3).join(' ')}.`);
+        }
+        return parts.join(' ');
+    } catch (e) { return ''; }
+}
+
+// TIER 1 — identifica l'obertura jugada reaprofitant el trie d'obertures.js.
+function buildOpeningNote(entry) {
+    try {
+        if (!entry) return null;
+        if (!openingTrie) { try { initOpeningSystem(); } catch (e) {} }
+        if (!openingTrie) return null;
+        let sanMoves = [];
+        if (typeof entry.pgn === 'string' && entry.pgn.trim()) {
+            const clean = entry.pgn
+                .replace(/\[[^\]]*\]/g, ' ').replace(/\{[^}]*\}/g, ' ')
+                .replace(/\$\d+/g, ' ').replace(/\b(1-0|0-1|1\/2-1\/2|\*)\b/g, ' ');
+            sanMoves = parsePgnToMoves(clean);
+        }
+        if ((!sanMoves || !sanMoves.length) && Array.isArray(entry.moves)) {
+            sanMoves = entry.moves.map(m => typeof m === 'string' ? m : (m && m.san)).filter(Boolean);
+        }
+        if (!sanMoves || sanMoves.length < 2) return null;
+        const info = analyzeGameOpening(sanMoves.slice(0, 30));
+        if (!info || !info.name) return null;
+        let note = `📖 Obertura: ${info.name}${info.eco ? ` (${info.eco})` : ''}.`;
+        if (info.deviationMove && info.deviationBy && entry.playerColor && info.deviationBy === entry.playerColor) {
+            const moveNum = Math.floor((info.deviationPly || 0) / 2) + 1;
+            note += ` Vas deixar la teoria cap a la jugada ${moveNum} amb ${info.deviationMove}`;
+            note += (Array.isArray(info.theoryMoves) && info.theoryMoves.length)
+                ? `; la línia principal seguia amb ${info.theoryMoves[0]}.` : '.';
+        }
+        return note;
+    } catch (e) { return null; }
 }
 
 function getPlanThemeKeyFromReview(review) {
@@ -15612,17 +15712,21 @@ function buildHumanPlanMoments(entry) {
         .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
         .slice(0, 3)
         .map(r => {
+            const ctx = buildPlanContext(r);
+            const themeKey = detectPlanSubtheme(r, ctx);
             const moment = {
                 moveNumber: r.moveNumber || '?',
                 phase: getHumanPlanPhase(r.moveNumber),
-                themeKey: getPlanThemeKeyFromReview(r),
-                theme: getPlanThemeLabelFromReview(r),
+                themeKey,
+                theme: planThemeDisplayLabel(themeKey),
                 played: r.playerMoveSan || r.playerMove || '—',
                 best: r.bestMoveSan || r.bestMove || '—',
                 bestMoveUci: r.bestMove || null,
                 swing: Math.round(r.swing || 0),
                 quality: r.quality || 'inaccuracy',
-                fen: r.fen || null
+                fen: r.fen || null,
+                positional: buildPositionalNote(ctx),
+                candidates: buildCandidatesNote(r)
             };
             return { ...moment, ...buildLocalHumanPlan(moment) };
         });
@@ -15724,12 +15828,15 @@ function renderHumanPlanCards(container, moments, voice = null) {
         const card = $('<div class="coach-item human-plan-card"></div>');
         const main = $('<div class="coach-item-main"></div>');
         main.append($('<div class="coach-item-title"></div>').text(`Pla ${idx + 1} · Jugada ${m.moveNumber} (${m.played}) · ${m.theme}`));
-        main.append($('<div class="coach-text human-plan-text"></div>').html([
+        const lines = [
             `<strong>Diagnòstic:</strong> ${escapeHtml(m.diagnosis)}`,
-            `<strong>Pla:</strong> ${escapeHtml(m.plan)}`,
-            `<strong>Pregunta:</strong> ${escapeHtml(m.question)}`,
-            `<strong>Objectiu:</strong> ${escapeHtml(m.objective)}`
-        ].join('<br>')));
+            `<strong>Pla:</strong> ${escapeHtml(m.plan)}`
+        ];
+        if (m.positional) lines.push(`<strong>A la posició:</strong> ${escapeHtml(m.positional)}`);
+        if (m.candidates) lines.push(`<strong>Línia:</strong> ${escapeHtml(m.candidates)}`);
+        lines.push(`<strong>Pregunta:</strong> ${escapeHtml(m.question)}`);
+        lines.push(`<strong>Objectiu:</strong> ${escapeHtml(m.objective)}`);
+        main.append($('<div class="coach-text human-plan-text"></div>').html(lines.join('<br>')));
         card.append(main);
         appendHumanPlanPracticeButton(card, m);
         list.append(card);
@@ -15753,6 +15860,11 @@ function renderOpenAIHumanPlans(panel, text, moments = []) {
         const main = $('<div class="coach-item-main"></div>');
         main.append($('<div class="coach-item-title"></div>').text(title.replace(/^PLA\s*\d+\s*:\s*/i, '')));
         main.append($('<div class="coach-text human-plan-text"></div>').html(escapeHtml(lines.join('\n')).replace(/\n/g, '<br>')));
+        const mm = moments[idx];
+        const extra = [];
+        if (mm && mm.positional) extra.push(`<strong>A la posició:</strong> ${escapeHtml(mm.positional)}`);
+        if (mm && mm.candidates) extra.push(`<strong>Línia:</strong> ${escapeHtml(mm.candidates)}`);
+        if (extra.length) main.append($('<div class="coach-text human-plan-text"></div>').css('margin-top', '4px').html(extra.join('<br>')));
         card.append(main);
         appendHumanPlanPracticeButton(card, moments[idx]);
         list.append(card);
@@ -15783,6 +15895,9 @@ function renderGameDebrief() {
     box.append(textEl);
     box.find('.coach-speak-btn').on('click', () => speakCoachText(textEl.text()));
     updateCoachSpeakButtons();
+
+    const openingNote = buildOpeningNote(entry);
+    if (openingNote) box.append($('<div class="coach-text"></div>').css({ opacity: 0.85, 'margin-top': '6px' }).text(openingNote));
 
     const humanPlanMoments = buildHumanPlanMoments(entry);
     let humanPlansPanel = null;
