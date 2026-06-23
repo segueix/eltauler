@@ -95,6 +95,7 @@ let openingLessonActive = false;
 let openingLessonLine = [];
 let openingLessonStep = 0;
 let openingLessonInfo = null;
+let openingLessonCurrentIndex = null;
 let openingLessonUserColor = 'w';
 let openingLessonLastDetected = null; // Últim tipus d'obertura detectat (per avisar de canvis amb negres)
 let openingErrorCurrentPositions = []; // Posicions d'error disponibles
@@ -8614,6 +8615,7 @@ function renderOpeningStatsScreen(useExistingData = false) {
 
 // Inicia la pràctica d'un error d'obertura
 function startOpeningErrorPractice(color, moveNum) {
+    hideOpeningRestartOverlay();
     // Buscar les posicions d'error per aquest color i moviment
     const stat = openingStatsData.find(s => s.colorKey === color && s.moveNumber === moveNum);
 
@@ -8938,14 +8940,31 @@ const CURATED_OPENINGS = [
     { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] }
 ];
 
+function hideOpeningRestartOverlay() {
+    const overlay = document.getElementById('opening-restart-overlay');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function showOpeningRestartOverlay() {
+    const overlay = document.getElementById('opening-restart-overlay');
+    if (overlay) overlay.style.display = 'flex';
+}
+
+function restartCompletedOpeningLesson() {
+    if (openingLessonCurrentIndex === null || openingLessonCurrentIndex === undefined) return;
+    startOpeningLesson(openingLessonCurrentIndex);
+}
+
 function startOpeningLesson(idx) {
     const op = CURATED_OPENINGS[idx];
     if (!op) return;
     openingErrorPracticeActive = false;
     hieroglyphicExerciseActive = false;
     updateOpeningMaximButton();
+    hideOpeningRestartOverlay();
     openingLessonActive = true;
     openingLessonInfo = op;
+    openingLessonCurrentIndex = idx;
     openingLessonLine = op.moves.slice();
     openingLessonStep = 0;
     openingLessonLastDetected = null;
@@ -9060,6 +9079,7 @@ function completeOpeningLesson() {
         noteEl.innerHTML = `<div class="opening-maxim-box"><div class="maxim-title">✅ ${name} apresa!</div><div class="maxim-text">Has completat la línia principal. Repeteix-la per consolidar-la o tria'n una altra.</div>${progress}${extra}</div>`;
     }
     renderOpeningLessonButtons();
+    showOpeningRestartOverlay();
     showToast(`Has completat: ${name} 📖`, 'success');
 }
 
@@ -10640,6 +10660,7 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
         hieroglyphicSource = 'personal';
         hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
         hieroglyphicExerciseActive = true;
+        hideOpeningRestartOverlay();
         openingLessonActive = false;
         openingErrorPracticeActive = false;
         openingPracticeEngineThinking = false;
@@ -10748,6 +10769,7 @@ function startHieroglyphicExercise() {
     hieroglyphicSource = 'opening';
     hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
     hieroglyphicExerciseActive = true;
+    hideOpeningRestartOverlay();
     setOpeningScreenMode('hieroglyphic');
     const myToken = ++hieroglyphicToken;
 
@@ -11081,6 +11103,7 @@ function undoOpeningPracticeMove() {
     // Sortir de la lliçó guiada si estava activa
     openingLessonActive = false;
     openingLessonInfo = null;
+    openingLessonCurrentIndex = null;
     openingLessonStep = 0;
 
     // Cancel·lar variables de feedback instantani
@@ -11215,6 +11238,7 @@ function playOpeningInitialWhiteMove() {
 }
 
 function startOpeningPracticeAsColor(color) {
+    hideOpeningRestartOverlay();
     openingPracticeUserColor = color === 'b' ? 'b' : 'w';
     const colorSelect = document.getElementById('opening-practice-color-select');
     if (colorSelect) colorSelect.value = openingPracticeUserColor;
@@ -11451,6 +11475,7 @@ function setupEvents() {
         const idx = parseInt($(this).attr('data-lesson'), 10);
         if (!isNaN(idx)) startOpeningLesson(idx);
     });
+    $('#opening-restart-overlay').click(() => restartCompletedOpeningLesson());
     $('#btn-hieroglyphic-exercise').click(() => {
         initOpeningBundleBoard();
         startHieroglyphicExercise();
