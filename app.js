@@ -9072,10 +9072,10 @@ function renderOpeningLessonButtons() {
         const btns = items.map(({ op, i }) => {
             const colorIcon = op.userColor === 'w' ? '♔' : '♚';
             const done = completedOpenings.includes(op.eco);
-            const check = done ? '<span class="lesson-done-check">✓</span>' : '';
+            const repeat = done ? '<span class="lesson-repeat-icon" title="Torna a practicar aquesta obertura" aria-label="Torna a practicar">↻</span>' : '';
             return `<button class="btn btn-secondary opening-lesson-btn${done ? ' lesson-done' : ''}" data-lesson="${i}" style="justify-content:space-between;">
                 <span>${colorIcon} ${op.name}</span>
-                <span style="display:flex; align-items:center; gap:6px;">${check}<span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span></span>
+                <span style="display:flex; align-items:center; gap:6px;">${repeat}<span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span></span>
             </button>`;
         }).join('');
         return `<div class="opening-lesson-group-title">${label}</div><div class="opening-lesson-grid">${btns}</div>`;
