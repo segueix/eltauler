@@ -8263,6 +8263,13 @@ function renderGameHistory() {
         const id = $(this).data('history-id');
         const entry = gameHistory.find(item => item.id === id);
         loadHistoryEntry(entry);
+        // En mòbil, centrar a la pantalla el tauler de la partida seleccionada
+        if (deviceType === 'mobile') {
+            const boardEl = document.getElementById('history-board');
+            if (boardEl && boardEl.scrollIntoView) {
+                setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+            }
+        }
     });
         stopTvPlayback();
     $('.history-review').off('click').on('click', function() {
