@@ -15202,13 +15202,46 @@ COACH_DEBRIEF_TEMPLATES.advice_blunder = [
     "Cada error gran d’avui és una lliçó cara: aprofita-la repassant els moments crítics."
 ];
 
+// Veus de l'entrenador (registre de coach, diferents de les veus literàries dels
+// jeroglífics): donen to a l'obertura i el tancament del debrief i etiqueten els plans.
+const COACH_VOICES = [
+    { id: 'sere', name: 'Mestre serè', tagline: 'calma i claredat',
+      openers: ['Respira i mirem-ho amb calma.', 'Sense pressa, anem al fons de la qüestió.', 'Amb tranquil·litat, repassem el que ha passat.', 'La calma també s’entrena: comencem.'],
+      signoffs: ['Pas a pas, el nivell puja sol.', 'La constància tranquil·la guanya partides.', 'Demà, una mica millor que avui.'] },
+    { id: 'directe', name: 'Entrenador directe', tagline: 'clar i sense embuts',
+      openers: ['Anem al gra.', 'Sense voltes: això és el que compta.', 'Et dic les coses clares.', 'Resumeixo el que importa.'],
+      signoffs: ['Corregeix això i puges de nivell.', 'Menys excuses, més repàs.', 'Ja saps què toca: a la feina.'] },
+    { id: 'calid', name: 'Entrenador càlid', tagline: 'proper i motivador',
+      openers: ['Bona feina per seure i revisar; ja és mèrit.', 'M’agrada que vulguis millorar: anem-hi.', 'Estic content de com t’hi poses.', 'Un pas més en el teu camí, ben fet.'],
+      signoffs: ['Confio plenament en el teu progrés.', 'Vas pel bon camí, de debò.', 'Orgullós del teu esforç; continua.'] },
+    { id: 'analitic', name: 'Analista', tagline: 'precís i objectiu',
+      openers: ['Anem als fets.', 'Mirem-ho amb dades, sense emocions.', 'Objectivament, això és el que diu la partida.', 'Repassem-ho amb precisió.'],
+      signoffs: ['Les xifres milloren amb el repàs correcte.', 'Mesura, corregeix, repeteix.', 'El patró és clar; ataquem-lo amb mètode.'] },
+    { id: 'veteran', name: 'Veterà competitiu', tagline: 'ofici de torneig',
+      openers: ['N’he vistes moltes, de partides com aquesta.', 'Com a la sala de torneig: cap drama.', 'Parlem com dos jugadors de club.', 'Això es guanya amb ofici; t’ho explico.'],
+      signoffs: ['Aquestes lliçons et faran fort al rellotge.', 'Els punts arriben quan l’ofici creix.', 'A la pròxima: mateixa sang freda, millor decisió.'] },
+    { id: 'socratic', name: 'Mestre socràtic', tagline: 'aprendre preguntant',
+      openers: ['Abans de res, fes-te una pregunta.', 'Pensem junts; no t’ho donaré tot mastegat.', 'La resposta surt millor si la busques tu.', 'Comencem amb un bon dubte.'],
+      signoffs: ['La bona pregunta val més que la resposta ràpida.', 'Segueix qüestionant cada jugada.', 'Qui es pregunta, millora.'] }
+];
+let _coachVoiceByKey = {};
+function pickCoachVoiceForKey(key) {
+    const k = String(key || 'default');
+    if (_coachVoiceByKey[k]) return _coachVoiceByKey[k];
+    const id = pickFreshPlanLine(COACH_VOICES.map(v => v.id), 'coachvoice');
+    const voice = COACH_VOICES.find(v => v.id === id) || COACH_VOICES[0];
+    _coachVoiceByKey[k] = voice;
+    return voice;
+}
+
 // Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
 // Usa l'anti-repetició persistent compartida (pickFreshPlanLine) i memoritza el
 // text per partida perquè rerenderitzacions dins la mateixa partida siguin estables.
 let _localDebriefCache = {};
-function composeDebriefText(facts, seedStr) {
+function composeDebriefText(facts, seedStr, voice) {
     const cacheKey = String(seedStr || 'debrief');
     if (_localDebriefCache[cacheKey]) return _localDebriefCache[cacheKey];
+    const v = voice || pickCoachVoiceForKey(cacheKey);
     const pick = cat => pickFreshPlanLine(COACH_DEBRIEF_TEMPLATES[cat] || [], 'debrief:' + cat);
     const data = {
         prec: facts.precision !== null ? facts.precision : '—',
@@ -15223,6 +15256,9 @@ function composeDebriefText(facts, seedStr) {
     const goodPrecision = facts.precision !== null
         && (facts.precision >= 70 || (facts.avgPrecision !== null && facts.precision >= facts.avgPrecision));
     const sentences = [];
+
+    // To de la veu: obertura ocasional que personalitza l'entrenador.
+    if (Math.random() <= 0.65) sentences.push(pickFreshPlanLine(v.openers, 'voiceopen:' + v.id));
 
     if (facts.result === 'win') sentences.push(pick(goodPrecision ? 'win_high' : 'win_low'));
     else if (facts.result === 'draw') sentences.push(pick('draw'));
@@ -15249,6 +15285,9 @@ function composeDebriefText(facts, seedStr) {
     else if (facts.cleanGame && facts.srsDue < 3) sentences.push(pick('advice_keep'));
     else if (facts.srsDue >= 3) sentences.push(pick('advice_srs'));
     else sentences.push(pick('advice_theme'));
+
+    // Tancament ocasional amb la signatura de la veu.
+    if (Math.random() <= 0.4) sentences.push(pickFreshPlanLine(v.signoffs, 'voicesign:' + v.id));
 
     const text = sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
     _localDebriefCache[cacheKey] = text;
@@ -15434,9 +15473,15 @@ function appendHumanPlanPracticeButton(card, moment) {
     card.append(btn);
 }
 
-function renderHumanPlanCards(container, moments) {
+function renderHumanPlanCards(container, moments, voice = null) {
     const panel = $('<div class="human-plan-panel"></div>');
-    panel.append($('<div class="coach-kicker human-plan-title"></div>').append($('<span></span>').text('🧭 Entrenador de plans humans')));
+    const titleText = voice ? `🧭 Entrenador de plans humans · ${voice.name}` : '🧭 Entrenador de plans humans';
+    panel.append($('<div class="coach-kicker human-plan-title"></div>').append($('<span></span>').text(titleText)));
+    if (voice && voice.tagline) {
+        panel.append($('<div class="coach-text human-plan-voice"></div>')
+            .css({ opacity: 0.72, 'font-size': '0.82rem', 'margin': '2px 0 8px' })
+            .text(`${voice.name} · ${voice.tagline}`));
+    }
     const list = $('<div class="human-plan-list"></div>');
     moments.forEach((m, idx) => {
         const card = $('<div class="coach-item human-plan-card"></div>');
@@ -15490,10 +15535,11 @@ function renderGameDebrief() {
     try { facts = buildDebriefFacts(entry); } catch (e) { console.warn('No s\'ha pogut generar el debrief', e); }
     if (!facts) return;
 
-    const localText = composeDebriefText(facts, entry.id);
+    const coachVoice = pickCoachVoiceForKey(entry.id);
+    const localText = composeDebriefText(facts, entry.id, coachVoice);
     box.empty().show();
     box.append($('<div class="coach-kicker"></div>').append(
-        $('<span></span>').text("🎓 L'entrenador diu"),
+        $('<span></span>').text(`🎓 L'entrenador diu · ${coachVoice.name}`),
         $('<button class="coach-speak-btn" title="Escolta-ho en veu alta">🔊</button>')
     ));
     const textEl = $('<div class="coach-text"></div>').text(localText);
@@ -15504,7 +15550,7 @@ function renderGameDebrief() {
     const humanPlanMoments = buildHumanPlanMoments(entry);
     let humanPlansPanel = null;
     if (humanPlanMoments.length) {
-        humanPlansPanel = renderHumanPlanCards(box, humanPlanMoments);
+        humanPlansPanel = renderHumanPlanCards(box, humanPlanMoments, coachVoice);
     }
 
     if (!coachDebriefPending) {
