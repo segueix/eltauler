@@ -2717,7 +2717,39 @@
             box-shadow: inset 0 0 0 3px #4b2f18 !important;
             outline: none !important;
         }
-        
+
+        /* ============================================================
+           Temes del tauler (color/material de les caselles) i de les
+           peces. S'apliquen amb una classe a <body> i afecten tots els
+           taulers (chessboard.js) alhora. Es controlen des de la
+           configuració (Aparença) i poden canviar aleatòriament amb
+           el mode "Sempre tinc sort".
+           ============================================================ */
+        /* -- Caselles clares (.white-1e1d7) i fosques (.black-3c85d) -- */
+        body.board-theme-green .white-1e1d7  { background-color: #eeeed2 !important; }
+        body.board-theme-green .black-3c85d  { background-color: #769656 !important; }
+        body.board-theme-blue  .white-1e1d7  { background-color: #dee3e6 !important; }
+        body.board-theme-blue  .black-3c85d  { background-color: #8ca2ad !important; }
+        body.board-theme-gray  .white-1e1d7  { background-color: #ececec !important; }
+        body.board-theme-gray  .black-3c85d  { background-color: #9a9a9a !important; }
+        body.board-theme-walnut .white-1e1d7 { background-color: #d8b48f !important; }
+        body.board-theme-walnut .black-3c85d { background-color: #5c4033 !important; }
+        body.board-theme-purple .white-1e1d7 { background-color: #efe6f7 !important; }
+        body.board-theme-purple .black-3c85d { background-color: #9b72cf !important; }
+        body.board-theme-coral  .white-1e1d7 { background-color: #f6e4da !important; }
+        body.board-theme-coral  .black-3c85d { background-color: #c98a7a !important; }
+        body.board-theme-night  .white-1e1d7 { background-color: #6c7a89 !important; }
+        body.board-theme-night  .black-3c85d { background-color: #2c3e50 !important; }
+
+        /* -- Material de les peces (filtre sobre les imatges) --
+           El fons blanc de les peces blanques s'acoloreix segons el
+           material; les negres mantenen el to fosc. */
+        body.piece-theme-gold   img.piece-417db { filter: sepia(1) saturate(3.2) hue-rotate(2deg) brightness(1.04); }
+        body.piece-theme-wood   img.piece-417db { filter: sepia(0.85) saturate(1.6) brightness(0.92); }
+        body.piece-theme-marble img.piece-417db { filter: grayscale(1) contrast(1.15); }
+        body.piece-theme-ice    img.piece-417db { filter: sepia(1) saturate(2.6) hue-rotate(165deg) brightness(1.06); }
+        body.piece-theme-neon   img.piece-417db { filter: saturate(1.5) hue-rotate(265deg) drop-shadow(0 0 2px rgba(255,0,255,0.55)); }
+
         /* PWA Install Banner */
         .install-banner {
             display: none;
@@ -3140,6 +3172,40 @@
                     </label>
                 </div>
                 <div class="setting-help">Tons grisos, ombres mínimes i sense animacions per llegir millor.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Color del tauler</div>
+                    <select id="board-theme-select" class="select-control">
+                        <option value="classic">Fusta clàssica</option>
+                        <option value="green">Verd torneig</option>
+                        <option value="blue">Blau oceà</option>
+                        <option value="gray">Marbre gris</option>
+                        <option value="walnut">Noguera fosca</option>
+                        <option value="purple">Ametista</option>
+                        <option value="coral">Coral</option>
+                        <option value="night">Nit</option>
+                    </select>
+                </div>
+                <div class="setting-help">Tria el color o material de les caselles del tauler.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Material de les peces</div>
+                    <select id="piece-theme-select" class="select-control">
+                        <option value="classic">Clàssiques</option>
+                        <option value="gold">Daurades</option>
+                        <option value="wood">Fusta</option>
+                        <option value="marble">Marbre</option>
+                        <option value="ice">Glaç</option>
+                        <option value="neon">Neó</option>
+                    </select>
+                </div>
+                <div class="setting-help">Tria el color o material de les peces.</div>
+                <div class="setting-row">
+                    <div class="setting-label">🍀 Sempre tinc sort</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="lucky-toggle">
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Cada partida o problema estrena un tauler i unes peces escollits a l'atzar.</div>
             </div>
 
             <div class="settings-panel">
