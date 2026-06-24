@@ -3515,11 +3515,7 @@ function getCalibrationRocFloor() {
 }
 
 function clampUserElo(value) {
-    const floor = getCalibrationRocFloor();
-    const baseFloor = typeof floor === 'number' ? floor : ELO_MIN;
-    const flexibleFloor = Math.max(ELO_MIN, baseFloor * 0.45);
-    const minValue = Number.isFinite(flexibleFloor) ? flexibleFloor : ELO_MIN;
-    return Math.round(Math.max(minValue, Math.min(ELO_MAX, value)));
+    return ElTaulerCore.clampUserElo(value, getCalibrationRocFloor(), ELO_MIN, ELO_MAX);
 }
 
 function evaluateGameQuality(precision, avgCpLoss, blunders) {
@@ -3533,13 +3529,8 @@ function logEloAdjustment(entry) {
 }
 
 function checkEloMilestones(previousElo, newElo) {
-    const unlocked = [];
-    ELO_MILESTONES.forEach(milestone => {
-        if (previousElo < milestone && newElo >= milestone && !unlockedEloMilestones.includes(milestone)) {
-            unlockedEloMilestones.push(milestone);
-            unlocked.push(milestone);
-        }
-    });
+    const unlocked = ElTaulerCore.getNewlyUnlockedMilestones(previousElo, newElo, ELO_MILESTONES, unlockedEloMilestones);
+    unlocked.forEach(milestone => unlockedEloMilestones.push(milestone));
     return unlocked;
 }
 
@@ -3576,13 +3567,7 @@ function applyContinuousEloAdjustment(delta, reason, meta = {}) {
 }
 
 function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
-    if (resultLabel === 'win') {
-        return qualityScore >= 0.65 ? 10 : 6;
-    }
-    if (resultLabel === 'loss') {
-        return qualityScore >= 0.6 ? -10 : -18;
-    }
-    return 0;
+    return ElTaulerCore.getBaselineAdjustmentDelta(resultLabel, qualityScore);
 }
 
 function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
@@ -3703,26 +3688,19 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
 }
 
 function clampCalibrationRoc(roc) {
-    return Math.max(CALIBRATION_ROC_MIN, Math.min(CALIBRATION_ROC_MAX, Math.round(roc)));
+    return ElTaulerCore.clampCalibrationRoc(roc, CALIBRATION_ROC_MIN, CALIBRATION_ROC_MAX);
 }
 
 // Cerca adaptativa del nivell: parteix del ROC inicial i, segons el resultat de l'última
 // partida, adapta el rival (guanya → puja; perd → baixa; taules → lleugera pujada) amb passos
 // decreixents perquè convergeixi cap al nivell real del jugador. No segueix una escala fixa.
 function getCalibrationOpponentRoc() {
-    const games = calibrationGames;
-    if (!games.length) return clampCalibrationRoc(CALIBRATION_START_ROC);
-
-    const last = games[games.length - 1];
-    let roc = typeof last.opponentElo === 'number' ? last.opponentElo : CALIBRATION_START_ROC;
-    const stepIdx = Math.min(games.length - 1, CALIBRATION_STEPS.length - 1);
-    const step = CALIBRATION_STEPS[stepIdx];
-
-    if (last.result === 'win') roc += step;            // ha guanyat → rival més fort
-    else if (last.result === 'loss') roc -= step;       // ha perdut → rival més fluix
-    else roc += Math.round(step * 0.2);                 // taules → ajust petit a l'alça
-
-    return clampCalibrationRoc(roc);
+    return ElTaulerCore.getCalibrationOpponentRoc(calibrationGames, {
+        startRoc: CALIBRATION_START_ROC,
+        steps: CALIBRATION_STEPS,
+        rocMin: CALIBRATION_ROC_MIN,
+        rocMax: CALIBRATION_ROC_MAX
+    });
 }
 
 function getCalibrationProgressCount() {
@@ -3756,21 +3734,11 @@ function updateCalibrationAccessUI() {
 }
 
 function getCalibrationGameQuality(game) {
-    const avgLoss = typeof game.avgCpLoss === 'number' ? game.avgCpLoss : 180;
-    const precisionScore = typeof game.precision === 'number' ? game.precision / 100 : 0.4;
-    const lossScore = 1 - Math.min(avgLoss, 300) / 300;
-    const blunderPenalty = Math.min(0.3, (game.blunders || 0) * 0.05);
-    return Math.max(0, Math.min(1, (lossScore * 0.6) + (precisionScore * 0.4) - blunderPenalty));
+    return ElTaulerCore.getCalibrationGameQuality(game);
 }
 
 function getCalibrationPerformanceScore(games = calibrationGames) {
-    if (!games.length) return 0.5;
-    const total = games.reduce((sum, game) => {
-        const resultScore = game.result === 'win' ? 1 : game.result === 'loss' ? 0 : 0.5;
-        const quality = getCalibrationGameQuality(game);
-        return sum + (quality * 0.4) + (resultScore * 0.6);
-    }, 0);
-    return total / games.length;
+    return ElTaulerCore.getCalibrationPerformanceScore(games);
 }
 
 function estimateCalibrationRoc() {

@@ -226,9 +226,97 @@
         return openings;
     }
 
+    // ----------------------------------------------------------------------
+    // Ajust continu d'ELO (joc lliure) i fites
+    // ----------------------------------------------------------------------
+
+    // Limita l'ELO d'usuari amb un terra FLEXIBLE: no pot baixar de 45% del terra
+    // de calibratge (ni del mínim global), ni pujar del màxim.
+    function clampUserElo(value, floor, eloMin, eloMax) {
+        const baseFloor = typeof floor === 'number' ? floor : eloMin;
+        const flexibleFloor = Math.max(eloMin, baseFloor * 0.45);
+        const minValue = Number.isFinite(flexibleFloor) ? flexibleFloor : eloMin;
+        return Math.round(Math.max(minValue, Math.min(eloMax, value)));
+    }
+
+    // Ajust fi d'ELO segons el resultat d'una partida i la seva qualitat.
+    function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
+        if (resultLabel === 'win') return qualityScore >= 0.65 ? 10 : 6;
+        if (resultLabel === 'loss') return qualityScore >= 0.6 ? -10 : -18;
+        return 0;
+    }
+
+    // Fites d'ELO superades en passar de previousElo a newElo que encara no
+    // estaven desbloquejades. Funció pura: no muta la llista rebuda.
+    function getNewlyUnlockedMilestones(previousElo, newElo, milestones, alreadyUnlocked) {
+        const already = alreadyUnlocked || [];
+        const unlocked = [];
+        (milestones || []).forEach(milestone => {
+            if (previousElo < milestone && newElo >= milestone && !already.includes(milestone)) {
+                unlocked.push(milestone);
+            }
+        });
+        return unlocked;
+    }
+
+    // ----------------------------------------------------------------------
+    // Calibratge inicial (cerca adaptativa del nivell)
+    // ----------------------------------------------------------------------
+
+    function clampCalibrationRoc(roc, rocMin, rocMax) {
+        return Math.max(rocMin, Math.min(rocMax, Math.round(roc)));
+    }
+
+    // ROC del proper rival de calibratge: parteix del ROC inicial i adapta segons
+    // el resultat de l'última partida (guanya → puja; perd → baixa; taules → puja
+    // poc) amb passos decreixents per convergir cap al nivell real.
+    function getCalibrationOpponentRoc(games, config) {
+        const list = Array.isArray(games) ? games : [];
+        const clampRoc = (roc) => clampCalibrationRoc(roc, config.rocMin, config.rocMax);
+        if (!list.length) return clampRoc(config.startRoc);
+
+        const last = list[list.length - 1];
+        let roc = typeof last.opponentElo === 'number' ? last.opponentElo : config.startRoc;
+        const stepIdx = Math.min(list.length - 1, config.steps.length - 1);
+        const step = config.steps[stepIdx];
+
+        if (last.result === 'win') roc += step;            // ha guanyat → rival més fort
+        else if (last.result === 'loss') roc -= step;      // ha perdut → rival més fluix
+        else roc += Math.round(step * 0.2);                // taules → ajust petit a l'alça
+
+        return clampRoc(roc);
+    }
+
+    // Qualitat (0..1) d'una partida de calibratge a partir de pèrdua, precisió i blunders.
+    function getCalibrationGameQuality(game) {
+        const avgLoss = typeof game.avgCpLoss === 'number' ? game.avgCpLoss : 180;
+        const precisionScore = typeof game.precision === 'number' ? game.precision / 100 : 0.4;
+        const lossScore = 1 - Math.min(avgLoss, 300) / 300;
+        const blunderPenalty = Math.min(0.3, (game.blunders || 0) * 0.05);
+        return Math.max(0, Math.min(1, (lossScore * 0.6) + (precisionScore * 0.4) - blunderPenalty));
+    }
+
+    // Rendiment global de calibratge (0..1): combina resultat (60%) i qualitat (40%).
+    function getCalibrationPerformanceScore(games) {
+        if (!games || !games.length) return 0.5;
+        const total = games.reduce((sum, game) => {
+            const resultScore = game.result === 'win' ? 1 : game.result === 'loss' ? 0 : 0.5;
+            const quality = getCalibrationGameQuality(game);
+            return sum + (quality * 0.4) + (resultScore * 0.6);
+        }, 0);
+        return total / games.length;
+    }
+
     return {
         clampElo,
         normalize,
+        clampUserElo,
+        getBaselineAdjustmentDelta,
+        getNewlyUnlockedMilestones,
+        clampCalibrationRoc,
+        getCalibrationOpponentRoc,
+        getCalibrationGameQuality,
+        getCalibrationPerformanceScore,
         difficultyToLevel,
         levelToDifficulty,
         rocToEngineElo,

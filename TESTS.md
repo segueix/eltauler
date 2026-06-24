@@ -31,6 +31,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
 - **`openings.test.js`** — parseig de PGN, construcció del trie d'obertures i
   cerca/anàlisi, incloent-hi una comprovació de sanitat sobre les dades reals
   d'`obertures.js`.
+- **`calibration.test.js`** — terra flexible de l'ELO d'usuari, ajust fi per
+  resultat, fites d'ELO, i la cerca adaptativa del calibratge inicial (ROC del
+  rival, qualitat i rendiment de les partides de calibratge).
+
+## Integració contínua
+
+`.github/workflows/tests.yml` executa `npm ci` + `npm test` a cada push i pull
+request, de manera que cap canvi que trenqui la lògica provada es pugui fusionar
+sense que salti l'alarma.
 
 ## Afegir més tests
 
