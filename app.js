@@ -4365,6 +4365,7 @@ function saveStorage() {
     localStorage.setItem('chess_totalStars', totalStars);
     localStorage.setItem('chess_todayMissions', JSON.stringify(todayMissions));
     localStorage.setItem('chess_missionsDate', missionsDate);
+    localStorage.setItem('chess_missionsCompletionTime', missionsCompletionTime || 0);
     localStorage.setItem('chess_unlockedBadges', JSON.stringify(unlockedBadges));
     localStorage.setItem('chess_sessionStats', JSON.stringify(sessionStats));
     localStorage.setItem('chess_sessionStatsDate', getToday());
@@ -4437,6 +4438,17 @@ function reloadAppStateFromStorage() {
         if (typeof updateMissionsDisplay === 'function') updateMissionsDisplay();
         if (typeof renderGameHistory === 'function') renderGameHistory();
         if (typeof updateReviewChart === 'function') updateReviewChart();
+        // Refresca també pantalles de lliga, obertures i tàctiques si existeixen.
+        if (typeof renderLeagueScreen === 'function') renderLeagueScreen();
+        if (typeof updateLeagueDisplay === 'function') updateLeagueDisplay();
+        if (typeof renderLeague === 'function') renderLeague();
+        if (typeof updateLeagueAccessUI === 'function') updateLeagueAccessUI();
+        if (typeof updateLeagueBanner === 'function') updateLeagueBanner();
+        if (typeof renderLeagueHistory === 'function') renderLeagueHistory();
+        if (typeof renderOpenings === 'function') renderOpenings();
+        if (typeof renderOpeningStats === 'function') renderOpeningStats();
+        if (typeof renderOpeningStatsScreen === 'function') renderOpeningStatsScreen();
+        if (typeof updateTacticsDisplay === 'function') updateTacticsDisplay();
         if (typeof showToast === 'function') showToast('Dades sincronitzades del núvol', 'success');
     } catch (e) {
         console.warn('[CloudSync] reloadAppStateFromStorage error', e);
