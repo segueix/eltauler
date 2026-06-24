@@ -1568,9 +1568,8 @@ function disableTvTapToMove() {
 
 // Parseja un PGN d'obertura a un array de moviments SAN
 function parsePgnToMoves(pgn) {
-    if (!pgn) return [];
-    // Eliminar números i punts (ex: "1. e4 e5 2. Nf3" -> ["e4", "e5", "Nf3"])
-    return pgn.replace(/\d+\.\s*/g, '').trim().split(/\s+/).filter(m => m.length > 0);
+    // ex: "1. e4 e5 2. Nf3" -> ["e4", "e5", "Nf3"]
+    return ElTaulerCore.parsePgnToMoves(pgn);
 }
 
 // Construeix el trie d'obertures per cerca eficient
@@ -1580,20 +1579,7 @@ function buildOpeningTrie() {
         return null;
     }
 
-    const trie = { children: {}, openings: [] };
-
-    for (const opening of OPENINGS_DATA) {
-        const moves = parsePgnToMoves(opening.pgn);
-        let node = trie;
-
-        for (const move of moves) {
-            if (!node.children[move]) {
-                node.children[move] = { children: {}, openings: [] };
-            }
-            node = node.children[move];
-        }
-        node.openings.push({ eco: opening.eco, name: opening.name, moves: moves });
-    }
+    const trie = ElTaulerCore.buildOpeningTrie(OPENINGS_DATA, parsePgnToMoves);
 
     console.log(`[Openings] Trie construït amb ${OPENINGS_DATA.length} obertures`);
     console.log(`[Openings] Primers moviments vàlids: [${Object.keys(trie.children).join(', ')}]`);
@@ -1623,84 +1609,23 @@ function isOpeningOpponentTurn() {
 
 // Obté els moviments vàlids d'obertura per a la posició actual
 function getValidOpeningMoves(sequence) {
-    if (!openingTrie) return [];
-
-    let node = openingTrie;
-    for (const move of sequence) {
-        if (!node.children[move]) {
-            return []; // No hi ha obertures que continuïn amb aquesta seqüència
-        }
-        node = node.children[move];
-    }
-
-    // Retorna tots els moviments possibles des d'aquest node
-    return Object.keys(node.children);
+    return ElTaulerCore.getValidOpeningMoves(openingTrie, sequence);
 }
 
 // Analitza fins on una partida ha seguit la teoria d'obertures
 // Retorna { depth, name, eco, deviationMove, deviationBy, theoryMoves } o null
 function analyzeGameOpening(moves) {
-    if (!openingTrie || !Array.isArray(moves) || moves.length === 0) return null;
-    let node = openingTrie;
-    let depth = 0;
-    let lastOpening = null;
-    for (let i = 0; i < moves.length; i++) {
-        const mv = moves[i];
-        if (!node.children[mv]) {
-            // Desviació: el moviment i (0-indexat) no segueix cap línia coneguda
-            const theoryMoves = Object.keys(node.children);
-            if (theoryMoves.length === 0 || depth < 2) return lastOpening ? { depth, name: lastOpening.name, eco: lastOpening.eco, deviationMove: null } : null;
-            return {
-                depth,
-                name: lastOpening ? lastOpening.name : null,
-                eco: lastOpening ? lastOpening.eco : null,
-                deviationMove: mv,
-                deviationPly: i,
-                deviationBy: (i % 2 === 0) ? 'w' : 'b',
-                theoryMoves: theoryMoves.slice(0, 3)
-            };
-        }
-        node = node.children[mv];
-        depth++;
-        if (node.openings && node.openings.length) lastOpening = node.openings[0];
-    }
-    // Tota la seqüència segueix la teoria
-    return {
-        depth,
-        name: lastOpening ? lastOpening.name : null,
-        eco: lastOpening ? lastOpening.eco : null,
-        deviationMove: null
-    };
+    return ElTaulerCore.analyzeGameOpening(openingTrie, moves);
 }
 
 // Comprova si un moviment és vàlid dins d'alguna obertura
 function isValidOpeningMove(sequence, move) {
-    const validMoves = getValidOpeningMoves(sequence);
-    return validMoves.includes(move);
+    return ElTaulerCore.isValidOpeningMove(openingTrie, sequence, move);
 }
 
 // Obté les obertures que coincideixen amb la seqüència actual
 function getMatchingOpenings(sequence) {
-    if (!openingTrie || sequence.length === 0) return [];
-
-    let node = openingTrie;
-    for (const move of sequence) {
-        if (!node.children[move]) {
-            return [];
-        }
-        node = node.children[move];
-    }
-
-    // Recollir totes les obertures des d'aquest node cap avall
-    const openings = [];
-    function collectOpenings(n) {
-        openings.push(...n.openings);
-        for (const child of Object.values(n.children)) {
-            collectOpenings(child);
-        }
-    }
-    collectOpenings(node);
-    return openings;
+    return ElTaulerCore.getMatchingOpenings(openingTrie, sequence);
 }
 
 // Selecciona la millor obertura quan hi ha múltiples opcions
@@ -3493,8 +3418,12 @@ function restoreMissions(savedList) {
 }
 
 function clampEngineElo(elo) {
-    if (isNaN(elo)) return Math.round(Math.max(ELO_MIN, Math.min(ELO_MAX, currentElo)));
-    return Math.round(Math.max(ELO_MIN, Math.min(ELO_MAX, elo)));
+    // Delega a ElTaulerCore (core.js). A la branca isNaN s'usa currentElo com a
+    // fallback; evitem referenciar-lo quan no cal per no topar amb la TDZ durant
+    // la inicialització de currentElo.
+    return isNaN(elo)
+        ? ElTaulerCore.clampElo(currentElo, ELO_MIN, ELO_MAX)
+        : ElTaulerCore.clampElo(elo, ELO_MIN, ELO_MAX);
 }
 
 // Converteix un ROC (escala pròpia 200-2000) a un UCI_Elo VÀLID per a Stockfish.
@@ -3512,24 +3441,21 @@ function clampEngineElo(elo) {
 // Així evitem el retall silenciós que abans feia que tots els ROC baixos fossin idèntics
 // per al motor, i el rang s'adapta automàticament al binari realment carregat.
 function rocToEngineElo(roc) {
-    const value = isNaN(roc) ? engineEloMin : roc;
-    return Math.round(Math.max(engineEloMin, Math.min(engineEloMax, value)));
+    return ElTaulerCore.rocToEngineElo(roc, engineEloMin, engineEloMax);
 }
 
 function difficultyToLevel(legacyDifficulty) {
-    // Converteix l'antic rang 5-15 a ELO adaptatiu 400-3000
-    const normalized = Math.max(0, Math.min(1, ((legacyDifficulty || 8) - 5) / 10));
-    return Math.round(ADAPTIVE_CONFIG.MIN_LEVEL + normalized * (ADAPTIVE_CONFIG.MAX_LEVEL - ADAPTIVE_CONFIG.MIN_LEVEL));
+    // Converteix l'antic rang 5-15 a ELO adaptatiu
+    return ElTaulerCore.difficultyToLevel(legacyDifficulty, ADAPTIVE_CONFIG.MIN_LEVEL, ADAPTIVE_CONFIG.MAX_LEVEL);
 }
 
 function levelToDifficulty(level) {
     // Manté la compatibilitat amb l'antic rang 5-15
-    const normalized = Math.max(0, Math.min(1, (level - ADAPTIVE_CONFIG.MIN_LEVEL) / (ADAPTIVE_CONFIG.MAX_LEVEL - ADAPTIVE_CONFIG.MIN_LEVEL)));
-    return Math.round(5 + normalized * 10);
+    return ElTaulerCore.levelToDifficulty(level, ADAPTIVE_CONFIG.MIN_LEVEL, ADAPTIVE_CONFIG.MAX_LEVEL);
 }
 
 function getAdaptiveNormalized() {
-     return Math.max(0, Math.min(1, (currentElo - ADAPTIVE_CONFIG.MIN_LEVEL) / (ADAPTIVE_CONFIG.MAX_LEVEL - ADAPTIVE_CONFIG.MIN_LEVEL)));
+     return ElTaulerCore.normalize(currentElo, ADAPTIVE_CONFIG.MIN_LEVEL, ADAPTIVE_CONFIG.MAX_LEVEL);
 }
 
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
@@ -3550,16 +3476,7 @@ function getStrengthNormalized() {
 }
 
 function eloToSearchDepth(elo) {
-    const floor = engineEloMin || 1350;
-    if (elo >= floor) {
-        // Per sobre del terra, Stockfish limita la força amb UCI_Elo; donem profunditat alta i
-        // creixent fins al sostre de l'escala.
-        const n = Math.max(0, Math.min(1, (elo - floor) / (ELO_MAX - floor)));
-        return Math.round(12 + n * 4); // 12..16
-    }
-    // Per sota del terra: profunditat PROPORCIONAL a la fracció elo/terra (relació proporcional amb SF).
-    const fraction = Math.max(0, Math.min(1, elo / floor));
-    return Math.max(1, Math.round(2 + fraction * 10)); // ~2..12 segons la proporció
+    return ElTaulerCore.eloToSearchDepth(elo, engineEloMin || 1350, ELO_MAX);
 }
 
 function adjustAIDifficulty(playerWon, precision, resultScore = null) {
@@ -3578,32 +3495,13 @@ function adjustAIDifficulty(playerWon, precision, resultScore = null) {
         return;
     }
 
-    let eloDelta = 0;
-
-    if (normalizedScore === 1) {
-        if (safePrecision > 80) eloDelta += 50;
-        else if (safePrecision >= 65) eloDelta += 35;
-        else eloDelta += 15;
-    } else if (normalizedScore === 0) {
-        if (safePrecision > 60) eloDelta -= 15;
-        else if (safePrecision >= 45) eloDelta -= 30;
-        else eloDelta -= 50;
-    } else {
-        eloDelta += 10;
-    }
-
-    if (consecutiveWins >= 3) eloDelta += 30;
-    if (consecutiveLosses >= 3) eloDelta -= 25;
-
-    if (recentGames.length >= 5) {
-        const recentSlice = recentGames.slice(-10);
-        const wins = recentSlice.filter(game => game.result === 1).length;
-        const winRate = recentSlice.length > 0 ? wins / recentSlice.length : 0.5;
-        if (winRate > 0.60) eloDelta += 30;
-        else if (winRate < 0.40) eloDelta -= 30;
-    }
-
-    eloDelta = Math.max(-60, Math.min(60, eloDelta));
+    const eloDelta = ElTaulerCore.computeEloDelta({
+        normalizedScore,
+        precision: safePrecision,
+        consecutiveWins,
+        consecutiveLosses,
+        recentGames
+    });
     currentElo = clampEngineElo(currentElo + eloDelta);
     aiDifficulty = levelToDifficulty(currentElo);
     applyEngineEloStrength(currentElo);
@@ -3625,18 +3523,7 @@ function clampUserElo(value) {
 }
 
 function evaluateGameQuality(precision, avgCpLoss, blunders) {
-    const safePrecision = Math.max(0, Math.min(100, typeof precision === 'number' ? precision : 0));
-    const safeLoss = Math.max(0, typeof avgCpLoss === 'number' ? avgCpLoss : 180);
-    const safeBlunders = Math.max(0, typeof blunders === 'number' ? blunders : 0);
-    const precisionScore = safePrecision / 100;
-    const lossScore = 1 - Math.min(safeLoss, 200) / 200;
-    const blunderPenalty = Math.min(0.3, safeBlunders * 0.1);
-    const qualityScore = Math.max(0, Math.min(1, (precisionScore * 0.6) + (lossScore * 0.4) - blunderPenalty));
-    const isHighQuality = qualityScore >= CONTINUOUS_ADJUST_CONFIG.QUALITY_HIGH;
-    const hasErrors = safePrecision <= CONTINUOUS_ADJUST_CONFIG.ERROR_PRECISION_MAX
-        || safeLoss >= CONTINUOUS_ADJUST_CONFIG.ERROR_CPLOSS_MIN
-        || safeBlunders >= CONTINUOUS_ADJUST_CONFIG.ERROR_BLUNDERS_MIN;
-    return { qualityScore, isHighQuality, hasErrors };
+    return ElTaulerCore.evaluateGameQuality(precision, avgCpLoss, blunders, CONTINUOUS_ADJUST_CONFIG);
 }
 
 function logEloAdjustment(entry) {
