@@ -526,7 +526,6 @@ const BUNDLE_ACCEPT_MODE_KEY = 'eltauler_bundle_accept_mode';
 let bundleAcceptMode = 'top1'; // 'top1' o 'top2'
 const bundleAnswerCache = new Map();
 
-const OPENAI_API_KEY_STORAGE = 'chess_openai_api_key';
 const OPENAI_MODEL_ID = 'gpt-5-mini';
 let openaiApiKey = null;
 
@@ -4461,8 +4460,6 @@ function loadStorage() {
             }
         } catch (e) {}
     }
-    const storedOpenAIKey = localStorage.getItem(OPENAI_API_KEY_STORAGE);
-    if (storedOpenAIKey) openaiApiKey = storedOpenAIKey;
     const storedDaily = localStorage.getItem('chess_dailyPuzzle');
     if (storedDaily) {
         try {
@@ -4517,11 +4514,6 @@ function saveStorage() {
     }
     if (currentLeague) localStorage.setItem('chess_currentLeague', JSON.stringify(currentLeague)); else localStorage.removeItem('chess_currentLeague');
     if (leagueActiveMatch) localStorage.setItem('chess_leagueActiveMatch', JSON.stringify(leagueActiveMatch)); else localStorage.removeItem('chess_leagueActiveMatch');
-    if (openaiApiKey) {
-        localStorage.setItem(OPENAI_API_KEY_STORAGE, openaiApiKey);
-    } else {
-        localStorage.removeItem(OPENAI_API_KEY_STORAGE);
-    }
     localStorage.setItem('chess_dailyPuzzle', JSON.stringify(dailyPuzzle));
     localStorage.setItem('chess_completedOpenings', JSON.stringify(completedOpenings));
     localStorage.setItem('chess_tacticsStats', JSON.stringify(tacticsStats));
@@ -4644,17 +4636,6 @@ function updateCloudRecoverButton() {
 }
 
 function updateOpenAISettingsUI() {
-    const input = document.getElementById('openai-key-input');
-    const status = document.getElementById('openai-key-status');
-    if (!input || !status) return;
-    if (openaiApiKey) {
-        input.value = '';
-        input.placeholder = 'Clau desada';
-        status.textContent = 'Connectat a OpenAI';
-    } else {
-        input.placeholder = 'Enganxa la clau';
-        status.textContent = 'No configurada';
-    }
     updateBundleHintButtons();
 }
 
@@ -4757,27 +4738,6 @@ async function callOpenAI(prompt, options = {}) {
             errorMessage: isNetwork ? 'Problema de xarxa, CORS, domini o bloqueig del navegador' : (error?.message || 'Error desconegut')
         };
     }
-}
-
-async function testOpenAIConnection(key) {
-    const previousKey = openaiApiKey;
-    openaiApiKey = (key || '').trim();
-    if (!openaiApiKey) {
-        openaiApiKey = previousKey;
-        return { ok: false, text: '', status: 0, errorMessage: 'Clau OpenAI no configurada' };
-    }
-    const result = await callOpenAI('Respon només amb la paraula OK en català.', { generationConfig: { maxOutputTokens: 256 } });
-    openaiApiKey = previousKey;
-    return result;
-}
-
-function saveOpenAIApiKey(rawKey) {
-    const key = (rawKey || '').trim();
-    if (!key) return false;
-    openaiApiKey = key;
-    saveStorage();
-    updateOpenAISettingsUI();
-    return true;
 }
 
 function updateEloHistory(newElo) {
@@ -11648,22 +11608,6 @@ function setupEvents() {
     onModalAction('#promotion-modal .promotion-option', function () { resolvePromotionPicker($(this).data('piece')); });
     onModalAction('#btn-promotion-cancel', () => resolvePromotionPicker(null));
 
-    // Botó ⓘ de l'inici: explica les funcions amb IA i acompanya fins al camp de la clau OpenAI
-    $('#btn-ai-info').click(() => { $('#ai-info-modal').css('display', 'flex'); });
-    $('#btn-ai-info-settings').click(() => {
-        $('#ai-info-modal').hide();
-        $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen');
-        const target = document.querySelector('.openai-config');
-        if (target) {
-            setTimeout(() => {
-                target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                target.classList.remove('openai-highlight');
-                void target.offsetWidth;
-                target.classList.add('openai-highlight');
-                setTimeout(() => target.classList.remove('openai-highlight'), 3000);
-            }, 120);
-        }
-    });
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
     $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); });
@@ -11971,32 +11915,6 @@ function setupEvents() {
     // Analitza la posició actual
     $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
 
-    $('#btn-save-openai-key').off('click').on('click', async () => {
-        const input = document.getElementById('openai-key-input');
-        const status = document.getElementById('openai-key-status');
-        const btn = document.getElementById('btn-save-openai-key');
-        if (!input) return;
-        const key = (input.value || '').trim();
-        if (!key) {
-            if (status) status.textContent = 'Clau invàlida o restringida';
-            alert('Introdueix una clau vàlida.');
-            return;
-        }
-        if (btn) btn.disabled = true;
-        if (status) status.textContent = 'Provant connexió...';
-        const result = await testOpenAIConnection(key);
-        if (result.ok) {
-            saveOpenAIApiKey(key);
-            input.value = '';
-            if (status) status.textContent = 'Connectat a OpenAI';
-            alert('Clau d’OpenAI guardada.');
-        } else {
-            if (status) status.textContent = getOpenAIStatusLabel(result);
-            alert(getOpenAIAlertMessage(result));
-        }
-        if (btn) btn.disabled = false;
-    });
-
     // --- Sincronització al núvol ---
     $('#btn-cloud-signin').off('click').on('click', () => {
         if (window.CloudSync) window.CloudSync.signIn();
@@ -12067,7 +11985,6 @@ function setupEvents() {
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = []; adaptationReport = [];
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
-            openaiApiKey = null;
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#settings-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             showToast("S'han esborrat totes les dades. Torna a començar!", 'success');
