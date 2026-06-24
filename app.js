@@ -488,6 +488,19 @@ function onModalAction(target, handler) {
         });
 }
 
+// Executa feina pesada (persistència, generació d'informes, redibuix de gràfics)
+// DESPRÉS que el navegador hagi pogut pintar un canvi visual immediat —un
+// moviment al tauler, el tancament d'un modal—, perquè aquests no es percebin
+// congelats mentre es processa. El doble requestAnimationFrame garanteix que el
+// fotograma amb el canvi visual s'ha pintat abans d'executar la feina.
+function runAfterPaint(fn) {
+    if (typeof requestAnimationFrame === 'function') {
+        requestAnimationFrame(() => requestAnimationFrame(() => fn()));
+    } else {
+        setTimeout(fn, 0);
+    }
+}
+
 // Confirmació interna (asíncrona, amb callbacks) que substitueix confirm().
 function showAppConfirm(message, onConfirm, opts = {}) {
     const modal = document.getElementById('app-confirm-modal');
@@ -1445,7 +1458,7 @@ function commitHumanMove(from, to, promotionPiece) {
     updateStatus();
 
     if (game.game_over()) {
-        if (blunderMode) handleBundleGameOver(); else handleGameOver();
+        if (blunderMode) handleBundleGameOver(); else runAfterPaint(() => handleGameOver());
         return true;
     }
 
@@ -12254,7 +12267,9 @@ function setupEvents() {
 
     onModalAction('#btn-resign-confirm', () => {
         hideResignModal();
-        handleGameOver(true);
+        // Es difereix perquè el modal es tanqui a l'instant; el processament
+        // pesat del final de partida no ha de bloquejar el repintat.
+        runAfterPaint(() => handleGameOver(true));
     });
 
     onModalAction('#btn-resign-cancel', () => {
@@ -12270,7 +12285,7 @@ function setupEvents() {
     onModalAction('#btn-menu-exit-confirm', () => {
         hideMenuExitModal();
         if (leagueActiveMatch) {
-            handleGameOver(true);
+            runAfterPaint(() => handleGameOver(true));
             return;
         }
         $('#game-screen').removeClass('active').hide();
@@ -12786,7 +12801,9 @@ function getNextBestTrainingTask(options = {}) {
     if (!options.previewOnly) {
         rememberGrowthTask(best);
         updateGrowthStats('recommended', best);
-        saveStorage();
+        // skipSave permet a qui crida (p. ex. handleGameOver) ajornar el
+        // saveStorage pesat a un bloc diferit i evitar desar dues vegades.
+        if (!options.skipSave) saveStorage();
     }
     return best;
 }
@@ -13850,7 +13867,7 @@ function clockTick() {
         const flagged = gameClock.white <= 0 ? 'w' : 'b';
         stopGameClock();
         renderClock();
-        handleGameOver(false, flagged);
+        runAfterPaint(() => handleGameOver(false, flagged));
     }
 }
 // Quan algú acaba de moure: afegeix l'increment a qui ha mogut i passa el torn
@@ -14144,7 +14161,7 @@ function onDrop(source, target) {
     updateStatus();
 
     if (game.game_over()) {
-        if (blunderMode) handleBundleGameOver(); else handleGameOver();
+        if (blunderMode) handleBundleGameOver(); else runAfterPaint(() => handleGameOver());
         return;
     }
 
@@ -14751,7 +14768,10 @@ function handleEngineMessage(rawMsg) {
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
                 updateStatus();
-                if (game.game_over()) handleGameOver();
+                // El moviment ja s'ha aplicat al tauler; es difereix el final de
+                // partida perquè el navegador pinti el moviment (inclòs el mat)
+                // a l'instant en lloc d'esperar al processament pesat.
+                if (game.game_over()) runAfterPaint(() => handleGameOver());
             }, 900);
         }
     }
@@ -15545,9 +15565,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
     });
-    persistReviewSummary(finalPrecision, msg);
-    recordActivity(); saveStorage(); checkMissions(); updateDisplay(); updateReviewChart();
-    const growthTask = calibrationGameWasActive ? null : getNextBestTrainingTask({ source: 'postgame' });
+    // La persistència pesada (saveStorage, gràfics, missions) es difereix més
+    // avall, després de mostrar el modal. getNextBestTrainingTask es demana amb
+    // skipSave per no desar de forma síncrona ara mateix (ho farà el bloc diferit).
+    const growthTask = calibrationGameWasActive ? null : getNextBestTrainingTask({ source: 'postgame', skipSave: true });
     $('#status').text(msg);
     // Gestió de l'indicador de resultat
     if (leagueOutcome === 'win') setResultIndicator('win');
@@ -15593,6 +15614,20 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         void requestOpenAIReview(latestEntry, severeErrors);
         void requestErrorNotes(latestEntry, severeErrors);
     }
+
+    // Persistència i actualitzacions pesades: serialització de tot l'historial
+    // (saveStorage), sincronització al núvol, redibuix de Chart.js, missions i
+    // estadístiques. Es difereix fins després que el navegador hagi pintat el
+    // modal de revisió perquè el final de partida es vegi a l'instant i la
+    // generació de l'informe no interfereixi amb el repintat.
+    runAfterPaint(() => {
+        persistReviewSummary(finalPrecision, msg);
+        recordActivity();
+        saveStorage();
+        checkMissions();
+        updateDisplay();
+        updateReviewChart();
+    });
 }
 
 function setResultIndicator(outcome) {
