@@ -4418,7 +4418,89 @@ function saveStorage() {
     localStorage.removeItem('eltaulerLastLocalUpdateAt');
     localStorage.removeItem('eltaulerDeviceId');
     localStorage.removeItem('chess_deepseek_api_key');
+    // Sincronització al núvol: avisa que les dades locals han canviat.
+    if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
+        try { window.CloudSync.onLocalSave(); } catch (e) {}
+    }
 }
+
+// Recarrega tot l'estat del joc des del localStorage i refresca la interfície.
+// El crida cloudsync.js després de baixar dades més noves d'un altre dispositiu.
+function reloadAppStateFromStorage() {
+    try {
+        loadStorage();
+        if (typeof isCalibrationActive === 'function' && !isCalibrationActive()) {
+            syncEngineEloFromUser();
+        }
+        updateDisplay();
+        if (typeof updateStatsDisplay === 'function') updateStatsDisplay();
+        if (typeof updateMissionsDisplay === 'function') updateMissionsDisplay();
+        if (typeof renderGameHistory === 'function') renderGameHistory();
+        if (typeof updateReviewChart === 'function') updateReviewChart();
+        if (typeof showToast === 'function') showToast('Dades sincronitzades del núvol', 'success');
+    } catch (e) {
+        console.warn('[CloudSync] reloadAppStateFromStorage error', e);
+    }
+}
+window.reloadAppStateFromStorage = reloadAppStateFromStorage;
+
+// Refresca la secció "Sincronització al núvol" de Configuració segons l'estat.
+function updateCloudSyncUI(st) {
+    st = st || (window.CloudSync && window.CloudSync.getStatus ? window.CloudSync.getStatus() : { state: 'init', configured: false });
+    const statusEl = document.getElementById('cloud-sync-status');
+    const accountEl = document.getElementById('cloud-sync-account');
+    const hintEl = document.getElementById('cloud-sync-hint');
+    const btnIn = document.getElementById('btn-cloud-signin');
+    const btnOut = document.getElementById('btn-cloud-signout');
+    const btnNow = document.getElementById('btn-cloud-sync-now');
+    if (!statusEl) return;
+
+    const show = (el, v) => { if (el) el.style.display = v ? '' : 'none'; };
+    let label = '—', color = 'inherit', hint = '', signedIn = false;
+
+    switch (st.state) {
+        case 'unconfigured':
+            label = 'No configurat'; color = '#b08900';
+            hint = 'Firebase encara no està configurat. Omple FIREBASE_CONFIG a cloudsync.js.';
+            break;
+        case 'unavailable':
+            label = 'Sense connexió'; color = '#b08900';
+            hint = 'No s\'ha pogut carregar Firebase. Comprova la connexió i recarrega.';
+            break;
+        case 'signedout':
+            label = 'Sessió tancada'; color = 'inherit';
+            hint = 'Inicia sessió per activar la sincronització.';
+            break;
+        case 'syncing':
+            label = 'Sincronitzant…'; color = '#0a7'; signedIn = true; break;
+        case 'synced':
+            label = 'Sincronitzat ✓'; color = '#0a7'; signedIn = true;
+            if (st.lastSyncedAt) hint = 'Última sincronització: ' + new Date(st.lastSyncedAt).toLocaleString('ca-ES');
+            break;
+        case 'error':
+            label = 'Error'; color = '#c0392b'; signedIn = !!(st.email);
+            hint = st.error || 'Hi ha hagut un error de sincronització.';
+            break;
+        default:
+            label = st.configured ? 'A punt' : 'No configurat';
+            color = st.configured ? 'inherit' : '#b08900';
+            if (!st.configured) hint = 'Firebase encara no està configurat. Omple FIREBASE_CONFIG a cloudsync.js.';
+    }
+
+    statusEl.textContent = label;
+    statusEl.style.color = color;
+    if (accountEl) {
+        if (signedIn && st.email) { accountEl.textContent = '👤 ' + st.email; accountEl.style.display = ''; }
+        else accountEl.style.display = 'none';
+    }
+    if (hintEl) hintEl.textContent = hint;
+
+    const canSignIn = st.configured && st.state !== 'unavailable';
+    show(btnIn, !signedIn && canSignIn);
+    show(btnOut, signedIn);
+    show(btnNow, signedIn);
+}
+window.onCloudSyncStatus = updateCloudSyncUI;
 
 function updateOpenAISettingsUI() {
     const input = document.getElementById('openai-key-input');
@@ -11751,6 +11833,18 @@ function setupEvents() {
         }
         if (btn) btn.disabled = false;
     });
+
+    // --- Sincronització al núvol ---
+    $('#btn-cloud-signin').off('click').on('click', () => {
+        if (window.CloudSync) window.CloudSync.signIn();
+    });
+    $('#btn-cloud-signout').off('click').on('click', () => {
+        if (window.CloudSync) window.CloudSync.signOut();
+    });
+    $('#btn-cloud-sync-now').off('click').on('click', () => {
+        if (window.CloudSync) window.CloudSync.syncNow();
+    });
+    updateCloudSyncUI();
 
     $('#opening-practice-mode-select').off('change').on('change', function() {
         openingPracticeOpponentMode = ($(this).val() === 'adaptive') ? 'adaptive' : 'theory';

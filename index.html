@@ -3096,6 +3096,22 @@
             </div>
 
             <div class="settings-panel">
+                <div class="settings-title">☁️ Sincronització al núvol</div>
+                <div class="setting-help" style="margin-bottom:12px;">Inicia sessió amb Google per sincronitzar totes les teves dades (partides, errors, reptes diaris, ELO, missions, trofeus...) entre tots els teus dispositius.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Estat</div>
+                    <span id="cloud-sync-status" style="font-size:0.85rem;font-weight:600;text-align:right;flex:1;">—</span>
+                </div>
+                <div id="cloud-sync-account" style="font-size:0.8rem;opacity:0.7;margin:4px 0 12px;display:none;"></div>
+                <div style="display:flex;gap:10px;flex-wrap:wrap;">
+                    <button class="btn btn-secondary" id="btn-cloud-signin" style="flex:1;min-width:160px;">Inicia sessió amb Google</button>
+                    <button class="btn btn-secondary" id="btn-cloud-sync-now" style="flex:1;min-width:120px;display:none;">🔄 Sincronitza ara</button>
+                    <button class="btn btn-secondary" id="btn-cloud-signout" style="flex:1;min-width:120px;display:none;">Tanca sessió</button>
+                </div>
+                <div class="setting-help" id="cloud-sync-hint" style="margin-top:10px;"></div>
+            </div>
+
+            <div class="settings-panel">
                 <div class="settings-title">Aparença</div>
                 <div class="setting-row">
                     <div class="setting-label">Mida de la lletra</div>
@@ -3740,7 +3756,14 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-    
+
+    <!-- Firebase (sincronització al núvol). Si no hi ha connexió, l'app funciona
+         igualment; el sync queda inactiu fins que torni la xarxa. -->
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
+    <script src="cloudsync.js?v=1.0.0"></script>
+
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script>

@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ AUTOMÀTICA: Canvia cada vegada que es modifica el fitxer
-const SW_VERSION = '2.7.1781278563';
+const SW_VERSION = '2.8.0-cloudsync';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 
 // DEBUG: Log de versió
@@ -30,8 +30,12 @@ const DYNAMIC_ASSETS = [
   './',
   './index.html',
   './app.js',
+  './cloudsync.js',
   './manifest.json',
   './stockfish.js',
+  'https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js',
+  'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js',
   'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css',
   'https://code.jquery.com/jquery-3.6.0.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js',
@@ -137,11 +141,28 @@ self.addEventListener('activate', (event) => {
 // ================================
 // ESTRATÈGIA DE FETCH
 // ================================
+// Dominis de Firebase (auth/firestore) que NO ha de tocar el service worker:
+// usen streaming i long-polling que es trencarien amb el timeout/caché del SW.
+const SYNC_BYPASS_HOSTS = [
+  'firestore.googleapis.com',
+  'firebaseinstallations.googleapis.com',
+  'identitytoolkit.googleapis.com',
+  'securetoken.googleapis.com',
+  'firebase.googleapis.com',
+  'apis.google.com',
+  'accounts.google.com'
+];
+
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
 
   // Ignorem peticions no-HTTP
   if (!url.startsWith('http')) {
+    return;
+  }
+
+  // Deixa passar directament les crides a Firebase Auth/Firestore.
+  if (SYNC_BYPASS_HOSTS.some((host) => url.indexOf(host) !== -1)) {
     return;
   }
 
