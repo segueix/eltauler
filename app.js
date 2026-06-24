@@ -464,20 +464,28 @@ function showToast(message, type = 'info', duration = null) {
 // Internalitza qualsevol alert() del sistema com a toast de l'app.
 window.alert = function(message) { showToast(message, 'info'); };
 
-// En mòbil, els gestors tàctils del tauler poden suprimir el click sintètic
-// dels botons dels modals que s'obren durant la partida (mateix cas que la X
-// dels overlays d'èxit). S'escolta també touchend/pointerup i una guarda
-// temporal assegura que l'acció s'executi exactament una vegada per toc.
+// En mòbil, el "click" sintètic que segueix un toc es pot perdre (els gestors
+// tàctils del tauler el suprimeixen) o duplicar. Patró robust: gestionem el toc
+// amb 'touchend' i cancel·lem el click sintètic posterior amb preventDefault;
+// 'click' queda per a ratolí/teclat. Un segell de temps evita que el click
+// sintètic torni a disparar l'acció just després d'un toc.
 function onModalAction(target, handler) {
-    let lastTs = 0;
-    $(target).off('click touchend pointerup').on('click touchend pointerup', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const now = Date.now();
-        if (now - lastTs < 400) return;
-        lastTs = now;
-        handler.call(this, e);
-    });
+    let touchHandledAt = 0;
+    $(target)
+        .off('click touchend pointerup')
+        .on('touchend', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            touchHandledAt = Date.now();
+            handler.call(this, e);
+        })
+        .on('click', function (e) {
+            // Ignora el click sintètic si el toc ja ha gestionat l'acció.
+            if (Date.now() - touchHandledAt < 700) return;
+            e.preventDefault();
+            e.stopPropagation();
+            handler.call(this, e);
+        });
 }
 
 // Confirmació interna (asíncrona, amb callbacks) que substitueix confirm().
@@ -580,6 +588,100 @@ function applyDayMode(enabled, options = {}) {
     }
     if (eloChart) updateEloChart();
     if (reviewChart) updateReviewChart();
+}
+
+/* ===========================================================================
+   Temes del tauler i de les peces (color/material) + mode "Sempre tinc sort".
+   Els temes s'apliquen amb una classe a <body> (definides al CSS) i afecten
+   tots els taulers alhora. La preferència de l'usuari es desa a localStorage.
+   El mode "sort" no sobreescriu la preferència desada: aplica un tema a l'atzar
+   de manera transitòria a cada partida o problema.
+   =========================================================================== */
+const BOARD_THEME_KEY = 'eltauler_board_theme';
+const PIECE_THEME_KEY = 'eltauler_piece_theme';
+const LUCKY_MODE_KEY  = 'eltauler_lucky_mode';
+
+const BOARD_THEMES = ['classic', 'green', 'blue', 'gray', 'walnut', 'purple', 'coral', 'night'];
+const PIECE_THEMES = ['classic', 'gold', 'wood', 'marble', 'ice', 'neon'];
+
+let boardTheme = 'classic';
+let pieceTheme = 'classic';
+let luckyModeEnabled = false;
+
+function loadBoardTheme() {
+    try {
+        const v = localStorage.getItem(BOARD_THEME_KEY);
+        return BOARD_THEMES.includes(v) ? v : 'classic';
+    } catch (e) { return 'classic'; }
+}
+
+function loadPieceTheme() {
+    try {
+        const v = localStorage.getItem(PIECE_THEME_KEY);
+        return PIECE_THEMES.includes(v) ? v : 'classic';
+    } catch (e) { return 'classic'; }
+}
+
+function loadLuckyMode() {
+    try { return localStorage.getItem(LUCKY_MODE_KEY) === 'on'; }
+    catch (e) { return false; }
+}
+
+function applyBoardTheme(theme, options = {}) {
+    if (!BOARD_THEMES.includes(theme)) theme = 'classic';
+    BOARD_THEMES.forEach(t => document.body.classList.remove('board-theme-' + t));
+    if (theme !== 'classic') document.body.classList.add('board-theme-' + theme);
+    if (!options.transient) {
+        boardTheme = theme;
+        const sel = document.getElementById('board-theme-select');
+        if (sel) sel.value = theme;
+        if (!options.skipSave) {
+            try { localStorage.setItem(BOARD_THEME_KEY, theme); } catch (e) {}
+        }
+    }
+}
+
+function applyPieceTheme(theme, options = {}) {
+    if (!PIECE_THEMES.includes(theme)) theme = 'classic';
+    PIECE_THEMES.forEach(t => document.body.classList.remove('piece-theme-' + t));
+    if (theme !== 'classic') document.body.classList.add('piece-theme-' + theme);
+    if (!options.transient) {
+        pieceTheme = theme;
+        const sel = document.getElementById('piece-theme-select');
+        if (sel) sel.value = theme;
+        if (!options.skipSave) {
+            try { localStorage.setItem(PIECE_THEME_KEY, theme); } catch (e) {}
+        }
+    }
+}
+
+function applyLuckyMode(enabled, options = {}) {
+    luckyModeEnabled = !!enabled;
+    const toggle = document.getElementById('lucky-toggle');
+    if (toggle) toggle.checked = luckyModeEnabled;
+    if (!options.skipSave) {
+        try { localStorage.setItem(LUCKY_MODE_KEY, luckyModeEnabled ? 'on' : 'off'); } catch (e) {}
+    }
+    // En desactivar la sort, recupera el tema escollit per l'usuari.
+    if (!luckyModeEnabled) {
+        applyBoardTheme(boardTheme, { skipSave: true });
+        applyPieceTheme(pieceTheme, { skipSave: true });
+    } else if (!options.skipRoll) {
+        rollLuckyThemes();
+    }
+}
+
+// Aplica un tauler i unes peces a l'atzar sense tocar la preferència desada.
+function rollLuckyThemes() {
+    const rndBoard = BOARD_THEMES[Math.floor(Math.random() * BOARD_THEMES.length)];
+    const rndPiece = PIECE_THEMES[Math.floor(Math.random() * PIECE_THEMES.length)];
+    applyBoardTheme(rndBoard, { transient: true });
+    applyPieceTheme(rndPiece, { transient: true });
+}
+
+// A cada partida o problema: si el mode "sort" està actiu, estrena temes a l'atzar.
+function maybeRollLuckyThemes() {
+    if (luckyModeEnabled) rollLuckyThemes();
 }
 
 function loadTvJeroglyphicsPreference() {
@@ -10868,6 +10970,8 @@ function startHieroglyphicExercise() {
     const draw = hieroglyphicUpNext.shift() || drawHieroglyphicExercise();
     refillHieroglyphicQueue();
     if (!draw) return;
+    // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
+    maybeRollLuckyThemes();
     // Neteja qualsevol feina pendent de la pràctica anterior perquè no interfereixi
     // amb l'exercici (rival pendent, anàlisi de Stockfish, pista o pre-càlcul).
     openingPracticeEngineThinking = false;
@@ -11913,6 +12017,18 @@ function setupEvents() {
 
     $('#daymode-toggle').off('change').on('change', function() {
         applyDayMode($(this).is(':checked'));
+    });
+
+    $('#board-theme-select').off('change').on('change', function() {
+        applyBoardTheme($(this).val());
+    });
+
+    $('#piece-theme-select').off('change').on('change', function() {
+        applyPieceTheme($(this).val());
+    });
+
+    $('#lucky-toggle').off('change').on('change', function() {
+        applyLuckyMode($(this).is(':checked'));
     });
 
     $('#btn-show-delete').click(() => { $('#confirm-delete-panel').slideDown(); });
@@ -13770,6 +13886,8 @@ function renderClock() {
 }
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
+    // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
+    maybeRollLuckyThemes();
     // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
     // preparant justament aquest exercici, que llavors es recull del rebost).
     requestBackgroundPrepAbort(isBundle ? fen : null);
@@ -17483,6 +17601,9 @@ $(document).ready(() => {
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
+    applyBoardTheme(loadBoardTheme(), { skipSave: true });
+    applyPieceTheme(loadPieceTheme(), { skipSave: true });
+    applyLuckyMode(loadLuckyMode(), { skipSave: true, skipRoll: true });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
