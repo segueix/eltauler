@@ -470,18 +470,33 @@ window.alert = function(message) { showToast(message, 'info'); };
 // 'click' queda per a ratolí/teclat. Un segell de temps evita que el click
 // sintètic torni a disparar l'acció just després d'un toc.
 function onModalAction(target, handler) {
-    let touchHandledAt = 0;
+    let pointerHandledAt = 0;
+    const runOnce = function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        pointerHandledAt = Date.now();
+        handler.call(this, e);
+    };
     $(target)
         .off('click touchend pointerup')
+        .on('pointerup', function (e) {
+            // En dispositius amb Pointer Events, alguns tocs dins modals no acaben
+            // generant un click fiable. Gestionem explícitament touch/pen aquí i
+            // deixem el click per a ratolí i teclat.
+            const original = e.originalEvent || e;
+            if (original.pointerType && original.pointerType !== 'mouse') {
+                runOnce.call(this, e);
+            }
+        })
         .on('touchend', function (e) {
-            e.preventDefault();
-            e.stopPropagation();
-            touchHandledAt = Date.now();
-            handler.call(this, e);
+            // Fallback per navegadors sense Pointer Events. Si el pointerup ja ho ha
+            // gestionat, evitem duplicar l'acció.
+            if (Date.now() - pointerHandledAt < 700) return;
+            runOnce.call(this, e);
         })
         .on('click', function (e) {
-            // Ignora el click sintètic si el toc ja ha gestionat l'acció.
-            if (Date.now() - touchHandledAt < 700) return;
+            // Ignora el click sintètic si el toc/pointer ja ha gestionat l'acció.
+            if (Date.now() - pointerHandledAt < 700) return;
             e.preventDefault();
             e.stopPropagation();
             handler.call(this, e);
