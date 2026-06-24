@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ AUTOMÀTICA: Canvia cada vegada que es modifica el fitxer
-const SW_VERSION = '2.8.0-cloudsync';
+const SW_VERSION = '2.8.1-cloudsync';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 
 // DEBUG: Log de versió

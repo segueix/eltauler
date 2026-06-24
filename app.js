@@ -4499,8 +4499,22 @@ function updateCloudSyncUI(st) {
     show(btnIn, !signedIn && canSignIn);
     show(btnOut, signedIn);
     show(btnNow, signedIn);
+    updateCloudRecoverButton();
 }
 window.onCloudSyncStatus = updateCloudSyncUI;
+
+// Botó d'emergència a la pantalla inicial: permet iniciar sessió i recuperar
+// les dades del núvol ABANS de fer el calibratge (quan la resta d'opcions de
+// configuració poden estar bloquejades). Només es mostra si el sync està
+// configurat i encara no hi ha sessió iniciada.
+function updateCloudRecoverButton() {
+    const btn = document.getElementById('btn-cloud-recover');
+    if (!btn) return;
+    const available = !!(window.CloudSync &&
+        typeof window.CloudSync.isConfigured === 'function' && window.CloudSync.isConfigured());
+    const signedIn = available && typeof window.CloudSync.isSignedIn === 'function' && window.CloudSync.isSignedIn();
+    btn.style.display = (available && !signedIn) ? '' : 'none';
+}
 
 function updateOpenAISettingsUI() {
     const input = document.getElementById('openai-key-input');
@@ -4726,6 +4740,7 @@ function updateDisplay() {
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
     renderWeeklyPlan();
+    if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
 }
 
 function updateStatsDisplay() {
@@ -11844,7 +11859,12 @@ function setupEvents() {
     $('#btn-cloud-sync-now').off('click').on('click', () => {
         if (window.CloudSync) window.CloudSync.syncNow();
     });
+    // Botó d'emergència de la pantalla inicial (recupera dades abans del calibratge).
+    $('#btn-cloud-recover').off('click').on('click', () => {
+        if (window.CloudSync && window.CloudSync.isConfigured()) window.CloudSync.signIn();
+    });
     updateCloudSyncUI();
+    updateCloudRecoverButton();
 
     $('#opening-practice-mode-select').off('change').on('change', function() {
         openingPracticeOpponentMode = ($(this).val() === 'adaptive') ? 'adaptive' : 'theory';
