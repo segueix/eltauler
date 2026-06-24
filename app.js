@@ -464,20 +464,28 @@ function showToast(message, type = 'info', duration = null) {
 // Internalitza qualsevol alert() del sistema com a toast de l'app.
 window.alert = function(message) { showToast(message, 'info'); };
 
-// En mòbil, els gestors tàctils del tauler poden suprimir el click sintètic
-// dels botons dels modals que s'obren durant la partida (mateix cas que la X
-// dels overlays d'èxit). S'escolta també touchend/pointerup i una guarda
-// temporal assegura que l'acció s'executi exactament una vegada per toc.
+// En mòbil, el "click" sintètic que segueix un toc es pot perdre (els gestors
+// tàctils del tauler el suprimeixen) o duplicar. Patró robust: gestionem el toc
+// amb 'touchend' i cancel·lem el click sintètic posterior amb preventDefault;
+// 'click' queda per a ratolí/teclat. Un segell de temps evita que el click
+// sintètic torni a disparar l'acció just després d'un toc.
 function onModalAction(target, handler) {
-    let lastTs = 0;
-    $(target).off('click touchend pointerup').on('click touchend pointerup', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        const now = Date.now();
-        if (now - lastTs < 400) return;
-        lastTs = now;
-        handler.call(this, e);
-    });
+    let touchHandledAt = 0;
+    $(target)
+        .off('click touchend pointerup')
+        .on('touchend', function (e) {
+            e.preventDefault();
+            e.stopPropagation();
+            touchHandledAt = Date.now();
+            handler.call(this, e);
+        })
+        .on('click', function (e) {
+            // Ignora el click sintètic si el toc ja ha gestionat l'acció.
+            if (Date.now() - touchHandledAt < 700) return;
+            e.preventDefault();
+            e.stopPropagation();
+            handler.call(this, e);
+        });
 }
 
 // Confirmació interna (asíncrona, amb callbacks) que substitueix confirm().
