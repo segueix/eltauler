@@ -1,14 +1,14 @@
 // Service Worker per El Tauler PWA
 // ================================
-// VERSIÓ AUTOMÀTICA: Canvia cada vegada que es modifica el fitxer
-const SW_VERSION = '2.8.2-cloudsync';
+// VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
+const SW_VERSION = '3.0.0';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 
-// DEBUG: Log de versió
 console.log(`[SW] Service Worker versió: ${SW_VERSION}`);
-console.log(`[SW] Cache name: ${CACHE_NAME}`);
 
-// Recursos estàtics (cache-first) - imatges i fonts
+// ---------------------------------------------------------------------------
+// Recursos ESTÀTICS (cache-first, rarament canvien): imatges de peces, fonts.
+// ---------------------------------------------------------------------------
 const STATIC_ASSETS = [
   'https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=Cinzel:wght@500;700&display=swap',
   'https://chessboardjs.com/img/chesspieces/wikipedia/wP.png',
@@ -25,34 +25,13 @@ const STATIC_ASSETS = [
   'https://chessboardjs.com/img/chesspieces/wikipedia/bK.png'
 ];
 
-// Recursos dinàmics (network-first) - codi que canvia sovint
-const DYNAMIC_ASSETS = [
-  './',
-  './index.html',
-  './app.js',
-  './cloudsync.js',
-  './manifest.json',
-  './stockfish.js',
-  'https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js',
-  'https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js',
-  'https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css',
-  'https://code.jquery.com/jquery-3.6.0.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js',
-  'https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.js',
-  'https://cdn.jsdelivr.net/npm/chart.js'
-];
-
-// Patrons per determinar l'estratègia
-const NETWORK_FIRST_PATTERNS = [
-  /\.html(\?.*)?$/,
-  /\.js(\?.*)?$/,
-  /\.css(\?.*)?$/,
-  /\/$/,  // Arrel
-  /index\.html/,
-  /app\.js/,
-  /manifest\.json/
-];
+// ---------------------------------------------------------------------------
+// NOTA: Ja no precachegem app.js, index.html ni altres fitxers de codi.
+// El motiu: cache.addAll() usa la cache HTTP del navegador; si GitHub Pages
+// ha servit una versió antiga, precachejaríem codi vell i el SW la serviria
+// com si fos nova. Els recursos dinàmics es cachegen la primera vegada que
+// es demanen via network-first (amb cache:'no-cache'), garantint frescor.
+// ---------------------------------------------------------------------------
 
 const CACHE_FIRST_PATTERNS = [
   /\.png$/,
@@ -68,31 +47,30 @@ const CACHE_FIRST_PATTERNS = [
   /chesspieces/
 ];
 
+// Dominis de Firebase: streaming i long-polling; el SW no els ha de tocar.
+const FIREBASE_HOSTS = [
+  'firestore.googleapis.com',
+  'firebaseinstallations.googleapis.com',
+  'identitytoolkit.googleapis.com',
+  'securetoken.googleapis.com',
+  'firebase.googleapis.com',
+  'apis.google.com',
+  'accounts.google.com'
+];
+
 // ================================
 // INSTAL·LACIÓ
 // ================================
 self.addEventListener('install', (event) => {
   console.log(`[SW] Instal·lant versió ${SW_VERSION}...`);
-
   event.waitUntil(
     caches.open(CACHE_NAME)
-      .then((cache) => {
-        console.log('[SW] Precarregant recursos estàtics a la memòria cau...');
-        // Primer els estàtics (menys crítics si fallen)
-        return cache.addAll(STATIC_ASSETS).catch(err => {
-          console.warn('[SW] Alguns recursos estàtics no s\'han pogut desar a la memòria cau:', err);
-        });
-      })
-      .then(() => caches.open(CACHE_NAME))
-      .then((cache) => {
-        console.log('[SW] Precarregant recursos dinàmics a la memòria cau...');
-        return cache.addAll(DYNAMIC_ASSETS).catch(err => {
-          console.warn('[SW] Alguns recursos dinàmics no s\'han pogut desar a la memòria cau:', err);
-        });
-      })
+      .then((cache) => cache.addAll(STATIC_ASSETS).catch((err) => {
+        console.warn('[SW] Alguns estàtics no s\'han precachejat:', err);
+      }))
       .then(() => {
         console.log(`[SW] Instal·lació completada. Activant immediatament...`);
-        // IMPORTANT: Activa immediatament sense esperar
+        // Activa el nou SW sense esperar que les pestanyes antigues es tanquin.
         return self.skipWaiting();
       })
   );
@@ -103,37 +81,25 @@ self.addEventListener('install', (event) => {
 // ================================
 self.addEventListener('activate', (event) => {
   console.log(`[SW] Activant versió ${SW_VERSION}...`);
-
   event.waitUntil(
+    // Elimina TOTES les caches antigues (no només les eltauler-*).
     caches.keys()
-      .then((cacheNames) => {
-        return Promise.all(
-          cacheNames.map((cacheName) => {
-            if (cacheName !== CACHE_NAME && cacheName.startsWith('eltauler-')) {
-              console.log(`[SW] Eliminant memòria cau antiga: ${cacheName}`);
-              return caches.delete(cacheName);
-            }
-          })
-        );
-      })
-      .then(() => {
-        console.log('[SW] Prenent control de tots els clients...');
-        // IMPORTANT: Pren control immediatament de totes les pàgines
-        return self.clients.claim();
-      })
-      .then(() => {
-        // Notifica a tots els clients que hi ha una nova versió activa
-        return self.clients.matchAll().then(clients => {
-          clients.forEach(client => {
-            client.postMessage({
-              type: 'SW_ACTIVATED',
-              version: SW_VERSION
-            });
-          });
+      .then((names) => Promise.all(
+        names.map((name) => {
+          if (name !== CACHE_NAME) {
+            console.log(`[SW] Eliminant cache antiga: ${name}`);
+            return caches.delete(name);
+          }
+        })
+      ))
+      .then(() => self.clients.claim())
+      .then(() => self.clients.matchAll({ includeUncontrolled: true }))
+      .then((clients) => {
+        clients.forEach((client) => {
+          // Avisa la pàgina que el nou SW ja controla: la pàgina es recarrega.
+          client.postMessage({ type: 'SW_ACTIVATED', version: SW_VERSION });
         });
-      })
-      .then(() => {
-        console.log(`[SW] Versió ${SW_VERSION} activa i controlant.`);
+        console.log(`[SW] Versió ${SW_VERSION} activa i controlant ${clients.length} clients.`);
       })
   );
 });
@@ -141,134 +107,75 @@ self.addEventListener('activate', (event) => {
 // ================================
 // ESTRATÈGIA DE FETCH
 // ================================
-// Dominis de Firebase (auth/firestore) que NO ha de tocar el service worker:
-// usen streaming i long-polling que es trencarien amb el timeout/caché del SW.
-const SYNC_BYPASS_HOSTS = [
-  'firestore.googleapis.com',
-  'firebaseinstallations.googleapis.com',
-  'identitytoolkit.googleapis.com',
-  'securetoken.googleapis.com',
-  'firebase.googleapis.com',
-  'apis.google.com',
-  'accounts.google.com'
-];
-
 self.addEventListener('fetch', (event) => {
   const url = event.request.url;
 
-  // Ignorem peticions no-HTTP
-  if (!url.startsWith('http')) {
-    return;
-  }
+  if (!url.startsWith('http')) return;
+  if (event.request.method !== 'GET') return;
 
-  // Deixa passar directament les crides a Firebase Auth/Firestore.
-  if (SYNC_BYPASS_HOSTS.some((host) => url.indexOf(host) !== -1)) {
-    return;
-  }
+  // Firebase: passa directament sense cap intervenció del SW.
+  if (FIREBASE_HOSTS.some((h) => url.indexOf(h) !== -1)) return;
 
-  // Ignorem peticions POST, etc.
-  if (event.request.method !== 'GET') {
-    return;
-  }
-
-  // Determina l'estratègia
-  const shouldNetworkFirst = NETWORK_FIRST_PATTERNS.some(pattern => pattern.test(url));
-  const shouldCacheFirst = CACHE_FIRST_PATTERNS.some(pattern => pattern.test(url));
-
-  if (shouldCacheFirst && !shouldNetworkFirst) {
-    // CACHE-FIRST per imatges i fonts
+  if (CACHE_FIRST_PATTERNS.some((p) => p.test(url))) {
     event.respondWith(cacheFirst(event.request));
   } else {
-    // NETWORK-FIRST per a HTML, JS, CSS i tota la resta
     event.respondWith(networkFirst(event.request));
   }
 });
 
 // ================================
-// ESTRATÈGIA NETWORK-FIRST
+// NETWORK-FIRST (HTML, JS, CSS…)
 // ================================
 async function networkFirst(request) {
   const url = request.url;
-
   try {
-    // Intenta obtenir de la xarxa amb temps d’espera
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 5000); // temps d’espera de 5 segons
-
-    // cache: 'no-cache' obliga a revalidar amb el servidor: sense això, el fetch
-    // pot quedar satisfet per la caché HTTP del navegador (GitHub Pages serveix
-    // amb max-age=600) i el "network-first" acaba retornant codi antic.
-    const networkResponse = await fetch(request, { signal: controller.signal, cache: 'no-cache' });
-    clearTimeout(timeoutId);
-
-    if (networkResponse && networkResponse.status === 200) {
-      // Desa a la memòria cau per tenir una alternativa futura
+    const tid = setTimeout(() => controller.abort(), 8000);
+    // cache:'no-cache' revalida amb el servidor i ignora la cache HTTP del
+    // navegador (GitHub Pages serveix amb max-age=600). Sense això el
+    // network-first pot retornar codi antic des de la cache HTTP.
+    const res = await fetch(request, { signal: controller.signal, cache: 'no-cache' });
+    clearTimeout(tid);
+    if (res && res.status === 200) {
       const cache = await caches.open(CACHE_NAME);
-      cache.put(request, networkResponse.clone());
-      console.log(`[SW] Network-first OK: ${url.substring(0, 50)}...`);
+      cache.put(request, res.clone());
     }
-
-    return networkResponse;
-  } catch (error) {
-    // Alternativa des de la memòria cau
-    console.log(`[SW] Network failed, trying cache: ${url.substring(0, 50)}...`);
-    const cachedResponse = await caches.match(request);
-
-    if (cachedResponse) {
-      console.log(`[SW] Trobat a la memòria cau: ${url.substring(0, 50)}...`);
-      return cachedResponse;
-    }
-
-    // Si és navegació, retorna index.html
+    return res;
+  } catch (err) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
     if (request.mode === 'navigate') {
-      const indexResponse = await caches.match('./index.html');
-      if (indexResponse) {
-        return indexResponse;
-      }
+      const idx = await caches.match('./index.html');
+      if (idx) return idx;
     }
-
-    console.warn(`[SW] No hi ha cap memòria cau disponible per a: ${url}`);
-    return new Response('Offline - Contingut no disponible', {
+    return new Response('Offline - contingut no disponible', {
       status: 503,
-      statusText: 'Service Unavailable',
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
     });
   }
 }
 
 // ================================
-// ESTRATÈGIA CACHE-FIRST
+// CACHE-FIRST (imatges, fonts…)
 // ================================
 async function cacheFirst(request) {
-  const url = request.url;
-
-  const cachedResponse = await caches.match(request);
-
-  if (cachedResponse) {
-    // Actualitza en segon pla (stale-while-revalidate)
-    fetch(request).then(networkResponse => {
-      if (networkResponse && networkResponse.status === 200) {
-        caches.open(CACHE_NAME).then(cache => {
-          cache.put(request, networkResponse);
-        });
-      }
+  const cached = await caches.match(request);
+  if (cached) {
+    // Revalidació en segon pla (stale-while-revalidate).
+    fetch(request).then((res) => {
+      if (res && res.status === 200)
+        caches.open(CACHE_NAME).then((c) => c.put(request, res));
     }).catch(() => {});
-
-    return cachedResponse;
+    return cached;
   }
-
-  // Si no és a la memòria cau, obtén-lo de la xarxa
   try {
-    const networkResponse = await fetch(request);
-
-    if (networkResponse && networkResponse.status === 200) {
+    const res = await fetch(request);
+    if (res && res.status === 200) {
       const cache = await caches.open(CACHE_NAME);
-      cache.put(request, networkResponse.clone());
+      cache.put(request, res.clone());
     }
-
-    return networkResponse;
-  } catch (error) {
-    console.warn(`[SW] Cache-first failed for: ${url}`);
+    return res;
+  } catch (err) {
     return new Response('', { status: 404 });
   }
 }
@@ -277,42 +184,14 @@ async function cacheFirst(request) {
 // MISSATGES
 // ================================
 self.addEventListener('message', (event) => {
-  console.log('[SW] Missatge rebut:', event.data);
-
   if (event.data === 'skipWaiting' || event.data?.type === 'SKIP_WAITING') {
-    console.log('[SW] Skip waiting sol·licitat');
     self.skipWaiting();
   }
-
   if (event.data === 'getVersion' || event.data?.type === 'GET_VERSION') {
-    event.source?.postMessage({
-      type: 'SW_VERSION',
-      version: SW_VERSION
-    });
+    event.source?.postMessage({ type: 'SW_VERSION', version: SW_VERSION });
   }
-
   if (event.data === 'clearCache' || event.data?.type === 'CLEAR_CACHE') {
-    console.log('[SW] Netejant totes les memòries cau...');
-    caches.keys().then(names => {
-      return Promise.all(names.map(name => caches.delete(name)));
-    }).then(() => {
-      event.source?.postMessage({ type: 'CACHE_CLEARED' });
-      console.log('[SW] Memòries cau netejades');
-    });
+    caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n))))
+      .then(() => event.source?.postMessage({ type: 'CACHE_CLEARED' }));
   }
-});
-
-// ================================
-// NOTIFICACIÓ D'ACTUALITZACIÓ
-// ================================
-self.addEventListener('install', () => {
-  // Notifica que hi ha una actualització en espera
-  self.clients.matchAll().then(clients => {
-    clients.forEach(client => {
-      client.postMessage({
-        type: 'SW_UPDATE_AVAILABLE',
-        version: SW_VERSION
-      });
-    });
-  });
 });

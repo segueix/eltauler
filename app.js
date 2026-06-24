@@ -11756,6 +11756,25 @@ function setupEvents() {
         }, { title: 'Reiniciar calibratge', confirmText: 'Reiniciar' });
     });
 
+    $('#btn-force-update').off('click').on('click', () => {
+        if (!('serviceWorker' in navigator)) {
+            showToast('El teu navegador no suporta service workers', 'error');
+            return;
+        }
+        showToast('Esborrant memòria cau i recarregant...', 'success');
+        // Esborra totes les caches del SW i força una recàrrega hard.
+        caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n))))
+            .catch(() => {})
+            .finally(() => {
+                navigator.serviceWorker.getRegistration().then((reg) => {
+                    if (reg) reg.unregister().catch(() => {});
+                }).catch(() => {}).finally(() => {
+                    // Recàrrega hard: el navegador baixa tot des de la xarxa.
+                    window.location.reload(true);
+                });
+            });
+    });
+
     $('#history-play').off('click').on('click', () => { startHistoryPlayback(); });
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
