@@ -30,12 +30,12 @@
   //     on publiques l'app (p. ex. usuari.github.io i localhost).
   // ===========================================================================
   const FIREBASE_CONFIG = {
-    apiKey: "OMPLE_API_KEY",
-    authDomain: "OMPLE_PROJECT_ID.firebaseapp.com",
-    projectId: "OMPLE_PROJECT_ID",
-    storageBucket: "OMPLE_PROJECT_ID.appspot.com",
-    messagingSenderId: "OMPLE_SENDER_ID",
-    appId: "OMPLE_APP_ID"
+    apiKey: "AIzaSyADh3NEUcSgGDnnoJsAZurtg-E_M_3YFyk",
+    authDomain: "eltauler-85726.firebaseapp.com",
+    projectId: "eltauler-85726",
+    storageBucket: "eltauler-85726.firebasestorage.app",
+    messagingSenderId: "694353336390",
+    appId: "1:694353336390:web:9dd10b1064ace91c989247"
   };
 
   // Si vols sincronitzar TAMBÉ la clau API d'OpenAI (es desa en text pla al teu
