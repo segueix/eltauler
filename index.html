@@ -275,6 +275,9 @@
         }
         
         .app-logo { font-size: 2.5rem; margin-bottom: 5px; }
+        .app-logo-svg { width: 2.5rem; height: 2.5rem; margin-bottom: 5px; display: inline-block;
+            fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+            color: var(--accent-gold); }
 
         /* Botó d'informació (i en cursiva i encerclada) a dalt a la dreta de l'inici */
         #start-screen { position: relative; }
@@ -2878,6 +2881,16 @@
             <path d="M12 20.5V8"/>
             <path d="M17.5 20.5v-9"/>
         </symbol>
+        <symbol id="ic-swords" viewBox="0 0 24 24">
+            <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/>
+            <path d="M13 19l6-6"/>
+            <path d="M16 16l4 4"/>
+            <path d="M19 21l2-2"/>
+            <polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5"/>
+            <path d="M5 14l4 4"/>
+            <path d="M7 17l-3 3"/>
+            <path d="M3 19l2 2"/>
+        </symbol>
         <symbol id="ic-gear" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
@@ -2965,7 +2978,7 @@
                         </div>
                     </div>
                     <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
-                    <button class="btn btn-catalans" id="btn-catalans"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Catalans vs Stockfish</button>
+                    <button class="btn btn-catalans" id="btn-catalans"><svg class="btn-ic" aria-hidden="true"><use href="#ic-swords"/></svg>Catalans vs Stockfish</button>
                 </div>
             </div>
 
@@ -3640,7 +3653,7 @@
         </style>
         <div id="catalans-screen" class="screen-anim" style="display:none;">
             <div class="catalans-hero">
-                <div class="app-logo">⚔️</div>
+                <svg class="app-logo-svg" aria-hidden="true"><use href="#ic-swords"/></svg>
                 <h1>Catalans vs Stockfish</h1>
                 <div class="catalans-sub">Una partida col·lectiva: tots votem el moviment dels Catalans</div>
             </div>
