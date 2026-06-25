@@ -1,0 +1,12 @@
+{
+  "name": "eltauler",
+  "version": "1.0.0",
+  "description": "El Tauler — entrenador d'escacs adaptatiu (PWA)",
+  "private": true,
+  "scripts": {
+    "test": "jest"
+  },
+  "devDependencies": {
+    "jest": "^29.7.0"
+  }
+}

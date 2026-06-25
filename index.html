@@ -153,7 +153,6 @@
         body.day-mode .coach-panel,
         body.day-mode .coach-item,
         body.day-mode .settings-panel,
-        body.day-mode .openai-status,
         body.day-mode .tv-card,
         body.day-mode .tv-player,
         body.day-mode .opening-stats-row,
@@ -176,8 +175,7 @@
         }
         /* Camps de formulari: fons clar i vora perquè s'hi vegi el text */
         body.day-mode .select-control,
-        body.day-mode .text-input,
-        body.day-mode #openai-key-input {
+        body.day-mode .text-input {
             background: #fffdf7;
         }
         /* Botons daurats: daurat brillant + text fosc (no daurat fosc + text fosc) */
@@ -280,41 +278,6 @@
 
         /* Botó d'informació (i en cursiva i encerclada) a dalt a la dreta de l'inici */
         #start-screen { position: relative; }
-        .info-btn {
-            position: absolute; top: 10px; right: 10px;
-            width: 26px; height: 26px; border-radius: 50%;
-            display: flex; align-items: center; justify-content: center;
-            background: rgba(201,162,39,0.12);
-            border: 1.5px solid rgba(201,162,39,0.65);
-            color: var(--accent-gold);
-            cursor: pointer; padding: 0; z-index: 5;
-        }
-        .info-btn i {
-            font-family: Georgia, 'Times New Roman', serif;
-            font-style: italic; font-weight: 700; font-size: 0.95rem; line-height: 1;
-        }
-        .info-btn:hover { background: rgba(201,162,39,0.25); }
-        body.epaper-mode .info-btn { background: #ededed !important; border-color: #777 !important; color: #222; }
-
-        /* Modal d'informació de les funcions amb IA */
-        .ai-info-text { font-size: 0.9rem; line-height: 1.55; color: var(--text-primary); margin-bottom: 12px; }
-        .ai-info-link {
-            display: block; text-align: center; margin: 4px 0 14px;
-            padding: 10px 12px; border-radius: 10px;
-            background: rgba(201,162,39,0.12); border: 1px solid rgba(201,162,39,0.5);
-            color: var(--accent-gold); font-weight: 600; text-decoration: none;
-            overflow-wrap: anywhere;
-        }
-        .ai-info-link:hover { background: rgba(201,162,39,0.25); }
-        body.epaper-mode .ai-info-link { background: #ededed !important; border-color: #777 !important; color: #222; }
-
-        /* Ressalta el camp de la clau OpenAI en arribar des del modal d'informació */
-        .openai-highlight { animation: openaiPulse 1.3s ease 2; border-radius: 10px; }
-        @keyframes openaiPulse {
-            0%, 100% { box-shadow: 0 0 0 0 rgba(201,162,39,0); }
-            50% { box-shadow: 0 0 0 5px rgba(201,162,39,0.55); }
-        }
-        
         h1 {
             font-family: 'Cinzel', serif;
             font-size: 1.7rem;
@@ -670,69 +633,37 @@
         body.epaper-mode .select-control { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         body.epaper-mode .text-input { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         .setting-help { margin-top: 8px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.25; }
-        .openai-config {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            margin: 16px 0;
-        }
 
-        .openai-input-row {
-            display: flex;
-            gap: 8px;
-            align-items: stretch;
-            flex-wrap: wrap;
-        }
-
-        #openai-key-input {
-            flex: 1;
-            min-width: 200px;
-            padding: 10px;
-            border: 1px solid rgba(255,255,255,0.15);
+        /* === Botons de configuració: compactes i integrats amb els panells === */
+        #settings-screen .btn {
+            font-size: 0.82rem;
+            padding: 9px 14px;
+            letter-spacing: 0.5px;
             border-radius: 8px;
-            background: rgba(0,0,0,0.25);
-            color: var(--text-primary);
-            font-size: 14px;
         }
-
-        #btn-save-openai-key {
-            flex-shrink: 0;
-            white-space: nowrap;
-            padding: 10px 16px;
+        /* Botons d'acció dins d'una fila: mida segons contingut, no a tot l'ample */
+        #settings-screen .setting-row .btn {
+            width: auto;
+            flex: 0 0 auto;
         }
-
-        .openai-status {
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 12px;
-            background: rgba(0,0,0,0.25);
-            border-radius: 8px;
-            font-size: 14px;
+        /* Estil secundari suau i daurat perquè s'integri amb el panell */
+        #settings-screen .btn-secondary {
+            background: rgba(201, 162, 39, 0.10);
+            border: 1px solid rgba(201, 162, 39, 0.35);
+            color: var(--accent-gold);
+            box-shadow: none;
         }
-
-        #openai-key-status {
-            font-weight: 600;
+        #settings-screen .btn-secondary:hover {
+            background: rgba(201, 162, 39, 0.20);
         }
-
-        /* Mòbil: layout adaptatiu */
-        @media (max-width: 520px) {
-            .openai-input-row {
-                flex-direction: column;
-            }
-            
-            #openai-key-input {
-                width: 100%;
-                min-width: unset;
-            }
-            
-            #btn-save-openai-key {
-                width: 100%;
-            }
-            
-            .openai-status {
-                justify-content: space-between;
-            }
+        /* Mode dia: text i vora daurats foscos per contrast sobre fons clar */
+        body.day-mode #settings-screen .btn-secondary {
+            background: rgba(120, 95, 40, 0.10);
+            border-color: rgba(120, 95, 40, 0.35);
+            color: #7a5f28;
+        }
+        body.day-mode #settings-screen .btn-secondary:hover {
+            background: rgba(120, 95, 40, 0.18);
         }
         body.epaper-mode .header,
         body.epaper-mode .precision-panel,
@@ -2951,7 +2882,6 @@
 
     <div id="app-container">
         <div id="start-screen" class="screen-anim">
-            <button id="btn-ai-info" class="info-btn" title="Funcions avançades amb IA" aria-label="Informació sobre les funcions avançades amb IA"><i>i</i></button>
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
             <div class="subtitle">Entrenador d'Escacs</div>
@@ -3250,20 +3180,6 @@
                     <button class="btn btn-secondary" id="btn-force-update">🔄 Força actualització</button>
                 </div>
                 <div class="setting-help">Si l'app carrega una versió antiga, esborra la memòria cau i recarrega.</div>
-                <div class="setting-row" style="margin-top:10px;">
-                    <div class="setting-label">Clau API OpenAI (gpt-5-mini)</div>
-                </div>
-                <div class="openai-config">
-                    <div class="openai-input-row">
-                        <input type="password" id="openai-key-input" placeholder="Enganxa la clau API" />
-                        <button class="btn btn-secondary" id="btn-save-openai-key">Desar</button>
-                    </div>
-                    <div class="openai-status">
-                        <span>Estat:</span>
-                        <span id="openai-key-status">—</span>
-                    </div>
-                </div>
-                <div class="setting-help">La clau queda guardada i les revisions de partides es generen automàticament.</div>
             </div>
 
             <div class="danger-zone">
@@ -3441,28 +3357,6 @@
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
                 <button class="btn btn-primary" id="btn-back-history">Tornar al menú</button>
-            </div>
-        </div>
-
-        <div class="modal-overlay" id="ai-info-modal">
-            <div class="modal-content" style="text-align:left;">
-                <div class="modal-title">🧠 Funcions avançades amb IA</div>
-                <p class="ai-info-text">
-                    Vols que l'entrenador et doni <strong>pistes amb màximes inspirades en
-                    <em>L'Art de la Guerra</em></strong> per ajudar-te a trobar els següents moviments,
-                    i revisions de partida redactades amb IA?
-                </p>
-                <p class="ai-info-text">
-                    Només necessites una <strong>clau API d'OpenAI</strong>. Crea-la des de la plataforma d'OpenAI i afegeix crèdit segons l’ús que en vulguis fer.
-                </p>
-                <a class="ai-info-link" href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer">
-                    🔑 Crea la teva clau API d'OpenAI
-                </a>
-                <p class="ai-info-text">
-                    Quan la tinguis, enganxa-la a l'apartat <strong>«Clau API OpenAI»</strong> de la configuració:
-                </p>
-                <button class="btn btn-primary" id="btn-ai-info-settings" style="width:100%;">⚙️ Porta'm a la configuració</button>
-                <button class="close-modal" onclick="$('#ai-info-modal').hide()">Tancar</button>
             </div>
         </div>
 
@@ -3838,14 +3732,15 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
+    <script src="core.js?v=1.0.1"></script>
     <script>
-        window.APP_VERSION = '1.0.15';
+        window.APP_VERSION = '1.0.17';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.17"></script>
+    <script src="app.js?v=1.0.19"></script>
 
     <!-- Service Worker Registration -->
     <script>
