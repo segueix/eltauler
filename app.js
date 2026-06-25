@@ -6391,56 +6391,46 @@ function updateHistoryReview(entry) {
         return;
     }
     const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
-    if (review && review.text) {
-        reviewContent.html(formatOpenAIReviewText(review.text));
-        bindOpenAIMoveLinks(reviewContent);
-        if (generateBtn.length) generateBtn.prop('disabled', true);
-        return;
-    }
-    if (review && review.status === 'pending') {
-        reviewContent.text('Generant revisió amb OpenAI...');
-        if (generateBtn.length) generateBtn.prop('disabled', true);
-        return;
-    }
-    if (review && review.status === 'error' && openaiApiKey) {
-        reviewContent.text(review.message || "No s'ha pogut generar la revisió.");
-        if (generateBtn.length) generateBtn.prop('disabled', false);
-        return;
-    }
-    // Fallback local: mentre no hi hagi una ressenya d'OpenAI, mostrem sempre la
-    // ressenya generada localment perquè la revisió no surti mai buida (amb o
-    // sense clau). Si hi ha clau, el botó "Generar ressenya" segueix actiu per
-    // obtenir la versió redactada per OpenAI.
+    // La ressenya local rica (obertura, fases, obertura semblant per practicar i
+    // moments clau) es mostra SEMPRE, fins i tot quan hi ha una ressenya d'OpenAI:
+    // la d'OpenAI, si n'hi ha, va a dalt com a redacció addicional.
     const localHtml = renderLocalReviewHtml(entry);
-    if (localHtml) {
-        reviewContent.html(localHtml);
-        // Moments clau: navega a la posició de decisió i ressalta la jugada recomanada.
-        reviewContent.find('.hist-keymove-link').off('click').on('click', function(event) {
-            event.preventDefault();
-            const moveNumber = Number($(this).data('move-number'));
-            const playedSan = String($(this).data('san') || '').trim();
-            const best = String($(this).data('best') || '').trim();
-            jumpToHistoryMove(moveNumber, playedSan);
-            if (best && historyReplay && historyReplay.game) {
-                highlightReviewedMove(historyReplay.game.fen(), best);
-            }
-        });
-        reviewContent.find('.opening-practice-link').off('click').on('click', function(event) {
-            event.preventDefault();
-            const idx = Number($(this).data('idx'));
-            const color = String($(this).data('color') || '');
-            practiceOpeningFromHistory(Number.isNaN(idx) ? -1 : idx, color);
-        });
+    let html = '';
+    if (review && review.text) {
+        html += `<div class="ai-review-text">${formatOpenAIReviewText(review.text)}</div>`;
+    } else if (review && review.status === 'pending') {
+        html += `<p><em>Generant revisió amb OpenAI...</em></p>`;
+    } else if (review && review.status === 'error' && openaiApiKey && review.message) {
+        html += `<p><em>${escapeHtml(review.message)}</em></p>`;
+    }
+    html += localHtml;
+    if (!html.trim()) {
+        reviewContent.text('Encara no hi ha revisió per aquesta partida.');
         if (generateBtn.length) generateBtn.prop('disabled', !openaiApiKey);
         return;
     }
-    if (!openaiApiKey) {
-        reviewContent.text('Encara no hi ha revisió per aquesta partida.');
-        if (generateBtn.length) generateBtn.prop('disabled', true);
-        return;
-    }
-    reviewContent.text('Encara no hi ha revisió per aquesta partida.');
-    if (generateBtn.length) generateBtn.prop('disabled', false);
+    reviewContent.html(html);
+    bindOpenAIMoveLinks(reviewContent);
+    // Moments clau: navega a la posició de decisió i ressalta la jugada recomanada al tauler.
+    reviewContent.find('.hist-keymove-link').off('click').on('click', function(event) {
+        event.preventDefault();
+        const moveNumber = Number($(this).data('move-number'));
+        const playedSan = String($(this).data('san') || '').trim();
+        const best = String($(this).data('best') || '').trim();
+        jumpToHistoryMove(moveNumber, playedSan);
+        if (best && historyReplay && historyReplay.game) {
+            highlightReviewedMove(historyReplay.game.fen(), best);
+        }
+        const boardEl = document.getElementById('history-board');
+        if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    reviewContent.find('.opening-practice-link').off('click').on('click', function(event) {
+        event.preventDefault();
+        const idx = Number($(this).data('idx'));
+        const color = String($(this).data('color') || '');
+        practiceOpeningFromHistory(Number.isNaN(idx) ? -1 : idx, color);
+    });
+    if (generateBtn.length) generateBtn.prop('disabled', (review && review.text) ? true : !openaiApiKey);
 }
 
 function escapeHtml(text) {
@@ -6993,6 +6983,7 @@ function renderLocalReviewHtml(entry) {
 
         // --- Obertura ---
         const sanMoves = getHistoryMoves(entry);
+        if (!openingTrie) { try { initOpeningSystem(); } catch (e) {} }
         let oa = null;
         try { oa = analyzeGameOpening(sanMoves); } catch (e) { oa = null; }
         if (oa && oa.name) {
@@ -8804,10 +8795,15 @@ function showHistoryReview(entry) {
             bestMovePv: err.bestMovePv || []  // ← AFEGIR AQUEST CAMP
         }))
         : [];
-    const msg = entry.result || 'Partida';
-    const precision = typeof entry.precision === 'number' ? entry.precision : 0;
-    const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
-    showPostGameReview(msg, precision, counts, null, { showCheckmate: false, entry });
+    // Carreguem la partida al panell de detall (que SÍ que té tauler) i hi
+    // desplacem la vista: així la ressenya rica (obertura, fases, moments clau)
+    // i la visualització de jugades al tauler funcionen. El modal antic no tenia
+    // tauler i no mostrava ni l'obertura ni permetia visualitzar les jugades.
+    loadHistoryEntry(entry);
+    const reviewEl = document.getElementById('history-review-content');
+    if (reviewEl && reviewEl.scrollIntoView) {
+        setTimeout(() => reviewEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
+    }
 }
 
 function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
