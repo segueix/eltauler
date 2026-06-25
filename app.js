@@ -6683,36 +6683,94 @@ REGLES OBLIGATÒRIES
 
 function getErrorNoteKey(err) { return err && err.fen ? err.fen : ''; }
 
-// Ressenya de partida generada LOCALMENT (sense OpenAI), reaprofitant el debrief
-// de l'entrenador. Serveix de fallback perquè la revisió mai surti buida quan no
-// hi ha clau d'OpenAI configurada.
+// Ressenya de partida generada LOCALMENT (sense OpenAI). Combina el debrief de
+// l'entrenador, la identificació de l'obertura i un repàs dels moments crítics
+// amb pla concret, reaprofitant tota la maquinària de plans humans i fets
+// posicionals que ja calcula l'app. Serveix de fallback ric quan no hi ha clau
+// d'OpenAI configurada.
 function buildLocalReviewText(entry) {
     if (!entry) return '';
     try {
+        const parts = [];
         const facts = buildDebriefFacts(entry);
-        if (!facts) return '';
-        return composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id)) || '';
+        if (facts) {
+            const debrief = composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id));
+            if (debrief) parts.push(debrief);
+        }
+        const opening = buildOpeningNote(entry);
+        if (opening) parts.push(opening);
+        const moments = buildHumanPlanMoments(entry);
+        if (moments.length) {
+            parts.push('Moments clau de la partida:');
+            moments.forEach(m => {
+                const seg = [`• Jugada ${m.moveNumber} (${m.theme}): vas jugar ${m.played}, millor ${m.best}.`];
+                if (m.positional) seg.push(m.positional);
+                if (m.diagnosis) seg.push(m.diagnosis);
+                if (m.plan) seg.push(m.plan);
+                if (m.candidates) seg.push(m.candidates);
+                parts.push(seg.filter(Boolean).join(' '));
+            });
+        }
+        return parts.filter(Boolean).join('\n\n');
     } catch (e) { return ''; }
 }
 
-// Explicació d'una errada generada LOCALMENT (sense OpenAI) a partir del que ja
-// calcula Stockfish: jugada feta, millor jugada, continuació, centpeons perduts i
-// tema a treballar. És el fallback quan no hi ha clau d'OpenAI.
-function buildLocalErrorNote(err) {
+// Localitza el moveReview complet (alternatives, swing, SAN, eval...) que
+// correspon a una errada desada, per donar a l'explicació local el màxim context.
+function findMoveReviewForError(entry, err) {
+    if (!entry || !Array.isArray(entry.moveReviews) || !err || !err.fen) return null;
+    return entry.moveReviews.find(r => r && r.fen === err.fen) || null;
+}
+
+// Explicació rica d'una errada generada LOCALMENT (sense OpenAI): fets posicionals
+// concrets, diagnòstic segons tema i gravetat, el pla correcte, la continuació de
+// la línia i una pregunta de reflexió. Reaprofita el banc de plans humans.
+function buildLocalErrorNote(err, entry) {
     if (!err) return 'Errada detectada en aquesta posició.';
     const d = describeSevereError(err);
-    let theme = '';
-    try { theme = getThemeLabel(normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''))); } catch (e) { theme = ''; }
-    const lossCp = typeof err.swing === 'number' ? Math.round(Math.abs(err.swing)) : null;
-    const greu = (err.severity === 'high' || err.quality === 'blunder');
-    let txt = greu ? 'Error greu' : 'Imprecisió';
-    if (lossCp) txt += ` (~${lossCp} centpeons perduts)`;
-    txt += `: en lloc de ${d.played}, la jugada precisa era ${d.best}`;
-    if (d.pv) txt += `, amb la idea ${d.pv}`;
-    txt += '.';
-    if (theme && theme !== 'joc general') txt += ` Tema a treballar: ${theme}.`;
-    return txt;
+    const mr = findMoveReviewForError(entry, err);
+    const review = mr || {
+        fen: err.fen,
+        moveNumber: err.moveNumber,
+        playerMove: err.playerMove,
+        playerMoveSan: err.playerMoveSan,
+        bestMove: err.bestMove,
+        bestMoveSan: err.bestMoveSan,
+        bestMovePv: err.bestMovePv || [],
+        alternatives: err.alternatives || [],
+        swing: typeof err.swing === 'number' ? err.swing : 0,
+        quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake')
+    };
+    let ctx = null;
+    try { ctx = buildPlanContext(review); } catch (e) { ctx = null; }
+    const themeKey = detectPlanSubtheme(review, ctx);
+    const moment = {
+        moveNumber: review.moveNumber || d.moveNumber,
+        phase: phaseFromContext(ctx, review.moveNumber),
+        themeKey,
+        theme: planThemeDisplayLabel(themeKey),
+        played: review.playerMoveSan || d.played,
+        best: review.bestMoveSan || d.best,
+        bestMoveUci: review.bestMove || null,
+        swing: Math.round(review.swing || 0),
+        quality: review.quality || 'mistake',
+        fen: review.fen,
+        pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
+        positional: buildPositionalNote(ctx),
+        candidates: buildCandidatesNote(review)
+    };
+    let plan = {};
+    try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
+    const parts = [];
+    if (moment.positional) parts.push(moment.positional);
+    if (plan.diagnosis) parts.push(plan.diagnosis);
+    if (plan.plan) parts.push(plan.plan);
+    if (moment.candidates) parts.push(moment.candidates);
+    if (plan.question) parts.push(plan.question);
+    const text = parts.filter(Boolean).join(' ').trim();
+    return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
 }
+
 
 // Claus (id de partida + FEN) amb una crida en curs: l'estat 'pending' persistit
 // no és fiable (l'app es pot tancar a mig generar), així que el control de
@@ -6781,7 +6839,7 @@ function updateHistoryErrorNotes(entry) {
         else if (note && note.status === 'pending') body = '<em>Generant l’explicació...</em>';
         // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
-        else body = escapeHtml(buildLocalErrorNote(err));
+        else body = escapeHtml(buildLocalErrorNote(err, entry));
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per veure-la al tauler i resoldre-la amb pista i màxima">
             <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(String(d.played))}</strong> · millor <strong>${escapeHtml(String(d.best))}</strong></div>
             <div class="error-note-body">${body}</div>
