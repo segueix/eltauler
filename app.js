@@ -6571,6 +6571,17 @@ function updateHistoryReview(entry) {
         const color = String($(this).data('color') || '');
         practiceOpeningFromHistory(Number.isNaN(idx) ? -1 : idx, color);
     });
+    reviewContent.find('.review-copy-moves').off('click').on('click', function(event) {
+        event.preventDefault();
+        const txt = String($(this).attr('data-moves') || '');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt)
+                .then(() => showToast('Jugades copiades 📋', 'success'))
+                .catch(() => showToast('No s\'ha pogut copiar; selecciona el text manualment', 'warn'));
+        } else {
+            showToast('Còpia no disponible; selecciona el text manualment', 'info');
+        }
+    });
     // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
 }
 
@@ -7228,6 +7239,28 @@ function renderLocalReviewHtml(entry) {
                 return `<li style="margin-bottom:8px;">${seg.filter(Boolean).join(' ')}</li>`;
             }).join('');
             blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
+        }
+
+        // --- Llista completa de jugades (per copiar i verificar la detecció) ---
+        // Posem totes les jugades en ordre, en notació numerada estil PGN, en un
+        // bloc seleccionable amb un botó de còpia, per poder comprovar fàcilment
+        // on falla l'assignació d'obertures.
+        if (Array.isArray(sanMoves) && sanMoves.length) {
+            const moveList = sanMoves
+                .map((m, i) => (i % 2 === 0 ? `${(i / 2) + 1}. ${m}` : m))
+                .join(' ');
+            const safe = escapeHtml(moveList);
+            blocks.push(
+                `<div class="review-movelist" style="margin-top:12px;">` +
+                    `<strong>Jugades de la partida</strong> ` +
+                    `<button type="button" class="btn btn-secondary review-copy-moves" data-moves="${safe}" ` +
+                        `style="padding:2px 8px; font-size:0.8rem; margin-left:6px;">📋 Copiar</button>` +
+                    `<pre class="review-moves-pre" style="white-space:pre-wrap; word-break:break-word; ` +
+                        `user-select:all; -webkit-user-select:all; background:rgba(127,127,127,0.12); ` +
+                        `padding:8px 10px; border-radius:6px; margin-top:6px; font-family:monospace; ` +
+                        `font-size:0.85rem; line-height:1.5;">${safe}</pre>` +
+                `</div>`
+            );
         }
     } catch (e) { console.warn('renderLocalReviewHtml', e); }
     return blocks.join('\n');
