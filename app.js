@@ -6402,13 +6402,24 @@ function updateHistoryReview(entry) {
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
-    if (review && review.status === 'error') {
+    if (review && review.status === 'error' && openaiApiKey) {
         reviewContent.text(review.message || "No s'ha pogut generar la revisió.");
+        if (generateBtn.length) generateBtn.prop('disabled', false);
+        return;
+    }
+    // Fallback local: mentre no hi hagi una ressenya d'OpenAI, mostrem sempre la
+    // ressenya generada localment perquè la revisió no surti mai buida (amb o
+    // sense clau). Si hi ha clau, el botó "Generar ressenya" segueix actiu per
+    // obtenir la versió redactada per OpenAI.
+    const localText = buildLocalReviewText(entry);
+    if (localText) {
+        reviewContent.html(formatOpenAIReviewText(localText));
+        bindOpenAIMoveLinks(reviewContent);
         if (generateBtn.length) generateBtn.prop('disabled', !openaiApiKey);
         return;
     }
     if (!openaiApiKey) {
-        reviewContent.text('Configura la clau d’OpenAI per generar revisions.');
+        reviewContent.text('Encara no hi ha revisió per aquesta partida.');
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
@@ -6672,6 +6683,37 @@ REGLES OBLIGATÒRIES
 
 function getErrorNoteKey(err) { return err && err.fen ? err.fen : ''; }
 
+// Ressenya de partida generada LOCALMENT (sense OpenAI), reaprofitant el debrief
+// de l'entrenador. Serveix de fallback perquè la revisió mai surti buida quan no
+// hi ha clau d'OpenAI configurada.
+function buildLocalReviewText(entry) {
+    if (!entry) return '';
+    try {
+        const facts = buildDebriefFacts(entry);
+        if (!facts) return '';
+        return composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id)) || '';
+    } catch (e) { return ''; }
+}
+
+// Explicació d'una errada generada LOCALMENT (sense OpenAI) a partir del que ja
+// calcula Stockfish: jugada feta, millor jugada, continuació, centpeons perduts i
+// tema a treballar. És el fallback quan no hi ha clau d'OpenAI.
+function buildLocalErrorNote(err) {
+    if (!err) return 'Errada detectada en aquesta posició.';
+    const d = describeSevereError(err);
+    let theme = '';
+    try { theme = getThemeLabel(normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''))); } catch (e) { theme = ''; }
+    const lossCp = typeof err.swing === 'number' ? Math.round(Math.abs(err.swing)) : null;
+    const greu = (err.severity === 'high' || err.quality === 'blunder');
+    let txt = greu ? 'Error greu' : 'Imprecisió';
+    if (lossCp) txt += ` (~${lossCp} centpeons perduts)`;
+    txt += `: en lloc de ${d.played}, la jugada precisa era ${d.best}`;
+    if (d.pv) txt += `, amb la idea ${d.pv}`;
+    txt += '.';
+    if (theme && theme !== 'joc general') txt += ` Tema a treballar: ${theme}.`;
+    return txt;
+}
+
 // Claus (id de partida + FEN) amb una crida en curs: l'estat 'pending' persistit
 // no és fiable (l'app es pot tancar a mig generar), així que el control de
 // duplicats viu només en memòria i una nota no acabada es torna a demanar.
@@ -6737,9 +6779,9 @@ function updateHistoryErrorNotes(entry) {
         let body;
         if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
         else if (note && note.status === 'pending') body = '<em>Generant l’explicació...</em>';
-        else if (!openaiApiKey) body = "<em>Configura la clau d’OpenAI per veure l'explicació.</em>";
-        else if (note && note.status === 'error' && note.message) body = `<em>No s'ha pogut generar (${escapeHtml(note.message)}). Torna a obrir la partida per reintentar-ho.</em>`;
-        else body = '<em>Explicació no disponible. Torna a obrir la partida per reintentar-ho.</em>';
+        // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
+        // de Stockfish, perquè cada errada sempre tingui una explicació útil.
+        else body = escapeHtml(buildLocalErrorNote(err));
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per veure-la al tauler i resoldre-la amb pista i màxima">
             <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(String(d.played))}</strong> · millor <strong>${escapeHtml(String(d.best))}</strong></div>
             <div class="error-note-body">${body}</div>
@@ -8410,7 +8452,7 @@ function showHistoryReview(entry) {
     const msg = entry.result || 'Partida';
     const precision = typeof entry.precision === 'number' ? entry.precision : 0;
     const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
-    showPostGameReview(msg, precision, counts, null, { showCheckmate: false });
+    showPostGameReview(msg, precision, counts, null, { showCheckmate: false, entry });
 }
 
 function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
@@ -14871,7 +14913,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         $('#review-result-text').text(msg);
         $('#review-precision-value').text(finalPrecision ? `${finalPrecision}%` : '—');
         renderReviewBreakdown(counts || summarizeReview(currentReview));
-        renderGameDebrief();
+        renderGameDebrief(options.entry);
         modal.css('display', 'flex');
     };
     
@@ -16366,15 +16408,17 @@ function renderOpenAIHumanPlans(panel, text, moments = []) {
     });
 }
 
-function renderGameDebrief() {
+function renderGameDebrief(targetEntry) {
     const box = $('#review-debrief');
     if (!box.length) return;
     box.hide();
     if (blunderMode) return;
-    const entry = gameHistory[gameHistory.length - 1];
-    // Només mostrem el debrief si l'última entrada de l'historial és la partida que s'acaba de jugar.
-    const fresh = entry && entry.date && (Date.now() - new Date(entry.date).getTime() < 30000);
-    if (!fresh) return;
+    // El debrief de l'entrenador es genera LOCALMENT (sense OpenAI). Es mostra tant
+    // a la revisió de la partida que s'acaba de jugar com en reobrir partides
+    // antigues des de l'historial; per això acceptem una entrada concreta i ja no
+    // limitem la visualització a les partides recents.
+    const entry = targetEntry || gameHistory[gameHistory.length - 1];
+    if (!entry) return;
     let facts = null;
     try { facts = buildDebriefFacts(entry); } catch (e) { console.warn('No s\'ha pogut generar el debrief', e); }
     if (!facts) return;
