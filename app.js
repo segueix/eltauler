@@ -1610,6 +1610,100 @@ function initOpeningSystem() {
     // NO resetejar openingCurrentSequence aquí - només es reseteja a resetOpeningPracticeBoard
 }
 
+// Graf d'obertures indexat per posició (FEN) — base de la detecció immune a
+// transposicions. Comparteix la MATEIXA font de veritat per a l'anàlisi de
+// partides i la detecció en viu. Construir-lo requereix calcular la FEN de cada
+// posició amb chess.js (lent: uns milers de posicions), així que NO es construeix
+// de cop al fil principal: es fa de manera INCREMENTAL i no bloquejant en temps
+// lliure (requestIdleCallback). Mentre no està llest, analyzeGameOpening cau a la
+// cerca per seqüència del trie (que ja funciona per a línies seguides en ordre).
+let openingPositionGraph = null;    // { byPos, theory } quan està llest
+let openingGraphBuilding = false;
+
+// Llista de FEN després de cada jugada (SAN) d'una seqüència. Usa chess.js.
+function fenSeqForMoves(moves) {
+    if (!Array.isArray(moves) || typeof Chess === 'undefined') return [];
+    const g = new Chess();
+    const out = [];
+    for (const m of moves) {
+        if (!g.move(m, { sloppy: true })) break;
+        out.push(g.fen());
+    }
+    return out;
+}
+
+function scheduleOpeningIdle(fn) {
+    if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(fn, { timeout: 2000 });
+    } else {
+        setTimeout(function () { fn({ timeRemaining: function () { return 12; }, didTimeout: true }); }, 0);
+    }
+}
+
+// Construeix el graf de posicions recorrent el trie amb un sol Chess (move/undo),
+// de manera que cada posició es calcula UNA sola vegada. La feina es reparteix en
+// trossos petits que cedeixen el control entre fotogrames.
+function prewarmOpeningPositionGraph() {
+    if (openingPositionGraph || openingGraphBuilding) return;
+    if (typeof Chess === 'undefined') return;
+    if (!openingTrie) { try { initOpeningSystem(); } catch (e) {} }
+    if (!openingTrie) return;
+    openingGraphBuilding = true;
+
+    const byPos = new Map();
+    const theory = new Map();
+    const g = new Chess();
+    const keyFn = ElTaulerCore.positionKeyFromFen;
+    // Pila de DFS iterativa: marc = { node, mv, started, kids, i }
+    const stack = [{ node: openingTrie, mv: null, started: false, kids: null, i: 0 }];
+
+    function step(deadline) {
+        while (stack.length && (deadline.didTimeout || deadline.timeRemaining() > 3)) {
+            const fr = stack[stack.length - 1];
+            if (!fr.started) {
+                if (fr.mv && !g.move(fr.mv, { sloppy: true })) { stack.pop(); continue; }
+                const key = keyFn(g.fen());
+                const node = fr.node;
+                if (node.openings && node.openings.length) {
+                    for (const op of node.openings) {
+                        const ex = byPos.get(key);
+                        if (!ex || op.moves.length > ex.ply) {
+                            byPos.set(key, { eco: op.eco, name: op.name, ply: op.moves.length });
+                        }
+                    }
+                }
+                fr.kids = Object.keys(node.children);
+                if (fr.kids.length) {
+                    let set = theory.get(key);
+                    if (!set) { set = new Set(); theory.set(key, set); }
+                    for (const mv of fr.kids) set.add(mv);
+                }
+                fr.started = true; fr.i = 0;
+            } else if (fr.i < fr.kids.length) {
+                const mv = fr.kids[fr.i++];
+                stack.push({ node: fr.node.children[mv], mv: mv, started: false, kids: null, i: 0 });
+            } else {
+                if (fr.mv) g.undo();
+                stack.pop();
+            }
+        }
+        if (stack.length) {
+            scheduleOpeningIdle(step);
+        } else {
+            openingPositionGraph = { byPos: byPos, theory: theory };
+            openingGraphBuilding = false;
+            console.log(`[Openings] Graf de posicions llest (${byPos.size} posicions amb nom)`);
+        }
+    }
+    scheduleOpeningIdle(step);
+}
+
+// Retorna el graf si està llest (i n'engega la construcció en segon pla si cal).
+function getOpeningPositionGraph() {
+    if (!openingPositionGraph) prewarmOpeningPositionGraph();
+    return openingPositionGraph;
+}
+
 function isOpeningUserTurn() {
     return openingPracticeGame && openingPracticeGame.turn() === openingPracticeUserColor;
 }
@@ -1625,7 +1719,19 @@ function getValidOpeningMoves(sequence) {
 
 // Analitza fins on una partida ha seguit la teoria d'obertures
 // Retorna { depth, name, eco, deviationMove, deviationBy, theoryMoves } o null
+// Prioritza la detecció per posició (immune a transposicions); si no es pot
+// (sense chess.js), cau a la cerca per seqüència del trie.
 function analyzeGameOpening(moves) {
+    if (Array.isArray(moves) && moves.length) {
+        const graph = getOpeningPositionGraph();
+        if (graph) {
+            try {
+                const fens = fenSeqForMoves(moves);
+                const r = ElTaulerCore.analyzeGameOpeningByPositions(graph, fens, moves);
+                if (r && r.name) return r;
+            } catch (e) { /* cau al trie */ }
+        }
+    }
     return ElTaulerCore.analyzeGameOpening(openingTrie, moves);
 }
 
@@ -17952,4 +18058,8 @@ $(document).ready(() => {
     loadPreparedSequences();
     setTimeout(backgroundPrepTick, 3000);
     setInterval(backgroundPrepTick, 8000);
+
+    // Escalfa el graf d'obertures per posició en segon pla (detecció immune a
+    // transposicions), perquè l'anàlisi de partides ja el tingui llest.
+    setTimeout(function () { try { prewarmOpeningPositionGraph(); } catch (e) {} }, 4000);
 });

@@ -96,6 +96,58 @@ describe('analyzeGameOpening', () => {
     });
 });
 
+// Detecció per POSICIÓ (immune a transposicions). Per provar-la sense chess.js,
+// fem servir un model sintètic de FEN on la "posició" depèn només del CONJUNT de
+// jugades fetes (no de l'ordre) + el torn, de manera que dos ordres diferents
+// que arriben al mateix conjunt es consideren la mateixa posició (transposició).
+describe('analyzeGameOpeningByPositions (per posició)', () => {
+    const POS_FIXTURE = [
+        { eco: 'E01', name: 'Catalan', pgn: '1. d4 Nf6 2. c4 e6 3. g3' },
+        { eco: 'C60', name: 'Ruy Lopez', pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5' },
+        { eco: 'C70', name: 'Ruy Morphy', pgn: '1. e4 e5 2. Nf3 Nc6 3. Bb5 a6' }
+    ];
+    // FEN sintètica: camp 1 = conjunt ordenat de jugades (sense espais),
+    // camp 2 = torn (parell de plies → blanques), camp 3 = enrocs ('-').
+    const synthFenSeq = (moves) => moves.map((_, idx) => {
+        const i = idx + 1;
+        const setKey = moves.slice(0, i).slice().sort().join(',');
+        return `${setKey} ${i % 2 === 0 ? 'w' : 'b'} -`;
+    });
+    const graph = Core.buildOpeningPositionGraph(POS_FIXTURE, synthFenSeq, Core.parsePgnToMoves);
+    const ana = (moves) => Core.analyzeGameOpeningByPositions(graph, synthFenSeq(moves), moves);
+
+    test('dades no vàlides retornen null', () => {
+        expect(Core.buildOpeningPositionGraph(null, synthFenSeq)).toBeNull();
+        expect(Core.analyzeGameOpeningByPositions(null, [], [])).toBeNull();
+        expect(Core.analyzeGameOpeningByPositions(graph, [], [])).toBeNull();
+    });
+
+    test('identifica una línia seguida en ordre', () => {
+        const r = ana(['d4', 'Nf6', 'c4', 'e6', 'g3']);
+        expect(r).toMatchObject({ name: 'Catalan', eco: 'E01', deviationMove: null });
+    });
+
+    test('reconeix la MATEIXA obertura per transposició (ordre diferent)', () => {
+        const r = ana(['d4', 'e6', 'c4', 'Nf6', 'g3']);
+        expect(r).toMatchObject({ name: 'Catalan', eco: 'E01' });
+        // Una transposició no s'ha de marcar com a desviació de la teoria.
+        expect(r.deviationMove).toBeNull();
+    });
+
+    test('detecta la desviació després d\'arribar a una posició amb nom', () => {
+        const r = ana(['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'Bc5']);
+        expect(r).toMatchObject({ name: 'Ruy Lopez', eco: 'C60' });
+        expect(r.deviationMove).toBe('Bc5');
+        expect(r.deviationPly).toBe(5);
+        expect(r.deviationBy).toBe('b'); // ply senar = negres
+        expect(r.theoryMoves).toContain('a6');
+    });
+
+    test('una partida fora de tota teoria coneguda dona null', () => {
+        expect(ana(['h4', 'h5'])).toBeNull();
+    });
+});
+
 // Comprovació de sanitat sobre les dades REALS d'obertures (obertures.js),
 // per detectar regressions de format/parseig al fitxer de dades.
 describe('dades reals (obertures.js)', () => {

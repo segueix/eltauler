@@ -72,6 +72,8 @@
   let pushInFlight = false;
   let pendingCloudData = null;       // dades del núvol esperant a aplicar-se
   let deferApplyTimer = null;
+  let syncWatchdog = null;           // detecta sincronitzacions inicials encallades
+  const SYNC_WATCHDOG_MS = 15000;
   let status = { state: 'init', email: null, lastSyncedAt: 0, error: null };
 
   // ---------------------------------------------------------------------------
@@ -321,24 +323,56 @@
   // ---------------------------------------------------------------------------
   //  Autenticació
   // ---------------------------------------------------------------------------
+  function clearSyncWatchdog() {
+    if (syncWatchdog) { clearTimeout(syncWatchdog); syncWatchdog = null; }
+  }
+
   function handleSignedIn(user) {
     currentUser = user;
     setStatus({ state: 'syncing', email: user.email || user.displayName || 'Connectat' });
+
+    // Watchdog: si la sincronització inicial es queda penjada (típicament perquè
+    // la connexió amb Firestore està bloquejada en aquest navegador/xarxa), no
+    // deixem la UI eternament en "Sincronitzant…": informem l'usuari amb un avís
+    // accionable. No avortem la petició: la subscripció en temps real i el
+    // long-polling poden resoldre-la més tard i tornar a posar l'estat a 'synced'.
+    clearSyncWatchdog();
+    syncWatchdog = setTimeout(function () {
+      syncWatchdog = null;
+      if (status.state === 'syncing') {
+        console.warn('[CloudSync] sincronització inicial encallada (>' + SYNC_WATCHDOG_MS + ' ms).');
+        setStatus({
+          state: 'error',
+          error: 'La connexió amb el núvol triga massa. Comprova la xarxa (algunes ' +
+                 'xarxes o extensions bloquegen Firestore) i torna-ho a provar; si el ' +
+                 'problema continua, recarrega la pàgina.'
+        });
+      }
+    }, SYNC_WATCHDOG_MS);
+
     const ref = docRef();
-    if (!ref) return;
+    if (!ref) { clearSyncWatchdog(); return; }
+    // Subscrivim el temps real abans (i a part) de la conciliació inicial: així,
+    // encara que el get() inicial trigui, l'estat es pot recuperar sol quan arribi
+    // el primer snapshot del document.
     ref.get().then(function (snap) {
       const cloudDoc = snap.exists ? snap.data() : null;
       return reconcileInitial(cloudDoc);
     }).then(function () {
+      clearSyncWatchdog();
       subscribeRealtime();
     }).catch(function (e) {
+      clearSyncWatchdog();
       console.warn('[CloudSync] sign-in sync error', e);
       setStatus({ state: 'error', error: e && e.message ? e.message : 'Error de sincronització' });
+      // Intentem la subscripció igualment: pot recuperar-se quan torni la connexió.
+      try { subscribeRealtime(); } catch (e2) {}
     });
   }
 
   function handleSignedOut() {
     currentUser = null;
+    clearSyncWatchdog();
     if (docUnsub) { docUnsub(); docUnsub = null; }
     if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
     setStatus({ state: 'signedout', email: null });
@@ -393,6 +427,16 @@
       app = firebase.initializeApp(FIREBASE_CONFIG);
       auth = firebase.auth();
       db = firebase.firestore();
+      // IMPORTANT: per defecte Firestore es connecta amb WebChannel, que en alguns
+      // navegadors d'escriptori (típic en Chromebooks, xarxes corporatives, proxies
+      // o amb certes extensions) queda BLOQUEJAT i les peticions no resolen mai →
+      // l'app es queda eternament "Sincronitzant…". Activant la detecció automàtica
+      // de long-polling, Firestore canvia a HTTP normal quan detecta el problema,
+      // cosa que ho soluciona sense penalitzar els entorns on WebChannel sí funciona
+      // (com els mòbils). Cal cridar settings() ABANS de qualsevol altra operació.
+      try {
+        db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
+      } catch (e) { console.warn('[CloudSync] settings()', e); }
       try {
         db.enablePersistence({ synchronizeTabs: true }).catch(function () {});
       } catch (e) {}
