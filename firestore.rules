@@ -1,0 +1,19 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Dades privades de cada usuari (sincronització al núvol).
+    match /eltauler_users/{userId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    // Partida col·lectiva «Catalans vs Stockfish»: document compartit.
+    // Lectura PÚBLICA (qualsevol pot mirar la partida sense iniciar sessió);
+    // escriptura només per a usuaris autenticats (votar i fer-la avançar).
+    match /eltauler_catalans/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
+  }
+}
