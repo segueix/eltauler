@@ -6744,6 +6744,8 @@ function buildLocalErrorNote(err, entry) {
         theme: planThemeDisplayLabel(themeKey),
         played: review.playerMoveSan || d.played,
         best: review.bestMoveSan || d.best,
+        playedDesc: moveHumanText(err.fen, err.playerMove || review.playerMoveSan, d.played),
+        bestDesc: moveHumanText(err.fen, err.bestMove || review.bestMoveSan, d.best),
         bestMoveUci: review.bestMove || null,
         swing: Math.round(review.swing || 0),
         quality: review.quality || 'mistake',
@@ -6947,8 +6949,17 @@ function renderLocalReviewHtml(entry) {
             let openingTxt = `<strong>Obertura:</strong> ${nameHtml} · correcció ${pct(phases.opening.precision)}.`;
             if (oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
-                openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}` +
-                    (Array.isArray(oa.theoryMoves) && oa.theoryMoves.length ? `; la línia seguia amb ${escapeHtml(oa.theoryMoves[0])}.` : '.');
+                openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
+                if (Array.isArray(oa.theoryMoves) && oa.theoryMoves.length) {
+                    let devFen = null;
+                    try {
+                        const g = new Chess();
+                        for (let i = 0; i < (oa.deviationPly || 0); i++) { if (!g.move(sanMoves[i], { sloppy: true })) break; }
+                        devFen = g.fen();
+                    } catch (e) { devFen = null; }
+                    const theoryDesc = devFen ? moveHumanText(devFen, oa.theoryMoves[0]) : oa.theoryMoves[0];
+                    openingTxt += `; la teoria seguia amb ${escapeHtml(theoryDesc)}.`;
+                } else openingTxt += '.';
             }
             if (idx >= 0) openingTxt += ' <em>Clica el nom per practicar-la.</em>';
             blocks.push(`<p>${openingTxt}</p>`);
@@ -9979,10 +9990,12 @@ function ensureHumanPlanRecent() {
 }
 function fillPlanTemplate(str, moment) {
     const m = moment || {};
+    // Preferim la descripció en llenguatge planer (playedDesc/bestDesc) per evitar
+    // notació algebraica dins de les frases; si no n'hi ha, caiem a la SAN.
     return String(str || '')
         .replace(/\{n\}/g, m.moveNumber ?? '?')
-        .replace(/\{played\}/g, m.played || 'la jugada triada')
-        .replace(/\{best\}/g, m.best || 'una jugada més precisa')
+        .replace(/\{played\}/g, m.playedDesc || m.played || 'la jugada triada')
+        .replace(/\{best\}/g, m.bestDesc || m.best || 'una jugada més precisa')
         .replace(/\{swing\}/g, m.swing ?? 0);
 }
 // Tria una variant evitant les usades recentment; l'historial es persisteix a
@@ -16376,6 +16389,27 @@ function uciLineToSan(fen, uciList, maxPlies) {
     return out;
 }
 
+// Descriu una seqüència de jugades (UCI) en llenguatge planer, recorrent la línia
+// per anomenar cada moviment sense notació algebraica.
+function describeLineHuman(fen, uciList, startPly, maxPhrases) {
+    try {
+        const g = new Chess(fen);
+        const phrases = [];
+        for (let i = 0; i < (uciList || []).length && phrases.length < maxPhrases; i++) {
+            const u = uciList[i];
+            if (!u || u.length < 4) break;
+            const beforeFen = g.fen();
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) break;
+            if (i >= startPly) {
+                const d = describeMoveHuman(beforeFen, u);
+                phrases.push(d ? d.text : mv.san);
+            }
+        }
+        return phrases.join(', i ');
+    } catch (e) { return ''; }
+}
+
 // TIER 1 — compara candidates (MultiPV ja guardats) i mostra la continuació de la idea.
 function buildCandidatesNote(review) {
     try {
@@ -16390,14 +16424,14 @@ function buildCandidatesNote(review) {
                 const gap = Math.abs((a0.eval || 0) - (a1.eval || 0));
                 if (gap <= 70) {
                     const altSan = uciLineToSan(fen, [a1.move], 1)[0];
-                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${altSan}.`);
+                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${moveHumanText(fen, a1.move, altSan)}.`);
                 }
             }
         }
         const pv = Array.isArray(review.bestMovePv) ? review.bestMovePv : [];
         if (pv.length >= 3) {
-            const sans = uciLineToSan(fen, pv, 3);
-            if (sans.length >= 3) parts.push(`La idea seguia amb ${sans.slice(1, 3).join(' ')}.`);
+            const cont = describeLineHuman(fen, pv, 1, 2);
+            if (cont) parts.push(`La idea seguia amb ${cont}.`);
         }
         return parts.join(' ');
     } catch (e) { return ''; }
@@ -16491,6 +16525,9 @@ function buildHumanPlanMoments(entry, insights = null) {
                 theme: planThemeDisplayLabel(themeKey),
                 played: r.playerMoveSan || r.playerMove || '—',
                 best: r.bestMoveSan || r.bestMove || '—',
+                // Versions en llenguatge planer per a les frases (sense notació SAN).
+                playedDesc: r.fen ? moveHumanText(r.fen, r.playerMove || r.playerMoveSan, r.playerMoveSan) : (r.playerMoveSan || '—'),
+                bestDesc: r.fen ? moveHumanText(r.fen, r.bestMove || r.bestMoveSan, r.bestMoveSan) : (r.bestMoveSan || '—'),
                 bestMoveUci: r.bestMove || null,
                 swing: Math.round(r.swing || 0),
                 quality: r.quality || 'inaccuracy',
