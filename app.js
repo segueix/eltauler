@@ -1466,6 +1466,7 @@ function commitHumanMove(from, to, promotionPiece) {
         } else {
             pendingGameOverAfterMoveAnalysis = true;
             $('#status').text('Analitzant l’última jugada…');
+            armGameOverWatchdog();
             analyzeMove();
         }
         return true;
@@ -2693,6 +2694,30 @@ let pendingBestMovePv = [];
 let pendingAlternatives = [];
 let enrichedAnalysisBuffer = {};
 let pendingGameOverAfterMoveAnalysis = false;
+let gameOverWatchdogTimer = null;
+
+// Xarxa de seguretat: si per qualsevol motiu l'anàlisi de l'última jugada no
+// acaba (p. ex. el motor no respon), el final de partida (resultat + revisió)
+// es mostra igualment passat un temps en lloc de quedar-se penjat indefinidament.
+function armGameOverWatchdog() {
+    if (gameOverWatchdogTimer) clearTimeout(gameOverWatchdogTimer);
+    gameOverWatchdogTimer = setTimeout(() => {
+        gameOverWatchdogTimer = null;
+        if (pendingGameOverAfterMoveAnalysis && game && game.game_over()) {
+            finalizeGameOver();
+        }
+    }, 6000);
+}
+
+// Punt únic de tancament de partida després de la jugada del jugador. Neteja el
+// watchdog i evita que handleGameOver s'executi dues vegades.
+function finalizeGameOver() {
+    if (!pendingGameOverAfterMoveAnalysis) return;
+    pendingGameOverAfterMoveAnalysis = false;
+    if (gameOverWatchdogTimer) { clearTimeout(gameOverWatchdogTimer); gameOverWatchdogTimer = null; }
+    waitingForBlunderAnalysis = false;
+    runAfterPaint(() => handleGameOver());
+}
 
 let eloHistory = [];
 let totalGamesPlayed = 0;
@@ -13961,6 +13986,7 @@ function onDrop(source, target) {
         } else {
             pendingGameOverAfterMoveAnalysis = true;
             $('#status').text('Analitzant l’última jugada…');
+            armGameOverWatchdog();
             analyzeMove();
         }
         return;
@@ -14035,13 +14061,20 @@ function chooseFallbackMove(fallbackMove, chessInstance = game) {
 }
 
 function analyzeMove() {
+    // Si la jugada del jugador acaba de finalitzar la partida, NO s'ha d'invocar
+    // el motor sobre la posició final: en una posició sense jugades legals (escac
+    // i mat, ofegat, taules...) Stockfish no retorna un "bestmove" fiable i
+    // l'anàlisi es quedava penjada, de manera que el final de partida (resultat,
+    // victòria i revisió) no s'arribava a mostrar mai. Tanquem la partida
+    // directament, comptabilitzant l'última jugada segons el resultat.
+    if (pendingGameOverAfterMoveAnalysis && game && game.game_over()) {
+        resolvePendingMoveEvaluation(game.in_checkmate() ? 'excel' : 'good');
+        finalizeGameOver();
+        return;
+    }
+
     if (!stockfish && !ensureStockfish()) {
-        if (pendingGameOverAfterMoveAnalysis && game && game.game_over()) {
-            pendingGameOverAfterMoveAnalysis = false;
-            runAfterPaint(() => handleGameOver());
-        } else {
-            setTimeout(makeEngineMove, 300);
-        }
+        setTimeout(makeEngineMove, 300);
         return;
     }
 
@@ -14552,8 +14585,7 @@ function handleEngineMessage(rawMsg) {
             pendingAnalysisFen = null;
 
             if (pendingGameOverAfterMoveAnalysis && game && game.game_over()) {
-                pendingGameOverAfterMoveAnalysis = false;
-                runAfterPaint(() => handleGameOver());
+                finalizeGameOver();
             }
         }
         return;
