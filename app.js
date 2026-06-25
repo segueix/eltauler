@@ -6411,10 +6411,24 @@ function updateHistoryReview(entry) {
     // ressenya generada localment perquè la revisió no surti mai buida (amb o
     // sense clau). Si hi ha clau, el botó "Generar ressenya" segueix actiu per
     // obtenir la versió redactada per OpenAI.
-    const localText = buildLocalReviewText(entry);
-    if (localText) {
-        reviewContent.html(formatOpenAIReviewText(localText));
-        bindOpenAIMoveLinks(reviewContent);
+    const localHtml = renderLocalReviewHtml(entry);
+    if (localHtml) {
+        reviewContent.html(localHtml);
+        // Moments clau: navega a la posició de decisió i ressalta la jugada recomanada.
+        reviewContent.find('.hist-keymove-link').off('click').on('click', function(event) {
+            event.preventDefault();
+            const moveNumber = Number($(this).data('move-number'));
+            const playedSan = String($(this).data('san') || '').trim();
+            const best = String($(this).data('best') || '').trim();
+            jumpToHistoryMove(moveNumber, playedSan);
+            if (best && historyReplay && historyReplay.game) {
+                highlightReviewedMove(historyReplay.game.fen(), best);
+            }
+        });
+        reviewContent.find('.opening-practice-link').off('click').on('click', function(event) {
+            event.preventDefault();
+            practiceOpeningFromHistory(String($(this).data('opening') || ''));
+        });
         if (generateBtn.length) generateBtn.prop('disabled', !openaiApiKey);
         return;
     }
@@ -6508,19 +6522,30 @@ function jumpToHistoryMove(moveNumber, san) {
     }
     
     historyReplay.moveIndex = stopAt;
+    const beforeFen = historyReplay.game.fen();
     updateHistoryBoard();
-    
-    // Highlight visual de la casella destí de la jugada errònia
+
+    // Visualitza la jugada: ressalta la casella d'origen i de destí sobre la
+    // posició just abans de jugar-la, perquè es vegi quina peça es mou i on va.
     if (targetIndex > 0 && historyReplay.moves[targetIndex - 1]) {
         const moveStr = historyReplay.moves[targetIndex - 1];
-        highlightReviewedMove(moveStr);
+        highlightReviewedMove(beforeFen, moveStr);
     }
 }
 
-function highlightReviewedMove(san) {
-    // Opcionalment, ressaltar la jugada al tauler
-    $('#history-board .square-55d63').removeClass('reviewed-move');
-    // Aquí podries afegir lògica per ressaltar caselles específiques
+function highlightReviewedMove(beforeFen, move) {
+    $('#history-board .square-55d63').removeClass('highlight-hint');
+    if (!beforeFen || !move) return;
+    try {
+        const g = new Chess(beforeFen);
+        const raw = String(move).trim();
+        const mv = /^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)
+            ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
+            : g.move(raw, { sloppy: true });
+        if (!mv) return;
+        $('#history-board .square-' + mv.from).addClass('highlight-hint');
+        $('#history-board .square-' + mv.to).addClass('highlight-hint');
+    } catch (e) {}
 }
 
 function findHistoryMoveIndex(moveNumber, san) {
@@ -6683,38 +6708,6 @@ REGLES OBLIGATÒRIES
 
 function getErrorNoteKey(err) { return err && err.fen ? err.fen : ''; }
 
-// Ressenya de partida generada LOCALMENT (sense OpenAI). Combina el debrief de
-// l'entrenador, la identificació de l'obertura i un repàs dels moments crítics
-// amb pla concret, reaprofitant tota la maquinària de plans humans i fets
-// posicionals que ja calcula l'app. Serveix de fallback ric quan no hi ha clau
-// d'OpenAI configurada.
-function buildLocalReviewText(entry) {
-    if (!entry) return '';
-    try {
-        const parts = [];
-        const facts = buildDebriefFacts(entry);
-        if (facts) {
-            const debrief = composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id));
-            if (debrief) parts.push(debrief);
-        }
-        const opening = buildOpeningNote(entry);
-        if (opening) parts.push(opening);
-        const moments = buildHumanPlanMoments(entry);
-        if (moments.length) {
-            parts.push('Moments clau de la partida:');
-            moments.forEach(m => {
-                const seg = [`• Jugada ${m.moveNumber} (${m.theme}): vas jugar ${m.played}, millor ${m.best}.`];
-                if (m.positional) seg.push(m.positional);
-                if (m.diagnosis) seg.push(m.diagnosis);
-                if (m.plan) seg.push(m.plan);
-                if (m.candidates) seg.push(m.candidates);
-                parts.push(seg.filter(Boolean).join(' '));
-            });
-        }
-        return parts.filter(Boolean).join('\n\n');
-    } catch (e) { return ''; }
-}
-
 // Localitza el moveReview complet (alternatives, swing, SAN, eval...) que
 // correspon a una errada desada, per donar a l'explicació local el màxim context.
 function findMoveReviewForError(entry, err) {
@@ -6769,6 +6762,236 @@ function buildLocalErrorNote(err, entry) {
     if (plan.question) parts.push(plan.question);
     const text = parts.filter(Boolean).join(' ').trim();
     return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
+}
+
+// =================== NOMENCLATURA DESCRIPTIVA + ENLLAÇOS ===================
+// Descriu un moviment amb llenguatge planer (nom de la peça, ala dreta/esquerra,
+// columna del peó) en comptes de notació algebraica, perquè sigui llegible per a
+// algú sense coneixements de nomenclatura. Retorna també la SAN i les caselles
+// origen/destí per poder visualitzar la jugada al tauler.
+function flankWordFor(color, fromSquare) {
+    const fileIdx = (fromSquare || 'a1').charCodeAt(0) - 97; // a=0 ... h=7
+    const leftForWhite = fileIdx <= 3;
+    const isLeft = color === 'w' ? leftForWhite : !leftForWhite;
+    return isLeft ? 'esquerra' : 'dreta';
+}
+
+function describeMoveHuman(fen, move) {
+    if (!fen || !move) return null;
+    try {
+        const g = new Chess(fen);
+        const raw = String(move).trim();
+        let mv;
+        if (/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)) {
+            mv = g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() });
+        } else {
+            mv = g.move(raw, { sloppy: true });
+        }
+        if (!mv) return null;
+        const names = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
+        const promoNames = { q: 'dama', r: 'torre', b: 'alfil', n: 'cavall' };
+        let text;
+        if (mv.flags.includes('k')) text = 'enroc curt';
+        else if (mv.flags.includes('q')) text = 'enroc llarg';
+        else if (mv.piece === 'p') {
+            const verb = mv.captured ? 'captura a' : 'avança a';
+            text = `el peó de la columna ${mv.from[0]} ${verb} ${mv.to}`;
+            if (mv.promotion) text += ` i corona ${promoNames[mv.promotion] || 'dama'}`;
+        } else {
+            let name = names[mv.piece] || 'peça';
+            // Desambiguació dreta/esquerra només si hi ha dues peces iguals del mateix color.
+            if (mv.piece === 'n' || mv.piece === 'b' || mv.piece === 'r') {
+                const field = fen.split(' ')[0];
+                const letter = mv.color === 'w' ? mv.piece.toUpperCase() : mv.piece.toLowerCase();
+                const count = (field.match(new RegExp(letter, 'g')) || []).length;
+                if (count > 1) {
+                    const flank = flankWordFor(mv.color, mv.from);
+                    name += flank === 'esquerra' ? " de l'esquerra" : ' de la dreta';
+                }
+            }
+            const verb = mv.captured ? 'captura a' : 'va a';
+            text = `${/^[ae]/.test(name) ? "l'" : 'el '}${name} ${verb} ${mv.to}`;
+        }
+        if (mv.san.includes('#')) text += ' amb escac i mat';
+        else if (mv.san.includes('+')) text += ' amb escac';
+        return { text, san: mv.san, from: mv.from, to: mv.to };
+    } catch (e) { return null; }
+}
+
+// Text descriptiu curt d'un moviment (només el text), amb la SAN com a fallback.
+function moveHumanText(fen, move, fallback) {
+    const d = describeMoveHuman(fen, move);
+    return d ? d.text : (fallback || uciToSanSafe(fen, move) || String(move || ''));
+}
+
+// =================== ANÀLISI PER FASES DE LA PARTIDA ===================
+function classifyPhaseByMoveNumber(n) {
+    const num = n || 0;
+    if (num <= 10) return 'opening';
+    if (num <= 28) return 'middlegame';
+    return 'endgame';
+}
+
+// Precisió i temes d'error per fase (obertura / mig joc / final) a partir dels
+// moveReviews desats de la partida.
+function buildPhaseStats(entry) {
+    const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
+    const mk = () => ({ good: 0, total: 0, errs: [] });
+    const phases = { opening: mk(), middlegame: mk(), endgame: mk() };
+    reviews.forEach(r => {
+        if (!r) return;
+        const p = phases[classifyPhaseByMoveNumber(r.moveNumber)];
+        p.total++;
+        if (r.quality === 'excel' || r.quality === 'good') p.good++;
+        if (r.quality === 'inaccuracy' || r.quality === 'mistake' || r.quality === 'blunder') p.errs.push(r);
+    });
+    const summarize = (p) => {
+        const themeCounts = {};
+        p.errs.forEach(r => {
+            let key = 'general';
+            try { key = detectPlanSubtheme(r); } catch (e) { key = 'general'; }
+            const label = planThemeDisplayLabel(key);
+            themeCounts[label] = (themeCounts[label] || 0) + 1;
+        });
+        const themes = Object.keys(themeCounts)
+            .sort((a, b) => themeCounts[b] - themeCounts[a])
+            .slice(0, 2);
+        return {
+            precision: p.total > 0 ? Math.round((p.good / p.total) * 100) : null,
+            total: p.total,
+            errors: p.errs.length,
+            themes
+        };
+    };
+    return { opening: summarize(phases.opening), middlegame: summarize(phases.middlegame), endgame: summarize(phases.endgame) };
+}
+
+// Comentari de millora segons els temes d'error d'una fase (reaprofita el banc de
+// plans humans). Si no hi ha temes concrets, dona un consell genèric de la fase.
+function buildPhaseAdvice(themes, phaseKey) {
+    const fallbackByPhase = {
+        opening: 'Desenvolupa les peces cap al centre, no moguis dues vegades la mateixa peça i enroca aviat.',
+        middlegame: 'Abans de cada jugada, mira els escacs, captures i amenaces; coordina les peces cap a un pla.',
+        endgame: 'Al final, activa el rei cap al centre, empeny els peons passats i posa les torres darrere dels peons.'
+    };
+    if (!themes || !themes.length) return fallbackByPhase[phaseKey] || '';
+    const labelToKey = {};
+    Object.keys(HUMAN_PLAN_BANK).forEach(k => { labelToKey[planThemeDisplayLabel(k)] = k; });
+    const key = labelToKey[themes[0]];
+    const pool = (key && HUMAN_PLAN_BANK[key] && HUMAN_PLAN_BANK[key].objective) ? HUMAN_PLAN_BANK[key].objective : null;
+    if (pool && pool.length) {
+        const tip = fillPlanTemplate(pickFreshPlanLine(pool, `phaseadvice:${phaseKey}:${key}`), {});
+        if (tip) return tip;
+    }
+    return fallbackByPhase[phaseKey] || '';
+}
+
+// =================== NAVEGACIÓ A LA PRÀCTICA D'OBERTURA ===================
+function findCuratedOpeningIndex(name) {
+    if (!name || !Array.isArray(CURATED_OPENINGS)) return -1;
+    const norm = s => String(s || '').toLowerCase().trim();
+    const n = norm(name);
+    if (!n) return -1;
+    let idx = CURATED_OPENINGS.findIndex(o => norm(o.name) === n);
+    if (idx < 0) idx = CURATED_OPENINGS.findIndex(o => n.includes(norm(o.name)) || norm(o.name).includes(n));
+    return idx;
+}
+
+function practiceOpeningFromHistory(name) {
+    const idx = findCuratedOpeningIndex(name);
+    try {
+        $('#history-screen').hide();
+        $('#opening-screen').show();
+        navPush('opening-screen');
+        renderOpeningStatsScreen();
+        renderOpeningLessonButtons();
+        initOpeningBundleBoard();
+        if (idx >= 0) {
+            startOpeningLesson(idx);
+        } else {
+            startOpeningPracticeAsColor(openingPracticeUserColor);
+            setOpeningScreenMode('overview');
+            showToast('No tinc una lliçó concreta d’aquesta obertura; practica-la lliurement.', 'info');
+        }
+        if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
+            setTimeout(() => openingBundleBoard.resize(), 60);
+        }
+    } catch (e) { console.warn('practiceOpeningFromHistory', e); }
+}
+
+// =================== RESSENYA LOCAL EN HTML (sense OpenAI) ===================
+// Construeix la ressenya rica de l'historial: debrief, obertura amb enllaç a la
+// pràctica i % de correcció, % i temes del mig joc, % i consell del final, i els
+// moments clau amb jugades descriptives clicables.
+function renderLocalReviewHtml(entry) {
+    if (!entry) return '';
+    const blocks = [];
+    try {
+        const facts = buildDebriefFacts(entry);
+        if (facts) {
+            const debrief = composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id));
+            if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
+        }
+        const phases = buildPhaseStats(entry);
+        const pct = v => (typeof v === 'number' ? `${v}%` : '—');
+
+        // --- Obertura ---
+        const sanMoves = getHistoryMoves(entry);
+        let oa = null;
+        try { oa = analyzeGameOpening(sanMoves); } catch (e) { oa = null; }
+        if (oa && oa.name) {
+            const idx = findCuratedOpeningIndex(oa.name);
+            const nameHtml = idx >= 0
+                ? `<a href="#" class="opening-practice-link" data-opening="${escapeHtml(oa.name)}">${escapeHtml(oa.name)}${oa.eco ? ` (${oa.eco})` : ''}</a>`
+                : `${escapeHtml(oa.name)}${oa.eco ? ` (${oa.eco})` : ''}`;
+            let openingTxt = `<strong>Obertura:</strong> ${nameHtml} · correcció ${pct(phases.opening.precision)}.`;
+            if (oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
+                const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
+                openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}` +
+                    (Array.isArray(oa.theoryMoves) && oa.theoryMoves.length ? `; la línia seguia amb ${escapeHtml(oa.theoryMoves[0])}.` : '.');
+            }
+            if (idx >= 0) openingTxt += ' <em>Clica el nom per practicar-la.</em>';
+            blocks.push(`<p>${openingTxt}</p>`);
+        }
+
+        // --- Mig joc ---
+        if (phases.middlegame.total > 0) {
+            let midTxt = `<strong>Mig joc:</strong> correcció ${pct(phases.middlegame.precision)}.`;
+            if (phases.middlegame.themes.length) {
+                midTxt += ` Errors més habituals: ${phases.middlegame.themes.map(escapeHtml).join(', ')}.`;
+            } else {
+                midTxt += ' Sense errors destacats en aquesta fase.';
+            }
+            blocks.push(`<p>${midTxt}</p>`);
+        }
+
+        // --- Final ---
+        if (phases.endgame.total > 0) {
+            let endTxt = `<strong>Final:</strong> correcció ${pct(phases.endgame.precision)}.`;
+            const advice = buildPhaseAdvice(phases.endgame.themes, 'endgame');
+            if (advice) endTxt += ` ${escapeHtml(advice)}`;
+            blocks.push(`<p>${endTxt}</p>`);
+        }
+
+        // --- Moments clau (jugades descriptives clicables) ---
+        const moments = buildHumanPlanMoments(entry);
+        if (moments.length) {
+            const items = moments.map(m => {
+                const desc = m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best;
+                // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
+                // naveguem a la posició de decisió (per la jugada realment feta) i
+                // hi ressaltem la jugada recomanada al tauler.
+                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
+                const seg = [`<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`];
+                if (m.positional) seg.push(escapeHtml(m.positional));
+                if (m.diagnosis) seg.push(escapeHtml(m.diagnosis));
+                if (m.plan) seg.push(escapeHtml(m.plan));
+                return `<li style="margin-bottom:8px;">${seg.filter(Boolean).join(' ')}</li>`;
+            }).join('');
+            blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
+        }
+    } catch (e) { console.warn('renderLocalReviewHtml', e); }
+    return blocks.join('\n');
 }
 
 
@@ -6834,14 +7057,18 @@ function updateHistoryErrorNotes(entry) {
     errors.forEach((err, idx) => {
         const d = describeSevereError(err);
         const note = notes[getErrorNoteKey(err)] || null;
+        // Nomenclatura descriptiva (nom de peça, ala dreta/esquerra, columna del peó)
+        // perquè sigui llegible sense conèixer la notació.
+        const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
+        const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
         let body;
         if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
         else if (note && note.status === 'pending') body = '<em>Generant l’explicació...</em>';
         // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
-        html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per veure-la al tauler i resoldre-la amb pista i màxima">
-            <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(String(d.played))}</strong> · millor <strong>${escapeHtml(String(d.best))}</strong></div>
+        html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
+            <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;

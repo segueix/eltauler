@@ -2181,6 +2181,21 @@
         body.epaper-mode .openai-move-link:hover {
         color: #000;
         }
+        .hist-move-link, .opening-practice-link {
+            color: var(--accent-gold);
+            text-decoration: underline;
+            cursor: pointer;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+        .hist-move-link:hover, .opening-practice-link:hover {
+            color: #c98fe0;
+            text-decoration: none;
+        }
+        body.epaper-mode .hist-move-link, body.epaper-mode .opening-practice-link {
+            color: #333;
+            text-decoration: underline;
+        }
         #history-board {
             width: 100%;
             border-radius: 12px;
