@@ -6427,7 +6427,9 @@ function updateHistoryReview(entry) {
         });
         reviewContent.find('.opening-practice-link').off('click').on('click', function(event) {
             event.preventDefault();
-            practiceOpeningFromHistory(String($(this).data('opening') || ''));
+            const idx = Number($(this).data('idx'));
+            const color = String($(this).data('color') || '');
+            practiceOpeningFromHistory(Number.isNaN(idx) ? -1 : idx, color);
         });
         if (generateBtn.length) generateBtn.prop('disabled', !openaiApiKey);
         return;
@@ -6636,6 +6638,41 @@ function getEntrySevereErrors(entry) {
         return getSevereErrors(entry.review);
     }
     return [];
+}
+
+// Errades per comentar a la revisió, garantint un mínim (per defecte 3) si la
+// partida en té prou: primer les greus i, si calen més, les pitjors imprecisions
+// o errors dels moveReviews. Mai no inventa errades que no s'hagin produït.
+function getEntryReviewErrors(entry, minCount = 3, maxCount = 5) {
+    if (!entry) return [];
+    const result = (getEntrySevereErrors(entry) || []).slice();
+    const seen = new Set(result.map(e => e.fen).filter(Boolean));
+    if (result.length < minCount && Array.isArray(entry.moveReviews)) {
+        const extra = entry.moveReviews
+            .filter(r => r && r.fen && !seen.has(r.fen) && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
+            .sort((a, b) => (b.swing || 0) - (a.swing || 0))
+            .map(r => ({
+                fen: r.fen,
+                moveNumber: r.moveNumber || null,
+                playerMove: r.playerMove || null,
+                playerMoveSan: r.playerMoveSan || null,
+                bestMove: r.bestMove || null,
+                bestMoveSan: r.bestMoveSan || null,
+                bestMovePv: r.bestMovePv || [],
+                evalBefore: r.evalBefore ?? null,
+                evalAfter: r.evalAfter ?? null,
+                swing: r.swing || null,
+                alternatives: r.alternatives || [],
+                quality: r.quality || 'inaccuracy',
+                severity: r.quality === 'blunder' ? 'high' : 'med'
+            }));
+        for (const e of extra) {
+            if (result.length >= minCount) break;
+            result.push(e);
+            seen.add(e.fen);
+        }
+    }
+    return result.slice(0, Math.max(minCount, maxCount));
 }
 
 /* ===================== ERRADES COMENTADES (OpenAI) =====================
@@ -6889,18 +6926,26 @@ function buildPhaseAdvice(themes, phaseKey) {
 }
 
 // =================== NAVEGACIÓ A LA PRÀCTICA D'OBERTURA ===================
-function findCuratedOpeningIndex(name) {
-    if (!name || !Array.isArray(CURATED_OPENINGS)) return -1;
-    const norm = s => String(s || '').toLowerCase().trim();
-    const n = norm(name);
-    if (!n) return -1;
-    let idx = CURATED_OPENINGS.findIndex(o => norm(o.name) === n);
-    if (idx < 0) idx = CURATED_OPENINGS.findIndex(o => n.includes(norm(o.name)) || norm(o.name).includes(n));
-    return idx;
+// Troba l'obertura del repertori (CURATED_OPENINGS) més semblant a la partida
+// jugada, comparant la coincidència de jugades des de l'inici (prefix comú).
+function findClosestCuratedOpening(sanMoves) {
+    if (!Array.isArray(CURATED_OPENINGS) || !Array.isArray(sanMoves) || !sanMoves.length) return null;
+    const norm = s => String(s || '').replace(/[+#!?]/g, '');
+    const game = sanMoves.map(norm);
+    let best = null;
+    CURATED_OPENINGS.forEach((op, i) => {
+        const line = (op.moves || []).map(norm);
+        let match = 0;
+        for (let k = 0; k < Math.min(line.length, game.length); k++) {
+            if (line[k] === game[k]) match++; else break;
+        }
+        if (match >= 2 && (!best || match > best.match)) best = { index: i, opening: op, match };
+    });
+    return best;
 }
 
-function practiceOpeningFromHistory(name) {
-    const idx = findCuratedOpeningIndex(name);
+// Obre la pràctica de l'obertura del repertori (per índex) amb el color demanat.
+function practiceOpeningFromHistory(idx, color) {
     try {
         $('#history-screen').hide();
         $('#opening-screen').show();
@@ -6908,10 +6953,11 @@ function practiceOpeningFromHistory(name) {
         renderOpeningStatsScreen();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
-        if (idx >= 0) {
-            startOpeningLesson(idx);
+        const forceColor = (color === 'w' || color === 'b') ? color : undefined;
+        if (typeof idx === 'number' && idx >= 0) {
+            startOpeningLesson(idx, forceColor);
         } else {
-            startOpeningPracticeAsColor(openingPracticeUserColor);
+            startOpeningPracticeAsColor(forceColor || openingPracticeUserColor);
             setOpeningScreenMode('overview');
             showToast('No tinc una lliçó concreta d’aquesta obertura; practica-la lliurement.', 'info');
         }
@@ -6930,6 +6976,14 @@ function renderLocalReviewHtml(entry) {
     const blocks = [];
     try {
         const facts = buildDebriefFacts(entry);
+
+        // --- Màxima d'inici ---
+        let maxim = '';
+        try { maxim = pickOfflineMaxim((facts && (facts.topErrorTheme || facts.weakestTheme)) || 'general'); } catch (e) { maxim = ''; }
+        if (maxim) {
+            blocks.push(`<blockquote style="margin:0 0 12px 0; padding:8px 12px; border-left:3px solid var(--accent-gold); font-style:italic; opacity:0.95;">“${escapeHtml(maxim)}”</blockquote>`);
+        }
+
         if (facts) {
             const debrief = composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id));
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
@@ -6942,11 +6996,7 @@ function renderLocalReviewHtml(entry) {
         let oa = null;
         try { oa = analyzeGameOpening(sanMoves); } catch (e) { oa = null; }
         if (oa && oa.name) {
-            const idx = findCuratedOpeningIndex(oa.name);
-            const nameHtml = idx >= 0
-                ? `<a href="#" class="opening-practice-link" data-opening="${escapeHtml(oa.name)}">${escapeHtml(oa.name)}${oa.eco ? ` (${oa.eco})` : ''}</a>`
-                : `${escapeHtml(oa.name)}${oa.eco ? ` (${oa.eco})` : ''}`;
-            let openingTxt = `<strong>Obertura:</strong> ${nameHtml} · correcció ${pct(phases.opening.precision)}.`;
+            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(oa.name)}${oa.eco ? ` (${escapeHtml(oa.eco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
             if (oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
                 openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
@@ -6961,8 +7011,15 @@ function renderLocalReviewHtml(entry) {
                     openingTxt += `; la teoria seguia amb ${escapeHtml(theoryDesc)}.`;
                 } else openingTxt += '.';
             }
-            if (idx >= 0) openingTxt += ' <em>Clica el nom per practicar-la.</em>';
             blocks.push(`<p>${openingTxt}</p>`);
+        }
+
+        // --- Obertura més semblant per practicar (enllaços per a tots dos colors) ---
+        const closest = findClosestCuratedOpening(sanMoves);
+        if (closest) {
+            const wLink = `<a href="#" class="opening-practice-link" data-idx="${closest.index}" data-color="w">practicar amb blanques</a>`;
+            const bLink = `<a href="#" class="opening-practice-link" data-idx="${closest.index}" data-color="b">practicar amb negres</a>`;
+            blocks.push(`<p><strong>Per practicar:</strong> l'obertura del repertori més semblant a la que vas jugar és <strong>${escapeHtml(closest.opening.name)}</strong> (${escapeHtml(closest.opening.eco)}). ${wLink} · ${bLink}.</p>`);
         }
 
         // --- Mig joc ---
@@ -7056,7 +7113,9 @@ function updateHistoryErrorNotes(entry) {
     const container = $('#history-error-notes');
     const block = $('#history-error-notes-block');
     if (!container.length) return;
-    const errors = entry ? getEntrySevereErrors(entry).slice(0, ERROR_NOTES_MAX) : [];
+    // Comentem un mínim de 3 errades (si la partida en té), completant amb les
+    // pitjors imprecisions quan no hi ha prou errades greus.
+    const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
     if (!errors.length) {
         if (block.length) block.hide();
         container.empty();
@@ -9380,7 +9439,7 @@ function restartCompletedOpeningLesson() {
     startOpeningLesson(openingLessonCurrentIndex);
 }
 
-function startOpeningLesson(idx) {
+function startOpeningLesson(idx, forceColor) {
     const op = CURATED_OPENINGS[idx];
     if (!op) return;
     openingErrorPracticeActive = false;
@@ -9393,7 +9452,10 @@ function startOpeningLesson(idx) {
     openingLessonLine = op.moves.slice();
     openingLessonStep = 0;
     openingLessonLastDetected = null;
-    openingLessonUserColor = op.userColor || 'w';
+    // La línia teòrica és la mateixa; forceColor permet practicar-la des de
+    // qualsevol bàndol (blanques o negres) encara que l'obertura tingui un color
+    // "natural" al repertori.
+    openingLessonUserColor = (forceColor === 'w' || forceColor === 'b') ? forceColor : (op.userColor || 'w');
     openingPracticeUserColor = openingLessonUserColor;
     const colorSelect = document.getElementById('opening-practice-color-select');
     if (colorSelect) colorSelect.value = openingPracticeUserColor;
