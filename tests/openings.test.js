@@ -180,6 +180,48 @@ describe('findCuratedOpeningByPosition (repertori per posició)', () => {
     });
 });
 
+// Obertura de l'usuari (per les seves jugades) i detecció de canvi forçat.
+describe('matchUserRepertoireOpening', () => {
+    const REP = [
+        { index: 0, eco: 'E01', name: 'Obertura Catalana', userColor: 'w', moves: ['d4', 'Nf6', 'c4', 'e6', 'g3', 'd5', 'Bg2', 'Be7', 'Nf3', 'O-O', 'O-O'] },
+        { index: 1, eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', moves: ['e4', 'c5', 'Nf3', 'Nc6', 'd4', 'cxd4', 'Nxd4', 'Nf6'] }
+    ];
+
+    test('identifica la teva obertura encara que el rival no col·labori, i marca el canvi com a forçat', () => {
+        const game = ['d4', 'g6', 'c4', 'Nf6', 'g3', 'c6', 'Bg2', 'e6', 'Nf3', 'd5', 'O-O'];
+        const r = Core.matchUserRepertoireOpening(game, 'w', REP, 3);
+        expect(r).not.toBeNull();
+        expect(r.name).toBe('Obertura Catalana');
+        expect(r.userMatch).toBe(6);           // d4,c4,g3,Bg2,Nf3,O-O
+        expect(r.forcedByOpponent).toBe(true);
+        expect(r.firstDevBy).toBe('b');
+        expect(r.deviationMove).toBe('g6');
+        expect(r.expectedMove).toBe('Nf6');
+    });
+
+    test('si segueixes tota la línia, no és canvi forçat', () => {
+        const game = ['d4', 'Nf6', 'c4', 'e6', 'g3', 'd5', 'Bg2', 'Be7'];
+        const r = Core.matchUserRepertoireOpening(game, 'w', REP, 3);
+        expect(r.name).toBe('Obertura Catalana');
+        expect(r.forcedByOpponent).toBe(false);
+    });
+
+    test('si te\'n desvies TU primer, no és forçat', () => {
+        // Segueixes 3 jugades pròpies (d4, c4, g3) i a la 4a vas a Bf4 en lloc de Bg2.
+        const game = ['d4', 'Nf6', 'c4', 'e6', 'g3', 'd5', 'Bf4'];
+        const r = Core.matchUserRepertoireOpening(game, 'w', REP, 3);
+        expect(r.name).toBe('Obertura Catalana');
+        expect(r.userMatch).toBe(3);
+        expect(r.firstDevBy).toBe('w');     // la desviació és teva (ply parell)
+        expect(r.forcedByOpponent).toBe(false);
+    });
+
+    test('per sota del llindar de jugades pròpies, no identifica res', () => {
+        expect(Core.matchUserRepertoireOpening(['d4', 'd5'], 'w', REP, 3)).toBeNull();
+        expect(Core.matchUserRepertoireOpening([], 'w', REP, 3)).toBeNull();
+    });
+});
+
 // Comprovació de sanitat sobre les dades REALS d'obertures (obertures.js),
 // per detectar regressions de format/parseig al fitxer de dades.
 describe('dades reals (obertures.js)', () => {

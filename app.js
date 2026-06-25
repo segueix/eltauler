@@ -1750,6 +1750,19 @@ function findCuratedOpeningForGame(gameMoves) {
     return ElTaulerCore.findCuratedOpeningByPosition(idx, keys, 5);
 }
 
+// Identifica QUINA obertura del repertori estava jugant l'usuari (per les seves
+// PRÒPIES jugades, sigui quina sigui), i si el rival el va forçar a canviar.
+function identifyUserOpening(entry) {
+    if (!entry || typeof CURATED_OPENINGS === 'undefined') return null;
+    const moves = getHistoryMoves(entry);
+    if (!moves || !moves.length) return null;
+    const color = (entry.playerColor === 'b') ? 'b' : 'w';
+    const rep = CURATED_OPENINGS.map(function (op, i) {
+        return { index: i, eco: op.eco, name: op.name, userColor: op.userColor, moves: op.moves };
+    });
+    return ElTaulerCore.matchUserRepertoireOpening(moves, color, rep, 3);
+}
+
 function isOpeningUserTurn() {
     return openingPracticeGame && openingPracticeGame.turn() === openingPracticeUserColor;
 }
@@ -7168,23 +7181,56 @@ function renderLocalReviewHtml(entry) {
         const phases = buildPhaseStats(entry);
         const pct = v => (typeof v === 'number' ? `${v}%` : '—');
 
-        // --- Obertura ---
+        // --- Obertura (centrada en LA TEVA obertura, sigui quina sigui) ---
         const sanMoves = getHistoryMoves(entry);
         if (!openingTrie) { try { initOpeningSystem(); } catch (e) {} }
         let oa = null;
         try { oa = analyzeGameOpening(sanMoves); } catch (e) { oa = null; }
-        // Connexió amb el REPERTORI de l'app: si la partida coincideix (per posició,
-        // encara que sigui per transposició) amb una obertura del teu repertori,
-        // l'anomenem amb el NOM DE L'APP (p. ex. «Obertura Catalana»). Així l'anàlisi
-        // queda connectada amb les obertures que practiques i no diu un nom genèric.
+        // Obertura realitzada (per posició al repertori si hi encaixa, o per ECO).
         let curated = null;
         try { curated = findCuratedOpeningForGame(sanMoves); } catch (e) { curated = null; }
-        const openName = curated ? curated.name : (oa ? oa.name : null);
-        const openEco = curated ? curated.eco : (oa ? oa.eco : null);
-        if (openName) {
-            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(openName)}${openEco ? ` (${escapeHtml(openEco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
-            // La desviació de la teoria només té sentit quan NO hem identificat una
-            // obertura del repertori (que pot arribar-se per transposició).
+        // QUINA obertura del repertori estaves jugant TU (per les teves jugades),
+        // i si el rival et va forçar a canviar.
+        let userOp = null;
+        try { userOp = identifyUserOpening(entry); } catch (e) { userOp = null; }
+
+        const realizedName = curated ? curated.name : (oa ? oa.name : null);
+        const realizedEco = curated ? curated.eco : (oa ? oa.eco : null);
+        // La partida s'ha mantingut DINS la teva obertura del repertori?
+        const stayedInUserOpening = !!(userOp && curated && curated.index === userOp.index);
+        // El rival t'ha forçat a canviar d'obertura (va sortir ell primer de la línia
+        // i la partida ja no és la teva obertura)?
+        const forcedChange = !!(userOp && userOp.forcedByOpponent && !stayedInUserOpening);
+
+        let practiceIdx = null, practiceName = null, practiceEco = null;
+
+        if (userOp && forcedChange) {
+            // CANVI FORÇAT: 100% de correcció d'obertura i argument del canvi.
+            const devNum = Math.floor((userOp.firstDevPly || 0) / 2) + 1;
+            const devNotation = `${devNum}${userOp.firstDevBy === 'w' ? '.' : '...'}${userOp.deviationMove}`;
+            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · correcció <strong>100%</strong>.`;
+            txt += ` El rival no va entrar a la teva línia: va jugar <strong>${escapeHtml(devNotation)}</strong>`;
+            if (userOp.expectedMove) txt += ` (hi esperaves ${escapeHtml(userOp.expectedMove)})`;
+            if (realizedName && (!realizedEco || realizedEco !== userOp.eco)) {
+                txt += `, transposant cap a ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''}`;
+            }
+            txt += `. Vas mantenir el teu pla amb solidesa, així que el canvi no és culpa teva: la correcció d'obertura és del 100%.`;
+            blocks.push(`<p>${txt}</p>`);
+            practiceIdx = userOp.index; practiceName = userOp.name; practiceEco = userOp.eco;
+        } else if (userOp) {
+            // Vas jugar la teva obertura (el rival hi va entrar, o la vas variar tu).
+            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
+            if (!stayedInUserOpening && userOp.firstDevPly >= 0 && userOp.firstDevBy === (entry.playerColor || 'w')) {
+                const dn = Math.floor(userOp.firstDevPly / 2) + 1;
+                txt += ` Vas sortir de la teva línia a la jugada ${dn}`;
+                txt += userOp.expectedMove ? ` (la teoria seguia amb ${escapeHtml(userOp.expectedMove)}).` : '.';
+            }
+            blocks.push(`<p>${txt}</p>`);
+            practiceIdx = userOp.index; practiceName = userOp.name; practiceEco = userOp.eco;
+        } else if (realizedName) {
+            // No hem pogut identificar cap obertura teva del repertori: mostrem
+            // l'obertura realitzada (per posició/ECO) amb la desviació de la teoria.
+            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
             if (!curated && oa && oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
                 openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
@@ -7200,14 +7246,10 @@ function renderLocalReviewHtml(entry) {
                 } else openingTxt += '.';
             }
             blocks.push(`<p>${openingTxt}</p>`);
+            if (curated) { practiceIdx = curated.index; practiceName = curated.name; practiceEco = curated.eco; }
         }
 
         // --- Obertura del repertori per practicar (enllaços per a tots dos colors) ---
-        // Si hem identificat l'obertura del repertori jugada, hi enllacem
-        // directament; si no, busquem la més semblant per prefix de jugades.
-        let practiceIdx = curated ? curated.index : null;
-        let practiceName = curated ? curated.name : null;
-        let practiceEco = curated ? curated.eco : null;
         if (practiceIdx === null) {
             const closest = findClosestCuratedOpening(sanMoves);
             if (closest) { practiceIdx = closest.index; practiceName = closest.opening.name; practiceEco = closest.opening.eco; }
@@ -7215,8 +7257,8 @@ function renderLocalReviewHtml(entry) {
         if (practiceIdx !== null && practiceName) {
             const wLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="w">practicar amb blanques</a>`;
             const bLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="b">practicar amb negres</a>`;
-            const lead = curated
-                ? `aquesta partida és la teva <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''} del repertori`
+            const lead = (userOp || curated)
+                ? `reforça la teva <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''} del repertori`
                 : `l'obertura del repertori més semblant a la que vas jugar és <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''}`;
             blocks.push(`<p><strong>Per practicar:</strong> ${lead}. ${wLink} · ${bLink}.</p>`);
         }

@@ -349,6 +349,57 @@
         return best;
     }
 
+    // Identifica l'obertura del REPERTORI que l'usuari ESTAVA JUGANT, mirant
+    // NOMÉS les seves pròpies jugades (ignorant les del rival). Així es reconeix
+    // la seva intenció encara que el rival no col·labori (p. ex. l'usuari planteja
+    // la Catalana amb blanques i el rival respon ...g6). A més detecta si el rival
+    // va ser el PRIMER a sortir de la línia, cosa que vol dir que el canvi
+    // d'obertura va ser forçat i no és culpa de l'usuari.
+    //
+    // `repertoireList` = [{ index, eco, name, userColor:'w'|'b', moves:[SAN...] }]
+    // (moves és la línia completa, amb les jugades dels dos colors).
+    // Retorna { index, eco, name, userMatch, firstDevPly, firstDevBy,
+    // deviationMove, expectedMove, forcedByOpponent } o null.
+    function matchUserRepertoireOpening(gameMoves, playerColor, repertoireList, minUserMoves) {
+        if (!Array.isArray(gameMoves) || !gameMoves.length || !Array.isArray(repertoireList)) return null;
+        const norm = (s) => String(s || '').replace(/[+#!?]/g, '');
+        const g = gameMoves.map(norm);
+        const parity = playerColor === 'b' ? 1 : 0; // plies on juga l'usuari
+        const min = minUserMoves || 3;
+
+        let best = null;
+        for (const op of repertoireList) {
+            if (op.userColor && playerColor && op.userColor !== playerColor) continue;
+            const line = (op.moves || []).map(norm);
+            let userMatch = 0;
+            for (let i = parity; i < Math.min(line.length, g.length); i += 2) {
+                if (line[i] === g[i]) userMatch++; else break; // prefix de jugades PRÒPIES
+            }
+            if (userMatch >= min && (!best || userMatch > best.userMatch)) {
+                best = { index: op.index, eco: op.eco, name: op.name, userMatch: userMatch };
+            }
+        }
+        if (!best) return null;
+
+        // Primera divergència entre la partida i la línia (de qualsevol color).
+        const op = repertoireList.find((o) => o.index === best.index);
+        const line = (op.moves || []).map(norm);
+        let firstDevPly = -1;
+        for (let i = 0; i < Math.min(line.length, g.length); i++) {
+            if (line[i] !== g[i]) { firstDevPly = i; break; }
+        }
+        best.firstDevPly = firstDevPly;
+        if (firstDevPly >= 0) {
+            best.firstDevBy = (firstDevPly % 2 === 0) ? 'w' : 'b';
+            best.deviationMove = gameMoves[firstDevPly];           // SAN original (amb +#)
+            best.expectedMove = (op.moves || [])[firstDevPly] || null;
+            best.forcedByOpponent = best.firstDevBy !== playerColor; // el rival va sortir primer
+        } else {
+            best.forcedByOpponent = false; // la partida va seguir tota la línia
+        }
+        return best;
+    }
+
     // Totes les obertures que coincideixen amb la seqüència actual (subarbre).
     function getMatchingOpenings(trie, sequence) {
         if (!trie || sequence.length === 0) return [];
@@ -472,6 +523,7 @@
         buildOpeningPositionGraph,
         analyzeGameOpeningByPositions,
         findCuratedOpeningByPosition,
+        matchUserRepertoireOpening,
         START_POSITION_KEY
     };
 });
