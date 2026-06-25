@@ -9401,6 +9401,9 @@ const CURATED_OPENINGS = [
     { eco: 'A04', name: 'Atac Reti', userColor: 'w', cat: 'white', idea: 'Hipermodern: controla el centre amb peces i fianchetto.', moves: ['Nf3','d5','g3','Nf6','Bg2','c6','O-O','Bg4','d3'] },
     { eco: 'B03', name: 'Atac dels Quatre Peons', userColor: 'w', cat: 'white', idea: 'Avança quatre peons al centre contra l\'Alekhine; aposta per l\'espai.', moves: ['e4','Nf6','e5','Nd5','d4','d6','c4','Nb6','f4'] },
     { eco: 'D43', name: 'Semieslava', userColor: 'w', cat: 'white', idea: 'Pressió central amb c4 contra l\'estructura sòlida negra.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','e6','Bg5'] },
+    { eco: 'C50', name: 'Obertura Italiana (Giuoco Piano)', userColor: 'w', cat: 'white', idea: 'Desenvolupa l\'alfil a c4 apuntant a f7 i prepara c3 i d4; joc obert, natural i molt habitual.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3','d6'] },
+    { eco: 'C23', name: 'Obertura de l\'Alfil', userColor: 'w', cat: 'white', idea: 'Treu l\'alfil a c4 abans del cavall per evitar la Petrov i conservar l\'opció de f4.', moves: ['e4','e5','Bc4','Nf6','d3','Nc6','Nf3','Bc5','c3'] },
+    { eco: 'A07', name: 'Atac Índi de Rei', userColor: 'w', cat: 'white', idea: 'Sistema universal: fianchetto de rei, e4 diferit i atac al flanc de rei amb peces.', moves: ['Nf3','d5','g3','Nf6','Bg2','e6','O-O','Be7','d3','O-O','Nbd2'] },
     // === Defenses amb negres ===
     { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', cat: 'black', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','Nf6','Nc3','d6'] },
     { eco: 'B90', name: 'Siciliana Najdorf', userColor: 'b', cat: 'black', idea: 'La més ambiciosa: a6 prepara contrajoc als dos flancs.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
@@ -9417,7 +9420,9 @@ const CURATED_OPENINGS = [
     { eco: 'A60', name: 'Defensa Benoni Moderna', userColor: 'b', cat: 'black', idea: 'Accepta espai inferior a canvi de contrajoc dinàmic al flanc de dama.', moves: ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6'] },
     { eco: 'A80', name: 'Defensa Holandesa', userColor: 'b', cat: 'black', idea: 'f5 controla e4 i prepara un atac al flanc de rei.', moves: ['d4','f5','g3','Nf6','Bg2','e6','Nf3','Be7','O-O','O-O'] },
     { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', cat: 'black', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5','d4','Nf6','Nf3','c6'] },
-    { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] }
+    { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] },
+    { eco: 'C55', name: 'Defensa dels Dos Cavalls', userColor: 'b', cat: 'black', idea: 'Respon a l\'alfil italià amb ...Nf6 i busca contrajoc tàctic actiu de seguida.', moves: ['e4','e5','Nf3','Nc6','Bc4','Nf6','Ng5','d5','exd5','Na5'] },
+    { eco: 'B06', name: 'Defensa Moderna (Robatsch)', userColor: 'b', cat: 'black', idea: 'Cedeix el centre i fianchetta l\'alfil de rei per contraatacar-lo després amb peces i peons.', moves: ['e4','g6','d4','Bg7','Nc3','d6','Be3','a6'] }
 ];
 
 function hideOpeningRestartOverlay() {
