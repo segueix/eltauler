@@ -6496,6 +6496,10 @@ function updateHistoryReview(entry) {
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
+    // El botó de re-generar ressenya queda SEMPRE actiu quan hi ha una partida
+    // carregada (es pot tornar a demanar la redacció amb OpenAI tantes vegades
+    // com calgui). Si no hi ha clau d'OpenAI configurada, en clicar-lo s'avisa.
+    if (generateBtn.length) generateBtn.prop('disabled', false);
     const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
     // La ressenya local rica (obertura, fases, obertura semblant per practicar i
     // moments clau) es mostra SEMPRE, fins i tot quan hi ha una ressenya d'OpenAI:
@@ -6512,7 +6516,6 @@ function updateHistoryReview(entry) {
     html += localHtml;
     if (!html.trim()) {
         reviewContent.text('Encara no hi ha revisió per aquesta partida.');
-        if (generateBtn.length) generateBtn.prop('disabled', !openaiApiKey);
         return;
     }
     reviewContent.html(html);
@@ -6536,7 +6539,7 @@ function updateHistoryReview(entry) {
         const color = String($(this).data('color') || '');
         practiceOpeningFromHistory(Number.isNaN(idx) ? -1 : idx, color);
     });
-    if (generateBtn.length) generateBtn.prop('disabled', (review && review.text) ? true : !openaiApiKey);
+    // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
 }
 
 function escapeHtml(text) {
@@ -8073,7 +8076,8 @@ async function requestOpenAIReview(entry, severeErrors) {
     if (!entry || !openaiApiKey) return;
     const existingReview = entry.aiReview || entry.deepseekReview;
     if (existingReview && existingReview.status === 'pending') return;
-    if (existingReview && existingReview.text) return;
+    // NOTA: si ja existeix una ressenya, NO sortim: el botó «Re-generar ressenya»
+    // ha de poder tornar a demanar-ne una de nova.
     const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
         ? severeErrors
         : getEntrySevereErrors(entry);
@@ -12269,7 +12273,8 @@ function setupEvents() {
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
     $('#history-generate-review').off('click').on('click', () => {
-        if (!historyReplay || !historyReplay.entry) return;
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        if (!openaiApiKey) { showToast('Configura la clau d’OpenAI a Configuració per generar ressenyes', 'warn'); return; }
         const severeErrors = getEntrySevereErrors(historyReplay.entry);
         void requestOpenAIReview(historyReplay.entry, severeErrors);
     });
