@@ -386,7 +386,7 @@ function applyFontSize(pct) {
 // Navigation history management for mobile back gesture
 let navStack = [];
 function getCurrentScreen() {
-    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen'];
+    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'catalans-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen'];
     for (const s of screens) {
         const el = document.getElementById(s);
         if (el && el.style.display !== 'none' && (s !== 'game-screen' || el.classList.contains('active'))) return s;
@@ -412,6 +412,10 @@ function navGoBack() {
         $('#start-screen').show();
     } else if (current === 'league-screen') {
         $('#league-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'catalans-screen') {
+        if (window.CatalansMode && typeof window.CatalansMode.close === 'function') window.CatalansMode.close();
+        else $('#catalans-screen').hide();
         $('#start-screen').show();
     } else if (current === 'opening-screen') {
         $('#opening-screen').hide();
@@ -11494,6 +11498,18 @@ function setupEvents() {
         showToast(`Exportades ${pgns.length} partides ♟`, 'success');
     });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) { openLeague(); navPush('league-screen'); } });
+    $('#btn-catalans').click(() => {
+        $('#start-screen').hide();
+        if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
+        else $('#catalans-screen').show();
+        navPush('catalans-screen');
+    });
+    $('#btn-catalans-back').click(() => {
+        if (window.CatalansMode && typeof window.CatalansMode.close === 'function') window.CatalansMode.close();
+        else $('#catalans-screen').hide();
+        $('#start-screen').show();
+        navStack.pop();
+    });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); navStack.pop(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });

@@ -2950,6 +2950,7 @@
                         </div>
                     </div>
                     <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
+                    <button class="btn btn-catalans" id="btn-catalans"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Catalans vs Stockfish</button>
                 </div>
             </div>
 
@@ -3562,6 +3563,112 @@
             </div>
         </div>
 
+        <style>
+            .btn-catalans { background: linear-gradient(135deg,#b5121b 0%,#7a0c12 100%); color:#fff5e6; }
+            #catalans-screen { padding-bottom: 24px; }
+            .catalans-hero { text-align:center; margin-bottom:10px; }
+            .catalans-hero h1 { margin:6px 0 2px; }
+            .catalans-sub { color: var(--text-secondary); font-size:0.86rem; }
+            .catalans-elo-row { display:flex; gap:10px; justify-content:center; margin:12px 0; flex-wrap:wrap; }
+            .catalans-elo-box { background: rgba(255,255,255,0.04); border:1px solid rgba(201,162,39,0.18); border-radius:12px; padding:10px 16px; min-width:120px; text-align:center; }
+            .catalans-elo-label { font-size:0.72rem; text-transform:uppercase; letter-spacing:0.05em; color: var(--text-secondary); }
+            .catalans-elo-val { font-size:1.6rem; font-weight:700; }
+            .catalans-elo-box.cat .catalans-elo-val { color: var(--accent-gold); }
+            .catalans-elo-box.sf .catalans-elo-val { color: var(--accent-purple); }
+            #catalans-game-number { text-align:center; font-weight:600; color: var(--text-secondary); margin-bottom:4px; }
+            #catalans-lastgame { text-align:center; font-size:0.82rem; color: var(--text-secondary); margin-bottom:8px; }
+            .catalans-phase-bar { text-align:center; margin:8px 0; }
+            #catalans-phase { font-weight:700; }
+            #catalans-countdown { font-size:0.85rem; color: var(--text-secondary); }
+            #catalans-board { max-width: 440px; margin: 8px auto; width: 100%; }
+            #catalans-board .square-55d63.cat-selected { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.9); }
+            #catalans-board .square-55d63.cat-target::after { content:''; position:absolute; left:50%; top:50%; width:28%; height:28%; transform:translate(-50%,-50%); border-radius:50%; background: rgba(181,18,27,0.45); }
+            #catalans-board .square-55d63.cat-myvote { box-shadow: inset 0 0 0 4px rgba(46,160,67,0.85); }
+            #catalans-status { text-align:center; min-height:1.2em; color: var(--accent-gold); font-size:0.88rem; margin:6px 0; }
+            .catalans-vote-head { display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; }
+            .catalans-vote-head h3 { margin:0; font-size:1rem; }
+            #catalans-vote-total { color: var(--text-secondary); font-size:0.82rem; }
+            #catalans-vote-list { margin-top:6px; }
+            .catalans-vote-row { display:flex; align-items:center; gap:8px; margin:4px 0; }
+            .catalans-vote-row.catalans-vote-mine { font-weight:700; }
+            .catalans-vote-san { min-width:54px; }
+            .catalans-vote-bar { flex:1; height:10px; background: rgba(255,255,255,0.06); border-radius:6px; overflow:hidden; }
+            .catalans-vote-bar > span { display:block; height:100%; background: linear-gradient(90deg,#b5121b,#e0a020); }
+            .catalans-vote-n { min-width:24px; text-align:right; color: var(--text-secondary); }
+            .catalans-vote-empty { color: var(--text-secondary); font-size:0.85rem; }
+            .catalans-moves-box { margin-top:10px; background: rgba(255,255,255,0.03); border-radius:10px; padding:8px 12px; font-family:monospace; font-size:0.82rem; color: var(--text-secondary); word-break:break-word; }
+            .catalans-info-panel { margin-top:14px; background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.15); border-radius:12px; padding:12px 14px; font-size:0.84rem; color: var(--text-secondary); line-height:1.5; }
+            .catalans-info-panel h3 { margin:0 0 6px; color: var(--text-primary); font-size:0.95rem; }
+            #catalans-whoami { text-align:center; font-size:0.8rem; color: var(--text-secondary); margin-top:4px; }
+        </style>
+        <div id="catalans-screen" class="screen-anim" style="display:none;">
+            <div class="catalans-hero">
+                <div class="app-logo">⚔️</div>
+                <h1>Catalans vs Stockfish</h1>
+                <div class="catalans-sub">Una partida col·lectiva: tots votem el moviment dels Catalans</div>
+            </div>
+
+            <div id="catalans-game-number">Partida #1</div>
+            <div id="catalans-lastgame" style="display:none;"></div>
+
+            <div class="catalans-elo-row">
+                <div class="catalans-elo-box cat">
+                    <div class="catalans-elo-label" id="catalans-cat-label">ELO Catalans</div>
+                    <div class="catalans-elo-val" id="catalans-elo">1280</div>
+                </div>
+                <div class="catalans-elo-box sf">
+                    <div class="catalans-elo-label" id="catalans-sf-label">ELO Stockfish</div>
+                    <div class="catalans-elo-val" id="catalans-sf-elo">1280</div>
+                </div>
+            </div>
+
+            <div class="catalans-phase-bar">
+                <div id="catalans-phase">🟡 Torn dels Catalans</div>
+                <div id="catalans-countdown">—</div>
+            </div>
+
+            <div id="catalans-board"></div>
+
+            <div id="catalans-status"></div>
+            <div id="catalans-whoami" style="display:none;"></div>
+            <div style="text-align:center;">
+                <button class="btn btn-share" id="catalans-signin" style="display:none;">Inicia sessió amb Google per votar</button>
+            </div>
+
+            <div class="catalans-vote-head">
+                <h3>Vots d'aquest torn</h3>
+                <span id="catalans-vote-total"></span>
+            </div>
+            <div id="catalans-vote-list"></div>
+
+            <div class="catalans-moves-box" id="catalans-moves">—</div>
+
+            <div class="catalans-info-panel">
+                <h3>Com funciona</h3>
+                Quan toca moure als Catalans, fes el teu moviment al tauler: és el teu vot
+                (el pots canviar fins que acabi el torn). Passades <strong>24 hores</strong> des
+                de l'inici del torn, es tanca la votació i es juga el moviment <strong>més
+                votat</strong>; si hi ha empat, s'agafa el que <strong>Stockfish considera
+                millor</strong>. Després mou Stockfish. Partida rere partida calibrem la força
+                de Stockfish (comença a 1280 d'ELO) per estimar l'<strong>ELO col·lectiu</strong>
+                dels Catalans.
+                <br><br>
+                Quan la força estimada baixa del mínim real de Stockfish (~1350), es passa a
+                escala <strong>ROC</strong>: el motor juga debilitat (escollint entre diverses
+                jugades candidates amb profunditat reduïda) per reproduir nivells més baixos. I
+                si els Catalans <strong>perden</strong>, el ROC de la partida següent es recalcula
+                a partir dels <strong>errors i blunders</strong> de l'equip.
+                <br><br>
+                <em>Inspirat en «Kaspàrov contra el Món» (1999), on Garri Kaspàrov es va
+                enfrontar a la resta del món, que decidia cada jugada per votació majoritària
+                a un ritme d'un moviment per dia.</em>
+            </div>
+
+            <div class="menu-buttons" style="margin-top:16px;">
+                <button class="btn btn-secondary" id="btn-catalans-back">Menú</button>
+            </div>
+        </div>
+
         <div id="game-screen">
             <div class="header">
                 <div class="header-title" id="game-mode-title">♞ En joc</div>
@@ -3733,6 +3840,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
+    <script src="catalans.js?v=1.0.2"></script>
     <script>
         window.APP_VERSION = '1.0.17';
         (function () {
