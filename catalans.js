@@ -114,6 +114,10 @@
   let selectedSquare = null; // casella seleccionada en mode "toc"
   let countdownTimer = null;
   let resolving = false;     // evita reentrades mentre resolem un torn localment
+  let previewActive = false; // s'està revisant una jugada/proposta al tauler
+  let previewPly = null;     // jugada de la transcripció que es revisa (si escau)
+  let previewUci = null;     // jugada proposada que es revisa (si escau)
+  let lastPlySeen = -1;      // per detectar quan avança la partida
   let opened = false;        // la pantalla s'ha obert alguna vegada
   let subscribed = false;    // la subscripció en temps real està activa i sense errors
   let pendingHistory = null; // resum a desar a l'historial després de confirmar la transacció
@@ -406,6 +410,13 @@
   function onStateChanged() {
     if (!state) return;
 
+    // Si la partida ha avançat (nova jugada), surt de qualsevol revisió per
+    // tornar a la posició real abans de redibuixar.
+    if (state.ply !== lastPlySeen) {
+      lastPlySeen = state.ply;
+      if (previewActive) exitPreview();
+    }
+
     // Reconstrueix la posició local i el tauler.
     localChess = newChess(state.fen);
     renderBoard();
@@ -694,7 +705,7 @@
     return state && state.phase === 'catalans';
   }
   function canIPlay() {
-    return isCatalansTurn() && !!currentUser();
+    return isCatalansTurn() && !!currentUser() && !previewActive;
   }
 
   function onDragStart(source, piece) {
@@ -747,6 +758,8 @@
     });
   }
   function onSquareClick(square) {
+    // Si estem revisant una jugada, un clic al tauler torna a la partida real.
+    if (previewActive) { exitPreview(); return; }
     if (!canIPlay()) { if (!currentUser()) promptSignIn(); return; }
     const c = newChess(state.fen);
     if (selectedSquare) {
@@ -787,6 +800,7 @@
   }
 
   function renderBoard() {
+    if (previewActive) return; // no sobreescriguis la posició que s'està revisant
     const fen = state.fen;
     if (!board) {
       board = Chessboard('catalans-board', {
@@ -809,26 +823,116 @@
     setTimeout(highlightMyVote, 30);
   }
 
+  // Compte enrere fins al canvi de torn: SEMPRE amb segons, i amb hores i minuts
+  // quan en queden.
   function fmtDuration(ms) {
     if (ms < 0) ms = 0;
     const s = Math.floor(ms / 1000);
     const h = Math.floor(s / 3600);
     const m = Math.floor((s % 3600) / 60);
     const sec = s % 60;
-    if (h > 0) return h + 'h ' + m + 'm';
+    if (h > 0) return h + 'h ' + m + 'm ' + sec + 's';
     if (m > 0) return m + 'm ' + sec + 's';
     return sec + 's';
+  }
+
+  // --- Revisió de jugades / propostes al tauler -----------------------------
+  function escapeSan(s) {
+    return String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // FEN després de jugar les primeres `n` jugades (per revisar la transcripció).
+  function fenAfterPly(n) {
+    const c = newChess();
+    const moves = (state && state.movesSan) || [];
+    for (let i = 0; i < n && i < moves.length; i++) {
+      if (!c.move(moves[i], { sloppy: true })) break;
+    }
+    return c.fen();
+  }
+
+  function setActiveMove(ply) {
+    $('#catalans-moves .cat-move').removeClass('cat-move-active');
+    if (ply != null) $('#catalans-moves .cat-move[data-ply="' + ply + '"]').addClass('cat-move-active');
+  }
+
+  // Mostra una posició al tauler en mode revisió (sense afectar el vot real).
+  function showPreview(fen, label, fromToUci) {
+    previewActive = true;
+    clearSelection();
+    // Reinicia ressaltats d'una revisió anterior (en canviar de jugada/proposta).
+    setActiveMove(null);
+    $('#catalans-vote-list .catalans-vote-row').removeClass('catalans-vote-preview');
+    $('#catalans-board .square-55d63').removeClass('cat-myvote cat-preview-from cat-preview-to');
+    if (board) board.position(fen, false);
+    if (fromToUci && fromToUci.length >= 4) {
+      setTimeout(function () {
+        squareEl(fromToUci.slice(0, 2)).addClass('cat-preview-from');
+        squareEl(fromToUci.slice(2, 4)).addClass('cat-preview-to');
+      }, 30);
+    }
+    $('#catalans-preview-label').text(label || '');
+    $('#catalans-preview-bar').css('display', 'block');
+  }
+
+  function exitPreview() {
+    if (!previewActive) return;
+    previewActive = false;
+    previewPly = null; previewUci = null;
+    $('#catalans-preview-bar').hide();
+    $('#catalans-board .square-55d63').removeClass('cat-preview-from cat-preview-to');
+    setActiveMove(null);
+    $('#catalans-vote-list .catalans-vote-row').removeClass('catalans-vote-preview');
+    if (board && state) board.position(state.fen, false);
+    setTimeout(highlightMyVote, 30);
+  }
+
+  // Revisa la posició DESPRÉS de la jugada número `ply` de la transcripció.
+  function previewMoveAtPly(ply) {
+    if (!state || !ply) return;
+    const moves = state.movesSan || [];
+    const san = moves[ply - 1] || '';
+    const moveNum = Math.floor((ply - 1) / 2) + 1;
+    const dots = (ply % 2 === 1) ? '.' : '…';
+    const ft = (state.movesUci && state.movesUci[ply - 1]) || null;
+    previewPly = ply; previewUci = null;
+    showPreview(fenAfterPly(ply), 'Jugada ' + moveNum + dots + ' ' + san, ft);
+    setActiveMove(ply);
+  }
+
+  // Revisa al tauler una jugada PROPOSADA (vot), per veure com quedaria.
+  function previewVote(uci) {
+    if (!uci || !state) return;
+    const childFen = applyUciToFen(state.fen, uci);
+    if (!childFen) return;
+    let san = uci;
+    try {
+      const c = newChess(state.fen);
+      const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4, 5) || undefined });
+      if (mv) san = mv.san;
+    } catch (e) {}
+    previewUci = uci; previewPly = null;
+    showPreview(childFen, 'Proposta: ' + san, uci);
+    $('#catalans-vote-list .catalans-vote-row').removeClass('catalans-vote-preview');
+    $('#catalans-vote-list .catalans-vote-row[data-uci="' + uci + '"]').addClass('catalans-vote-preview');
   }
 
   function renderInfo() {
     $('#catalans-game-number').text('Partida #' + (state.gameNumber || 1));
     // Etiqueta ELO o ROC segons si la força és per sota del terra del motor.
-    const catVal = Math.round(state.catalansElo || START_SF_ELO);
     const sfVal = Math.round(state.sfElo || START_SF_ELO);
-    $('#catalans-elo').text(catVal);
     $('#catalans-sf-elo').text(sfVal);
-    $('#catalans-cat-label').text((isRocMode(catVal) ? 'ROC' : 'ELO') + ' Catalans');
     $('#catalans-sf-label').text((isRocMode(sfVal) ? 'ROC' : 'ELO') + ' Stockfish');
+    // L'ELO/ROC dels Catalans NO es mostra fins que la partida acaba (s'actualitza
+    // al final): durant el joc es manté ocult per no condicionar les votacions.
+    if (state.phase === 'finished') {
+      const catVal = Math.round(state.catalansElo || START_SF_ELO);
+      $('#catalans-elo').text(catVal);
+      $('#catalans-cat-label').text((isRocMode(catVal) ? 'ROC' : 'ELO') + ' Catalans');
+    } else {
+      $('#catalans-elo').text('🔒');
+      $('#catalans-cat-label').text('Catalans · al final');
+    }
 
     // Resum de l'última partida acabada.
     const lg = state.lastGame;
@@ -854,13 +958,21 @@
       $('#catalans-lastgame').hide();
     }
 
-    // Llista de moviments.
+    // Transcripció de la partida: cada jugada és clicable per revisar-la al tauler.
     const moves = state.movesSan || [];
-    let pgn = '';
-    for (let i = 0; i < moves.length; i += 2) {
-      pgn += (i / 2 + 1) + '. ' + moves[i] + (moves[i + 1] ? ' ' + moves[i + 1] + ' ' : ' ');
+    if (!moves.length) {
+      $('#catalans-moves').html('—');
+    } else {
+      let html = '';
+      for (let i = 0; i < moves.length; i++) {
+        if (i % 2 === 0) html += '<span class="cat-move-num">' + (i / 2 + 1) + '.</span> ';
+        html += '<span class="cat-move" data-ply="' + (i + 1) + '">' + escapeSan(moves[i]) + '</span> ';
+      }
+      html += '<span class="cat-moves-hint">Toca una jugada per veure la posició al tauler.</span>';
+      $('#catalans-moves').html(html);
+      // Si estem revisant una jugada concreta, manté-la ressaltada després del re-render.
+      if (previewActive && previewPly != null) setActiveMove(previewPly);
     }
-    $('#catalans-moves').text(pgn || '—');
   }
 
   function renderVotes() {
@@ -893,9 +1005,10 @@
     list.forEach(function (item) {
       const pct = total > 0 ? Math.round(item.n / total * 100) : 0;
       const mine = item.uci === myVoteUci ? ' catalans-vote-mine' : '';
+      const prev = (previewActive && item.uci === previewUci) ? ' catalans-vote-preview' : '';
       const row = $(
-        '<div class="catalans-vote-row' + mine + '">' +
-        '<span class="catalans-vote-san">' + item.san + '</span>' +
+        '<div class="catalans-vote-row' + mine + prev + '" data-uci="' + item.uci + '" title="Toca per veure aquesta jugada al tauler">' +
+        '<span class="catalans-vote-san">' + escapeSan(item.san) + '</span>' +
         '<span class="catalans-vote-bar"><span style="width:' + pct + '%"></span></span>' +
         '<span class="catalans-vote-n">' + item.n + '</span>' +
         '</div>'
@@ -1010,5 +1123,17 @@
   // Permet que la pantalla de login reusi CloudSync.
   $(function () {
     $('#catalans-signin').on('click', promptSignIn);
+    // Revisió de jugades: clic a una jugada de la transcripció.
+    $('#catalans-moves').on('click', '.cat-move', function () {
+      const ply = parseInt($(this).attr('data-ply'), 10);
+      if (!isNaN(ply)) previewMoveAtPly(ply);
+    });
+    // Revisió de propostes: clic a un moviment ja votat per veure'l al tauler.
+    $('#catalans-vote-list').on('click', '.catalans-vote-row', function () {
+      const uci = $(this).attr('data-uci');
+      if (uci) previewVote(uci);
+    });
+    // Tornar de la revisió a la partida real.
+    $('#catalans-preview-back').on('click', function () { exitPreview(); });
   });
 })();
