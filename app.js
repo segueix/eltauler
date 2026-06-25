@@ -8008,6 +8008,12 @@ async function requestPositionAnalysis() {
 function buildOpenAIReviewPrompt(entry, severeErrors) {
     const summary = entry.counts || {};
     const moves = getHistoryMoves(entry);
+    // Si no ens passen errades (o l'entrada antiga no en tenia desades), les
+    // derivem de la informació guardada (severeErrors + moveReviews) perquè la
+    // regeneració sempre tingui contingut concret a analitzar.
+    if (!Array.isArray(severeErrors) || !severeErrors.length) {
+        severeErrors = getEntryReviewErrors(entry);
+    }
     
     const errorsDetail = severeErrors.map((err, idx) => {
         const moveNum = err.moveNumber || '?';
@@ -8080,7 +8086,7 @@ async function requestOpenAIReview(entry, severeErrors) {
     // ha de poder tornar a demanar-ne una de nova.
     const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
         ? severeErrors
-        : getEntrySevereErrors(entry);
+        : getEntryReviewErrors(entry);
     entry.aiReview = { status: 'pending', text: '' };
     saveStorage();
     updateHistoryReview(historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id ? historyReplay.entry : entry);
@@ -8952,7 +8958,12 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             evalAfter: review.evalAfter ?? null
         })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
-        severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
+        // Persistim les errades greus derivades de la revisió completa perquè
+        // l'entrada sigui AUTOSUFICIENT per regenerar la ressenya més endavant
+        // (encara que `review` es buidi i `currentReview` ja no existeixi).
+        severeErrors: Array.isArray(options.severeErrors) && options.severeErrors.length
+            ? options.severeErrors
+            : getSevereErrors(currentReview),
         aiReview: options.aiReview || options.deepseekReview || options.geminiReview || null,
         playerColor: playerColor,
         opponent: currentOpponent || null,
@@ -12275,7 +12286,7 @@ function setupEvents() {
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
         if (!openaiApiKey) { showToast('Configura la clau d’OpenAI a Configuració per generar ressenyes', 'warn'); return; }
-        const severeErrors = getEntrySevereErrors(historyReplay.entry);
+        const severeErrors = getEntryReviewErrors(historyReplay.entry);
         void requestOpenAIReview(historyReplay.entry, severeErrors);
     });
     $('#history-export-pgn').off('click').on('click', () => {
