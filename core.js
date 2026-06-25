@@ -324,6 +324,31 @@
         return result;
     }
 
+    // Connexió amb el REPERTORI de l'app: troba quina obertura del repertori
+    // (curatedList) ha assolit la partida, identificant-la per POSICIÓ (immune a
+    // transposicions). `curatedList` = [{ index, eco, name, keys:[positionKey] }]
+    // amb les claus de posició de cada línia del repertori; `gameKeys` = claus de
+    // posició de la partida. Retorna la coincidència MÉS PROFUNDA amb almenys
+    // `minDepth` plies (per defecte 5, prou per distingir, p. ex., una Catalana
+    // d'una Nimzo-Índia, que comparteixen les 4 primeres jugades), o null.
+    function findCuratedOpeningByPosition(curatedList, gameKeys, minDepth) {
+        if (!Array.isArray(curatedList) || !Array.isArray(gameKeys) || gameKeys.length === 0) return null;
+        const min = minDepth || 5;
+        const gset = new Set(gameKeys);
+        let best = null;
+        for (const c of curatedList) {
+            const keys = c.keys || [];
+            let depth = 0;
+            for (let i = 0; i < keys.length; i++) {
+                if (gset.has(keys[i])) depth = i + 1; // posició del repertori més profunda assolida
+            }
+            if (depth >= min && (!best || depth > best.depth)) {
+                best = { index: c.index, eco: c.eco, name: c.name, depth: depth };
+            }
+        }
+        return best;
+    }
+
     // Totes les obertures que coincideixen amb la seqüència actual (subarbre).
     function getMatchingOpenings(trie, sequence) {
         if (!trie || sequence.length === 0) return [];
@@ -446,6 +471,7 @@
         positionKeyFromFen,
         buildOpeningPositionGraph,
         analyzeGameOpeningByPositions,
+        findCuratedOpeningByPosition,
         START_POSITION_KEY
     };
 });

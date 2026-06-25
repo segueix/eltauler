@@ -148,6 +148,38 @@ describe('analyzeGameOpeningByPositions (per posició)', () => {
     });
 });
 
+// Connexió amb el repertori de l'app per POSICIÓ (transposicions incloses).
+describe('findCuratedOpeningByPosition (repertori per posició)', () => {
+    // Reutilitzem el model sintètic: la "posició" depèn del conjunt de jugades.
+    const synthKeys = (moves) => moves.map((_, idx) => {
+        const i = idx + 1;
+        const setKey = moves.slice(0, i).slice().sort().join(',');
+        return `${setKey} ${i % 2 === 0 ? 'w' : 'b'} -`;
+    });
+    const curatedList = [
+        { index: 0, eco: 'E01', name: 'Obertura Catalana', keys: synthKeys(['d4', 'Nf6', 'c4', 'e6', 'g3', 'd5']) },
+        { index: 1, eco: 'E60', name: 'Índia de Rei', keys: synthKeys(['d4', 'Nf6', 'c4', 'g6', 'Bg7', 'd6']) }
+    ];
+
+    test('reconeix la Catalana del repertori encara que sigui per transposició', () => {
+        const game = synthKeys(['d4', 'd5', 'c4', 'e6', 'g3', 'Nf6']); // ordre diferent
+        const r = Core.findCuratedOpeningByPosition(curatedList, game, 5);
+        expect(r).not.toBeNull();
+        expect(r.name).toBe('Obertura Catalana');
+        expect(r.depth).toBeGreaterThanOrEqual(5);
+    });
+
+    test('no confon obertures que només comparteixen el principi (per sota del llindar)', () => {
+        const game = synthKeys(['d4', 'd5']); // massa curt
+        expect(Core.findCuratedOpeningByPosition(curatedList, game, 5)).toBeNull();
+    });
+
+    test('entrades no vàlides retornen null', () => {
+        expect(Core.findCuratedOpeningByPosition(null, ['x'], 5)).toBeNull();
+        expect(Core.findCuratedOpeningByPosition(curatedList, [], 5)).toBeNull();
+    });
+});
+
 // Comprovació de sanitat sobre les dades REALS d'obertures (obertures.js),
 // per detectar regressions de format/parseig al fitxer de dades.
 describe('dades reals (obertures.js)', () => {

@@ -1704,6 +1704,38 @@ function getOpeningPositionGraph() {
     return openingPositionGraph;
 }
 
+// Índex de posicions del REPERTORI de l'app (CURATED_OPENINGS). És una llista
+// petita (~50 obertures), així que es pot calcular a l'instant i de manera
+// síncrona, sense esperar cap graf: permet anomenar les obertures de la partida
+// amb el NOM DE L'APP (p. ex. «Obertura Catalana») de forma fiable.
+let curatedPositionIndex = null;
+function getCuratedPositionIndex() {
+    if (curatedPositionIndex) return curatedPositionIndex;
+    if (typeof CURATED_OPENINGS === 'undefined' || typeof Chess === 'undefined') return null;
+    try {
+        const keyFn = ElTaulerCore.positionKeyFromFen;
+        curatedPositionIndex = CURATED_OPENINGS.map(function (op, i) {
+            return {
+                index: i, eco: op.eco, name: op.name,
+                keys: fenSeqForMoves(op.moves || []).map(keyFn)
+            };
+        });
+    } catch (e) {
+        console.warn('[Openings] No s\'ha pogut indexar el repertori', e);
+        curatedPositionIndex = null;
+    }
+    return curatedPositionIndex;
+}
+
+// Quina obertura del repertori de l'app ha jugat aquesta partida (per posició,
+// immune a transposicions). Retorna { index, eco, name, depth } o null.
+function findCuratedOpeningForGame(gameMoves) {
+    const idx = getCuratedPositionIndex();
+    if (!idx || !Array.isArray(gameMoves) || !gameMoves.length) return null;
+    const keys = fenSeqForMoves(gameMoves).map(ElTaulerCore.positionKeyFromFen);
+    return ElTaulerCore.findCuratedOpeningByPosition(idx, keys, 5);
+}
+
 function isOpeningUserTurn() {
     return openingPracticeGame && openingPracticeGame.turn() === openingPracticeUserColor;
 }
@@ -7113,9 +7145,19 @@ function renderLocalReviewHtml(entry) {
         if (!openingTrie) { try { initOpeningSystem(); } catch (e) {} }
         let oa = null;
         try { oa = analyzeGameOpening(sanMoves); } catch (e) { oa = null; }
-        if (oa && oa.name) {
-            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(oa.name)}${oa.eco ? ` (${escapeHtml(oa.eco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
-            if (oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
+        // Connexió amb el REPERTORI de l'app: si la partida coincideix (per posició,
+        // encara que sigui per transposició) amb una obertura del teu repertori,
+        // l'anomenem amb el NOM DE L'APP (p. ex. «Obertura Catalana»). Així l'anàlisi
+        // queda connectada amb les obertures que practiques i no diu un nom genèric.
+        let curated = null;
+        try { curated = findCuratedOpeningForGame(sanMoves); } catch (e) { curated = null; }
+        const openName = curated ? curated.name : (oa ? oa.name : null);
+        const openEco = curated ? curated.eco : (oa ? oa.eco : null);
+        if (openName) {
+            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(openName)}${openEco ? ` (${escapeHtml(openEco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
+            // La desviació de la teoria només té sentit quan NO hem identificat una
+            // obertura del repertori (que pot arribar-se per transposició).
+            if (!curated && oa && oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
                 openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
                 if (Array.isArray(oa.theoryMoves) && oa.theoryMoves.length) {
@@ -7132,12 +7174,23 @@ function renderLocalReviewHtml(entry) {
             blocks.push(`<p>${openingTxt}</p>`);
         }
 
-        // --- Obertura més semblant per practicar (enllaços per a tots dos colors) ---
-        const closest = findClosestCuratedOpening(sanMoves);
-        if (closest) {
-            const wLink = `<a href="#" class="opening-practice-link" data-idx="${closest.index}" data-color="w">practicar amb blanques</a>`;
-            const bLink = `<a href="#" class="opening-practice-link" data-idx="${closest.index}" data-color="b">practicar amb negres</a>`;
-            blocks.push(`<p><strong>Per practicar:</strong> l'obertura del repertori més semblant a la que vas jugar és <strong>${escapeHtml(closest.opening.name)}</strong> (${escapeHtml(closest.opening.eco)}). ${wLink} · ${bLink}.</p>`);
+        // --- Obertura del repertori per practicar (enllaços per a tots dos colors) ---
+        // Si hem identificat l'obertura del repertori jugada, hi enllacem
+        // directament; si no, busquem la més semblant per prefix de jugades.
+        let practiceIdx = curated ? curated.index : null;
+        let practiceName = curated ? curated.name : null;
+        let practiceEco = curated ? curated.eco : null;
+        if (practiceIdx === null) {
+            const closest = findClosestCuratedOpening(sanMoves);
+            if (closest) { practiceIdx = closest.index; practiceName = closest.opening.name; practiceEco = closest.opening.eco; }
+        }
+        if (practiceIdx !== null && practiceName) {
+            const wLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="w">practicar amb blanques</a>`;
+            const bLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="b">practicar amb negres</a>`;
+            const lead = curated
+                ? `aquesta partida és la teva <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''} del repertori`
+                : `l'obertura del repertori més semblant a la que vas jugar és <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''}`;
+            blocks.push(`<p><strong>Per practicar:</strong> ${lead}. ${wLink} · ${bLink}.</p>`);
         }
 
         // --- Mig joc ---
