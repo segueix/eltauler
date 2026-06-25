@@ -1693,9 +1693,23 @@ function prewarmOpeningPositionGraph() {
             openingPositionGraph = { byPos: byPos, theory: theory };
             openingGraphBuilding = false;
             console.log(`[Openings] Graf de posicions llest (${byPos.size} posicions amb nom)`);
+            // Si hi ha una ressenya oberta que es va renderitzar amb el trie
+            // (detecció pobra perquè el graf encara no estava llest), la refresquem
+            // ara perquè mostri el nom d'obertura correcte.
+            try { refreshCurrentHistoryReview(); } catch (e) {}
         }
     }
     scheduleOpeningIdle(step);
+}
+
+// Torna a renderitzar la ressenya de la partida actualment carregada a
+// l'historial (si n'hi ha cap). S'usa quan acaba de construir-se el graf de
+// posicions per actualitzar la detecció d'obertura sense recarregar res.
+function refreshCurrentHistoryReview() {
+    if (typeof historyReplay !== 'undefined' && historyReplay && historyReplay.entry &&
+        typeof updateHistoryReview === 'function') {
+        updateHistoryReview(historyReplay.entry);
+    }
 }
 
 // Retorna el graf si està llest (i n'engega la construcció en segon pla si cal).
@@ -6464,6 +6478,9 @@ function buildEntryPgn(entry) {
 function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
+    // Engega la construcció del graf de posicions (si encara no s'ha fet): així,
+    // quan estigui llest, la ressenya s'actualitzarà amb el nom d'obertura precís.
+    try { prewarmOpeningPositionGraph(); } catch (e) {}
     initHistoryBoard(entry);
     const moves = getHistoryMoves(entry);
     historyReplay = {
