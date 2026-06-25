@@ -9405,6 +9405,9 @@ const CURATED_OPENINGS = [
     { eco: 'C23', name: 'Obertura de l\'Alfil', userColor: 'w', cat: 'white', idea: 'Treu l\'alfil a c4 abans del cavall per evitar la Petrov i conservar l\'opció de f4.', moves: ['e4','e5','Bc4','Nf6','d3','Nc6','Nf3','Bc5','c3'] },
     { eco: 'A07', name: 'Atac Índi de Rei', userColor: 'w', cat: 'white', idea: 'Sistema universal: fianchetto de rei, e4 diferit i atac al flanc de rei amb peces.', moves: ['Nf3','d5','g3','Nf6','Bg2','e6','O-O','Be7','d3','O-O','Nbd2'] },
     { eco: 'B31', name: 'Siciliana: Rossolimo (Bb5)', userColor: 'w', cat: 'white', idea: 'Anti-Siciliana sòlida: l\'alfil a b5 pressiona el cavall c6 i evita les línies obertes més teòriques.', moves: ['e4','c5','Nf3','Nc6','Bb5','g6','Bxc6','dxc6','d3','Bg7'] },
+    { eco: 'A45', name: 'Atac Trompowsky', userColor: 'w', cat: 'white', idea: 'Surt amb Bg5 el segon moviment per evitar la teoria índia i canviar pel cavall f6.', moves: ['d4','Nf6','Bg5','Ne4','Bf4','d5','e3','c5'] },
+    { eco: 'A46', name: 'Atac Torre', userColor: 'w', cat: 'white', idea: 'Desplegament còmode amb Nf3 i Bg5 contra estructures amb ...e6; fàcil i sòlid.', moves: ['d4','Nf6','Nf3','e6','Bg5','h6','Bh4','b6'] },
+    { eco: 'D05', name: 'Sistema Colle', userColor: 'w', cat: 'white', idea: 'Estructura sòlida amb e3 i Bd3 preparant el trencament central e4.', moves: ['d4','d5','Nf3','Nf6','e3','e6','Bd3','c5','c3','Nc6'] },
     // === Defenses amb negres ===
     { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', cat: 'black', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','Nf6','Nc3','d6'] },
     { eco: 'B90', name: 'Siciliana Najdorf', userColor: 'b', cat: 'black', idea: 'La més ambiciosa: a6 prepara contrajoc als dos flancs.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
@@ -9428,7 +9431,10 @@ const CURATED_OPENINGS = [
     { eco: 'B33', name: 'Siciliana Sveshnikov', userColor: 'b', cat: 'black', idea: 'Avança ...e5 aviat acceptant un peó endarrerit a d6 a canvi d\'activitat de peces.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','Nf6','Nc3','e5'] },
     { eco: 'B35', name: 'Siciliana Dragó Accelerat', userColor: 'b', cat: 'black', idea: 'Fianchetto ràpid sense ...d6 per estalviar temps i pressionar el centre amb ...d5.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','g6','Nc3','Bg7','Be3','Nf6'] },
     { eco: 'B47', name: 'Siciliana Taimanov', userColor: 'b', cat: 'black', idea: 'Desplegament flexible amb ...e6 i ...Qc7; manté opcions sobre on col·locar les peces.', moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','Nc6','Nc3','Qc7'] },
-    { eco: 'B42', name: 'Siciliana Kan', userColor: 'b', cat: 'black', idea: 'Estructura elàstica amb ...a6 i ...e6: prepara ...b5 i evita pins primerencs.', moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','a6','Nc3','Qc7'] }
+    { eco: 'B42', name: 'Siciliana Kan', userColor: 'b', cat: 'black', idea: 'Estructura elàstica amb ...a6 i ...e6: prepara ...b5 i evita pins primerencs.', moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','a6','Nc3','Qc7'] },
+    { eco: 'E11', name: 'Defensa Bogo-Índia', userColor: 'b', cat: 'black', idea: 'Clava amb ...Bb4+ per simplificar i jugar una posició sòlida i equilibrada.', moves: ['d4','Nf6','c4','e6','Nf3','Bb4+','Bd2','Qe7'] },
+    { eco: 'A52', name: 'Gambit Budapest', userColor: 'b', cat: 'black', idea: 'Sacrifica un peó amb ...e5 per obtenir peces actives i amenaces ràpides.', moves: ['d4','Nf6','c4','e5','dxe5','Ng4','Bf4','Nc6','Nf3','Bb4+'] },
+    { eco: 'D08', name: 'Contragambit Albin', userColor: 'b', cat: 'black', idea: 'Respon al gambit de dama amb ...e5, cedint un peó per a un peó avançat a d4 molt molest.', moves: ['d4','d5','c4','e5','dxe5','d4','Nf3','Nc6','g3','Be6'] }
 ];
 
 function hideOpeningRestartOverlay() {
