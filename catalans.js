@@ -115,6 +115,7 @@
   let countdownTimer = null;
   let resolving = false;     // evita reentrades mentre resolem un torn localment
   let opened = false;        // la pantalla s'ha obert alguna vegada
+  let subscribed = false;    // la subscripció en temps real està activa i sense errors
   let pendingHistory = null; // resum a desar a l'historial després de confirmar la transacció
 
   // ---------------------------------------------------------------------------
@@ -355,11 +356,31 @@
   // ---------------------------------------------------------------------------
   //  Inicialització del document (crea'l si no existeix)
   // ---------------------------------------------------------------------------
+  // Descriu un error de Firestore de manera accionable per a l'usuari.
+  function describeFsError(err) {
+    const code = err && err.code ? String(err.code) : '';
+    if (code.indexOf('permission') !== -1) {
+      return currentUser()
+        ? 'Permís denegat per Firestore. Cal publicar les regles de la col·lecció «eltauler_catalans» (vegeu SINCRONITZACIO_FIREBASE.md).'
+        : 'Per jugar la partida global cal iniciar sessió amb Google. Si l\'error persisteix, cal publicar les regles de Firestore.';
+    }
+    if (code.indexOf('unavailable') !== -1) return 'Sense connexió amb Firestore. Reintentant…';
+    return 'Error de connexió amb la partida global' + (code ? ' (' + code + ')' : '') + '.';
+  }
+
   function ensureDoc() {
     return docRef.get().then(function (snap) {
-      if (snap.exists) return;
-      return docRef.set(freshGameState(null));
-    }).catch(function (e) { console.warn('[Catalans] ensureDoc', e); });
+      if (snap.exists) return true;
+      if (!currentUser()) {
+        setStatus('Encara no hi ha cap partida en curs. Inicia sessió amb Google per començar-ne una.');
+        return false;
+      }
+      return docRef.set(freshGameState(null)).then(function () { return true; });
+    }).catch(function (e) {
+      console.warn('[Catalans] ensureDoc', e);
+      setStatus(describeFsError(e));
+      return false;
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -368,12 +389,14 @@
   function subscribe() {
     if (unsub) { unsub(); unsub = null; }
     unsub = docRef.onSnapshot(function (snap) {
+      subscribed = true;
       if (!snap.exists) { ensureDoc(); return; }
       state = snap.data();
       onStateChanged();
     }, function (err) {
+      subscribed = false;
       console.warn('[Catalans] onSnapshot', err);
-      setStatus('Error de connexió amb la partida global.');
+      setStatus(describeFsError(err));
     });
   }
 
@@ -943,6 +966,12 @@
         firebase.auth().onAuthStateChanged(function () {
           renderAuthState();
           if (state) { updateMyVoteFromState(); renderVotes(); renderBoard(); }
+          // Si encara no tenim estat (abans no teníem permís o no hi havia
+          // partida), reintenta ara que l'usuari s'ha autenticat: pot crear el
+          // document i/o tornar a subscriure's amb permisos.
+          if (!state || !subscribed) {
+            ensureDoc().then(function () { subscribe(); });
+          }
         });
       } catch (e) {}
     }

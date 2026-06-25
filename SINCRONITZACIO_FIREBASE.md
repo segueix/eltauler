@@ -53,19 +53,26 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
        match /eltauler_users/{userId} {
          allow read, write: if request.auth != null && request.auth.uid == userId;
        }
-       // Partida col·lectiva «Catalans vs Stockfish»: document compartit per
-       // tots els usuaris autenticats (cadascú hi escriu el seu vot i, quan
-       // toca, qualsevol client hi aplica la jugada resultant).
+       // Partida col·lectiva «Catalans vs Stockfish»: document compartit.
+       // Lectura PÚBLICA (qualsevol pot mirar la partida sense iniciar sessió);
+       // escriptura només per a usuaris autenticats (votar i fer avançar la
+       // partida requereix sessió amb Google).
        match /eltauler_catalans/{docId} {
-         allow read, write: if request.auth != null;
+         allow read: if true;
+         allow write: if request.auth != null;
        }
      }
    }
    ```
 
-   Així cada usuari només pot llegir i escriure les **seves pròpies** dades, i
-   qualsevol usuari amb sessió iniciada pot participar en la partida col·lectiva.
+   Així cada usuari només pot llegir i escriure les **seves pròpies** dades; la
+   partida col·lectiva es pot **mirar** sense sessió, però per **votar** (i per
+   fer-la avançar) cal haver iniciat sessió amb Google.
    Clica **Publish**.
+
+   > ⚠️ **Si veus «Error de connexió amb la partida global»**, gairebé sempre és
+   > perquè aquestes regles encara no s'han publicat (Firestore denega la
+   > lectura). Enganxa-les al panell **Rules** i clica **Publish**.
 
 ## 5. Autoritza el teu domini
 
