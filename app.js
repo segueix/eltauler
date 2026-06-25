@@ -9408,6 +9408,10 @@ const CURATED_OPENINGS = [
     { eco: 'A45', name: 'Atac Trompowsky', userColor: 'w', cat: 'white', idea: 'Surt amb Bg5 el segon moviment per evitar la teoria índia i canviar pel cavall f6.', moves: ['d4','Nf6','Bg5','Ne4','Bf4','d5','e3','c5'] },
     { eco: 'A46', name: 'Atac Torre', userColor: 'w', cat: 'white', idea: 'Desplegament còmode amb Nf3 i Bg5 contra estructures amb ...e6; fàcil i sòlid.', moves: ['d4','Nf6','Nf3','e6','Bg5','h6','Bh4','b6'] },
     { eco: 'D05', name: 'Sistema Colle', userColor: 'w', cat: 'white', idea: 'Estructura sòlida amb e3 i Bd3 preparant el trencament central e4.', moves: ['d4','d5','Nf3','Nf6','e3','e6','Bd3','c5','c3','Nc6'] },
+    { eco: 'A03', name: 'Obertura Bird', userColor: 'w', cat: 'white', idea: 'Controla e5 amb 1.f4 i busca un atac al flanc de rei amb estructura de tipus holandès.', moves: ['f4','d5','Nf3','Nf6','e3','g6','Be2','Bg7','O-O','O-O'] },
+    { eco: 'A01', name: 'Atac Nimzowitsch-Larsen', userColor: 'w', cat: 'white', idea: 'Fianchetto de dama amb 1.b3: l\'alfil a b2 pressiona la diagonal llarga i el centre.', moves: ['b3','e5','Bb2','Nc6','e3','Nf6','Bb5','Bd6'] },
+    { eco: 'A00', name: 'Obertura Sokolsky (Orangutan)', userColor: 'w', cat: 'white', idea: 'Sorprèn amb 1.b4 guanyant espai al flanc de dama i activant l\'alfil a b2.', moves: ['b4','e5','Bb2','Bxb4','Bxe5','Nf6','Nf3','d6'] },
+    { eco: 'D00', name: 'Atac Stonewall', userColor: 'w', cat: 'white', idea: 'Aixeca un mur de peons (d4-e3-f4) i ataca el flanc de rei amb l\'alfil a d3.', moves: ['d4','d5','e3','Nf6','Bd3','e6','f4','c5','c3','Nc6'] },
     // === Defenses amb negres ===
     { eco: 'B20', name: 'Defensa Siciliana', userColor: 'b', cat: 'black', idea: 'Lluita asimètrica: c5 desafia el centre blanc.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','Nf6','Nc3','d6'] },
     { eco: 'B90', name: 'Siciliana Najdorf', userColor: 'b', cat: 'black', idea: 'La més ambiciosa: a6 prepara contrajoc als dos flancs.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','a6'] },
