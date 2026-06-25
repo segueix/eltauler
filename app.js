@@ -6542,6 +6542,20 @@ function updateHistoryReview(entry) {
     // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
 }
 
+// Renova la ressenya LOCAL d'una partida (no depèn de cap clau d'IA): incrementa
+// la llavor perquè la propera renderització triï una veu i una redacció noves, i
+// invalida les memòries cau associades. La nova llavor es desa amb la partida.
+function regenerateLocalReview(entry) {
+    if (!entry) return;
+    entry.reviewSeed = (entry.reviewSeed || 0) + 1;
+    const newKey = entry.id + ':r' + entry.reviewSeed;
+    try {
+        if (_localDebriefCache && typeof _localDebriefCache === 'object') delete _localDebriefCache[newKey];
+        if (_coachVoiceByKey && typeof _coachVoiceByKey === 'object') delete _coachVoiceByKey[newKey];
+    } catch (e) {}
+    try { saveStorage(); } catch (e) {}
+}
+
 function escapeHtml(text) {
     return String(text)
         .replace(/&/g, '&amp;')
@@ -7075,6 +7089,10 @@ function renderLocalReviewHtml(entry) {
     const blocks = [];
     try {
         const facts = buildDebriefFacts(entry);
+        // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
+        // màxima noves) cada cop que es prem «Re-generar ressenya», sense dependre
+        // de cap clau d'IA. Si no s'ha regenerat mai, la llavor és l'id de partida.
+        const seedKey = entry.id + (entry.reviewSeed ? ':r' + entry.reviewSeed : '');
 
         // --- Màxima d'inici ---
         let maxim = '';
@@ -7084,7 +7102,7 @@ function renderLocalReviewHtml(entry) {
         }
 
         if (facts) {
-            const debrief = composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id));
+            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey));
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
         const phases = buildPhaseStats(entry);
@@ -12285,9 +12303,19 @@ function setupEvents() {
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
-        if (!openaiApiKey) { showToast('Configura la clau d’OpenAI a Configuració per generar ressenyes', 'warn'); return; }
-        const severeErrors = getEntryReviewErrors(historyReplay.entry);
-        void requestOpenAIReview(historyReplay.entry, severeErrors);
+        const entry = historyReplay.entry;
+        // La ressenya rica LOCAL (obertura, fases, moments clau…) no depèn de cap
+        // clau: sempre es pot tornar a generar. La redacció addicional amb OpenAI
+        // només s'hi afegeix si hi ha clau configurada.
+        regenerateLocalReview(entry);
+        if (openaiApiKey) {
+            const severeErrors = getEntryReviewErrors(entry);
+            void requestOpenAIReview(entry, severeErrors);
+            showToast('Regenerant ressenya…', 'info');
+        } else {
+            updateHistoryReview(entry);
+            showToast('Ressenya regenerada ✓', 'success');
+        }
     });
     $('#history-export-pgn').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
