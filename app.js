@@ -1461,7 +1461,13 @@ function commitHumanMove(from, to, promotionPiece) {
     updateStatus();
 
     if (game.game_over()) {
-        if (blunderMode) handleBundleGameOver(); else runAfterPaint(() => handleGameOver());
+        if (blunderMode) {
+            handleBundleGameOver();
+        } else {
+            pendingGameOverAfterMoveAnalysis = true;
+            $('#status').text('Analitzant l’última jugada…');
+            analyzeMove();
+        }
         return true;
     }
 
@@ -2686,6 +2692,7 @@ let pendingAnalysisDepth = null;
 let pendingBestMovePv = [];
 let pendingAlternatives = [];
 let enrichedAnalysisBuffer = {};
+let pendingGameOverAfterMoveAnalysis = false;
 
 let eloHistory = [];
 let totalGamesPlayed = 0;
@@ -13949,7 +13956,13 @@ function onDrop(source, target) {
     updateStatus();
 
     if (game.game_over()) {
-        if (blunderMode) handleBundleGameOver(); else runAfterPaint(() => handleGameOver());
+        if (blunderMode) {
+            handleBundleGameOver();
+        } else {
+            pendingGameOverAfterMoveAnalysis = true;
+            $('#status').text('Analitzant l’última jugada…');
+            analyzeMove();
+        }
         return;
     }
 
@@ -14022,7 +14035,15 @@ function chooseFallbackMove(fallbackMove, chessInstance = game) {
 }
 
 function analyzeMove() {
-    if (!stockfish && !ensureStockfish()) { setTimeout(makeEngineMove, 300); return; }
+    if (!stockfish && !ensureStockfish()) {
+        if (pendingGameOverAfterMoveAnalysis && game && game.game_over()) {
+            pendingGameOverAfterMoveAnalysis = false;
+            runAfterPaint(() => handleGameOver());
+        } else {
+            setTimeout(makeEngineMove, 300);
+        }
+        return;
+    }
 
     if (blunderMode && (bundleAcceptMode === 'top1' || bundleAcceptMode === 'top2')) {
         const bundleKey = lastPosition || currentBundleFen;
@@ -14529,6 +14550,11 @@ function handleEngineMessage(rawMsg) {
             pendingEvalBefore = null;
             pendingEvalAfter = null;
             pendingAnalysisFen = null;
+
+            if (pendingGameOverAfterMoveAnalysis && game && game.game_over()) {
+                pendingGameOverAfterMoveAnalysis = false;
+                runAfterPaint(() => handleGameOver());
+            }
         }
         return;
     }
