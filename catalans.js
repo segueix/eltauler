@@ -38,7 +38,7 @@
 
   const TURN_MS = 24 * 60 * 60 * 1000;   // 24 h perquè votin els Catalans
   const NEXT_GAME_MS = 24 * 60 * 60 * 1000; // 24 h entre el final d'una partida i la següent
-  const START_SF_ELO = 1280;             // Stockfish comença aquí
+  const START_SF_ELO = 1350;             // Stockfish comença aquí
   // Terra real de força del binari inclòs: per sota d'aquest valor el motor no
   // pot jugar més fluix amb UCI_Elo, així que passem a mode ROC (debilitació via
   // MultiPV + profunditat reduïda), igual que fa app.js per a usuaris febles.

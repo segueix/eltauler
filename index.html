@@ -2930,6 +2930,16 @@
                 </div>
             </div>
             
+            <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
+                <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
+                <span class="catalans-banner-text">
+                    <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
+                    <span class="catalans-banner-title">Catalans vs Stockfish</span>
+                    <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment de l'equip</span>
+                </span>
+                <span class="catalans-banner-cta">Juga-hi ›</span>
+            </button>
+
             <div class="engagement-banner" id="engagement-banner" style="display:none;">
                 <span class="eng-icon">💡</span>
                 <span class="eng-text"></span>
@@ -2978,7 +2988,6 @@
                         </div>
                     </div>
                     <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
-                    <button class="btn btn-catalans" id="btn-catalans"><svg class="btn-ic" aria-hidden="true"><use href="#ic-swords"/></svg>Catalans vs Stockfish</button>
                 </div>
             </div>
 
@@ -3593,6 +3602,41 @@
 
         <style>
             .btn-catalans { background: linear-gradient(135deg,#b5121b 0%,#7a0c12 100%); color:#fff5e6; }
+            /* Bàner destacat «Catalans vs Stockfish» (a dalt del tot, prominent) */
+            .catalans-banner {
+                display: flex; align-items: center; gap: 14px; width: 100%;
+                margin: 6px 0 14px; padding: 16px 18px;
+                border: 1px solid rgba(201,162,39,0.45); border-radius: 16px; cursor: pointer;
+                color: #fff5e6; text-align: left; position: relative; overflow: hidden;
+                background: linear-gradient(135deg, #b5121b 0%, #7a0c12 55%, #5e0a0f 100%);
+                box-shadow: 0 6px 18px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.05);
+                transition: transform .15s ease, box-shadow .15s ease;
+            }
+            .catalans-banner::after {
+                content:''; position:absolute; right:-34px; top:-34px; width:150px; height:150px; pointer-events:none;
+                background: radial-gradient(circle, rgba(201,162,39,0.28), transparent 70%);
+            }
+            .catalans-banner:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,0.45); }
+            .catalans-banner:active { transform: translateY(0); }
+            .catalans-banner-ic {
+                width: 2.7rem; height: 2.7rem; flex: 0 0 auto; z-index:1;
+                fill:none; stroke: var(--accent-gold); stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));
+            }
+            .catalans-banner-text { display:flex; flex-direction:column; gap:2px; flex:1 1 auto; min-width:0; z-index:1; }
+            .catalans-banner-live { display:inline-flex; align-items:center; gap:5px; font-size:0.66rem; font-weight:700; letter-spacing:0.08em; color:#ffd9a8; opacity:0.95; }
+            .catalans-banner-live .cb-dot { width:7px; height:7px; border-radius:50%; background:#ff5252; box-shadow:0 0 0 0 rgba(255,82,82,0.7); animation: cbPulse 1.8s infinite; }
+            @keyframes cbPulse { 0%{box-shadow:0 0 0 0 rgba(255,82,82,0.65);} 70%{box-shadow:0 0 0 7px rgba(255,82,82,0);} 100%{box-shadow:0 0 0 0 rgba(255,82,82,0);} }
+            .catalans-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
+            .catalans-banner-sub { font-size:0.8rem; opacity:0.9; line-height:1.25; }
+            .catalans-banner-cta { flex:0 0 auto; z-index:1; font-weight:700; font-size:0.9rem; color: var(--accent-gold); background: rgba(0,0,0,0.25); padding:7px 14px; border-radius:999px; white-space:nowrap; }
+            @media (max-width: 560px) {
+                .catalans-banner { padding:14px; gap:12px; }
+                .catalans-banner-ic { width:2.3rem; height:2.3rem; }
+                .catalans-banner-title { font-size:1.06rem; }
+                .catalans-banner-sub { font-size:0.76rem; }
+                .catalans-banner-cta { display:none; }
+            }
             #catalans-screen { padding-bottom: 24px; }
             .catalans-hero { text-align:center; margin-bottom:10px; }
             .catalans-hero h1 { margin:6px 0 2px; }
@@ -3689,11 +3733,11 @@
             <div class="catalans-elo-row">
                 <div class="catalans-elo-box cat">
                     <div class="catalans-elo-label" id="catalans-cat-label">ELO Catalans</div>
-                    <div class="catalans-elo-val" id="catalans-elo">1280</div>
+                    <div class="catalans-elo-val" id="catalans-elo">1350</div>
                 </div>
                 <div class="catalans-elo-box sf">
                     <div class="catalans-elo-label" id="catalans-sf-label">ELO Stockfish</div>
-                    <div class="catalans-elo-val" id="catalans-sf-elo">1280</div>
+                    <div class="catalans-elo-val" id="catalans-sf-elo">1350</div>
                 </div>
             </div>
 
@@ -3943,7 +3987,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.0.4"></script>
+    <script src="catalans.js?v=1.0.5"></script>
     <script>
         window.APP_VERSION = '1.0.17';
         (function () {
