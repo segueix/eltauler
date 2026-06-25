@@ -39,13 +39,63 @@
   const TURN_MS = 24 * 60 * 60 * 1000;   // 24 h perquè votin els Catalans
   const RESULT_DISPLAY_MS = 30 * 1000;   // temps mostrant el resultat abans de la nova partida
   const START_SF_ELO = 1280;             // Stockfish comença aquí
-  const ENGINE_FLOOR = 1350;             // terra real de força del binari inclòs (informatiu)
-  const SF_ELO_MIN = 800;
-  const SF_ELO_MAX = 2850;
-  const CAT_ELO_MIN = 500;
+  // Terra real de força del binari inclòs: per sota d'aquest valor el motor no
+  // pot jugar més fluix amb UCI_Elo, així que passem a mode ROC (debilitació via
+  // MultiPV + profunditat reduïda), igual que fa app.js per a usuaris febles.
+  const ENGINE_FLOOR = 1350;
+  const STRENGTH_MIN = 200;              // ROC mínim (mode feble)
+  const STRENGTH_MAX = 2850;             // UCI_Elo màxim del binari
+  const CAT_ELO_MIN = 200;
   const CAT_ELO_MAX = 2900;
   const ENGINE_MOVETIME_MS = 1500;       // temps de càlcul de la jugada de Stockfish
   const TIEBREAK_DEPTH = 12;             // profunditat per triar el millor entre empatats
+  const ANALYSIS_DEPTH = 12;             // profunditat per mesurar la qualitat de joc dels Catalans
+  const BLUNDER_CP = 200;                // pèrdua (centipeons) que compta com a blunder
+  const BLUNDER_ROC_PENALTY = 35;        // ROC que es resta per cada blunder de l'equip
+
+  // Indica si una força donada s'ha d'interpretar com a ROC (mode feble) o ELO.
+  function isRocMode(strength) { return (strength || START_SF_ELO) < ENGINE_FLOOR; }
+  function clampStrength(v) {
+    return Math.max(STRENGTH_MIN, Math.min(STRENGTH_MAX, Math.round(v || START_SF_ELO)));
+  }
+
+  // Corba ROC → pèrdua humana tolerable (centipeons). Per sota del terra del
+  // motor, és la finestra de selecció MultiPV que crea nivells ROC diferents.
+  // Mateixos punts d'ancoratge que app.js (getHumanLikeMaxCpLoss).
+  function humanLikeMaxCpLoss(roc) {
+    return interpolatePoints(roc, [[STRENGTH_MIN, 900], [600, 700], [1000, 350], [1230, 220], [ENGINE_FLOOR, 80]]);
+  }
+  // Invers: pèrdua mitjana de l'equip → ROC equivalent (calibratge per derrota).
+  function rocFromAvgCpLoss(avgCpLoss) {
+    return interpolatePoints(avgCpLoss, [[80, ENGINE_FLOOR], [220, 1230], [350, 1000], [700, 600], [900, STRENGTH_MIN]]);
+  }
+  function interpolatePoints(x, pts) {
+    if (x <= pts[0][0]) return pts[0][1];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = pts[i], b = pts[i + 1];
+      if (x <= b[0]) {
+        const t = Math.max(0, Math.min(1, (x - a[0]) / Math.max(1, b[0] - a[0])));
+        return a[1] + (b[1] - a[1]) * t;
+      }
+    }
+    return pts[pts.length - 1][1];
+  }
+
+  // ROC de la propera partida a partir dels errors i blunders de l'equip català.
+  function rocFromTeamPlay(stats) {
+    if (!stats || !stats.moves) return ENGINE_FLOOR - 100;
+    const avg = stats.totalCpLoss / stats.moves;
+    let roc = rocFromAvgCpLoss(avg) - (stats.blunders || 0) * BLUNDER_ROC_PENALTY;
+    return Math.max(STRENGTH_MIN, Math.min(ENGINE_FLOOR, Math.round(roc)));
+  }
+
+  // Profunditat de cerca segons la força (reutilitza el nucli si està disponible).
+  function searchDepthFor(strength) {
+    if (typeof window !== 'undefined' && window.ElTaulerCore && ElTaulerCore.eloToSearchDepth) {
+      return ElTaulerCore.eloToSearchDepth(strength, ENGINE_FLOOR, STRENGTH_MAX);
+    }
+    return strength >= ENGINE_FLOOR ? 14 : Math.max(2, Math.round(2 + (strength / ENGINE_FLOOR) * 10));
+  }
 
   // Jitter aleatori abans d'executar transicions, per repartir la càrrega entre
   // clients (el guard per ply evita duplicats igualment).
@@ -96,8 +146,8 @@
     let worker = null;
     let ready = false;
     let busy = false;
-    let onBest = null;       // callback quan arriba "bestmove"
-    let lastScore = null;    // últim "score" (cp, des del bàndol que mou) de l'anàlisi en curs
+    let onDone = null;       // callback quan arriba "bestmove"
+    let cur = {};            // multipv index -> { move, score, idx }
 
     function ensure() {
       if (worker) return true;
@@ -116,47 +166,56 @@
       return true;
     }
 
+    function parseScore(line) {
+      const m = line.match(/score (cp|mate) (-?\d+)/);
+      if (!m) return 0;
+      if (m[1] === 'cp') return parseInt(m[2], 10);
+      const n = parseInt(m[2], 10);
+      return (n >= 0 ? 1 : -1) * (100000 - Math.abs(n));
+    }
+
     function handleLine(line) {
       if (!line) return;
-      if (line.indexOf('uciok') === 0 || line === 'uciok') { ready = true; return; }
-      if (line.indexOf('info') === 0) {
-        // Captura l'última puntuació de la línia principal.
-        const m = line.match(/score (cp|mate) (-?\d+)/);
-        if (m) {
-          if (m[1] === 'cp') lastScore = parseInt(m[2], 10);
-          else lastScore = (parseInt(m[2], 10) >= 0 ? 1 : -1) * (100000 - Math.abs(parseInt(m[2], 10)));
-        }
+      if (line.indexOf('uciok') !== -1) { ready = true; return; }
+      if (line.indexOf('info') === 0 && line.indexOf(' pv ') !== -1) {
+        const mm = line.match(/multipv (\d+)/);
+        const idx = mm ? parseInt(mm[1], 10) : 1;
+        const pv = line.split(' pv ')[1];
+        const move = pv ? pv.trim().split(/\s+/)[0] : null;
+        if (move) cur[idx] = { move: move, score: parseScore(line), idx: idx };
         return;
       }
       if (line.indexOf('bestmove') === 0) {
         const parts = line.split(/\s+/);
         const best = parts[1] && parts[1] !== '(none)' ? parts[1] : null;
-        const cb = onBest;
-        onBest = null;
+        const lines = Object.keys(cur).map(function (k) { return cur[k]; }).sort(function (a, b) { return a.idx - b.idx; });
+        const cb = onDone;
+        onDone = null;
         busy = false;
-        if (cb) cb({ bestmove: best, score: lastScore });
+        if (cb) cb({ best: best, lines: lines });
       }
     }
 
     function send(cmd) { if (worker) worker.postMessage(cmd); }
 
-    // Executa una cerca i resol amb { bestmove, score }. Serialitzat: una alhora.
-    function search(opts) {
+    // Cerca serialitzada. Resol amb { best, lines } on lines[i].score és des del
+    // bàndol que mou (multipv 1 = millor). Serialitzat: una alhora.
+    function go(opts) {
       return new Promise(function (resolve) {
-        if (!ensure()) { resolve({ bestmove: null, score: null }); return; }
+        if (!ensure()) { resolve({ best: null, lines: [] }); return; }
         const run = function () {
           busy = true;
-          lastScore = null;
-          onBest = resolve;
+          cur = {};
+          onDone = resolve;
           send('setoption name UCI_LimitStrength value ' + (opts.elo ? 'true' : 'false'));
           if (opts.elo) send('setoption name UCI_Elo value ' + Math.round(opts.elo));
+          send('setoption name MultiPV value ' + (opts.multipv || 1));
           send('position fen ' + opts.fen);
           send(opts.depth ? ('go depth ' + opts.depth) : ('go movetime ' + (opts.movetime || ENGINE_MOVETIME_MS)));
         };
-        // Espera que el motor estigui llest i lliure.
         const wait = function (n) {
           if (ready && !busy) return run();
-          if (n <= 0) { busy = true; lastScore = null; onBest = resolve; setTimeout(run, 50); return; }
+          if (n <= 0) { busy = true; cur = {}; onDone = resolve; setTimeout(run, 50); return; }
           setTimeout(function () { wait(n - 1); }, 100);
         };
         wait(60);
@@ -164,10 +223,29 @@
     }
 
     return {
-      // Millor jugada de Stockfish a una força (Elo) determinada.
+      go: go,
+      // Jugada de Stockfish a un UCI_Elo real (força >= terra del motor).
       move: function (fen, elo) {
-        return search({ fen: fen, elo: elo, movetime: ENGINE_MOVETIME_MS })
-          .then(function (r) { return r.bestmove; });
+        return go({ fen: fen, elo: elo, movetime: ENGINE_MOVETIME_MS }).then(function (r) { return r.best; });
+      },
+      // Jugada DEBILITADA en mode ROC (força < terra): tria entre diversos
+      // candidats MultiPV un moviment amb una pèrdua "humana" propera al sostre
+      // del nivell, amb profunditat reduïda. Així el motor juga realment més fluix.
+      weakMove: function (fen, roc) {
+        const depth = searchDepthFor(roc);
+        const k = roc < 600 ? 8 : (roc < 1000 ? 6 : 5);
+        const maxLoss = humanLikeMaxCpLoss(roc);
+        return go({ fen: fen, depth: depth, multipv: k }).then(function (r) {
+          if (!r.lines.length) return r.best;
+          const bestScore = r.lines[0].score;
+          const eligible = r.lines.filter(function (l) { return (bestScore - l.score) <= maxLoss; });
+          const pool = eligible.length ? eligible : [r.lines[0]];
+          return pool[Math.floor(Math.random() * pool.length)].move;
+        });
+      },
+      // Anàlisi a plena força: { best, lines } (multipv configurable).
+      analyze: function (fen, depth, multipv) {
+        return go({ fen: fen, depth: depth, multipv: multipv || 1 });
       },
       // D'entre uns candidats (uci), el millor per al BLANC (els Catalans).
       pickBestForWhite: function (fen, candidates) {
@@ -178,10 +256,11 @@
           chain = chain.then(function () {
             const childFen = applyUciToFen(fen, uci);
             if (!childFen) return;
-            return search({ fen: childFen, depth: TIEBREAK_DEPTH }).then(function (r) {
-              // r.score és des del bàndol que mou DESPRÉS del moviment (el negre):
+            return go({ fen: childFen, depth: TIEBREAK_DEPTH, multipv: 1 }).then(function (r) {
+              // El score és des del bàndol que mou DESPRÉS del moviment (negre):
               // el valor per al blanc és el negatiu.
-              const whiteVal = r.score == null ? 0 : -r.score;
+              const sc = r.lines.length ? r.lines[0].score : 0;
+              const whiteVal = -sc;
               if (whiteVal > bestVal) { bestVal = whiteVal; best = uci; }
             });
           });
@@ -190,6 +269,32 @@
       }
     };
   })();
+
+  // Mesura la qualitat d'una jugada dels Catalans (blanc): pèrdua en centipeons
+  // respecte la millor jugada i si és un blunder. Resol { cpLoss, blunder }.
+  function evaluateTeamMove(fen, uci) {
+    return Engine.analyze(fen, ANALYSIS_DEPTH, 12).then(function (r) {
+      if (!r.lines.length) return { cpLoss: 0, blunder: false };
+      const best = r.lines[0].score;           // millor, des del blanc (mou el blanc)
+      let played = null;
+      for (let i = 0; i < r.lines.length; i++) {
+        if (r.lines[i].move === uci) { played = r.lines[i].score; break; }
+      }
+      if (played != null) {
+        const cpLoss = Math.max(0, best - played);
+        return { cpLoss: cpLoss, blunder: cpLoss >= BLUNDER_CP };
+      }
+      // La jugada votada no és al top-K: avalua la posició filla.
+      const childFen = applyUciToFen(fen, uci);
+      if (!childFen) return { cpLoss: 0, blunder: false };
+      return Engine.analyze(childFen, ANALYSIS_DEPTH, 1).then(function (cr) {
+        const childScore = cr.lines.length ? cr.lines[0].score : 0; // mou el negre
+        const playedWhite = -childScore;
+        const cpLoss = Math.max(0, best - playedWhite);
+        return { cpLoss: cpLoss, blunder: cpLoss >= BLUNDER_CP };
+      });
+    });
+  }
 
   // ---------------------------------------------------------------------------
   //  Helpers d'escacs (chess.js)
@@ -212,7 +317,7 @@
   function freshGameState(prev) {
     const c = newChess();
     const gameNumber = prev ? (prev.gameNumber || 1) + 1 : 1;
-    const sfElo = prev ? clampSfElo(prev.nextSfElo || prev.sfElo || START_SF_ELO) : START_SF_ELO;
+    const sfElo = prev ? clampStrength(prev.nextSfElo || prev.sfElo || START_SF_ELO) : START_SF_ELO;
     const catalansElo = prev ? (prev.catalansElo || START_SF_ELO) : START_SF_ELO;
     const now = Date.now();
     return {
@@ -229,14 +334,12 @@
       result: null,
       lastMove: null,
       votes: {},
+      catTeamStats: { moves: 0, totalCpLoss: 0, blunders: 0 }, // qualitat de joc de l'equip
       lastGame: prev && prev.lastGame ? prev.lastGame : null,
       updatedAt: now
     };
   }
 
-  function clampSfElo(v) {
-    return Math.max(SF_ELO_MIN, Math.min(SF_ELO_MAX, Math.round(v || START_SF_ELO)));
-  }
   function clampCatElo(v) {
     return Math.max(CAT_ELO_MIN, Math.min(CAT_ELO_MAX, Math.round(v)));
   }
@@ -371,15 +474,18 @@
     const expectedPly = state.ply;
     return computeWinningMove().then(function (winnerUci) {
       if (!winnerUci) return;
-      pendingHistory = null;
-      return db.runTransaction(function (tx) {
-        return tx.get(docRef).then(function (snap) {
-          const d = snap.data();
-          if (!d || d.phase !== 'catalans' || d.ply !== expectedPly) return; // ja resolt
-          if (Date.now() < (d.deadlineAt || 0)) return;                       // encara hi ha temps
-          applyMoveInTransaction(tx, d, winnerUci, 'catalans');
-        });
-      }).then(flushPendingHistory);
+      // Mesura la qualitat de la jugada de l'equip (pèrdua/blunder) per al calibratge ROC.
+      return evaluateTeamMove(state.fen, winnerUci).then(function (quality) {
+        pendingHistory = null;
+        return db.runTransaction(function (tx) {
+          return tx.get(docRef).then(function (snap) {
+            const d = snap.data();
+            if (!d || d.phase !== 'catalans' || d.ply !== expectedPly) return; // ja resolt
+            if (Date.now() < (d.deadlineAt || 0)) return;                       // encara hi ha temps
+            applyMoveInTransaction(tx, d, winnerUci, 'catalans', quality);
+          });
+        }).then(flushPendingHistory);
+      });
     });
   }
 
@@ -392,8 +498,10 @@
     const expectedPly = state.ply;
     const fen = state.fen;
     const sfElo = state.sfElo || START_SF_ELO;
-    setStatus('Stockfish està pensant…');
-    return Engine.move(fen, sfElo).then(function (uci) {
+    setStatus(isRocMode(sfElo) ? 'Stockfish està pensant… (mode ROC ' + Math.round(sfElo) + ')' : 'Stockfish està pensant…');
+    // Per sota del terra del motor, juga en mode ROC (debilitat); si no, UCI_Elo.
+    const movePromise = isRocMode(sfElo) ? Engine.weakMove(fen, sfElo) : Engine.move(fen, sfElo);
+    return movePromise.then(function (uci) {
       if (!uci) {
         // Sense jugada (mat/ofegat ja detectat) — assegura coherència.
         return;
@@ -410,7 +518,7 @@
   }
 
   // Aplica un moviment (uci) dins d'una transacció, gestionant final de partida.
-  function applyMoveInTransaction(tx, d, uci, mover) {
+  function applyMoveInTransaction(tx, d, uci, mover, quality) {
     const c = newChess(d.fen);
     const mv = c.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.slice(4, 5) || 'q' });
     if (!mv) return; // jugada il·legal: no facis res
@@ -420,6 +528,14 @@
     const movesUci = (d.movesUci || []).concat(uciOf(mv));
     const lastMove = { uci: uciOf(mv), san: mv.san, by: mover, from: mv.from, to: mv.to };
 
+    // Acumula la qualitat de joc de l'equip català (només jugades dels Catalans).
+    const prevStats = d.catTeamStats || { moves: 0, totalCpLoss: 0, blunders: 0 };
+    const teamStats = (mover === 'catalans' && quality) ? {
+      moves: (prevStats.moves || 0) + 1,
+      totalCpLoss: (prevStats.totalCpLoss || 0) + (quality.cpLoss || 0),
+      blunders: (prevStats.blunders || 0) + (quality.blunder ? 1 : 0)
+    } : prevStats;
+
     const base = {
       fen: c.fen(),
       movesSan: movesSan,
@@ -427,6 +543,7 @@
       ply: (d.ply || 0) + 1,
       lastMove: lastMove,
       votes: {},                 // neteja els vots per al proper torn
+      catTeamStats: teamStats,
       updatedAt: now
     };
 
@@ -440,13 +557,35 @@
       } else {
         result = 'draw'; S = 0.5; // taules (ofegat, material insuficient, 50 moviments, triple repetició)
       }
-      const newCatElo = updatedCatalansElo(d.catalansElo || START_SF_ELO, d.sfElo || START_SF_ELO, S, d.gameNumber || 1);
+
+      const prevStrength = d.sfElo || START_SF_ELO;
+      const avgCpLoss = teamStats.moves ? Math.round(teamStats.totalCpLoss / teamStats.moves) : null;
+      let newCatElo, nextStrength;
+
+      if (result === 'stockfish') {
+        // DERROTA: el ROC de la propera partida es calcula a partir dels errors i
+        // blunders de l'equip català. Una derrota mai apuja la força (cap a baix).
+        const rocFromPlay = rocFromTeamPlay(teamStats);
+        nextStrength = clampStrength(Math.min(prevStrength, rocFromPlay));
+        newCatElo = nextStrength;     // l'estimació col·lectiva reflecteix el joc real
+      } else {
+        // Victòria o taules: model d'Elo estàndard (apuja/manté la força).
+        newCatElo = updatedCatalansElo(d.catalansElo || START_SF_ELO, prevStrength, S, d.gameNumber || 1);
+        nextStrength = clampStrength(newCatElo);
+      }
+
       const summary = {
         gameNumber: d.gameNumber || 1,
         result: result,
-        sfElo: d.sfElo || START_SF_ELO,
+        sfElo: prevStrength,
+        rocMode: isRocMode(prevStrength),
         prevCatalansElo: d.catalansElo || START_SF_ELO,
         catalansElo: newCatElo,
+        nextStrength: nextStrength,
+        nextRocMode: isRocMode(nextStrength),
+        avgCpLoss: avgCpLoss,
+        blunders: teamStats.blunders || 0,
+        teamMoves: teamStats.moves || 0,
         movesSan: movesSan,
         date: now
       };
@@ -454,7 +593,7 @@
         phase: 'finished',
         result: result,
         catalansElo: newCatElo,
-        nextSfElo: clampSfElo(newCatElo),     // la propera partida, Stockfish juga a l'estimació
+        nextSfElo: nextStrength,     // la propera partida juga a aquesta força (ELO o ROC)
         deadlineAt: now + RESULT_DISPLAY_MS,
         lastGame: summary
       }));
@@ -660,8 +799,13 @@
 
   function renderInfo() {
     $('#catalans-game-number').text('Partida #' + (state.gameNumber || 1));
-    $('#catalans-elo').text(Math.round(state.catalansElo || START_SF_ELO));
-    $('#catalans-sf-elo').text(Math.round(state.sfElo || START_SF_ELO));
+    // Etiqueta ELO o ROC segons si la força és per sota del terra del motor.
+    const catVal = Math.round(state.catalansElo || START_SF_ELO);
+    const sfVal = Math.round(state.sfElo || START_SF_ELO);
+    $('#catalans-elo').text(catVal);
+    $('#catalans-sf-elo').text(sfVal);
+    $('#catalans-cat-label').text((isRocMode(catVal) ? 'ROC' : 'ELO') + ' Catalans');
+    $('#catalans-sf-label').text((isRocMode(sfVal) ? 'ROC' : 'ELO') + ' Stockfish');
 
     // Resum de l'última partida acabada.
     const lg = state.lastGame;
@@ -671,9 +815,17 @@
         : '🤝 Taules';
       const delta = Math.round(lg.catalansElo - lg.prevCatalansElo);
       const arrow = delta > 0 ? '▲ +' + delta : (delta < 0 ? '▼ ' + delta : '±0');
+      const unit = lg.nextRocMode ? 'ROC' : 'ELO';
+      let extra = '';
+      if (lg.result === 'stockfish' && typeof lg.avgCpLoss === 'number') {
+        // En cas de derrota, expliquem com s'ha recalculat el ROC.
+        extra = ' · pèrdua mitjana ' + lg.avgCpLoss + ' cp, ' + (lg.blunders || 0) +
+          ' blunder' + ((lg.blunders || 0) === 1 ? '' : 's') +
+          ' → ' + unit + ' següent ' + Math.round(lg.nextStrength);
+      }
       $('#catalans-lastgame').html(
         'Partida #' + lg.gameNumber + ': ' + r +
-        ' · ELO col·lectiu ' + Math.round(lg.catalansElo) + ' (' + arrow + ')'
+        ' · ' + unit + ' col·lectiu ' + Math.round(lg.catalansElo) + ' (' + arrow + ')' + extra
       ).show();
     } else {
       $('#catalans-lastgame').hide();

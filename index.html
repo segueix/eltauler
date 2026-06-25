@@ -3613,11 +3613,11 @@
 
             <div class="catalans-elo-row">
                 <div class="catalans-elo-box cat">
-                    <div class="catalans-elo-label">ELO Catalans</div>
+                    <div class="catalans-elo-label" id="catalans-cat-label">ELO Catalans</div>
                     <div class="catalans-elo-val" id="catalans-elo">1280</div>
                 </div>
                 <div class="catalans-elo-box sf">
-                    <div class="catalans-elo-label">ELO Stockfish</div>
+                    <div class="catalans-elo-label" id="catalans-sf-label">ELO Stockfish</div>
                     <div class="catalans-elo-val" id="catalans-sf-elo">1280</div>
                 </div>
             </div>
@@ -3652,6 +3652,12 @@
                 millor</strong>. Després mou Stockfish. Partida rere partida calibrem la força
                 de Stockfish (comença a 1280 d'ELO) per estimar l'<strong>ELO col·lectiu</strong>
                 dels Catalans.
+                <br><br>
+                Quan la força estimada baixa del mínim real de Stockfish (~1350), es passa a
+                escala <strong>ROC</strong>: el motor juga debilitat (escollint entre diverses
+                jugades candidates amb profunditat reduïda) per reproduir nivells més baixos. I
+                si els Catalans <strong>perden</strong>, el ROC de la partida següent es recalcula
+                a partir dels <strong>errors i blunders</strong> de l'equip.
                 <br><br>
                 <em>Inspirat en «Kaspàrov contra el Món» (1999), on Garri Kaspàrov es va
                 enfrontar a la resta del món, que decidia cada jugada per votació majoritària
@@ -3834,7 +3840,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.0.0"></script>
+    <script src="catalans.js?v=1.0.1"></script>
     <script>
         window.APP_VERSION = '1.0.17';
         (function () {
