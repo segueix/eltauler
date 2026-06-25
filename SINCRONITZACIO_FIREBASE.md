@@ -53,11 +53,18 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
        match /eltauler_users/{userId} {
          allow read, write: if request.auth != null && request.auth.uid == userId;
        }
+       // Partida col·lectiva «Catalans vs Stockfish»: document compartit per
+       // tots els usuaris autenticats (cadascú hi escriu el seu vot i, quan
+       // toca, qualsevol client hi aplica la jugada resultant).
+       match /eltauler_catalans/{docId} {
+         allow read, write: if request.auth != null;
+       }
      }
    }
    ```
 
-   Així cada usuari només pot llegir i escriure les **seves pròpies** dades.
+   Així cada usuari només pot llegir i escriure les **seves pròpies** dades, i
+   qualsevol usuari amb sessió iniciada pot participar en la partida col·lectiva.
    Clica **Publish**.
 
 ## 5. Autoritza el teu domini
