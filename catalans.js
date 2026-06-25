@@ -37,7 +37,7 @@
   const HISTORY_DOC_ID = 'history';
 
   const TURN_MS = 24 * 60 * 60 * 1000;   // 24 h perquè votin els Catalans
-  const RESULT_DISPLAY_MS = 30 * 1000;   // temps mostrant el resultat abans de la nova partida
+  const NEXT_GAME_MS = 24 * 60 * 60 * 1000; // 24 h entre el final d'una partida i la següent
   const START_SF_ELO = 1280;             // Stockfish comença aquí
   // Terra real de força del binari inclòs: per sota d'aquest valor el motor no
   // pot jugar més fluix amb UCI_Elo, així que passem a mode ROC (debilitació via
@@ -118,6 +118,10 @@
   let previewPly = null;     // jugada de la transcripció que es revisa (si escau)
   let previewUci = null;     // jugada proposada que es revisa (si escau)
   let lastPlySeen = -1;      // per detectar quan avança la partida
+  let historyUnsub = null;   // subscripció a l'historial de partides
+  let historyView = [];      // partides de l'historial ordenades (recent primer)
+  let replayBoard = null;    // tauler fix per reproduir una partida de l'historial
+  let replay = null;         // { moves, idx, timer, playing }
   let opened = false;        // la pantalla s'ha obert alguna vegada
   let subscribed = false;    // la subscripció en temps real està activa i sense errors
   let pendingHistory = null; // resum a desar a l'historial després de confirmar la transacció
@@ -402,6 +406,21 @@
       console.warn('[Catalans] onSnapshot', err);
       setStatus(describeFsError(err));
     });
+    subscribeHistory();
+  }
+
+  // Subscripció a l'historial de partides acabades (lectura pública).
+  function subscribeHistory() {
+    if (historyUnsub || !db) return;
+    try {
+      const hRef = db.collection(COLLECTION).doc(HISTORY_DOC_ID);
+      historyUnsub = hRef.onSnapshot(function (snap) {
+        const data = snap.exists ? snap.data() : null;
+        const games = (data && Array.isArray(data.games)) ? data.games : [];
+        historyView = games.slice().sort(function (a, b) { return (b.date || 0) - (a.date || 0); });
+        renderHistory();
+      }, function () {});
+    } catch (e) {}
   }
 
   // ---------------------------------------------------------------------------
@@ -627,8 +646,8 @@
         phase: 'finished',
         result: result,
         catalansElo: newCatElo,
-        nextSfElo: nextStrength,     // la propera partida juga a aquesta força (ELO o ROC)
-        deadlineAt: now + RESULT_DISPLAY_MS,
+        nextSfElo: nextStrength,     // la propera partida: Stockfish juga a l'ELO/ROC obtingut pels Catalans
+        deadlineAt: now + NEXT_GAME_MS,
         lastGame: summary
       }));
       pendingHistory = summary;  // es desa a l'historial només si la transacció es confirma
@@ -919,19 +938,24 @@
 
   function renderInfo() {
     $('#catalans-game-number').text('Partida #' + (state.gameNumber || 1));
-    // Etiqueta ELO o ROC segons si la força és per sota del terra del motor.
-    const sfVal = Math.round(state.sfElo || START_SF_ELO);
-    $('#catalans-sf-elo').text(sfVal);
-    $('#catalans-sf-label').text((isRocMode(sfVal) ? 'ROC' : 'ELO') + ' Stockfish');
-    // L'ELO/ROC dels Catalans NO es mostra fins que la partida acaba (s'actualitza
-    // al final): durant el joc es manté ocult per no condicionar les votacions.
-    if (state.phase === 'finished') {
+    const finished = state.phase === 'finished';
+    // En acabar la partida es mostra NOMÉS l'ELO/ROC estimatiu dels Catalans
+    // (s'amaga la caixa de Stockfish). Durant el joc, a l'inrevés: es veu la força
+    // de Stockfish i l'estimació dels Catalans queda oculta fins al final.
+    if (finished) {
       const catVal = Math.round(state.catalansElo || START_SF_ELO);
       $('#catalans-elo').text(catVal);
-      $('#catalans-cat-label').text((isRocMode(catVal) ? 'ROC' : 'ELO') + ' Catalans');
+      $('#catalans-cat-label').text((isRocMode(catVal) ? 'ROC' : 'ELO') + ' Catalans (estimat)');
+      $('.catalans-elo-box.sf').hide();
+      $('.catalans-elo-box.cat').show();
     } else {
+      const sfVal = Math.round(state.sfElo || START_SF_ELO);
+      $('#catalans-sf-elo').text(sfVal);
+      $('#catalans-sf-label').text((isRocMode(sfVal) ? 'ROC' : 'ELO') + ' Stockfish');
       $('#catalans-elo').text('🔒');
       $('#catalans-cat-label').text('Catalans · al final');
+      $('.catalans-elo-box.sf').show();
+      $('.catalans-elo-box.cat').show();
     }
 
     // Resum de l'última partida acabada.
@@ -1017,6 +1041,123 @@
     });
   }
 
+  // ---------------------------------------------------------------------------
+  //  Historial de partides + reproductor
+  // ---------------------------------------------------------------------------
+  function unitLabel(strength) { return isRocMode(strength) ? 'ROC' : 'ELO'; }
+
+  function renderHistory() {
+    const list = $('#catalans-history-list');
+    if (!list.length) return;
+    if (!historyView.length) {
+      list.html('<div class="catalans-vote-empty">Encara no hi ha partides acabades.</div>');
+      return;
+    }
+    let html = '';
+    historyView.forEach(function (g, i) {
+      const d = new Date(g.date || 0);
+      const dateStr = d.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }) +
+        ' · ' + d.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' });
+      const elo = Math.round(g.catalansElo || 0);
+      const res = g.result === 'catalans' ? '✅' : (g.result === 'stockfish' ? '❌' : '🤝');
+      const nMoves = Array.isArray(g.movesSan) ? g.movesSan.length : 0;
+      const playable = nMoves > 0 ? '<button class="btn btn-secondary catalans-hist-play" data-idx="' + i + '">▶ Reproduir</button>' : '';
+      html += '<div class="catalans-hist-row">' +
+        '<div class="catalans-hist-main">' +
+          '<span class="catalans-hist-res">' + res + '</span>' +
+          '<span class="catalans-hist-elo">' + unitLabel(elo) + ' ' + elo + '</span>' +
+          '<span class="catalans-hist-date">' + dateStr + '</span>' +
+        '</div>' +
+        '<div class="catalans-hist-side">' +
+          '<span class="catalans-hist-moves">' + Math.ceil(nMoves / 2) + ' jugades</span>' +
+          playable +
+        '</div>' +
+      '</div>';
+    });
+    list.html(html);
+  }
+
+  // Reprodueix una partida de l'historial en un tauler fix dins la secció.
+  function openReplayGame(idx) {
+    const g = historyView[idx];
+    if (!g || !Array.isArray(g.movesSan) || !g.movesSan.length) return;
+    replay = { moves: g.movesSan.slice(), idx: 0, timer: null, playing: false };
+    const d = new Date(g.date || 0);
+    const elo = Math.round(g.catalansElo || 0);
+    $('#catalans-replay-title').text('Partida #' + (g.gameNumber || '?') + ' · ' + unitLabel(elo) + ' ' + elo +
+      ' · ' + d.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }));
+    $('#catalans-replay').css('display', 'block');
+    if (!replayBoard) {
+      replayBoard = Chessboard('catalans-replay-board', {
+        position: 'start', draggable: false, orientation: 'white',
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+      });
+    }
+    replayRender();
+    setTimeout(function () { if (replayBoard && replayBoard.resize) replayBoard.resize(); replayRender(); }, 60);
+    $('#catalans-replay')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  function replayChessAt(idx) {
+    const c = newChess();
+    let last = null;
+    for (let i = 0; i < idx && i < replay.moves.length; i++) {
+      const mv = c.move(replay.moves[i], { sloppy: true });
+      if (!mv) break;
+      last = mv;
+    }
+    return { chess: c, last: last };
+  }
+
+  function replayRender() {
+    if (!replay || !replayBoard) return;
+    const r = replayChessAt(replay.idx);
+    replayBoard.position(r.chess.fen(), false);
+    // Ressalta l'última jugada reproduïda.
+    setTimeout(function () {
+      $('#catalans-replay-board .square-55d63').removeClass('cat-preview-from cat-preview-to');
+      if (r.last) {
+        $("#catalans-replay-board .square-55d63[data-square='" + r.last.from + "']").addClass('cat-preview-from');
+        $("#catalans-replay-board .square-55d63[data-square='" + r.last.to + "']").addClass('cat-preview-to');
+      }
+    }, 30);
+    const total = replay.moves.length;
+    const moveNum = replay.idx > 0 ? Math.floor((replay.idx - 1) / 2) + 1 : 0;
+    const sanLabel = replay.idx > 0 ? (r.last ? r.last.san : replay.moves[replay.idx - 1]) : 'inici';
+    $('#catalans-replay-status').text('Jugada ' + replay.idx + ' / ' + total + (replay.idx > 0 ? ' · ' + moveNum + (replay.idx % 2 === 1 ? '.' : '…') + ' ' + sanLabel : ''));
+    $('#catalans-replay-play').text(replay.playing ? '⏸ Pausa' : '▶ Reproduir');
+  }
+
+  function replaySeek(idx) {
+    if (!replay) return;
+    replay.idx = Math.max(0, Math.min(replay.moves.length, idx));
+    replayRender();
+  }
+  function replayStep(delta) { if (replay) replaySeek(replay.idx + delta); }
+
+  function replayStopPlay() {
+    if (replay && replay.timer) { clearInterval(replay.timer); replay.timer = null; }
+    if (replay) replay.playing = false;
+  }
+  function replayTogglePlay() {
+    if (!replay) return;
+    if (replay.playing) { replayStopPlay(); replayRender(); return; }
+    if (replay.idx >= replay.moves.length) replay.idx = 0; // reinicia si era al final
+    replay.playing = true;
+    replayRender();
+    replay.timer = setInterval(function () {
+      if (!replay) return;
+      if (replay.idx >= replay.moves.length) { replayStopPlay(); replayRender(); return; }
+      replay.idx++;
+      replayRender();
+    }, 900);
+  }
+  function closeReplay() {
+    replayStopPlay();
+    replay = null;
+    $('#catalans-replay').hide();
+  }
+
   let lastCountdownTarget = 0;
   function startCountdown() {
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
@@ -1030,15 +1171,24 @@
       const left = (state.deadlineAt || 0) - now;
       $('#catalans-phase').text('🟡 Torn dels Catalans — voteu el moviment');
       $('#catalans-countdown').text('Es tanca en ' + fmtDuration(left));
+      $('#catalans-next-banner').hide();
       if (left <= 0) maybeDriveTransition();
     } else if (state.phase === 'stockfish') {
       $('#catalans-phase').text('🟣 Torn de Stockfish');
       $('#catalans-countdown').text('Stockfish està movent…');
+      $('#catalans-next-banner').hide();
     } else if (state.phase === 'finished') {
       const r = state.result === 'catalans' ? 'Han guanyat els Catalans! ✅'
         : state.result === 'stockfish' ? 'Ha guanyat Stockfish ❌' : 'Taules 🤝';
       $('#catalans-phase').text('🏁 Partida acabada — ' + r);
-      $('#catalans-countdown').text('Nova partida en ' + fmtDuration((state.deadlineAt || 0) - now));
+      $('#catalans-countdown').text('');
+      // Compte enrere GRAN i centrat sobre el tauler fins a la pròxima partida.
+      const left = (state.deadlineAt || 0) - now;
+      const next = Math.round(state.nextSfElo || state.catalansElo || START_SF_ELO);
+      $('#catalans-next-countdown').text(fmtDuration(left));
+      $('#catalans-next-detail').text('Stockfish jugarà a ' + unitLabel(next) + ' ' + next +
+        ' (el que han assolit els Catalans)');
+      $('#catalans-next-banner').css('display', 'block');
       if (now >= (state.deadlineAt || 0)) maybeDriveTransition();
     }
   }
@@ -1098,7 +1248,9 @@
 
   function close() {
     if (unsub) { unsub(); unsub = null; }
+    if (historyUnsub) { historyUnsub(); historyUnsub = null; }
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    replayStopPlay();
     $('#catalans-screen').hide();
   }
 
@@ -1135,5 +1287,18 @@
     });
     // Tornar de la revisió a la partida real.
     $('#catalans-preview-back').on('click', function () { exitPreview(); });
+
+    // Historial: reproduir una partida.
+    $('#catalans-history-list').on('click', '.catalans-hist-play', function () {
+      const idx = parseInt($(this).attr('data-idx'), 10);
+      if (!isNaN(idx)) openReplayGame(idx);
+    });
+    // Controls del reproductor.
+    $('#catalans-replay-first').on('click', function () { replayStopPlay(); replaySeek(0); });
+    $('#catalans-replay-prev').on('click', function () { replayStopPlay(); replayStep(-1); });
+    $('#catalans-replay-play').on('click', function () { replayTogglePlay(); });
+    $('#catalans-replay-next').on('click', function () { replayStopPlay(); replayStep(1); });
+    $('#catalans-replay-last').on('click', function () { replayStopPlay(); replaySeek(replay ? replay.moves.length : 0); });
+    $('#catalans-replay-close').on('click', function () { closeReplay(); });
   });
 })();
