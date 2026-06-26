@@ -275,6 +275,9 @@
         }
         
         .app-logo { font-size: 2.5rem; margin-bottom: 5px; }
+        .app-logo-svg { width: 2.5rem; height: 2.5rem; margin-bottom: 5px; display: inline-block;
+            fill: none; stroke: currentColor; stroke-width: 1.9; stroke-linecap: round; stroke-linejoin: round;
+            color: var(--accent-gold); }
 
         /* Botó d'informació (i en cursiva i encerclada) a dalt a la dreta de l'inici */
         #start-screen { position: relative; }
@@ -358,7 +361,8 @@
             border: 1px solid rgba(201, 162, 39, 0.3);
             border-radius: 12px; padding: 10px 12px; margin: 12px 0;
         }
-        .engagement-banner .eng-icon { font-size: 1.4rem; flex-shrink: 0; }
+        .engagement-banner .eng-icon { font-size: 1.4rem; flex-shrink: 0; display:flex; align-items:center; }
+        .engagement-banner .eng-icon .eng-ic { width: 1.5rem; height: 1.5rem; fill:none; stroke: var(--accent-gold); stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
         .engagement-banner .eng-text { flex: 1; font-size: 0.88rem; color: var(--text-primary); line-height: 1.35; }
         .engagement-banner .eng-cta {
             width: auto; flex-shrink: 0; padding: 8px 14px; font-size: 0.82rem;
@@ -2878,9 +2882,30 @@
             <path d="M12 20.5V8"/>
             <path d="M17.5 20.5v-9"/>
         </symbol>
+        <symbol id="ic-swords" viewBox="0 0 24 24">
+            <polyline points="14.5 17.5 3 6 3 3 6 3 17.5 14.5"/>
+            <path d="M13 19l6-6"/>
+            <path d="M16 16l4 4"/>
+            <path d="M19 21l2-2"/>
+            <polyline points="14.5 6.5 18 3 21 3 21 6 17.5 9.5"/>
+            <path d="M5 14l4 4"/>
+            <path d="M7 17l-3 3"/>
+            <path d="M3 19l2 2"/>
+        </symbol>
         <symbol id="ic-gear" viewBox="0 0 24 24">
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
+        </symbol>
+        <symbol id="ic-sync" viewBox="0 0 24 24">
+            <polyline points="21 4 21 9 16 9"/>
+            <polyline points="3 20 3 15 8 15"/>
+            <path d="M19.4 9A7.5 7.5 0 0 0 6.3 6.3L3 9"/>
+            <path d="M4.6 15A7.5 7.5 0 0 0 17.7 17.7L21 15"/>
+        </symbol>
+        <symbol id="ic-bulb" viewBox="0 0 24 24">
+            <path d="M9.5 17h5"/>
+            <path d="M10 20.5h4"/>
+            <path d="M14.8 14.2c.2-1 .8-1.8 1.6-2.5A5.5 5.5 0 1 0 7.6 11.7c.8.7 1.4 1.5 1.6 2.5"/>
         </symbol>
     </svg>
 
@@ -2917,6 +2942,25 @@
                 </div>
             </div>
             
+            <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
+                <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
+                <span class="catalans-banner-text">
+                    <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
+                    <span class="catalans-banner-title">Catalans vs Stockfish</span>
+                    <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
+                </span>
+                <span class="catalans-banner-cta">Juga-hi ›</span>
+            </button>
+
+            <button class="ranking-banner" id="btn-ranking" aria-label="Rànquing">
+                <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
+                <span class="ranking-banner-text">
+                    <span class="ranking-banner-title">Rànquing</span>
+                    <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · 🔮 jeroglífics</span>
+                </span>
+                <span class="ranking-banner-cta">Veure ›</span>
+            </button>
+
             <div class="engagement-banner" id="engagement-banner" style="display:none;">
                 <span class="eng-icon">💡</span>
                 <span class="eng-text"></span>
@@ -2965,7 +3009,6 @@
                         </div>
                     </div>
                     <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
-                    <button class="btn btn-catalans" id="btn-catalans"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Catalans vs Stockfish</button>
                 </div>
             </div>
 
@@ -2989,11 +3032,6 @@
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>
                             Repàs intel·ligent
                             <span style="font-size:0.72rem; opacity:0.85;" id="srs-info">Al dia</span>
-                        </button>
-                        <button class="btn btn-daily" id="btn-daily-puzzle">
-                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-calendar"/></svg>
-                            Repte diari
-                            <span style="font-size:0.72rem; opacity:0.85;" id="daily-info">Disponible</span>
                         </button>
                     </div>
                 </div>
@@ -3075,6 +3113,17 @@
             </div>
 
             <div class="settings-panel">
+                <div class="settings-title">👤 Nom d'usuari</div>
+                <div class="setting-help" style="margin-bottom:10px;">El nom amb què apareixeràs a la partida col·lectiva i al rànquing.</div>
+                <div class="setting-row">
+                    <input type="text" id="username-input" maxlength="24" placeholder="El teu nom" autocomplete="off"
+                        style="flex:1;min-width:0;background:rgba(255,255,255,0.06);border:1px solid rgba(201,162,39,0.25);border-radius:8px;color:var(--text-primary);padding:8px 10px;font-size:0.95rem;">
+                    <button class="btn btn-secondary" id="btn-username-save" style="min-width:90px;">Desa</button>
+                </div>
+                <div class="setting-help" id="username-hint" style="margin-top:8px;"></div>
+            </div>
+
+            <div class="settings-panel">
                 <div class="settings-title">☁️ Sincronització al núvol</div>
                 <div class="setting-help" style="margin-bottom:12px;">Inicia sessió amb Google per sincronitzar totes les teves dades (partides, errors, reptes diaris, ELO, missions, trofeus...) entre tots els teus dispositius.</div>
                 <div class="setting-row">
@@ -3084,7 +3133,7 @@
                 <div id="cloud-sync-account" style="font-size:0.8rem;opacity:0.7;margin:4px 0 12px;display:none;"></div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <button class="btn btn-secondary" id="btn-cloud-signin" style="flex:1;min-width:160px;">Inicia sessió amb Google</button>
-                    <button class="btn btn-secondary" id="btn-cloud-sync-now" style="flex:1;min-width:120px;display:none;">🔄 Sincronitza ara</button>
+                    <button class="btn btn-secondary" id="btn-cloud-sync-now" style="flex:1;min-width:120px;display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>Sincronitza ara</button>
                     <button class="btn btn-secondary" id="btn-cloud-signout" style="flex:1;min-width:120px;display:none;">Tanca sessió</button>
                 </div>
                 <div class="setting-help" id="cloud-sync-hint" style="margin-top:10px;"></div>
@@ -3215,6 +3264,39 @@
 
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-back-settings">Tornar al menú</button>
+            </div>
+        </div>
+
+        <style>
+            .btn-ranking { background: linear-gradient(135deg,#c9a227 0%,#8a6d12 100%); color:#1b1712; }
+            .ranking-tabs { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin:10px 0; }
+            .ranking-tab { background:rgba(255,255,255,0.05); border:1px solid rgba(201,162,39,0.25); color:var(--text-secondary); border-radius:999px; padding:6px 14px; font-size:0.85rem; cursor:pointer; }
+            .ranking-tab.active { background:linear-gradient(135deg,#b5121b,#7a0c12); color:#fff5e6; border-color:transparent; font-weight:700; }
+            #ranking-list { margin-top:6px; }
+            .ranking-row { display:flex; align-items:center; gap:10px; padding:8px 12px; margin:4px 0; background:rgba(255,255,255,0.03); border-radius:10px; }
+            .ranking-row.me { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.65); }
+            .ranking-pos { min-width:30px; font-weight:800; color:var(--text-secondary); text-align:center; }
+            .ranking-row.top1 .ranking-pos { color:#ffd34d; } .ranking-row.top2 .ranking-pos { color:#cfd8dc; } .ranking-row.top3 .ranking-pos { color:#d8a06a; }
+            .ranking-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .ranking-val { font-weight:700; color:var(--accent-gold); white-space:nowrap; }
+            .ranking-empty { color:var(--text-secondary); font-size:0.88rem; text-align:center; padding:14px; }
+        </style>
+        <div id="ranking-screen" class="screen-anim" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">🏆</div>
+                <h1>Rànquing</h1>
+            </div>
+            <div class="ranking-tabs">
+                <button class="ranking-tab active" data-cat="elo">ELO</button>
+                <button class="ranking-tab" data-cat="stars">⭐ Estrelles</button>
+                <button class="ranking-tab" data-cat="games">Partides</button>
+                <button class="ranking-tab" data-cat="hiero">🔮 Jeroglífics</button>
+            </div>
+            <div id="ranking-status" class="setting-help" style="text-align:center; min-height:1.2em;"></div>
+            <div id="ranking-list"></div>
+            <div class="menu-buttons" style="margin-top:16px;">
+                <button class="btn btn-secondary" id="btn-ranking-refresh">🔄 Actualitza</button>
+                <button class="btn btn-primary" id="btn-ranking-back">Menú</button>
             </div>
         </div>
 
@@ -3359,7 +3441,7 @@
                                     <button class="btn btn-secondary" id="history-next">⏭️ Endavant</button>
                                 </div>
                                 <div class="history-actions">
-                                    <button class="btn btn-secondary" id="history-generate-review">✨ Generar ressenya</button>
+                                    <button class="btn btn-secondary" id="history-generate-review">🔁 Re-generar ressenya</button>
                                     <button class="btn btn-secondary" id="history-personal-hieroglyphic">🔮 Desxifra el teu error</button>
                                     <button class="btn btn-secondary" id="history-export-pgn">♟ Exportar PGN</button>
                                     <button class="btn btn-secondary" id="history-share-pgn">📤 Compartir</button>
@@ -3580,6 +3662,67 @@
 
         <style>
             .btn-catalans { background: linear-gradient(135deg,#b5121b 0%,#7a0c12 100%); color:#fff5e6; }
+            /* Bàner destacat «Catalans vs Stockfish» (a dalt del tot, prominent) */
+            .catalans-banner {
+                display: flex; align-items: center; gap: 14px; width: 100%;
+                margin: 6px 0 14px; padding: 16px 18px;
+                border: 1px solid rgba(201,162,39,0.45); border-radius: 16px; cursor: pointer;
+                color: #fff5e6; text-align: left; position: relative; overflow: hidden;
+                background: linear-gradient(135deg, #b5121b 0%, #7a0c12 55%, #5e0a0f 100%);
+                box-shadow: 0 6px 18px rgba(0,0,0,0.35), inset 0 0 0 1px rgba(255,255,255,0.05);
+                transition: transform .15s ease, box-shadow .15s ease;
+            }
+            .catalans-banner::after {
+                content:''; position:absolute; right:-34px; top:-34px; width:150px; height:150px; pointer-events:none;
+                background: radial-gradient(circle, rgba(201,162,39,0.28), transparent 70%);
+            }
+            .catalans-banner:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,0.45); }
+            .catalans-banner:active { transform: translateY(0); }
+            .catalans-banner-ic {
+                width: 2.7rem; height: 2.7rem; flex: 0 0 auto; z-index:1;
+                fill:none; stroke: var(--accent-gold); stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;
+                filter: drop-shadow(0 2px 4px rgba(0,0,0,0.45));
+            }
+            .catalans-banner-text { display:flex; flex-direction:column; gap:2px; flex:1 1 auto; min-width:0; z-index:1; }
+            .catalans-banner-live { display:inline-flex; align-items:center; gap:5px; font-size:0.66rem; font-weight:700; letter-spacing:0.08em; color:#ffd9a8; opacity:0.95; }
+            .catalans-banner-live .cb-dot { width:7px; height:7px; border-radius:50%; background:#ff5252; box-shadow:0 0 0 0 rgba(255,82,82,0.7); animation: cbPulse 1.8s infinite; }
+            @keyframes cbPulse { 0%{box-shadow:0 0 0 0 rgba(255,82,82,0.65);} 70%{box-shadow:0 0 0 7px rgba(255,82,82,0);} 100%{box-shadow:0 0 0 0 rgba(255,82,82,0);} }
+            .catalans-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
+            .catalans-banner-sub { font-size:0.8rem; opacity:0.9; line-height:1.25; }
+            .catalans-banner-cta { flex:0 0 auto; z-index:1; font-weight:700; font-size:0.9rem; color: var(--accent-gold); background: rgba(0,0,0,0.25); padding:7px 14px; border-radius:999px; white-space:nowrap; }
+            @media (max-width: 560px) {
+                .catalans-banner { padding:14px; gap:12px; }
+                .catalans-banner-ic { width:2.3rem; height:2.3rem; }
+                .catalans-banner-title { font-size:1.06rem; }
+                .catalans-banner-sub { font-size:0.76rem; }
+                .catalans-banner-cta { display:none; }
+            }
+            /* Bàner de Rànquing (estil daurat, mateixa estructura que el de Catalans) */
+            .ranking-banner {
+                display:flex; align-items:center; gap:14px; width:100%;
+                margin:0 0 14px; padding:14px 18px;
+                border:1px solid rgba(201,162,39,0.5); border-radius:16px; cursor:pointer;
+                color:#1b1712; text-align:left; position:relative; overflow:hidden;
+                background: linear-gradient(135deg, #e7c14e 0%, #c9a227 45%, #9c7c18 100%);
+                box-shadow: 0 6px 18px rgba(0,0,0,0.3), inset 0 0 0 1px rgba(255,255,255,0.12);
+                transition: transform .15s ease, box-shadow .15s ease;
+            }
+            .ranking-banner:hover { transform: translateY(-2px); box-shadow: 0 10px 26px rgba(0,0,0,0.4); }
+            .ranking-banner:active { transform: translateY(0); }
+            .ranking-banner-ic { width:2.5rem; height:2.5rem; flex:0 0 auto; z-index:1;
+                fill:none; stroke:#1b1712; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;
+                filter: drop-shadow(0 1px 2px rgba(255,255,255,0.35)); }
+            .ranking-banner-text { display:flex; flex-direction:column; gap:2px; flex:1 1 auto; min-width:0; z-index:1; }
+            .ranking-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
+            .ranking-banner-sub { font-size:0.8rem; opacity:0.85; line-height:1.25; }
+            .ranking-banner-cta { flex:0 0 auto; z-index:1; font-weight:700; font-size:0.9rem; color:#1b1712; background: rgba(255,255,255,0.35); padding:7px 14px; border-radius:999px; white-space:nowrap; }
+            @media (max-width: 560px) {
+                .ranking-banner { padding:13px 14px; gap:12px; }
+                .ranking-banner-ic { width:2.1rem; height:2.1rem; }
+                .ranking-banner-title { font-size:1.04rem; }
+                .ranking-banner-sub { font-size:0.74rem; }
+                .ranking-banner-cta { display:none; }
+            }
             #catalans-screen { padding-bottom: 24px; }
             .catalans-hero { text-align:center; margin-bottom:10px; }
             .catalans-hero h1 { margin:6px 0 2px; }
@@ -3596,15 +3739,37 @@
             #catalans-phase { font-weight:700; }
             #catalans-countdown { font-size:0.85rem; color: var(--text-secondary); }
             #catalans-board { max-width: 440px; margin: 8px auto; width: 100%; }
-            #catalans-board .square-55d63.cat-selected { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.9); }
-            #catalans-board .square-55d63.cat-target::after { content:''; position:absolute; left:50%; top:50%; width:28%; height:28%; transform:translate(-50%,-50%); border-radius:50%; background: rgba(181,18,27,0.45); }
+            /* Visualització de moviments idèntica a les partides generals: peça
+               seleccionada amb contorn daurat i cercles buits a les destinacions. */
+            #catalans-board .square-55d63.cat-selected { outline: 3px solid rgba(201,162,39,0.95); outline-offset: -3px; }
+            #catalans-board .square-55d63.cat-target::after {
+                content:''; position:absolute; top:50%; left:50%; width:36%; height:36%;
+                border:5px solid #111; border-radius:50%; transform:translate(-50%,-50%);
+                pointer-events:none; z-index:3; background:transparent;
+            }
+            #catalans-board .square-55d63.black-3c85d.cat-target::after { border-color:#f0d9b5; }
+            body.epaper-mode #catalans-board .square-55d63.cat-target::after { border-color:#111; }
+            body.epaper-mode #catalans-board .square-55d63.black-3c85d.cat-target::after { border-color:#f2f2f2; }
             #catalans-board .square-55d63.cat-myvote { box-shadow: inset 0 0 0 4px rgba(46,160,67,0.85); }
+            #catalans-board .square-55d63.cat-preview-from,
+            #catalans-board .square-55d63.cat-preview-to { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.8); }
+            /* Barra de previsualització (revisió de jugades/propostes) */
+            #catalans-preview-bar { display:none; text-align:center; margin:6px 0 2px; font-size:0.85rem; }
+            #catalans-preview-bar .cat-preview-label { color: var(--accent-gold); font-weight:600; margin-right:8px; }
+            /* Transcripció clicable */
+            #catalans-moves .cat-move { cursor:pointer; padding:1px 3px; border-radius:4px; color: var(--text-primary); }
+            #catalans-moves .cat-move:hover { background: rgba(201,162,39,0.18); }
+            #catalans-moves .cat-move.cat-move-active { background: rgba(201,162,39,0.32); font-weight:700; }
+            #catalans-moves .cat-move-num { color: var(--text-secondary); }
+            #catalans-moves .cat-moves-hint { display:block; margin-top:6px; color: var(--text-secondary); font-size:0.74rem; }
             #catalans-status { text-align:center; min-height:1.2em; color: var(--accent-gold); font-size:0.88rem; margin:6px 0; }
             .catalans-vote-head { display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; }
             .catalans-vote-head h3 { margin:0; font-size:1rem; }
             #catalans-vote-total { color: var(--text-secondary); font-size:0.82rem; }
             #catalans-vote-list { margin-top:6px; }
-            .catalans-vote-row { display:flex; align-items:center; gap:8px; margin:4px 0; }
+            .catalans-vote-row { display:flex; align-items:center; gap:8px; margin:4px 0; cursor:pointer; padding:2px 4px; border-radius:6px; }
+            .catalans-vote-row:hover { background: rgba(201,162,39,0.10); }
+            .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.55); }
             .catalans-vote-row.catalans-vote-mine { font-weight:700; }
             .catalans-vote-san { min-width:54px; }
             .catalans-vote-bar { flex:1; height:10px; background: rgba(255,255,255,0.06); border-radius:6px; overflow:hidden; }
@@ -3612,13 +3777,39 @@
             .catalans-vote-n { min-width:24px; text-align:right; color: var(--text-secondary); }
             .catalans-vote-empty { color: var(--text-secondary); font-size:0.85rem; }
             .catalans-moves-box { margin-top:10px; background: rgba(255,255,255,0.03); border-radius:10px; padding:8px 12px; font-family:monospace; font-size:0.82rem; color: var(--text-secondary); word-break:break-word; }
+            /* Compte enrere GRAN sobre el tauler (fase acabada) */
+            #catalans-next-banner { display:none; text-align:center; margin:10px auto 6px; padding:14px 16px; max-width:440px;
+                background: linear-gradient(135deg, rgba(181,18,27,0.16), rgba(201,162,39,0.14)); border:1px solid rgba(201,162,39,0.32); border-radius:14px; }
+            #catalans-next-banner .cat-next-title { font-size:0.9rem; letter-spacing:0.04em; text-transform:uppercase; color: var(--text-secondary); }
+            #catalans-next-countdown { font-size:2.4rem; font-weight:800; line-height:1.1; color: var(--accent-gold); font-variant-numeric: tabular-nums; }
+            #catalans-next-detail { font-size:0.82rem; color: var(--text-secondary); margin-top:4px; }
+            /* Historial de partides */
+            #catalans-history-list { margin-top:6px; }
+            .catalans-hist-row { display:flex; align-items:center; justify-content:space-between; gap:8px; flex-wrap:wrap;
+                padding:7px 10px; margin:5px 0; background: rgba(255,255,255,0.03); border-radius:10px; }
+            .catalans-hist-main { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
+            .catalans-hist-res { font-size:1.05rem; }
+            .catalans-hist-elo { font-weight:700; color: var(--accent-gold); }
+            .catalans-hist-cat { font-weight:700; color: #7fd1a0; }
+            .catalans-hist-date { color: var(--text-secondary); font-size:0.8rem; }
+            .catalans-hist-side { display:flex; align-items:center; gap:10px; }
+            .catalans-hist-moves { color: var(--text-secondary); font-size:0.8rem; }
+            .catalans-hist-play { padding:3px 12px; font-size:0.82rem; }
+            #catalans-replay { display:none; margin-top:12px; padding:10px; background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.18); border-radius:12px; }
+            #catalans-replay-title { text-align:center; font-weight:700; margin-bottom:6px; }
+            #catalans-replay-board { max-width: 380px; margin: 4px auto; width: 100%; }
+            #catalans-replay-board .square-55d63.cat-preview-from,
+            #catalans-replay-board .square-55d63.cat-preview-to { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.8); }
+            #catalans-replay-status { text-align:center; font-size:0.82rem; color: var(--text-secondary); margin:4px 0; }
+            .catalans-replay-controls { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
+            .catalans-replay-controls .btn { padding:4px 12px; }
             .catalans-info-panel { margin-top:14px; background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.15); border-radius:12px; padding:12px 14px; font-size:0.84rem; color: var(--text-secondary); line-height:1.5; }
             .catalans-info-panel h3 { margin:0 0 6px; color: var(--text-primary); font-size:0.95rem; }
             #catalans-whoami { text-align:center; font-size:0.8rem; color: var(--text-secondary); margin-top:4px; }
         </style>
         <div id="catalans-screen" class="screen-anim" style="display:none;">
             <div class="catalans-hero">
-                <div class="app-logo">⚔️</div>
+                <svg class="app-logo-svg" aria-hidden="true"><use href="#ic-swords"/></svg>
                 <h1>Catalans vs Stockfish</h1>
                 <div class="catalans-sub">Una partida col·lectiva: tots votem el moviment dels Catalans</div>
             </div>
@@ -3627,13 +3818,9 @@
             <div id="catalans-lastgame" style="display:none;"></div>
 
             <div class="catalans-elo-row">
-                <div class="catalans-elo-box cat">
-                    <div class="catalans-elo-label" id="catalans-cat-label">ELO Catalans</div>
-                    <div class="catalans-elo-val" id="catalans-elo">1280</div>
-                </div>
                 <div class="catalans-elo-box sf">
                     <div class="catalans-elo-label" id="catalans-sf-label">ELO Stockfish</div>
-                    <div class="catalans-elo-val" id="catalans-sf-elo">1280</div>
+                    <div class="catalans-elo-val" id="catalans-sf-elo">1350</div>
                 </div>
             </div>
 
@@ -3642,12 +3829,24 @@
                 <div id="catalans-countdown">—</div>
             </div>
 
+            <div id="catalans-next-banner">
+                <div class="cat-next-title">⏳ Pròxima partida</div>
+                <div id="catalans-next-countdown">—</div>
+                <div id="catalans-next-detail"></div>
+            </div>
+
             <div id="catalans-board"></div>
+
+            <div id="catalans-preview-bar">
+                <span class="cat-preview-label" id="catalans-preview-label"></span>
+                <button class="btn btn-secondary" id="catalans-preview-back" style="padding:2px 10px; font-size:0.8rem;">↩ Torna a la partida</button>
+            </div>
 
             <div id="catalans-status"></div>
             <div id="catalans-whoami" style="display:none;"></div>
             <div style="text-align:center;">
                 <button class="btn btn-share" id="catalans-signin" style="display:none;">Inicia sessió amb Google per votar</button>
+                <button class="btn btn-secondary" id="catalans-switch" style="display:none; padding:4px 12px; font-size:0.82rem; margin-top:4px;">🔁 Canviar de compte</button>
             </div>
 
             <div class="catalans-vote-head">
@@ -3656,23 +3855,40 @@
             </div>
             <div id="catalans-vote-list"></div>
 
+            <div class="catalans-vote-head"><h3>Transcripció de la partida</h3></div>
             <div class="catalans-moves-box" id="catalans-moves">—</div>
+
+            <div class="catalans-vote-head"><h3>Historial de partides</h3></div>
+            <div id="catalans-history-list"></div>
+            <div id="catalans-replay">
+                <div id="catalans-replay-title"></div>
+                <div id="catalans-replay-board"></div>
+                <div id="catalans-replay-status"></div>
+                <div class="catalans-replay-controls">
+                    <button class="btn btn-secondary" id="catalans-replay-first">⏮</button>
+                    <button class="btn btn-secondary" id="catalans-replay-prev">◀</button>
+                    <button class="btn btn-primary" id="catalans-replay-play">▶ Reproduir</button>
+                    <button class="btn btn-secondary" id="catalans-replay-next">▶</button>
+                    <button class="btn btn-secondary" id="catalans-replay-last">⏭</button>
+                    <button class="btn btn-secondary" id="catalans-replay-close">Tancar</button>
+                </div>
+            </div>
 
             <div class="catalans-info-panel">
                 <h3>Com funciona</h3>
-                Quan toca moure als Catalans, fes el teu moviment al tauler: és el teu vot
+                Quan toca moure a l'exèrcit, fes el teu moviment al tauler: és el teu vot
                 (el pots canviar fins que acabi el torn). Passades <strong>24 hores</strong> des
                 de l'inici del torn, es tanca la votació i es juga el moviment <strong>més
                 votat</strong>; si hi ha empat, s'agafa el que <strong>Stockfish considera
-                millor</strong>. Després mou Stockfish. Partida rere partida calibrem la força
-                de Stockfish (comença a 1280 d'ELO) per estimar l'<strong>ELO col·lectiu</strong>
-                dels Catalans.
+                millor</strong>. Després mou Stockfish.
                 <br><br>
-                Quan la força estimada baixa del mínim real de Stockfish (~1350), es passa a
-                escala <strong>ROC</strong>: el motor juga debilitat (escollint entre diverses
-                jugades candidates amb profunditat reduïda) per reproduir nivells més baixos. I
-                si els Catalans <strong>perden</strong>, el ROC de la partida següent es recalcula
-                a partir dels <strong>errors i blunders</strong> de l'equip.
+                Stockfish comença a <strong>1350 d'ELO</strong>. Si l'<strong>exèrcit guanya</strong>
+                (o empata), la partida següent el rival és <strong>més fort</strong>. Si
+                <strong>perd</strong>, es calcula el <strong>ROC de l'exèrcit</strong> (com de
+                feble ha jugat, a partir de la pèrdua mitjana i els blunders) i Stockfish hi
+                jugarà la propera partida amb <strong>aquest mateix ROC</strong> (mode debilitat:
+                tria entre diverses jugades candidates amb profunditat reduïda), de manera que
+                el nivell s'ajusta al de l'exèrcit.
                 <br><br>
                 <em>Inspirat en «Kaspàrov contra el Món» (1999), on Garri Kaspàrov es va
                 enfrontar a la resta del món, que decidia cada jugada per votació majoritària
@@ -3850,12 +4066,12 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-    <script src="cloudsync.js?v=1.0.0"></script>
+    <script src="cloudsync.js?v=1.0.3"></script>
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.0.2"></script>
+    <script src="catalans.js?v=1.1.2"></script>
     <script>
         window.APP_VERSION = '1.0.17';
         (function () {

@@ -386,7 +386,7 @@ function applyFontSize(pct) {
 // Navigation history management for mobile back gesture
 let navStack = [];
 function getCurrentScreen() {
-    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'catalans-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen'];
+    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'catalans-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen', 'ranking-screen'];
     for (const s of screens) {
         const el = document.getElementById(s);
         if (el && el.style.display !== 'none' && (s !== 'game-screen' || el.classList.contains('active'))) return s;
@@ -425,6 +425,9 @@ function navGoBack() {
         $('#start-screen').show();
     } else if (current === 'calibration-result-screen') {
         $('#calibration-result-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'ranking-screen') {
+        $('#ranking-screen').hide();
         $('#start-screen').show();
     }
     navStack.pop();
@@ -1610,6 +1613,159 @@ function initOpeningSystem() {
     // NO resetejar openingCurrentSequence aquí - només es reseteja a resetOpeningPracticeBoard
 }
 
+// Graf d'obertures indexat per posició (FEN) — base de la detecció immune a
+// transposicions. Comparteix la MATEIXA font de veritat per a l'anàlisi de
+// partides i la detecció en viu. Construir-lo requereix calcular la FEN de cada
+// posició amb chess.js (lent: uns milers de posicions), així que NO es construeix
+// de cop al fil principal: es fa de manera INCREMENTAL i no bloquejant en temps
+// lliure (requestIdleCallback). Mentre no està llest, analyzeGameOpening cau a la
+// cerca per seqüència del trie (que ja funciona per a línies seguides en ordre).
+let openingPositionGraph = null;    // { byPos, theory } quan està llest
+let openingGraphBuilding = false;
+
+// Llista de FEN després de cada jugada (SAN) d'una seqüència. Usa chess.js.
+function fenSeqForMoves(moves) {
+    if (!Array.isArray(moves) || typeof Chess === 'undefined') return [];
+    const g = new Chess();
+    const out = [];
+    for (const m of moves) {
+        if (!g.move(m, { sloppy: true })) break;
+        out.push(g.fen());
+    }
+    return out;
+}
+
+function scheduleOpeningIdle(fn) {
+    if (typeof requestIdleCallback === 'function') {
+        requestIdleCallback(fn, { timeout: 2000 });
+    } else {
+        setTimeout(function () { fn({ timeRemaining: function () { return 12; }, didTimeout: true }); }, 0);
+    }
+}
+
+// Construeix el graf de posicions recorrent el trie amb un sol Chess (move/undo),
+// de manera que cada posició es calcula UNA sola vegada. La feina es reparteix en
+// trossos petits que cedeixen el control entre fotogrames.
+function prewarmOpeningPositionGraph() {
+    if (openingPositionGraph || openingGraphBuilding) return;
+    if (typeof Chess === 'undefined') return;
+    if (!openingTrie) { try { initOpeningSystem(); } catch (e) {} }
+    if (!openingTrie) return;
+    openingGraphBuilding = true;
+
+    const byPos = new Map();
+    const theory = new Map();
+    const g = new Chess();
+    const keyFn = ElTaulerCore.positionKeyFromFen;
+    // Pila de DFS iterativa: marc = { node, mv, started, kids, i }
+    const stack = [{ node: openingTrie, mv: null, started: false, kids: null, i: 0 }];
+
+    function step(deadline) {
+        while (stack.length && (deadline.didTimeout || deadline.timeRemaining() > 3)) {
+            const fr = stack[stack.length - 1];
+            if (!fr.started) {
+                if (fr.mv && !g.move(fr.mv, { sloppy: true })) { stack.pop(); continue; }
+                const key = keyFn(g.fen());
+                const node = fr.node;
+                if (node.openings && node.openings.length) {
+                    for (const op of node.openings) {
+                        const ex = byPos.get(key);
+                        if (!ex || op.moves.length > ex.ply) {
+                            byPos.set(key, { eco: op.eco, name: op.name, ply: op.moves.length });
+                        }
+                    }
+                }
+                fr.kids = Object.keys(node.children);
+                if (fr.kids.length) {
+                    let set = theory.get(key);
+                    if (!set) { set = new Set(); theory.set(key, set); }
+                    for (const mv of fr.kids) set.add(mv);
+                }
+                fr.started = true; fr.i = 0;
+            } else if (fr.i < fr.kids.length) {
+                const mv = fr.kids[fr.i++];
+                stack.push({ node: fr.node.children[mv], mv: mv, started: false, kids: null, i: 0 });
+            } else {
+                if (fr.mv) g.undo();
+                stack.pop();
+            }
+        }
+        if (stack.length) {
+            scheduleOpeningIdle(step);
+        } else {
+            openingPositionGraph = { byPos: byPos, theory: theory };
+            openingGraphBuilding = false;
+            console.log(`[Openings] Graf de posicions llest (${byPos.size} posicions amb nom)`);
+            // Si hi ha una ressenya oberta que es va renderitzar amb el trie
+            // (detecció pobra perquè el graf encara no estava llest), la refresquem
+            // ara perquè mostri el nom d'obertura correcte.
+            try { refreshCurrentHistoryReview(); } catch (e) {}
+        }
+    }
+    scheduleOpeningIdle(step);
+}
+
+// Torna a renderitzar la ressenya de la partida actualment carregada a
+// l'historial (si n'hi ha cap). S'usa quan acaba de construir-se el graf de
+// posicions per actualitzar la detecció d'obertura sense recarregar res.
+function refreshCurrentHistoryReview() {
+    if (typeof historyReplay !== 'undefined' && historyReplay && historyReplay.entry &&
+        typeof updateHistoryReview === 'function') {
+        updateHistoryReview(historyReplay.entry);
+    }
+}
+
+// Retorna el graf si està llest (i n'engega la construcció en segon pla si cal).
+function getOpeningPositionGraph() {
+    if (!openingPositionGraph) prewarmOpeningPositionGraph();
+    return openingPositionGraph;
+}
+
+// Índex de posicions del REPERTORI de l'app (CURATED_OPENINGS). És una llista
+// petita (~50 obertures), així que es pot calcular a l'instant i de manera
+// síncrona, sense esperar cap graf: permet anomenar les obertures de la partida
+// amb el NOM DE L'APP (p. ex. «Obertura Catalana») de forma fiable.
+let curatedPositionIndex = null;
+function getCuratedPositionIndex() {
+    if (curatedPositionIndex) return curatedPositionIndex;
+    if (typeof CURATED_OPENINGS === 'undefined' || typeof Chess === 'undefined') return null;
+    try {
+        const keyFn = ElTaulerCore.positionKeyFromFen;
+        curatedPositionIndex = CURATED_OPENINGS.map(function (op, i) {
+            return {
+                index: i, eco: op.eco, name: op.name,
+                keys: fenSeqForMoves(op.moves || []).map(keyFn)
+            };
+        });
+    } catch (e) {
+        console.warn('[Openings] No s\'ha pogut indexar el repertori', e);
+        curatedPositionIndex = null;
+    }
+    return curatedPositionIndex;
+}
+
+// Quina obertura del repertori de l'app ha jugat aquesta partida (per posició,
+// immune a transposicions). Retorna { index, eco, name, depth } o null.
+function findCuratedOpeningForGame(gameMoves) {
+    const idx = getCuratedPositionIndex();
+    if (!idx || !Array.isArray(gameMoves) || !gameMoves.length) return null;
+    const keys = fenSeqForMoves(gameMoves).map(ElTaulerCore.positionKeyFromFen);
+    return ElTaulerCore.findCuratedOpeningByPosition(idx, keys, 5);
+}
+
+// Identifica QUINA obertura del repertori estava jugant l'usuari (per les seves
+// PRÒPIES jugades, sigui quina sigui), i si el rival el va forçar a canviar.
+function identifyUserOpening(entry) {
+    if (!entry || typeof CURATED_OPENINGS === 'undefined') return null;
+    const moves = getHistoryMoves(entry);
+    if (!moves || !moves.length) return null;
+    const color = (entry.playerColor === 'b') ? 'b' : 'w';
+    const rep = CURATED_OPENINGS.map(function (op, i) {
+        return { index: i, eco: op.eco, name: op.name, userColor: op.userColor, moves: op.moves };
+    });
+    return ElTaulerCore.matchUserRepertoireOpening(moves, color, rep, 3);
+}
+
 function isOpeningUserTurn() {
     return openingPracticeGame && openingPracticeGame.turn() === openingPracticeUserColor;
 }
@@ -1625,7 +1781,19 @@ function getValidOpeningMoves(sequence) {
 
 // Analitza fins on una partida ha seguit la teoria d'obertures
 // Retorna { depth, name, eco, deviationMove, deviationBy, theoryMoves } o null
+// Prioritza la detecció per posició (immune a transposicions); si no es pot
+// (sense chess.js), cau a la cerca per seqüència del trie.
 function analyzeGameOpening(moves) {
+    if (Array.isArray(moves) && moves.length) {
+        const graph = getOpeningPositionGraph();
+        if (graph) {
+            try {
+                const fens = fenSeqForMoves(moves);
+                const r = ElTaulerCore.analyzeGameOpeningByPositions(graph, fens, moves);
+                if (r && r.name) return r;
+            } catch (e) { /* cau al trie */ }
+        }
+    }
     return ElTaulerCore.analyzeGameOpening(openingTrie, moves);
 }
 
@@ -4421,6 +4589,8 @@ function saveStorage() {
     if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
         try { window.CloudSync.onLocalSave(); } catch (e) {}
     }
+    // Rànquing global: puja les meves estadístiques (amb debounce, només si hi ha sessió).
+    try { if (typeof schedulePushRanking === 'function') schedulePushRanking(); } catch (e) {}
 }
 
 // Recarrega tot l'estat del joc des del localStorage i refresca la interfície.
@@ -4512,6 +4682,173 @@ function updateCloudSyncUI(st) {
     updateCloudRecoverButton();
 }
 window.onCloudSyncStatus = updateCloudSyncUI;
+
+// Quan s'inicia sessió correctament (també en tornar d'una redirecció a mòbil),
+// donem feedback clar i, si l'inici venia de la pantalla de Catalans, hi tornem.
+// ---- Nom d'usuari (es desa a chess_username i, per tant, se sincronitza) ----
+const USERNAME_KEY = 'chess_username';
+function getUsername() {
+    try { return (localStorage.getItem(USERNAME_KEY) || '').trim(); } catch (e) { return ''; }
+}
+window.getUsername = getUsername;
+function loadUsernameIntoSettings() {
+    const input = document.getElementById('username-input');
+    if (input) input.value = getUsername();
+    const hint = document.getElementById('username-hint');
+    if (hint) hint.textContent = getUsername() ? ('Nom actual: ' + getUsername()) : 'Encara no has posat cap nom.';
+}
+function saveUsernameFromSettings() {
+    const input = document.getElementById('username-input');
+    if (!input) return;
+    const prev = getUsername();
+    const name = String(input.value || '').trim().replace(/\s+/g, ' ').slice(0, 24);
+    try { if (name) localStorage.setItem(USERNAME_KEY, name); else localStorage.removeItem(USERNAME_KEY); } catch (e) {}
+    input.value = name;
+    const hint = document.getElementById('username-hint');
+    if (name !== prev) {
+        try { if (window.CloudSync && window.CloudSync.onLocalSave) window.CloudSync.onLocalSave(); } catch (e) {}
+        try { showToast(name ? 'Nom d\'usuari desat ✓' : 'Nom d\'usuari esborrat', 'success'); } catch (e) {}
+        if (hint) hint.textContent = name ? ('Nom actual: ' + name) : 'Encara no has posat cap nom.';
+    }
+}
+
+// ============================= RÀNQUING GLOBAL =============================
+// Opció A: un sol document compartit (eltauler_ranking/leaderboard) amb el mapa
+// { uid: {name, elo, stars, games, hiero} }. Llegir el rànquing = 1 sola consulta
+// (s'ordena al client per a cada categoria); cada usuari hi desa NOMÉS la seva
+// entrada (amb debounce) → consum de quota mínim.
+const RANKING_COLLECTION = 'eltauler_ranking';
+const RANKING_DOC = 'leaderboard';
+const RANKING_CACHE_MS = 3 * 60 * 1000;
+let rankingCategory = 'elo';
+let _rankingPushTimer = null;
+let _lastRankingHash = '';
+let _rankingCache = null;
+
+function rankingDocRef() {
+    try {
+        if (typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length) return null;
+        return firebase.firestore().collection(RANKING_COLLECTION).doc(RANKING_DOC);
+    } catch (e) { return null; }
+}
+function rankingCurrentUser() {
+    try { return (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null; } catch (e) { return null; }
+}
+function myRankingEntry() {
+    return {
+        name: (getUsername() || '').slice(0, 24),
+        elo: Math.round(userELO || 0),
+        stars: totalStars || 0,
+        games: totalGamesPlayed || 0,
+        hiero: (typeof hieroglyphicStats === 'object' && hieroglyphicStats) ? (hieroglyphicStats.solved || 0) : 0,
+        at: Date.now()
+    };
+}
+function pushRankingStats(force) {
+    const user = rankingCurrentUser();
+    if (!user) return;                 // cal sessió per escriure
+    const ref = rankingDocRef();
+    if (!ref) return;
+    const entry = myRankingEntry();
+    const hash = [entry.name, entry.elo, entry.stars, entry.games, entry.hiero].join('|');
+    if (!force && hash === _lastRankingHash) return;   // res nou a pujar
+    _lastRankingHash = hash;
+    const payload = { players: {}, updatedAt: Date.now() };
+    payload.players[user.uid] = entry;
+    ref.set(payload, { merge: true }).catch(function (e) { console.warn('[Ranking] push', e); });
+}
+// Es crida (amb debounce) des de saveStorage; només actua si hi ha sessió.
+function schedulePushRanking() {
+    if (!rankingCurrentUser()) return;
+    if (_rankingPushTimer) clearTimeout(_rankingPushTimer);
+    _rankingPushTimer = setTimeout(function () { _rankingPushTimer = null; pushRankingStats(false); }, 8000);
+}
+window.schedulePushRanking = schedulePushRanking;
+
+function openRankingScreen() {
+    $('#start-screen').hide();
+    $('#ranking-screen').show();
+    navPush('ranking-screen');
+    pushRankingStats(true);            // desa primer les meves stats actuals
+    loadRanking(false);
+}
+function setRankingCategory(cat) {
+    if (!cat) return;
+    rankingCategory = cat;
+    $('.ranking-tab').removeClass('active');
+    $('.ranking-tab[data-cat="' + cat + '"]').addClass('active');
+    if (_rankingCache) renderRanking(_rankingCache.players);
+}
+function loadRanking(forceFresh) {
+    const ref = rankingDocRef();
+    const status = $('#ranking-status');
+    if (!ref) {
+        $('#ranking-list').html('<div class="ranking-empty">El rànquing necessita la sincronització al núvol (Firebase) configurada.</div>');
+        status.text('');
+        return;
+    }
+    if (!forceFresh && _rankingCache && (Date.now() - _rankingCache.at) < RANKING_CACHE_MS) {
+        renderRanking(_rankingCache.players);
+        return;
+    }
+    status.text('Carregant…');
+    ref.get().then(function (snap) {
+        const data = snap.exists ? snap.data() : null;
+        _rankingCache = { at: Date.now(), players: (data && data.players) || {} };
+        status.text('');
+        renderRanking(_rankingCache.players);
+    }).catch(function (e) {
+        console.warn('[Ranking] load', e);
+        status.text('No s\'ha pogut carregar el rànquing. Torna-ho a provar.');
+    });
+}
+function renderRanking(players) {
+    const list = $('#ranking-list');
+    const cat = rankingCategory;
+    const me = rankingCurrentUser();
+    const myUid = me ? me.uid : null;
+    const arr = Object.keys(players || {}).map(function (uid) {
+        const p = players[uid] || {};
+        return { uid: uid, name: p.name || 'Anònim', val: Math.round(p[cat] || 0) };
+    });
+    arr.sort(function (a, b) { return b.val - a.val; });
+    if (!arr.length) {
+        list.html('<div class="ranking-empty">Encara no hi ha ningú al rànquing. Inicia sessió, posa\'t un nom a Configuració i juga per aparèixer-hi!</div>');
+        return;
+    }
+    const top = arr.slice(0, 50);
+    let html = '';
+    top.forEach(function (p, i) {
+        const pos = i + 1;
+        const topCls = pos === 1 ? ' top1' : (pos === 2 ? ' top2' : (pos === 3 ? ' top3' : ''));
+        const meCls = (myUid && p.uid === myUid) ? ' me' : '';
+        const medal = pos === 1 ? '🥇' : (pos === 2 ? '🥈' : (pos === 3 ? '🥉' : pos));
+        const suffix = cat === 'stars' ? ' ⭐' : '';
+        html += '<div class="ranking-row' + topCls + meCls + '">' +
+            '<span class="ranking-pos">' + medal + '</span>' +
+            '<span class="ranking-name">' + escapeHtml(p.name) + '</span>' +
+            '<span class="ranking-val">' + p.val + suffix + '</span>' +
+            '</div>';
+    });
+    list.html(html);
+}
+
+window.onCloudSignedIn = function (email) {
+    try { showToast('Sessió iniciada' + (email ? ' com a ' + email : '') + ' ✓', 'success'); } catch (e) {}
+    try { pushRankingStats(true); } catch (e) {}
+    try {
+        const wanted = localStorage.getItem('eltauler_cloud_returnToCatalans');
+        if (wanted) localStorage.removeItem('eltauler_cloud_returnToCatalans');
+        const catScreen = document.getElementById('catalans-screen');
+        const onCatalans = catScreen && catScreen.style.display !== 'none' && catScreen.offsetParent !== null;
+        if (wanted && !onCatalans) {
+            $('#start-screen').hide();
+            if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
+            else $('#catalans-screen').show();
+            navPush('catalans-screen');
+        }
+    } catch (e) {}
+};
 
 // Botó d'emergència a la pantalla inicial: permet iniciar sessió i recuperar
 // les dades del núvol ABANS de fer el calibratge (quan la resta d'opcions de
@@ -4709,11 +5046,9 @@ function updateDisplay() {
     let total = savedErrors.length;
     $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
     $('#game-bundles').text(total);
-    // Comptadors de repàs espaiat i repte diari al menú principal
+    // Comptadors de repàs espaiat al menú principal
     const due = getDueErrors().length;
     $('#srs-info').text(due > 0 ? `${due} per repassar` : 'Al dia');
-    ensureDailyPuzzle();
-    $('#daily-info').text(dailyPuzzle.solved ? `Fet ✓ · ratxa ${dailyPuzzle.streak}` : 'Disponible');
     $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
@@ -6326,6 +6661,9 @@ function buildEntryPgn(entry) {
 function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
+    // Engega la construcció del graf de posicions (si encara no s'ha fet): així,
+    // quan estigui llest, la ressenya s'actualitzarà amb el nom d'obertura precís.
+    try { prewarmOpeningPositionGraph(); } catch (e) {}
     initHistoryBoard(entry);
     const moves = getHistoryMoves(entry);
     historyReplay = {
@@ -6390,6 +6728,10 @@ function updateHistoryReview(entry) {
         if (generateBtn.length) generateBtn.prop('disabled', true);
         return;
     }
+    // El botó de re-generar ressenya queda SEMPRE actiu quan hi ha una partida
+    // carregada (es pot tornar a demanar la redacció amb OpenAI tantes vegades
+    // com calgui). Si no hi ha clau d'OpenAI configurada, en clicar-lo s'avisa.
+    if (generateBtn.length) generateBtn.prop('disabled', false);
     const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
     // La ressenya local rica (obertura, fases, obertura semblant per practicar i
     // moments clau) es mostra SEMPRE, fins i tot quan hi ha una ressenya d'OpenAI:
@@ -6406,7 +6748,6 @@ function updateHistoryReview(entry) {
     html += localHtml;
     if (!html.trim()) {
         reviewContent.text('Encara no hi ha revisió per aquesta partida.');
-        if (generateBtn.length) generateBtn.prop('disabled', !openaiApiKey);
         return;
     }
     reviewContent.html(html);
@@ -6430,7 +6771,32 @@ function updateHistoryReview(entry) {
         const color = String($(this).data('color') || '');
         practiceOpeningFromHistory(Number.isNaN(idx) ? -1 : idx, color);
     });
-    if (generateBtn.length) generateBtn.prop('disabled', (review && review.text) ? true : !openaiApiKey);
+    reviewContent.find('.review-copy-moves').off('click').on('click', function(event) {
+        event.preventDefault();
+        const txt = String($(this).attr('data-moves') || '');
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            navigator.clipboard.writeText(txt)
+                .then(() => showToast('Jugades copiades 📋', 'success'))
+                .catch(() => showToast('No s\'ha pogut copiar; selecciona el text manualment', 'warn'));
+        } else {
+            showToast('Còpia no disponible; selecciona el text manualment', 'info');
+        }
+    });
+    // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
+}
+
+// Renova la ressenya LOCAL d'una partida (no depèn de cap clau d'IA): incrementa
+// la llavor perquè la propera renderització triï una veu i una redacció noves, i
+// invalida les memòries cau associades. La nova llavor es desa amb la partida.
+function regenerateLocalReview(entry) {
+    if (!entry) return;
+    entry.reviewSeed = (entry.reviewSeed || 0) + 1;
+    const newKey = entry.id + ':r' + entry.reviewSeed;
+    try {
+        if (_localDebriefCache && typeof _localDebriefCache === 'object') delete _localDebriefCache[newKey];
+        if (_coachVoiceByKey && typeof _coachVoiceByKey === 'object') delete _coachVoiceByKey[newKey];
+    } catch (e) {}
+    try { saveStorage(); } catch (e) {}
 }
 
 function escapeHtml(text) {
@@ -6535,8 +6901,10 @@ function highlightReviewedMove(beforeFen, move) {
             ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
             : g.move(raw, { sloppy: true });
         if (!mv) return;
-        $('#history-board .square-' + mv.from).addClass('highlight-hint');
-        $('#history-board .square-' + mv.to).addClass('highlight-hint');
+        // chessboard.js identifica les caselles amb l'atribut data-square (no amb
+        // una classe .square-<casella>): per això el ressaltat no apareixia.
+        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass('highlight-hint');
+        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass('highlight-hint');
     } catch (e) {}
 }
 
@@ -6935,15 +7303,20 @@ function findClosestCuratedOpening(sanMoves) {
 }
 
 // Obre la pràctica de l'obertura del repertori (per índex) amb el color demanat.
+// Reprodueix EXACTAMENT la mateixa preparació que en entrar des del menú
+// d'obertures (mateix ordre: render → inicialitza tauler → mostra pantalla →
+// arrenca → redimensiona), de manera que s'arriba al mateix punt d'inici net de
+// la pràctica de l'obertura, però amb l'obertura concreta ja seleccionada.
 function practiceOpeningFromHistory(idx, color) {
     try {
-        $('#history-screen').hide();
-        $('#opening-screen').show();
-        navPush('opening-screen');
+        const forceColor = (color === 'w' || color === 'b') ? color : undefined;
         renderOpeningStatsScreen();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
-        const forceColor = (color === 'w' || color === 'b') ? color : undefined;
+        $('#history-screen').hide();
+        $('#start-screen').hide();
+        $('#opening-screen').show();
+        navPush('opening-screen');
         if (typeof idx === 'number' && idx >= 0) {
             startOpeningLesson(idx, forceColor);
         } else {
@@ -6952,7 +7325,7 @@ function practiceOpeningFromHistory(idx, color) {
             showToast('No tinc una lliçó concreta d’aquesta obertura; practica-la lliurement.', 'info');
         }
         if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
-            setTimeout(() => openingBundleBoard.resize(), 60);
+            setTimeout(() => openingBundleBoard.resize(), 50);
         }
     } catch (e) { console.warn('practiceOpeningFromHistory', e); }
 }
@@ -6966,6 +7339,10 @@ function renderLocalReviewHtml(entry) {
     const blocks = [];
     try {
         const facts = buildDebriefFacts(entry);
+        // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
+        // màxima noves) cada cop que es prem «Re-generar ressenya», sense dependre
+        // de cap clau d'IA. Si no s'ha regenerat mai, la llavor és l'id de partida.
+        const seedKey = entry.id + (entry.reviewSeed ? ':r' + entry.reviewSeed : '');
 
         // --- Màxima d'inici ---
         let maxim = '';
@@ -6975,20 +7352,63 @@ function renderLocalReviewHtml(entry) {
         }
 
         if (facts) {
-            const debrief = composeDebriefText(facts, entry.id, pickCoachVoiceForKey(entry.id));
+            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey));
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
         const phases = buildPhaseStats(entry);
         const pct = v => (typeof v === 'number' ? `${v}%` : '—');
 
-        // --- Obertura ---
+        // --- Obertura (centrada en LA TEVA obertura, sigui quina sigui) ---
         const sanMoves = getHistoryMoves(entry);
         if (!openingTrie) { try { initOpeningSystem(); } catch (e) {} }
         let oa = null;
         try { oa = analyzeGameOpening(sanMoves); } catch (e) { oa = null; }
-        if (oa && oa.name) {
-            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(oa.name)}${oa.eco ? ` (${escapeHtml(oa.eco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
-            if (oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
+        // Obertura realitzada (per posició al repertori si hi encaixa, o per ECO).
+        let curated = null;
+        try { curated = findCuratedOpeningForGame(sanMoves); } catch (e) { curated = null; }
+        // QUINA obertura del repertori estaves jugant TU (per les teves jugades),
+        // i si el rival et va forçar a canviar.
+        let userOp = null;
+        try { userOp = identifyUserOpening(entry); } catch (e) { userOp = null; }
+
+        const realizedName = curated ? curated.name : (oa ? oa.name : null);
+        const realizedEco = curated ? curated.eco : (oa ? oa.eco : null);
+        // La partida s'ha mantingut DINS la teva obertura del repertori?
+        const stayedInUserOpening = !!(userOp && curated && curated.index === userOp.index);
+        // El rival t'ha forçat a canviar d'obertura (va sortir ell primer de la línia
+        // i la partida ja no és la teva obertura)?
+        const forcedChange = !!(userOp && userOp.forcedByOpponent && !stayedInUserOpening);
+
+        let practiceIdx = null, practiceName = null, practiceEco = null;
+
+        if (userOp && forcedChange) {
+            // CANVI FORÇAT: 100% de correcció d'obertura i argument del canvi.
+            const devNum = Math.floor((userOp.firstDevPly || 0) / 2) + 1;
+            const devNotation = `${devNum}${userOp.firstDevBy === 'w' ? '.' : '...'}${userOp.deviationMove}`;
+            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · correcció <strong>100%</strong>.`;
+            txt += ` El rival no va entrar a la teva línia: va jugar <strong>${escapeHtml(devNotation)}</strong>`;
+            if (userOp.expectedMove) txt += ` (hi esperaves ${escapeHtml(userOp.expectedMove)})`;
+            if (realizedName && (!realizedEco || realizedEco !== userOp.eco)) {
+                txt += `, transposant cap a ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''}`;
+            }
+            txt += `. Vas mantenir el teu pla amb solidesa, així que el canvi no és culpa teva: la correcció d'obertura és del 100%.`;
+            blocks.push(`<p>${txt}</p>`);
+            practiceIdx = userOp.index; practiceName = userOp.name; practiceEco = userOp.eco;
+        } else if (userOp) {
+            // Vas jugar la teva obertura (el rival hi va entrar, o la vas variar tu).
+            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
+            if (!stayedInUserOpening && userOp.firstDevPly >= 0 && userOp.firstDevBy === (entry.playerColor || 'w')) {
+                const dn = Math.floor(userOp.firstDevPly / 2) + 1;
+                txt += ` Vas sortir de la teva línia a la jugada ${dn}`;
+                txt += userOp.expectedMove ? ` (la teoria seguia amb ${escapeHtml(userOp.expectedMove)}).` : '.';
+            }
+            blocks.push(`<p>${txt}</p>`);
+            practiceIdx = userOp.index; practiceName = userOp.name; practiceEco = userOp.eco;
+        } else if (realizedName) {
+            // No hem pogut identificar cap obertura teva del repertori: mostrem
+            // l'obertura realitzada (per posició/ECO) amb la desviació de la teoria.
+            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
+            if (!curated && oa && oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
                 openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
                 if (Array.isArray(oa.theoryMoves) && oa.theoryMoves.length) {
@@ -7003,14 +7423,21 @@ function renderLocalReviewHtml(entry) {
                 } else openingTxt += '.';
             }
             blocks.push(`<p>${openingTxt}</p>`);
+            if (curated) { practiceIdx = curated.index; practiceName = curated.name; practiceEco = curated.eco; }
         }
 
-        // --- Obertura més semblant per practicar (enllaços per a tots dos colors) ---
-        const closest = findClosestCuratedOpening(sanMoves);
-        if (closest) {
-            const wLink = `<a href="#" class="opening-practice-link" data-idx="${closest.index}" data-color="w">practicar amb blanques</a>`;
-            const bLink = `<a href="#" class="opening-practice-link" data-idx="${closest.index}" data-color="b">practicar amb negres</a>`;
-            blocks.push(`<p><strong>Per practicar:</strong> l'obertura del repertori més semblant a la que vas jugar és <strong>${escapeHtml(closest.opening.name)}</strong> (${escapeHtml(closest.opening.eco)}). ${wLink} · ${bLink}.</p>`);
+        // --- Obertura del repertori per practicar (enllaços per a tots dos colors) ---
+        if (practiceIdx === null) {
+            const closest = findClosestCuratedOpening(sanMoves);
+            if (closest) { practiceIdx = closest.index; practiceName = closest.opening.name; practiceEco = closest.opening.eco; }
+        }
+        if (practiceIdx !== null && practiceName) {
+            const wLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="w">practicar amb blanques</a>`;
+            const bLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="b">practicar amb negres</a>`;
+            const lead = (userOp || curated)
+                ? `reforça la teva <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''} del repertori`
+                : `l'obertura del repertori més semblant a la que vas jugar és <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''}`;
+            blocks.push(`<p><strong>Per practicar:</strong> ${lead}. ${wLink} · ${bLink}.</p>`);
         }
 
         // --- Mig joc ---
@@ -7048,6 +7475,28 @@ function renderLocalReviewHtml(entry) {
                 return `<li style="margin-bottom:8px;">${seg.filter(Boolean).join(' ')}</li>`;
             }).join('');
             blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
+        }
+
+        // --- Llista completa de jugades (per copiar i verificar la detecció) ---
+        // Posem totes les jugades en ordre, en notació numerada estil PGN, en un
+        // bloc seleccionable amb un botó de còpia, per poder comprovar fàcilment
+        // on falla l'assignació d'obertures.
+        if (Array.isArray(sanMoves) && sanMoves.length) {
+            const moveList = sanMoves
+                .map((m, i) => (i % 2 === 0 ? `${(i / 2) + 1}. ${m}` : m))
+                .join(' ');
+            const safe = escapeHtml(moveList);
+            blocks.push(
+                `<div class="review-movelist" style="margin-top:12px;">` +
+                    `<strong>Jugades de la partida</strong> ` +
+                    `<button type="button" class="btn btn-secondary review-copy-moves" data-moves="${safe}" ` +
+                        `style="padding:2px 8px; font-size:0.8rem; margin-left:6px;">📋 Copiar</button>` +
+                    `<pre class="review-moves-pre" style="white-space:pre-wrap; word-break:break-word; ` +
+                        `user-select:all; -webkit-user-select:all; background:rgba(127,127,127,0.12); ` +
+                        `padding:8px 10px; border-radius:6px; margin-top:6px; font-family:monospace; ` +
+                        `font-size:0.85rem; line-height:1.5;">${safe}</pre>` +
+                `</div>`
+            );
         }
     } catch (e) { console.warn('renderLocalReviewHtml', e); }
     return blocks.join('\n');
@@ -7899,6 +8348,12 @@ async function requestPositionAnalysis() {
 function buildOpenAIReviewPrompt(entry, severeErrors) {
     const summary = entry.counts || {};
     const moves = getHistoryMoves(entry);
+    // Si no ens passen errades (o l'entrada antiga no en tenia desades), les
+    // derivem de la informació guardada (severeErrors + moveReviews) perquè la
+    // regeneració sempre tingui contingut concret a analitzar.
+    if (!Array.isArray(severeErrors) || !severeErrors.length) {
+        severeErrors = getEntryReviewErrors(entry);
+    }
     
     const errorsDetail = severeErrors.map((err, idx) => {
         const moveNum = err.moveNumber || '?';
@@ -7967,10 +8422,11 @@ async function requestOpenAIReview(entry, severeErrors) {
     if (!entry || !openaiApiKey) return;
     const existingReview = entry.aiReview || entry.deepseekReview;
     if (existingReview && existingReview.status === 'pending') return;
-    if (existingReview && existingReview.text) return;
+    // NOTA: si ja existeix una ressenya, NO sortim: el botó «Re-generar ressenya»
+    // ha de poder tornar a demanar-ne una de nova.
     const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
         ? severeErrors
-        : getEntrySevereErrors(entry);
+        : getEntryReviewErrors(entry);
     entry.aiReview = { status: 'pending', text: '' };
     saveStorage();
     updateHistoryReview(historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id ? historyReplay.entry : entry);
@@ -8842,7 +9298,12 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             evalAfter: review.evalAfter ?? null
         })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
-        severeErrors: Array.isArray(options.severeErrors) ? options.severeErrors : [],
+        // Persistim les errades greus derivades de la revisió completa perquè
+        // l'entrada sigui AUTOSUFICIENT per regenerar la ressenya més endavant
+        // (encara que `review` es buidi i `currentReview` ja no existeixi).
+        severeErrors: Array.isArray(options.severeErrors) && options.severeErrors.length
+            ? options.severeErrors
+            : getSevereErrors(currentReview),
         aiReview: options.aiReview || options.deepseekReview || options.geminiReview || null,
         playerColor: playerColor,
         opponent: currentOpponent || null,
@@ -8981,6 +9442,10 @@ function setOpeningScreenMode(mode = 'overview') {
         sections.practice.show();
         sections.hieroglyphic.show();
     }
+    // L'opció de rendir-se NO ha d'aparèixer quan es resol un error o un jeroglífic
+    // (només té sentit a les partides i a la pràctica d'obertures).
+    const hideResign = (mode === 'error-practice' || mode === 'hieroglyphic');
+    $('#btn-opening-bundle-resign').toggle(!hideResign);
     updateOpeningMaximButton();
 }
 
@@ -11920,7 +12385,14 @@ function setupEvents() {
 
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
-    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); });
+    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
+    $('#btn-ranking').click(() => openRankingScreen());
+    $('#btn-ranking-back').click(() => { $('#ranking-screen').hide(); $('#start-screen').show(); });
+    $('#btn-ranking-refresh').click(() => loadRanking(true));
+    $('#ranking-screen').on('click', '.ranking-tab', function () { setRankingCategory($(this).attr('data-cat')); });
+    $('#btn-username-save').click(() => saveUsernameFromSettings());
+    $('#username-input').on('blur', () => saveUsernameFromSettings());
+    $('#username-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveUsernameFromSettings(); } });
     $('#btn-history').click(() => {
         $('#start-screen').hide();
         $('#history-screen').show();
@@ -12163,9 +12635,20 @@ function setupEvents() {
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
     $('#history-generate-review').off('click').on('click', () => {
-        if (!historyReplay || !historyReplay.entry) return;
-        const severeErrors = getEntrySevereErrors(historyReplay.entry);
-        void requestOpenAIReview(historyReplay.entry, severeErrors);
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        const entry = historyReplay.entry;
+        // La ressenya rica LOCAL (obertura, fases, moments clau…) no depèn de cap
+        // clau: sempre es pot tornar a generar. La redacció addicional amb OpenAI
+        // només s'hi afegeix si hi ha clau configurada.
+        regenerateLocalReview(entry);
+        if (openaiApiKey) {
+            const severeErrors = getEntryReviewErrors(entry);
+            void requestOpenAIReview(entry, severeErrors);
+            showToast('Regenerant ressenya…', 'info');
+        } else {
+            updateHistoryReview(entry);
+            showToast('Ressenya regenerada ✓', 'success');
+        }
     });
     $('#history-export-pgn').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
@@ -12357,7 +12840,6 @@ function setupEvents() {
     });
 
     $('#btn-srs-review').click(() => startSrsReview());
-    $('#btn-daily-puzzle').click(() => startDailyPuzzle());
     $('#btn-tactics').click(() => {
         // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
         tacticsStats.streak = 0;
@@ -12366,8 +12848,7 @@ function setupEvents() {
 
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
-        if (action === 'daily') startDailyPuzzle();
-        else if (action === 'srs') startSrsReview();
+        if (action === 'srs') startSrsReview();
         else { if (!guardCalibrationAccess()) return; window._startAssistedGame = false; startGame(false); }
     });
 
@@ -13398,17 +13879,15 @@ function updateEngagementBanner() {
     const ctaEl = el.querySelector('.eng-cta');
     if (!iconEl || !textEl || !ctaEl) return;
 
-    let icon, text, cta, action;
-    ensureDailyPuzzle();
+    let iconId, text, cta, action;
     const due = getDueErrors().length;
-    if (!dailyPuzzle.solved) {
-        icon = '🗓️'; text = 'El repte diari t\'espera. Mantingues viva la ratxa!'; cta = 'Jugar repte'; action = 'daily';
-    } else if (due > 0) {
-        icon = '🔁'; text = `Tens ${due} ${due > 1 ? 'repassos a punt' : 'repàs a punt'}. Consolida el que has après.`; cta = 'Repassar'; action = 'srs';
+    if (due > 0) {
+        iconId = 'ic-repeat'; text = `Tens ${due} ${due > 1 ? 'repassos a punt' : 'repàs a punt'}. Consolida el que has après.`; cta = 'Repassar'; action = 'srs';
     } else {
-        icon = '💡'; text = PLAY_IDEAS[hashStr(getToday()) % PLAY_IDEAS.length]; cta = 'Nova partida'; action = 'play';
+        iconId = 'ic-bulb'; text = PLAY_IDEAS[hashStr(getToday()) % PLAY_IDEAS.length]; cta = 'Nova partida'; action = 'play';
     }
-    iconEl.textContent = icon;
+    // Icona en l'estil de l'app (line-icon SVG) en comptes d'emoji.
+    iconEl.innerHTML = '<svg class="eng-ic" aria-hidden="true"><use href="#' + iconId + '"/></svg>';
     textEl.textContent = text;
     ctaEl.textContent = cta;
     ctaEl.setAttribute('data-eng-action', action);
@@ -14176,7 +14655,10 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     $('#game-screen').addClass('active').show();
     navPush('game-screen');
     
-blunderMode = isBundle; 
+blunderMode = isBundle;
+    // El botó de rendir-se només té sentit a les PARTIDES, no als exercicis
+    // (tàctiques, revisió d'errors, mats…).
+    $('#btn-resign').toggle(!isBundle);
     isCalibrationGame = isCalibrationActive() && !isBundle;
     currentBundleFen = fen;
     
@@ -17911,8 +18393,9 @@ async function backgroundPrepTick() {
         }
     })();
     await backgroundPrepPromise;
-    // Si seguim en repòs i queda rebost per omplir, continua aviat
-    if (!backgroundPrepAbortRequested) setTimeout(backgroundPrepTick, 1500);
+    // Si seguim en repòs i queda rebost per omplir, continua de seguida (omplim el
+    // rebost com més de pressa millor mentre l'usuari no necessiti el motor).
+    if (!backgroundPrepAbortRequested) setTimeout(backgroundPrepTick, 600);
 }
 
 $(document).ready(() => {
@@ -17948,8 +18431,14 @@ $(document).ready(() => {
     }, 60000);
 
     // Rebost d'exercicis: recupera les seqüències desades i comença a omplir-lo
-    // en segon pla perquè els exercicis arrenquin sense espera.
+    // en segon pla perquè els exercicis arrenquin sense espera. Es persisteix a
+    // localStorage (i se sincronitza), així que un cop omplert sobreviu entre
+    // sessions. Arrenquem aviat i comprovem sovint per tenir-ne sempre de llestos.
     loadPreparedSequences();
-    setTimeout(backgroundPrepTick, 3000);
-    setInterval(backgroundPrepTick, 8000);
+    setTimeout(backgroundPrepTick, 1200);
+    setInterval(backgroundPrepTick, 4000);
+
+    // Escalfa el graf d'obertures per posició en segon pla (detecció immune a
+    // transposicions), perquè l'anàlisi de partides ja el tingui llest.
+    setTimeout(function () { try { prewarmOpeningPositionGraph(); } catch (e) {} }, 4000);
 });

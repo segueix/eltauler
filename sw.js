@@ -1,8 +1,14 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.7.2';
+const SW_VERSION = '3.9.5';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
+// Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
+// versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
+// tornar a baixar-lo a cada actualització. (Sense això, just després d'actualitzar
+// el SW la cau queda buida i, si l'usuari està offline, no es pot jugar ni generar
+// jeroglífics ni resoldre errors.)
+const ENGINE_CACHE = 'eltauler-engine-v1';
 
 console.log(`[SW] Service Worker versió: ${SW_VERSION}`);
 
@@ -68,6 +74,11 @@ self.addEventListener('install', (event) => {
       .then((cache) => cache.addAll(STATIC_ASSETS).catch((err) => {
         console.warn('[SW] Alguns estàtics no s\'han precachejat:', err);
       }))
+      // Escalfa la cau del motor (si encara no hi és) perquè Stockfish funcioni
+      // offline tan aviat com sigui possible.
+      .then(() => caches.open(ENGINE_CACHE).then((c) =>
+        c.match('stockfish.js', { ignoreSearch: true }).then((hit) => hit ? null : c.add('stockfish.js').catch(() => {}))
+      ).catch(() => {}))
       .then(() => {
         console.log(`[SW] Instal·lació completada. Activant immediatament...`);
         // Activa el nou SW sense esperar que les pestanyes antigues es tanquin.
@@ -86,7 +97,8 @@ self.addEventListener('activate', (event) => {
     caches.keys()
       .then((names) => Promise.all(
         names.map((name) => {
-          if (name !== CACHE_NAME) {
+          // Conserva la cau actual i la cau PERSISTENT del motor (Stockfish).
+          if (name !== CACHE_NAME && name !== ENGINE_CACHE) {
             console.log(`[SW] Eliminant cache antiga: ${name}`);
             return caches.delete(name);
           }
@@ -115,6 +127,13 @@ self.addEventListener('fetch', (event) => {
 
   // Firebase: passa directament sense cap intervenció del SW.
   if (FIREBASE_HOSTS.some((h) => url.indexOf(h) !== -1)) return;
+
+  // Motor Stockfish: cache-first des de la cau persistent, perquè funcioni
+  // OFFLINE encara que s'hagi actualitzat el SW (no es torna a baixar 1,5 MB).
+  if (url.indexOf('stockfish.js') !== -1) {
+    event.respondWith(engineCacheFirst(event.request));
+    return;
+  }
 
   if (CACHE_FIRST_PATTERNS.some((p) => p.test(url))) {
     event.respondWith(cacheFirst(event.request));
@@ -151,6 +170,30 @@ async function networkFirst(request) {
     return new Response('Offline - contingut no disponible', {
       status: 503,
       headers: { 'Content-Type': 'text/plain; charset=utf-8' }
+    });
+  }
+}
+
+// ================================
+// MOTOR (Stockfish) — cache-first persistent amb fallback offline
+// ================================
+async function engineCacheFirst(request) {
+  const cache = await caches.open(ENGINE_CACHE);
+  // 1) Coincidència exacta (mateix ?v): serveix-la directament.
+  const exact = await cache.match(request);
+  if (exact) return exact;
+  // 2) Si no, intenta baixar-la (i desa-la) — actualitza si ha canviat la versió.
+  try {
+    const res = await fetch(request);
+    if (res && res.status === 200) { await cache.put(request, res.clone()); }
+    return res;
+  } catch (err) {
+    // 3) Sense xarxa: serveix QUALSEVOL stockfish.js desat (ignorant el ?v).
+    const any = await cache.match(request, { ignoreSearch: true })
+      || await cache.match('stockfish.js', { ignoreSearch: true });
+    if (any) return any;
+    return new Response('// motor no disponible offline', {
+      status: 503, headers: { 'Content-Type': 'application/javascript' }
     });
   }
 }

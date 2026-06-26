@@ -55,6 +55,7 @@
   const DEVICE_ID_KEY = LOCAL_META_PREFIX + 'deviceId';
   const LAST_CHANGE_KEY = LOCAL_META_PREFIX + 'lastChangeAt';
   const LAST_SYNCED_KEY = LOCAL_META_PREFIX + 'lastSyncedAt';
+  const REDIRECT_FLAG_KEY = LOCAL_META_PREFIX + 'redirectPending';
 
   // Claus concretes que mai no volem pujar al núvol.
   const EXCLUDE_KEYS = new Set();
@@ -72,6 +73,8 @@
   let pushInFlight = false;
   let pendingCloudData = null;       // dades del núvol esperant a aplicar-se
   let deferApplyTimer = null;
+  let syncWatchdog = null;           // detecta sincronitzacions inicials encallades
+  const SYNC_WATCHDOG_MS = 15000;
   let status = { state: 'init', email: null, lastSyncedAt: 0, error: null };
 
   // ---------------------------------------------------------------------------
@@ -321,52 +324,142 @@
   // ---------------------------------------------------------------------------
   //  Autenticació
   // ---------------------------------------------------------------------------
+  function clearSyncWatchdog() {
+    if (syncWatchdog) { clearTimeout(syncWatchdog); syncWatchdog = null; }
+  }
+
   function handleSignedIn(user) {
     currentUser = user;
+    // Sessió iniciada correctament: neteja la marca de redirecció i avisa l'app
+    // (perquè mostri un missatge clar i, si cal, torni a la pantalla on era).
+    try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
+    if (typeof window.onCloudSignedIn === 'function') {
+      try { window.onCloudSignedIn(user.email || user.displayName || ''); } catch (e) {}
+    }
     setStatus({ state: 'syncing', email: user.email || user.displayName || 'Connectat' });
+
+    // Watchdog: si la sincronització inicial es queda penjada (típicament perquè
+    // la connexió amb Firestore està bloquejada en aquest navegador/xarxa), no
+    // deixem la UI eternament en "Sincronitzant…": informem l'usuari amb un avís
+    // accionable. No avortem la petició: la subscripció en temps real i el
+    // long-polling poden resoldre-la més tard i tornar a posar l'estat a 'synced'.
+    clearSyncWatchdog();
+    syncWatchdog = setTimeout(function () {
+      syncWatchdog = null;
+      if (status.state === 'syncing') {
+        console.warn('[CloudSync] sincronització inicial encallada (>' + SYNC_WATCHDOG_MS + ' ms).');
+        setStatus({
+          state: 'error',
+          error: 'La connexió amb el núvol triga massa. Comprova la xarxa (algunes ' +
+                 'xarxes o extensions bloquegen Firestore) i torna-ho a provar; si el ' +
+                 'problema continua, recarrega la pàgina.'
+        });
+      }
+    }, SYNC_WATCHDOG_MS);
+
     const ref = docRef();
-    if (!ref) return;
+    if (!ref) { clearSyncWatchdog(); return; }
+    // Subscrivim el temps real abans (i a part) de la conciliació inicial: així,
+    // encara que el get() inicial trigui, l'estat es pot recuperar sol quan arribi
+    // el primer snapshot del document.
     ref.get().then(function (snap) {
       const cloudDoc = snap.exists ? snap.data() : null;
       return reconcileInitial(cloudDoc);
     }).then(function () {
+      clearSyncWatchdog();
       subscribeRealtime();
     }).catch(function (e) {
+      clearSyncWatchdog();
       console.warn('[CloudSync] sign-in sync error', e);
       setStatus({ state: 'error', error: e && e.message ? e.message : 'Error de sincronització' });
+      // Intentem la subscripció igualment: pot recuperar-se quan torni la connexió.
+      try { subscribeRealtime(); } catch (e2) {}
     });
   }
 
   function handleSignedOut() {
     currentUser = null;
+    clearSyncWatchdog();
     if (docUnsub) { docUnsub(); docUnsub = null; }
     if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
     setStatus({ state: 'signedout', email: null });
   }
 
+  function buildProvider() {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    // Mostra SEMPRE el selector de comptes de Google: així es pot iniciar sessió i
+    // també CANVIAR de compte fàcilment (no reutilitza automàticament l'últim).
+    provider.setCustomParameters({ prompt: 'select_account' });
+    return provider;
+  }
+
+  function startRedirect(provider) {
+    // Marca que hi ha una redirecció en curs: en tornar, comprovarem si s'ha
+    // completat de debò (alguns navegadors mòbils bloquegen l'emmagatzematge i la
+    // sessió no s'acaba, sense cap error visible).
+    try { localStorage.setItem(REDIRECT_FLAG_KEY, String(Date.now())); } catch (e) {}
+    try {
+      auth.signInWithRedirect(provider).catch(function (e2) {
+        console.warn('[CloudSync] redirect sign-in error', e2);
+        try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
+        setStatus({ state: 'error', error: friendlyAuthError(e2) });
+      });
+    } catch (e2) {
+      try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
+      setStatus({ state: 'error', error: friendlyAuthError(e2) });
+    }
+  }
+
+  function friendlyAuthError(e) {
+    const code = e && e.code ? String(e.code) : '';
+    if (code === 'auth/unauthorized-domain') {
+      return 'El domini «' + (location.hostname || '') + '» no està autoritzat a Firebase ' +
+             '(Authentication → Settings → Authorized domains). Afegeix-l\'hi i torna-ho a provar.';
+    }
+    if (code === 'auth/operation-not-allowed') return 'L\'inici de sessió amb Google no està activat a Firebase.';
+    if (code === 'auth/network-request-failed') return 'Error de xarxa en iniciar sessió. Comprova la connexió.';
+    return (e && e.message) ? e.message : 'Error d\'inici de sessió';
+  }
+
+  // Inici de sessió: SEMPRE intentem primer el popup (funciona a la majoria de
+  // navegadors moderns, mòbil inclòs, i evita els problemes de la redirecció amb
+  // la partició d'emmagatzematge). Si el popup falla per qualsevol motiu que no
+  // sigui que l'usuari l'ha tancat, provem amb redirecció.
   function signIn() {
     if (!auth) { setStatus({ state: 'error', error: 'Firebase no inicialitzat' }); return; }
-    const provider = new firebase.auth.GoogleAuthProvider();
-    auth.signInWithPopup(provider).catch(function (e) {
-      // En molts mòbils/PWA el popup es bloqueja → prova amb redirecció.
-      if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment' || e.code === 'auth/cancelled-popup-request')) {
-        auth.signInWithRedirect(provider).catch(function (e2) {
-          console.warn('[CloudSync] redirect sign-in error', e2);
-          setStatus({ state: 'error', error: e2 && e2.message ? e2.message : 'Error d\'inici de sessió' });
-        });
-      } else if (e && e.code === 'auth/popup-closed-by-user') {
-        // L'usuari ha tancat la finestra; no és un error real.
+    const provider = buildProvider();
+    let popup;
+    try { popup = auth.signInWithPopup(provider); } catch (e) { startRedirect(provider); return; }
+    popup.catch(function (e) {
+      const code = e && e.code ? e.code : '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || code === 'auth/user-cancelled') {
+        // L'usuari ha tancat el selector; no és un error real.
         setStatus({ state: currentUser ? 'synced' : 'signedout' });
-      } else {
-        console.warn('[CloudSync] sign-in error', e);
-        setStatus({ state: 'error', error: e && e.message ? e.message : 'Error d\'inici de sessió' });
+        return;
       }
+      if (code === 'auth/unauthorized-domain' || code === 'auth/operation-not-allowed') {
+        // La redirecció no ho arreglaria: mostra l'error accionable.
+        setStatus({ state: 'error', error: friendlyAuthError(e) });
+        return;
+      }
+      // Qualsevol altre error (popup bloquejat, no suportat, mòbil…) → redirecció.
+      console.warn('[CloudSync] popup sign-in error, provant redirecció', e);
+      startRedirect(provider);
     });
   }
 
   function signOut() {
-    if (!auth) return;
-    auth.signOut().catch(function (e) { console.warn('[CloudSync] sign-out error', e); });
+    if (!auth) return Promise.resolve();
+    return auth.signOut().catch(function (e) { console.warn('[CloudSync] sign-out error', e); });
+  }
+
+  // Canviar de compte: amb prompt=select_account, n'hi ha prou amb tornar a iniciar
+  // sessió (Google mostra el selector i, si tries un altre compte, s'hi canvia).
+  // Ho fem DINS del gest del clic (sense signOut previ) perquè el popup no es
+  // bloquegi.
+  function switchAccount() {
+    if (!auth) { signIn(); return; }
+    signIn();
   }
 
   function syncNow() {
@@ -393,13 +486,46 @@
       app = firebase.initializeApp(FIREBASE_CONFIG);
       auth = firebase.auth();
       db = firebase.firestore();
+      // IMPORTANT: per defecte Firestore es connecta amb WebChannel, que en alguns
+      // navegadors d'escriptori (típic en Chromebooks, xarxes corporatives, proxies
+      // o amb certes extensions) queda BLOQUEJAT i les peticions no resolen mai →
+      // l'app es queda eternament "Sincronitzant…". Activant la detecció automàtica
+      // de long-polling, Firestore canvia a HTTP normal quan detecta el problema,
+      // cosa que ho soluciona sense penalitzar els entorns on WebChannel sí funciona
+      // (com els mòbils). Cal cridar settings() ABANS de qualsevol altra operació.
+      try {
+        db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
+      } catch (e) { console.warn('[CloudSync] settings()', e); }
       try {
         db.enablePersistence({ synchronizeTabs: true }).catch(function () {});
       } catch (e) {}
 
-      // Recupera el resultat d'un inici de sessió per redirecció (mòbil).
-      auth.getRedirectResult().catch(function (e) {
-        if (e && e.code) console.warn('[CloudSync] redirect result error', e);
+      // Recupera el resultat d'un inici de sessió per redirecció (mòbil) i detecta
+      // si la redirecció ha tornat SENSE completar la sessió (cas típic a mòbil per
+      // bloqueig de cookies/emmagatzematge de tercers), per avisar l'usuari.
+      const hadPendingRedirect = (function () { try { return !!localStorage.getItem(REDIRECT_FLAG_KEY); } catch (e) { return false; } })();
+      auth.getRedirectResult().then(function (result) {
+        if (result && result.user) {
+          // onAuthStateChanged ja s'encarrega de la resta (i neteja el flag).
+          return;
+        }
+        // Sense usuari del redirect: si n'esperàvem un, avisa de manera accionable.
+        if (hadPendingRedirect && !auth.currentUser) {
+          try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
+          setStatus({
+            state: 'error',
+            error: 'No s\'ha pogut completar l\'inici de sessió en tornar de Google. ' +
+                   'És possible que el navegador estigui bloquejant les cookies/emmagatzematge ' +
+                   'de tercers. Prova-ho amb el navegador normal (no en mode incògnit), permet-hi ' +
+                   'les cookies, o inicia sessió des d\'un ordinador.'
+          });
+        }
+      }).catch(function (e) {
+        try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e2) {}
+        if (e && e.code) {
+          console.warn('[CloudSync] redirect result error', e);
+          if (!currentUser) setStatus({ state: 'error', error: friendlyAuthError(e) });
+        }
       });
 
       auth.onAuthStateChanged(function (user) {
@@ -419,11 +545,13 @@
     init: init,
     signIn: signIn,
     signOut: signOut,
+    switchAccount: switchAccount,
     syncNow: syncNow,
     // El crida saveStorage() de app.js cada cop que es desen dades locals.
     onLocalSave: function () { schedulePush(); },
     isConfigured: isConfigured,
     isSignedIn: function () { return !!currentUser; },
+    getEmail: function () { return currentUser ? (currentUser.email || currentUser.displayName || null) : null; },
     getStatus: function () { return Object.assign({}, status, { configured: isConfigured() }); }
   };
 

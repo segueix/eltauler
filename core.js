@@ -210,6 +210,196 @@
         };
     }
 
+    // ----------------------------------------------------------------------
+    // Obertures (detecció per POSICIÓ — immune a transposicions)
+    // ----------------------------------------------------------------------
+    // El trie per seqüència de jugades (a dalt) només reconeix una obertura si
+    // les jugades arriben EXACTAMENT en l'ordre del fitxer ECO. Això fa que una
+    // mateixa obertura arribada per un altre ordre de jugades (transposició) es
+    // classifiqui malament: p. ex. una Catalana per 1.d4 d5 2.c4 e6 3.g3 Nf6 es
+    // marcava com a «Queen's Gambit Declined» amb una desviació falsa, o per
+    // 1.d4 Nf6 2.c4 e6 3.Nf3 com a «Índia de Dama». Per evitar-ho, identifiquem
+    // les obertures per la POSICIÓ resultant (FEN), no per la seqüència.
+
+    // Posició inicial (clau normalitzada: col·locació + torn + enrocs).
+    const START_POSITION_KEY = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq';
+
+    // Normalitza una FEN a la part que identifica la posició a efectes
+    // d'obertura: col·locació de peces + torn + drets d'enroc. Ignorem el camp
+    // d'en passant i els comptadors de jugades, perquè dues partides que arriben
+    // a la mateixa estructura per ordres diferents han de comparar-se iguals
+    // (l'en passant només importaria si hi hagués una captura al pas real, cosa
+    // irrellevant per anomenar l'obertura).
+    function positionKeyFromFen(fen) {
+        if (!fen) return '';
+        const parts = String(fen).trim().split(/\s+/);
+        return parts.slice(0, 3).join(' ');
+    }
+
+    // Construeix un GRAF d'obertures indexat per posició. `fenSeqForMoves` rep
+    // una llista de jugades (SAN) i ha de retornar la llista de FEN DESPRÉS de
+    // cada jugada (s'injecta perquè el càlcul depèn de chess.js, que no volem
+    // dins del nucli pur). Retorna:
+    //   byPos:  Map(positionKey -> { eco, name, ply })   posicions amb nom
+    //   theory: Map(positionKey -> Set(SAN))             continuacions teòriques
+    function buildOpeningPositionGraph(openingsData, fenSeqForMoves, parsePgn) {
+        if (!Array.isArray(openingsData) || typeof fenSeqForMoves !== 'function') return null;
+        const parse = parsePgn || parsePgnToMoves;
+        const byPos = new Map();
+        const theory = new Map();
+        for (const opening of openingsData) {
+            const moves = parse(opening.pgn);
+            if (!moves.length) continue;
+            let fens;
+            try { fens = fenSeqForMoves(moves); } catch (e) { fens = null; }
+            if (!fens || !fens.length) continue;
+            const n = Math.min(moves.length, fens.length);
+            let prevKey = START_POSITION_KEY;
+            for (let i = 0; i < n; i++) {
+                const key = positionKeyFromFen(fens[i]);
+                if (!key) { prevKey = null; break; }
+                let nexts = theory.get(prevKey);
+                if (!nexts) { nexts = new Set(); theory.set(prevKey, nexts); }
+                nexts.add(moves[i]);
+                prevKey = key;
+            }
+            if (!prevKey) continue;
+            const ex = byPos.get(prevKey);
+            // En cas d'empat de posició (transposició amb noms diferents) ens
+            // quedem amb la línia més específica (més jugades).
+            if (!ex || n > ex.ply) byPos.set(prevKey, { eco: opening.eco, name: opening.name, ply: n });
+        }
+        return { byPos, theory };
+    }
+
+    // Analitza una partida pel GRAF de posicions. `fenSeq` és la llista de FEN
+    // després de cada jugada de la partida; `sanMoves` les jugades en SAN (per
+    // poder informar de la jugada de desviació). Retorna el mateix format que
+    // analyzeGameOpening: { depth, name, eco, deviationMove, deviationPly,
+    // deviationBy, theoryMoves } o null.
+    function analyzeGameOpeningByPositions(graph, fenSeq, sanMoves) {
+        if (!graph || !Array.isArray(fenSeq) || fenSeq.length === 0) return null;
+        const byPos = graph.byPos;
+        const theory = graph.theory;
+        const keys = fenSeq.map(positionKeyFromFen);
+        const moves = Array.isArray(sanMoves) ? sanMoves : [];
+
+        let lastNamed = null;        // posició amb nom més profunda (transposicions incloses)
+        let lastNamedPly = 0;
+        let contiguousDepth = 0;     // teoria seguida sense interrupció des de l'inici
+        let brokeAt = -1;            // primer ply que abandona la teoria contigua
+
+        for (let i = 0; i < keys.length; i++) {
+            const key = keys[i];
+            const known = theory.has(key) || byPos.has(key);
+            if (known) {
+                if (brokeAt === -1) contiguousDepth = i + 1;
+                const named = byPos.get(key);
+                if (named) { lastNamed = named; lastNamedPly = i + 1; }
+            } else if (brokeAt === -1) {
+                brokeAt = i;
+            }
+        }
+
+        if (!lastNamed) return null;
+
+        const result = {
+            depth: Math.max(contiguousDepth, lastNamedPly),
+            name: lastNamed.name,
+            eco: lastNamed.eco,
+            deviationMove: null
+        };
+
+        // Només informem de desviació si la partida va abandonar la teoria i no
+        // hi va transposar després cap a una obertura amb nom més profunda (en
+        // aquest cas s'havia quedat «en llibre» per transposició).
+        if (brokeAt !== -1 && brokeAt >= lastNamedPly && contiguousDepth >= 2) {
+            const prevDevKey = brokeAt === 0 ? START_POSITION_KEY : keys[brokeAt - 1];
+            const nexts = theory.get(prevDevKey);
+            result.deviationMove = moves[brokeAt] || null;
+            result.deviationPly = brokeAt;
+            result.deviationBy = (brokeAt % 2 === 0) ? 'w' : 'b';
+            result.theoryMoves = nexts ? Array.from(nexts).slice(0, 3) : [];
+        }
+        return result;
+    }
+
+    // Connexió amb el REPERTORI de l'app: troba quina obertura del repertori
+    // (curatedList) ha assolit la partida, identificant-la per POSICIÓ (immune a
+    // transposicions). `curatedList` = [{ index, eco, name, keys:[positionKey] }]
+    // amb les claus de posició de cada línia del repertori; `gameKeys` = claus de
+    // posició de la partida. Retorna la coincidència MÉS PROFUNDA amb almenys
+    // `minDepth` plies (per defecte 5, prou per distingir, p. ex., una Catalana
+    // d'una Nimzo-Índia, que comparteixen les 4 primeres jugades), o null.
+    function findCuratedOpeningByPosition(curatedList, gameKeys, minDepth) {
+        if (!Array.isArray(curatedList) || !Array.isArray(gameKeys) || gameKeys.length === 0) return null;
+        const min = minDepth || 5;
+        const gset = new Set(gameKeys);
+        let best = null;
+        for (const c of curatedList) {
+            const keys = c.keys || [];
+            let depth = 0;
+            for (let i = 0; i < keys.length; i++) {
+                if (gset.has(keys[i])) depth = i + 1; // posició del repertori més profunda assolida
+            }
+            if (depth >= min && (!best || depth > best.depth)) {
+                best = { index: c.index, eco: c.eco, name: c.name, depth: depth };
+            }
+        }
+        return best;
+    }
+
+    // Identifica l'obertura del REPERTORI que l'usuari ESTAVA JUGANT, mirant
+    // NOMÉS les seves pròpies jugades (ignorant les del rival). Així es reconeix
+    // la seva intenció encara que el rival no col·labori (p. ex. l'usuari planteja
+    // la Catalana amb blanques i el rival respon ...g6). A més detecta si el rival
+    // va ser el PRIMER a sortir de la línia, cosa que vol dir que el canvi
+    // d'obertura va ser forçat i no és culpa de l'usuari.
+    //
+    // `repertoireList` = [{ index, eco, name, userColor:'w'|'b', moves:[SAN...] }]
+    // (moves és la línia completa, amb les jugades dels dos colors).
+    // Retorna { index, eco, name, userMatch, firstDevPly, firstDevBy,
+    // deviationMove, expectedMove, forcedByOpponent } o null.
+    function matchUserRepertoireOpening(gameMoves, playerColor, repertoireList, minUserMoves) {
+        if (!Array.isArray(gameMoves) || !gameMoves.length || !Array.isArray(repertoireList)) return null;
+        const norm = (s) => String(s || '').replace(/[+#!?]/g, '');
+        const g = gameMoves.map(norm);
+        const parity = playerColor === 'b' ? 1 : 0; // plies on juga l'usuari
+        const min = minUserMoves || 3;
+
+        let best = null;
+        for (const op of repertoireList) {
+            if (op.userColor && playerColor && op.userColor !== playerColor) continue;
+            const line = (op.moves || []).map(norm);
+            let userMatch = 0;
+            for (let i = parity; i < Math.min(line.length, g.length); i += 2) {
+                if (line[i] === g[i]) userMatch++; else break; // prefix de jugades PRÒPIES
+            }
+            if (userMatch >= min && (!best || userMatch > best.userMatch)) {
+                best = { index: op.index, eco: op.eco, name: op.name, userMatch: userMatch };
+            }
+        }
+        if (!best) return null;
+
+        // Primera divergència entre la partida i la línia (de qualsevol color).
+        const op = repertoireList.find((o) => o.index === best.index);
+        const line = (op.moves || []).map(norm);
+        let firstDevPly = -1;
+        for (let i = 0; i < Math.min(line.length, g.length); i++) {
+            if (line[i] !== g[i]) { firstDevPly = i; break; }
+        }
+        best.firstDevPly = firstDevPly;
+        if (firstDevPly >= 0) {
+            best.firstDevBy = (firstDevPly % 2 === 0) ? 'w' : 'b';
+            best.deviationMove = gameMoves[firstDevPly];           // SAN original (amb +#)
+            best.expectedMove = (op.moves || [])[firstDevPly] || null;
+            best.forcedByOpponent = best.firstDevBy !== playerColor; // el rival va sortir primer
+        } else {
+            best.forcedByOpponent = false; // la partida va seguir tota la línia
+        }
+        return best;
+    }
+
     // Totes les obertures que coincideixen amb la seqüència actual (subarbre).
     function getMatchingOpenings(trie, sequence) {
         if (!trie || sequence.length === 0) return [];
@@ -328,6 +518,12 @@
         getValidOpeningMoves,
         isValidOpeningMove,
         analyzeGameOpening,
-        getMatchingOpenings
+        getMatchingOpenings,
+        positionKeyFromFen,
+        buildOpeningPositionGraph,
+        analyzeGameOpeningByPositions,
+        findCuratedOpeningByPosition,
+        matchUserRepertoireOpening,
+        START_POSITION_KEY
     };
 });
