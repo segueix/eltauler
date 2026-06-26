@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.8.7';
+const SW_VERSION = '3.8.8';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 
 console.log(`[SW] Service Worker versió: ${SW_VERSION}`);

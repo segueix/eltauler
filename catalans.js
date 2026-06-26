@@ -158,6 +158,11 @@
     try { return firebase.auth().currentUser; } catch (e) { return null; }
   }
   function userName(u) {
+    // Prioritza el nom d'usuari triat a Configuració; si no, el de Google.
+    try {
+      const custom = (typeof window.getUsername === 'function') ? window.getUsername() : '';
+      if (custom) return custom;
+    } catch (e) {}
     if (!u) return 'Anònim';
     return u.displayName || (u.email ? u.email.split('@')[0] : 'Catalans');
   }

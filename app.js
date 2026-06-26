@@ -4680,6 +4680,33 @@ window.onCloudSyncStatus = updateCloudSyncUI;
 
 // Quan s'inicia sessió correctament (també en tornar d'una redirecció a mòbil),
 // donem feedback clar i, si l'inici venia de la pantalla de Catalans, hi tornem.
+// ---- Nom d'usuari (es desa a chess_username i, per tant, se sincronitza) ----
+const USERNAME_KEY = 'chess_username';
+function getUsername() {
+    try { return (localStorage.getItem(USERNAME_KEY) || '').trim(); } catch (e) { return ''; }
+}
+window.getUsername = getUsername;
+function loadUsernameIntoSettings() {
+    const input = document.getElementById('username-input');
+    if (input) input.value = getUsername();
+    const hint = document.getElementById('username-hint');
+    if (hint) hint.textContent = getUsername() ? ('Nom actual: ' + getUsername()) : 'Encara no has posat cap nom.';
+}
+function saveUsernameFromSettings() {
+    const input = document.getElementById('username-input');
+    if (!input) return;
+    const prev = getUsername();
+    const name = String(input.value || '').trim().replace(/\s+/g, ' ').slice(0, 24);
+    try { if (name) localStorage.setItem(USERNAME_KEY, name); else localStorage.removeItem(USERNAME_KEY); } catch (e) {}
+    input.value = name;
+    const hint = document.getElementById('username-hint');
+    if (name !== prev) {
+        try { if (window.CloudSync && window.CloudSync.onLocalSave) window.CloudSync.onLocalSave(); } catch (e) {}
+        try { showToast(name ? 'Nom d\'usuari desat ✓' : 'Nom d\'usuari esborrat', 'success'); } catch (e) {}
+        if (hint) hint.textContent = name ? ('Nom actual: ' + name) : 'Encara no has posat cap nom.';
+    }
+}
+
 window.onCloudSignedIn = function (email) {
     try { showToast('Sessió iniciada' + (email ? ' com a ' + email : '') + ' ✓', 'success'); } catch (e) {}
     try {
@@ -12229,7 +12256,10 @@ function setupEvents() {
 
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
-    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); });
+    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
+    $('#btn-username-save').click(() => saveUsernameFromSettings());
+    $('#username-input').on('blur', () => saveUsernameFromSettings());
+    $('#username-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveUsernameFromSettings(); } });
     $('#btn-history').click(() => {
         $('#start-screen').hide();
         $('#history-screen').show();

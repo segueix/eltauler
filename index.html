@@ -3097,6 +3097,17 @@
             </div>
 
             <div class="settings-panel">
+                <div class="settings-title">👤 Nom d'usuari</div>
+                <div class="setting-help" style="margin-bottom:10px;">El nom amb què apareixeràs a la partida col·lectiva i al rànquing.</div>
+                <div class="setting-row">
+                    <input type="text" id="username-input" maxlength="24" placeholder="El teu nom" autocomplete="off"
+                        style="flex:1;min-width:0;background:rgba(255,255,255,0.06);border:1px solid rgba(201,162,39,0.25);border-radius:8px;color:var(--text-primary);padding:8px 10px;font-size:0.95rem;">
+                    <button class="btn btn-secondary" id="btn-username-save" style="min-width:90px;">Desa</button>
+                </div>
+                <div class="setting-help" id="username-hint" style="margin-top:8px;"></div>
+            </div>
+
+            <div class="settings-panel">
                 <div class="settings-title">☁️ Sincronització al núvol</div>
                 <div class="setting-help" style="margin-bottom:12px;">Inicia sessió amb Google per sincronitzar totes les teves dades (partides, errors, reptes diaris, ELO, missions, trofeus...) entre tots els teus dispositius.</div>
                 <div class="setting-row">
@@ -3985,7 +3996,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.1.1"></script>
+    <script src="catalans.js?v=1.1.2"></script>
     <script>
         window.APP_VERSION = '1.0.17';
         (function () {
