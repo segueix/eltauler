@@ -860,6 +860,35 @@
         .btn-tactics  { background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0; }
         .btn-history  { background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: #fff; }
         .btn-stats    { background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: #fff; }
+        .menu-grid .btn {
+            flex-direction: column;
+            gap: 5px;
+            min-height: 112px;
+            text-align: center;
+        }
+        .menu-grid .btn .btn-ic { margin-bottom: 2px; }
+        .training-kind {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 8px;
+            border-radius: 999px;
+            background: rgba(255,255,255,0.16);
+            border: 1px solid rgba(255,255,255,0.22);
+            font-family: 'Inter', sans-serif;
+            font-size: 0.64rem;
+            font-weight: 700;
+            letter-spacing: 0.4px;
+            text-transform: uppercase;
+        }
+        .training-title { line-height: 1.1; }
+        .training-desc {
+            max-width: 12rem;
+            font-family: 'Inter', sans-serif;
+            font-size: 0.72rem;
+            line-height: 1.2;
+            opacity: 0.88;
+        }
 
         /* Estructura del menú principal per seccions */
         .menu-section { margin-top: 16px; }
@@ -3020,18 +3049,21 @@
                     <div class="menu-grid">
                         <button class="btn btn-tactics" id="btn-tactics">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
-                            Tàctiques
-                            <span style="font-size:0.72rem; opacity:0.85;" id="tactics-info">Entrena combinacions</span>
+                            <span class="training-kind">General</span>
+                            <span class="training-title">Tàctiques</span>
+                            <span class="training-desc" id="tactics-info">Combinacions noves</span>
                         </button>
                         <button class="btn btn-bundle" id="btn-bundle-menu">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>
-                            Revisa Errors
-                            <span style="font-size:0.72rem; opacity:0.85;" id="bundle-info">Cap error desat</span>
+                            <span class="training-kind">Els teus errors</span>
+                            <span class="training-title">Revisa Errors</span>
+                            <span class="training-desc" id="bundle-info">Biblioteca manual</span>
                         </button>
                         <button class="btn btn-srs" id="btn-srs-review">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>
-                            Repàs intel·ligent
-                            <span style="font-size:0.72rem; opacity:0.85;" id="srs-info">Al dia</span>
+                            <span class="training-kind">Toca avui</span>
+                            <span class="training-title">Repàs intel·ligent</span>
+                            <span class="training-desc" id="srs-info">Cua SRS</span>
                         </button>
                     </div>
                 </div>

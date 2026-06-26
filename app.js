@@ -5047,12 +5047,12 @@ function updateDisplay() {
     updateCalibrationAccessUI();
     
     let total = savedErrors.length;
-    $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
+    $('#bundle-info').text(total > 0 ? `${total} errors guardats · tria manual` : 'Biblioteca dels teus errors');
     $('#game-bundles').text(total);
     // Comptadors de repàs espaiat al menú principal
     const due = getDueErrors().length;
-    $('#srs-info').text(due > 0 ? `${due} per repassar` : 'Al dia');
-    $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
+    $('#srs-info').text(due > 0 ? `${due} repassos pendents avui` : 'Al dia · repetició espaiada');
+    $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · tàctica general` : 'Combinacions noves');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
     renderWeeklyPlan();
