@@ -6731,8 +6731,10 @@ function highlightReviewedMove(beforeFen, move) {
             ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
             : g.move(raw, { sloppy: true });
         if (!mv) return;
-        $('#history-board .square-' + mv.from).addClass('highlight-hint');
-        $('#history-board .square-' + mv.to).addClass('highlight-hint');
+        // chessboard.js identifica les caselles amb l'atribut data-square (no amb
+        // una classe .square-<casella>): per això el ressaltat no apareixia.
+        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass('highlight-hint');
+        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass('highlight-hint');
     } catch (e) {}
 }
 
@@ -7131,15 +7133,20 @@ function findClosestCuratedOpening(sanMoves) {
 }
 
 // Obre la pràctica de l'obertura del repertori (per índex) amb el color demanat.
+// Reprodueix EXACTAMENT la mateixa preparació que en entrar des del menú
+// d'obertures (mateix ordre: render → inicialitza tauler → mostra pantalla →
+// arrenca → redimensiona), de manera que s'arriba al mateix punt d'inici net de
+// la pràctica de l'obertura, però amb l'obertura concreta ja seleccionada.
 function practiceOpeningFromHistory(idx, color) {
     try {
-        $('#history-screen').hide();
-        $('#opening-screen').show();
-        navPush('opening-screen');
+        const forceColor = (color === 'w' || color === 'b') ? color : undefined;
         renderOpeningStatsScreen();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
-        const forceColor = (color === 'w' || color === 'b') ? color : undefined;
+        $('#history-screen').hide();
+        $('#start-screen').hide();
+        $('#opening-screen').show();
+        navPush('opening-screen');
         if (typeof idx === 'number' && idx >= 0) {
             startOpeningLesson(idx, forceColor);
         } else {
@@ -7148,7 +7155,7 @@ function practiceOpeningFromHistory(idx, color) {
             showToast('No tinc una lliçó concreta d’aquesta obertura; practica-la lliurement.', 'info');
         }
         if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
-            setTimeout(() => openingBundleBoard.resize(), 60);
+            setTimeout(() => openingBundleBoard.resize(), 50);
         }
     } catch (e) { console.warn('practiceOpeningFromHistory', e); }
 }

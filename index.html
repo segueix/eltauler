@@ -3792,19 +3792,17 @@
 
             <div class="catalans-info-panel">
                 <h3>Com funciona</h3>
-                Quan toca moure als Catalans, fes el teu moviment al tauler: és el teu vot
+                Quan toca moure a l'exèrcit, fes el teu moviment al tauler: és el teu vot
                 (el pots canviar fins que acabi el torn). Passades <strong>24 hores</strong> des
                 de l'inici del torn, es tanca la votació i es juga el moviment <strong>més
                 votat</strong>; si hi ha empat, s'agafa el que <strong>Stockfish considera
-                millor</strong>. Després mou Stockfish. Partida rere partida calibrem la força
-                de Stockfish (comença a 1280 d'ELO) per estimar l'<strong>ELO col·lectiu</strong>
-                dels Catalans.
+                millor</strong>. Després mou Stockfish.
                 <br><br>
-                Quan la força estimada baixa del mínim real de Stockfish (~1350), es passa a
-                escala <strong>ROC</strong>: el motor juga debilitat (escollint entre diverses
-                jugades candidates amb profunditat reduïda) per reproduir nivells més baixos. I
-                si els Catalans <strong>perden</strong>, el ROC de la partida següent es recalcula
-                a partir dels <strong>errors i blunders</strong> de l'exèrcit.
+                Stockfish juga sempre a partir de <strong>1350 d'ELO</strong> (el mínim
+                detectable del motor). Si l'<strong>exèrcit guanya</strong>, la partida següent
+                el rival és <strong>més fort</strong>; si <strong>perd</strong>, és més fluix,
+                però <strong>mai per sota de 1350</strong>. L'exèrcit no té ELO propi: el repte
+                és veure fins on és capaç d'empènyer Stockfish.
                 <br><br>
                 <em>Inspirat en «Kaspàrov contra el Món» (1999), on Garri Kaspàrov es va
                 enfrontar a la resta del món, que decidia cada jugada per votació majoritària
@@ -3987,7 +3985,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.0.5"></script>
+    <script src="catalans.js?v=1.0.6"></script>
     <script>
         window.APP_VERSION = '1.0.17';
         (function () {

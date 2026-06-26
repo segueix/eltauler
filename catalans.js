@@ -43,10 +43,13 @@
   // pot jugar més fluix amb UCI_Elo, així que passem a mode ROC (debilitació via
   // MultiPV + profunditat reduïda), igual que fa app.js per a usuaris febles.
   const ENGINE_FLOOR = 1350;
-  const STRENGTH_MIN = 200;              // ROC mínim (mode feble)
+  const STRENGTH_MIN = 1350;             // ELO mínim de Stockfish (mínim detectable del motor)
   const STRENGTH_MAX = 2850;             // UCI_Elo màxim del binari
-  const CAT_ELO_MIN = 200;
-  const CAT_ELO_MAX = 2900;
+  // Progressió de la força de Stockfish entre partides (els Catalans no tenen ELO):
+  // si guanyen, el rival es fa més fort; si perden, més fluix però mai per sota de 1350.
+  const SF_WIN_STEP = 40;
+  const SF_DRAW_STEP = 10;
+  const SF_LOSS_STEP = 40;
   const ENGINE_MOVETIME_MS = 1500;       // temps de càlcul de la jugada de Stockfish
   const TIEBREAK_DEPTH = 12;             // profunditat per triar el millor entre empatats
   const ANALYSIS_DEPTH = 12;             // profunditat per mesurar la qualitat de joc dels Catalans
@@ -327,7 +330,6 @@
     const c = newChess();
     const gameNumber = prev ? (prev.gameNumber || 1) + 1 : 1;
     const sfElo = prev ? clampStrength(prev.nextSfElo || prev.sfElo || START_SF_ELO) : START_SF_ELO;
-    const catalansElo = prev ? (prev.catalansElo || START_SF_ELO) : START_SF_ELO;
     const now = Date.now();
     return {
       fen: c.fen(),
@@ -337,28 +339,25 @@
       phase: 'catalans',           // 'catalans' | 'stockfish' | 'finished'
       turnStartedAt: now,
       deadlineAt: now + TURN_MS,
-      sfElo: sfElo,
-      catalansElo: catalansElo,
+      sfElo: sfElo,                // ELO de Stockfish en aquesta partida (>= 1350)
       gameNumber: gameNumber,
       result: null,
       lastMove: null,
       votes: {},
-      catTeamStats: { moves: 0, totalCpLoss: 0, blunders: 0 }, // qualitat de joc de l'equip
+      catTeamStats: { moves: 0, totalCpLoss: 0, blunders: 0 }, // qualitat de joc de l'exèrcit
       lastGame: prev && prev.lastGame ? prev.lastGame : null,
       updatedAt: now
     };
   }
 
-  function clampCatElo(v) {
-    return Math.max(CAT_ELO_MIN, Math.min(CAT_ELO_MAX, Math.round(v)));
-  }
-
-  // Actualització d'Elo del col·lectiu segons el resultat (S: 1 victòria, 0.5
-  // taules, 0 derrota dels Catalans) contra un Stockfish de força sfElo.
-  function updatedCatalansElo(catalansElo, sfElo, S, gameNumber) {
-    const expected = 1 / (1 + Math.pow(10, (sfElo - catalansElo) / 400));
-    const K = gameNumber <= 10 ? 40 : 24;
-    return clampCatElo(catalansElo + K * (S - expected));
+  // Nova força de Stockfish per a la propera partida segons el resultat (els
+  // Catalans no tenen ELO): victòria → més fort; derrota → més fluix; sempre >=1350.
+  function nextStockfishElo(prevStrength, result) {
+    let next = prevStrength;
+    if (result === 'catalans') next = prevStrength + SF_WIN_STEP;
+    else if (result === 'draw') next = prevStrength + SF_DRAW_STEP;
+    else next = prevStrength - SF_LOSS_STEP;
+    return clampStrength(next);
   }
 
   // ---------------------------------------------------------------------------
@@ -611,31 +610,17 @@
         result = 'draw'; S = 0.5; // taules (ofegat, material insuficient, 50 moviments, triple repetició)
       }
 
-      const prevStrength = d.sfElo || START_SF_ELO;
+      const prevStrength = clampStrength(d.sfElo || START_SF_ELO);
       const avgCpLoss = teamStats.moves ? Math.round(teamStats.totalCpLoss / teamStats.moves) : null;
-      let newCatElo, nextStrength;
-
-      if (result === 'stockfish') {
-        // DERROTA: el ROC de la propera partida es calcula a partir dels errors i
-        // blunders de l'equip català. Una derrota mai apuja la força (cap a baix).
-        const rocFromPlay = rocFromTeamPlay(teamStats);
-        nextStrength = clampStrength(Math.min(prevStrength, rocFromPlay));
-        newCatElo = nextStrength;     // l'estimació col·lectiva reflecteix el joc real
-      } else {
-        // Victòria o taules: model d'Elo estàndard (apuja/manté la força).
-        newCatElo = updatedCatalansElo(d.catalansElo || START_SF_ELO, prevStrength, S, d.gameNumber || 1);
-        nextStrength = clampStrength(newCatElo);
-      }
+      // Els Catalans NO tenen ELO. La força de Stockfish per a la propera partida
+      // puja si l'exèrcit guanya i baixa si perd, però mai per sota de 1350.
+      const nextStrength = nextStockfishElo(prevStrength, result);
 
       const summary = {
         gameNumber: d.gameNumber || 1,
         result: result,
-        sfElo: prevStrength,
-        rocMode: isRocMode(prevStrength),
-        prevCatalansElo: d.catalansElo || START_SF_ELO,
-        catalansElo: newCatElo,
-        nextStrength: nextStrength,
-        nextRocMode: isRocMode(nextStrength),
+        sfElo: prevStrength,         // ELO de Stockfish a què s'ha enfrontat l'exèrcit
+        nextStrength: nextStrength,  // ELO de Stockfish la propera partida
         avgCpLoss: avgCpLoss,
         blunders: teamStats.blunders || 0,
         teamMoves: teamStats.moves || 0,
@@ -645,8 +630,7 @@
       tx.update(docRef, Object.assign(base, {
         phase: 'finished',
         result: result,
-        catalansElo: newCatElo,
-        nextSfElo: nextStrength,     // la propera partida: Stockfish juga a l'ELO/ROC obtingut pels Catalans
+        nextSfElo: nextStrength,     // la propera partida: Stockfish juga a aquest ELO (>= 1350)
         deadlineAt: now + NEXT_GAME_MS,
         lastGame: summary
       }));
@@ -938,45 +922,27 @@
 
   function renderInfo() {
     $('#catalans-game-number').text('Partida #' + (state.gameNumber || 1));
-    const finished = state.phase === 'finished';
-    // En acabar la partida es mostra NOMÉS l'ELO/ROC estimatiu dels Catalans
-    // (s'amaga la caixa de Stockfish). Durant el joc, a l'inrevés: es veu la força
-    // de Stockfish i l'estimació dels Catalans queda oculta fins al final.
-    if (finished) {
-      const catVal = Math.round(state.catalansElo || START_SF_ELO);
-      $('#catalans-elo').text(catVal);
-      $('#catalans-cat-label').text((isRocMode(catVal) ? 'ROC' : 'ELO') + ' Catalans (estimat)');
-      $('.catalans-elo-box.sf').hide();
-      $('.catalans-elo-box.cat').show();
-    } else {
-      const sfVal = Math.round(state.sfElo || START_SF_ELO);
-      $('#catalans-sf-elo').text(sfVal);
-      $('#catalans-sf-label').text((isRocMode(sfVal) ? 'ROC' : 'ELO') + ' Stockfish');
-      $('#catalans-elo').text('🔒');
-      $('#catalans-cat-label').text('Catalans · al final');
-      $('.catalans-elo-box.sf').show();
-      $('.catalans-elo-box.cat').show();
-    }
+    // Els Catalans NO tenen ELO: s'amaga la seva caixa i només es mostra l'ELO de
+    // Stockfish (sempre >= 1350), que és el nivell al qual s'enfronta l'exèrcit.
+    $('.catalans-elo-box.cat').hide();
+    $('.catalans-elo-box.sf').show();
+    const sfVal = Math.round(state.sfElo || START_SF_ELO);
+    $('#catalans-sf-elo').text(sfVal);
+    $('#catalans-sf-label').text('ELO Stockfish');
 
     // Resum de l'última partida acabada.
     const lg = state.lastGame;
     if (lg) {
-      const r = lg.result === 'catalans' ? '✅ Han guanyat els Catalans'
+      const r = lg.result === 'catalans' ? '✅ Ha guanyat l\'exèrcit'
         : lg.result === 'stockfish' ? '❌ Ha guanyat Stockfish'
         : '🤝 Taules';
-      const delta = Math.round(lg.catalansElo - lg.prevCatalansElo);
+      const faced = Math.round(lg.sfElo || START_SF_ELO);
+      const next = Math.round(lg.nextStrength || faced);
+      const delta = next - faced;
       const arrow = delta > 0 ? '▲ +' + delta : (delta < 0 ? '▼ ' + delta : '±0');
-      const unit = lg.nextRocMode ? 'ROC' : 'ELO';
-      let extra = '';
-      if (lg.result === 'stockfish' && typeof lg.avgCpLoss === 'number') {
-        // En cas de derrota, expliquem com s'ha recalculat el ROC.
-        extra = ' · pèrdua mitjana ' + lg.avgCpLoss + ' cp, ' + (lg.blunders || 0) +
-          ' blunder' + ((lg.blunders || 0) === 1 ? '' : 's') +
-          ' → ' + unit + ' següent ' + Math.round(lg.nextStrength);
-      }
       $('#catalans-lastgame').html(
         'Partida #' + lg.gameNumber + ': ' + r +
-        ' · ' + unit + ' col·lectiu ' + Math.round(lg.catalansElo) + ' (' + arrow + ')' + extra
+        ' · Stockfish ELO ' + faced + ' → propera ' + next + ' (' + arrow + ')'
       ).show();
     } else {
       $('#catalans-lastgame').hide();
@@ -1058,14 +1024,14 @@
       const d = new Date(g.date || 0);
       const dateStr = d.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }) +
         ' · ' + d.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' });
-      const elo = Math.round(g.catalansElo || 0);
+      const elo = Math.round(g.sfElo || g.catalansElo || 0); // ELO de Stockfish a què es va enfrontar l'exèrcit
       const res = g.result === 'catalans' ? '✅' : (g.result === 'stockfish' ? '❌' : '🤝');
       const nMoves = Array.isArray(g.movesSan) ? g.movesSan.length : 0;
       const playable = nMoves > 0 ? '<button class="btn btn-secondary catalans-hist-play" data-idx="' + i + '">▶ Reproduir</button>' : '';
       html += '<div class="catalans-hist-row">' +
         '<div class="catalans-hist-main">' +
           '<span class="catalans-hist-res">' + res + '</span>' +
-          '<span class="catalans-hist-elo">' + unitLabel(elo) + ' ' + elo + '</span>' +
+          '<span class="catalans-hist-elo">Stockfish ' + elo + '</span>' +
           '<span class="catalans-hist-date">' + dateStr + '</span>' +
         '</div>' +
         '<div class="catalans-hist-side">' +
@@ -1083,8 +1049,8 @@
     if (!g || !Array.isArray(g.movesSan) || !g.movesSan.length) return;
     replay = { moves: g.movesSan.slice(), idx: 0, timer: null, playing: false };
     const d = new Date(g.date || 0);
-    const elo = Math.round(g.catalansElo || 0);
-    $('#catalans-replay-title').text('Partida #' + (g.gameNumber || '?') + ' · ' + unitLabel(elo) + ' ' + elo +
+    const elo = Math.round(g.sfElo || g.catalansElo || 0);
+    $('#catalans-replay-title').text('Partida #' + (g.gameNumber || '?') + ' · Stockfish ' + elo +
       ' · ' + d.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }));
     $('#catalans-replay').css('display', 'block');
     if (!replayBoard) {
@@ -1184,10 +1150,9 @@
       $('#catalans-countdown').text('');
       // Compte enrere GRAN i centrat sobre el tauler fins a la pròxima partida.
       const left = (state.deadlineAt || 0) - now;
-      const next = Math.round(state.nextSfElo || state.catalansElo || START_SF_ELO);
+      const next = Math.round(state.nextSfElo || START_SF_ELO);
       $('#catalans-next-countdown').text(fmtDuration(left));
-      $('#catalans-next-detail').text('Stockfish jugarà a ' + unitLabel(next) + ' ' + next +
-        ' (el que han assolit els Catalans)');
+      $('#catalans-next-detail').text('Stockfish jugarà a ELO ' + next);
       $('#catalans-next-banner').css('display', 'block');
       if (now >= (state.deadlineAt || 0)) maybeDriveTransition();
     }
