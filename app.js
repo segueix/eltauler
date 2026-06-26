@@ -7146,6 +7146,8 @@ function buildLocalErrorNote(err, entry) {
         best: review.bestMoveSan || d.best,
         playedDesc: moveHumanText(err.fen, err.playerMove || review.playerMoveSan, d.played),
         bestDesc: moveHumanText(err.fen, err.bestMove || review.bestMoveSan, d.best),
+        playedRef: 'la jugada triada',
+        bestRef: 'la millor jugada',
         bestMoveUci: review.bestMove || null,
         swing: Math.round(review.swing || 0),
         quality: review.quality || 'mistake',
@@ -7176,6 +7178,14 @@ function flankWordFor(color, fromSquare) {
     const leftForWhite = fileIdx <= 3;
     const isLeft = color === 'w' ? leftForWhite : !leftForWhite;
     return isLeft ? 'esquerra' : 'dreta';
+}
+
+function pieceArticle(name) {
+    const n = String(name || '').trim();
+    if (!n) return 'la peça';
+    if (/^(dama|torre)\b/.test(n)) return `la ${n}`;
+    if (/^(alfil)\b/.test(n)) return `l'${n}`;
+    return `el ${n}`;
 }
 
 function describeMoveHuman(fen, move) {
@@ -7212,7 +7222,7 @@ function describeMoveHuman(fen, move) {
                 }
             }
             const verb = mv.captured ? 'captura a' : 'va a';
-            text = `${/^[ae]/.test(name) ? "l'" : 'el '}${name} ${verb} ${mv.to}`;
+            text = `${pieceArticle(name)} ${verb} ${mv.to}`;
         }
         if (mv.san.includes('#')) text += ' amb escac i mat';
         else if (mv.san.includes('+')) text += ' amb escac';
@@ -7473,11 +7483,13 @@ function renderLocalReviewHtml(entry) {
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
-                const seg = [`<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`];
-                if (m.positional) seg.push(escapeHtml(m.positional));
-                if (m.diagnosis) seg.push(escapeHtml(m.diagnosis));
-                if (m.plan) seg.push(escapeHtml(m.plan));
-                return `<li style="margin-bottom:8px;">${seg.filter(Boolean).join(' ')}</li>`;
+                const lines = [
+                    `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
+                    m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '',
+                    m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '',
+                    m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : ''
+                ].filter(Boolean);
+                return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
             blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
@@ -10552,15 +10564,24 @@ function ensureHumanPlanRecent() {
     _humanPlanRecent = (stored && typeof stored === 'object') ? stored : {};
     return _humanPlanRecent;
 }
+function formatSwingForText(value) {
+    const n = Math.abs(Math.round(Number(value) || 0));
+    if (n >= 1000) return 'molt d’avantatge';
+    if (n >= 500) return 'més de 5 peons d’avaluació';
+    return `${n} CP`;
+}
+
 function fillPlanTemplate(str, moment) {
     const m = moment || {};
-    // Preferim la descripció en llenguatge planer (playedDesc/bestDesc) per evitar
-    // notació algebraica dins de les frases; si no n'hi ha, caiem a la SAN.
+    // En les frases explicatives fem servir referències curtes. La descripció completa
+    // de la jugada ja surt a l'enllaç principal; repetir-la dins cada frase feia textos
+    // artificials com "la decisió la dama va a e1".
     return String(str || '')
         .replace(/\{n\}/g, m.moveNumber ?? '?')
-        .replace(/\{played\}/g, m.playedDesc || m.played || 'la jugada triada')
-        .replace(/\{best\}/g, m.bestDesc || m.best || 'una jugada més precisa')
-        .replace(/\{swing\}/g, m.swing ?? 0);
+        .replace(/\{played\}/g, m.playedRef || 'la jugada triada')
+        .replace(/\{best\}/g, m.bestRef || 'la millor jugada')
+        .replace(/\{swing\}\s*CP/g, formatSwingForText(m.swing))
+        .replace(/\{swing\}/g, Math.abs(Math.round(Number(m.swing) || 0)));
 }
 // Tria una variant evitant les usades recentment; l'historial es persisteix a
 // localStorage, així no es repeteix ni entre partides ni entre sessions.
@@ -17409,6 +17430,8 @@ function buildHumanPlanMoments(entry, insights = null) {
                 // Versions en llenguatge planer per a les frases (sense notació SAN).
                 playedDesc: r.fen ? moveHumanText(r.fen, r.playerMove || r.playerMoveSan, r.playerMoveSan) : (r.playerMoveSan || '—'),
                 bestDesc: r.fen ? moveHumanText(r.fen, r.bestMove || r.bestMoveSan, r.bestMoveSan) : (r.bestMoveSan || '—'),
+                playedRef: 'la jugada triada',
+                bestRef: 'la millor jugada',
                 bestMoveUci: r.bestMove || null,
                 swing: Math.round(r.swing || 0),
                 quality: r.quality || 'inaccuracy',
