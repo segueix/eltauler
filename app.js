@@ -861,7 +861,8 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         lastAdjustmentQualityAvg: lastAdjustmentQualityAvg,
         completedOpenings: completedOpenings,
         tacticsStats: tacticsStats,
-        hieroglyphicStats: hieroglyphicStats
+        hieroglyphicStats: hieroglyphicStats,
+        preparedExerciseHistory: typeof preparedExerciseHistory !== 'undefined' ? preparedExerciseHistory : []
     };
     if (includeGameHistory) base.gameHistory = gameHistory;
     return base;
@@ -4617,6 +4618,8 @@ function reloadAppStateFromStorage() {
         if (typeof renderOpeningStats === 'function') renderOpeningStats();
         if (typeof renderOpeningStatsScreen === 'function') renderOpeningStatsScreen();
         if (typeof updateTacticsDisplay === 'function') updateTacticsDisplay();
+        if (typeof loadPreparedExerciseHistory === 'function') loadPreparedExerciseHistory();
+        if (typeof loadPreparedSequences === 'function') loadPreparedSequences();
         if (typeof showToast === 'function') showToast('Dades sincronitzades del núvol', 'success');
     } catch (e) {
         console.warn('[CloudSync] reloadAppStateFromStorage error', e);
@@ -14695,6 +14698,7 @@ blunderMode = isBundle;
                 returnToMainMenuImmediate();
                 return;
             }
+            cachePreparedSequence(fen, bundleFixedSequence, 'ondemand_' + getPreparedExerciseSource(fen));
         }
 
     }
@@ -18244,10 +18248,13 @@ $(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
 // a l'instant, sense esperes ni errades de preparació. Les seqüències es desen a
 // localStorage i només es calculen quan el motor està lliure (pantalles de menú).
 const PREPARED_SEQ_STORAGE_KEY = 'chess_preparedSequences';
+const PREPARED_EXERCISE_HISTORY_KEY = 'chess_preparedExerciseHistory';
 const PREPARED_SEQ_TARGET = 8;            // exercicis a punt per categoria
 const PREPARED_SEQ_MAX = 60;              // límit total d'entrades al rebost
 const PREPARED_SEQ_TTL_MS = 7 * 86400000; // caducitat d'una seqüència preparada
+const PREPARED_EXERCISE_HISTORY_MAX = 120;
 let preparedSequences = {};               // fen -> { seq, ts }
+let preparedExerciseHistory = [];          // auditoria sincronitzable via Firebase
 let backgroundPrepPromise = null;
 let backgroundPrepCurrentFen = null;
 let backgroundPrepAbortRequested = false;
@@ -18260,6 +18267,30 @@ function savePreparedSequences() {
         console.warn('[PrepBG] No s\'ha pogut desar el rebost d\'exercicis:', e);
         preparedSequences = {};
         try { localStorage.removeItem(PREPARED_SEQ_STORAGE_KEY); } catch (e2) {}
+    }
+}
+
+function savePreparedExerciseHistory(notifyCloud = true) {
+    try {
+        localStorage.setItem(PREPARED_EXERCISE_HISTORY_KEY, JSON.stringify(preparedExerciseHistory));
+        if (notifyCloud && window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
+            try { window.CloudSync.onLocalSave(); } catch (e) {}
+        }
+    } catch (e) {
+        console.warn('[PrepBG] No s\'ha pogut desar l\'historial d\'exercicis preparats:', e);
+    }
+}
+
+function loadPreparedExerciseHistory() {
+    try {
+        const raw = localStorage.getItem(PREPARED_EXERCISE_HISTORY_KEY);
+        if (!raw) { preparedExerciseHistory = []; return; }
+        const parsed = JSON.parse(raw);
+        preparedExerciseHistory = Array.isArray(parsed)
+            ? parsed.filter(item => item && item.fen).slice(0, PREPARED_EXERCISE_HISTORY_MAX)
+            : [];
+    } catch (e) {
+        preparedExerciseHistory = [];
     }
 }
 
@@ -18283,6 +18314,44 @@ function loadPreparedSequences() {
         console.warn('[PrepBG] Rebost corrupte; es descarta:', e);
         preparedSequences = {};
     }
+}
+
+function getPreparedExerciseSource(fen) {
+    if (dailyPuzzle && dailyPuzzle.fen === fen) return 'daily';
+    if (Array.isArray(TACTICS_BANK) && TACTICS_BANK.includes(fen)) return 'tactics';
+    const saved = Array.isArray(savedErrors) ? savedErrors.find(e => e && e.fen === fen) : null;
+    if (saved) {
+        const fm = parseInt((fen || '').split(' ')[5], 10) || 99;
+        if (fm <= 10 && saved.playerMove) return 'opening_error';
+        if (getErrorDueTime(saved) <= Date.now()) return 'srs_due';
+        return 'saved_error';
+    }
+    return 'bundle';
+}
+
+function recordPreparedExercise(fen, seq, source = null) {
+    if (!fen || !seq) return;
+    const entry = {
+        id: 'prep_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+        fen,
+        source: source || getPreparedExerciseSource(fen),
+        generatedAt: Date.now(),
+        fullSequence: Array.isArray(seq.fullSequence) ? seq.fullSequence.slice(0, 8) : [],
+        fullSequenceSan: Array.isArray(seq.fullSequenceSan) ? seq.fullSequenceSan.slice(0, 8) : []
+    };
+    preparedExerciseHistory = [
+        entry,
+        ...preparedExerciseHistory.filter(item => item && !(item.fen === fen && item.source === entry.source))
+    ].slice(0, PREPARED_EXERCISE_HISTORY_MAX);
+    savePreparedExerciseHistory(true);
+}
+
+function cachePreparedSequence(fen, seq, source = null) {
+    if (!fen || !seq || seq.initialFen !== fen) return;
+    preparedSequences[fen] = { seq: clonePreparedSequence(seq), ts: Date.now() };
+    prunePreparedSequences();
+    savePreparedSequences();
+    recordPreparedExercise(fen, seq, source);
 }
 
 function prunePreparedSequences() {
@@ -18408,9 +18477,7 @@ async function backgroundPrepTick() {
                 shouldAbort: () => backgroundPrepAbortRequested || (!backgroundPrepProtected && !isIdleForBackgroundPrep())
             });
             if (seq) {
-                preparedSequences[next] = { seq, ts: Date.now() };
-                prunePreparedSequences();
-                savePreparedSequences();
+                cachePreparedSequence(next, seq, 'background_' + getPreparedExerciseSource(next));
                 console.log('[PrepBG] Exercici a punt:', next);
             }
         } catch (e) {
@@ -18463,6 +18530,7 @@ $(document).ready(() => {
     // en segon pla perquè els exercicis arrenquin sense espera. Es persisteix a
     // localStorage (i se sincronitza), així que un cop omplert sobreviu entre
     // sessions. Arrenquem aviat i comprovem sovint per tenir-ne sempre de llestos.
+    loadPreparedExerciseHistory();
     loadPreparedSequences();
     setTimeout(backgroundPrepTick, 1200);
     setInterval(backgroundPrepTick, 4000);
