@@ -361,7 +361,8 @@
             border: 1px solid rgba(201, 162, 39, 0.3);
             border-radius: 12px; padding: 10px 12px; margin: 12px 0;
         }
-        .engagement-banner .eng-icon { font-size: 1.4rem; flex-shrink: 0; }
+        .engagement-banner .eng-icon { font-size: 1.4rem; flex-shrink: 0; display:flex; align-items:center; }
+        .engagement-banner .eng-icon .eng-ic { width: 1.5rem; height: 1.5rem; fill:none; stroke: var(--accent-gold); stroke-width:1.9; stroke-linecap:round; stroke-linejoin:round; }
         .engagement-banner .eng-text { flex: 1; font-size: 0.88rem; color: var(--text-primary); line-height: 1.35; }
         .engagement-banner .eng-cta {
             width: auto; flex-shrink: 0; padding: 8px 14px; font-size: 0.82rem;
@@ -2895,6 +2896,17 @@
             <circle cx="12" cy="12" r="3"/>
             <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/>
         </symbol>
+        <symbol id="ic-sync" viewBox="0 0 24 24">
+            <polyline points="21 4 21 9 16 9"/>
+            <polyline points="3 20 3 15 8 15"/>
+            <path d="M19.4 9A7.5 7.5 0 0 0 6.3 6.3L3 9"/>
+            <path d="M4.6 15A7.5 7.5 0 0 0 17.7 17.7L21 15"/>
+        </symbol>
+        <symbol id="ic-bulb" viewBox="0 0 24 24">
+            <path d="M9.5 17h5"/>
+            <path d="M10 20.5h4"/>
+            <path d="M14.8 14.2c.2-1 .8-1.8 1.6-2.5A5.5 5.5 0 1 0 7.6 11.7c.8.7 1.4 1.5 1.6 2.5"/>
+        </symbol>
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
@@ -3121,7 +3133,7 @@
                 <div id="cloud-sync-account" style="font-size:0.8rem;opacity:0.7;margin:4px 0 12px;display:none;"></div>
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <button class="btn btn-secondary" id="btn-cloud-signin" style="flex:1;min-width:160px;">Inicia sessió amb Google</button>
-                    <button class="btn btn-secondary" id="btn-cloud-sync-now" style="flex:1;min-width:120px;display:none;">🔄 Sincronitza ara</button>
+                    <button class="btn btn-secondary" id="btn-cloud-sync-now" style="flex:1;min-width:120px;display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>Sincronitza ara</button>
                     <button class="btn btn-secondary" id="btn-cloud-signout" style="flex:1;min-width:120px;display:none;">Tanca sessió</button>
                 </div>
                 <div class="setting-help" id="cloud-sync-hint" style="margin-top:10px;"></div>

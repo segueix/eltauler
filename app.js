@@ -13879,14 +13879,15 @@ function updateEngagementBanner() {
     const ctaEl = el.querySelector('.eng-cta');
     if (!iconEl || !textEl || !ctaEl) return;
 
-    let icon, text, cta, action;
+    let iconId, text, cta, action;
     const due = getDueErrors().length;
     if (due > 0) {
-        icon = '🔁'; text = `Tens ${due} ${due > 1 ? 'repassos a punt' : 'repàs a punt'}. Consolida el que has après.`; cta = 'Repassar'; action = 'srs';
+        iconId = 'ic-repeat'; text = `Tens ${due} ${due > 1 ? 'repassos a punt' : 'repàs a punt'}. Consolida el que has après.`; cta = 'Repassar'; action = 'srs';
     } else {
-        icon = '💡'; text = PLAY_IDEAS[hashStr(getToday()) % PLAY_IDEAS.length]; cta = 'Nova partida'; action = 'play';
+        iconId = 'ic-bulb'; text = PLAY_IDEAS[hashStr(getToday()) % PLAY_IDEAS.length]; cta = 'Nova partida'; action = 'play';
     }
-    iconEl.textContent = icon;
+    // Icona en l'estil de l'app (line-icon SVG) en comptes d'emoji.
+    iconEl.innerHTML = '<svg class="eng-ic" aria-hidden="true"><use href="#' + iconId + '"/></svg>';
     textEl.textContent = text;
     ctaEl.textContent = cta;
     ctaEl.setAttribute('data-eng-action', action);
