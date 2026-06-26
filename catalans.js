@@ -625,9 +625,11 @@
 
       const prevStrength = clampStrength(effectiveSfElo(d));
       const avgCpLoss = teamStats.moves ? Math.round(teamStats.totalCpLoss / teamStats.moves) : null;
-      // Si l'exèrcit perd, calculem el seu ROC (com de feble ha jugat) i Stockfish
-      // hi jugarà la propera partida amb el MATEIX ROC. Si guanya/empata, puja.
-      const catRoc = (result === 'stockfish') ? rocFromTeamPlay(teamStats) : null;
+      // ELO/ROC de l'exèrcit: estimació de com de bé han jugat els Catalans (segons
+      // la pèrdua mitjana i els blunders). NOMÉS es coneix al FINAL de la partida i
+      // es mostra a l'anotació posterior. Si l'exèrcit perd, Stockfish jugarà la
+      // propera partida amb aquest mateix ROC; si guanya/empata, Stockfish puja.
+      const catElo = rocFromTeamPlay(teamStats);
       const nextStrength = nextStockfishStrength(prevStrength, result, teamStats);
 
       const summary = {
@@ -635,7 +637,7 @@
         result: result,
         sfElo: prevStrength,         // força de Stockfish a què s'ha enfrontat l'exèrcit
         rocMode: isRocMode(prevStrength),
-        catRoc: catRoc,              // ROC dels Catalans (només en derrota)
+        catElo: catElo,              // ELO/ROC estimat de l'exèrcit (calculat al final)
         nextStrength: nextStrength,  // força de Stockfish la propera partida
         nextRocMode: isRocMode(nextStrength),
         avgCpLoss: avgCpLoss,
@@ -941,30 +943,28 @@
     $('#catalans-game-number').text('Partida #' + (state.gameNumber || 1));
     // Els Catalans NO tenen ELO: s'amaga la seva caixa i només es mostra l'ELO de
     // Stockfish (sempre >= 1350), que és el nivell al qual s'enfronta l'exèrcit.
-    $('.catalans-elo-box.cat').hide();
-    $('.catalans-elo-box.sf').show();
+    // Només es mostra l'ELO de Stockfish durant la partida. L'ELO de l'exèrcit no
+    // es coneix fins al final (es calcula) i va a l'anotació posterior.
     const sfVal = Math.round(effectiveSfElo(state));
     $('#catalans-sf-elo').text(sfVal);
     $('#catalans-sf-label').text(unitLabel(sfVal) + ' Stockfish');
 
-    // Resum de l'última partida acabada.
+    // Resum de l'última partida acabada (anotació posterior): inclou l'ELO/ROC de
+    // l'exèrcit, calculat en acabar.
     const lg = state.lastGame;
     if (lg) {
       const r = lg.result === 'catalans' ? '✅ Ha guanyat l\'exèrcit'
         : lg.result === 'stockfish' ? '❌ Ha guanyat Stockfish'
         : '🤝 Taules';
       const faced = Math.round(lg.sfElo || START_SF_ELO);
-      const next = Math.round(lg.nextStrength || faced);
-      const delta = next - faced;
-      const arrow = delta > 0 ? '▲ +' + delta : (delta < 0 ? '▼ ' + delta : '±0');
       let extra = '';
-      if (lg.result === 'stockfish' && lg.catRoc != null) {
-        extra = ' · l\'exèrcit ha jugat a ROC ' + Math.round(lg.catRoc) +
+      if (lg.catElo != null) {
+        extra = ' · exèrcit ' + unitLabel(lg.catElo) + ' ' + Math.round(lg.catElo) +
           (typeof lg.avgCpLoss === 'number' ? ' (pèrdua ' + lg.avgCpLoss + ' cp, ' + (lg.blunders || 0) + ' blunders)' : '');
       }
       $('#catalans-lastgame').html(
         'Partida #' + lg.gameNumber + ': ' + r +
-        ' · Stockfish ' + unitLabel(faced) + ' ' + faced + ' → propera ' + unitLabel(next) + ' ' + next + ' (' + arrow + ')' + extra
+        ' · Stockfish ' + unitLabel(faced) + ' ' + faced + extra
       ).show();
     } else {
       $('#catalans-lastgame').hide();
@@ -1050,10 +1050,14 @@
       const res = g.result === 'catalans' ? '✅' : (g.result === 'stockfish' ? '❌' : '🤝');
       const nMoves = Array.isArray(g.movesSan) ? g.movesSan.length : 0;
       const playable = nMoves > 0 ? '<button class="btn btn-secondary catalans-hist-play" data-idx="' + i + '">▶ Reproduir</button>' : '';
+      const catTxt = (g.catElo != null)
+        ? '<span class="catalans-hist-cat">Exèrcit ' + unitLabel(g.catElo) + ' ' + Math.round(g.catElo) + '</span>'
+        : '';
       html += '<div class="catalans-hist-row">' +
         '<div class="catalans-hist-main">' +
           '<span class="catalans-hist-res">' + res + '</span>' +
           '<span class="catalans-hist-elo">Stockfish ' + unitLabel(elo) + ' ' + elo + '</span>' +
+          catTxt +
           '<span class="catalans-hist-date">' + dateStr + '</span>' +
         '</div>' +
         '<div class="catalans-hist-side">' +
@@ -1072,8 +1076,9 @@
     replay = { moves: g.movesSan.slice(), idx: 0, timer: null, playing: false };
     const d = new Date(g.date || 0);
     const elo = Math.round(g.sfElo || g.catalansElo || 0);
+    const catTxt = (g.catElo != null) ? ' · Exèrcit ' + unitLabel(g.catElo) + ' ' + Math.round(g.catElo) : '';
     $('#catalans-replay-title').text('Partida #' + (g.gameNumber || '?') + ' · Stockfish ' + unitLabel(elo) + ' ' + elo +
-      ' · ' + d.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }));
+      catTxt + ' · ' + d.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }));
     $('#catalans-replay').css('display', 'block');
     if (!replayBoard) {
       replayBoard = Chessboard('catalans-replay-board', {

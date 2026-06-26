@@ -3704,6 +3704,7 @@
             .catalans-hist-main { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
             .catalans-hist-res { font-size:1.05rem; }
             .catalans-hist-elo { font-weight:700; color: var(--accent-gold); }
+            .catalans-hist-cat { font-weight:700; color: #7fd1a0; }
             .catalans-hist-date { color: var(--text-secondary); font-size:0.8rem; }
             .catalans-hist-side { display:flex; align-items:center; gap:10px; }
             .catalans-hist-moves { color: var(--text-secondary); font-size:0.8rem; }
@@ -3731,10 +3732,6 @@
             <div id="catalans-lastgame" style="display:none;"></div>
 
             <div class="catalans-elo-row">
-                <div class="catalans-elo-box cat">
-                    <div class="catalans-elo-label" id="catalans-cat-label">ELO Catalans</div>
-                    <div class="catalans-elo-val" id="catalans-elo">1350</div>
-                </div>
                 <div class="catalans-elo-box sf">
                     <div class="catalans-elo-label" id="catalans-sf-label">ELO Stockfish</div>
                     <div class="catalans-elo-val" id="catalans-sf-elo">1350</div>
@@ -3988,7 +3985,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.0.9"></script>
+    <script src="catalans.js?v=1.1.0"></script>
     <script>
         window.APP_VERSION = '1.0.17';
         (function () {
