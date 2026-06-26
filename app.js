@@ -14654,7 +14654,10 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     $('#game-screen').addClass('active').show();
     navPush('game-screen');
     
-blunderMode = isBundle; 
+blunderMode = isBundle;
+    // El botó de rendir-se només té sentit a les PARTIDES, no als exercicis
+    // (tàctiques, revisió d'errors, mats…).
+    $('#btn-resign').toggle(!isBundle);
     isCalibrationGame = isCalibrationActive() && !isBundle;
     currentBundleFen = fen;
     
@@ -18389,8 +18392,9 @@ async function backgroundPrepTick() {
         }
     })();
     await backgroundPrepPromise;
-    // Si seguim en repòs i queda rebost per omplir, continua aviat
-    if (!backgroundPrepAbortRequested) setTimeout(backgroundPrepTick, 1500);
+    // Si seguim en repòs i queda rebost per omplir, continua de seguida (omplim el
+    // rebost com més de pressa millor mentre l'usuari no necessiti el motor).
+    if (!backgroundPrepAbortRequested) setTimeout(backgroundPrepTick, 600);
 }
 
 $(document).ready(() => {
@@ -18426,10 +18430,12 @@ $(document).ready(() => {
     }, 60000);
 
     // Rebost d'exercicis: recupera les seqüències desades i comença a omplir-lo
-    // en segon pla perquè els exercicis arrenquin sense espera.
+    // en segon pla perquè els exercicis arrenquin sense espera. Es persisteix a
+    // localStorage (i se sincronitza), així que un cop omplert sobreviu entre
+    // sessions. Arrenquem aviat i comprovem sovint per tenir-ne sempre de llestos.
     loadPreparedSequences();
-    setTimeout(backgroundPrepTick, 3000);
-    setInterval(backgroundPrepTick, 8000);
+    setTimeout(backgroundPrepTick, 1200);
+    setInterval(backgroundPrepTick, 4000);
 
     // Escalfa el graf d'obertures per posició en segon pla (detecció immune a
     // transposicions), perquè l'anàlisi de partides ja el tingui llest.
