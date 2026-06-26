@@ -715,6 +715,9 @@
 
   function promptSignIn() {
     setStatus('Inicia sessió amb Google per votar.');
+    // Recorda que volem tornar a Catalans en completar l'inici de sessió (útil quan
+    // a mòbil la redirecció recarrega l'app i torna a la pantalla d'inici).
+    try { localStorage.setItem('eltauler_cloud_returnToCatalans', '1'); } catch (e) {}
     if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
       window.CloudSync.signIn();
     }
@@ -1273,6 +1276,7 @@
     // Canviar de compte (tanca sessió i torna a triar compte de Google).
     $('#catalans-switch').on('click', function () {
       setStatus('Canviant de compte…');
+      try { localStorage.setItem('eltauler_cloud_returnToCatalans', '1'); } catch (e) {}
       if (window.CloudSync && typeof window.CloudSync.switchAccount === 'function') {
         window.CloudSync.switchAccount();
       } else if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {

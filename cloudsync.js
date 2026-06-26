@@ -55,6 +55,7 @@
   const DEVICE_ID_KEY = LOCAL_META_PREFIX + 'deviceId';
   const LAST_CHANGE_KEY = LOCAL_META_PREFIX + 'lastChangeAt';
   const LAST_SYNCED_KEY = LOCAL_META_PREFIX + 'lastSyncedAt';
+  const REDIRECT_FLAG_KEY = LOCAL_META_PREFIX + 'redirectPending';
 
   // Claus concretes que mai no volem pujar al núvol.
   const EXCLUDE_KEYS = new Set();
@@ -329,6 +330,12 @@
 
   function handleSignedIn(user) {
     currentUser = user;
+    // Sessió iniciada correctament: neteja la marca de redirecció i avisa l'app
+    // (perquè mostri un missatge clar i, si cal, torni a la pantalla on era).
+    try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
+    if (typeof window.onCloudSignedIn === 'function') {
+      try { window.onCloudSignedIn(user.email || user.displayName || ''); } catch (e) {}
+    }
     setStatus({ state: 'syncing', email: user.email || user.displayName || 'Connectat' });
 
     // Watchdog: si la sincronització inicial es queda penjada (típicament perquè
@@ -387,12 +394,18 @@
   }
 
   function startRedirect(provider) {
+    // Marca que hi ha una redirecció en curs: en tornar, comprovarem si s'ha
+    // completat de debò (alguns navegadors mòbils bloquegen l'emmagatzematge i la
+    // sessió no s'acaba, sense cap error visible).
+    try { localStorage.setItem(REDIRECT_FLAG_KEY, String(Date.now())); } catch (e) {}
     try {
       auth.signInWithRedirect(provider).catch(function (e2) {
         console.warn('[CloudSync] redirect sign-in error', e2);
+        try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
         setStatus({ state: 'error', error: friendlyAuthError(e2) });
       });
     } catch (e2) {
+      try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
       setStatus({ state: 'error', error: friendlyAuthError(e2) });
     }
   }
@@ -487,9 +500,28 @@
         db.enablePersistence({ synchronizeTabs: true }).catch(function () {});
       } catch (e) {}
 
-      // Recupera el resultat d'un inici de sessió per redirecció (mòbil). Si ha
-      // fallat (p. ex. domini no autoritzat), ho mostrem de manera accionable.
-      auth.getRedirectResult().catch(function (e) {
+      // Recupera el resultat d'un inici de sessió per redirecció (mòbil) i detecta
+      // si la redirecció ha tornat SENSE completar la sessió (cas típic a mòbil per
+      // bloqueig de cookies/emmagatzematge de tercers), per avisar l'usuari.
+      const hadPendingRedirect = (function () { try { return !!localStorage.getItem(REDIRECT_FLAG_KEY); } catch (e) { return false; } })();
+      auth.getRedirectResult().then(function (result) {
+        if (result && result.user) {
+          // onAuthStateChanged ja s'encarrega de la resta (i neteja el flag).
+          return;
+        }
+        // Sense usuari del redirect: si n'esperàvem un, avisa de manera accionable.
+        if (hadPendingRedirect && !auth.currentUser) {
+          try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
+          setStatus({
+            state: 'error',
+            error: 'No s\'ha pogut completar l\'inici de sessió en tornar de Google. ' +
+                   'És possible que el navegador estigui bloquejant les cookies/emmagatzematge ' +
+                   'de tercers. Prova-ho amb el navegador normal (no en mode incògnit), permet-hi ' +
+                   'les cookies, o inicia sessió des d\'un ordinador.'
+          });
+        }
+      }).catch(function (e) {
+        try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e2) {}
         if (e && e.code) {
           console.warn('[CloudSync] redirect result error', e);
           if (!currentUser) setStatus({ state: 'error', error: friendlyAuthError(e) });

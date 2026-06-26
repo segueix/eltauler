@@ -4678,6 +4678,24 @@ function updateCloudSyncUI(st) {
 }
 window.onCloudSyncStatus = updateCloudSyncUI;
 
+// Quan s'inicia sessió correctament (també en tornar d'una redirecció a mòbil),
+// donem feedback clar i, si l'inici venia de la pantalla de Catalans, hi tornem.
+window.onCloudSignedIn = function (email) {
+    try { showToast('Sessió iniciada' + (email ? ' com a ' + email : '') + ' ✓', 'success'); } catch (e) {}
+    try {
+        const wanted = localStorage.getItem('eltauler_cloud_returnToCatalans');
+        if (wanted) localStorage.removeItem('eltauler_cloud_returnToCatalans');
+        const catScreen = document.getElementById('catalans-screen');
+        const onCatalans = catScreen && catScreen.style.display !== 'none' && catScreen.offsetParent !== null;
+        if (wanted && !onCatalans) {
+            $('#start-screen').hide();
+            if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
+            else $('#catalans-screen').show();
+            navPush('catalans-screen');
+        }
+    } catch (e) {}
+};
+
 // Botó d'emergència a la pantalla inicial: permet iniciar sessió i recuperar
 // les dades del núvol ABANS de fer el calibratge (quan la resta d'opcions de
 // configuració poden estar bloquejades). Només es mostra si el sync està
