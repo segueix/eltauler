@@ -63,6 +63,16 @@
     return Math.max(STRENGTH_MIN, Math.min(STRENGTH_MAX, Math.round(v || START_SF_ELO)));
   }
 
+  // Força EFECTIVA de Stockfish per a un estat de partida: la PRIMERA partida és
+  // sempre 1350 (ELO d'inici), encara que el document vingui d'un model antic; a
+  // partir de la segona, la força ve donada pel model (pot ser ROC < 1350).
+  function effectiveSfElo(d) {
+    const s = d || state;
+    if (!s) return START_SF_ELO;
+    if ((s.gameNumber || 1) <= 1) return START_SF_ELO;
+    return clampStrength(s.sfElo || START_SF_ELO);
+  }
+
   // Corba ROC → pèrdua humana tolerable (centipeons). Per sota del terra del
   // motor, és la finestra de selecció MultiPV que crea nivells ROC diferents.
   // Mateixos punts d'ancoratge que app.js (getHumanLikeMaxCpLoss).
@@ -552,7 +562,7 @@
   function playStockfishMove() {
     const expectedPly = state.ply;
     const fen = state.fen;
-    const sfElo = state.sfElo || START_SF_ELO;
+    const sfElo = effectiveSfElo(state);
     setStatus(isRocMode(sfElo) ? 'Stockfish està pensant… (mode ROC ' + Math.round(sfElo) + ')' : 'Stockfish està pensant…');
     // Per sota del terra del motor, juga en mode ROC (debilitat); si no, UCI_Elo.
     const movePromise = isRocMode(sfElo) ? Engine.weakMove(fen, sfElo) : Engine.move(fen, sfElo);
@@ -613,7 +623,7 @@
         result = 'draw'; S = 0.5; // taules (ofegat, material insuficient, 50 moviments, triple repetició)
       }
 
-      const prevStrength = clampStrength(d.sfElo || START_SF_ELO);
+      const prevStrength = clampStrength(effectiveSfElo(d));
       const avgCpLoss = teamStats.moves ? Math.round(teamStats.totalCpLoss / teamStats.moves) : null;
       // Si l'exèrcit perd, calculem el seu ROC (com de feble ha jugat) i Stockfish
       // hi jugarà la propera partida amb el MATEIX ROC. Si guanya/empata, puja.
@@ -933,7 +943,7 @@
     // Stockfish (sempre >= 1350), que és el nivell al qual s'enfronta l'exèrcit.
     $('.catalans-elo-box.cat').hide();
     $('.catalans-elo-box.sf').show();
-    const sfVal = Math.round(state.sfElo || START_SF_ELO);
+    const sfVal = Math.round(effectiveSfElo(state));
     $('#catalans-sf-elo').text(sfVal);
     $('#catalans-sf-label').text(unitLabel(sfVal) + ' Stockfish');
 
