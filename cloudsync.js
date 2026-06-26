@@ -378,20 +378,6 @@
     setStatus({ state: 'signedout', email: null });
   }
 
-  // En mòbils/PWA el popup d'inici de sessió de Google és poc fiable (es bloqueja
-  // o no retorna mai), així que hi fem servir SEMPRE la redirecció, que funciona
-  // de manera consistent.
-  function isMobileLike() {
-    try {
-      if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent || '')) return true;
-      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;
-      // PWA instal·lada (standalone): també millor amb redirecció.
-      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
-      if (navigator.standalone) return true;
-    } catch (e) {}
-    return false;
-  }
-
   function buildProvider() {
     const provider = new firebase.auth.GoogleAuthProvider();
     // Mostra SEMPRE el selector de comptes de Google: així es pot iniciar sessió i
@@ -400,31 +386,52 @@
     return provider;
   }
 
+  function startRedirect(provider) {
+    try {
+      auth.signInWithRedirect(provider).catch(function (e2) {
+        console.warn('[CloudSync] redirect sign-in error', e2);
+        setStatus({ state: 'error', error: friendlyAuthError(e2) });
+      });
+    } catch (e2) {
+      setStatus({ state: 'error', error: friendlyAuthError(e2) });
+    }
+  }
+
+  function friendlyAuthError(e) {
+    const code = e && e.code ? String(e.code) : '';
+    if (code === 'auth/unauthorized-domain') {
+      return 'El domini «' + (location.hostname || '') + '» no està autoritzat a Firebase ' +
+             '(Authentication → Settings → Authorized domains). Afegeix-l\'hi i torna-ho a provar.';
+    }
+    if (code === 'auth/operation-not-allowed') return 'L\'inici de sessió amb Google no està activat a Firebase.';
+    if (code === 'auth/network-request-failed') return 'Error de xarxa en iniciar sessió. Comprova la connexió.';
+    return (e && e.message) ? e.message : 'Error d\'inici de sessió';
+  }
+
+  // Inici de sessió: SEMPRE intentem primer el popup (funciona a la majoria de
+  // navegadors moderns, mòbil inclòs, i evita els problemes de la redirecció amb
+  // la partició d'emmagatzematge). Si el popup falla per qualsevol motiu que no
+  // sigui que l'usuari l'ha tancat, provem amb redirecció.
   function signIn() {
     if (!auth) { setStatus({ state: 'error', error: 'Firebase no inicialitzat' }); return; }
     const provider = buildProvider();
-    // A mòbil/PWA: redirecció directa (el popup hi és poc fiable).
-    if (isMobileLike()) {
-      auth.signInWithRedirect(provider).catch(function (e2) {
-        console.warn('[CloudSync] redirect sign-in error', e2);
-        setStatus({ state: 'error', error: e2 && e2.message ? e2.message : 'Error d\'inici de sessió' });
-      });
-      return;
-    }
-    // A escriptori: popup, amb fallback a redirecció si es bloqueja.
-    auth.signInWithPopup(provider).catch(function (e) {
-      if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment' || e.code === 'auth/cancelled-popup-request')) {
-        auth.signInWithRedirect(provider).catch(function (e2) {
-          console.warn('[CloudSync] redirect sign-in error', e2);
-          setStatus({ state: 'error', error: e2 && e2.message ? e2.message : 'Error d\'inici de sessió' });
-        });
-      } else if (e && e.code === 'auth/popup-closed-by-user') {
-        // L'usuari ha tancat la finestra; no és un error real.
+    let popup;
+    try { popup = auth.signInWithPopup(provider); } catch (e) { startRedirect(provider); return; }
+    popup.catch(function (e) {
+      const code = e && e.code ? e.code : '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || code === 'auth/user-cancelled') {
+        // L'usuari ha tancat el selector; no és un error real.
         setStatus({ state: currentUser ? 'synced' : 'signedout' });
-      } else {
-        console.warn('[CloudSync] sign-in error', e);
-        setStatus({ state: 'error', error: e && e.message ? e.message : 'Error d\'inici de sessió' });
+        return;
       }
+      if (code === 'auth/unauthorized-domain' || code === 'auth/operation-not-allowed') {
+        // La redirecció no ho arreglaria: mostra l'error accionable.
+        setStatus({ state: 'error', error: friendlyAuthError(e) });
+        return;
+      }
+      // Qualsevol altre error (popup bloquejat, no suportat, mòbil…) → redirecció.
+      console.warn('[CloudSync] popup sign-in error, provant redirecció', e);
+      startRedirect(provider);
     });
   }
 
@@ -433,13 +440,13 @@
     return auth.signOut().catch(function (e) { console.warn('[CloudSync] sign-out error', e); });
   }
 
-  // Canvia de compte: tanca la sessió actual i torna a iniciar-ne una (amb el
-  // selector de comptes de Google), de manera fiable també a mòbil.
+  // Canviar de compte: amb prompt=select_account, n'hi ha prou amb tornar a iniciar
+  // sessió (Google mostra el selector i, si tries un altre compte, s'hi canvia).
+  // Ho fem DINS del gest del clic (sense signOut previ) perquè el popup no es
+  // bloquegi.
   function switchAccount() {
     if (!auth) { signIn(); return; }
-    Promise.resolve(auth.signOut().catch(function () {})).then(function () {
-      signIn();
-    });
+    signIn();
   }
 
   function syncNow() {
@@ -480,9 +487,13 @@
         db.enablePersistence({ synchronizeTabs: true }).catch(function () {});
       } catch (e) {}
 
-      // Recupera el resultat d'un inici de sessió per redirecció (mòbil).
+      // Recupera el resultat d'un inici de sessió per redirecció (mòbil). Si ha
+      // fallat (p. ex. domini no autoritzat), ho mostrem de manera accionable.
       auth.getRedirectResult().catch(function (e) {
-        if (e && e.code) console.warn('[CloudSync] redirect result error', e);
+        if (e && e.code) {
+          console.warn('[CloudSync] redirect result error', e);
+          if (!currentUser) setStatus({ state: 'error', error: friendlyAuthError(e) });
+        }
       });
 
       auth.onAuthStateChanged(function (user) {
