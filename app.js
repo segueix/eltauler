@@ -7925,15 +7925,12 @@ function classifyOpeningPositionForMaxim() {
 function buildOfflineOpeningMaxim(info = classifyOpeningPositionForMaxim()) {
     const voice = getOpeningStrategicVoice();
     const openingName = info.opening?.name || info.detected?.name || '';
-    const lines = {
-        lesson: `Abans de moure, aprèn el camí com qui estudia el terreny abans de la batalla: cada peça desenvolupada ha de preparar el centre i guardar una amenaça latent. No revelis tot el pla; deixa que la línia et porti a un mig joc favorable.`,
-        error: `Quan una esquerda apareix a les primeres jugades, el general savi no corre cap al soroll: reforça el terreny, recupera la iniciativa i corregeix sense mostrar la jugada decisiva abans d’hora.`,
-        detected: `La línia ${openingName ? openingName + ' ' : ''}ja ha dibuixat el camp: domina el centre, mantén pressió invisible i prepara l’atac indirecte que transforma l’obertura en avantatge de mig joc.`,
-        opening: `En l’obertura, el centre és el terreny alt: ocupa’l amb ritme, amaga la intenció i adapta el pla quan el rival canvia la forma de la batalla.`,
-        position: `Si la teoria s’esvaeix, conserva els principis: peces actives, rei segur, centre vigilat i iniciativa prou forta perquè l’enemic respongui als teus plans.`,
-        general: `La victòria es prepara abans del combat: coneix el terreny, ordena les forces, no revelis el pla i entra al mig joc amb iniciativa.`
-    };
-    return { voice, title: info.title || 'Màxima d’obertura', text: lines[info.theme] || lines.general, openingName };
+    const themeMap = { lesson: 'opening', error: 'opening', detected: 'opening', opening: 'opening', position: 'development', general: 'general' };
+    let text = pickOfflineMaxim(themeMap[info.theme] || 'opening');
+    if (info.theme === 'detected' && openingName) {
+        text = `A la línia ${openingName}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+    }
+    return { voice, title: info.title || 'Màxima d’obertura', text, openingName };
 }
 
 function renderOpeningMaximHtml(text, title = 'Màxima d’obertura', meta = '') {
@@ -7985,6 +7982,12 @@ async function requestOpeningMaximLlull() {
 
     let prompt;
     let continuationsData = null;
+    const localMaximCandidates = getOfflineMaximCandidates(info.theme === 'position' ? 'development' : (info.theme || 'opening'), 3);
+    const localMaximText = localMaximCandidates.length ? `
+MÀXIMES LOCALS CANDIDATES (tria'n una idea o adapta-la sense copiar necessàriament):
+- ${localMaximCandidates.join('\n- ')}
+` : '';
+
     if (openingLessonActive) {
         const voice = getOpeningStrategicVoice();
         prompt = `Ets ${voice.name} escrivint en l'estil de ${voice.work}.
@@ -7994,6 +7997,7 @@ IDEA: ${openingLessonInfo?.idea || 'preparació, centre i iniciativa'}
 SEQÜÈNCIA: ${(openingLessonLine || []).join(' ')}
 PROGRÉS: ${openingLessonStep}/${openingLessonLine.length}
 
+${localMaximText}
 Escriu una màxima breu en català per ajudar l'alumne a entendre la lliçó actual. Parla de preparació abans de la batalla, terreny central, ritme, iniciativa i conversió al mig joc. No revelis la jugada concreta. 2 o 3 frases, sense emojis, sense cometes embolcallant tot el text.`;
     } else if (openingErrorPracticeActive) {
         const voice = getOpeningStrategicVoice();
@@ -8003,12 +8007,15 @@ MODE: correcció d'un error d'obertura en les primeres 10 jugades.
 FEN: ${openingPracticeGame.fen()}
 MOVIMENT: ${openingErrorMoveFilter || '—'} (${openingErrorColorFilter === 'w' ? 'blanques' : openingErrorColorFilter === 'b' ? 'negres' : '—'})
 
+${localMaximText}
 Escriu una màxima breu en català sobre corregir l'errada sense revelar la jugada exacta, ni caselles, ni notació. Ha de parlar de recuperar el centre, no precipitar l'atac, conservar iniciativa i adaptar-se al rival. 2 o 3 frases, sense emojis.`;
     } else if (isStart) {
-        prompt = buildOpeningEncouragementPrompt();
+        prompt = `${buildOpeningEncouragementPrompt()}
+${localMaximText}`;
     } else {
         continuationsData = getOpeningContinuations(openingCurrentSequence);
-        prompt = buildOpeningAlternativesPrompt(openingCurrentSequence, continuationsData.continuations, openingSelectedOpening);
+        prompt = `${buildOpeningAlternativesPrompt(openingCurrentSequence, continuationsData.continuations, openingSelectedOpening)}
+${localMaximText}`;
     }
 
     try {
@@ -14177,57 +14184,174 @@ function renderCoachDiagnosis() {
 }
 
 /* ===================== BANC DE MÀXIMES OFFLINE + CAU ===================== */
+// Banc local ampliable de màximes didàctiques. Cada clau representa un tema que
+// pot sortir del classificador d'errors o dels modes d'entrenament; així la pista
+// offline no cau sempre en frases genèriques quan no hi ha clau d'OpenAI.
 const OFFLINE_MAXIMS = {
     king: [
-        "Quan el rei enemic queda exposat, tota maniobra ha d'apuntar a la seva posició; la pressa sense objectiu malgasta forces.",
-        "El general savi no persegueix peces, sinó el monarca: dirigeix les teves columnes cap al refugi del rei.",
-        "Un escac no és un crit buit si obre el camí cap a la victòria; busca l'escac que guanyi temps o material."
+        "El rei exposat converteix cada tempo en una amenaça: porta una peça més a l'atac abans de precipitar-te.",
+        "Quan el rei no té refugi, les línies obertes valen més que un peó guanyat.",
+        "No busquis escacs decoratius; busca l'escac que obligui el rival a empitjorar la defensa.",
+        "Si el rei rival està al centre, obre línies abans que pugui enrocar o coordinar-se.",
+        "Un atac al rei necessita peces convidades: suma forces abans de sacrificar material.",
+        "La seguretat del teu rei és la primera peça de l'atac; sense refugi, qualsevol pla trontolla.",
+        "Quan el monarca no té caselles, una amenaça tranquil·la pot pesar més que un escac immediat.",
+        "Ataca el defensor del rei abans d'atacar el rei: sovint la muralla cau per la peça que la sosté.",
+        "Una columna oberta contra el rei és una carretera; posa-hi una torre abans que el rival la tanqui.",
+        "Si el rival ha debilitat l'enroc, no canviïs les peces atacants sense una raó concreta."
     ],
     material: [
-        "Abans de capturar, compta els defensors: el guany aparent sovint amaga una trampa preparada.",
-        "Qui sobrecarrega una peça defensora obre una bretxa; ataca el punt que el rival no pot protegir dues vegades.",
-        "La forquilla i la clavada són les emboscades del tauler: cerca la casella des d'on una sola peça amenaça dues."
+        "Abans de capturar, compta atacants i defensors; el material fàcil sovint demana una segona mirada.",
+        "Una peça indefensa és una invitació tàctica: mira si pots atacar-la amb tempo.",
+        "Quan una peça defensa massa coses, no és forta: és vulnerable.",
+        "Obliga el defensor sobrecarregat a triar i alguna cosa quedarà sense protecció.",
+        "No ataquis només una peça; ataca la responsabilitat que aquella peça carrega.",
+        "Si guanyes material, comprova primer que no perds iniciativa ni seguretat del rei.",
+        "La captura correcta no és la més evident, sinó la que deixa el rival sense recurs actiu.",
+        "Cada peça penjada mereix una pregunta: pots guanyar-la sense permetre contrajoc?",
+        "Quan el rival mou una peça, mira què ha deixat de defensar.",
+        "El guany material és real només quan la recaptura i la jugada següent també funcionen."
     ],
     center: [
-        "Qui domina el centre domina les rutes; situa-hi els peons i les peces abans de llançar l'atac als flancs.",
-        "El terreny central és la plana on es decideixen els imperis: no el cedeixis sense compensació.",
-        "Des del centre, cada peça irradia la seva força; un cavall a la quarta fila val per dos a la vora."
+        "El centre és el terreny alt: qui el domina decideix a quin flanc s'obre la lluita.",
+        "No ataquis un flanc mentre el centre cau; primer assegura les rutes de les peces.",
+        "Un peó central fort dona cases a les peces i treu aire al rival.",
+        "La tensió central es resol quan t'afavoreix, no quan t'impacientes.",
+        "Des del centre, una peça amenaça més i defensa millor; evita portar-la a la vora sense motiu.",
+        "Si el rival et deixa el centre, ocupa'l amb peces actives, no només amb peons avançats.",
+        "Cada ruptura central ha de tenir una idea: obrir línies, guanyar temps o fixar una debilitat.",
+        "El centre tancat permet maniobrar; el centre obert exigeix desenvolupament i rei segur.",
+        "Abans de canviar al centre, pregunta't quina peça millora després del canvi.",
+        "Controlar el centre no és posseir-lo sempre, sinó impedir que el rival l'utilitzi amb llibertat."
+    ],
+    opening: [
+        "A l'obertura, cada tempo ha d'activar una peça, disputar el centre o protegir el rei.",
+        "No moguis la mateixa peça dues vegades si encara tens un exèrcit adormit.",
+        "La dama massa matinera sembla poderosa, però sovint regala temps a les peces menors.",
+        "Desenvolupar no és moure peces: és donar-los una feina útil.",
+        "Enroca abans d'obrir el centre si el teu rei encara viu al mig del tauler.",
+        "Una obertura sana prepara el mig joc; no guanyis un peó si perds coordinació.",
+        "Quan el rival surt de la teoria, torna als principis: centre, peces actives i rei segur.",
+        "El primer atac només és fort si totes les peces poden arribar-hi a temps.",
+        "No copiïs jugades d'obertura: entén quina casella, línia o ruptura preparen.",
+        "La iniciativa d'obertura neix de desenvolupar amb amenaces, no de moure sense pla."
+    ],
+    fork: [
+        "Busca caselles des d'on una sola peça pugui fer dues preguntes alhora.",
+        "Les forquilles apareixen quan peces valuoses comparteixen una mateixa xarxa de caselles febles.",
+        "Un escac amb atac secundari sovint és més fort que una captura immediata.",
+        "Abans de defensar-te, mira si tens una jugada activa que amenaci dues peces.",
+        "El cavall és mestre de les forquilles: calcula els salts amb escac i atac a peça gran.",
+        "Quan dues peces rivals estan alineades en vulnerabilitat, busca la casella que les uneix.",
+        "Una amenaça doble guanya perquè el rival només té un torn per respondre.",
+        "No totes les forquilles són de cavall: dama, torre i alfil també poden crear dobles amenaces.",
+        "Si el rei rival entra en la tàctica, qualsevol segona amenaça es torna més difícil de parar.",
+        "La millor forquilla sovint comença retirant una peça a una casella més activa."
+    ],
+    pin: [
+        "Una peça clavada defensa menys del que sembla.",
+        "Quan una peça no es pot moure, augmenta la pressió abans que s'alliberi.",
+        "La clavada converteix una peça activa en una peça lligada.",
+        "Si el rei és darrere una peça, cada línia oberta pot ser una arma.",
+        "No capturis de pressa la peça clavada; primer mira si pots afegir-hi una segona amenaça.",
+        "Una defensa clavada sovint deixa de defensar allò que aparentava protegir.",
+        "Pressiona la peça clavada amb peces, no només amb desig de guanyar-la.",
+        "Quan el rival pateix una clavada, evita canvis que li resolguin el problema.",
+        "La clavada és més forta quan limita el moviment i crea una nova debilitat.",
+        "Abans de moure, mira si alguna peça rival està lligada a una peça més valuosa."
+    ],
+    skewer: [
+        "Quan dues peces valuoses comparteixen una línia, busca l'atac que obligui la primera a apartar-se.",
+        "El raig X premia les línies obertes: mira més enllà de la peça que tens davant.",
+        "Una peça gran davant d'una altra pot ser una porta, no una muralla.",
+        "Si el rei i una peça major estan en la mateixa línia, una jugada recta pot guanyar temps i material.",
+        "Abans de canviar una torre o un alfil, comprova quines peces queden alineades darrere.",
+        "La peça atacada pot marxar, però la peça del darrere sovint queda condemnada.",
+        "Les diagonals llargues i les columnes obertes amaguen amenaces que travessen la primera defensa.",
+        "Quan el rival col·loca peces en fila, pregunta't quina línia pots obrir.",
+        "El raig X és paciència geomètrica: obre la línia i deixa que l'alineació treballi.",
+        "Ataca la peça de davant si la de darrere és la recompensa real."
+    ],
+    endgame: [
+        "Al final, el rei deixa de ser refugi i es converteix en peça activa.",
+        "Un peó passat no és un trofeu: és un pla que demana suport.",
+        "La torre treballa millor darrere el peó passat, propi o rival.",
+        "Abans de canviar peces, pregunta't si el final resultant el pots guanyar o defensar.",
+        "En finals de peons, un tempo pot valer una partida sencera.",
+        "Activa el rei abans de córrer amb els peons; els peons sense rei s'esgoten.",
+        "L'oposició no és teoria seca: és obligar el rei rival a cedir el pas.",
+        "Quan tens avantatge material, simplifica només si el final conserva l'avantatge.",
+        "Els peons passats s'han d'empènyer quan distreuen el rei rival o obren camí al teu.",
+        "En un final, la peça passiva defensa avui però perd demà."
+    ],
+    development: [
+        "Una peça a casa seva no participa en la partida.",
+        "Millora la pitjor peça abans de buscar el cop brillant.",
+        "La coordinació pesa més que una amenaça solitària.",
+        "Si una peça no té futur, troba-li una ruta abans d'obrir noves batalles.",
+        "Les peces actives creen tàctiques; les peces passives només esperen errors del rival.",
+        "No canviïs una peça activa per una de passiva sense obtenir alguna cosa concreta.",
+        "Cada jugada de desenvolupament hauria de mirar el centre o una debilitat real.",
+        "Quan no vegis tàctica, pregunta quina peça teva està pitjor situada.",
+        "Una peça ben posada defensa, ataca i prepara plans futurs alhora.",
+        "L'harmonia de peces converteix petites amenaces en problemes permanents."
     ],
     general: [
-        "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges és un exèrcit derrotat.",
-        "Coneix la teva posició i la del rival, i en cent jugades no temeràs el resultat.",
-        "La paciència posicional precedeix la tempesta tàctica: millora la pitjor peça abans de buscar el cop."
+        "Pregunta't què vol fer el rival; la profilaxi és un atac avançat.",
+        "No busquis bellesa si una jugada simple resol el problema principal.",
+        "Cada jugada ha de millorar una peça, crear una amenaça o evitar el pla rival.",
+        "La paciència posicional prepara la tàctica que després sembla sobtada.",
+        "Abans de moure, revisa escacs, captures i amenaces de tots dos bàndols.",
+        "Una debilitat només importa si pots atacar-la o obligar el rival a defensar-la.",
+        "Quan tens avantatge, redueix el contrajoc abans de buscar el remat.",
+        "No totes les amenaces s'han de parar defensant; de vegades l'activitat és la millor defensa.",
+        "El pla correcte neix de la peça pitjor situada i de la debilitat més atacable.",
+        "Si no saps què fer, millora la peça que participa menys en la partida."
     ]
 };
 
-OFFLINE_MAXIMS.king.push(
-    "El rei enemic sense escapatòria és l'objectiu: porta-hi una peça més abans de donar el cop.",
-    "No persegueixis l'escac per l'escac; cada amenaça ha de deixar una segona ombra al darrere."
-);
-OFFLINE_MAXIMS.material.push(
-    "Abans de capturar, calcula la recaptura i la jugada següent: l'or fàcil sovint està enverinat.",
-    "Una peça lligada o sobrecarregada és material futur; ataca el que defensa per obligació."
-);
-OFFLINE_MAXIMS.center.push(
-    "Resol la tensió central quan t'afavoreixi, no quan t'impacientis.",
-    "Espai al centre vol dir línies per a les peces: converteix-lo en pressió, no en orgull."
-);
-OFFLINE_MAXIMS.general.push(
-    "Millora la pitjor peça abans de buscar el cop: l'harmonia pesa més que l'aventura.",
-    "Pregunta't què vol fer el rival; la profilaxi és un atac avançat.",
-    "Activa el rei al final: una passa del monarca pot valer una peça."
-);
+const OFFLINE_MAXIM_THEME_MAP = {
+    king_attack: 'king',
+    king: 'king',
+    material: 'material',
+    center: 'center',
+    opening: 'opening',
+    lesson: 'opening',
+    error: 'opening',
+    detected: 'opening',
+    position: 'development',
+    obertura: 'opening',
+    development: 'development',
+    fork: 'fork',
+    pin: 'pin',
+    skewer: 'skewer',
+    endgame: 'endgame',
+    final: 'endgame',
+    endgame_activity: 'endgame',
+    migjoc: 'general',
+    general: 'general'
+};
+
+function getOfflineMaximThemeKey(theme) {
+    const raw = String(theme || 'general');
+    return OFFLINE_MAXIMS[raw] ? raw : (OFFLINE_MAXIM_THEME_MAP[raw] || 'general');
+}
 
 function pickOfflineMaxim(theme) {
-    // El classificador retorna king_attack/fork/pin/opening/endgame...; mapem-ho a
-    // les claus reals d'OFFLINE_MAXIMS (abans 'king_attack' queia sempre a 'general').
-    const map = {
-        king_attack: 'king', king: 'king', fork: 'material', pin: 'material', skewer: 'material',
-        material: 'material', center: 'center', opening: 'center', development: 'center',
-        endgame: 'general', endgame_activity: 'general', general: 'general'
-    };
-    const key = OFFLINE_MAXIMS[theme] ? theme : (map[theme] || 'general');
+    const key = getOfflineMaximThemeKey(theme);
     return pickFreshPlanLine(OFFLINE_MAXIMS[key] || OFFLINE_MAXIMS.general, 'assistedmaxim:' + key);
+}
+
+function getOfflineMaximCandidates(theme, count = 3) {
+    const key = getOfflineMaximThemeKey(theme);
+    const pool = OFFLINE_MAXIMS[key] || OFFLINE_MAXIMS.general;
+    const out = [];
+    const limit = Math.max(1, Math.min(count, pool.length));
+    for (let i = 0; i < limit; i++) {
+        const line = pickFreshPlanLine(pool, 'assistedmaxim:candidate:' + key + ':' + i);
+        if (line && !out.includes(line)) out.push(line);
+    }
+    return out;
 }
 
 // Màxima estratègica local rica: reaprofita el generador de pistes jeroglífiques
