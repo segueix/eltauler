@@ -18244,8 +18244,8 @@ $(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
 // a l'instant, sense esperes ni errades de preparació. Les seqüències es desen a
 // localStorage i només es calculen quan el motor està lliure (pantalles de menú).
 const PREPARED_SEQ_STORAGE_KEY = 'chess_preparedSequences';
-const PREPARED_SEQ_TARGET = 3;            // exercicis a punt per categoria
-const PREPARED_SEQ_MAX = 20;              // límit total d'entrades al rebost
+const PREPARED_SEQ_TARGET = 8;            // exercicis a punt per categoria
+const PREPARED_SEQ_MAX = 60;              // límit total d'entrades al rebost
 const PREPARED_SEQ_TTL_MS = 7 * 86400000; // caducitat d'una seqüència preparada
 let preparedSequences = {};               // fen -> { seq, ts }
 let backgroundPrepPromise = null;
@@ -18303,13 +18303,24 @@ function prunePreparedSequences() {
     if (changed) savePreparedSequences();
 }
 
-// Treu del rebost la seqüència preparada per aquest FEN (si hi és) i la consumeix.
+function clonePreparedSequence(seq) {
+    if (!seq) return null;
+    try {
+        return JSON.parse(JSON.stringify(seq));
+    } catch (e) {
+        return seq;
+    }
+}
+
+// Retorna una còpia del rebost per aquest FEN (si hi és). No es consumeix: la
+// mateixa seqüència pot reutilitzar-se en una altra sessió i continuar servint
+// d'arrencada instantània fins que caduqui o el límit global obligui a purgar-la.
 function takePreparedSequence(fen) {
     const entry = preparedSequences[fen];
     if (!entry || !entry.seq || entry.seq.initialFen !== fen) return null;
-    delete preparedSequences[fen];
+    entry.ts = Date.now();
     savePreparedSequences();
-    return entry.seq;
+    return clonePreparedSequence(entry.seq);
 }
 
 // Tria aleatòria que prefereix elements amb la seqüència ja preparada.
