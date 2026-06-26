@@ -5046,11 +5046,9 @@ function updateDisplay() {
     let total = savedErrors.length;
     $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
     $('#game-bundles').text(total);
-    // Comptadors de repàs espaiat i repte diari al menú principal
+    // Comptadors de repàs espaiat al menú principal
     const due = getDueErrors().length;
     $('#srs-info').text(due > 0 ? `${due} per repassar` : 'Al dia');
-    ensureDailyPuzzle();
-    $('#daily-info').text(dailyPuzzle.solved ? `Fet ✓ · ratxa ${dailyPuzzle.streak}` : 'Disponible');
     $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
@@ -12838,7 +12836,6 @@ function setupEvents() {
     });
 
     $('#btn-srs-review').click(() => startSrsReview());
-    $('#btn-daily-puzzle').click(() => startDailyPuzzle());
     $('#btn-tactics').click(() => {
         // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
         tacticsStats.streak = 0;
@@ -12847,8 +12844,7 @@ function setupEvents() {
 
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
-        if (action === 'daily') startDailyPuzzle();
-        else if (action === 'srs') startSrsReview();
+        if (action === 'srs') startSrsReview();
         else { if (!guardCalibrationAccess()) return; window._startAssistedGame = false; startGame(false); }
     });
 
@@ -13880,11 +13876,8 @@ function updateEngagementBanner() {
     if (!iconEl || !textEl || !ctaEl) return;
 
     let icon, text, cta, action;
-    ensureDailyPuzzle();
     const due = getDueErrors().length;
-    if (!dailyPuzzle.solved) {
-        icon = '🗓️'; text = 'El repte diari t\'espera. Mantingues viva la ratxa!'; cta = 'Jugar repte'; action = 'daily';
-    } else if (due > 0) {
+    if (due > 0) {
         icon = '🔁'; text = `Tens ${due} ${due > 1 ? 'repassos a punt' : 'repàs a punt'}. Consolida el que has après.`; cta = 'Repassar'; action = 'srs';
     } else {
         icon = '💡'; text = PLAY_IDEAS[hashStr(getToday()) % PLAY_IDEAS.length]; cta = 'Nova partida'; action = 'play';
