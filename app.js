@@ -5677,7 +5677,11 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
 async function prepareBundleSequence(fen, opts = {}) {
     // silent: no mostra alertes (preparació en segon pla)
     // shouldAbort: permet interrompre la preparació entre anàlisis
+    // fast: elimina pauses artificials entre cerques. Les cerques robustes ja fan
+    // handshake UCI (`isready`) i validen que la resposta sigui legal per al FEN,
+    // així no cal pagar gairebé 1,1 s fixos abans de cada exercici.
     const silent = !!opts.silent;
+    const fast = opts.fast !== false;
     const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
     // Validació inicial més robusta
     if (!stockfish) {
@@ -5707,7 +5711,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         // Neteja inicial més agressiva
         stockfish.postMessage('stop');
         stockfish.postMessage('setoption name MultiPV value 1');
-        await new Promise(resolve => setTimeout(resolve, 300)); // Temps augmentat
+        if (!fast) await new Promise(resolve => setTimeout(resolve, 300));
         
         console.log('[Bundle] Iniciant preparació seqüència per FEN:', fen);
 
@@ -5747,8 +5751,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         const afterPlayerFen = tempGame1.fen();
         console.log('[Bundle] Després jugada 1, FEN:', afterPlayerFen);
         
-        // Pausa més llarga entre anàlisis
-        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
+        if (!fast) await new Promise(resolve => setTimeout(resolve, 400));
         
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 2'); return null; }
         // 3. Calcular millor resposta de l'oponent
@@ -5785,8 +5788,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         const afterOpponentFen = tempGame2.fen();
         console.log('[Bundle] Després resposta oponent, FEN:', afterOpponentFen);
         
-        // Pausa abans de l'anàlisi final
-        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
+        if (!fast) await new Promise(resolve => setTimeout(resolve, 400));
         
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 3'); return null; }
         // 5. Calcular millor segona jugada del jugador (Pas 3)
@@ -14676,8 +14678,16 @@ blunderMode = isBundle;
         if (!bundleFixedSequence) {
             $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
             // Espera que acabi la preparació en segon pla en curs (s'ha demanat
-            // aturar-la o és justament aquest FEN) per no barrejar anàlisis.
-            if (backgroundPrepPromise) { try { await backgroundPrepPromise; } catch (e) {} }
+            // aturar-la o és justament aquest FEN) per no barrejar anàlisis. Si és
+            // un altre FEN i el worker no cedeix ràpid, no bloquegem indefinidament
+            // el botó de Tàctiques/Revisa errors/Repàs intel·ligent.
+            if (backgroundPrepPromise) {
+                const wantedIsBeingPrepared = backgroundPrepCurrentFen === fen;
+                try {
+                    if (wantedIsBeingPrepared) await backgroundPrepPromise;
+                    else await waitForBackgroundPrepToYield(1500);
+                } catch (e) {}
+            }
             bundleFixedSequence = takePreparedSequence(fen) || await prepareBundleSequence(fen);
 
             if (!bundleFixedSequence) {
@@ -18358,6 +18368,14 @@ function requestBackgroundPrepAbort(fenWanted = null) {
     }
     backgroundPrepAbortRequested = true;
     try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
+}
+
+function waitForBackgroundPrepToYield(timeoutMs = 1500) {
+    if (!backgroundPrepPromise) return Promise.resolve();
+    return Promise.race([
+        backgroundPrepPromise.catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, timeoutMs))
+    ]);
 }
 
 async function backgroundPrepTick() {
