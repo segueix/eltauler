@@ -7926,7 +7926,8 @@ function buildOfflineOpeningMaxim(info = classifyOpeningPositionForMaxim()) {
     const voice = getOpeningStrategicVoice();
     const openingName = info.opening?.name || info.detected?.name || '';
     const themeMap = { lesson: 'opening', error: 'opening', detected: 'opening', opening: 'opening', position: 'development', general: 'general' };
-    let text = pickOfflineMaxim(themeMap[info.theme] || 'opening');
+    const coachText = buildLocalCoachText({ theme: themeMap[info.theme] || 'opening', mode: 'opening' });
+    let text = coachText.combined || coachText.maxim;
     if (info.theme === 'detected' && openingName) {
         text = `A la línia ${openingName}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
     }
@@ -7982,8 +7983,15 @@ async function requestOpeningMaximLlull() {
 
     let prompt;
     let continuationsData = null;
-    const localMaximCandidates = getOfflineMaximCandidates(info.theme === 'position' ? 'development' : (info.theme || 'opening'), 3);
+    const localTheme = info.theme === 'position' ? 'development' : (info.theme || 'opening');
+    const localMaximCandidates = getOfflineMaximCandidates(localTheme, 3);
+    const localCoachText = buildLocalCoachText({ theme: localTheme, mode: 'opening-prompt' });
     const localMaximText = localMaximCandidates.length ? `
+TEXT LOCAL DE REFERÈNCIA (pots adaptar-ne el to i la idea):
+- Màxima: ${localCoachText.maxim}
+- Pista: ${localCoachText.hint}
+- Explicació breu: ${localCoachText.explanation}
+
 MÀXIMES LOCALS CANDIDATES (tria'n una idea o adapta-la sense copiar necessàriament):
 - ${localMaximCandidates.join('\n- ')}
 ` : '';
@@ -14354,9 +14362,182 @@ function getOfflineMaximCandidates(theme, count = 3) {
     return out;
 }
 
+
+/* ===================== MOTOR LOCAL DE REDACCIÓ PER PLANTILLES ===================== */
+const LOCAL_COACH_STYLE = {
+    beginner: {
+        maxSentenceWords: 18,
+        bridge: 'Fixa’t en el detall simple',
+        explanationTone: 'La idea és concreta'
+    },
+    intermediate: {
+        maxSentenceWords: 24,
+        bridge: 'Converteix el principi en una decisió',
+        explanationTone: 'El pla millora perquè'
+    },
+    advanced: {
+        maxSentenceWords: 30,
+        bridge: 'Refina el càlcul amb una segona idea',
+        explanationTone: 'La precisió ve de coordinar'
+    }
+};
+
+const LOCAL_COACH_PATTERNS = {
+    king: {
+        subjects: ['el rei exposat', 'l’enroc debilitat', 'el monarca sense aire'],
+        actions: ['obre línies amb peces preparades', 'suma una peça més abans del cop', 'elimina el defensor clau'],
+        cautions: ['no persegueixis escacs buits', 'no canviïs atacants sense compensació', 'no obris el teu rei alhora'],
+        hints: ['Busca quina línia apunta al rei i quina peça encara pot incorporar-se a l’atac.', 'Mira si el defensor del rei està sobrecarregat o pot ser desviat.'],
+        explanations: ['la pressió sobre el rei només funciona quan hi arriben prou peces', 'cada tempo contra un rei insegur pot crear una amenaça difícil de neutralitzar']
+    },
+    material: {
+        subjects: ['la peça indefensa', 'el defensor sobrecarregat', 'el material aparentment gratis'],
+        actions: ['compta atacants i defensors', 'força el defensor a triar', 'calcula la recaptura i la jugada següent'],
+        cautions: ['no capturis si actives el contrajoc rival', 'no confonguis guanyar un peó amb guanyar la posició', 'no abandonis la seguretat del rei per material'],
+        hints: ['Comprova què ha deixat de defensar l’última jugada rival.', 'Busca si una peça rival defensa dues coses alhora.'],
+        explanations: ['el guany material és fiable quan també controles la resposta rival', 'la tàctica neix d’una peça que no pot complir totes les seves feines']
+    },
+    center: {
+        subjects: ['el centre', 'la tensió central', 'les caselles centrals'],
+        actions: ['decideix quan obrir la posició', 'ocupa’l amb peces actives', 'usa’l per portar forces al flanc correcte'],
+        cautions: ['no l’abandonis per una amenaça lateral feble', 'no resolguis la tensió només per impaciència', 'no avancis peons si deixes forats darrere'],
+        hints: ['Pregunta’t quin canvi central millora més les teves peces.', 'Mira si el rival depèn d’una ruptura central per alliberar-se.'],
+        explanations: ['controlar el centre dona rutes a les peces i limita el pla rival', 'la decisió central correcta transforma una petita pressió en iniciativa']
+    },
+    opening: {
+        subjects: ['cada tempo d’obertura', 'la primera fase de la partida', 'el desenvolupament inicial'],
+        actions: ['activa una peça i disputa el centre', 'prepara l’enroc abans d’obrir línies', 'desenvolupa amb una amenaça útil'],
+        cautions: ['no moguis la mateixa peça sense necessitat', 'no treguis la dama si regala temps', 'no guanyis material a costa de quedar endarrerit'],
+        hints: ['Mira quina peça encara no juga i com pot mirar el centre.', 'Tria una jugada que desenvolupi i alhora impedeixi el pla rival.'],
+        explanations: ['l’obertura és bona quan deixa peces coordinades per al mig joc', 'cada tempo perdut dona al rival una defensa o una ruptura més còmoda']
+    },
+    fork: {
+        subjects: ['l’amenaça doble', 'la forquilla', 'una casella activa'],
+        actions: ['busca dos objectius alhora', 'inclou el rei en la tàctica si és possible', 'troba el salt que guanya temps'],
+        cautions: ['no defensis passivament si pots crear una amenaça doble', 'no miris només captures immediates', 'no oblidis les peces majors indefenses'],
+        hints: ['Busca una casella des d’on una peça ataqui dos objectius importants.', 'Revisa escacs que també amenacin dama, torre o peça indefensa.'],
+        explanations: ['el rival només pot respondre una amenaça per torn', 'una forquilla bona converteix el tempo en material o atac']
+    },
+    pin: {
+        subjects: ['la peça clavada', 'el defensor immobilitzat', 'la peça lligada al rei'],
+        actions: ['augmenta la pressió abans que s’alliberi', 'afegeix una segona amenaça', 'mira què ha deixat de protegir'],
+        cautions: ['no canviïs la peça que manté la clavada sense motiu', 'no capturis massa aviat si pots pressionar més', 'no permetis que el rival trenqui la línia'],
+        hints: ['Mira si alguna peça rival no es pot moure perquè darrere hi ha una peça més valuosa.', 'Busca com afegir pressió a la peça clavada sense revelar el cop final.'],
+        explanations: ['una peça clavada defensa menys del que aparenta', 'la clavada es torna decisiva quan limita i crea una altra debilitat']
+    },
+    skewer: {
+        subjects: ['la línia oberta', 'l’alineació de peces', 'el raig X'],
+        actions: ['mira darrere la primera peça', 'obre la columna o diagonal correcta', 'ataca la peça davantera si la recompensa és al darrere'],
+        cautions: ['no tanquis la línia que et dona pressió', 'no canviïs la peça que domina l’alineació', 'no ignoris diagonals llargues'],
+        hints: ['Comprova si dues peces valuoses comparteixen columna, fila o diagonal.', 'Mira si pots obligar la peça de davant a apartar-se.'],
+        explanations: ['les peces alineades fan que una sola línia creï dues conseqüències', 'el raig X converteix una peça aparentment protegida en objectiu futur']
+    },
+    endgame: {
+        subjects: ['el rei actiu', 'el peó passat', 'el tempo final'],
+        actions: ['acosta el rei abans d’empènyer peons', 'dona suport al peó passat', 'canvia peces només si el final resultant t’afavoreix'],
+        cautions: ['no corris amb peons sense suport', 'no deixis el rei passiu', 'no simplifiquis cap a un final dubtós'],
+        hints: ['Mira si el rei pot millorar abans de tocar els peons.', 'Pregunta’t si el canvi de peces fa més fàcil guanyar o defensar el final.'],
+        explanations: ['al final, l’activitat del rei pesa tant com el material', 'un peó passat necessita coordinació, no només avançar']
+    },
+    development: {
+        subjects: ['la peça pitjor situada', 'la coordinació', 'una peça passiva'],
+        actions: ['troba-li una casella útil', 'connecta-la amb el centre', 'millora-la abans de buscar el cop'],
+        cautions: ['no ataquis amb mig exèrcit adormit', 'no canviïs la teva peça activa per una de passiva', 'no acumulis amenaces que no poden arribar a temps'],
+        hints: ['Localitza la peça que participa menys i busca com activar-la amb tempo.', 'Mira quina peça pot millorar sense debilitar el teu rei.'],
+        explanations: ['les tàctiques apareixen més sovint quan les peces ja cooperen', 'una peça millorada pot convertir una posició igualada en pressió real']
+    },
+    general: {
+        subjects: ['el pla correcte', 'la profilaxi', 'la jugada simple'],
+        actions: ['atura la idea rival i millora una peça', 'revisa escacs, captures i amenaces', 'redueix el contrajoc abans del remat'],
+        cautions: ['no busquis brillantor si una jugada clara resol el problema', 'no moguis sense saber què amenaça el rival', 'no confonguis activitat amb pressa'],
+        hints: ['Pregunta’t què vol fer el rival en la propera jugada.', 'Si no hi ha tàctica clara, millora la peça que participa menys.'],
+        explanations: ['una bona decisió combina el teu pla amb la prevenció del pla rival', 'la claredat sovint és més forta que una complicació innecessària']
+    }
+};
+
+const LOCAL_COACH_TEMPLATES = {
+    maxim: [
+        '{subject} demana una regla clara: {action}.',
+        'Quan apareix {subject}, {action} i recorda: {caution}.',
+        '{subject} no és un detall; {explanation}.',
+        'La millor pista és pràctica: {action} i {caution}.'
+    ],
+    hint: [
+        '{bridge}: {hint}',
+        'Abans de moure, {hint}',
+        '{hint}'
+    ],
+    explanation: [
+        '{tone} {explanation}; per això convé {action}.',
+        'La jugada millora quan {action}, perquè {explanation}.',
+        'El risc és clar: si {caution}, el rival recupera temps o activitat.'
+    ]
+};
+
+function normalizeLocalCoachLevel(level) {
+    if (level === 'beginner' || level === 'advanced') return level;
+    return 'intermediate';
+}
+
+function pickLocalCoachPart(parts, bucket) {
+    return pickFreshPlanLine(parts || [], 'localcoach:' + bucket) || '';
+}
+
+function fillLocalCoachTemplate(template, values) {
+    return String(template || '').replace(/\{(\w+)\}/g, (_, key) => values[key] || '');
+}
+
+function tidyLocalCoachSentence(text, maxWords) {
+    let out = String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/;\s*per això convé\s*\./g, '.')
+        .trim();
+    if (!out) return '';
+    out = out.charAt(0).toUpperCase() + out.slice(1);
+    if (!/[.!?]$/.test(out)) out += '.';
+    if (maxWords && out.split(/\s+/).length > maxWords + 6) {
+        const words = out.replace(/[.!?]$/, '').split(/\s+/).slice(0, maxWords + 6);
+        out = words.join(' ') + '.';
+    }
+    return out;
+}
+
+function buildLocalCoachText(context = {}) {
+    const theme = getOfflineMaximThemeKey(context.theme || 'general');
+    const pattern = LOCAL_COACH_PATTERNS[theme] || LOCAL_COACH_PATTERNS.general;
+    const level = normalizeLocalCoachLevel(context.level || context.userLevel);
+    const style = LOCAL_COACH_STYLE[level] || LOCAL_COACH_STYLE.intermediate;
+    const bucket = [theme, level, context.mode || 'default'].join(':');
+    const values = {
+        subject: pickLocalCoachPart(pattern.subjects, bucket + ':subject'),
+        action: pickLocalCoachPart(pattern.actions, bucket + ':action'),
+        caution: pickLocalCoachPart(pattern.cautions, bucket + ':caution'),
+        hint: pickLocalCoachPart(pattern.hints, bucket + ':hint'),
+        explanation: pickLocalCoachPart(pattern.explanations, bucket + ':explanation'),
+        bridge: style.bridge,
+        tone: style.explanationTone
+    };
+    const maximTemplate = pickLocalCoachPart(LOCAL_COACH_TEMPLATES.maxim, bucket + ':maximTemplate');
+    const hintTemplate = pickLocalCoachPart(LOCAL_COACH_TEMPLATES.hint, bucket + ':hintTemplate');
+    const explanationTemplate = pickLocalCoachPart(LOCAL_COACH_TEMPLATES.explanation, bucket + ':explanationTemplate');
+    const maxim = tidyLocalCoachSentence(fillLocalCoachTemplate(maximTemplate, values), style.maxSentenceWords);
+    const hint = tidyLocalCoachSentence(fillLocalCoachTemplate(hintTemplate, values), style.maxSentenceWords + 4);
+    const explanation = tidyLocalCoachSentence(fillLocalCoachTemplate(explanationTemplate, values), style.maxSentenceWords + 8);
+    return {
+        theme,
+        level,
+        maxim: maxim || pickOfflineMaxim(theme),
+        hint,
+        explanation,
+        combined: [maxim || pickOfflineMaxim(theme), hint].filter(Boolean).join(' ')
+    };
+}
+
 // Màxima estratègica local rica: reaprofita el generador de pistes jeroglífiques
 // (temàtic, variat i anti-repetitiu) perquè la partida assistida no depengui de cap clau.
 function buildLocalAssistedMaxim(fen, bestMove) {
+    const theme = classifyPositionTheme(fen, bestMove || '');
     try {
         if (bestMove) {
             const ctx = buildHieroglyphicContext(fen, bestMove, {});
@@ -14364,7 +14545,8 @@ function buildLocalAssistedMaxim(fen, bestMove) {
             if (clue && clue.length > 12) return clue;
         }
     } catch (e) {}
-    return pickOfflineMaxim(classifyPositionTheme(fen, bestMove || ''));
+    const coachText = buildLocalCoachText({ theme, mode: 'assisted' });
+    return coachText.combined || coachText.maxim;
 }
 
 function getCachedOpenAI(key) {
