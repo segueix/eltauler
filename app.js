@@ -7158,12 +7158,14 @@ function buildLocalErrorNote(err, entry) {
     };
     let plan = {};
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
+    const structured = buildStructuredLocalExplanation(moment, plan);
     const parts = [];
-    if (moment.positional) parts.push(moment.positional);
-    if (plan.diagnosis) parts.push(plan.diagnosis);
-    if (plan.plan) parts.push(plan.plan);
+    if (structured.fact) parts.push(`Posició: ${structured.fact}`);
+    if (structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
+    if (structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
+    if (structured.plan) parts.push(`Pla millor: ${structured.plan}`);
     if (moment.candidates) parts.push(moment.candidates);
-    if (plan.question) parts.push(plan.question);
+    if (structured.question) parts.push(`Pregunta clau: ${structured.question}`);
     const text = parts.filter(Boolean).join(' ').trim();
     return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
 }
@@ -7485,9 +7487,10 @@ function renderLocalReviewHtml(entry) {
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
                 const lines = [
                     `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
-                    m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '',
-                    m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '',
-                    m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : ''
+                    m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : ''),
+                    m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : ''),
+                    m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
+                    m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : '')
                 ].filter(Boolean);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
@@ -17407,6 +17410,73 @@ function buildLocalHumanPlan(moment) {
     };
 }
 
+
+const STRUCTURED_CONSEQUENCES = {
+    king_attack: [
+        'el rival va tenir temps de portar defensors o crear contrajoc contra el teu rei',
+        'la pressió sobre el rei no es va convertir en una amenaça forçada'
+    ],
+    material: [
+        'el compte de captures deixava una peça o una casella sense prou defensa',
+        'el guany aparent donava activitat o recaptures al rival'
+    ],
+    center: [
+        'el rival podia aprofitar les línies i caselles que s’obrien al centre',
+        'la tensió central es resolia en el moment que afavoria més l’altre bàndol'
+    ],
+    opening: [
+        'el rival guanyava temps de desenvolupament i arribava abans al mig joc',
+        'les peces quedaven menys coordinades per disputar centre i iniciativa'
+    ],
+    fork: [
+        'es perdia l’opció de crear dues amenaces alhora',
+        'el rival podia respondre una sola amenaça sense quedar lligat'
+    ],
+    pin: [
+        'la peça clavada podia alliberar-se o continuar defensant en aparença',
+        'es deixava escapar la pressió sobre una peça que tenia poca mobilitat'
+    ],
+    skewer: [
+        'l’alineació de peces deixava de ser una font de guany forçat',
+        'la línia oberta no es convertia en pressió sobre la peça del darrere'
+    ],
+    endgame: [
+        'el rival guanyava tempos importants en un final on cada casella pesa',
+        'l’activitat del rei o del peó passat quedava mal coordinada'
+    ],
+    general: [
+        'el rival rebia temps per millorar peces i reduir la pressió',
+        'la posició demanava una funció clara i la jugada no la resolia prou'
+    ]
+};
+
+function stripPlanIntro(text) {
+    return String(text || '')
+        .replace(/^(Aquest va ser el moment que va decidir la partida|Aquí es va escapar bona part de l’avantatge|Un error d’aquesta mida marca tot el que ve després|Si haguessis trobat el millor aquí, la partida canviava de color|Aquí la partida va fer un gir evitable|Aquest error costa, però s’entén i es corregeix|Un pas en fals com aquest sol venir d’anar amb pressa|Va ser un d’aquells moments per parar i mirar bé|Un detall petit, però val la pena fixar-s’hi|No és greu, però polir-ho et fa pujar de nivell|Una imprecisió com aquesta es repeteix si no la nomenes|Petit relliscada: la mena de cosa que distingeix nivells|Mirem-ho amb calma|Val la pena entendre què passava aquí|Aquí hi havia una lliçó concreta|Un moment per aprendre, no per lamentar)\.\s*/i, '')
+        .trim();
+}
+
+function buildStructuredConsequence(moment) {
+    const themeKey = resolveHumanPlanThemeKey(moment);
+    const pool = STRUCTURED_CONSEQUENCES[themeKey] || STRUCTURED_CONSEQUENCES.general;
+    const consequence = fillPlanTemplate(pickFreshPlanLine(pool, themeKey + ':structured:consequence'), moment);
+    const severity = moment && moment.quality === 'blunder'
+        ? 'Això era crític perquè'
+        : (moment && moment.quality === 'mistake' ? 'Això importava perquè' : 'El detall importava perquè');
+    return `${severity} ${toInlineAdvice(consequence)}.`;
+}
+
+function buildStructuredLocalExplanation(moment, plan = {}) {
+    const fallbackPlan = plan && typeof plan === 'object' ? plan : {};
+    const fact = moment && moment.positional
+        ? moment.positional
+        : `Era una posició de ${moment?.theme || 'joc general'} en fase de ${moment?.phase || 'partida'}.`;
+    const mistake = stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.';
+    const consequence = buildStructuredConsequence(moment || {});
+    const betterPlan = fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.';
+    return { fact, mistake, consequence, plan: betterPlan, question: fallbackPlan.question || '' };
+}
+
 function buildHumanPlanMoments(entry, insights = null) {
     const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
     const priority = { blunder: 4, mistake: 3, inaccuracy: 2, good: 1, excel: 0 };
@@ -17441,7 +17511,8 @@ function buildHumanPlanMoments(entry, insights = null) {
                 candidates: buildCandidatesNote(r),
                 isPattern
             };
-            return { ...moment, ...buildLocalHumanPlan(moment) };
+            const plan = buildLocalHumanPlan(moment);
+            return { ...moment, ...plan, structured: buildStructuredLocalExplanation(moment, plan) };
         });
 }
 
