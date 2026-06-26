@@ -1177,9 +1177,11 @@
     const u = currentUser();
     if (u) {
       $('#catalans-signin').hide();
+      $('#catalans-switch').show();
       $('#catalans-whoami').text('Votes com a ' + userName(u)).show();
     } else {
       $('#catalans-signin').show();
+      $('#catalans-switch').hide();
       $('#catalans-whoami').hide();
     }
   }
@@ -1253,6 +1255,15 @@
   // Permet que la pantalla de login reusi CloudSync.
   $(function () {
     $('#catalans-signin').on('click', promptSignIn);
+    // Canviar de compte (tanca sessió i torna a triar compte de Google).
+    $('#catalans-switch').on('click', function () {
+      setStatus('Canviant de compte…');
+      if (window.CloudSync && typeof window.CloudSync.switchAccount === 'function') {
+        window.CloudSync.switchAccount();
+      } else if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
+        window.CloudSync.signIn();
+      }
+    });
     // Revisió de jugades: clic a una jugada de la transcripció.
     $('#catalans-moves').on('click', '.cat-move', function () {
       const ply = parseInt($(this).attr('data-ply'), 10);

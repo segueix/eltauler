@@ -378,11 +378,41 @@
     setStatus({ state: 'signedout', email: null });
   }
 
+  // En mòbils/PWA el popup d'inici de sessió de Google és poc fiable (es bloqueja
+  // o no retorna mai), així que hi fem servir SEMPRE la redirecció, que funciona
+  // de manera consistent.
+  function isMobileLike() {
+    try {
+      if (/Android|iPhone|iPad|iPod|Mobile|Silk|Kindle/i.test(navigator.userAgent || '')) return true;
+      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return true;
+      // PWA instal·lada (standalone): també millor amb redirecció.
+      if (window.matchMedia && window.matchMedia('(display-mode: standalone)').matches) return true;
+      if (navigator.standalone) return true;
+    } catch (e) {}
+    return false;
+  }
+
+  function buildProvider() {
+    const provider = new firebase.auth.GoogleAuthProvider();
+    // Mostra SEMPRE el selector de comptes de Google: així es pot iniciar sessió i
+    // també CANVIAR de compte fàcilment (no reutilitza automàticament l'últim).
+    provider.setCustomParameters({ prompt: 'select_account' });
+    return provider;
+  }
+
   function signIn() {
     if (!auth) { setStatus({ state: 'error', error: 'Firebase no inicialitzat' }); return; }
-    const provider = new firebase.auth.GoogleAuthProvider();
+    const provider = buildProvider();
+    // A mòbil/PWA: redirecció directa (el popup hi és poc fiable).
+    if (isMobileLike()) {
+      auth.signInWithRedirect(provider).catch(function (e2) {
+        console.warn('[CloudSync] redirect sign-in error', e2);
+        setStatus({ state: 'error', error: e2 && e2.message ? e2.message : 'Error d\'inici de sessió' });
+      });
+      return;
+    }
+    // A escriptori: popup, amb fallback a redirecció si es bloqueja.
     auth.signInWithPopup(provider).catch(function (e) {
-      // En molts mòbils/PWA el popup es bloqueja → prova amb redirecció.
       if (e && (e.code === 'auth/popup-blocked' || e.code === 'auth/operation-not-supported-in-this-environment' || e.code === 'auth/cancelled-popup-request')) {
         auth.signInWithRedirect(provider).catch(function (e2) {
           console.warn('[CloudSync] redirect sign-in error', e2);
@@ -399,8 +429,17 @@
   }
 
   function signOut() {
-    if (!auth) return;
-    auth.signOut().catch(function (e) { console.warn('[CloudSync] sign-out error', e); });
+    if (!auth) return Promise.resolve();
+    return auth.signOut().catch(function (e) { console.warn('[CloudSync] sign-out error', e); });
+  }
+
+  // Canvia de compte: tanca la sessió actual i torna a iniciar-ne una (amb el
+  // selector de comptes de Google), de manera fiable també a mòbil.
+  function switchAccount() {
+    if (!auth) { signIn(); return; }
+    Promise.resolve(auth.signOut().catch(function () {})).then(function () {
+      signIn();
+    });
   }
 
   function syncNow() {
@@ -463,11 +502,13 @@
     init: init,
     signIn: signIn,
     signOut: signOut,
+    switchAccount: switchAccount,
     syncNow: syncNow,
     // El crida saveStorage() de app.js cada cop que es desen dades locals.
     onLocalSave: function () { schedulePush(); },
     isConfigured: isConfigured,
     isSignedIn: function () { return !!currentUser; },
+    getEmail: function () { return currentUser ? (currentUser.email || currentUser.displayName || null) : null; },
     getStatus: function () { return Object.assign({}, status, { configured: isConfigured() }); }
   };
 
