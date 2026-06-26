@@ -15,5 +15,13 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
+    // Rànquing global (un sol document compartit amb el mapa de jugadors).
+    // Lectura PÚBLICA; escriptura només per a usuaris autenticats (cadascú hi
+    // desa les seves estadístiques).
+    match /eltauler_ranking/{docId} {
+      allow read: if true;
+      allow write: if request.auth != null;
+    }
+
   }
 }

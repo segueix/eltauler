@@ -386,7 +386,7 @@ function applyFontSize(pct) {
 // Navigation history management for mobile back gesture
 let navStack = [];
 function getCurrentScreen() {
-    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'catalans-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen'];
+    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'catalans-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen', 'ranking-screen'];
     for (const s of screens) {
         const el = document.getElementById(s);
         if (el && el.style.display !== 'none' && (s !== 'game-screen' || el.classList.contains('active'))) return s;
@@ -425,6 +425,9 @@ function navGoBack() {
         $('#start-screen').show();
     } else if (current === 'calibration-result-screen') {
         $('#calibration-result-screen').hide();
+        $('#start-screen').show();
+    } else if (current === 'ranking-screen') {
+        $('#ranking-screen').hide();
         $('#start-screen').show();
     }
     navStack.pop();
@@ -4586,6 +4589,8 @@ function saveStorage() {
     if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
         try { window.CloudSync.onLocalSave(); } catch (e) {}
     }
+    // Rànquing global: puja les meves estadístiques (amb debounce, només si hi ha sessió).
+    try { if (typeof schedulePushRanking === 'function') schedulePushRanking(); } catch (e) {}
 }
 
 // Recarrega tot l'estat del joc des del localStorage i refresca la interfície.
@@ -4707,8 +4712,130 @@ function saveUsernameFromSettings() {
     }
 }
 
+// ============================= RÀNQUING GLOBAL =============================
+// Opció A: un sol document compartit (eltauler_ranking/leaderboard) amb el mapa
+// { uid: {name, elo, stars, games, hiero} }. Llegir el rànquing = 1 sola consulta
+// (s'ordena al client per a cada categoria); cada usuari hi desa NOMÉS la seva
+// entrada (amb debounce) → consum de quota mínim.
+const RANKING_COLLECTION = 'eltauler_ranking';
+const RANKING_DOC = 'leaderboard';
+const RANKING_CACHE_MS = 3 * 60 * 1000;
+let rankingCategory = 'elo';
+let _rankingPushTimer = null;
+let _lastRankingHash = '';
+let _rankingCache = null;
+
+function rankingDocRef() {
+    try {
+        if (typeof firebase === 'undefined' || !firebase.apps || !firebase.apps.length) return null;
+        return firebase.firestore().collection(RANKING_COLLECTION).doc(RANKING_DOC);
+    } catch (e) { return null; }
+}
+function rankingCurrentUser() {
+    try { return (typeof firebase !== 'undefined' && firebase.auth) ? firebase.auth().currentUser : null; } catch (e) { return null; }
+}
+function myRankingEntry() {
+    return {
+        name: (getUsername() || '').slice(0, 24),
+        elo: Math.round(userELO || 0),
+        stars: totalStars || 0,
+        games: totalGamesPlayed || 0,
+        hiero: (typeof hieroglyphicStats === 'object' && hieroglyphicStats) ? (hieroglyphicStats.solved || 0) : 0,
+        at: Date.now()
+    };
+}
+function pushRankingStats(force) {
+    const user = rankingCurrentUser();
+    if (!user) return;                 // cal sessió per escriure
+    const ref = rankingDocRef();
+    if (!ref) return;
+    const entry = myRankingEntry();
+    const hash = [entry.name, entry.elo, entry.stars, entry.games, entry.hiero].join('|');
+    if (!force && hash === _lastRankingHash) return;   // res nou a pujar
+    _lastRankingHash = hash;
+    const payload = { players: {}, updatedAt: Date.now() };
+    payload.players[user.uid] = entry;
+    ref.set(payload, { merge: true }).catch(function (e) { console.warn('[Ranking] push', e); });
+}
+// Es crida (amb debounce) des de saveStorage; només actua si hi ha sessió.
+function schedulePushRanking() {
+    if (!rankingCurrentUser()) return;
+    if (_rankingPushTimer) clearTimeout(_rankingPushTimer);
+    _rankingPushTimer = setTimeout(function () { _rankingPushTimer = null; pushRankingStats(false); }, 8000);
+}
+window.schedulePushRanking = schedulePushRanking;
+
+function openRankingScreen() {
+    $('#start-screen').hide();
+    $('#ranking-screen').show();
+    navPush('ranking-screen');
+    pushRankingStats(true);            // desa primer les meves stats actuals
+    loadRanking(false);
+}
+function setRankingCategory(cat) {
+    if (!cat) return;
+    rankingCategory = cat;
+    $('.ranking-tab').removeClass('active');
+    $('.ranking-tab[data-cat="' + cat + '"]').addClass('active');
+    if (_rankingCache) renderRanking(_rankingCache.players);
+}
+function loadRanking(forceFresh) {
+    const ref = rankingDocRef();
+    const status = $('#ranking-status');
+    if (!ref) {
+        $('#ranking-list').html('<div class="ranking-empty">El rànquing necessita la sincronització al núvol (Firebase) configurada.</div>');
+        status.text('');
+        return;
+    }
+    if (!forceFresh && _rankingCache && (Date.now() - _rankingCache.at) < RANKING_CACHE_MS) {
+        renderRanking(_rankingCache.players);
+        return;
+    }
+    status.text('Carregant…');
+    ref.get().then(function (snap) {
+        const data = snap.exists ? snap.data() : null;
+        _rankingCache = { at: Date.now(), players: (data && data.players) || {} };
+        status.text('');
+        renderRanking(_rankingCache.players);
+    }).catch(function (e) {
+        console.warn('[Ranking] load', e);
+        status.text('No s\'ha pogut carregar el rànquing. Torna-ho a provar.');
+    });
+}
+function renderRanking(players) {
+    const list = $('#ranking-list');
+    const cat = rankingCategory;
+    const me = rankingCurrentUser();
+    const myUid = me ? me.uid : null;
+    const arr = Object.keys(players || {}).map(function (uid) {
+        const p = players[uid] || {};
+        return { uid: uid, name: p.name || 'Anònim', val: Math.round(p[cat] || 0) };
+    });
+    arr.sort(function (a, b) { return b.val - a.val; });
+    if (!arr.length) {
+        list.html('<div class="ranking-empty">Encara no hi ha ningú al rànquing. Inicia sessió, posa\'t un nom a Configuració i juga per aparèixer-hi!</div>');
+        return;
+    }
+    const top = arr.slice(0, 50);
+    let html = '';
+    top.forEach(function (p, i) {
+        const pos = i + 1;
+        const topCls = pos === 1 ? ' top1' : (pos === 2 ? ' top2' : (pos === 3 ? ' top3' : ''));
+        const meCls = (myUid && p.uid === myUid) ? ' me' : '';
+        const medal = pos === 1 ? '🥇' : (pos === 2 ? '🥈' : (pos === 3 ? '🥉' : pos));
+        const suffix = cat === 'stars' ? ' ⭐' : '';
+        html += '<div class="ranking-row' + topCls + meCls + '">' +
+            '<span class="ranking-pos">' + medal + '</span>' +
+            '<span class="ranking-name">' + escapeHtml(p.name) + '</span>' +
+            '<span class="ranking-val">' + p.val + suffix + '</span>' +
+            '</div>';
+    });
+    list.html(html);
+}
+
 window.onCloudSignedIn = function (email) {
     try { showToast('Sessió iniciada' + (email ? ' com a ' + email : '') + ' ✓', 'success'); } catch (e) {}
+    try { pushRankingStats(true); } catch (e) {}
     try {
         const wanted = localStorage.getItem('eltauler_cloud_returnToCatalans');
         if (wanted) localStorage.removeItem('eltauler_cloud_returnToCatalans');
@@ -12257,6 +12384,10 @@ function setupEvents() {
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
     $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
+    $('#btn-ranking').click(() => openRankingScreen());
+    $('#btn-ranking-back').click(() => { $('#ranking-screen').hide(); $('#start-screen').show(); });
+    $('#btn-ranking-refresh').click(() => loadRanking(true));
+    $('#ranking-screen').on('click', '.ranking-tab', function () { setRankingCategory($(this).attr('data-cat')); });
     $('#btn-username-save').click(() => saveUsernameFromSettings());
     $('#username-input').on('blur', () => saveUsernameFromSettings());
     $('#username-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveUsernameFromSettings(); } });

@@ -3041,6 +3041,7 @@
                         <button class="btn btn-history" id="btn-history"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
                         <button class="btn btn-stats" id="btn-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Estadístiques</button>
                     </div>
+                    <button class="btn btn-ranking" id="btn-ranking"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Rànquing</button>
                     <button class="btn btn-settings" id="btn-settings"><svg class="btn-ic" aria-hidden="true"><use href="#ic-gear"/></svg>Configuració</button>
                 </div>
             </div>
@@ -3248,6 +3249,39 @@
 
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-primary" id="btn-back-settings">Tornar al menú</button>
+            </div>
+        </div>
+
+        <style>
+            .btn-ranking { background: linear-gradient(135deg,#c9a227 0%,#8a6d12 100%); color:#1b1712; }
+            .ranking-tabs { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; margin:10px 0; }
+            .ranking-tab { background:rgba(255,255,255,0.05); border:1px solid rgba(201,162,39,0.25); color:var(--text-secondary); border-radius:999px; padding:6px 14px; font-size:0.85rem; cursor:pointer; }
+            .ranking-tab.active { background:linear-gradient(135deg,#b5121b,#7a0c12); color:#fff5e6; border-color:transparent; font-weight:700; }
+            #ranking-list { margin-top:6px; }
+            .ranking-row { display:flex; align-items:center; gap:10px; padding:8px 12px; margin:4px 0; background:rgba(255,255,255,0.03); border-radius:10px; }
+            .ranking-row.me { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.65); }
+            .ranking-pos { min-width:30px; font-weight:800; color:var(--text-secondary); text-align:center; }
+            .ranking-row.top1 .ranking-pos { color:#ffd34d; } .ranking-row.top2 .ranking-pos { color:#cfd8dc; } .ranking-row.top3 .ranking-pos { color:#d8a06a; }
+            .ranking-name { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+            .ranking-val { font-weight:700; color:var(--accent-gold); white-space:nowrap; }
+            .ranking-empty { color:var(--text-secondary); font-size:0.88rem; text-align:center; padding:14px; }
+        </style>
+        <div id="ranking-screen" class="screen-anim" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">🏆</div>
+                <h1>Rànquing</h1>
+            </div>
+            <div class="ranking-tabs">
+                <button class="ranking-tab active" data-cat="elo">ELO</button>
+                <button class="ranking-tab" data-cat="stars">⭐ Estrelles</button>
+                <button class="ranking-tab" data-cat="games">Partides</button>
+                <button class="ranking-tab" data-cat="hiero">🔮 Jeroglífics</button>
+            </div>
+            <div id="ranking-status" class="setting-help" style="text-align:center; min-height:1.2em;"></div>
+            <div id="ranking-list"></div>
+            <div class="menu-buttons" style="margin-top:16px;">
+                <button class="btn btn-secondary" id="btn-ranking-refresh">🔄 Actualitza</button>
+                <button class="btn btn-primary" id="btn-ranking-back">Menú</button>
             </div>
         </div>
 
