@@ -861,7 +861,8 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         lastAdjustmentQualityAvg: lastAdjustmentQualityAvg,
         completedOpenings: completedOpenings,
         tacticsStats: tacticsStats,
-        hieroglyphicStats: hieroglyphicStats
+        hieroglyphicStats: hieroglyphicStats,
+        preparedExerciseHistory: typeof preparedExerciseHistory !== 'undefined' ? preparedExerciseHistory : []
     };
     if (includeGameHistory) base.gameHistory = gameHistory;
     return base;
@@ -4617,6 +4618,8 @@ function reloadAppStateFromStorage() {
         if (typeof renderOpeningStats === 'function') renderOpeningStats();
         if (typeof renderOpeningStatsScreen === 'function') renderOpeningStatsScreen();
         if (typeof updateTacticsDisplay === 'function') updateTacticsDisplay();
+        if (typeof loadPreparedExerciseHistory === 'function') loadPreparedExerciseHistory();
+        if (typeof loadPreparedSequences === 'function') loadPreparedSequences();
         if (typeof showToast === 'function') showToast('Dades sincronitzades del núvol', 'success');
     } catch (e) {
         console.warn('[CloudSync] reloadAppStateFromStorage error', e);
@@ -5044,12 +5047,12 @@ function updateDisplay() {
     updateCalibrationAccessUI();
     
     let total = savedErrors.length;
-    $('#bundle-info').text(total > 0 ? `${total} errors guardats` : 'Cap error desat');
+    $('#bundle-info').text(total > 0 ? `${total} errors guardats · tria manual` : 'Biblioteca dels teus errors');
     $('#game-bundles').text(total);
     // Comptadors de repàs espaiat al menú principal
     const due = getDueErrors().length;
-    $('#srs-info').text(due > 0 ? `${due} per repassar` : 'Al dia');
-    $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · rècord ${tacticsStats.best}` : 'Entrena combinacions');
+    $('#srs-info').text(due > 0 ? `${due} repassos pendents avui` : 'Al dia · repetició espaiada');
+    $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · tàctica general` : 'Combinacions noves');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
     renderWeeklyPlan();
@@ -5677,7 +5680,11 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
 async function prepareBundleSequence(fen, opts = {}) {
     // silent: no mostra alertes (preparació en segon pla)
     // shouldAbort: permet interrompre la preparació entre anàlisis
+    // fast: elimina pauses artificials entre cerques. Les cerques robustes ja fan
+    // handshake UCI (`isready`) i validen que la resposta sigui legal per al FEN,
+    // així no cal pagar gairebé 1,1 s fixos abans de cada exercici.
     const silent = !!opts.silent;
+    const fast = opts.fast !== false;
     const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
     // Validació inicial més robusta
     if (!stockfish) {
@@ -5707,7 +5714,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         // Neteja inicial més agressiva
         stockfish.postMessage('stop');
         stockfish.postMessage('setoption name MultiPV value 1');
-        await new Promise(resolve => setTimeout(resolve, 300)); // Temps augmentat
+        if (!fast) await new Promise(resolve => setTimeout(resolve, 300));
         
         console.log('[Bundle] Iniciant preparació seqüència per FEN:', fen);
 
@@ -5747,8 +5754,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         const afterPlayerFen = tempGame1.fen();
         console.log('[Bundle] Després jugada 1, FEN:', afterPlayerFen);
         
-        // Pausa més llarga entre anàlisis
-        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
+        if (!fast) await new Promise(resolve => setTimeout(resolve, 400));
         
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 2'); return null; }
         // 3. Calcular millor resposta de l'oponent
@@ -5785,8 +5791,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         const afterOpponentFen = tempGame2.fen();
         console.log('[Bundle] Després resposta oponent, FEN:', afterOpponentFen);
         
-        // Pausa abans de l'anàlisi final
-        await new Promise(resolve => setTimeout(resolve, 400)); // Augmentat
+        if (!fast) await new Promise(resolve => setTimeout(resolve, 400));
         
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 3'); return null; }
         // 5. Calcular millor segona jugada del jugador (Pas 3)
@@ -14676,8 +14681,16 @@ blunderMode = isBundle;
         if (!bundleFixedSequence) {
             $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
             // Espera que acabi la preparació en segon pla en curs (s'ha demanat
-            // aturar-la o és justament aquest FEN) per no barrejar anàlisis.
-            if (backgroundPrepPromise) { try { await backgroundPrepPromise; } catch (e) {} }
+            // aturar-la o és justament aquest FEN) per no barrejar anàlisis. Si és
+            // un altre FEN i el worker no cedeix ràpid, no bloquegem indefinidament
+            // el botó de Tàctiques/Revisa errors/Repàs intel·ligent.
+            if (backgroundPrepPromise) {
+                const wantedIsBeingPrepared = backgroundPrepCurrentFen === fen;
+                try {
+                    if (wantedIsBeingPrepared) await backgroundPrepPromise;
+                    else await waitForBackgroundPrepToYield(1500);
+                } catch (e) {}
+            }
             bundleFixedSequence = takePreparedSequence(fen) || await prepareBundleSequence(fen);
 
             if (!bundleFixedSequence) {
@@ -14685,6 +14698,7 @@ blunderMode = isBundle;
                 returnToMainMenuImmediate();
                 return;
             }
+            cachePreparedSequence(fen, bundleFixedSequence, 'ondemand_' + getPreparedExerciseSource(fen));
         }
 
     }
@@ -18234,10 +18248,13 @@ $(document).on('click touchend pointerup', '.overlay-close-x', function (e) {
 // a l'instant, sense esperes ni errades de preparació. Les seqüències es desen a
 // localStorage i només es calculen quan el motor està lliure (pantalles de menú).
 const PREPARED_SEQ_STORAGE_KEY = 'chess_preparedSequences';
-const PREPARED_SEQ_TARGET = 3;            // exercicis a punt per categoria
-const PREPARED_SEQ_MAX = 20;              // límit total d'entrades al rebost
+const PREPARED_EXERCISE_HISTORY_KEY = 'chess_preparedExerciseHistory';
+const PREPARED_SEQ_TARGET = 8;            // exercicis a punt per categoria
+const PREPARED_SEQ_MAX = 60;              // límit total d'entrades al rebost
 const PREPARED_SEQ_TTL_MS = 7 * 86400000; // caducitat d'una seqüència preparada
+const PREPARED_EXERCISE_HISTORY_MAX = 120;
 let preparedSequences = {};               // fen -> { seq, ts }
+let preparedExerciseHistory = [];          // auditoria sincronitzable via Firebase
 let backgroundPrepPromise = null;
 let backgroundPrepCurrentFen = null;
 let backgroundPrepAbortRequested = false;
@@ -18250,6 +18267,30 @@ function savePreparedSequences() {
         console.warn('[PrepBG] No s\'ha pogut desar el rebost d\'exercicis:', e);
         preparedSequences = {};
         try { localStorage.removeItem(PREPARED_SEQ_STORAGE_KEY); } catch (e2) {}
+    }
+}
+
+function savePreparedExerciseHistory(notifyCloud = true) {
+    try {
+        localStorage.setItem(PREPARED_EXERCISE_HISTORY_KEY, JSON.stringify(preparedExerciseHistory));
+        if (notifyCloud && window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
+            try { window.CloudSync.onLocalSave(); } catch (e) {}
+        }
+    } catch (e) {
+        console.warn('[PrepBG] No s\'ha pogut desar l\'historial d\'exercicis preparats:', e);
+    }
+}
+
+function loadPreparedExerciseHistory() {
+    try {
+        const raw = localStorage.getItem(PREPARED_EXERCISE_HISTORY_KEY);
+        if (!raw) { preparedExerciseHistory = []; return; }
+        const parsed = JSON.parse(raw);
+        preparedExerciseHistory = Array.isArray(parsed)
+            ? parsed.filter(item => item && item.fen).slice(0, PREPARED_EXERCISE_HISTORY_MAX)
+            : [];
+    } catch (e) {
+        preparedExerciseHistory = [];
     }
 }
 
@@ -18275,6 +18316,44 @@ function loadPreparedSequences() {
     }
 }
 
+function getPreparedExerciseSource(fen) {
+    if (dailyPuzzle && dailyPuzzle.fen === fen) return 'daily';
+    if (Array.isArray(TACTICS_BANK) && TACTICS_BANK.includes(fen)) return 'tactics';
+    const saved = Array.isArray(savedErrors) ? savedErrors.find(e => e && e.fen === fen) : null;
+    if (saved) {
+        const fm = parseInt((fen || '').split(' ')[5], 10) || 99;
+        if (fm <= 10 && saved.playerMove) return 'opening_error';
+        if (getErrorDueTime(saved) <= Date.now()) return 'srs_due';
+        return 'saved_error';
+    }
+    return 'bundle';
+}
+
+function recordPreparedExercise(fen, seq, source = null) {
+    if (!fen || !seq) return;
+    const entry = {
+        id: 'prep_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8),
+        fen,
+        source: source || getPreparedExerciseSource(fen),
+        generatedAt: Date.now(),
+        fullSequence: Array.isArray(seq.fullSequence) ? seq.fullSequence.slice(0, 8) : [],
+        fullSequenceSan: Array.isArray(seq.fullSequenceSan) ? seq.fullSequenceSan.slice(0, 8) : []
+    };
+    preparedExerciseHistory = [
+        entry,
+        ...preparedExerciseHistory.filter(item => item && !(item.fen === fen && item.source === entry.source))
+    ].slice(0, PREPARED_EXERCISE_HISTORY_MAX);
+    savePreparedExerciseHistory(true);
+}
+
+function cachePreparedSequence(fen, seq, source = null) {
+    if (!fen || !seq || seq.initialFen !== fen) return;
+    preparedSequences[fen] = { seq: clonePreparedSequence(seq), ts: Date.now() };
+    prunePreparedSequences();
+    savePreparedSequences();
+    recordPreparedExercise(fen, seq, source);
+}
+
 function prunePreparedSequences() {
     const now = Date.now();
     let changed = false;
@@ -18293,13 +18372,24 @@ function prunePreparedSequences() {
     if (changed) savePreparedSequences();
 }
 
-// Treu del rebost la seqüència preparada per aquest FEN (si hi és) i la consumeix.
+function clonePreparedSequence(seq) {
+    if (!seq) return null;
+    try {
+        return JSON.parse(JSON.stringify(seq));
+    } catch (e) {
+        return seq;
+    }
+}
+
+// Retorna una còpia del rebost per aquest FEN (si hi és). No es consumeix: la
+// mateixa seqüència pot reutilitzar-se en una altra sessió i continuar servint
+// d'arrencada instantània fins que caduqui o el límit global obligui a purgar-la.
 function takePreparedSequence(fen) {
     const entry = preparedSequences[fen];
     if (!entry || !entry.seq || entry.seq.initialFen !== fen) return null;
-    delete preparedSequences[fen];
+    entry.ts = Date.now();
     savePreparedSequences();
-    return entry.seq;
+    return clonePreparedSequence(entry.seq);
 }
 
 // Tria aleatòria que prefereix elements amb la seqüència ja preparada.
@@ -18360,6 +18450,14 @@ function requestBackgroundPrepAbort(fenWanted = null) {
     try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
 }
 
+function waitForBackgroundPrepToYield(timeoutMs = 1500) {
+    if (!backgroundPrepPromise) return Promise.resolve();
+    return Promise.race([
+        backgroundPrepPromise.catch(() => {}),
+        new Promise(resolve => setTimeout(resolve, timeoutMs))
+    ]);
+}
+
 async function backgroundPrepTick() {
     try { refillHieroglyphicQueue(); } catch (e) {}
     if (backgroundPrepPromise) return;
@@ -18379,9 +18477,7 @@ async function backgroundPrepTick() {
                 shouldAbort: () => backgroundPrepAbortRequested || (!backgroundPrepProtected && !isIdleForBackgroundPrep())
             });
             if (seq) {
-                preparedSequences[next] = { seq, ts: Date.now() };
-                prunePreparedSequences();
-                savePreparedSequences();
+                cachePreparedSequence(next, seq, 'background_' + getPreparedExerciseSource(next));
                 console.log('[PrepBG] Exercici a punt:', next);
             }
         } catch (e) {
@@ -18434,6 +18530,7 @@ $(document).ready(() => {
     // en segon pla perquè els exercicis arrenquin sense espera. Es persisteix a
     // localStorage (i se sincronitza), així que un cop omplert sobreviu entre
     // sessions. Arrenquem aviat i comprovem sovint per tenir-ne sempre de llestos.
+    loadPreparedExerciseHistory();
     loadPreparedSequences();
     setTimeout(backgroundPrepTick, 1200);
     setInterval(backgroundPrepTick, 4000);
