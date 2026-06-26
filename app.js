@@ -9442,6 +9442,10 @@ function setOpeningScreenMode(mode = 'overview') {
         sections.practice.show();
         sections.hieroglyphic.show();
     }
+    // L'opció de rendir-se NO ha d'aparèixer quan es resol un error o un jeroglífic
+    // (només té sentit a les partides i a la pràctica d'obertures).
+    const hideResign = (mode === 'error-practice' || mode === 'hieroglyphic');
+    $('#btn-opening-bundle-resign').toggle(!hideResign);
     updateOpeningMaximButton();
 }
 
