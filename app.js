@@ -17722,45 +17722,20 @@ function coachQualityBadgeHtml(quality, swing) {
     return `<span style="display:inline-block;padding:1px 7px;border-radius:6px;font-size:0.82em;font-weight:700;color:${meta.color};background:${meta.bg};margin-right:6px;white-space:nowrap;">${label}</span>`;
 }
 
-// Formata una llista de SAN com una seqüència numerada (estil chess.com):
-// "35.Te2+ Rf1 36.Dxe1+ ..." tenint en compte qui mou primer.
-function formatPvWithNumbers(sans, startNum, whiteToMove) {
-    const out = [];
-    let n = startNum;
-    let white = whiteToMove;
-    for (let i = 0; i < sans.length; i++) {
-        if (white) {
-            out.push(`${n}.${sans[i]}`);
-        } else {
-            out.push(i === 0 ? `${n}…${sans[i]}` : sans[i]);
-            n++;
-        }
-        white = !white;
-    }
-    return out.join(' ');
-}
-
-// Descriu la continuació real de la millor jugada (la PV ja calculada) en notació
-// llegible. Dona context concret —els "moviments següents"— en comptes d'una frase
-// genèrica, perquè l'explicació sigui més rica i coherent amb el tauler.
+// Descriu la continuació real de la millor jugada (la PV ja calculada) en
+// llenguatge planer —nom de la peça i casella de destí ("el cavall captura a
+// d4")— sense notació algebraica, perquè sigui comprensible per a tothom.
 function buildContinuationNote(moment) {
     const m = moment || {};
     if (!m.fen) return '';
     const pv = Array.isArray(m.pv) ? m.pv : [];
     if (pv.length < 2) return '';
-    try {
-        const sans = uciLineToSan(m.fen, pv, 6);
-        if (sans.length < 2) return '';
-        const parts = m.fen.split(' ');
-        const startNum = Number(parts[5]) || Number(m.moveNumber) || 1;
-        const whiteToMove = (parts[1] || 'w') === 'w';
-        const seq = formatPvWithNumbers(sans, startNum, whiteToMove);
-        if (!seq) return '';
-        const lead = (coachEvalNum(m.evalBefore) !== null && m.evalBefore >= COACH_EVAL_DECISIVE)
-            ? 'La línia guanyadora seguia'
-            : 'La idea continuava amb';
-        return `${lead} ${seq}.`;
-    } catch (e) { return ''; }
+    const seq = describeLineHuman(m.fen, pv, 0, 3);
+    if (!seq) return '';
+    const lead = (coachEvalNum(m.evalBefore) !== null && m.evalBefore >= COACH_EVAL_DECISIVE)
+        ? 'La línia guanyadora era'
+        : 'La idea continuava amb';
+    return `${lead} ${seq}.`;
 }
 
 // ── FASE B — Classificació determinista del resultat de l'error ──────────────
@@ -17872,21 +17847,15 @@ function pickStableLine(pool, moment) {
     return pool[coachStableHash(seed) % pool.length];
 }
 
-// Línia de refutació en notació llegible: el càstig concret de la jugada feta.
+// El càstig concret de la jugada feta, en llenguatge planer (nom de la peça i
+// casella de destí) en comptes de notació algebraica.
 function buildRefutationNote(moment) {
     const m = moment || {};
     const afterFen = m.afterFen;
     const pv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
     if (!afterFen || pv.length < 1) return '';
-    try {
-        const sans = uciLineToSan(afterFen, pv, 6);
-        if (!sans.length) return '';
-        const parts = afterFen.split(' ');
-        const startNum = Number(parts[5]) || Number(m.moveNumber) || 1;
-        const whiteToMove = (parts[1] || 'w') === 'w';
-        const seq = formatPvWithNumbers(sans, startNum, whiteToMove);
-        return seq ? `Com et castiga: ${seq}.` : '';
-    } catch (e) { return ''; }
+    const seq = describeLineHuman(afterFen, pv, 0, 3);
+    return seq ? `Com et castiga: ${seq}.` : '';
 }
 
 function buildStructuredConsequence(moment) {
