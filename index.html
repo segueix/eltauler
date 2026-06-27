@@ -321,6 +321,20 @@
         .highlight-best-to {
             box-shadow: inset 0 0 0 4px #2ecc71 !important;
         }
+        /* Origen del moviment: només un contorn subtil del color del rol, sense
+           farciment, perquè la casella de sortida (sovint compartida per la teva
+           jugada i la millor) no es pinti mig vermella mig verda. */
+        .highlight-played-from {
+            box-shadow: inset 0 0 0 3px rgba(231, 76, 60, 0.7) !important;
+        }
+        .highlight-best-from {
+            box-shadow: inset 0 0 0 3px rgba(46, 204, 113, 0.7) !important;
+        }
+        /* Si totes dues jugades surten de la mateixa casella, el verd (la millor)
+           té prioritat al contorn d'origen per no barrejar colors. */
+        .highlight-played-from.highlight-best-from {
+            box-shadow: inset 0 0 0 3px rgba(46, 204, 113, 0.85) !important;
+        }
         .review-board-legend {
             font-size: 12px; opacity: 0.9; margin-top: 6px; text-align: center;
         }
@@ -4142,7 +4156,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.20"></script>
+    <script src="app.js?v=1.0.21"></script>
 
     <!-- Service Worker Registration -->
     <script>

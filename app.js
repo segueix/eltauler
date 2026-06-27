@@ -7101,6 +7101,15 @@ function showReviewBoardLegend(show) {
 // Ressalta origen i destí d'un moviment sobre beforeFen amb la classe donada.
 // No esborra ressaltats previs: així es poden marcar dues jugades alhora (la
 // teva i la millor). chessboard.js marca les caselles amb data-square.
+//
+// El color FORT (vermell = la teva jugada, verd = la millor) va només a la
+// casella de DESTÍ, que és la que distingeix de debò un moviment d'un altre.
+// L'origen rep només un contorn subtil del mateix color. Així, quan les dues
+// jugades comparteixen la casella de sortida (p. ex. la mateixa peça moguda de
+// dues maneres), aquella casella ja no surt mig vermella mig verda: només es
+// pinten ben diferenciats els dos destins (l'error en vermell, la correcta en
+// verd). El degradat partit (highlight-overlap) queda reservat per al cas rar
+// en què tots dos moviments acaben a la MATEIXA casella de destí.
 function highlightReviewedMove(beforeFen, move, cls) {
     const klass = cls || 'highlight-hint';
     if (!beforeFen || !move) return;
@@ -7113,9 +7122,11 @@ function highlightReviewedMove(beforeFen, move, cls) {
         if (!mv) return;
         const fromEl = $("#history-board .square-55d63[data-square='" + mv.from + "']");
         const toEl = $("#history-board .square-55d63[data-square='" + mv.to + "']");
-        fromEl.addClass(klass + ' ' + klass + '-from');
+        // Origen: només contorn subtil (classe -from), sense farciment fort.
+        fromEl.addClass(klass + '-from');
+        // Destí: color fort + marca de destí.
         toEl.addClass(klass + ' ' + klass + '-to');
-        if (fromEl.hasClass('highlight-played') && fromEl.hasClass('highlight-best')) fromEl.addClass('highlight-overlap');
+        // Només marquem el degradat partit si AMBDÓS destins coincideixen.
         if (toEl.hasClass('highlight-played') && toEl.hasClass('highlight-best')) toEl.addClass('highlight-overlap');
     } catch (e) {}
 }
