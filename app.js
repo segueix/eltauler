@@ -6776,6 +6776,69 @@ function buildEntryPgn(entry) {
     return replay.pgn();
 }
 
+// Repara les FEN de decisió dels moveReviews d'una entrada antiga o incompleta.
+// Algunes partides (sobretot inacabades o migrades de versions velles) es van
+// desar amb la FEN de decisió absent o inservible, i això feia que en clicar el
+// moment clau no es ressaltés ni la teva jugada (vermell) ni la millor (verd).
+// Aquí recalculem la FEN EXACTA reproduint les jugades reals de la partida fins
+// al ply corresponent. Només toquem les que no serveixen, per no alterar dades
+// bones. Retorna true si ha canviat alguna cosa (per persistir-ho una sola vegada).
+function repairEntryMoveReviewFens(entry, movesArg) {
+    if (!entry || !Array.isArray(entry.moveReviews) || !entry.moveReviews.length) return false;
+    const moves = Array.isArray(movesArg) ? movesArg : getHistoryMoves(entry);
+    if (!moves.length) return false;
+
+    // FEN just abans de cada ply (índex 0-based del ply).
+    const fensBefore = [];
+    try {
+        const g = new Chess();
+        for (let i = 0; i < moves.length; i++) {
+            fensBefore[i] = g.fen();
+            if (!g.move(moves[i], { sloppy: true })) break;
+        }
+    } catch (e) { return false; }
+
+    const norm = s => String(s || '').trim().replace(/[+#!?]/g, '');
+    const playerColor = (entry.playerColor === 'b') ? 'b' : (entry.playerColor === 'w' ? 'w' : null);
+    let changed = false;
+
+    for (const r of entry.moveReviews) {
+        if (!r) continue;
+        const playedRef = r.playerMove || r.playerMoveSan;
+        // Si la FEN desada ja permet reconstruir la teva jugada, la deixem estar
+        // (el ressaltat ja funcionarà, fins i tot si el torn ve invertit).
+        if (r.fen && playedRef && resolveMoveOnFen(r.fen, playedRef)) continue;
+
+        const mn = Number(r.moveNumber);
+        if (!mn || mn < 1) continue;
+        const color = (r.color === 'w' || r.color === 'b') ? r.color : playerColor;
+        if (color !== 'w' && color !== 'b') continue;
+        let ply = (mn - 1) * 2 + (color === 'b' ? 1 : 0);
+
+        // Si la SAN desada no quadra amb el ply calculat, la cerquem a prop del
+        // número de jugada (per si el número balla en partides migrades).
+        const wantSan = norm(r.playerMoveSan || r.playerMove);
+        if (wantSan && (ply >= moves.length || norm(moves[ply]) !== wantSan)) {
+            let found = -1;
+            for (let i = 0; i < moves.length; i++) {
+                if (norm(moves[i]) === wantSan && Math.abs(Math.ceil((i + 1) / 2) - mn) <= 1) { found = i; break; }
+            }
+            if (found >= 0) ply = found;
+        }
+        if (ply < 0 || ply >= moves.length || !fensBefore[ply]) continue;
+
+        // Només substituïm si tenim prou confiança: o bé la SAN encaixa al ply, o
+        // bé no hi havia SAN per comprovar però el número de jugada hi cap.
+        const confident = !wantSan || norm(moves[ply]) === wantSan;
+        if (!confident) continue;
+
+        r.fen = fensBefore[ply];
+        if (!r.playerMoveSan && moves[ply]) r.playerMoveSan = moves[ply];
+        changed = true;
+    }
+    return changed;
+}
+
 function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
@@ -6785,6 +6848,16 @@ function loadHistoryEntry(entry) {
     try { prewarmOpeningPositionGraph(); } catch (e) {}
     initHistoryBoard(entry);
     const moves = getHistoryMoves(entry);
+    // Repara les FEN de decisió inservibles d'entrades velles/inacabades i, si
+    // s'ha corregit res, ho desa una sola vegada perquè quedi net per sempre.
+    try {
+        if (repairEntryMoveReviewFens(entry, moves)) {
+            if (typeof entry.counts === 'undefined' || entry.counts === null) {
+                try { entry.counts = summarizeReview(entry.moveReviews); } catch (e) {}
+            }
+            saveStorage();
+        }
+    } catch (e) { console.warn('repairEntryMoveReviewFens', e); }
     historyReplay = {
         entry: entry,
         game: new Chess(),
