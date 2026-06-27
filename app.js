@@ -5530,6 +5530,8 @@ async function deepenEntryAnalysis(entry, opts = {}) {
             }
         }
         entry.deepAnalyzed = true;
+        // La requalificació pot canviar el desglossament (excel·lents/errors…).
+        try { entry.counts = summarizeReview(entry.moveReviews); } catch (e) {}
         if (typeof saveStorage === 'function') saveStorage();
     } catch (e) {
         console.warn('[DeepReview] error inesperat', e);
@@ -6674,6 +6676,13 @@ function updateHistoryProgress() {
 
 function updateHistoryBoard() {
     if (!historyBoard || !historyReplay || !historyReplay.game) return;
+    // Sempre orienta el tauler cap al color del jugador perquè les TEVES peces
+    // quedin a la part inferior durant tota la revisió i en navegar pels moments
+    // clau, independentment de qui mou (i de crides que reinicien l'orientació).
+    if (typeof historyBoard.orientation === 'function') {
+        const want = (historyReplay.entry && historyReplay.entry.playerColor === 'b') ? 'black' : 'white';
+        if (historyBoard.orientation() !== want) historyBoard.orientation(want);
+    }
     historyBoard.position(historyReplay.game.fen(), false);
     if (typeof historyBoard.resize === 'function') historyBoard.resize();
     updateHistoryProgress();
@@ -6879,7 +6888,43 @@ function updateHistoryReview(entry) {
             showToast('Còpia no disponible; selecciona el text manualment', 'info');
         }
     });
+    wireHistoryDeepButton(entry);
     // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
+}
+
+// Botó d'anàlisi profunda a la revisió d'historial: re-analitza les posicions
+// clau amb el motor i refresca la ressenya amb les dades millorades. Útil per
+// retrofitar partides antigues sense refutació ni avaluacions fiables.
+function wireHistoryDeepButton(entry) {
+    const btn = $('#history-deep-review');
+    const status = $('#history-deep-status');
+    if (!btn.length) return;
+    const available = entry && typeof deepenEntryAnalysis === 'function' && deepReviewTargets(entry).length > 0;
+    btn.toggle(!!available);
+    status.hide().text('');
+    if (!available) return;
+    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
+    btn.off('click').on('click', async () => {
+        if (deepReviewInProgress || waitingForBlunderAnalysis) {
+            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
+            return;
+        }
+        const total = deepReviewTargets(entry).length;
+        btn.prop('disabled', true);
+        status.show().text(`Analitzant a fons… (0/${total})`);
+        try {
+            const updated = await deepenEntryAnalysis(entry, {
+                depth: 14, max: 8, force: true,
+                onProgress: (done, tot) => status.text(`Analitzant a fons… (${done}/${tot})`)
+            });
+            updateHistoryDetails(entry);   // refresca desglossament + ressenya + notes
+            status.show().text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
+        } catch (e) {
+            console.warn('[DeepReview] historial', e);
+            status.show().text('No s\'ha pogut completar l\'anàlisi profunda.');
+            btn.prop('disabled', false);
+        }
+    });
 }
 
 // Renova la ressenya LOCAL d'una partida (no depèn de cap clau d'IA): incrementa
@@ -7590,7 +7635,7 @@ function renderLocalReviewHtml(entry) {
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const lines = [
-                    `${coachQualityBadgeHtml(m.quality, m.swing)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
+                    `${coachQualityBadgeHtml(m)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
                     show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
                     show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
                     show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
@@ -7704,7 +7749,7 @@ function updateHistoryErrorNotes(entry) {
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
-            <div class="error-note-head">${coachQualityBadgeHtml(err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), err.swing)}Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
+            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })}Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
@@ -16969,13 +17014,14 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     };
 
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
+    // Sempre mostra el resultat sobre el tauler ("Has guanyat/perdut/taules" +
+    // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
+    showPostGameStatusChip(postGameResultLabel(leagueOutcome));
     if (showCheckmate) {
-        // El flux d'escac i mat ja té el seu overlay i temporització pròpia.
+        // L'escac i mat té el seu propi retard de 2s dins showPostGameReview; el
+        // xip es veu mentrestant i s'amaga quan s'obre la ressenya.
         showFullReview();
     } else {
-        // Primer, el resultat sobre el tauler perquè es vegi l'últim moviment i
-        // que s'està generant l'anàlisi; quan està a punt, saltem a la ressenya.
-        showPostGameStatusChip(postGameResultLabel(leagueOutcome));
         postGameJumpTimer = setTimeout(() => {
             postGameJumpTimer = null;
             showFullReview();
@@ -17765,11 +17811,23 @@ function coachQualityMeta(quality) {
 
 // Badge HTML per a la capçalera d'un moment, amb el cost aproximat en peons
 // derivat del swing (en centipawns) que ja calculem.
-function coachQualityBadgeHtml(quality, swing) {
-    const meta = coachQualityMeta(quality);
+function coachQualityBadgeHtml(moment, swingLegacy) {
+    // Accepta un moment {quality, swing, evalBefore, evalAfter} o (quality, swing).
+    const m = (moment && typeof moment === 'object') ? moment : { quality: moment, swing: swingLegacy };
+    const meta = coachQualityMeta(m.quality);
     if (!meta) return '';
-    const cp = Math.abs(Math.round(Number(swing) || 0));
-    const cost = cp >= 50 ? ` · −${(cp / 100).toFixed(1)}` : '';
+    const cp = Math.abs(Math.round(Number(m.swing) || 0));
+    const before = coachEvalNum(m.evalBefore), after = coachEvalNum(m.evalAfter);
+    const mateInvolved = coachIsMate(before) || coachIsMate(after);
+    let cost = '';
+    if (mateInvolved || cp >= 1500) {
+        // El "cost en peons" no té sentit quan hi ha puntuacions de mat: un swing
+        // enorme aquí vol dir "mat deixat escapar", no que perdessis 85 peons.
+        const stillWinning = after !== null && after <= -300; // el rival segueix perdent
+        cost = stillWinning ? ' · victòria ajornada' : ' · pèrdua decisiva';
+    } else if (cp >= 50) {
+        cost = ` · −${(cp / 100).toFixed(1)}`;
+    }
     const label = (typeof escapeHtml === 'function' ? escapeHtml(meta.label + cost) : meta.label + cost);
     return `<span style="display:inline-block;padding:1px 7px;border-radius:6px;font-size:0.82em;font-weight:700;color:${meta.color};background:${meta.bg};margin-right:6px;white-space:nowrap;">${label}</span>`;
 }
