@@ -5525,6 +5525,9 @@ async function deepenEntryAnalysis(entry, opts = {}) {
             r.depth = before.depth || depth;
             r.deep = true;
             updated++;
+            if (typeof opts.onProgress === 'function') {
+                try { opts.onProgress(updated, targets.length); } catch (e) {}
+            }
         }
         entry.deepAnalyzed = true;
         if (typeof saveStorage === 'function') saveStorage();
@@ -16301,6 +16304,50 @@ function hidePostGameStatusChip() {
     if (chip) chip.style.display = 'none';
 }
 
+const DEEP_REVIEW_KEYS = ['inaccuracy', 'mistake', 'blunder'];
+function deepReviewTargets(entry) {
+    if (!entry || !Array.isArray(entry.moveReviews)) return [];
+    return entry.moveReviews.filter(r => r && r.fen && DEEP_REVIEW_KEYS.includes(r.quality)).slice(0, 8);
+}
+
+// Configura el botó "Anàlisi profunda" del modal de revisió: només es mostra si
+// hi ha posicions per aprofundir i si el motor està disponible. En clicar-lo,
+// re-analitza amb progrés i refresca el debrief amb les dades millorades.
+function wirePostGameDeepButton(entry) {
+    const btn = $('#btn-review-deep');
+    const status = $('#review-deep-status');
+    if (!btn.length) return;
+    const targets = deepReviewTargets(entry);
+    const available = !blunderMode && typeof deepenEntryAnalysis === 'function' && targets.length > 0;
+    btn.toggle(available);
+    status.hide().text('');
+    if (!available) return;
+    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
+    btn.off('click').on('click', async () => {
+        if (deepReviewInProgress || waitingForBlunderAnalysis) {
+            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
+            return;
+        }
+        const total = deepReviewTargets(entry).length;
+        btn.prop('disabled', true);
+        status.show().text(`Analitzant a fons… (0/${total})`);
+        try {
+            const updated = await deepenEntryAnalysis(entry, {
+                depth: 14, max: 8, force: true,
+                onProgress: (done, tot) => status.text(`Analitzant a fons… (${done}/${tot})`)
+            });
+            renderGameDebrief(entry);
+            try { renderReviewBreakdown(summarizeReview(entry.moveReviews)); } catch (e) {}
+            status.text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
+            btn.prop('disabled', false).text('🔬 Re-analitzar a fons');
+        } catch (e) {
+            console.warn('[DeepReview] botó', e);
+            status.text('No s\'ha pogut completar l\'anàlisi profunda.');
+            btn.prop('disabled', false);
+        }
+    });
+}
+
 function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) {
     const modal = $('#review-modal');
     if (!modal.length) {
@@ -16365,6 +16412,11 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
             startPersonalHieroglyphicFromLastGame();
         });
     }
+
+    // Botó d'anàlisi profunda: re-analitza les posicions clau amb el motor a més
+    // profunditat i refresca el debrief amb les dades millorades. Útil també per
+    // retrofitar partides antigues sense dades de refutació.
+    wirePostGameDeepButton(options.entry || gameHistory[gameHistory.length - 1]);
 
     const taskForReview = options.disableGrowth ? null : (options.growthTask || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true, source: 'review' }));
     renderGrowthRecommendation(taskForReview, onClose);
