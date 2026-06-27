@@ -6871,7 +6871,8 @@ function updateHistoryReview(entry) {
         const moveNumber = Number($(this).data('move-number'));
         const playedSan = String($(this).data('san') || '').trim();
         const best = String($(this).data('best') || '').trim();
-        jumpToHistoryMove(moveNumber, playedSan); // ressalta la teva jugada (vermell)
+        const decisionFen = String($(this).data('fen') || '').trim();
+        jumpToHistoryMove(moveNumber, playedSan, decisionFen); // ressalta la teva jugada (vermell)
         // I la millor jugada (verd) sobre la mateixa posició de decisió.
         if (best && historyReplay && historyReplay.game) {
             highlightReviewedMove(historyReplay.game.fen(), best, 'highlight-best');
@@ -7008,11 +7009,16 @@ function bindOpenAIMoveLinks(container) {
     });
 }
 
-function jumpToHistoryMove(moveNumber, san) {
+function jumpToHistoryMove(moveNumber, san, decisionFen) {
     if (!historyReplay || !historyReplay.entry || !historyReplay.moves) return;
     stopHistoryPlayback();
-    
-    const targetIndex = findHistoryMoveIndex(moveNumber, san);
+
+    // La posició de decisió (FEN) és el localitzador més fiable; si no la tenim o
+    // no es troba, caiem a la cerca per número/SAN (conscient del color).
+    let targetIndex = decisionFen ? findHistoryIndexByFen(decisionFen) : null;
+    if (targetIndex === null || targetIndex < 0) {
+        targetIndex = findHistoryMoveIndex(moveNumber, san);
+    }
     if (targetIndex === null || targetIndex < 0) {
         console.warn(`No s'ha trobat la jugada ${moveNumber} (${san})`);
         return;
@@ -7070,59 +7076,56 @@ function highlightReviewedMove(beforeFen, move, cls) {
     } catch (e) {}
 }
 
+// Localitza la jugada per la posició de decisió (FEN abans de la jugada). És el
+// mètode més fiable perquè no depèn de coincidències de notació SAN ni del color.
+// Retorna l'índex+1 (igual que findHistoryMoveIndex) o null.
+function findHistoryIndexByFen(targetFen) {
+    if (!targetFen || !historyReplay || !Array.isArray(historyReplay.moves)) return null;
+    const key = f => String(f || '').split(' ').slice(0, 4).join(' '); // ignora comptadors
+    const want = key(targetFen);
+    try {
+        const g = new Chess();
+        if (key(g.fen()) === want) return 1; // decisió abans de la 1a jugada
+        for (let i = 0; i < historyReplay.moves.length; i++) {
+            const r = g.move(historyReplay.moves[i], { sloppy: true });
+            if (!r) break;
+            if (key(g.fen()) === want) return i + 2; // decisió just després d'aquest ply
+        }
+    } catch (e) {}
+    return null;
+}
+
 function findHistoryMoveIndex(moveNumber, san) {
     if (!historyReplay || !Array.isArray(historyReplay.moves)) return null;
     const moves = historyReplay.moves;
     const normalizedSan = (san || '').trim().replace(/[+#!?]/g, ''); // Eliminar anotacions
-    
-    // Primer intent: buscar per número de jugada exacte
+    const sameSan = idx => idx >= 0 && idx < moves.length && moves[idx].replace(/[+#!?]/g, '') === normalizedSan;
+    // L'error és SEMPRE una jugada del jugador: prioritzem el seu color per no
+    // acabar en la jugada del rival quan la SAN no encaixa.
+    const playerBlack = !!(historyReplay.entry && historyReplay.entry.playerColor === 'b');
+
     if (moveNumber) {
-        // La jugada X correspon a l'índex (X-1)*2 per blanques o (X-1)*2+1 per negres
-        // Però necessitem saber el color - intentem ambdós
         const whiteIndex = (moveNumber - 1) * 2;
         const blackIndex = whiteIndex + 1;
-        
-        // Comprovem si la SAN coincideix
-        if (whiteIndex < moves.length) {
-            const whiteSan = moves[whiteIndex].replace(/[+#!?]/g, '');
-            if (!normalizedSan || whiteSan === normalizedSan) {
-                return whiteIndex + 1; // +1 perquè volem mostrar DESPRÉS de jugar
-            }
-        }
-        if (blackIndex < moves.length) {
-            const blackSan = moves[blackIndex].replace(/[+#!?]/g, '');
-            if (!normalizedSan || blackSan === normalizedSan) {
-                return blackIndex + 1;
-            }
-        }
+        const primary = playerBlack ? blackIndex : whiteIndex;
+        const secondary = playerBlack ? whiteIndex : blackIndex;
+        // 1) SAN coincideix al ply del color del jugador (o sense SAN fiable).
+        if (primary < moves.length && (!normalizedSan || sameSan(primary))) return primary + 1;
+        // 2) SAN coincideix a l'altre color (per si el número balla).
+        if (normalizedSan && sameSan(secondary)) return secondary + 1;
+        // 3) Sense coincidència de SAN: cau igualment al ply del color del jugador.
+        if (primary < moves.length) return primary + 1;
+        if (secondary < moves.length) return secondary + 1;
     }
-    
-    // Segon intent: buscar per SAN si no hem trobat per número
+
+    // 4) Cerca per SAN a tot arreu (a prop del número si en tenim).
     if (normalizedSan) {
         for (let i = 0; i < moves.length; i++) {
-            const moveSan = moves[i].replace(/[+#!?]/g, '');
-            if (moveSan === normalizedSan) {
-                // Si tenim moveNumber, comprovem que estigui a prop
-                if (moveNumber) {
-                    const fullMove = Math.ceil((i + 1) / 2);
-                    if (Math.abs(fullMove - moveNumber) <= 1) {
-                        return i + 1;
-                    }
-                } else {
-                    return i + 1;
-                }
+            if (moves[i].replace(/[+#!?]/g, '') === normalizedSan) {
+                if (!moveNumber || Math.abs(Math.ceil((i + 1) / 2) - moveNumber) <= 1) return i + 1;
             }
         }
     }
-    
-    // Tercer intent: només per número de jugada (blanques per defecte)
-    if (moveNumber) {
-        const defaultIndex = (moveNumber - 1) * 2;
-        if (defaultIndex < moves.length) {
-            return defaultIndex + 1;
-        }
-    }
-    
     return null;
 }
 
@@ -7652,7 +7655,7 @@ function renderLocalReviewHtml(entry) {
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
-                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
+                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const lines = [
                     `${coachQualityBadgeHtml(m)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
