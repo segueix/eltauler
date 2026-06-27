@@ -2861,6 +2861,11 @@ let pendingAnalysisFen = null;
 let pendingAnalysisDepth = null;
 let pendingBestMovePv = [];
 let pendingAlternatives = [];
+// Refutació: la millor línia del rival DESPRÉS de la jugada real (el càstig
+// concret). Abans es calculava i es llençava; ara la capturem per descriure
+// conseqüències realistes.
+let pendingAfterFen = null;
+let pendingRefutationPv = [];
 let enrichedAnalysisBuffer = {};
 let pendingGameOverAfterMoveAnalysis = false;
 let gameOverWatchdogTimer = null;
@@ -6162,7 +6167,10 @@ function registerMoveReview(swing, analysisData = {}) {
         depth: analysisData.depth || null,
         bestMoveSan: bestMoveSan,
         bestMovePv: analysisData.bestMovePv || [],
-        alternatives: analysisData.alternatives || []
+        alternatives: analysisData.alternatives || [],
+        // Línia de refutació (el càstig concret) i la posició a què es refereix.
+        refutationPv: analysisData.refutationPv || [],
+        afterFen: analysisData.afterFen || null
     });
 }
 
@@ -7134,6 +7142,8 @@ function buildLocalErrorNote(err, entry) {
         swing: typeof err.swing === 'number' ? err.swing : 0,
         evalBefore: err.evalBefore ?? null,
         evalAfter: err.evalAfter ?? null,
+        refutationPv: err.refutationPv || [],
+        afterFen: err.afterFen || null,
         quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake')
     };
     let ctx = null;
@@ -7155,6 +7165,8 @@ function buildLocalErrorNote(err, entry) {
         quality: review.quality || 'mistake',
         evalBefore: review.evalBefore ?? null,
         evalAfter: review.evalAfter ?? null,
+        refutationPv: Array.isArray(review.refutationPv) ? review.refutationPv : [],
+        afterFen: review.afterFen || null,
         fen: review.fen,
         pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
         positional: buildPositionalNote(ctx),
@@ -7168,6 +7180,7 @@ function buildLocalErrorNote(err, entry) {
     if (show.fact && structured.fact) parts.push(`Posició: ${structured.fact}`);
     if (show.mistake && structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
     if (show.consequence && structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
+    if (show.refutation && structured.refutation) parts.push(structured.refutation);
     if (show.plan && structured.plan) parts.push(`Pla millor: ${structured.plan}`);
     if (show.continuation && structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
     if (show.candidates && moment.candidates) parts.push(moment.candidates);
@@ -7497,6 +7510,7 @@ function renderLocalReviewHtml(entry) {
                     show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
                     show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
                     show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
+                    show.refutation && m.structured?.refutation ? `<span>${escapeHtml(m.structured.refutation)}</span>` : '',
                     show.plan ? (m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : '')) : '',
                     show.continuation && m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeHtml(m.structured.continuation)}</span>` : ''
                 ].filter(Boolean);
@@ -9338,7 +9352,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             bestMovePv: review.bestMovePv || [],
             alternatives: review.alternatives || [],
             evalBefore: review.evalBefore ?? null,
-            evalAfter: review.evalAfter ?? null
+            evalAfter: review.evalAfter ?? null,
+            refutationPv: review.refutationPv || [],
+            afterFen: review.afterFen || null
         })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
         // Persistim les errades greus derivades de la revisió completa perquè
@@ -15819,11 +15835,17 @@ function handleEngineMessage(rawMsg) {
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
             
             analysisStep = 2;
-            stockfish.postMessage(`position fen ${game.fen()}`);
+            pendingAfterFen = game.fen();
+            pendingRefutationPv = [];
+            stockfish.postMessage(`position fen ${pendingAfterFen}`);
             stockfish.postMessage('go depth 10');
         }
         else if (analysisStep === 2) {
             pendingEvalAfter = tempAnalysisScore;
+            // La línia acumulada en aquest pas és la refutació (millor rèplica del
+            // rival a la jugada realment feta), relativa a pendingAfterFen.
+            const afterAnalysis = extractEnrichedAnalysis();
+            pendingRefutationPv = Array.isArray(afterAnalysis.bestMovePv) ? afterAnalysis.bestMovePv : [];
             let swing = pendingEvalAfter + (pendingEvalBefore || 0);
             if (!isCalibrationGame && !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted')) {
                 const delta = swing;
@@ -15844,7 +15866,9 @@ function handleEngineMessage(rawMsg) {
                 depth: pendingAnalysisDepth,
                 alternatives: pendingAlternatives,
                 evalBefore: pendingEvalBefore,
-                evalAfter: pendingEvalAfter
+                evalAfter: pendingEvalAfter,
+                refutationPv: pendingRefutationPv,
+                afterFen: pendingAfterFen
             });
             resolvePendingMoveEvaluation(moveQuality);
             
@@ -17521,13 +17545,13 @@ function coachIsMate(cp) { const n = coachEvalNum(cp); return n !== null && Math
 // completa amb la línia concreta i la pregunta de reflexió.
 function coachSectionsFor(quality) {
     if (quality === 'blunder') {
-        return { fact: true, mistake: true, consequence: true, plan: true, continuation: true, candidates: true, question: true };
+        return { fact: true, mistake: true, consequence: true, refutation: true, plan: true, continuation: true, candidates: true, question: true };
     }
     if (quality === 'mistake') {
-        return { fact: false, mistake: true, consequence: true, plan: true, continuation: true, candidates: false, question: false };
+        return { fact: false, mistake: true, consequence: true, refutation: true, plan: true, continuation: true, candidates: false, question: false };
     }
     // inaccuracy (o desconegut): el mínim útil.
-    return { fact: false, mistake: true, consequence: false, plan: true, continuation: false, candidates: false, question: false };
+    return { fact: false, mistake: true, consequence: false, refutation: false, plan: true, continuation: false, candidates: false, question: false };
 }
 
 // Classificació visual de la jugada (estil chess.com): etiqueta + color per gravetat.
@@ -17590,47 +17614,150 @@ function buildContinuationNote(moment) {
     } catch (e) { return ''; }
 }
 
+// ── FASE B — Classificació determinista del resultat de l'error ──────────────
+// En comptes de triar la conseqüència pel TEMA (que pot contradir el tauler),
+// la derivem del que REALMENT passa: la línia de refutació i l'avaluació. Així
+// el text és concret ("permet mat", "penja una peça") i sempre coherent.
+
+// Reprodueix una línia UCI sobre un FEN i retorna l'objecte Chess final, o null.
+function playUciLine(fen, uciPv) {
+    try {
+        const g = new Chess(fen);
+        for (const u of (uciPv || [])) {
+            if (!u || u.length < 4) break;
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) return null;
+        }
+        return g;
+    } catch (e) { return null; }
+}
+
+// La refutació acaba (o passa) per un mat?
+function refutationEndsInMate(afterFen, uciPv) {
+    if (!afterFen || !Array.isArray(uciPv) || !uciPv.length) return false;
+    try {
+        const g = new Chess(afterFen);
+        for (const u of uciPv) {
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) return false;
+            if (g.in_checkmate()) return true;
+        }
+        return g.in_checkmate();
+    } catch (e) { return false; }
+}
+
+// Material (en peons) que guanya el rival —el que mou a afterFen— al llarg de la
+// refutació. Positiu = el rival captura material net.
+function refutationMaterialSwing(afterFen, uciPv) {
+    if (!afterFen || !Array.isArray(uciPv) || !uciPv.length) return 0;
+    const end = playUciLine(afterFen, uciPv);
+    if (!end) return 0;
+    try {
+        const opp = (afterFen.split(' ')[1] || 'w'); // qui mou a afterFen = el rival
+        const b = fenPieceStats(afterFen).material;
+        const a = fenPieceStats(end.fen()).material;
+        const oppBefore = opp === 'w' ? b.w - b.b : b.b - b.w;
+        const oppAfter = opp === 'w' ? a.w - a.b : a.b - a.w;
+        return oppAfter - oppBefore;
+    } catch (e) { return 0; }
+}
+
+// Etiqueta de resultat determinista. Retorna null si no hi ha cap senyal (ni
+// avaluació ni refutació): aleshores es manté el comportament per tema (legacy).
+function classifyMoveOutcome(moment) {
+    const m = moment || {};
+    const before = coachEvalNum(m.evalBefore); // + = el jugador estava millor
+    const after = coachEvalNum(m.evalAfter);   // + = el rival està millor després de l'error
+    const refPv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
+    const afterFen = m.afterFen || null;
+    if (before === null && after === null && !refPv.length) return null;
+
+    // 1) Mat permès (per la línia o per l'avaluació).
+    if (refutationEndsInMate(afterFen, refPv)) return 'allows_mate';
+    if (after !== null && coachIsMate(after) && after > 0) return 'allows_mate';
+
+    // 2) Tenies un avantatge guanyador i el deixes escapar.
+    if (before !== null && before > 0 && (coachIsMate(before) || before >= COACH_EVAL_DECISIVE)
+        && (after === null || after < COACH_EVAL_DECISIVE)) {
+        return 'lets_win_slip';
+    }
+
+    // 3) Pèrdua de material concreta a la refutació.
+    const mat = refutationMaterialSwing(afterFen, refPv);
+    if (mat >= 5) return 'loses_major';      // torre/dama
+    if (mat >= 3) return 'loses_piece';      // peça menor
+    if (mat >= 2) return 'loses_exchange';   // qualitat
+    if (mat >= 1) return 'loses_pawn';
+
+    // 4) Sense guany material directe: el rival pren el control.
+    if (after !== null && (coachIsMate(after) || after >= COACH_EVAL_DECISIVE)) return 'decisive_counterplay';
+    if (after !== null && after >= 110) return 'cedes_initiative';
+
+    return 'lets_advantage_slip';
+}
+
+// Banc de textos TIPATS per resultat (no per tema). Curts i concrets.
+const OUTCOME_CONSEQUENCES = {
+    allows_mate: ['permetia una seqüència de mat forçada', 'obria un mat que ja no es podia aturar'],
+    lets_win_slip: ['deixava escapar una posició pràcticament guanyada', 'malbaratava un avantatge que ja era decisiu'],
+    loses_major: ['regalava una peça pesant (torre o dama) sense compensació', 'perdia material decisiu per res'],
+    loses_piece: ['deixava una peça penjant sense compensació', 'perdia una peça neta'],
+    loses_exchange: ['cedia la qualitat, torre per peça menor', 'perdia la qualitat sense contrapartida'],
+    loses_pawn: ['cedia un peó sense compensació clara', 'regalava material que es nota al final'],
+    decisive_counterplay: ['donava al rival un atac o una iniciativa decisiva', 'deixava que el rival prengués el control de la partida'],
+    cedes_initiative: ['cedia la iniciativa i el rival agafava les regnes', 'deixava que el rival dictés el joc'],
+    lets_advantage_slip: ['diluïa l’avantatge i tornava a igualar la posició', 'deixava escapar la part bona de la posició']
+};
+
+// Hash estable (determinista) per triar sempre la mateixa variant per a una
+// mateixa jugada: així les ressenyes són consistents entre visites.
+function coachStableHash(str) {
+    let h = 0; const s = String(str || '');
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+}
+function pickStableLine(pool, moment) {
+    if (!Array.isArray(pool) || !pool.length) return '';
+    const m = moment || {};
+    const seed = `${m.moveNumber ?? '?'}|${m.fen || ''}`;
+    return pool[coachStableHash(seed) % pool.length];
+}
+
+// Línia de refutació en notació llegible: el càstig concret de la jugada feta.
+function buildRefutationNote(moment) {
+    const m = moment || {};
+    const afterFen = m.afterFen;
+    const pv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
+    if (!afterFen || pv.length < 1) return '';
+    try {
+        const sans = uciLineToSan(afterFen, pv, 6);
+        if (!sans.length) return '';
+        const parts = afterFen.split(' ');
+        const startNum = Number(parts[5]) || Number(m.moveNumber) || 1;
+        const whiteToMove = (parts[1] || 'w') === 'w';
+        const seq = formatPvWithNumbers(sans, startNum, whiteToMove);
+        return seq ? `Com et castiga: ${seq}.` : '';
+    } catch (e) { return ''; }
+}
+
 function buildStructuredConsequence(moment) {
     const m = moment || {};
-    const themeKey = resolveHumanPlanThemeKey(m);
     const severity = m.quality === 'blunder'
         ? 'Això era crític perquè'
         : (m.quality === 'mistake' ? 'Això importava perquè' : 'El detall importava perquè');
 
-    const before = coachEvalNum(m.evalBefore); // + = el jugador estava millor
-    const after = coachEvalNum(m.evalAfter);   // + = el rival està millor després de l'error
-
-    const themeConsequence = () => {
-        const pool = STRUCTURED_CONSEQUENCES[themeKey] || STRUCTURED_CONSEQUENCES.general;
-        const line = fillPlanTemplate(pickFreshPlanLine(pool, themeKey + ':structured:consequence'), m);
-        return `${severity} ${toInlineAdvice(line)}.`;
-    };
-
-    // CAS 1 — Si jugaves bé tenies un avantatge (o un atac) pràcticament guanyador.
-    // L'error no dona "contrajoc al rival": deixa escapar la victòria. Aquest guard
-    // evita afirmar que el rival contraataca quan el tauler diu el contrari.
-    if (before !== null && before > 0 && (coachIsMate(before) || before >= COACH_EVAL_DECISIVE)) {
-        const core = coachIsMate(before)
-            ? 'deixaves escapar una seqüència forçada que sentenciava la partida'
-            : (themeKey === 'king_attack'
-                ? 'deixaves escapar un atac pràcticament guanyador contra el rei rival'
-                : 'deixaves escapar un avantatge pràcticament decisiu');
-        return `${severity} ${core}.`;
+    // Resultat determinista a partir de la refutació i l'avaluació reals.
+    const outcome = classifyMoveOutcome(m);
+    if (outcome) {
+        const pool = OUTCOME_CONSEQUENCES[outcome] || OUTCOME_CONSEQUENCES.lets_advantage_slip;
+        return `${severity} ${toInlineAdvice(pickStableLine(pool, m))}.`;
     }
 
-    // CAS 2 — Després de l'error el rival passa a manar de debò: el llenguatge de
-    // contrajoc o pressió per tema és coherent amb la posició.
-    if (after !== null && after > 0 && (coachIsMate(after) || after >= COACH_EVAL_DECISIVE)) {
-        return themeConsequence();
-    }
-
-    // CAS 3 — Tenim avaluació però ningú no domina: l'avantatge simplement s'esvaeix.
-    if (before !== null && after !== null) {
-        return `${severity} l'avantatge que tenies es va diluir i la posició es va tornar a igualar.`;
-    }
-
-    // Sense dades d'avaluació: comportament per tema (com abans).
-    return themeConsequence();
+    // Legacy (partides sense avaluació ni refutació): comportament per tema.
+    const themeKey = resolveHumanPlanThemeKey(m);
+    const pool = STRUCTURED_CONSEQUENCES[themeKey] || STRUCTURED_CONSEQUENCES.general;
+    const line = fillPlanTemplate(pickFreshPlanLine(pool, themeKey + ':structured:consequence'), m);
+    return `${severity} ${toInlineAdvice(line)}.`;
 }
 
 function buildStructuredLocalExplanation(moment, plan = {}) {
@@ -17646,9 +17773,10 @@ function buildStructuredLocalExplanation(moment, plan = {}) {
         mistake: ensureCoachTextQuality(mistake, 'La jugada triada no resolia la necessitat principal de la posició.'),
         consequence: ensureCoachTextQuality(consequence),
         plan: ensureCoachTextQuality(betterPlan, 'El pla millor era triar una jugada amb funció clara i menys contrajoc.'),
-        // La continuació conté notació SAN deliberadament, així que NO passa pel
-        // validador de text (que penalitza la SAN); es deixa tal qual.
+        // La continuació i la refutació contenen notació SAN deliberadament, així
+        // que NO passen pel validador de text (que penalitza la SAN).
         continuation: buildContinuationNote(moment || {}),
+        refutation: buildRefutationNote(moment || {}),
         question: ensureCoachTextQuality(fallbackPlan.question || '', '', { sentence: false })
     };
 }
@@ -17683,6 +17811,8 @@ function buildHumanPlanMoments(entry, insights = null) {
                 quality: r.quality || 'inaccuracy',
                 evalBefore: r.evalBefore ?? null,
                 evalAfter: r.evalAfter ?? null,
+                refutationPv: Array.isArray(r.refutationPv) ? r.refutationPv : [],
+                afterFen: r.afterFen || null,
                 fen: r.fen || null,
                 pv: Array.isArray(r.bestMovePv) ? r.bestMovePv : [],
                 positional: buildPositionalNote(ctx),
