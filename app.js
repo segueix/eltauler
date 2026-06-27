@@ -3833,14 +3833,17 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
 
     // Control proactiu de win-rate: manté el jugador "enganxat" apuntant a ~50% de victòries.
     // Si guanya massa, apugem el repte; si perd massa, l'abaixem de seguida (sense esperar el cicle).
+    // IMPORTANT: mai apugem el nivell en una partida que has PERDUT ni l'abaixem en una
+    // que has GUANYAT —seria contradictori ("has perdut i el nivell puja")—; l'ajust de
+    // ritme s'aplicarà a la pròxima partida coherent amb la tendència.
     if (recentGames.length >= ADAPTIVE_CONFIG.FLOW_WINDOW_MIN) {
         const sample = recentGames.slice(-ADAPTIVE_CONFIG.FLOW_SAMPLE_SIZE);
         const wins = sample.filter(g => g.result === 1).length;
         const winRate = wins / sample.length;
-        if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH) {
+        if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH && resultLabel !== 'loss') {
             const flow = applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow' });
             if (flow) feedback = flow.message;
-        } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW) {
+        } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW && resultLabel !== 'win') {
             const flow = applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow' });
             if (flow) feedback = flow.message;
         }
