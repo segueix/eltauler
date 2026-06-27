@@ -7163,14 +7163,15 @@ function buildLocalErrorNote(err, entry) {
     let plan = {};
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
     const structured = buildStructuredLocalExplanation(moment, plan);
+    const show = coachSectionsFor(moment.quality);
     const parts = [];
-    if (structured.fact) parts.push(`Posició: ${structured.fact}`);
-    if (structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
-    if (structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
-    if (structured.plan) parts.push(`Pla millor: ${structured.plan}`);
-    if (structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
-    if (moment.candidates) parts.push(moment.candidates);
-    if (structured.question) parts.push(`Pregunta clau: ${structured.question}`);
+    if (show.fact && structured.fact) parts.push(`Posició: ${structured.fact}`);
+    if (show.mistake && structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
+    if (show.consequence && structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
+    if (show.plan && structured.plan) parts.push(`Pla millor: ${structured.plan}`);
+    if (show.continuation && structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
+    if (show.candidates && moment.candidates) parts.push(moment.candidates);
+    if (show.question && structured.question) parts.push(`Pregunta clau: ${structured.question}`);
     const text = parts.filter(Boolean).join(' ').trim();
     return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
 }
@@ -7490,13 +7491,14 @@ function renderLocalReviewHtml(entry) {
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
+                const show = coachSectionsFor(m.quality);
                 const lines = [
                     `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
-                    m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : ''),
-                    m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : ''),
-                    m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
-                    m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : ''),
-                    m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeHtml(m.structured.continuation)}</span>` : ''
+                    show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
+                    show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
+                    show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
+                    show.plan ? (m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : '')) : '',
+                    show.continuation && m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeHtml(m.structured.continuation)}</span>` : ''
                 ].filter(Boolean);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
@@ -17513,6 +17515,20 @@ const COACH_EVAL_MATE = 9000;
 const COACH_EVAL_DECISIVE = 250; // avantatge pràcticament guanyador
 function coachEvalNum(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 function coachIsMate(cp) { const n = coachEvalNum(cp); return n !== null && Math.abs(n) >= COACH_EVAL_MATE; }
+
+// Escala el detall segons la gravetat (estil chess.com): una imprecisió és gairebé
+// d'una línia, un error mostra el nucli, i un error greu desplega l'explicació
+// completa amb la línia concreta i la pregunta de reflexió.
+function coachSectionsFor(quality) {
+    if (quality === 'blunder') {
+        return { fact: true, mistake: true, consequence: true, plan: true, continuation: true, candidates: true, question: true };
+    }
+    if (quality === 'mistake') {
+        return { fact: false, mistake: true, consequence: true, plan: true, continuation: true, candidates: false, question: false };
+    }
+    // inaccuracy (o desconegut): el mínim útil.
+    return { fact: false, mistake: true, consequence: false, plan: true, continuation: false, candidates: false, question: false };
+}
 
 // Formata una llista de SAN com una seqüència numerada (estil chess.com):
 // "35.Te2+ Rf1 36.Dxe1+ ..." tenint en compte qui mou primer.
