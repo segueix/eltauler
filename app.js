@@ -5456,6 +5456,86 @@ async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000,
     return null;
 }
 
+// ── FASE C — Re-anàlisi profunda per a la ressenya ───────────────────────────
+// Driu el motor sobre les posicions clau d'una partida a més profunditat i
+// ENRIQUEIX els moveReviews: millor jugada + línia, refutació concreta, i les
+// avaluacions abans/després. Així les etiquetes (error/imprecisió) i les línies
+// són de màxima fiabilitat, sense alentir el joc en viu (es fa sota demanda).
+//
+// És additiu i segur: si una anàlisi falla, conserva les dades existents. Driu
+// el motor amb analyzeFenRobust, que té el seu propi listener i no interfereix
+// amb la màquina d'estats de l'anàlisi en viu; tot i així se serialitza i no
+// s'executa mentre hi ha una anàlisi de partida en curs.
+//
+// NOTA: NO s'auto-executa. Com que escriu a l'historial desat, cal validar-ho
+// al navegador abans d'activar-lo automàticament en obrir la ressenya. Exposat
+// com a window.deepenEntryAnalysis(entry) per provar-ho manualment.
+let deepReviewInProgress = false;
+async function deepenEntryAnalysis(entry, opts = {}) {
+    if (!entry || !Array.isArray(entry.moveReviews) || !entry.moveReviews.length) return 0;
+    if (entry.deepAnalyzed && !opts.force) return 0;
+    if (deepReviewInProgress || waitingForBlunderAnalysis) return 0;
+    deepReviewInProgress = true;
+    const depth = opts.depth || 16;
+    // L'avaluació torna en perspectiva del bàndol que mou; el mat es codifica ±10000.
+    const cpOf = b => !b ? null : (b.evalType === 'mate' ? (b.eval > 0 ? 10000 : -10000) : b.eval);
+    let updated = 0;
+    try {
+        const targets = entry.moveReviews
+            .filter(r => r && r.fen && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
+            .slice(0, opts.max || 8);
+        for (const r of targets) {
+            if (opts.shouldAbort && opts.shouldAbort()) break;
+            // ABANS de la jugada: millor jugada, línia i avaluació (perspectiva del jugador).
+            const before = await analyzeFenRobust(r.fen, depth, 3, 6000, opts.shouldAbort);
+            if (!before || !before.bestMove || !before.bestMove.move) continue;
+            const bm = before.bestMove;
+            r.bestMove = bm.move;
+            r.bestMovePv = bm.pv || [];
+            r.bestMoveSan = uciToSan(r.fen, bm.move);
+            r.evalBefore = cpOf(bm);
+            r.alternatives = (before.alternatives || []).map(a => ({
+                move: a.move, moveSan: a.move ? uciToSan(r.fen, a.move) : null,
+                eval: cpOf(a), evalType: a.evalType, pv: a.pv || []
+            }));
+            // DESPRÉS de la jugada real: refutació (perspectiva del rival).
+            let afterFen = null;
+            if (r.playerMove && r.playerMove.length >= 4) {
+                try {
+                    const g = new Chess(r.fen);
+                    const mv = g.move({ from: r.playerMove.slice(0, 2), to: r.playerMove.slice(2, 4), promotion: r.playerMove.length > 4 ? r.playerMove[4] : undefined });
+                    if (mv) afterFen = g.fen();
+                } catch (e) {}
+            }
+            if (afterFen) {
+                const after = await analyzeFenRobust(afterFen, depth, 1, 6000, opts.shouldAbort);
+                if (after && after.bestMove) {
+                    r.afterFen = afterFen;
+                    r.refutationPv = after.bestMove.pv || [];
+                    r.evalAfter = cpOf(after.bestMove);
+                }
+            }
+            // Recalcular swing/qualitat amb les avaluacions noves (mateix conveni
+            // que el viu: swing = evalBefore + evalAfter, perspectives oposades).
+            if (typeof r.evalBefore === 'number' && typeof r.evalAfter === 'number') {
+                r.swing = Math.abs(r.evalBefore + r.evalAfter);
+                r.quality = classifyMoveQuality(r.swing, r.playerMove, r.bestMove);
+            }
+            r.depth = before.depth || depth;
+            r.deep = true;
+            updated++;
+        }
+        entry.deepAnalyzed = true;
+        if (typeof saveStorage === 'function') saveStorage();
+    } catch (e) {
+        console.warn('[DeepReview] error inesperat', e);
+    } finally {
+        deepReviewInProgress = false;
+    }
+    return updated;
+}
+if (typeof window !== 'undefined') window.deepenEntryAnalysis = deepenEntryAnalysis;
+
 function uciToSan(fen, uciMove) {
     if (typeof Chess === 'undefined') return uciMove;
     const chess = new Chess(fen);
