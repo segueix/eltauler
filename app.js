@@ -10574,17 +10574,60 @@ function formatSwingForText(value) {
     return `${n} CP`;
 }
 
+
+function polishCoachText(text, opts = {}) {
+    let out = String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/\b[Ee]l dama\b/g, 'la dama')
+        .replace(/\b[Ee]l torre\b/g, 'la torre')
+        .replace(/\b[Ee]l peça\b/g, 'la peça')
+        .replace(/\b[Pp]etit relliscada\b/g, 'Petita relliscada')
+        .replace(/\bla decisió la jugada triada\b/g, 'la jugada triada')
+        .replace(/\bla decisió la millor jugada\b/g, 'la millor jugada')
+        .replace(/\b(la millor jugada) ho feia millor\b/g, '$1 ho resolia millor')
+        .replace(/\b(la millor jugada) hi apuntava\b/g, '$1 apuntava a aquest pla')
+        .replace(/\b(la millor jugada) ho feia\b/g, '$1 ho aconseguia')
+        .replace(/\s+([.!?])$/g, '$1')
+        .trim();
+    if (!out) return '';
+    if (!/[.!?]$/.test(out) && opts.sentence !== false) out += '.';
+    return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+function validateCoachText(text) {
+    const raw = String(text || '').trim();
+    const words = raw ? raw.split(/\s+/).length : 0;
+    const issues = [];
+    if (!raw) issues.push('empty');
+    if (/\bel dama\b/i.test(raw)) issues.push('bad_article_dama');
+    if (/\bel torre\b/i.test(raw)) issues.push('bad_article_torre');
+    if (/\b[KQRBN][a-h]?[1-8]?x?[a-h][1-8][+#]?\b/.test(raw)) issues.push('san_notation');
+    if ((raw.match(/\bCP\b/g) || []).length > 1) issues.push('too_many_cp_mentions');
+    if (words > 42) issues.push('too_long');
+    if (/(\b\w+\b)(?:\s+\1){2,}/i.test(raw)) issues.push('repeated_word');
+    return { ok: issues.length === 0, issues, words, score: Math.max(0, 100 - issues.length * 20 - Math.max(0, words - 42)) };
+}
+
+function ensureCoachTextQuality(text, fallback = '', opts = {}) {
+    const polished = polishCoachText(text, opts);
+    const quality = validateCoachText(polished);
+    if (quality.ok || !fallback) return polished;
+    const polishedFallback = polishCoachText(fallback, opts);
+    return validateCoachText(polishedFallback).score >= quality.score ? polishedFallback : polished;
+}
+
 function fillPlanTemplate(str, moment) {
     const m = moment || {};
     // En les frases explicatives fem servir referències curtes. La descripció completa
     // de la jugada ja surt a l'enllaç principal; repetir-la dins cada frase feia textos
     // artificials com "la decisió la dama va a e1".
-    return String(str || '')
+    return polishCoachText(String(str || '')
         .replace(/\{n\}/g, m.moveNumber ?? '?')
         .replace(/\{played\}/g, m.playedRef || 'la jugada triada')
         .replace(/\{best\}/g, m.bestRef || 'la millor jugada')
         .replace(/\{swing\}\s*CP/g, formatSwingForText(m.swing))
-        .replace(/\{swing\}/g, Math.abs(Math.round(Number(m.swing) || 0)));
+        .replace(/\{swing\}/g, Math.abs(Math.round(Number(m.swing) || 0))));
 }
 // Tria una variant evitant les usades recentment; l'historial es persisteix a
 // localStorage, així no es repeteix ni entre partides ni entre sessions.
@@ -14524,7 +14567,7 @@ function tidyLocalCoachSentence(text, maxWords) {
         const words = out.replace(/[.!?]$/, '').split(/\s+/).slice(0, maxWords + 6);
         out = words.join(' ') + '.';
     }
-    return out;
+    return polishCoachText(out);
 }
 
 function buildLocalCoachText(context = {}) {
@@ -17474,7 +17517,13 @@ function buildStructuredLocalExplanation(moment, plan = {}) {
     const mistake = stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.';
     const consequence = buildStructuredConsequence(moment || {});
     const betterPlan = fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.';
-    return { fact, mistake, consequence, plan: betterPlan, question: fallbackPlan.question || '' };
+    return {
+        fact: ensureCoachTextQuality(fact),
+        mistake: ensureCoachTextQuality(mistake, 'La jugada triada no resolia la necessitat principal de la posició.'),
+        consequence: ensureCoachTextQuality(consequence),
+        plan: ensureCoachTextQuality(betterPlan, 'El pla millor era triar una jugada amb funció clara i menys contrajoc.'),
+        question: ensureCoachTextQuality(fallbackPlan.question || '', '', { sentence: false })
+    };
 }
 
 function buildHumanPlanMoments(entry, insights = null) {
