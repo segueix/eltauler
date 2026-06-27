@@ -7493,7 +7493,7 @@ function renderLocalReviewHtml(entry) {
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const lines = [
-                    `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
+                    `${coachQualityBadgeHtml(m.quality, m.swing)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
                     show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
                     show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
                     show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
@@ -7606,7 +7606,7 @@ function updateHistoryErrorNotes(entry) {
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
-            <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
+            <div class="error-note-head">${coachQualityBadgeHtml(err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), err.swing)}Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
@@ -17528,6 +17528,25 @@ function coachSectionsFor(quality) {
     }
     // inaccuracy (o desconegut): el mínim útil.
     return { fact: false, mistake: true, consequence: false, plan: true, continuation: false, candidates: false, question: false };
+}
+
+// Classificació visual de la jugada (estil chess.com): etiqueta + color per gravetat.
+function coachQualityMeta(quality) {
+    if (quality === 'blunder') return { label: 'Error greu', color: '#e74c3c', bg: 'rgba(231,76,60,0.18)' };
+    if (quality === 'mistake') return { label: 'Error', color: '#e67e22', bg: 'rgba(230,126,34,0.18)' };
+    if (quality === 'inaccuracy') return { label: 'Imprecisió', color: '#d4ac0d', bg: 'rgba(212,172,13,0.18)' };
+    return null;
+}
+
+// Badge HTML per a la capçalera d'un moment, amb el cost aproximat en peons
+// derivat del swing (en centipawns) que ja calculem.
+function coachQualityBadgeHtml(quality, swing) {
+    const meta = coachQualityMeta(quality);
+    if (!meta) return '';
+    const cp = Math.abs(Math.round(Number(swing) || 0));
+    const cost = cp >= 50 ? ` · −${(cp / 100).toFixed(1)}` : '';
+    const label = (typeof escapeHtml === 'function' ? escapeHtml(meta.label + cost) : meta.label + cost);
+    return `<span style="display:inline-block;padding:1px 7px;border-radius:6px;font-size:0.82em;font-weight:700;color:${meta.color};background:${meta.bg};margin-right:6px;white-space:nowrap;">${label}</span>`;
 }
 
 // Formata una llista de SAN com una seqüència numerada (estil chess.com):
