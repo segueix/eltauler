@@ -42,6 +42,7 @@ let currentMatchError = null;
 let isMatchErrorReviewSession = false;
 let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
+let postGameJumpTimer = null;
 let openingBundleBoard = null;
 let openingPracticeGame = null;
 let openingPracticeUserColor = 'w';
@@ -15111,6 +15112,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     currentReview = [];
     lastReviewSnapshot = null;
     setResultIndicator(null);
+    hidePostGameStatusChip();
     $('#btn-resign').prop('disabled', false);
     const checkmateImage = $('#checkmate-image');
     if (checkmateImage.length) checkmateImage.hide();
@@ -16249,6 +16251,56 @@ function renderReviewBreakdown(counts) {
     });
 }
 
+// Etiqueta amigable del resultat per al xip sobre el tauler.
+function postGameResultLabel(leagueOutcome) {
+    if (leagueOutcome === 'win') return 'Has guanyat';
+    if (leagueOutcome === 'loss') return 'Has perdut';
+    return 'Taules';
+}
+
+function ensurePostGameSpinnerKeyframes() {
+    if (document.getElementById('postgame-spinner-kf')) return;
+    const st = document.createElement('style');
+    st.id = 'postgame-spinner-kf';
+    st.textContent = '@keyframes postgameSpin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+}
+
+// Mostra a l'instant, en petit i sobre el tauler, el resultat + "Generant
+// anàlisi…". Així es veu com acaba l'últim moviment i l'usuari sap què passa
+// mentre es prepara la ressenya, en comptes de quedar un temps mort.
+function showPostGameStatusChip(resultLabel) {
+    try {
+        const boardEl = document.getElementById('myBoard');
+        if (!boardEl) return;
+        ensurePostGameSpinnerKeyframes();
+        let chip = document.getElementById('postgame-board-status');
+        if (!chip) {
+            chip = document.createElement('div');
+            chip.id = 'postgame-board-status';
+            chip.style.cssText = 'position:fixed;z-index:1200;transform:translateX(-50%);' +
+                'background:rgba(20,18,15,0.92);color:#f2e9d8;padding:7px 14px;border-radius:11px;' +
+                'font-size:13px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,0.45);' +
+                'pointer-events:none;line-height:1.4;';
+            document.body.appendChild(chip);
+        }
+        const rect = boardEl.getBoundingClientRect();
+        chip.style.left = (rect.left + rect.width / 2) + 'px';
+        chip.style.top = (rect.top + 12) + 'px';
+        chip.innerHTML = `<div style="font-weight:700;">${escapeHtml(resultLabel)}</div>` +
+            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px;">' +
+            '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
+            'Generant anàlisi…</div>';
+        chip.style.display = 'block';
+    } catch (e) {}
+}
+
+function hidePostGameStatusChip() {
+    if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
+    const chip = document.getElementById('postgame-board-status');
+    if (chip) chip.style.display = 'none';
+}
+
 function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) {
     const modal = $('#review-modal');
     if (!modal.length) {
@@ -16260,6 +16312,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     const checkmateOverlay = $('#checkmate-overlay');
     const checkmateImage = $('#checkmate-image');
     const openReviewModal = () => {
+        hidePostGameStatusChip();
         if (checkmateImage.length) {
             if (options.showCheckmate) {
                 checkmateImage.show();
@@ -16850,15 +16903,31 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         };
     }
     $('#btn-resign').prop('disabled', true);
-    
-    showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive });
-    if (calibrationJustCompleted) {
-        showCalibrationReveal(userELO);
-    }
-    if (!blunderMode && !calibrationGameWasActive) {
-        const latestEntry = gameHistory[gameHistory.length - 1];
-        void requestOpenAIReview(latestEntry, severeErrors);
-        void requestErrorNotes(latestEntry, severeErrors);
+
+    const showFullReview = () => {
+        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive });
+        if (calibrationJustCompleted) {
+            showCalibrationReveal(userELO);
+        }
+        if (!blunderMode && !calibrationGameWasActive) {
+            const latestEntry = gameHistory[gameHistory.length - 1];
+            void requestOpenAIReview(latestEntry, severeErrors);
+            void requestErrorNotes(latestEntry, severeErrors);
+        }
+    };
+
+    if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
+    if (showCheckmate) {
+        // El flux d'escac i mat ja té el seu overlay i temporització pròpia.
+        showFullReview();
+    } else {
+        // Primer, el resultat sobre el tauler perquè es vegi l'últim moviment i
+        // que s'està generant l'anàlisi; quan està a punt, saltem a la ressenya.
+        showPostGameStatusChip(postGameResultLabel(leagueOutcome));
+        postGameJumpTimer = setTimeout(() => {
+            postGameJumpTimer = null;
+            showFullReview();
+        }, 1400);
     }
 
     // Persistència i actualitzacions pesades: serialització de tot l'historial
