@@ -7071,7 +7071,7 @@ function setKeyMomentBest(bestMove) {
 }
 
 function clearReviewHighlights() {
-    $('#history-board .square-55d63').removeClass('highlight-hint highlight-played highlight-best');
+    $('#history-board .square-55d63').removeClass('highlight-hint highlight-played highlight-best highlight-played-from highlight-played-to highlight-best-from highlight-best-to highlight-overlap');
 }
 
 function showReviewBoardLegend(show) {
@@ -7092,8 +7092,12 @@ function highlightReviewedMove(beforeFen, move, cls) {
             ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
             : g.move(raw, { sloppy: true });
         if (!mv) return;
-        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass(klass);
-        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass(klass);
+        const fromEl = $("#history-board .square-55d63[data-square='" + mv.from + "']");
+        const toEl = $("#history-board .square-55d63[data-square='" + mv.to + "']");
+        fromEl.addClass(klass + ' ' + klass + '-from');
+        toEl.addClass(klass + ' ' + klass + '-to');
+        if (fromEl.hasClass('highlight-played') && fromEl.hasClass('highlight-best')) fromEl.addClass('highlight-overlap');
+        if (toEl.hasClass('highlight-played') && toEl.hasClass('highlight-best')) toEl.addClass('highlight-overlap');
     } catch (e) {}
 }
 
