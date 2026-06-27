@@ -7132,6 +7132,8 @@ function buildLocalErrorNote(err, entry) {
         bestMovePv: err.bestMovePv || [],
         alternatives: err.alternatives || [],
         swing: typeof err.swing === 'number' ? err.swing : 0,
+        evalBefore: err.evalBefore ?? null,
+        evalAfter: err.evalAfter ?? null,
         quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake')
     };
     let ctx = null;
@@ -7151,6 +7153,8 @@ function buildLocalErrorNote(err, entry) {
         bestMoveUci: review.bestMove || null,
         swing: Math.round(review.swing || 0),
         quality: review.quality || 'mistake',
+        evalBefore: review.evalBefore ?? null,
+        evalAfter: review.evalAfter ?? null,
         fen: review.fen,
         pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
         positional: buildPositionalNote(ctx),
@@ -7164,6 +7168,7 @@ function buildLocalErrorNote(err, entry) {
     if (structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
     if (structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
     if (structured.plan) parts.push(`Pla millor: ${structured.plan}`);
+    if (structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
     if (moment.candidates) parts.push(moment.candidates);
     if (structured.question) parts.push(`Pregunta clau: ${structured.question}`);
     const text = parts.filter(Boolean).join(' ').trim();
@@ -7490,7 +7495,8 @@ function renderLocalReviewHtml(entry) {
                     m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : ''),
                     m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : ''),
                     m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
-                    m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : '')
+                    m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : ''),
+                    m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeHtml(m.structured.continuation)}</span>` : ''
                 ].filter(Boolean);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
@@ -17499,14 +17505,97 @@ function stripPlanIntro(text) {
         .trim();
 }
 
+// Llindars d'avaluació en centipawns. Stockfish codifica el mat com ±10000.
+// Conveni dels moveReviews (vegeu registerMoveReview):
+//   evalBefore → perspectiva del jugador (+ = el jugador estava millor si jugava bé)
+//   evalAfter  → perspectiva del rival   (+ = el rival està millor després de l'error)
+const COACH_EVAL_MATE = 9000;
+const COACH_EVAL_DECISIVE = 250; // avantatge pràcticament guanyador
+function coachEvalNum(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+function coachIsMate(cp) { const n = coachEvalNum(cp); return n !== null && Math.abs(n) >= COACH_EVAL_MATE; }
+
+// Formata una llista de SAN com una seqüència numerada (estil chess.com):
+// "35.Te2+ Rf1 36.Dxe1+ ..." tenint en compte qui mou primer.
+function formatPvWithNumbers(sans, startNum, whiteToMove) {
+    const out = [];
+    let n = startNum;
+    let white = whiteToMove;
+    for (let i = 0; i < sans.length; i++) {
+        if (white) {
+            out.push(`${n}.${sans[i]}`);
+        } else {
+            out.push(i === 0 ? `${n}…${sans[i]}` : sans[i]);
+            n++;
+        }
+        white = !white;
+    }
+    return out.join(' ');
+}
+
+// Descriu la continuació real de la millor jugada (la PV ja calculada) en notació
+// llegible. Dona context concret —els "moviments següents"— en comptes d'una frase
+// genèrica, perquè l'explicació sigui més rica i coherent amb el tauler.
+function buildContinuationNote(moment) {
+    const m = moment || {};
+    if (!m.fen) return '';
+    const pv = Array.isArray(m.pv) ? m.pv : [];
+    if (pv.length < 2) return '';
+    try {
+        const sans = uciLineToSan(m.fen, pv, 6);
+        if (sans.length < 2) return '';
+        const parts = m.fen.split(' ');
+        const startNum = Number(parts[5]) || Number(m.moveNumber) || 1;
+        const whiteToMove = (parts[1] || 'w') === 'w';
+        const seq = formatPvWithNumbers(sans, startNum, whiteToMove);
+        if (!seq) return '';
+        const lead = (coachEvalNum(m.evalBefore) !== null && m.evalBefore >= COACH_EVAL_DECISIVE)
+            ? 'La línia guanyadora seguia'
+            : 'La idea continuava amb';
+        return `${lead} ${seq}.`;
+    } catch (e) { return ''; }
+}
+
 function buildStructuredConsequence(moment) {
-    const themeKey = resolveHumanPlanThemeKey(moment);
-    const pool = STRUCTURED_CONSEQUENCES[themeKey] || STRUCTURED_CONSEQUENCES.general;
-    const consequence = fillPlanTemplate(pickFreshPlanLine(pool, themeKey + ':structured:consequence'), moment);
-    const severity = moment && moment.quality === 'blunder'
+    const m = moment || {};
+    const themeKey = resolveHumanPlanThemeKey(m);
+    const severity = m.quality === 'blunder'
         ? 'Això era crític perquè'
-        : (moment && moment.quality === 'mistake' ? 'Això importava perquè' : 'El detall importava perquè');
-    return `${severity} ${toInlineAdvice(consequence)}.`;
+        : (m.quality === 'mistake' ? 'Això importava perquè' : 'El detall importava perquè');
+
+    const before = coachEvalNum(m.evalBefore); // + = el jugador estava millor
+    const after = coachEvalNum(m.evalAfter);   // + = el rival està millor després de l'error
+
+    const themeConsequence = () => {
+        const pool = STRUCTURED_CONSEQUENCES[themeKey] || STRUCTURED_CONSEQUENCES.general;
+        const line = fillPlanTemplate(pickFreshPlanLine(pool, themeKey + ':structured:consequence'), m);
+        return `${severity} ${toInlineAdvice(line)}.`;
+    };
+
+    // CAS 1 — Si jugaves bé tenies un avantatge (o un atac) pràcticament guanyador.
+    // L'error no dona "contrajoc al rival": deixa escapar la victòria. Aquest guard
+    // evita afirmar que el rival contraataca quan el tauler diu el contrari.
+    if (before !== null && before > 0 && (coachIsMate(before) || before >= COACH_EVAL_DECISIVE)) {
+        const core = coachIsMate(before)
+            ? 'deixaves escapar una seqüència forçada que sentenciava la partida'
+            : (themeKey === 'king_attack'
+                ? 'deixaves escapar un atac pràcticament guanyador contra el rei rival'
+                : 'deixaves escapar un avantatge pràcticament decisiu');
+        return `${severity} ${core}.`;
+    }
+
+    // CAS 2 — Després de l'error el rival passa a manar de debò: el llenguatge de
+    // contrajoc o pressió per tema és coherent amb la posició.
+    if (after !== null && after > 0 && (coachIsMate(after) || after >= COACH_EVAL_DECISIVE)) {
+        return themeConsequence();
+    }
+
+    // CAS 3 — Tenim avaluació però ningú no domina: l'avantatge simplement s'esvaeix.
+    if (before !== null && after !== null) {
+        return `${severity} l'avantatge que tenies es va diluir i la posició es va tornar a igualar.`;
+    }
+
+    // Sense dades d'avaluació: comportament per tema (com abans).
+    return themeConsequence();
 }
 
 function buildStructuredLocalExplanation(moment, plan = {}) {
@@ -17522,6 +17611,9 @@ function buildStructuredLocalExplanation(moment, plan = {}) {
         mistake: ensureCoachTextQuality(mistake, 'La jugada triada no resolia la necessitat principal de la posició.'),
         consequence: ensureCoachTextQuality(consequence),
         plan: ensureCoachTextQuality(betterPlan, 'El pla millor era triar una jugada amb funció clara i menys contrajoc.'),
+        // La continuació conté notació SAN deliberadament, així que NO passa pel
+        // validador de text (que penalitza la SAN); es deixa tal qual.
+        continuation: buildContinuationNote(moment || {}),
         question: ensureCoachTextQuality(fallbackPlan.question || '', '', { sentence: false })
     };
 }
@@ -17554,6 +17646,8 @@ function buildHumanPlanMoments(entry, insights = null) {
                 bestMoveUci: r.bestMove || null,
                 swing: Math.round(r.swing || 0),
                 quality: r.quality || 'inaccuracy',
+                evalBefore: r.evalBefore ?? null,
+                evalAfter: r.evalAfter ?? null,
                 fen: r.fen || null,
                 pv: Array.isArray(r.bestMovePv) ? r.bestMovePv : [],
                 positional: buildPositionalNote(ctx),
