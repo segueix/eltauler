@@ -6685,6 +6685,10 @@ function updateHistoryBoard() {
     }
     historyBoard.position(historyReplay.game.fen(), false);
     if (typeof historyBoard.resize === 'function') historyBoard.resize();
+    // En navegació normal (reproduir/endavant/endarrere) traiem els ressaltats i
+    // la llegenda de moments clau; en clicar un moment es tornen a posar després.
+    clearReviewHighlights();
+    showReviewBoardLegend(false);
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -6864,10 +6868,12 @@ function updateHistoryReview(entry) {
         const moveNumber = Number($(this).data('move-number'));
         const playedSan = String($(this).data('san') || '').trim();
         const best = String($(this).data('best') || '').trim();
-        jumpToHistoryMove(moveNumber, playedSan);
+        jumpToHistoryMove(moveNumber, playedSan); // ressalta la teva jugada (vermell)
+        // I la millor jugada (verd) sobre la mateixa posició de decisió.
         if (best && historyReplay && historyReplay.game) {
-            highlightReviewedMove(historyReplay.game.fen(), best);
+            highlightReviewedMove(historyReplay.game.fen(), best, 'highlight-best');
         }
+        showReviewBoardLegend(true);
         const boardEl = document.getElementById('history-board');
         if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
@@ -7025,16 +7031,29 @@ function jumpToHistoryMove(moveNumber, san) {
     const beforeFen = historyReplay.game.fen();
     updateHistoryBoard();
 
-    // Visualitza la jugada: ressalta la casella d'origen i de destí sobre la
-    // posició just abans de jugar-la, perquè es vegi quina peça es mou i on va.
+    // Visualitza la jugada que vas fer (vermell) sobre la posició just abans de
+    // jugar-la. El ressaltat de la millor jugada (verd) l'afegeix qui crida.
+    clearReviewHighlights();
     if (targetIndex > 0 && historyReplay.moves[targetIndex - 1]) {
         const moveStr = historyReplay.moves[targetIndex - 1];
-        highlightReviewedMove(beforeFen, moveStr);
+        highlightReviewedMove(beforeFen, moveStr, 'highlight-played');
     }
 }
 
-function highlightReviewedMove(beforeFen, move) {
-    $('#history-board .square-55d63').removeClass('highlight-hint');
+function clearReviewHighlights() {
+    $('#history-board .square-55d63').removeClass('highlight-hint highlight-played highlight-best');
+}
+
+function showReviewBoardLegend(show) {
+    const el = $('#review-board-legend');
+    if (el.length) el.toggle(!!show);
+}
+
+// Ressalta origen i destí d'un moviment sobre beforeFen amb la classe donada.
+// No esborra ressaltats previs: així es poden marcar dues jugades alhora (la
+// teva i la millor). chessboard.js marca les caselles amb data-square.
+function highlightReviewedMove(beforeFen, move, cls) {
+    const klass = cls || 'highlight-hint';
     if (!beforeFen || !move) return;
     try {
         const g = new Chess(beforeFen);
@@ -7043,10 +7062,8 @@ function highlightReviewedMove(beforeFen, move) {
             ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
             : g.move(raw, { sloppy: true });
         if (!mv) return;
-        // chessboard.js identifica les caselles amb l'atribut data-square (no amb
-        // una classe .square-<casella>): per això el ressaltat no apareixia.
-        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass('highlight-hint');
-        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass('highlight-hint');
+        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass(klass);
+        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass(klass);
     } catch (e) {}
 }
 
@@ -17943,6 +17960,27 @@ const OUTCOME_CONSEQUENCES = {
     lets_advantage_slip: ['diluïa l’avantatge i tornava a igualar la posició', 'deixava escapar la part bona de la posició']
 };
 
+// Diagnòstic ("Què va fallar") i pla ("Pla millor") COHERENTS amb el resultat,
+// per als casos forts on les frases genèriques per tema solen contradir el
+// tauler (p. ex. dir "defensa" quan en realitat ja guanyaves). Per als casos
+// suaus es manté la redacció humana del banc de plans (més variada).
+const OUTCOME_DIAGNOSIS = {
+    allows_mate: 'la jugada triada va passar per alt una seqüència de mat forçada',
+    lets_win_slip: 'ja tenies un avantatge guanyador i la jugada triada va afluixar la pressió en lloc de rematar',
+    loses_major: 'la jugada triada va deixar una peça pesant a l’abast del rival',
+    loses_piece: 'la jugada triada va deixar una peça sense protecció',
+    loses_exchange: 'la jugada triada va permetre que el rival guanyés la qualitat',
+    loses_pawn: 'la jugada triada va cedir un peó sense compensació'
+};
+const OUTCOME_PLANS = {
+    allows_mate: 'calia veure la seqüència forçada abans de res: rematar el mat o, si era en contra, aturar-lo',
+    lets_win_slip: 'ja guanyaves: tocava rematar amb la jugada més forçada i directa, sense relaxar la pressió',
+    loses_major: 'calia protegir la peça o no entrar en la línia que la perdia',
+    loses_piece: 'calia deixar totes les peces defensades abans de continuar',
+    loses_exchange: 'calia evitar el canvi desfavorable i conservar la qualitat',
+    loses_pawn: 'calia retenir el peó o aconseguir compensació clara a canvi'
+};
+
 // Hash estable (determinista) per triar sempre la mateixa variant per a una
 // mateixa jugada: així les ressenyes són consistents entre visites.
 function coachStableHash(str) {
@@ -17993,9 +18031,17 @@ function buildStructuredLocalExplanation(moment, plan = {}) {
     const fact = moment && moment.positional
         ? moment.positional
         : `Era una posició de ${moment?.theme || 'joc general'} en fase de ${moment?.phase || 'partida'}.`;
-    const mistake = stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.';
+    // Per als resultats forts, fem servir diagnòstic i pla COHERENTS amb el que
+    // realment va passar, perquè no contradiguin la conseqüència ni el tauler.
+    // ensureCoachTextQuality (a baix) ja capitalitza i afegeix punt final.
+    const outcome = classifyMoveOutcome(moment || {});
+    const mistake = (outcome && OUTCOME_DIAGNOSIS[outcome])
+        ? OUTCOME_DIAGNOSIS[outcome]
+        : (stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.');
     const consequence = buildStructuredConsequence(moment || {});
-    const betterPlan = fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.';
+    const betterPlan = (outcome && OUTCOME_PLANS[outcome])
+        ? OUTCOME_PLANS[outcome]
+        : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
     return {
         fact: ensureCoachTextQuality(fact),
         mistake: ensureCoachTextQuality(mistake, 'La jugada triada no resolia la necessitat principal de la posició.'),
