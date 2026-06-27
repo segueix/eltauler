@@ -8789,17 +8789,13 @@ Exemples correctes:
 INSTRUCCIONS
 1. Comença amb un TÍTOL: una màxima memorable entre cometes dobles
 2. Paràgraf d'anàlisi general del rendiment (sense felicitacions excessives)
-3. Per CADA error, explica:
-   - Què va passar a la jugada X (SAN) - descriu l'acció mecànica
-   - Per què era un error
-   - Quina era la idea correcta
-   - Una màxima universal entre cometes
+3. Per CADA error, escriu només 1 frase breu que digui què fallava i quina era la idea correcta
 4. Paràgraf de conclusió amb el principi clau per millorar
 
 REGLES
-- Màxim 400 paraules
+- Màxim 220 paraules
 - Prosa natural en paràgrafs (sense llistes ni numeracions)
-- Descriu cada jugada identificant la peça i l'acció (ex: "en capturar el cavall amb l'alfil")
+- Comentaris de jugada curts: evita explicacions llargues i repeticions
 - Les màximes sempre entre cometes dobles
 - To objectiu i professional
 
@@ -10976,6 +10972,20 @@ function ensureCoachTextQuality(text, fallback = '', opts = {}) {
     if (quality.ok || !fallback) return polished;
     const polishedFallback = polishCoachText(fallback, opts);
     return validateCoachText(polishedFallback).score >= quality.score ? polishedFallback : polished;
+}
+
+function shortenCoachComment(text, maxWords = 18) {
+    const raw = String(text || '').trim();
+    if (!raw) return '';
+    const words = raw.split(/\s+/);
+    if (words.length <= maxWords) return raw;
+    let cut = words.slice(0, maxWords).join(' ');
+    cut = cut.replace(/[,:;–—-]?\s*$/, '').replace(/[.!?…]+$/, '');
+    return cut + '…';
+}
+
+function compactStructuredCoachText(text, fallback = '', opts = {}) {
+    return shortenCoachComment(ensureCoachTextQuality(text, fallback, opts), opts.maxWords || 18);
 }
 
 function fillPlanTemplate(str, moment) {
@@ -18234,15 +18244,15 @@ function buildStructuredLocalExplanation(moment, plan = {}) {
         ? OUTCOME_PLANS[outcome]
         : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
     return {
-        fact: ensureCoachTextQuality(fact),
-        mistake: ensureCoachTextQuality(mistake, 'La jugada triada no resolia la necessitat principal de la posició.'),
-        consequence: ensureCoachTextQuality(consequence),
-        plan: ensureCoachTextQuality(betterPlan, 'El pla millor era triar una jugada amb funció clara i menys contrajoc.'),
+        fact: compactStructuredCoachText(fact, '', { maxWords: 16 }),
+        mistake: compactStructuredCoachText(mistake, 'La jugada triada no resolia la necessitat principal.', { maxWords: 16 }),
+        consequence: compactStructuredCoachText(consequence, '', { maxWords: 16 }),
+        plan: compactStructuredCoachText(betterPlan, 'Tria una jugada amb funció clara i poc contrajoc.', { maxWords: 16 }),
         // La continuació i la refutació contenen notació SAN deliberadament, així
         // que NO passen pel validador de text (que penalitza la SAN).
-        continuation: buildContinuationNote(moment || {}),
-        refutation: buildRefutationNote(moment || {}),
-        question: ensureCoachTextQuality(fallbackPlan.question || '', '', { sentence: false })
+        continuation: shortenCoachComment(buildContinuationNote(moment || {}), 14),
+        refutation: shortenCoachComment(buildRefutationNote(moment || {}), 14),
+        question: compactStructuredCoachText(fallbackPlan.question || '', '', { sentence: false, maxWords: 14 })
     };
 }
 
@@ -18301,12 +18311,12 @@ ${JSON.stringify(moments.map(m => ({ jugada: m.moveNumber, fase: m.phase, tema: 
 
 Retorna exactament ${moments.length} blocs, un per moment, separats per una línia en blanc. Cada bloc ha de tenir aquest format exacte:
 PLA X: títol curt
-Diagnòstic: una frase humana sobre què passava.
-Pla: una frase amb el pla correcte, sense que soni mecànic.
-Pregunta: una pregunta que obligui l'alumne a pensar.
-Objectiu: una microtasca aplicable a la pròxima partida.
+Diagnòstic: una frase molt breu sobre què passava.
+Pla: una frase curta amb el pla correcte.
+Pregunta: una pregunta curta.
+Objectiu: una microtasca breu.
 
-Regles: no facis markdown, no emojis, no llistes amb guions, màxim 90 paraules per bloc, català natural i precís, no inventis variants noves.`;
+Regles: no facis markdown, no emojis, no llistes amb guions, màxim 45 paraules per bloc, català natural i precís, no inventis variants noves.`;
 }
 
 
@@ -18436,14 +18446,14 @@ function renderHumanPlanCards(container, moments, voice = null) {
         const main = $('<div class="coach-item-main"></div>');
         main.append($('<div class="coach-item-title"></div>').text(`Pla ${idx + 1} · Jugada ${m.moveNumber} (${m.played}) · ${m.theme}`));
         const lines = [
-            `<strong>Diagnòstic:</strong> ${escapeHtml(m.diagnosis)}`,
-            `<strong>Pla:</strong> ${escapeHtml(m.plan)}`
+            `<strong>Diagnòstic:</strong> ${escapeHtml(shortenCoachComment(m.diagnosis, 16))}`,
+            `<strong>Pla:</strong> ${escapeHtml(shortenCoachComment(m.plan, 16))}`
         ];
-        if (m.positional) lines.push(`<strong>A la posició:</strong> ${escapeHtml(m.positional)}`);
-        if (m.candidates) lines.push(`<strong>Línia:</strong> ${escapeHtml(m.candidates)}`);
+        if (m.positional) lines.push(`<strong>A la posició:</strong> ${escapeHtml(shortenCoachComment(m.positional, 14))}`);
+        if (m.candidates) lines.push(`<strong>Línia:</strong> ${escapeHtml(shortenCoachComment(m.candidates, 16))}`);
         if (m.isPattern) lines.push(`<strong>⚠️ Patró teu:</strong> aquest tema ja t'ha fallat altres partides recents.`);
-        lines.push(`<strong>Pregunta:</strong> ${escapeHtml(m.question)}`);
-        lines.push(`<strong>Objectiu:</strong> ${escapeHtml(m.objective)}`);
+        lines.push(`<strong>Pregunta:</strong> ${escapeHtml(shortenCoachComment(m.question, 14))}`);
+        lines.push(`<strong>Objectiu:</strong> ${escapeHtml(shortenCoachComment(m.objective, 14))}`);
         main.append($('<div class="coach-text human-plan-text"></div>').html(lines.join('<br>')));
         card.append(main);
         appendHumanPlanPracticeButton(card, m);
