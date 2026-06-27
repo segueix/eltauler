@@ -7016,36 +7016,55 @@ function jumpToHistoryMove(moveNumber, san, decisionFen) {
     if (!historyReplay || !historyReplay.entry || !historyReplay.moves) return;
     stopHistoryPlayback();
 
-    // La posició de decisió (FEN) és el localitzador més fiable; si no la tenim o
-    // no es troba, caiem a la cerca per número/SAN (conscient del color).
+    // La posició de decisió (FEN) és el localitzador més fiable. Quan el link la
+    // porta incorporada, carreguem EXACTAMENT aquesta posició al tauler i fem servir
+    // la jugada feta del mateix link per al ressaltat vermell. Això evita errors
+    // d'índex en posicions repetides o quan el número/SAN no quadra, que feien que
+    // vermell i verd acabessin apuntant a la mateixa jugada.
     let targetIndex = decisionFen ? findHistoryIndexByFen(decisionFen) : null;
-    if (targetIndex === null || targetIndex < 0) {
-        targetIndex = findHistoryMoveIndex(moveNumber, san);
-    }
-    if (targetIndex === null || targetIndex < 0) {
-        console.warn(`No s'ha trobat la jugada ${moveNumber} (${san})`);
-        return;
-    }
-    
-    // Resetegem el joc i avancem fins a la posició ABANS de la jugada errònia
-    historyReplay.game = new Chess();
-    const stopAt = Math.max(0, targetIndex - 1); // Mostrem la posició just abans
-    
-    for (let i = 0; i < stopAt; i++) {
-        const result = historyReplay.game.move(historyReplay.moves[i], { sloppy: true });
-        if (!result) {
-            console.warn(`Error aplicant jugada ${i}: ${historyReplay.moves[i]}`);
-            break;
+    let beforeFen = decisionFen || null;
+    let playedMove = san || null;
+
+    if (beforeFen) {
+        try {
+            historyReplay.game = new Chess(beforeFen);
+            historyReplay.moveIndex = targetIndex && targetIndex > 0 ? Math.max(0, targetIndex - 1) : historyReplay.moveIndex;
+        } catch (e) {
+            beforeFen = null;
         }
     }
-    
-    historyReplay.moveIndex = stopAt;
-    const beforeFen = historyReplay.game.fen();
+
+    if (!beforeFen) {
+        if (targetIndex === null || targetIndex < 0) {
+            targetIndex = findHistoryMoveIndex(moveNumber, san);
+        }
+        if (targetIndex === null || targetIndex < 0) {
+            console.warn(`No s'ha trobat la jugada ${moveNumber} (${san})`);
+            return;
+        }
+
+        // Resetegem el joc i avancem fins a la posició ABANS de la jugada errònia.
+        historyReplay.game = new Chess();
+        const stopAt = Math.max(0, targetIndex - 1);
+
+        for (let i = 0; i < stopAt; i++) {
+            const result = historyReplay.game.move(historyReplay.moves[i], { sloppy: true });
+            if (!result) {
+                console.warn(`Error aplicant jugada ${i}: ${historyReplay.moves[i]}`);
+                break;
+            }
+        }
+
+        historyReplay.moveIndex = stopAt;
+        beforeFen = historyReplay.game.fen();
+        if (!playedMove && targetIndex > 0) playedMove = historyReplay.moves[targetIndex - 1] || null;
+    }
+
     // Marca el moment clau actiu (la teva jugada en vermell); la millor jugada
     // l'afegeix qui crida (el handler del link) via setKeyMomentBest.
     activeReviewHighlight = {
         beforeFen,
-        played: (targetIndex > 0 ? (historyReplay.moves[targetIndex - 1] || null) : null),
+        played: playedMove,
         best: null
     };
     updateHistoryBoard(); // reaplica els ressaltats actius
