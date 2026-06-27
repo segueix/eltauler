@@ -6776,6 +6776,69 @@ function buildEntryPgn(entry) {
     return replay.pgn();
 }
 
+// Repara les FEN de decisió dels moveReviews d'una entrada antiga o incompleta.
+// Algunes partides (sobretot inacabades o migrades de versions velles) es van
+// desar amb la FEN de decisió absent o inservible, i això feia que en clicar el
+// moment clau no es ressaltés ni la teva jugada (vermell) ni la millor (verd).
+// Aquí recalculem la FEN EXACTA reproduint les jugades reals de la partida fins
+// al ply corresponent. Només toquem les que no serveixen, per no alterar dades
+// bones. Retorna true si ha canviat alguna cosa (per persistir-ho una sola vegada).
+function repairEntryMoveReviewFens(entry, movesArg) {
+    if (!entry || !Array.isArray(entry.moveReviews) || !entry.moveReviews.length) return false;
+    const moves = Array.isArray(movesArg) ? movesArg : getHistoryMoves(entry);
+    if (!moves.length) return false;
+
+    // FEN just abans de cada ply (índex 0-based del ply).
+    const fensBefore = [];
+    try {
+        const g = new Chess();
+        for (let i = 0; i < moves.length; i++) {
+            fensBefore[i] = g.fen();
+            if (!g.move(moves[i], { sloppy: true })) break;
+        }
+    } catch (e) { return false; }
+
+    const norm = s => String(s || '').trim().replace(/[+#!?]/g, '');
+    const playerColor = (entry.playerColor === 'b') ? 'b' : (entry.playerColor === 'w' ? 'w' : null);
+    let changed = false;
+
+    for (const r of entry.moveReviews) {
+        if (!r) continue;
+        const playedRef = r.playerMove || r.playerMoveSan;
+        // Si la FEN desada ja permet reconstruir la teva jugada, la deixem estar
+        // (el ressaltat ja funcionarà, fins i tot si el torn ve invertit).
+        if (r.fen && playedRef && resolveMoveOnFen(r.fen, playedRef)) continue;
+
+        const mn = Number(r.moveNumber);
+        if (!mn || mn < 1) continue;
+        const color = (r.color === 'w' || r.color === 'b') ? r.color : playerColor;
+        if (color !== 'w' && color !== 'b') continue;
+        let ply = (mn - 1) * 2 + (color === 'b' ? 1 : 0);
+
+        // Si la SAN desada no quadra amb el ply calculat, la cerquem a prop del
+        // número de jugada (per si el número balla en partides migrades).
+        const wantSan = norm(r.playerMoveSan || r.playerMove);
+        if (wantSan && (ply >= moves.length || norm(moves[ply]) !== wantSan)) {
+            let found = -1;
+            for (let i = 0; i < moves.length; i++) {
+                if (norm(moves[i]) === wantSan && Math.abs(Math.ceil((i + 1) / 2) - mn) <= 1) { found = i; break; }
+            }
+            if (found >= 0) ply = found;
+        }
+        if (ply < 0 || ply >= moves.length || !fensBefore[ply]) continue;
+
+        // Només substituïm si tenim prou confiança: o bé la SAN encaixa al ply, o
+        // bé no hi havia SAN per comprovar però el número de jugada hi cap.
+        const confident = !wantSan || norm(moves[ply]) === wantSan;
+        if (!confident) continue;
+
+        r.fen = fensBefore[ply];
+        if (!r.playerMoveSan && moves[ply]) r.playerMoveSan = moves[ply];
+        changed = true;
+    }
+    return changed;
+}
+
 function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
@@ -6785,6 +6848,16 @@ function loadHistoryEntry(entry) {
     try { prewarmOpeningPositionGraph(); } catch (e) {}
     initHistoryBoard(entry);
     const moves = getHistoryMoves(entry);
+    // Repara les FEN de decisió inservibles d'entrades velles/inacabades i, si
+    // s'ha corregit res, ho desa una sola vegada perquè quedi net per sempre.
+    try {
+        if (repairEntryMoveReviewFens(entry, moves)) {
+            if (typeof entry.counts === 'undefined' || entry.counts === null) {
+                try { entry.counts = summarizeReview(entry.moveReviews); } catch (e) {}
+            }
+            saveStorage();
+        }
+    } catch (e) { console.warn('repairEntryMoveReviewFens', e); }
     historyReplay = {
         entry: entry,
         game: new Chess(),
@@ -6876,9 +6949,10 @@ function updateHistoryReview(entry) {
         event.preventDefault();
         const moveNumber = Number($(this).data('move-number'));
         const playedSan = String($(this).data('san') || '').trim();
+        const playedUci = String($(this).data('played-uci') || '').trim();
         const best = String($(this).data('best') || '').trim();
         const decisionFen = String($(this).data('fen') || '').trim();
-        jumpToHistoryMove(moveNumber, playedSan, decisionFen); // ressalta la teva jugada (vermell)
+        jumpToHistoryMove(moveNumber, playedSan, decisionFen, playedUci); // ressalta la teva jugada (vermell)
         // I la millor jugada (verd) sobre la mateixa posició de decisió.
         if (best) setKeyMomentBest(best);
         const boardEl = document.getElementById('history-board');
@@ -7012,40 +7086,77 @@ function bindOpenAIMoveLinks(container) {
     });
 }
 
-function jumpToHistoryMove(moveNumber, san, decisionFen) {
+function jumpToHistoryMove(moveNumber, san, decisionFen, playedUci) {
     if (!historyReplay || !historyReplay.entry || !historyReplay.moves) return;
     stopHistoryPlayback();
 
-    // La posició de decisió (FEN) és el localitzador més fiable; si no la tenim o
-    // no es troba, caiem a la cerca per número/SAN (conscient del color).
+    // La jugada d'un moment clau SEMPRE és del jugador (els moveReviews només es
+    // generen per a les seves jugades). Per ressaltar-la fem servir l'UCI quan el
+    // tenim (no és mai ambigu) i, si no, la SAN.
+    const playerColor = (historyReplay.entry && historyReplay.entry.playerColor === 'b') ? 'b' : 'w';
+    let playedMove = (playedUci && String(playedUci).trim()) || san || null;
+
+    // La posició de decisió (FEN) és el localitzador més fiable. Quan el link la
+    // porta incorporada, carreguem EXACTAMENT aquesta posició al tauler i fem servir
+    // la jugada feta del mateix link per al ressaltat vermell. Això evita errors
+    // d'índex en posicions repetides o quan el número/SAN no quadra, que feien que
+    // vermell i verd acabessin apuntant a la mateixa jugada.
     let targetIndex = decisionFen ? findHistoryIndexByFen(decisionFen) : null;
-    if (targetIndex === null || targetIndex < 0) {
-        targetIndex = findHistoryMoveIndex(moveNumber, san);
-    }
-    if (targetIndex === null || targetIndex < 0) {
-        console.warn(`No s'ha trobat la jugada ${moveNumber} (${san})`);
-        return;
-    }
-    
-    // Resetegem el joc i avancem fins a la posició ABANS de la jugada errònia
-    historyReplay.game = new Chess();
-    const stopAt = Math.max(0, targetIndex - 1); // Mostrem la posició just abans
-    
-    for (let i = 0; i < stopAt; i++) {
-        const result = historyReplay.game.move(historyReplay.moves[i], { sloppy: true });
-        if (!result) {
-            console.warn(`Error aplicant jugada ${i}: ${historyReplay.moves[i]}`);
-            break;
+    let beforeFen = decisionFen || null;
+
+    // Normalitzem el torn de la FEN de decisió al color del jugador. Si la FEN ve
+    // amb el costat equivocat (un defecte que es veia en algunes partides), ni la
+    // teva jugada ni la millor parsegen sobre aquella posició i no es pintava res
+    // (ni vermell ni verd). Forçar el torn ho arregla a l'arrel. A més, verifiquem
+    // que la jugada del jugador es pot reconstruir sobre la posició; si no, descartem
+    // la FEN i caiem a la reconstrucció per índex (replay real de la partida).
+    if (beforeFen) {
+        beforeFen = normalizeFenTurn(beforeFen, playerColor);
+        if (!resolveMoveOnFen(beforeFen, playedMove || san || '')) {
+            beforeFen = null;
         }
     }
-    
-    historyReplay.moveIndex = stopAt;
-    const beforeFen = historyReplay.game.fen();
+
+    if (beforeFen) {
+        try {
+            historyReplay.game = new Chess(beforeFen);
+            historyReplay.moveIndex = targetIndex && targetIndex > 0 ? Math.max(0, targetIndex - 1) : historyReplay.moveIndex;
+        } catch (e) {
+            beforeFen = null;
+        }
+    }
+
+    if (!beforeFen) {
+        if (targetIndex === null || targetIndex < 0) {
+            targetIndex = findHistoryMoveIndex(moveNumber, san);
+        }
+        if (targetIndex === null || targetIndex < 0) {
+            console.warn(`No s'ha trobat la jugada ${moveNumber} (${san})`);
+            return;
+        }
+
+        // Resetegem el joc i avancem fins a la posició ABANS de la jugada errònia.
+        historyReplay.game = new Chess();
+        const stopAt = Math.max(0, targetIndex - 1);
+
+        for (let i = 0; i < stopAt; i++) {
+            const result = historyReplay.game.move(historyReplay.moves[i], { sloppy: true });
+            if (!result) {
+                console.warn(`Error aplicant jugada ${i}: ${historyReplay.moves[i]}`);
+                break;
+            }
+        }
+
+        historyReplay.moveIndex = stopAt;
+        beforeFen = historyReplay.game.fen();
+        if (!playedMove && targetIndex > 0) playedMove = historyReplay.moves[targetIndex - 1] || null;
+    }
+
     // Marca el moment clau actiu (la teva jugada en vermell); la millor jugada
     // l'afegeix qui crida (el handler del link) via setKeyMomentBest.
     activeReviewHighlight = {
         beforeFen,
-        played: (targetIndex > 0 ? (historyReplay.moves[targetIndex - 1] || null) : null),
+        played: playedMove,
         best: null
     };
     updateHistoryBoard(); // reaplica els ressaltats actius
@@ -7071,7 +7182,7 @@ function setKeyMomentBest(bestMove) {
 }
 
 function clearReviewHighlights() {
-    $('#history-board .square-55d63').removeClass('highlight-hint highlight-played highlight-best');
+    $('#history-board .square-55d63').removeClass('highlight-hint highlight-played highlight-best highlight-played-from highlight-played-to highlight-best-from highlight-best-to highlight-overlap');
 }
 
 function showReviewBoardLegend(show) {
@@ -7082,18 +7193,69 @@ function showReviewBoardLegend(show) {
 // Ressalta origen i destí d'un moviment sobre beforeFen amb la classe donada.
 // No esborra ressaltats previs: així es poden marcar dues jugades alhora (la
 // teva i la millor). chessboard.js marca les caselles amb data-square.
+//
+// Força el torn d'una FEN al color indicat ('w'/'b'). Si canvia el torn, anul·la
+// la casella d'en passant (deixaria de ser vàlida). Retorna la FEN original si no
+// es pot interpretar.
+function normalizeFenTurn(fen, color) {
+    const parts = String(fen || '').split(' ');
+    if (parts.length < 2 || (color !== 'w' && color !== 'b')) return fen;
+    if (parts[1] !== color) {
+        parts[1] = color;
+        if (parts.length >= 4) parts[3] = '-';
+    }
+    return parts.join(' ');
+}
+
+// Resol una jugada (UCI o SAN) sobre una FEN i retorna {from,to}. És tolerant:
+// si no parseja amb el torn de la FEN, ho torna a provar amb el torn invertit.
+// Així una FEN de decisió amb el costat equivocat no deixa la jugada sense
+// ressaltar (era la causa que en algunes partides no sortís ni vermell ni verd).
+function resolveMoveOnFen(fen, move) {
+    const raw = String(move || '').trim();
+    if (!fen || !raw) return null;
+    const attempt = (f) => {
+        try {
+            const g = new Chess(f);
+            const mv = /^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)
+                ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
+                : g.move(raw, { sloppy: true });
+            return mv ? { from: mv.from, to: mv.to } : null;
+        } catch (e) { return null; }
+    };
+    let mv = attempt(fen);
+    if (mv) return mv;
+    const parts = String(fen).split(' ');
+    if (parts.length >= 2) {
+        parts[1] = parts[1] === 'w' ? 'b' : 'w';
+        if (parts.length >= 4) parts[3] = '-';
+        mv = attempt(parts.join(' '));
+    }
+    return mv;
+}
+
+// El color FORT (vermell = la teva jugada, verd = la millor) marca TOT el
+// moviment: la casella d'origen i la de destí. Així es veu clarament quina peça
+// va moure malament (vermell) i quina hauria d'haver mogut (verd). Quan les dues
+// jugades comparteixen una casella —típicament l'origen, perquè és la mateixa
+// peça moguda de dues maneres— aquella casella surt mig vermella mig verda
+// (highlight-overlap), però els dos destins queden ben diferenciats: el final
+// erroni en vermell i el final bo en verd.
 function highlightReviewedMove(beforeFen, move, cls) {
     const klass = cls || 'highlight-hint';
     if (!beforeFen || !move) return;
     try {
-        const g = new Chess(beforeFen);
-        const raw = String(move).trim();
-        const mv = /^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)
-            ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
-            : g.move(raw, { sloppy: true });
+        const mv = resolveMoveOnFen(beforeFen, move);
         if (!mv) return;
-        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass(klass);
-        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass(klass);
+        const fromEl = $("#history-board .square-55d63[data-square='" + mv.from + "']");
+        const toEl = $("#history-board .square-55d63[data-square='" + mv.to + "']");
+        // Color fort a origen i destí (la peça sencera).
+        fromEl.addClass(klass + ' ' + klass + '-from');
+        toEl.addClass(klass + ' ' + klass + '-to');
+        // Qualsevol casella compartida per totes dues jugades (origen amb la
+        // mateixa peça, o un destí coincident) es pinta mig i mig.
+        if (fromEl.hasClass('highlight-played') && fromEl.hasClass('highlight-best')) fromEl.addClass('highlight-overlap');
+        if (toEl.hasClass('highlight-played') && toEl.hasClass('highlight-best')) toEl.addClass('highlight-overlap');
     } catch (e) {}
 }
 
@@ -7676,7 +7838,7 @@ function renderLocalReviewHtml(entry) {
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
-                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
+                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const lines = [
                     `${coachQualityBadgeHtml(m)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
@@ -18103,6 +18265,7 @@ function buildHumanPlanMoments(entry, insights = null) {
                 themeKey,
                 theme: planThemeDisplayLabel(themeKey),
                 played: r.playerMoveSan || r.playerMove || '—',
+                playedUci: (r.playerMove && r.playerMove !== '—') ? r.playerMove : null,
                 best: r.bestMoveSan || r.bestMove || '—',
                 // Versions en llenguatge planer per a les frases (sense notació SAN).
                 playedDesc: r.fen ? moveHumanText(r.fen, r.playerMove || r.playerMoveSan, r.playerMoveSan) : (r.playerMoveSan || '—'),
