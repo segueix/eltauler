@@ -3774,14 +3774,20 @@ function applyContinuousEloAdjustment(delta, reason, meta = {}) {
         cycle: meta.cycle || null
     });
 
-    let message = appliedDelta > 0
-        ? `Has millorat! Nou nivell: ${userELO} ↗`
-        : `Nivell ajustat: ${userELO} ↘`;
-    const milestones = checkEloMilestones(previousElo, userELO);
-    if (milestones.length) {
-        message += ` · Assoliment ELO ${milestones[milestones.length - 1]} ✨`;
+    // El missatge no ha de contradir el resultat: en una derrota no diem "Has
+    // millorat!". Si el nivell puja tot i perdre, ho emmarquem com a rendiment
+    // positiu; si puja en una victòria, simplement anunciem el nou nivell.
+    let message;
+    if (appliedDelta > 0) {
+        message = meta.resultLabel === 'loss'
+            ? `Rendiment positiu: nou nivell ${userELO} ↗`
+            : `Nou nivell: ${userELO} ↗`;
+    } else {
+        message = `Nivell ajustat: ${userELO} ↘`;
     }
-    return { delta: appliedDelta, message: message };
+    const milestones = checkEloMilestones(previousElo, userELO);
+    const milestone = milestones.length ? milestones[milestones.length - 1] : null;
+    return { delta: appliedDelta, message: message, milestone: milestone };
 }
 
 function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
@@ -3812,29 +3818,41 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
     if (resultLabel === 'loss') freeLossStreak++;
     else freeLossStreak = 0;
 
-    let feedback = null;
+    // Acumulem el resultat dels diferents ajustos en parts separades per evitar
+    // missatges duplicats (p. ex. "Nivell ajustat: X ↘ · Nivell ajustat: Y ↘").
+    // Només mostrem l'últim nivell (que ja reflecteix l'ELO final), més un
+    // possible assoliment i un consell opcional.
+    let levelMessage = null;
+    let milestoneNote = null;
+    let advice = null;
+    const composeFeedback = () => {
+        const parts = [];
+        if (levelMessage) parts.push(levelMessage);
+        if (milestoneNote) parts.push(`Assoliment ELO ${milestoneNote} ✨`);
+        if (advice) parts.push(advice);
+        return parts.length ? parts.join(' · ') : null;
+    };
+    const noteAdjustment = (adj) => {
+        if (!adj) return;
+        levelMessage = adj.message;
+        if (adj.milestone) milestoneNote = adj.milestone;
+    };
+
     const baselineDelta = getBaselineAdjustmentDelta(resultLabel, quality.qualityScore);
     if (baselineDelta !== 0) {
-        const baselineAdjustment = applyContinuousEloAdjustment(
+        noteAdjustment(applyContinuousEloAdjustment(
             baselineDelta,
             'Ajust fi per resultat',
-            { cycle: 'baseline' }
-        );
-        if (baselineAdjustment) {
-            feedback = baselineAdjustment.message;
-        }
+            { cycle: 'baseline', resultLabel: resultLabel }
+        ));
     }
     if (freeLossStreak >= CONTINUOUS_ADJUST_CONFIG.LOSS_STREAK_TRIGGER) {
-        const relief = applyContinuousEloAdjustment(
+        noteAdjustment(applyContinuousEloAdjustment(
             CONTINUOUS_ADJUST_CONFIG.LOSS_STREAK_DELTA,
             'Protecció per ratxa de derrotes',
-            { cycle: 'streak' }
-        );
-        if (relief) {
-            feedback = relief.message + ' · Prova hints o mode entrenament';
-        } else {
-            feedback = 'Prova hints o mode entrenament';
-        }
+            { cycle: 'streak', resultLabel: resultLabel }
+        ));
+        advice = 'Prova les pistes o el mode entrenament';
         freeLossStreak = 0;
     }
 
@@ -3848,17 +3866,15 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
         const wins = sample.filter(g => g.result === 1).length;
         const winRate = wins / sample.length;
         if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH && resultLabel !== 'loss') {
-            const flow = applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow' });
-            if (flow) feedback = flow.message;
+            noteAdjustment(applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow', resultLabel: resultLabel }));
         } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW && resultLabel !== 'win') {
-            const flow = applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow' });
-            if (flow) feedback = flow.message;
+            noteAdjustment(applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow', resultLabel: resultLabel }));
         }
     }
 
     if (freeAdjustmentWindow.length < CONTINUOUS_ADJUST_CONFIG.WINDOW_SIZE) {
         saveStorage();
-        return { feedback: feedback };
+        return { feedback: composeFeedback() };
     }
 
     const cycle = freeAdjustmentWindow.slice(0, CONTINUOUS_ADJUST_CONFIG.WINDOW_SIZE);
@@ -3888,16 +3904,12 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
 
     if (delta === 0) {
         saveStorage();
-        return { feedback: feedback };
+        return { feedback: composeFeedback() };
     }
 
-    const adjustment = applyContinuousEloAdjustment(delta, reason, { trend: trend, cycle: cycle });
+    noteAdjustment(applyContinuousEloAdjustment(delta, reason, { trend: trend, cycle: cycle, resultLabel: resultLabel }));
     saveStorage();
-    if (adjustment && feedback) {
-        return { feedback: `${adjustment.message} · ${feedback}` };
-    }
-    if (adjustment) return { feedback: adjustment.message };
-    return { feedback: feedback };
+    return { feedback: composeFeedback() };
 }
 
  function isCalibrationActive() {
@@ -6462,7 +6474,7 @@ function updateReviewChart() {
         { key: 'good', label: 'Bones', color: '#c9a227' },
         { key: 'inaccuracy', label: 'Imprecisions', color: '#ffb74d' },
         { key: 'mistake', label: 'Errors', color: '#ef5350' },
-        { key: 'blunder', label: 'Blunders', color: '#b71c1c' }
+        { key: 'blunder', label: 'Errades greus', color: '#b71c1c' }
         ].map((meta, idx) => {
         const gray = graySteps[idx % graySteps.length];
         return {
@@ -6897,11 +6909,11 @@ function updateHistoryDetails(entry) {
 
     const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
     breakdown.html(`
-        <div class="review-chip excel">Excel·lents <strong>${counts.excel || 0}</strong></div>
-        <div class="review-chip good">Bones <strong>${counts.good || 0}</strong></div>
-        <div class="review-chip inaccuracy">Imprecisions <strong>${counts.inaccuracy || 0}</strong></div>
-        <div class="review-chip mistake">Errors <strong>${counts.mistake || 0}</strong></div>
-        <div class="review-chip blunder">Blunders <strong>${counts.blunder || 0}</strong></div>
+        <div class="review-chip excel">Excel·lents: <strong>${counts.excel || 0}</strong></div>
+        <div class="review-chip good">Bones: <strong>${counts.good || 0}</strong></div>
+        <div class="review-chip inaccuracy">Imprecisions: <strong>${counts.inaccuracy || 0}</strong></div>
+        <div class="review-chip mistake">Errors: <strong>${counts.mistake || 0}</strong></div>
+        <div class="review-chip blunder">Errades greus: <strong>${counts.blunder || 0}</strong></div>
     `);
     updateHistoryReview(entry);
     updateHistoryErrorNotes(entry);
@@ -7711,7 +7723,7 @@ function renderLocalReviewHtml(entry) {
     try {
         const facts = buildDebriefFacts(entry);
         // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
-        // màxima noves) cada cop que es prem «Re-generar ressenya», sense dependre
+        // màxima noves) cada cop que es prem «Regenerar la ressenya», sense dependre
         // de cap clau d'IA. Si no s'ha regenerat mai, la llavor és l'id de partida.
         const seedKey = entry.id + (entry.reviewSeed ? ':r' + entry.reviewSeed : '');
 
@@ -7840,8 +7852,13 @@ function renderLocalReviewHtml(entry) {
                 // hi ressaltem la jugada recomanada al tauler.
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
                 const show = coachSectionsFor(m.quality);
+                const badge = coachQualityBadgeHtml(m);
+                const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
+                const header = badge
+                    ? `${moveNumLabel} · ${badge}(${escapeHtml(m.theme)}): millor jugada → ${link}.`
+                    : `${moveNumLabel} (${escapeHtml(m.theme)}): millor jugada → ${link}.`;
                 const lines = [
-                    `${coachQualityBadgeHtml(m)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
+                    header,
                     show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
                     show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
                     show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
@@ -7955,7 +7972,7 @@ function updateHistoryErrorNotes(entry) {
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
-            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })}Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
+            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
@@ -8810,7 +8827,7 @@ async function requestOpenAIReview(entry, severeErrors) {
     if (!entry || !openaiApiKey) return;
     const existingReview = entry.aiReview || entry.deepseekReview;
     if (existingReview && existingReview.status === 'pending') return;
-    // NOTA: si ja existeix una ressenya, NO sortim: el botó «Re-generar ressenya»
+    // NOTA: si ja existeix una ressenya, NO sortim: el botó «Regenerar la ressenya»
     // ha de poder tornar a demanar-ne una de nova.
     const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
         ? severeErrors
@@ -11649,7 +11666,7 @@ function detectAdvancedMotifs(context) {
             const r = squareRankIdx(context.to);
             const advanced = me === 'w' ? r >= 4 : r <= 5;
             if (advanced && !canBeHitByEnemyPawn(stats, context.to, me)) {
-                tags.push('outpost'); notes.push(`tenies un avantpost per al cavall a ${context.to}`);
+                tags.push('outpost'); notes.push(`tenies una casella avançada per al cavall a ${context.to}`);
             }
         }
         // Debilitat de última fila: rei enemic al fons sense escapatòria i jugada amb escac.
@@ -16508,11 +16525,11 @@ function renderReviewBreakdown(counts) {
         { key: 'good', label: 'Bones', css: 'good' },
         { key: 'inaccuracy', label: 'Imprecisions', css: 'inaccuracy' },
         { key: 'mistake', label: 'Errors', css: 'mistake' },
-        { key: 'blunder', label: 'Blunders', css: 'blunder' }
+        { key: 'blunder', label: 'Errades greus', css: 'blunder' }
     ];
     items.forEach(item => {
         const value = counts[item.key] || 0;
-        const block = `<div class="review-chip ${item.css}"><span>${item.label}</span><strong>${value}</strong></div>`;
+        const block = `<div class="review-chip ${item.css}"><span>${item.label}:</span> <strong>${value}</strong></div>`;
         container.append(block);
     });
 }
@@ -17065,7 +17082,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     
     if (timeoutColor) {
         if (timeoutColor === playerColor) {
-            msg = "Has perdut per temps."; resultScore = 0; leagueOutcome = 'loss';
+            msg = "Has perdut per temps"; resultScore = 0; leagueOutcome = 'loss';
         } else {
             msg = "Victòria per temps!"; resultScore = 1; playerWon = true; leagueOutcome = 'win';
             sessionStats.gamesWon++; totalWins++;
@@ -17073,15 +17090,15 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }
     }
     else if (manualResign) {
-        msg = "T'has rendit."; resultScore = 0; leagueOutcome = 'loss';
+        msg = "T'has rendit"; resultScore = 0; leagueOutcome = 'loss';
     }
     else if (game.in_checkmate()) {
         if (game.turn() !== playerColor) { 
             msg = "Victòria!"; resultScore = 1; playerWon = true; leagueOutcome = 'win'; 
             sessionStats.gamesWon++; totalWins++;
             if (playerColor === 'b') sessionStats.blackWins++;
-        } else { msg = "Derrota."; resultScore = 0; leagueOutcome = 'loss'; }
-    } else { msg = "Taules."; resultScore = 0.5; leagueOutcome = 'draw'; }
+        } else { msg = "Derrota"; resultScore = 0; leagueOutcome = 'loss'; }
+    } else { msg = "Taules"; resultScore = 0.5; leagueOutcome = 'draw'; }
         
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
@@ -18042,7 +18059,7 @@ function coachQualityBadgeHtml(moment, swingLegacy) {
         // El "cost en peons" no té sentit quan hi ha puntuacions de mat: un swing
         // enorme aquí vol dir "mat deixat escapar", no que perdessis 85 peons.
         const stillWinning = after !== null && after <= -300; // el rival segueix perdent
-        cost = stillWinning ? ' · victòria ajornada' : ' · pèrdua decisiva';
+        cost = stillWinning ? ': victòria ajornada' : ': pèrdua decisiva';
     } else if (cp >= 50) {
         cost = ` · −${(cp / 100).toFixed(1)}`;
     }

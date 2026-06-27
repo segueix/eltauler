@@ -3370,11 +3370,11 @@
             <div class="chart-container">
                 <div class="chart-title">Qualitat de jugades</div>
                 <div class="review-legend">
-                    <div class="review-chip excel">Excel·lents <strong id="legend-excel">0</strong></div>
-                    <div class="review-chip good">Bones <strong id="legend-good">0</strong></div>
-                    <div class="review-chip inaccuracy">Imprecisions <strong id="legend-inaccuracy">0</strong></div>
-                    <div class="review-chip mistake">Errors <strong id="legend-mistake">0</strong></div>
-                    <div class="review-chip blunder">Blunders <strong id="legend-blunder">0</strong></div>
+                    <div class="review-chip excel">Excel·lents: <strong id="legend-excel">0</strong></div>
+                    <div class="review-chip good">Bones: <strong id="legend-good">0</strong></div>
+                    <div class="review-chip inaccuracy">Imprecisions: <strong id="legend-inaccuracy">0</strong></div>
+                    <div class="review-chip mistake">Errors: <strong id="legend-mistake">0</strong></div>
+                    <div class="review-chip blunder">Errades greus: <strong id="legend-blunder">0</strong></div>
                 </div>
                 <div style="height:240px;">
                     <canvas id="review-chart"></canvas>
@@ -3463,7 +3463,7 @@
                         <option value="league">Lliga</option>
                     </select>
                     <select id="history-filter-prec" class="select-control">
-                        <option value="0">Tota precisió</option>
+                        <option value="0">Qualsevol precisió</option>
                         <option value="60">Precisió ≥ 60%</option>
                         <option value="75">Precisió ≥ 75%</option>
                         <option value="85">Precisió ≥ 85%</option>
@@ -3480,7 +3480,7 @@
                         <div class="review-legend" id="history-breakdown"></div>
                         <div class="history-detail-body">
                             <div class="history-review">
-                                <div class="history-review-title">Historial revisió</div>
+                                <div class="history-review-title">Revisió de la partida</div>
                                 <div class="history-review-content" id="history-review-content">—</div>
                                 <div id="history-error-notes-block" style="display:none;">
                                     <div class="history-review-title" style="margin-top:14px;">Errades comentades</div>
@@ -3496,7 +3496,7 @@
                                     <span class="sw" style="background:#2ecc71;"></span>la millor jugada
                                 </div>
                                 <div class="history-controls">
-                                    <button class="btn btn-secondary" id="history-prev">⏮️ Endarrere</button>
+                                    <button class="btn btn-secondary" id="history-prev">⏮️ Enrere</button>
                                     <button class="btn btn-primary" id="history-play">▶️ Reprodueix</button>
                                     <button class="btn btn-secondary" id="history-pause">⏸️ Pausa</button>
                                     <button class="btn btn-secondary" id="history-next">⏭️ Endavant</button>
@@ -3504,8 +3504,8 @@
                                 <div id="history-deep-status" style="display:none; font-size:13px; opacity:0.85; margin:6px 0;"></div>
                                 <div class="history-actions">
                                     <button class="btn btn-secondary" id="history-deep-review">🔬 Anàlisi profunda</button>
-                                    <button class="btn btn-secondary" id="history-generate-review">🔁 Re-generar ressenya</button>
-                                    <button class="btn btn-secondary" id="history-personal-hieroglyphic">🔮 Desxifra el teu error</button>
+                                    <button class="btn btn-secondary" id="history-generate-review">🔁 Regenerar la ressenya</button>
+                                    <button class="btn btn-secondary" id="history-personal-hieroglyphic">🔮 Entén el teu error</button>
                                     <button class="btn btn-secondary" id="history-export-pgn">♟ Exportar PGN</button>
                                     <button class="btn btn-secondary" id="history-share-pgn">📤 Compartir</button>
                                 </div>
