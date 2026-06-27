@@ -110,6 +110,10 @@ let openingErrorCurrentIndex = -1; // Índex de la posició actual
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
+// Moment clau actiu a la revisió: { beforeFen, played, best }. Es desa per poder
+// reaplicar els ressaltats (la teva jugada en vermell, la millor en verd) si el
+// tauler es redibuixa (p. ex. en un resize, que reconstrueix les caselles).
+let activeReviewHighlight = null;
 let lastBundleOpenAIHint = null
 let tvBoard = null;
 let tvReplay = null;
@@ -1350,6 +1354,9 @@ function resizeHistoryBoardToViewport() {
     const isVisible = (historyScreen.style.display !== 'none') && (historyScreen.offsetParent !== null);
     if (!isVisible) return;
     if (typeof historyBoard.resize === 'function') historyBoard.resize();
+    // resize() reconstrueix les caselles i esborra els ressaltats: els reapliquem
+    // perquè el vermell/verd del moment clau no desapareguin després d'un resize.
+    applyReviewHighlights();
 }
 
 function scheduleBoardResize() {
@@ -6688,10 +6695,8 @@ function updateHistoryBoard() {
     }
     historyBoard.position(historyReplay.game.fen(), false);
     if (typeof historyBoard.resize === 'function') historyBoard.resize();
-    // En navegació normal (reproduir/endavant/endarrere) traiem els ressaltats i
-    // la llegenda de moments clau; en clicar un moment es tornen a posar després.
-    clearReviewHighlights();
-    showReviewBoardLegend(false);
+    // Reaplica els ressaltats del moment clau actiu (si n'hi ha); si no, els neteja.
+    applyReviewHighlights();
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -6774,6 +6779,7 @@ function buildEntryPgn(entry) {
 function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
+    activeReviewHighlight = null; // nova partida: cap moment clau actiu encara
     // Engega la construcció del graf de posicions (si encara no s'ha fet): així,
     // quan estigui llest, la ressenya s'actualitzarà amb el nom d'obertura precís.
     try { prewarmOpeningPositionGraph(); } catch (e) {}
@@ -6874,10 +6880,7 @@ function updateHistoryReview(entry) {
         const decisionFen = String($(this).data('fen') || '').trim();
         jumpToHistoryMove(moveNumber, playedSan, decisionFen); // ressalta la teva jugada (vermell)
         // I la millor jugada (verd) sobre la mateixa posició de decisió.
-        if (best && historyReplay && historyReplay.game) {
-            highlightReviewedMove(historyReplay.game.fen(), best, 'highlight-best');
-        }
-        showReviewBoardLegend(true);
+        if (best) setKeyMomentBest(best);
         const boardEl = document.getElementById('history-board');
         if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
@@ -7038,15 +7041,33 @@ function jumpToHistoryMove(moveNumber, san, decisionFen) {
     
     historyReplay.moveIndex = stopAt;
     const beforeFen = historyReplay.game.fen();
-    updateHistoryBoard();
+    // Marca el moment clau actiu (la teva jugada en vermell); la millor jugada
+    // l'afegeix qui crida (el handler del link) via setKeyMomentBest.
+    activeReviewHighlight = {
+        beforeFen,
+        played: (targetIndex > 0 ? (historyReplay.moves[targetIndex - 1] || null) : null),
+        best: null
+    };
+    updateHistoryBoard(); // reaplica els ressaltats actius
+}
 
-    // Visualitza la jugada que vas fer (vermell) sobre la posició just abans de
-    // jugar-la. El ressaltat de la millor jugada (verd) l'afegeix qui crida.
+// Reaplica els ressaltats del moment clau actiu sobre el tauler. Es crida després
+// de qualsevol redibuix (navegació o resize) perquè vermell i verd no es perdin
+// ni quedin a mitges: sempre s'apliquen tots dos des de la mateixa font.
+function applyReviewHighlights() {
     clearReviewHighlights();
-    if (targetIndex > 0 && historyReplay.moves[targetIndex - 1]) {
-        const moveStr = historyReplay.moves[targetIndex - 1];
-        highlightReviewedMove(beforeFen, moveStr, 'highlight-played');
-    }
+    const h = activeReviewHighlight;
+    if (!h || !h.beforeFen) { showReviewBoardLegend(false); return; }
+    if (h.played) highlightReviewedMove(h.beforeFen, h.played, 'highlight-played');
+    if (h.best) highlightReviewedMove(h.beforeFen, h.best, 'highlight-best');
+    showReviewBoardLegend(!!h.best);
+}
+
+// Afegeix la millor jugada (verd) al moment clau actiu i la pinta.
+function setKeyMomentBest(bestMove) {
+    if (!activeReviewHighlight) return;
+    activeReviewHighlight.best = bestMove || null;
+    applyReviewHighlights();
 }
 
 function clearReviewHighlights() {
@@ -8661,6 +8682,7 @@ function historyStepForward() {
     const move = historyReplay.moves[historyReplay.moveIndex];
     historyReplay.game.move(move, { sloppy: true });
     historyReplay.moveIndex++;
+    activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
     updateHistoryBoard();
 }
 
@@ -8668,6 +8690,7 @@ function historyStepBack() {
     if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex <= 0) return;
     historyReplay.game.undo();
     historyReplay.moveIndex--;
+    activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
     updateHistoryBoard();
 }
 
