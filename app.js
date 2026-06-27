@@ -42,6 +42,7 @@ let currentMatchError = null;
 let isMatchErrorReviewSession = false;
 let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
+let postGameJumpTimer = null;
 let openingBundleBoard = null;
 let openingPracticeGame = null;
 let openingPracticeUserColor = 'w';
@@ -109,6 +110,10 @@ let openingErrorCurrentIndex = -1; // Índex de la posició actual
 let gameHistory = [];
 let historyBoard = null;
 let historyReplay = null;
+// Moment clau actiu a la revisió: { beforeFen, played, best }. Es desa per poder
+// reaplicar els ressaltats (la teva jugada en vermell, la millor en verd) si el
+// tauler es redibuixa (p. ex. en un resize, que reconstrueix les caselles).
+let activeReviewHighlight = null;
 let lastBundleOpenAIHint = null
 let tvBoard = null;
 let tvReplay = null;
@@ -1349,6 +1354,9 @@ function resizeHistoryBoardToViewport() {
     const isVisible = (historyScreen.style.display !== 'none') && (historyScreen.offsetParent !== null);
     if (!isVisible) return;
     if (typeof historyBoard.resize === 'function') historyBoard.resize();
+    // resize() reconstrueix les caselles i esborra els ressaltats: els reapliquem
+    // perquè el vermell/verd del moment clau no desapareguin després d'un resize.
+    applyReviewHighlights();
 }
 
 function scheduleBoardResize() {
@@ -2861,6 +2869,11 @@ let pendingAnalysisFen = null;
 let pendingAnalysisDepth = null;
 let pendingBestMovePv = [];
 let pendingAlternatives = [];
+// Refutació: la millor línia del rival DESPRÉS de la jugada real (el càstig
+// concret). Abans es calculava i es llençava; ara la capturem per descriure
+// conseqüències realistes.
+let pendingAfterFen = null;
+let pendingRefutationPv = [];
 let enrichedAnalysisBuffer = {};
 let pendingGameOverAfterMoveAnalysis = false;
 let gameOverWatchdogTimer = null;
@@ -3827,14 +3840,17 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
 
     // Control proactiu de win-rate: manté el jugador "enganxat" apuntant a ~50% de victòries.
     // Si guanya massa, apugem el repte; si perd massa, l'abaixem de seguida (sense esperar el cicle).
+    // IMPORTANT: mai apugem el nivell en una partida que has PERDUT ni l'abaixem en una
+    // que has GUANYAT —seria contradictori ("has perdut i el nivell puja")—; l'ajust de
+    // ritme s'aplicarà a la pròxima partida coherent amb la tendència.
     if (recentGames.length >= ADAPTIVE_CONFIG.FLOW_WINDOW_MIN) {
         const sample = recentGames.slice(-ADAPTIVE_CONFIG.FLOW_SAMPLE_SIZE);
         const wins = sample.filter(g => g.result === 1).length;
         const winRate = wins / sample.length;
-        if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH) {
+        if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH && resultLabel !== 'loss') {
             const flow = applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow' });
             if (flow) feedback = flow.message;
-        } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW) {
+        } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW && resultLabel !== 'win') {
             const flow = applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow' });
             if (flow) feedback = flow.message;
         }
@@ -5451,6 +5467,91 @@ async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000,
     return null;
 }
 
+// ── FASE C — Re-anàlisi profunda per a la ressenya ───────────────────────────
+// Driu el motor sobre les posicions clau d'una partida a més profunditat i
+// ENRIQUEIX els moveReviews: millor jugada + línia, refutació concreta, i les
+// avaluacions abans/després. Així les etiquetes (error/imprecisió) i les línies
+// són de màxima fiabilitat, sense alentir el joc en viu (es fa sota demanda).
+//
+// És additiu i segur: si una anàlisi falla, conserva les dades existents. Driu
+// el motor amb analyzeFenRobust, que té el seu propi listener i no interfereix
+// amb la màquina d'estats de l'anàlisi en viu; tot i així se serialitza i no
+// s'executa mentre hi ha una anàlisi de partida en curs.
+//
+// NOTA: NO s'auto-executa. Com que escriu a l'historial desat, cal validar-ho
+// al navegador abans d'activar-lo automàticament en obrir la ressenya. Exposat
+// com a window.deepenEntryAnalysis(entry) per provar-ho manualment.
+let deepReviewInProgress = false;
+async function deepenEntryAnalysis(entry, opts = {}) {
+    if (!entry || !Array.isArray(entry.moveReviews) || !entry.moveReviews.length) return 0;
+    if (entry.deepAnalyzed && !opts.force) return 0;
+    if (deepReviewInProgress || waitingForBlunderAnalysis) return 0;
+    deepReviewInProgress = true;
+    const depth = opts.depth || 16;
+    // L'avaluació torna en perspectiva del bàndol que mou; el mat es codifica ±10000.
+    const cpOf = b => !b ? null : (b.evalType === 'mate' ? (b.eval > 0 ? 10000 : -10000) : b.eval);
+    let updated = 0;
+    try {
+        const targets = entry.moveReviews
+            .filter(r => r && r.fen && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
+            .slice(0, opts.max || 8);
+        for (const r of targets) {
+            if (opts.shouldAbort && opts.shouldAbort()) break;
+            // ABANS de la jugada: millor jugada, línia i avaluació (perspectiva del jugador).
+            const before = await analyzeFenRobust(r.fen, depth, 3, 6000, opts.shouldAbort);
+            if (!before || !before.bestMove || !before.bestMove.move) continue;
+            const bm = before.bestMove;
+            r.bestMove = bm.move;
+            r.bestMovePv = bm.pv || [];
+            r.bestMoveSan = uciToSan(r.fen, bm.move);
+            r.evalBefore = cpOf(bm);
+            r.alternatives = (before.alternatives || []).map(a => ({
+                move: a.move, moveSan: a.move ? uciToSan(r.fen, a.move) : null,
+                eval: cpOf(a), evalType: a.evalType, pv: a.pv || []
+            }));
+            // DESPRÉS de la jugada real: refutació (perspectiva del rival).
+            let afterFen = null;
+            if (r.playerMove && r.playerMove.length >= 4) {
+                try {
+                    const g = new Chess(r.fen);
+                    const mv = g.move({ from: r.playerMove.slice(0, 2), to: r.playerMove.slice(2, 4), promotion: r.playerMove.length > 4 ? r.playerMove[4] : undefined });
+                    if (mv) afterFen = g.fen();
+                } catch (e) {}
+            }
+            if (afterFen) {
+                const after = await analyzeFenRobust(afterFen, depth, 1, 6000, opts.shouldAbort);
+                if (after && after.bestMove) {
+                    r.afterFen = afterFen;
+                    r.refutationPv = after.bestMove.pv || [];
+                    r.evalAfter = cpOf(after.bestMove);
+                }
+            }
+            // Recalcular swing/qualitat amb les avaluacions noves (mateix conveni
+            // que el viu: swing = evalBefore + evalAfter, perspectives oposades).
+            if (typeof r.evalBefore === 'number' && typeof r.evalAfter === 'number') {
+                r.swing = Math.abs(r.evalBefore + r.evalAfter);
+                r.quality = classifyMoveQuality(r.swing, r.playerMove, r.bestMove);
+            }
+            r.depth = before.depth || depth;
+            r.deep = true;
+            updated++;
+            if (typeof opts.onProgress === 'function') {
+                try { opts.onProgress(updated, targets.length); } catch (e) {}
+            }
+        }
+        entry.deepAnalyzed = true;
+        // La requalificació pot canviar el desglossament (excel·lents/errors…).
+        try { entry.counts = summarizeReview(entry.moveReviews); } catch (e) {}
+        if (typeof saveStorage === 'function') saveStorage();
+    } catch (e) {
+        console.warn('[DeepReview] error inesperat', e);
+    } finally {
+        deepReviewInProgress = false;
+    }
+    return updated;
+}
+if (typeof window !== 'undefined') window.deepenEntryAnalysis = deepenEntryAnalysis;
+
 function uciToSan(fen, uciMove) {
     if (typeof Chess === 'undefined') return uciMove;
     const chess = new Chess(fen);
@@ -6162,7 +6263,10 @@ function registerMoveReview(swing, analysisData = {}) {
         depth: analysisData.depth || null,
         bestMoveSan: bestMoveSan,
         bestMovePv: analysisData.bestMovePv || [],
-        alternatives: analysisData.alternatives || []
+        alternatives: analysisData.alternatives || [],
+        // Línia de refutació (el càstig concret) i la posició a què es refereix.
+        refutationPv: analysisData.refutationPv || [],
+        afterFen: analysisData.afterFen || null
     });
 }
 
@@ -6582,8 +6686,17 @@ function updateHistoryProgress() {
 
 function updateHistoryBoard() {
     if (!historyBoard || !historyReplay || !historyReplay.game) return;
+    // Sempre orienta el tauler cap al color del jugador perquè les TEVES peces
+    // quedin a la part inferior durant tota la revisió i en navegar pels moments
+    // clau, independentment de qui mou (i de crides que reinicien l'orientació).
+    if (typeof historyBoard.orientation === 'function') {
+        const want = (historyReplay.entry && historyReplay.entry.playerColor === 'b') ? 'black' : 'white';
+        if (historyBoard.orientation() !== want) historyBoard.orientation(want);
+    }
     historyBoard.position(historyReplay.game.fen(), false);
     if (typeof historyBoard.resize === 'function') historyBoard.resize();
+    // Reaplica els ressaltats del moment clau actiu (si n'hi ha); si no, els neteja.
+    applyReviewHighlights();
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -6666,6 +6779,7 @@ function buildEntryPgn(entry) {
 function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
+    activeReviewHighlight = null; // nova partida: cap moment clau actiu encara
     // Engega la construcció del graf de posicions (si encara no s'ha fet): així,
     // quan estigui llest, la ressenya s'actualitzarà amb el nom d'obertura precís.
     try { prewarmOpeningPositionGraph(); } catch (e) {}
@@ -6763,10 +6877,10 @@ function updateHistoryReview(entry) {
         const moveNumber = Number($(this).data('move-number'));
         const playedSan = String($(this).data('san') || '').trim();
         const best = String($(this).data('best') || '').trim();
-        jumpToHistoryMove(moveNumber, playedSan);
-        if (best && historyReplay && historyReplay.game) {
-            highlightReviewedMove(historyReplay.game.fen(), best);
-        }
+        const decisionFen = String($(this).data('fen') || '').trim();
+        jumpToHistoryMove(moveNumber, playedSan, decisionFen); // ressalta la teva jugada (vermell)
+        // I la millor jugada (verd) sobre la mateixa posició de decisió.
+        if (best) setKeyMomentBest(best);
         const boardEl = document.getElementById('history-board');
         if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
@@ -6787,7 +6901,43 @@ function updateHistoryReview(entry) {
             showToast('Còpia no disponible; selecciona el text manualment', 'info');
         }
     });
+    wireHistoryDeepButton(entry);
     // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
+}
+
+// Botó d'anàlisi profunda a la revisió d'historial: re-analitza les posicions
+// clau amb el motor i refresca la ressenya amb les dades millorades. Útil per
+// retrofitar partides antigues sense refutació ni avaluacions fiables.
+function wireHistoryDeepButton(entry) {
+    const btn = $('#history-deep-review');
+    const status = $('#history-deep-status');
+    if (!btn.length) return;
+    const available = entry && typeof deepenEntryAnalysis === 'function' && deepReviewTargets(entry).length > 0;
+    btn.toggle(!!available);
+    status.hide().text('');
+    if (!available) return;
+    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
+    btn.off('click').on('click', async () => {
+        if (deepReviewInProgress || waitingForBlunderAnalysis) {
+            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
+            return;
+        }
+        const total = deepReviewTargets(entry).length;
+        btn.prop('disabled', true);
+        status.show().text(`Analitzant a fons… (0/${total})`);
+        try {
+            const updated = await deepenEntryAnalysis(entry, {
+                depth: 14, max: 8, force: true,
+                onProgress: (done, tot) => status.text(`Analitzant a fons… (${done}/${tot})`)
+            });
+            updateHistoryDetails(entry);   // refresca desglossament + ressenya + notes
+            status.show().text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
+        } catch (e) {
+            console.warn('[DeepReview] historial', e);
+            status.show().text('No s\'ha pogut completar l\'anàlisi profunda.');
+            btn.prop('disabled', false);
+        }
+    });
 }
 
 // Renova la ressenya LOCAL d'una partida (no depèn de cap clau d'IA): incrementa
@@ -6862,11 +7012,16 @@ function bindOpenAIMoveLinks(container) {
     });
 }
 
-function jumpToHistoryMove(moveNumber, san) {
+function jumpToHistoryMove(moveNumber, san, decisionFen) {
     if (!historyReplay || !historyReplay.entry || !historyReplay.moves) return;
     stopHistoryPlayback();
-    
-    const targetIndex = findHistoryMoveIndex(moveNumber, san);
+
+    // La posició de decisió (FEN) és el localitzador més fiable; si no la tenim o
+    // no es troba, caiem a la cerca per número/SAN (conscient del color).
+    let targetIndex = decisionFen ? findHistoryIndexByFen(decisionFen) : null;
+    if (targetIndex === null || targetIndex < 0) {
+        targetIndex = findHistoryMoveIndex(moveNumber, san);
+    }
     if (targetIndex === null || targetIndex < 0) {
         console.warn(`No s'ha trobat la jugada ${moveNumber} (${san})`);
         return;
@@ -6886,18 +7041,49 @@ function jumpToHistoryMove(moveNumber, san) {
     
     historyReplay.moveIndex = stopAt;
     const beforeFen = historyReplay.game.fen();
-    updateHistoryBoard();
-
-    // Visualitza la jugada: ressalta la casella d'origen i de destí sobre la
-    // posició just abans de jugar-la, perquè es vegi quina peça es mou i on va.
-    if (targetIndex > 0 && historyReplay.moves[targetIndex - 1]) {
-        const moveStr = historyReplay.moves[targetIndex - 1];
-        highlightReviewedMove(beforeFen, moveStr);
-    }
+    // Marca el moment clau actiu (la teva jugada en vermell); la millor jugada
+    // l'afegeix qui crida (el handler del link) via setKeyMomentBest.
+    activeReviewHighlight = {
+        beforeFen,
+        played: (targetIndex > 0 ? (historyReplay.moves[targetIndex - 1] || null) : null),
+        best: null
+    };
+    updateHistoryBoard(); // reaplica els ressaltats actius
 }
 
-function highlightReviewedMove(beforeFen, move) {
-    $('#history-board .square-55d63').removeClass('highlight-hint');
+// Reaplica els ressaltats del moment clau actiu sobre el tauler. Es crida després
+// de qualsevol redibuix (navegació o resize) perquè vermell i verd no es perdin
+// ni quedin a mitges: sempre s'apliquen tots dos des de la mateixa font.
+function applyReviewHighlights() {
+    clearReviewHighlights();
+    const h = activeReviewHighlight;
+    if (!h || !h.beforeFen) { showReviewBoardLegend(false); return; }
+    if (h.played) highlightReviewedMove(h.beforeFen, h.played, 'highlight-played');
+    if (h.best) highlightReviewedMove(h.beforeFen, h.best, 'highlight-best');
+    showReviewBoardLegend(!!h.best);
+}
+
+// Afegeix la millor jugada (verd) al moment clau actiu i la pinta.
+function setKeyMomentBest(bestMove) {
+    if (!activeReviewHighlight) return;
+    activeReviewHighlight.best = bestMove || null;
+    applyReviewHighlights();
+}
+
+function clearReviewHighlights() {
+    $('#history-board .square-55d63').removeClass('highlight-hint highlight-played highlight-best');
+}
+
+function showReviewBoardLegend(show) {
+    const el = $('#review-board-legend');
+    if (el.length) el.toggle(!!show);
+}
+
+// Ressalta origen i destí d'un moviment sobre beforeFen amb la classe donada.
+// No esborra ressaltats previs: així es poden marcar dues jugades alhora (la
+// teva i la millor). chessboard.js marca les caselles amb data-square.
+function highlightReviewedMove(beforeFen, move, cls) {
+    const klass = cls || 'highlight-hint';
     if (!beforeFen || !move) return;
     try {
         const g = new Chess(beforeFen);
@@ -6906,66 +7092,61 @@ function highlightReviewedMove(beforeFen, move) {
             ? g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() })
             : g.move(raw, { sloppy: true });
         if (!mv) return;
-        // chessboard.js identifica les caselles amb l'atribut data-square (no amb
-        // una classe .square-<casella>): per això el ressaltat no apareixia.
-        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass('highlight-hint');
-        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass('highlight-hint');
+        $("#history-board .square-55d63[data-square='" + mv.from + "']").addClass(klass);
+        $("#history-board .square-55d63[data-square='" + mv.to + "']").addClass(klass);
     } catch (e) {}
+}
+
+// Localitza la jugada per la posició de decisió (FEN abans de la jugada). És el
+// mètode més fiable perquè no depèn de coincidències de notació SAN ni del color.
+// Retorna l'índex+1 (igual que findHistoryMoveIndex) o null.
+function findHistoryIndexByFen(targetFen) {
+    if (!targetFen || !historyReplay || !Array.isArray(historyReplay.moves)) return null;
+    const key = f => String(f || '').split(' ').slice(0, 4).join(' '); // ignora comptadors
+    const want = key(targetFen);
+    try {
+        const g = new Chess();
+        if (key(g.fen()) === want) return 1; // decisió abans de la 1a jugada
+        for (let i = 0; i < historyReplay.moves.length; i++) {
+            const r = g.move(historyReplay.moves[i], { sloppy: true });
+            if (!r) break;
+            if (key(g.fen()) === want) return i + 2; // decisió just després d'aquest ply
+        }
+    } catch (e) {}
+    return null;
 }
 
 function findHistoryMoveIndex(moveNumber, san) {
     if (!historyReplay || !Array.isArray(historyReplay.moves)) return null;
     const moves = historyReplay.moves;
     const normalizedSan = (san || '').trim().replace(/[+#!?]/g, ''); // Eliminar anotacions
-    
-    // Primer intent: buscar per número de jugada exacte
+    const sameSan = idx => idx >= 0 && idx < moves.length && moves[idx].replace(/[+#!?]/g, '') === normalizedSan;
+    // L'error és SEMPRE una jugada del jugador: prioritzem el seu color per no
+    // acabar en la jugada del rival quan la SAN no encaixa.
+    const playerBlack = !!(historyReplay.entry && historyReplay.entry.playerColor === 'b');
+
     if (moveNumber) {
-        // La jugada X correspon a l'índex (X-1)*2 per blanques o (X-1)*2+1 per negres
-        // Però necessitem saber el color - intentem ambdós
         const whiteIndex = (moveNumber - 1) * 2;
         const blackIndex = whiteIndex + 1;
-        
-        // Comprovem si la SAN coincideix
-        if (whiteIndex < moves.length) {
-            const whiteSan = moves[whiteIndex].replace(/[+#!?]/g, '');
-            if (!normalizedSan || whiteSan === normalizedSan) {
-                return whiteIndex + 1; // +1 perquè volem mostrar DESPRÉS de jugar
-            }
-        }
-        if (blackIndex < moves.length) {
-            const blackSan = moves[blackIndex].replace(/[+#!?]/g, '');
-            if (!normalizedSan || blackSan === normalizedSan) {
-                return blackIndex + 1;
-            }
-        }
+        const primary = playerBlack ? blackIndex : whiteIndex;
+        const secondary = playerBlack ? whiteIndex : blackIndex;
+        // 1) SAN coincideix al ply del color del jugador (o sense SAN fiable).
+        if (primary < moves.length && (!normalizedSan || sameSan(primary))) return primary + 1;
+        // 2) SAN coincideix a l'altre color (per si el número balla).
+        if (normalizedSan && sameSan(secondary)) return secondary + 1;
+        // 3) Sense coincidència de SAN: cau igualment al ply del color del jugador.
+        if (primary < moves.length) return primary + 1;
+        if (secondary < moves.length) return secondary + 1;
     }
-    
-    // Segon intent: buscar per SAN si no hem trobat per número
+
+    // 4) Cerca per SAN a tot arreu (a prop del número si en tenim).
     if (normalizedSan) {
         for (let i = 0; i < moves.length; i++) {
-            const moveSan = moves[i].replace(/[+#!?]/g, '');
-            if (moveSan === normalizedSan) {
-                // Si tenim moveNumber, comprovem que estigui a prop
-                if (moveNumber) {
-                    const fullMove = Math.ceil((i + 1) / 2);
-                    if (Math.abs(fullMove - moveNumber) <= 1) {
-                        return i + 1;
-                    }
-                } else {
-                    return i + 1;
-                }
+            if (moves[i].replace(/[+#!?]/g, '') === normalizedSan) {
+                if (!moveNumber || Math.abs(Math.ceil((i + 1) / 2) - moveNumber) <= 1) return i + 1;
             }
         }
     }
-    
-    // Tercer intent: només per número de jugada (blanques per defecte)
-    if (moveNumber) {
-        const defaultIndex = (moveNumber - 1) * 2;
-        if (defaultIndex < moves.length) {
-            return defaultIndex + 1;
-        }
-    }
-    
     return null;
 }
 
@@ -7132,6 +7313,10 @@ function buildLocalErrorNote(err, entry) {
         bestMovePv: err.bestMovePv || [],
         alternatives: err.alternatives || [],
         swing: typeof err.swing === 'number' ? err.swing : 0,
+        evalBefore: err.evalBefore ?? null,
+        evalAfter: err.evalAfter ?? null,
+        refutationPv: err.refutationPv || [],
+        afterFen: err.afterFen || null,
         quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake')
     };
     let ctx = null;
@@ -7146,9 +7331,15 @@ function buildLocalErrorNote(err, entry) {
         best: review.bestMoveSan || d.best,
         playedDesc: moveHumanText(err.fen, err.playerMove || review.playerMoveSan, d.played),
         bestDesc: moveHumanText(err.fen, err.bestMove || review.bestMoveSan, d.best),
+        playedRef: 'la jugada triada',
+        bestRef: 'la millor jugada',
         bestMoveUci: review.bestMove || null,
         swing: Math.round(review.swing || 0),
         quality: review.quality || 'mistake',
+        evalBefore: review.evalBefore ?? null,
+        evalAfter: review.evalAfter ?? null,
+        refutationPv: Array.isArray(review.refutationPv) ? review.refutationPv : [],
+        afterFen: review.afterFen || null,
         fen: review.fen,
         pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
         positional: buildPositionalNote(ctx),
@@ -7156,12 +7347,17 @@ function buildLocalErrorNote(err, entry) {
     };
     let plan = {};
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
+    const structured = buildStructuredLocalExplanation(moment, plan);
+    const show = coachSectionsFor(moment.quality);
     const parts = [];
-    if (moment.positional) parts.push(moment.positional);
-    if (plan.diagnosis) parts.push(plan.diagnosis);
-    if (plan.plan) parts.push(plan.plan);
-    if (moment.candidates) parts.push(moment.candidates);
-    if (plan.question) parts.push(plan.question);
+    if (show.fact && structured.fact) parts.push(`Posició: ${structured.fact}`);
+    if (show.mistake && structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
+    if (show.consequence && structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
+    if (show.refutation && structured.refutation) parts.push(structured.refutation);
+    if (show.plan && structured.plan) parts.push(`Pla millor: ${structured.plan}`);
+    if (show.continuation && structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
+    if (show.candidates && moment.candidates) parts.push(moment.candidates);
+    if (show.question && structured.question) parts.push(`Pregunta clau: ${structured.question}`);
     const text = parts.filter(Boolean).join(' ').trim();
     return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
 }
@@ -7176,6 +7372,14 @@ function flankWordFor(color, fromSquare) {
     const leftForWhite = fileIdx <= 3;
     const isLeft = color === 'w' ? leftForWhite : !leftForWhite;
     return isLeft ? 'esquerra' : 'dreta';
+}
+
+function pieceArticle(name) {
+    const n = String(name || '').trim();
+    if (!n) return 'la peça';
+    if (/^(dama|torre)\b/.test(n)) return `la ${n}`;
+    if (/^(alfil)\b/.test(n)) return `l'${n}`;
+    return `el ${n}`;
 }
 
 function describeMoveHuman(fen, move) {
@@ -7212,7 +7416,7 @@ function describeMoveHuman(fen, move) {
                 }
             }
             const verb = mv.captured ? 'captura a' : 'va a';
-            text = `${/^[ae]/.test(name) ? "l'" : 'el '}${name} ${verb} ${mv.to}`;
+            text = `${pieceArticle(name)} ${verb} ${mv.to}`;
         }
         if (mv.san.includes('#')) text += ' amb escac i mat';
         else if (mv.san.includes('+')) text += ' amb escac';
@@ -7472,12 +7676,18 @@ function renderLocalReviewHtml(entry) {
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
-                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}">${escapeHtml(desc)}</a>`;
-                const seg = [`<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`];
-                if (m.positional) seg.push(escapeHtml(m.positional));
-                if (m.diagnosis) seg.push(escapeHtml(m.diagnosis));
-                if (m.plan) seg.push(escapeHtml(m.plan));
-                return `<li style="margin-bottom:8px;">${seg.filter(Boolean).join(' ')}</li>`;
+                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
+                const show = coachSectionsFor(m.quality);
+                const lines = [
+                    `${coachQualityBadgeHtml(m)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
+                    show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
+                    show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
+                    show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
+                    show.refutation && m.structured?.refutation ? `<span>${escapeHtml(m.structured.refutation)}</span>` : '',
+                    show.plan ? (m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : '')) : '',
+                    show.continuation && m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeHtml(m.structured.continuation)}</span>` : ''
+                ].filter(Boolean);
+                return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
             blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
@@ -7583,7 +7793,7 @@ function updateHistoryErrorNotes(entry) {
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
-            <div class="error-note-head">Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
+            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })}Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
@@ -7925,15 +8135,13 @@ function classifyOpeningPositionForMaxim() {
 function buildOfflineOpeningMaxim(info = classifyOpeningPositionForMaxim()) {
     const voice = getOpeningStrategicVoice();
     const openingName = info.opening?.name || info.detected?.name || '';
-    const lines = {
-        lesson: `Abans de moure, aprèn el camí com qui estudia el terreny abans de la batalla: cada peça desenvolupada ha de preparar el centre i guardar una amenaça latent. No revelis tot el pla; deixa que la línia et porti a un mig joc favorable.`,
-        error: `Quan una esquerda apareix a les primeres jugades, el general savi no corre cap al soroll: reforça el terreny, recupera la iniciativa i corregeix sense mostrar la jugada decisiva abans d’hora.`,
-        detected: `La línia ${openingName ? openingName + ' ' : ''}ja ha dibuixat el camp: domina el centre, mantén pressió invisible i prepara l’atac indirecte que transforma l’obertura en avantatge de mig joc.`,
-        opening: `En l’obertura, el centre és el terreny alt: ocupa’l amb ritme, amaga la intenció i adapta el pla quan el rival canvia la forma de la batalla.`,
-        position: `Si la teoria s’esvaeix, conserva els principis: peces actives, rei segur, centre vigilat i iniciativa prou forta perquè l’enemic respongui als teus plans.`,
-        general: `La victòria es prepara abans del combat: coneix el terreny, ordena les forces, no revelis el pla i entra al mig joc amb iniciativa.`
-    };
-    return { voice, title: info.title || 'Màxima d’obertura', text: lines[info.theme] || lines.general, openingName };
+    const themeMap = { lesson: 'opening', error: 'opening', detected: 'opening', opening: 'opening', position: 'development', general: 'general' };
+    const coachText = buildLocalCoachText({ theme: themeMap[info.theme] || 'opening', mode: 'opening' });
+    let text = coachText.combined || coachText.maxim;
+    if (info.theme === 'detected' && openingName) {
+        text = `A la línia ${openingName}, ${text.charAt(0).toLowerCase()}${text.slice(1)}`;
+    }
+    return { voice, title: info.title || 'Màxima d’obertura', text, openingName };
 }
 
 function renderOpeningMaximHtml(text, title = 'Màxima d’obertura', meta = '') {
@@ -7985,6 +8193,19 @@ async function requestOpeningMaximLlull() {
 
     let prompt;
     let continuationsData = null;
+    const localTheme = info.theme === 'position' ? 'development' : (info.theme || 'opening');
+    const localMaximCandidates = getOfflineMaximCandidates(localTheme, 3);
+    const localCoachText = buildLocalCoachText({ theme: localTheme, mode: 'opening-prompt' });
+    const localMaximText = localMaximCandidates.length ? `
+TEXT LOCAL DE REFERÈNCIA (pots adaptar-ne el to i la idea):
+- Màxima: ${localCoachText.maxim}
+- Pista: ${localCoachText.hint}
+- Explicació breu: ${localCoachText.explanation}
+
+MÀXIMES LOCALS CANDIDATES (tria'n una idea o adapta-la sense copiar necessàriament):
+- ${localMaximCandidates.join('\n- ')}
+` : '';
+
     if (openingLessonActive) {
         const voice = getOpeningStrategicVoice();
         prompt = `Ets ${voice.name} escrivint en l'estil de ${voice.work}.
@@ -7994,6 +8215,7 @@ IDEA: ${openingLessonInfo?.idea || 'preparació, centre i iniciativa'}
 SEQÜÈNCIA: ${(openingLessonLine || []).join(' ')}
 PROGRÉS: ${openingLessonStep}/${openingLessonLine.length}
 
+${localMaximText}
 Escriu una màxima breu en català per ajudar l'alumne a entendre la lliçó actual. Parla de preparació abans de la batalla, terreny central, ritme, iniciativa i conversió al mig joc. No revelis la jugada concreta. 2 o 3 frases, sense emojis, sense cometes embolcallant tot el text.`;
     } else if (openingErrorPracticeActive) {
         const voice = getOpeningStrategicVoice();
@@ -8003,12 +8225,15 @@ MODE: correcció d'un error d'obertura en les primeres 10 jugades.
 FEN: ${openingPracticeGame.fen()}
 MOVIMENT: ${openingErrorMoveFilter || '—'} (${openingErrorColorFilter === 'w' ? 'blanques' : openingErrorColorFilter === 'b' ? 'negres' : '—'})
 
+${localMaximText}
 Escriu una màxima breu en català sobre corregir l'errada sense revelar la jugada exacta, ni caselles, ni notació. Ha de parlar de recuperar el centre, no precipitar l'atac, conservar iniciativa i adaptar-se al rival. 2 o 3 frases, sense emojis.`;
     } else if (isStart) {
-        prompt = buildOpeningEncouragementPrompt();
+        prompt = `${buildOpeningEncouragementPrompt()}
+${localMaximText}`;
     } else {
         continuationsData = getOpeningContinuations(openingCurrentSequence);
-        prompt = buildOpeningAlternativesPrompt(openingCurrentSequence, continuationsData.continuations, openingSelectedOpening);
+        prompt = `${buildOpeningAlternativesPrompt(openingCurrentSequence, continuationsData.continuations, openingSelectedOpening)}
+${localMaximText}`;
     }
 
     try {
@@ -8457,6 +8682,7 @@ function historyStepForward() {
     const move = historyReplay.moves[historyReplay.moveIndex];
     historyReplay.game.move(move, { sloppy: true });
     historyReplay.moveIndex++;
+    activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
     updateHistoryBoard();
 }
 
@@ -8464,6 +8690,7 @@ function historyStepBack() {
     if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex <= 0) return;
     historyReplay.game.undo();
     historyReplay.moveIndex--;
+    activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
     updateHistoryBoard();
 }
 
@@ -9300,7 +9527,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             bestMovePv: review.bestMovePv || [],
             alternatives: review.alternatives || [],
             evalBefore: review.evalBefore ?? null,
-            evalAfter: review.evalAfter ?? null
+            evalAfter: review.evalAfter ?? null,
+            refutationPv: review.refutationPv || [],
+            afterFen: review.afterFen || null
         })),
         review: [], // ← BUIDAT: ja no cal guardar review completa
         // Persistim les errades greus derivades de la revisió completa perquè
@@ -10537,15 +10766,67 @@ function ensureHumanPlanRecent() {
     _humanPlanRecent = (stored && typeof stored === 'object') ? stored : {};
     return _humanPlanRecent;
 }
+function formatSwingForText(value) {
+    const n = Math.abs(Math.round(Number(value) || 0));
+    if (n >= 1000) return 'molt d’avantatge';
+    if (n >= 500) return 'més de 5 peons d’avaluació';
+    return `${n} CP`;
+}
+
+
+function polishCoachText(text, opts = {}) {
+    let out = String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/\b[Ee]l dama\b/g, 'la dama')
+        .replace(/\b[Ee]l torre\b/g, 'la torre')
+        .replace(/\b[Ee]l peça\b/g, 'la peça')
+        .replace(/\b[Pp]etit relliscada\b/g, 'Petita relliscada')
+        .replace(/\bla decisió la jugada triada\b/g, 'la jugada triada')
+        .replace(/\bla decisió la millor jugada\b/g, 'la millor jugada')
+        .replace(/\b(la millor jugada) ho feia millor\b/g, '$1 ho resolia millor')
+        .replace(/\b(la millor jugada) hi apuntava\b/g, '$1 apuntava a aquest pla')
+        .replace(/\b(la millor jugada) ho feia\b/g, '$1 ho aconseguia')
+        .replace(/\s+([.!?])$/g, '$1')
+        .trim();
+    if (!out) return '';
+    if (!/[.!?]$/.test(out) && opts.sentence !== false) out += '.';
+    return out.charAt(0).toUpperCase() + out.slice(1);
+}
+
+function validateCoachText(text) {
+    const raw = String(text || '').trim();
+    const words = raw ? raw.split(/\s+/).length : 0;
+    const issues = [];
+    if (!raw) issues.push('empty');
+    if (/\bel dama\b/i.test(raw)) issues.push('bad_article_dama');
+    if (/\bel torre\b/i.test(raw)) issues.push('bad_article_torre');
+    if (/\b[KQRBN][a-h]?[1-8]?x?[a-h][1-8][+#]?\b/.test(raw)) issues.push('san_notation');
+    if ((raw.match(/\bCP\b/g) || []).length > 1) issues.push('too_many_cp_mentions');
+    if (words > 42) issues.push('too_long');
+    if (/(\b\w+\b)(?:\s+\1){2,}/i.test(raw)) issues.push('repeated_word');
+    return { ok: issues.length === 0, issues, words, score: Math.max(0, 100 - issues.length * 20 - Math.max(0, words - 42)) };
+}
+
+function ensureCoachTextQuality(text, fallback = '', opts = {}) {
+    const polished = polishCoachText(text, opts);
+    const quality = validateCoachText(polished);
+    if (quality.ok || !fallback) return polished;
+    const polishedFallback = polishCoachText(fallback, opts);
+    return validateCoachText(polishedFallback).score >= quality.score ? polishedFallback : polished;
+}
+
 function fillPlanTemplate(str, moment) {
     const m = moment || {};
-    // Preferim la descripció en llenguatge planer (playedDesc/bestDesc) per evitar
-    // notació algebraica dins de les frases; si no n'hi ha, caiem a la SAN.
-    return String(str || '')
+    // En les frases explicatives fem servir referències curtes. La descripció completa
+    // de la jugada ja surt a l'enllaç principal; repetir-la dins cada frase feia textos
+    // artificials com "la decisió la dama va a e1".
+    return polishCoachText(String(str || '')
         .replace(/\{n\}/g, m.moveNumber ?? '?')
-        .replace(/\{played\}/g, m.playedDesc || m.played || 'la jugada triada')
-        .replace(/\{best\}/g, m.bestDesc || m.best || 'una jugada més precisa')
-        .replace(/\{swing\}/g, m.swing ?? 0);
+        .replace(/\{played\}/g, m.playedRef || 'la jugada triada')
+        .replace(/\{best\}/g, m.bestRef || 'la millor jugada')
+        .replace(/\{swing\}\s*CP/g, formatSwingForText(m.swing))
+        .replace(/\{swing\}/g, Math.abs(Math.round(Number(m.swing) || 0))));
 }
 // Tria una variant evitant les usades recentment; l'historial es persisteix a
 // localStorage, així no es repeteix ni entre partides ni entre sessions.
@@ -14177,62 +14458,352 @@ function renderCoachDiagnosis() {
 }
 
 /* ===================== BANC DE MÀXIMES OFFLINE + CAU ===================== */
+// Banc local ampliable de màximes didàctiques. Cada clau representa un tema que
+// pot sortir del classificador d'errors o dels modes d'entrenament; així la pista
+// offline no cau sempre en frases genèriques quan no hi ha clau d'OpenAI.
 const OFFLINE_MAXIMS = {
     king: [
-        "Quan el rei enemic queda exposat, tota maniobra ha d'apuntar a la seva posició; la pressa sense objectiu malgasta forces.",
-        "El general savi no persegueix peces, sinó el monarca: dirigeix les teves columnes cap al refugi del rei.",
-        "Un escac no és un crit buit si obre el camí cap a la victòria; busca l'escac que guanyi temps o material."
+        "El rei exposat converteix cada tempo en una amenaça: porta una peça més a l'atac abans de precipitar-te.",
+        "Quan el rei no té refugi, les línies obertes valen més que un peó guanyat.",
+        "No busquis escacs decoratius; busca l'escac que obligui el rival a empitjorar la defensa.",
+        "Si el rei rival està al centre, obre línies abans que pugui enrocar o coordinar-se.",
+        "Un atac al rei necessita peces convidades: suma forces abans de sacrificar material.",
+        "La seguretat del teu rei és la primera peça de l'atac; sense refugi, qualsevol pla trontolla.",
+        "Quan el monarca no té caselles, una amenaça tranquil·la pot pesar més que un escac immediat.",
+        "Ataca el defensor del rei abans d'atacar el rei: sovint la muralla cau per la peça que la sosté.",
+        "Una columna oberta contra el rei és una carretera; posa-hi una torre abans que el rival la tanqui.",
+        "Si el rival ha debilitat l'enroc, no canviïs les peces atacants sense una raó concreta."
     ],
     material: [
-        "Abans de capturar, compta els defensors: el guany aparent sovint amaga una trampa preparada.",
-        "Qui sobrecarrega una peça defensora obre una bretxa; ataca el punt que el rival no pot protegir dues vegades.",
-        "La forquilla i la clavada són les emboscades del tauler: cerca la casella des d'on una sola peça amenaça dues."
+        "Abans de capturar, compta atacants i defensors; el material fàcil sovint demana una segona mirada.",
+        "Una peça indefensa és una invitació tàctica: mira si pots atacar-la amb tempo.",
+        "Quan una peça defensa massa coses, no és forta: és vulnerable.",
+        "Obliga el defensor sobrecarregat a triar i alguna cosa quedarà sense protecció.",
+        "No ataquis només una peça; ataca la responsabilitat que aquella peça carrega.",
+        "Si guanyes material, comprova primer que no perds iniciativa ni seguretat del rei.",
+        "La captura correcta no és la més evident, sinó la que deixa el rival sense recurs actiu.",
+        "Cada peça penjada mereix una pregunta: pots guanyar-la sense permetre contrajoc?",
+        "Quan el rival mou una peça, mira què ha deixat de defensar.",
+        "El guany material és real només quan la recaptura i la jugada següent també funcionen."
     ],
     center: [
-        "Qui domina el centre domina les rutes; situa-hi els peons i les peces abans de llançar l'atac als flancs.",
-        "El terreny central és la plana on es decideixen els imperis: no el cedeixis sense compensació.",
-        "Des del centre, cada peça irradia la seva força; un cavall a la quarta fila val per dos a la vora."
+        "El centre és el terreny alt: qui el domina decideix a quin flanc s'obre la lluita.",
+        "No ataquis un flanc mentre el centre cau; primer assegura les rutes de les peces.",
+        "Un peó central fort dona cases a les peces i treu aire al rival.",
+        "La tensió central es resol quan t'afavoreix, no quan t'impacientes.",
+        "Des del centre, una peça amenaça més i defensa millor; evita portar-la a la vora sense motiu.",
+        "Si el rival et deixa el centre, ocupa'l amb peces actives, no només amb peons avançats.",
+        "Cada ruptura central ha de tenir una idea: obrir línies, guanyar temps o fixar una debilitat.",
+        "El centre tancat permet maniobrar; el centre obert exigeix desenvolupament i rei segur.",
+        "Abans de canviar al centre, pregunta't quina peça millora després del canvi.",
+        "Controlar el centre no és posseir-lo sempre, sinó impedir que el rival l'utilitzi amb llibertat."
+    ],
+    opening: [
+        "A l'obertura, cada tempo ha d'activar una peça, disputar el centre o protegir el rei.",
+        "No moguis la mateixa peça dues vegades si encara tens un exèrcit adormit.",
+        "La dama massa matinera sembla poderosa, però sovint regala temps a les peces menors.",
+        "Desenvolupar no és moure peces: és donar-los una feina útil.",
+        "Enroca abans d'obrir el centre si el teu rei encara viu al mig del tauler.",
+        "Una obertura sana prepara el mig joc; no guanyis un peó si perds coordinació.",
+        "Quan el rival surt de la teoria, torna als principis: centre, peces actives i rei segur.",
+        "El primer atac només és fort si totes les peces poden arribar-hi a temps.",
+        "No copiïs jugades d'obertura: entén quina casella, línia o ruptura preparen.",
+        "La iniciativa d'obertura neix de desenvolupar amb amenaces, no de moure sense pla."
+    ],
+    fork: [
+        "Busca caselles des d'on una sola peça pugui fer dues preguntes alhora.",
+        "Les forquilles apareixen quan peces valuoses comparteixen una mateixa xarxa de caselles febles.",
+        "Un escac amb atac secundari sovint és més fort que una captura immediata.",
+        "Abans de defensar-te, mira si tens una jugada activa que amenaci dues peces.",
+        "El cavall és mestre de les forquilles: calcula els salts amb escac i atac a peça gran.",
+        "Quan dues peces rivals estan alineades en vulnerabilitat, busca la casella que les uneix.",
+        "Una amenaça doble guanya perquè el rival només té un torn per respondre.",
+        "No totes les forquilles són de cavall: dama, torre i alfil també poden crear dobles amenaces.",
+        "Si el rei rival entra en la tàctica, qualsevol segona amenaça es torna més difícil de parar.",
+        "La millor forquilla sovint comença retirant una peça a una casella més activa."
+    ],
+    pin: [
+        "Una peça clavada defensa menys del que sembla.",
+        "Quan una peça no es pot moure, augmenta la pressió abans que s'alliberi.",
+        "La clavada converteix una peça activa en una peça lligada.",
+        "Si el rei és darrere una peça, cada línia oberta pot ser una arma.",
+        "No capturis de pressa la peça clavada; primer mira si pots afegir-hi una segona amenaça.",
+        "Una defensa clavada sovint deixa de defensar allò que aparentava protegir.",
+        "Pressiona la peça clavada amb peces, no només amb desig de guanyar-la.",
+        "Quan el rival pateix una clavada, evita canvis que li resolguin el problema.",
+        "La clavada és més forta quan limita el moviment i crea una nova debilitat.",
+        "Abans de moure, mira si alguna peça rival està lligada a una peça més valuosa."
+    ],
+    skewer: [
+        "Quan dues peces valuoses comparteixen una línia, busca l'atac que obligui la primera a apartar-se.",
+        "El raig X premia les línies obertes: mira més enllà de la peça que tens davant.",
+        "Una peça gran davant d'una altra pot ser una porta, no una muralla.",
+        "Si el rei i una peça major estan en la mateixa línia, una jugada recta pot guanyar temps i material.",
+        "Abans de canviar una torre o un alfil, comprova quines peces queden alineades darrere.",
+        "La peça atacada pot marxar, però la peça del darrere sovint queda condemnada.",
+        "Les diagonals llargues i les columnes obertes amaguen amenaces que travessen la primera defensa.",
+        "Quan el rival col·loca peces en fila, pregunta't quina línia pots obrir.",
+        "El raig X és paciència geomètrica: obre la línia i deixa que l'alineació treballi.",
+        "Ataca la peça de davant si la de darrere és la recompensa real."
+    ],
+    endgame: [
+        "Al final, el rei deixa de ser refugi i es converteix en peça activa.",
+        "Un peó passat no és un trofeu: és un pla que demana suport.",
+        "La torre treballa millor darrere el peó passat, propi o rival.",
+        "Abans de canviar peces, pregunta't si el final resultant el pots guanyar o defensar.",
+        "En finals de peons, un tempo pot valer una partida sencera.",
+        "Activa el rei abans de córrer amb els peons; els peons sense rei s'esgoten.",
+        "L'oposició no és teoria seca: és obligar el rei rival a cedir el pas.",
+        "Quan tens avantatge material, simplifica només si el final conserva l'avantatge.",
+        "Els peons passats s'han d'empènyer quan distreuen el rei rival o obren camí al teu.",
+        "En un final, la peça passiva defensa avui però perd demà."
+    ],
+    development: [
+        "Una peça a casa seva no participa en la partida.",
+        "Millora la pitjor peça abans de buscar el cop brillant.",
+        "La coordinació pesa més que una amenaça solitària.",
+        "Si una peça no té futur, troba-li una ruta abans d'obrir noves batalles.",
+        "Les peces actives creen tàctiques; les peces passives només esperen errors del rival.",
+        "No canviïs una peça activa per una de passiva sense obtenir alguna cosa concreta.",
+        "Cada jugada de desenvolupament hauria de mirar el centre o una debilitat real.",
+        "Quan no vegis tàctica, pregunta quina peça teva està pitjor situada.",
+        "Una peça ben posada defensa, ataca i prepara plans futurs alhora.",
+        "L'harmonia de peces converteix petites amenaces en problemes permanents."
     ],
     general: [
-        "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges és un exèrcit derrotat.",
-        "Coneix la teva posició i la del rival, i en cent jugades no temeràs el resultat.",
-        "La paciència posicional precedeix la tempesta tàctica: millora la pitjor peça abans de buscar el cop."
+        "Pregunta't què vol fer el rival; la profilaxi és un atac avançat.",
+        "No busquis bellesa si una jugada simple resol el problema principal.",
+        "Cada jugada ha de millorar una peça, crear una amenaça o evitar el pla rival.",
+        "La paciència posicional prepara la tàctica que després sembla sobtada.",
+        "Abans de moure, revisa escacs, captures i amenaces de tots dos bàndols.",
+        "Una debilitat només importa si pots atacar-la o obligar el rival a defensar-la.",
+        "Quan tens avantatge, redueix el contrajoc abans de buscar el remat.",
+        "No totes les amenaces s'han de parar defensant; de vegades l'activitat és la millor defensa.",
+        "El pla correcte neix de la peça pitjor situada i de la debilitat més atacable.",
+        "Si no saps què fer, millora la peça que participa menys en la partida."
     ]
 };
 
-OFFLINE_MAXIMS.king.push(
-    "El rei enemic sense escapatòria és l'objectiu: porta-hi una peça més abans de donar el cop.",
-    "No persegueixis l'escac per l'escac; cada amenaça ha de deixar una segona ombra al darrere."
-);
-OFFLINE_MAXIMS.material.push(
-    "Abans de capturar, calcula la recaptura i la jugada següent: l'or fàcil sovint està enverinat.",
-    "Una peça lligada o sobrecarregada és material futur; ataca el que defensa per obligació."
-);
-OFFLINE_MAXIMS.center.push(
-    "Resol la tensió central quan t'afavoreixi, no quan t'impacientis.",
-    "Espai al centre vol dir línies per a les peces: converteix-lo en pressió, no en orgull."
-);
-OFFLINE_MAXIMS.general.push(
-    "Millora la pitjor peça abans de buscar el cop: l'harmonia pesa més que l'aventura.",
-    "Pregunta't què vol fer el rival; la profilaxi és un atac avançat.",
-    "Activa el rei al final: una passa del monarca pot valer una peça."
-);
+const OFFLINE_MAXIM_THEME_MAP = {
+    king_attack: 'king',
+    king: 'king',
+    material: 'material',
+    center: 'center',
+    opening: 'opening',
+    lesson: 'opening',
+    error: 'opening',
+    detected: 'opening',
+    position: 'development',
+    obertura: 'opening',
+    development: 'development',
+    fork: 'fork',
+    pin: 'pin',
+    skewer: 'skewer',
+    endgame: 'endgame',
+    final: 'endgame',
+    endgame_activity: 'endgame',
+    migjoc: 'general',
+    general: 'general'
+};
+
+function getOfflineMaximThemeKey(theme) {
+    const raw = String(theme || 'general');
+    return OFFLINE_MAXIMS[raw] ? raw : (OFFLINE_MAXIM_THEME_MAP[raw] || 'general');
+}
 
 function pickOfflineMaxim(theme) {
-    // El classificador retorna king_attack/fork/pin/opening/endgame...; mapem-ho a
-    // les claus reals d'OFFLINE_MAXIMS (abans 'king_attack' queia sempre a 'general').
-    const map = {
-        king_attack: 'king', king: 'king', fork: 'material', pin: 'material', skewer: 'material',
-        material: 'material', center: 'center', opening: 'center', development: 'center',
-        endgame: 'general', endgame_activity: 'general', general: 'general'
-    };
-    const key = OFFLINE_MAXIMS[theme] ? theme : (map[theme] || 'general');
+    const key = getOfflineMaximThemeKey(theme);
     return pickFreshPlanLine(OFFLINE_MAXIMS[key] || OFFLINE_MAXIMS.general, 'assistedmaxim:' + key);
+}
+
+function getOfflineMaximCandidates(theme, count = 3) {
+    const key = getOfflineMaximThemeKey(theme);
+    const pool = OFFLINE_MAXIMS[key] || OFFLINE_MAXIMS.general;
+    const out = [];
+    const limit = Math.max(1, Math.min(count, pool.length));
+    for (let i = 0; i < limit; i++) {
+        const line = pickFreshPlanLine(pool, 'assistedmaxim:candidate:' + key + ':' + i);
+        if (line && !out.includes(line)) out.push(line);
+    }
+    return out;
+}
+
+
+/* ===================== MOTOR LOCAL DE REDACCIÓ PER PLANTILLES ===================== */
+const LOCAL_COACH_STYLE = {
+    beginner: {
+        maxSentenceWords: 18,
+        bridge: 'Fixa’t en el detall simple',
+        explanationTone: 'La idea és concreta'
+    },
+    intermediate: {
+        maxSentenceWords: 24,
+        bridge: 'Converteix el principi en una decisió',
+        explanationTone: 'El pla millora perquè'
+    },
+    advanced: {
+        maxSentenceWords: 30,
+        bridge: 'Refina el càlcul amb una segona idea',
+        explanationTone: 'La precisió ve de coordinar'
+    }
+};
+
+const LOCAL_COACH_PATTERNS = {
+    king: {
+        subjects: ['el rei exposat', 'l’enroc debilitat', 'el monarca sense aire'],
+        actions: ['obre línies amb peces preparades', 'suma una peça més abans del cop', 'elimina el defensor clau'],
+        cautions: ['no persegueixis escacs buits', 'no canviïs atacants sense compensació', 'no obris el teu rei alhora'],
+        hints: ['Busca quina línia apunta al rei i quina peça encara pot incorporar-se a l’atac.', 'Mira si el defensor del rei està sobrecarregat o pot ser desviat.'],
+        explanations: ['la pressió sobre el rei només funciona quan hi arriben prou peces', 'cada tempo contra un rei insegur pot crear una amenaça difícil de neutralitzar']
+    },
+    material: {
+        subjects: ['la peça indefensa', 'el defensor sobrecarregat', 'el material aparentment gratis'],
+        actions: ['compta atacants i defensors', 'força el defensor a triar', 'calcula la recaptura i la jugada següent'],
+        cautions: ['no capturis si actives el contrajoc rival', 'no confonguis guanyar un peó amb guanyar la posició', 'no abandonis la seguretat del rei per material'],
+        hints: ['Comprova què ha deixat de defensar l’última jugada rival.', 'Busca si una peça rival defensa dues coses alhora.'],
+        explanations: ['el guany material és fiable quan també controles la resposta rival', 'la tàctica neix d’una peça que no pot complir totes les seves feines']
+    },
+    center: {
+        subjects: ['el centre', 'la tensió central', 'les caselles centrals'],
+        actions: ['decideix quan obrir la posició', 'ocupa’l amb peces actives', 'usa’l per portar forces al flanc correcte'],
+        cautions: ['no l’abandonis per una amenaça lateral feble', 'no resolguis la tensió només per impaciència', 'no avancis peons si deixes forats darrere'],
+        hints: ['Pregunta’t quin canvi central millora més les teves peces.', 'Mira si el rival depèn d’una ruptura central per alliberar-se.'],
+        explanations: ['controlar el centre dona rutes a les peces i limita el pla rival', 'la decisió central correcta transforma una petita pressió en iniciativa']
+    },
+    opening: {
+        subjects: ['cada tempo d’obertura', 'la primera fase de la partida', 'el desenvolupament inicial'],
+        actions: ['activa una peça i disputa el centre', 'prepara l’enroc abans d’obrir línies', 'desenvolupa amb una amenaça útil'],
+        cautions: ['no moguis la mateixa peça sense necessitat', 'no treguis la dama si regala temps', 'no guanyis material a costa de quedar endarrerit'],
+        hints: ['Mira quina peça encara no juga i com pot mirar el centre.', 'Tria una jugada que desenvolupi i alhora impedeixi el pla rival.'],
+        explanations: ['l’obertura és bona quan deixa peces coordinades per al mig joc', 'cada tempo perdut dona al rival una defensa o una ruptura més còmoda']
+    },
+    fork: {
+        subjects: ['l’amenaça doble', 'la forquilla', 'una casella activa'],
+        actions: ['busca dos objectius alhora', 'inclou el rei en la tàctica si és possible', 'troba el salt que guanya temps'],
+        cautions: ['no defensis passivament si pots crear una amenaça doble', 'no miris només captures immediates', 'no oblidis les peces majors indefenses'],
+        hints: ['Busca una casella des d’on una peça ataqui dos objectius importants.', 'Revisa escacs que també amenacin dama, torre o peça indefensa.'],
+        explanations: ['el rival només pot respondre una amenaça per torn', 'una forquilla bona converteix el tempo en material o atac']
+    },
+    pin: {
+        subjects: ['la peça clavada', 'el defensor immobilitzat', 'la peça lligada al rei'],
+        actions: ['augmenta la pressió abans que s’alliberi', 'afegeix una segona amenaça', 'mira què ha deixat de protegir'],
+        cautions: ['no canviïs la peça que manté la clavada sense motiu', 'no capturis massa aviat si pots pressionar més', 'no permetis que el rival trenqui la línia'],
+        hints: ['Mira si alguna peça rival no es pot moure perquè darrere hi ha una peça més valuosa.', 'Busca com afegir pressió a la peça clavada sense revelar el cop final.'],
+        explanations: ['una peça clavada defensa menys del que aparenta', 'la clavada es torna decisiva quan limita i crea una altra debilitat']
+    },
+    skewer: {
+        subjects: ['la línia oberta', 'l’alineació de peces', 'el raig X'],
+        actions: ['mira darrere la primera peça', 'obre la columna o diagonal correcta', 'ataca la peça davantera si la recompensa és al darrere'],
+        cautions: ['no tanquis la línia que et dona pressió', 'no canviïs la peça que domina l’alineació', 'no ignoris diagonals llargues'],
+        hints: ['Comprova si dues peces valuoses comparteixen columna, fila o diagonal.', 'Mira si pots obligar la peça de davant a apartar-se.'],
+        explanations: ['les peces alineades fan que una sola línia creï dues conseqüències', 'el raig X converteix una peça aparentment protegida en objectiu futur']
+    },
+    endgame: {
+        subjects: ['el rei actiu', 'el peó passat', 'el tempo final'],
+        actions: ['acosta el rei abans d’empènyer peons', 'dona suport al peó passat', 'canvia peces només si el final resultant t’afavoreix'],
+        cautions: ['no corris amb peons sense suport', 'no deixis el rei passiu', 'no simplifiquis cap a un final dubtós'],
+        hints: ['Mira si el rei pot millorar abans de tocar els peons.', 'Pregunta’t si el canvi de peces fa més fàcil guanyar o defensar el final.'],
+        explanations: ['al final, l’activitat del rei pesa tant com el material', 'un peó passat necessita coordinació, no només avançar']
+    },
+    development: {
+        subjects: ['la peça pitjor situada', 'la coordinació', 'una peça passiva'],
+        actions: ['troba-li una casella útil', 'connecta-la amb el centre', 'millora-la abans de buscar el cop'],
+        cautions: ['no ataquis amb mig exèrcit adormit', 'no canviïs la teva peça activa per una de passiva', 'no acumulis amenaces que no poden arribar a temps'],
+        hints: ['Localitza la peça que participa menys i busca com activar-la amb tempo.', 'Mira quina peça pot millorar sense debilitar el teu rei.'],
+        explanations: ['les tàctiques apareixen més sovint quan les peces ja cooperen', 'una peça millorada pot convertir una posició igualada en pressió real']
+    },
+    general: {
+        subjects: ['el pla correcte', 'la profilaxi', 'la jugada simple'],
+        actions: ['atura la idea rival i millora una peça', 'revisa escacs, captures i amenaces', 'redueix el contrajoc abans del remat'],
+        cautions: ['no busquis brillantor si una jugada clara resol el problema', 'no moguis sense saber què amenaça el rival', 'no confonguis activitat amb pressa'],
+        hints: ['Pregunta’t què vol fer el rival en la propera jugada.', 'Si no hi ha tàctica clara, millora la peça que participa menys.'],
+        explanations: ['una bona decisió combina el teu pla amb la prevenció del pla rival', 'la claredat sovint és més forta que una complicació innecessària']
+    }
+};
+
+const LOCAL_COACH_TEMPLATES = {
+    maxim: [
+        '{subject} demana una regla clara: {action}.',
+        'Quan apareix {subject}, {action} i recorda: {caution}.',
+        '{subject} no és un detall; {explanation}.',
+        'La millor pista és pràctica: {action} i {caution}.'
+    ],
+    hint: [
+        '{bridge}: {hint}',
+        'Abans de moure, {hint}',
+        '{hint}'
+    ],
+    explanation: [
+        '{tone} {explanation}; per això convé {action}.',
+        'La jugada millora quan {action}, perquè {explanation}.',
+        'El risc és clar: si {caution}, el rival recupera temps o activitat.'
+    ]
+};
+
+function normalizeLocalCoachLevel(level) {
+    if (level === 'beginner' || level === 'advanced') return level;
+    return 'intermediate';
+}
+
+function pickLocalCoachPart(parts, bucket) {
+    return pickFreshPlanLine(parts || [], 'localcoach:' + bucket) || '';
+}
+
+function fillLocalCoachTemplate(template, values) {
+    return String(template || '').replace(/\{(\w+)\}/g, (_, key) => values[key] || '');
+}
+
+function tidyLocalCoachSentence(text, maxWords) {
+    let out = String(text || '')
+        .replace(/\s+/g, ' ')
+        .replace(/\s+([,.;:!?])/g, '$1')
+        .replace(/;\s*per això convé\s*\./g, '.')
+        .trim();
+    if (!out) return '';
+    out = out.charAt(0).toUpperCase() + out.slice(1);
+    if (!/[.!?]$/.test(out)) out += '.';
+    if (maxWords && out.split(/\s+/).length > maxWords + 6) {
+        const words = out.replace(/[.!?]$/, '').split(/\s+/).slice(0, maxWords + 6);
+        out = words.join(' ') + '.';
+    }
+    return polishCoachText(out);
+}
+
+function buildLocalCoachText(context = {}) {
+    const theme = getOfflineMaximThemeKey(context.theme || 'general');
+    const pattern = LOCAL_COACH_PATTERNS[theme] || LOCAL_COACH_PATTERNS.general;
+    const level = normalizeLocalCoachLevel(context.level || context.userLevel);
+    const style = LOCAL_COACH_STYLE[level] || LOCAL_COACH_STYLE.intermediate;
+    const bucket = [theme, level, context.mode || 'default'].join(':');
+    const values = {
+        subject: pickLocalCoachPart(pattern.subjects, bucket + ':subject'),
+        action: pickLocalCoachPart(pattern.actions, bucket + ':action'),
+        caution: pickLocalCoachPart(pattern.cautions, bucket + ':caution'),
+        hint: pickLocalCoachPart(pattern.hints, bucket + ':hint'),
+        explanation: pickLocalCoachPart(pattern.explanations, bucket + ':explanation'),
+        bridge: style.bridge,
+        tone: style.explanationTone
+    };
+    const maximTemplate = pickLocalCoachPart(LOCAL_COACH_TEMPLATES.maxim, bucket + ':maximTemplate');
+    const hintTemplate = pickLocalCoachPart(LOCAL_COACH_TEMPLATES.hint, bucket + ':hintTemplate');
+    const explanationTemplate = pickLocalCoachPart(LOCAL_COACH_TEMPLATES.explanation, bucket + ':explanationTemplate');
+    const maxim = tidyLocalCoachSentence(fillLocalCoachTemplate(maximTemplate, values), style.maxSentenceWords);
+    const hint = tidyLocalCoachSentence(fillLocalCoachTemplate(hintTemplate, values), style.maxSentenceWords + 4);
+    const explanation = tidyLocalCoachSentence(fillLocalCoachTemplate(explanationTemplate, values), style.maxSentenceWords + 8);
+    return {
+        theme,
+        level,
+        maxim: maxim || pickOfflineMaxim(theme),
+        hint,
+        explanation,
+        combined: [maxim || pickOfflineMaxim(theme), hint].filter(Boolean).join(' ')
+    };
 }
 
 // Màxima estratègica local rica: reaprofita el generador de pistes jeroglífiques
 // (temàtic, variat i anti-repetitiu) perquè la partida assistida no depengui de cap clau.
 function buildLocalAssistedMaxim(fen, bestMove) {
+    const theme = classifyPositionTheme(fen, bestMove || '');
     try {
         if (bestMove) {
             const ctx = buildHieroglyphicContext(fen, bestMove, {});
@@ -14240,7 +14811,8 @@ function buildLocalAssistedMaxim(fen, bestMove) {
             if (clue && clue.length > 12) return clue;
         }
     } catch (e) {}
-    return pickOfflineMaxim(classifyPositionTheme(fen, bestMove || ''));
+    const coachText = buildLocalCoachText({ theme, mode: 'assisted' });
+    return coachText.combined || coachText.maxim;
 }
 
 function getCachedOpenAI(key) {
@@ -14634,6 +15206,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     currentReview = [];
     lastReviewSnapshot = null;
     setResultIndicator(null);
+    hidePostGameStatusChip();
     $('#btn-resign').prop('disabled', false);
     const checkmateImage = $('#checkmate-image');
     if (checkmateImage.length) checkmateImage.hide();
@@ -15438,11 +16011,17 @@ function handleEngineMessage(rawMsg) {
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
             
             analysisStep = 2;
-            stockfish.postMessage(`position fen ${game.fen()}`);
+            pendingAfterFen = game.fen();
+            pendingRefutationPv = [];
+            stockfish.postMessage(`position fen ${pendingAfterFen}`);
             stockfish.postMessage('go depth 10');
         }
         else if (analysisStep === 2) {
             pendingEvalAfter = tempAnalysisScore;
+            // La línia acumulada en aquest pas és la refutació (millor rèplica del
+            // rival a la jugada realment feta), relativa a pendingAfterFen.
+            const afterAnalysis = extractEnrichedAnalysis();
+            pendingRefutationPv = Array.isArray(afterAnalysis.bestMovePv) ? afterAnalysis.bestMovePv : [];
             let swing = pendingEvalAfter + (pendingEvalBefore || 0);
             if (!isCalibrationGame && !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted')) {
                 const delta = swing;
@@ -15463,7 +16042,9 @@ function handleEngineMessage(rawMsg) {
                 depth: pendingAnalysisDepth,
                 alternatives: pendingAlternatives,
                 evalBefore: pendingEvalBefore,
-                evalAfter: pendingEvalAfter
+                evalAfter: pendingEvalAfter,
+                refutationPv: pendingRefutationPv,
+                afterFen: pendingAfterFen
             });
             resolvePendingMoveEvaluation(moveQuality);
             
@@ -15764,6 +16345,100 @@ function renderReviewBreakdown(counts) {
     });
 }
 
+// Etiqueta amigable del resultat per al xip sobre el tauler.
+function postGameResultLabel(leagueOutcome) {
+    if (leagueOutcome === 'win') return 'Has guanyat';
+    if (leagueOutcome === 'loss') return 'Has perdut';
+    return 'Taules';
+}
+
+function ensurePostGameSpinnerKeyframes() {
+    if (document.getElementById('postgame-spinner-kf')) return;
+    const st = document.createElement('style');
+    st.id = 'postgame-spinner-kf';
+    st.textContent = '@keyframes postgameSpin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(st);
+}
+
+// Mostra a l'instant, en petit i sobre el tauler, el resultat + "Generant
+// anàlisi…". Així es veu com acaba l'últim moviment i l'usuari sap què passa
+// mentre es prepara la ressenya, en comptes de quedar un temps mort.
+function showPostGameStatusChip(resultLabel) {
+    try {
+        const boardEl = document.getElementById('myBoard');
+        if (!boardEl) return;
+        ensurePostGameSpinnerKeyframes();
+        let chip = document.getElementById('postgame-board-status');
+        if (!chip) {
+            chip = document.createElement('div');
+            chip.id = 'postgame-board-status';
+            chip.style.cssText = 'position:fixed;z-index:1200;transform:translateX(-50%);' +
+                'background:rgba(20,18,15,0.92);color:#f2e9d8;padding:7px 14px;border-radius:11px;' +
+                'font-size:13px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,0.45);' +
+                'pointer-events:none;line-height:1.4;';
+            document.body.appendChild(chip);
+        }
+        const rect = boardEl.getBoundingClientRect();
+        chip.style.left = (rect.left + rect.width / 2) + 'px';
+        chip.style.top = (rect.top + 12) + 'px';
+        chip.innerHTML = `<div style="font-weight:700;">${escapeHtml(resultLabel)}</div>` +
+            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px;">' +
+            '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
+            'Generant anàlisi…</div>';
+        chip.style.display = 'block';
+    } catch (e) {}
+}
+
+function hidePostGameStatusChip() {
+    if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
+    const chip = document.getElementById('postgame-board-status');
+    if (chip) chip.style.display = 'none';
+}
+
+const DEEP_REVIEW_KEYS = ['inaccuracy', 'mistake', 'blunder'];
+function deepReviewTargets(entry) {
+    if (!entry || !Array.isArray(entry.moveReviews)) return [];
+    return entry.moveReviews.filter(r => r && r.fen && DEEP_REVIEW_KEYS.includes(r.quality)).slice(0, 8);
+}
+
+// Configura el botó "Anàlisi profunda" del modal de revisió: només es mostra si
+// hi ha posicions per aprofundir i si el motor està disponible. En clicar-lo,
+// re-analitza amb progrés i refresca el debrief amb les dades millorades.
+function wirePostGameDeepButton(entry) {
+    const btn = $('#btn-review-deep');
+    const status = $('#review-deep-status');
+    if (!btn.length) return;
+    const targets = deepReviewTargets(entry);
+    const available = !blunderMode && typeof deepenEntryAnalysis === 'function' && targets.length > 0;
+    btn.toggle(available);
+    status.hide().text('');
+    if (!available) return;
+    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
+    btn.off('click').on('click', async () => {
+        if (deepReviewInProgress || waitingForBlunderAnalysis) {
+            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
+            return;
+        }
+        const total = deepReviewTargets(entry).length;
+        btn.prop('disabled', true);
+        status.show().text(`Analitzant a fons… (0/${total})`);
+        try {
+            const updated = await deepenEntryAnalysis(entry, {
+                depth: 14, max: 8, force: true,
+                onProgress: (done, tot) => status.text(`Analitzant a fons… (${done}/${tot})`)
+            });
+            renderGameDebrief(entry);
+            try { renderReviewBreakdown(summarizeReview(entry.moveReviews)); } catch (e) {}
+            status.text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
+            btn.prop('disabled', false).text('🔬 Re-analitzar a fons');
+        } catch (e) {
+            console.warn('[DeepReview] botó', e);
+            status.text('No s\'ha pogut completar l\'anàlisi profunda.');
+            btn.prop('disabled', false);
+        }
+    });
+}
+
 function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) {
     const modal = $('#review-modal');
     if (!modal.length) {
@@ -15775,6 +16450,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     const checkmateOverlay = $('#checkmate-overlay');
     const checkmateImage = $('#checkmate-image');
     const openReviewModal = () => {
+        hidePostGameStatusChip();
         if (checkmateImage.length) {
             if (options.showCheckmate) {
                 checkmateImage.show();
@@ -15827,6 +16503,11 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
             startPersonalHieroglyphicFromLastGame();
         });
     }
+
+    // Botó d'anàlisi profunda: re-analitza les posicions clau amb el motor a més
+    // profunditat i refresca el debrief amb les dades millorades. Útil també per
+    // retrofitar partides antigues sense dades de refutació.
+    wirePostGameDeepButton(options.entry || gameHistory[gameHistory.length - 1]);
 
     const taskForReview = options.disableGrowth ? null : (options.growthTask || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true, source: 'review' }));
     renderGrowthRecommendation(taskForReview, onClose);
@@ -16365,15 +17046,32 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         };
     }
     $('#btn-resign').prop('disabled', true);
-    
-    showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive });
-    if (calibrationJustCompleted) {
-        showCalibrationReveal(userELO);
-    }
-    if (!blunderMode && !calibrationGameWasActive) {
-        const latestEntry = gameHistory[gameHistory.length - 1];
-        void requestOpenAIReview(latestEntry, severeErrors);
-        void requestErrorNotes(latestEntry, severeErrors);
+
+    const showFullReview = () => {
+        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive });
+        if (calibrationJustCompleted) {
+            showCalibrationReveal(userELO);
+        }
+        if (!blunderMode && !calibrationGameWasActive) {
+            const latestEntry = gameHistory[gameHistory.length - 1];
+            void requestOpenAIReview(latestEntry, severeErrors);
+            void requestErrorNotes(latestEntry, severeErrors);
+        }
+    };
+
+    if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
+    // Sempre mostra el resultat sobre el tauler ("Has guanyat/perdut/taules" +
+    // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
+    showPostGameStatusChip(postGameResultLabel(leagueOutcome));
+    if (showCheckmate) {
+        // L'escac i mat té el seu propi retard de 2s dins showPostGameReview; el
+        // xip es veu mentrestant i s'amaga quan s'obre la ressenya.
+        showFullReview();
+    } else {
+        postGameJumpTimer = setTimeout(() => {
+            postGameJumpTimer = null;
+            showFullReview();
+        }, 1400);
     }
 
     // Persistència i actualitzacions pesades: serialització de tot l'historial
@@ -17080,6 +17778,312 @@ function buildLocalHumanPlan(moment) {
     };
 }
 
+
+const STRUCTURED_CONSEQUENCES = {
+    king_attack: [
+        'el rival va tenir temps de portar defensors o crear contrajoc contra el teu rei',
+        'la pressió sobre el rei no es va convertir en una amenaça forçada'
+    ],
+    material: [
+        'el compte de captures deixava una peça o una casella sense prou defensa',
+        'el guany aparent donava activitat o recaptures al rival'
+    ],
+    center: [
+        'el rival podia aprofitar les línies i caselles que s’obrien al centre',
+        'la tensió central es resolia en el moment que afavoria més l’altre bàndol'
+    ],
+    opening: [
+        'el rival guanyava temps de desenvolupament i arribava abans al mig joc',
+        'les peces quedaven menys coordinades per disputar centre i iniciativa'
+    ],
+    fork: [
+        'es perdia l’opció de crear dues amenaces alhora',
+        'el rival podia respondre una sola amenaça sense quedar lligat'
+    ],
+    pin: [
+        'la peça clavada podia alliberar-se o continuar defensant en aparença',
+        'es deixava escapar la pressió sobre una peça que tenia poca mobilitat'
+    ],
+    skewer: [
+        'l’alineació de peces deixava de ser una font de guany forçat',
+        'la línia oberta no es convertia en pressió sobre la peça del darrere'
+    ],
+    endgame: [
+        'el rival guanyava tempos importants en un final on cada casella pesa',
+        'l’activitat del rei o del peó passat quedava mal coordinada'
+    ],
+    general: [
+        'el rival rebia temps per millorar peces i reduir la pressió',
+        'la posició demanava una funció clara i la jugada no la resolia prou'
+    ]
+};
+
+function stripPlanIntro(text) {
+    return String(text || '')
+        .replace(/^(Aquest va ser el moment que va decidir la partida|Aquí es va escapar bona part de l’avantatge|Un error d’aquesta mida marca tot el que ve després|Si haguessis trobat el millor aquí, la partida canviava de color|Aquí la partida va fer un gir evitable|Aquest error costa, però s’entén i es corregeix|Un pas en fals com aquest sol venir d’anar amb pressa|Va ser un d’aquells moments per parar i mirar bé|Un detall petit, però val la pena fixar-s’hi|No és greu, però polir-ho et fa pujar de nivell|Una imprecisió com aquesta es repeteix si no la nomenes|Petit relliscada: la mena de cosa que distingeix nivells|Mirem-ho amb calma|Val la pena entendre què passava aquí|Aquí hi havia una lliçó concreta|Un moment per aprendre, no per lamentar)\.\s*/i, '')
+        .trim();
+}
+
+// Llindars d'avaluació en centipawns. Stockfish codifica el mat com ±10000.
+// Conveni dels moveReviews (vegeu registerMoveReview):
+//   evalBefore → perspectiva del jugador (+ = el jugador estava millor si jugava bé)
+//   evalAfter  → perspectiva del rival   (+ = el rival està millor després de l'error)
+const COACH_EVAL_MATE = 9000;
+const COACH_EVAL_DECISIVE = 250; // avantatge pràcticament guanyador
+function coachEvalNum(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
+function coachIsMate(cp) { const n = coachEvalNum(cp); return n !== null && Math.abs(n) >= COACH_EVAL_MATE; }
+
+// Escala el detall segons la gravetat (estil chess.com): una imprecisió és gairebé
+// d'una línia, un error mostra el nucli, i un error greu desplega l'explicació
+// completa amb la línia concreta i la pregunta de reflexió.
+function coachSectionsFor(quality) {
+    if (quality === 'blunder') {
+        return { fact: true, mistake: true, consequence: true, refutation: true, plan: true, continuation: true, candidates: true, question: true };
+    }
+    if (quality === 'mistake') {
+        return { fact: false, mistake: true, consequence: true, refutation: true, plan: true, continuation: true, candidates: false, question: false };
+    }
+    // inaccuracy (o desconegut): el mínim útil.
+    return { fact: false, mistake: true, consequence: false, refutation: false, plan: true, continuation: false, candidates: false, question: false };
+}
+
+// Classificació visual de la jugada (estil chess.com): etiqueta + color per gravetat.
+function coachQualityMeta(quality) {
+    if (quality === 'blunder') return { label: 'Error greu', color: '#e74c3c', bg: 'rgba(231,76,60,0.18)' };
+    if (quality === 'mistake') return { label: 'Error', color: '#e67e22', bg: 'rgba(230,126,34,0.18)' };
+    if (quality === 'inaccuracy') return { label: 'Imprecisió', color: '#d4ac0d', bg: 'rgba(212,172,13,0.18)' };
+    return null;
+}
+
+// Badge HTML per a la capçalera d'un moment, amb el cost aproximat en peons
+// derivat del swing (en centipawns) que ja calculem.
+function coachQualityBadgeHtml(moment, swingLegacy) {
+    // Accepta un moment {quality, swing, evalBefore, evalAfter} o (quality, swing).
+    const m = (moment && typeof moment === 'object') ? moment : { quality: moment, swing: swingLegacy };
+    const meta = coachQualityMeta(m.quality);
+    if (!meta) return '';
+    const cp = Math.abs(Math.round(Number(m.swing) || 0));
+    const before = coachEvalNum(m.evalBefore), after = coachEvalNum(m.evalAfter);
+    const mateInvolved = coachIsMate(before) || coachIsMate(after);
+    let cost = '';
+    if (mateInvolved || cp >= 1500) {
+        // El "cost en peons" no té sentit quan hi ha puntuacions de mat: un swing
+        // enorme aquí vol dir "mat deixat escapar", no que perdessis 85 peons.
+        const stillWinning = after !== null && after <= -300; // el rival segueix perdent
+        cost = stillWinning ? ' · victòria ajornada' : ' · pèrdua decisiva';
+    } else if (cp >= 50) {
+        cost = ` · −${(cp / 100).toFixed(1)}`;
+    }
+    const label = (typeof escapeHtml === 'function' ? escapeHtml(meta.label + cost) : meta.label + cost);
+    return `<span style="display:inline-block;padding:1px 7px;border-radius:6px;font-size:0.82em;font-weight:700;color:${meta.color};background:${meta.bg};margin-right:6px;white-space:nowrap;">${label}</span>`;
+}
+
+// Descriu la continuació real de la millor jugada (la PV ja calculada) en
+// llenguatge planer —nom de la peça i casella de destí ("el cavall captura a
+// d4")— sense notació algebraica, perquè sigui comprensible per a tothom.
+function buildContinuationNote(moment) {
+    const m = moment || {};
+    if (!m.fen) return '';
+    const pv = Array.isArray(m.pv) ? m.pv : [];
+    if (pv.length < 2) return '';
+    const seq = describeLineHuman(m.fen, pv, 0, 3);
+    if (!seq) return '';
+    const lead = (coachEvalNum(m.evalBefore) !== null && m.evalBefore >= COACH_EVAL_DECISIVE)
+        ? 'La línia guanyadora era'
+        : 'La idea continuava amb';
+    return `${lead} ${seq}.`;
+}
+
+// ── FASE B — Classificació determinista del resultat de l'error ──────────────
+// En comptes de triar la conseqüència pel TEMA (que pot contradir el tauler),
+// la derivem del que REALMENT passa: la línia de refutació i l'avaluació. Així
+// el text és concret ("permet mat", "penja una peça") i sempre coherent.
+
+// Reprodueix una línia UCI sobre un FEN i retorna l'objecte Chess final, o null.
+function playUciLine(fen, uciPv) {
+    try {
+        const g = new Chess(fen);
+        for (const u of (uciPv || [])) {
+            if (!u || u.length < 4) break;
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) return null;
+        }
+        return g;
+    } catch (e) { return null; }
+}
+
+// La refutació acaba (o passa) per un mat?
+function refutationEndsInMate(afterFen, uciPv) {
+    if (!afterFen || !Array.isArray(uciPv) || !uciPv.length) return false;
+    try {
+        const g = new Chess(afterFen);
+        for (const u of uciPv) {
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) return false;
+            if (g.in_checkmate()) return true;
+        }
+        return g.in_checkmate();
+    } catch (e) { return false; }
+}
+
+// Material (en peons) que guanya el rival —el que mou a afterFen— al llarg de la
+// refutació. Positiu = el rival captura material net.
+function refutationMaterialSwing(afterFen, uciPv) {
+    if (!afterFen || !Array.isArray(uciPv) || !uciPv.length) return 0;
+    const end = playUciLine(afterFen, uciPv);
+    if (!end) return 0;
+    try {
+        const opp = (afterFen.split(' ')[1] || 'w'); // qui mou a afterFen = el rival
+        const b = fenPieceStats(afterFen).material;
+        const a = fenPieceStats(end.fen()).material;
+        const oppBefore = opp === 'w' ? b.w - b.b : b.b - b.w;
+        const oppAfter = opp === 'w' ? a.w - a.b : a.b - a.w;
+        return oppAfter - oppBefore;
+    } catch (e) { return 0; }
+}
+
+// Etiqueta de resultat determinista. Retorna null si no hi ha cap senyal (ni
+// avaluació ni refutació): aleshores es manté el comportament per tema (legacy).
+function classifyMoveOutcome(moment) {
+    const m = moment || {};
+    const before = coachEvalNum(m.evalBefore); // + = el jugador estava millor
+    const after = coachEvalNum(m.evalAfter);   // + = el rival està millor després de l'error
+    const refPv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
+    const afterFen = m.afterFen || null;
+    if (before === null && after === null && !refPv.length) return null;
+
+    // 1) Mat permès (per la línia o per l'avaluació).
+    if (refutationEndsInMate(afterFen, refPv)) return 'allows_mate';
+    if (after !== null && coachIsMate(after) && after > 0) return 'allows_mate';
+
+    // 2) Tenies un avantatge guanyador i el deixes escapar.
+    if (before !== null && before > 0 && (coachIsMate(before) || before >= COACH_EVAL_DECISIVE)
+        && (after === null || after < COACH_EVAL_DECISIVE)) {
+        return 'lets_win_slip';
+    }
+
+    // 3) Pèrdua de material concreta a la refutació.
+    const mat = refutationMaterialSwing(afterFen, refPv);
+    if (mat >= 5) return 'loses_major';      // torre/dama
+    if (mat >= 3) return 'loses_piece';      // peça menor
+    if (mat >= 2) return 'loses_exchange';   // qualitat
+    if (mat >= 1) return 'loses_pawn';
+
+    // 4) Sense guany material directe: el rival pren el control.
+    if (after !== null && (coachIsMate(after) || after >= COACH_EVAL_DECISIVE)) return 'decisive_counterplay';
+    if (after !== null && after >= 110) return 'cedes_initiative';
+
+    return 'lets_advantage_slip';
+}
+
+// Banc de textos TIPATS per resultat (no per tema). Curts i concrets.
+const OUTCOME_CONSEQUENCES = {
+    allows_mate: ['permetia una seqüència de mat forçada', 'obria un mat que ja no es podia aturar'],
+    lets_win_slip: ['deixava escapar una posició pràcticament guanyada', 'malbaratava un avantatge que ja era decisiu'],
+    loses_major: ['regalava una peça pesant (torre o dama) sense compensació', 'perdia material decisiu per res'],
+    loses_piece: ['deixava una peça penjant sense compensació', 'perdia una peça neta'],
+    loses_exchange: ['cedia la qualitat, torre per peça menor', 'perdia la qualitat sense contrapartida'],
+    loses_pawn: ['cedia un peó sense compensació clara', 'regalava material que es nota al final'],
+    decisive_counterplay: ['donava al rival un atac o una iniciativa decisiva', 'deixava que el rival prengués el control de la partida'],
+    cedes_initiative: ['cedia la iniciativa i el rival agafava les regnes', 'deixava que el rival dictés el joc'],
+    lets_advantage_slip: ['diluïa l’avantatge i tornava a igualar la posició', 'deixava escapar la part bona de la posició']
+};
+
+// Diagnòstic ("Què va fallar") i pla ("Pla millor") COHERENTS amb el resultat,
+// per als casos forts on les frases genèriques per tema solen contradir el
+// tauler (p. ex. dir "defensa" quan en realitat ja guanyaves). Per als casos
+// suaus es manté la redacció humana del banc de plans (més variada).
+const OUTCOME_DIAGNOSIS = {
+    allows_mate: 'la jugada triada va passar per alt una seqüència de mat forçada',
+    lets_win_slip: 'ja tenies un avantatge guanyador i la jugada triada va afluixar la pressió en lloc de rematar',
+    loses_major: 'la jugada triada va deixar una peça pesant a l’abast del rival',
+    loses_piece: 'la jugada triada va deixar una peça sense protecció',
+    loses_exchange: 'la jugada triada va permetre que el rival guanyés la qualitat',
+    loses_pawn: 'la jugada triada va cedir un peó sense compensació'
+};
+const OUTCOME_PLANS = {
+    allows_mate: 'calia veure la seqüència forçada abans de res: rematar el mat o, si era en contra, aturar-lo',
+    lets_win_slip: 'ja guanyaves: tocava rematar amb la jugada més forçada i directa, sense relaxar la pressió',
+    loses_major: 'calia protegir la peça o no entrar en la línia que la perdia',
+    loses_piece: 'calia deixar totes les peces defensades abans de continuar',
+    loses_exchange: 'calia evitar el canvi desfavorable i conservar la qualitat',
+    loses_pawn: 'calia retenir el peó o aconseguir compensació clara a canvi'
+};
+
+// Hash estable (determinista) per triar sempre la mateixa variant per a una
+// mateixa jugada: així les ressenyes són consistents entre visites.
+function coachStableHash(str) {
+    let h = 0; const s = String(str || '');
+    for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
+    return Math.abs(h);
+}
+function pickStableLine(pool, moment) {
+    if (!Array.isArray(pool) || !pool.length) return '';
+    const m = moment || {};
+    const seed = `${m.moveNumber ?? '?'}|${m.fen || ''}`;
+    return pool[coachStableHash(seed) % pool.length];
+}
+
+// El càstig concret de la jugada feta, en llenguatge planer (nom de la peça i
+// casella de destí) en comptes de notació algebraica.
+function buildRefutationNote(moment) {
+    const m = moment || {};
+    const afterFen = m.afterFen;
+    const pv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
+    if (!afterFen || pv.length < 1) return '';
+    const seq = describeLineHuman(afterFen, pv, 0, 3);
+    return seq ? `Com et castiga: ${seq}.` : '';
+}
+
+function buildStructuredConsequence(moment) {
+    const m = moment || {};
+    const severity = m.quality === 'blunder'
+        ? 'Això era crític perquè'
+        : (m.quality === 'mistake' ? 'Això importava perquè' : 'El detall importava perquè');
+
+    // Resultat determinista a partir de la refutació i l'avaluació reals.
+    const outcome = classifyMoveOutcome(m);
+    if (outcome) {
+        const pool = OUTCOME_CONSEQUENCES[outcome] || OUTCOME_CONSEQUENCES.lets_advantage_slip;
+        return `${severity} ${toInlineAdvice(pickStableLine(pool, m))}.`;
+    }
+
+    // Legacy (partides sense avaluació ni refutació): comportament per tema.
+    const themeKey = resolveHumanPlanThemeKey(m);
+    const pool = STRUCTURED_CONSEQUENCES[themeKey] || STRUCTURED_CONSEQUENCES.general;
+    const line = fillPlanTemplate(pickFreshPlanLine(pool, themeKey + ':structured:consequence'), m);
+    return `${severity} ${toInlineAdvice(line)}.`;
+}
+
+function buildStructuredLocalExplanation(moment, plan = {}) {
+    const fallbackPlan = plan && typeof plan === 'object' ? plan : {};
+    const fact = moment && moment.positional
+        ? moment.positional
+        : `Era una posició de ${moment?.theme || 'joc general'} en fase de ${moment?.phase || 'partida'}.`;
+    // Per als resultats forts, fem servir diagnòstic i pla COHERENTS amb el que
+    // realment va passar, perquè no contradiguin la conseqüència ni el tauler.
+    // ensureCoachTextQuality (a baix) ja capitalitza i afegeix punt final.
+    const outcome = classifyMoveOutcome(moment || {});
+    const mistake = (outcome && OUTCOME_DIAGNOSIS[outcome])
+        ? OUTCOME_DIAGNOSIS[outcome]
+        : (stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.');
+    const consequence = buildStructuredConsequence(moment || {});
+    const betterPlan = (outcome && OUTCOME_PLANS[outcome])
+        ? OUTCOME_PLANS[outcome]
+        : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
+    return {
+        fact: ensureCoachTextQuality(fact),
+        mistake: ensureCoachTextQuality(mistake, 'La jugada triada no resolia la necessitat principal de la posició.'),
+        consequence: ensureCoachTextQuality(consequence),
+        plan: ensureCoachTextQuality(betterPlan, 'El pla millor era triar una jugada amb funció clara i menys contrajoc.'),
+        // La continuació i la refutació contenen notació SAN deliberadament, així
+        // que NO passen pel validador de text (que penalitza la SAN).
+        continuation: buildContinuationNote(moment || {}),
+        refutation: buildRefutationNote(moment || {}),
+        question: ensureCoachTextQuality(fallbackPlan.question || '', '', { sentence: false })
+    };
+}
+
 function buildHumanPlanMoments(entry, insights = null) {
     const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
     const priority = { blunder: 4, mistake: 3, inaccuracy: 2, good: 1, excel: 0 };
@@ -17103,16 +18107,23 @@ function buildHumanPlanMoments(entry, insights = null) {
                 // Versions en llenguatge planer per a les frases (sense notació SAN).
                 playedDesc: r.fen ? moveHumanText(r.fen, r.playerMove || r.playerMoveSan, r.playerMoveSan) : (r.playerMoveSan || '—'),
                 bestDesc: r.fen ? moveHumanText(r.fen, r.bestMove || r.bestMoveSan, r.bestMoveSan) : (r.bestMoveSan || '—'),
+                playedRef: 'la jugada triada',
+                bestRef: 'la millor jugada',
                 bestMoveUci: r.bestMove || null,
                 swing: Math.round(r.swing || 0),
                 quality: r.quality || 'inaccuracy',
+                evalBefore: r.evalBefore ?? null,
+                evalAfter: r.evalAfter ?? null,
+                refutationPv: Array.isArray(r.refutationPv) ? r.refutationPv : [],
+                afterFen: r.afterFen || null,
                 fen: r.fen || null,
                 pv: Array.isArray(r.bestMovePv) ? r.bestMovePv : [],
                 positional: buildPositionalNote(ctx),
                 candidates: buildCandidatesNote(r),
                 isPattern
             };
-            return { ...moment, ...buildLocalHumanPlan(moment) };
+            const plan = buildLocalHumanPlan(moment);
+            return { ...moment, ...plan, structured: buildStructuredLocalExplanation(moment, plan) };
         });
 }
 
