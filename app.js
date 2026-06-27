@@ -7102,14 +7102,13 @@ function showReviewBoardLegend(show) {
 // No esborra ressaltats previs: així es poden marcar dues jugades alhora (la
 // teva i la millor). chessboard.js marca les caselles amb data-square.
 //
-// El color FORT (vermell = la teva jugada, verd = la millor) va només a la
-// casella de DESTÍ, que és la que distingeix de debò un moviment d'un altre.
-// L'origen rep només un contorn subtil del mateix color. Així, quan les dues
-// jugades comparteixen la casella de sortida (p. ex. la mateixa peça moguda de
-// dues maneres), aquella casella ja no surt mig vermella mig verda: només es
-// pinten ben diferenciats els dos destins (l'error en vermell, la correcta en
-// verd). El degradat partit (highlight-overlap) queda reservat per al cas rar
-// en què tots dos moviments acaben a la MATEIXA casella de destí.
+// El color FORT (vermell = la teva jugada, verd = la millor) marca TOT el
+// moviment: la casella d'origen i la de destí. Així es veu clarament quina peça
+// va moure malament (vermell) i quina hauria d'haver mogut (verd). Quan les dues
+// jugades comparteixen una casella —típicament l'origen, perquè és la mateixa
+// peça moguda de dues maneres— aquella casella surt mig vermella mig verda
+// (highlight-overlap), però els dos destins queden ben diferenciats: el final
+// erroni en vermell i el final bo en verd.
 function highlightReviewedMove(beforeFen, move, cls) {
     const klass = cls || 'highlight-hint';
     if (!beforeFen || !move) return;
@@ -7122,11 +7121,12 @@ function highlightReviewedMove(beforeFen, move, cls) {
         if (!mv) return;
         const fromEl = $("#history-board .square-55d63[data-square='" + mv.from + "']");
         const toEl = $("#history-board .square-55d63[data-square='" + mv.to + "']");
-        // Origen: només contorn subtil (classe -from), sense farciment fort.
-        fromEl.addClass(klass + '-from');
-        // Destí: color fort + marca de destí.
+        // Color fort a origen i destí (la peça sencera).
+        fromEl.addClass(klass + ' ' + klass + '-from');
         toEl.addClass(klass + ' ' + klass + '-to');
-        // Només marquem el degradat partit si AMBDÓS destins coincideixen.
+        // Qualsevol casella compartida per totes dues jugades (origen amb la
+        // mateixa peça, o un destí coincident) es pinta mig i mig.
+        if (fromEl.hasClass('highlight-played') && fromEl.hasClass('highlight-best')) fromEl.addClass('highlight-overlap');
         if (toEl.hasClass('highlight-played') && toEl.hasClass('highlight-best')) toEl.addClass('highlight-overlap');
     } catch (e) {}
 }
