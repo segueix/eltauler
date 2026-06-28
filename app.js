@@ -33,6 +33,7 @@ let pendingEngineFirstMove = false;
 let userELO = 50; 
 let engineELO = 50;
 let savedErrors = [];
+let puzzles = []; // jeroglífics (puzzles tàctics de 3 jugades) generats de partides pròpies
 let currentReview = [];
 let reviewHistory = [];
 let reviewChart = null;
@@ -4582,6 +4583,7 @@ function ensureStockfish() {
 function loadStorage() {
     const elo = localStorage.getItem('chess_userELO'); if (elo) userELO = parseInt(elo);
     const errors = localStorage.getItem('chess_savedErrors'); if (errors) savedErrors = JSON.parse(errors);
+    try { const pz = localStorage.getItem('chess_puzzles'); if (pz) puzzles = JSON.parse(pz) || []; } catch (e) { puzzles = []; }
     const streak = localStorage.getItem('chess_streak'); if (streak) currentStreak = parseInt(streak);
     const lastDate = localStorage.getItem('chess_lastPracticeDate'); if (lastDate) lastPracticeDate = lastDate;
     const stars = localStorage.getItem('chess_totalStars'); if (stars) totalStars = parseInt(stars);
@@ -4714,6 +4716,7 @@ function loadStorage() {
 function saveStorage() {
     localStorage.setItem('chess_userELO', userELO);
     localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
+    try { localStorage.setItem('chess_puzzles', JSON.stringify(puzzles)); } catch (e) {}
     localStorage.setItem('chess_streak', currentStreak);
     localStorage.setItem('chess_lastPracticeDate', lastPracticeDate);
     localStorage.setItem('chess_totalStars', totalStars);
@@ -6348,6 +6351,58 @@ function takeBestLineFromPool() {
     const ex = bestLinePool.shift() || null;
     if (typeof backgroundPrepTick === 'function') setTimeout(backgroundPrepTick, 800);
     return ex;
+}
+
+// ── Magatzem de jeroglífics (puzzles tàctics) — Lliurament 1 ────────────────
+// Model ChessPuzzle (JS): { id, fen, sideToMove, solutionUci[], solutionSan[],
+// engineRepliesUci[], engineRepliesSan[], fullLineUci[], fullLineSan[], theme[],
+// difficulty, ratingEstimate, sourceGameId?, sourcePgn?, moveNumber?, evalBefore?,
+// evalAfter?, bestMoveMargin?, finalEval?, endsInMate?, createdAt, status }.
+
+function genPuzzleId() {
+    return 'pz_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+function getPuzzles(status) {
+    if (!status) return puzzles.slice();
+    return puzzles.filter(p => p && p.status === status);
+}
+
+// Desa un puzzle: dedup per FEN, completa dificultat/rating/explicació i
+// AUTO-APROVA si compleix els criteris (si no, queda 'rejected'). Retorna el
+// puzzle desat o null si era duplicat / dades incompletes.
+function savePuzzleDraft(raw) {
+    if (!raw || !raw.fen || !Array.isArray(raw.solutionUci) || raw.solutionUci.length !== 3) return null;
+    if (ElTaulerCore.puzzleIsDuplicateFen(puzzles, raw.fen)) return null; // no duplicats per FEN
+
+    const p = Object.assign({
+        id: genPuzzleId(),
+        theme: [],
+        engineRepliesUci: [],
+        engineRepliesSan: [],
+        solutionSan: [],
+        fullLineUci: [],
+        fullLineSan: [],
+        createdAt: Date.now(),
+        status: 'draft'
+    }, raw);
+
+    p.sideToMove = p.sideToMove || (String(p.fen).split(' ')[1] === 'b' ? 'b' : 'w');
+    p.difficulty = ElTaulerCore.puzzleDifficulty(p);
+    p.ratingEstimate = ElTaulerCore.puzzleRatingEstimate(p);
+    p.explanation = ElTaulerCore.puzzleExplanation(p);
+    // Auto-aprovació segons criteris (gap ≥150 o mat, final decisiu, 3 jugades).
+    p.status = ElTaulerCore.puzzleMeetsCriteria(p) ? 'approved' : 'rejected';
+
+    puzzles.push(p);
+    if (puzzles.length > 500) puzzles = puzzles.slice(-500);
+    try { saveStorage(); } catch (e) {}
+    return p;
+}
+
+if (typeof window !== 'undefined') {
+    window.getPuzzles = getPuzzles;
+    window.savePuzzleDraft = savePuzzleDraft;
 }
 
 // Helper de proves: genera un exercici i el mostra a la consola.
