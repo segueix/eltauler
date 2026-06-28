@@ -12496,6 +12496,86 @@ function explainHieroglyphicAnswer() {
     return `${theme.charAt(0).toUpperCase()}${theme.slice(1)}.${swing}`;
 }
 
+
+function entryMovesForHieroglyphicScan(entry) {
+    if (!entry) return [];
+    if (Array.isArray(entry.moves) && entry.moves.length) return entry.moves.slice();
+    const pgn = (typeof buildEntryPgn === 'function' ? buildEntryPgn(entry) : entry.pgn) || entry.pgn || '';
+    if (!pgn) return [];
+    try {
+        const g = new Chess();
+        if (g.load_pgn(pgn, { sloppy: true })) return g.history();
+    } catch (e) {}
+    return [];
+}
+function pieceAtFenSquare(fen, square) {
+    try { return new Chess(fen).get(square); } catch (e) { return null; }
+}
+function isKnightForkAfterMove(afterFen, toSquare, moverColor) {
+    const knight = pieceAtFenSquare(afterFen, toSquare);
+    if (!knight || knight.type !== 'n' || knight.color !== moverColor) return false;
+    const file = toSquare.charCodeAt(0) - 97;
+    const rank = parseInt(toSquare[1], 10) - 1;
+    const jumps = [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]];
+    const g = new Chess(afterFen);
+    let targets = 0;
+    jumps.forEach(([df, dr]) => {
+        const f = file + df, r = rank + dr;
+        if (f < 0 || f > 7 || r < 0 || r > 7) return;
+        const sq = String.fromCharCode(97 + f) + String(r + 1);
+        const p = g.get(sq);
+        if (p && p.color !== moverColor && ['k', 'q', 'r'].includes(p.type)) targets++;
+    });
+    return targets >= 2;
+}
+function collectPlayedTacticHieroglyphicCandidates(preferredEntry = null) {
+    const entries = preferredEntry ? [preferredEntry] : (Array.isArray(gameHistory) ? gameHistory.slice(-10).reverse() : []);
+    const out = [];
+    entries.forEach(entry => {
+        const moves = entryMovesForHieroglyphicScan(entry);
+        if (!moves.length) return;
+        const g = new Chess();
+        const played = [];
+        for (let i = 0; i < moves.length; i++) {
+            const beforeFen = g.fen();
+            const mv = g.move(moves[i], { sloppy: true });
+            if (!mv) break;
+            const uci = `${mv.from}${mv.to}${mv.promotion || ''}`;
+            played.push({ beforeFen, uci, san: mv.san, color: mv.color, to: mv.to, afterFen: g.fen() });
+            const isMate = /#/.test(mv.san) || g.in_checkmate();
+            const isCheck = !isMate && (/\+/.test(mv.san) || g.in_check());
+            const isFork = isKnightForkAfterMove(g.fen(), mv.to, mv.color);
+            if (!isMate && !isCheck && !isFork) continue;
+            const theme = isMate ? 'mate' : (isFork ? 'fork' : 'king_attack');
+            // Construïm el jeroglífic a l'inrevés: si és possible, tornem fins a
+            // dues jugades pròpies abans (5 plies) perquè la primera resposta de
+            // l'alumne sigui l'inici real de la seqüència que acaba en el motiu.
+            const sameSideStarts = [i - 4, i - 2, i].filter(idx => idx >= 0 && played[idx] && played[idx].color === mv.color);
+            const startIdx = sameSideStarts.length ? sameSideStarts[0] : i;
+            const line = played.slice(startIdx, i + 1);
+            const first = line[0];
+            out.push({
+                fen: first.beforeFen,
+                bestMove: first.uci,
+                playerMove: first.uci,
+                bestMoveSan: first.san,
+                pv: line.map(x => x.uci),
+                severity: isMate ? 'high' : (isFork ? 'med' : 'low'),
+                swing: isMate ? 900 : (isFork ? 450 : 220),
+                source: 'gameHistory.tactic',
+                entryId: entry.id || null,
+                theme,
+                tacticKind: isMate ? 'escac i mat' : (isFork ? 'forquilla' : 'escac'),
+                targetMoveSan: mv.san,
+                rewindPlies: i - startIdx,
+                moveNumber: Math.ceil((startIdx + 1) / 2),
+                score: (isMate ? 9000 : isFork ? 7000 : 5000) + (i - startIdx) * 10 + i
+            });
+        }
+    });
+    return out;
+}
+
 function normalizeHieroglyphicCandidate(raw, source, entry = null) {
     if (!raw || !raw.fen || !raw.bestMove) return null;
     const severityRank = raw.severity === 'high' || raw.quality === 'blunder' ? 4
@@ -12511,6 +12591,9 @@ function normalizeHieroglyphicCandidate(raw, source, entry = null) {
         evalBefore: raw.evalBefore ?? null,
         evalAfter: raw.evalAfter ?? null,
         swing,
+        bestMoveSan: raw.bestMoveSan || null,
+        theme: raw.theme || null,
+        tacticKind: raw.tacticKind || null,
         severity: raw.severity || raw.quality || 'critical',
         source,
         entryId: entry?.id || null,
@@ -12535,6 +12618,7 @@ function collectPersonalHieroglyphicCandidates(preferredEntry = null) {
             const c = normalizeHieroglyphicCandidate(e, 'gameHistory.errors', latest);
             if (c) list.push(c);
         });
+        collectPlayedTacticHieroglyphicCandidates(latest).forEach(c => list.push(c));
         (latest.moveReviews || []).forEach(r => {
             if (['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80) {
                 const c = normalizeHieroglyphicCandidate(r, 'gameHistory.review', latest);
@@ -12542,6 +12626,7 @@ function collectPersonalHieroglyphicCandidates(preferredEntry = null) {
             }
         });
     }
+    if (!preferredEntry) collectPlayedTacticHieroglyphicCandidates(null).forEach(c => list.push(c));
     (savedErrors || []).forEach(e => {
         const c = normalizeHieroglyphicCandidate(e, 'savedErrors');
         if (c) list.push(c);
@@ -12588,7 +12673,7 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
     }
     const chosen = candidates[0];
     try {
-        hieroglyphicOpening = { name: 'El teu error', idea: 'Converteix la posició crítica en una idea recordable.' };
+        hieroglyphicOpening = { name: chosen.tacticKind ? `Tàctica jugada: ${chosen.tacticKind}` : 'El teu error', idea: chosen.tacticKind ? 'Reconstrueix la jugada tàctica que ja va aparèixer en una partida teva.' : 'Converteix la posició crítica en una idea recordable.' };
         hieroglyphicGame = new Chess(chosen.fen);
         hieroglyphicAttempts = 0;
         hieroglyphicStep = 0;
@@ -12600,7 +12685,10 @@ function startPersonalHieroglyphicFromLastGame(entry = null) {
             alternatives: chosen.alternatives,
             evalBefore: chosen.evalBefore,
             evalAfter: chosen.evalAfter,
-            swing: chosen.swing
+            swing: chosen.swing,
+            theme: chosen.theme,
+            tacticKind: chosen.tacticKind,
+            bestMoveSan: chosen.bestMoveSan
         });
         hieroglyphicExpectedUci = hieroglyphicContext.bestMoveUci || chosen.bestMove;
         hieroglyphicSource = 'personal';
