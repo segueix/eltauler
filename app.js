@@ -12511,22 +12511,32 @@ function entryMovesForHieroglyphicScan(entry) {
 function pieceAtFenSquare(fen, square) {
     try { return new Chess(fen).get(square); } catch (e) { return null; }
 }
-function isKnightForkAfterMove(afterFen, toSquare, moverColor) {
-    const knight = pieceAtFenSquare(afterFen, toSquare);
-    if (!knight || knight.type !== 'n' || knight.color !== moverColor) return false;
-    const file = toSquare.charCodeAt(0) - 97;
-    const rank = parseInt(toSquare[1], 10) - 1;
-    const jumps = [[1,2],[2,1],[-1,2],[-2,1],[1,-2],[2,-1],[-1,-2],[-2,-1]];
-    const g = new Chess(afterFen);
-    let targets = 0;
-    jumps.forEach(([df, dr]) => {
-        const f = file + df, r = rank + dr;
-        if (f < 0 || f > 7 || r < 0 || r > 7) return;
-        const sq = String.fromCharCode(97 + f) + String(r + 1);
-        const p = g.get(sq);
-        if (p && p.color !== moverColor && ['k', 'q', 'r'].includes(p.type)) targets++;
-    });
-    return targets >= 2;
+function isForkAfterMove(afterFen, toSquare, moverColor) {
+    const moved = pieceAtFenSquare(afterFen, toSquare);
+    if (!moved || moved.color !== moverColor) return false;
+    try {
+        const hits = attacksFrom(fenPieceStats(afterFen).board, toSquare, moved.type, moverColor);
+        const valuableHits = hits.filter(h => ['k', 'q', 'r'].includes(h.piece));
+        return valuableHits.length >= 2;
+    } catch (e) {
+        return false;
+    }
+}
+function countCheckReplies(afterFen) {
+    try {
+        const g = new Chess(afterFen);
+        return g.in_check() ? g.moves().length : Infinity;
+    } catch (e) {
+        return Infinity;
+    }
+}
+function playedCheckIsForcing(move, afterFen) {
+    if (!move) return false;
+    const replies = countCheckReplies(afterFen);
+    // No tots els escacs són bons jeroglífics: demanem que restringeixi molt el
+    // rival o que vingui amb captura/promoció, que normalment dona una pista
+    // tàctica clara sense haver de consultar el motor.
+    return replies <= 3 || !!move.captured || !!move.promotion;
 }
 function collectPlayedTacticHieroglyphicCandidates(preferredEntry = null) {
     const entries = preferredEntry ? [preferredEntry] : (Array.isArray(gameHistory) ? gameHistory.slice(-10).reverse() : []);
@@ -12544,8 +12554,8 @@ function collectPlayedTacticHieroglyphicCandidates(preferredEntry = null) {
             played.push({ beforeFen, uci, san: mv.san, color: mv.color, to: mv.to, afterFen: g.fen() });
             const isMate = /#/.test(mv.san) || g.in_checkmate();
             const isCheck = !isMate && (/\+/.test(mv.san) || g.in_check());
-            const isFork = isKnightForkAfterMove(g.fen(), mv.to, mv.color);
-            if (!isMate && !isCheck && !isFork) continue;
+            const isFork = isForkAfterMove(g.fen(), mv.to, mv.color);
+            if (!isMate && !isFork && (!isCheck || !playedCheckIsForcing(mv, g.fen()))) continue;
             const theme = isMate ? 'mate' : (isFork ? 'fork' : 'king_attack');
             // Construïm el jeroglífic a l'inrevés: si és possible, tornem fins a
             // dues jugades pròpies abans (5 plies) perquè la primera resposta de
@@ -12561,7 +12571,7 @@ function collectPlayedTacticHieroglyphicCandidates(preferredEntry = null) {
                 bestMoveSan: first.san,
                 pv: line.map(x => x.uci),
                 severity: isMate ? 'high' : (isFork ? 'med' : 'low'),
-                swing: isMate ? 900 : (isFork ? 450 : 220),
+                swing: isMate ? 900 : (isFork ? 500 : 260),
                 source: 'gameHistory.tactic',
                 entryId: entry.id || null,
                 theme,
