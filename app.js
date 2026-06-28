@@ -12814,6 +12814,29 @@ function getHieroglyphicNextButtonHtml() {
         : '';
 }
 
+
+function refreshHieroglyphicStepContext(statusText = '') {
+    if (!hieroglyphicGame || !hieroglyphicExpectedUci) return;
+    const remainingPv = (hieroglyphicSolutionUci || []).slice(hieroglyphicStep);
+    hieroglyphicContext = buildHieroglyphicContext(hieroglyphicGame.fen(), hieroglyphicExpectedUci, {
+        source: hieroglyphicSource || 'personal',
+        pv: remainingPv,
+        alternatives: [],
+        swing: 0
+    });
+    hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
+    const myToken = ++hieroglyphicToken;
+    renderHieroglyphicExerciseNote(!!openaiApiKey, statusText);
+    if (openaiApiKey) {
+        fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
+            if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === 0) {
+                hieroglyphicClue = text;
+            }
+            renderHieroglyphicExerciseNote(false, statusText);
+        });
+    }
+}
+
 function handleHieroglyphicMove(source, target) {
     if (!hieroglyphicExerciseActive || !hieroglyphicGame) return 'snapback';
     const move = hieroglyphicGame.move({ from: source, to: target, promotion: 'q' });
@@ -12832,7 +12855,7 @@ function handleHieroglyphicMove(source, target) {
             hieroglyphicExpectedMove = hieroglyphicExpectedUci;
             hieroglyphicAttempts = 0;
             if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
-            renderHieroglyphicExerciseNote(false, `Correcte. Pas ${hieroglyphicStep + 1}/${hieroglyphicSolutionUci.length}.`);
+            refreshHieroglyphicStepContext(`Correcte. Pas ${hieroglyphicStep + 1}/${hieroglyphicSolutionUci.length}.`);
             return;
         }
         registerHieroglyphicSolved();
