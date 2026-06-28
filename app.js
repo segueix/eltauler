@@ -6131,6 +6131,153 @@ async function prepareBundleSequence(fen, opts = {}) {
     }
 }
 
+// ============================================================================
+// EXERCICI "MILLOR LÍNIA" DE 3 JUGADES (Lliurament 1 — generador i origen)
+// ============================================================================
+// Genera una línia FIXA i verificada de N jugades del jugador (per defecte 3),
+// on a CADA pas del jugador la millor jugada supera clarament la segona (gap),
+// de manera que la línia és "neta" i la pista pot coincidir sempre amb la
+// solució. No exigeix mat. La part interactiva (playback/pista) és el
+// Lliurament 2; aquí només es prepara i es verifica la seqüència.
+
+// Verifica i construeix la línia a partir d'un FEN. Retorna l'estructura de
+// l'exercici o null si la posició no compleix el filtre de qualitat.
+async function prepareBestLineExercise(fen, opts = {}) {
+    const playerMoves = opts.playerMoves || 3;
+    const gapCp = typeof opts.gapCp === 'number' ? opts.gapCp : 150;
+    const depth = opts.depth || 15;
+    const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
+
+    if (!stockfish) { ensureStockfish(); await new Promise(r => setTimeout(r, 300)); }
+    let waitCount = 0;
+    while (!stockfishReady && waitCount < 20) { await new Promise(r => setTimeout(r, 100)); waitCount++; }
+    if (!stockfishReady) return null;
+
+    try {
+        try { stockfish.postMessage('stop'); } catch (e) {}
+        const steps = [];
+        const fullSequence = [];
+        const fullSequenceSan = [];
+        let curFen = fen;
+        let endsInMate = false;
+
+        for (let i = 0; i < playerMoves; i++) {
+            if (shouldAbort()) return null;
+            // Pas del jugador: MultiPV 3 per poder mesurar el gap amb la 2a opció.
+            const a = await analyzeFenRobust(curFen, depth, 3, 8000, shouldAbort);
+            if (!a || !a.bestMove || !a.bestMove.move) return null;
+            if (!ElTaulerCore.bestLineStepQualifies(a.alternatives, gapCp)) return null; // no és "clarament millor"
+
+            const pMove = a.bestMove.move;
+            const pSan = uciToSan(curFen, pMove);
+            const g = new Chess(curFen);
+            const mv = g.move({ from: pMove.slice(0, 2), to: pMove.slice(2, 4), promotion: pMove.length > 4 ? pMove[4] : undefined });
+            if (!mv) return null;
+
+            steps.push({
+                fen: curFen,
+                playerMove: pMove,
+                playerMoveSan: pSan,
+                playerMovePv: a.bestMove.pv || [],
+                evalBefore: a.bestMove.eval,
+                evalType: a.bestMove.evalType,
+                gap: ElTaulerCore.bestLineGapCp(a.alternatives)
+            });
+            fullSequence.push(pMove);
+            fullSequenceSan.push(pSan);
+            curFen = g.fen();
+            if (g.game_over()) { endsInMate = g.in_checkmate(); break; }
+
+            // Rèplica del rival (millor jugada) si encara queden jugades del jugador.
+            if (i < playerMoves - 1) {
+                if (shouldAbort()) return null;
+                const o = await analyzeFenRobust(curFen, depth, 1, 8000, shouldAbort);
+                if (!o || !o.bestMove || !o.bestMove.move) return null;
+                const oMove = o.bestMove.move;
+                const oSan = uciToSan(curFen, oMove);
+                const g2 = new Chess(curFen);
+                const mv2 = g2.move({ from: oMove.slice(0, 2), to: oMove.slice(2, 4), promotion: oMove.length > 4 ? oMove[4] : undefined });
+                if (!mv2) return null;
+                fullSequence.push(oMove);
+                fullSequenceSan.push(oSan);
+                curFen = g2.fen();
+                if (g2.game_over()) { endsInMate = g2.in_checkmate(); break; }
+            }
+        }
+
+        if (!steps.length) return null;
+        return { initialFen: fen, playerMoves: steps.length, steps, fullSequence, fullSequenceSan, endsInMate, gapCp };
+    } catch (e) {
+        console.warn('[BestLine] error preparant exercici', e);
+        return null;
+    }
+}
+
+// Recull posicions candidates: primer les teves errades reals (riques i amb una
+// jugada clara), després el banc curat com a reserva ("totes dues").
+function collectBestLineCandidateFens(maxN = 40) {
+    const out = [];
+    const seen = new Set();
+    const add = (fen) => { if (fen && typeof fen === 'string' && !seen.has(fen)) { seen.add(fen); out.push(fen); } };
+
+    (savedErrors || []).forEach(e => add(e && e.fen));
+    (gameHistory || []).forEach(entry => {
+        (entry && entry.moveReviews || []).forEach(r => {
+            if (r && r.fen && (r.quality === 'mistake' || r.quality === 'blunder')) add(r.fen);
+        });
+    });
+    const bank = (typeof TACTICS_BANK !== 'undefined' && TACTICS_BANK.length)
+        ? TACTICS_BANK.slice()
+        : DAILY_PUZZLE_BANK.map(p => p.fen);
+    bank.forEach(add);
+
+    return out.slice(0, maxN);
+}
+
+// Itera candidats fins a trobar una línia que passi el filtre. Retorna
+// l'exercici (o null). Accepta línies que acaben en mat abans de les 3 jugades.
+async function generateBestLineExercise(opts = {}) {
+    const playerMoves = opts.playerMoves || 3;
+    const gapCp = typeof opts.gapCp === 'number' ? opts.gapCp : 150;
+    const maxTries = opts.maxTries || 14;
+    const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
+    const candidates = collectBestLineCandidateFens(opts.maxCandidates || 40);
+
+    let tried = 0;
+    for (const fen of candidates) {
+        if (tried >= maxTries || shouldAbort()) break;
+        tried++;
+        const ex = await prepareBestLineExercise(fen, { playerMoves, gapCp, depth: opts.depth || 15, shouldAbort: opts.shouldAbort });
+        if (ex && (ex.steps.length >= playerMoves || ex.endsInMate)) {
+            ex.triedCandidates = tried;
+            return ex;
+        }
+    }
+    return null;
+}
+
+// Helper de proves (Lliurament 1): genera un exercici i el mostra a la consola.
+// Ús: a la consola del navegador, `await testBestLineExercise()`.
+async function testBestLineExercise(opts = {}) {
+    console.log('[BestLine] Generant exercici de 3 jugades…');
+    const ex = await generateBestLineExercise(opts);
+    if (!ex) { console.warn('[BestLine] Cap posició candidata ha passat el filtre. Prova a abaixar gapCp o jugar més partides.'); return null; }
+    console.log('[BestLine] Exercici net trobat:', {
+        initialFen: ex.initialFen,
+        jugadesJugador: ex.playerMoves,
+        liniaSAN: ex.fullSequenceSan.join(' '),
+        acabaEnMat: ex.endsInMate,
+        gaps: ex.steps.map(s => s.gap),
+        candidatsProvats: ex.triedCandidates
+    });
+    return ex;
+}
+if (typeof window !== 'undefined') {
+    window.prepareBestLineExercise = prepareBestLineExercise;
+    window.generateBestLineExercise = generateBestLineExercise;
+    window.testBestLineExercise = testBestLineExercise;
+}
+
 function analyzePvThreats(fen, pv) {
     if (!pv || pv.length === 0) {
         return { threats: [], themes: [], immediateThreats: [] };

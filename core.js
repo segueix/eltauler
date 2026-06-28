@@ -497,8 +497,50 @@
         return total / games.length;
     }
 
+    // ----------------------------------------------------------------------
+    // Exercicis de "millor línia" (3 jugades fixades): matemàtica del filtre de
+    // qualitat "clarament millor". Una avaluació {eval, evalType} es converteix
+    // en una puntuació comparable (perspectiva del costat que mou; com més alt,
+    // millor) i el gap entre la 1a i la 2a opció decideix si el pas és "net".
+    // ----------------------------------------------------------------------
+
+    // Converteix {eval, evalType} en un nombre comparable. El mat sempre domina
+    // qualsevol cp; un mat més curt val més que un de més llarg.
+    function bestLineEvalScore(e) {
+        if (!e || typeof e.eval !== 'number') return null;
+        if (e.evalType === 'mate') {
+            const n = Math.abs(e.eval);
+            const magnitude = 100000 - n * 100; // mat en 1 > mat en 8
+            return e.eval >= 0 ? magnitude : -magnitude;
+        }
+        return e.eval; // centipawns, perspectiva del costat que mou
+    }
+
+    // Gap (en cp comparables) entre la millor opció i la segona d'una llista
+    // d'alternatives ordenades (multipv 1, 2, ...). Si només n'hi ha una opció
+    // (jugada forçada), retorna Infinity. Si no es pot calcular, retorna null.
+    function bestLineGapCp(alternatives) {
+        if (!Array.isArray(alternatives) || !alternatives.length) return null;
+        const best = bestLineEvalScore(alternatives[0]);
+        if (best === null) return null;
+        if (alternatives.length < 2) return Infinity; // només una jugada bona
+        const second = bestLineEvalScore(alternatives[1]);
+        if (second === null) return Infinity;
+        return best - second;
+    }
+
+    // El pas és "clarament millor" si el gap arriba al llindar (o és forçat).
+    function bestLineStepQualifies(alternatives, gapCp) {
+        const gap = bestLineGapCp(alternatives);
+        if (gap === null) return false;
+        return gap >= (typeof gapCp === 'number' ? gapCp : 150);
+    }
+
     return {
         clampElo,
+        bestLineEvalScore,
+        bestLineGapCp,
+        bestLineStepQualifies,
         normalize,
         clampUserElo,
         getBaselineAdjustmentDelta,
