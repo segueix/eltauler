@@ -1096,13 +1096,39 @@ function reviewHtmlElementToText(el) {
     return text.replace(/ /g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
+// Munta les errades comentades per a l'exportació, amb el text complet (sense
+// retallar) i un camp per línia, perquè es llegeixin millor que a la targeta.
+function buildErrorNotesExportText(entry) {
+    const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
+    if (!errors.length) return '';
+    const notes = entry.errorNotes || {};
+    return errors.map(err => {
+        const d = describeSevereError(err);
+        const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
+        const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
+        const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
+        const meta = coachQualityMeta(quality);
+        const label = meta ? meta.label : 'Error';
+        const head = `${label} · Jugada ${d.moveNumber}: vas jugar ${playedDesc} · la millor era ${bestDesc}`;
+        const note = notes[getErrorNoteKey(err)] || null;
+        const body = (note && note.status === 'done' && note.text)
+            ? note.text
+            : buildLocalErrorNote(err, entry, { full: true });
+        return `${head}\n${body}`;
+    }).join('\n\n');
+}
+
 // Munta el text pla amb només els textos generats de la ressenya actual:
-// capçalera + ressenya/moments clau + errades comentades.
+// capçalera neta + ressenya/moments clau (text complet) + errades comentades.
 function buildHistoryReviewText(entry) {
     const lines = ['El Tauler — Ressenya de la partida'];
+    const outcome = entryOutcome(entry);
+    const resultWord = outcome === 'win' ? 'Victòria'
+        : outcome === 'loss' ? 'Derrota'
+        : outcome === 'draw' ? 'Taules'
+        : String(entry.result || '').split('·')[0].trim();
     const meta = [
-        entry.result,
-        entry.label,
+        resultWord,
         formatHistoryMode(entry.mode),
         (typeof entry.precision === 'number' ? `Precisió ${entry.precision}%` : '')
     ].filter(Boolean).join(' · ');
@@ -1112,12 +1138,24 @@ function buildHistoryReviewText(entry) {
         if (!isNaN(d)) lines.push(d.toLocaleString('ca-ES'));
     }
 
-    const reviewText = reviewHtmlElementToText(document.getElementById('history-review-content'));
+    // Regenerem la ressenya amb full=true per tenir el text complet (sense "…"),
+    // afegint-hi la redacció d'IA al davant si n'hi ha (com a pantalla).
+    let reviewText = '';
+    try {
+        const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
+        let html = '';
+        if (review && review.text) html += `<div>${formatOpenAIReviewText(review.text)}</div>`;
+        html += renderLocalReviewHtml(entry, { full: true });
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        reviewText = reviewHtmlElementToText(tmp);
+    } catch (e) {
+        console.warn('[ReviewText] body', e);
+        reviewText = reviewHtmlElementToText(document.getElementById('history-review-content'));
+    }
     lines.push('\n=== Ressenya i moments clau ===', reviewText || '(sense ressenya generada)');
 
-    const notesBlock = document.getElementById('history-error-notes-block');
-    const notesVisible = notesBlock && notesBlock.style.display !== 'none';
-    const notesText = notesVisible ? reviewHtmlElementToText(document.getElementById('history-error-notes')) : '';
+    const notesText = buildErrorNotesExportText(entry);
     if (notesText) lines.push('\n=== Errades comentades ===', notesText);
 
     return lines.join('\n');
@@ -7577,7 +7615,7 @@ function findMoveReviewForError(entry, err) {
 // Explicació rica d'una errada generada LOCALMENT (sense OpenAI): fets posicionals
 // concrets, diagnòstic segons tema i gravetat, el pla correcte, la continuació de
 // la línia i una pregunta de reflexió. Reaprofita el banc de plans humans.
-function buildLocalErrorNote(err, entry) {
+function buildLocalErrorNote(err, entry, opts = {}) {
     if (!err) return 'Errada detectada en aquesta posició.';
     const d = describeSevereError(err);
     const mr = findMoveReviewForError(entry, err);
@@ -7625,7 +7663,7 @@ function buildLocalErrorNote(err, entry) {
     };
     let plan = {};
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
-    const structured = buildStructuredLocalExplanation(moment, plan);
+    const structured = buildStructuredLocalExplanation(moment, plan, opts);
     const show = coachSectionsFor(moment.quality);
     const parts = [];
     if (show.fact && structured.fact) parts.push(`Posició: ${structured.fact}`);
@@ -7636,7 +7674,8 @@ function buildLocalErrorNote(err, entry) {
     if (show.continuation && structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
     if (show.candidates && moment.candidates) parts.push(moment.candidates);
     if (show.question && structured.question) parts.push(`Pregunta clau: ${structured.question}`);
-    const text = parts.filter(Boolean).join(' ').trim();
+    // A l'exportació (full) posem cada camp en una línia; a pantalla, en línia seguida.
+    const text = parts.filter(Boolean).join(opts.full ? '\n' : ' ').trim();
     return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
 }
 
@@ -7821,7 +7860,7 @@ function practiceOpeningFromHistory(idx, color) {
 // Construeix la ressenya rica de l'historial: debrief, obertura amb enllaç a la
 // pràctica i % de correcció, % i temes del mig joc, % i consell del final, i els
 // moments clau amb jugades descriptives clicables.
-function renderLocalReviewHtml(entry) {
+function renderLocalReviewHtml(entry, opts = {}) {
     if (!entry) return '';
     const blocks = [];
     try {
@@ -7947,7 +7986,7 @@ function renderLocalReviewHtml(entry) {
         }
 
         // --- Moments clau (jugades descriptives clicables) ---
-        const moments = buildHumanPlanMoments(entry);
+        const moments = buildHumanPlanMoments(entry, null, opts);
         if (moments.length) {
             const items = moments.map(m => {
                 const desc = m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best;
@@ -7959,7 +7998,7 @@ function renderLocalReviewHtml(entry) {
                 const badge = coachQualityBadgeHtml(m);
                 const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
                 const header = badge
-                    ? `${moveNumLabel} · ${badge}(${escapeHtml(m.theme)}): millor jugada → ${link}.`
+                    ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): millor jugada → ${link}.`
                     : `${moveNumLabel} (${escapeHtml(m.theme)}): millor jugada → ${link}.`;
                 const lines = [
                     header,
@@ -18352,8 +18391,16 @@ function buildStructuredConsequence(moment) {
     return `${severity} ${toInlineAdvice(line)}.`;
 }
 
-function buildStructuredLocalExplanation(moment, plan = {}) {
+function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     const fallbackPlan = plan && typeof plan === 'object' ? plan : {};
+    // full=true (exportació per analitzar): no retallem el text a 14-16 paraules
+    // amb "…"; deixem les frases senceres perquè no quedin tallades a mitja frase.
+    const full = !!opts.full;
+    const fld = (text, fallback, o = {}) => {
+        const polished = ensureCoachTextQuality(text, fallback, o);
+        return full ? polished : shortenCoachComment(polished, o.maxWords || 18);
+    };
+    const sanFld = (text, maxWords) => full ? String(text || '').trim() : shortenCoachComment(text, maxWords);
     const fact = moment && moment.positional
         ? moment.positional
         : `Era una posició de ${moment?.theme || 'joc general'} en fase de ${moment?.phase || 'partida'}.`;
@@ -18369,19 +18416,19 @@ function buildStructuredLocalExplanation(moment, plan = {}) {
         ? OUTCOME_PLANS[outcome]
         : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
     return {
-        fact: compactStructuredCoachText(fact, '', { maxWords: 16 }),
-        mistake: compactStructuredCoachText(mistake, 'La jugada triada no resolia la necessitat principal.', { maxWords: 16 }),
-        consequence: compactStructuredCoachText(consequence, '', { maxWords: 16 }),
-        plan: compactStructuredCoachText(betterPlan, 'Tria una jugada amb funció clara i poc contrajoc.', { maxWords: 16 }),
+        fact: fld(fact, '', { maxWords: 16 }),
+        mistake: fld(mistake, 'La jugada triada no resolia la necessitat principal.', { maxWords: 16 }),
+        consequence: fld(consequence, '', { maxWords: 16 }),
+        plan: fld(betterPlan, 'Tria una jugada amb funció clara i poc contrajoc.', { maxWords: 16 }),
         // La continuació i la refutació contenen notació SAN deliberadament, així
         // que NO passen pel validador de text (que penalitza la SAN).
-        continuation: shortenCoachComment(buildContinuationNote(moment || {}), 14),
-        refutation: shortenCoachComment(buildRefutationNote(moment || {}), 14),
-        question: compactStructuredCoachText(fallbackPlan.question || '', '', { sentence: false, maxWords: 14 })
+        continuation: sanFld(buildContinuationNote(moment || {}), 14),
+        refutation: sanFld(buildRefutationNote(moment || {}), 14),
+        question: fld(fallbackPlan.question || '', '', { sentence: false, maxWords: 14 })
     };
 }
 
-function buildHumanPlanMoments(entry, insights = null) {
+function buildHumanPlanMoments(entry, insights = null, opts = {}) {
     const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
     const priority = { blunder: 4, mistake: 3, inaccuracy: 2, good: 1, excel: 0 };
     const ins = insights || buildPlayerInsights(entry && entry.id);
@@ -18421,7 +18468,7 @@ function buildHumanPlanMoments(entry, insights = null) {
                 isPattern
             };
             const plan = buildLocalHumanPlan(moment);
-            return { ...moment, ...plan, structured: buildStructuredLocalExplanation(moment, plan) };
+            return { ...moment, ...plan, structured: buildStructuredLocalExplanation(moment, plan, opts) };
         });
 }
 
