@@ -10965,6 +10965,7 @@ let hieroglyphicSolutionUci = [];
 let hieroglyphicReplyUci = [];
 let hieroglyphicClue = null;
 let hieroglyphicAttempts = 0;
+let hieroglyphicHintLevel = 1;
 let hieroglyphicScore = { correct: 0, total: 0 };
 let hieroglyphicToken = 0; // guarda contra condicions de cursa amb crides OpenAI asíncrones
 
@@ -12407,7 +12408,7 @@ function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const recentVoiceId = loadHieroglyphicRecent()[0]?.voice;
     const voice = HIEROS.voices.find(v => v.id === recentVoiceId) || pickHieroglyphicVoice();
     const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
-    const level = Math.min(3, hieroglyphicAttempts + 1);
+    const level = Math.min(3, Math.max(hieroglyphicHintLevel || 1, (hieroglyphicAttempts || 0) + 1));
     const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${statusText}</div>` : '';
     noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
         <div class="maxim-title">${getHieroglyphicTitle()}</div>
@@ -12831,6 +12832,7 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
         hieroglyphicOpening = { name: chosen.tacticKind ? `Tàctica jugada: ${chosen.tacticKind}` : 'El teu error', idea: chosen.tacticKind ? 'Reconstrueix la jugada tàctica que ja va aparèixer en una partida teva.' : 'Converteix la posició crítica en una idea recordable.' };
         hieroglyphicGame = new Chess(chosen.fen);
         hieroglyphicAttempts = 0;
+        hieroglyphicHintLevel = 1;
         hieroglyphicStep = 0;
         hieroglyphicExpectedMove = chosen.bestMove;
         hieroglyphicContext = buildHieroglyphicContext(chosen.fen, chosen.bestMove, {
@@ -12923,6 +12925,33 @@ function getHieroglyphicNextButtonHtml() {
 }
 
 
+function requestHieroglyphicHintLevel() {
+    if (!hieroglyphicExerciseActive || !hieroglyphicContext) return false;
+    hieroglyphicHintLevel = Math.min(3, (hieroglyphicHintLevel || 1) + 1);
+    hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, hieroglyphicHintLevel);
+    renderHieroglyphicExerciseNote(false, `Pista ${hieroglyphicHintLevel}/3 del pas ${(hieroglyphicStep || 0) + 1}.`);
+    return true;
+}
+function showHieroglyphicSuccessOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    const hasNext = jeroglificsReady();
+    if (!overlay.length) {
+        returnToMainMenuImmediate();
+        return;
+    }
+    overlay.find('.bundle-success-title').text('Jeroglífic resolt 🔮');
+    overlay.find('.bundle-success-remaining').text(hasNext ? 'N’hi ha un altre preparat' : 'Cap altre jeroglífic preparat encara');
+    overlay.find('#btn-bundle-random-again').text('🔮 Fes-ne un altre').prop('disabled', !hasNext).toggle(hasNext);
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        overlay.hide();
+        returnToMainMenuImmediate();
+    });
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        if (jeroglificsReady()) void startPersonalHieroglyphicFromLastGame(null);
+    });
+}
 function refreshHieroglyphicStepContext(statusText = '') {
     if (!hieroglyphicGame || !hieroglyphicExpectedUci) return;
     const remainingPv = hieroglyphicExpectedUci ? [hieroglyphicExpectedUci] : [];
@@ -12962,6 +12991,7 @@ function handleHieroglyphicMove(source, target) {
             hieroglyphicExpectedUci = hieroglyphicSolutionUci[hieroglyphicStep];
             hieroglyphicExpectedMove = hieroglyphicExpectedUci;
             hieroglyphicAttempts = 0;
+            hieroglyphicHintLevel = 1;
             if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
             refreshHieroglyphicStepContext(`Correcte. Pas ${hieroglyphicStep + 1}/${hieroglyphicSolutionUci.length}.`);
             return;
@@ -12982,6 +13012,7 @@ function handleHieroglyphicMove(source, target) {
             </div>`;
         }
         showToast(reward, 'success');
+        showHieroglyphicSuccessOverlay();
         return;
     }
 
@@ -13637,6 +13668,11 @@ function setupEvents() {
         if (openingPracticeEngineThinking || openingPracticeHintPending) {
             const noteEl = document.getElementById('opening-practice-note');
             if (noteEl) noteEl.innerHTML = '<div style="padding:8px; background:rgba(255,200,100,0.2); border-radius:8px;">⏳ Espera que el motor acabi...</div>';
+            return;
+        }
+
+        if (hieroglyphicExerciseActive) {
+            requestHieroglyphicHintLevel();
             return;
         }
 
