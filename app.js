@@ -33,6 +33,7 @@ let pendingEngineFirstMove = false;
 let userELO = 50; 
 let engineELO = 50;
 let savedErrors = [];
+let puzzles = []; // jeroglífics (puzzles tàctics de 3 jugades) generats de partides pròpies
 let currentReview = [];
 let reviewHistory = [];
 let reviewChart = null;
@@ -40,6 +41,7 @@ let currentGameErrors = [];
 let matchErrorQueue = [];
 let currentMatchError = null;
 let isMatchErrorReviewSession = false;
+let isBestLineSession = false;
 let reviewAutoCloseTimer = null;
 let reviewOpenDelayTimer = null;
 let postGameJumpTimer = null;
@@ -1079,6 +1081,158 @@ function downloadTextFile(filename, content, mimeType) {
     URL.revokeObjectURL(url);
 }
 
+// Converteix el contingut HTML d'una ressenya (o de les notes d'errada) en text
+// pla llegible: conserva els salts de línia i marca les llistes amb vinyetes, i
+// descarta els botons (p. ex. «📋 Copiar») perquè no embrutin el text exportat.
+function reviewHtmlElementToText(el) {
+    if (!el) return '';
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('button').forEach(b => b.remove());
+    clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+    clone.querySelectorAll('li').forEach(li => {
+        li.insertBefore(document.createTextNode('• '), li.firstChild);
+        li.appendChild(document.createTextNode('\n'));
+    });
+    clone.querySelectorAll('p, div, ul, pre, h1, h2, h3, h4').forEach(b => b.appendChild(document.createTextNode('\n')));
+    const text = clone.textContent || '';
+    return text.replace(/ /g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Munta les errades comentades per a l'exportació, amb el text complet (sense
+// retallar) i un camp per línia, perquè es llegeixin millor que a la targeta.
+function buildErrorNotesExportText(entry) {
+    const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
+    if (!errors.length) return '';
+    // No repetim aquí les jugades que ja s'expliquen senceres a "Moments clau"
+    // (mateixa jugada i mateixa anàlisi): cada error apareix una sola vegada.
+    let momentMoves = new Set();
+    try { momentMoves = new Set(buildHumanPlanMoments(entry).map(m => Number(m.moveNumber))); } catch (e) {}
+    const notes = entry.errorNotes || {};
+    const blocks = [];
+    errors.forEach(err => {
+        const d = describeSevereError(err);
+        if (momentMoves.has(Number(d.moveNumber))) return;
+        const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
+        const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
+        const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
+        const meta = coachQualityMeta(quality);
+        const label = meta ? meta.label : 'Error';
+        const samePB = d.played && d.best && d.played === d.best;
+        const head = samePB
+            ? `${label} · Jugada ${d.moveNumber}: la millor jugada era ${withSan(bestDesc, d.best)}`
+            : `${label} · Jugada ${d.moveNumber}: vas jugar ${withSan(playedDesc, d.played)} · la millor era ${withSan(bestDesc, d.best)}`;
+        const note = notes[getErrorNoteKey(err)] || null;
+        const body = (note && note.status === 'done' && note.text)
+            ? note.text
+            : buildLocalErrorNote(err, entry, { full: true });
+        blocks.push(`${head}\n${body}`);
+    });
+    return blocks.join('\n\n');
+}
+
+// Munta el text pla amb només els textos generats de la ressenya actual:
+// capçalera neta + ressenya/moments clau (text complet) + errades comentades.
+function buildHistoryReviewText(entry) {
+    const lines = ['El Tauler — Ressenya de la partida'];
+    const outcome = entryOutcome(entry);
+    const resultWord = outcome === 'win' ? 'Victòria'
+        : outcome === 'loss' ? 'Derrota'
+        : outcome === 'draw' ? 'Taules'
+        : String(entry.result || '').split('·')[0].trim();
+    const meta = [
+        resultWord,
+        formatHistoryMode(entry.mode),
+        (typeof entry.precision === 'number' ? `Precisió ${entry.precision}%` : '')
+    ].filter(Boolean).join(' · ');
+    if (meta) lines.push(meta);
+    if (entry.date) {
+        const d = new Date(entry.date);
+        if (!isNaN(d)) lines.push(d.toLocaleString('ca-ES'));
+    }
+
+    // Regenerem la ressenya amb full=true per tenir el text complet (sense "…"),
+    // afegint-hi la redacció d'IA al davant si n'hi ha (com a pantalla).
+    let reviewText = '';
+    try {
+        const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
+        let html = '';
+        if (review && review.text) html += `<div>${formatOpenAIReviewText(review.text)}</div>`;
+        html += renderLocalReviewHtml(entry, { full: true });
+        const tmp = document.createElement('div');
+        tmp.innerHTML = html;
+        reviewText = reviewHtmlElementToText(tmp);
+    } catch (e) {
+        console.warn('[ReviewText] body', e);
+        reviewText = reviewHtmlElementToText(document.getElementById('history-review-content'));
+    }
+    lines.push('\n=== Ressenya i moments clau ===', reviewText || '(sense ressenya generada)');
+
+    const notesText = buildErrorNotesExportText(entry);
+    if (notesText) lines.push('\n=== Errades comentades ===', notesText);
+
+    return lines.join('\n');
+}
+
+// Exporta el text generat de la ressenya. La baixada clàssica via <a download>
+// és poc fiable a mòbil (iOS/PWA), així que provem, en ordre: compartir el
+// fitxer (mòbil pot "Desa a Fitxers"), baixar-lo (escriptori) i, com a últim
+// recurs, copiar-lo al porta-retalls. Mai falla en silenci.
+async function downloadHistoryReviewText(entry) {
+    if (!entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+    let content;
+    try {
+        content = buildHistoryReviewText(entry);
+    } catch (e) {
+        console.error('[ReviewText] build', e);
+        showToast('No s\'ha pogut generar el text de la ressenya', 'error');
+        return;
+    }
+    const stamp = String(entry.date || new Date().toISOString()).replace(/[^0-9a-zA-Z]/g, '-');
+    const filename = `eltauler_ressenya_${stamp}.txt`;
+
+    // 1) Mòbil: compartir un fitxer de text (permet desar-lo o enviar-lo).
+    try {
+        if (typeof File !== 'undefined' && navigator.canShare) {
+            const file = new File([content], filename, { type: 'text/plain' });
+            if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: 'Ressenya El Tauler' });
+                return;
+            }
+        }
+    } catch (e) {
+        if (e && e.name === 'AbortError') return; // l'usuari ha cancel·lat
+        console.warn('[ReviewText] share', e); // continuem amb la baixada
+    }
+
+    // 2) Escriptori: baixada clàssica. Revoquem l'URL amb retard perquè alguns
+    //    navegadors cancel·len la baixada si es revoca immediatament.
+    try {
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        showToast('Text de la ressenya baixat 📝', 'success');
+        return;
+    } catch (e) {
+        console.error('[ReviewText] download', e);
+    }
+
+    // 3) Últim recurs: porta-retalls.
+    try {
+        await navigator.clipboard.writeText(content);
+        showToast('Text de la ressenya copiat al porta-retalls 📋', 'success');
+    } catch (e) {
+        console.error('[ReviewText] clipboard', e);
+        showToast('No s\'ha pogut baixar ni copiar el text', 'error');
+    }
+}
+
 function exportAdaptationReport() {
     const report = buildAdaptationReport();
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -1477,6 +1631,7 @@ function commitHumanMove(from, to, promotionPiece) {
             handleBundleGameOver();
         } else {
             pendingGameOverAfterMoveAnalysis = true;
+            showImmediateGameResult(); // resultat a l'instant; l'anàlisi va en segon pla
             $('#status').text('Analitzant l’última jugada…');
             armGameOverWatchdog();
             analyzeMove();
@@ -3774,14 +3929,20 @@ function applyContinuousEloAdjustment(delta, reason, meta = {}) {
         cycle: meta.cycle || null
     });
 
-    let message = appliedDelta > 0
-        ? `Has millorat! Nou nivell: ${userELO} ↗`
-        : `Nivell ajustat: ${userELO} ↘`;
-    const milestones = checkEloMilestones(previousElo, userELO);
-    if (milestones.length) {
-        message += ` · Assoliment ELO ${milestones[milestones.length - 1]} ✨`;
+    // El missatge no ha de contradir el resultat: en una derrota no diem "Has
+    // millorat!". Si el nivell puja tot i perdre, ho emmarquem com a rendiment
+    // positiu; si puja en una victòria, simplement anunciem el nou nivell.
+    let message;
+    if (appliedDelta > 0) {
+        message = meta.resultLabel === 'loss'
+            ? `Rendiment positiu: nou nivell ${userELO} ↗`
+            : `Nou nivell: ${userELO} ↗`;
+    } else {
+        message = `Nivell ajustat: ${userELO} ↘`;
     }
-    return { delta: appliedDelta, message: message };
+    const milestones = checkEloMilestones(previousElo, userELO);
+    const milestone = milestones.length ? milestones[milestones.length - 1] : null;
+    return { delta: appliedDelta, message: message, milestone: milestone };
 }
 
 function getBaselineAdjustmentDelta(resultLabel, qualityScore) {
@@ -3812,29 +3973,41 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
     if (resultLabel === 'loss') freeLossStreak++;
     else freeLossStreak = 0;
 
-    let feedback = null;
+    // Acumulem el resultat dels diferents ajustos en parts separades per evitar
+    // missatges duplicats (p. ex. "Nivell ajustat: X ↘ · Nivell ajustat: Y ↘").
+    // Només mostrem l'últim nivell (que ja reflecteix l'ELO final), més un
+    // possible assoliment i un consell opcional.
+    let levelMessage = null;
+    let milestoneNote = null;
+    let advice = null;
+    const composeFeedback = () => {
+        const parts = [];
+        if (levelMessage) parts.push(levelMessage);
+        if (milestoneNote) parts.push(`Assoliment ELO ${milestoneNote} ✨`);
+        if (advice) parts.push(advice);
+        return parts.length ? parts.join(' · ') : null;
+    };
+    const noteAdjustment = (adj) => {
+        if (!adj) return;
+        levelMessage = adj.message;
+        if (adj.milestone) milestoneNote = adj.milestone;
+    };
+
     const baselineDelta = getBaselineAdjustmentDelta(resultLabel, quality.qualityScore);
     if (baselineDelta !== 0) {
-        const baselineAdjustment = applyContinuousEloAdjustment(
+        noteAdjustment(applyContinuousEloAdjustment(
             baselineDelta,
             'Ajust fi per resultat',
-            { cycle: 'baseline' }
-        );
-        if (baselineAdjustment) {
-            feedback = baselineAdjustment.message;
-        }
+            { cycle: 'baseline', resultLabel: resultLabel }
+        ));
     }
     if (freeLossStreak >= CONTINUOUS_ADJUST_CONFIG.LOSS_STREAK_TRIGGER) {
-        const relief = applyContinuousEloAdjustment(
+        noteAdjustment(applyContinuousEloAdjustment(
             CONTINUOUS_ADJUST_CONFIG.LOSS_STREAK_DELTA,
             'Protecció per ratxa de derrotes',
-            { cycle: 'streak' }
-        );
-        if (relief) {
-            feedback = relief.message + ' · Prova hints o mode entrenament';
-        } else {
-            feedback = 'Prova hints o mode entrenament';
-        }
+            { cycle: 'streak', resultLabel: resultLabel }
+        ));
+        advice = 'Prova les pistes o el mode entrenament';
         freeLossStreak = 0;
     }
 
@@ -3848,17 +4021,15 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
         const wins = sample.filter(g => g.result === 1).length;
         const winRate = wins / sample.length;
         if (winRate > ADAPTIVE_CONFIG.FLOW_WINRATE_HIGH && resultLabel !== 'loss') {
-            const flow = applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow' });
-            if (flow) feedback = flow.message;
+            noteAdjustment(applyContinuousEloAdjustment(ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de victòries alt: apugem el repte', { cycle: 'flow', resultLabel: resultLabel }));
         } else if (winRate < ADAPTIVE_CONFIG.FLOW_WINRATE_LOW && resultLabel !== 'win') {
-            const flow = applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow' });
-            if (flow) feedback = flow.message;
+            noteAdjustment(applyContinuousEloAdjustment(-ADAPTIVE_CONFIG.FLOW_DELTA, 'Ritme de derrotes alt: abaixem el repte', { cycle: 'flow', resultLabel: resultLabel }));
         }
     }
 
     if (freeAdjustmentWindow.length < CONTINUOUS_ADJUST_CONFIG.WINDOW_SIZE) {
         saveStorage();
-        return { feedback: feedback };
+        return { feedback: composeFeedback() };
     }
 
     const cycle = freeAdjustmentWindow.slice(0, CONTINUOUS_ADJUST_CONFIG.WINDOW_SIZE);
@@ -3888,16 +4059,12 @@ function registerFreeGameAdjustment(resultScore, precision, metrics = {}) {
 
     if (delta === 0) {
         saveStorage();
-        return { feedback: feedback };
+        return { feedback: composeFeedback() };
     }
 
-    const adjustment = applyContinuousEloAdjustment(delta, reason, { trend: trend, cycle: cycle });
+    noteAdjustment(applyContinuousEloAdjustment(delta, reason, { trend: trend, cycle: cycle, resultLabel: resultLabel }));
     saveStorage();
-    if (adjustment && feedback) {
-        return { feedback: `${adjustment.message} · ${feedback}` };
-    }
-    if (adjustment) return { feedback: adjustment.message };
-    return { feedback: feedback };
+    return { feedback: composeFeedback() };
 }
 
  function isCalibrationActive() {
@@ -4416,6 +4583,7 @@ function ensureStockfish() {
 function loadStorage() {
     const elo = localStorage.getItem('chess_userELO'); if (elo) userELO = parseInt(elo);
     const errors = localStorage.getItem('chess_savedErrors'); if (errors) savedErrors = JSON.parse(errors);
+    try { const pz = localStorage.getItem('chess_puzzles'); if (pz) puzzles = JSON.parse(pz) || []; } catch (e) { puzzles = []; }
     const streak = localStorage.getItem('chess_streak'); if (streak) currentStreak = parseInt(streak);
     const lastDate = localStorage.getItem('chess_lastPracticeDate'); if (lastDate) lastPracticeDate = lastDate;
     const stars = localStorage.getItem('chess_totalStars'); if (stars) totalStars = parseInt(stars);
@@ -4548,6 +4716,7 @@ function loadStorage() {
 function saveStorage() {
     localStorage.setItem('chess_userELO', userELO);
     localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
+    try { localStorage.setItem('chess_puzzles', JSON.stringify(puzzles)); } catch (e) {}
     localStorage.setItem('chess_streak', currentStreak);
     localStorage.setItem('chess_lastPracticeDate', lastPracticeDate);
     localStorage.setItem('chess_totalStars', totalStars);
@@ -5966,6 +6135,315 @@ async function prepareBundleSequence(fen, opts = {}) {
     }
 }
 
+// ============================================================================
+// EXERCICI "MILLOR LÍNIA" DE 3 JUGADES (Lliurament 1 — generador i origen)
+// ============================================================================
+// Genera una línia FIXA i verificada de N jugades del jugador (per defecte 3),
+// on a CADA pas del jugador la millor jugada supera clarament la segona (gap),
+// de manera que la línia és "neta" i la pista pot coincidir sempre amb la
+// solució. No exigeix mat. La part interactiva (playback/pista) és el
+// Lliurament 2; aquí només es prepara i es verifica la seqüència.
+
+// Verifica i construeix la línia a partir d'un FEN. Retorna l'estructura de
+// l'exercici o null si la posició no compleix el filtre de qualitat.
+async function prepareBestLineExercise(fen, opts = {}) {
+    const playerMoves = opts.playerMoves || 3;
+    const gapCp = typeof opts.gapCp === 'number' ? opts.gapCp : 150;
+    const depth = opts.depth || 15;
+    const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
+
+    if (!stockfish) { ensureStockfish(); await new Promise(r => setTimeout(r, 300)); }
+    let waitCount = 0;
+    while (!stockfishReady && waitCount < 20) { await new Promise(r => setTimeout(r, 100)); waitCount++; }
+    if (!stockfishReady) return null;
+
+    try {
+        try { stockfish.postMessage('stop'); } catch (e) {}
+        const steps = [];          // metadades per pas (gap, eval…)
+        const playerStepData = [];  // objectes compatibles amb el playback (step1/2/3)
+        const opponentMoves = [];   // rèpliques del rival (opponentMove/opponentMove2)
+        const fullSequence = [];
+        const fullSequenceSan = [];
+        let curFen = fen;
+        let endsInMate = false;
+
+        for (let i = 0; i < playerMoves; i++) {
+            if (shouldAbort()) return null;
+            // Pas del jugador: MultiPV 3 per poder mesurar el gap amb la 2a opció.
+            const a = await analyzeFenRobust(curFen, depth, 3, 8000, shouldAbort);
+            if (!a || !a.bestMove || !a.bestMove.move) return null;
+            // gapCp>0: exigeix que la millor superi la 2a per un marge. gapCp<=0:
+            // mode "3 millors jugades fixes" sense filtre (sempre accepta la millor).
+            if (gapCp > 0 && !ElTaulerCore.bestLineStepQualifies(a.alternatives, gapCp)) return null;
+
+            const pMove = a.bestMove.move;
+            const pSan = uciToSan(curFen, pMove);
+            const g = new Chess(curFen);
+            const mv = g.move({ from: pMove.slice(0, 2), to: pMove.slice(2, 4), promotion: pMove.length > 4 ? pMove[4] : undefined });
+            if (!mv) return null;
+
+            const stepFen = curFen;
+            playerStepData.push({
+                fen: stepFen,
+                playerMove: pMove,
+                playerMoveSan: pSan,
+                playerMovePv: a.bestMove.pv || [],
+                evalBefore: a.bestMove.eval,
+                alternatives: a.alternatives || [],
+                position: (() => { try { return parseFenPosition(stepFen); } catch (e) { return null; } })(),
+                threats: (() => { try { return analyzePvThreats(stepFen, a.bestMove.pv || []); } catch (e) { return null; } })()
+            });
+            steps.push({ fen: stepFen, playerMove: pMove, playerMoveSan: pSan, evalBefore: a.bestMove.eval, evalType: a.bestMove.evalType, gap: ElTaulerCore.bestLineGapCp(a.alternatives) });
+            fullSequence.push(pMove);
+            fullSequenceSan.push(pSan);
+            curFen = g.fen();
+            if (g.game_over()) { endsInMate = g.in_checkmate(); break; }
+
+            // Rèplica del rival (millor jugada) si encara queden jugades del jugador.
+            if (i < playerMoves - 1) {
+                if (shouldAbort()) return null;
+                const o = await analyzeFenRobust(curFen, depth, 1, 8000, shouldAbort);
+                if (!o || !o.bestMove || !o.bestMove.move) return null;
+                const oMove = o.bestMove.move;
+                const oSan = uciToSan(curFen, oMove);
+                const g2 = new Chess(curFen);
+                const mv2 = g2.move({ from: oMove.slice(0, 2), to: oMove.slice(2, 4), promotion: oMove.length > 4 ? oMove[4] : undefined });
+                if (!mv2) return null;
+                opponentMoves.push({ fen: curFen, move: oMove, moveSan: oSan, eval: o.bestMove.eval });
+                fullSequence.push(oMove);
+                fullSequenceSan.push(oSan);
+                curFen = g2.fen();
+                if (g2.game_over()) { endsInMate = g2.in_checkmate(); break; }
+            }
+        }
+
+        if (!playerStepData.length) return null;
+        // Estructura compatible amb el playback de bundle (step1/step2/step3,
+        // opponentMove/opponentMove2, totalSteps) + metadades pròpies.
+        const ex = {
+            initialFen: fen,
+            totalSteps: playerStepData.length,
+            playerMoves: playerStepData.length,
+            fullSequence,
+            fullSequenceSan,
+            endsInMate,
+            gapCp,
+            source: 'bestline',
+            steps
+        };
+        playerStepData.forEach((s, idx) => { ex['step' + (idx + 1)] = s; });
+        if (opponentMoves[0]) ex.opponentMove = opponentMoves[0];
+        if (opponentMoves[1]) ex.opponentMove2 = opponentMoves[1];
+        return ex;
+    } catch (e) {
+        console.warn('[BestLine] error preparant exercici', e);
+        return null;
+    }
+}
+
+// Recull posicions candidates NOMÉS del banc curat de posicions tàctiques (i el
+// banc de reptes diaris com a reserva). No es parteix de cap "suposada errada"
+// del jugador: el jeroglífic de 3 passos surt de posicions netes.
+function collectBestLineCandidateFens(maxN = 40) {
+    const out = [];
+    const seen = new Set();
+    const add = (fen) => { if (fen && typeof fen === 'string' && !seen.has(fen)) { seen.add(fen); out.push(fen); } };
+
+    const bank = (typeof TACTICS_BANK !== 'undefined' && TACTICS_BANK.length)
+        ? TACTICS_BANK.slice()
+        : [];
+    bank.forEach(add);
+    DAILY_PUZZLE_BANK.forEach(p => add(p && p.fen));
+
+    // Barreja per donar varietat (no sortir sempre la mateixa).
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out.slice(0, maxN);
+}
+
+// El jeroglífic de 3 passos és un MAT EN 3 verificat pel motor: això garanteix
+// sempre exactament 3 jugades del jugador, una línia forçada amb sentit i la
+// pista coincident. Candidats: un banc amb més peces + el banc clàssic de mat
+// en 3. prepareMateSequence VERIFICA cada candidat (descarta el que no sigui
+// mat exacte en 3), així qualsevol FEN dolent o il·legal s'ignora sense petar.
+const BESTLINE_MATE_BANK = [
+    // Posicions amb més peces (estil chess.com). Si alguna no és mat exacte en 3,
+    // el verificador la descarta i es prova la següent.
+    'r1b1k2r/ppppnppp/2n5/2b5/2B1P1q1/2N2N2/PPPP1PPP/R1BQ1RK1 w kq - 0 1',
+    '2kr3r/ppp2ppp/2n1b3/2b5/4P1q1/2N2N2/PPPPQPPP/R1B2RK1 w - - 0 1',
+    'r3k2r/ppp2ppp/2n5/2bqp3/4P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w kq - 0 1',
+    '6rk/5Npp/8/8/8/8/5PPP/6K1 w - - 0 1',
+    'r4rk1/ppp2ppp/8/2b5/2Bn1Q2/2N5/PPP2PPP/R3R1K1 w - - 0 1'
+];
+function bestLineMateCandidates() {
+    const out = BESTLINE_MATE_BANK.slice();
+    (typeof MATE_DRILL_BANK !== 'undefined' ? MATE_DRILL_BANK : []).forEach(f => out.push(f));
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+}
+
+// Troba un mat en 3 verificat (en forma de seqüència de bundle). Retorna-la o
+// null. Accepta excludeFens per donar varietat al rebost.
+function bestLineFenLegal(fen) { try { return !!new Chess(fen); } catch (e) { return false; } }
+async function generateBestLineExercise(opts = {}) {
+    const maxTries = opts.maxTries || 6;
+    const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
+    const excludeFens = opts.excludeFens instanceof Set ? opts.excludeFens : new Set(opts.excludeFens || []);
+    const candidates = bestLineMateCandidates().filter(f => !excludeFens.has(f) && bestLineFenLegal(f));
+
+    let tried = 0;
+    for (const fen of candidates) {
+        if (tried >= maxTries || shouldAbort()) break;
+        tried++;
+        const seq = await prepareMateSequence(fen);
+        if (seq) {
+            seq.source = 'bestline';
+            seq.endsInMate = true;
+            seq.totalSteps = 3;
+            seq.gapUsed = 'mat-en-3';
+            seq.triedCandidates = tried;
+            return seq;
+        }
+    }
+    return null;
+}
+
+// ── Rebost de 3 exercicis "millor línia" sempre a punt en segon pla ──────────
+const BESTLINE_POOL_TARGET = 3;
+let bestLinePool = [];
+let bestLinePrepInFlight = false;
+
+// Omple el rebost d'un en un (cridat des de backgroundPrepTick quan el motor és
+// lliure). Retorna true si ha generat (o ja és ple), per encadenar més feina.
+async function ensureBestLinePoolTick() {
+    if (bestLinePrepInFlight) return false;
+    if (bestLinePool.length >= BESTLINE_POOL_TARGET) return false;
+    if (!ensureStockfish()) return false;
+    bestLinePrepInFlight = true;
+    try {
+        const exclude = new Set(bestLinePool.map(e => e.initialFen));
+        const ex = await generateBestLineExercise({
+            depth: 14,
+            maxTries: 6,
+            gaps: [50, 0], // rebost: prova de trobar-ne un de definit i, si no, qualsevol de fix
+            excludeFens: exclude,
+            shouldAbort: () => backgroundPrepAbortRequested || !isIdleForBackgroundPrep()
+        });
+        if (ex && !bestLinePool.some(e => e.initialFen === ex.initialFen)) {
+            bestLinePool.push(ex);
+            console.log('[BestLine] Rebost +1:', ex.fullSequenceSan.join(' '), `(gap ${ex.gapUsed}, pool ${bestLinePool.length}/${BESTLINE_POOL_TARGET})`);
+            refreshJeroglificButton();
+        }
+    } catch (e) {
+        console.warn('[BestLine] pool tick error', e);
+    } finally {
+        bestLinePrepInFlight = false;
+    }
+    return true;
+}
+
+// Treu un exercici del rebost (o null si buit) i demana reomplir-lo.
+function takeBestLineFromPool() {
+    const ex = bestLinePool.shift() || null;
+    if (typeof backgroundPrepTick === 'function') setTimeout(backgroundPrepTick, 800);
+    refreshJeroglificButton();
+    return ex;
+}
+
+// El botó "Jeroglífic" queda gris/inactiu fins que n'hi ha de generats: un de
+// llest al rebost o un puzzle aprovat de les teves partides.
+function jeroglificsReady() {
+    if (Array.isArray(bestLinePool) && bestLinePool.length > 0) return true;
+    try { return getPuzzles('approved').length > 0; } catch (e) { return false; }
+}
+function refreshJeroglificButton() {
+    const btn = document.getElementById('btn-bestline');
+    if (!btn) return;
+    const ready = jeroglificsReady();
+    btn.disabled = !ready;
+    btn.classList.toggle('btn-disabled', !ready);
+    const desc = document.getElementById('bestline-info');
+    if (desc) desc.textContent = ready ? 'Troba els 3 millors moviments' : 'Generant jeroglífics…';
+}
+
+// ── Magatzem de jeroglífics (puzzles tàctics) — Lliurament 1 ────────────────
+// Model ChessPuzzle (JS): { id, fen, sideToMove, solutionUci[], solutionSan[],
+// engineRepliesUci[], engineRepliesSan[], fullLineUci[], fullLineSan[], theme[],
+// difficulty, ratingEstimate, sourceGameId?, sourcePgn?, moveNumber?, evalBefore?,
+// evalAfter?, bestMoveMargin?, finalEval?, endsInMate?, createdAt, status }.
+
+function genPuzzleId() {
+    return 'pz_' + Date.now().toString(36) + '_' + Math.random().toString(36).slice(2, 8);
+}
+
+function getPuzzles(status) {
+    if (!status) return puzzles.slice();
+    return puzzles.filter(p => p && p.status === status);
+}
+
+// Desa un puzzle: dedup per FEN, completa dificultat/rating/explicació i
+// AUTO-APROVA si compleix els criteris (si no, queda 'rejected'). Retorna el
+// puzzle desat o null si era duplicat / dades incompletes.
+function savePuzzleDraft(raw) {
+    if (!raw || !raw.fen || !Array.isArray(raw.solutionUci) || raw.solutionUci.length !== 3) return null;
+    if (ElTaulerCore.puzzleIsDuplicateFen(puzzles, raw.fen)) return null; // no duplicats per FEN
+
+    const p = Object.assign({
+        id: genPuzzleId(),
+        theme: [],
+        engineRepliesUci: [],
+        engineRepliesSan: [],
+        solutionSan: [],
+        fullLineUci: [],
+        fullLineSan: [],
+        createdAt: Date.now(),
+        status: 'draft'
+    }, raw);
+
+    p.sideToMove = p.sideToMove || (String(p.fen).split(' ')[1] === 'b' ? 'b' : 'w');
+    p.difficulty = ElTaulerCore.puzzleDifficulty(p);
+    p.ratingEstimate = ElTaulerCore.puzzleRatingEstimate(p);
+    p.explanation = ElTaulerCore.puzzleExplanation(p);
+    // Auto-aprovació segons criteris (gap ≥150 o mat, final decisiu, 3 jugades).
+    p.status = ElTaulerCore.puzzleMeetsCriteria(p) ? 'approved' : 'rejected';
+
+    puzzles.push(p);
+    if (puzzles.length > 500) puzzles = puzzles.slice(-500);
+    try { saveStorage(); } catch (e) {}
+    if (p.status === 'approved') refreshJeroglificButton();
+    return p;
+}
+
+if (typeof window !== 'undefined') {
+    window.getPuzzles = getPuzzles;
+    window.savePuzzleDraft = savePuzzleDraft;
+}
+
+// Helper de proves: genera un exercici i el mostra a la consola.
+// Ús: a la consola del navegador, `await testBestLineExercise()`.
+async function testBestLineExercise(opts = {}) {
+    console.log('[BestLine] Generant jeroglífic de 3 passos (mat en 3)…');
+    const ex = await generateBestLineExercise(opts);
+    if (!ex) { console.warn('[BestLine] Cap candidat ha donat un mat exacte en 3. Pots ampliar BESTLINE_MATE_BANK.'); return null; }
+    console.log('[BestLine] Jeroglífic trobat:', {
+        initialFen: ex.initialFen,
+        jugadesJugador: ex.totalSteps,
+        liniaSAN: (ex.fullSequenceSan || []).join(' '),
+        candidatsProvats: ex.triedCandidates
+    });
+    return ex;
+}
+if (typeof window !== 'undefined') {
+    window.prepareBestLineExercise = prepareBestLineExercise;
+    window.generateBestLineExercise = generateBestLineExercise;
+    window.testBestLineExercise = testBestLineExercise;
+}
+
 function analyzePvThreats(fen, pv) {
     if (!pv || pv.length === 0) {
         return { threats: [], themes: [], immediateThreats: [] };
@@ -6225,7 +6703,11 @@ Genera:
 
 function registerMoveReview(swing, analysisData = {}) {
     if (blunderMode) return;
-    const quality = classifyMoveQuality(Math.abs(swing));
+    // Passem la jugada feta i la millor perquè, si coincideixen, es classifiqui
+    // com a 'excel' (vas jugar el millor) i no com a error per un swing fantasma
+    // —típic en posicions guanyades on l'anàlisi posterior (poc profunda) baixa
+    // l'avaluació respecte a l'anàlisi prèvia—.
+    const quality = classifyMoveQuality(Math.abs(swing), lastHumanMoveUci, analysisData.bestMove);
     const history = game.history({ verbose: true });
     const lastMove = history[history.length - 1];
     
@@ -6462,7 +6944,7 @@ function updateReviewChart() {
         { key: 'good', label: 'Bones', color: '#c9a227' },
         { key: 'inaccuracy', label: 'Imprecisions', color: '#ffb74d' },
         { key: 'mistake', label: 'Errors', color: '#ef5350' },
-        { key: 'blunder', label: 'Blunders', color: '#b71c1c' }
+        { key: 'blunder', label: 'Errades greus', color: '#b71c1c' }
         ].map((meta, idx) => {
         const gray = graySteps[idx % graySteps.length];
         return {
@@ -6897,11 +7379,11 @@ function updateHistoryDetails(entry) {
 
     const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
     breakdown.html(`
-        <div class="review-chip excel">Excel·lents <strong>${counts.excel || 0}</strong></div>
-        <div class="review-chip good">Bones <strong>${counts.good || 0}</strong></div>
-        <div class="review-chip inaccuracy">Imprecisions <strong>${counts.inaccuracy || 0}</strong></div>
-        <div class="review-chip mistake">Errors <strong>${counts.mistake || 0}</strong></div>
-        <div class="review-chip blunder">Blunders <strong>${counts.blunder || 0}</strong></div>
+        <div class="review-chip excel">Excel·lents: <strong>${counts.excel || 0}</strong></div>
+        <div class="review-chip good">Bones: <strong>${counts.good || 0}</strong></div>
+        <div class="review-chip inaccuracy">Imprecisions: <strong>${counts.inaccuracy || 0}</strong></div>
+        <div class="review-chip mistake">Errors: <strong>${counts.mistake || 0}</strong></div>
+        <div class="review-chip blunder">Errades greus: <strong>${counts.blunder || 0}</strong></div>
     `);
     updateHistoryReview(entry);
     updateHistoryErrorNotes(entry);
@@ -7378,7 +7860,11 @@ function getEntryReviewErrors(entry, minCount = 3, maxCount = 5) {
             seen.add(e.fen);
         }
     }
-    return result.slice(0, Math.max(minCount, maxCount));
+    // Defensa: si la jugada feta coincideix amb la millor, no és un error real
+    // (swing fantasma en posicions guanyades); no la comentem.
+    const filtered = result.filter(e => !(e.playerMove && e.bestMove && e.playerMove === e.bestMove)
+                                     && !(e.playerMoveSan && e.bestMoveSan && e.playerMoveSan === e.bestMoveSan));
+    return filtered.slice(0, Math.max(minCount, maxCount));
 }
 
 /* ===================== ERRADES COMENTADES (OpenAI) =====================
@@ -7461,7 +7947,7 @@ function findMoveReviewForError(entry, err) {
 // Explicació rica d'una errada generada LOCALMENT (sense OpenAI): fets posicionals
 // concrets, diagnòstic segons tema i gravetat, el pla correcte, la continuació de
 // la línia i una pregunta de reflexió. Reaprofita el banc de plans humans.
-function buildLocalErrorNote(err, entry) {
+function buildLocalErrorNote(err, entry, opts = {}) {
     if (!err) return 'Errada detectada en aquesta posició.';
     const d = describeSevereError(err);
     const mr = findMoveReviewForError(entry, err);
@@ -7509,7 +7995,7 @@ function buildLocalErrorNote(err, entry) {
     };
     let plan = {};
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
-    const structured = buildStructuredLocalExplanation(moment, plan);
+    const structured = buildStructuredLocalExplanation(moment, plan, opts);
     const show = coachSectionsFor(moment.quality);
     const parts = [];
     if (show.fact && structured.fact) parts.push(`Posició: ${structured.fact}`);
@@ -7520,7 +8006,8 @@ function buildLocalErrorNote(err, entry) {
     if (show.continuation && structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
     if (show.candidates && moment.candidates) parts.push(moment.candidates);
     if (show.question && structured.question) parts.push(`Pregunta clau: ${structured.question}`);
-    const text = parts.filter(Boolean).join(' ').trim();
+    // A l'exportació (full) posem cada camp en una línia; a pantalla, en línia seguida.
+    const text = parts.filter(Boolean).join(opts.full ? '\n' : ' ').trim();
     return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
 }
 
@@ -7590,6 +8077,14 @@ function describeMoveHuman(fen, move) {
 function moveHumanText(fen, move, fallback) {
     const d = describeMoveHuman(fen, move);
     return d ? d.text : (fallback || uciToSanSafe(fen, move) || String(move || ''));
+}
+
+// Afegeix la notació SAN entre parèntesis darrere la descripció planera, perquè
+// el text sigui verificable contra el tauler i el motor ("...captura a d8 (Rxd8)").
+function withSan(humanText, san) {
+    const h = String(humanText || '').trim();
+    const s = String(san || '').trim();
+    return (s && s !== '—' && s !== '?' && s !== h) ? `${h} (${s})` : h;
 }
 
 // =================== ANÀLISI PER FASES DE LA PARTIDA ===================
@@ -7705,13 +8200,13 @@ function practiceOpeningFromHistory(idx, color) {
 // Construeix la ressenya rica de l'historial: debrief, obertura amb enllaç a la
 // pràctica i % de correcció, % i temes del mig joc, % i consell del final, i els
 // moments clau amb jugades descriptives clicables.
-function renderLocalReviewHtml(entry) {
+function renderLocalReviewHtml(entry, opts = {}) {
     if (!entry) return '';
     const blocks = [];
     try {
         const facts = buildDebriefFacts(entry);
         // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
-        // màxima noves) cada cop que es prem «Re-generar ressenya», sense dependre
+        // màxima noves) cada cop que es prem «Regenerar la ressenya», sense dependre
         // de cap clau d'IA. Si no s'ha regenerat mai, la llavor és l'id de partida.
         const seedKey = entry.id + (entry.reviewSeed ? ':r' + entry.reviewSeed : '');
 
@@ -7831,17 +8326,33 @@ function renderLocalReviewHtml(entry) {
         }
 
         // --- Moments clau (jugades descriptives clicables) ---
-        const moments = buildHumanPlanMoments(entry);
+        const moments = buildHumanPlanMoments(entry, null, opts);
         if (moments.length) {
             const items = moments.map(m => {
-                const desc = m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best;
+                const desc = withSan(m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best, m.best);
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
                 const show = coachSectionsFor(m.quality);
+                const badge = coachQualityBadgeHtml(m);
+                const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
+                // Inclou la jugada feta perquè el moment sigui autocontingut (i no
+                // calgui repetir-lo a "Errades comentades"). Si, per una atribució
+                // errònia, la jugada feta coincideix amb la millor, no mostrem el
+                // dual contradictori ("vas jugar X; la millor era X").
+                const playedSan = String(m.played || '').trim();
+                const bestSan = String(m.best || '').trim();
+                const samePlayedBest = playedSan && bestSan && playedSan === bestSan;
+                const playedTxt = withSan(m.playedDesc || m.played || '—', m.played);
+                const tail = samePlayedBest
+                    ? `millor jugada → ${link}.`
+                    : `vas jugar ${escapeHtml(playedTxt)}; la millor era → ${link}.`;
+                const header = badge
+                    ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): ${tail}`
+                    : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
                 const lines = [
-                    `${coachQualityBadgeHtml(m)}<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong> (${escapeHtml(m.theme)}): millor jugada → ${link}.`,
+                    header,
                     show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
                     show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
                     show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
@@ -7954,8 +8465,12 @@ function updateHistoryErrorNotes(entry) {
         // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
+        const samePB = d.played && d.best && d.played === d.best;
+        const headMoves = samePB
+            ? `la millor jugada era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`
+            : `vas jugar <strong>${escapeHtml(withSan(playedDesc, d.played))}</strong> · la millor era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`;
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
-            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })}Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
+            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: ${headMoves}</div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
@@ -8810,7 +9325,7 @@ async function requestOpenAIReview(entry, severeErrors) {
     if (!entry || !openaiApiKey) return;
     const existingReview = entry.aiReview || entry.deepseekReview;
     if (existingReview && existingReview.status === 'pending') return;
-    // NOTA: si ja existeix una ressenya, NO sortim: el botó «Re-generar ressenya»
+    // NOTA: si ja existeix una ressenya, NO sortim: el botó «Regenerar la ressenya»
     // ha de poder tornar a demanar-ne una de nova.
     const resolvedErrors = Array.isArray(severeErrors) && severeErrors.length
         ? severeErrors
@@ -11649,7 +12164,7 @@ function detectAdvancedMotifs(context) {
             const r = squareRankIdx(context.to);
             const advanced = me === 'w' ? r >= 4 : r <= 5;
             if (advanced && !canBeHitByEnemyPawn(stats, context.to, me)) {
-                tags.push('outpost'); notes.push(`tenies un avantpost per al cavall a ${context.to}`);
+                tags.push('outpost'); notes.push(`tenies una casella avançada per al cavall a ${context.to}`);
             }
         }
         // Debilitat de última fila: rei enemic al fons sense escapatòria i jugada amb escac.
@@ -13108,6 +13623,10 @@ function setupEvents() {
             showToast('Ressenya regenerada ✓', 'success');
         }
     });
+    $('#history-download-review').off('click').on('click', () => {
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        downloadHistoryReviewText(historyReplay.entry);
+    });
     $('#history-export-pgn').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
         const pgn = buildEntryPgn(historyReplay.entry);
@@ -13260,9 +13779,10 @@ function setupEvents() {
     // En mode bundle, usar la jugada pre-calculada
     if (blunderMode && bundleFixedSequence) {
         const step = bundleSequenceStep;
-        const expectedMove = step === 1 
-            ? bundleFixedSequence.step1.playerMove 
-            : bundleFixedSequence.step2.playerMove;
+        // Pista per a qualsevol pas (step1/step2/step3): apunta sempre a la jugada
+        // fixada precalculada, així coincideix amb la solució de l'exercici.
+        const stepData = bundleFixedSequence['step' + step] || bundleFixedSequence.step1;
+        const expectedMove = stepData ? stepData.playerMove : null;
         if (expectedMove && expectedMove.length >= 4) {
             const toSquare = expectedMove.substring(2, 4);
             $('.square-55d63').removeClass('highlight-hint');
@@ -13303,6 +13823,8 @@ function setupEvents() {
         tacticsStats.streak = 0;
         startTacticsPuzzle();
     });
+    $('#btn-bestline').off('click').on('click', () => { if (jeroglificsReady()) void startBestLineExercise(); });
+    refreshJeroglificButton(); // gris fins que n'hi hagi de generats
 
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
@@ -14285,6 +14807,45 @@ function startTacticsPuzzle() {
     currentOpponent = null;
     startGame(true, pickTacticsFen());
 }
+
+// Llança un exercici de "millor línia" de 3 jugades: agafa'n un del rebost (o el
+// genera al moment) i el juga al tauler reaprofitant el playback del bundle. La
+// pista apunta sempre a la jugada fixada de cada pas.
+async function startBestLineExercise() {
+    if (!guardCalibrationAccess()) return;
+    let ex = takeBestLineFromPool();
+    if (!ex) {
+        // Avís visible (el #status és a la pantalla de joc, encara no visible).
+        showToast('Preparant jeroglífic de 3 passos… ⏳', 'info');
+        requestBackgroundPrepAbort();
+        try { await waitForBackgroundPrepToYield(800); } catch (e) {}
+        try {
+            // gap=0: agafa directament les 3 millors jugades fixes del primer
+            // candidat vàlid → ràpid i sempre en surt un.
+            ex = await generateBestLineExercise({ gaps: [0], maxTries: 8, depth: 14 });
+        } catch (e) {
+            console.error('[BestLine] error generant sota demanda', e);
+        }
+        if (!ex) { showToast('No s\'ha pogut preparar l\'exercici. Mira la consola (F12) i torna-ho a provar.', 'warn'); return; }
+    }
+    console.log('[BestLine] Exercici llançat:', ex.fullSequenceSan && ex.fullSequenceSan.join(' '), '(gap', ex.gapUsed, ')');
+    isTacticsSession = false;
+    isDailyPuzzleSession = false;
+    isSrsReviewSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    isBestLineSession = true;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'bestline';
+    currentBundleSeverity = null;
+    $('#bundle-modal').remove();
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    pendingPreparedSequence = ex; // startGame el reaprofita per a aquest FEN
+    startGame(true, ex.initialFen);
+}
+if (typeof window !== 'undefined') window.startBestLineExercise = startBestLineExercise;
 
 function completeTacticsPuzzle(success) {
     tacticsStats.attempts = (tacticsStats.attempts || 0) + 1;
@@ -15461,6 +16022,9 @@ blunderMode = isBundle;
     bundleAutoReplyPending = false;
     bundleOpenAIHintPending = false;
     if (isBundle) { bundleAcceptMode = loadBundleAcceptMode(); }
+    // L'exercici "millor línia" exigeix la jugada EXACTA a cada pas: així les
+    // rèpliques fixes del rival sempre són vàlides i el resultat no varia.
+    if (isBundle && currentBundleSource === 'bestline') { bundleAcceptMode = 'top1'; }
 
     totalPlayerMoves = 0; 
     goodMoves = 0;
@@ -15524,6 +16088,7 @@ blunderMode = isBundle;
     $('#blunder-alert').hide();
 
     // Lògica de Modes
+    $('#game-mode-title').css('font-size', ''); // reset (el jeroglífic l'agranda després)
     if (isCalibrationGame) {
         currentCalibrationOpponentRoc = getCalibrationOpponentRoc();
         aiDifficulty = levelToDifficulty(currentCalibrationOpponentRoc);
@@ -15537,7 +16102,9 @@ blunderMode = isBundle;
         let bundleTitle = isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Bundle';
         if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
         else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
-        $('#game-mode-title').text(bundleTitle);
+        else if (currentBundleSource === 'bestline') bundleTitle = '🔮 Jeroglífic en 3 passos';
+        // El jeroglífic en 3 passos es mostra amb la lletra una mica més gran.
+        $('#game-mode-title').text(bundleTitle).css('font-size', currentBundleSource === 'bestline' ? '1.35rem' : '');
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -15645,6 +16212,7 @@ function onDrop(source, target) {
             handleBundleGameOver();
         } else {
             pendingGameOverAfterMoveAnalysis = true;
+            showImmediateGameResult(); // resultat a l'instant; l'anàlisi va en segon pla
             $('#status').text('Analitzant l’última jugada…');
             armGameOverWatchdog();
             analyzeMove();
@@ -16219,8 +16787,10 @@ function handleEngineMessage(rawMsg) {
                 afterFen: pendingAfterFen
             });
             resolvePendingMoveEvaluation(moveQuality);
-            
-            if (swing > 250 && !blunderMode) {
+
+            // Si has jugat la millor jugada, no és cap error encara que el swing
+            // (comparant anàlisi prèvia profunda amb posterior més curta) sigui gran.
+            if (swing > 250 && !blunderMode && lastHumanMoveUci !== pendingBestMove) {
                 let severity = 'low';
                 if (swing > 800) severity = 'high';
                 else if (swing > 500) severity = 'med';
@@ -16508,11 +17078,11 @@ function renderReviewBreakdown(counts) {
         { key: 'good', label: 'Bones', css: 'good' },
         { key: 'inaccuracy', label: 'Imprecisions', css: 'inaccuracy' },
         { key: 'mistake', label: 'Errors', css: 'mistake' },
-        { key: 'blunder', label: 'Blunders', css: 'blunder' }
+        { key: 'blunder', label: 'Errades greus', css: 'blunder' }
     ];
     items.forEach(item => {
         const value = counts[item.key] || 0;
-        const block = `<div class="review-chip ${item.css}"><span>${item.label}</span><strong>${value}</strong></div>`;
+        const block = `<div class="review-chip ${item.css}"><span>${item.label}:</span> <strong>${value}</strong></div>`;
         container.append(block);
     });
 }
@@ -16545,7 +17115,7 @@ function showPostGameStatusChip(resultLabel) {
             chip = document.createElement('div');
             chip.id = 'postgame-board-status';
             chip.style.cssText = 'position:fixed;z-index:1200;transform:translateX(-50%);' +
-                'background:rgba(20,18,15,0.92);color:#f2e9d8;padding:7px 14px;border-radius:11px;' +
+                'background:rgba(20,18,15,0.92);color:#f2e9d8;padding:11px 20px;border-radius:13px;' +
                 'font-size:13px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,0.45);' +
                 'pointer-events:none;line-height:1.4;';
             document.body.appendChild(chip);
@@ -16553,8 +17123,8 @@ function showPostGameStatusChip(resultLabel) {
         const rect = boardEl.getBoundingClientRect();
         chip.style.left = (rect.left + rect.width / 2) + 'px';
         chip.style.top = (rect.top + 12) + 'px';
-        chip.innerHTML = `<div style="font-weight:700;">${escapeHtml(resultLabel)}</div>` +
-            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px;">' +
+        chip.innerHTML = `<div style="font-weight:800;font-size:26px;line-height:1.2;">${escapeHtml(resultLabel)}</div>` +
+            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:5px;">' +
             '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
             'Generant anàlisi…</div>';
         chip.style.display = 'block';
@@ -16565,6 +17135,19 @@ function hidePostGameStatusChip() {
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
     const chip = document.getElementById('postgame-board-status');
     if (chip) chip.style.display = 'none';
+}
+
+// Mostra el resultat (Victòria/Taules/Derrota) a l'INSTANT en acabar la partida,
+// sense esperar que acabi l'anàlisi de l'última jugada. L'anàlisi i la ressenya
+// completa segueixen en segon pla i obriran el modal després.
+function showImmediateGameResult(manualResign = false, timeoutColor = null) {
+    let outcome = 'draw';
+    if (timeoutColor) outcome = (timeoutColor === playerColor) ? 'loss' : 'win';
+    else if (manualResign) outcome = 'loss';
+    else if (game.in_checkmate()) outcome = (game.turn() !== playerColor) ? 'win' : 'loss';
+    try { setResultIndicator(outcome); } catch (e) {}
+    showPostGameStatusChip(postGameResultLabel(outcome));
+    return outcome;
 }
 
 const DEEP_REVIEW_KEYS = ['inaccuracy', 'mistake', 'blunder'];
@@ -16846,6 +17429,12 @@ function handleBundleSuccess() {
         return;
     }
 
+    if (currentBundleSource === 'bestline') {
+        isBestLineSession = false;
+        showDrillSuccessOverlay('Jeroglífic resolt 🔮', () => { void startBestLineExercise(); });
+        return;
+    }
+
     if (currentBundleSource === 'opening_drill' || currentBundleSource === 'mate_drill') {
         const isMate = currentBundleSource === 'mate_drill';
         if (!growthStats || typeof growthStats !== 'object') loadGrowthStats();
@@ -17065,7 +17654,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     
     if (timeoutColor) {
         if (timeoutColor === playerColor) {
-            msg = "Has perdut per temps."; resultScore = 0; leagueOutcome = 'loss';
+            msg = "Has perdut per temps"; resultScore = 0; leagueOutcome = 'loss';
         } else {
             msg = "Victòria per temps!"; resultScore = 1; playerWon = true; leagueOutcome = 'win';
             sessionStats.gamesWon++; totalWins++;
@@ -17073,15 +17662,15 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }
     }
     else if (manualResign) {
-        msg = "T'has rendit."; resultScore = 0; leagueOutcome = 'loss';
+        msg = "T'has rendit"; resultScore = 0; leagueOutcome = 'loss';
     }
     else if (game.in_checkmate()) {
         if (game.turn() !== playerColor) { 
             msg = "Victòria!"; resultScore = 1; playerWon = true; leagueOutcome = 'win'; 
             sessionStats.gamesWon++; totalWins++;
             if (playerColor === 'b') sessionStats.blackWins++;
-        } else { msg = "Derrota."; resultScore = 0; leagueOutcome = 'loss'; }
-    } else { msg = "Taules."; resultScore = 0.5; leagueOutcome = 'draw'; }
+        } else { msg = "Derrota"; resultScore = 0; leagueOutcome = 'loss'; }
+    } else { msg = "Taules"; resultScore = 0.5; leagueOutcome = 'draw'; }
         
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
@@ -17299,10 +17888,10 @@ function updateStatus() {
    a partir dels mateixos fets (mai analitza la partida ell sol). */
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
-const WEEKLY_PLAN_VERSION = 3;
+const WEEKLY_PLAN_VERSION = 4; // 4: s'elimina la tasca "mat en 3 jugades" del pla
 // Quan puja, el resum desat del pla d'avui es descarta i es regenera (text local
 // i, si hi ha clau OpenAI, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
-const PLAN_SUMMARY_REFRESH_VERSION = 1;
+const PLAN_SUMMARY_REFRESH_VERSION = 2;
 let weeklyPlan = null;
 let coachCatalanVoice = null;
 let coachDebriefPending = false;
@@ -17430,9 +18019,9 @@ const COACH_DEBRIEF_TEMPLATES = {
         "Per seguir creixent, el tema que demana més feina és {tema}."
     ],
     advice_srs: [
-        "Tens {due} repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
-        "Abans de la pròxima partida, passa pels {due} repassos pendents; és memòria que no vols perdre.",
-        "Consell: tens {due} errades esperant repàs. Tanca'ls i notaràs la diferència."
+        "Tens repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
+        "Abans de la pròxima partida, passa pels repassos pendents; és memòria que no vols perdre.",
+        "Consell: tens errades esperant repàs. Tanca-les i notaràs la diferència."
     ],
     advice_theme: [
         "Aquesta setmana toca {tema}: entrena'l i aquest tipus de partida canviarà de color.",
@@ -17499,8 +18088,8 @@ COACH_DEBRIEF_TEMPLATES.weak_mastery.push(
     "Res a retreure avui; tot i així, {tema} és el que més et farà pujar."
 );
 COACH_DEBRIEF_TEMPLATES.advice_srs.push(
-    "Tens {due} repassos a punt: són la teva memòria d’escacs, no la deixis enrere.",
-    "Deu minuts amb els {due} repassos pendents valen més que jugar de seguida."
+    "Tens repassos a punt: són la teva memòria d’escacs, no la deixis enrere.",
+    "Deu minuts amb els repassos pendents valen més que jugar de seguida."
 );
 COACH_DEBRIEF_TEMPLATES.advice_theme.push(
     "Una dosi curta de {tema} aquesta setmana i notaràs el canvi.",
@@ -17678,8 +18267,10 @@ function composeDebriefText(facts, seedStr, voice) {
         fase: COACH_PHASE_LABELS[facts.worstPhase] || 'el mig joc',
         due: facts.srsDue
     };
-    const goodPrecision = facts.precision !== null
-        && (facts.precision >= 70 || (facts.avgPrecision !== null && facts.precision >= facts.avgPrecision));
+    // El to de la frase de resultat es lliga a la precisió ABSOLUTA: un 58% no és
+    // "dominar", encara que superi la mitjana del jugador. El mèrit relatiu (jugar
+    // per sobre de la pròpia mitjana) ja es reconeix a part amb highlight_above_avg.
+    const goodPrecision = facts.precision !== null && facts.precision >= 70;
     const sentences = [];
 
     // To de la veu: obertura ocasional que personalitza l'entrenador.
@@ -17869,15 +18460,12 @@ function buildCandidatesNote(review) {
                 const gap = Math.abs((a0.eval || 0) - (a1.eval || 0));
                 if (gap <= 70) {
                     const altSan = uciLineToSan(fen, [a1.move], 1)[0];
-                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${moveHumanText(fen, a1.move, altSan)}.`);
+                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${withSan(moveHumanText(fen, a1.move, altSan), altSan)}.`);
                 }
             }
         }
-        const pv = Array.isArray(review.bestMovePv) ? review.bestMovePv : [];
-        if (pv.length >= 3) {
-            const cont = describeLineHuman(fen, pv, 1, 2);
-            if (cont) parts.push(`La idea seguia amb ${cont}.`);
-        }
+        // NOTA: abans aquí s'afegia "La idea seguia amb …", però duplicava la cua
+        // de "Moviments següents" (mateixa PV). Es deixa només la jugada alternativa.
         return parts.join(' ');
     } catch (e) { return ''; }
 }
@@ -17993,6 +18581,9 @@ const STRUCTURED_CONSEQUENCES = {
 function stripPlanIntro(text) {
     return String(text || '')
         .replace(/^(Aquest va ser el moment que va decidir la partida|Aquí es va escapar bona part de l’avantatge|Un error d’aquesta mida marca tot el que ve després|Si haguessis trobat el millor aquí, la partida canviava de color|Aquí la partida va fer un gir evitable|Aquest error costa, però s’entén i es corregeix|Un pas en fals com aquest sol venir d’anar amb pressa|Va ser un d’aquells moments per parar i mirar bé|Un detall petit, però val la pena fixar-s’hi|No és greu, però polir-ho et fa pujar de nivell|Una imprecisió com aquesta es repeteix si no la nomenes|Petit relliscada: la mena de cosa que distingeix nivells|Mirem-ho amb calma|Val la pena entendre què passava aquí|Aquí hi havia una lliçó concreta|Un moment per aprendre, no per lamentar)\.\s*/i, '')
+        // El número de jugada ja surt a la capçalera ("Jugada N"), així que treiem
+        // el parèntesi redundant "(jugada N)" del diagnòstic.
+        .replace(/\s*\(jugada\s+\d+\)/gi, '')
         .trim();
 }
 
@@ -18004,6 +18595,53 @@ const COACH_EVAL_MATE = 9000;
 const COACH_EVAL_DECISIVE = 250; // avantatge pràcticament guanyador
 function coachEvalNum(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 function coachIsMate(cp) { const n = coachEvalNum(cp); return n !== null && Math.abs(n) >= COACH_EVAL_MATE; }
+
+// Compta les jugades fins al mat reproduint una línia UCI des d'un FEN. Retorna
+// el nombre de JUGADES (no plies) fins a l'escac i mat, o 0 si la línia no hi arriba.
+function mateInMovesFromLine(fen, uciPv) {
+    if (!fen || !Array.isArray(uciPv) || !uciPv.length) return 0;
+    try {
+        const g = new Chess(fen);
+        let plies = 0;
+        for (const u of uciPv) {
+            if (!u || u.length < 4) break;
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) return 0;
+            plies++;
+            if (g.in_checkmate()) return Math.ceil(plies / 2);
+        }
+        return 0;
+    } catch (e) { return 0; }
+}
+
+// Informació de mat d'un moment: si el mat el tenies tu (stillWinning) o és en
+// contra, i en quantes jugades, derivat de les línies reals ja calculades.
+function coachMateInMoves(moment) {
+    const m = moment || {};
+    const after = coachEvalNum(m.evalAfter);
+    const mateInvolved = coachIsMate(coachEvalNum(m.evalBefore)) || coachIsMate(after);
+    if (!mateInvolved) return { mateInvolved: false, stillWinning: false, mateN: 0 };
+    const stillWinning = after !== null && after <= -300; // el rival segueix perdent
+    const mateN = stillWinning
+        ? mateInMovesFromLine(m.fen, Array.isArray(m.pv) ? m.pv : [])
+        : mateInMovesFromLine(m.afterFen, Array.isArray(m.refutationPv) ? m.refutationPv : []);
+    return { mateInvolved: true, stillWinning, mateN };
+}
+
+// Cost concret de l'error per afegir-lo a la conseqüència (dada nova, no repetir
+// el diagnòstic): el nombre de jugades fins al mat si n'hi ha, o el cost aproximat
+// en peons a partir del swing.
+function coachCostSuffix(moment) {
+    const m = moment || {};
+    const mate = coachMateInMoves(m);
+    const cp = Math.abs(Math.round(Number(m.swing) || 0));
+    if (mate.mateInvolved || cp >= 1500) {
+        if (mate.mateN > 0) return mate.stillWinning ? `tenies mat en ${mate.mateN}` : `mat en ${mate.mateN} en contra`;
+        return '';
+    }
+    if (cp >= 100) return `cost aproximat: ${(cp / 100).toFixed(1).replace('.', ',')} peons`;
+    return '';
+}
 
 // Escala el detall segons la gravetat (estil chess.com): una imprecisió és gairebé
 // d'una línia, un error mostra el nucli, i un error greu desplega l'explicació
@@ -18035,14 +18673,17 @@ function coachQualityBadgeHtml(moment, swingLegacy) {
     const meta = coachQualityMeta(m.quality);
     if (!meta) return '';
     const cp = Math.abs(Math.round(Number(m.swing) || 0));
-    const before = coachEvalNum(m.evalBefore), after = coachEvalNum(m.evalAfter);
-    const mateInvolved = coachIsMate(before) || coachIsMate(after);
+    const mate = coachMateInMoves(m);
     let cost = '';
-    if (mateInvolved || cp >= 1500) {
+    if (mate.mateInvolved || cp >= 1500) {
         // El "cost en peons" no té sentit quan hi ha puntuacions de mat: un swing
-        // enorme aquí vol dir "mat deixat escapar", no que perdessis 85 peons.
-        const stillWinning = after !== null && after <= -300; // el rival segueix perdent
-        cost = stillWinning ? ' · victòria ajornada' : ' · pèrdua decisiva';
+        // enorme aquí vol dir "mat deixat escapar", no que perdessis 85 peons. Si
+        // podem derivar les jugades fins al mat, ho diem ("tenies mat en 3").
+        if (mate.mateN > 0) {
+            cost = mate.stillWinning ? `: tenies mat en ${mate.mateN}` : `: mat en ${mate.mateN} en contra`;
+        } else {
+            cost = mate.stillWinning ? ': victòria ajornada' : ': pèrdua decisiva';
+        }
     } else if (cp >= 50) {
         cost = ` · −${(cp / 100).toFixed(1)}`;
     }
@@ -18166,20 +18807,68 @@ const OUTCOME_CONSEQUENCES = {
 // tauler (p. ex. dir "defensa" quan en realitat ja guanyaves). Per als casos
 // suaus es manté la redacció humana del banc de plans (més variada).
 const OUTCOME_DIAGNOSIS = {
-    allows_mate: 'la jugada triada va passar per alt una seqüència de mat forçada',
-    lets_win_slip: 'ja tenies un avantatge guanyador i la jugada triada va afluixar la pressió en lloc de rematar',
-    loses_major: 'la jugada triada va deixar una peça pesant a l’abast del rival',
-    loses_piece: 'la jugada triada va deixar una peça sense protecció',
-    loses_exchange: 'la jugada triada va permetre que el rival guanyés la qualitat',
-    loses_pawn: 'la jugada triada va cedir un peó sense compensació'
+    allows_mate: [
+        'la jugada triada va passar per alt una seqüència de mat forçada',
+        'hi havia un mat forçat sobre el tauler i la jugada feta no el va veure',
+        'la jugada triada va ignorar una combinació que acabava en mat'
+    ],
+    lets_win_slip: [
+        'ja tenies un avantatge guanyador i la jugada triada va afluixar la pressió en lloc de rematar',
+        'estaves guanyant i la jugada feta va donar respir al rival en comptes de tancar la partida',
+        'tenies la victòria a tocar, però la jugada triada va relaxar la pressió'
+    ],
+    loses_major: [
+        'la jugada triada va deixar una peça pesant a l’abast del rival',
+        'la jugada feta va exposar una torre o la dama a la captura',
+        'amb la jugada triada una peça major quedava per perdre'
+    ],
+    loses_piece: [
+        'la jugada triada va deixar una peça sense protecció',
+        'la jugada feta penjava una peça',
+        'amb la jugada triada una peça quedava indefensa'
+    ],
+    loses_exchange: [
+        'la jugada triada va permetre que el rival guanyés la qualitat',
+        'la jugada feta cedia la qualitat, torre per peça menor',
+        'amb la jugada triada el rival es quedava la qualitat'
+    ],
+    loses_pawn: [
+        'la jugada triada va cedir un peó sense compensació',
+        'la jugada feta regalava un peó sense res a canvi',
+        'amb la jugada triada queia un peó sense compensació'
+    ]
 };
 const OUTCOME_PLANS = {
-    allows_mate: 'calia veure la seqüència forçada abans de res: rematar el mat o, si era en contra, aturar-lo',
-    lets_win_slip: 'ja guanyaves: tocava rematar amb la jugada més forçada i directa, sense relaxar la pressió',
-    loses_major: 'calia protegir la peça o no entrar en la línia que la perdia',
-    loses_piece: 'calia deixar totes les peces defensades abans de continuar',
-    loses_exchange: 'calia evitar el canvi desfavorable i conservar la qualitat',
-    loses_pawn: 'calia retenir el peó o aconseguir compensació clara a canvi'
+    allows_mate: [
+        'calia veure la seqüència forçada abans de res: rematar el mat o, si era en contra, aturar-lo',
+        'primer de tot, busca els escacs forçats: o hi ha mat a favor o cal parar el del rival',
+        'davant d’un mat al tauler, calcula la línia forçada abans de qualsevol altra idea'
+    ],
+    lets_win_slip: [
+        'ja guanyaves: tocava rematar amb la jugada més forçada i directa, sense relaxar la pressió',
+        'amb avantatge guanyador, busca la continuació més directa i no donis temps al rival',
+        'quan ja guanyes, simplifica cap a la victòria i evita les jugades que reobren la partida'
+    ],
+    loses_major: [
+        'calia protegir la peça o no entrar en la línia que la perdia',
+        'abans de moure, comprova que cap peça major queda a l’abast del rival',
+        'posa la peça pesant fora de perill o evita la variant que la perd'
+    ],
+    loses_piece: [
+        'calia deixar totes les peces defensades abans de continuar',
+        'revisa que totes les peces estiguin protegides abans de jugar',
+        'no avancis amb una peça penjada: primer assegura-la'
+    ],
+    loses_exchange: [
+        'calia evitar el canvi desfavorable i conservar la qualitat',
+        'no entris en canvis que et costen la qualitat sense compensació',
+        'conserva la torre i evita el canvi per la peça menor'
+    ],
+    loses_pawn: [
+        'calia retenir el peó o aconseguir compensació clara a canvi',
+        'defensa el peó o busca compensació concreta abans de cedir-lo',
+        'no cedeixis el peó sense una compensació clara'
+    ]
 };
 
 // Hash estable (determinista) per triar sempre la mateixa variant per a una
@@ -18189,10 +18878,12 @@ function coachStableHash(str) {
     for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
     return Math.abs(h);
 }
-function pickStableLine(pool, moment) {
+function pickStableLine(pool, moment, salt = '') {
     if (!Array.isArray(pool) || !pool.length) return '';
     const m = moment || {};
-    const seed = `${m.moveNumber ?? '?'}|${m.fen || ''}`;
+    // El salt permet que diagnòstic, conseqüència i pla d'una mateixa jugada
+    // triïn variants independents (si no, sortirien sempre al mateix índex).
+    const seed = `${m.moveNumber ?? '?'}|${m.fen || ''}|${salt}`;
     return pool[coachStableHash(seed) % pool.length];
 }
 
@@ -18217,7 +18908,9 @@ function buildStructuredConsequence(moment) {
     const outcome = classifyMoveOutcome(m);
     if (outcome) {
         const pool = OUTCOME_CONSEQUENCES[outcome] || OUTCOME_CONSEQUENCES.lets_advantage_slip;
-        return `${severity} ${toInlineAdvice(pickStableLine(pool, m))}.`;
+        const base = `${severity} ${toInlineAdvice(pickStableLine(pool, m))}`;
+        const cost = coachCostSuffix(m);
+        return cost ? `${base} (${cost}).` : `${base}.`;
     }
 
     // Legacy (partides sense avaluació ni refutació): comportament per tema.
@@ -18227,8 +18920,16 @@ function buildStructuredConsequence(moment) {
     return `${severity} ${toInlineAdvice(line)}.`;
 }
 
-function buildStructuredLocalExplanation(moment, plan = {}) {
+function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     const fallbackPlan = plan && typeof plan === 'object' ? plan : {};
+    // full=true (exportació per analitzar): no retallem el text a 14-16 paraules
+    // amb "…"; deixem les frases senceres perquè no quedin tallades a mitja frase.
+    const full = !!opts.full;
+    const fld = (text, fallback, o = {}) => {
+        const polished = ensureCoachTextQuality(text, fallback, o);
+        return full ? polished : shortenCoachComment(polished, o.maxWords || 18);
+    };
+    const sanFld = (text, maxWords) => full ? String(text || '').trim() : shortenCoachComment(text, maxWords);
     const fact = moment && moment.positional
         ? moment.positional
         : `Era una posició de ${moment?.theme || 'joc general'} en fase de ${moment?.phase || 'partida'}.`;
@@ -18237,31 +18938,35 @@ function buildStructuredLocalExplanation(moment, plan = {}) {
     // ensureCoachTextQuality (a baix) ja capitalitza i afegeix punt final.
     const outcome = classifyMoveOutcome(moment || {});
     const mistake = (outcome && OUTCOME_DIAGNOSIS[outcome])
-        ? OUTCOME_DIAGNOSIS[outcome]
+        ? pickStableLine(OUTCOME_DIAGNOSIS[outcome], moment, 'diag')
         : (stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.');
     const consequence = buildStructuredConsequence(moment || {});
     const betterPlan = (outcome && OUTCOME_PLANS[outcome])
-        ? OUTCOME_PLANS[outcome]
+        ? pickStableLine(OUTCOME_PLANS[outcome], moment, 'plan')
         : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
     return {
-        fact: compactStructuredCoachText(fact, '', { maxWords: 16 }),
-        mistake: compactStructuredCoachText(mistake, 'La jugada triada no resolia la necessitat principal.', { maxWords: 16 }),
-        consequence: compactStructuredCoachText(consequence, '', { maxWords: 16 }),
-        plan: compactStructuredCoachText(betterPlan, 'Tria una jugada amb funció clara i poc contrajoc.', { maxWords: 16 }),
+        fact: fld(fact, '', { maxWords: 16 }),
+        mistake: fld(mistake, 'La jugada triada no resolia la necessitat principal.', { maxWords: 16 }),
+        consequence: fld(consequence, '', { maxWords: 16 }),
+        plan: fld(betterPlan, 'Tria una jugada amb funció clara i poc contrajoc.', { maxWords: 16 }),
         // La continuació i la refutació contenen notació SAN deliberadament, així
         // que NO passen pel validador de text (que penalitza la SAN).
-        continuation: shortenCoachComment(buildContinuationNote(moment || {}), 14),
-        refutation: shortenCoachComment(buildRefutationNote(moment || {}), 14),
-        question: compactStructuredCoachText(fallbackPlan.question || '', '', { sentence: false, maxWords: 14 })
+        continuation: sanFld(buildContinuationNote(moment || {}), 14),
+        refutation: sanFld(buildRefutationNote(moment || {}), 14),
+        question: fld(fallbackPlan.question || '', '', { sentence: false, maxWords: 14 })
     };
 }
 
-function buildHumanPlanMoments(entry, insights = null) {
+function buildHumanPlanMoments(entry, insights = null, opts = {}) {
     const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
     const priority = { blunder: 4, mistake: 3, inaccuracy: 2, good: 1, excel: 0 };
     const ins = insights || buildPlayerInsights(entry && entry.id);
     return reviews
         .filter(r => r && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
+        // Defensa per a partides ja desades: si la jugada feta coincideix amb la
+        // millor, no és cap error (swing fantasma) i no s'ha de mostrar com a moment.
+        .filter(r => !(r.playerMove && r.bestMove && r.playerMove === r.bestMove)
+                  && !(r.playerMoveSan && r.bestMoveSan && r.playerMoveSan === r.bestMoveSan))
         .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
         .slice(0, 3)
         .map(r => {
@@ -18296,7 +19001,7 @@ function buildHumanPlanMoments(entry, insights = null) {
                 isPattern
             };
             const plan = buildLocalHumanPlan(moment);
-            return { ...moment, ...plan, structured: buildStructuredLocalExplanation(moment, plan) };
+            return { ...moment, ...plan, structured: buildStructuredLocalExplanation(moment, plan, opts) };
         });
 }
 
@@ -18649,12 +19354,6 @@ function buildWeeklyPlan() {
             target: openTarget, baseline: growthStats.openingDrillsCompleted || 0
         });
     }
-    const mateTarget = 1 + Math.floor(rng() * 2);
-    items.push({
-        id: 'mates', type: 'mate_drill', theme: 'endgame', metric: 'mate_drill',
-        title: mateTarget === 1 ? 'Remata 1 final amb mat en 3 jugades' : `Remata ${mateTarget} finals amb mat en 3 jugades`,
-        target: mateTarget, baseline: growthStats.mateDrillsCompleted || 0
-    });
     const tacticsTarget = 3 + Math.floor(rng() * 3);
     items.push({
         id: 'tactics', type: 'tactics', theme: null, metric: 'tactics',
@@ -18687,9 +19386,9 @@ function weeklyPlanItemProgress(item) {
 }
 
 const COACH_PLAN_TEMPLATES = [
-    "Avui el focus és {tema} (domini del {pct}%). El pla té tres fronts: rectifica les errades que vas cometre a l'obertura amb dues jugades correctes, afina la vista amb la tàctica, i remata finals fent escac i mat en 3 jugades. Pas a pas, sense pressa.",
-    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho de totes bandes, avui combinem la correcció de les teves errades d'obertura, exercicis de tàctica i mats en 3 jugades als finals.",
-    "Pla d'avui: corregeix les errades que vas cometre a l'obertura, resol els mats en 3 jugades per dominar els finals, i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
+    "Avui el focus és {tema} (domini del {pct}%). El pla té dos fronts: rectifica les errades que vas cometre a l'obertura amb dues jugades correctes i afina la vista amb la tàctica. Pas a pas, sense pressa.",
+    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho, avui combinem la correcció de les teves errades d'obertura i exercicis de tàctica.",
+    "Pla d'avui: corregeix les errades que vas cometre a l'obertura i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
 ];
 
 function composeWeeklyPlanText(plan) {
@@ -19649,7 +20348,16 @@ async function backgroundPrepTick() {
     if (!isIdleForBackgroundPrep()) return;
     prunePreparedSequences();
     const next = getBackgroundPrepCandidates().find(f => !preparedSequences[f]);
-    if (!next) return;
+    if (!next) {
+        // Rebost de 2 jugades ple: omple el d'exercicis "millor línia" de 3 jugades.
+        if (bestLinePool.length < BESTLINE_POOL_TARGET) {
+            await ensureBestLinePoolTick();
+            if (!backgroundPrepAbortRequested && bestLinePool.length < BESTLINE_POOL_TARGET && isIdleForBackgroundPrep()) {
+                setTimeout(backgroundPrepTick, 600);
+            }
+        }
+        return;
+    }
     if (!ensureStockfish()) return;
     backgroundPrepAbortRequested = false;
     backgroundPrepProtected = false;

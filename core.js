@@ -497,8 +497,164 @@
         return total / games.length;
     }
 
+    // ----------------------------------------------------------------------
+    // Exercicis de "millor línia" (3 jugades fixades): matemàtica del filtre de
+    // qualitat "clarament millor". Una avaluació {eval, evalType} es converteix
+    // en una puntuació comparable (perspectiva del costat que mou; com més alt,
+    // millor) i el gap entre la 1a i la 2a opció decideix si el pas és "net".
+    // ----------------------------------------------------------------------
+
+    // Converteix {eval, evalType} en un nombre comparable. El mat sempre domina
+    // qualsevol cp; un mat més curt val més que un de més llarg.
+    function bestLineEvalScore(e) {
+        if (!e || typeof e.eval !== 'number') return null;
+        if (e.evalType === 'mate') {
+            const n = Math.abs(e.eval);
+            const magnitude = 100000 - n * 100; // mat en 1 > mat en 8
+            return e.eval >= 0 ? magnitude : -magnitude;
+        }
+        return e.eval; // centipawns, perspectiva del costat que mou
+    }
+
+    // Gap (en cp comparables) entre la millor opció i la segona d'una llista
+    // d'alternatives ordenades (multipv 1, 2, ...). Si només n'hi ha una opció
+    // (jugada forçada), retorna Infinity. Si no es pot calcular, retorna null.
+    function bestLineGapCp(alternatives) {
+        if (!Array.isArray(alternatives) || !alternatives.length) return null;
+        const best = bestLineEvalScore(alternatives[0]);
+        if (best === null) return null;
+        if (alternatives.length < 2) return Infinity; // només una jugada bona
+        const second = bestLineEvalScore(alternatives[1]);
+        if (second === null) return Infinity;
+        return best - second;
+    }
+
+    // El pas és "clarament millor" si el gap arriba al llindar (o és forçat).
+    function bestLineStepQualifies(alternatives, gapCp) {
+        const gap = bestLineGapCp(alternatives);
+        if (gap === null) return false;
+        return gap >= (typeof gapCp === 'number' ? gapCp : 150);
+    }
+
+    // ----------------------------------------------------------------------
+    // Jeroglífics / puzzles tàctics (lògica PURA i testable). Cada puzzle són
+    // 3 jugades del jugador amb respostes del rival entremig; aquí viu tota la
+    // decisió (criteris d'acceptació, dificultat, explicació, validació pas a
+    // pas, dedup). La part de Stockfish i SAN viu a app.js.
+    // ----------------------------------------------------------------------
+    const PUZZLE_THEME_LABELS = {
+        mate: 'un mat', double_attack: 'un atac doble', fork: 'una forquilla',
+        pin: 'una clavada', discovery: 'una descoberta', deflection: 'una desviació',
+        attraction: 'una atracció', overload: 'una peça sobrecarregada',
+        king_attack: 'un atac al rei', material: 'un guany de material',
+        endgame_tactic: 'una tàctica de final', sacrifice: 'un sacrifici'
+    };
+
+    // Clau de FEN per a duplicats: només posició, torn, enroc i en passant
+    // (s'ignoren els comptadors de jugada).
+    function puzzleFenKey(fen) {
+        return String(fen || '').split(' ').slice(0, 4).join(' ');
+    }
+    function puzzleIsDuplicateFen(existing, fen) {
+        const key = puzzleFenKey(fen);
+        if (!key || !Array.isArray(existing)) return false;
+        return existing.some(p => p && puzzleFenKey(p.fen) === key);
+    }
+
+    // Criteris mínims per ACCEPTAR un puzzle: 3 jugades del jugador, la millor
+    // clarament superior (marge ≥ minMargin) o mat, i final decisiu.
+    function puzzleMeetsCriteria(p, cfg) {
+        if (!p) return false;
+        const c = cfg || {};
+        const minMargin = typeof c.minMargin === 'number' ? c.minMargin : 150;
+        const decisiveCp = typeof c.decisiveCp === 'number' ? c.decisiveCp : 500;
+        if (!Array.isArray(p.solutionUci) || p.solutionUci.length !== 3) return false;
+        const marginOk = p.endsInMate || p.bestMoveMargin === Infinity ||
+            (typeof p.bestMoveMargin === 'number' && p.bestMoveMargin >= minMargin);
+        if (!marginOk) return false;
+        if (!p.endsInMate) {
+            const fe = typeof p.finalEval === 'number' ? Math.abs(p.finalEval) : 0;
+            if (fe < decisiveCp) return false; // ha d'acabar amb avantatge decisiu
+        }
+        return true;
+    }
+
+    function puzzleDifficulty(p) {
+        if (!p) return 'mitja';
+        const themes = Array.isArray(p.theme) ? p.theme : [];
+        const len = Array.isArray(p.solutionUci) ? p.solutionUci.length : 3;
+        if (themes.includes('sacrifice')) return 'molt_dificil';
+        if (p.firstMoveQuiet) return 'dificil'; // primera jugada silenciosa (ni escac ni captura)
+        if (p.endsInMate && len <= 2) return 'facil';
+        if ((themes.includes('mate') || themes.includes('material')) && (p.firstMoveIsCheck || p.firstMoveIsCapture) && len <= 3) return 'facil';
+        return 'mitja';
+    }
+
+    function puzzleRatingEstimate(p) {
+        const base = { facil: 900, mitja: 1300, dificil: 1700, molt_dificil: 2100 };
+        let r = base[puzzleDifficulty(p)] || 1300;
+        if (p && p.firstMoveQuiet) r += 100;
+        if (p && Array.isArray(p.theme) && p.theme.includes('sacrifice')) r += 100;
+        return r;
+    }
+
+    function puzzleExplanation(p) {
+        const themes = (p && Array.isArray(p.theme)) ? p.theme : [];
+        if (themes.includes('mate')) return 'La seqüència porta a un escac i mat forçat: cada jugada limita el rei rival fins que no té escapatòria.';
+        if (themes.includes('deflection')) return 'Primer cal desviar el defensor clau; el rival queda obligat a respondre i la jugada final guanya material de manera decisiva.';
+        if (themes.includes('fork') || themes.includes('double_attack')) return 'Una sola jugada amenaça dues coses alhora: el rival no les pot defensar totes i caurà material.';
+        if (themes.includes('pin')) return 'Aprofita la clavada: la peça rival no es pot moure sense perdre el que protegeix al darrere.';
+        if (themes.includes('discovery')) return 'En moure una peça en destapes una altra que ataca amb força: és una descoberta decisiva.';
+        if (themes.includes('sacrifice')) return 'Un sacrifici correcte obre les defenses; la compensació arriba en les jugades següents.';
+        if (themes.includes('king_attack')) return "L'atac al rei rival és decisiu: les jugades forcen la defensa fins a guanyar.";
+        if (themes.includes('material')) return 'La combinació guanya material net de manera forçada.';
+        return 'Una seqüència forçada de tres jugades que aprofita un error del rival per obtenir un avantatge decisiu.';
+    }
+
+    // Pista per nivells: 1 → tema, 2 → peça, 3 → casella/SAN.
+    function puzzleHint(p, level, ctx) {
+        const c = ctx || {};
+        const themes = (p && Array.isArray(p.theme)) ? p.theme : [];
+        if (level <= 1) return `Busca ${themes[0] ? (PUZZLE_THEME_LABELS[themes[0]] || 'una jugada forta') : 'una jugada forta'}.`;
+        if (level === 2) return c.pieceName ? `Mou ${c.pieceName}.` : 'Mira quina peça pot fer la jugada clau.';
+        return c.san ? `La jugada és ${c.san}.` : (c.toSquare ? `Una peça ha d'anar a ${c.toSquare}.` : 'Mira la millor jugada.');
+    }
+
+    // Màquina d'estats pura per validar la solució pas a pas.
+    function puzzleInitPlay(puzzle) {
+        return {
+            solutionUci: (puzzle && puzzle.solutionUci) || [],
+            repliesUci: (puzzle && puzzle.engineRepliesUci) || [],
+            step: 0,
+            solved: false
+        };
+    }
+    function puzzleSubmitMove(state, uci) {
+        const s = state || {};
+        const sol = s.solutionUci || [];
+        const expected = sol[s.step];
+        if (!expected) return Object.assign({}, s, { result: 'solved', solved: true, reply: null });
+        if (uci !== expected) return Object.assign({}, s, { result: 'incorrect' }); // NO avança de pas
+        const nextStep = (s.step || 0) + 1;
+        const solved = nextStep >= sol.length;
+        const reply = solved ? null : ((s.repliesUci || [])[s.step] || null);
+        return Object.assign({}, s, { step: nextStep, solved, reply, result: solved ? 'solved' : 'correct' });
+    }
+
     return {
         clampElo,
+        bestLineEvalScore,
+        bestLineGapCp,
+        bestLineStepQualifies,
+        puzzleFenKey,
+        puzzleIsDuplicateFen,
+        puzzleMeetsCriteria,
+        puzzleDifficulty,
+        puzzleRatingEstimate,
+        puzzleExplanation,
+        puzzleHint,
+        puzzleInitPlay,
+        puzzleSubmitMove,
         normalize,
         clampUserElo,
         getBaselineAdjustmentDelta,
