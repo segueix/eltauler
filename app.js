@@ -1079,6 +1079,53 @@ function downloadTextFile(filename, content, mimeType) {
     URL.revokeObjectURL(url);
 }
 
+// Converteix el contingut HTML d'una ressenya (o de les notes d'errada) en text
+// pla llegible: conserva els salts de línia i marca les llistes amb vinyetes, i
+// descarta els botons (p. ex. «📋 Copiar») perquè no embrutin el text exportat.
+function reviewHtmlElementToText(el) {
+    if (!el) return '';
+    const clone = el.cloneNode(true);
+    clone.querySelectorAll('button').forEach(b => b.remove());
+    clone.querySelectorAll('br').forEach(br => br.replaceWith('\n'));
+    clone.querySelectorAll('li').forEach(li => {
+        li.insertBefore(document.createTextNode('• '), li.firstChild);
+        li.appendChild(document.createTextNode('\n'));
+    });
+    clone.querySelectorAll('p, div, ul, pre, h1, h2, h3, h4').forEach(b => b.appendChild(document.createTextNode('\n')));
+    const text = clone.textContent || '';
+    return text.replace(/ /g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+}
+
+// Baixa en un .txt només els textos generats de la ressenya actual (ressenya +
+// moments clau + errades comentades), per poder-los analitzar fora de l'app.
+function downloadHistoryReviewText(entry) {
+    if (!entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+    const lines = ['El Tauler — Ressenya de la partida'];
+    const meta = [
+        entry.result,
+        entry.label,
+        formatHistoryMode(entry.mode),
+        (typeof entry.precision === 'number' ? `Precisió ${entry.precision}%` : '')
+    ].filter(Boolean).join(' · ');
+    if (meta) lines.push(meta);
+    if (entry.date) {
+        const d = new Date(entry.date);
+        if (!isNaN(d)) lines.push(d.toLocaleString('ca-ES'));
+    }
+
+    const reviewText = reviewHtmlElementToText(document.getElementById('history-review-content'));
+    lines.push('\n=== Ressenya i moments clau ===', reviewText || '(sense ressenya generada)');
+
+    const notesBlock = document.getElementById('history-error-notes-block');
+    const notesVisible = notesBlock && notesBlock.style.display !== 'none';
+    const notesText = notesVisible ? reviewHtmlElementToText(document.getElementById('history-error-notes')) : '';
+    if (notesText) lines.push('\n=== Errades comentades ===', notesText);
+
+    const stamp = String(entry.date || new Date().toISOString()).replace(/[^0-9a-zA-Z]/g, '-');
+    downloadTextFile(`eltauler_ressenya_${stamp}.txt`, lines.join('\n'), 'text/plain;charset=utf-8');
+    showToast('Text de la ressenya baixat 📝', 'success');
+}
+
 function exportAdaptationReport() {
     const report = buildAdaptationReport();
     const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, '-');
@@ -13124,6 +13171,10 @@ function setupEvents() {
             updateHistoryReview(entry);
             showToast('Ressenya regenerada ✓', 'success');
         }
+    });
+    $('#history-download-review').off('click').on('click', () => {
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        downloadHistoryReviewText(historyReplay.entry);
     });
     $('#history-export-pgn').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
