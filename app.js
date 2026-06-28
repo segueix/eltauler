@@ -1101,9 +1101,15 @@ function reviewHtmlElementToText(el) {
 function buildErrorNotesExportText(entry) {
     const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
     if (!errors.length) return '';
+    // No repetim aquí les jugades que ja s'expliquen senceres a "Moments clau"
+    // (mateixa jugada i mateixa anàlisi): cada error apareix una sola vegada.
+    let momentMoves = new Set();
+    try { momentMoves = new Set(buildHumanPlanMoments(entry).map(m => Number(m.moveNumber))); } catch (e) {}
     const notes = entry.errorNotes || {};
-    return errors.map(err => {
+    const blocks = [];
+    errors.forEach(err => {
         const d = describeSevereError(err);
+        if (momentMoves.has(Number(d.moveNumber))) return;
         const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
         const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
         const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
@@ -1114,8 +1120,9 @@ function buildErrorNotesExportText(entry) {
         const body = (note && note.status === 'done' && note.text)
             ? note.text
             : buildLocalErrorNote(err, entry, { full: true });
-        return `${head}\n${body}`;
-    }).join('\n\n');
+        blocks.push(`${head}\n${body}`);
+    });
+    return blocks.join('\n\n');
 }
 
 // Munta el text pla amb només els textos generats de la ressenya actual:
@@ -8005,9 +8012,13 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const show = coachSectionsFor(m.quality);
                 const badge = coachQualityBadgeHtml(m);
                 const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
+                // Inclou la jugada feta perquè el moment sigui autocontingut (i no
+                // calgui repetir-lo a "Errades comentades").
+                const playedTxt = withSan(m.playedDesc || m.played || '—', m.played);
+                const tail = `vas jugar ${escapeHtml(playedTxt)}; la millor era → ${link}.`;
                 const header = badge
-                    ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): millor jugada → ${link}.`
-                    : `${moveNumLabel} (${escapeHtml(m.theme)}): millor jugada → ${link}.`;
+                    ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): ${tail}`
+                    : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
                 const lines = [
                     header,
                     show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
@@ -18164,6 +18175,9 @@ const STRUCTURED_CONSEQUENCES = {
 function stripPlanIntro(text) {
     return String(text || '')
         .replace(/^(Aquest va ser el moment que va decidir la partida|Aquí es va escapar bona part de l’avantatge|Un error d’aquesta mida marca tot el que ve després|Si haguessis trobat el millor aquí, la partida canviava de color|Aquí la partida va fer un gir evitable|Aquest error costa, però s’entén i es corregeix|Un pas en fals com aquest sol venir d’anar amb pressa|Va ser un d’aquells moments per parar i mirar bé|Un detall petit, però val la pena fixar-s’hi|No és greu, però polir-ho et fa pujar de nivell|Una imprecisió com aquesta es repeteix si no la nomenes|Petit relliscada: la mena de cosa que distingeix nivells|Mirem-ho amb calma|Val la pena entendre què passava aquí|Aquí hi havia una lliçó concreta|Un moment per aprendre, no per lamentar)\.\s*/i, '')
+        // El número de jugada ja surt a la capçalera ("Jugada N"), així que treiem
+        // el parèntesi redundant "(jugada N)" del diagnòstic.
+        .replace(/\s*\(jugada\s+\d+\)/gi, '')
         .trim();
 }
 
