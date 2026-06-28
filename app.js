@@ -12671,17 +12671,53 @@ function collectPersonalHieroglyphicCandidates(preferredEntry = null) {
     });
     return unique;
 }
+
+function sameUciMove(a, b) {
+    return String(a || '').toLowerCase() === String(b || '').toLowerCase();
+}
+async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
+    if (!candidate || candidate.source !== 'gameHistory.tactic') return candidate;
+    if (!ensureStockfish()) return null;
+    const analysis = await analyzeFenRobust(candidate.fen, opts.depth || 14, 3, opts.moveTimeMs || 5000, opts.shouldAbort || null);
+    const best = analysis && analysis.bestMove && analysis.bestMove.move;
+    if (!best || !sameUciMove(best, candidate.bestMove)) return null;
+    const alternatives = analysis.alternatives || [];
+    const isMate = analysis.bestMove.evalType === 'mate' || candidate.theme === 'mate';
+    const hasClearMargin = ElTaulerCore.bestLineStepQualifies(alternatives, opts.minGapCp || 80);
+    if (!isMate && !hasClearMargin) return null;
+    return Object.assign({}, candidate, {
+        stockfishValidated: true,
+        engineDepth: opts.depth || 14,
+        evalBefore: analysis.bestMove.eval ?? candidate.evalBefore ?? null,
+        alternatives,
+        pv: (analysis.bestMove.pv && analysis.bestMove.pv.length) ? analysis.bestMove.pv : candidate.pv
+    });
+}
+async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = {}) {
+    const tacticCandidates = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic').slice(0, opts.maxCandidates || 6);
+    for (const candidate of tacticCandidates) {
+        const validated = await validateHieroglyphicTacticWithStockfish(candidate, opts);
+        if (validated) return validated;
+    }
+    return (candidates || []).find(c => c && c.source !== 'gameHistory.tactic') || null;
+}
+
 function hasPersonalHieroglyphicCandidate(entry = null) {
     return collectPersonalHieroglyphicCandidates(entry).length > 0;
 }
-function startPersonalHieroglyphicFromLastGame(entry = null) {
+async function startPersonalHieroglyphicFromLastGame(entry = null) {
     loadHieroglyphicStats();
     const candidates = collectPersonalHieroglyphicCandidates(entry);
     if (!candidates.length) {
         showToast('Encara no hi ha cap posició crítica per convertir en jeroglífic.', 'warn');
         return;
     }
-    const chosen = candidates[0];
+    showToast('Validant el jeroglífic amb Stockfish…', 'info');
+    const chosen = await chooseStockfishValidatedHieroglyphicCandidate(candidates);
+    if (!chosen) {
+        showToast('Stockfish no ha validat cap tàctica prou clara en aquesta partida.', 'warn');
+        return;
+    }
     try {
         hieroglyphicOpening = { name: chosen.tacticKind ? `Tàctica jugada: ${chosen.tacticKind}` : 'El teu error', idea: chosen.tacticKind ? 'Reconstrueix la jugada tàctica que ja va aparèixer en una partida teva.' : 'Converteix la posició crítica en una idea recordable.' };
         hieroglyphicGame = new Chess(chosen.fen);
