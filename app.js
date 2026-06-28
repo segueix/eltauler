@@ -1115,7 +1115,10 @@ function buildErrorNotesExportText(entry) {
         const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
         const meta = coachQualityMeta(quality);
         const label = meta ? meta.label : 'Error';
-        const head = `${label} · Jugada ${d.moveNumber}: vas jugar ${withSan(playedDesc, d.played)} · la millor era ${withSan(bestDesc, d.best)}`;
+        const samePB = d.played && d.best && d.played === d.best;
+        const head = samePB
+            ? `${label} · Jugada ${d.moveNumber}: la millor jugada era ${withSan(bestDesc, d.best)}`
+            : `${label} · Jugada ${d.moveNumber}: vas jugar ${withSan(playedDesc, d.played)} · la millor era ${withSan(bestDesc, d.best)}`;
         const note = notes[getErrorNoteKey(err)] || null;
         const body = (note && note.status === 'done' && note.text)
             ? note.text
@@ -1626,6 +1629,7 @@ function commitHumanMove(from, to, promotionPiece) {
             handleBundleGameOver();
         } else {
             pendingGameOverAfterMoveAnalysis = true;
+            showImmediateGameResult(); // resultat a l'instant; l'anàlisi va en segon pla
             $('#status').text('Analitzant l’última jugada…');
             armGameOverWatchdog();
             analyzeMove();
@@ -8013,9 +8017,16 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const badge = coachQualityBadgeHtml(m);
                 const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
                 // Inclou la jugada feta perquè el moment sigui autocontingut (i no
-                // calgui repetir-lo a "Errades comentades").
+                // calgui repetir-lo a "Errades comentades"). Si, per una atribució
+                // errònia, la jugada feta coincideix amb la millor, no mostrem el
+                // dual contradictori ("vas jugar X; la millor era X").
+                const playedSan = String(m.played || '').trim();
+                const bestSan = String(m.best || '').trim();
+                const samePlayedBest = playedSan && bestSan && playedSan === bestSan;
                 const playedTxt = withSan(m.playedDesc || m.played || '—', m.played);
-                const tail = `vas jugar ${escapeHtml(playedTxt)}; la millor era → ${link}.`;
+                const tail = samePlayedBest
+                    ? `millor jugada → ${link}.`
+                    : `vas jugar ${escapeHtml(playedTxt)}; la millor era → ${link}.`;
                 const header = badge
                     ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): ${tail}`
                     : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
@@ -8133,8 +8144,12 @@ function updateHistoryErrorNotes(entry) {
         // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
+        const samePB = d.played && d.best && d.played === d.best;
+        const headMoves = samePB
+            ? `la millor jugada era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`
+            : `vas jugar <strong>${escapeHtml(withSan(playedDesc, d.played))}</strong> · la millor era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`;
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
-            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(withSan(playedDesc, d.played))}</strong> · la millor era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong></div>
+            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: ${headMoves}</div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
@@ -15828,6 +15843,7 @@ function onDrop(source, target) {
             handleBundleGameOver();
         } else {
             pendingGameOverAfterMoveAnalysis = true;
+            showImmediateGameResult(); // resultat a l'instant; l'anàlisi va en segon pla
             $('#status').text('Analitzant l’última jugada…');
             armGameOverWatchdog();
             analyzeMove();
@@ -16748,6 +16764,19 @@ function hidePostGameStatusChip() {
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
     const chip = document.getElementById('postgame-board-status');
     if (chip) chip.style.display = 'none';
+}
+
+// Mostra el resultat (Victòria/Taules/Derrota) a l'INSTANT en acabar la partida,
+// sense esperar que acabi l'anàlisi de l'última jugada. L'anàlisi i la ressenya
+// completa segueixen en segon pla i obriran el modal després.
+function showImmediateGameResult(manualResign = false, timeoutColor = null) {
+    let outcome = 'draw';
+    if (timeoutColor) outcome = (timeoutColor === playerColor) ? 'loss' : 'win';
+    else if (manualResign) outcome = 'loss';
+    else if (game.in_checkmate()) outcome = (game.turn() !== playerColor) ? 'win' : 'loss';
+    try { setResultIndicator(outcome); } catch (e) {}
+    showPostGameStatusChip(postGameResultLabel(outcome));
+    return outcome;
 }
 
 const DEEP_REVIEW_KEYS = ['inaccuracy', 'mistake', 'blunder'];
