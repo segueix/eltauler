@@ -17850,8 +17850,10 @@ function composeDebriefText(facts, seedStr, voice) {
         fase: COACH_PHASE_LABELS[facts.worstPhase] || 'el mig joc',
         due: facts.srsDue
     };
-    const goodPrecision = facts.precision !== null
-        && (facts.precision >= 70 || (facts.avgPrecision !== null && facts.precision >= facts.avgPrecision));
+    // El to de la frase de resultat es lliga a la precisió ABSOLUTA: un 58% no és
+    // "dominar", encara que superi la mitjana del jugador. El mèrit relatiu (jugar
+    // per sobre de la pròpia mitjana) ja es reconeix a part amb highlight_above_avg.
+    const goodPrecision = facts.precision !== null && facts.precision >= 70;
     const sentences = [];
 
     // To de la veu: obertura ocasional que personalitza l'entrenador.
@@ -18041,15 +18043,12 @@ function buildCandidatesNote(review) {
                 const gap = Math.abs((a0.eval || 0) - (a1.eval || 0));
                 if (gap <= 70) {
                     const altSan = uciLineToSan(fen, [a1.move], 1)[0];
-                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${moveHumanText(fen, a1.move, altSan)}.`);
+                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${withSan(moveHumanText(fen, a1.move, altSan), altSan)}.`);
                 }
             }
         }
-        const pv = Array.isArray(review.bestMovePv) ? review.bestMovePv : [];
-        if (pv.length >= 3) {
-            const cont = describeLineHuman(fen, pv, 1, 2);
-            if (cont) parts.push(`La idea seguia amb ${cont}.`);
-        }
+        // NOTA: abans aquí s'afegia "La idea seguia amb …", però duplicava la cua
+        // de "Moviments següents" (mateixa PV). Es deixa només la jugada alternativa.
         return parts.join(' ');
     } catch (e) { return ''; }
 }
@@ -18177,14 +18176,49 @@ const COACH_EVAL_DECISIVE = 250; // avantatge pràcticament guanyador
 function coachEvalNum(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 function coachIsMate(cp) { const n = coachEvalNum(cp); return n !== null && Math.abs(n) >= COACH_EVAL_MATE; }
 
+// Compta les jugades fins al mat reproduint una línia UCI des d'un FEN. Retorna
+// el nombre de JUGADES (no plies) fins a l'escac i mat, o 0 si la línia no hi arriba.
+function mateInMovesFromLine(fen, uciPv) {
+    if (!fen || !Array.isArray(uciPv) || !uciPv.length) return 0;
+    try {
+        const g = new Chess(fen);
+        let plies = 0;
+        for (const u of uciPv) {
+            if (!u || u.length < 4) break;
+            const mv = g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined });
+            if (!mv) return 0;
+            plies++;
+            if (g.in_checkmate()) return Math.ceil(plies / 2);
+        }
+        return 0;
+    } catch (e) { return 0; }
+}
+
+// Informació de mat d'un moment: si el mat el tenies tu (stillWinning) o és en
+// contra, i en quantes jugades, derivat de les línies reals ja calculades.
+function coachMateInMoves(moment) {
+    const m = moment || {};
+    const after = coachEvalNum(m.evalAfter);
+    const mateInvolved = coachIsMate(coachEvalNum(m.evalBefore)) || coachIsMate(after);
+    if (!mateInvolved) return { mateInvolved: false, stillWinning: false, mateN: 0 };
+    const stillWinning = after !== null && after <= -300; // el rival segueix perdent
+    const mateN = stillWinning
+        ? mateInMovesFromLine(m.fen, Array.isArray(m.pv) ? m.pv : [])
+        : mateInMovesFromLine(m.afterFen, Array.isArray(m.refutationPv) ? m.refutationPv : []);
+    return { mateInvolved: true, stillWinning, mateN };
+}
+
 // Cost concret de l'error per afegir-lo a la conseqüència (dada nova, no repetir
-// el diagnòstic). Amb mat pel mig el "cost en peons" no té sentit, així que es
-// deixa qualitatiu; si no, es dona el cost aproximat en peons a partir del swing.
+// el diagnòstic): el nombre de jugades fins al mat si n'hi ha, o el cost aproximat
+// en peons a partir del swing.
 function coachCostSuffix(moment) {
     const m = moment || {};
-    const mateInvolved = coachIsMate(coachEvalNum(m.evalBefore)) || coachIsMate(coachEvalNum(m.evalAfter));
+    const mate = coachMateInMoves(m);
     const cp = Math.abs(Math.round(Number(m.swing) || 0));
-    if (mateInvolved || cp >= 1500) return '';
+    if (mate.mateInvolved || cp >= 1500) {
+        if (mate.mateN > 0) return mate.stillWinning ? `tenies mat en ${mate.mateN}` : `mat en ${mate.mateN} en contra`;
+        return '';
+    }
     if (cp >= 100) return `cost aproximat: ${(cp / 100).toFixed(1).replace('.', ',')} peons`;
     return '';
 }
@@ -18219,14 +18253,17 @@ function coachQualityBadgeHtml(moment, swingLegacy) {
     const meta = coachQualityMeta(m.quality);
     if (!meta) return '';
     const cp = Math.abs(Math.round(Number(m.swing) || 0));
-    const before = coachEvalNum(m.evalBefore), after = coachEvalNum(m.evalAfter);
-    const mateInvolved = coachIsMate(before) || coachIsMate(after);
+    const mate = coachMateInMoves(m);
     let cost = '';
-    if (mateInvolved || cp >= 1500) {
+    if (mate.mateInvolved || cp >= 1500) {
         // El "cost en peons" no té sentit quan hi ha puntuacions de mat: un swing
-        // enorme aquí vol dir "mat deixat escapar", no que perdessis 85 peons.
-        const stillWinning = after !== null && after <= -300; // el rival segueix perdent
-        cost = stillWinning ? ': victòria ajornada' : ': pèrdua decisiva';
+        // enorme aquí vol dir "mat deixat escapar", no que perdessis 85 peons. Si
+        // podem derivar les jugades fins al mat, ho diem ("tenies mat en 3").
+        if (mate.mateN > 0) {
+            cost = mate.stillWinning ? `: tenies mat en ${mate.mateN}` : `: mat en ${mate.mateN} en contra`;
+        } else {
+            cost = mate.stillWinning ? ': victòria ajornada' : ': pèrdua decisiva';
+        }
     } else if (cp >= 50) {
         cost = ` · −${(cp / 100).toFixed(1)}`;
     }
