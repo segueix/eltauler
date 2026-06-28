@@ -6169,7 +6169,9 @@ async function prepareBestLineExercise(fen, opts = {}) {
             // Pas del jugador: MultiPV 3 per poder mesurar el gap amb la 2a opció.
             const a = await analyzeFenRobust(curFen, depth, 3, 8000, shouldAbort);
             if (!a || !a.bestMove || !a.bestMove.move) return null;
-            if (!ElTaulerCore.bestLineStepQualifies(a.alternatives, gapCp)) return null; // no és "clarament millor"
+            // gapCp>0: exigeix que la millor superi la 2a per un marge. gapCp<=0:
+            // mode "3 millors jugades fixes" sense filtre (sempre accepta la millor).
+            if (gapCp > 0 && !ElTaulerCore.bestLineStepQualifies(a.alternatives, gapCp)) return null;
 
             const pMove = a.bestMove.move;
             const pSan = uciToSan(curFen, pMove);
@@ -6254,13 +6256,19 @@ function collectBestLineCandidateFens(maxN = 40) {
         : DAILY_PUZZLE_BANK.map(p => p.fen);
     bank.forEach(add);
 
+    // Barreja per donar varietat (no sortir sempre la mateixa) i repartir la
+    // càrrega entre errades i banc.
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
     return out.slice(0, maxN);
 }
 
 // Itera candidats fins a trobar una línia que passi el filtre. Prova una escala
 // de llindars de gap (de més estricte a més permissiu) perquè sempre en surti
 // algun de prou net sense ser massa exigent. Retorna l'exercici (o null).
-const BESTLINE_GAP_LADDER = [80, 50, 30];
+const BESTLINE_GAP_LADDER = [50, 25, 0]; // l'últim graó (0) garanteix que sempre en surti un
 async function generateBestLineExercise(opts = {}) {
     const playerMoves = opts.playerMoves || 3;
     const gaps = Array.isArray(opts.gaps) ? opts.gaps
@@ -6304,7 +6312,7 @@ async function ensureBestLinePoolTick() {
         const ex = await generateBestLineExercise({
             depth: 14,
             maxTries: 6,
-            gaps: [60, 35], // rebost: prou net sense triple iteració de candidats
+            gaps: [50, 0], // rebost: prova de trobar-ne un de definit i, si no, qualsevol de fix
             excludeFens: exclude,
             shouldAbort: () => backgroundPrepAbortRequested || !isIdleForBackgroundPrep()
         });
@@ -14720,12 +14728,20 @@ async function startBestLineExercise() {
     if (!guardCalibrationAccess()) return;
     let ex = takeBestLineFromPool();
     if (!ex) {
-        $('#status').text('Preparant exercici…');
+        // Avís visible (el #status és a la pantalla de joc, encara no visible).
+        showToast('Preparant exercici de 3 jugades… ⏳', 'info');
         requestBackgroundPrepAbort();
         try { await waitForBackgroundPrepToYield(800); } catch (e) {}
-        ex = await generateBestLineExercise({ gaps: [70, 45, 25], maxTries: 18 });
-        if (!ex) { showToast('Ara mateix no hi ha cap línia prou neta. Juga alguna partida o torna-ho a provar.', 'warn'); return; }
+        try {
+            // gap=0: agafa directament les 3 millors jugades fixes del primer
+            // candidat vàlid → ràpid i sempre en surt un.
+            ex = await generateBestLineExercise({ gaps: [0], maxTries: 8, depth: 14 });
+        } catch (e) {
+            console.error('[BestLine] error generant sota demanda', e);
+        }
+        if (!ex) { showToast('No s\'ha pogut preparar l\'exercici. Mira la consola (F12) i torna-ho a provar.', 'warn'); return; }
     }
+    console.log('[BestLine] Exercici llançat:', ex.fullSequenceSan && ex.fullSequenceSan.join(' '), '(gap', ex.gapUsed, ')');
     isTacticsSession = false;
     isDailyPuzzleSession = false;
     isSrsReviewSession = false;
