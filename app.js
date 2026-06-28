@@ -6238,26 +6238,21 @@ async function prepareBestLineExercise(fen, opts = {}) {
     }
 }
 
-// Recull posicions candidates: primer les teves errades reals (riques i amb una
-// jugada clara), després el banc curat com a reserva ("totes dues").
+// Recull posicions candidates NOMÉS del banc curat de posicions tàctiques (i el
+// banc de reptes diaris com a reserva). No es parteix de cap "suposada errada"
+// del jugador: el jeroglífic de 3 passos surt de posicions netes.
 function collectBestLineCandidateFens(maxN = 40) {
     const out = [];
     const seen = new Set();
     const add = (fen) => { if (fen && typeof fen === 'string' && !seen.has(fen)) { seen.add(fen); out.push(fen); } };
 
-    (savedErrors || []).forEach(e => add(e && e.fen));
-    (gameHistory || []).forEach(entry => {
-        (entry && entry.moveReviews || []).forEach(r => {
-            if (r && r.fen && (r.quality === 'mistake' || r.quality === 'blunder')) add(r.fen);
-        });
-    });
     const bank = (typeof TACTICS_BANK !== 'undefined' && TACTICS_BANK.length)
         ? TACTICS_BANK.slice()
-        : DAILY_PUZZLE_BANK.map(p => p.fen);
+        : [];
     bank.forEach(add);
+    DAILY_PUZZLE_BANK.forEach(p => add(p && p.fen));
 
-    // Barreja per donar varietat (no sortir sempre la mateixa) i repartir la
-    // càrrega entre errades i banc.
+    // Barreja per donar varietat (no sortir sempre la mateixa).
     for (let i = out.length - 1; i > 0; i--) {
         const j = Math.floor(Math.random() * (i + 1));
         [out[i], out[j]] = [out[j], out[i]];
@@ -14729,7 +14724,7 @@ async function startBestLineExercise() {
     let ex = takeBestLineFromPool();
     if (!ex) {
         // Avís visible (el #status és a la pantalla de joc, encara no visible).
-        showToast('Preparant exercici de 3 jugades… ⏳', 'info');
+        showToast('Preparant jeroglífic de 3 passos… ⏳', 'info');
         requestBackgroundPrepAbort();
         try { await waitForBackgroundPrepToYield(800); } catch (e) {}
         try {
@@ -16001,6 +15996,7 @@ blunderMode = isBundle;
     $('#blunder-alert').hide();
 
     // Lògica de Modes
+    $('#game-mode-title').css('font-size', ''); // reset (el jeroglífic l'agranda després)
     if (isCalibrationGame) {
         currentCalibrationOpponentRoc = getCalibrationOpponentRoc();
         aiDifficulty = levelToDifficulty(currentCalibrationOpponentRoc);
@@ -16014,8 +16010,9 @@ blunderMode = isBundle;
         let bundleTitle = isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Bundle';
         if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
         else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
-        else if (currentBundleSource === 'bestline') bundleTitle = '🎯 Millor línia en 3 jugades';
-        $('#game-mode-title').text(bundleTitle);
+        else if (currentBundleSource === 'bestline') bundleTitle = '🔮 Jeroglífic en 3 passos';
+        // El jeroglífic en 3 passos es mostra amb la lletra una mica més gran.
+        $('#game-mode-title').text(bundleTitle).css('font-size', currentBundleSource === 'bestline' ? '1.35rem' : '');
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -17342,7 +17339,7 @@ function handleBundleSuccess() {
 
     if (currentBundleSource === 'bestline') {
         isBestLineSession = false;
-        showDrillSuccessOverlay('Línia resolta ✅', () => { void startBestLineExercise(); });
+        showDrillSuccessOverlay('Jeroglífic resolt 🔮', () => { void startBestLineExercise(); });
         return;
     }
 
