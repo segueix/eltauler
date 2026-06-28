@@ -11842,7 +11842,7 @@ HIEROS.images.push('agulla d’or', 'mirall trencat', 'corda fluixa', 'far lluny
 let hieroglyphicContext = null;
 let hieroglyphicExpectedUci = null;
 let hieroglyphicSource = 'opening';
-let hieroglyphicStats = { solved: 0, personalSolved: 0, currentStreak: 0, bestStreak: 0, themes: {}, solvedFens: [] };
+let hieroglyphicStats = { solved: 0, personalSolved: 0, currentStreak: 0, bestStreak: 0, themes: {}, solvedFens: [], generatedFens: [] };
 
 function clamp01(value) { return Math.max(0, Math.min(1, value)); }
 function randItem(list) { return list[Math.floor(Math.random() * list.length)]; }
@@ -11877,6 +11877,7 @@ function getRecentHieroglyphicMeta() {
 function loadHieroglyphicStats() {
     const stored = readJsonStorage(HIERO_STATS_KEY, null);
     if (stored && typeof stored === 'object') hieroglyphicStats = Object.assign(hieroglyphicStats, stored);
+    if (!Array.isArray(hieroglyphicStats.generatedFens)) hieroglyphicStats.generatedFens = [];
 }
 function saveHieroglyphicStats() {
     writeJsonStorage(HIERO_STATS_KEY, hieroglyphicStats);
@@ -12664,8 +12665,15 @@ async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
     });
 }
 async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = {}) {
-    const tacticCandidates = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic').slice(0, opts.maxCandidates || 6);
-    for (const candidate of tacticCandidates) {
+    const recent = new Set((hieroglyphicStats.generatedFens || []).slice(-8));
+    const pool = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic');
+    const fresh = pool.filter(c => !recent.has(c.fen));
+    const tacticCandidates = (fresh.length ? fresh : pool).slice();
+    for (let i = tacticCandidates.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [tacticCandidates[i], tacticCandidates[j]] = [tacticCandidates[j], tacticCandidates[i]];
+    }
+    for (const candidate of tacticCandidates.slice(0, opts.maxCandidates || 8)) {
         const validated = await validateHieroglyphicTacticWithStockfish(candidate, opts);
         if (validated) return validated;
     }
@@ -12720,6 +12728,10 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
         return;
     }
     try {
+        if (!Array.isArray(hieroglyphicStats.generatedFens)) hieroglyphicStats.generatedFens = [];
+        hieroglyphicStats.generatedFens.push(chosen.fen);
+        hieroglyphicStats.generatedFens = hieroglyphicStats.generatedFens.slice(-20);
+        saveHieroglyphicStats();
         hieroglyphicOpening = { name: chosen.tacticKind ? `Tàctica jugada: ${chosen.tacticKind}` : 'El teu error', idea: chosen.tacticKind ? 'Reconstrueix la jugada tàctica que ja va aparèixer en una partida teva.' : 'Converteix la posició crítica en una idea recordable.' };
         hieroglyphicGame = new Chess(chosen.fen);
         hieroglyphicAttempts = 0;
@@ -12817,7 +12829,7 @@ function getHieroglyphicNextButtonHtml() {
 
 function refreshHieroglyphicStepContext(statusText = '') {
     if (!hieroglyphicGame || !hieroglyphicExpectedUci) return;
-    const remainingPv = (hieroglyphicSolutionUci || []).slice(hieroglyphicStep);
+    const remainingPv = hieroglyphicExpectedUci ? [hieroglyphicExpectedUci] : [];
     hieroglyphicContext = buildHieroglyphicContext(hieroglyphicGame.fen(), hieroglyphicExpectedUci, {
         source: hieroglyphicSource || 'personal',
         pv: remainingPv,
@@ -12882,23 +12894,17 @@ function handleHieroglyphicMove(source, target) {
     showOpeningMoveVisualFeedback(source, target, 'incorrect');
 
     if (hieroglyphicAttempts >= 3) {
-        registerHieroglyphicFailed();
-        hieroglyphicExerciseActive = false;
-        updateOpeningMaximButton();
-        applyHieroglyphicExpectedMove();
+        hieroglyphicStats.currentStreak = 0;
+        saveHieroglyphicStats();
+        // No revelem ni apliquem la solució: el jeroglífic continua actiu fins
+        // que l'usuari el resolgui. Només fem la pista més explícita.
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
-        const noteEl = document.getElementById('opening-practice-note');
-        if (noteEl) {
-            const nextButton = getHieroglyphicNextButtonHtml();
-            noteEl.innerHTML = `<div class="opening-maxim-box">
-                <div class="maxim-title">💡 La resposta era: ${escapeHtml(hieroglyphicContext?.bestMoveSan || hieroglyphicExpectedMove || hieroglyphicExpectedUci || '')}</div>
-                <div class="maxim-text">${escapeHtml(explainHieroglyphicAnswer())}</div>
-                <div class="maxim-text" style="opacity:0.7; margin-top:6px;">Puntuació: ${hieroglyphicScore.correct}/${hieroglyphicScore.total}</div>
-                ${nextButton}
-            </div>`;
+        if (hieroglyphicContext) {
+            hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 3);
+            renderHieroglyphicExerciseNote(false, 'Continua intentant-ho: no es resol fins que facis la jugada correcta.');
         }
-        showToast('La resposta s’ha revelat.', 'warn');
-        return;
+        showToast('No es revela: torna-ho a provar fins trobar la jugada.', 'warn');
+        return 'snapback';
     }
 
     if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
