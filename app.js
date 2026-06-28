@@ -6390,7 +6390,11 @@ Genera:
 
 function registerMoveReview(swing, analysisData = {}) {
     if (blunderMode) return;
-    const quality = classifyMoveQuality(Math.abs(swing));
+    // Passem la jugada feta i la millor perquè, si coincideixen, es classifiqui
+    // com a 'excel' (vas jugar el millor) i no com a error per un swing fantasma
+    // —típic en posicions guanyades on l'anàlisi posterior (poc profunda) baixa
+    // l'avaluació respecte a l'anàlisi prèvia—.
+    const quality = classifyMoveQuality(Math.abs(swing), lastHumanMoveUci, analysisData.bestMove);
     const history = game.history({ verbose: true });
     const lastMove = history[history.length - 1];
     
@@ -7543,7 +7547,11 @@ function getEntryReviewErrors(entry, minCount = 3, maxCount = 5) {
             seen.add(e.fen);
         }
     }
-    return result.slice(0, Math.max(minCount, maxCount));
+    // Defensa: si la jugada feta coincideix amb la millor, no és un error real
+    // (swing fantasma en posicions guanyades); no la comentem.
+    const filtered = result.filter(e => !(e.playerMove && e.bestMove && e.playerMove === e.bestMove)
+                                     && !(e.playerMoveSan && e.bestMoveSan && e.playerMoveSan === e.bestMoveSan));
+    return filtered.slice(0, Math.max(minCount, maxCount));
 }
 
 /* ===================== ERRADES COMENTADES (OpenAI) =====================
@@ -16418,8 +16426,10 @@ function handleEngineMessage(rawMsg) {
                 afterFen: pendingAfterFen
             });
             resolvePendingMoveEvaluation(moveQuality);
-            
-            if (swing > 250 && !blunderMode) {
+
+            // Si has jugat la millor jugada, no és cap error encara que el swing
+            // (comparant anàlisi prèvia profunda amb posterior més curta) sigui gran.
+            if (swing > 250 && !blunderMode && lastHumanMoveUci !== pendingBestMove) {
                 let severity = 'low';
                 if (swing > 800) severity = 'high';
                 else if (swing > 500) severity = 'med';
@@ -18586,6 +18596,10 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
     const ins = insights || buildPlayerInsights(entry && entry.id);
     return reviews
         .filter(r => r && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
+        // Defensa per a partides ja desades: si la jugada feta coincideix amb la
+        // millor, no és cap error (swing fantasma) i no s'ha de mostrar com a moment.
+        .filter(r => !(r.playerMove && r.bestMove && r.playerMove === r.bestMove)
+                  && !(r.playerMoveSan && r.bestMoveSan && r.playerMoveSan === r.bestMoveSan))
         .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
         .slice(0, 3)
         .map(r => {
