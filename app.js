@@ -16744,7 +16744,7 @@ function showPostGameStatusChip(resultLabel) {
             chip = document.createElement('div');
             chip.id = 'postgame-board-status';
             chip.style.cssText = 'position:fixed;z-index:1200;transform:translateX(-50%);' +
-                'background:rgba(20,18,15,0.92);color:#f2e9d8;padding:7px 14px;border-radius:11px;' +
+                'background:rgba(20,18,15,0.92);color:#f2e9d8;padding:11px 20px;border-radius:13px;' +
                 'font-size:13px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,0.45);' +
                 'pointer-events:none;line-height:1.4;';
             document.body.appendChild(chip);
@@ -16752,8 +16752,8 @@ function showPostGameStatusChip(resultLabel) {
         const rect = boardEl.getBoundingClientRect();
         chip.style.left = (rect.left + rect.width / 2) + 'px';
         chip.style.top = (rect.top + 12) + 'px';
-        chip.innerHTML = `<div style="font-weight:700;">${escapeHtml(resultLabel)}</div>` +
-            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:3px;">' +
+        chip.innerHTML = `<div style="font-weight:800;font-size:26px;line-height:1.2;">${escapeHtml(resultLabel)}</div>` +
+            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:5px;">' +
             '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
             'Generant anàlisi…</div>';
         chip.style.display = 'block';
@@ -17642,9 +17642,9 @@ const COACH_DEBRIEF_TEMPLATES = {
         "Per seguir creixent, el tema que demana més feina és {tema}."
     ],
     advice_srs: [
-        "Tens {due} repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
-        "Abans de la pròxima partida, passa pels {due} repassos pendents; és memòria que no vols perdre.",
-        "Consell: tens {due} errades esperant repàs. Tanca-les i notaràs la diferència."
+        "Tens repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
+        "Abans de la pròxima partida, passa pels repassos pendents; és memòria que no vols perdre.",
+        "Consell: tens errades esperant repàs. Tanca-les i notaràs la diferència."
     ],
     advice_theme: [
         "Aquesta setmana toca {tema}: entrena'l i aquest tipus de partida canviarà de color.",
@@ -17711,8 +17711,8 @@ COACH_DEBRIEF_TEMPLATES.weak_mastery.push(
     "Res a retreure avui; tot i així, {tema} és el que més et farà pujar."
 );
 COACH_DEBRIEF_TEMPLATES.advice_srs.push(
-    "Tens {due} repassos a punt: són la teva memòria d’escacs, no la deixis enrere.",
-    "Deu minuts amb els {due} repassos pendents valen més que jugar de seguida."
+    "Tens repassos a punt: són la teva memòria d’escacs, no la deixis enrere.",
+    "Deu minuts amb els repassos pendents valen més que jugar de seguida."
 );
 COACH_DEBRIEF_TEMPLATES.advice_theme.push(
     "Una dosi curta de {tema} aquesta setmana i notaràs el canvi.",
