@@ -6337,6 +6337,7 @@ async function ensureBestLinePoolTick() {
         if (ex && !bestLinePool.some(e => e.initialFen === ex.initialFen)) {
             bestLinePool.push(ex);
             console.log('[BestLine] Rebost +1:', ex.fullSequenceSan.join(' '), `(gap ${ex.gapUsed}, pool ${bestLinePool.length}/${BESTLINE_POOL_TARGET})`);
+            refreshJeroglificButton();
         }
     } catch (e) {
         console.warn('[BestLine] pool tick error', e);
@@ -6350,7 +6351,24 @@ async function ensureBestLinePoolTick() {
 function takeBestLineFromPool() {
     const ex = bestLinePool.shift() || null;
     if (typeof backgroundPrepTick === 'function') setTimeout(backgroundPrepTick, 800);
+    refreshJeroglificButton();
     return ex;
+}
+
+// El botó "Jeroglífic" queda gris/inactiu fins que n'hi ha de generats: un de
+// llest al rebost o un puzzle aprovat de les teves partides.
+function jeroglificsReady() {
+    if (Array.isArray(bestLinePool) && bestLinePool.length > 0) return true;
+    try { return getPuzzles('approved').length > 0; } catch (e) { return false; }
+}
+function refreshJeroglificButton() {
+    const btn = document.getElementById('btn-bestline');
+    if (!btn) return;
+    const ready = jeroglificsReady();
+    btn.disabled = !ready;
+    btn.classList.toggle('btn-disabled', !ready);
+    const desc = document.getElementById('bestline-info');
+    if (desc) desc.textContent = ready ? 'Troba els 3 millors moviments' : 'Generant jeroglífics…';
 }
 
 // ── Magatzem de jeroglífics (puzzles tàctics) — Lliurament 1 ────────────────
@@ -6397,6 +6415,7 @@ function savePuzzleDraft(raw) {
     puzzles.push(p);
     if (puzzles.length > 500) puzzles = puzzles.slice(-500);
     try { saveStorage(); } catch (e) {}
+    if (p.status === 'approved') refreshJeroglificButton();
     return p;
 }
 
@@ -13804,7 +13823,8 @@ function setupEvents() {
         tacticsStats.streak = 0;
         startTacticsPuzzle();
     });
-    $('#btn-bestline').off('click').on('click', () => { void startBestLineExercise(); });
+    $('#btn-bestline').off('click').on('click', () => { if (jeroglificsReady()) void startBestLineExercise(); });
+    refreshJeroglificButton(); // gris fins que n'hi hagi de generats
 
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
