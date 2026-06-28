@@ -10952,6 +10952,8 @@ let hieroglyphicOpening = null;
 let hieroglyphicGame = null;
 let hieroglyphicStep = 0;
 let hieroglyphicExpectedMove = null;
+let hieroglyphicSolutionUci = [];
+let hieroglyphicReplyUci = [];
 let hieroglyphicClue = null;
 let hieroglyphicAttempts = 0;
 let hieroglyphicScore = { correct: 0, total: 0 };
@@ -12401,7 +12403,7 @@ function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
         <div class="maxim-title">${getHieroglyphicTitle()}</div>
         <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
         <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
-        <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · Troba la millor jugada. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
+        <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · Pas ${(hieroglyphicStep || 0) + 1}/${Math.max(1, hieroglyphicSolutionUci.length || 1)} · Troba la millor jugada. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
         ${extra}
     </div>`;
 }
@@ -12531,6 +12533,7 @@ function collectPlayedTacticHieroglyphicCandidates(preferredEntry = null) {
                 playerMove: first.uci,
                 bestMoveSan: first.san,
                 pv: line.map(x => x.uci),
+                lineUci: line.map(x => x.uci),
                 severity: isMate ? 'high' : (isFork ? 'med' : 'low'),
                 swing: isMate ? 900 : (isFork ? 500 : 260),
                 source: 'gameHistory.tactic',
@@ -12558,6 +12561,7 @@ function normalizeHieroglyphicCandidate(raw, source, entry = null) {
         bestMove: raw.bestMove,
         playerMove: raw.playerMove || null,
         pv: raw.bestMovePv || raw.pv || [],
+        lineUci: raw.lineUci || raw.fullLineUci || raw.pv || [],
         alternatives: raw.alternatives || [],
         evalBefore: raw.evalBefore ?? null,
         evalAfter: raw.evalAfter ?? null,
@@ -12642,6 +12646,8 @@ async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
     const analysis = await analyzeFenRobust(candidate.fen, opts.depth || 14, 3, opts.moveTimeMs || 5000, opts.shouldAbort || null);
     const best = analysis && analysis.bestMove && analysis.bestMove.move;
     if (!best || !sameUciMove(best, candidate.bestMove)) return null;
+    const line = buildHieroglyphicLineFromCandidate(candidate);
+    if (line.solution.length < 2) return null;
     const alternatives = analysis.alternatives || [];
     const isMate = analysis.bestMove.evalType === 'mate' || candidate.theme === 'mate';
     const hasClearMargin = ElTaulerCore.bestLineStepQualifies(alternatives, opts.minGapCp || 80);
@@ -12651,7 +12657,10 @@ async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
         engineDepth: opts.depth || 14,
         evalBefore: analysis.bestMove.eval ?? candidate.evalBefore ?? null,
         alternatives,
-        pv: (analysis.bestMove.pv && analysis.bestMove.pv.length) ? analysis.bestMove.pv : candidate.pv
+        pv: (analysis.bestMove.pv && analysis.bestMove.pv.length) ? analysis.bestMove.pv : candidate.pv,
+        lineUci: candidate.lineUci || candidate.pv || [candidate.bestMove],
+        solutionMoves: line.solution,
+        replyMoves: line.replies
     });
 }
 async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = {}) {
@@ -12660,7 +12669,35 @@ async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = 
         const validated = await validateHieroglyphicTacticWithStockfish(candidate, opts);
         if (validated) return validated;
     }
-    return (candidates || []).find(c => c && c.source !== 'gameHistory.tactic') || null;
+    return null;
+}
+
+function buildHieroglyphicLineFromCandidate(candidate) {
+    const rawLine = Array.isArray(candidate && candidate.lineUci) && candidate.lineUci.length
+        ? candidate.lineUci
+        : [candidate && candidate.bestMove].filter(Boolean);
+    const solution = [];
+    const replies = [];
+    const g = new Chess(candidate.fen);
+    const firstTurn = g.turn();
+    rawLine.forEach((uci) => {
+        if (!uci) return;
+        const move = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined });
+        if (!move) return;
+        if (move.color === firstTurn) solution.push(uci);
+        else replies.push(uci);
+    });
+    return { solution: solution.length ? solution : [candidate.bestMove], replies };
+}
+function setHieroglyphicGenerating(isGenerating) {
+    ['btn-bestline', 'btn-hieroglyphic-exercise', 'history-personal-hieroglyphic'].forEach(id => {
+        const el = document.getElementById(id);
+        if (!el) return;
+        el.disabled = !!isGenerating;
+        el.classList.toggle('btn-disabled', !!isGenerating);
+    });
+    const desc = document.getElementById('bestline-info');
+    if (desc && isGenerating) desc.textContent = 'Validant i construint el jeroglífic…';
 }
 
 function hasPersonalHieroglyphicCandidate(entry = null) {
@@ -12674,9 +12711,12 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
         return;
     }
     showToast('Validant el jeroglífic amb Stockfish…', 'info');
+    setHieroglyphicGenerating(true);
     const chosen = await chooseStockfishValidatedHieroglyphicCandidate(candidates);
     if (!chosen) {
-        showToast('Stockfish no ha validat cap tàctica prou clara en aquesta partida.', 'warn');
+        setHieroglyphicGenerating(false);
+        refreshJeroglificButton();
+        showToast('Stockfish no ha validat cap seqüència de 2-3 jugades prou clara en aquesta partida.', 'warn');
         return;
     }
     try {
@@ -12697,7 +12737,11 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
             tacticKind: chosen.tacticKind,
             bestMoveSan: chosen.bestMoveSan
         });
-        hieroglyphicExpectedUci = hieroglyphicContext.bestMoveUci || chosen.bestMove;
+        const line = { solution: chosen.solutionMoves || buildHieroglyphicLineFromCandidate(chosen).solution, replies: chosen.replyMoves || buildHieroglyphicLineFromCandidate(chosen).replies };
+        hieroglyphicSolutionUci = line.solution.slice(0, 3);
+        hieroglyphicReplyUci = line.replies.slice(0, Math.max(0, hieroglyphicSolutionUci.length - 1));
+        hieroglyphicStep = 0;
+        hieroglyphicExpectedUci = hieroglyphicSolutionUci[0] || hieroglyphicContext.bestMoveUci || chosen.bestMove;
         hieroglyphicSource = 'personal';
         hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
         hieroglyphicExerciseActive = true;
@@ -12724,6 +12768,8 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
             openingBundleBoard.position(hieroglyphicGame.fen());
             if (typeof openingBundleBoard.resize === 'function') setTimeout(() => openingBundleBoard.resize(), 50);
         }
+        setHieroglyphicGenerating(false);
+        refreshJeroglificButton();
         const myToken = ++hieroglyphicToken;
         renderHieroglyphicExerciseNote(!!openaiApiKey);
         if (openaiApiKey) {
@@ -12735,6 +12781,8 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
             });
         }
     } catch (e) {
+        setHieroglyphicGenerating(false);
+        refreshJeroglificButton();
         console.warn('[Hieroglyphic] No s’ha pogut crear el jeroglífic personal', e);
         showToast('No s’ha pogut convertir aquesta posició en jeroglífic.', 'warn');
     }
@@ -12772,11 +12820,25 @@ function handleHieroglyphicMove(source, target) {
     if (!move) return 'snapback';
 
     if (isHieroglyphicMoveCorrect(move)) {
+        showOpeningMoveVisualFeedback(source, target, 'correct');
+        hieroglyphicStep = (hieroglyphicStep || 0) + 1;
+        const solvedLine = hieroglyphicStep >= (hieroglyphicSolutionUci.length || 1);
+        if (!solvedLine) {
+            const reply = hieroglyphicReplyUci[hieroglyphicStep - 1];
+            if (reply) {
+                hieroglyphicGame.move({ from: reply.slice(0, 2), to: reply.slice(2, 4), promotion: reply.length > 4 ? reply[4] : undefined });
+            }
+            hieroglyphicExpectedUci = hieroglyphicSolutionUci[hieroglyphicStep];
+            hieroglyphicExpectedMove = hieroglyphicExpectedUci;
+            hieroglyphicAttempts = 0;
+            if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+            renderHieroglyphicExerciseNote(false, `Correcte. Pas ${hieroglyphicStep + 1}/${hieroglyphicSolutionUci.length}.`);
+            return;
+        }
         registerHieroglyphicSolved();
         hieroglyphicExerciseActive = false;
         updateOpeningMaximButton();
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
-        showOpeningMoveVisualFeedback(source, target, 'correct');
         const noteEl = document.getElementById('opening-practice-note');
         const reward = hieroglyphicSource === 'personal' ? getHieroglyphicRewardText() : 'Has desxifrat el signe.';
         if (noteEl) {
@@ -12784,7 +12846,7 @@ function handleHieroglyphicMove(source, target) {
             noteEl.innerHTML = `<div class="opening-maxim-box">
                 <div class="maxim-title">✅ Correcte!</div>
                 <div class="maxim-text">${escapeHtml(reward)}</div>
-                <div class="maxim-text" style="opacity:0.78; margin-top:6px;">Tema: ${escapeHtml(hieroglyphicContext?.theme || 'estratègia')} · Jeroglífics resolts: ${hieroglyphicStats.solved}</div>
+                <div class="maxim-text" style="opacity:0.78; margin-top:6px;">Tema: ${escapeHtml(hieroglyphicContext?.theme || 'estratègia')} · Passos: ${hieroglyphicSolutionUci.length || 1} · Jeroglífics resolts: ${hieroglyphicStats.solved}</div>
                 ${nextButton}
             </div>`;
         }
