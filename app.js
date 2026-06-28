@@ -8738,7 +8738,7 @@ function updateOpeningMaximButton() {
     const btn = document.getElementById('btn-opening-bundle-maxim');
     if (!btn) return;
     const label = btn.querySelector('span');
-    const disabledByMode = !!hieroglyphicExerciseActive;
+    const disabledByMode = !!hieroglyphicExerciseActive || document.body.classList.contains('opening-mode-hieroglyphic');
     btn.style.display = disabledByMode ? 'none' : 'inline-flex';
     btn.disabled = disabledByMode || !!openingMaximPending;
     btn.classList.toggle('thinking', !!openingMaximPending);
@@ -10298,7 +10298,16 @@ function buildOpeningMoveStats() {
 }
 
 function setOpeningScreenMode(mode = 'overview') {
-    document.body.classList.toggle('opening-mode-hieroglyphic', mode === 'hieroglyphic');
+    const isHieroglyphicMode = mode === 'hieroglyphic';
+    document.body.classList.toggle('opening-mode-hieroglyphic', isHieroglyphicMode);
+    const header = document.querySelector('#opening-screen .stats-header h1');
+    const logo = document.querySelector('#opening-screen .stats-header .app-logo');
+    if (header) header.textContent = isHieroglyphicMode ? 'Jeroglífics' : 'Obertures';
+    if (logo) logo.textContent = isHieroglyphicMode ? '🔮' : '📖';
+    $('#opening-practice-section .opening-section-title').text(isHieroglyphicMode ? 'Jeroglífic personal' : 'Bloc 2 · Pràctica de línia');
+    $('#opening-practice-section .opening-section-desc').text(isHieroglyphicMode ? 'Desxifra una seqüència tàctica validada amb Stockfish a partir d’un moment clau de les teves partides.' : 'Practica obertures amb un màxim de 10 moviments per bàndol. La base teòrica detectada només identifica línies; el repertori recomanat és la guia pedagògica principal.');
+    $('#opening-practice-section .opening-mode-row').toggle(!isHieroglyphicMode);
+    $('#opening-precision-panel').toggle(!isHieroglyphicMode);
     const sections = {
         lessons: $('#opening-lessons-section'),
         practice: $('#opening-practice-section'),
@@ -12926,10 +12935,12 @@ function getHieroglyphicNextButtonHtml() {
 
 
 function requestHieroglyphicHintLevel() {
-    if (!hieroglyphicExerciseActive || !hieroglyphicContext) return false;
+    if (!hieroglyphicExerciseActive || !hieroglyphicExpectedUci) return false;
     hieroglyphicHintLevel = Math.min(3, (hieroglyphicHintLevel || 1) + 1);
-    hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, hieroglyphicHintLevel);
-    renderHieroglyphicExerciseNote(false, `Pista ${hieroglyphicHintLevel}/3 del pas ${(hieroglyphicStep || 0) + 1}.`);
+    clearOpeningHintHighlight();
+    const to = hieroglyphicExpectedUci.slice(2, 4);
+    $(`#opening-board .square-55d63[data-square='${to}']`).addClass('highlight-hint');
+    renderHieroglyphicExerciseNote(false, `Pista ${hieroglyphicHintLevel}/3: mira la casella marcada.`);
     return true;
 }
 function showHieroglyphicSuccessOverlay() {
