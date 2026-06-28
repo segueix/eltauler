@@ -6263,28 +6263,13 @@ function collectBestLineCandidateFens(maxN = 40) {
     return out.slice(0, maxN);
 }
 
-// El jeroglífic de 3 passos és un MAT EN 3 verificat pel motor: això garanteix
-// sempre exactament 3 jugades del jugador, una línia forçada amb sentit i la
-// pista coincident. Candidats: un banc amb més peces + el banc clàssic de mat
-// en 3. prepareMateSequence VERIFICA cada candidat (descarta el que no sigui
-// mat exacte en 3), així qualsevol FEN dolent o il·legal s'ignora sense petar.
-const BESTLINE_MATE_BANK = [
-    // Posicions amb més peces (estil chess.com). Si alguna no és mat exacte en 3,
-    // el verificador la descarta i es prova la següent.
-    'r1b1k2r/ppppnppp/2n5/2b5/2B1P1q1/2N2N2/PPPP1PPP/R1BQ1RK1 w kq - 0 1',
-    '2kr3r/ppp2ppp/2n1b3/2b5/4P1q1/2N2N2/PPPPQPPP/R1B2RK1 w - - 0 1',
-    'r3k2r/ppp2ppp/2n5/2bqp3/4P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w kq - 0 1',
-    '6rk/5Npp/8/8/8/8/5PPP/6K1 w - - 0 1',
-    'r4rk1/ppp2ppp/8/2b5/2Bn1Q2/2N5/PPP2PPP/R3R1K1 w - - 0 1'
-];
+// Banc artificial desactivat: els jeroglífics han de néixer de moments clau
+// de les partides jugades, no de finals prefabricats KQ/KR contra rei.
+const BESTLINE_MATE_BANK = [];
 function bestLineMateCandidates() {
-    const out = BESTLINE_MATE_BANK.slice();
-    (typeof MATE_DRILL_BANK !== 'undefined' ? MATE_DRILL_BANK : []).forEach(f => out.push(f));
-    for (let i = out.length - 1; i > 0; i--) {
-        const j = Math.floor(Math.random() * (i + 1));
-        [out[i], out[j]] = [out[j], out[i]];
-    }
-    return out;
+    // Els jeroglífics ja no surten de bancs artificials (KQ/KR vs rei, etc.).
+    // Només es generen des de moments clau de partides jugades.
+    return [];
 }
 
 // Troba un mat en 3 verificat (en forma de seqüència de bundle). Retorna-la o
@@ -6313,53 +6298,29 @@ async function generateBestLineExercise(opts = {}) {
     return null;
 }
 
-// ── Rebost de 3 exercicis "millor línia" sempre a punt en segon pla ──────────
+// ── Rebost artificial desactivat: ja no alimenta jeroglífics ────────────────
 const BESTLINE_POOL_TARGET = 3;
 let bestLinePool = [];
 let bestLinePrepInFlight = false;
 
-// Omple el rebost d'un en un (cridat des de backgroundPrepTick quan el motor és
-// lliure). Retorna true si ha generat (o ja és ple), per encadenar més feina.
+// No omplim cap rebost de posicions prefabricades.
 async function ensureBestLinePoolTick() {
-    if (bestLinePrepInFlight) return false;
-    if (bestLinePool.length >= BESTLINE_POOL_TARGET) return false;
-    if (!ensureStockfish()) return false;
-    bestLinePrepInFlight = true;
-    try {
-        const exclude = new Set(bestLinePool.map(e => e.initialFen));
-        const ex = await generateBestLineExercise({
-            depth: 14,
-            maxTries: 6,
-            gaps: [50, 0], // rebost: prova de trobar-ne un de definit i, si no, qualsevol de fix
-            excludeFens: exclude,
-            shouldAbort: () => backgroundPrepAbortRequested || !isIdleForBackgroundPrep()
-        });
-        if (ex && !bestLinePool.some(e => e.initialFen === ex.initialFen)) {
-            bestLinePool.push(ex);
-            console.log('[BestLine] Rebost +1:', ex.fullSequenceSan.join(' '), `(gap ${ex.gapUsed}, pool ${bestLinePool.length}/${BESTLINE_POOL_TARGET})`);
-            refreshJeroglificButton();
-        }
-    } catch (e) {
-        console.warn('[BestLine] pool tick error', e);
-    } finally {
-        bestLinePrepInFlight = false;
-    }
-    return true;
+    // Desactivat: no pre-generem jeroglífics de bancs curats/artificials.
+    // El botó Jeroglífic passa pel flux personal validat amb Stockfish.
+    return false;
 }
 
-// Treu un exercici del rebost (o null si buit) i demana reomplir-lo.
+// No hi ha rebost artificial: sempre retorna null.
 function takeBestLineFromPool() {
-    const ex = bestLinePool.shift() || null;
-    if (typeof backgroundPrepTick === 'function') setTimeout(backgroundPrepTick, 800);
+    bestLinePool = [];
     refreshJeroglificButton();
-    return ex;
+    return null;
 }
 
-// El botó "Jeroglífic" queda gris/inactiu fins que n'hi ha de generats: un de
-// llest al rebost o un puzzle aprovat de les teves partides.
+// El botó "Jeroglífic" queda gris/inactiu fins que hi ha moments clau
+// de partides pròpies que es poden validar abans de jugar-los.
 function jeroglificsReady() {
-    if (Array.isArray(bestLinePool) && bestLinePool.length > 0) return true;
-    try { return getPuzzles('approved').length > 0; } catch (e) { return false; }
+    try { return hasPersonalHieroglyphicCandidate(); } catch (e) { return false; }
 }
 function refreshJeroglificButton() {
     const btn = document.getElementById('btn-bestline');
@@ -6368,7 +6329,7 @@ function refreshJeroglificButton() {
     btn.disabled = !ready;
     btn.classList.toggle('btn-disabled', !ready);
     const desc = document.getElementById('bestline-info');
-    if (desc) desc.textContent = ready ? 'Troba els 3 millors moviments' : 'Generant jeroglífics…';
+    if (desc) desc.textContent = ready ? 'Desxifra un moment clau de les teves partides' : 'Juga o revisa partides per crear jeroglífics';
 }
 
 // ── Magatzem de jeroglífics (puzzles tàctics) — Lliurament 1 ────────────────
@@ -6427,9 +6388,9 @@ if (typeof window !== 'undefined') {
 // Helper de proves: genera un exercici i el mostra a la consola.
 // Ús: a la consola del navegador, `await testBestLineExercise()`.
 async function testBestLineExercise(opts = {}) {
-    console.log('[BestLine] Generant jeroglífic de 3 passos (mat en 3)…');
+    console.log('[BestLine] Generador de banc desactivat: usa moments clau de partides.');
     const ex = await generateBestLineExercise(opts);
-    if (!ex) { console.warn('[BestLine] Cap candidat ha donat un mat exacte en 3. Pots ampliar BESTLINE_MATE_BANK.'); return null; }
+    if (!ex) { console.warn('[BestLine] Cap jeroglífic artificial: banc desactivat.'); return null; }
     console.log('[BestLine] Jeroglífic trobat:', {
         initialFen: ex.initialFen,
         jugadesJugador: ex.totalSteps,
@@ -12778,113 +12739,20 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
         showToast('No s’ha pogut convertir aquesta posició en jeroglífic.', 'warn');
     }
 }
-// Tria aleatòria d'un exercici jeroglífic (obertura + jugada objectiu de l'usuari).
-function drawHieroglyphicExercise() {
-    const pool = CURATED_OPENINGS.filter(op => op.moves.length >= 4);
-    if (pool.length === 0) return null;
-    const op = pool[Math.floor(Math.random() * pool.length)];
-    const userMoveIndices = [];
-    for (let i = 0; i < op.moves.length; i++) {
-        const isUserMove = (op.userColor === 'w' && i % 2 === 0) || (op.userColor === 'b' && i % 2 === 1);
-        if (isUserMove) userMoveIndices.push(i);
-    }
-    if (userMoveIndices.length === 0) return null;
-    const targetIdx = userMoveIndices[Math.floor(Math.random() * userMoveIndices.length)];
-    return { op, targetIdx };
-}
-
-// Cua de jeroglífics a punt: pre-tria els exercicis següents i, si hi ha OpenAI,
-// en pre-carrega la pista al cau perquè aparegui a l'instant en començar.
+// Els jeroglífics d'obertura curats queden desactivats: ara el mode 🔮 només
+// pot néixer de moments clau de partides jugades i validats amb Stockfish.
+function drawHieroglyphicExercise() { return null; }
 let hieroglyphicUpNext = [];
+function prefetchHieroglyphicClue(draw) { return; }
+function refillHieroglyphicQueue() { hieroglyphicUpNext = []; }
 
-function prefetchHieroglyphicClue(draw) {
-    if (!openaiApiKey || !draw) return;
-    try {
-        const g = new Chess();
-        for (let i = 0; i < draw.targetIdx; i++) g.move(draw.op.moves[i], { sloppy: true });
-        const context = buildHieroglyphicContext(g.fen(), draw.op.moves[draw.targetIdx], { opening: draw.op, source: 'opening' });
-        fetchHieroglyphicClue(context, 1).catch(() => {});
-    } catch (e) {}
+async function startHieroglyphicExercise() {
+    await startPersonalHieroglyphicFromLastGame(null);
 }
 
-function refillHieroglyphicQueue() {
-    let guard = 0;
-    while (hieroglyphicUpNext.length < 3 && guard < 25) {
-        guard++;
-        const draw = drawHieroglyphicExercise();
-        if (!draw) break;
-        if (hieroglyphicUpNext.some(d => d.op === draw.op && d.targetIdx === draw.targetIdx)) continue;
-        hieroglyphicUpNext.push(draw);
-    }
-    hieroglyphicUpNext.forEach(d => {
-        if (!d.prefetched && openaiApiKey) { d.prefetched = true; prefetchHieroglyphicClue(d); }
-    });
-}
-
-function startHieroglyphicExercise() {
-    const draw = hieroglyphicUpNext.shift() || drawHieroglyphicExercise();
-    refillHieroglyphicQueue();
-    if (!draw) return;
-    // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
-    maybeRollLuckyThemes();
-    // Neteja qualsevol feina pendent de la pràctica anterior perquè no interfereixi
-    // amb l'exercici (rival pendent, anàlisi de Stockfish, pista o pre-càlcul).
-    openingPracticeEngineThinking = false;
-    openingPracticeAnalysisPending = false;
-    openingPracticeHintPending = false;
-    openingPreCalcPending = false;
-    stockfishRequestor = null;
-    const op = draw.op;
-    hieroglyphicOpening = op;
-    hieroglyphicGame = new Chess();
-    hieroglyphicAttempts = 0;
-
-    const targetIdx = draw.targetIdx;
-    for (let i = 0; i < targetIdx; i++) {
-        hieroglyphicGame.move(op.moves[i], { sloppy: true });
-    }
-
-    hieroglyphicStep = targetIdx;
-    hieroglyphicExpectedMove = op.moves[targetIdx];
-    hieroglyphicContext = buildHieroglyphicContext(hieroglyphicGame.fen(), hieroglyphicExpectedMove, { opening: op, source: 'opening' });
-    hieroglyphicExpectedUci = hieroglyphicContext.bestMoveUci;
-    hieroglyphicSource = 'opening';
-    hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
-    hieroglyphicExerciseActive = true;
-    hideOpeningRestartOverlay();
-    setOpeningScreenMode('hieroglyphic');
-    const myToken = ++hieroglyphicToken;
-
-    if (!openingBundleBoard) initOpeningBundleBoard();
-    updateOpeningBoardInteractivity();
-    clearOpeningTapSelection();
-    openingLessonActive = false;
-    openingErrorPracticeActive = false;
-    openingPracticeGame = hieroglyphicGame;
-    openingPracticeMoveCount = targetIdx;
-    if (openingBundleBoard) {
-        openingBundleBoard.orientation(op.userColor === 'w' ? 'white' : 'black');
-        openingBundleBoard.position(hieroglyphicGame.fen());
-    }
-
-    // Pista offline immediata; si hi ha OpenAI, la millorem amb el mateix context ric.
-    renderHieroglyphicExerciseNote(!!openaiApiKey);
-    if (openaiApiKey) {
-        fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
-            // Només actualitza si seguim al mateix exercici i sense intents fallits encara
-            if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicAttempts === 0) {
-                hieroglyphicClue = text;
-            }
-            renderHieroglyphicExerciseNote(false);
-        });
-    }
-
-    const boardEl = document.getElementById('opening-board');
-    if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
-}
 
 function hasOpeningHieroglyphicCandidate() {
-    return Array.isArray(CURATED_OPENINGS) && CURATED_OPENINGS.some(op => op && Array.isArray(op.moves) && op.moves.length >= 4);
+    return hasPersonalHieroglyphicCandidate();
 }
 
 function getHieroglyphicNextButtonHtml() {
@@ -12894,7 +12762,7 @@ function getHieroglyphicNextButtonHtml() {
             : '';
     }
     return hasOpeningHieroglyphicCandidate()
-        ? '<button class="btn btn-primary" onclick="startHieroglyphicExercise()" style="margin-top:10px;">Següent jeroglífic</button>'
+        ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Següent moment clau</button>'
         : '';
 }
 
@@ -13563,7 +13431,7 @@ function setupEvents() {
     $('#opening-restart-overlay').click(() => restartCompletedOpeningLesson());
     $('#btn-hieroglyphic-exercise').click(() => {
         initOpeningBundleBoard();
-        startHieroglyphicExercise();
+        void startPersonalHieroglyphicFromLastGame(null);
     });
     $('#history-personal-hieroglyphic').click(() => {
         startPersonalHieroglyphicFromLastGame(historyReplay ? historyReplay.entry : null);
@@ -14942,43 +14810,18 @@ function startTacticsPuzzle() {
     startGame(true, pickTacticsFen());
 }
 
-// Llança un exercici de "millor línia" de 3 jugades: agafa'n un del rebost (o el
-// genera al moment) i el juga al tauler reaprofitant el playback del bundle. La
-// pista apunta sempre a la jugada fixada de cada pas.
+// Llança un jeroglífic personal: només moments clau extrets de partides jugades.
 async function startBestLineExercise() {
     if (!guardCalibrationAccess()) return;
-    let ex = takeBestLineFromPool();
-    if (!ex) {
-        // Avís visible (el #status és a la pantalla de joc, encara no visible).
-        showToast('Preparant jeroglífic de 3 passos… ⏳', 'info');
-        requestBackgroundPrepAbort();
-        try { await waitForBackgroundPrepToYield(800); } catch (e) {}
-        try {
-            // gap=0: agafa directament les 3 millors jugades fixes del primer
-            // candidat vàlid → ràpid i sempre en surt un.
-            ex = await generateBestLineExercise({ gaps: [0], maxTries: 8, depth: 14 });
-        } catch (e) {
-            console.error('[BestLine] error generant sota demanda', e);
-        }
-        if (!ex) { showToast('No s\'ha pogut preparar l\'exercici. Mira la consola (F12) i torna-ho a provar.', 'warn'); return; }
+    // Rectificació: el botó Jeroglífic ja no usa bancs de mat ni finals KQ/KR.
+    // Obre únicament un jeroglífic personal extret de moments clau de partides.
+    if (!hasPersonalHieroglyphicCandidate()) {
+        showToast('Encara no hi ha cap moment clau de les teves partides per convertir en jeroglífic.', 'warn');
+        return;
     }
-    console.log('[BestLine] Exercici llançat:', ex.fullSequenceSan && ex.fullSequenceSan.join(' '), '(gap', ex.gapUsed, ')');
-    isTacticsSession = false;
-    isDailyPuzzleSession = false;
-    isSrsReviewSession = false;
-    isRandomBundleSession = false;
-    isMatchErrorReviewSession = false;
-    isBestLineSession = true;
-    matchErrorQueue = [];
-    currentMatchError = null;
-    currentBundleSource = 'bestline';
-    currentBundleSeverity = null;
-    $('#bundle-modal').remove();
-    currentGameMode = 'bundle';
-    currentOpponent = null;
-    pendingPreparedSequence = ex; // startGame el reaprofita per a aquest FEN
-    startGame(true, ex.initialFen);
+    await startPersonalHieroglyphicFromLastGame(null);
 }
+
 if (typeof window !== 'undefined') window.startBestLineExercise = startBestLineExercise;
 
 function completeTacticsPuzzle(success) {
@@ -20482,16 +20325,7 @@ async function backgroundPrepTick() {
     if (!isIdleForBackgroundPrep()) return;
     prunePreparedSequences();
     const next = getBackgroundPrepCandidates().find(f => !preparedSequences[f]);
-    if (!next) {
-        // Rebost de 2 jugades ple: omple el d'exercicis "millor línia" de 3 jugades.
-        if (bestLinePool.length < BESTLINE_POOL_TARGET) {
-            await ensureBestLinePoolTick();
-            if (!backgroundPrepAbortRequested && bestLinePool.length < BESTLINE_POOL_TARGET && isIdleForBackgroundPrep()) {
-                setTimeout(backgroundPrepTick, 600);
-            }
-        }
-        return;
-    }
+    if (!next) return;
     if (!ensureStockfish()) return;
     backgroundPrepAbortRequested = false;
     backgroundPrepProtected = false;
