@@ -6260,7 +6260,7 @@ function collectBestLineCandidateFens(maxN = 40) {
 // Itera candidats fins a trobar una línia que passi el filtre. Prova una escala
 // de llindars de gap (de més estricte a més permissiu) perquè sempre en surti
 // algun de prou net sense ser massa exigent. Retorna l'exercici (o null).
-const BESTLINE_GAP_LADDER = [130, 100, 75];
+const BESTLINE_GAP_LADDER = [80, 50, 30];
 async function generateBestLineExercise(opts = {}) {
     const playerMoves = opts.playerMoves || 3;
     const gaps = Array.isArray(opts.gaps) ? opts.gaps
@@ -6304,7 +6304,7 @@ async function ensureBestLinePoolTick() {
         const ex = await generateBestLineExercise({
             depth: 14,
             maxTries: 6,
-            gaps: [110, 80], // rebost: prou net sense triple iteració de candidats
+            gaps: [60, 35], // rebost: prou net sense triple iteració de candidats
             excludeFens: exclude,
             shouldAbort: () => backgroundPrepAbortRequested || !isIdleForBackgroundPrep()
         });
@@ -14723,7 +14723,7 @@ async function startBestLineExercise() {
         $('#status').text('Preparant exercici…');
         requestBackgroundPrepAbort();
         try { await waitForBackgroundPrepToYield(800); } catch (e) {}
-        ex = await generateBestLineExercise({ gaps: [120, 95, 70], maxTries: 16 });
+        ex = await generateBestLineExercise({ gaps: [70, 45, 25], maxTries: 18 });
         if (!ex) { showToast('Ara mateix no hi ha cap línia prou neta. Juga alguna partida o torna-ho a provar.', 'warn'); return; }
     }
     isTacticsSession = false;
@@ -15919,6 +15919,9 @@ blunderMode = isBundle;
     bundleAutoReplyPending = false;
     bundleOpenAIHintPending = false;
     if (isBundle) { bundleAcceptMode = loadBundleAcceptMode(); }
+    // L'exercici "millor línia" exigeix la jugada EXACTA a cada pas: així les
+    // rèpliques fixes del rival sempre són vàlides i el resultat no varia.
+    if (isBundle && currentBundleSource === 'bestline') { bundleAcceptMode = 'top1'; }
 
     totalPlayerMoves = 0; 
     goodMoves = 0;
@@ -17780,10 +17783,10 @@ function updateStatus() {
    a partir dels mateixos fets (mai analitza la partida ell sol). */
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
-const WEEKLY_PLAN_VERSION = 3;
+const WEEKLY_PLAN_VERSION = 4; // 4: s'elimina la tasca "mat en 3 jugades" del pla
 // Quan puja, el resum desat del pla d'avui es descarta i es regenera (text local
 // i, si hi ha clau OpenAI, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
-const PLAN_SUMMARY_REFRESH_VERSION = 1;
+const PLAN_SUMMARY_REFRESH_VERSION = 2;
 let weeklyPlan = null;
 let coachCatalanVoice = null;
 let coachDebriefPending = false;
@@ -19246,12 +19249,6 @@ function buildWeeklyPlan() {
             target: openTarget, baseline: growthStats.openingDrillsCompleted || 0
         });
     }
-    const mateTarget = 1 + Math.floor(rng() * 2);
-    items.push({
-        id: 'mates', type: 'mate_drill', theme: 'endgame', metric: 'mate_drill',
-        title: mateTarget === 1 ? 'Remata 1 final amb mat en 3 jugades' : `Remata ${mateTarget} finals amb mat en 3 jugades`,
-        target: mateTarget, baseline: growthStats.mateDrillsCompleted || 0
-    });
     const tacticsTarget = 3 + Math.floor(rng() * 3);
     items.push({
         id: 'tactics', type: 'tactics', theme: null, metric: 'tactics',
@@ -19284,9 +19281,9 @@ function weeklyPlanItemProgress(item) {
 }
 
 const COACH_PLAN_TEMPLATES = [
-    "Avui el focus és {tema} (domini del {pct}%). El pla té tres fronts: rectifica les errades que vas cometre a l'obertura amb dues jugades correctes, afina la vista amb la tàctica, i remata finals fent escac i mat en 3 jugades. Pas a pas, sense pressa.",
-    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho de totes bandes, avui combinem la correcció de les teves errades d'obertura, exercicis de tàctica i mats en 3 jugades als finals.",
-    "Pla d'avui: corregeix les errades que vas cometre a l'obertura, resol els mats en 3 jugades per dominar els finals, i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
+    "Avui el focus és {tema} (domini del {pct}%). El pla té dos fronts: rectifica les errades que vas cometre a l'obertura amb dues jugades correctes i afina la vista amb la tàctica. Pas a pas, sense pressa.",
+    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho, avui combinem la correcció de les teves errades d'obertura i exercicis de tàctica.",
+    "Pla d'avui: corregeix les errades que vas cometre a l'obertura i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
 ];
 
 function composeWeeklyPlanText(plan) {
