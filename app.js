@@ -6304,6 +6304,7 @@ let bestLinePool = [];
 let bestLinePrepInFlight = false;
 let personalHieroglyphicPool = [];
 let personalHieroglyphicPrepInFlight = false;
+let personalHieroglyphicLastAttempt = 0;
 
 // No omplim cap rebost de posicions prefabricades.
 async function ensureBestLinePoolTick() {
@@ -6322,7 +6323,13 @@ function takeBestLineFromPool() {
 // El botó "Jeroglífic" queda gris/inactiu fins que hi ha moments clau
 // de partides pròpies que es poden validar abans de jugar-los.
 function jeroglificsReady() {
-    return Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length > 0;
+    const ready = Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length > 0;
+    if (!ready && !personalHieroglyphicPrepInFlight) {
+        try {
+            if (hasPersonalHieroglyphicCandidate() && Date.now() - personalHieroglyphicLastAttempt > 15000) setTimeout(() => { void ensurePersonalHieroglyphicPoolTick(); }, 50);
+        } catch (e) {}
+    }
+    return ready;
 }
 function refreshJeroglificButton() {
     const btn = document.getElementById('btn-bestline');
@@ -12690,6 +12697,48 @@ async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
         stepPvs
     });
 }
+function candidateFromPreparedBestLine(candidate, prepared) {
+    if (!candidate || !prepared || !prepared.step1) return null;
+    const solution = [];
+    const replies = [];
+    for (let i = 1; i <= (prepared.totalSteps || 3); i++) {
+        const step = prepared['step' + i];
+        if (step && step.playerMove) solution.push(step.playerMove);
+        const reply = i === 1 ? prepared.opponentMove : (i === 2 ? prepared.opponentMove2 : null);
+        if (reply && reply.move) replies.push(reply.move);
+    }
+    if (solution.length < 2) return null;
+    return Object.assign({}, candidate, {
+        stockfishValidated: true,
+        engineDepth: 14,
+        evalBefore: prepared.step1.evalBefore ?? candidate.evalBefore ?? null,
+        alternatives: prepared.step1.alternatives || [],
+        pv: prepared.step1.playerMovePv || prepared.fullSequence || candidate.pv,
+        lineUci: prepared.fullSequence || candidate.lineUci || candidate.pv || [candidate.bestMove],
+        solutionMoves: solution.slice(0, 3),
+        replyMoves: replies.slice(0, Math.max(0, solution.length - 1)),
+        stepAlternatives: [prepared.step1, prepared.step2, prepared.step3].filter(Boolean).map(s => s.alternatives || []),
+        stepEvals: [prepared.step1, prepared.step2, prepared.step3].filter(Boolean).map(s => s.evalBefore ?? null),
+        stepPvs: [prepared.step1, prepared.step2, prepared.step3].filter(Boolean).map(s => s.playerMovePv || [])
+    });
+}
+async function closeHieroglyphicCandidateWithStockfish(candidate, opts = {}) {
+    const strict = await validateHieroglyphicTacticWithStockfish(candidate, opts);
+    if (strict) return strict;
+    const shouldAbort = opts.shouldAbort || null;
+    const attempts = [3, 2];
+    for (const playerMoves of attempts) {
+        const prepared = await prepareBestLineExercise(candidate.fen, {
+            playerMoves,
+            gapCp: opts.minGapCp || 80,
+            depth: opts.depth || 14,
+            shouldAbort
+        });
+        const closed = candidateFromPreparedBestLine(candidate, prepared);
+        if (closed) return closed;
+    }
+    return null;
+}
 async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = {}) {
     const recent = new Set((hieroglyphicStats.generatedFens || []).slice(-8));
     const pool = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic');
@@ -12700,7 +12749,7 @@ async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = 
         [tacticCandidates[i], tacticCandidates[j]] = [tacticCandidates[j], tacticCandidates[i]];
     }
     for (const candidate of tacticCandidates.slice(0, opts.maxCandidates || 8)) {
-        const validated = await validateHieroglyphicTacticWithStockfish(candidate, opts);
+        const validated = await closeHieroglyphicCandidateWithStockfish(candidate, opts);
         if (validated) return validated;
     }
     return null;
@@ -12712,6 +12761,7 @@ async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
     const candidates = collectPersonalHieroglyphicCandidates(null);
     if (!candidates.length) { refreshJeroglificButton(); return false; }
     personalHieroglyphicPrepInFlight = true;
+    personalHieroglyphicLastAttempt = Date.now();
     setHieroglyphicGenerating(true);
     try {
         const prepared = await chooseStockfishValidatedHieroglyphicCandidate(candidates, opts);
