@@ -1096,10 +1096,9 @@ function reviewHtmlElementToText(el) {
     return text.replace(/ /g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
 }
 
-// Baixa en un .txt només els textos generats de la ressenya actual (ressenya +
-// moments clau + errades comentades), per poder-los analitzar fora de l'app.
-function downloadHistoryReviewText(entry) {
-    if (!entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+// Munta el text pla amb només els textos generats de la ressenya actual:
+// capçalera + ressenya/moments clau + errades comentades.
+function buildHistoryReviewText(entry) {
     const lines = ['El Tauler — Ressenya de la partida'];
     const meta = [
         entry.result,
@@ -1121,9 +1120,67 @@ function downloadHistoryReviewText(entry) {
     const notesText = notesVisible ? reviewHtmlElementToText(document.getElementById('history-error-notes')) : '';
     if (notesText) lines.push('\n=== Errades comentades ===', notesText);
 
+    return lines.join('\n');
+}
+
+// Exporta el text generat de la ressenya. La baixada clàssica via <a download>
+// és poc fiable a mòbil (iOS/PWA), així que provem, en ordre: compartir el
+// fitxer (mòbil pot "Desa a Fitxers"), baixar-lo (escriptori) i, com a últim
+// recurs, copiar-lo al porta-retalls. Mai falla en silenci.
+async function downloadHistoryReviewText(entry) {
+    if (!entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+    let content;
+    try {
+        content = buildHistoryReviewText(entry);
+    } catch (e) {
+        console.error('[ReviewText] build', e);
+        showToast('No s\'ha pogut generar el text de la ressenya', 'error');
+        return;
+    }
     const stamp = String(entry.date || new Date().toISOString()).replace(/[^0-9a-zA-Z]/g, '-');
-    downloadTextFile(`eltauler_ressenya_${stamp}.txt`, lines.join('\n'), 'text/plain;charset=utf-8');
-    showToast('Text de la ressenya baixat 📝', 'success');
+    const filename = `eltauler_ressenya_${stamp}.txt`;
+
+    // 1) Mòbil: compartir un fitxer de text (permet desar-lo o enviar-lo).
+    try {
+        if (typeof File !== 'undefined' && navigator.canShare) {
+            const file = new File([content], filename, { type: 'text/plain' });
+            if (navigator.canShare({ files: [file] })) {
+                await navigator.share({ files: [file], title: 'Ressenya El Tauler' });
+                return;
+            }
+        }
+    } catch (e) {
+        if (e && e.name === 'AbortError') return; // l'usuari ha cancel·lat
+        console.warn('[ReviewText] share', e); // continuem amb la baixada
+    }
+
+    // 2) Escriptori: baixada clàssica. Revoquem l'URL amb retard perquè alguns
+    //    navegadors cancel·len la baixada si es revoca immediatament.
+    try {
+        const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        a.rel = 'noopener';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 4000);
+        showToast('Text de la ressenya baixat 📝', 'success');
+        return;
+    } catch (e) {
+        console.error('[ReviewText] download', e);
+    }
+
+    // 3) Últim recurs: porta-retalls.
+    try {
+        await navigator.clipboard.writeText(content);
+        showToast('Text de la ressenya copiat al porta-retalls 📋', 'success');
+    } catch (e) {
+        console.error('[ReviewText] clipboard', e);
+        showToast('No s\'ha pogut baixar ni copiar el text', 'error');
+    }
 }
 
 function exportAdaptationReport() {
