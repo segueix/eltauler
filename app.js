@@ -6260,31 +6260,51 @@ function collectBestLineCandidateFens(maxN = 40) {
     return out.slice(0, maxN);
 }
 
-// Itera candidats fins a trobar una línia que passi el filtre. Prova una escala
-// de llindars de gap (de més estricte a més permissiu) perquè sempre en surti
-// algun de prou net sense ser massa exigent. Retorna l'exercici (o null).
-const BESTLINE_GAP_LADDER = [50, 25, 0]; // l'últim graó (0) garanteix que sempre en surti un
+// El jeroglífic de 3 passos és un MAT EN 3 verificat pel motor: això garanteix
+// sempre exactament 3 jugades del jugador, una línia forçada amb sentit i la
+// pista coincident. Candidats: un banc amb més peces + el banc clàssic de mat
+// en 3. prepareMateSequence VERIFICA cada candidat (descarta el que no sigui
+// mat exacte en 3), així qualsevol FEN dolent o il·legal s'ignora sense petar.
+const BESTLINE_MATE_BANK = [
+    // Posicions amb més peces (estil chess.com). Si alguna no és mat exacte en 3,
+    // el verificador la descarta i es prova la següent.
+    'r1b1k2r/ppppnppp/2n5/2b5/2B1P1q1/2N2N2/PPPP1PPP/R1BQ1RK1 w kq - 0 1',
+    '2kr3r/ppp2ppp/2n1b3/2b5/4P1q1/2N2N2/PPPPQPPP/R1B2RK1 w - - 0 1',
+    'r3k2r/ppp2ppp/2n5/2bqp3/4P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w kq - 0 1',
+    '6rk/5Npp/8/8/8/8/5PPP/6K1 w - - 0 1',
+    'r4rk1/ppp2ppp/8/2b5/2Bn1Q2/2N5/PPP2PPP/R3R1K1 w - - 0 1'
+];
+function bestLineMateCandidates() {
+    const out = BESTLINE_MATE_BANK.slice();
+    (typeof MATE_DRILL_BANK !== 'undefined' ? MATE_DRILL_BANK : []).forEach(f => out.push(f));
+    for (let i = out.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [out[i], out[j]] = [out[j], out[i]];
+    }
+    return out;
+}
+
+// Troba un mat en 3 verificat (en forma de seqüència de bundle). Retorna-la o
+// null. Accepta excludeFens per donar varietat al rebost.
+function bestLineFenLegal(fen) { try { return !!new Chess(fen); } catch (e) { return false; } }
 async function generateBestLineExercise(opts = {}) {
-    const playerMoves = opts.playerMoves || 3;
-    const gaps = Array.isArray(opts.gaps) ? opts.gaps
-        : (typeof opts.gapCp === 'number' ? [opts.gapCp] : BESTLINE_GAP_LADDER);
-    const maxTries = opts.maxTries || 14;
-    const depth = opts.depth || 15;
+    const maxTries = opts.maxTries || 6;
     const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
     const excludeFens = opts.excludeFens instanceof Set ? opts.excludeFens : new Set(opts.excludeFens || []);
-    const candidates = collectBestLineCandidateFens(opts.maxCandidates || 40).filter(f => !excludeFens.has(f));
+    const candidates = bestLineMateCandidates().filter(f => !excludeFens.has(f) && bestLineFenLegal(f));
 
-    for (const gapCp of gaps) {
-        let tried = 0;
-        for (const fen of candidates) {
-            if (tried >= maxTries || shouldAbort()) break;
-            tried++;
-            const ex = await prepareBestLineExercise(fen, { playerMoves, gapCp, depth, shouldAbort: opts.shouldAbort });
-            if (ex && (ex.totalSteps >= playerMoves || ex.endsInMate)) {
-                ex.gapUsed = gapCp;
-                ex.triedCandidates = tried;
-                return ex;
-            }
+    let tried = 0;
+    for (const fen of candidates) {
+        if (tried >= maxTries || shouldAbort()) break;
+        tried++;
+        const seq = await prepareMateSequence(fen);
+        if (seq) {
+            seq.source = 'bestline';
+            seq.endsInMate = true;
+            seq.totalSteps = 3;
+            seq.gapUsed = 'mat-en-3';
+            seq.triedCandidates = tried;
+            return seq;
         }
     }
     return null;
@@ -6333,16 +6353,13 @@ function takeBestLineFromPool() {
 // Helper de proves: genera un exercici i el mostra a la consola.
 // Ús: a la consola del navegador, `await testBestLineExercise()`.
 async function testBestLineExercise(opts = {}) {
-    console.log('[BestLine] Generant exercici de 3 jugades…');
+    console.log('[BestLine] Generant jeroglífic de 3 passos (mat en 3)…');
     const ex = await generateBestLineExercise(opts);
-    if (!ex) { console.warn('[BestLine] Cap posició candidata ha passat el filtre. Prova a abaixar gapCp o jugar més partides.'); return null; }
-    console.log('[BestLine] Exercici net trobat:', {
+    if (!ex) { console.warn('[BestLine] Cap candidat ha donat un mat exacte en 3. Pots ampliar BESTLINE_MATE_BANK.'); return null; }
+    console.log('[BestLine] Jeroglífic trobat:', {
         initialFen: ex.initialFen,
         jugadesJugador: ex.totalSteps,
-        liniaSAN: ex.fullSequenceSan.join(' '),
-        acabaEnMat: ex.endsInMate,
-        gapUsat: ex.gapUsed,
-        gaps: ex.steps.map(s => s.gap),
+        liniaSAN: (ex.fullSequenceSan || []).join(' '),
         candidatsProvats: ex.triedCandidates
     });
     return ex;
