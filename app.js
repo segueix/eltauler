@@ -10326,7 +10326,9 @@ function setOpeningScreenMode(mode = 'overview') {
         sections.lessons.hide();
         sections.stats.hide();
         sections.practice.show();
-        sections.hieroglyphic.show();
+        // No mostrem el bloc d'entrada "Jeroglífics d'obertura" sota el tauler:
+        // el mode actual ja és el jeroglífic personal.
+        sections.hieroglyphic.hide();
     }
     // L'opció de rendir-se NO ha d'aparèixer quan es resol un error o un jeroglífic
     // (només té sentit a les partides i a la pràctica d'obertures).
