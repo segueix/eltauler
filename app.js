@@ -17688,9 +17688,9 @@ function showRandomBundleSuccessOverlay() {
     }
 
     const remaining = savedErrors.length;
-    overlay.find('.bundle-success-title').text('Bundle resolt');
+    overlay.find('.bundle-success-title').text('Blunder resolt');
     overlay.find('.bundle-success-remaining').text(
-        remaining > 0 ? `${remaining} bundles pendents` : 'No queda cap bundle pendent'
+        remaining > 0 ? `${remaining} Blunders pendents` : 'No queda cap Blunder pendent'
     );
     overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
     overlay.css('display', 'flex');
