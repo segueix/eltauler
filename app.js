@@ -1109,7 +1109,7 @@ function buildErrorNotesExportText(entry) {
         const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
         const meta = coachQualityMeta(quality);
         const label = meta ? meta.label : 'Error';
-        const head = `${label} · Jugada ${d.moveNumber}: vas jugar ${playedDesc} · la millor era ${bestDesc}`;
+        const head = `${label} · Jugada ${d.moveNumber}: vas jugar ${withSan(playedDesc, d.played)} · la millor era ${withSan(bestDesc, d.best)}`;
         const note = notes[getErrorNoteKey(err)] || null;
         const body = (note && note.status === 'done' && note.text)
             ? note.text
@@ -7747,6 +7747,14 @@ function moveHumanText(fen, move, fallback) {
     return d ? d.text : (fallback || uciToSanSafe(fen, move) || String(move || ''));
 }
 
+// Afegeix la notació SAN entre parèntesis darrere la descripció planera, perquè
+// el text sigui verificable contra el tauler i el motor ("...captura a d8 (Rxd8)").
+function withSan(humanText, san) {
+    const h = String(humanText || '').trim();
+    const s = String(san || '').trim();
+    return (s && s !== '—' && s !== '?' && s !== h) ? `${h} (${s})` : h;
+}
+
 // =================== ANÀLISI PER FASES DE LA PARTIDA ===================
 function classifyPhaseByMoveNumber(n) {
     const num = n || 0;
@@ -7989,7 +7997,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         const moments = buildHumanPlanMoments(entry, null, opts);
         if (moments.length) {
             const items = moments.map(m => {
-                const desc = m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best;
+                const desc = withSan(m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best, m.best);
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
@@ -8115,7 +8123,7 @@ function updateHistoryErrorNotes(entry) {
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
-            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(playedDesc)}</strong> · la millor era <strong>${escapeHtml(bestDesc)}</strong></div>
+            <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: vas jugar <strong>${escapeHtml(withSan(playedDesc, d.played))}</strong> · la millor era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong></div>
             <div class="error-note-body">${body}</div>
             <div class="error-note-action">Clica per portar aquesta errada al tauler i corregir-la en dos moviments amb Pista i Màxima.</div>
         </div>`;
@@ -17596,7 +17604,7 @@ const COACH_DEBRIEF_TEMPLATES = {
     advice_srs: [
         "Tens {due} repassos pendents: deu minuts buidant-los valen més que una partida ràpida.",
         "Abans de la pròxima partida, passa pels {due} repassos pendents; és memòria que no vols perdre.",
-        "Consell: tens {due} errades esperant repàs. Tanca'ls i notaràs la diferència."
+        "Consell: tens {due} errades esperant repàs. Tanca-les i notaràs la diferència."
     ],
     advice_theme: [
         "Aquesta setmana toca {tema}: entrena'l i aquest tipus de partida canviarà de color.",
@@ -18169,6 +18177,18 @@ const COACH_EVAL_DECISIVE = 250; // avantatge pràcticament guanyador
 function coachEvalNum(v) { return typeof v === 'number' && isFinite(v) ? v : null; }
 function coachIsMate(cp) { const n = coachEvalNum(cp); return n !== null && Math.abs(n) >= COACH_EVAL_MATE; }
 
+// Cost concret de l'error per afegir-lo a la conseqüència (dada nova, no repetir
+// el diagnòstic). Amb mat pel mig el "cost en peons" no té sentit, així que es
+// deixa qualitatiu; si no, es dona el cost aproximat en peons a partir del swing.
+function coachCostSuffix(moment) {
+    const m = moment || {};
+    const mateInvolved = coachIsMate(coachEvalNum(m.evalBefore)) || coachIsMate(coachEvalNum(m.evalAfter));
+    const cp = Math.abs(Math.round(Number(m.swing) || 0));
+    if (mateInvolved || cp >= 1500) return '';
+    if (cp >= 100) return `cost aproximat: ${(cp / 100).toFixed(1).replace('.', ',')} peons`;
+    return '';
+}
+
 // Escala el detall segons la gravetat (estil chess.com): una imprecisió és gairebé
 // d'una línia, un error mostra el nucli, i un error greu desplega l'explicació
 // completa amb la línia concreta i la pregunta de reflexió.
@@ -18330,20 +18350,68 @@ const OUTCOME_CONSEQUENCES = {
 // tauler (p. ex. dir "defensa" quan en realitat ja guanyaves). Per als casos
 // suaus es manté la redacció humana del banc de plans (més variada).
 const OUTCOME_DIAGNOSIS = {
-    allows_mate: 'la jugada triada va passar per alt una seqüència de mat forçada',
-    lets_win_slip: 'ja tenies un avantatge guanyador i la jugada triada va afluixar la pressió en lloc de rematar',
-    loses_major: 'la jugada triada va deixar una peça pesant a l’abast del rival',
-    loses_piece: 'la jugada triada va deixar una peça sense protecció',
-    loses_exchange: 'la jugada triada va permetre que el rival guanyés la qualitat',
-    loses_pawn: 'la jugada triada va cedir un peó sense compensació'
+    allows_mate: [
+        'la jugada triada va passar per alt una seqüència de mat forçada',
+        'hi havia un mat forçat sobre el tauler i la jugada feta no el va veure',
+        'la jugada triada va ignorar una combinació que acabava en mat'
+    ],
+    lets_win_slip: [
+        'ja tenies un avantatge guanyador i la jugada triada va afluixar la pressió en lloc de rematar',
+        'estaves guanyant i la jugada feta va donar respir al rival en comptes de tancar la partida',
+        'tenies la victòria a tocar, però la jugada triada va relaxar la pressió'
+    ],
+    loses_major: [
+        'la jugada triada va deixar una peça pesant a l’abast del rival',
+        'la jugada feta va exposar una torre o la dama a la captura',
+        'amb la jugada triada una peça major quedava per perdre'
+    ],
+    loses_piece: [
+        'la jugada triada va deixar una peça sense protecció',
+        'la jugada feta penjava una peça',
+        'amb la jugada triada una peça quedava indefensa'
+    ],
+    loses_exchange: [
+        'la jugada triada va permetre que el rival guanyés la qualitat',
+        'la jugada feta cedia la qualitat, torre per peça menor',
+        'amb la jugada triada el rival es quedava la qualitat'
+    ],
+    loses_pawn: [
+        'la jugada triada va cedir un peó sense compensació',
+        'la jugada feta regalava un peó sense res a canvi',
+        'amb la jugada triada queia un peó sense compensació'
+    ]
 };
 const OUTCOME_PLANS = {
-    allows_mate: 'calia veure la seqüència forçada abans de res: rematar el mat o, si era en contra, aturar-lo',
-    lets_win_slip: 'ja guanyaves: tocava rematar amb la jugada més forçada i directa, sense relaxar la pressió',
-    loses_major: 'calia protegir la peça o no entrar en la línia que la perdia',
-    loses_piece: 'calia deixar totes les peces defensades abans de continuar',
-    loses_exchange: 'calia evitar el canvi desfavorable i conservar la qualitat',
-    loses_pawn: 'calia retenir el peó o aconseguir compensació clara a canvi'
+    allows_mate: [
+        'calia veure la seqüència forçada abans de res: rematar el mat o, si era en contra, aturar-lo',
+        'primer de tot, busca els escacs forçats: o hi ha mat a favor o cal parar el del rival',
+        'davant d’un mat al tauler, calcula la línia forçada abans de qualsevol altra idea'
+    ],
+    lets_win_slip: [
+        'ja guanyaves: tocava rematar amb la jugada més forçada i directa, sense relaxar la pressió',
+        'amb avantatge guanyador, busca la continuació més directa i no donis temps al rival',
+        'quan ja guanyes, simplifica cap a la victòria i evita les jugades que reobren la partida'
+    ],
+    loses_major: [
+        'calia protegir la peça o no entrar en la línia que la perdia',
+        'abans de moure, comprova que cap peça major queda a l’abast del rival',
+        'posa la peça pesant fora de perill o evita la variant que la perd'
+    ],
+    loses_piece: [
+        'calia deixar totes les peces defensades abans de continuar',
+        'revisa que totes les peces estiguin protegides abans de jugar',
+        'no avancis amb una peça penjada: primer assegura-la'
+    ],
+    loses_exchange: [
+        'calia evitar el canvi desfavorable i conservar la qualitat',
+        'no entris en canvis que et costen la qualitat sense compensació',
+        'conserva la torre i evita el canvi per la peça menor'
+    ],
+    loses_pawn: [
+        'calia retenir el peó o aconseguir compensació clara a canvi',
+        'defensa el peó o busca compensació concreta abans de cedir-lo',
+        'no cedeixis el peó sense una compensació clara'
+    ]
 };
 
 // Hash estable (determinista) per triar sempre la mateixa variant per a una
@@ -18353,10 +18421,12 @@ function coachStableHash(str) {
     for (let i = 0; i < s.length; i++) h = (Math.imul(h, 31) + s.charCodeAt(i)) | 0;
     return Math.abs(h);
 }
-function pickStableLine(pool, moment) {
+function pickStableLine(pool, moment, salt = '') {
     if (!Array.isArray(pool) || !pool.length) return '';
     const m = moment || {};
-    const seed = `${m.moveNumber ?? '?'}|${m.fen || ''}`;
+    // El salt permet que diagnòstic, conseqüència i pla d'una mateixa jugada
+    // triïn variants independents (si no, sortirien sempre al mateix índex).
+    const seed = `${m.moveNumber ?? '?'}|${m.fen || ''}|${salt}`;
     return pool[coachStableHash(seed) % pool.length];
 }
 
@@ -18381,7 +18451,9 @@ function buildStructuredConsequence(moment) {
     const outcome = classifyMoveOutcome(m);
     if (outcome) {
         const pool = OUTCOME_CONSEQUENCES[outcome] || OUTCOME_CONSEQUENCES.lets_advantage_slip;
-        return `${severity} ${toInlineAdvice(pickStableLine(pool, m))}.`;
+        const base = `${severity} ${toInlineAdvice(pickStableLine(pool, m))}`;
+        const cost = coachCostSuffix(m);
+        return cost ? `${base} (${cost}).` : `${base}.`;
     }
 
     // Legacy (partides sense avaluació ni refutació): comportament per tema.
@@ -18409,11 +18481,11 @@ function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     // ensureCoachTextQuality (a baix) ja capitalitza i afegeix punt final.
     const outcome = classifyMoveOutcome(moment || {});
     const mistake = (outcome && OUTCOME_DIAGNOSIS[outcome])
-        ? OUTCOME_DIAGNOSIS[outcome]
+        ? pickStableLine(OUTCOME_DIAGNOSIS[outcome], moment, 'diag')
         : (stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.');
     const consequence = buildStructuredConsequence(moment || {});
     const betterPlan = (outcome && OUTCOME_PLANS[outcome])
-        ? OUTCOME_PLANS[outcome]
+        ? pickStableLine(OUTCOME_PLANS[outcome], moment, 'plan')
         : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
     return {
         fact: fld(fact, '', { maxWords: 16 }),
