@@ -13191,7 +13191,7 @@ function renderHieroglyphicPanel() {
                 + `<span class="hg-h-kind">${isNew ? '<span class="hg-new-badge">Nou</span> ' : ''}${escapeHtml(String(kind))}</span>`
                 + `<span class="hg-h-meta">${escapeHtml(dateText)} · <span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>${escapeHtml(badge.label)}</span>`
                 + `<span class="hg-h-mark">${mark}</span>`
-                + `<button class="btn hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}">↻ Reintenta</button>`
+                + `<button class="btn hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="Reintenta" aria-label="Reintenta aquest jeroglífic">↻</button>`
                 + '</div>';
         });
     } else {

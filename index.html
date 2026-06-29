@@ -634,9 +634,13 @@
         #hieroglyphic-panel .hg-history-row.hg-ok .hg-h-mark { color: var(--accent-gold, #c9a227); }
         #hieroglyphic-panel .hg-history-row.hg-pending .hg-h-mark { color: var(--text-secondary); }
         #hieroglyphic-panel .hg-h-retry {
-            padding: 2px 7px; font-size: 0.68rem; line-height: 1.15; border-radius: 7px;
-            background: var(--accent-purple, #7c4dc9); color: #fff; border: none; cursor: pointer;
+            flex: 0 0 24px; width: 24px; height: 24px; min-height: 0; padding: 0;
+            display: inline-flex; align-items: center; justify-content: center;
+            font-size: 0.9rem; line-height: 1; border-radius: 50%;
+            background: rgba(124, 77, 201, 0.92); color: #fff; border: none; cursor: pointer;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.18);
         }
+        #hieroglyphic-panel .hg-h-retry:hover { background: var(--accent-purple, #7c4dc9); }
         body.epaper-mode #hieroglyphic-panel {
             background: #ededed !important; border-color: #cfcfcf !important;
             border-left: 4px solid #777 !important; color: #222;
