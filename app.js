@@ -14245,14 +14245,21 @@ function setupEvents() {
 
     const getMenuExitCopy = () => {
         const isHieroglyphicExit = hieroglyphicExerciseActive || currentBundleSource === 'bestline';
+        const isTacticsExit = isTacticsSession || currentBundleSource === 'tactics';
         const isErrorReviewExit = isMatchErrorReviewSession
             || openingErrorPracticeActive
-            || (blunderMode && !['bestline', 'mate_drill', 'opening_drill'].includes(currentBundleSource));
+            || (blunderMode && !['bestline', 'mate_drill', 'opening_drill', 'tactics'].includes(currentBundleSource));
 
         if (isHieroglyphicExit) {
             return {
                 title: 'Sortir del jeroglífic?',
                 message: 'Vols sortir del jeroglífic?'
+            };
+        }
+        if (isTacticsExit) {
+            return {
+                title: 'Sortir de la tàctica?',
+                message: 'Vols sortir de la tàctica?'
             };
         }
         if (isErrorReviewExit) {
