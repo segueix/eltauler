@@ -14317,30 +14317,40 @@ function setupEvents() {
         if (isHieroglyphicExit) {
             return {
                 title: 'Sortir del jeroglífic?',
-                message: 'Vols sortir del jeroglífic?'
+                message: 'Vols anar a la pàgina principal o tornar al tauler?',
+                confirmText: 'Pàgina principal',
+                cancelText: 'Tornar al tauler'
             };
         }
         if (isTacticsExit) {
             return {
                 title: 'Sortir de la tàctica?',
-                message: 'Vols sortir de la tàctica?'
+                message: 'Vols anar a la pàgina principal o tornar al tauler?',
+                confirmText: 'Pàgina principal',
+                cancelText: 'Tornar al tauler'
             };
         }
         if (isErrorReviewExit) {
             return {
                 title: 'Sortir de la revisió?',
-                message: 'Vols sortir de la revisió?'
+                message: 'Vols anar a la pàgina principal o tornar al tauler?',
+                confirmText: 'Pàgina principal',
+                cancelText: 'Tornar al tauler'
             };
         }
         if (leagueActiveMatch) {
             return {
                 title: 'Sortir de la partida?',
-                message: 'Sortir de la partida de lliga? Comptarà com a derrota.'
+                message: 'Sortir de la partida de lliga? Comptarà com a derrota.',
+                confirmText: 'Sí',
+                cancelText: 'No'
             };
         }
         return {
             title: 'Sortir de la partida?',
-            message: 'Vols sortir de la partida?'
+            message: 'Vols anar a la pàgina principal o tornar al tauler?',
+            confirmText: 'Pàgina principal',
+            cancelText: 'Tornar al tauler'
         };
     };
 
@@ -14348,6 +14358,8 @@ function setupEvents() {
         const copy = getMenuExitCopy();
         $('#menu-exit-title').text(copy.title);
         $('#menu-exit-message').text(copy.message);
+        $('#btn-menu-exit-confirm').text(copy.confirmText || 'Sí');
+        $('#btn-menu-exit-cancel').text(copy.cancelText || 'No');
         $('#menu-exit-modal').css('display', 'flex');
         pauseGameClock();
     };
@@ -14400,10 +14412,7 @@ function setupEvents() {
             runAfterPaint(() => handleGameOver(true));
             return;
         }
-        $('#game-screen').removeClass('active').hide();
-        $('#start-screen').show();
-        navStack.pop();
-        if (stockfish) stockfish.postMessage('stop');
+        returnToMainMenuImmediate();
     });
 
     onModalAction('#btn-menu-exit-cancel', () => {
