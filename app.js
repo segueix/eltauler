@@ -6374,10 +6374,13 @@ function refreshJeroglificButton() {
     const btn = document.getElementById('btn-bestline');
     if (!btn) return;
     const ready = jeroglificsReady();
-    btn.disabled = !ready;
-    btn.classList.toggle('btn-disabled', !ready);
+    const hasRetry = retryableHieroglyphicHistory().length > 0;
+    btn.disabled = !ready && !hasRetry;
+    btn.classList.toggle('btn-disabled', !ready && !hasRetry);
     const desc = document.getElementById('bestline-info');
-    if (desc) desc.textContent = ready ? 'Desxifra un moment clau de les teves partides' : 'Preparant jeroglífic personal…';
+    if (desc) desc.textContent = ready
+        ? 'Desxifra un moment clau de les teves partides'
+        : (hasRetry ? 'Refés un jeroglífic pendent' : 'Preparant jeroglífic personal…');
 }
 
 // ── Magatzem de jeroglífics (puzzles tàctics) — Lliurament 1 ────────────────
@@ -11984,6 +11987,33 @@ function hieroglyphicDifficultyBadge(source = {}) {
     if (percent >= 40) return { level: 'medium', label: 'Dificultat mitjana', title: `Dificultat estimada: ${percent}%` };
     return { level: 'easy', label: 'Dificultat baixa', title: `Dificultat estimada: ${percent}%` };
 }
+function hieroglyphicHistoryGroup(entry) {
+    if (!entry || !entry.solved) return 0; // nous o pendents, sempre a dalt
+    if (!entry.firstTry) return 1;        // resolts amb intents: val la pena repetir-los
+    return 2;                             // resolts a la primera, al final
+}
+function sortHieroglyphicHistoryForReview(list) {
+    return (Array.isArray(list) ? list.slice() : []).sort((a, b) => {
+        const ga = hieroglyphicHistoryGroup(a);
+        const gb = hieroglyphicHistoryGroup(b);
+        if (ga !== gb) return ga - gb;
+        return ((b && (b.createdAt || b.ts)) || 0) - ((a && (a.createdAt || a.ts)) || 0);
+    });
+}
+function retryableHieroglyphicHistory() {
+    return sortHieroglyphicHistoryForReview(loadHieroglyphicHistory())
+        .filter(e => e && e.fen && (!e.solved || !e.firstTry));
+}
+function positionHieroglyphicPanelForViewport() {
+    const panel = $('#hieroglyphic-panel');
+    const board = $('#game-screen .board-container').first();
+    if (!panel.length || !board.length) return;
+    if ($('body').hasClass('device-mobile')) {
+        if (!panel.prev().is(board)) panel.insertAfter(board);
+    } else if (!panel.next().is(board)) {
+        panel.insertBefore(board);
+    }
+}
 // Insereix o actualitza l'historial amb el jeroglífic en curs. En generar-lo es
 // registra com a pendent (keepIfExists evita degradar un que ja s'havia resolt); en
 // resoldre'l s'actualitza amb si s'ha encertat a la primera. La clau es sincronitza
@@ -13139,24 +13169,26 @@ if (typeof window !== 'undefined') window.retryHieroglyphicFromHistory = retryHi
 function renderHieroglyphicPanel() {
     const panel = $('#hieroglyphic-panel');
     if (!panel.length) return;
+    positionHieroglyphicPanelForViewport();
     if (currentBundleSource !== 'bestline') { panel.hide().empty(); return; }
     const moves = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.solutionMoves && currentHieroglyphicPuzzle.solutionMoves.length)
         || hieroglyphicSolutionUci.length || 3;
     // L'historial mostra els jeroglífics ANTERIORS (no el que s'està resolent ara).
     const activeFen = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.fen;
-    const history = loadHieroglyphicHistory().filter(e => e && e.fen !== activeFen);
+    const history = sortHieroglyphicHistoryForReview(loadHieroglyphicHistory().filter(e => e && e.fen !== activeFen));
     let html = `<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`;
     html += '<div class="hg-history">';
     html += '<div class="hg-history-title">Historial de jeroglífics</div>';
     if (history.length) {
         history.slice(0, 8).forEach(e => {
+            const isNew = !e.solved;
             const mark = e.solved ? (e.firstTry ? '✅ A la primera' : '☑️ Resolt amb intents') : '⏳ Pendent';
             const cls = e.solved ? (e.firstTry ? 'hg-first' : 'hg-ok') : 'hg-pending';
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
             const badge = hieroglyphicDifficultyBadge(e);
             html += `<div class="hg-history-row ${cls}">`
-                + `<span class="hg-h-kind">${escapeHtml(String(kind))}</span>`
+                + `<span class="hg-h-kind">${isNew ? '<span class="hg-new-badge">Nou</span> ' : ''}${escapeHtml(String(kind))}</span>`
                 + `<span class="hg-h-meta">${escapeHtml(dateText)} · <span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>${escapeHtml(badge.label)}</span>`
                 + `<span class="hg-h-mark">${mark}</span>`
                 + `<button class="btn hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}">↻ Reintenta</button>`
@@ -14354,8 +14386,8 @@ function setupEvents() {
         tacticsStats.streak = 0;
         startTacticsPuzzle();
     });
-    $('#btn-bestline').off('click').on('click', () => { if (jeroglificsReady()) void startBestLineExercise(); });
-    refreshJeroglificButton(); // gris fins que n'hi hagi de generats
+    $('#btn-bestline').off('click').on('click', () => { void startBestLineExercise(); });
+    refreshJeroglificButton(); // actiu si hi ha un de nou o algun pendent per refer
 
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
@@ -15402,13 +15434,19 @@ function startTacticsPuzzle() {
 async function startBestLineExercise() {
     if (!guardCalibrationAccess()) return;
     // Rectificació: el botó Jeroglífic ja no usa bancs de mat ni finals KQ/KR.
-    // Obre únicament un jeroglífic personal extret de moments clau de partides.
-    if (!hasPersonalHieroglyphicCandidate()) {
-        void ensurePersonalHieroglyphicPoolTick();
-        showToast('Encara s’està preparant un jeroglífic personal validat.', 'warn');
+    // Obre un jeroglífic nou si ja està validat; si encara no n'hi ha cap, permet
+    // refer-ne un de l'historial que no hagi sortit a la primera.
+    if (jeroglificsReady()) {
+        await startPersonalHieroglyphicFromLastGame(null);
         return;
     }
-    await startPersonalHieroglyphicFromLastGame(null);
+    const retry = retryableHieroglyphicHistory()[0];
+    if (retry) {
+        retryHieroglyphicFromHistory(retry.id);
+        return;
+    }
+    void ensurePersonalHieroglyphicPoolTick();
+    showToast('Encara s’està preparant un jeroglífic personal validat.', 'warn');
 }
 
 if (typeof window !== 'undefined') window.startBestLineExercise = startBestLineExercise;
