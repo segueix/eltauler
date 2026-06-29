@@ -16423,7 +16423,7 @@ blunderMode = isBundle;
         currentGameMode = 'bundle';
         currentOpponent = null;
         $('#engine-elo').text('Anàlisi');
-        let bundleTitle = isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Bundle';
+        let bundleTitle = isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Tàctica';
         if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
         else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
         else if (currentBundleSource === 'bestline') bundleTitle = '🔮 Jeroglífic en 3 passos';
