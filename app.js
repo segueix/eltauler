@@ -12872,6 +12872,86 @@ function setHieroglyphicGenerating(isGenerating) {
 function hasPersonalHieroglyphicCandidate(entry = null) {
     return collectPersonalHieroglyphicCandidates(entry).length > 0;
 }
+
+function buildHieroglyphicBundleSequence(candidate) {
+    if (!candidate || !candidate.fen) return null;
+    const line = {
+        solution: candidate.solutionMoves || buildHieroglyphicLineFromCandidate(candidate).solution,
+        replies: candidate.replyMoves || buildHieroglyphicLineFromCandidate(candidate).replies
+    };
+    const solution = (line.solution || []).slice(0, 3);
+    const replies = (line.replies || []).slice(0, Math.max(0, solution.length - 1));
+    if (!solution.length) return null;
+
+    const seq = {
+        initialFen: candidate.fen,
+        totalSteps: solution.length,
+        playerMoves: solution.length,
+        fullSequence: [],
+        fullSequenceSan: [],
+        source: 'bestline',
+        endsInMate: false,
+        gapCp: 80,
+        steps: []
+    };
+    const g = new Chess(candidate.fen);
+    for (let i = 0; i < solution.length; i++) {
+        const stepFen = g.fen();
+        const uci = solution[i];
+        const move = g.move({
+            from: uci.slice(0, 2),
+            to: uci.slice(2, 4),
+            promotion: uci.length > 4 ? uci[4] : undefined
+        });
+        if (!move) return null;
+        const stepData = {
+            fen: stepFen,
+            playerMove: uci,
+            playerMoveSan: move.san,
+            playerMovePv: (candidate.stepPvs && candidate.stepPvs[i]) || candidate.pv || [],
+            evalBefore: (candidate.stepEvals && candidate.stepEvals[i]) ?? candidate.evalBefore ?? null,
+            alternatives: (candidate.stepAlternatives && candidate.stepAlternatives[i]) || candidate.alternatives || [],
+            position: (() => { try { return parseFenPosition(stepFen); } catch (e) { return null; } })(),
+            threats: (() => { try { return analyzePvThreats(stepFen, (candidate.stepPvs && candidate.stepPvs[i]) || candidate.pv || []); } catch (e) { return null; } })()
+        };
+        seq['step' + (i + 1)] = stepData;
+        seq.steps.push({
+            fen: stepFen,
+            playerMove: uci,
+            playerMoveSan: move.san,
+            evalBefore: stepData.evalBefore,
+            evalType: candidate.evalType || null,
+            gap: ElTaulerCore.bestLineGapCp(stepData.alternatives)
+        });
+        seq.fullSequence.push(uci);
+        seq.fullSequenceSan.push(move.san);
+        if (g.game_over()) {
+            seq.endsInMate = g.in_checkmate();
+            break;
+        }
+        if (i < solution.length - 1) {
+            const reply = replies[i];
+            if (!reply) return null;
+            const replyFen = g.fen();
+            const replyMove = g.move({
+                from: reply.slice(0, 2),
+                to: reply.slice(2, 4),
+                promotion: reply.length > 4 ? reply[4] : undefined
+            });
+            if (!replyMove) return null;
+            seq[i === 0 ? 'opponentMove' : 'opponentMove2'] = {
+                fen: replyFen,
+                move: reply,
+                moveSan: replyMove.san,
+                eval: null
+            };
+            seq.fullSequence.push(reply);
+            seq.fullSequenceSan.push(replyMove.san);
+        }
+    }
+    return seq;
+}
+
 async function startPersonalHieroglyphicFromLastGame(entry = null) {
     loadHieroglyphicStats();
     let chosen = takePreparedPersonalHieroglyphic();
@@ -12911,41 +12991,25 @@ async function startPersonalHieroglyphicFromLastGame(entry = null) {
         hieroglyphicSource = 'personal';
         hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 1);
         hieroglyphicExerciseActive = true;
-        hideOpeningRestartOverlay();
-        openingLessonActive = false;
-        openingErrorPracticeActive = false;
-        openingPracticeEngineThinking = false;
-
-        renderOpeningStatsScreen(true);
-        renderOpeningLessonButtons();
-        initOpeningBundleBoard();
-        updateOpeningBoardInteractivity();
-        clearOpeningTapSelection();
-        openingPracticeGame = hieroglyphicGame;
-        openingPracticeMoveCount = 0;
-        clearOpeningHintHighlight();
-        clearOpeningMoveVisualFeedback();
-        $('#start-screen,#game-screen,#history-screen,#league-screen,#stats-screen,#settings-screen,#calibration-result-screen').hide();
-        $('#opening-screen').show();
-        setOpeningScreenMode('hieroglyphic');
-        navPush('opening-screen');
-        if (openingBundleBoard) {
-            openingBundleBoard.orientation(hieroglyphicGame.turn() === 'w' ? 'white' : 'black');
-            openingBundleBoard.position(hieroglyphicGame.fen());
-            if (typeof openingBundleBoard.resize === 'function') setTimeout(() => openingBundleBoard.resize(), 50);
-        }
+        const seq = buildHieroglyphicBundleSequence(chosen);
+        if (!seq) throw new Error('No s’ha pogut convertir el jeroglífic en exercici de tàctica.');
+        isSrsReviewSession = false;
+        isDailyPuzzleSession = false;
+        isRandomBundleSession = false;
+        isMatchErrorReviewSession = false;
+        isTacticsSession = false;
+        isBestLineSession = true;
+        matchErrorQueue = [];
+        currentMatchError = null;
+        currentBundleSource = 'bestline';
+        currentBundleSeverity = null;
+        currentGameMode = 'bundle';
+        currentOpponent = null;
+        pendingPreparedSequence = seq;
+        $('#bundle-modal').remove();
         setHieroglyphicGenerating(false);
         refreshJeroglificButton();
-        const myToken = ++hieroglyphicToken;
-        renderHieroglyphicExerciseNote(!!openaiApiKey);
-        if (openaiApiKey) {
-            fetchHieroglyphicClue(hieroglyphicContext, 1).then((text) => {
-                if (text && myToken === hieroglyphicToken && hieroglyphicExerciseActive && hieroglyphicSource === 'personal' && hieroglyphicAttempts === 0) {
-                    hieroglyphicClue = text;
-                }
-                renderHieroglyphicExerciseNote(false);
-            });
-        }
+        startGame(true, seq.initialFen);
     } catch (e) {
         setHieroglyphicGenerating(false);
         refreshJeroglificButton();
@@ -15202,6 +15266,26 @@ function showTacticsOverlay() {
     });
 }
 
+function showHieroglyphicBundleOverlay() {
+    const overlay = $('#bundle-success-overlay');
+    if (!overlay.length) { returnToMainMenuImmediate(); return; }
+    const hasNext = jeroglificsReady();
+    overlay.find('.bundle-success-title').text('Jeroglífic resolt ⚡ (+1 ★)');
+    overlay.find('.bundle-success-remaining').text(`Resoltes: ${hieroglyphicStats.solved || 0} · Ratxa: ${hieroglyphicStats.currentStreak || 0} · Rècord: ${hieroglyphicStats.bestStreak || 0}`).show();
+    overlay.find('#btn-bundle-random-again').text('⚡ Un altre').prop('disabled', !hasNext).toggle(true);
+    overlay.find('#btn-bundle-random-home').text('🏠 Tornar');
+    overlay.css('display', 'flex');
+    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
+        overlay.hide();
+        if (jeroglificsReady()) void startBestLineExercise();
+        else returnToMainMenuImmediate();
+    });
+    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
+        overlay.hide();
+        returnToMainMenuImmediate();
+    });
+}
+
 /* ===================== BANNER D'INCENTIU ===================== */
 const PLAY_IDEAS = [
     "Domina el centre des de la primera jugada: cada peça hi guanya força.",
@@ -16426,9 +16510,7 @@ blunderMode = isBundle;
         let bundleTitle = isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Tàctica';
         if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
         else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
-        else if (currentBundleSource === 'bestline') bundleTitle = '🔮 Jeroglífic en 3 passos';
-        // El jeroglífic en 3 passos es mostra amb la lletra una mica més gran.
-        $('#game-mode-title').text(bundleTitle).css('font-size', currentBundleSource === 'bestline' ? '1.35rem' : '');
+        $('#game-mode-title').text(bundleTitle).css('font-size', '');
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -17693,6 +17775,8 @@ function returnToMainMenuImmediate() {
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
     isTacticsSession = false;
+    isBestLineSession = false;
+    hieroglyphicExerciseActive = false;
     matchErrorQueue = [];
     currentMatchError = null;
     currentBundleSource = null;
@@ -17755,7 +17839,9 @@ function handleBundleSuccess() {
 
     if (currentBundleSource === 'bestline') {
         isBestLineSession = false;
-        showDrillSuccessOverlay('Jeroglífic resolt 🔮', () => { void startBestLineExercise(); });
+        hieroglyphicExerciseActive = false;
+        registerHieroglyphicSolved();
+        showHieroglyphicBundleOverlay();
         return;
     }
 
