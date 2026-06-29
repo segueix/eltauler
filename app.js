@@ -13728,15 +13728,28 @@ function setupEvents() {
     $('#history-personal-hieroglyphic').click(() => {
         startPersonalHieroglyphicFromLastGame(historyReplay ? historyReplay.entry : null);
     });
-    $('#btn-back-opening').click(() => {
+    const exitOpeningScreenToMenu = () => {
         $('#opening-screen').hide();
         $('#start-screen').show();
         navStack.pop();
+    };
+    const confirmOpeningExit = () => {
+        if (hieroglyphicExerciseActive || openingErrorPracticeActive) {
+            const copy = getMenuExitCopy();
+            showAppConfirm(copy.message, exitOpeningScreenToMenu, {
+                title: copy.title,
+                confirmText: 'Sí',
+                cancelText: 'No'
+            });
+            return;
+        }
+        exitOpeningScreenToMenu();
+    };
+    $('#btn-back-opening').click(() => {
+        confirmOpeningExit();
     });
     $('#btn-opening-bundle-menu').click(() => {
-        $('#opening-screen').hide();
-        $('#start-screen').show();
-        navStack.pop();
+        confirmOpeningExit();
     });
     $('#btn-opening-bundle-hint').click(() => {
         if (!openingPracticeGame || openingPracticeGame.game_over()) return;
@@ -14230,11 +14243,47 @@ function setupEvents() {
         }
     });
 
-     const showMenuExitModal = () => {
-        const message = leagueActiveMatch
-            ? "Sortir de la partida de lliga? Comptarà com a derrota."
-            : "Vols sortir de la partida?";
-        $('#menu-exit-message').text(message);
+    const getMenuExitCopy = () => {
+        const isHieroglyphicExit = hieroglyphicExerciseActive || currentBundleSource === 'bestline';
+        const isTacticsExit = isTacticsSession || currentBundleSource === 'tactics';
+        const isErrorReviewExit = isMatchErrorReviewSession
+            || openingErrorPracticeActive
+            || (blunderMode && !['bestline', 'mate_drill', 'opening_drill', 'tactics'].includes(currentBundleSource));
+
+        if (isHieroglyphicExit) {
+            return {
+                title: 'Sortir del jeroglífic?',
+                message: 'Vols sortir del jeroglífic?'
+            };
+        }
+        if (isTacticsExit) {
+            return {
+                title: 'Sortir de la tàctica?',
+                message: 'Vols sortir de la tàctica?'
+            };
+        }
+        if (isErrorReviewExit) {
+            return {
+                title: 'Sortir de la revisió?',
+                message: 'Vols sortir de la revisió?'
+            };
+        }
+        if (leagueActiveMatch) {
+            return {
+                title: 'Sortir de la partida?',
+                message: 'Sortir de la partida de lliga? Comptarà com a derrota.'
+            };
+        }
+        return {
+            title: 'Sortir de la partida?',
+            message: 'Vols sortir de la partida?'
+        };
+    };
+
+    const showMenuExitModal = () => {
+        const copy = getMenuExitCopy();
+        $('#menu-exit-title').text(copy.title);
+        $('#menu-exit-message').text(copy.message);
         $('#menu-exit-modal').css('display', 'flex');
         pauseGameClock();
     };
