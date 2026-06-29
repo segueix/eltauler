@@ -634,7 +634,7 @@
         #hieroglyphic-panel .hg-history-row.hg-ok .hg-h-mark { color: var(--accent-gold, #c9a227); }
         #hieroglyphic-panel .hg-history-row.hg-pending .hg-h-mark { color: var(--text-secondary); }
         #hieroglyphic-panel .hg-h-retry {
-            padding: 3px 10px; font-size: 0.78rem; border-radius: 8px;
+            padding: 2px 7px; font-size: 0.68rem; line-height: 1.15; border-radius: 7px;
             background: var(--accent-purple, #7c4dc9); color: #fff; border: none; cursor: pointer;
         }
         body.epaper-mode #hieroglyphic-panel {
@@ -950,6 +950,7 @@
         .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
         .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
         .btn-tactics  { background: linear-gradient(135deg, #8c3a3a 0%, #5c1d1d 100%); color: #f6e0e0; }
+        .btn-hieroglyphic-main { background: linear-gradient(135deg, #123c73 0%, #071d3d 100%); color: #eaf3ff; }
         .btn-history  { background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: #fff; }
         .btn-stats    { background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: #fff; }
         .menu-grid .btn {
@@ -2974,6 +2975,9 @@
         <symbol id="ic-zap" viewBox="0 0 24 24">
             <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>
         </symbol>
+        <symbol id="ic-puzzle" viewBox="0 0 24 24">
+            <path d="M9 3h5v3.1a2.2 2.2 0 1 0 2.9 2.1H20v4.7h-3.1a2.2 2.2 0 1 0-2.1 2.9V21H9v-3.1a2.2 2.2 0 1 1-2.9-2.1H3V11h3.1A2.2 2.2 0 1 1 9 8.9z"/>
+        </symbol>
         <symbol id="ic-search" viewBox="0 0 24 24">
             <circle cx="10.5" cy="10.5" r="7"/>
             <path d="M20.5 20.5l-4.7-4.7"/>
@@ -3161,8 +3165,8 @@
                             <span class="training-title">Repàs intel·ligent</span>
                             <span class="training-desc" id="srs-info">Cua SRS</span>
                         </button>
-                        <button class="btn btn-tactics" id="btn-bestline">
-                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
+                        <button class="btn btn-hieroglyphic-main" id="btn-bestline">
+                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-puzzle"/></svg>
                             <span class="training-kind">3 passos</span>
                             <span class="training-title">Jeroglífic</span>
                             <span class="training-desc" id="bestline-info">Troba els 3 millors moviments</span>
