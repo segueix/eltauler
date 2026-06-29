@@ -2554,8 +2554,22 @@ function showOpeningMoveIcon(square, icon, type) {
 
 // Neteja el feedback visual
 function clearOpeningMoveVisualFeedback() {
-    $('#opening-board .square-55d63').removeClass('move-correct move-good move-incorrect');
+    $('#opening-board .square-55d63').removeClass('move-correct move-good move-incorrect move-rival');
     $('.opening-move-icon').remove();
+}
+
+// Marca la jugada de resposta del rival (enginy) perquè es vegi clarament
+// quin moviment ha fet entre dues jugades de l'usuari.
+function showOpeningRivalMove(from, to) {
+    if (!from || !to) return;
+    const fromSquare = $(`#opening-board .square-55d63[data-square='${from}']`);
+    const toSquare = $(`#opening-board .square-55d63[data-square='${to}']`);
+    fromSquare.addClass('move-rival');
+    toSquare.addClass('move-rival');
+    setTimeout(() => {
+        fromSquare.removeClass('move-rival');
+        toSquare.removeClass('move-rival');
+    }, 2000);
 }
 
 function showMainMoveVisualFeedback(to, quality) {
@@ -12666,7 +12680,10 @@ async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
     if (!candidate || candidate.source !== 'gameHistory.tactic') return null;
     if (!ensureStockfish()) return null;
     const line = buildHieroglyphicLineFromCandidate(candidate);
-    if (line.solution.length < 2) return null;
+    // Exigim 3 jugades del jugador: un jeroglífic és "en 3 passos". Si la línia
+    // real de la tàctica és més curta, deixem que el camí de reserva
+    // (prepareBestLineExercise) construeixi una línia neta de 3 jugades.
+    if (line.solution.length < 3) return null;
     const solution = line.solution.slice(0, 3);
     const replies = line.replies.slice(0, Math.max(0, solution.length - 1));
     let curFen = candidate.fen;
@@ -12738,7 +12755,10 @@ async function closeHieroglyphicCandidateWithStockfish(candidate, opts = {}) {
     const strict = await validateHieroglyphicTacticWithStockfish(candidate, opts);
     if (strict) return strict;
     const shouldAbort = opts.shouldAbort || null;
-    const attempts = [3, 2];
+    // Només acceptem línies de 3 jugades del jugador (un jeroglífic "en 3
+    // passos"). Una línia més curta només s'admet si acaba en mat forçat,
+    // cosa que prepareBestLineExercise ja resol tallant la seqüència.
+    const attempts = [3];
     for (const playerMoves of attempts) {
         const prepared = await prepareBestLineExercise(candidate.fen, {
             playerMoves,
@@ -12998,16 +13018,34 @@ function handleHieroglyphicMove(source, target) {
         hieroglyphicStep = (hieroglyphicStep || 0) + 1;
         const solvedLine = hieroglyphicStep >= (hieroglyphicSolutionUci.length || 1);
         if (!solvedLine) {
-            const reply = hieroglyphicReplyUci[hieroglyphicStep - 1];
-            if (reply) {
-                hieroglyphicGame.move({ from: reply.slice(0, 2), to: reply.slice(2, 4), promotion: reply.length > 4 ? reply[4] : undefined });
-            }
-            hieroglyphicExpectedUci = hieroglyphicSolutionUci[hieroglyphicStep];
-            hieroglyphicExpectedMove = hieroglyphicExpectedUci;
-            hieroglyphicAttempts = 0;
-            hieroglyphicHintLevel = 1;
+            // Mostra primer la jugada de l'usuari i, després d'una pausa, la
+            // resposta del rival ressaltada, perquè es vegi clarament quin
+            // moviment fa l'enginy entre dos passos de la solució.
             if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
-            refreshHieroglyphicStepContext(`Correcte. Pas ${hieroglyphicStep + 1}/${hieroglyphicSolutionUci.length}.`);
+            const reply = hieroglyphicReplyUci[hieroglyphicStep - 1];
+            const advanceToNextStep = () => {
+                hieroglyphicExpectedUci = hieroglyphicSolutionUci[hieroglyphicStep];
+                hieroglyphicExpectedMove = hieroglyphicExpectedUci;
+                hieroglyphicAttempts = 0;
+                hieroglyphicHintLevel = 1;
+                refreshHieroglyphicStepContext(`Correcte. Pas ${hieroglyphicStep + 1}/${hieroglyphicSolutionUci.length}.`);
+            };
+            if (reply) {
+                const replyFrom = reply.slice(0, 2);
+                const replyTo = reply.slice(2, 4);
+                openingPracticeEngineThinking = true;
+                renderHieroglyphicExerciseNote(false, 'Resposta del rival…');
+                setTimeout(() => {
+                    openingPracticeEngineThinking = false;
+                    if (!hieroglyphicExerciseActive) return;
+                    hieroglyphicGame.move({ from: replyFrom, to: replyTo, promotion: reply.length > 4 ? reply[4] : undefined });
+                    if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+                    showOpeningRivalMove(replyFrom, replyTo);
+                    advanceToNextStep();
+                }, 650);
+            } else {
+                advanceToNextStep();
+            }
             return;
         }
         registerHieroglyphicSolved();
