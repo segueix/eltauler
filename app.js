@@ -14244,13 +14244,18 @@ function setupEvents() {
     });
 
     const getMenuExitCopy = () => {
-        if (hieroglyphicExerciseActive || currentBundleSource === 'bestline') {
+        const isHieroglyphicExit = hieroglyphicExerciseActive || currentBundleSource === 'bestline';
+        const isErrorReviewExit = isMatchErrorReviewSession
+            || openingErrorPracticeActive
+            || (blunderMode && currentBundleFen && !['bestline', 'mate_drill', 'opening_drill'].includes(currentBundleSource));
+
+        if (isHieroglyphicExit) {
             return {
                 title: 'Sortir del jeroglífic?',
                 message: 'Vols sortir del jeroglífic?'
             };
         }
-        if (isMatchErrorReviewSession || openingErrorPracticeActive) {
+        if (isErrorReviewExit) {
             return {
                 title: 'Sortir de la revisió?',
                 message: 'Vols sortir de la revisió?'
