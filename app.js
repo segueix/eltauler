@@ -13207,8 +13207,9 @@ function renderHieroglyphicPanel() {
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
             const badge = hieroglyphicDifficultyBadge(e);
             html += `<div class="hg-history-row ${cls}">`
+                + `<span class="hg-h-date">${escapeHtml(dateText)}</span>`
                 + `<span class="hg-h-kind">${isNew ? '<span class="hg-new-badge">Nou</span> ' : ''}${escapeHtml(String(kind))}</span>`
-                + `<span class="hg-h-meta">${escapeHtml(dateText)} · <span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>${escapeHtml(badge.label)}</span>`
+                + `<span class="hg-h-difficulty"><span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>${escapeHtml(badge.label)}</span>`
                 + `<span class="hg-h-mark">${mark}</span>`
                 + `<button class="btn-reintenta-ghost hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}">Reintenta</button>`
                 + '</div>';

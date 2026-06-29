@@ -603,11 +603,14 @@
         #hieroglyphic-panel .hg-history-row {
             display: flex; align-items: center; gap: 8px;
             padding: 5px 0; border-top: 1px solid rgba(124, 77, 201, 0.18);
-            font-size: 0.82rem; flex-wrap: wrap;
+            font-size: 0.82rem; flex-wrap: nowrap;
         }
         #hieroglyphic-panel .hg-history-row:first-of-type { border-top: none; }
+        #hieroglyphic-panel .hg-h-date {
+            flex: 0 0 auto; color: var(--text-secondary); white-space: nowrap; font-size: 0.78rem;
+        }
         #hieroglyphic-panel .hg-h-kind {
-            flex: 1 1 40%; min-width: 90px; color: var(--text-primary);
+            flex: 1 1 auto; min-width: 80px; color: var(--text-primary);
             overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
         }
         #hieroglyphic-panel .hg-new-badge {
@@ -615,8 +618,9 @@
             background: var(--accent-purple, #7c4dc9); color: #fff; font-size: 0.68rem;
             font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
         }
-        #hieroglyphic-panel .hg-h-meta {
-            flex: 0 1 auto; color: var(--text-secondary); white-space: nowrap;
+        #hieroglyphic-panel .hg-h-meta,
+        #hieroglyphic-panel .hg-h-difficulty {
+            flex: 0 0 auto; color: var(--text-secondary); white-space: nowrap;
             font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px;
         }
         #hieroglyphic-panel .hg-h-diff {
@@ -650,6 +654,9 @@
             background-color: var(--accent-gold);
             color: var(--bg-dark);
         }
+        body.device-mobile #hieroglyphic-panel .hg-history-row { flex-wrap: wrap; }
+        body.device-mobile #hieroglyphic-panel .hg-h-kind { flex: 1 1 110px; }
+        body.device-mobile #hieroglyphic-panel .hg-h-retry { margin-left: auto; }
         body.epaper-mode #hieroglyphic-panel {
             background: #ededed !important; border-color: #cfcfcf !important;
             border-left: 4px solid #777 !important; color: #222;
