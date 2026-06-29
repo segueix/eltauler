@@ -14310,6 +14310,7 @@ function setupEvents() {
     const getMenuExitCopy = () => {
         const isHieroglyphicExit = hieroglyphicExerciseActive || currentBundleSource === 'bestline';
         const isTacticsExit = isTacticsSession || currentBundleSource === 'tactics';
+        const isSrsReviewExit = isSrsReviewSession || currentBundleSource === 'srs';
         const isErrorReviewExit = isMatchErrorReviewSession
             || openingErrorPracticeActive
             || (blunderMode && !['bestline', 'mate_drill', 'opening_drill', 'tactics'].includes(currentBundleSource));
@@ -14328,6 +14329,14 @@ function setupEvents() {
                 message: 'Vols anar a la pàgina principal o tornar al tauler?',
                 confirmText: 'Pàgina principal',
                 cancelText: 'Tornar al tauler'
+            };
+        }
+        if (isSrsReviewExit) {
+            return {
+                title: 'Sortir del repàs intel·ligent?',
+                message: 'Vols sortir del repàs intel·ligent?',
+                confirmText: 'Sí',
+                cancelText: 'No'
             };
         }
         if (isErrorReviewExit) {
