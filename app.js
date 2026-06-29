@@ -14247,7 +14247,7 @@ function setupEvents() {
         const isHieroglyphicExit = hieroglyphicExerciseActive || currentBundleSource === 'bestline';
         const isErrorReviewExit = isMatchErrorReviewSession
             || openingErrorPracticeActive
-            || (blunderMode && currentBundleFen && !['bestline', 'mate_drill', 'opening_drill'].includes(currentBundleSource));
+            || (blunderMode && !['bestline', 'mate_drill', 'opening_drill'].includes(currentBundleSource));
 
         if (isHieroglyphicExit) {
             return {
