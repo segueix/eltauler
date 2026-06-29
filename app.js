@@ -11977,6 +11977,13 @@ function formatHieroglyphicDate(ts) {
         return date.toISOString().slice(0, 10);
     }
 }
+function hieroglyphicDifficultyBadge(source = {}) {
+    const percent = hieroglyphicDifficultyPercent(source);
+    if (percent === null) return { level: 'unknown', label: 'Dificultat pendent', title: 'La dificultat encara no s’ha pogut estimar' };
+    if (percent >= 70) return { level: 'hard', label: 'Dificultat alta', title: `Dificultat estimada: ${percent}%` };
+    if (percent >= 40) return { level: 'medium', label: 'Dificultat mitjana', title: `Dificultat estimada: ${percent}%` };
+    return { level: 'easy', label: 'Dificultat baixa', title: `Dificultat estimada: ${percent}%` };
+}
 // Insereix o actualitza l'historial amb el jeroglífic en curs. En generar-lo es
 // registra com a pendent (keepIfExists evita degradar un que ja s'havia resolt); en
 // resoldre'l s'actualitza amb si s'ha encertat a la primera. La clau es sincronitza
@@ -13147,11 +13154,10 @@ function renderHieroglyphicPanel() {
             const cls = e.solved ? (e.firstTry ? 'hg-first' : 'hg-ok') : 'hg-pending';
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
-            const difficulty = hieroglyphicDifficultyPercent(e);
-            const difficultyText = difficulty === null ? 'Dificultat —' : `Dificultat ${difficulty}%`;
+            const badge = hieroglyphicDifficultyBadge(e);
             html += `<div class="hg-history-row ${cls}">`
                 + `<span class="hg-h-kind">${escapeHtml(String(kind))}</span>`
-                + `<span class="hg-h-meta">${escapeHtml(dateText)} · ${escapeHtml(difficultyText)}</span>`
+                + `<span class="hg-h-meta">${escapeHtml(dateText)} · <span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>${escapeHtml(badge.label)}</span>`
                 + `<span class="hg-h-mark">${mark}</span>`
                 + `<button class="btn hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}">↻ Reintenta</button>`
                 + '</div>';

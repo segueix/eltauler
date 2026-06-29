@@ -612,7 +612,17 @@
         }
         #hieroglyphic-panel .hg-h-meta {
             flex: 0 1 auto; color: var(--text-secondary); white-space: nowrap;
-            font-size: 0.78rem;
+            font-size: 0.78rem; display: inline-flex; align-items: center; gap: 4px;
+        }
+        #hieroglyphic-panel .hg-h-diff {
+            width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.12);
+        }
+        #hieroglyphic-panel .hg-h-diff-easy { background: #f2c94c; }
+        #hieroglyphic-panel .hg-h-diff-medium { background: #f2994a; }
+        #hieroglyphic-panel .hg-h-diff-hard { background: #eb5757; }
+        #hieroglyphic-panel .hg-h-diff-unknown {
+            background: transparent; border: 1px dashed var(--text-secondary); box-shadow: none;
         }
         #hieroglyphic-panel .hg-h-mark { font-weight: bold; white-space: nowrap; }
         #hieroglyphic-panel .hg-history-row.hg-first .hg-h-mark { color: #4a7c59; }
