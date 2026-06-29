@@ -14334,9 +14334,9 @@ function setupEvents() {
         if (isSrsReviewExit) {
             return {
                 title: 'Sortir del repàs intel·ligent?',
-                message: 'Vols sortir del repàs intel·ligent?',
-                confirmText: 'Sí',
-                cancelText: 'No'
+                message: 'Vols anar a la pàgina principal o tornar al tauler?',
+                confirmText: 'Pàgina principal',
+                cancelText: 'Tornar al tauler'
             };
         }
         if (isErrorReviewExit) {
@@ -14347,7 +14347,7 @@ function setupEvents() {
                 cancelText: 'Tornar al tauler'
             };
         }
-        if (leagueActiveMatch) {
+        if (leagueActiveMatch && currentGameMode === 'league') {
             return {
                 title: 'Sortir de la partida?',
                 message: 'Sortir de la partida de lliga? Comptarà com a derrota.',
@@ -14417,7 +14417,12 @@ function setupEvents() {
 
     onModalAction('#btn-menu-exit-confirm', () => {
         hideMenuExitModal();
-        if (leagueActiveMatch) {
+        // Només una partida de lliga REAL es resol com a derrota en sortir. Els
+        // exercicis (tàctiques, repàs intel·ligent, revisió d'errors, jeroglífics…)
+        // no són partides: tot i que pugui quedar una partida de lliga pendent a
+        // l'estat, sortir-ne ha de portar directament a la pàgina principal sense
+        // disparar la revisió/tancament de partida.
+        if (leagueActiveMatch && currentGameMode === 'league') {
             runAfterPaint(() => handleGameOver(true));
             return;
         }
