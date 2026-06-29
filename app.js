@@ -12952,9 +12952,10 @@ function showHieroglyphicSuccessOverlay() {
         returnToMainMenuImmediate();
         return;
     }
-    overlay.find('.bundle-success-title').text('Jeroglífic resolt 🔮');
-    overlay.find('.bundle-success-remaining').text(hasNext ? 'N’hi ha un altre preparat' : 'Cap altre jeroglífic preparat encara');
-    overlay.find('#btn-bundle-random-again').text('🔮 Fes-ne un altre').prop('disabled', !hasNext).toggle(hasNext);
+    overlay.find('.bundle-success-title').text('Jeroglífic fet ✅');
+    overlay.find('.bundle-success-remaining').text('').hide();
+    overlay.find('#btn-bundle-random-again').text('➡️ Següent jeroglífic').prop('disabled', !hasNext).toggle(hasNext);
+    overlay.find('#btn-bundle-random-home').text('🏠 Tornar');
     overlay.css('display', 'flex');
     overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
         overlay.hide();
@@ -14895,7 +14896,7 @@ function showSrsSuccessOverlay() {
         return;
     }
     overlay.find('.bundle-success-title').text('Repàs fet ✅');
-    overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara');
+    overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara').show();
     overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0).toggle(due > 0);
     overlay.css('display', 'flex');
     overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
@@ -14990,7 +14991,7 @@ function showDailyPuzzleOverlay() {
     const overlay = $('#bundle-success-overlay');
     if (!overlay.length) { isDailyPuzzleSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Repte diari superat 🏆 (+1 ★)');
-    overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`);
+    overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`).show();
     const hasMoreProblems = Array.isArray(TACTICS_BANK) && TACTICS_BANK.length > 0;
     overlay.find('#btn-bundle-random-again').text('⚡ Un altre problema').prop('disabled', !hasMoreProblems).toggle(hasMoreProblems);
     overlay.css('display', 'flex');
@@ -15080,7 +15081,7 @@ function showTacticsOverlay() {
     const overlay = $('#bundle-success-overlay');
     if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
-    overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`);
+    overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`).show();
     overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
     overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
@@ -17691,7 +17692,7 @@ function showRandomBundleSuccessOverlay() {
     overlay.find('.bundle-success-title').text('Blunder resolt');
     overlay.find('.bundle-success-remaining').text(
         remaining > 0 ? `${remaining} Blunders pendents` : 'No queda cap Blunder pendent'
-    );
+    ).show();
     overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
     overlay.css('display', 'flex');
 
@@ -20178,7 +20179,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
         return;
     }
     overlay.find('.bundle-success-title').text(titleText);
-    overlay.find('.bundle-success-remaining').text('Pla diari actualitzat');
+    overlay.find('.bundle-success-remaining').text('Pla diari actualitzat').show();
     overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
     $('#btn-bundle-random-home').off('click').on('click', () => {
