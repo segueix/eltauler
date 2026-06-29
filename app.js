@@ -12014,6 +12014,24 @@ function positionHieroglyphicPanelForViewport() {
         panel.insertBefore(board);
     }
 }
+function netejarErrorsPerJeroglific() {
+    // 1. Ocultar qualsevol element global d'errors
+    const globalErrorContainers = document.querySelectorAll('.error-message, .alert-box, #error-container');
+    globalErrorContainers.forEach(el => {
+        el.innerHTML = '';
+        el.style.display = 'none';
+    });
+
+    // 2. Buidar arrays globals que poguessin portar missatges "en vol"
+    if (typeof savedErrors !== 'undefined') savedErrors = [];
+    if (typeof matchErrorQueue !== 'undefined') matchErrorQueue = [];
+    if (typeof currentMatchError !== 'undefined') currentMatchError = null;
+
+    // 3. Forçar la neteja d'anàlisis pendents del "TV Board" o "Opening Practice"
+    openingPracticeAnalysisPending = false;
+    openingPreCalcPending = false;
+    openingNeedsEngineMove = false;
+}
 // Insereix o actualitza l'historial amb el jeroglífic en curs. En generar-lo es
 // registra com a pendent (keepIfExists evita degradar un que ja s'havia resolt); en
 // resoldre'l s'actualitza amb si s'ha encertat a la primera. La clau es sincronitza
@@ -13099,6 +13117,7 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
         hieroglyphicExerciseActive = true;
         const seq = buildHieroglyphicBundleSequence(chosen);
         if (!seq) throw new Error('No s’ha pogut convertir el jeroglífic en exercici de tàctica.');
+        netejarErrorsPerJeroglific();
         isSrsReviewSession = false;
         isDailyPuzzleSession = false;
         isRandomBundleSession = false;
@@ -13191,7 +13210,7 @@ function renderHieroglyphicPanel() {
                 + `<span class="hg-h-kind">${isNew ? '<span class="hg-new-badge">Nou</span> ' : ''}${escapeHtml(String(kind))}</span>`
                 + `<span class="hg-h-meta">${escapeHtml(dateText)} · <span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>${escapeHtml(badge.label)}</span>`
                 + `<span class="hg-h-mark">${mark}</span>`
-                + `<button class="btn hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="Reintenta" aria-label="Reintenta aquest jeroglífic">↻</button>`
+                + `<button class="btn-reintenta-ghost hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}">Reintenta</button>`
                 + '</div>';
         });
     } else {
