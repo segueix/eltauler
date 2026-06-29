@@ -1209,6 +1209,30 @@
     }
   }
 
+
+  function catalansShareUrl() {
+    const base = window.location.origin + window.location.pathname + window.location.search;
+    return base + '#catalans-vs-stockfish';
+  }
+
+  function shareCatalans() {
+    const url = catalansShareUrl();
+    const title = 'Catalans vs Stockfish';
+    const text = 'Vota el moviment de la partida col·lectiva Catalans vs Stockfish a El Tauler.';
+    if (navigator.share) {
+      navigator.share({ title: title, text: text, url: url }).catch(function () {});
+      return;
+    }
+    const done = function () { setStatus('Enllaç copiat: comparteix la partida perquè més gent voti.'); };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(url).then(done).catch(function () {
+        window.prompt('Copia l’enllaç de Catalans vs Stockfish:', url);
+      });
+    } else {
+      window.prompt('Copia l’enllaç de Catalans vs Stockfish:', url);
+    }
+  }
+
   // ---------------------------------------------------------------------------
   //  Obrir / tancar la pantalla
   // ---------------------------------------------------------------------------
@@ -1278,6 +1302,7 @@
   // Permet que la pantalla de login reusi CloudSync.
   $(function () {
     $('#catalans-signin').on('click', promptSignIn);
+    $('#btn-catalans-share').on('click', shareCatalans);
     // Canviar de compte (tanca sessió i torna a triar compte de Google).
     $('#catalans-switch').on('click', function () {
       setStatus('Canviant de compte…');

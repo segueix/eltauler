@@ -400,10 +400,33 @@ function getCurrentScreen() {
     }
     return 'start-screen';
 }
+const SCREEN_URLS = {
+    'catalans-screen': '#catalans-vs-stockfish'
+};
+function screenUrl(screenId) {
+    return SCREEN_URLS[screenId] || (window.location.pathname + window.location.search);
+}
 function navPush(screenId) {
     navStack.push(screenId);
-    history.pushState({ screen: screenId }, '');
+    history.pushState({ screen: screenId }, '', screenUrl(screenId));
 }
+function isCatalansDeepLink() {
+    const hash = (window.location.hash || '').toLowerCase();
+    const path = (window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
+    return hash === '#catalans-vs-stockfish' || hash === '#catalans' || path.endsWith('/catalans-vs-stockfish');
+}
+function openCatalansScreen(pushHistory = true) {
+    $('#start-screen').hide();
+    if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
+    else $('#catalans-screen').show();
+    if (pushHistory) navPush('catalans-screen');
+}
+function closeCatalansScreen() {
+    if (window.CatalansMode && typeof window.CatalansMode.close === 'function') window.CatalansMode.close();
+    else $('#catalans-screen').hide();
+    $('#start-screen').show();
+}
+
 function navGoBack() {
     const current = getCurrentScreen();
     if (current === 'start-screen') return;
@@ -421,9 +444,7 @@ function navGoBack() {
         $('#league-screen').hide();
         $('#start-screen').show();
     } else if (current === 'catalans-screen') {
-        if (window.CatalansMode && typeof window.CatalansMode.close === 'function') window.CatalansMode.close();
-        else $('#catalans-screen').hide();
-        $('#start-screen').show();
+        closeCatalansScreen();
     } else if (current === 'opening-screen') {
         $('#opening-screen').hide();
         $('#start-screen').show();
@@ -440,9 +461,13 @@ function navGoBack() {
     navStack.pop();
 }
 window.addEventListener('popstate', function(e) {
+    if (isCatalansDeepLink()) {
+        openCatalansScreen(false);
+        return;
+    }
     const current = getCurrentScreen();
     if (current === 'start-screen') {
-        history.pushState({ screen: 'start-screen' }, '');
+        history.pushState({ screen: 'start-screen' }, '', window.location.pathname + window.location.search);
         return;
     }
     navGoBack();
@@ -13666,16 +13691,14 @@ function setupEvents() {
     });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) { openLeague(); navPush('league-screen'); } });
     $('#btn-catalans').click(() => {
-        $('#start-screen').hide();
-        if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
-        else $('#catalans-screen').show();
-        navPush('catalans-screen');
+        openCatalansScreen(true);
     });
     $('#btn-catalans-back').click(() => {
-        if (window.CatalansMode && typeof window.CatalansMode.close === 'function') window.CatalansMode.close();
-        else $('#catalans-screen').hide();
-        $('#start-screen').show();
+        closeCatalansScreen();
         navStack.pop();
+        if (window.location.hash === '#catalans-vs-stockfish' || window.location.hash === '#catalans') {
+            history.pushState({ screen: 'start-screen' }, '', window.location.pathname + window.location.search);
+        }
     });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); navStack.pop(); });
     $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
@@ -20641,7 +20664,7 @@ $(document).ready(() => {
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyFontSize(loadFontSize());
-    history.replaceState({ screen: 'start-screen' }, '');
+    history.replaceState({ screen: isCatalansDeepLink() ? 'catalans-screen' : 'start-screen' }, '', isCatalansDeepLink() ? screenUrl('catalans-screen') : (window.location.pathname + window.location.search));
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
@@ -20655,6 +20678,9 @@ $(document).ready(() => {
     const tcSel = document.getElementById('new-game-tc-select');
     if (tcSel) tcSel.value = pendingFreeTimeControl;
     generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
+    if (isCatalansDeepLink()) {
+        setTimeout(function () { openCatalansScreen(false); }, 0);
+    }
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
         window.addEventListener('resize', () => { if (board) board.resize(); });
