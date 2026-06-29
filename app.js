@@ -11958,6 +11958,25 @@ function saveHieroglyphicHistory(list) {
     // Notifica la sincronització al núvol perquè l'historial viatgi entre aparells.
     try { if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave(); } catch (e) {}
 }
+function hieroglyphicDifficultyPercent(source = {}) {
+    if (typeof source.difficultyPercent === 'number' && Number.isFinite(source.difficultyPercent)) {
+        return Math.max(1, Math.min(100, Math.round(source.difficultyPercent)));
+    }
+    const swing = Math.abs(Number(source.swing ?? source.cpLoss ?? 0));
+    if (swing > 0) return Math.max(10, Math.min(100, Math.round((swing / 900) * 100)));
+    const rating = Number(source.ratingEstimate || 0);
+    if (rating > 0) return Math.max(10, Math.min(100, Math.round(((rating - 800) / 1400) * 100)));
+    return null;
+}
+function formatHieroglyphicDate(ts) {
+    const date = new Date(ts || Date.now());
+    if (Number.isNaN(date.getTime())) return 'Data desconeguda';
+    try {
+        return date.toLocaleDateString('ca-ES', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    } catch (e) {
+        return date.toISOString().slice(0, 10);
+    }
+}
 // Insereix o actualitza l'historial amb el jeroglífic en curs. En generar-lo es
 // registra com a pendent (keepIfExists evita degradar un que ja s'havia resolt); en
 // resoldre'l s'actualitza amb si s'ha encertat a la primera. La clau es sincronitza
@@ -11979,9 +11998,11 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
         tacticKind: puzzle.tacticKind || null,
         playerMove: puzzle.playerMove || null,
         moves: (Array.isArray(puzzle.solutionMoves) && puzzle.solutionMoves.length) || 3,
+        difficultyPercent: hieroglyphicDifficultyPercent(puzzle),
         solved: !!solved,
         firstTry: !!solved && (currentHieroglyphicWrongMoves === 0),
         wrongMoves: currentHieroglyphicWrongMoves || 0,
+        createdAt: (existing && (existing.createdAt || existing.ts)) || Date.now(),
         ts: Date.now()
     };
     const filtered = list.filter(e => e && e.fen !== puzzle.fen);
@@ -13065,7 +13086,10 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
             bestMoveSan: chosen.bestMoveSan || null,
             theme: chosen.theme || null,
             tacticKind: chosen.tacticKind || null,
-            playerMove: chosen.playerMove || null
+            playerMove: chosen.playerMove || null,
+            swing: chosen.swing ?? null,
+            ratingEstimate: chosen.ratingEstimate ?? null,
+            difficultyPercent: hieroglyphicDifficultyPercent(chosen)
         };
         currentHieroglyphicWrongMoves = 0;
         // Registra el jeroglífic generat a l'historial sincronitzat (pendent fins resoldre'l).
@@ -13096,7 +13120,8 @@ function retryHieroglyphicFromHistory(id) {
         replyMoves: Array.isArray(entry.replyMoves) ? entry.replyMoves.slice() : [],
         theme: entry.theme,
         tacticKind: entry.tacticKind,
-        playerMove: entry.playerMove
+        playerMove: entry.playerMove,
+        difficultyPercent: entry.difficultyPercent ?? null
     };
     startPersonalHieroglyphicFromLastGame(null, chosen);
 }
@@ -13121,8 +13146,12 @@ function renderHieroglyphicPanel() {
             const mark = e.solved ? (e.firstTry ? '✅ A la primera' : '☑️ Resolt amb intents') : '⏳ Pendent';
             const cls = e.solved ? (e.firstTry ? 'hg-first' : 'hg-ok') : 'hg-pending';
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
+            const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
+            const difficulty = hieroglyphicDifficultyPercent(e);
+            const difficultyText = difficulty === null ? 'Dificultat —' : `Dificultat ${difficulty}%`;
             html += `<div class="hg-history-row ${cls}">`
                 + `<span class="hg-h-kind">${escapeHtml(String(kind))}</span>`
+                + `<span class="hg-h-meta">${escapeHtml(dateText)} · ${escapeHtml(difficultyText)}</span>`
                 + `<span class="hg-h-mark">${mark}</span>`
                 + `<button class="btn hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}">↻ Reintenta</button>`
                 + '</div>';
