@@ -578,6 +578,54 @@
         }
         body.epaper-mode .tactic-theme-text strong { color: #222; }
 
+        /* JEROGLÍFIC: comentari + historial (sota el comentari del tauler) */
+        #hieroglyphic-panel {
+            background: rgba(124, 77, 201, 0.10);
+            border: 1px solid rgba(124, 77, 201, 0.35);
+            border-left: 4px solid var(--accent-purple, #7c4dc9);
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+        body.device-mobile #hieroglyphic-panel { margin-left: 8px; margin-right: 8px; }
+        #hieroglyphic-panel .hg-comment {
+            font-size: 0.92rem; font-weight: bold; color: var(--text-primary);
+            margin-bottom: 8px;
+        }
+        #hieroglyphic-panel .hg-history-title {
+            font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em;
+            color: var(--text-secondary); margin-bottom: 6px;
+        }
+        #hieroglyphic-panel .hg-history-empty {
+            font-size: 0.82rem; color: var(--text-secondary); line-height: 1.4;
+        }
+        #hieroglyphic-panel .hg-history-row {
+            display: flex; align-items: center; gap: 8px;
+            padding: 5px 0; border-top: 1px solid rgba(124, 77, 201, 0.18);
+            font-size: 0.82rem; flex-wrap: wrap;
+        }
+        #hieroglyphic-panel .hg-history-row:first-of-type { border-top: none; }
+        #hieroglyphic-panel .hg-h-kind {
+            flex: 1 1 40%; min-width: 90px; color: var(--text-primary);
+            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+        }
+        #hieroglyphic-panel .hg-h-mark { font-weight: bold; white-space: nowrap; }
+        #hieroglyphic-panel .hg-history-row.hg-first .hg-h-mark { color: #4a7c59; }
+        #hieroglyphic-panel .hg-history-row.hg-ok .hg-h-mark { color: var(--accent-gold, #c9a227); }
+        #hieroglyphic-panel .hg-history-row.hg-pending .hg-h-mark { color: var(--text-secondary); }
+        #hieroglyphic-panel .hg-h-retry {
+            padding: 3px 10px; font-size: 0.78rem; border-radius: 8px;
+            background: var(--accent-purple, #7c4dc9); color: #fff; border: none; cursor: pointer;
+        }
+        body.epaper-mode #hieroglyphic-panel {
+            background: #ededed !important; border-color: #cfcfcf !important;
+            border-left: 4px solid #777 !important; color: #222;
+        }
+        body.epaper-mode #hieroglyphic-panel .hg-comment,
+        body.epaper-mode #hieroglyphic-panel .hg-h-kind { color: #222; }
+        body.epaper-mode #hieroglyphic-panel .hg-h-retry { background: #555 !important; color: #fff; }
+
                 .epaper-toggle {
             position: relative;
             width: 54px;
@@ -4021,6 +4069,8 @@
             <div id="tactic-theme-banner" style="display:none;">
                 <div class="tactic-theme-text" id="tactic-theme-text"></div>
             </div>
+
+            <div id="hieroglyphic-panel" style="display:none;"></div>
 
             <div class="board-container">
                 <div id="myBoard"></div>
