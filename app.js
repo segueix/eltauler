@@ -16528,6 +16528,7 @@ blunderMode = isBundle;
         let bundleTitle = isMatchErrorReviewSession ? '🔍 Errors de la partida' : '📚 Tàctica';
         if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
         else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
+        else if (currentBundleSource === 'srs') bundleTitle = '🧠 Repàs intel·ligent';
         $('#game-mode-title').text(bundleTitle).css('font-size', '');
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
