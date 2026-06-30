@@ -4921,6 +4921,14 @@ function getUsername() {
     try { return (localStorage.getItem(USERNAME_KEY) || '').trim(); } catch (e) { return ''; }
 }
 window.getUsername = getUsername;
+// ELO/ROC actual del jugador (el mateix valor que es mostra a #current-elo). El
+// reusa la partida col·lectiva (catalans.js) per anotar qui proposa cada vot.
+function getUserElo() {
+    if (typeof userELO === 'number' && isFinite(userELO)) return Math.round(userELO);
+    try { const v = parseInt(localStorage.getItem('chess_userELO'), 10); if (!isNaN(v)) return v; } catch (e) {}
+    return null;
+}
+window.getUserElo = getUserElo;
 function loadUsernameIntoSettings() {
     const input = document.getElementById('username-input');
     if (input) input.value = getUsername();

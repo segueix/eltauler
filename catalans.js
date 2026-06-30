@@ -699,13 +699,92 @@
   // ---------------------------------------------------------------------------
   //  Votació de l'usuari
   // ---------------------------------------------------------------------------
-  function castVote(uci, san) {
+  const MSG_MAX = 180;          // límit de caràcters del missatge d'explicació
+  let pendingProposal = null;   // { uci, san } mentre la finestra de missatge és oberta
+
+  // ELO/ROC actual del jugador (mateix valor que mostra l'app a #current-elo).
+  function userElo() {
+    try {
+      if (typeof window.getUserElo === 'function') {
+        const v = window.getUserElo();
+        if (typeof v === 'number' && isFinite(v)) return v;
+      }
+    } catch (e) {}
+    try {
+      const raw = parseInt(localStorage.getItem('chess_userELO'), 10);
+      if (!isNaN(raw)) return raw;
+    } catch (e) {}
+    return null;
+  }
+
+  // Un moviment és NOU en aquest torn si encara ningú no l'ha proposat (votat).
+  function isNewMoveThisTurn(uci) {
+    if (!state) return true;
+    const votes = state.votes || {};
+    const ply = state.ply;
+    return !Object.keys(votes).some(function (k) {
+      const v = votes[k];
+      return v && v.ply === ply && v.uci === uci;
+    });
+  }
+
+  // Punt d'entrada des del tauler: si l'usuari és el PRIMER a proposar aquest
+  // moviment, se li obre la finestra per explicar la decisió; si no, vota directe.
+  function proposeVote(uci, san) {
+    const u = currentUser();
+    if (!u) { promptSignIn(); return; }
+    if (!state || state.phase !== 'catalans') return;
+    if (isNewMoveThisTurn(uci)) {
+      openMessageModal(uci, san);
+    } else {
+      castVote(uci, san);
+    }
+  }
+
+  function openMessageModal(uci, san) {
+    pendingProposal = { uci: uci, san: san };
+    $('#catalans-msg-move').text('Moviment proposat: ' + san);
+    const ta = $('#catalans-msg-text');
+    ta.val('');
+    $('#catalans-msg-count').text('0');
+    $('#catalans-msg-modal').css('display', 'flex');
+    setTimeout(function () { try { ta.trigger('focus'); } catch (e) {} }, 30);
+  }
+
+  function closeMessageModal() {
+    pendingProposal = null;
+    $('#catalans-msg-modal').hide();
+  }
+
+  // Confirma el vot del primer proposant amb (o sense) missatge d'explicació.
+  function confirmMessageModal() {
+    if (!pendingProposal) { closeMessageModal(); return; }
+    const msg = String($('#catalans-msg-text').val() || '').trim().slice(0, MSG_MAX);
+    const p = pendingProposal;
+    closeMessageModal();
+    castVote(p.uci, p.san, msg);
+  }
+
+  function castVote(uci, san, msg) {
     const u = currentUser();
     if (!u) { promptSignIn(); return; }
     if (!state || state.phase !== 'catalans') return;
     const ply = state.ply;
+    // Si l'usuari reafirma el MATEIX moviment d'aquest torn, conserva el moment de
+    // la primera proposta (per a l'ordre d'autoria) i el seu missatge si no n'escriu un de nou.
+    const prev = state.votes && state.votes[u.uid];
+    const sameMove = !!(prev && prev.ply === ply && prev.uci === uci);
+    const vote = {
+      uci: uci, san: san, name: userName(u), ply: ply,
+      at: (sameMove && typeof prev.at === 'number') ? prev.at : Date.now()
+    };
+    const elo = userElo();
+    if (typeof elo === 'number' && isFinite(elo)) vote.elo = Math.round(elo);
+    let text = (typeof msg === 'string') ? msg.trim() : '';
+    if (!text && sameMove && typeof prev.msg === 'string') text = prev.msg;
+    if (text) vote.msg = text.slice(0, MSG_MAX);
     const update = {};
-    update['votes.' + u.uid] = { uci: uci, san: san, name: userName(u), ply: ply, at: Date.now() };
+    update['votes.' + u.uid] = vote;
     update.updatedAt = Date.now();
     docRef.update(update).then(function () {
       myVoteUci = uci;
@@ -751,7 +830,7 @@
     if (!canIPlay()) return 'snapback';
     const legal = legalMove(source, target);
     if (!legal) return 'snapback';
-    castVote(uciOf(legal), legal.san);
+    proposeVote(uciOf(legal), legal.san);
     // El tauler torna a la posició real; el vot es mostra ressaltat.
     return 'snapback';
   }
@@ -796,7 +875,7 @@
       if (square === selectedSquare) { clearSelection(); return; }
       const legal = legalMove(selectedSquare, square);
       if (legal) {
-        castVote(uciOf(legal), legal.san);
+        proposeVote(uciOf(legal), legal.san);
         clearSelection();
         return;
       }
@@ -995,21 +1074,38 @@
     }
   }
 
+  // Format d'autoria del vot: «Nom (ELO 1500)» o «Nom (ROC 800)». L'ELO/ROC només
+  // s'afegeix si el coneixem (vots antics poden no tenir-lo).
+  function voteAuthorHtml(author) {
+    if (!author || !author.name) return '';
+    let rating = '';
+    if (typeof author.elo === 'number' && isFinite(author.elo)) {
+      rating = ' <span class="catalans-vote-rating">(' + unitLabel(author.elo) + ' ' + Math.round(author.elo) + ')</span>';
+    }
+    return '<span class="catalans-vote-author">' + escapeSan(author.name) + rating + '</span>';
+  }
+
   function renderVotes() {
     const votes = state.votes || {};
-    const counts = {};
-    const sanByUci = {};
+    const groups = {};   // uci -> { uci, san, n, author:{name,elo,at}, msg }
     let total = 0;
     Object.keys(votes).forEach(function (uid) {
       const v = votes[uid];
       if (!v || v.ply !== state.ply || !v.uci) return;
-      counts[v.uci] = (counts[v.uci] || 0) + 1;
-      sanByUci[v.uci] = v.san;
       total++;
+      let g = groups[v.uci];
+      if (!g) g = groups[v.uci] = { uci: v.uci, san: v.san, n: 0, author: null, msg: '' };
+      g.n++;
+      if (!g.san && v.san) g.san = v.san;
+      // El PRIMER proposant (vot més antic) és l'autor del moviment i del missatge.
+      const at = (typeof v.at === 'number') ? v.at : Infinity;
+      if (!g.author || at < g.author.at) {
+        g.author = { name: v.name || '', elo: v.elo, at: at };
+        g.msg = (typeof v.msg === 'string') ? v.msg : '';
+      }
     });
-    const list = Object.keys(counts).map(function (u) {
-      return { uci: u, san: sanByUci[u], n: counts[u] };
-    }).sort(function (a, b) { return b.n - a.n; });
+    const list = Object.keys(groups).map(function (u) { return groups[u]; })
+      .sort(function (a, b) { return b.n - a.n; });
 
     const container = $('#catalans-vote-list');
     container.empty();
@@ -1026,11 +1122,17 @@
       const pct = total > 0 ? Math.round(item.n / total * 100) : 0;
       const mine = item.uci === myVoteUci ? ' catalans-vote-mine' : '';
       const prev = (previewActive && item.uci === previewUci) ? ' catalans-vote-preview' : '';
+      const authorHtml = voteAuthorHtml(item.author);
+      const msgHtml = item.msg ? ('<div class="catalans-vote-msg">' + escapeSan(item.msg) + '</div>') : '';
       const row = $(
         '<div class="catalans-vote-row' + mine + prev + '" data-uci="' + item.uci + '" title="Toca per veure aquesta jugada al tauler">' +
+        '<div class="catalans-vote-main">' +
         '<span class="catalans-vote-san">' + escapeSan(item.san) + '</span>' +
         '<span class="catalans-vote-bar"><span style="width:' + pct + '%"></span></span>' +
         '<span class="catalans-vote-n">' + item.n + '</span>' +
+        '</div>' +
+        authorHtml +
+        msgHtml +
         '</div>'
       );
       container.append(row);
@@ -1325,6 +1427,20 @@
     });
     // Tornar de la revisió a la partida real.
     $('#catalans-preview-back').on('click', function () { exitPreview(); });
+
+    // Finestra per explicar el moviment (primer proposant d'un moviment nou).
+    $('#catalans-msg-confirm').on('click', confirmMessageModal);
+    $('#catalans-msg-cancel').on('click', closeMessageModal);
+    $('#catalans-msg-text').on('input', function () {
+      $('#catalans-msg-count').text(String(($(this).val() || '').length));
+    });
+    // Enter (sense Maj) confirma; Esc cancel·la.
+    $('#catalans-msg-text').on('keydown', function (e) {
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); confirmMessageModal(); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeMessageModal(); }
+    });
+    // Clic fora del contingut: tanca sense votar.
+    $('#catalans-msg-modal').on('click', function (e) { if (e.target === this) closeMessageModal(); });
 
     // Historial: reproduir una partida.
     $('#catalans-history-list').on('click', '.catalans-hist-play', function () {

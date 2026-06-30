@@ -3655,6 +3655,21 @@
             </div>
         </div>
 
+        <!-- Catalans vs Stockfish: explicació del moviment (primer proposant) -->
+        <div class="modal-overlay" id="catalans-msg-modal">
+            <div class="modal-content">
+                <div class="modal-title">📝 Explica el teu moviment</div>
+                <p class="catalans-msg-move" id="catalans-msg-move"></p>
+                <p class="promotion-hint">Ets el primer a proposar aquest moviment. Pots explicar (opcionalment) per què l'has triat. El missatge quedarà a sota la teva votació.</p>
+                <textarea id="catalans-msg-text" maxlength="180" rows="3" placeholder="Per què aquest moviment? (opcional, fins a 180 caràcters)"></textarea>
+                <div class="catalans-msg-count"><span id="catalans-msg-count">0</span>/180</div>
+                <div class="catalans-msg-actions">
+                    <button class="btn btn-primary" id="catalans-msg-confirm" type="button">Confirma el vot</button>
+                    <button class="close-modal" id="catalans-msg-cancel" type="button">Cancel·la</button>
+                </div>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="badges-modal">
             <div class="modal-content">
                 <div class="modal-title">🏆 Trofeus</div>
@@ -3952,15 +3967,32 @@
             .catalans-vote-head h3 { margin:0; font-size:1rem; }
             #catalans-vote-total { color: var(--text-secondary); font-size:0.82rem; }
             #catalans-vote-list { margin-top:6px; }
-            .catalans-vote-row { display:flex; align-items:center; gap:8px; margin:4px 0; cursor:pointer; padding:2px 4px; border-radius:6px; }
+            .catalans-vote-row { display:flex; flex-direction:column; gap:3px; margin:6px 0; cursor:pointer; padding:4px 6px; border-radius:6px; }
             .catalans-vote-row:hover { background: rgba(201,162,39,0.10); }
             .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.55); }
-            .catalans-vote-row.catalans-vote-mine { font-weight:700; }
+            .catalans-vote-row.catalans-vote-mine .catalans-vote-san { font-weight:700; }
+            .catalans-vote-main { display:flex; align-items:center; gap:8px; }
             .catalans-vote-san { min-width:54px; }
             .catalans-vote-bar { flex:1; height:10px; background: rgba(255,255,255,0.06); border-radius:6px; overflow:hidden; }
             .catalans-vote-bar > span { display:block; height:100%; background: linear-gradient(90deg,#b5121b,#e0a020); }
             .catalans-vote-n { min-width:24px; text-align:right; color: var(--text-secondary); }
             .catalans-vote-empty { color: var(--text-secondary); font-size:0.85rem; }
+            /* Autoria del vot (qui ha proposat primer el moviment) i la seva explicació */
+            .catalans-vote-author { font-size:0.76rem; color: var(--text-secondary); margin-left:2px; }
+            .catalans-vote-author .catalans-vote-rating { color: var(--accent-gold); }
+            .catalans-vote-msg { font-size:0.82rem; color: var(--text-primary); font-style:italic; margin:1px 2px 0;
+                padding:5px 9px; background: rgba(201,162,39,0.08); border-left:3px solid rgba(201,162,39,0.5); border-radius:6px; word-break:break-word; }
+            body.epaper-mode .catalans-vote-msg { background:#ececec; border-left-color:#999; color:#222; }
+            /* Finestra per explicar el moviment (primer proposant) */
+            #catalans-msg-modal .catalans-msg-move { font-weight:700; color: var(--accent-gold); margin-bottom:8px; }
+            #catalans-msg-modal textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:64px;
+                background: rgba(0,0,0,0.18); border:1px solid rgba(201,162,39,0.35); border-radius:10px;
+                color: var(--text-primary); padding:8px 10px; font-family:'Inter',sans-serif; font-size:0.9rem; }
+            #catalans-msg-modal textarea:focus { outline:none; border-color: var(--accent-gold); }
+            body.epaper-mode #catalans-msg-modal textarea { background:#ededed; color:#222; border-color:#777; }
+            .catalans-msg-count { text-align:right; font-size:0.75rem; color: var(--text-secondary); margin-top:4px; }
+            .catalans-msg-actions { display:flex; gap:8px; justify-content:center; margin-top:14px; }
+            .catalans-msg-actions .btn, .catalans-msg-actions .close-modal { margin-top:0; }
             .catalans-moves-box { margin-top:10px; background: rgba(255,255,255,0.03); border-radius:10px; padding:8px 12px; font-family:monospace; font-size:0.82rem; color: var(--text-secondary); word-break:break-word; }
             /* Compte enrere GRAN sobre el tauler (fase acabada) */
             #catalans-next-banner { display:none; text-align:center; margin:10px auto 6px; padding:14px 16px; max-width:440px;
@@ -4066,6 +4098,11 @@
                 de l'inici del torn, es tanca la votació i es juga el moviment <strong>més
                 votat</strong>; si hi ha empat, s'agafa el que <strong>Stockfish considera
                 millor</strong>. Després mou Stockfish.
+                <br><br>
+                La <strong>primera persona</strong> que proposa un moviment nou pot escriure un
+                <strong>missatge (fins a 180 caràcters)</strong> per explicar la decisió, que
+                queda a sota la seva votació. Cada vot mostra el <strong>nom d'usuari</strong> i
+                el seu <strong>ELO o ROC</strong> entre parèntesis.
                 <br><br>
                 Stockfish comença a <strong>1350 d'ELO</strong>. Si l'<strong>exèrcit guanya</strong>
                 (o empata), la partida següent el rival és <strong>més fort</strong>. Si
@@ -4260,7 +4297,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.1.3"></script>
+    <script src="catalans.js?v=1.1.4"></script>
     <script>
         window.APP_VERSION = '1.0.18';
         (function () {
@@ -4268,7 +4305,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.26"></script>
+    <script src="app.js?v=1.0.27"></script>
 
     <!-- Service Worker Registration -->
     <script>
