@@ -1392,7 +1392,10 @@
       navigator.share({ title: title, text: text, url: url }).catch(function () {});
       return;
     }
-    const done = function () { setStatus('Enllaç copiat: comparteix la partida perquè més gent voti.'); };
+    const done = function () {
+      setStatus('Enllaç copiat: comparteix la partida perquè més gent voti.');
+      try { if (typeof window.showToast === 'function') window.showToast('Enllaç copiat ✓', 'success'); } catch (e) {}
+    };
     if (navigator.clipboard && navigator.clipboard.writeText) {
       navigator.clipboard.writeText(url).then(done).catch(function () {
         window.prompt('Copia l’enllaç de Catalans vs Stockfish:', url);
@@ -1460,8 +1463,11 @@
         if (defaultHowtoHtml != null) $('#catalans-howto').html(defaultHowtoHtml);
       }
     }
-    // La visibilitat del botó d'edició és barata i pot canviar amb l'autenticació.
-    $('#catalans-edit-strength').css('display', canEditStrength() ? 'inline-block' : 'none');
+    // Accions de partida pròpia: «Comparteix» sempre (és el cor del joc) i el botó
+    // discret d'editar l'Elo/ROC només per a qui la va crear. Barat i pot canviar
+    // amb l'autenticació, així que s'actualitza a cada crida.
+    $('#catalans-custom-actions').css('display', isCustom() ? 'block' : 'none');
+    $('#catalans-edit-strength').css('display', canEditStrength() ? 'inline-flex' : 'none');
   }
 
   // ---------------------------------------------------------------------------
@@ -1698,6 +1704,7 @@
       customsRef().set({ games: { [id]: entry }, updatedAt: Date.now() }, { merge: true }),
       db.collection(COLLECTION).doc(cfg.docId).set(freshGameState(null, cfg))
     ]).then(function () {
+      try { if (typeof window.showToast === 'function') window.showToast('Partida creada! Comparteix l\'enllaç perquè tothom s\'hi sumi.', 'success'); } catch (e) {}
       if (typeof window.openCustomGameScreen === 'function') window.openCustomGameScreen(id);
       else openGame(cfg);
     }).catch(function (e) {
@@ -1759,6 +1766,8 @@
 
     $('#catalans-signin').on('click', promptSignIn);
     $('#btn-catalans-share').on('click', shareCatalans);
+    // Botó destacat de compartir a la capçalera de les partides pròpies.
+    $('#catalans-share-top').on('click', shareCatalans);
 
     // Crear una partida pròpia.
     $('#btn-create-custom').on('click', openCreateCustomModal);

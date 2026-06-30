@@ -3993,6 +3993,17 @@
             .catalans-elo-val { font-size:1.6rem; font-weight:700; }
             .catalans-elo-box.cat .catalans-elo-val { color: var(--accent-gold); }
             .catalans-elo-box.sf .catalans-elo-val { color: var(--accent-purple); }
+            /* Botó discret per editar l'Elo/ROC (icona, al costat de «Comparteix») */
+            .cat-edit-icon { display:inline-flex; align-items:center; justify-content:center; vertical-align:middle;
+                width:1.9rem; height:1.9rem; margin-left:8px; padding:0; border:none; border-radius:50%;
+                background: rgba(255,255,255,0.06); color: var(--text-secondary); cursor:pointer; font-size:0.9rem;
+                line-height:1; transition: background .15s ease, color .15s ease; }
+            .cat-edit-icon:hover { background: rgba(201,162,39,0.18); color: var(--accent-gold); }
+            body.epaper-mode .cat-edit-icon { background:#e2e2e2; color:#333; }
+            /* «.btn-share» és display:none per defecte (es revela per context). Els
+               botons de compartir de la pantalla col·lectiva s'han de veure sempre. */
+            #btn-catalans-share { display:block; }
+            #catalans-share-top { display:inline-block; width:auto; margin-bottom:0; vertical-align:middle; }
             #catalans-game-number { text-align:center; font-weight:600; color: var(--text-secondary); margin-bottom:4px; }
             #catalans-lastgame { text-align:center; font-size:0.82rem; color: var(--text-secondary); margin-bottom:8px; }
             .catalans-phase-bar { text-align:center; margin:8px 0; }
@@ -4100,8 +4111,9 @@
                     <div class="catalans-elo-val" id="catalans-sf-elo">1350</div>
                 </div>
             </div>
-            <div style="text-align:center; margin:-2px 0 8px;">
-                <button class="btn btn-secondary" id="catalans-edit-strength" style="display:none; padding:4px 14px; font-size:0.82rem;">✏️ Edita l'Elo/ROC</button>
+            <div id="catalans-custom-actions" style="display:none; text-align:center; margin:2px 0 10px;">
+                <button class="btn btn-share" id="catalans-share-top" style="padding:7px 18px; font-size:0.88rem;">🔗 Comparteix la partida</button>
+                <button class="cat-edit-icon" id="catalans-edit-strength" type="button" title="Edita l'Elo/ROC" aria-label="Edita l'Elo/ROC" style="display:none;">✏️</button>
             </div>
 
             <div class="catalans-phase-bar">
@@ -4360,9 +4372,9 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.2.0"></script>
+    <script src="catalans.js?v=1.2.1"></script>
     <script>
-        window.APP_VERSION = '1.0.19';
+        window.APP_VERSION = '1.0.20';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
