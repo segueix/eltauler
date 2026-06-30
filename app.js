@@ -415,12 +415,29 @@ function isCatalansDeepLink() {
     const path = (window.location.pathname || '').replace(/\/+$/, '').toLowerCase();
     return hash === '#catalans-vs-stockfish' || hash === '#catalans' || path.endsWith('/catalans-vs-stockfish');
 }
+// Identificador d'una partida col·lectiva pròpia a l'URL (#partida-<id>).
+function customGameIdFromUrl() {
+    const m = (window.location.hash || '').match(/^#partida-([A-Za-z0-9]+)$/);
+    return m ? m[1] : null;
+}
 function openCatalansScreen(pushHistory = true) {
     $('#start-screen').hide();
     if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
     else $('#catalans-screen').show();
     if (pushHistory) navPush('catalans-screen');
 }
+// Obre una partida col·lectiva pròpia (mateixa pantalla, document diferent).
+function openCustomGameScreen(id, pushHistory = true) {
+    if (!id) return;
+    $('#start-screen').hide();
+    if (window.CatalansMode && typeof window.CatalansMode.openCustom === 'function') window.CatalansMode.openCustom(id);
+    else $('#catalans-screen').show();
+    if (pushHistory) {
+        navStack.push('catalans-screen');
+        history.pushState({ screen: 'catalans-screen', customId: id }, '', '#partida-' + id);
+    }
+}
+window.openCustomGameScreen = openCustomGameScreen;
 function closeCatalansScreen() {
     if (window.CatalansMode && typeof window.CatalansMode.close === 'function') window.CatalansMode.close();
     else $('#catalans-screen').hide();
@@ -461,6 +478,11 @@ function navGoBack() {
     navStack.pop();
 }
 window.addEventListener('popstate', function(e) {
+    const cid = customGameIdFromUrl();
+    if (cid) {
+        openCustomGameScreen(cid, false);
+        return;
+    }
     if (isCatalansDeepLink()) {
         openCatalansScreen(false);
         return;
@@ -5080,10 +5102,19 @@ window.onCloudSignedIn = function (email) {
         const catScreen = document.getElementById('catalans-screen');
         const onCatalans = catScreen && catScreen.style.display !== 'none' && catScreen.offsetParent !== null;
         if (wanted && !onCatalans) {
-            $('#start-screen').hide();
-            if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
-            else $('#catalans-screen').show();
-            navPush('catalans-screen');
+            // El destí pot ser una partida pròpia concreta («partida:<id>»), que es
+            // recupera de l'URL si encara hi és. Així, després d'un inici de sessió
+            // amb redirecció, es torna a la partida CORRECTA i no a la global.
+            const m = /^partida:(.+)$/.exec(wanted);
+            const cid = (m && m[1]) || customGameIdFromUrl();
+            if (cid) {
+                openCustomGameScreen(cid, true);
+            } else {
+                $('#start-screen').hide();
+                if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
+                else $('#catalans-screen').show();
+                navPush('catalans-screen');
+            }
         }
     } catch (e) {}
 };
@@ -14027,7 +14058,8 @@ function setupEvents() {
     $('#btn-catalans-back').click(() => {
         closeCatalansScreen();
         navStack.pop();
-        if (window.location.hash === '#catalans-vs-stockfish' || window.location.hash === '#catalans') {
+        const h = window.location.hash;
+        if (h === '#catalans-vs-stockfish' || h === '#catalans' || /^#partida-/.test(h)) {
             history.pushState({ screen: 'start-screen' }, '', window.location.pathname + window.location.search);
         }
     });
@@ -21115,7 +21147,13 @@ $(document).ready(() => {
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyFontSize(loadFontSize());
-    history.replaceState({ screen: isCatalansDeepLink() ? 'catalans-screen' : 'start-screen' }, '', isCatalansDeepLink() ? screenUrl('catalans-screen') : (window.location.pathname + window.location.search));
+    const __customId = customGameIdFromUrl();
+    const __deepCatalans = isCatalansDeepLink();
+    history.replaceState(
+        { screen: (__customId || __deepCatalans) ? 'catalans-screen' : 'start-screen', customId: __customId || null },
+        '',
+        __customId ? ('#partida-' + __customId) : (__deepCatalans ? screenUrl('catalans-screen') : (window.location.pathname + window.location.search))
+    );
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
@@ -21129,7 +21167,9 @@ $(document).ready(() => {
     const tcSel = document.getElementById('new-game-tc-select');
     if (tcSel) tcSel.value = pendingFreeTimeControl;
     generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
-    if (isCatalansDeepLink()) {
+    if (__customId) {
+        setTimeout(function () { openCustomGameScreen(__customId, false); }, 0);
+    } else if (__deepCatalans) {
         setTimeout(function () { openCatalansScreen(false); }, 0);
     }
     if (!window.__boardResizeBound) {

@@ -35,6 +35,10 @@
   const COLLECTION = 'eltauler_catalans';
   const DOC_ID = 'current';
   const HISTORY_DOC_ID = 'history';
+  const CUSTOMS_DOC_ID = 'customs';      // registre de partides col·lectives pròpies
+  // Partides pròpies que l'usuari ha «abandonat» (amagades a la pantalla d'inici).
+  // Prefix «eltauler_cloud_» → és estat LOCAL del dispositiu i NO se sincronitza.
+  const HIDDEN_KEY = 'eltauler_cloud_catalans_hidden';
 
   const TURN_MS = 24 * 60 * 60 * 1000;   // 24 h perquè votin els Catalans
   const NEXT_GAME_MS = 24 * 60 * 60 * 1000; // 24 h entre el final d'una partida i la següent
@@ -63,12 +67,51 @@
     return Math.max(STRENGTH_MIN, Math.min(STRENGTH_MAX, Math.round(v || START_SF_ELO)));
   }
 
+  // ---------------------------------------------------------------------------
+  //  Configuració de partida (global per defecte o personalitzada)
+  // ---------------------------------------------------------------------------
+  function defaultConfig() {
+    return {
+      custom: false,
+      id: null,
+      docId: DOC_ID,
+      historyDocId: HISTORY_DOC_ID,
+      teamName: 'Catalans',
+      startElo: START_SF_ELO,
+      createdByUid: null
+    };
+  }
+  // Configuració d'una partida pròpia a partir de la seva entrada al registre.
+  function configFromEntry(entry) {
+    return {
+      custom: true,
+      id: entry.id,
+      docId: 'c_' + entry.id,
+      historyDocId: 'c_' + entry.id + '_h',
+      teamName: entry.name || 'El meu equip',
+      startElo: clampStrength(entry.startElo || START_SF_ELO),
+      createdByUid: entry.createdByUid || null
+    };
+  }
+  // Força inicial de Stockfish per a la partida oberta (ELO triat en personalitzades).
+  function startStrength() { return clampStrength(config.startElo || START_SF_ELO); }
+  function isCustom() { return !!config.custom; }
+  // Nom de l'equip humà. En personalitzades, prioritza el del document (es pot
+  // editar en viu) i recau en la configuració mentre no hi ha estat carregat.
+  function teamName() {
+    if (config.custom) return (state && state.teamName) || config.teamName || 'El meu equip';
+    return 'Catalans';
+  }
+
   // Força EFECTIVA de Stockfish per a un estat de partida: la PRIMERA partida és
   // sempre 1350 (ELO d'inici), encara que el document vingui d'un model antic; a
   // partir de la segona, la força ve donada pel model (pot ser ROC < 1350).
   function effectiveSfElo(d) {
     const s = d || state;
     if (!s) return START_SF_ELO;
+    // Partides pròpies: la força ve sempre del document (l'ELO triat a la creació,
+    // editable en viu). No s'hi aplica el «sempre 1350 a la primera partida».
+    if (s.custom) return clampStrength(s.sfElo || s.startElo || START_SF_ELO);
     if ((s.gameNumber || 1) <= 1) return START_SF_ELO;
     return clampStrength(s.sfElo || START_SF_ELO);
   }
@@ -121,6 +164,17 @@
   let db = null;
   let docRef = null;
   let unsub = null;
+  // Configuració de la partida que hi ha oberta a la pantalla. Per defecte és la
+  // partida global «Catalans vs Stockfish»; en mode personalitzat (custom) apunta
+  // a un altre document de la mateixa col·lecció amb el nom d'equip i l'ELO triats.
+  let config = defaultConfig();
+  // Comptador d'obertures: cada cop que s'obre una partida s'incrementa. Les
+  // tasques asíncrones (p. ex. carregar el nom/ELO reals d'una partida pròpia)
+  // el capturen i només apliquen els seus resultats si segueix vigent. Així una
+  // obertura posterior no es barreja amb les dades que arriben tard d'una anterior.
+  let openToken = 0;
+  let customsUnsub = null;   // subscripció al registre de partides pròpies
+  let customsList = [];      // partides pròpies (per pintar els bàners)
   let state = null;          // últim snapshot del document
   let board = null;          // instància de chessboard.js
   let localChess = null;     // chess.js amb la posició actual (per validar vots)
@@ -342,12 +396,14 @@
   // ---------------------------------------------------------------------------
   //  Document inicial / nova partida
   // ---------------------------------------------------------------------------
-  function freshGameState(prev) {
+  function freshGameState(prev, cfg) {
+    cfg = cfg || config;
     const c = newChess();
     const gameNumber = prev ? (prev.gameNumber || 1) + 1 : 1;
-    const sfElo = prev ? clampStrength(prev.nextSfElo || prev.sfElo || START_SF_ELO) : START_SF_ELO;
+    const start = clampStrength(cfg.startElo || START_SF_ELO);
+    const sfElo = prev ? clampStrength(prev.nextSfElo || prev.sfElo || start) : start;
     const now = Date.now();
-    return {
+    const st = {
       fen: c.fen(),
       movesSan: [],
       movesUci: [],
@@ -364,6 +420,17 @@
       lastGame: prev && prev.lastGame ? prev.lastGame : null,
       updatedAt: now
     };
+    // Metadades de partida pròpia: viatgen amb el document perquè qualsevol client
+    // (encara que obri l'enllaç compartit) sàpiga el nom de l'equip, l'ELO i qui
+    // la va crear, sense dependre del registre.
+    if (cfg.custom || (prev && prev.custom)) {
+      st.custom = true;
+      st.customId = (prev && prev.customId) || cfg.id || null;
+      st.teamName = (prev && prev.teamName) || cfg.teamName || 'El meu equip';
+      st.startElo = (prev && prev.startElo) || start;
+      st.createdByUid = (prev && prev.createdByUid) || cfg.createdByUid || null;
+    }
+    return st;
   }
 
   // Nova força de Stockfish per a la propera partida segons el resultat.
@@ -400,7 +467,7 @@
         setStatus('Encara no hi ha cap partida en curs. Inicia sessió amb Google per començar-ne una.');
         return false;
       }
-      return docRef.set(freshGameState(null)).then(function () { return true; });
+      return docRef.set(freshGameState(null, config)).then(function () { return true; });
     }).catch(function (e) {
       console.warn('[Catalans] ensureDoc', e);
       setStatus(describeFsError(e));
@@ -430,7 +497,7 @@
   function subscribeHistory() {
     if (historyUnsub || !db) return;
     try {
-      const hRef = db.collection(COLLECTION).doc(HISTORY_DOC_ID);
+      const hRef = db.collection(COLLECTION).doc(config.historyDocId);
       historyUnsub = hRef.onSnapshot(function (snap) {
         const data = snap.exists ? snap.data() : null;
         const games = (data && Array.isArray(data.games)) ? data.games : [];
@@ -455,6 +522,9 @@
 
     // Reconstrueix la posició local i el tauler.
     localChess = newChess(state.fen);
+    // El nom de l'equip i el permís d'edició poden venir del document (editables
+    // en viu): refresca capçalera, «Com funciona» i botó d'edició a cada canvi.
+    personalizeUi();
     renderBoard();
     renderInfo();
     renderVotes();
@@ -680,7 +750,7 @@
         const d = snap.data();
         if (!d || d.phase !== 'finished' || d.gameNumber !== expectedGame) return;
         if (Date.now() < (d.deadlineAt || 0)) return;
-        tx.set(docRef, freshGameState(d));
+        tx.set(docRef, freshGameState(d, config));
       });
     });
   }
@@ -688,7 +758,7 @@
   // Desa un resum de partida a l'historial (millor esforç; no és crític).
   function appendHistory(summary) {
     try {
-      const hRef = db.collection(COLLECTION).doc(HISTORY_DOC_ID);
+      const hRef = db.collection(COLLECTION).doc(config.historyDocId);
       hRef.set({
         games: firebase.firestore.FieldValue.arrayUnion(summary),
         updatedAt: Date.now()
@@ -797,11 +867,19 @@
     });
   }
 
+  // Identitat de la partida oberta per recuperar-la després d'un inici de sessió
+  // amb redirecció (mòbil), que recarrega l'app. «default» = la global; «partida:<id>»
+  // = una de pròpia. Així es torna a la partida CORRECTA i no es barreja amb la global.
+  function rememberReturnTarget() {
+    const target = (config.custom && config.id) ? ('partida:' + config.id) : 'default';
+    try { localStorage.setItem('eltauler_cloud_returnToCatalans', target); } catch (e) {}
+  }
+
   function promptSignIn() {
     setStatus('Inicia sessió amb Google per votar.');
-    // Recorda que volem tornar a Catalans en completar l'inici de sessió (útil quan
-    // a mòbil la redirecció recarrega l'app i torna a la pantalla d'inici).
-    try { localStorage.setItem('eltauler_cloud_returnToCatalans', '1'); } catch (e) {}
+    // Recorda a quina partida tornar en completar l'inici de sessió (útil quan a
+    // mòbil la redirecció recarrega l'app i torna a la pantalla d'inici).
+    rememberReturnTarget();
     if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
       window.CloudSync.signIn();
     }
@@ -1040,13 +1118,14 @@
     // l'exèrcit, calculat en acabar.
     const lg = state.lastGame;
     if (lg) {
-      const r = lg.result === 'catalans' ? '✅ Ha guanyat l\'exèrcit'
+      const army = isCustom() ? teamName() : 'l\'exèrcit';
+      const r = lg.result === 'catalans' ? ('✅ Ha guanyat ' + army)
         : lg.result === 'stockfish' ? '❌ Ha guanyat Stockfish'
         : '🤝 Taules';
       const faced = Math.round(lg.sfElo || START_SF_ELO);
       let extra = '';
       if (lg.catElo != null) {
-        extra = ' · exèrcit ' + unitLabel(lg.catElo) + ' ' + Math.round(lg.catElo) +
+        extra = ' · ' + (isCustom() ? teamName() : 'exèrcit') + ' ' + unitLabel(lg.catElo) + ' ' + Math.round(lg.catElo) +
           (typeof lg.avgCpLoss === 'number' ? ' (pèrdua ' + lg.avgCpLoss + ' cp, ' + (lg.blunders || 0) + ' blunders)' : '');
       }
       $('#catalans-lastgame').html(
@@ -1272,7 +1351,7 @@
     const now = Date.now();
     if (state.phase === 'catalans') {
       const left = (state.deadlineAt || 0) - now;
-      $('#catalans-phase').text('🟡 Torn dels Catalans — voteu el moviment');
+      $('#catalans-phase').text('🟡 Torn de' + (isCustom() ? ' ' : 'ls ') + teamName() + ' — voteu el moviment');
       $('#catalans-countdown').text('Es tanca en ' + fmtDuration(left));
       $('#catalans-next-banner').hide();
       if (left <= 0) maybeDriveTransition();
@@ -1281,16 +1360,18 @@
       $('#catalans-countdown').text('Stockfish està movent…');
       $('#catalans-next-banner').hide();
     } else if (state.phase === 'finished') {
-      const r = state.result === 'catalans' ? 'Han guanyat els Catalans! ✅'
+      const won = isCustom() ? ('Ha guanyat ' + teamName() + '! ✅') : 'Han guanyat els Catalans! ✅';
+      const r = state.result === 'catalans' ? won
         : state.result === 'stockfish' ? 'Ha guanyat Stockfish ❌' : 'Taules 🤝';
       $('#catalans-phase').text('🏁 Partida acabada — ' + r);
       $('#catalans-countdown').text('');
       // Compte enrere GRAN i centrat sobre el tauler fins a la pròxima partida.
       const left = (state.deadlineAt || 0) - now;
       const next = Math.round(state.nextSfElo || START_SF_ELO);
+      const army = isCustom() ? teamName() : 'l\'exèrcit';
       $('#catalans-next-countdown').text(fmtDuration(left));
       $('#catalans-next-detail').text('Stockfish jugarà a ' + unitLabel(next) + ' ' + next +
-        (state.lastGame && state.lastGame.result === 'stockfish' ? ' (el ROC de l\'exèrcit)' : ''));
+        (state.lastGame && state.lastGame.result === 'stockfish' ? (' (el ROC de ' + army + ')') : ''));
       $('#catalans-next-banner').css('display', 'block');
       if (now >= (state.deadlineAt || 0)) maybeDriveTransition();
     }
@@ -1314,39 +1395,142 @@
 
   function catalansShareUrl() {
     const base = window.location.origin + window.location.pathname + window.location.search;
-    return base + '#catalans-vs-stockfish';
+    return base + (isCustom() && config.id ? '#partida-' + config.id : '#catalans-vs-stockfish');
   }
 
   function shareCatalans() {
     const url = catalansShareUrl();
-    const title = 'Catalans vs Stockfish';
-    const text = 'Vota el moviment de la partida col·lectiva Catalans vs Stockfish a El Tauler.';
+    const title = (isCustom() ? teamName() : 'Catalans') + ' vs Stockfish';
+    // Missatge amb el nom de l'equip que lluita contra Stockfish i una crida a unir-s'hi.
+    const text = isCustom()
+      ? (teamName() + ' vs Stockfish, suma\'t a una partida èpica!')
+      : 'Catalans vs Stockfish, suma\'t a una partida èpica!';
     if (navigator.share) {
       navigator.share({ title: title, text: text, url: url }).catch(function () {});
       return;
     }
-    const done = function () { setStatus('Enllaç copiat: comparteix la partida perquè més gent voti.'); };
+    // Sense API de compartir natiu: copia el missatge SENCER amb l'enllaç a sota,
+    // perquè quan s'enganxi inclogui el nom de l'equip i la invitació.
+    const combined = text + '\n' + url;
+    const done = function () {
+      setStatus('Enllaç copiat: comparteix la partida perquè més gent voti.');
+      try { if (typeof window.showToast === 'function') window.showToast('Enllaç copiat ✓', 'success'); } catch (e) {}
+    };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(done).catch(function () {
-        window.prompt('Copia l’enllaç de Catalans vs Stockfish:', url);
+      navigator.clipboard.writeText(combined).then(done).catch(function () {
+        window.prompt('Copia l’enllaç:', combined);
       });
     } else {
-      window.prompt('Copia l’enllaç de Catalans vs Stockfish:', url);
+      window.prompt('Copia l’enllaç:', combined);
     }
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Personalització de la pantalla segons la partida (nom d'equip, etc.)
+  // ---------------------------------------------------------------------------
+  let defaultHowtoHtml = null;   // còpia del «Com funciona» original (mode global)
+
+  // Pot l'usuari actual editar l'ELO/ROC d'aquesta partida? Només qui la va crear.
+  function canEditStrength() {
+    const u = currentUser();
+    return !!(isCustom() && u && state && state.createdByUid && state.createdByUid === u.uid);
+  }
+
+  function customHowtoHtml(name) {
+    return '<h3>Com funciona — ' + escapeSan(name) + '</h3>' +
+      'Aquesta és la partida col·lectiva de <strong>' + escapeSan(name) + '</strong>. Quan ' +
+      'toca moure a l\'equip, fes el teu moviment al tauler: és el teu <strong>vot</strong> ' +
+      '(el pots canviar fins que acabi el torn). Passades <strong>24 hores</strong> des de ' +
+      'l\'inici del torn, es tanca la votació i es juga el moviment <strong>més votat</strong>; ' +
+      'si hi ha empat, s\'agafa el que <strong>Stockfish considera millor</strong>. Després mou Stockfish.' +
+      '<br><br>' +
+      'La <strong>primera persona</strong> que proposa un moviment nou pot deixar un ' +
+      '<strong>comentari (fins a 180 caràcters)</strong> per explicar la jugada a la resta de ' +
+      escapeSan(name) + '; queda a sota la seva votació. Cada vot mostra el <strong>nom</strong> ' +
+      'i el seu <strong>ELO o ROC</strong>.' +
+      '<br><br>' +
+      '<strong>Comparteix l\'enllaç</strong> amb tot l\'equip (botó «Comparteix»): qui l\'obri i ' +
+      'faci un moviment <strong>s\'hi suma automàticament</strong>. Com més gent voteu, més fort ' +
+      'jugarà ' + escapeSan(name) + '!' +
+      '<br><br>' +
+      'Stockfish juga a l\'<strong>ELO que heu triat</strong>. Qui va crear la partida el pot ' +
+      'canviar quan vulgui amb el botó <strong>«✏️ Edita l\'Elo/ROC»</strong> (per sota de 1350 ' +
+      'és mode ROC, debilitat). Si ' + escapeSan(name) + ' <strong>guanya</strong> o empata, la ' +
+      'partida següent el rival serà més fort; si <strong>perd</strong>, s\'ajusta al ROC de ' +
+      'l\'equip (com de feble heu jugat).' +
+      '<br><br>' +
+      '<em>Inspirat en «Kaspàrov contra el Món» (1999), on tot el món decidia cada jugada per ' +
+      'votació majoritària.</em>';
+  }
+
+  let lastUiKey = '';   // evita reescriure capçalera/«Com funciona» a cada snapshot
+  function personalizeUi() {
+    if (defaultHowtoHtml == null) {
+      const h = $('#catalans-howto').html();
+      if (h) defaultHowtoHtml = h;
+    }
+    const name = teamName();
+    const key = (isCustom() ? 'c:' : 'd:') + name;
+    if (key !== lastUiKey) {
+      lastUiKey = key;
+      if (isCustom()) {
+        $('.catalans-hero h1').text(name + ' vs Stockfish');
+        $('.catalans-hero .catalans-sub').text('Partida col·lectiva de ' + name + ': tots voteu el moviment de l\'equip');
+        $('#catalans-howto').html(customHowtoHtml(name));
+      } else {
+        $('.catalans-hero h1').text('Catalans vs Stockfish');
+        $('.catalans-hero .catalans-sub').text('Una partida col·lectiva: tots votem el moviment dels Catalans');
+        if (defaultHowtoHtml != null) $('#catalans-howto').html(defaultHowtoHtml);
+      }
+    }
+    // Accions de partida pròpia: «Comparteix» sempre (és el cor del joc) i el botó
+    // discret d'editar l'Elo/ROC només per a qui la va crear. Barat i pot canviar
+    // amb l'autenticació, així que s'actualitza a cada crida.
+    $('#catalans-custom-actions').css('display', isCustom() ? 'block' : 'none');
+    $('#catalans-edit-strength').css('display', canEditStrength() ? 'inline-flex' : 'none');
   }
 
   // ---------------------------------------------------------------------------
   //  Obrir / tancar la pantalla
   // ---------------------------------------------------------------------------
-  function open() {
+  // Atura subscripcions i neteja l'estat abans de carregar una altra partida.
+  function teardownGame() {
+    if (unsub) { unsub(); unsub = null; }
+    if (historyUnsub) { historyUnsub(); historyUnsub = null; }
+    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    replayStopPlay();
+    closeReplay();
+    state = null; subscribed = false; resolving = false;
+    lastPlySeen = -1; myVoteUci = null;
+    previewActive = false; previewPly = null; previewUci = null;
+    historyView = [];
+    lastUiKey = '';
+  }
+
+  // Obre la partida descrita per `cfg` (global per defecte o personalitzada).
+  function openGame(cfg) {
     const dbi = getDb();
     if (!dbi) {
-      setStatus('La partida global necessita Firebase configurat (sincronització al núvol).');
+      setStatus('La partida col·lectiva necessita Firebase configurat (sincronització al núvol).');
+      config = cfg || defaultConfig();
+      personalizeUi();
       $('#catalans-screen').show();
       return;
     }
     db = dbi;
-    docRef = db.collection(COLLECTION).doc(DOC_ID);
+
+    teardownGame();
+    const myToken = ++openToken;   // invalida qualsevol feina asíncrona anterior
+    config = cfg || defaultConfig();
+    docRef = db.collection(COLLECTION).doc(config.docId);
+
+    // Neteja visual de la partida anterior (tauler, ressaltats, previsualització).
+    $('#catalans-preview-bar').hide();
+    $('#catalans-board .square-55d63').removeClass('cat-myvote cat-preview-from cat-preview-to cat-selected cat-target');
+    if (board) { try { board.position('start', false); } catch (e) {} }
+    setStatus('');
+    renderHistory();
+    personalizeUi();
 
     $('#catalans-screen').show();
     renderAuthState();
@@ -1357,6 +1541,7 @@
       try {
         firebase.auth().onAuthStateChanged(function () {
           renderAuthState();
+          personalizeUi();
           if (state) { updateMyVoteFromState(); renderVotes(); renderBoard(); }
           // Si encara no tenim estat (abans no teníem permís o no hi havia
           // partida), reintenta ara que l'usuari s'ha autenticat: pot crear el
@@ -1369,18 +1554,255 @@
     }
 
     ensureDoc().then(function () {
+      if (myToken !== openToken) return;   // una obertura posterior ja mana
       subscribe();
       // Ajusta la mida del tauler quan ja és visible.
       setTimeout(function () { if (board && typeof board.resize === 'function') board.resize(); }, 60);
     });
   }
 
+  // Punt d'entrada de la partida global «Catalans vs Stockfish».
+  function open() { openGame(defaultConfig()); }
+
+  // Obre una partida col·lectiva pròpia pel seu identificador (enllaç compartit).
+  //
+  // CLAU: el document és sempre «c_<id>» (determinista), així que obrim de seguida
+  // amb aquesta configuració —tear down de la partida anterior i subscripció al
+  // document correcte— SENSE esperar cap lectura. El nom de l'equip i l'ELO reals
+  // (que viuen al registre o al propi document) s'omplen DESPRÉS, i només si encara
+  // estem en aquesta mateixa partida. Abans, obrir-la esperava la lectura i durant
+  // aquesta estona la pantalla podia barrejar l'estat de la partida anterior (p. ex.
+  // la global «Catalans») amb la pròpia.
+  function openCustom(id) {
+    id = String(id || '');
+    // Obrir l'enllaç d'una partida la recupera si abans s'havia abandonat.
+    unhideCustom(id);
+    const dbi = getDb();
+    const cached = dbi ? customsList.find(function (g) { return g.id === id; }) : null;
+    openGame(configFromEntry(cached || { id: id, name: 'El meu equip', startElo: START_SF_ELO }));
+    if (!dbi || cached) return;   // sense núvol o ja tenim les dades reals
+    db = dbi;
+    const myToken = openToken;    // vigent mentre no s'obri una altra partida
+    const applyEntry = function (entry) {
+      if (myToken !== openToken || !config.custom || config.id !== id) return; // obsolet
+      if (entry) {
+        config.teamName = entry.name || config.teamName;
+        config.startElo = clampStrength(entry.startElo || config.startElo);
+        config.createdByUid = entry.createdByUid || config.createdByUid;
+      } else {
+        setStatus('Aquesta partida col·lectiva encara no existeix. Fes el primer moviment per començar-la!');
+      }
+      personalizeUi();
+    };
+    db.collection(COLLECTION).doc(CUSTOMS_DOC_ID).get().then(function (snap) {
+      const games = (snap.exists && snap.data() && snap.data().games) || {};
+      if (games[id]) return games[id];
+      return db.collection(COLLECTION).doc('c_' + id).get().then(function (gs) {
+        if (!gs.exists) return null;
+        const d = gs.data() || {};
+        return { id: id, name: d.teamName || 'El meu equip',
+          startElo: clampStrength(d.startElo || d.sfElo || START_SF_ELO),
+          createdByUid: d.createdByUid || null };
+      });
+    }).then(applyEntry).catch(function () {
+      if (myToken === openToken) setStatus('No s\'ha pogut carregar la partida col·lectiva.');
+    });
+  }
+
   function close() {
-    if (unsub) { unsub(); unsub = null; }
-    if (historyUnsub) { historyUnsub(); historyUnsub = null; }
-    if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
-    replayStopPlay();
+    teardownGame();
+    config = defaultConfig();
     $('#catalans-screen').hide();
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Registre de partides pròpies + bàners a la pantalla d'inici
+  // ---------------------------------------------------------------------------
+  function customsRef() { return db ? db.collection(COLLECTION).doc(CUSTOMS_DOC_ID) : null; }
+
+  function genCustomId() {
+    return Math.random().toString(36).slice(2, 8) + Date.now().toString(36).slice(-4);
+  }
+  // Parella de colors aleatòria però agradable (per al bàner de cada partida).
+  function randomColorPair() {
+    const h = Math.floor(Math.random() * 360);
+    const h2 = (h + 18 + Math.floor(Math.random() * 46)) % 360;
+    return { color1: 'hsl(' + h + ',62%,34%)', color2: 'hsl(' + h2 + ',66%,17%)' };
+  }
+
+  // --- Partides «abandonades» (amagades localment a la pantalla d'inici) -------
+  function getHiddenCustoms() {
+    try {
+      const a = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
+      return Array.isArray(a) ? a : [];
+    } catch (e) { return []; }
+  }
+  function setHiddenCustoms(arr) {
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+  function isHiddenCustom(id) { return getHiddenCustoms().indexOf(id) !== -1; }
+  // Abandona una partida: deixa d'aparèixer a la pantalla d'inici (només en
+  // aquest dispositiu). Torna a aparèixer si s'obre l'enllaç un altre cop.
+  function abandonCustom(id) {
+    const a = getHiddenCustoms();
+    if (a.indexOf(id) === -1) { a.push(id); setHiddenCustoms(a); }
+    renderCustomBanners();
+    try {
+      if (typeof window.showToast === 'function') {
+        window.showToast('Has abandonat la partida. Torna a obrir-ne l\'enllaç per recuperar-la.', 'info');
+      }
+    } catch (e) {}
+  }
+  // Recupera una partida abandonada (en obrir-ne l'enllaç es torna a mostrar).
+  function unhideCustom(id) {
+    const a = getHiddenCustoms();
+    const i = a.indexOf(id);
+    if (i !== -1) { a.splice(i, 1); setHiddenCustoms(a); renderCustomBanners(); }
+  }
+
+  // Subscripció (només lectura, pública) al registre per pintar els bàners.
+  function ensureCustoms() {
+    const dbi = getDb();
+    if (!dbi) { setTimeout(ensureCustoms, 1500); return; }
+    db = dbi;
+    if (customsUnsub) return;
+    try {
+      customsUnsub = customsRef().onSnapshot(function (snap) {
+        const data = snap.exists ? snap.data() : null;
+        const games = (data && data.games) ? data.games : {};
+        customsList = Object.keys(games).map(function (k) { return games[k]; })
+          .filter(function (g) { return g && g.id; })
+          .sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
+        renderCustomBanners();
+      }, function () {});
+    } catch (e) {}
+  }
+
+  function renderCustomBanners() {
+    const cont = $('#custom-banners');
+    if (!cont.length) return;
+    const visible = customsList.filter(function (g) { return !isHiddenCustom(g.id); });
+    if (!visible.length) { cont.empty(); return; }
+    let html = '';
+    visible.forEach(function (g) {
+      const c1 = g.color1 || '#3a3f87';
+      const c2 = g.color2 || '#1a1c40';
+      const bg = 'linear-gradient(135deg,' + c1 + ' 0%,' + c2 + ' 100%)';
+      const elo = clampStrength(g.startElo || START_SF_ELO);
+      html += '<div class="catalans-banner custom-banner" role="button" tabindex="0" data-cid="' + escapeSan(g.id) + '" ' +
+        'aria-label="' + escapeSan(g.name) + ' vs Stockfish" style="background:' + bg + '">' +
+        '<svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>' +
+        '<span class="catalans-banner-text">' +
+        '<span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>' +
+        '<span class="catalans-banner-title">' + escapeSan(g.name) + ' vs Stockfish</span>' +
+        '<span class="catalans-banner-sub">Partida col·lectiva · ' + unitLabel(elo) + ' ' + elo + '</span>' +
+        '</span>' +
+        '<span class="catalans-banner-cta">Juga-hi ›</span>' +
+        '<button class="custom-banner-leave" type="button" data-cid="' + escapeSan(g.id) + '" ' +
+        'title="Abandona aquesta partida" aria-label="Abandona aquesta partida">×</button>' +
+        '</div>';
+    });
+    cont.html(html);
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Crear / editar una partida pròpia (finestra modal)
+  // ---------------------------------------------------------------------------
+  let customModalMode = 'create';   // 'create' | 'edit'
+
+  function openCreateCustomModal() {
+    customModalMode = 'create';
+    $('#catalans-custom-title').text('⚔️ Crea la teva partida col·lectiva');
+    $('#catalans-custom-name-row').show();
+    $('#catalans-custom-name').val('');
+    $('#catalans-custom-elo').val(String(START_SF_ELO));
+    $('#catalans-custom-save').text('Crea la partida');
+    $('#catalans-custom-modal').css('display', 'flex');
+    setTimeout(function () { try { $('#catalans-custom-name').trigger('focus'); } catch (e) {} }, 30);
+  }
+
+  function openEditCustomModal() {
+    if (!canEditStrength()) return;
+    customModalMode = 'edit';
+    $('#catalans-custom-title').text('✏️ Edita l\'Elo/ROC');
+    $('#catalans-custom-name-row').show();
+    $('#catalans-custom-name').val(teamName());
+    $('#catalans-custom-elo').val(String(Math.round(effectiveSfElo(state))));
+    $('#catalans-custom-save').text('Desa els canvis');
+    $('#catalans-custom-modal').css('display', 'flex');
+    setTimeout(function () { try { $('#catalans-custom-elo').trigger('focus'); } catch (e) {} }, 30);
+  }
+
+  function closeCustomModal() { $('#catalans-custom-modal').hide(); }
+
+  function readCustomModal() {
+    const name = String($('#catalans-custom-name').val() || '').trim().slice(0, 40);
+    let elo = parseInt($('#catalans-custom-elo').val(), 10);
+    if (isNaN(elo)) elo = START_SF_ELO;
+    return { name: name, elo: clampStrength(elo) };
+  }
+
+  function confirmCustomModal() {
+    const vals = readCustomModal();
+    if (customModalMode === 'create') {
+      if (!vals.name) { setStatus('Posa un nom a l\'equip.'); try { $('#catalans-custom-name').trigger('focus'); } catch (e) {} return; }
+      createCustomGame(vals.name, vals.elo);
+    } else {
+      saveCustomEdit(vals.name, vals.elo);
+    }
+  }
+
+  function createCustomGame(name, elo) {
+    const u = currentUser();
+    if (!u) { closeCustomModal(); promptSignIn(); return; }
+    const dbi = getDb();
+    if (!dbi) { setStatus('Cal Firebase configurat per crear partides.'); return; }
+    db = dbi;
+    const id = genCustomId();
+    const colors = randomColorPair();
+    const entry = {
+      id: id, name: name, color1: colors.color1, color2: colors.color2,
+      startElo: clampStrength(elo), createdByUid: u.uid, createdByName: userName(u),
+      createdAt: Date.now()
+    };
+    const cfg = configFromEntry(entry);
+    closeCustomModal();
+    setStatus('Creant la partida de ' + name + '…');
+    Promise.all([
+      customsRef().set({ games: { [id]: entry }, updatedAt: Date.now() }, { merge: true }),
+      db.collection(COLLECTION).doc(cfg.docId).set(freshGameState(null, cfg))
+    ]).then(function () {
+      try { if (typeof window.showToast === 'function') window.showToast('Partida creada! Comparteix l\'enllaç perquè tothom s\'hi sumi.', 'success'); } catch (e) {}
+      if (typeof window.openCustomGameScreen === 'function') window.openCustomGameScreen(id);
+      else openGame(cfg);
+    }).catch(function (e) {
+      console.warn('[Catalans] crear partida', e);
+      const msg = describeFsError(e);
+      setStatus(msg);
+      try { if (typeof window.showToast === 'function') window.showToast(msg, 'error'); } catch (e2) {}
+    });
+  }
+
+  function saveCustomEdit(name, elo) {
+    if (!isCustom() || !config.id) { closeCustomModal(); return; }
+    if (!canEditStrength()) { closeCustomModal(); return; }
+    const strength = clampStrength(elo);
+    closeCustomModal();
+    const upd = { sfElo: strength, startElo: strength, updatedAt: Date.now() };
+    if (name) upd.teamName = name;
+    docRef.update(upd).then(function () {
+      config.startElo = strength;
+      if (name) config.teamName = name;
+      setStatus('Stockfish jugarà ara a ' + unitLabel(strength) + ' ' + strength + '.');
+    }).catch(function (e) {
+      console.warn('[Catalans] editar partida', e);
+      setStatus(describeFsError(e));
+    });
+    // Actualitza també el registre perquè el bàner mostri el nou valor/nom.
+    const reg = {}; reg['games.' + config.id + '.startElo'] = strength;
+    if (name) reg['games.' + config.id + '.name'] = name;
+    reg.updatedAt = Date.now();
+    try { customsRef().update(reg).catch(function () {}); } catch (e) {}
   }
 
   // Re-ajusta el tauler en canviar la mida de la finestra mentre és visible.
@@ -1397,18 +1819,58 @@
   // ---------------------------------------------------------------------------
   window.CatalansMode = {
     open: open,
+    openCustom: openCustom,
     close: close,
-    signIn: promptSignIn
+    signIn: promptSignIn,
+    initCustomBanners: ensureCustoms
   };
 
   // Permet que la pantalla de login reusi CloudSync.
   $(function () {
+    // Memoritza el «Com funciona» original abans de personalitzar-lo mai.
+    if (defaultHowtoHtml == null) { const h = $('#catalans-howto').html(); if (h) defaultHowtoHtml = h; }
+    // Comença a escoltar el registre de partides pròpies per pintar-ne els bàners.
+    ensureCustoms();
+
     $('#catalans-signin').on('click', promptSignIn);
     $('#btn-catalans-share').on('click', shareCatalans);
+    // Botó destacat de compartir a la capçalera de les partides pròpies.
+    $('#catalans-share-top').on('click', shareCatalans);
+
+    // Crear una partida pròpia.
+    $('#btn-create-custom').on('click', openCreateCustomModal);
+    // Abandonar una partida (× del bàner): atura la propagació perquè no s'obri.
+    $('#custom-banners').on('click', '.custom-banner-leave', function (e) {
+      e.stopPropagation();
+      const id = $(this).attr('data-cid');
+      if (id) abandonCustom(String(id));
+    });
+    // Obrir una partida pròpia des del seu bàner a la pantalla d'inici.
+    $('#custom-banners').on('click', '.custom-banner', function () {
+      const id = $(this).attr('data-cid');
+      if (!id) return;
+      if (typeof window.openCustomGameScreen === 'function') window.openCustomGameScreen(String(id));
+      else openCustom(String(id));
+    });
+    // Accessibilitat: el bàner és un div amb role=button; Enter/Espai l'obren.
+    $('#custom-banners').on('keydown', '.custom-banner', function (e) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); $(this).trigger('click'); }
+    });
+    // Editar l'Elo/ROC de la partida pròpia (només el creador).
+    $('#catalans-edit-strength').on('click', openEditCustomModal);
+
+    // Finestra de crear/editar partida pròpia.
+    $('#catalans-custom-save').on('click', confirmCustomModal);
+    $('#catalans-custom-cancel').on('click', closeCustomModal);
+    $('#catalans-custom-modal').on('click', function (e) { if (e.target === this) closeCustomModal(); });
+    $('#catalans-custom-elo, #catalans-custom-name').on('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); confirmCustomModal(); }
+      else if (e.key === 'Escape') { e.preventDefault(); closeCustomModal(); }
+    });
     // Canviar de compte (tanca sessió i torna a triar compte de Google).
     $('#catalans-switch').on('click', function () {
       setStatus('Canviant de compte…');
-      try { localStorage.setItem('eltauler_cloud_returnToCatalans', '1'); } catch (e) {}
+      rememberReturnTarget();
       if (window.CloudSync && typeof window.CloudSync.switchAccount === 'function') {
         window.CloudSync.switchAccount();
       } else if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
