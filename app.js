@@ -12021,10 +12021,12 @@ function positionHieroglyphicPanelForViewport() {
             historyPanel.insertAfter(controls);
         }
     } else {
-        // Escriptori: comentari i historial junts, just abans del tauler.
-        if (historyPanel.length) {
-            if (!board.prev().is(historyPanel)) historyPanel.insertBefore(board);
-            if (!panel.next().is(historyPanel)) panel.insertBefore(historyPanel);
+        // Escriptori: el comentari acompanya els controls i l'historial queda
+        // una mica més avall, just sota els botons, alineat a l'esquerra.
+        const controls = $('#game-screen .controls').first();
+        if (controls.length) {
+            if (!controls.prev().is(panel)) panel.insertBefore(controls);
+            if (historyPanel.length && !historyPanel.prev().is(controls)) historyPanel.insertAfter(controls);
         } else if (!panel.next().is(board)) {
             panel.insertBefore(board);
         }
@@ -12058,6 +12060,10 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
     const list = loadHieroglyphicHistory();
     const existing = list.find(e => e && e.fen === puzzle.fen);
     if (existing && keepIfExists) return; // ja és a l'historial: no el sobreescrivim en regenerar
+    const solvedInOnePass = !!(
+        (existing && (existing.solvedInOnePass || existing.onePass || existing.firstTry))
+        || (solved && currentHieroglyphicWrongMoves === 0)
+    );
     const entry = {
         id: (existing && existing.id) || puzzle.id || ('hg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
         fen: puzzle.fen,
@@ -12071,7 +12077,10 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
         moves: (Array.isArray(puzzle.solutionMoves) && puzzle.solutionMoves.length) || 3,
         difficultyPercent: hieroglyphicDifficultyPercent(puzzle),
         solved: !!solved,
-        firstTry: !!solved && (currentHieroglyphicWrongMoves === 0),
+        solvedInOnePass: solvedInOnePass,
+        // Compatibilitat amb l'historial antic: firstTry ara vol dir que el
+        // jeroglífic s'ha resolt d'una sola passada en qualsevol intent/reintent.
+        firstTry: solvedInOnePass,
         wrongMoves: currentHieroglyphicWrongMoves || 0,
         createdAt: (existing && (existing.createdAt || existing.ts)) || Date.now(),
         ts: Date.now()
@@ -13211,10 +13220,12 @@ function renderHieroglyphicPanel() {
     if (!panel.length) return;
     positionHieroglyphicPanelForViewport();
     if (currentBundleSource !== 'bestline') {
+        $('#game-screen').removeClass('hieroglyphic-layout');
         panel.hide().empty();
         historyPanel.hide().empty();
         return;
     }
+    $('#game-screen').addClass('hieroglyphic-layout');
     const moves = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.solutionMoves && currentHieroglyphicPuzzle.solutionMoves.length)
         || hieroglyphicSolutionUci.length || 3;
     panel.html(`<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`).show();
@@ -13226,9 +13237,10 @@ function renderHieroglyphicPanel() {
     if (history.length) {
         history.slice(0, 8).forEach(e => {
             const isNew = !e.solved;
-            const markIcon = e.solved ? (e.firstTry ? '✅' : '☑️') : '⏳';
-            const markText = e.solved ? (e.firstTry ? 'Resolt a la primera' : 'Resolt amb intents') : 'Pendent de resoldre';
-            const cls = e.solved ? (e.firstTry ? 'hg-first' : 'hg-ok') : 'hg-pending';
+            const onePass = !!(e.solvedInOnePass || e.onePass || e.firstTry);
+            const markIcon = e.solved ? (onePass ? '⚡' : '☑️') : '⏳';
+            const markText = e.solved ? (onePass ? 'Resolt d’una sola passada' : 'Resolt amb intents') : 'Pendent de resoldre';
+            const cls = e.solved ? (onePass ? 'hg-first' : 'hg-ok') : 'hg-pending';
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
             const badge = hieroglyphicDifficultyBadge(e);

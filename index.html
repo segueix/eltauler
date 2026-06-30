@@ -589,6 +589,22 @@
             text-align: left;
         }
         body.device-mobile .hg-panel { margin-left: 8px; margin-right: 8px; }
+        body.device-desktop #game-screen.hieroglyphic-layout #hieroglyphic-panel {
+            grid-column: 2;
+            grid-row: 3;
+            margin-bottom: 0;
+            align-self: end;
+        }
+        body.device-desktop #game-screen.hieroglyphic-layout .controls { grid-row: 4; }
+        body.device-desktop #game-screen.hieroglyphic-layout #hieroglyphic-history-panel {
+            grid-column: 2;
+            grid-row: 5;
+            margin-top: 2px;
+            margin-bottom: 0;
+            align-self: start;
+            justify-self: stretch;
+            text-align: left;
+        }
         /* A mòbil l'historial va a baix de tot (sota els botons): el separem visualment. */
         body.device-mobile #hieroglyphic-history-panel { margin-top: 16px; margin-bottom: 18px; }
         .hg-panel .hg-comment {
@@ -610,6 +626,7 @@
         .hg-panel .hg-h-mark-ic {
             flex: 0 0 auto; font-size: 0.95rem; line-height: 1; width: 1.15em; text-align: center;
         }
+        .hg-panel .hg-history-row.hg-first .hg-h-mark-ic { color: var(--accent-gold, #c9a227); }
         .hg-panel .hg-h-kind {
             flex: 1 1 auto; min-width: 0; color: var(--text-primary);
             display: inline-flex; align-items: center; gap: 6px;
