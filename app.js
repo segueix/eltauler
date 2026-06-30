@@ -5,6 +5,49 @@ const APP_VERSION = window.APP_VERSION || 'dev';
 const STOCKFISH_URL = `stockfish.js?v=${APP_VERSION}`;
 const DEBUG_ENRICHED_ANALYSIS = false;
 
+
+/* ===================== GUIA D’ESTIL CATALANA DE L’ENTRENADOR =====================
+   Proves manuals recomanades abans de publicar canvis de redacció:
+   - una partida amb derrota i errades greus;
+   - una partida amb victòria però baixa precisió;
+   - una partida amb bona obertura i mal mig joc;
+   - una partida amb errors en final;
+   - una partida amb noms d’obertura en anglès. */
+function getCoachCatalanStyleRules(context = 'general') {
+    const scope = typeof context === 'string' ? context : (context && context.context) || 'general';
+    return `GUIA D'ESTIL CATALANA D'EL TAULER (${scope})
+Veu: català natural, clar i correcte. To d'entrenador: directe, útil, una mica exigent però mai humiliant. Frases curtes. Una idea per frase. Evita floritures buides i frases genèriques com "has de millorar" si no dius què cal fer.
+Terminologia: escriu "errada greu" en lloc de "blunder" en text visible. Usa "imprecisió", "error" i "errada greu". Escriu "mig joc", no "mitjà joc"; "final", no "endgame"; "obertura"; "taules"; "escac" i "escac i mat"; "enroc curt" i "enroc llarg"; "dama", no "reina"; "cavall", "alfil", "torre", "peó" i "rei". Usa correctament "forquilla", "clavada", "atac doble", "peça sobrecarregada", "descoberta", "desviació", "raigs X", "peó passat" i "avantpost". Parla de centipeons o cp de manera coherent.
+Ressenyes: primer resultat i diagnòstic principal; després obertura, mig joc i final; després moments clau; després errades comentades. No repeteixis la mateixa errada en moments clau i errades comentades si ja està ben explicada. Cada fase ha de tenir com a màxim una frase de diagnòstic i una acció concreta.
+Errades: "Posició:" descriu el fet objectiu. "Què va fallar:" explica la causa. "Conseqüència:" diu què perd el jugador. "Pla millor:" diu què calia fer. "Pregunta clau:" ajuda a revisar la pròxima partida. Evita frases vagues com "calia jugar millor".
+No tradueixis noms d'obertures ECO en anglès. No alteris FEN, UCI, SAN, ECO ni noms d'obertures.`;
+}
+
+function cleanCoachText(text, options = {}) {
+    if (text === null || text === undefined) return '';
+    let out = String(text);
+    out = out.replace(/\*\*/g, '');
+    out = out.replace(/^[ \t]*(?:[-*•]+|\d+[.)])\s+/gm, '');
+    out = out.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+    out = out.replace(/\b[Bb]lunder\b/g, 'errada greu')
+        .replace(/\bendgame\b/gi, 'final')
+        .replace(/mitjà joc/gi, 'mig joc')
+        .replace(/\breina\b/gi, 'dama')
+        .replace(/avantposat/gi, 'avantpost');
+    if (options.noEmoji === true) {
+        out = out.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '');
+    }
+    out = out.replace(/[ \t]{2,}/g, ' ').replace(/[ \t]+\n/g, '\n').replace(/\n{3,}/g, '\n\n').trim();
+    if (options.maxChars && out.length > options.maxChars) {
+        const limit = Math.max(0, Number(options.maxChars) || 0);
+        let cut = out.slice(0, limit).replace(/\s+\S*$/, '').trim();
+        if (!cut) cut = out.slice(0, limit).trim();
+        out = cut.replace(/[,.!?;:]+$/, '').trim() + '…';
+    }
+    if (options.finalPeriod !== false && out && !/[.!?…:;)]$/.test(out)) out += '.';
+    return out;
+}
+
 const DEBUG_WEAK_AI = false;
 const WEAK_AI_CONFIG = {
     // Corba específica per ROC baixos: per sota del terra real d'UCI_Elo el motor no baixa més,
@@ -2876,6 +2919,8 @@ let openingLessonExplainToken = 0;
 
 function buildOpeningLessonExplanationPrompt(fen, expectedSan, playedSan, openingName) {
     return `Ets un professor d'obertures d'escacs que parla en català i tuteja l'alumne.
+${getCoachCatalanStyleRules('explicació d’obertura')}
+
 Obertura: ${openingName}
 Posició abans de la jugada (FEN): ${fen}
 L'alumne ha jugat ${playedSan}, però la teoria recomana ${expectedSan}.
@@ -2894,7 +2939,7 @@ async function requestOpeningLessonExplanation(fen, expectedSan, playedSan) {
         const prompt = buildOpeningLessonExplanationPrompt(fen, expectedSan, playedSan, lessonName);
         const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 400 } });
         if (!result.ok || !result.text) return;
-        text = result.text.replace(/\*\*/g, '').replace(/["«»]/g, '').trim();
+        text = cleanCoachText(result.text, { noEmoji: true, maxChars: 240 });
         if (!text) return;
         setCachedOpenAI(cacheKey, text);
     }
@@ -7537,6 +7582,10 @@ function regenerateLocalReview(entry) {
     try { saveStorage(); } catch (e) {}
 }
 
+function escapeCoachText(text, options = {}) {
+    return escapeHtml(cleanCoachText(text, options));
+}
+
 function escapeHtml(text) {
     return String(text)
         .replace(/&/g, '&amp;')
@@ -7547,7 +7596,7 @@ function escapeHtml(text) {
 }
 
 function formatOpenAIReviewText(text) {
-    const safe = escapeHtml(text || '');
+    const safe = escapeHtml(cleanCoachText(text || '', { finalPeriod: false }));
     
     // Primer, formatem les cometes per a màximes
     let formatted = safe
@@ -7578,7 +7627,7 @@ function formatOpenAIReviewText(text) {
                 .replace(/&quot;/g, '"')
                 .replace(/&#39;/g, "'");
             
-            return `<a href="#" class="openai-move-link" data-move-number="${moveNumber}" data-san="${cleanSan}">${match}</a>`;
+            return `<a href="#" class="openai-move-link" data-move-number="${moveNumber}" data-san="${escapeHtml(cleanSan)}">${match}</a>`;
         });
     });
     
@@ -7949,6 +7998,8 @@ function buildErrorNotePrompt(err) {
         bestCtx ? `Millor jugada: ${bestCtx.piece} ${bestCtx.from}-${bestCtx.to}` : ''
     ].filter(Boolean).join('\n');
     return `Ets un entrenador d'escacs directe i clar que parla en català i tuteja l'alumne.
+${getCoachCatalanStyleRules('errada comentada')}
+
 Posició abans de la jugada (FEN): ${err.fen}
 A la jugada ${d.moveNumber} l'alumne va jugar ${d.played}, però la millor jugada era ${d.best}.${d.pv ? `\nContinuació correcta: ${d.pv}` : ''}
 ${coordLine ? `\n${coordLine}` : ''}
@@ -8034,8 +8085,8 @@ function buildLocalErrorNote(err, entry, opts = {}) {
     if (show.candidates && moment.candidates) parts.push(moment.candidates);
     if (show.question && structured.question) parts.push(`Pregunta clau: ${structured.question}`);
     // A l'exportació (full) posem cada camp en una línia; a pantalla, en línia seguida.
-    const text = parts.filter(Boolean).join(opts.full ? '\n' : ' ').trim();
-    return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
+    const text = parts.filter(Boolean).map(part => cleanCoachText(part, { finalPeriod: /:$/.test(String(part).trim()) ? false : true })).join(opts.full ? '\n' : ' ').trim();
+    return cleanCoachText(text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`);
 }
 
 // =================== NOMENCLATURA DESCRIPTIVA + ENLLAÇOS ===================
@@ -8241,12 +8292,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
         let maxim = '';
         try { maxim = pickOfflineMaxim((facts && (facts.topErrorTheme || facts.weakestTheme)) || 'general'); } catch (e) { maxim = ''; }
         if (maxim) {
-            blocks.push(`<blockquote style="margin:0 0 12px 0; padding:8px 12px; border-left:3px solid var(--accent-gold); font-style:italic; opacity:0.95;">“${escapeHtml(maxim)}”</blockquote>`);
+            blocks.push(`<blockquote style="margin:0 0 12px 0; padding:8px 12px; border-left:3px solid var(--accent-gold); font-style:italic; opacity:0.95;">“${escapeCoachText(maxim, { finalPeriod: false })}”</blockquote>`);
         }
 
         if (facts) {
             const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey));
-            if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
+            if (debrief) blocks.push(`<p>${escapeCoachText(debrief)}</p>`);
         }
         const phases = buildPhaseStats(entry);
         const pct = v => (typeof v === 'number' ? `${v}%` : '—');
@@ -8337,7 +8388,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
         if (phases.middlegame.total > 0) {
             let midTxt = `<strong>Mig joc:</strong> correcció ${pct(phases.middlegame.precision)}.`;
             if (phases.middlegame.themes.length) {
-                midTxt += ` Errors més habituals: ${phases.middlegame.themes.map(escapeHtml).join(', ')}.`;
+                midTxt += ` Errors més habituals: ${phases.middlegame.themes.map(t => escapeCoachText(t, { finalPeriod: false })).join(', ')}.`;
+                const advice = buildPhaseAdvice(phases.middlegame.themes, 'middlegame');
+                if (advice) midTxt += ` ${escapeCoachText(advice)}`;
             } else {
                 midTxt += ' Sense errors destacats en aquesta fase.';
             }
@@ -8348,7 +8401,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         if (phases.endgame.total > 0) {
             let endTxt = `<strong>Final:</strong> correcció ${pct(phases.endgame.precision)}.`;
             const advice = buildPhaseAdvice(phases.endgame.themes, 'endgame');
-            if (advice) endTxt += ` ${escapeHtml(advice)}`;
+            if (advice) endTxt += ` ${escapeCoachText(advice)}`;
             blocks.push(`<p>${endTxt}</p>`);
         }
 
@@ -8380,12 +8433,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
                     : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
                 const lines = [
                     header,
-                    show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
-                    show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
-                    show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
-                    show.refutation && m.structured?.refutation ? `<span>${escapeHtml(m.structured.refutation)}</span>` : '',
-                    show.plan ? (m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : '')) : '',
-                    show.continuation && m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeHtml(m.structured.continuation)}</span>` : ''
+                    show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeCoachText(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeCoachText(m.positional)}</span>` : '')) : '',
+                    show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeCoachText(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeCoachText(m.diagnosis)}</span>` : '')) : '',
+                    show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeCoachText(m.structured.consequence)}</span>` : '',
+                    show.refutation && m.structured?.refutation ? `<span>${escapeCoachText(m.structured.refutation)}</span>` : '',
+                    show.plan ? (m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeCoachText(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeCoachText(m.plan)}</span>` : '')) : '',
+                    show.continuation && m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeCoachText(m.structured.continuation, { finalPeriod: false })}</span>` : ''
                 ].filter(Boolean);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
@@ -8446,7 +8499,7 @@ async function requestErrorNotes(entry, severeErrors) {
         try {
             const result = await callOpenAI(buildErrorNotePrompt(err), { generationConfig: { maxOutputTokens: 600 } });
             if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
-            entry.errorNotes[key] = { status: 'done', text: result.text.replace(/\*\*/g, '').trim() };
+            entry.errorNotes[key] = { status: 'done', text: cleanCoachText(result.text, { noEmoji: true, maxChars: 700 }) };
         } catch (e) {
             console.error('[ErrorNotes]', e?.message || e);
             entry.errorNotes[key] = { status: 'error', text: '', message: e?.message || '' };
@@ -8487,11 +8540,11 @@ function updateHistoryErrorNotes(entry) {
         const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
         const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
         let body;
-        if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
+        if (note && note.status === 'done' && note.text) body = escapeCoachText(note.text);
         else if (note && note.status === 'pending') body = '<em>Generant l’explicació...</em>';
         // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
-        else body = escapeHtml(buildLocalErrorNote(err, entry));
+        else body = escapeCoachText(buildLocalErrorNote(err, entry));
         const samePB = d.played && d.best && d.played === d.best;
         const headMoves = samePB
             ? `la millor jugada era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`
@@ -8563,7 +8616,10 @@ function buildOpenAIBundleHintPrompt(step, context = {}) {
         ? `\n\nPer al pas 1, genera dues frases com a màxim:\n- La primera frase ha d'apuntar a un concepte tàctic o estratègic general aplicable a aquesta posició.\n- La segona frase ha d'orientar subtilment cap a la peça o zona clau sense revelar directament la jugada.\n`
         : '';
     
-    return `Ets un entrenador d'escacs expert. Analitza aquesta situació i genera ${sentenceText} en català amb màximes o principis d'escacs per ajudar a trobar la millor jugada del pas ${stepNumber}.
+    return `Ets un entrenador d'escacs expert.
+${getCoachCatalanStyleRules('màxima i pista de bundle')}
+
+Analitza aquesta situació i genera ${sentenceText} en català amb màximes o principis d'escacs per ajudar a trobar la millor jugada del pas ${stepNumber}.
 ${contextText}
 
 REGLES IMPERATIVES:
@@ -8602,6 +8658,7 @@ function buildBundleOpenAIPromptWithFixedSequence(step) {
 
     if (step === 1) {
         return `Ets un mestre d'escacs que aplica els principis de "${voice.work}" de ${voice.name} als escacs.
+${getCoachCatalanStyleRules('màxima de seqüència')}
 
 SEQÜÈNCIA TÀCTICA COMPLETA (no revelar):
 ${sequenceText}
@@ -8631,6 +8688,7 @@ Màxima general
 Màxima específica`;
     } else {
         return `Ets un mestre d'escacs que aplica els principis de "${voice.work}" de ${voice.name} als escacs.
+${getCoachCatalanStyleRules('màxima de seqüència')}
 
 CONTEXT DEL SEGON PAS:
 Posició (FEN): ${stepData.fen}
@@ -9067,12 +9125,12 @@ async function requestOpenAIBundleHint() {
             throw new Error('Respostes massa curtes');
         }
               
-        const trimmedLines = validLines.map(l => l.trim());
+        const trimmedLines = validLines.map(l => cleanCoachText(l, { noEmoji: true, maxChars: 280 })).filter(Boolean);
         
         let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
         html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
         trimmedLines.forEach(line => {
-            html += `<div style="font-style:italic; margin:4px 0;">${line.trim()}</div>`;
+            html += `<div style="font-style:italic; margin:4px 0;">${escapeCoachText(line)}</div>`;
         });
         html += '</div>';
         
@@ -9094,6 +9152,7 @@ function buildAssistedHintPrompt(fen, bestMove, evaluation) {
     const voice = getStrategicVoice();
     const evalInfo = typeof evaluation === 'number' ? `Avaluació actual: ${evaluation > 0 ? '+' : ''}${evaluation} centipeons.` : '';
     return `Ets ${voice.name}, mestre estratega, i guies un alumne durant una partida d'escacs.
+${getCoachCatalanStyleRules('consell assistit')}
 
 POSICIÓ ACTUAL (FEN): ${fen}
 MILLOR JUGADA SEGONS EL MOTOR: ${bestMove}
@@ -9120,10 +9179,10 @@ Escriu la màxima:`;
 let assistedHintPending = false;
 
 function showAssistedMaxim(text) {
-    const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+    const cleanText = cleanCoachText(text, { noEmoji: true, maxChars: 170 });
     let html = '<div class="opening-maxim-box">';
     html += '<div class="maxim-title">Consell estratègic</div>';
-    html += `<div class="maxim-text">${cleanText}</div>`;
+    html += `<div class="maxim-text">${escapeHtml(cleanText)}</div>`;
     html += '</div>';
     $('#status').html(html);
 }
@@ -9158,7 +9217,7 @@ async function requestAssistedHint() {
         if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
         const text = result.text;
 
-        const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+        const cleanText = cleanCoachText(text, { noEmoji: true, maxChars: 170 });
         setCachedOpenAI(cacheKey, cleanText);
         showAssistedMaxim(cleanText);
     } catch (err) {
@@ -9308,6 +9367,7 @@ function buildOpenAIReviewPrompt(entry, severeErrors) {
     
     const voice = getStrategicVoice();
     return `Ets un mestre d'escacs que ensenya amb l'esperit de "${voice.work}" de ${voice.name}: to ${voice.style}.
+${getCoachCatalanStyleRules('ressenya de partida')}
 
 DADES DE LA PARTIDA
 - Resultat: ${entry.result || '—'}
@@ -9364,7 +9424,7 @@ async function requestOpenAIReview(entry, severeErrors) {
     try {
         const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 4096 } });
         if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
-        entry.aiReview = { status: 'done', text: result.text };
+        entry.aiReview = { status: 'done', text: cleanCoachText(result.text, { noEmoji: true, maxChars: 2200 }) };
     } catch (error) {
         entry.aiReview = {
             status: 'error',
@@ -19052,6 +19112,8 @@ function debriefFactsForPrompt(facts) {
 
 function buildDebriefOpenAIPrompt(facts) {
     return `Ets un entrenador d'escacs proper, honest i motivador que parla en català i tuteja l'alumne.
+${getCoachCatalanStyleRules('debrief post-partida')}
+
 Redacta un resum post-partida de 60 a 100 paraules NOMÉS a partir d'aquests fets. No inventis jugades, xifres ni dades que no hi siguin:
 ${JSON.stringify(debriefFactsForPrompt(facts), null, 2)}
 Regles:
@@ -19067,7 +19129,7 @@ async function requestOpenAICoachText(cacheKey, prompt, onText, maxLen = 1800) {
     if (cached) { onText(cached); return; }
     const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 1024 } });
     if (!result.ok) return;
-    const text = (result.text || '').trim();
+    const text = cleanCoachText(result.text || '', { noEmoji: true, maxChars: maxLen });
     if (!text || text.length < 40 || text.length > maxLen) return;
     setCachedOpenAI(cacheKey, text);
     onText(text);
@@ -19721,7 +19783,10 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
 }
 
 function buildHumanPlansOpenAIPrompt(entry, moments) {
-    return `Ets un entrenador d'escacs que escriu en català natural. Redacta un "Entrenador de plans humans" variat i gens repetitiu.
+    return `Ets un entrenador d'escacs que escriu en català natural.
+${getCoachCatalanStyleRules('plans humans')}
+
+Redacta un "Entrenador de plans humans" variat i gens repetitiu.
 
 DADES DE LA PARTIDA
 ${JSON.stringify({ resultat: entry?.result || '—', precisio: entry?.precision ?? null }, null, 2)}
@@ -20114,6 +20179,8 @@ function composeWeeklyPlanText(plan) {
 
 function buildWeeklyPlanOpenAIPrompt(plan) {
     return `Ets un entrenador d'escacs proper que parla en català i tuteja l'alumne.
+${getCoachCatalanStyleRules('pla setmanal')}
+
 Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament d'avui d'un alumne, NOMÉS amb aquests fets:
 ${JSON.stringify({
         tema_a_reforcar: getThemeLabel(plan.focusTheme),
