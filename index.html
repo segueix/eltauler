@@ -591,6 +591,11 @@
         body.device-mobile .hg-panel { margin-left: 8px; margin-right: 8px; }
         /* A mòbil l'historial va a baix de tot (sota els botons): el separem visualment. */
         body.device-mobile #hieroglyphic-history-panel { margin-top: 16px; margin-bottom: 18px; }
+        /* A escriptori l'historial s'ancora dins de la columna dreta, just sota els
+           botons (Pista/Màxima/Menú), una mica més avall i alineat a l'esquerra. */
+        body.device-desktop .controls #hieroglyphic-history-panel {
+            flex-basis: 100%; width: 100%; margin: 14px 0 0; text-align: left;
+        }
         .hg-panel .hg-comment {
             font-size: 0.92rem; font-weight: bold; color: var(--text-primary);
         }
@@ -607,6 +612,9 @@
             font-size: 0.82rem; flex-wrap: nowrap;
         }
         .hg-panel .hg-history-row:first-of-type { border-top: none; }
+        /* Resolt sense errors en algun intent: marca de correcta (✅) i color verd. */
+        .hg-panel .hg-history-row.hg-clean .hg-h-kind-text { color: #2ecc71; font-weight: 600; }
+        .hg-panel .hg-history-row.hg-clean .hg-h-mark-ic { text-shadow: 0 0 6px rgba(46, 204, 113, 0.45); }
         .hg-panel .hg-h-mark-ic {
             flex: 0 0 auto; font-size: 0.95rem; line-height: 1; width: 1.15em; text-align: center;
         }
@@ -657,6 +665,8 @@
         }
         body.epaper-mode .hg-panel .hg-comment,
         body.epaper-mode .hg-panel .hg-h-kind { color: #222; }
+        body.epaper-mode .hg-panel .hg-history-row.hg-clean .hg-h-kind-text { color: #222; }
+        body.epaper-mode .hg-panel .hg-history-row.hg-clean .hg-h-mark-ic { text-shadow: none; }
         body.epaper-mode .hg-panel .hg-new-badge { background: #555 !important; color: #fff; }
         body.epaper-mode .hg-panel .hg-h-action { border-color: #999; color: #333; }
         body.epaper-mode .hg-panel .hg-h-action:hover { background: #555 !important; color: #fff; }

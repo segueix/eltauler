@@ -4844,6 +4844,9 @@ function reloadAppStateFromStorage() {
         if (typeof updateTacticsDisplay === 'function') updateTacticsDisplay();
         if (typeof loadPreparedExerciseHistory === 'function') loadPreparedExerciseHistory();
         if (typeof loadPreparedSequences === 'function') loadPreparedSequences();
+        // Refresca els jeroglífics perquè els resolts en altres aparells apareguin a l'instant.
+        if (typeof refreshJeroglificButton === 'function') refreshJeroglificButton();
+        if (typeof renderHieroglyphicPanel === 'function') renderHieroglyphicPanel();
         if (typeof showToast === 'function') showToast('Dades sincronitzades del núvol', 'success');
     } catch (e) {
         console.warn('[CloudSync] reloadAppStateFromStorage error', e);
@@ -11955,6 +11958,9 @@ function loadHieroglyphicStats() {
 }
 function saveHieroglyphicStats() {
     writeJsonStorage(HIERO_STATS_KEY, hieroglyphicStats);
+    // Notifica la sincronització al núvol perquè els jeroglífics resolts (recompte,
+    // ratxes i FENs resolts) viatgin entre tots els aparells amb Google.
+    try { if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave(); } catch (e) {}
 }
 function loadHieroglyphicHistory() {
     const list = readJsonStorage(HIERO_HISTORY_KEY, []);
@@ -11991,10 +11997,16 @@ function hieroglyphicDifficultyBadge(source = {}) {
     if (percent >= 40) return { level: 'medium', label: 'Dificultat mitjana', title: `Dificultat estimada: ${percent}%` };
     return { level: 'easy', label: 'Dificultat baixa', title: `Dificultat estimada: ${percent}%` };
 }
+// Un jeroglífic queda marcat com a "resolt sense errors" de manera permanent si en
+// algun dels intents s'ha solucionat sense cap errada (marca de correcta i color verd).
+// Mantenim compatibilitat amb historials antics que només duien el camp firstTry.
+function hieroglyphicEntryCleanSolved(entry) {
+    return !!(entry && (entry.cleanSolved || entry.firstTry));
+}
 function hieroglyphicHistoryGroup(entry) {
-    if (!entry || !entry.solved) return 0; // nous o pendents, sempre a dalt
-    if (!entry.firstTry) return 1;        // resolts amb intents: val la pena repetir-los
-    return 2;                             // resolts a la primera, al final
+    if (!entry || !entry.solved) return 0;             // nous o pendents, sempre a dalt
+    if (!hieroglyphicEntryCleanSolved(entry)) return 1; // resolts amb errades: val la pena repetir-los
+    return 2;                                          // resolts sense errors, al final
 }
 function sortHieroglyphicHistoryForReview(list) {
     return (Array.isArray(list) ? list.slice() : []).sort((a, b) => {
@@ -12006,7 +12018,7 @@ function sortHieroglyphicHistoryForReview(list) {
 }
 function retryableHieroglyphicHistory() {
     return sortHieroglyphicHistoryForReview(loadHieroglyphicHistory())
-        .filter(e => e && e.fen && (!e.solved || !e.firstTry));
+        .filter(e => e && e.fen && (!e.solved || !hieroglyphicEntryCleanSolved(e)));
 }
 function positionHieroglyphicPanelForViewport() {
     const panel = $('#hieroglyphic-panel');
@@ -12020,8 +12032,17 @@ function positionHieroglyphicPanelForViewport() {
         if (historyPanel.length && controls.length && !historyPanel.prev().is(controls)) {
             historyPanel.insertAfter(controls);
         }
+    } else if ($('body').hasClass('device-desktop')) {
+        // Escriptori: el comentari queda just abans del tauler (a sota del tauler,
+        // columna esquerra) i l'historial s'ancora sota els botons (Pista/Màxima/Menú),
+        // a la columna dreta, una mica més avall i alineat a l'esquerra.
+        if (!board.prev().is(panel)) panel.insertBefore(board);
+        const controls = $('#game-screen .controls').first();
+        if (historyPanel.length && controls.length && !historyPanel.parent().is(controls)) {
+            controls.append(historyPanel);
+        }
     } else {
-        // Escriptori: comentari i historial junts, just abans del tauler.
+        // Tauleta i la resta: comentari i historial junts, just abans del tauler.
         if (historyPanel.length) {
             if (!board.prev().is(historyPanel)) historyPanel.insertBefore(board);
             if (!panel.next().is(historyPanel)) panel.insertBefore(historyPanel);
@@ -12072,6 +12093,8 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
         difficultyPercent: hieroglyphicDifficultyPercent(puzzle),
         solved: !!solved,
         firstTry: !!solved && (currentHieroglyphicWrongMoves === 0),
+        // Marca permanent: cert si en aquest o en algun intent anterior s'ha resolt sense errors.
+        cleanSolved: hieroglyphicEntryCleanSolved(existing) || (!!solved && (currentHieroglyphicWrongMoves === 0)),
         wrongMoves: currentHieroglyphicWrongMoves || 0,
         createdAt: (existing && (existing.createdAt || existing.ts)) || Date.now(),
         ts: Date.now()
@@ -13226,9 +13249,10 @@ function renderHieroglyphicPanel() {
     if (history.length) {
         history.slice(0, 8).forEach(e => {
             const isNew = !e.solved;
-            const markIcon = e.solved ? (e.firstTry ? '✅' : '☑️') : '⏳';
-            const markText = e.solved ? (e.firstTry ? 'Resolt a la primera' : 'Resolt amb intents') : 'Pendent de resoldre';
-            const cls = e.solved ? (e.firstTry ? 'hg-first' : 'hg-ok') : 'hg-pending';
+            const cleanSolved = hieroglyphicEntryCleanSolved(e);
+            const markIcon = e.solved ? (cleanSolved ? '✅' : '☑️') : '⏳';
+            const markText = e.solved ? (cleanSolved ? 'Resolt sense errors' : 'Resolt amb errades') : 'Pendent de resoldre';
+            const cls = e.solved ? (cleanSolved ? 'hg-first hg-clean' : 'hg-ok') : 'hg-pending';
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
             const badge = hieroglyphicDifficultyBadge(e);
