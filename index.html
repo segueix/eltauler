@@ -3932,6 +3932,13 @@
                canvien el fons (color aleatori per partida, via style inline). */
             #custom-banners { display:flex; flex-direction:column; gap:0; }
             #custom-banners .custom-banner { margin:6px 0; }
+            /* Botó «×» per abandonar una partida (treure-la de la pantalla d'inici) */
+            .custom-banner-leave { position:absolute; top:6px; right:8px; z-index:2;
+                width:1.6rem; height:1.6rem; display:flex; align-items:center; justify-content:center;
+                padding:0; border:none; border-radius:50%; cursor:pointer; line-height:1; font-size:1.1rem;
+                background: rgba(0,0,0,0.28); color:#fff; opacity:0.78;
+                transition: opacity .15s ease, background .15s ease; }
+            .custom-banner-leave:hover { opacity:1; background: rgba(0,0,0,0.5); }
             /* Botó per crear la teva partida col·lectiva (estil discret, amb traç) */
             .custom-create-banner {
                 display:flex; align-items:center; gap:12px; width:100%;
@@ -4372,9 +4379,9 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
     <script src="core.js?v=1.0.1"></script>
-    <script src="catalans.js?v=1.2.1"></script>
+    <script src="catalans.js?v=1.2.2"></script>
     <script>
-        window.APP_VERSION = '1.0.21';
+        window.APP_VERSION = '1.0.22';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;

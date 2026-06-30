@@ -36,6 +36,9 @@
   const DOC_ID = 'current';
   const HISTORY_DOC_ID = 'history';
   const CUSTOMS_DOC_ID = 'customs';      // registre de partides col·lectives pròpies
+  // Partides pròpies que l'usuari ha «abandonat» (amagades a la pantalla d'inici).
+  // Prefix «eltauler_cloud_» → és estat LOCAL del dispositiu i NO se sincronitza.
+  const HIDDEN_KEY = 'eltauler_cloud_catalans_hidden';
 
   const TURN_MS = 24 * 60 * 60 * 1000;   // 24 h perquè votin els Catalans
   const NEXT_GAME_MS = 24 * 60 * 60 * 1000; // 24 h entre el final d'una partida i la següent
@@ -1545,6 +1548,8 @@
   // Obre una partida col·lectiva pròpia pel seu identificador (enllaç compartit).
   function openCustom(id) {
     id = String(id || '');
+    // Obrir l'enllaç d'una partida la recupera si abans s'havia abandonat.
+    unhideCustom(id);
     const dbi = getDb();
     if (!dbi) { openGame(configFromEntry({ id: id, name: 'El meu equip', startElo: START_SF_ELO })); return; }
     db = dbi;
@@ -1595,6 +1600,36 @@
     return { color1: 'hsl(' + h + ',62%,34%)', color2: 'hsl(' + h2 + ',66%,17%)' };
   }
 
+  // --- Partides «abandonades» (amagades localment a la pantalla d'inici) -------
+  function getHiddenCustoms() {
+    try {
+      const a = JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]');
+      return Array.isArray(a) ? a : [];
+    } catch (e) { return []; }
+  }
+  function setHiddenCustoms(arr) {
+    try { localStorage.setItem(HIDDEN_KEY, JSON.stringify(arr)); } catch (e) {}
+  }
+  function isHiddenCustom(id) { return getHiddenCustoms().indexOf(id) !== -1; }
+  // Abandona una partida: deixa d'aparèixer a la pantalla d'inici (només en
+  // aquest dispositiu). Torna a aparèixer si s'obre l'enllaç un altre cop.
+  function abandonCustom(id) {
+    const a = getHiddenCustoms();
+    if (a.indexOf(id) === -1) { a.push(id); setHiddenCustoms(a); }
+    renderCustomBanners();
+    try {
+      if (typeof window.showToast === 'function') {
+        window.showToast('Has abandonat la partida. Torna a obrir-ne l\'enllaç per recuperar-la.', 'info');
+      }
+    } catch (e) {}
+  }
+  // Recupera una partida abandonada (en obrir-ne l'enllaç es torna a mostrar).
+  function unhideCustom(id) {
+    const a = getHiddenCustoms();
+    const i = a.indexOf(id);
+    if (i !== -1) { a.splice(i, 1); setHiddenCustoms(a); renderCustomBanners(); }
+  }
+
   // Subscripció (només lectura, pública) al registre per pintar els bàners.
   function ensureCustoms() {
     const dbi = getDb();
@@ -1616,14 +1651,15 @@
   function renderCustomBanners() {
     const cont = $('#custom-banners');
     if (!cont.length) return;
-    if (!customsList.length) { cont.empty(); return; }
+    const visible = customsList.filter(function (g) { return !isHiddenCustom(g.id); });
+    if (!visible.length) { cont.empty(); return; }
     let html = '';
-    customsList.forEach(function (g) {
+    visible.forEach(function (g) {
       const c1 = g.color1 || '#3a3f87';
       const c2 = g.color2 || '#1a1c40';
       const bg = 'linear-gradient(135deg,' + c1 + ' 0%,' + c2 + ' 100%)';
       const elo = clampStrength(g.startElo || START_SF_ELO);
-      html += '<button class="catalans-banner custom-banner" data-cid="' + escapeSan(g.id) + '" ' +
+      html += '<div class="catalans-banner custom-banner" role="button" tabindex="0" data-cid="' + escapeSan(g.id) + '" ' +
         'aria-label="' + escapeSan(g.name) + ' vs Stockfish" style="background:' + bg + '">' +
         '<svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>' +
         '<span class="catalans-banner-text">' +
@@ -1632,7 +1668,9 @@
         '<span class="catalans-banner-sub">Partida col·lectiva · ' + unitLabel(elo) + ' ' + elo + '</span>' +
         '</span>' +
         '<span class="catalans-banner-cta">Juga-hi ›</span>' +
-        '</button>';
+        '<button class="custom-banner-leave" type="button" data-cid="' + escapeSan(g.id) + '" ' +
+        'title="Abandona aquesta partida" aria-label="Abandona aquesta partida">×</button>' +
+        '</div>';
     });
     cont.html(html);
   }
@@ -1771,12 +1809,22 @@
 
     // Crear una partida pròpia.
     $('#btn-create-custom').on('click', openCreateCustomModal);
+    // Abandonar una partida (× del bàner): atura la propagació perquè no s'obri.
+    $('#custom-banners').on('click', '.custom-banner-leave', function (e) {
+      e.stopPropagation();
+      const id = $(this).attr('data-cid');
+      if (id) abandonCustom(String(id));
+    });
     // Obrir una partida pròpia des del seu bàner a la pantalla d'inici.
     $('#custom-banners').on('click', '.custom-banner', function () {
       const id = $(this).attr('data-cid');
       if (!id) return;
       if (typeof window.openCustomGameScreen === 'function') window.openCustomGameScreen(String(id));
       else openCustom(String(id));
+    });
+    // Accessibilitat: el bàner és un div amb role=button; Enter/Espai l'obren.
+    $('#custom-banners').on('keydown', '.custom-banner', function (e) {
+      if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar') { e.preventDefault(); $(this).trigger('click'); }
     });
     // Editar l'Elo/ROC de la partida pròpia (només el creador).
     $('#catalans-edit-strength').on('click', openEditCustomModal);
