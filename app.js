@@ -6342,6 +6342,9 @@ const BESTLINE_POOL_TARGET = 3;
 let bestLinePool = [];
 let bestLinePrepInFlight = false;
 let personalHieroglyphicPool = [];
+// Mantenim sempre que es pugui un rebost de 3 jeroglífics nous validats: en
+// consumir-ne un, se'n prepara un altre en segon pla fins a tornar a omplir-lo.
+const PERSONAL_HIERO_POOL_TARGET = 3;
 let personalHieroglyphicPrepInFlight = false;
 let personalHieroglyphicLastAttempt = 0;
 
@@ -6375,8 +6378,9 @@ function refreshJeroglificButton() {
     if (!btn) return;
     const ready = jeroglificsReady();
     const hasRetry = retryableHieroglyphicHistory().length > 0;
-    btn.disabled = !ready && !hasRetry;
-    btn.classList.toggle('btn-disabled', !ready && !hasRetry);
+    // La secció de jeroglífics sempre està disponible: el botó no es bloqueja mai.
+    btn.disabled = false;
+    btn.classList.remove('btn-disabled');
     const desc = document.getElementById('bestline-info');
     if (desc) desc.textContent = ready
         ? 'Desxifra un moment clau de les teves partides'
@@ -12006,12 +12010,24 @@ function retryableHieroglyphicHistory() {
 }
 function positionHieroglyphicPanelForViewport() {
     const panel = $('#hieroglyphic-panel');
+    const historyPanel = $('#hieroglyphic-history-panel');
     const board = $('#game-screen .board-container').first();
     if (!panel.length || !board.length) return;
     if ($('body').hasClass('device-mobile')) {
+        // Comentari just sota el tauler; historial a baix de tot, sota els botons.
         if (!panel.prev().is(board)) panel.insertAfter(board);
-    } else if (!panel.next().is(board)) {
-        panel.insertBefore(board);
+        const controls = $('#game-screen .controls').first();
+        if (historyPanel.length && controls.length && !historyPanel.prev().is(controls)) {
+            historyPanel.insertAfter(controls);
+        }
+    } else {
+        // Escriptori: comentari i historial junts, just abans del tauler.
+        if (historyPanel.length) {
+            if (!board.prev().is(historyPanel)) historyPanel.insertBefore(board);
+            if (!panel.next().is(historyPanel)) panel.insertBefore(historyPanel);
+        } else if (!panel.next().is(board)) {
+            panel.insertBefore(board);
+        }
     }
 }
 function netejarErrorsPerJeroglific() {
@@ -12920,7 +12936,8 @@ async function closeHieroglyphicCandidateWithStockfish(candidate, opts = {}) {
 }
 async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = {}) {
     const recent = new Set((hieroglyphicStats.generatedFens || []).slice(-8));
-    const pool = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic');
+    const exclude = opts.excludeFens instanceof Set ? opts.excludeFens : new Set(opts.excludeFens || []);
+    const pool = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic' && !exclude.has(c.fen));
     const fresh = pool.filter(c => !recent.has(c.fen));
     const tacticCandidates = (fresh.length ? fresh : pool).slice();
     for (let i = tacticCandidates.length - 1; i > 0; i--) {
@@ -12936,14 +12953,15 @@ async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = 
 
 async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
     if (personalHieroglyphicPrepInFlight) return false;
-    if (personalHieroglyphicPool.length >= 1) return false;
-    const candidates = collectPersonalHieroglyphicCandidates(null);
+    if (personalHieroglyphicPool.length >= PERSONAL_HIERO_POOL_TARGET) return false;
+    const poolFens = new Set(personalHieroglyphicPool.map(p => p.fen));
+    const candidates = collectPersonalHieroglyphicCandidates(null).filter(c => !poolFens.has(c.fen));
     if (!candidates.length) { refreshJeroglificButton(); return false; }
     personalHieroglyphicPrepInFlight = true;
     personalHieroglyphicLastAttempt = Date.now();
     setHieroglyphicGenerating(true);
     try {
-        const prepared = await chooseStockfishValidatedHieroglyphicCandidate(candidates, opts);
+        const prepared = await chooseStockfishValidatedHieroglyphicCandidate(candidates, Object.assign({}, opts, { excludeFens: poolFens }));
         if (prepared && !personalHieroglyphicPool.some(p => p.fen === prepared.fen)) {
             personalHieroglyphicPool.push(prepared);
         }
@@ -12981,7 +12999,9 @@ function buildHieroglyphicLineFromCandidate(candidate) {
     return { solution: solution.length ? solution : [candidate.bestMove], replies };
 }
 function setHieroglyphicGenerating(isGenerating) {
-    ['btn-bestline', 'btn-hieroglyphic-exercise', 'history-personal-hieroglyphic'].forEach(id => {
+    // El botó principal de jeroglífics queda sempre disponible (no es bloqueja ni
+    // durant la generació en segon pla); només deshabilitem els disparadors interns.
+    ['btn-hieroglyphic-exercise', 'history-personal-hieroglyphic'].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         el.disabled = !!isGenerating;
@@ -13187,39 +13207,47 @@ if (typeof window !== 'undefined') window.retryHieroglyphicFromHistory = retryHi
 // historial (resolt a la primera o no) amb opció de reintentar.
 function renderHieroglyphicPanel() {
     const panel = $('#hieroglyphic-panel');
+    const historyPanel = $('#hieroglyphic-history-panel');
     if (!panel.length) return;
     positionHieroglyphicPanelForViewport();
-    if (currentBundleSource !== 'bestline') { panel.hide().empty(); return; }
+    if (currentBundleSource !== 'bestline') {
+        panel.hide().empty();
+        historyPanel.hide().empty();
+        return;
+    }
     const moves = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.solutionMoves && currentHieroglyphicPuzzle.solutionMoves.length)
         || hieroglyphicSolutionUci.length || 3;
+    panel.html(`<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`).show();
+
     // L'historial mostra els jeroglífics ANTERIORS (no el que s'està resolent ara).
     const activeFen = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.fen;
     const history = sortHieroglyphicHistoryForReview(loadHieroglyphicHistory().filter(e => e && e.fen !== activeFen));
-    let html = `<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`;
-    html += '<div class="hg-history">';
-    html += '<div class="hg-history-title">Historial de jeroglífics</div>';
+    let html = '<div class="hg-history-title">Historial de jeroglífics</div>';
     if (history.length) {
         history.slice(0, 8).forEach(e => {
             const isNew = !e.solved;
-            const mark = e.solved ? (e.firstTry ? '✅ A la primera' : '☑️ Resolt amb intents') : '⏳ Pendent';
+            const markIcon = e.solved ? (e.firstTry ? '✅' : '☑️') : '⏳';
+            const markText = e.solved ? (e.firstTry ? 'Resolt a la primera' : 'Resolt amb intents') : 'Pendent de resoldre';
             const cls = e.solved ? (e.firstTry ? 'hg-first' : 'hg-ok') : 'hg-pending';
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
             const badge = hieroglyphicDifficultyBadge(e);
+            // Botó d'acció: una fletxa circular per reintentar; un símbol de play si és nou.
+            const actionIcon = isNew ? 'ic-hg-play' : 'ic-hg-replay';
+            const actionLabel = isNew ? 'Comença aquest jeroglífic' : 'Torna a provar aquest jeroglífic';
             html += `<div class="hg-history-row ${cls}">`
+                + `<span class="hg-h-mark-ic" title="${escapeHtml(markText)}" aria-label="${escapeHtml(markText)}">${markIcon}</span>`
+                + `<span class="hg-h-kind">${isNew ? '<span class="hg-new-badge">Nou</span>' : ''}<span class="hg-h-kind-text">${escapeHtml(String(kind))}</span></span>`
+                + `<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>`
                 + `<span class="hg-h-date">${escapeHtml(dateText)}</span>`
-                + `<span class="hg-h-kind">${isNew ? '<span class="hg-new-badge">Nou</span> ' : ''}${escapeHtml(String(kind))}</span>`
-                + `<span class="hg-h-difficulty"><span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>${escapeHtml(badge.label)}</span>`
-                + `<span class="hg-h-mark">${mark}</span>`
-                + `<button class="btn-reintenta-ghost hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}">Reintenta</button>`
+                + `<button class="hg-h-action${isNew ? ' hg-h-action-new' : ''} hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="${escapeHtml(actionLabel)}" aria-label="${escapeHtml(actionLabel)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${actionIcon}"/></svg></button>`
                 + '</div>';
         });
     } else {
         html += '<div class="hg-history-empty">Encara no tens jeroglífics a l’historial. Resol aquest per començar-lo.</div>';
     }
-    html += '</div>';
-    panel.html(html).show();
-    panel.find('.hg-h-retry').off('click').on('click', function () {
+    historyPanel.html(html).show();
+    historyPanel.find('.hg-h-retry').off('click').on('click', function () {
         retryHieroglyphicFromHistory($(this).attr('data-hg-id'));
     });
 }
@@ -21004,8 +21032,17 @@ async function backgroundPrepTick() {
     if (typeof isCalibrationActive === 'function' && isCalibrationActive()) return;
     if (!isIdleForBackgroundPrep()) return;
     prunePreparedSequences();
-    if (personalHieroglyphicPool.length < 1) {
+    if (personalHieroglyphicPool.length < PERSONAL_HIERO_POOL_TARGET) {
+        const before = personalHieroglyphicPool.length;
         await ensurePersonalHieroglyphicPoolTick({ shouldAbort: () => backgroundPrepAbortRequested || !isIdleForBackgroundPrep() });
+        const grew = personalHieroglyphicPool.length > before;
+        // Mentre puguem afegir jeroglífics nous i no arribem a 3, seguim omplint el
+        // rebost de pressa (en repòs); quan ja n'hi hagi prou, deixem pas a la resta de prep.
+        if (grew && personalHieroglyphicPool.length < PERSONAL_HIERO_POOL_TARGET
+            && !backgroundPrepAbortRequested && isIdleForBackgroundPrep()) {
+            setTimeout(backgroundPrepTick, 600);
+            return;
+        }
         if (personalHieroglyphicPool.length > 0) return;
     }
     const next = getBackgroundPrepCandidates().find(f => !preparedSequences[f]);
