@@ -168,6 +168,11 @@
   // partida global «Catalans vs Stockfish»; en mode personalitzat (custom) apunta
   // a un altre document de la mateixa col·lecció amb el nom d'equip i l'ELO triats.
   let config = defaultConfig();
+  // Comptador d'obertures: cada cop que s'obre una partida s'incrementa. Les
+  // tasques asíncrones (p. ex. carregar el nom/ELO reals d'una partida pròpia)
+  // el capturen i només apliquen els seus resultats si segueix vigent. Així una
+  // obertura posterior no es barreja amb les dades que arriben tard d'una anterior.
+  let openToken = 0;
   let customsUnsub = null;   // subscripció al registre de partides pròpies
   let customsList = [];      // partides pròpies (per pintar els bàners)
   let state = null;          // últim snapshot del document
@@ -862,11 +867,19 @@
     });
   }
 
+  // Identitat de la partida oberta per recuperar-la després d'un inici de sessió
+  // amb redirecció (mòbil), que recarrega l'app. «default» = la global; «partida:<id>»
+  // = una de pròpia. Així es torna a la partida CORRECTA i no es barreja amb la global.
+  function rememberReturnTarget() {
+    const target = (config.custom && config.id) ? ('partida:' + config.id) : 'default';
+    try { localStorage.setItem('eltauler_cloud_returnToCatalans', target); } catch (e) {}
+  }
+
   function promptSignIn() {
     setStatus('Inicia sessió amb Google per votar.');
-    // Recorda que volem tornar a Catalans en completar l'inici de sessió (útil quan
-    // a mòbil la redirecció recarrega l'app i torna a la pantalla d'inici).
-    try { localStorage.setItem('eltauler_cloud_returnToCatalans', '1'); } catch (e) {}
+    // Recorda a quina partida tornar en completar l'inici de sessió (útil quan a
+    // mòbil la redirecció recarrega l'app i torna a la pantalla d'inici).
+    rememberReturnTarget();
     if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
       window.CloudSync.signIn();
     }
@@ -1503,6 +1516,7 @@
     db = dbi;
 
     teardownGame();
+    const myToken = ++openToken;   // invalida qualsevol feina asíncrona anterior
     config = cfg || defaultConfig();
     docRef = db.collection(COLLECTION).doc(config.docId);
 
@@ -1536,6 +1550,7 @@
     }
 
     ensureDoc().then(function () {
+      if (myToken !== openToken) return;   // una obertura posterior ja mana
       subscribe();
       // Ajusta la mida del tauler quan ja és visible.
       setTimeout(function () { if (board && typeof board.resize === 'function') board.resize(); }, 60);
@@ -1546,36 +1561,47 @@
   function open() { openGame(defaultConfig()); }
 
   // Obre una partida col·lectiva pròpia pel seu identificador (enllaç compartit).
+  //
+  // CLAU: el document és sempre «c_<id>» (determinista), així que obrim de seguida
+  // amb aquesta configuració —tear down de la partida anterior i subscripció al
+  // document correcte— SENSE esperar cap lectura. El nom de l'equip i l'ELO reals
+  // (que viuen al registre o al propi document) s'omplen DESPRÉS, i només si encara
+  // estem en aquesta mateixa partida. Abans, obrir-la esperava la lectura i durant
+  // aquesta estona la pantalla podia barrejar l'estat de la partida anterior (p. ex.
+  // la global «Catalans») amb la pròpia.
   function openCustom(id) {
     id = String(id || '');
     // Obrir l'enllaç d'una partida la recupera si abans s'havia abandonat.
     unhideCustom(id);
     const dbi = getDb();
-    if (!dbi) { openGame(configFromEntry({ id: id, name: 'El meu equip', startElo: START_SF_ELO })); return; }
+    const cached = dbi ? customsList.find(function (g) { return g.id === id; }) : null;
+    openGame(configFromEntry(cached || { id: id, name: 'El meu equip', startElo: START_SF_ELO }));
+    if (!dbi || cached) return;   // sense núvol o ja tenim les dades reals
     db = dbi;
-    const cached = customsList.find(function (g) { return g.id === id; });
-    if (cached) { openGame(configFromEntry(cached)); return; }
-    // No el tenim a la memòria: mira el registre i, si cal, el propi document.
+    const myToken = openToken;    // vigent mentre no s'obri una altra partida
+    const applyEntry = function (entry) {
+      if (myToken !== openToken || !config.custom || config.id !== id) return; // obsolet
+      if (entry) {
+        config.teamName = entry.name || config.teamName;
+        config.startElo = clampStrength(entry.startElo || config.startElo);
+        config.createdByUid = entry.createdByUid || config.createdByUid;
+      } else {
+        setStatus('Aquesta partida col·lectiva encara no existeix. Fes el primer moviment per començar-la!');
+      }
+      personalizeUi();
+    };
     db.collection(COLLECTION).doc(CUSTOMS_DOC_ID).get().then(function (snap) {
       const games = (snap.exists && snap.data() && snap.data().games) || {};
-      if (games[id]) { openGame(configFromEntry(games[id])); return; }
+      if (games[id]) return games[id];
       return db.collection(COLLECTION).doc('c_' + id).get().then(function (gs) {
-        if (gs.exists) {
-          const d = gs.data() || {};
-          openGame({
-            custom: true, id: id, docId: 'c_' + id, historyDocId: 'c_' + id + '_h',
-            teamName: d.teamName || 'El meu equip',
-            startElo: clampStrength(d.startElo || d.sfElo || START_SF_ELO),
-            createdByUid: d.createdByUid || null
-          });
-        } else {
-          openGame(configFromEntry({ id: id, name: 'El meu equip', startElo: START_SF_ELO }));
-          setStatus('Aquesta partida col·lectiva encara no existeix. Fes el primer moviment per començar-la!');
-        }
+        if (!gs.exists) return null;
+        const d = gs.data() || {};
+        return { id: id, name: d.teamName || 'El meu equip',
+          startElo: clampStrength(d.startElo || d.sfElo || START_SF_ELO),
+          createdByUid: d.createdByUid || null };
       });
-    }).catch(function () {
-      openGame(configFromEntry({ id: id, name: 'El meu equip', startElo: START_SF_ELO }));
-      setStatus('No s\'ha pogut carregar la partida col·lectiva.');
+    }).then(applyEntry).catch(function () {
+      if (myToken === openToken) setStatus('No s\'ha pogut carregar la partida col·lectiva.');
     });
   }
 
@@ -1840,7 +1866,7 @@
     // Canviar de compte (tanca sessió i torna a triar compte de Google).
     $('#catalans-switch').on('click', function () {
       setStatus('Canviant de compte…');
-      try { localStorage.setItem('eltauler_cloud_returnToCatalans', '1'); } catch (e) {}
+      rememberReturnTarget();
       if (window.CloudSync && typeof window.CloudSync.switchAccount === 'function') {
         window.CloudSync.switchAccount();
       } else if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {

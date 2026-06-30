@@ -5102,7 +5102,11 @@ window.onCloudSignedIn = function (email) {
         const catScreen = document.getElementById('catalans-screen');
         const onCatalans = catScreen && catScreen.style.display !== 'none' && catScreen.offsetParent !== null;
         if (wanted && !onCatalans) {
-            const cid = customGameIdFromUrl();
+            // El destí pot ser una partida pròpia concreta («partida:<id>»), que es
+            // recupera de l'URL si encara hi és. Així, després d'un inici de sessió
+            // amb redirecció, es torna a la partida CORRECTA i no a la global.
+            const m = /^partida:(.+)$/.exec(wanted);
+            const cid = (m && m[1]) || customGameIdFromUrl();
             if (cid) {
                 openCustomGameScreen(cid, true);
             } else {
