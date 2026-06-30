@@ -19,8 +19,10 @@ function getCoachCatalanStyleRules(context = 'general') {
 Veu: català natural, clar i correcte. To d'entrenador: directe, útil, una mica exigent però mai humiliant. Frases curtes. Una idea per frase. Evita floritures buides i frases genèriques com "has de millorar" si no dius què cal fer.
 Terminologia: escriu "errada greu" en lloc de "blunder" en text visible. Usa "imprecisió", "error" i "errada greu". Escriu "mig joc", no "mitjà joc"; "final", no "endgame"; "obertura"; "taules"; "escac" i "escac i mat"; "enroc curt" i "enroc llarg"; "dama", no "reina"; "cavall", "alfil", "torre", "peó" i "rei". Usa correctament "forquilla", "clavada", "atac doble", "peça sobrecarregada", "descoberta", "desviació", "raigs X", "peó passat" i "avantpost". Parla de centipeons o cp de manera coherent.
 Ressenyes: primer resultat i diagnòstic principal; després obertura, mig joc i final; després moments clau; després errades comentades. No repeteixis la mateixa errada en moments clau i errades comentades si ja està ben explicada. Cada fase ha de tenir com a màxim una frase de diagnòstic i una acció concreta.
-Errades: "Posició:" descriu el fet objectiu. "Què va fallar:" explica la causa. "Conseqüència:" diu què perd el jugador. "Pla millor:" diu què calia fer. "Pregunta clau:" ajuda a revisar la pròxima partida. Evita frases vagues com "calia jugar millor".
-No tradueixis noms d'obertures ECO en anglès. No alteris FEN, UCI, SAN, ECO ni noms d'obertures.`;
+Errades: evita etiquetes rígides visibles com "Posició:", "Què va fallar:", "Conseqüència:", "Pla millor:" i "Pregunta clau:". Fusiona fet objectiu, causa, conseqüència, pla i pregunta de revisió en un comentari narratiu, fluid i pedagògic. Evita frases vagues com "calia jugar millor".
+Humanització: fes servir connectors naturals com "tanmateix", "de fet", "per tant" i "malgrat tot" quan ajudin a lligar idees. Si detectes una frase tallada, tanca-la amb una formulació escaquística natural; no deixis punts suspensius de retallada. Pots usar expressions genuïnes com "punt a la butxaca", "es paga cara", "simplificar cap a la victòria" o "tenir la victòria a tocar" quan encaixin.
+Terminologia de fase: escriu "a l'obertura", "al mig joc" i "al final" o "en el final"; evita "en final". Evita descripcions literals de moviments si pots dir "jugar g4", "passar la torre a e1" o "doblegar torres a la columna e".
+No tradueixis noms d'obertures ECO en anglès. No alteris FEN, UCI, SAN, ECO, coordenades ni noms d'obertures.`;
 }
 
 function cleanCoachText(text, options = {}) {
@@ -33,7 +35,8 @@ function cleanCoachText(text, options = {}) {
         .replace(/\bendgame\b/gi, 'final')
         .replace(/mitjà joc/gi, 'mig joc')
         .replace(/\breina\b/gi, 'dama')
-        .replace(/avantposat/gi, 'avantpost');
+        .replace(/avantposat/gi, 'avantpost')
+        .replace(/\ben final\b/gi, 'al final');
     if (options.noEmoji === true) {
         out = out.replace(/[\u{1F000}-\u{1FAFF}\u{2600}-\u{27BF}]/gu, '');
     }
@@ -42,9 +45,10 @@ function cleanCoachText(text, options = {}) {
         const limit = Math.max(0, Number(options.maxChars) || 0);
         let cut = out.slice(0, limit).replace(/\s+\S*$/, '').trim();
         if (!cut) cut = out.slice(0, limit).trim();
-        out = cut.replace(/[,.!?;:]+$/, '').trim() + '…';
+        out = cut.replace(/[,.!?;:…]+$/, '').trim();
     }
-    if (options.finalPeriod !== false && out && !/[.!?…:;)]$/.test(out)) out += '.';
+    out = out.replace(/\s*[…]+\s*$/g, '').trim();
+    if (options.finalPeriod !== false && out && !/[.!?:;)]$/.test(out)) out += '.';
     return out;
 }
 
@@ -8025,6 +8029,21 @@ function findMoveReviewForError(entry, err) {
 // Explicació rica d'una errada generada LOCALMENT (sense OpenAI): fets posicionals
 // concrets, diagnòstic segons tema i gravetat, el pla correcte, la continuació de
 // la línia i una pregunta de reflexió. Reaprofita el banc de plans humans.
+
+function buildCoachErrorNarrative(parts, opts = {}) {
+    const clean = value => cleanCoachText(value, { finalPeriod: false });
+    const sentences = [];
+    if (parts.fact) sentences.push(clean(parts.fact));
+    if (parts.mistake) sentences.push(clean(parts.mistake));
+    if (parts.consequence) sentences.push(`Per tant, ${clean(parts.consequence).replace(/^per tant,?\s*/i, '')}`);
+    if (parts.refutation) sentences.push(clean(parts.refutation));
+    if (parts.plan) sentences.push(`El pla humà era ${clean(parts.plan).replace(/^(el pla (millor|correcte) (era|és)|calia)\s*/i, '')}`);
+    if (parts.continuation) sentences.push(`La línia continuava amb ${clean(parts.continuation).replace(/^(la idea continuava amb|moviments següents:)\s*/i, '')}`);
+    if (parts.candidates) sentences.push(clean(parts.candidates));
+    if (parts.question) sentences.push(`Abans de la pròxima partida, pregunta't: ${clean(parts.question)}`);
+    return cleanCoachText(sentences.filter(Boolean).join(opts.full ? '\n' : ' '));
+}
+
 function buildLocalErrorNote(err, entry, opts = {}) {
     if (!err) return 'Errada detectada en aquesta posició.';
     const d = describeSevereError(err);
@@ -8075,20 +8094,18 @@ function buildLocalErrorNote(err, entry, opts = {}) {
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
     const structured = buildStructuredLocalExplanation(moment, plan, opts);
     const show = coachSectionsFor(moment.quality);
-    const parts = [];
-    if (show.fact && structured.fact) parts.push(`Posició: ${structured.fact}`);
-    if (show.mistake && structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
-    if (show.consequence && structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
-    if (show.refutation && structured.refutation) parts.push(structured.refutation);
-    if (show.plan && structured.plan) parts.push(`Pla millor: ${structured.plan}`);
-    if (show.continuation && structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
-    if (show.candidates && moment.candidates) parts.push(moment.candidates);
-    if (show.question && structured.question) parts.push(`Pregunta clau: ${structured.question}`);
-    // A l'exportació (full) posem cada camp en una línia; a pantalla, en línia seguida.
-    const text = parts.filter(Boolean).map(part => cleanCoachText(part, { finalPeriod: /:$/.test(String(part).trim()) ? false : true })).join(opts.full ? '\n' : ' ').trim();
-    return cleanCoachText(text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`);
+    const narrative = buildCoachErrorNarrative({
+        fact: show.fact ? structured.fact : '',
+        mistake: show.mistake ? structured.mistake : '',
+        consequence: show.consequence ? structured.consequence : '',
+        refutation: show.refutation ? structured.refutation : '',
+        plan: show.plan ? structured.plan : '',
+        continuation: show.continuation ? structured.continuation : '',
+        candidates: show.candidates ? moment.candidates : '',
+        question: show.question ? structured.question : ''
+    }, opts);
+    return narrative || cleanCoachText(`En lloc de ${d.played}, la jugada precisa era ${d.best}.`);
 }
-
 // =================== NOMENCLATURA DESCRIPTIVA + ENLLAÇOS ===================
 // Descriu un moviment amb llenguatge planer (nom de la peça, ala dreta/esquerra,
 // columna del peó) en comptes de notació algebraica, perquè sigui llegible per a
@@ -8127,9 +8144,8 @@ function describeMoveHuman(fen, move) {
         if (mv.flags.includes('k')) text = 'enroc curt';
         else if (mv.flags.includes('q')) text = 'enroc llarg';
         else if (mv.piece === 'p') {
-            const verb = mv.captured ? 'captura a' : 'avança a';
-            text = `el peó de la columna ${mv.from[0]} ${verb} ${mv.to}`;
-            if (mv.promotion) text += ` i corona ${promoNames[mv.promotion] || 'dama'}`;
+            text = mv.captured ? `capturar a ${mv.to} amb el peó de ${mv.from}` : `jugar ${mv.to}`;
+            if (mv.promotion) text += ` i coronar ${promoNames[mv.promotion] || 'dama'}`;
         } else {
             let name = names[mv.piece] || 'peça';
             // Desambiguació dreta/esquerra només si hi ha dues peces iguals del mateix color.
@@ -8142,8 +8158,9 @@ function describeMoveHuman(fen, move) {
                     name += flank === 'esquerra' ? " de l'esquerra" : ' de la dreta';
                 }
             }
-            const verb = mv.captured ? 'captura a' : 'va a';
-            text = `${pieceArticle(name)} ${verb} ${mv.to}`;
+            text = mv.captured
+                ? `${pieceArticle(name)} de ${mv.from} captura a ${mv.to}`
+                : `${pieceArticle(name)} passa de ${mv.from} a ${mv.to}`;
         }
         if (mv.san.includes('#')) text += ' amb escac i mat';
         else if (mv.san.includes('+')) text += ' amb escac';
@@ -8431,14 +8448,17 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const header = badge
                     ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): ${tail}`
                     : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
+                const momentNarrative = buildCoachErrorNarrative({
+                    fact: show.fact ? (m.structured?.fact || m.positional || '') : '',
+                    mistake: show.mistake ? (m.structured?.mistake || m.diagnosis || '') : '',
+                    consequence: show.consequence ? m.structured?.consequence : '',
+                    refutation: show.refutation ? m.structured?.refutation : '',
+                    plan: show.plan ? (m.structured?.plan || m.plan || '') : '',
+                    continuation: show.continuation ? m.structured?.continuation : ''
+                });
                 const lines = [
                     header,
-                    show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeCoachText(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeCoachText(m.positional)}</span>` : '')) : '',
-                    show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeCoachText(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeCoachText(m.diagnosis)}</span>` : '')) : '',
-                    show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeCoachText(m.structured.consequence)}</span>` : '',
-                    show.refutation && m.structured?.refutation ? `<span>${escapeCoachText(m.structured.refutation)}</span>` : '',
-                    show.plan ? (m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeCoachText(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeCoachText(m.plan)}</span>` : '')) : '',
-                    show.continuation && m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeCoachText(m.structured.continuation, { finalPeriod: false })}</span>` : ''
+                    momentNarrative ? `<span>${escapeHtml(momentNarrative)}</span>` : ''
                 ].filter(Boolean);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
