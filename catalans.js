@@ -1401,23 +1401,27 @@
   function shareCatalans() {
     const url = catalansShareUrl();
     const title = (isCustom() ? teamName() : 'Catalans') + ' vs Stockfish';
+    // Missatge amb el nom de l'equip que lluita contra Stockfish i una crida a unir-s'hi.
     const text = isCustom()
-      ? ('Uneix-te a ' + teamName() + ' i vota el moviment de la nostra partida col·lectiva contra Stockfish a El Tauler!')
-      : 'Vota el moviment de la partida col·lectiva Catalans vs Stockfish a El Tauler.';
+      ? (teamName() + ' vs Stockfish, suma\'t a una partida èpica!')
+      : 'Catalans vs Stockfish, suma\'t a una partida èpica!';
     if (navigator.share) {
       navigator.share({ title: title, text: text, url: url }).catch(function () {});
       return;
     }
+    // Sense API de compartir natiu: copia el missatge SENCER amb l'enllaç a sota,
+    // perquè quan s'enganxi inclogui el nom de l'equip i la invitació.
+    const combined = text + '\n' + url;
     const done = function () {
       setStatus('Enllaç copiat: comparteix la partida perquè més gent voti.');
       try { if (typeof window.showToast === 'function') window.showToast('Enllaç copiat ✓', 'success'); } catch (e) {}
     };
     if (navigator.clipboard && navigator.clipboard.writeText) {
-      navigator.clipboard.writeText(url).then(done).catch(function () {
-        window.prompt('Copia l’enllaç de Catalans vs Stockfish:', url);
+      navigator.clipboard.writeText(combined).then(done).catch(function () {
+        window.prompt('Copia l’enllaç:', combined);
       });
     } else {
-      window.prompt('Copia l’enllaç de Catalans vs Stockfish:', url);
+      window.prompt('Copia l’enllaç:', combined);
     }
   }
 
