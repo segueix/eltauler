@@ -612,9 +612,14 @@
             font-size: 0.82rem; flex-wrap: nowrap;
         }
         .hg-panel .hg-history-row:first-of-type { border-top: none; }
-        /* Resolt sense errors en algun intent: marca de correcta (✅) i color verd. */
+        /* Resolt sense errors en algun intent: marca de correcta (✅) i tot el fet en verd. */
+        .hg-panel .hg-history-row.hg-clean { background: rgba(46, 204, 113, 0.10); border-radius: 6px; padding-left: 4px; padding-right: 4px; }
         .hg-panel .hg-history-row.hg-clean .hg-h-kind-text { color: #2ecc71; font-weight: 600; }
-        .hg-panel .hg-history-row.hg-clean .hg-h-mark-ic { text-shadow: 0 0 6px rgba(46, 204, 113, 0.45); }
+        .hg-panel .hg-history-row.hg-clean .hg-h-mark-ic { color: #2ecc71; text-shadow: 0 0 6px rgba(46, 204, 113, 0.45); }
+        /* Jeroglífic que s'està jugant en aquest moment: queda a la seva posició
+           habitual a la llista (no s'amaga) perquè reintentar sigui consistent. */
+        .hg-panel .hg-history-row.hg-active { background: rgba(124, 77, 201, 0.14); border-radius: 6px; padding-left: 4px; padding-right: 4px; }
+        .hg-panel .hg-new-badge.hg-active-badge { background: var(--accent-blue, #1f5fa8); }
         .hg-panel .hg-h-mark-ic {
             flex: 0 0 auto; font-size: 0.95rem; line-height: 1; width: 1.15em; text-align: center;
         }
@@ -665,8 +670,10 @@
         }
         body.epaper-mode .hg-panel .hg-comment,
         body.epaper-mode .hg-panel .hg-h-kind { color: #222; }
+        body.epaper-mode .hg-panel .hg-history-row.hg-clean { background: transparent; }
         body.epaper-mode .hg-panel .hg-history-row.hg-clean .hg-h-kind-text { color: #222; }
         body.epaper-mode .hg-panel .hg-history-row.hg-clean .hg-h-mark-ic { text-shadow: none; }
+        body.epaper-mode .hg-panel .hg-history-row.hg-active { background: transparent; }
         body.epaper-mode .hg-panel .hg-new-badge { background: #555 !important; color: #fff; }
         body.epaper-mode .hg-panel .hg-h-action { border-color: #999; color: #333; }
         body.epaper-mode .hg-panel .hg-h-action:hover { background: #555 !important; color: #fff; }
