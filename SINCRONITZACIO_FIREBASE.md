@@ -70,6 +70,11 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
    fer-la avançar) cal haver iniciat sessió amb Google.
    Clica **Publish**.
 
+   > ℹ️ Les **partides col·lectives pròpies** (cada equip contra Stockfish que es
+   > crea des de la pantalla d'inici) viuen a la **mateixa** col·lecció
+   > `eltauler_catalans` (documents `customs`, `c_<id>` i `c_<id>_h`), de manera
+   > que la regla amb comodí `{docId}` ja les cobreix: no cal afegir-hi res més.
+
    > ⚠️ **Si veus «Error de connexió amb la partida global»**, gairebé sempre és
    > perquè aquestes regles encara no s'han publicat (Firestore denega la
    > lectura). Enganxa-les al panell **Rules** i clica **Publish**.
