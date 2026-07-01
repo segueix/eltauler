@@ -3056,6 +3056,21 @@
         <symbol id="ic-hg-play" viewBox="0 0 24 24">
             <polygon points="8 5 8 19 19 12" fill="currentColor"/>
         </symbol>
+        <symbol id="ic-skip-back" viewBox="0 0 24 24">
+            <polygon points="19 20 9 12 19 4 19 20"/>
+            <line x1="5" y1="19" x2="5" y2="5"/>
+        </symbol>
+        <symbol id="ic-play" viewBox="0 0 24 24">
+            <polygon points="6 4 20 12 6 20 6 4"/>
+        </symbol>
+        <symbol id="ic-pause" viewBox="0 0 24 24">
+            <rect x="6" y="4" width="4" height="16" rx="1"/>
+            <rect x="14" y="4" width="4" height="16" rx="1"/>
+        </symbol>
+        <symbol id="ic-skip-forward" viewBox="0 0 24 24">
+            <polygon points="5 4 15 12 5 20 5 4"/>
+            <line x1="19" y1="5" x2="19" y2="19"/>
+        </symbol>
         <symbol id="ic-search" viewBox="0 0 24 24">
             <circle cx="10.5" cy="10.5" r="7"/>
             <path d="M20.5 20.5l-4.7-4.7"/>
@@ -3666,16 +3681,13 @@
                                     <span class="sw" style="background:#2ecc71;"></span>la millor jugada
                                 </div>
                                 <div class="history-controls">
-                                    <button class="btn btn-secondary" id="history-prev">⏮️ Enrere</button>
-                                    <button class="btn btn-primary" id="history-play">▶️ Reprodueix</button>
-                                    <button class="btn btn-secondary" id="history-pause">⏸️ Pausa</button>
-                                    <button class="btn btn-secondary" id="history-next">⏭️ Endavant</button>
+                                    <button class="btn btn-secondary" id="history-prev"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg>Enrere</button>
+                                    <button class="btn btn-primary" id="history-play"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Reprodueix</button>
+                                    <button class="btn btn-secondary" id="history-pause"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg>Pausa</button>
+                                    <button class="btn btn-secondary" id="history-next"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg>Endavant</button>
                                 </div>
                                 <div class="history-actions">
-                                    <button class="btn btn-secondary" id="history-generate-review">🔁 Regenerar la ressenya</button>
-                                    <button class="btn btn-secondary" id="history-download-review" title="Baixa en un fitxer de text la ressenya generada, els moments clau i les errades comentades">📝 Baixa el text</button>
-                                    <button class="btn btn-secondary" id="history-export-pgn">♟ Exportar PGN</button>
-                                    <button class="btn btn-secondary" id="history-share-pgn">📤 Compartir</button>
+                                    <button class="btn btn-secondary" id="history-generate-review" style="grid-column:1 / -1;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Regenerar la ressenya</button>
                                 </div>
                                 <div class="history-progress" id="history-progress">0/0</div>
                             </div>
