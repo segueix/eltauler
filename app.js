@@ -7506,7 +7506,6 @@ function updateHistoryDetails(entry) {
         breakdown.empty();
         if (reviewContent.length) reviewContent.text('—');
         updateHistoryErrorNotes(null);
-        $('#history-personal-hieroglyphic').hide();
         updateHistoryProgress();
         updateHistoryControls();
         return;
@@ -7529,9 +7528,6 @@ function updateHistoryDetails(entry) {
     updateHistoryReview(entry);
     updateHistoryErrorNotes(entry);
     void requestErrorNotes(entry);
-    // Només es MOSTRA si AQUESTA partida té una errada (imprecisió/error/errada greu)
-    // convertible en jeroglífic; si no hi ha cap error, s'amaga.
-    $('#history-personal-hieroglyphic').toggle(entryHasReviewableError(entry)).prop('disabled', false);
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -7601,19 +7597,6 @@ function updateHistoryReview(entry) {
         }
     });
     // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
-}
-
-// Espera que la preparació de jeroglífics en segon pla (i la de seqüències) alliberi
-// el motor Stockfish abans d'una anàlisi sota demanda, per no compartir el worker.
-async function yieldEngineFromBackgroundPrep() {
-    try { requestBackgroundPrepAbort(); } catch (e) {}
-    backgroundPrepAbortRequested = true;
-    try { await waitForBackgroundPrepToYield(); } catch (e) {}
-    let waited = 0;
-    while (personalHieroglyphicPrepInFlight && waited < 5000) {
-        await new Promise(r => setTimeout(r, 150));
-        waited += 150;
-    }
 }
 
 // Renova la ressenya LOCAL d'una partida (no depèn de cap clau d'IA): incrementa
@@ -12714,22 +12697,6 @@ function getHieroglyphicTitle() {
     if (hieroglyphicSource === 'personal') return '🔮 Desxifra el teu error';
     return `🔮 Exercici Jeroglífic — ${hieroglyphicOpening ? hieroglyphicOpening.name : 'posició'}`;
 }
-// Resum breu de la partida i l'error d'origen (per als jeroglífics de "Revisa aquest
-// error"). No revela la millor jugada; només situa d'on ve i què va passar.
-function formatHieroglyphicOriginMeta(meta) {
-    if (!meta) return '';
-    const qLabel = { inaccuracy: 'imprecisió', mistake: 'error', blunder: 'errada greu' }[meta.quality] || 'errada';
-    let game = meta.game ? String(meta.game) : 'Partida';
-    if (meta.result) game += ' · ' + meta.result;
-    if (meta.date) game += ' · ' + meta.date;
-    let err = '';
-    if (meta.moveNumber) err += 'Jugada ' + meta.moveNumber + ': ';
-    if (meta.playedSan) err += 'vas jugar ' + meta.playedSan + ' ';
-    err += '(' + qLabel;
-    if (typeof meta.swing === 'number' && meta.swing > 0) err += ', −' + (meta.swing / 100).toFixed(1) + ' peons';
-    err += ')';
-    return game + ' — ' + err.trim();
-}
 function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const noteEl = document.getElementById('opening-practice-note');
     if (!noteEl) return;
@@ -12738,14 +12705,9 @@ function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
     const level = Math.min(3, Math.max(hieroglyphicHintLevel || 1, (hieroglyphicAttempts || 0) + 1));
     const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${statusText}</div>` : '';
-    const originMeta = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.originMeta) || null;
-    const originLine = originMeta
-        ? `<div class="maxim-text" style="opacity:0.82; font-size:0.8rem; margin-top:6px;">📋 ${escapeHtml(formatHieroglyphicOriginMeta(originMeta))}</div>`
-        : '';
     noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
         <div class="maxim-title">${getHieroglyphicTitle()}</div>
         <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
-        ${originLine}
         <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
         <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · Pas ${(hieroglyphicStep || 0) + 1}/${Math.max(1, hieroglyphicSolutionUci.length || 1)} · Troba la millor jugada. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
         ${extra}
@@ -13149,7 +13111,7 @@ function buildHieroglyphicLineFromCandidate(candidate) {
 function setHieroglyphicGenerating(isGenerating) {
     // El botó principal de jeroglífics queda sempre disponible (no es bloqueja ni
     // durant la generació en segon pla); només deshabilitem els disparadors interns.
-    ['btn-hieroglyphic-exercise', 'history-personal-hieroglyphic'].forEach(id => {
+    ['btn-hieroglyphic-exercise'].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         el.disabled = !!isGenerating;
@@ -13313,9 +13275,7 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
             playerMove: chosen.playerMove || null,
             swing: chosen.swing ?? null,
             ratingEstimate: chosen.ratingEstimate ?? null,
-            difficultyPercent: hieroglyphicDifficultyPercent(chosen),
-            // Dades breus de la partida/error d'origen (si ve de "Revisa aquest error").
-            originMeta: chosen.originMeta || null
+            difficultyPercent: hieroglyphicDifficultyPercent(chosen)
         };
         currentHieroglyphicWrongMoves = 0;
         // Registra el jeroglífic generat a l'historial sincronitzat (pendent fins resoldre'l).
@@ -13352,95 +13312,6 @@ function retryHieroglyphicFromHistory(id) {
     startPersonalHieroglyphicFromLastGame(null, chosen);
 }
 if (typeof window !== 'undefined') window.retryHieroglyphicFromHistory = retryHieroglyphicFromHistory;
-
-// True si la partida concreta té una ERRADA (imprecisió/error/errada greu) pròpia
-// convertible en jeroglífic. No compta les tàctiques ben jugades: "Revisa aquest
-// error" només té sentit quan hi ha un error a corregir.
-function entryHasReviewableError(entry) {
-    if (!entry) return false;
-    try {
-        return collectPersonalHieroglyphicCandidates(entry)
-            .some(c => c && c.entryId === entry.id && c.source !== 'gameHistory.tactic');
-    } catch (e) { return false; }
-}
-
-// Dades breus de la partida i de l'error, per mostrar-les quan es resol el jeroglífic.
-function buildHieroglyphicOriginMeta(entry, cand, chosen) {
-    const c = cand || {};
-    const fen = (chosen && chosen.fen) || c.fen;
-    const mr = (entry && Array.isArray(entry.moveReviews)) ? entry.moveReviews.find(r => r && r.fen === fen) : null;
-    let playedSan = (mr && mr.playerMoveSan) || null;
-    if (!playedSan && c.playerMove && fen) { try { playedSan = uciToSan(fen, c.playerMove); } catch (e) {} }
-    const swing = (mr && typeof mr.swing === 'number') ? mr.swing : (typeof c.swing === 'number' ? c.swing : null);
-    return {
-        game: (entry && entry.label) || null,
-        result: (entry && entry.result) || null,
-        mode: (entry && entry.mode) || null,
-        date: (entry && entry.date) || null,
-        moveNumber: (mr && mr.moveNumber) || c.moveNumber || null,
-        playedSan,
-        quality: (mr && mr.quality) || null,
-        swing
-    };
-}
-
-// "Revisa aquest error": genera, sota demanda i validat amb Stockfish, un jeroglífic
-// A PARTIR d'una errada de la partida que s'està revisant. NO l'obre directament:
-// el desa al rebost perquè es pugui resoldre des de la secció «Jeroglífic» (a dalt).
-async function startHieroglyphicFromHistoryEntry(entry) {
-    if (!entry) return;
-    const btn = $('#history-personal-hieroglyphic');
-    const status = $('#history-deep-status');
-    if (deepReviewInProgress || waitingForBlunderAnalysis) {
-        status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
-        return;
-    }
-    // Allibera el motor de la prep en segon pla i espera que cap prep quedi en vol.
-    await yieldEngineFromBackgroundPrep();
-    if (!ensureStockfish()) {
-        backgroundPrepAbortRequested = false;
-        showToast('El motor no està disponible ara mateix.', 'warn');
-        return;
-    }
-    btn.prop('disabled', true);
-    status.show().text('Preparant el jeroglífic d’aquest error…');
-    personalHieroglyphicPrepInFlight = true;  // bloqueja la prep en segon pla mentre validem
-    try {
-        // Només errades d'AQUESTA partida (no tàctiques ben jugades).
-        const candidates = collectPersonalHieroglyphicCandidates(entry)
-            .filter(c => c && c.entryId === entry.id && c.source !== 'gameHistory.tactic');
-        let chosen = null, srcCand = null;
-        for (const c of candidates.slice(0, 8)) {
-            const v = await closeHieroglyphicCandidateWithStockfish(c, { depth: 14, minGapCp: 80 });
-            if (v) { chosen = v; srcCand = c; break; }
-        }
-        personalHieroglyphicPrepInFlight = false;
-        backgroundPrepAbortRequested = false;
-        if (!chosen) {
-            status.show().text('No s’ha pogut construir un jeroglífic net d’aquest error. Torna-ho a provar més tard.');
-            btn.prop('disabled', false);
-            return;
-        }
-        // Adjunta les dades de la partida/error i el desa al davant del rebost perquè
-        // es resolgui des de la secció «Jeroglífic» (no s'obre l'exercici ara).
-        chosen.originMeta = buildHieroglyphicOriginMeta(entry, srcCand, chosen);
-        personalHieroglyphicPool = personalHieroglyphicPool.filter(p => p.fen !== chosen.fen);
-        personalHieroglyphicPool.unshift(chosen);
-        if (personalHieroglyphicPool.length > 6) personalHieroglyphicPool = personalHieroglyphicPool.slice(0, 6);
-        refreshJeroglificButton();
-        btn.prop('disabled', false);
-        status.show().text('✅ Jeroglífic preparat. El trobaràs a la secció «🔮 Jeroglífic», a dalt de tot.');
-        showToast('Jeroglífic d’aquest error preparat — ves a «🔮 Jeroglífic», a dalt de tot, per resoldre’l.', 'success');
-    } catch (e) {
-        console.warn('[Hieroglyphic] entry', e);
-        personalHieroglyphicPrepInFlight = false;
-        backgroundPrepAbortRequested = false;
-        status.show().text('No s’ha pogut preparar el jeroglífic d’aquest error.');
-        btn.prop('disabled', false);
-        refreshJeroglificButton();
-    }
-}
-if (typeof window !== 'undefined') window.startHieroglyphicFromHistoryEntry = startHieroglyphicFromHistoryEntry;
 
 // Mostra, sota el comentari del tauler, el comentari del jeroglífic i el seu
 // historial (resolt a la primera o no) amb opció de reintentar.
@@ -14270,9 +14141,6 @@ function setupEvents() {
     $('#btn-hieroglyphic-exercise').click(() => {
         initOpeningBundleBoard();
         void startPersonalHieroglyphicFromLastGame(null);
-    });
-    $('#history-personal-hieroglyphic').click(() => {
-        startHieroglyphicFromHistoryEntry(historyReplay ? historyReplay.entry : null);
     });
     const exitOpeningScreenToMenu = () => {
         $('#opening-screen').hide();
