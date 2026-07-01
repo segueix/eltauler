@@ -10224,6 +10224,7 @@ function renderGameHistory() {
                     </div>
                            <div class="history-item-actions">
                         <button class="btn btn-secondary history-select" data-history-id="${entry.id}">▶️ Veure</button>
+                        <button class="btn history-delete" data-history-id="${entry.id}" title="Esborrar aquesta partida de l'historial" aria-label="Esborrar aquesta partida de l'historial"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg></button>
                         <button class="btn btn-primary history-review" data-history-id="${entry.id}">📈 Revisió</button>
                     </div>
                 </div>
@@ -10248,6 +10249,31 @@ function renderGameHistory() {
         const id = $(this).data('history-id');
         const entry = gameHistory.find(item => item.id === id);
         showHistoryReview(entry);
+    });
+    // Esborrar una partida concreta de l'historial (amb confirmació). Actualitza el
+    // desat (i la sincronització al núvol) i refresca la llista i el detall.
+    $('.history-delete').off('click').on('click', function(e) {
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+        const id = $(this).data('history-id');
+        const entry = gameHistory.find(item => item.id === id);
+        if (!entry) return;
+        showAppConfirm(
+            'Segur que vols esborrar aquesta partida de l\'historial? Aquesta acció no es pot desfer.',
+            () => {
+                const idx = gameHistory.findIndex(item => item.id === id);
+                if (idx === -1) return;
+                gameHistory.splice(idx, 1);
+                try { saveStorage(); } catch (err) { console.warn('[Historial] esborrar', err); }
+                // Si esborrem la partida que s'estava mostrant, buida el detall perquè
+                // renderGameHistory en carregui una altra (o mostri l'estat buit).
+                if (historyReplay && historyReplay.entry && historyReplay.entry.id === id) {
+                    historyReplay = null;
+                }
+                renderGameHistory();
+                showToast('Partida esborrada de l\'historial', 'success');
+            },
+            { title: 'Esborrar partida', confirmText: 'Esborra', cancelText: 'Cancel·la' }
+        );
     });
     if (!historyReplay || !historyReplay.entry) {
         loadHistoryEntry(gameHistory[gameHistory.length - 1]);
