@@ -420,6 +420,12 @@ function customGameIdFromUrl() {
     const m = (window.location.hash || '').match(/^#partida-([A-Za-z0-9]+)$/);
     return m ? m[1] : null;
 }
+// Secció demanada per query (?mode=game|openings|league). L'usen les pàgines
+// d'aterratge (SEO) i les dreceres de la PWA per obrir l'app on toca.
+function modeFromUrl() {
+    try { return (new URLSearchParams(window.location.search).get('mode') || '').toLowerCase(); }
+    catch (e) { return ''; }
+}
 function openCatalansScreen(pushHistory = true) {
     $('#start-screen').hide();
     if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
@@ -21188,10 +21194,13 @@ $(document).ready(() => {
     try { initHomeExtras(); } catch (e) { console.warn('[HomeExtras] init', e); }
     const __customId = customGameIdFromUrl();
     const __deepCatalans = isCatalansDeepLink();
+    const __mode = (!__customId && !__deepCatalans) ? modeFromUrl() : '';
     history.replaceState(
         { screen: (__customId || __deepCatalans) ? 'catalans-screen' : 'start-screen', customId: __customId || null },
         '',
-        __customId ? ('#partida-' + __customId) : (__deepCatalans ? screenUrl('catalans-screen') : (window.location.pathname + window.location.search))
+        __customId ? ('#partida-' + __customId)
+            : (__deepCatalans ? screenUrl('catalans-screen')
+            : (window.location.pathname + (__mode ? '' : window.location.search)))
     );
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });
@@ -21210,6 +21219,14 @@ $(document).ready(() => {
         setTimeout(function () { openCustomGameScreen(__customId, false); }, 0);
     } else if (__deepCatalans) {
         setTimeout(function () { openCatalansScreen(false); }, 0);
+    } else if (__mode) {
+        // Deep-links de secció (pàgines d'aterratge SEO i dreceres de la PWA):
+        // obren l'app directament a la pantalla demanada reutilitzant els botons.
+        setTimeout(function () {
+            if (__mode === 'game') $('#btn-new-game').click();
+            else if (__mode === 'openings') $('#btn-opening').click();
+            else if (__mode === 'league') $('#btn-league').click();
+        }, 0);
     }
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
