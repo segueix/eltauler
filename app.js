@@ -4991,7 +4991,7 @@ function renderHomeUserChip() {
         chip.title = 'El teu nom: ' + name + ' — toca per canviar-lo';
     } else {
         chip.classList.add('empty');
-        chip.innerHTML = ic + '<span class="huc-name">Posa el teu nom</span>';
+        chip.innerHTML = ic + '<span class="huc-name">Nom d\'usuari</span>';
         chip.title = 'Posa el teu nom d\'usuari';
     }
 }
@@ -9357,7 +9357,7 @@ async function requestPositionAnalysis() {
             try {
                 const tmp = new Chess(game.fen());
                 const mv = tmp.move({ from: res.bestMove.slice(0,2), to: res.bestMove.slice(2,4), promotion: res.bestMove[4] || 'q' });
-                if (mv) bestText = ` · La màquina recomana <strong>${mv.san}</strong>`;
+                if (mv) bestText = ` · El Tauler recomana <strong>${mv.san}</strong>`;
             } catch (e) {}
         }
         $('#status').html(`<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">🔬 ${evalText}${bestText}</div>`);
@@ -16939,7 +16939,7 @@ blunderMode = isBundle;
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
 
     // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
-    $('#btn-analyze').toggle((currentGameMode === 'free' || currentGameMode === 'assisted') && !isCalibrationGame);
+    $('#btn-analyze').toggle(currentGameMode === 'assisted' && !isCalibrationGame);
 
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
