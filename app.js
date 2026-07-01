@@ -13281,29 +13281,35 @@ function renderHieroglyphicPanel() {
         || hieroglyphicSolutionUci.length || 3;
     panel.html(`<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`).show();
 
-    // L'historial mostra els jeroglífics ANTERIORS (no el que s'està resolent ara).
+    // L'historial manté sempre el mateix ordre, fins i tot mentre es juga un dels
+    // seus jeroglífics: si l'amaguéssim mentre està actiu, la llista es reordenaria
+    // i clicar "rejugar" varies vegades seguides acabaria carregant un jeroglífic
+    // diferent cada cop (el botó canviaria de fila sota el dit). En lloc d'amagar-lo
+    // el marquem com "En curs" i el deixem al seu lloc.
     const activeFen = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.fen;
-    const history = sortHieroglyphicHistoryForReview(loadHieroglyphicHistory().filter(e => e && e.fen !== activeFen));
+    const history = sortHieroglyphicHistoryForReview(loadHieroglyphicHistory());
     let html = '<div class="hg-history-title">Historial de jeroglífics</div>';
     if (history.length) {
         history.slice(0, 8).forEach(e => {
+            const isActive = !!activeFen && e.fen === activeFen;
             const isNew = !e.solved;
             const cleanSolved = hieroglyphicEntryCleanSolved(e);
-            const markIcon = e.solved ? (cleanSolved ? '✅' : '☑️') : '⏳';
-            const markText = e.solved ? (cleanSolved ? 'Resolt sense errors' : 'Resolt amb errades') : 'Pendent de resoldre';
-            const cls = e.solved ? (cleanSolved ? 'hg-first hg-clean' : 'hg-ok') : 'hg-pending';
+            const markIcon = isActive ? '▶️' : (e.solved ? (cleanSolved ? '✅' : '☑️') : '⏳');
+            const markText = isActive ? 'És el jeroglífic que estàs jugant ara' : (e.solved ? (cleanSolved ? 'Resolt sense errors' : 'Resolt amb errades') : 'Pendent de resoldre');
+            const cls = `${e.solved ? (cleanSolved ? 'hg-first hg-clean' : 'hg-ok') : 'hg-pending'}${isActive ? ' hg-active' : ''}`;
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
             const badge = hieroglyphicDifficultyBadge(e);
             // Botó d'acció: una fletxa circular per reintentar; un símbol de play si és nou.
             const actionIcon = isNew ? 'ic-hg-play' : 'ic-hg-replay';
-            const actionLabel = isNew ? 'Comença aquest jeroglífic' : 'Torna a provar aquest jeroglífic';
+            const actionLabel = isActive ? 'Torna a començar aquest jeroglífic des de zero' : (isNew ? 'Comença aquest jeroglífic' : 'Torna a provar aquest jeroglífic');
+            const badgeHtml = isActive ? '<span class="hg-new-badge hg-active-badge">En curs</span>' : (isNew ? '<span class="hg-new-badge">Nou</span>' : '');
             html += `<div class="hg-history-row ${cls}">`
                 + `<span class="hg-h-mark-ic" title="${escapeHtml(markText)}" aria-label="${escapeHtml(markText)}">${markIcon}</span>`
-                + `<span class="hg-h-kind">${isNew ? '<span class="hg-new-badge">Nou</span>' : ''}<span class="hg-h-kind-text">${escapeHtml(String(kind))}</span></span>`
+                + `<span class="hg-h-kind">${badgeHtml}<span class="hg-h-kind-text">${escapeHtml(String(kind))}</span></span>`
                 + `<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>`
                 + `<span class="hg-h-date">${escapeHtml(dateText)}</span>`
-                + `<button class="hg-h-action${isNew ? ' hg-h-action-new' : ''} hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="${escapeHtml(actionLabel)}" aria-label="${escapeHtml(actionLabel)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${actionIcon}"/></svg></button>`
+                + `<button class="hg-h-action${isNew && !isActive ? ' hg-h-action-new' : ''} hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="${escapeHtml(actionLabel)}" aria-label="${escapeHtml(actionLabel)}"><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${actionIcon}"/></svg></button>`
                 + '</div>';
         });
     } else {
