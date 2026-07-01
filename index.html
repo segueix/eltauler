@@ -767,6 +767,15 @@
             font-family: 'Inter', sans-serif;
             font-size: 0.9rem;
         }
+        /* Opcions desplegades amb fons SÒLID: el fons translúcid del select feia que
+           en obrir el desplegable la lletra clara quedés sobre un fons clar i no es
+           llegís. Es defineix per tema perquè contrasti sempre. */
+        .select-control option {
+            background-color: #2d241c;
+            color: #f4e4bc;
+        }
+        body.day-mode .select-control option { background-color: #fffdf7; color: #2a2117; }
+        body.epaper-mode .select-control option { background-color: #e6e6e6; color: #222; }
         .text-input {
             background: rgba(0,0,0,0.25);
             border: 1px solid rgba(255,255,255,0.15);
