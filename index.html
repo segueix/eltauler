@@ -3645,10 +3645,16 @@
                                     <button class="btn btn-secondary" id="history-next">⏭️ Endavant</button>
                                 </div>
                                 <div id="history-deep-status" style="display:none; font-size:13px; opacity:0.85; margin:6px 0;"></div>
+                                <div id="history-deep-progress" style="display:none; margin:6px 0;">
+                                    <div style="height:10px; border-radius:6px; background:rgba(255,255,255,0.14); overflow:hidden;">
+                                        <div id="history-deep-progress-fill" style="height:100%; width:0%; border-radius:6px; background:linear-gradient(90deg,#3aa0ff,#7ed0ff); transition:width .35s ease;"></div>
+                                    </div>
+                                    <div id="history-deep-progress-label" style="font-size:12px; opacity:0.85; margin-top:4px; text-align:right;">0%</div>
+                                </div>
                                 <div class="history-actions">
                                     <button class="btn btn-secondary" id="history-deep-review">🔬 Anàlisi profunda</button>
                                     <button class="btn btn-secondary" id="history-generate-review">🔁 Regenerar la ressenya</button>
-                                    <button class="btn btn-secondary" id="history-personal-hieroglyphic">🔮 Entén el teu error</button>
+                                    <button class="btn btn-secondary" id="history-personal-hieroglyphic" title="Genera un jeroglífic (endevina la millor jugada) a partir d'un error d'aquesta partida">🔮 Revisa aquest error</button>
                                     <button class="btn btn-secondary" id="history-download-review" title="Baixa en un fitxer de text la ressenya generada, els moments clau i les errades comentades">📝 Baixa el text</button>
                                     <button class="btn btn-secondary" id="history-export-pgn">♟ Exportar PGN</button>
                                     <button class="btn btn-secondary" id="history-share-pgn">📤 Compartir</button>
