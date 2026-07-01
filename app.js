@@ -5013,8 +5013,8 @@ function ensureAppFooter() {
     const f = document.createElement('footer');
     f.className = 'app-footer';
     f.innerHTML =
-        '<span>Fet amb <span class="af-heart" aria-hidden="true">♥</span> per ' +
-        '<strong>Can Nyero</strong>, des de <strong>La Garriga</strong></span>' +
+        '<span>By <strong>Can Nyero</strong>, des de <strong>La Garriga</strong> ' +
+        'amb <span class="af-heart" aria-hidden="true">♥</span></span>' +
         '<span class="af-sub">Projecte paral·lel: ' +
         '<a href="https://segueix.cat/" target="_blank" rel="noopener noreferrer">segueix.cat</a></span>';
     cont.appendChild(f);
