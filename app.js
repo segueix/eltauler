@@ -5004,9 +5004,26 @@ function openSettingsFromHome() {
     if (typeof loadUsernameIntoSettings === 'function') loadUsernameIntoSettings();
 }
 
+// Peu de pàgina comú: s'afegeix com a últim fill del contenidor de l'app, de
+// manera que apareix al final de qualsevol pantalla (només n'hi ha una de visible
+// alhora). Es crea un sol cop.
+function ensureAppFooter() {
+    const cont = document.getElementById('app-container');
+    if (!cont || document.querySelector('.app-footer')) return;
+    const f = document.createElement('footer');
+    f.className = 'app-footer';
+    f.innerHTML =
+        '<span>Fet amb <span class="af-heart" aria-hidden="true">♥</span> per ' +
+        '<strong>Can Nyero</strong>, des de <strong>La Garriga</strong></span>' +
+        '<span class="af-sub">Projecte paral·lel: ' +
+        '<a href="https://segueix.cat/" target="_blank" rel="noopener noreferrer">segueix.cat</a></span>';
+    cont.appendChild(f);
+}
+
 // Enllaça la capçalera d'inici, les finestres emergents (contacte/condicions) i
 // la barra de consentiment. Es crida un cop a l'arrencada.
 function initHomeExtras() {
+    ensureAppFooter();
     renderHomeUserChip();
 
     $('#home-user-chip').off('click').on('click', openSettingsFromHome);

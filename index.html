@@ -3995,6 +3995,15 @@
             .cookie-text a { color:var(--accent-gold,#e2be5a); white-space:nowrap; }
             .cookie-consent .btn { flex:0 0 auto; }
             @media (max-width:560px){ .cookie-inner { gap:8px; } .cookie-text { font-size:0.78rem; } }
+
+            /* Peu de pàgina (al final de totes les pantalles). */
+            .app-footer { margin:26px auto 8px; padding:14px 12px 2px; text-align:center;
+                border-top:1px solid rgba(201,162,39,0.16); color:var(--text-secondary,#b7ad9a);
+                font-size:0.78rem; line-height:1.55; }
+            .app-footer .af-heart { color:#e0555f; }
+            .app-footer .af-sub { display:block; margin-top:3px; opacity:0.9; }
+            .app-footer a { color:var(--accent-gold,#c9a227); text-decoration:none; }
+            .app-footer a:hover { text-decoration:underline; }
             /* Bàners de partides pròpies: hereten l'estil de .catalans-banner i només
                canvien el fons (color aleatori per partida, via style inline). */
             #custom-banners { display:flex; flex-direction:column; gap:0; }
@@ -4513,7 +4522,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.31"></script>
+    <script src="app.js?v=1.0.32"></script>
 
     <!-- Service Worker Registration -->
     <script>
