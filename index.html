@@ -3122,6 +3122,7 @@
                     <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
                     <span class="catalans-banner-title">Catalans vs Stockfish</span>
                     <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
+                    <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
                 </span>
                 <span class="catalans-banner-cta">Juga-hi ›</span>
             </button>
@@ -3928,13 +3929,25 @@
             .catalans-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
             .catalans-banner-sub { font-size:0.8rem; opacity:0.9; line-height:1.25; }
             .catalans-banner-cta { flex:0 0 auto; z-index:1; font-weight:700; font-size:0.9rem; color: var(--accent-gold); background: rgba(0,0,0,0.25); padding:7px 14px; border-radius:999px; white-space:nowrap; }
+            /* Compte enrere del torn dins del bàner (hores, minuts i segons). */
+            .catalans-banner-countdown { font-size:0.82rem; font-weight:700; color:#ffd9a8; margin-top:2px; font-variant-numeric: tabular-nums; letter-spacing:0.02em; }
+            #custom-banners .catalans-banner-countdown { color:#ffe9c7; }
             @media (max-width: 560px) {
                 .catalans-banner { padding:14px; gap:12px; }
                 .catalans-banner-ic { width:2.3rem; height:2.3rem; }
                 .catalans-banner-title { font-size:1.06rem; }
                 .catalans-banner-sub { font-size:0.76rem; }
                 .catalans-banner-cta { display:none; }
+                .catalans-banner-countdown { font-size:0.78rem; }
             }
+            /* Botó de notificacions de torn (dalt a la dreta de la partida col·lectiva). */
+            #catalans-screen { position: relative; }
+            .cat-notify-toggle { position:absolute; top:8px; right:10px; z-index:5; width:40px; height:40px; border-radius:50%;
+                border:1px solid rgba(201,162,39,0.35); background:rgba(255,255,255,0.06); color:var(--text-secondary);
+                font-size:1.15rem; line-height:1; cursor:pointer; display:flex; align-items:center; justify-content:center; }
+            .cat-notify-toggle:hover { background:rgba(255,255,255,0.12); }
+            .cat-notify-toggle.on { background:linear-gradient(135deg,#c9a227,#8a6d12); color:#1b1712; border-color:transparent; box-shadow:0 4px 12px rgba(0,0,0,0.35); }
+            .cat-notify-toggle:active { transform: scale(0.94); }
             /* Bàners de partides pròpies: hereten l'estil de .catalans-banner i només
                canvien el fons (color aleatori per partida, via style inline). */
             #custom-banners { display:flex; flex-direction:column; gap:0; }
@@ -4110,6 +4123,8 @@
             #catalans-whoami { text-align:center; font-size:0.8rem; color: var(--text-secondary); margin-top:4px; }
         </style>
         <div id="catalans-screen" class="screen-anim" style="display:none;">
+            <button id="catalans-notify-toggle" class="cat-notify-toggle" type="button" aria-pressed="false"
+                    title="Rebre avís quan toqui moure en aquesta partida" aria-label="Notificacions d'aquesta partida: desactivades">🔕</button>
             <div class="catalans-hero">
                 <svg class="app-logo-svg" aria-hidden="true"><use href="#ic-swords"/></svg>
                 <h1>Catalans vs Stockfish</h1>

@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.9.31';
+const SW_VERSION = '3.9.32';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 // Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
 // versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
@@ -237,4 +237,25 @@ self.addEventListener('message', (event) => {
     caches.keys().then((names) => Promise.all(names.map((n) => caches.delete(n))))
       .then(() => event.source?.postMessage({ type: 'CACHE_CLEARED' }));
   }
+});
+
+// ---------------------------------------------------------------------------
+// Notificacions de torn de les partides col·lectives: en clicar la notificació,
+// porta l'usuari a l'app (i, si es pot, a la partida concreta via l'URL amb hash).
+// ---------------------------------------------------------------------------
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const data = event.notification.data || {};
+  const url = data.url || self.registration.scope || '/';
+  event.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+      for (const client of list) {
+        if ('focus' in client) {
+          if ('navigate' in client && url) { try { client.navigate(url); } catch (e) {} }
+          return client.focus();
+        }
+      }
+      if (self.clients.openWindow) return self.clients.openWindow(url);
+    })
+  );
 });

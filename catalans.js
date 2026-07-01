@@ -1638,6 +1638,7 @@
     // amb l'autenticació, així que s'actualitza a cada crida.
     $('#catalans-custom-actions').css('display', isCustom() ? 'block' : 'none');
     $('#catalans-edit-strength').css('display', canEditStrength() ? 'inline-flex' : 'none');
+    renderNotifyToggle();   // el botó de notificacions és per partida
   }
 
   // ---------------------------------------------------------------------------
@@ -1825,6 +1826,7 @@
           .filter(function (g) { return g && g.id; })
           .sort(function (a, b) { return (b.createdAt || 0) - (a.createdAt || 0); });
         renderCustomBanners();
+        startEnabledWatchers();   // vigilants de notificacions de les partides pròpies actives
       }, function () {});
     } catch (e) {}
   }
@@ -1847,6 +1849,7 @@
         '<span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>' +
         '<span class="catalans-banner-title">' + escapeSan(g.name) + ' vs Stockfish</span>' +
         '<span class="catalans-banner-sub">Partida col·lectiva · ' + unitLabel(elo) + ' ' + elo + '</span>' +
+        '<span class="catalans-banner-countdown" data-countdown-key="' + escapeSan(g.id) + '">⏳ …</span>' +
         '</span>' +
         '<span class="catalans-banner-cta">Juga-hi ›</span>' +
         '<button class="custom-banner-leave" type="button" data-cid="' + escapeSan(g.id) + '" ' +
@@ -1854,6 +1857,257 @@
         '</div>';
     });
     cont.html(html);
+    // Refresca el compte enrere dels bàners visibles (throttle).
+    try { visibleBannerKeys().forEach(function (k) { fetchBannerMeta(k, 20000); }); } catch (e) {}
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Compte enrere del torn als bàners (totes les partides col·lectives)
+  // ---------------------------------------------------------------------------
+  // Format SEMPRE amb hores, minuts i segons.
+  function fmtHMS(ms) {
+    if (ms < 0) ms = 0;
+    const s = Math.floor(ms / 1000);
+    const h = Math.floor(s / 3600);
+    const m = Math.floor((s % 3600) / 60);
+    const sec = s % 60;
+    const pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    return h + 'h ' + pad(m) + 'm ' + pad(sec) + 's';
+  }
+
+  // Document d'una partida a partir de la seva clau de bàner ('default' = global).
+  function gameDocIdForKey(key) { return (key === 'default') ? DOC_ID : ('c_' + key); }
+
+  const bannerMeta = {};       // key -> { phase, deadlineAt, teamName, fetchedAt }
+  const bannerFetchAt = {};    // key -> últim intent de lectura (throttle)
+  let bannerTicker = null;
+  let lastStartVisible = false;
+
+  function startScreenVisible() {
+    const el = document.getElementById('start-screen');
+    return !!(el && el.style.display !== 'none' && el.offsetParent !== null);
+  }
+
+  // Llegeix {phase, deadlineAt} d'una partida, com a molt un cop cada minInterval.
+  function fetchBannerMeta(key, minInterval) {
+    const dbi = getDb();
+    if (!dbi) return;
+    const now = Date.now();
+    if (bannerFetchAt[key] && (now - bannerFetchAt[key]) < (minInterval || 0)) return;
+    bannerFetchAt[key] = now;
+    dbi.collection(COLLECTION).doc(gameDocIdForKey(key)).get().then(function (snap) {
+      if (!snap.exists) { bannerMeta[key] = { phase: 'none', deadlineAt: 0, fetchedAt: Date.now() }; return; }
+      const d = snap.data() || {};
+      bannerMeta[key] = {
+        phase: d.phase || 'catalans',
+        deadlineAt: d.deadlineAt || 0,
+        teamName: d.teamName || (key === 'default' ? 'Catalans' : 'La teva partida'),
+        fetchedAt: Date.now()
+      };
+    }).catch(function () {});
+  }
+
+  // Claus de bàner actualment visibles a la pantalla d'inici (global + pròpies).
+  function visibleBannerKeys() {
+    const keys = ['default'];
+    (customsList || []).forEach(function (g) {
+      if (g && g.id && !isHiddenCustom(g.id)) keys.push(g.id);
+    });
+    return keys;
+  }
+
+  // Actualitza el text del compte enrere de cada bàner (tick d'1 s). El client
+  // fa el compte enrere localment a partir del deadline; només rellegeix Firestore
+  // al voltant de les transicions (consum de quota mínim).
+  function tickBanners() {
+    const visible = startScreenVisible();
+    if (visible && !lastStartVisible) {
+      // En tornar a la pantalla d'inici, refresca les metadades (throttle 30 s).
+      visibleBannerKeys().forEach(function (k) { fetchBannerMeta(k, 30000); });
+    }
+    lastStartVisible = visible;
+    if (!visible) return;
+
+    const nodes = document.querySelectorAll('.catalans-banner-countdown[data-countdown-key]');
+    const now = Date.now();
+    Array.prototype.forEach.call(nodes, function (node) {
+      const key = node.getAttribute('data-countdown-key');
+      const meta = bannerMeta[key];
+      if (!meta) { node.textContent = '⏳ …'; fetchBannerMeta(key, 5000); return; }
+      if (meta.phase === 'catalans') {
+        const left = (meta.deadlineAt || 0) - now;
+        if (left > 0) { node.textContent = '⏳ Queden ' + fmtHMS(left); }
+        else { node.textContent = '⏳ Tancant el torn…'; fetchBannerMeta(key, 15000); }
+      } else if (meta.phase === 'stockfish') {
+        node.textContent = '🟣 Stockfish està movent…';
+        fetchBannerMeta(key, 20000);
+      } else if (meta.phase === 'finished') {
+        const left = (meta.deadlineAt || 0) - now;
+        if (left > 0) node.textContent = '🏁 Nova partida en ' + fmtHMS(left);
+        else { node.textContent = '🏁 Començant nova partida…'; fetchBannerMeta(key, 20000); }
+      } else {
+        node.textContent = 'Encara no començada';
+      }
+    });
+  }
+
+  function startBannerTicker() {
+    if (bannerTicker) return;
+    bannerTicker = setInterval(tickBanners, 1000);
+    visibleBannerKeys().forEach(function (k) { fetchBannerMeta(k, 0); });
+  }
+
+  // ---------------------------------------------------------------------------
+  //  Notificacions de torn (per partida, OFF per defecte, locals del dispositiu)
+  // ---------------------------------------------------------------------------
+  // Preferència LOCAL del dispositiu (prefix eltauler_cloud_ → NO se sincronitza):
+  // pots voler-les al mòbil però no a l'ordinador.
+  function notifyStorageKey(key) { return 'eltauler_cloud_notify_' + key; }
+  function currentNotifyKey() { return (config && config.custom && config.id) ? config.id : 'default'; }
+  function isNotifyEnabled(key) {
+    try { return localStorage.getItem(notifyStorageKey(key)) === '1'; } catch (e) { return false; }
+  }
+  function setNotifyEnabledStored(key, on) {
+    try { if (on) localStorage.setItem(notifyStorageKey(key), '1'); else localStorage.removeItem(notifyStorageKey(key)); } catch (e) {}
+  }
+  function notificationsSupported() { return typeof window !== 'undefined' && 'Notification' in window; }
+
+  const notifyWatchers = {};   // key -> { timer, notifiedTurn }
+
+  // Envia la notificació de «et toca moure». Prefereix el service worker (a mòbil
+  // la notificació persisteix), amb fallback a Notification directa.
+  function fireMoveNotification(key, team) {
+    if (!notificationsSupported() || Notification.permission !== 'granted') return;
+    const title = '♟️ ' + (team || 'Partida col·lectiva') + ' vs Stockfish';
+    const body = 'És el torn de ' + (team || 'l\'equip') + '! Fes el teu moviment abans que s\'acabi el temps.';
+    const url = window.location.origin + window.location.pathname +
+      (key === 'default' ? '#catalans-vs-stockfish' : '#partida-' + key);
+    const opts = { body: body, tag: 'eltauler-turn-' + key, renotify: true,
+      icon: 'novaicon.png', badge: 'novaicon.png', data: { url: url, key: key } };
+    try {
+      if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+        navigator.serviceWorker.ready.then(function (reg) {
+          if (reg && reg.showNotification) reg.showNotification(title, opts);
+          else new Notification(title, opts);
+        }).catch(function () { try { new Notification(title, opts); } catch (e) {} });
+      } else {
+        new Notification(title, opts);
+      }
+    } catch (e) {}
+  }
+
+  // ¿L'usuari està mirant ARA aquesta mateixa partida? Llavors no cal notificar.
+  function isViewingGame(key) {
+    if (typeof document !== 'undefined' && document.hidden) return false;
+    const scr = document.getElementById('catalans-screen');
+    const onScreen = scr && scr.style.display !== 'none' && scr.offsetParent !== null;
+    return onScreen && currentNotifyKey() === key;
+  }
+
+  // Comprova l'estat de la partida i, si s'ha obert un torn nou i l'usuari no hi
+  // ha votat, l'avisa. Reprograma la propera comprovació al voltant del deadline:
+  // mentre el torn compta enrere no cal rellegir res (gairebé zero lectures).
+  function checkWatcher(key) {
+    if (!isNotifyEnabled(key)) { stopWatcher(key); return; }
+    const dbi = getDb();
+    if (!dbi) { scheduleWatcher(key, 60000); return; }
+    dbi.collection(COLLECTION).doc(gameDocIdForKey(key)).get().then(function (snap) {
+      if (!notifyWatchers[key] || !isNotifyEnabled(key)) return;
+      if (!snap.exists) { scheduleWatcher(key, 5 * 60000); return; }
+      const d = snap.data() || {};
+      const team = d.teamName || (key === 'default' ? 'Catalans' : 'La teva partida');
+      const now = Date.now();
+      if (d.phase === 'catalans') {
+        const u = currentUser();
+        const voted = !!(u && d.votes && d.votes[u.uid] && d.votes[u.uid].ply === d.ply);
+        const turn = (d.gameNumber || 1) + ':' + (d.ply || 0);
+        if (notifyWatchers[key].notifiedTurn !== turn && !voted && !isViewingGame(key)) {
+          notifyWatchers[key].notifiedTurn = turn;
+          fireMoveNotification(key, team);
+        }
+        const left = (d.deadlineAt || 0) - now;
+        // Fins al deadline no hi haurà transició: dorm fins llavors (amb sostre).
+        scheduleWatcher(key, Math.min(Math.max(left + 5000, 30000), 6 * 3600000));
+      } else {
+        // stockfish/finished: un torn nou és imminent → comprova aviat.
+        const left = (d.deadlineAt || 0) - now;
+        scheduleWatcher(key, (d.phase === 'finished' && left > 60000) ? Math.min(left + 5000, 6 * 3600000) : 45000);
+      }
+    }).catch(function () { scheduleWatcher(key, 5 * 60000); });
+  }
+
+  function scheduleWatcher(key, delay) {
+    const w = notifyWatchers[key];
+    if (!w) return;
+    if (w.timer) clearTimeout(w.timer);
+    w.timer = setTimeout(function () { checkWatcher(key); }, Math.max(10000, delay || 60000));
+  }
+
+  function startWatcher(key) {
+    if (notifyWatchers[key]) { checkWatcher(key); return; }
+    notifyWatchers[key] = { timer: null, notifiedTurn: null };
+    checkWatcher(key);
+  }
+
+  function stopWatcher(key) {
+    const w = notifyWatchers[key];
+    if (w && w.timer) clearTimeout(w.timer);
+    delete notifyWatchers[key];
+  }
+
+  // Arrenca els vigilants de totes les partides amb notificacions activades.
+  function startEnabledWatchers() {
+    if (!notificationsSupported() || Notification.permission !== 'granted') return;
+    if (isNotifyEnabled('default')) startWatcher('default');
+    (customsList || []).forEach(function (g) {
+      if (g && g.id && isNotifyEnabled(g.id)) startWatcher(g.id);
+    });
+  }
+
+  // Botó de notificacions (dalt a la dreta de la partida col·lectiva).
+  function renderNotifyToggle() {
+    const btn = document.getElementById('catalans-notify-toggle');
+    if (!btn) return;
+    if (!notificationsSupported()) { btn.style.display = 'none'; return; }
+    btn.style.display = '';
+    const on = isNotifyEnabled(currentNotifyKey()) && Notification.permission === 'granted';
+    btn.textContent = on ? '🔔' : '🔕';
+    btn.classList.toggle('on', on);
+    btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+    btn.setAttribute('aria-label', on
+      ? 'Notificacions d\'aquesta partida: activades'
+      : 'Notificacions d\'aquesta partida: desactivades');
+    btn.title = on
+      ? 'Notificacions activades: t\'avisarem quan toqui moure'
+      : 'Rebre avís quan toqui moure en aquesta partida';
+  }
+
+  function toggleNotify() {
+    if (!notificationsSupported()) { setStatus('Aquest navegador no admet notificacions.'); return; }
+    const key = currentNotifyKey();
+    if (isNotifyEnabled(key)) {
+      setNotifyEnabledStored(key, false);
+      stopWatcher(key);
+      renderNotifyToggle();
+      setStatus('Notificacions desactivades per a aquesta partida.');
+      return;
+    }
+    const enable = function () {
+      setNotifyEnabledStored(key, true);
+      startWatcher(key);
+      renderNotifyToggle();
+      setStatus('Notificacions activades: t\'avisarem quan toqui moure en aquesta partida.');
+      try { if (typeof window.showToast === 'function') window.showToast('Notificacions activades 🔔', 'success'); } catch (e) {}
+    };
+    if (Notification.permission === 'granted') { enable(); return; }
+    if (Notification.permission === 'denied') {
+      setStatus('Les notificacions estan bloquejades al navegador. Activa-les per a aquest lloc a la seva configuració.');
+      return;
+    }
+    Notification.requestPermission().then(function (perm) {
+      if (perm === 'granted') enable();
+      else { renderNotifyToggle(); setStatus('Permís de notificacions denegat: no rebràs avisos.'); }
+    }).catch(function () {});
   }
 
   // ---------------------------------------------------------------------------
@@ -1982,6 +2236,12 @@
     if (defaultHowtoHtml == null) { const h = $('#catalans-howto').html(); if (h) defaultHowtoHtml = h; }
     // Comença a escoltar el registre de partides pròpies per pintar-ne els bàners.
     ensureCustoms();
+    // Compte enrere del torn als bàners + vigilants de notificacions actives.
+    startBannerTicker();
+    startEnabledWatchers();
+    renderNotifyToggle();
+    // Botó de notificacions de torn (dalt a la dreta de la partida col·lectiva).
+    $('#catalans-notify-toggle').on('click', toggleNotify);
 
     $('#catalans-signin').on('click', promptSignIn);
     $('#btn-catalans-share').on('click', shareCatalans);

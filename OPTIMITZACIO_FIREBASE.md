@@ -232,3 +232,30 @@ imprevistos.
 
 Pujar els intervals estalvia més quota a canvi de menys immediatesa; baixar-los
 fa l'app més reactiva a canvi de més consum.
+
+---
+
+## 7. Cronòmetre als bàners i notificacions de torn
+
+Dues funcions afegides que mantenen el consum de quota controlat:
+
+- **Compte enrere als bàners** (`catalans.js`): cada bàner de partida col·lectiva
+  (global i pròpies) mostra el temps restant del torn en **hores, minuts i
+  segons**. El compte enrere **es fa localment** a partir del `deadlineAt`; només
+  es rellegeix Firestore **al voltant de les transicions** (quan el temps arriba a
+  zero) i en tornar a la pantalla d'inici (throttle 30 s). Mentre el torn compta
+  enrere no es gasta cap lectura.
+- **Notificacions de torn** (`catalans.js` + `sw.js`): botó dalt a la dreta de la
+  partida, **per partida** i **desactivat per defecte**; l'usuari l'ha d'activar
+  (demana permís de notificacions). Un **vigilant** comprova l'estat de la partida
+  **programat al voltant del `deadlineAt`** (gairebé cap lectura mentre el torn
+  compta enrere; unes poques al voltant de cada transició) i, quan s'obre un torn
+  nou i l'usuari encara no hi ha votat, envia una notificació al dispositiu. La
+  preferència es desa **local al dispositiu** (prefix `eltauler_cloud_`, **no** se
+  sincronitza): pots voler-les al mòbil però no a l'ordinador.
+
+  **Limitació honesta:** com que no hi ha backend, la notificació s'envia mentre
+  l'app segueix **viva** (en primer pla o en una pestanya/PWA en segon pla que el
+  navegador no hagi suspès). Per a notificacions amb l'**app totalment tancada**
+  (típic al mòbil) caldria **Firebase Cloud Messaging (push) + un servidor**, que
+  queda fora de l'abast sense backend i del pla gratuït actual.
