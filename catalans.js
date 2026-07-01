@@ -158,6 +158,21 @@
   // clients (el guard per ply evita duplicats igualment).
   const JITTER_MS = 4000;
 
+  // Sondeig conscient de la visibilitat (en comptes d'un listener en temps real).
+  // Un torn dura 24 h: no cal temps real. Llegim el document a intervals —ràpid
+  // quan el resultat és calent (a prop del límit o esperant Stockfish) i lent la
+  // resta— i en PAUSA quan la pestanya no és visible. Així les lectures deixen de
+  // créixer amb el nombre de vots i d'espectadors (consum de quota acotat i
+  // previsible en comptes de quadràtic).
+  const POLL_FAST_MS = 10000;                  // a prop del límit / torn de Stockfish
+  const POLL_SLOW_MS = 45000;                  // resta del temps
+  const POLL_NEAR_DEADLINE_MS = 2 * 60 * 1000; // «a prop del límit» = últims 2 min
+
+  // Escriptura del vot amb debounce + refredament: agrupa canvis ràpids en una
+  // sola escriptura i limita la freqüència amb què un usuari pot canviar el vot.
+  const VOTE_DEBOUNCE_MS = 2500;               // agrupa canvis ràpids en una escriptura
+  const VOTE_COOLDOWN_MS = 30000;              // temps mínim entre escriptures de vot
+
   // ---------------------------------------------------------------------------
   //  Estat del mòdul
   // ---------------------------------------------------------------------------
@@ -193,6 +208,15 @@
   let opened = false;        // la pantalla s'ha obert alguna vegada
   let subscribed = false;    // la subscripció en temps real està activa i sense errors
   let pendingHistory = null; // resum a desar a l'historial després de confirmar la transacció
+  let pollTimer = null;      // temporitzador del sondeig periòdic
+  let pollInFlight = false;  // hi ha una lectura de sondeig en curs
+  let pollActive = false;    // el sondeig està actiu (pantalla oberta)
+  let visibilityHooked = false; // ja hem enganxat el listener de visibilitat
+  let lastPhaseSeen = null;  // fase de l'últim estat (per refrescar l'historial en acabar)
+  // Vot pendent d'escriure (UI optimista) i control de freqüència d'escriptura.
+  let voteWriteTimer = null;
+  let lastVoteWriteAt = 0;
+  let pendingVote = null;    // { uid, vote } encara per enviar a Firestore
 
   // ---------------------------------------------------------------------------
   //  Utilitats Firebase
@@ -476,34 +500,99 @@
   }
 
   // ---------------------------------------------------------------------------
-  //  Subscripció en temps real
+  //  Seguiment de la partida per sondeig (polling) conscient de la visibilitat.
+  //  Substitueix el listener en temps real: llegim el document a intervals, cosa
+  //  que fa que les lectures deixin de créixer amb el nombre de vots/espectadors.
   // ---------------------------------------------------------------------------
   function subscribe() {
     if (unsub) { unsub(); unsub = null; }
-    unsub = docRef.onSnapshot(function (snap) {
-      subscribed = true;
-      if (!snap.exists) { ensureDoc(); return; }
-      state = snap.data();
-      onStateChanged();
-    }, function (err) {
-      subscribed = false;
-      console.warn('[Catalans] onSnapshot', err);
-      setStatus(describeFsError(err));
-    });
-    subscribeHistory();
+    startPolling();
+    unsub = stopPolling;   // teardownGame() crida unsub() per aturar el sondeig
+    loadHistoryOnce();
   }
 
-  // Subscripció a l'historial de partides acabades (lectura pública).
-  function subscribeHistory() {
-    if (historyUnsub || !db) return;
+  // Aplica una lectura del document compartit (com feia el callback del listener).
+  function applySnap(snap) {
+    subscribed = true;
+    if (!snap.exists) { ensureDoc(); return; }
+    state = snap.data();
+    onStateChanged();
+  }
+
+  // Lectura immediata (ignora la visibilitat): per a l'obertura i just després de
+  // conduir una transició, quan cal l'estat fresc sí o sí.
+  function refreshNow() {
+    if (!docRef) return Promise.resolve();
+    return docRef.get().then(applySnap).catch(function (err) {
+      subscribed = false;
+      console.warn('[Catalans] refresh', err);
+      setStatus(describeFsError(err));
+    });
+  }
+
+  // Interval de sondeig segons l'estat: ràpid quan el resultat és imminent.
+  function pollIntervalMs() {
+    if (!state) return POLL_SLOW_MS;
+    if (state.phase === 'stockfish') return POLL_FAST_MS;
+    const left = (state.deadlineAt || 0) - Date.now();
+    if ((state.phase === 'catalans' || state.phase === 'finished') && left <= POLL_NEAR_DEADLINE_MS) {
+      return POLL_FAST_MS;
+    }
+    return POLL_SLOW_MS;
+  }
+
+  // Un sondeig: no llegeix en segon pla (estalvia quota) ni si ja n'hi ha un en curs.
+  function pollOnce() {
+    if (!pollActive || pollInFlight) return Promise.resolve();
+    if (typeof document !== 'undefined' && document.hidden) return Promise.resolve();
+    pollInFlight = true;
+    return refreshNow().then(function () { pollInFlight = false; }, function () { pollInFlight = false; });
+  }
+
+  function scheduleNextPoll() {
+    if (!pollActive) return;
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+    pollTimer = setTimeout(function () {
+      pollTimer = null;
+      pollOnce().then(scheduleNextPoll, scheduleNextPoll);
+    }, pollIntervalMs());
+  }
+
+  function onVisibilityChange() {
+    if (!pollActive || document.hidden) return;
+    pollOnce();          // refresca de seguida en tornar a primer pla
+    scheduleNextPoll();  // i reprograma amb l'interval adequat
+  }
+
+  function startPolling() {
+    pollActive = true;
+    if (!visibilityHooked) {
+      visibilityHooked = true;
+      try { document.addEventListener('visibilitychange', onVisibilityChange); } catch (e) {}
+    }
+    refreshNow();        // primera lectura immediata
+    scheduleNextPoll();
+  }
+
+  function stopPolling() {
+    pollActive = false;
+    pollInFlight = false;
+    if (pollTimer) { clearTimeout(pollTimer); pollTimer = null; }
+  }
+
+  // Historial de partides acabades (lectura pública). Abans era un listener en
+  // temps real; com que només canvia en acabar una partida, en fem una lectura
+  // PUNTUAL en obrir i quan detectem que una partida acaba (evita un listener viu).
+  function loadHistoryOnce() {
+    if (!db) return;
     try {
       const hRef = db.collection(COLLECTION).doc(config.historyDocId);
-      historyUnsub = hRef.onSnapshot(function (snap) {
+      hRef.get().then(function (snap) {
         const data = snap.exists ? snap.data() : null;
         const games = (data && Array.isArray(data.games)) ? data.games : [];
         historyView = games.slice().sort(function (a, b) { return (b.date || 0) - (a.date || 0); });
         renderHistory();
-      }, function () {});
+      }).catch(function () {});
     } catch (e) {}
   }
 
@@ -518,7 +607,20 @@
     if (state.ply !== lastPlySeen) {
       lastPlySeen = state.ply;
       if (previewActive) exitPreview();
+      cancelPendingVote();   // nou torn: descarta qualsevol vot pendent del torn anterior
     }
+
+    // Reaplica el vot local pendent d'enviar (UI optimista) sobre l'estat fresc,
+    // perquè no desaparegui de la llista mentre esperem a escriure'l a Firestore.
+    const me = currentUser();
+    if (pendingVote && me && state.phase === 'catalans' && pendingVote.vote.ply === state.ply) {
+      if (!state.votes) state.votes = {};
+      state.votes[me.uid] = pendingVote.vote;
+    }
+
+    // Una partida acaba de finalitzar → refresca l'historial (abans ho feia el listener).
+    if (state.phase === 'finished' && lastPhaseSeen !== 'finished') loadHistoryOnce();
+    lastPhaseSeen = state.phase;
 
     // Reconstrueix la posició local i el tauler.
     localChess = newChess(state.fen);
@@ -580,9 +682,10 @@
       }).then(function () {
         resolving = false;
         // Una transició pot deixar-ne una altra pendent (p. ex. després
-        // d'aplicar la jugada dels Catalans toca moure Stockfish). Reavalua
-        // amb l'últim estat un cop alliberat el bloqueig.
-        maybeDriveTransition();
+        // d'aplicar la jugada dels Catalans toca moure Stockfish). Refresca
+        // l'estat des de Firestore (abans ho feia el listener en temps real):
+        // onStateChanged() reavaluarà i conduirà el següent pas si escau.
+        refreshNow();
       });
     }, jitter);
   }
@@ -853,18 +956,65 @@
     let text = (typeof msg === 'string') ? msg.trim() : '';
     if (!text && sameMove && typeof prev.msg === 'string') text = prev.msg;
     if (text) vote.msg = text.slice(0, MSG_MAX);
-    const update = {};
-    update['votes.' + u.uid] = vote;
-    update.updatedAt = Date.now();
-    docRef.update(update).then(function () {
-      myVoteUci = uci;
+
+    // 1) UI optimista: reflecteix el vot IMMEDIATAMENT, sense escriure encara.
+    myVoteUci = uci;
+    if (!state.votes) state.votes = {};
+    state.votes[u.uid] = vote;
+    renderVotes();
+    renderBoard();
+
+    // 2) Escriptura a Firestore amb debounce + refredament (estalvia quota): els
+    //    canvis ràpids s'agrupen en una sola escriptura i es limita la freqüència.
+    pendingVote = { uid: u.uid, vote: vote };
+    scheduleVoteWrite();
+  }
+
+  // Programa l'enviament del vot pendent respectant el debounce i el refredament,
+  // però sense passar-se del final del torn (el vot s'ha d'escriure a temps).
+  function scheduleVoteWrite() {
+    if (!pendingVote) return;
+    if (voteWriteTimer) { clearTimeout(voteWriteTimer); voteWriteTimer = null; }
+    const now = Date.now();
+    let wait = Math.max(VOTE_DEBOUNCE_MS, VOTE_COOLDOWN_MS - (now - lastVoteWriteAt));
+    const left = state ? ((state.deadlineAt || 0) - now) : 0;
+    if (left > 0) wait = Math.min(wait, Math.max(0, left - 3000)); // marge abans del tancament
+    const san = pendingVote.vote.san;
+    if (wait > VOTE_DEBOUNCE_MS + 500) {
+      setStatus('Vot desat: ' + san + '. S\'enviarà d\'aquí ' + Math.ceil(wait / 1000) +
+                ' s (per estalviar quota); el pots seguir canviant.');
+    } else {
       setStatus('El teu vot: ' + san + '. El pots canviar fins que acabi el torn.');
-      renderVotes();
-      renderBoard();
+    }
+    voteWriteTimer = setTimeout(flushVoteWrite, wait);
+  }
+
+  function flushVoteWrite() {
+    voteWriteTimer = null;
+    const u = currentUser();
+    if (!pendingVote || !u || !state || state.phase !== 'catalans' ||
+        pendingVote.vote.ply !== state.ply) {
+      pendingVote = null;
+      return;
+    }
+    const p = pendingVote;
+    pendingVote = null;
+    lastVoteWriteAt = Date.now();
+    const update = {};
+    update['votes.' + p.uid] = p.vote;
+    update.updatedAt = lastVoteWriteAt;
+    docRef.update(update).then(function () {
+      setStatus('Vot enviat: ' + p.vote.san + '. El pots canviar fins que acabi el torn.');
     }).catch(function (e) {
       console.warn('[Catalans] vot', e);
       setStatus('No s\'ha pogut registrar el vot.');
     });
+  }
+
+  // Descarta el vot pendent (canvi de torn, tancament o reobertura de la partida).
+  function cancelPendingVote() {
+    if (voteWriteTimer) { clearTimeout(voteWriteTimer); voteWriteTimer = null; }
+    pendingVote = null;
   }
 
   // Identitat de la partida oberta per recuperar-la després d'un inici de sessió
@@ -1495,13 +1645,14 @@
   // ---------------------------------------------------------------------------
   // Atura subscripcions i neteja l'estat abans de carregar una altra partida.
   function teardownGame() {
-    if (unsub) { unsub(); unsub = null; }
+    if (unsub) { unsub(); unsub = null; }   // atura el sondeig
     if (historyUnsub) { historyUnsub(); historyUnsub = null; }
     if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+    cancelPendingVote();
     replayStopPlay();
     closeReplay();
     state = null; subscribed = false; resolving = false;
-    lastPlySeen = -1; myVoteUci = null;
+    lastPlySeen = -1; lastPhaseSeen = null; myVoteUci = null;
     previewActive = false; previewPly = null; previewUci = null;
     historyView = [];
     lastUiKey = '';

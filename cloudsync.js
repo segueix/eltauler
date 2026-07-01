@@ -48,7 +48,13 @@
   // ---------------------------------------------------------------------------
   const SYNC_PREFIXES = ['chess_', 'eltauler_'];
   const FIRESTORE_COLLECTION = 'eltauler_users';
-  const PUSH_DEBOUNCE_MS = 2500;
+  // Debounce llarg: agrupa molts desats petits d'una sessió en poques pujades.
+  // El sostre garanteix que, encara que hi hagi desats continus (el debounce sol
+  // es reiniciaria indefinidament), es puja de tant en tant. A més es fa un
+  // «flush» en amagar/tancar la pestanya (vegeu init()). Amb el guard per hash,
+  // les pujades sense canvis reals no gasten cap escriptura.
+  const PUSH_DEBOUNCE_MS = 20000;
+  const PUSH_MAX_WAIT_MS = 60000;
 
   // Claus locals (mai no es sincronitzen): metadades del propi sync.
   const LOCAL_META_PREFIX = 'eltauler_cloud_';
@@ -70,7 +76,9 @@
   let currentUser = null;
   let docUnsub = null;
   let pushTimer = null;
+  let pushMaxTimer = null;           // garanteix una pujada com a molt cada PUSH_MAX_WAIT_MS
   let pushInFlight = false;
+  let lastPushedHash = null;         // hash de l'última instantània pujada (evita pujades redundants)
   let pendingCloudData = null;       // dades del núvol esperant a aplicar-se
   let deferApplyTimer = null;
   let syncWatchdog = null;           // detecta sincronitzacions inicials encallades
@@ -127,6 +135,18 @@
       if (isSyncableKey(k)) data[k] = localStorage.getItem(k);
     }
     return data;
+  }
+
+  // Hash barat i estable d'una instantània (ordena les claus). Serveix per no
+  // tornar a pujar dades idèntiques a l'última pujada (estalvi d'escriptures).
+  function snapshotHash(data) {
+    const keys = Object.keys(data).sort();
+    let h = 5381;
+    for (let i = 0; i < keys.length; i++) {
+      const s = keys[i] + '=' + data[keys[i]] + '\u0001';
+      for (let j = 0; j < s.length; j++) h = ((h << 5) + h + s.charCodeAt(j)) | 0;
+    }
+    return String(h >>> 0);
   }
 
   // ¿El dispositiu té dades de joc reals (no només configuració buida)?
@@ -193,12 +213,20 @@
     return db.collection(FIRESTORE_COLLECTION).doc(currentUser.uid);
   }
 
-  function pushSnapshot() {
+  function pushSnapshot(force) {
     const ref = docRef();
     if (!ref) return Promise.resolve();
+    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    const data = collectSnapshot();
+    const hash = snapshotHash(data);
+    if (!force && hash === lastPushedHash) {
+      // Res nou des de l'última pujada: no gastis una escriptura.
+      setStatus({ state: 'synced', error: null });
+      return Promise.resolve();
+    }
     const ts = Date.now();
     const payload = {
-      data: collectSnapshot(),
+      data: data,
       updatedAt: ts,
       deviceId: getDeviceId(),
       app: 'eltauler'
@@ -206,6 +234,7 @@
     pushInFlight = true;
     setStatus({ state: 'syncing' });
     return ref.set(payload).then(function () {
+      lastPushedHash = hash;
       setLocalChangeAt(ts);
       setLastSyncedAt(ts);
       pushInFlight = false;
@@ -225,6 +254,25 @@
       pushTimer = null;
       pushSnapshot();
     }, PUSH_DEBOUNCE_MS);
+    // Sostre: encara que hi hagi desats continus (el debounce es reiniciaria sol),
+    // puja com a molt cada PUSH_MAX_WAIT_MS.
+    if (!pushMaxTimer) {
+      pushMaxTimer = setTimeout(function () {
+        pushMaxTimer = null;
+        if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+        pushSnapshot();
+      }, PUSH_MAX_WAIT_MS);
+    }
+  }
+
+  // Puja de seguida el que estigui pendent (en amagar o tancar la pestanya): així
+  // no cal escriure durant el joc a cada moviment; una sessió es resol en poques
+  // pujades. Amb el guard per hash, si no hi ha canvis reals no escriu res.
+  function flushPendingPush() {
+    if (!currentUser) return;
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    pushSnapshot();
   }
 
   // Aplica dades del núvol (ara o quan sigui segur).
@@ -245,6 +293,8 @@
       return;
     }
     applySnapshot(data);
+    // Evita re-pujar immediatament el que acabem de baixar: fixa el hash actual.
+    try { lastPushedHash = snapshotHash(collectSnapshot()); } catch (e) {}
     setLocalChangeAt(updatedAt);
     setLastSyncedAt(updatedAt);
     reloadApp();
@@ -382,6 +432,8 @@
     clearSyncWatchdog();
     if (docUnsub) { docUnsub(); docUnsub = null; }
     if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    lastPushedHash = null;
     setStatus({ state: 'signedout', email: null });
   }
 
@@ -465,7 +517,8 @@
   function syncNow() {
     if (!currentUser) { signIn(); return; }
     if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-    pushSnapshot();
+    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    pushSnapshot(true);   // «Sincronitza ara»: força la pujada encara que el hash coincideixi
   }
 
   // ---------------------------------------------------------------------------
@@ -532,6 +585,17 @@
         if (user) handleSignedIn(user);
         else handleSignedOut();
       });
+
+      // Flush-on-exit: puja les dades pendents en amagar o tancar la pestanya, en
+      // comptes d'escriure durant el joc a cada desat. Així una sessió sencera es
+      // resol en poques escriptures. Firestore encua l'escriptura localment
+      // (persistència) i la sincronitza encara que la pàgina es tanqui.
+      try {
+        document.addEventListener('visibilitychange', function () {
+          if (document.visibilityState === 'hidden') flushPendingPush();
+        });
+        window.addEventListener('pagehide', function () { flushPendingPush(); });
+      } catch (e) {}
     } catch (e) {
       console.warn('[CloudSync] init error', e);
       setStatus({ state: 'error', error: e && e.message ? e.message : 'Error d\'inicialització' });
