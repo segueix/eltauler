@@ -1533,11 +1533,9 @@
     const u = currentUser();
     if (u) {
       $('#catalans-signin').hide();
-      $('#catalans-switch').show();
       $('#catalans-whoami').text('Votes com a ' + userName(u)).show();
     } else {
       $('#catalans-signin').show();
-      $('#catalans-switch').hide();
       $('#catalans-whoami').hide();
     }
   }
@@ -2277,16 +2275,6 @@
     $('#catalans-custom-elo, #catalans-custom-name').on('keydown', function (e) {
       if (e.key === 'Enter') { e.preventDefault(); confirmCustomModal(); }
       else if (e.key === 'Escape') { e.preventDefault(); closeCustomModal(); }
-    });
-    // Canviar de compte (tanca sessió i torna a triar compte de Google).
-    $('#catalans-switch').on('click', function () {
-      setStatus('Canviant de compte…');
-      rememberReturnTarget();
-      if (window.CloudSync && typeof window.CloudSync.switchAccount === 'function') {
-        window.CloudSync.switchAccount();
-      } else if (window.CloudSync && typeof window.CloudSync.signIn === 'function') {
-        window.CloudSync.signIn();
-      }
     });
     // Revisió de jugades: clic a una jugada de la transcripció.
     $('#catalans-moves').on('click', '.cat-move', function () {

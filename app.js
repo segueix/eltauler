@@ -420,6 +420,12 @@ function customGameIdFromUrl() {
     const m = (window.location.hash || '').match(/^#partida-([A-Za-z0-9]+)$/);
     return m ? m[1] : null;
 }
+// Secció demanada per query (?mode=game|openings|league). L'usen les pàgines
+// d'aterratge (SEO) i les dreceres de la PWA per obrir l'app on toca.
+function modeFromUrl() {
+    try { return (new URLSearchParams(window.location.search).get('mode') || '').toLowerCase(); }
+    catch (e) { return ''; }
+}
 function openCatalansScreen(pushHistory = true) {
     $('#start-screen').hide();
     if (window.CatalansMode && typeof window.CatalansMode.open === 'function') window.CatalansMode.open();
@@ -5822,7 +5828,13 @@ async function deepenEntryAnalysis(entry, opts = {}) {
         const targets = entry.moveReviews
             .filter(r => r && r.fen && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
             .slice(0, opts.max || 8);
-        for (const r of targets) {
+        for (let ti = 0; ti < targets.length; ti++) {
+            const r = targets[ti];
+            // Progrés per posició PROCESSADA (no per encert): així la barra avança
+            // de manera fiable encara que alguna posició se salti.
+            if (typeof opts.onProgress === 'function') {
+                try { opts.onProgress(ti, targets.length); } catch (e) {}
+            }
             if (opts.shouldAbort && opts.shouldAbort()) break;
             // ABANS de la jugada: millor jugada, línia i avaluació (perspectiva del jugador).
             const before = await analyzeFenRobust(r.fen, depth, 3, 6000, opts.shouldAbort);
@@ -5862,9 +5874,9 @@ async function deepenEntryAnalysis(entry, opts = {}) {
             r.depth = before.depth || depth;
             r.deep = true;
             updated++;
-            if (typeof opts.onProgress === 'function') {
-                try { opts.onProgress(updated, targets.length); } catch (e) {}
-            }
+        }
+        if (typeof opts.onProgress === 'function') {
+            try { opts.onProgress(targets.length, targets.length); } catch (e) {}
         }
         entry.deepAnalyzed = true;
         // La requalificació pot canviar el desglossament (excel·lents/errors…).
@@ -6487,7 +6499,7 @@ function jeroglificsReady() {
     const ready = Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length > 0;
     if (!ready && !personalHieroglyphicPrepInFlight) {
         try {
-            if (hasPersonalHieroglyphicCandidate() && Date.now() - personalHieroglyphicLastAttempt > 15000) setTimeout(() => { void ensurePersonalHieroglyphicPoolTick(); }, 50);
+            if (hasPersonalHieroglyphicCandidate() && Date.now() - personalHieroglyphicLastAttempt > 15000) setTimeout(() => { void ensurePersonalHieroglyphicPoolTick({ background: true }); }, 50);
         } catch (e) {}
     }
     return ready;
@@ -7500,7 +7512,6 @@ function updateHistoryDetails(entry) {
         breakdown.empty();
         if (reviewContent.length) reviewContent.text('—');
         updateHistoryErrorNotes(null);
-        $('#history-personal-hieroglyphic').prop('disabled', true);
         updateHistoryProgress();
         updateHistoryControls();
         return;
@@ -7523,7 +7534,6 @@ function updateHistoryDetails(entry) {
     updateHistoryReview(entry);
     updateHistoryErrorNotes(entry);
     void requestErrorNotes(entry);
-    $('#history-personal-hieroglyphic').prop('disabled', !hasPersonalHieroglyphicCandidate(entry));
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -7592,43 +7602,7 @@ function updateHistoryReview(entry) {
             showToast('Còpia no disponible; selecciona el text manualment', 'info');
         }
     });
-    wireHistoryDeepButton(entry);
     // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
-}
-
-// Botó d'anàlisi profunda a la revisió d'historial: re-analitza les posicions
-// clau amb el motor i refresca la ressenya amb les dades millorades. Útil per
-// retrofitar partides antigues sense refutació ni avaluacions fiables.
-function wireHistoryDeepButton(entry) {
-    const btn = $('#history-deep-review');
-    const status = $('#history-deep-status');
-    if (!btn.length) return;
-    const available = entry && typeof deepenEntryAnalysis === 'function' && deepReviewTargets(entry).length > 0;
-    btn.toggle(!!available);
-    status.hide().text('');
-    if (!available) return;
-    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
-    btn.off('click').on('click', async () => {
-        if (deepReviewInProgress || waitingForBlunderAnalysis) {
-            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
-            return;
-        }
-        const total = deepReviewTargets(entry).length;
-        btn.prop('disabled', true);
-        status.show().text(`Analitzant a fons… (0/${total})`);
-        try {
-            const updated = await deepenEntryAnalysis(entry, {
-                depth: 14, max: 8, force: true,
-                onProgress: (done, tot) => status.text(`Analitzant a fons… (${done}/${tot})`)
-            });
-            updateHistoryDetails(entry);   // refresca desglossament + ressenya + notes
-            status.show().text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
-        } catch (e) {
-            console.warn('[DeepReview] historial', e);
-            status.show().text('No s\'ha pogut completar l\'anàlisi profunda.');
-            btn.prop('disabled', false);
-        }
-    });
 }
 
 // Renova la ressenya LOCAL d'una partida (no depèn de cap clau d'IA): incrementa
@@ -10250,6 +10224,7 @@ function renderGameHistory() {
                     </div>
                            <div class="history-item-actions">
                         <button class="btn btn-secondary history-select" data-history-id="${entry.id}">▶️ Veure</button>
+                        <button class="btn history-delete" data-history-id="${entry.id}" title="Esborrar aquesta partida de l'historial" aria-label="Esborrar aquesta partida de l'historial"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg></button>
                         <button class="btn btn-primary history-review" data-history-id="${entry.id}">📈 Revisió</button>
                     </div>
                 </div>
@@ -10274,6 +10249,31 @@ function renderGameHistory() {
         const id = $(this).data('history-id');
         const entry = gameHistory.find(item => item.id === id);
         showHistoryReview(entry);
+    });
+    // Esborrar una partida concreta de l'historial (amb confirmació). Actualitza el
+    // desat (i la sincronització al núvol) i refresca la llista i el detall.
+    $('.history-delete').off('click').on('click', function(e) {
+        if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+        const id = $(this).data('history-id');
+        const entry = gameHistory.find(item => item.id === id);
+        if (!entry) return;
+        showAppConfirm(
+            'Segur que vols esborrar aquesta partida de l\'historial? Aquesta acció no es pot desfer.',
+            () => {
+                const idx = gameHistory.findIndex(item => item.id === id);
+                if (idx === -1) return;
+                gameHistory.splice(idx, 1);
+                try { saveStorage(); } catch (err) { console.warn('[Historial] esborrar', err); }
+                // Si esborrem la partida que s'estava mostrant, buida el detall perquè
+                // renderGameHistory en carregui una altra (o mostri l'estat buit).
+                if (historyReplay && historyReplay.entry && historyReplay.entry.id === id) {
+                    historyReplay = null;
+                }
+                renderGameHistory();
+                showToast('Partida esborrada de l\'historial', 'success');
+            },
+            { title: 'Esborrar partida', confirmText: 'Esborra', cancelText: 'Cancel·la' }
+        );
     });
     if (!historyReplay || !historyReplay.entry) {
         loadHistoryEntry(gameHistory[gameHistory.length - 1]);
@@ -13096,9 +13096,12 @@ async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
     const poolFens = new Set(personalHieroglyphicPool.map(p => p.fen));
     const candidates = collectPersonalHieroglyphicCandidates(null).filter(c => !poolFens.has(c.fen));
     if (!candidates.length) { refreshJeroglificButton(); return false; }
+    // En segon pla no toquem la UI (no deshabilitem botons): la generació ha de ser
+    // invisible perquè ara corre a qualsevol pantalla, no només al menú.
+    const silent = !!opts.background;
     personalHieroglyphicPrepInFlight = true;
     personalHieroglyphicLastAttempt = Date.now();
-    setHieroglyphicGenerating(true);
+    if (!silent) setHieroglyphicGenerating(true);
     try {
         const prepared = await chooseStockfishValidatedHieroglyphicCandidate(candidates, Object.assign({}, opts, { excludeFens: poolFens }));
         if (prepared && !personalHieroglyphicPool.some(p => p.fen === prepared.fen)) {
@@ -13108,7 +13111,7 @@ async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
         console.warn('[Hieroglyphic] background personal prep', e);
     } finally {
         personalHieroglyphicPrepInFlight = false;
-        setHieroglyphicGenerating(false);
+        if (!silent) setHieroglyphicGenerating(false);
         refreshJeroglificButton();
     }
     return personalHieroglyphicPool.length > 0;
@@ -13140,7 +13143,7 @@ function buildHieroglyphicLineFromCandidate(candidate) {
 function setHieroglyphicGenerating(isGenerating) {
     // El botó principal de jeroglífics queda sempre disponible (no es bloqueja ni
     // durant la generació en segon pla); només deshabilitem els disparadors interns.
-    ['btn-hieroglyphic-exercise', 'history-personal-hieroglyphic'].forEach(id => {
+    ['btn-hieroglyphic-exercise'].forEach(id => {
         const el = document.getElementById(id);
         if (!el) return;
         el.disabled = !!isGenerating;
@@ -14170,9 +14173,6 @@ function setupEvents() {
     $('#btn-hieroglyphic-exercise').click(() => {
         initOpeningBundleBoard();
         void startPersonalHieroglyphicFromLastGame(null);
-    });
-    $('#history-personal-hieroglyphic').click(() => {
-        startPersonalHieroglyphicFromLastGame(historyReplay ? historyReplay.entry : null);
     });
     const exitOpeningScreenToMenu = () => {
         $('#opening-screen').hide();
@@ -17980,44 +17980,6 @@ function deepReviewTargets(entry) {
     return entry.moveReviews.filter(r => r && r.fen && DEEP_REVIEW_KEYS.includes(r.quality)).slice(0, 8);
 }
 
-// Configura el botó "Anàlisi profunda" del modal de revisió: només es mostra si
-// hi ha posicions per aprofundir i si el motor està disponible. En clicar-lo,
-// re-analitza amb progrés i refresca el debrief amb les dades millorades.
-function wirePostGameDeepButton(entry) {
-    const btn = $('#btn-review-deep');
-    const status = $('#review-deep-status');
-    if (!btn.length) return;
-    const targets = deepReviewTargets(entry);
-    const available = !blunderMode && typeof deepenEntryAnalysis === 'function' && targets.length > 0;
-    btn.toggle(available);
-    status.hide().text('');
-    if (!available) return;
-    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
-    btn.off('click').on('click', async () => {
-        if (deepReviewInProgress || waitingForBlunderAnalysis) {
-            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
-            return;
-        }
-        const total = deepReviewTargets(entry).length;
-        btn.prop('disabled', true);
-        status.show().text(`Analitzant a fons… (0/${total})`);
-        try {
-            const updated = await deepenEntryAnalysis(entry, {
-                depth: 14, max: 8, force: true,
-                onProgress: (done, tot) => status.text(`Analitzant a fons… (${done}/${tot})`)
-            });
-            renderGameDebrief(entry);
-            try { renderReviewBreakdown(summarizeReview(entry.moveReviews)); } catch (e) {}
-            status.text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
-            btn.prop('disabled', false).text('🔬 Re-analitzar a fons');
-        } catch (e) {
-            console.warn('[DeepReview] botó', e);
-            status.text('No s\'ha pogut completar l\'anàlisi profunda.');
-            btn.prop('disabled', false);
-        }
-    });
-}
-
 function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) {
     const modal = $('#review-modal');
     if (!modal.length) {
@@ -18082,11 +18044,6 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
             startPersonalHieroglyphicFromLastGame();
         });
     }
-
-    // Botó d'anàlisi profunda: re-analitza les posicions clau amb el motor a més
-    // profunditat i refresca el debrief amb les dades millorades. Útil també per
-    // retrofitar partides antigues sense dades de refutació.
-    wirePostGameDeepButton(options.entry || gameHistory[gameHistory.length - 1]);
 
     const taskForReview = options.disableGrowth ? null : (options.growthTask || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true, source: 'review' }));
     renderGrowthRecommendation(taskForReview, onClose);
@@ -21159,6 +21116,22 @@ function isIdleForBackgroundPrep() {
         !openingPracticeHintPending && !openingPreCalcPending && !stockfishRequestor;
 }
 
+// Repòs "ampli" per generar jeroglífics: n'hi ha prou que no s'estigui jugant una
+// partida ni fent un exercici/lliçó i que el motor no treballi per a l'usuari. Així
+// el rebost es continua omplint sigui quina sigui la pantalla secundària visible
+// (historial, obertures, etc.), no només al menú/estadístiques/ajustos.
+function isIdleForHieroglyphicPrep() {
+    if ($('#game-screen').hasClass('active')) return false;
+    if (hieroglyphicExerciseActive || openingLessonActive || openingErrorPracticeActive) return false;
+    // No hi posem personalHieroglyphicPrepInFlight: el propi tick l'activa mentre
+    // corre i s'auto-avortaria. La concurrència ja la frena el guard d'entrada
+    // d'ensurePersonalHieroglyphicPoolTick i el de deepReviewInProgress d'aquí.
+    if (deepReviewInProgress || waitingForBlunderAnalysis) return false;
+    return !isEngineThinking && !pendingMoveEvaluation && !mateDrillPreparing &&
+        !openingPracticeEngineThinking && !openingPracticeAnalysisPending &&
+        !openingPracticeHintPending && !openingPreCalcPending && !stockfishRequestor;
+}
+
 // Demana aturar la preparació en segon pla perquè l'usuari necessita el motor.
 // Si està preparant justament l'exercici demanat, la deixem acabar i es
 // recollirà del rebost en lloc de refer-la.
@@ -21184,21 +21157,28 @@ async function backgroundPrepTick() {
     try { refillHieroglyphicQueue(); } catch (e) {}
     if (backgroundPrepPromise) return;
     if (typeof isCalibrationActive === 'function' && isCalibrationActive()) return;
-    if (!isIdleForBackgroundPrep()) return;
-    prunePreparedSequences();
-    if (personalHieroglyphicPool.length < PERSONAL_HIERO_POOL_TARGET) {
+
+    // 1) JEROGLÍFICS — es preparen amb el llindar de repòs AMPLI (isIdleForHieroglyphicPrep):
+    //    el rebost es continua omplint encara que l'usuari no sigui al menú, sempre que
+    //    no jugui una partida ni faci un exercici. Així "en segon pla" segueix creant-ne.
+    if (personalHieroglyphicPool.length < PERSONAL_HIERO_POOL_TARGET && isIdleForHieroglyphicPrep()) {
         const before = personalHieroglyphicPool.length;
-        await ensurePersonalHieroglyphicPoolTick({ shouldAbort: () => backgroundPrepAbortRequested || !isIdleForBackgroundPrep() });
+        await ensurePersonalHieroglyphicPoolTick({ background: true, shouldAbort: () => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep() });
         const grew = personalHieroglyphicPool.length > before;
         // Mentre puguem afegir jeroglífics nous i no arribem a 3, seguim omplint el
         // rebost de pressa (en repòs); quan ja n'hi hagi prou, deixem pas a la resta de prep.
         if (grew && personalHieroglyphicPool.length < PERSONAL_HIERO_POOL_TARGET
-            && !backgroundPrepAbortRequested && isIdleForBackgroundPrep()) {
+            && !backgroundPrepAbortRequested && isIdleForHieroglyphicPrep()) {
             setTimeout(backgroundPrepTick, 600);
             return;
         }
         if (personalHieroglyphicPool.length > 0) return;
     }
+
+    // 2) SEQÜÈNCIES D'EXERCICIS (preparació pesada) — es manté al llindar ESTRICTE de
+    //    repòs (isIdleForBackgroundPrep: només menú/estadístiques/ajustos).
+    if (!isIdleForBackgroundPrep()) return;
+    prunePreparedSequences();
     const next = getBackgroundPrepCandidates().find(f => !preparedSequences[f]);
     if (!next) return;
     if (!ensureStockfish()) return;
@@ -21240,10 +21220,13 @@ $(document).ready(() => {
     try { initHomeExtras(); } catch (e) { console.warn('[HomeExtras] init', e); }
     const __customId = customGameIdFromUrl();
     const __deepCatalans = isCatalansDeepLink();
+    const __mode = (!__customId && !__deepCatalans) ? modeFromUrl() : '';
     history.replaceState(
         { screen: (__customId || __deepCatalans) ? 'catalans-screen' : 'start-screen', customId: __customId || null },
         '',
-        __customId ? ('#partida-' + __customId) : (__deepCatalans ? screenUrl('catalans-screen') : (window.location.pathname + window.location.search))
+        __customId ? ('#partida-' + __customId)
+            : (__deepCatalans ? screenUrl('catalans-screen')
+            : (window.location.pathname + (__mode ? '' : window.location.search)))
     );
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
     applyDayMode(loadDayModePreference(), { skipSave: true });
@@ -21262,6 +21245,14 @@ $(document).ready(() => {
         setTimeout(function () { openCustomGameScreen(__customId, false); }, 0);
     } else if (__deepCatalans) {
         setTimeout(function () { openCatalansScreen(false); }, 0);
+    } else if (__mode) {
+        // Deep-links de secció (pàgines d'aterratge SEO i dreceres de la PWA):
+        // obren l'app directament a la pantalla demanada reutilitzant els botons.
+        setTimeout(function () {
+            if (__mode === 'game') $('#btn-new-game').click();
+            else if (__mode === 'openings') $('#btn-opening').click();
+            else if (__mode === 'league') $('#btn-league').click();
+        }, 0);
     }
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
@@ -21281,6 +21272,11 @@ $(document).ready(() => {
     loadPreparedSequences();
     setTimeout(backgroundPrepTick, 1200);
     setInterval(backgroundPrepTick, 4000);
+    // Quan la pestanya torna a primer pla, reprèn la generació de seguida: els timers
+    // es frenen molt en segon pla, així que no esperem el pròxim interval de 4s.
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') setTimeout(backgroundPrepTick, 300);
+    });
 
     // Escalfa el graf d'obertures per posició en segon pla (detecció immune a
     // transposicions), perquè l'anàlisi de partides ja el tingui llest.

@@ -82,8 +82,17 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
 ## 5. Autoritza el teu domini
 
 1. **Authentication → Settings → Authorized domains**.
-2. Afegeix el domini on publiques l'app (p. ex. `elteunom.github.io`).
+2. Afegeix **tots** els dominis on es publica l'app perquè l'inici de sessió amb
+   Google (i, per tant, votar a les partides col·lectives) hi funcioni:
+   - `eltauler.cat` (domini propi)
+   - `elteunom.github.io` (GitHub Pages)
    `localhost` ja hi sol estar per a proves locals.
+
+> ℹ️ Els enllaços de partides col·lectives (`#partida-<id>` i
+> `#catalans-vs-stockfish`) són **relatius al domini actual** (hash routing), així
+> que funcionen igual des de GitHub Pages i des de `eltauler.cat`. Un cop el
+> domini propi està configurat (fitxer `CNAME`), GitHub redirigeix el domini
+> `*.github.io` cap a `eltauler.cat`.
 
 ---
 
