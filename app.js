@@ -7506,7 +7506,7 @@ function updateHistoryDetails(entry) {
         breakdown.empty();
         if (reviewContent.length) reviewContent.text('—');
         updateHistoryErrorNotes(null);
-        $('#history-personal-hieroglyphic').prop('disabled', true);
+        $('#history-personal-hieroglyphic').hide();
         updateHistoryProgress();
         updateHistoryControls();
         return;
@@ -7529,8 +7529,9 @@ function updateHistoryDetails(entry) {
     updateHistoryReview(entry);
     updateHistoryErrorNotes(entry);
     void requestErrorNotes(entry);
-    // Només s'habilita si AQUESTA partida té un error/tàctica propi convertible.
-    $('#history-personal-hieroglyphic').prop('disabled', !entryHasOwnHieroglyphicCandidate(entry));
+    // Només es MOSTRA si AQUESTA partida té una errada (imprecisió/error/errada greu)
+    // convertible en jeroglífic; si no hi ha cap error, s'amaga.
+    $('#history-personal-hieroglyphic').toggle(entryHasReviewableError(entry)).prop('disabled', false);
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -7599,25 +7600,9 @@ function updateHistoryReview(entry) {
             showToast('Còpia no disponible; selecciona el text manualment', 'info');
         }
     });
-    wireHistoryDeepButton(entry);
     // Es manté actiu encara que ja existeixi una ressenya: permet re-generar-la.
 }
 
-// Barra de progrés de l'anàlisi profunda a l'historial: mostra el percentatge de
-// posicions ja regenerades mentre el motor treballa.
-function setHistoryDeepProgress(done, total) {
-    const wrap = $('#history-deep-progress');
-    if (!wrap.length) return;
-    const pct = total > 0 ? Math.max(0, Math.min(100, Math.round((done / total) * 100))) : 0;
-    wrap.show();
-    $('#history-deep-progress-fill').css('width', pct + '%');
-    $('#history-deep-progress-label').text(pct + '%');
-}
-function hideHistoryDeepProgress() {
-    $('#history-deep-progress').hide();
-    $('#history-deep-progress-fill').css('width', '0%');
-    $('#history-deep-progress-label').text('0%');
-}
 // Espera que la preparació de jeroglífics en segon pla (i la de seqüències) alliberi
 // el motor Stockfish abans d'una anàlisi sota demanda, per no compartir el worker.
 async function yieldEngineFromBackgroundPrep() {
@@ -7629,74 +7614,6 @@ async function yieldEngineFromBackgroundPrep() {
         await new Promise(r => setTimeout(r, 150));
         waited += 150;
     }
-}
-
-// Botó d'anàlisi profunda a la revisió d'historial: re-analitza les posicions
-// clau amb el motor i refresca la ressenya amb les dades millorades. Útil per
-// retrofitar partides antigues sense refutació ni avaluacions fiables.
-function wireHistoryDeepButton(entry) {
-    const btn = $('#history-deep-review');
-    const status = $('#history-deep-status');
-    if (!btn.length) return;
-    const available = entry && typeof deepenEntryAnalysis === 'function' && deepReviewTargets(entry).length > 0;
-    btn.toggle(!!available);
-    status.hide().text('');
-    hideHistoryDeepProgress();
-    if (!available) return;
-    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
-    btn.off('click').on('click', async () => {
-        if (deepReviewInProgress || waitingForBlunderAnalysis || personalHieroglyphicPrepInFlight) {
-            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
-            return;
-        }
-        // Guardem els objectius ABANS d'analitzar: són les mateixes referències dins
-        // entry.moveReviews (deepenEntryAnalysis les muta al lloc), així que el primer
-        // servirà per portar la revisió al punt regenerat quan acabi.
-        const targets = deepReviewTargets(entry);
-        const total = targets.length;
-        const firstTarget = targets[0] || null;
-        btn.prop('disabled', true);
-        status.show().text(`Analitzant a fons… (0/${total})`);
-        setHistoryDeepProgress(0, total);
-        // Allibera el motor de la preparació en segon pla per no compartir el worker.
-        await yieldEngineFromBackgroundPrep();
-        let updated = 0;
-        try {
-            updated = await deepenEntryAnalysis(entry, {
-                depth: 14, max: 8, force: true,
-                onProgress: (done, tot) => {
-                    status.text(`Analitzant a fons… (${Math.min(done, tot)}/${tot})`);
-                    setHistoryDeepProgress(done, tot);
-                }
-            });
-        } catch (e) {
-            console.warn('[DeepReview] historial', e);
-            backgroundPrepAbortRequested = false;
-            hideHistoryDeepProgress();
-            $('#history-deep-status').show().text('No s\'ha pogut completar l\'anàlisi profunda.');
-            $('#history-deep-review').prop('disabled', false);
-            return;
-        }
-        backgroundPrepAbortRequested = false;
-        // Refresca desglossament + ressenya + notes. Això torna a lligar aquest botó,
-        // de manera que després tornem a agafar l'element d'estat per al missatge final.
-        updateHistoryDetails(entry);
-        hideHistoryDeepProgress();
-        const statusEl = $('#history-deep-status');
-        // Porta la revisió al PRIMER punt regenerat i ressalta la teva jugada (vermell)
-        // i la millor (verd) sobre aquella posició de decisió.
-        if (updated > 0 && firstTarget && firstTarget.fen) {
-            statusEl.show().text('Anàlisi profunda completada ✓ — som al primer punt regenerat.');
-            try {
-                jumpToHistoryMove(firstTarget.moveNumber, firstTarget.playerMoveSan || firstTarget.playerMove, firstTarget.fen, firstTarget.playerMove);
-                if (firstTarget.bestMove) setKeyMomentBest(firstTarget.bestMove);
-                const boardEl = document.getElementById('history-board');
-                if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
-            } catch (e) { console.warn('[DeepReview] navegació punt regenerat', e); }
-        } else {
-            statusEl.show().text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
-        }
-    });
 }
 
 // Renova la ressenya LOCAL d'una partida (no depèn de cap clau d'IA): incrementa
@@ -12797,6 +12714,22 @@ function getHieroglyphicTitle() {
     if (hieroglyphicSource === 'personal') return '🔮 Desxifra el teu error';
     return `🔮 Exercici Jeroglífic — ${hieroglyphicOpening ? hieroglyphicOpening.name : 'posició'}`;
 }
+// Resum breu de la partida i l'error d'origen (per als jeroglífics de "Revisa aquest
+// error"). No revela la millor jugada; només situa d'on ve i què va passar.
+function formatHieroglyphicOriginMeta(meta) {
+    if (!meta) return '';
+    const qLabel = { inaccuracy: 'imprecisió', mistake: 'error', blunder: 'errada greu' }[meta.quality] || 'errada';
+    let game = meta.game ? String(meta.game) : 'Partida';
+    if (meta.result) game += ' · ' + meta.result;
+    if (meta.date) game += ' · ' + meta.date;
+    let err = '';
+    if (meta.moveNumber) err += 'Jugada ' + meta.moveNumber + ': ';
+    if (meta.playedSan) err += 'vas jugar ' + meta.playedSan + ' ';
+    err += '(' + qLabel;
+    if (typeof meta.swing === 'number' && meta.swing > 0) err += ', −' + (meta.swing / 100).toFixed(1) + ' peons';
+    err += ')';
+    return game + ' — ' + err.trim();
+}
 function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const noteEl = document.getElementById('opening-practice-note');
     if (!noteEl) return;
@@ -12805,9 +12738,14 @@ function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
     const level = Math.min(3, Math.max(hieroglyphicHintLevel || 1, (hieroglyphicAttempts || 0) + 1));
     const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${statusText}</div>` : '';
+    const originMeta = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.originMeta) || null;
+    const originLine = originMeta
+        ? `<div class="maxim-text" style="opacity:0.82; font-size:0.8rem; margin-top:6px;">📋 ${escapeHtml(formatHieroglyphicOriginMeta(originMeta))}</div>`
+        : '';
     noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
         <div class="maxim-title">${getHieroglyphicTitle()}</div>
         <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
+        ${originLine}
         <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
         <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · Pas ${(hieroglyphicStep || 0) + 1}/${Math.max(1, hieroglyphicSolutionUci.length || 1)} · Troba la millor jugada. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
         ${extra}
@@ -13375,7 +13313,9 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
             playerMove: chosen.playerMove || null,
             swing: chosen.swing ?? null,
             ratingEstimate: chosen.ratingEstimate ?? null,
-            difficultyPercent: hieroglyphicDifficultyPercent(chosen)
+            difficultyPercent: hieroglyphicDifficultyPercent(chosen),
+            // Dades breus de la partida/error d'origen (si ve de "Revisa aquest error").
+            originMeta: chosen.originMeta || null
         };
         currentHieroglyphicWrongMoves = 0;
         // Registra el jeroglífic generat a l'historial sincronitzat (pendent fins resoldre'l).
@@ -13413,18 +13353,42 @@ function retryHieroglyphicFromHistory(id) {
 }
 if (typeof window !== 'undefined') window.retryHieroglyphicFromHistory = retryHieroglyphicFromHistory;
 
-// True si la partida concreta té algun error/tàctica pròpia convertible en jeroglífic.
-function entryHasOwnHieroglyphicCandidate(entry) {
+// True si la partida concreta té una ERRADA (imprecisió/error/errada greu) pròpia
+// convertible en jeroglífic. No compta les tàctiques ben jugades: "Revisa aquest
+// error" només té sentit quan hi ha un error a corregir.
+function entryHasReviewableError(entry) {
     if (!entry) return false;
-    try { return collectPersonalHieroglyphicCandidates(entry).some(c => c && c.entryId === entry.id); }
-    catch (e) { return false; }
+    try {
+        return collectPersonalHieroglyphicCandidates(entry)
+            .some(c => c && c.entryId === entry.id && c.source !== 'gameHistory.tactic');
+    } catch (e) { return false; }
+}
+
+// Dades breus de la partida i de l'error, per mostrar-les quan es resol el jeroglífic.
+function buildHieroglyphicOriginMeta(entry, cand, chosen) {
+    const c = cand || {};
+    const fen = (chosen && chosen.fen) || c.fen;
+    const mr = (entry && Array.isArray(entry.moveReviews)) ? entry.moveReviews.find(r => r && r.fen === fen) : null;
+    let playedSan = (mr && mr.playerMoveSan) || null;
+    if (!playedSan && c.playerMove && fen) { try { playedSan = uciToSan(fen, c.playerMove); } catch (e) {} }
+    const swing = (mr && typeof mr.swing === 'number') ? mr.swing : (typeof c.swing === 'number' ? c.swing : null);
+    return {
+        game: (entry && entry.label) || null,
+        result: (entry && entry.result) || null,
+        mode: (entry && entry.mode) || null,
+        date: (entry && entry.date) || null,
+        moveNumber: (mr && mr.moveNumber) || c.moveNumber || null,
+        playedSan,
+        quality: (mr && mr.quality) || null,
+        swing
+    };
 }
 
 // "Revisa aquest error": genera, sota demanda i validat amb Stockfish, un jeroglífic
-// A PARTIR d'un error de la partida que s'està revisant a l'historial (no del rebost
-// genèric). Així l'exercici correspon de veritat a aquesta partida.
+// A PARTIR d'una errada de la partida que s'està revisant. NO l'obre directament:
+// el desa al rebost perquè es pugui resoldre des de la secció «Jeroglífic» (a dalt).
 async function startHieroglyphicFromHistoryEntry(entry) {
-    if (!entry) return startPersonalHieroglyphicFromLastGame(null);
+    if (!entry) return;
     const btn = $('#history-personal-hieroglyphic');
     const status = $('#history-deep-status');
     if (deepReviewInProgress || waitingForBlunderAnalysis) {
@@ -13442,31 +13406,37 @@ async function startHieroglyphicFromHistoryEntry(entry) {
     status.show().text('Preparant el jeroglífic d’aquest error…');
     personalHieroglyphicPrepInFlight = true;  // bloqueja la prep en segon pla mentre validem
     try {
-        // Prioritzem els candidats propis d'aquesta partida; si no n'hi ha, ampliem.
-        let candidates = collectPersonalHieroglyphicCandidates(entry).filter(c => c && c.entryId === entry.id);
-        if (!candidates.length) candidates = collectPersonalHieroglyphicCandidates(entry);
-        let chosen = null;
+        // Només errades d'AQUESTA partida (no tàctiques ben jugades).
+        const candidates = collectPersonalHieroglyphicCandidates(entry)
+            .filter(c => c && c.entryId === entry.id && c.source !== 'gameHistory.tactic');
+        let chosen = null, srcCand = null;
         for (const c of candidates.slice(0, 8)) {
-            chosen = await closeHieroglyphicCandidateWithStockfish(c, { depth: 14, minGapCp: 80 });
-            if (chosen) break;
+            const v = await closeHieroglyphicCandidateWithStockfish(c, { depth: 14, minGapCp: 80 });
+            if (v) { chosen = v; srcCand = c; break; }
         }
-        if (!chosen) {
-            status.show().text('No s’ha pogut construir un jeroglífic net d’aquest error; provo amb el rebost.');
-            btn.prop('disabled', false);
-            personalHieroglyphicPrepInFlight = false;
-            backgroundPrepAbortRequested = false;
-            return startPersonalHieroglyphicFromLastGame(entry);
-        }
-        status.hide().text('');
         personalHieroglyphicPrepInFlight = false;
         backgroundPrepAbortRequested = false;
-        await startPersonalHieroglyphicFromLastGame(null, chosen);
+        if (!chosen) {
+            status.show().text('No s’ha pogut construir un jeroglífic net d’aquest error. Torna-ho a provar més tard.');
+            btn.prop('disabled', false);
+            return;
+        }
+        // Adjunta les dades de la partida/error i el desa al davant del rebost perquè
+        // es resolgui des de la secció «Jeroglífic» (no s'obre l'exercici ara).
+        chosen.originMeta = buildHieroglyphicOriginMeta(entry, srcCand, chosen);
+        personalHieroglyphicPool = personalHieroglyphicPool.filter(p => p.fen !== chosen.fen);
+        personalHieroglyphicPool.unshift(chosen);
+        if (personalHieroglyphicPool.length > 6) personalHieroglyphicPool = personalHieroglyphicPool.slice(0, 6);
+        refreshJeroglificButton();
+        btn.prop('disabled', false);
+        status.show().text('✅ Jeroglífic preparat. El trobaràs a la secció «🔮 Jeroglífic», a dalt de tot.');
+        showToast('Jeroglífic d’aquest error preparat — ves a «🔮 Jeroglífic», a dalt de tot, per resoldre’l.', 'success');
     } catch (e) {
         console.warn('[Hieroglyphic] entry', e);
-        status.show().text('No s’ha pogut preparar el jeroglífic d’aquest error.');
-        btn.prop('disabled', false);
         personalHieroglyphicPrepInFlight = false;
         backgroundPrepAbortRequested = false;
+        status.show().text('No s’ha pogut preparar el jeroglífic d’aquest error.');
+        btn.prop('disabled', false);
         refreshJeroglificButton();
     }
 }
@@ -18110,44 +18080,6 @@ function deepReviewTargets(entry) {
     return entry.moveReviews.filter(r => r && r.fen && DEEP_REVIEW_KEYS.includes(r.quality)).slice(0, 8);
 }
 
-// Configura el botó "Anàlisi profunda" del modal de revisió: només es mostra si
-// hi ha posicions per aprofundir i si el motor està disponible. En clicar-lo,
-// re-analitza amb progrés i refresca el debrief amb les dades millorades.
-function wirePostGameDeepButton(entry) {
-    const btn = $('#btn-review-deep');
-    const status = $('#review-deep-status');
-    if (!btn.length) return;
-    const targets = deepReviewTargets(entry);
-    const available = !blunderMode && typeof deepenEntryAnalysis === 'function' && targets.length > 0;
-    btn.toggle(available);
-    status.hide().text('');
-    if (!available) return;
-    btn.prop('disabled', false).text(entry.deepAnalyzed ? '🔬 Re-analitzar a fons' : '🔬 Anàlisi profunda');
-    btn.off('click').on('click', async () => {
-        if (deepReviewInProgress || waitingForBlunderAnalysis) {
-            status.show().text('El motor està ocupat; torna-ho a provar en un moment.');
-            return;
-        }
-        const total = deepReviewTargets(entry).length;
-        btn.prop('disabled', true);
-        status.show().text(`Analitzant a fons… (0/${total})`);
-        try {
-            const updated = await deepenEntryAnalysis(entry, {
-                depth: 14, max: 8, force: true,
-                onProgress: (done, tot) => status.text(`Analitzant a fons… (${done}/${tot})`)
-            });
-            renderGameDebrief(entry);
-            try { renderReviewBreakdown(summarizeReview(entry.moveReviews)); } catch (e) {}
-            status.text(updated > 0 ? 'Anàlisi profunda completada ✓' : 'No hi havia res a millorar.');
-            btn.prop('disabled', false).text('🔬 Re-analitzar a fons');
-        } catch (e) {
-            console.warn('[DeepReview] botó', e);
-            status.text('No s\'ha pogut completar l\'anàlisi profunda.');
-            btn.prop('disabled', false);
-        }
-    });
-}
-
 function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) {
     const modal = $('#review-modal');
     if (!modal.length) {
@@ -18212,11 +18144,6 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
             startPersonalHieroglyphicFromLastGame();
         });
     }
-
-    // Botó d'anàlisi profunda: re-analitza les posicions clau amb el motor a més
-    // profunditat i refresca el debrief amb les dades millorades. Útil també per
-    // retrofitar partides antigues sense dades de refutació.
-    wirePostGameDeepButton(options.entry || gameHistory[gameHistory.length - 1]);
 
     const taskForReview = options.disableGrowth ? null : (options.growthTask || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true, source: 'review' }));
     renderGrowthRecommendation(taskForReview, onClose);
