@@ -4970,7 +4970,84 @@ function saveUsernameFromSettings() {
         try { showToast(name ? 'Nom d\'usuari desat ✓' : 'Nom d\'usuari esborrat', 'success'); } catch (e) {}
         if (hint) hint.textContent = name ? ('Nom actual: ' + name) : 'Encara no has posat cap nom.';
     }
+    try { renderHomeUserChip(); } catch (e) {}
 }
+
+// ====== Consentiment (cookies/emmagatzematge) + capçalera de la pantalla d'inici ======
+// La preferència de consentiment és LOCAL del dispositiu (prefix eltauler_cloud_ →
+// no se sincronitza): cada dispositiu/ navegador l'ha d'acceptar un cop.
+const CONSENT_KEY = 'eltauler_cloud_consent';
+
+// Nom d'usuari (o enllaç per posar-lo) a la capçalera superior dreta d'inici.
+function renderHomeUserChip() {
+    const chip = document.getElementById('home-user-chip');
+    if (!chip) return;
+    const name = (typeof getUsername === 'function') ? getUsername() : '';
+    const ic = '<span class="huc-ic">👤</span>';
+    if (name) {
+        chip.classList.remove('empty');
+        chip.innerHTML = ic + '<span class="huc-name"></span>';
+        chip.querySelector('.huc-name').textContent = name;   // textContent: evita HTML injectat
+        chip.title = 'El teu nom: ' + name + ' — toca per canviar-lo';
+    } else {
+        chip.classList.add('empty');
+        chip.innerHTML = ic + '<span class="huc-name">Nom d\'usuari</span>';
+        chip.title = 'Posa el teu nom d\'usuari';
+    }
+}
+window.renderHomeUserChip = renderHomeUserChip;
+
+function openSettingsFromHome() {
+    $('#start-screen').hide();
+    $('#settings-screen').show();
+    if (typeof navPush === 'function') navPush('settings-screen');
+    if (typeof loadUsernameIntoSettings === 'function') loadUsernameIntoSettings();
+}
+
+// Peu de pàgina comú: s'afegeix com a últim fill del contenidor de l'app, de
+// manera que apareix al final de qualsevol pantalla (només n'hi ha una de visible
+// alhora). Es crea un sol cop.
+function ensureAppFooter() {
+    const cont = document.getElementById('app-container');
+    if (!cont || document.querySelector('.app-footer')) return;
+    const f = document.createElement('footer');
+    f.className = 'app-footer';
+    f.innerHTML =
+        '<span>By <strong>Can Nyero</strong>, des de <strong>La Garriga</strong> ' +
+        'amb <span class="af-heart" aria-hidden="true">♥</span></span>' +
+        '<span class="af-sub">Projecte paral·lel: ' +
+        '<a href="https://segueix.cat/" target="_blank" rel="noopener noreferrer">segueix.cat</a></span>';
+    cont.appendChild(f);
+}
+
+// Enllaça la capçalera d'inici, les finestres emergents (contacte/condicions) i
+// la barra de consentiment. Es crida un cop a l'arrencada.
+function initHomeExtras() {
+    ensureAppFooter();
+    renderHomeUserChip();
+
+    $('#home-user-chip').off('click').on('click', openSettingsFromHome);
+    $('#home-contact-btn').off('click').on('click', function () { $('#contact-modal').css('display', 'flex'); });
+    $('#contact-close').off('click').on('click', function () { $('#contact-modal').hide(); });
+    $('#contact-modal').off('click').on('click', function (e) { if (e.target === this) $('#contact-modal').hide(); });
+
+    $('#terms-close').off('click').on('click', function () { $('#terms-modal').hide(); });
+    $('#terms-modal').off('click').on('click', function (e) { if (e.target === this) $('#terms-modal').hide(); });
+
+    let accepted = false;
+    try { accepted = localStorage.getItem(CONSENT_KEY) === '1'; } catch (e) { accepted = true; }
+    if (!accepted) $('#cookie-consent').css('display', 'flex');
+    $('#cookie-accept').off('click').on('click', function () {
+        try { localStorage.setItem(CONSENT_KEY, '1'); } catch (e) {}
+        $('#cookie-consent').hide();
+    });
+    $('#cookie-more').off('click').on('click', function (e) { e.preventDefault(); $('#terms-modal').css('display', 'flex'); });
+
+    $(document).off('keydown.homeextras').on('keydown.homeextras', function (e) {
+        if (e.key === 'Escape') { $('#contact-modal').hide(); $('#terms-modal').hide(); }
+    });
+}
+window.initHomeExtras = initHomeExtras;
 
 // ============================= RÀNQUING GLOBAL =============================
 // Opció A: un sol document compartit (eltauler_ranking/leaderboard) amb el mapa
@@ -9297,7 +9374,7 @@ async function requestPositionAnalysis() {
             try {
                 const tmp = new Chess(game.fen());
                 const mv = tmp.move({ from: res.bestMove.slice(0,2), to: res.bestMove.slice(2,4), promotion: res.bestMove[4] || 'q' });
-                if (mv) bestText = ` · La màquina recomana <strong>${mv.san}</strong>`;
+                if (mv) bestText = ` · El Tauler recomana <strong>${mv.san}</strong>`;
             } catch (e) {}
         }
         $('#status').html(`<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">🔬 ${evalText}${bestText}</div>`);
@@ -15582,6 +15659,8 @@ function completeTacticsPuzzle(success) {
         tacticsStats.streak = 0;
     }
     saveStorage();
+    // Esdeveniment valuós (exercici resolt): puja de seguida al núvol.
+    try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
     checkTacticsBadges();
 }
 
@@ -16877,7 +16956,7 @@ blunderMode = isBundle;
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
 
     // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
-    $('#btn-analyze').toggle((currentGameMode === 'free' || currentGameMode === 'assisted') && !isCalibrationGame);
+    $('#btn-analyze').toggle(currentGameMode === 'assisted' && !isCalibrationGame);
 
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
@@ -18376,8 +18455,10 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
             srsInterval: 0,
             srsDue: Date.now()
         });
-        saveStorage(); 
-        updateDisplay(); 
+        saveStorage();
+        // Esdeveniment valuós (nou error desat): puja de seguida al núvol.
+        try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+        updateDisplay();
     }
 }
 
@@ -18597,6 +18678,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         persistReviewSummary(finalPrecision, msg);
         recordActivity();
         saveStorage();
+        // Esdeveniment valuós (final de partida): puja de seguida al núvol perquè
+        // la finestra de dades sense sincronitzar entre dispositius sigui mínima.
+        try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
         checkMissions();
         updateDisplay();
         updateReviewChart();
@@ -21153,6 +21237,7 @@ $(document).ready(() => {
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyFontSize(loadFontSize());
+    try { initHomeExtras(); } catch (e) { console.warn('[HomeExtras] init', e); }
     const __customId = customGameIdFromUrl();
     const __deepCatalans = isCatalansDeepLink();
     history.replaceState(
