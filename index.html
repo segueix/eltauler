@@ -979,6 +979,8 @@
 
         /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
         .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
+        /* Botó de Lliga una mica més gran a la pàgina principal (només escriptori). */
+        body.device-desktop #btn-league { padding: 18px 24px; font-size: 1.12rem; }
         .btn-bundle   { background: linear-gradient(135deg, #6e6359 0%, #4f463e 100%); color: #f4e4bc; }
         .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
         .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
@@ -3264,7 +3266,6 @@
             <div class="sync-divider"><span>Dades</span></div>
             <div class="sync-container">
                 <button class="btn btn-share" id="btn-cloud-recover" style="display:none;background:linear-gradient(135deg,#3a6ea5 0%,#2a4d73 100%);color:#eaf2fb;">☁️ Recupera dades del núvol</button>
-                <button class="btn btn-share" id="btn-smart-share">📤 Comparteix el progrés</button>
                 <button class="btn btn-file" id="btn-export">💾 Exportar</button>
                 <button class="btn btn-file" id="btn-import">📂 Importar</button>
                 <input type="file" id="file-input" style="display:none;">
@@ -3423,12 +3424,6 @@
             </div>
 
             <div class="settings-panel">
-                <div class="settings-title">Informe d’adaptació</div>
-                <div class="setting-help" style="margin-bottom:10px;">Exporta localment un JSON complet i un CSV resumit per valorar si la IA adaptativa ajusta bé el nivell. No s’envia cap dada a cap servidor.</div>
-                <button class="btn btn-secondary" id="btn-export-adaptation-report-settings" style="width:100%;">📤 Exportar informe d’adaptació</button>
-            </div>
-
-            <div class="settings-panel">
                 <div class="settings-title">Avançat</div>
                 <div class="setting-row">
                     <div class="setting-label">Lliga</div>
@@ -3463,6 +3458,7 @@
             </div>
 
             <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-share" id="btn-smart-share">📤 Comparteix el progrés</button>
                 <button class="btn btn-primary" id="btn-back-settings">Tornar al menú</button>
             </div>
         </div>
@@ -4006,7 +4002,7 @@
             .app-footer { margin:26px auto 8px; padding:14px 12px 2px; text-align:center;
                 border-top:1px solid rgba(201,162,39,0.16); color:var(--text-secondary,#b7ad9a);
                 font-size:0.78rem; line-height:1.55; }
-            .app-footer .af-heart { color:#e0555f; }
+            .app-footer .af-heart { color:#fff; font-size:1.4em; line-height:1; vertical-align:-0.08em; }
             .app-footer .af-sub { display:block; margin-top:3px; opacity:0.9; }
             .app-footer a { color:var(--accent-gold,#c9a227); text-decoration:none; }
             .app-footer a:hover { text-decoration:underline; }
@@ -4229,7 +4225,6 @@
             <div id="catalans-whoami" style="display:none;"></div>
             <div style="text-align:center;">
                 <button class="btn btn-share" id="catalans-signin" style="display:none;">Inicia sessió amb Google per votar</button>
-                <button class="btn btn-secondary" id="catalans-switch" style="display:none; padding:4px 12px; font-size:0.82rem; margin-top:4px;">🔁 Canviar de compte</button>
             </div>
 
             <div class="catalans-vote-head">
