@@ -1981,7 +1981,7 @@
     const url = window.location.origin + window.location.pathname +
       (key === 'default' ? '#catalans-vs-stockfish' : '#partida-' + key);
     const opts = { body: body, tag: 'eltauler-turn-' + key, renotify: true,
-      icon: 'novaicon.png', badge: 'novaicon.png', data: { url: url, key: key } };
+      icon: 'newicon-512.png', badge: 'newicon-192.png', data: { url: url, key: key } };
     try {
       if (navigator.serviceWorker && navigator.serviceWorker.ready) {
         navigator.serviceWorker.ready.then(function (reg) {
