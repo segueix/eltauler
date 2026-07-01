@@ -116,6 +116,29 @@ i en sortir).
 **Efecte:** un usuari que «juga» amb el tauler ja no genera desenes d'escriptures;
 cada votant fa, com a molt, una escriptura cada 30 s.
 
+### Punt 2b — Robustesa multi-dispositiu
+*(`cloudsync.js` + `app.js`)*
+
+El debounce llarg del punt 2 estalvia quota, però eixampla la finestra en què les
+dades poden quedar sense pujar entre dispositius. Per compensar-ho sense renunciar
+a l'estalvi:
+
+- **Flush imminent en esdeveniments valuosos** (`CloudSync.flushSoon`,
+  `FLUSH_SOON_MS` = 3 s): el final de partida (`handleGameOver`), el desat d'un
+  error nou i la resolució d'un exercici de tàctica (`completeTacticsPuzzle`)
+  pugen de seguida (coalescent una ràfega en una sola escriptura), en comptes
+  d'esperar el debounce llarg. Els desats menors segueixen amb el debounce de 20 s.
+- **Baixada en recuperar el focus** (`pullOnFocus`, throttle
+  `FOCUS_PULL_THROTTLE_MS` = 30 s): en tornar a primer pla, a més del listener en
+  temps real, es llegeix del **servidor** l'última versió i s'aplica si és més
+  nova. Garanteix que en tornar a un dispositiu tens l'estat més recent abans de
+  continuar jugant, gastant com a molt una lectura cada 30 s.
+
+**Nota:** segueix sent «última escriptura guanya» sobre la instantània **sencera**
+(no hi ha fusió camp a camp), així que **jugar alhora en dos dispositius sense
+deixar-los sincronitzar** encara pot sobreescriure dades. La fusió per seccions
+seria el pas següent (vegeu la secció 4).
+
 ---
 
 ## 4. Optimitzacions pendents (per si cal escalar més)
@@ -203,6 +226,8 @@ imprevistos.
 | `VOTE_COOLDOWN_MS` | `catalans.js` | 30.000 | Temps mínim entre escriptures de vot |
 | `PUSH_DEBOUNCE_MS` | `cloudsync.js` | 20.000 | Debounce de la pujada de sincronització |
 | `PUSH_MAX_WAIT_MS` | `cloudsync.js` | 60.000 | Sostre entre pujades sota desats continus |
+| `FLUSH_SOON_MS` | `cloudsync.js` | 3.000 | Pujada imminent en esdeveniments valuosos |
+| `FOCUS_PULL_THROTTLE_MS` | `cloudsync.js` | 30.000 | Freqüència màxima de baixada en recuperar el focus |
 | `RANKING_CACHE_MS` | `app.js` | 180.000 | Cau de lectura del rànquing |
 
 Pujar els intervals estalvia més quota a canvi de menys immediatesa; baixar-los

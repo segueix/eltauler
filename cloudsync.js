@@ -55,6 +55,13 @@
   // les pujades sense canvis reals no gasten cap escriptura.
   const PUSH_DEBOUNCE_MS = 20000;
   const PUSH_MAX_WAIT_MS = 60000;
+  // Pujada IMMINENT per a esdeveniments valuosos (final de partida, error resolt):
+  // no s'espera el debounce llarg, però es coalesca una ràfega en una sola pujada.
+  // Així la finestra de dades sense sincronitzar entre dispositius es manté petita.
+  const FLUSH_SOON_MS = 3000;
+  // Baixada en recuperar el focus: com a molt un cop cada X ms (evita gastar
+  // lectures en cada canvi de pestanya).
+  const FOCUS_PULL_THROTTLE_MS = 30000;
 
   // Claus locals (mai no es sincronitzen): metadades del propi sync.
   const LOCAL_META_PREFIX = 'eltauler_cloud_';
@@ -77,8 +84,10 @@
   let docUnsub = null;
   let pushTimer = null;
   let pushMaxTimer = null;           // garanteix una pujada com a molt cada PUSH_MAX_WAIT_MS
+  let pushSoonTimer = null;          // pujada imminent d'un esdeveniment valuós
   let pushInFlight = false;
   let lastPushedHash = null;         // hash de l'última instantània pujada (evita pujades redundants)
+  let lastFocusPullAt = 0;           // última baixada en recuperar el focus (throttle)
   let pendingCloudData = null;       // dades del núvol esperant a aplicar-se
   let deferApplyTimer = null;
   let syncWatchdog = null;           // detecta sincronitzacions inicials encallades
@@ -265,14 +274,60 @@
     }
   }
 
+  // Cancel·la tots els temporitzadors de pujada pendents.
+  function clearPushTimers() {
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
+    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    if (pushSoonTimer) { clearTimeout(pushSoonTimer); pushSoonTimer = null; }
+  }
+
   // Puja de seguida el que estigui pendent (en amagar o tancar la pestanya): així
   // no cal escriure durant el joc a cada moviment; una sessió es resol en poques
   // pujades. Amb el guard per hash, si no hi ha canvis reals no escriu res.
   function flushPendingPush() {
     if (!currentUser) return;
-    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    clearPushTimers();
     pushSnapshot();
+  }
+
+  // Pujada IMMINENT per a esdeveniments valuosos (final de partida, error resolt).
+  // No espera el debounce llarg, però coalesca una ràfega d'esdeveniments en una
+  // sola pujada. Manté petita la finestra de dades sense sincronitzar entre
+  // dispositius, sense renunciar a l'estalvi d'escriptures dels desats menors.
+  function flushSoon() {
+    if (!currentUser) return;
+    setLocalChangeAt(Date.now());
+    if (pushSoonTimer) return;   // ja n'hi ha una de programada imminent
+    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }   // el push imminent mana
+    pushSoonTimer = setTimeout(function () {
+      pushSoonTimer = null;
+      if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+      pushSnapshot();
+    }, FLUSH_SOON_MS);
+  }
+
+  // Baixada en recuperar el focus (a més del listener en temps real): en tornar a
+  // un dispositiu, garanteix que tens l'última versió abans de continuar jugant.
+  // Llegeix del SERVIDOR (no de la memòria cau) i es limita per no gastar lectures
+  // en cada canvi de pestanya.
+  function pullOnFocus() {
+    if (!currentUser) return;
+    const now = Date.now();
+    if (now - lastFocusPullAt < FOCUS_PULL_THROTTLE_MS) return;
+    lastFocusPullAt = now;
+    const ref = docRef();
+    if (!ref) return;
+    ref.get({ source: 'server' }).then(function (snap) {
+      if (!snap.exists) return;
+      const d = snap.data();
+      if (!d || !d.data) return;
+      if (d.deviceId === getDeviceId()) return;          // canvi originat per nosaltres
+      const localChangeAt = getLocalChangeAt() || 0;
+      if ((d.updatedAt || 0) > localChangeAt) applyCloudData(d.data, d.updatedAt || Date.now());
+    }).catch(function (e) {
+      // Sense connexió o servidor no disponible: el listener ja ho recuperarà.
+      console.warn('[CloudSync] focus pull', e && e.code ? e.code : e);
+    });
   }
 
   // Aplica dades del núvol (ara o quan sigui segur).
@@ -431,8 +486,7 @@
     currentUser = null;
     clearSyncWatchdog();
     if (docUnsub) { docUnsub(); docUnsub = null; }
-    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    clearPushTimers();
     lastPushedHash = null;
     setStatus({ state: 'signedout', email: null });
   }
@@ -516,8 +570,7 @@
 
   function syncNow() {
     if (!currentUser) { signIn(); return; }
-    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
+    clearPushTimers();
     pushSnapshot(true);   // «Sincronitza ara»: força la pujada encara que el hash coincideixi
   }
 
@@ -593,6 +646,7 @@
       try {
         document.addEventListener('visibilitychange', function () {
           if (document.visibilityState === 'hidden') flushPendingPush();
+          else if (document.visibilityState === 'visible') pullOnFocus();
         });
         window.addEventListener('pagehide', function () { flushPendingPush(); });
       } catch (e) {}
@@ -613,6 +667,9 @@
     syncNow: syncNow,
     // El crida saveStorage() de app.js cada cop que es desen dades locals.
     onLocalSave: function () { schedulePush(); },
+    // El crida app.js després d'un esdeveniment valuós (final de partida, error
+    // resolt) perquè es pugi de seguida, sense esperar el debounce llarg.
+    flushSoon: function () { flushSoon(); },
     isConfigured: isConfigured,
     isSignedIn: function () { return !!currentUser; },
     getEmail: function () { return currentUser ? (currentUser.email || currentUser.displayName || null) : null; },

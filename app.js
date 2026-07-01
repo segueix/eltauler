@@ -15582,6 +15582,8 @@ function completeTacticsPuzzle(success) {
         tacticsStats.streak = 0;
     }
     saveStorage();
+    // Esdeveniment valuós (exercici resolt): puja de seguida al núvol.
+    try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
     checkTacticsBadges();
 }
 
@@ -18376,8 +18378,10 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
             srsInterval: 0,
             srsDue: Date.now()
         });
-        saveStorage(); 
-        updateDisplay(); 
+        saveStorage();
+        // Esdeveniment valuós (nou error desat): puja de seguida al núvol.
+        try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+        updateDisplay();
     }
 }
 
@@ -18597,6 +18601,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         persistReviewSummary(finalPrecision, msg);
         recordActivity();
         saveStorage();
+        // Esdeveniment valuós (final de partida): puja de seguida al núvol perquè
+        // la finestra de dades sense sincronitzar entre dispositius sigui mínima.
+        try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
         checkMissions();
         updateDisplay();
         updateReviewChart();

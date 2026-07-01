@@ -107,6 +107,13 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
 - **Conflictes:** «última escriptura guanya» per marca de temps. En temps real,
   si un altre dispositiu puja una versió més nova, s'aplica automàticament (mai
   enmig d'una partida; espera que acabis).
+- **Quan es puja:** per estalviar quota, els desats menors s'agrupen (debounce) i
+  es pugen en amagar/tancar l'app; els esdeveniments valuosos (final de partida,
+  error nou, exercici resolt) es pugen de seguida. En tornar a un dispositiu es
+  baixa l'última versió del servidor abans de continuar. Tot i així, **jugar alhora
+  en dos dispositius** sense deixar-los sincronitzar pot sobreescriure dades: deixa
+  que aparegui «Sincronitzat ✓» (o prem «Sincronitza ara») abans de canviar de
+  dispositiu. Vegeu [`OPTIMITZACIO_FIREBASE.md`](OPTIMITZACIO_FIREBASE.md).
 - **Privadesa:** les dades viuen al teu Firestore privat, accessible només amb el
   teu compte. La clau API d'OpenAI **no** es sincronitza per seguretat (pots
   canviar-ho amb `SYNC_OPENAI_KEY = true` a `cloudsync.js`).
