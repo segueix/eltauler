@@ -4970,7 +4970,67 @@ function saveUsernameFromSettings() {
         try { showToast(name ? 'Nom d\'usuari desat ✓' : 'Nom d\'usuari esborrat', 'success'); } catch (e) {}
         if (hint) hint.textContent = name ? ('Nom actual: ' + name) : 'Encara no has posat cap nom.';
     }
+    try { renderHomeUserChip(); } catch (e) {}
 }
+
+// ====== Consentiment (cookies/emmagatzematge) + capçalera de la pantalla d'inici ======
+// La preferència de consentiment és LOCAL del dispositiu (prefix eltauler_cloud_ →
+// no se sincronitza): cada dispositiu/ navegador l'ha d'acceptar un cop.
+const CONSENT_KEY = 'eltauler_cloud_consent';
+
+// Nom d'usuari (o enllaç per posar-lo) a la capçalera superior dreta d'inici.
+function renderHomeUserChip() {
+    const chip = document.getElementById('home-user-chip');
+    if (!chip) return;
+    const name = (typeof getUsername === 'function') ? getUsername() : '';
+    const ic = '<span class="huc-ic">👤</span>';
+    if (name) {
+        chip.classList.remove('empty');
+        chip.innerHTML = ic + '<span class="huc-name"></span>';
+        chip.querySelector('.huc-name').textContent = name;   // textContent: evita HTML injectat
+        chip.title = 'El teu nom: ' + name + ' — toca per canviar-lo';
+    } else {
+        chip.classList.add('empty');
+        chip.innerHTML = ic + '<span class="huc-name">Posa el teu nom</span>';
+        chip.title = 'Posa el teu nom d\'usuari';
+    }
+}
+window.renderHomeUserChip = renderHomeUserChip;
+
+function openSettingsFromHome() {
+    $('#start-screen').hide();
+    $('#settings-screen').show();
+    if (typeof navPush === 'function') navPush('settings-screen');
+    if (typeof loadUsernameIntoSettings === 'function') loadUsernameIntoSettings();
+}
+
+// Enllaça la capçalera d'inici, les finestres emergents (contacte/condicions) i
+// la barra de consentiment. Es crida un cop a l'arrencada.
+function initHomeExtras() {
+    renderHomeUserChip();
+
+    $('#home-user-chip').off('click').on('click', openSettingsFromHome);
+    $('#home-contact-btn').off('click').on('click', function () { $('#contact-modal').css('display', 'flex'); });
+    $('#contact-close').off('click').on('click', function () { $('#contact-modal').hide(); });
+    $('#contact-modal').off('click').on('click', function (e) { if (e.target === this) $('#contact-modal').hide(); });
+
+    $('#terms-close').off('click').on('click', function () { $('#terms-modal').hide(); });
+    $('#terms-modal').off('click').on('click', function (e) { if (e.target === this) $('#terms-modal').hide(); });
+
+    let accepted = false;
+    try { accepted = localStorage.getItem(CONSENT_KEY) === '1'; } catch (e) { accepted = true; }
+    if (!accepted) $('#cookie-consent').css('display', 'flex');
+    $('#cookie-accept').off('click').on('click', function () {
+        try { localStorage.setItem(CONSENT_KEY, '1'); } catch (e) {}
+        $('#cookie-consent').hide();
+    });
+    $('#cookie-more').off('click').on('click', function (e) { e.preventDefault(); $('#terms-modal').css('display', 'flex'); });
+
+    $(document).off('keydown.homeextras').on('keydown.homeextras', function (e) {
+        if (e.key === 'Escape') { $('#contact-modal').hide(); $('#terms-modal').hide(); }
+    });
+}
+window.initHomeExtras = initHomeExtras;
 
 // ============================= RÀNQUING GLOBAL =============================
 // Opció A: un sol document compartit (eltauler_ranking/leaderboard) amb el mapa
@@ -21160,6 +21220,7 @@ $(document).ready(() => {
     }
     void ensureBackupDirHandle({ prompt: false, mode: 'readwrite' });
     applyFontSize(loadFontSize());
+    try { initHomeExtras(); } catch (e) { console.warn('[HomeExtras] init', e); }
     const __customId = customGameIdFromUrl();
     const __deepCatalans = isCatalansDeepLink();
     history.replaceState(

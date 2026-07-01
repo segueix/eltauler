@@ -3096,6 +3096,12 @@
 
     <div id="app-container">
         <div id="start-screen" class="screen-anim">
+            <div class="home-topbar">
+                <button class="home-user-chip empty" id="home-user-chip" type="button" title="Posa el teu nom d'usuari">
+                    <span class="huc-ic">👤</span><span class="huc-name">Posa el teu nom</span>
+                </button>
+                <button class="home-at-btn" id="home-contact-btn" type="button" aria-label="Peticions i contacte" title="Peticions i contacte">@</button>
+            </div>
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
             <div class="subtitle">Entrenador d'Escacs</div>
@@ -3948,6 +3954,47 @@
             .cat-notify-toggle:hover { background:rgba(255,255,255,0.12); }
             .cat-notify-toggle.on { background:linear-gradient(135deg,#c9a227,#8a6d12); color:#1b1712; border-color:transparent; box-shadow:0 4px 12px rgba(0,0,0,0.35); }
             .cat-notify-toggle:active { transform: scale(0.94); }
+
+            /* Capçalera superior dreta de la pantalla principal (nom + contacte @). */
+            .home-topbar { position:absolute; top:10px; right:10px; z-index:6; display:flex; align-items:center; gap:8px; }
+            .home-user-chip { display:inline-flex; align-items:center; gap:6px; max-width:46vw; padding:6px 12px; border-radius:999px;
+                border:1px solid rgba(201,162,39,0.35); background:rgba(255,255,255,0.06); color:var(--text-primary,#f4ecdd);
+                font-size:0.85rem; cursor:pointer; line-height:1.1; }
+            .home-user-chip .huc-name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:36vw; }
+            .home-user-chip.empty { color:var(--text-secondary,#b7ad9a); }
+            .home-user-chip:hover { background:rgba(255,255,255,0.12); }
+            .home-at-btn { width:36px; height:36px; flex:0 0 auto; border-radius:50%; border:1px solid rgba(41,169,235,0.55);
+                background:rgba(41,169,235,0.14); color:#29a9eb; font-size:1.1rem; font-weight:800; cursor:pointer;
+                display:flex; align-items:center; justify-content:center; }
+            .home-at-btn:hover { background:rgba(41,169,235,0.26); }
+            @media (max-width:560px){ .home-user-chip { font-size:0.8rem; padding:5px 10px; } .home-at-btn { width:34px; height:34px; } }
+
+            /* Finestres emergents ancorades a la part superior (contacte / condicions). */
+            .top-modal { position:fixed; inset:0; z-index:3000; background:rgba(0,0,0,0.55);
+                display:flex; align-items:flex-start; justify-content:center; padding:16px; }
+            .top-modal-inner { background:var(--bg-card,#211c17); border:1px solid rgba(201,162,39,0.32); border-radius:14px;
+                max-width:440px; width:100%; margin-top:24px; padding:12px 18px 20px; box-shadow:0 18px 50px rgba(0,0,0,0.5); }
+            .top-modal-close { display:block; background:none; border:none; color:var(--accent-gold,#c9a227); font-weight:700;
+                font-size:0.95rem; cursor:pointer; padding:0 0 6px; }
+            .top-modal-close:hover { text-decoration:underline; }
+            .top-modal-body { text-align:center; }
+            .top-modal-body h3 { margin:6px 0 10px; }
+            .top-modal-body p { font-size:0.9rem; color:var(--text-secondary,#b7ad9a); line-height:1.5; margin:8px 0; }
+            .terms-body { text-align:left; }
+            .top-modal-body a { color:var(--accent-gold,#c9a227); }
+            .tg-logo { display:block; margin:2px auto 4px; }
+            .contact-tg { display:inline-flex; align-items:center; gap:8px; margin-top:12px; padding:9px 16px; border-radius:999px;
+                background:#29a9eb; color:#fff !important; font-weight:700; text-decoration:none; }
+            .contact-tg:hover { background:#1f92cf; }
+
+            /* Barra de consentiment (cookies / emmagatzematge) a la primera visita. */
+            .cookie-consent { position:fixed; left:0; right:0; bottom:0; z-index:3001; background:rgba(20,16,12,0.97);
+                border-top:1px solid rgba(201,162,39,0.4); padding:12px 16px; display:flex; justify-content:center; }
+            .cookie-inner { display:flex; align-items:center; gap:14px; flex-wrap:wrap; max-width:820px; }
+            .cookie-text { font-size:0.82rem; color:var(--text-secondary,#c9c0ae); line-height:1.45; margin:0; flex:1 1 320px; }
+            .cookie-text a { color:var(--accent-gold,#e2be5a); white-space:nowrap; }
+            .cookie-consent .btn { flex:0 0 auto; }
+            @media (max-width:560px){ .cookie-inner { gap:8px; } .cookie-text { font-size:0.78rem; } }
             /* Bàners de partides pròpies: hereten l'estil de .catalans-banner i només
                canvien el fons (color aleatori per partida, via style inline). */
             #custom-banners { display:flex; flex-direction:column; gap:0; }
@@ -4385,6 +4432,63 @@
         <button class="btn btn-file" id="btn-dismiss-install" style="padding: 10px 15px; margin-left: 8px;">Ara no</button>
     </div>
 
+    <!-- Finestra emergent: peticions i contacte (Telegram) -->
+    <div id="contact-modal" class="top-modal" style="display:none;">
+        <div class="top-modal-inner">
+            <button class="top-modal-close" id="contact-close" type="button">[tancar]</button>
+            <div class="top-modal-body">
+                <svg class="tg-logo" viewBox="0 0 24 24" width="40" height="40" aria-hidden="true">
+                    <circle cx="12" cy="12" r="12" fill="#29a9eb"/>
+                    <path fill="#fff" d="M5.5 11.8l11-4.24c.51-.19.96.12.79.9l-1.87 8.82c-.14.66-.54.82-1.09.51l-3-2.21-1.45 1.4c-.16.16-.3.29-.61.29l.22-3.09 5.56-5.02c.24-.21-.05-.33-.37-.13l-6.87 4.33-2.96-.92c-.64-.2-.66-.64.14-.95z"/>
+                </svg>
+                <h3>Peticions i contacte</h3>
+                <p>Si vols enviar una petició de <strong>nova funció</strong> o similar, pots
+                   contactar per Telegram:</p>
+                <a class="contact-tg" href="https://t.me/segueix" target="_blank" rel="noopener noreferrer">
+                    <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true">
+                        <circle cx="12" cy="12" r="12" fill="#fff"/>
+                        <path fill="#29a9eb" d="M5.5 11.8l11-4.24c.51-.19.96.12.79.9l-1.87 8.82c-.14.66-.54.82-1.09.51l-3-2.21-1.45 1.4c-.16.16-.3.29-.61.29l.22-3.09 5.56-5.02c.24-.21-.05-.33-.37-.13l-6.87 4.33-2.96-.92c-.64-.2-.66-.64.14-.95z"/>
+                    </svg>
+                    @segueix
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <!-- Finestra emergent: condicions i privadesa -->
+    <div id="terms-modal" class="top-modal" style="display:none;">
+        <div class="top-modal-inner">
+            <button class="top-modal-close" id="terms-close" type="button">[tancar]</button>
+            <div class="top-modal-body terms-body">
+                <h3>Condicions i privadesa</h3>
+                <p>El Tauler desa les teves dades de joc al <strong>teu propi dispositiu</strong>
+                   (emmagatzematge local del navegador) per fer-lo funcionar.</p>
+                <p>Si inicies sessió amb Google, les teves dades es <strong>sincronitzen al teu
+                   Firebase de Google</strong>. Aquesta informació sincronitzada viu al teu compte
+                   de Firebase i <strong>El Tauler no hi té accés</strong>; només tu hi pots accedir
+                   amb el teu compte.</p>
+                <p>Continuant, acceptes l'ús d'aquest emmagatzematge local i de la sincronització
+                   (quan hi inicies sessió).</p>
+                <p>Contacte i peticions:
+                   <a href="https://t.me/segueix" target="_blank" rel="noopener noreferrer">@segueix (Telegram)</a>.</p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Barra de consentiment (cookies / emmagatzematge) — primera visita -->
+    <div id="cookie-consent" class="cookie-consent" style="display:none;">
+        <div class="cookie-inner">
+            <p class="cookie-text">
+                El Tauler desa dades al teu dispositiu i, si inicies sessió, les sincronitza al teu
+                <strong>Firebase de Google</strong>: aquesta informació viu al teu compte i
+                <strong>El Tauler no hi té accés</strong>.
+                <a href="#" id="cookie-more">Més informació i condicions</a> ·
+                <a href="https://t.me/segueix" target="_blank" rel="noopener noreferrer">Contacte @segueix</a>
+            </p>
+            <button class="btn btn-primary" id="cookie-accept" type="button">D'acord</button>
+        </div>
+    </div>
+
     <!-- Libraries -->
     <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js"></script>
@@ -4409,7 +4513,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.29"></script>
+    <script src="app.js?v=1.0.30"></script>
 
     <!-- Service Worker Registration -->
     <script>
