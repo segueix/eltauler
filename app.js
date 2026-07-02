@@ -219,6 +219,10 @@ let calibratgeComplet = false;
 let isCalibrationGame = false;
 let currentCalibrationOpponentRoc = null;
 let isEngineThinking = false;
+// Hi ha una jugada de l'enginy rebuda i pendent d'aplicar (finestra dels 900 ms).
+// Evita que un segon "bestmove" extraviat (pista, cerca duplicada) es torni a
+// aplicar com si fos una altra jugada de l'enginy.
+let engineMoveApplyPending = false;
 let engineMoveCandidates = [];
 let openingEngineMoveCandidates = [];
 let lastReviewSnapshot = null;
@@ -9249,6 +9253,9 @@ async function requestAssistedHint() {
     if (!game || game.game_over()) return;
     if (currentGameMode !== 'assisted') return;
     if (assistedHintPending) return;
+    // Mateixa protecció que la pista normal: no interrompre la cerca de
+    // l'enginy ni donar consell sobre una posició que no és la que es veu.
+    if (isEngineThinking || waitingForBlunderAnalysis || isViewingGameHistory()) return;
 
     assistedHintPending = true;
     $('#btn-assisted-hint').prop('disabled', true);
@@ -14568,7 +14575,12 @@ function setupEvents() {
     
     $('#btn-hint').click(() => {
     if (game.game_over()) return;
-    
+    // Ni mentre l'enginy pensa (la seva cerca al motor quedaria interrompuda i
+    // les respostes es barrejarien), ni mentre s'està repassant amb les fletxes
+    // (la pista es calcularia sobre la posició en viu i es marcaria sobre una
+    // posició antiga), ni mentre s'analitza la darrera jugada.
+    if (isEngineThinking || waitingForBlunderAnalysis || isViewingGameHistory()) return;
+
     // En mode bundle, usar la jugada pre-calculada
     if (blunderMode && bundleFixedSequence) {
         const step = bundleSequenceStep;
@@ -16892,6 +16904,7 @@ blunderMode = isBundle;
     totalEngineMoves = 0;
     goodEngineMoves = 0;
     isEngineThinking = false;
+    engineMoveApplyPending = false;
     pendingMoveEvaluation = false;
     currentGameStartTs = Date.now();
     currentGameEngineDepth = null;
@@ -17122,8 +17135,13 @@ function applyGameMoveNavHighlight(ply) {
     if (!ply || ply <= 0) { clearEngineMoveHighlights(); return; }
     const verbose = game.history({ verbose: true });
     const mv = verbose[ply - 1];
-    if (mv) highlightEngineMove(mv.from, mv.to);
-    else clearEngineMoveHighlights();
+    if (!mv) { clearEngineMoveHighlights(); return; }
+    // A la posició en viu es manté el conveni de la partida: la marca només
+    // mostra la resposta de l'enginy. Si l'última jugada és de l'usuari (per
+    // exemple, l'enginy encara pensa), no es marca res; abans quedava marcada
+    // la jugada de l'usuari com si l'hagués fet l'enginy.
+    if (ply >= verbose.length && mv.color === playerColor) { clearEngineMoveHighlights(); return; }
+    highlightEngineMove(mv.from, mv.to);
 }
 
 function stepGameMoveNav(delta) {
@@ -17132,9 +17150,12 @@ function stepGameMoveNav(delta) {
     const current = (gameViewPly === null) ? total : gameViewPly;
     const target = Math.min(total, Math.max(0, current + delta));
     if (target === current) { updateGameMoveNavButtons(); return; }
-    // En sortir de la posició en viu, retira pistes i seleccions perquè no
-    // quedin marques d'interacció sobre una posició que ja no s'hi pot jugar.
-    $('#myBoard .square-55d63').removeClass('highlight-hint tap-selected tap-move');
+    // En sortir de la posició en viu, retira pistes i desfés la selecció de
+    // tap SENCERA (variable inclosa): si només es treuen les classes,
+    // tapSelectedSquare queda pendent i el primer toc en tornar al viu
+    // jugaria una peça seleccionada abans de navegar.
+    $('#myBoard .square-55d63').removeClass('highlight-hint');
+    clearTapSelection();
     if (target >= total) {
         gameViewPly = null;
         board.position(game.fen(), true);
@@ -17663,7 +17684,10 @@ function handleEngineMessage(rawMsg) {
     if (isAnalyzingHint && msg.indexOf('bestmove') !== -1) {
         isAnalyzingHint = false;
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])/);
-        if (match) {
+        // Si mentre es calculava la pista l'usuari ha començat a repassar amb
+        // les fletxes, no es marca: la pista és de la posició en viu i el
+        // tauler en mostra una altra.
+        if (match && !isViewingGameHistory()) {
             const to = match[2];
             $('#myBoard').find('.square-' + to).addClass('highlight-hint');
             $('#status').text(`Pista: Alguna peça ha d'anar a ${to}`);
@@ -17766,7 +17790,7 @@ function handleEngineMessage(rawMsg) {
         return;
     }
 
-    if (msg.indexOf('bestmove') !== -1 && isEngineThinking) {
+    if (msg.indexOf('bestmove') !== -1 && isEngineThinking && !engineMoveApplyPending) {
         const match = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
         if (match) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
@@ -17779,21 +17803,41 @@ function handleEngineMessage(rawMsg) {
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
-            registerEngineMovePrecision(moveStr, engineMoveCandidates);    
+            registerEngineMovePrecision(moveStr, engineMoveCandidates);
             resetEngineMoveCandidates();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
+            engineMoveApplyPending = true;
             setTimeout(() => {
                 isEngineThinking = false;
-                game.move({ from: fromSq, to: toSq, promotion: promotion });
+                engineMoveApplyPending = false;
+                // Mai es juga pel color de l'usuari: un "bestmove" duplicat o
+                // antic no s'ha d'aplicar com si fos una jugada de l'enginy.
+                if (game.game_over() || game.turn() === playerColor) return;
+                const applied = game.move({ from: fromSq, to: toSq, promotion: promotion });
+                if (!applied) {
+                    // Jugada il·legal a la posició actual (resposta antiga):
+                    // no es repinta ni es marca res i es demana una jugada fresca,
+                    // perquè la marca sempre correspongui a una jugada feta.
+                    makeEngineMove();
+                    return;
+                }
                 clockOnMove();
+                updateStatus();
+                if (isViewingGameHistory() && !game.game_over()) {
+                    // L'usuari repassa jugades amb les fletxes: la jugada queda
+                    // aplicada a l'estat real però no se li roba la vista ni es
+                    // marca sobre una posició antiga; la fletxa endavant la
+                    // mostrarà i la marcarà quan hi arribi.
+                    updateGameMoveNavButtons();
+                    return;
+                }
+                resetGameMoveNav();
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
                 // El primer moviment de l'enginy pot coincidir amb un resize
                 // pendent del tauler. Reapliquem la marca després del pintat
                 // perquè from/to i posició visible quedin sincronitzats.
                 setTimeout(reapplyEngineMoveHighlight, 0);
-                updateStatus();
-                resetGameMoveNav();
                 // El moviment ja s'ha aplicat al tauler; es difereix el final de
                 // partida perquè el navegador pinti el moviment (inclòs el mat)
                 // a l'instant en lloc d'esperar al processament pesat.
@@ -17821,12 +17865,20 @@ function applyBundleAutoReply(moveUci) {
     const fromSq = moveUci.substring(0, 2);
     const toSq = moveUci.substring(2, 4);
     const promotion = moveUci.length > 4 ? moveUci[4] : 'q';
-    game.move({ from: fromSq, to: toSq, promotion });
-    board.position(game.fen());
-    highlightEngineMove(fromSq, toSq);
+    // Si la jugada no és legal a la posició actual (resposta antiga), no es
+    // repinta ni es marca res: la marca sempre ha de correspondre a una jugada feta.
+    if (!game.move({ from: fromSq, to: toSq, promotion })) return;
     bundleStepStartFen = game.fen();
     lastHumanMoveUci = null;
     updateStatus();
+    if (isViewingGameHistory()) {
+        // L'usuari repassa jugades amb les fletxes: no se li roba la vista;
+        // la fletxa endavant mostrarà i marcarà la rèplica quan hi arribi.
+        updateGameMoveNavButtons();
+        return;
+    }
+    board.position(game.fen());
+    highlightEngineMove(fromSq, toSq);
     resetGameMoveNav();
 }
 
@@ -17848,6 +17900,7 @@ function resetBundleToStartPosition() {
     lastHumanMoveUci = null;
     waitingForBlunderAnalysis = false;
     isEngineThinking = false;
+    engineMoveApplyPending = false;
     $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
     clearEngineMoveHighlights();
     clearTapSelection();
@@ -20989,6 +21042,9 @@ function renderBundleErrorContext() {
 // Reprodueix visualment la jugada errònia sobre el tauler i torna a la posició inicial.
 function previewErrorMove() {
     if (!currentErrorContext || !board || errorReplayTimer) return;
+    // Amb la vista navegada (fletxes) la reproducció animaria la jugada sobre
+    // una posició que no li correspon i acabaria repintant la posició en viu.
+    if (isViewingGameHistory()) return;
     try { board.move(`${currentErrorContext.from}-${currentErrorContext.to}`); } catch (e) { return; }
     errorReplayTimer = setTimeout(() => {
         errorReplayTimer = null;
