@@ -17076,12 +17076,28 @@ function gameNavFenAtPly(ply) {
     return replay.fen();
 }
 
+// Ressalta la jugada que ha portat a la posició mostrada (from/to de la jugada
+// número `ply`). Així la marca del tauler SEMPRE correspon a la posició que es
+// veu: en tirar enrere, es marca la darrera jugada d'aquella posició (no la de
+// la posició en viu, que abans quedava penjada i no lligava amb el tauler).
+function applyGameMoveNavHighlight(ply) {
+    if (!game) return;
+    if (!ply || ply <= 0) { clearEngineMoveHighlights(); return; }
+    const verbose = game.history({ verbose: true });
+    const mv = verbose[ply - 1];
+    if (mv) highlightEngineMove(mv.from, mv.to);
+    else clearEngineMoveHighlights();
+}
+
 function stepGameMoveNav(delta) {
     if (!board || !game) return;
     const total = game.history().length;
     const current = (gameViewPly === null) ? total : gameViewPly;
     const target = Math.min(total, Math.max(0, current + delta));
     if (target === current) { updateGameMoveNavButtons(); return; }
+    // En sortir de la posició en viu, retira pistes i seleccions perquè no
+    // quedin marques d'interacció sobre una posició que ja no s'hi pot jugar.
+    $('#myBoard .square-55d63').removeClass('highlight-hint tap-selected tap-move');
     if (target >= total) {
         gameViewPly = null;
         board.position(game.fen(), true);
@@ -17089,6 +17105,7 @@ function stepGameMoveNav(delta) {
         gameViewPly = target;
         board.position(gameNavFenAtPly(target), true);
     }
+    applyGameMoveNavHighlight(target);
     updateGameMoveNavButtons();
 }
 
