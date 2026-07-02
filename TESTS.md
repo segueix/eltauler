@@ -13,12 +13,15 @@ npm test      # executa tota la suite
 
 L'app és un únic fitxer gran (`app.js`) pensat per al navegador, sense sistema
 de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
-(sense estat global, DOM ni xarxa) viu a `core.js`:
+(sense estat global, DOM ni xarxa) viu a `core.js` i a `redactor.js`:
 
 - `core.js` exporta les funcions tant com a global del navegador
   (`window.ElTaulerCore`) com a mòdul de Node (`module.exports`), gràcies a un
   embolcall UMD.
-- `app.js` carrega `core.js` (via `<script>` a `index.html`, abans d'`app.js`) i
+- `redactor.js` (mateix embolcall UMD, `window.ElTaulerRedactor`) conté el
+  corrector i auditor de català normatiu dels textos de l'entrenador, i la
+  redacció local del diagnòstic longitudinal.
+- `app.js` carrega tots dos (via `<script>` a `index.html`, abans d'`app.js`) i
   hi **delega** mitjançant embolcalls prims. Així hi ha una única font de veritat
   i els tests proven el mateix codi que s'executa al navegador.
 
@@ -34,6 +37,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
 - **`calibration.test.js`** — terra flexible de l'ELO d'usuari, ajust fi per
   resultat, fites d'ELO, i la cerca adaptativa del calibratge inicial (ROC del
   rival, qualitat i rendiment de les partides de calibratge).
+- **`redactor.test.js`** — corrector normatiu del català de l'entrenador
+  (subjuntiu per indicatiu, participi per imperatiu, castellanismes,
+  terminologia, concordances), auditoria de fiabilitat (xifres inventades,
+  percentatges sense %, notació SAN, residus de JSON) i redacció local del
+  diagnòstic (fidelitat a les dades, determinisme, concordança).
 
 ## Integració contínua
 
