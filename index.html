@@ -538,6 +538,39 @@
             .coach-item .btn.coach-item-go { flex: 1 1 100%; width: 100%; padding: 9px 12px; }
         }
         .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--text-positive); cursor: default; }
+
+        /* Ruta guiada del pla: progrés global, passos numerats i desbloqueig seqüencial */
+        .coach-plan-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
+        .coach-plan-progress-bar { flex: 1; height: 8px; background: rgba(0,0,0,0.3); border-radius: 5px; overflow: hidden; }
+        .coach-plan-progress-fill {
+            height: 100%; width: 0; border-radius: 5px; transition: width 0.4s ease;
+            background: linear-gradient(90deg, var(--accent-green), var(--accent-gold));
+        }
+        .coach-plan-progress-label { font-size: 0.74rem; color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
+        .plan-streak {
+            font-size: 0.78rem; color: var(--accent-gold);
+            background: rgba(201,162,39,0.12); border: 1px solid rgba(201,162,39,0.35);
+            border-radius: 6px; padding: 2px 7px; white-space: nowrap;
+        }
+        .coach-step-badge {
+            flex: 0 0 auto; width: 26px; height: 26px; border-radius: 50%;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 0.8rem; font-weight: 700; color: var(--accent-gold);
+            background: rgba(201,162,39,0.12); border: 1px solid rgba(201,162,39,0.4);
+        }
+        .coach-item.done .coach-step-badge { color: var(--text-positive); background: rgba(74,124,89,0.25); border-color: var(--accent-green); }
+        .coach-item.locked { opacity: 0.55; border-left-color: rgba(255,255,255,0.2); }
+        .coach-item.locked .coach-step-badge { font-size: 0.72rem; background: rgba(0,0,0,0.25); border-color: rgba(255,255,255,0.2); }
+        .coach-item.locked .btn.coach-item-go { background: rgba(0,0,0,0.3); color: var(--text-secondary); cursor: default; }
+        .coach-item-kind { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-gold); font-weight: 700; }
+        .coach-item.done .coach-item-kind { color: var(--text-positive); }
+        .coach-item-why { font-size: 0.76rem; color: var(--text-secondary); line-height: 1.4; margin-top: 2px; }
+        .coach-plan-done {
+            margin-top: 10px; padding: 10px 12px; border-radius: 10px; text-align: center;
+            font-size: 0.85rem; line-height: 1.45; color: var(--text-positive);
+            background: rgba(74,124,89,0.15); border: 1px solid rgba(74,124,89,0.45);
+        }
+
         body.epaper-mode .coach-panel,
         body.epaper-mode #review-debrief,
         body.epaper-mode .coach-item {
@@ -545,6 +578,13 @@
         }
         body.epaper-mode .coach-kicker { color: #222; }
         body.epaper-mode .coach-item { border-left-color: #cfcfcf !important; }
+        body.epaper-mode .plan-streak,
+        body.epaper-mode .coach-step-badge,
+        body.epaper-mode .coach-plan-done {
+            background: #ededed !important; border-color: #cfcfcf !important; color: #222;
+        }
+        body.epaper-mode .coach-item-kind { color: #222; }
+        body.epaper-mode .coach-plan-progress-bar { background: #dcdcdc; }
 
         /* CONTEXT DE L'ERRADA en exercicis (bundles, SRS, debilitats) */
         #error-context-banner {
@@ -3337,12 +3377,18 @@
                 <div class="coach-kicker">
                     <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
                     <span class="coach-kicker-right">
+                        <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
                         <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
                     </span>
                 </div>
                 <div class="coach-plan-summary" id="weekly-plan-summary"></div>
                 <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                <div class="coach-plan-progress" id="weekly-plan-progress">
+                    <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                    <span class="coach-plan-progress-label">0/0 passos</span>
+                </div>
                 <div id="weekly-plan-list"></div>
+                <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
             </div>
 
             <div class="menu-section">

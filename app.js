@@ -18857,10 +18857,10 @@ function updateStatus() {
    a partir dels mateixos fets (mai analitza la partida ell sol). */
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
-const WEEKLY_PLAN_VERSION = 4; // 4: s'elimina la tasca "mat en 3 jugades" del pla
+const WEEKLY_PLAN_VERSION = 5; // 5: ruta guiada per passos ordenats (escalfament → repàs → focus → partida)
 // Quan puja, el resum desat del pla d'avui es descarta i es regenera (text local
 // i, si hi ha clau OpenAI, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
-const PLAN_SUMMARY_REFRESH_VERSION = 2;
+const PLAN_SUMMARY_REFRESH_VERSION = 3;
 let weeklyPlan = null;
 let coachCatalanVoice = null;
 let coachDebriefPending = false;
@@ -20284,14 +20284,53 @@ function speakCoachText(text) {
 // Clau del dia (UTC, igual que getToday/missions): el pla canvia cada mitjanit UTC.
 function getPlanDayKey() { return getToday(); }
 
-// Regles locals: tria el focus del dia a partir de mastery + errors recents,
-// i fixa objectius mesurables amb comptadors que ja existeixen (baseline al moment de crear el pla).
-// La llavor diària fa que el focus i les quantitats variïn d'un dia a l'altre.
+// Dia anterior d'una clau de pla (les claus són dates UTC en format YYYY-MM-DD).
+function previousPlanDayKey(day) {
+    const t = Date.parse(`${day}T00:00:00Z`);
+    return new Date(t - 86400000).toISOString().split('T')[0];
+}
+
+/* Ratxa del pla: dies seguits completant tots els passos. És el motor de la
+   progressió: cada dia consecutiu completat apuja una mica el volum de l'endemà. */
+const PLAN_STREAK_KEY = 'chess_planStreak';
+
+function loadPlanStreak() {
+    const s = readJsonStorage(PLAN_STREAK_KEY, null);
+    if (!s || typeof s !== 'object') return { lastDay: null, streak: 0, total: 0 };
+    return { lastDay: s.lastDay || null, streak: s.streak || 0, total: s.total || 0 };
+}
+
+function registerPlanCompleted(day) {
+    const s = loadPlanStreak();
+    if (s.lastDay === day) return s;
+    s.streak = s.lastDay === previousPlanDayKey(day) ? s.streak + 1 : 1;
+    s.lastDay = day;
+    s.total += 1;
+    writeJsonStorage(PLAN_STREAK_KEY, s);
+    return s;
+}
+
+// Ratxa vigent per a un dia concret: val 0 si ni avui ni ahir es va completar el pla.
+function currentPlanStreak(day) {
+    const s = loadPlanStreak();
+    if (s.lastDay === day || s.lastDay === previousPlanDayKey(day)) return s.streak;
+    return 0;
+}
+
+/* Ruta guiada del dia: passos ordenats de menys a més exigència, cadascun amb el
+   seu perquè. L'estructura pedagògica és fixa (escalfament → repàs → focus →
+   posar-ho en pràctica) i el contingut s'adapta a les dades del jugador:
+   - el focus és el tema més fluix amb errors recents,
+   - el volum creix amb la ratxa de dies completant el pla (progressió),
+   - els objectius es mesuren amb comptadors que ja existeixen (baseline al crear el pla). */
 function buildWeeklyPlan() {
     loadThemeMastery();
     loadGrowthStats();
     const day = getPlanDayKey();
     const rng = mulberry32(hashStr(`plan:${day}`));
+    const streak = currentPlanStreak(day);
+    const level = Math.min(3, streak); // 0..3: apuja el volum a mesura que la ratxa creix
+
     const errorThemes = {};
     savedErrors.slice(-30).forEach(err => {
         const t = normalizeGrowthTheme(classifyPositionTheme(err.fen || '', err.playerMove || ''));
@@ -20303,43 +20342,77 @@ function buildWeeklyPlan() {
     const withErrors = themes.filter(t => (errorThemes[t] || 0) > 0);
     const pool = (withErrors.length ? withErrors : themes).slice(0, 3);
     const focusTheme = pool[Math.floor(rng() * pool.length)] || themes[0];
+    const focusMastery = Math.round((themeMastery[focusTheme] || 0) * 100);
+    const focusErrors = errorThemes[focusTheme] || 0;
     const due = getDueErrors().length;
 
     const items = [];
-    if (savedErrors.length > 0) {
+
+    // Pas 1 — Escalfament: entrada fàcil que desperta la visió tàctica.
+    const tacticsTarget = 2 + level + Math.floor(rng() * 2);
+    items.push({
+        id: 'warmup', kind: 'Escalfament', type: 'tactics', theme: null, metric: 'tactics',
+        title: `Resol ${tacticsTarget} exercicis de tàctica`,
+        why: "Comença pel més senzill: uns quants exercicis per despertar la vista abans de la feina de debò.",
+        target: tacticsTarget, baseline: tacticsStats.solved || 0
+    });
+
+    // Pas 2 — Repàs: consolidar el que ja s'ha vist (repetició espaiada o obertura).
+    if (due > 0) {
+        const srsTarget = Math.min(due, 2 + (level >= 2 ? 1 : 0));
         items.push({
-            id: 'focus', type: 'weakness_training', theme: focusTheme, metric: 'weakness',
-            title: `Entrena ${getThemeLabel(focusTheme)} (1 sessió)`,
-            target: 1, baseline: growthStats.weaknessSessionsCompleted || 0
+            id: 'review', kind: 'Repàs', type: 'srs_review', theme: null, metric: 'srs',
+            title: srsTarget === 1 ? 'Corregeix 1 error pendent de repàs' : `Corregeix ${srsTarget} errors pendents de repàs`,
+            why: `Tens ${due} ${due === 1 ? 'posició on vas fallar esperant-te' : 'posicions on vas fallar esperant-te'}: repassar-les just quan toca és com es fixa l'aprenentatge.`,
+            target: srsTarget, baseline: growthStats.srsCompleted || 0
         });
-    }
-    if (getOpeningPhaseErrors().length > 0) {
+    } else if (getOpeningPhaseErrors().length > 0) {
         const openTarget = 1 + Math.floor(rng() * 2);
         items.push({
-            id: 'openings', type: 'opening_drill', theme: 'opening', metric: 'opening_drill',
+            id: 'review', kind: 'Repàs', type: 'opening_drill', theme: 'opening', metric: 'opening_drill',
             title: openTarget === 1
                 ? "Rectifica 1 errada d'obertura (2 jugades correctes)"
                 : `Rectifica ${openTarget} errades d'obertura (2 jugades correctes)`,
+            why: "Les 10 primeres jugades marquen tota la partida: rectificar el que va fallar evita repetir-ho.",
             target: openTarget, baseline: growthStats.openingDrillsCompleted || 0
         });
     }
-    const tacticsTarget = 3 + Math.floor(rng() * 3);
+
+    // Pas 3 — Focus del dia: treball dirigit al tema més fluix.
+    if (savedErrors.length > 0) {
+        items.push({
+            id: 'focus', kind: 'Focus del dia', type: 'weakness_training', theme: focusTheme, metric: 'weakness',
+            title: `Entrena ${getThemeLabel(focusTheme)} (1 sessió)`,
+            why: focusErrors > 0
+                ? `És el teu tema més fluix (${focusMastery}% de domini) i hi has fallat ${focusErrors} ${focusErrors === 1 ? 'cop' : 'cops'} fa poc: avui el fem pujar.`
+                : `És el teu tema més fluix (${focusMastery}% de domini): una sessió dirigida és la manera més ràpida de fer-lo pujar.`,
+            target: 1, baseline: growthStats.weaknessSessionsCompleted || 0
+        });
+    }
+
+    // Pas final — Posa-ho en pràctica: transferir l'entrenament a una partida real.
     items.push({
-        id: 'tactics', type: 'tactics', theme: null, metric: 'tactics',
-        title: `Resol ${tacticsTarget} exercicis de tàctica`,
-        target: tacticsTarget, baseline: tacticsStats.solved || 0
+        id: 'apply', kind: 'Posa-ho en pràctica', type: 'free_game', theme: null, metric: 'games',
+        title: 'Juga 1 partida sencera',
+        why: "L'entrenament només compta quan surt a la partida: juga amb calma i busca-hi el que has treballat avui.",
+        target: 1, baseline: totalGamesPlayed || 0
     });
+
+    const finalItems = items.slice(0, 4);
+    finalItems.forEach((item, i) => { item.step = i + 1; });
 
     return {
         day,
         createdAt: Date.now(),
         version: WEEKLY_PLAN_VERSION,
         focusTheme,
-        focusMastery: Math.round((themeMastery[focusTheme] || 0) * 100),
+        focusMastery,
         srsAtStart: due,
+        streakAtStart: streak,
+        completedAt: null,
         openaiSummary: null,
         summaryVersion: PLAN_SUMMARY_REFRESH_VERSION,
-        items: items.slice(0, 4)
+        items: finalItems
     };
 }
 
@@ -20355,26 +20428,32 @@ function weeklyPlanItemProgress(item) {
 }
 
 const COACH_PLAN_TEMPLATES = [
-    "Avui el focus és {tema} (domini del {pct}%). El pla té dos fronts: rectifica les errades que vas cometre a l'obertura amb dues jugades correctes i afina la vista amb la tàctica. Pas a pas, sense pressa.",
-    "He repassat les teves últimes partides i el que demana més feina és {tema} (domini del {pct}%). Per treballar-ho, avui combinem la correcció de les teves errades d'obertura i exercicis de tàctica.",
-    "Pla d'avui: corregeix les errades que vas cometre a l'obertura i no descuidis la tàctica. El teu punt més fluix continua sent {tema} (domini del {pct}%): cada tasca completada hi suma."
+    "He mirat les teves últimes partides i el que més et frena és {tema} (domini del {pct}%). Avui t'he preparat una ruta de {passos} passos, del més senzill al més exigent: escalfa, corregeix i acaba posant-ho a prova en una partida.",
+    "Pla d'avui en {passos} passos, per ordre: cada pas prepara el següent, així que no cal fer-ho tot alhora. El fil conductor és {tema} (domini del {pct}%), i cada pas completat el fa una mica més teu.",
+    "Avui treballem {tema}, el teu punt més fluix ({pct}% de domini). Segueix la ruta de {passos} passos en ordre: comença suau amb l'escalfament i acaba aplicant-ho tot en una partida de veritat."
 ];
 
 function composeWeeklyPlanText(plan) {
     const rng = mulberry32(hashStr(`plan:${plan.day}`));
     const tpl = COACH_PLAN_TEMPLATES[Math.floor(rng() * COACH_PLAN_TEMPLATES.length)];
-    return fillCoachTemplate(tpl, { tema: getThemeLabel(plan.focusTheme), pct: plan.focusMastery });
+    return fillCoachTemplate(tpl, {
+        tema: getThemeLabel(plan.focusTheme),
+        pct: plan.focusMastery,
+        passos: plan.items.length
+    });
 }
 
 function buildWeeklyPlanOpenAIPrompt(plan) {
     return `Ets un entrenador d'escacs proper que parla en català i tuteja l'alumne.
-Escriu 2 frases (màxim 45 paraules en total) presentant el pla d'entrenament d'avui d'un alumne, NOMÉS amb aquests fets:
+Escriu 2 o 3 frases (màxim 55 paraules en total) presentant la ruta d'entrenament d'avui, NOMÉS amb aquests fets:
 ${JSON.stringify({
         tema_a_reforcar: getThemeLabel(plan.focusTheme),
         domini_del_tema_percent: plan.focusMastery,
         repassos_pendents: plan.srsAtStart,
-        tasques: plan.items.map(i => i.title)
+        dies_seguits_completant_el_pla: plan.streakAtStart || 0,
+        passos_en_ordre: plan.items.map(i => `${i.step}. ${i.kind}: ${i.title}`)
     }, null, 2)}
+Explica que els passos van del més senzill al més exigent i que convé seguir-los en ordre.
 Sense llistes, sense markdown, sense emojis. To motivador però concret.`;
 }
 
@@ -20418,7 +20497,8 @@ function updatePlanCountdown() {
     if (weeklyPlan && weeklyPlan.day !== getPlanDayKey()) ensureWeeklyPlan();
 }
 
-const PLAN_SUMMARY_COLLAPSE_CHARS = 40;
+// Prou marge perquè es llegeixi la primera frase sencera abans del [Continuar llegint].
+const PLAN_SUMMARY_COLLAPSE_CHARS = 120;
 
 function getCollapsedPlanSummary(text) {
     if (text.length <= PLAN_SUMMARY_COLLAPSE_CHARS) return text;
@@ -20498,28 +20578,82 @@ function renderWeeklyPlan() {
     setPlanSummaryText(summary);
     updatePlanSummaryToggle();
 
+    const items = weeklyPlan.items;
+    const progressById = {};
+    let doneCount = 0;
+    items.forEach(item => {
+        const p = weeklyPlanItemProgress(item);
+        progressById[item.id] = p;
+        if (p >= item.target) doneCount++;
+    });
+    const allDone = doneCount >= items.length;
+
+    // La ratxa es registra un sol cop, el moment en què el pla del dia queda complet.
+    if (allDone && !weeklyPlan.completedAt) {
+        weeklyPlan.completedAt = Date.now();
+        registerPlanCompleted(weeklyPlan.day);
+        writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
+        showToast("🏆 Pla d'avui completat!", 'success');
+    }
+
+    const streak = currentPlanStreak(weeklyPlan.day);
+    const streakEl = document.getElementById('plan-streak');
+    if (streakEl) {
+        streakEl.style.display = streak >= 2 ? '' : 'none';
+        streakEl.textContent = `🔥 ${streak} dies`;
+    }
+
+    const globalFill = document.querySelector('#weekly-plan-progress .coach-plan-progress-fill');
+    const globalLabel = document.querySelector('#weekly-plan-progress .coach-plan-progress-label');
+    if (globalFill) globalFill.style.width = `${Math.round((doneCount / items.length) * 100)}%`;
+    if (globalLabel) globalLabel.textContent = `${doneCount}/${items.length} passos`;
+
+    // Els passos es desbloquegen en ordre: només el primer pendent és accionable.
+    const firstPending = items.findIndex(item => progressById[item.id] < item.target);
+
     const list = $('#weekly-plan-list').empty();
-    weeklyPlan.items.forEach(item => {
-        const progress = weeklyPlanItemProgress(item);
+    items.forEach((item, idx) => {
+        const progress = progressById[item.id];
         const done = progress >= item.target;
+        const locked = !done && idx > firstPending;
         const pct = Math.round((progress / item.target) * 100);
         const row = $(`
-            <div class="coach-item${done ? ' done' : ''}">
+            <div class="coach-item${done ? ' done' : ''}${locked ? ' locked' : ''}">
+                <div class="coach-step-badge">${done ? '✓' : locked ? '🔒' : item.step || idx + 1}</div>
                 <div class="coach-item-main">
+                    <div class="coach-item-kind"></div>
                     <div class="coach-item-title"></div>
+                    <div class="coach-item-why"></div>
                     <div class="coach-item-progress">
                         <div class="coach-item-bar"><div class="coach-item-fill" style="width:${pct}%"></div></div>
                         <span class="coach-item-count">${progress}/${item.target}</span>
                     </div>
                 </div>
-                <button class="btn coach-item-go">${done ? '✓ Fet' : 'Fes-ho'}</button>
+                <button class="btn coach-item-go">${done ? '✓ Fet' : locked ? 'Bloquejat' : 'Comença'}</button>
             </div>`);
+        row.find('.coach-item-kind').text(item.kind || '');
         row.find('.coach-item-title').text(item.title);
+        const whyEl = row.find('.coach-item-why');
+        if (item.why && !done) whyEl.text(item.why); else whyEl.hide();
         const goBtn = row.find('.coach-item-go');
-        if (done) goBtn.prop('disabled', true);
-        else goBtn.on('click', () => launchWeeklyPlanItem(item));
+        if (done || locked) {
+            goBtn.prop('disabled', true);
+            if (locked) goBtn.attr('title', 'Completa primer el pas anterior');
+        } else {
+            goBtn.on('click', () => launchWeeklyPlanItem(item));
+        }
         list.append(row);
     });
+
+    const doneBanner = document.getElementById('weekly-plan-done');
+    if (doneBanner) {
+        doneBanner.style.display = allDone ? '' : 'none';
+        if (allDone) {
+            doneBanner.textContent = streak >= 2
+                ? `🏆 Pla d'avui completat — ${streak} dies seguits! Demà el llistó pujarà una mica.`
+                : "🏆 Pla d'avui completat! Torna demà: cada dia seguit fa créixer la ratxa i el repte.";
+        }
+    }
 
     // Poliment OpenAI un sol cop per dia (es persisteix dins del pla).
     if (!weeklyPlan.openaiSummary && openaiApiKey && !coachPlanOpenAIPending) {
