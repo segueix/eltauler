@@ -16897,6 +16897,11 @@ blunderMode = isBundle;
     
     game = new Chess(fen || undefined);
     resetGameMoveNav();
+    // En començar una partida/posició nova, elimina qualsevol marca de la
+    // partida anterior abans que el resize inicial pugui reaplicar-la sobre
+    // el tauler acabat de crear. Això evitava que, si l'enginy juga primer
+    // amb blanques, es veiés un ressaltat antic fins que arriba la seva jugada.
+    clearEngineMoveHighlights();
 
     let boardOrientation = 'white';
     
@@ -17775,6 +17780,10 @@ function handleEngineMessage(rawMsg) {
                 clockOnMove();
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
+                // El primer moviment de l'enginy pot coincidir amb un resize
+                // pendent del tauler. Reapliquem la marca després del pintat
+                // perquè from/to i posició visible quedin sincronitzats.
+                setTimeout(reapplyEngineMoveHighlight, 0);
                 updateStatus();
                 resetGameMoveNav();
                 // El moviment ja s'ha aplicat al tauler; es difereix el final de
