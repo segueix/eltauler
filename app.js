@@ -1443,6 +1443,7 @@ function disableTapToMove() {
 
 function rebuildBoardForControlMode() {
     if (!game) return;
+    resetGameMoveNav(); // el tauler es recrea a la posició en viu
     const fen = game.fen();
 
     if (board) board.destroy();
@@ -1678,6 +1679,7 @@ function commitHumanMove(from, to, promotionPiece) {
 
     board.position(game.fen());
     updateStatus();
+    updateGameMoveNavButtons();
 
     if (game.game_over()) {
         if (blunderMode) {
@@ -1705,6 +1707,7 @@ function enableTapToMove() {
     $('#myBoard').off('.tapmove')
         .on(`pointerdown.tapmove touchstart.tapmove`, '.square-55d63', function(e) {
         if (!game || game.game_over() || isEngineThinking) return;
+        if (isViewingGameHistory()) return;
 
         if (e && e.preventDefault) e.preventDefault();
 
@@ -14674,6 +14677,7 @@ function setupEvents() {
         }
 
         board.position(game.fen());
+        resetGameMoveNav();
         $('#blunder-alert').hide();
 
         $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
@@ -14779,6 +14783,10 @@ function setupEvents() {
     $('#btn-resign').click(() => {
         showResignModal();
     });
+
+    // Fletxes de navegació de jugades (sota el tauler, al costat del nom del color)
+    $('#btn-move-back').click(() => stepGameMoveNav(-1));
+    $('#btn-move-fwd').click(() => stepGameMoveNav(1));
 
     onModalAction('#btn-resign-confirm', () => {
         hideResignModal();
@@ -16863,8 +16871,9 @@ blunderMode = isBundle;
     updateCalibrationProgressUI();
     updateEloDisplay();
     
-    game = new Chess(fen || undefined); 
-    
+    game = new Chess(fen || undefined);
+    resetGameMoveNav();
+
     let boardOrientation = 'white';
     
     // LÒGICA DE COLORS
@@ -16999,6 +17008,7 @@ blunderMode = isBundle;
 }
 
 function onDragStart(source, piece, position, orientation) {
+    if (isViewingGameHistory()) return false;
     if (game.game_over() || isEngineThinking) return false;
     if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || 
         (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
@@ -17028,6 +17038,7 @@ function onDrop(source, target) {
     totalPlayerMoves++;
     pendingMoveEvaluation = true;
     updateStatus();
+    updateGameMoveNavButtons();
 
     if (game.game_over()) {
         if (blunderMode) {
@@ -17046,6 +17057,56 @@ function onDrop(source, target) {
 }
 
 function onSnapEnd() { board.position(game.fen()); }
+
+/* ===== Navegació de jugades (fletxes sota el tauler, estil chess.com) =====
+   Permet repassar les posicions anteriors de la partida sense tocar l'estat
+   real del joc: només canvia la VISTA del tauler. Mentre no s'és a la posició
+   en viu, el tauler no accepta jugades; amb la fletxa endavant es torna fins
+   a la posició actual i es recupera la interactivitat. */
+let gameViewPly = null;   // null = posició en viu; número = jugades (plies) mostrades
+let gameStartFen = null;  // posició base de la partida (els exercicis comencen d'un FEN)
+
+function isViewingGameHistory() { return gameViewPly !== null; }
+
+// FEN de la posició després de `ply` jugades, reconstruïda des de la posició base.
+function gameNavFenAtPly(ply) {
+    const replay = new Chess(gameStartFen || undefined);
+    const hist = game.history();
+    for (let i = 0; i < ply; i++) replay.move(hist[i]);
+    return replay.fen();
+}
+
+function stepGameMoveNav(delta) {
+    if (!board || !game) return;
+    const total = game.history().length;
+    const current = (gameViewPly === null) ? total : gameViewPly;
+    const target = Math.min(total, Math.max(0, current + delta));
+    if (target === current) { updateGameMoveNavButtons(); return; }
+    if (target >= total) {
+        gameViewPly = null;
+        board.position(game.fen(), true);
+    } else {
+        gameViewPly = target;
+        board.position(gameNavFenAtPly(target), true);
+    }
+    updateGameMoveNavButtons();
+}
+
+// Torna la vista a la posició en viu. Si l'historial és buit (partida nova o
+// posició recarregada amb load), la posició actual passa a ser la base de la
+// reconstrucció; si no, la base original segueix sent vàlida (undo inclòs).
+function resetGameMoveNav() {
+    gameViewPly = null;
+    if (game && game.history().length === 0) gameStartFen = game.fen();
+    updateGameMoveNavButtons();
+}
+
+function updateGameMoveNavButtons() {
+    const total = (game && game.history) ? game.history().length : 0;
+    const current = (gameViewPly === null) ? total : gameViewPly;
+    $('#btn-move-back').prop('disabled', current <= 0);
+    $('#btn-move-fwd').prop('disabled', gameViewPly === null);
+}
 
 // Feedback visual breu quan s'intenta una jugada il·legal (punt 7)
 function showIllegalMoveFeedback(square) {
@@ -17674,6 +17735,7 @@ function handleEngineMessage(rawMsg) {
                 board.position(game.fen());
                 highlightEngineMove(fromSq, toSq);
                 updateStatus();
+                resetGameMoveNav();
                 // El moviment ja s'ha aplicat al tauler; es difereix el final de
                 // partida perquè el navegador pinti el moviment (inclòs el mat)
                 // a l'instant en lloc d'esperar al processament pesat.
@@ -17707,6 +17769,7 @@ function applyBundleAutoReply(moveUci) {
     bundleStepStartFen = game.fen();
     lastHumanMoveUci = null;
     updateStatus();
+    resetGameMoveNav();
 }
 
 function requestBundleAutoReply() {
@@ -17722,6 +17785,7 @@ function resetBundleToStartPosition() {
     if (!fen) return;
     try { game.load(fen); } catch (e) { return; }
     board.position(game.fen());
+    resetGameMoveNav();
 
     lastHumanMoveUci = null;
     waitingForBlunderAnalysis = false;

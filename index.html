@@ -1966,6 +1966,27 @@
         
         .controls { background: var(--bg-card); padding: 15px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .status-message { color: var(--text-primary); font-size: 0.95rem; margin-bottom: 12px; text-align: center; min-height: 24px; }
+        /* Fletxes de navegació de jugades (estil chess.com), al costat del nom del color */
+        .status-row { display: flex; align-items: center; justify-content: center; gap: 10px; width: 100%; margin-bottom: 12px; }
+        .status-row .status-message { margin-bottom: 0; flex: 1; min-width: 0; }
+        .move-nav { display: flex; gap: 6px; flex-shrink: 0; }
+        .move-nav-btn {
+            width: 42px; height: 30px;
+            display: flex; align-items: center; justify-content: center;
+            border: none; border-radius: 6px;
+            background: rgba(255,255,255,0.09);
+            color: var(--text-primary);
+            cursor: pointer;
+            transition: background 0.15s ease;
+            -webkit-user-select: none; user-select: none;
+            touch-action: manipulation;
+        }
+        .move-nav-btn:hover:not(:disabled) { background: rgba(255,255,255,0.18); }
+        .move-nav-btn:active:not(:disabled) { transform: translateY(1px); }
+        .move-nav-btn:disabled { opacity: 0.35; cursor: default; }
+        body.day-mode .move-nav-btn { background: rgba(120,95,40,0.12); }
+        body.day-mode .move-nav-btn:hover:not(:disabled) { background: rgba(120,95,40,0.22); }
+        body.epaper-mode .move-nav-btn { background: #e6e6e6; color: #222; border: 1px solid #cfcfcf; }
         /* Controls de joc - Layout responsive */
         .game-buttons {
             display: grid;
@@ -4437,7 +4458,17 @@
             </div>
             
             <div class="controls">
-                <div class="status-message" id="status">Preparat...</div>
+                <div class="status-row">
+                    <div class="status-message" id="status">Preparat...</div>
+                    <div class="move-nav">
+                        <button type="button" class="move-nav-btn" id="btn-move-back" title="Jugada anterior" aria-label="Jugada anterior" disabled>
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button type="button" class="move-nav-btn" id="btn-move-fwd" title="Jugada següent" aria-label="Jugada següent" disabled>
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                    </div>
+                </div>
                 <div class="game-buttons">
                     <button class="btn btn-hint" id="btn-hint" title="Demanar pista">💡 Pista</button>
                     <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb OpenAI" style="display:none;">
