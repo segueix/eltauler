@@ -8080,7 +8080,7 @@ REGLES OBLIGATÒRIES
 - Escriu només noms de peces i caselles amb lletra+número (exemples: cavall f3, dama h5, de e2 a e4).
 - No escriguis notació algebraica/SAN com Nxe5, Qh5+, O-O ni símbols com +, #, ! o ?.
 - No facis servir llistes, markdown ni cometes.
-- No inventis jugades que no es dedueixin de la posició.`;
+- No inventis jugades que no es dedueixin de la posició.${coachStyleRulesBlock()}`;
 }
 
 function getErrorNoteKey(err) { return err && err.fen ? err.fen : ''; }
@@ -8567,7 +8567,12 @@ async function requestErrorNotes(entry, severeErrors) {
         try {
             const result = await callOpenAI(buildErrorNotePrompt(err), { generationConfig: { maxOutputTokens: 600 } });
             if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
-            entry.errorNotes[key] = { status: 'done', text: result.text.replace(/\*\*/g, '').trim() };
+            // Correcció normativa + auditoria: si el text no és fiable (SAN,
+            // calcs, residus...), es descarta i la fitxa mostra l'explicació
+            // local de buildLocalErrorNote, que sempre és correcta.
+            const esmena = esmenaCatalaCoach(result.text.replace(/\*\*/g, '').trim(), { maxParaules: 60 });
+            if (!esmena.ok) throw new Error('Text descartat pel corrector: ' + esmena.problemes.map(p => p.codi).join(', '));
+            entry.errorNotes[key] = { status: 'done', text: esmena.text };
         } catch (e) {
             console.error('[ErrorNotes]', e?.message || e);
             entry.errorNotes[key] = { status: 'error', text: '', message: e?.message || '' };
@@ -9176,8 +9181,10 @@ async function requestOpenAIBundleHint() {
     try {
         const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 2000 } });
         if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
-        const text = result.text;
-        
+        // Correcció normativa línia a línia (les màximes es mostren tal qual).
+        const redactor = getRedactor();
+        const text = redactor ? redactor.corregirCatala(result.text) : result.text;
+
         const lines = text.split('\n').filter(l => l.trim());
         const validLines = lines.filter(line => {
             const words = line.trim().split(/\s+/).length;
@@ -9241,7 +9248,9 @@ Escriu la màxima:`;
 let assistedHintPending = false;
 
 function showAssistedMaxim(text) {
-    const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
+    const redactor = getRedactor();
+    const corregit = redactor ? redactor.corregirCatala(text) : text;
+    const cleanText = corregit.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
     let html = '<div class="opening-maxim-box">';
     html += '<div class="maxim-title">Consell estratègic</div>';
     html += `<div class="maxim-text">${cleanText}</div>`;
@@ -11645,8 +11654,32 @@ function formatSwingForText(value) {
 }
 
 
+// Accés segur al redactor normatiu (redactor.js). Si per qualsevol motiu no
+// s'hagués carregat, el text passa sense esmenar: mai no bloqueja l'app.
+function getRedactor() {
+    try { if (typeof ElTaulerRedactor !== 'undefined' && ElTaulerRedactor) return ElTaulerRedactor; } catch (e) {}
+    return null;
+}
+
+// Canonada de qualitat per a text generat (OpenAI): correcció normativa +
+// auditoria. Si `ok` és fals, qui crida ha de descartar el text i quedar-se
+// amb la redacció local, que sempre és correcta i fidel a les dades.
+function esmenaCatalaCoach(text, opcions) {
+    const r = getRedactor();
+    if (!r) return { text: String(text || '').trim(), ok: true, problemes: [] };
+    return r.esmenarTextEntrenador(text, opcions || {});
+}
+
+// Bloc de normes d'estil compartit que s'afegeix a tots els prompts de
+// l'entrenador perquè el model escrigui català normatiu, amb % i sense SAN.
+function coachStyleRulesBlock() {
+    const r = getRedactor();
+    return r ? '\n' + r.REGLES_ESTIL_CATALA : '';
+}
+
 function polishCoachText(text, opts = {}) {
-    let out = String(text || '')
+    const redactor = getRedactor();
+    let out = String(redactor ? redactor.corregirCatala(text || '') : (text || ''))
         .replace(/\s+/g, ' ')
         .replace(/\s+([,.;:!?])/g, '$1')
         .replace(/\b[Ee]l dama\b/g, 'la dama')
@@ -15974,7 +16007,11 @@ function renderWeaknesses() {
 /* ===================== DIAGNÒSTIC LONGITUDINAL DE L'ENTRENADOR =====================
    Mira TOT l'historial acumulat (errors guardats, precisió per fase, últimes
    partides) i en treu un diagnòstic redactat: patró recurrent, punt fort i
-   prioritat. Els fets es calculen en local; OpenAI només els redacta.
+   prioritat. Els fets es calculen en local i la redacció per defecte també
+   (ElTaulerRedactor.redactarDiagnostic): sempre disponible, normativa i fidel
+   a les xifres. Si hi ha clau d'OpenAI, es demana una reescriptura més lliure
+   dels MATEIXOS fets, però només s'accepta si passa el corrector i l'auditoria
+   (català normatiu, cap xifra inventada, percentatges amb %).
    Es regenera quan hi ha dades noves (empremta per recompte de partides/errors). */
 
 const COACH_DIAGNOSIS_KEY = 'chess_coachDiagnosis';
@@ -15997,7 +16034,7 @@ function buildCoachDiagnosisFacts() {
         .filter(k => weaknesses.theme[k] > 0)
         .sort((a, b) => weaknesses.theme[b] - weaknesses.theme[a])
         .slice(0, 3)
-        .map(k => ({ tema: WEAKNESS_LABELS[k] || getThemeLabel(k), errors: weaknesses.theme[k] }));
+        .map(k => ({ clau: k, tema: WEAKNESS_LABELS[k] || getThemeLabel(k), errors: weaknesses.theme[k] }));
     return {
         partidesTotals: gameHistory.length,
         errorsAcumulats: weaknesses.total,
@@ -16017,15 +16054,38 @@ function buildCoachDiagnosisFacts() {
 }
 
 function buildCoachDiagnosisPrompt(facts) {
+    // Els fets s'escriuen com a frases en català (no JSON): així el model no
+    // copia claus internes ("migjoc", "precisioPerFase") ni etiquetes amb
+    // majúscula, i veu els percentatges ja formatats amb el símbol %.
+    const r = getRedactor();
+    const fets = r ? r.fetsEnCatala(facts) : JSON.stringify(facts, null, 2);
     return `Ets un entrenador d'escacs veterà, honest i concret, que parla en català i tuteja l'alumne.
 A partir NOMÉS d'aquests fets acumulats de l'alumne (no inventis res que no hi sigui):
-${JSON.stringify(facts, null, 2)}
+${fets}
 
 Escriu un diagnòstic de 70 a 110 paraules en 1 o 2 paràgrafs:
 - El patró d'errada més recurrent i en quina fase de la partida apareix.
 - Un punt fort real que es vegi a les dades.
-- La prioritat d'entrenament per als pròxims dies, en imperatiu.
-Sense llistes, sense markdown i sense xifres que no surtin dels fets.`;
+- La prioritat d'entrenament per als pròxims dies, en imperatiu de segona persona ("practica", "revisa").
+Sense llistes, sense markdown i sense xifres que no surtin dels fets.${coachStyleRulesBlock()}`;
+}
+
+// Opcions d'auditoria del diagnòstic: totes les xifres del text final han de
+// sortir dels fets, i els valors de precisió han de dur el símbol %.
+function coachDiagnosisAuditOptions(facts) {
+    const xifres = [];
+    (function recull(v) {
+        if (typeof v === 'number' && isFinite(v)) xifres.push(v);
+        else if (Array.isArray(v)) v.forEach(recull);
+        else if (v && typeof v === 'object') Object.keys(v).forEach(k => recull(v[k]));
+    })(facts);
+    const percentatges = [];
+    const prec = facts && facts.precisioPerFase ? facts.precisioPerFase : {};
+    ['obertura', 'migjoc', 'final'].forEach(k => { if (typeof prec[k] === 'number') percentatges.push(prec[k]); });
+    if (facts && facts.ultimesPartides && typeof facts.ultimesPartides.precisioMitjana === 'number') {
+        percentatges.push(facts.ultimesPartides.precisioMitjana);
+    }
+    return { xifresPermeses: xifres, percentatges, maxParaules: 140 };
 }
 
 function coachDiagnosisFingerprint() {
@@ -16041,25 +16101,46 @@ function renderCoachDiagnosis() {
     }
     const fingerprint = coachDiagnosisFingerprint();
     const stored = readJsonStorage(COACH_DIAGNOSIS_KEY, null);
-    if (stored && stored.text) {
-        el.textContent = stored.text;
-        if (stored.fingerprint === fingerprint) return;
+    const storedValid = !!(stored && stored.text && stored.fingerprint === fingerprint);
+    if (stored && stored.text) el.textContent = stored.text;
+    const facts = buildCoachDiagnosisFacts();
+
+    // Redacció LOCAL per defecte: sempre disponible (també sense clau d'OpenAI),
+    // normativa i amb les xifres exactes dels fets.
+    if (!storedValid) {
+        const r = getRedactor();
+        const localText = r ? r.redactarDiagnostic(facts, fingerprint) : '';
+        if (localText) {
+            el.textContent = localText;
+            writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text: localText, font: 'local', day: getPlanDayKey() });
+        } else if (!stored || !stored.text) {
+            el.innerHTML = '<em>L\'entrenador està repassant les teves partides...</em>';
+        }
     }
-    if (!openaiApiKey) {
-        if (!stored || !stored.text) el.innerHTML = '<span style="color:var(--text-secondary);">Configura la clau d’OpenAI per rebre el diagnòstic de l\'entrenador.</span>';
-        return;
-    }
-    if (coachDiagnosisPending) return;
+
+    // Reescriptura OpenAI (opcional) dels MATEIXOS fets: només substitueix la
+    // local si passa el corrector i l'auditoria. Amb dades fresques es prova a
+    // cada canvi d'empremta; si la redacció local ja és d'avui, no es reintenta.
+    if (!openaiApiKey || coachDiagnosisPending) return;
+    const storedFont = stored ? (stored.font || 'openai') : null;
+    if (storedValid && storedFont === 'openai') return;
+    if (storedValid && storedFont === 'local' && stored.day === getPlanDayKey()) return;
     coachDiagnosisPending = true;
-    if (!stored || !stored.text) el.innerHTML = '<em>L\'entrenador està repassant les teves partides...</em>';
-    const prompt = buildCoachDiagnosisPrompt(buildCoachDiagnosisFacts());
+    const prompt = buildCoachDiagnosisPrompt(facts);
     callOpenAI(prompt, { generationConfig: { maxOutputTokens: 900 } }).then(result => {
         if (!result.ok || !result.text) return;
-        const text = result.text.replace(/\*\*/g, '').trim();
-        if (text.length < 40) return;
-        writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text, day: getPlanDayKey() });
+        const esmena = esmenaCatalaCoach(result.text.replace(/\*\*/g, '').trim(), coachDiagnosisAuditOptions(facts));
+        if (!esmena.ok || esmena.text.length < 40) {
+            // Text poc fiable (xifres inventades, formes incorrectes...):
+            // ens quedem amb la redacció local, que ja és correcta.
+            if (esmena.problemes && esmena.problemes.length) {
+                console.warn('[CoachDiagnosis] Text OpenAI descartat:', esmena.problemes.map(p => p.codi + (p.detall ? ':' + p.detall : '')).join(', '));
+            }
+            return;
+        }
+        writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text: esmena.text, font: 'openai', day: getPlanDayKey() });
         const target = document.getElementById('coach-diagnosis');
-        if (target) target.textContent = text;
+        if (target) target.textContent = esmena.text;
     }).finally(() => { coachDiagnosisPending = false; });
 }
 
@@ -19278,7 +19359,11 @@ function composeDebriefText(facts, seedStr, voice) {
     const level = playerLevelBand();
     if (COACH_LEVEL_TIPS[level] && Math.random() <= 0.35) sentences.push(pickFreshPlanLine(COACH_LEVEL_TIPS[level], 'leveltip:' + level));
 
-    const text = sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
+    // Passada final pel corrector normatiu: xarxa de seguretat per a les
+    // plantilles (concordances, tipografia) sense tocar-ne l'estructura.
+    const redactor = getRedactor();
+    const compost = sentences.map(tpl => fillCoachTemplate(tpl, data)).join(' ');
+    const text = redactor ? redactor.corregirCatala(compost) : compost;
     _localDebriefCache[cacheKey] = text;
     return text;
 }
@@ -19311,20 +19396,44 @@ ${JSON.stringify(debriefFactsForPrompt(facts), null, 2)}
 Regles:
 - Comença pel resultat, destaca un punt fort si n'hi ha, assenyala el punt feble i acaba amb un consell concret.
 - Un sol paràgraf, sense llistes, sense markdown, sense emojis.
-- Català natural i directe, com un entrenador de club.`;
+- Català natural i directe, com un entrenador de club.${coachStyleRulesBlock()}`;
+}
+
+// Opcions d'auditoria del debrief: el text final només pot contenir xifres
+// que surtin dels fets (incloent-hi la diferència amb la mitjana), i els
+// valors de precisió han de dur el símbol %.
+function debriefAuditOptions(facts) {
+    const xifres = [];
+    Object.keys(facts || {}).forEach(k => {
+        if (typeof facts[k] === 'number' && isFinite(facts[k])) xifres.push(facts[k]);
+    });
+    const percentatges = [];
+    if (typeof facts.precision === 'number') percentatges.push(facts.precision);
+    if (typeof facts.avgPrecision === 'number') percentatges.push(facts.avgPrecision);
+    if (typeof facts.precision === 'number' && typeof facts.avgPrecision === 'number') {
+        xifres.push(Math.abs(facts.precision - facts.avgPrecision));
+    }
+    return { xifresPermeses: xifres, percentatges, maxParaules: 130 };
 }
 
 // Capa OpenAI opcional i compartida: si falla o no hi ha clau, el text local ja és vàlid.
-async function requestOpenAICoachText(cacheKey, prompt, onText, maxLen = 1800) {
+// Tot text extern passa pel corrector normatiu i, si es proporcionen opcions
+// d'auditoria, es descarta quan no és fiable (xifres inventades, SAN, calcs...).
+async function requestOpenAICoachText(cacheKey, prompt, onText, maxLen = 1800, auditOpts = null) {
     if (!openaiApiKey) return;
     const cached = getCachedOpenAI(cacheKey);
     if (cached) { onText(cached); return; }
     const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 1024 } });
     if (!result.ok) return;
-    const text = (result.text || '').trim();
-    if (!text || text.length < 40 || text.length > maxLen) return;
-    setCachedOpenAI(cacheKey, text);
-    onText(text);
+    const brut = (result.text || '').trim();
+    if (!brut || brut.length < 40 || brut.length > maxLen) return;
+    const esmena = esmenaCatalaCoach(brut, auditOpts || {});
+    if (!esmena.ok) {
+        console.warn('[Coach] Text OpenAI descartat (' + cacheKey + '):', esmena.problemes.map(p => p.codi + (p.detall ? ':' + p.detall : '')).join(', '));
+        return;
+    }
+    setCachedOpenAI(cacheKey, esmena.text);
+    onText(esmena.text);
 }
 
 
@@ -19990,7 +20099,26 @@ Pla: una frase curta amb el pla correcte.
 Pregunta: una pregunta curta.
 Objectiu: una microtasca breu.
 
-Regles: no facis markdown, no emojis, no llistes amb guions, màxim 45 paraules per bloc, català natural i precís, no inventis variants noves.`;
+Regles: no facis markdown, no emojis, no llistes amb guions, màxim 45 paraules per bloc, català natural i precís, no inventis variants noves.${coachStyleRulesBlock()}`;
+}
+
+// Opcions d'auditoria dels plans humans: es permeten els números de jugada,
+// les pèrdues en centipeons (i el seu equivalent en peons) i la numeració
+// dels blocs; s'hi tolera la notació SAN perquè les dades del prompt ja la
+// contenen i el jugador la veu igualment a la fitxa del moment.
+function humanPlansAuditOptions(entry, moments) {
+    const xifres = [];
+    if (entry && typeof entry.precision === 'number') xifres.push(entry.precision);
+    (moments || []).forEach(m => {
+        if (typeof m.moveNumber === 'number') xifres.push(m.moveNumber);
+        if (typeof m.swing === 'number') {
+            xifres.push(Math.abs(Math.round(m.swing)));
+            xifres.push(Math.round(Math.abs(m.swing) / 100));
+            xifres.push(Math.abs(m.swing) / 100);
+        }
+    });
+    for (let i = 1; i <= (moments || []).length; i++) xifres.push(i);
+    return { xifresPermeses: xifres, percentatges: [], permetSan: true, maxParaules: 80 * Math.max(1, (moments || []).length) };
 }
 
 
@@ -20205,7 +20333,7 @@ function renderGameDebrief(targetEntry) {
 
     if (!coachDebriefPending) {
         coachDebriefPending = true;
-        requestOpenAICoachText(`debrief:${entry.id}`, buildDebriefOpenAIPrompt(facts), text => textEl.text(text))
+        requestOpenAICoachText(`debrief:${entry.id}`, buildDebriefOpenAIPrompt(facts), text => textEl.text(text), 1800, debriefAuditOptions(facts))
             .finally(() => { coachDebriefPending = false; });
     }
     if (humanPlansPanel && humanPlanMoments.length) {
@@ -20213,7 +20341,8 @@ function renderGameDebrief(targetEntry) {
             `human-plans:${entry.id}:v1`,
             buildHumanPlansOpenAIPrompt(entry, humanPlanMoments),
             text => renderOpenAIHumanPlans(humanPlansPanel, text, humanPlanMoments),
-            3000
+            3000,
+            humanPlansAuditOptions(entry, humanPlanMoments)
         );
     }
 }
@@ -20454,7 +20583,23 @@ ${JSON.stringify({
         passos_en_ordre: plan.items.map(i => `${i.step}. ${i.kind}: ${i.title}`)
     }, null, 2)}
 Explica que els passos van del més senzill al més exigent i que convé seguir-los en ordre.
-Sense llistes, sense markdown, sense emojis. To motivador però concret.`;
+Sense llistes, sense markdown, sense emojis. To motivador però concret.${coachStyleRulesBlock()}`;
+}
+
+// Opcions d'auditoria del resum del pla diari: només les xifres del pla
+// (domini del tema, repassos, ratxa i numeració dels passos).
+function weeklyPlanAuditOptions(plan) {
+    const xifres = [];
+    if (typeof plan.focusMastery === 'number') xifres.push(plan.focusMastery);
+    if (typeof plan.srsAtStart === 'number') xifres.push(plan.srsAtStart);
+    xifres.push(plan.streakAtStart || 0);
+    (plan.items || []).forEach(i => { if (typeof i.step === 'number') xifres.push(i.step); });
+    xifres.push((plan.items || []).length);
+    return {
+        xifresPermeses: xifres,
+        percentatges: typeof plan.focusMastery === 'number' ? [plan.focusMastery] : [],
+        maxParaules: 70
+    };
 }
 
 function ensureWeeklyPlan() {
@@ -20663,7 +20808,7 @@ function renderWeeklyPlan() {
             writeJsonStorage(WEEKLY_PLAN_KEY, weeklyPlan);
             setPlanSummaryText(text);
             updatePlanSummaryToggle();
-        }).finally(() => { coachPlanOpenAIPending = false; });
+        }, 1800, weeklyPlanAuditOptions(weeklyPlan)).finally(() => { coachPlanOpenAIPending = false; });
     }
 }
 
