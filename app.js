@@ -1161,14 +1161,14 @@ function buildErrorNotesExportText(entry) {
     const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
     if (!errors.length) return '';
     // No repetim aquí les jugades que ja s'expliquen senceres a "Moments clau"
-    // (mateixa jugada i mateixa anàlisi): cada error apareix una sola vegada.
-    let momentMoves = new Set();
-    try { momentMoves = new Set(buildHumanPlanMoments(entry).map(m => Number(m.moveNumber))); } catch (e) {}
+    // (mateixa posició de decisió i mateixa jugada): cada error apareix un sol cop.
+    let momentKeys = new Set();
+    try { momentKeys = new Set(selectHumanPlanReviews(entry).map(m => reviewErrorKey(m))); } catch (e) {}
     const notes = entry.errorNotes || {};
     const blocks = [];
     errors.forEach(err => {
         const d = describeSevereError(err);
-        if (momentMoves.has(Number(d.moveNumber))) return;
+        if (momentKeys.has(reviewErrorKey(err))) return;
         const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
         const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
         const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
@@ -5860,12 +5860,19 @@ async function deepenEntryAnalysis(entry, opts = {}) {
     if (deepReviewInProgress || waitingForBlunderAnalysis) return 0;
     deepReviewInProgress = true;
     const depth = opts.depth || 16;
+    // Temps màxim de tota la reanàlisi: en un dispositiu lent (o amb el motor
+    // tocat) val més tancar amb el que ja s'ha aprofundit que girar minuts.
+    const startedAt = Date.now();
+    const deadlineMs = opts.deadlineMs || 120000;
     // L'avaluació torna en perspectiva del bàndol que mou; el mat es codifica ±10000.
     const cpOf = b => !b ? null : (b.evalType === 'mate' ? (b.eval > 0 ? 10000 : -10000) : b.eval);
     let updated = 0;
     try {
         const targets = entry.moveReviews
             .filter(r => r && r.fen && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
+            // No es gasta motor en FEN inservibles (dades corruptes antigues):
+            // una posició que chess.js no pot carregar pot deixar el worker penjat.
+            .filter(r => { try { return new Chess(r.fen).moves().length > 0; } catch (e) { return false; } })
             .slice(0, opts.max || 8);
         for (let ti = 0; ti < targets.length; ti++) {
             const r = targets[ti];
@@ -5875,6 +5882,7 @@ async function deepenEntryAnalysis(entry, opts = {}) {
                 try { opts.onProgress(ti, targets.length); } catch (e) {}
             }
             if (opts.shouldAbort && opts.shouldAbort()) break;
+            if (Date.now() - startedAt > deadlineMs) break; // conserva el que ja s'ha aprofundit
             // ABANS de la jugada: millor jugada, línia i avaluació (perspectiva del jugador).
             const before = await analyzeFenRobust(r.fen, depth, 3, 6000, opts.shouldAbort);
             if (!before || !before.bestMove || !before.bestMove.move) continue;
@@ -7976,12 +7984,66 @@ function getEntrySevereErrors(entry) {
     return [];
 }
 
+// Clau d'una errada o d'un moment clau (posició de decisió + jugada feta),
+// compartida amb core.js, per no repetir la mateixa errada a "Moments clau"
+// i a "Errades comentades".
+function reviewErrorKey(err) {
+    return ElTaulerCore.reviewErrorKey(err);
+}
+
+// Nombre real de jugades (numeració completa) d'una partida de l'historial,
+// per rebutjar errades amb un número de jugada impossible.
+function entryMaxMoveNumber(entry) {
+    let plies = 0;
+    try { plies = getHistoryMoves(entry).length; } catch (e) { plies = 0; }
+    if (plies) return Math.ceil(plies / 2);
+    // Entrades antigues sense llista de jugades: el sostre és el darrer review.
+    let max = 0;
+    if (entry && Array.isArray(entry.moveReviews)) {
+        entry.moveReviews.forEach(r => { if (r && Number(r.moveNumber) > max) max = Number(r.moveNumber); });
+    }
+    return max || null;
+}
+
+// Opcions de validació calculades UNA vegada per entrada (getHistoryMoves pot
+// haver de reparsejar el PGN), per passar-les a totes les errades d'un bucle.
+function reviewErrorValidationOpts(entry) {
+    return {
+        maxMoveNumber: entryMaxMoveNumber(entry),
+        // Legalitat sobre la FEN de decisió: resolveMoveOnFen ja tolera el torn
+        // invertit (equivalent a normalitzar amb normalizeFenTurn).
+        applyMove: (fen, move) => !!resolveMoveOnFen(fen, move)
+    };
+}
+
+// Validació forta abans de mostrar una errada: FEN present i interpretable,
+// número de jugada dins de la partida real, jugada feta i millor jugada legals
+// sobre la FEN i diferents entre elles. La lògica viu a core.js; aquí hi
+// injectem chess.js i les dades reals de la partida.
+function isRenderableReviewError(entry, err, opts) {
+    if (!err) return false;
+    const o = opts || reviewErrorValidationOpts(entry);
+    const color = (entry && entry.playerColor === 'b') ? 'b' : 'w';
+    const fen = err.fen ? normalizeFenTurn(err.fen, color) : null;
+    // Errades antigues sense moveNumber: es deriva del comptador de la FEN
+    // (mateix criteri que describeSevereError) en lloc de descartar-les.
+    let moveNumber = err.moveNumber;
+    if (!moveNumber && fen) {
+        const n = parseInt(String(fen).split(' ')[5], 10);
+        if (isFinite(n) && n > 0) moveNumber = n;
+    }
+    return ElTaulerCore.isRenderableReviewError(Object.assign({}, err, { fen, moveNumber }), o);
+}
+
 // Errades per comentar a la revisió, garantint un mínim (per defecte 3) si la
 // partida en té prou: primer les greus i, si calen més, les pitjors imprecisions
-// o errors dels moveReviews. Mai no inventa errades que no s'hagin produït.
+// o errors dels moveReviews. Mai no inventa errades que no s'hagin produït, i
+// cap errada incoherent (FEN o jugades invàlides) no arriba a la ressenya.
 function getEntryReviewErrors(entry, minCount = 3, maxCount = 5) {
     if (!entry) return [];
-    const result = (getEntrySevereErrors(entry) || []).slice();
+    const validationOpts = reviewErrorValidationOpts(entry);
+    const result = (getEntrySevereErrors(entry) || [])
+        .filter(e => isRenderableReviewError(entry, e, validationOpts));
     const seen = new Set(result.map(e => e.fen).filter(Boolean));
     if (result.length < minCount && Array.isArray(entry.moveReviews)) {
         const extra = entry.moveReviews
@@ -8001,18 +8063,15 @@ function getEntryReviewErrors(entry, minCount = 3, maxCount = 5) {
                 alternatives: r.alternatives || [],
                 quality: r.quality || 'inaccuracy',
                 severity: r.quality === 'blunder' ? 'high' : 'med'
-            }));
+            }))
+            .filter(e => isRenderableReviewError(entry, e, validationOpts));
         for (const e of extra) {
             if (result.length >= minCount) break;
             result.push(e);
             seen.add(e.fen);
         }
     }
-    // Defensa: si la jugada feta coincideix amb la millor, no és un error real
-    // (swing fantasma en posicions guanyades); no la comentem.
-    const filtered = result.filter(e => !(e.playerMove && e.bestMove && e.playerMove === e.bestMove)
-                                     && !(e.playerMoveSan && e.bestMoveSan && e.playerMoveSan === e.bestMoveSan));
-    return filtered.slice(0, Math.max(minCount, maxCount));
+    return result.slice(0, Math.max(minCount, maxCount));
 }
 
 /* ===================== ERRADES COMENTADES (OpenAI) =====================
@@ -8146,31 +8205,31 @@ function buildLocalErrorNote(err, entry, opts = {}) {
     const structured = buildStructuredLocalExplanation(moment, plan, opts);
     const show = coachSectionsFor(moment.quality);
     const parts = [];
-    if (show.fact && structured.fact) parts.push(`Posició: ${structured.fact}`);
-    if (show.mistake && structured.mistake) parts.push(`Què va fallar: ${structured.mistake}`);
-    if (show.consequence && structured.consequence) parts.push(`Conseqüència: ${structured.consequence}`);
-    if (show.refutation && structured.refutation) parts.push(structured.refutation);
-    if (show.plan && structured.plan) parts.push(`Pla millor: ${structured.plan}`);
-    if (show.continuation && structured.continuation) parts.push(`Moviments següents: ${structured.continuation}`);
-    if (show.candidates && moment.candidates) parts.push(moment.candidates);
-    if (show.question && structured.question) parts.push(`Pregunta clau: ${structured.question}`);
+    // Cada camp només s'afegeix si és una frase completa: una línia tallada
+    // ("en lloc de…") no es mostra. Millor menys text que text trencat.
+    const addPart = (visible, value, label) => {
+        const v = String(value || '').trim();
+        if (!visible || !v || isIncompleteCoachText(v)) return;
+        parts.push(label ? `${label}: ${v}` : v);
+    };
+    addPart(show.fact, structured.fact, 'Posició');
+    addPart(show.mistake, structured.mistake, 'Què va fallar');
+    addPart(show.consequence, structured.consequence, 'Conseqüència');
+    addPart(show.refutation, structured.refutation);
+    addPart(show.plan, structured.plan, 'Pla millor');
+    addPart(show.continuation, structured.continuation, 'Moviments següents');
+    addPart(show.candidates, moment.candidates);
+    addPart(show.question, structured.question, 'Pregunta clau');
     // A l'exportació (full) posem cada camp en una línia; a pantalla, en línia seguida.
-    const text = parts.filter(Boolean).join(opts.full ? '\n' : ' ').trim();
-    return text || `En lloc de ${d.played}, la jugada precisa era ${d.best}.`;
+    const text = parts.join(opts.full ? '\n' : ' ').trim();
+    return text || SAFE_COACH_FALLBACK;
 }
 
 // =================== NOMENCLATURA DESCRIPTIVA + ENLLAÇOS ===================
-// Descriu un moviment amb llenguatge planer (nom de la peça, ala dreta/esquerra,
-// columna del peó) en comptes de notació algebraica, perquè sigui llegible per a
-// algú sense coneixements de nomenclatura. Retorna també la SAN i les caselles
-// origen/destí per poder visualitzar la jugada al tauler.
-function flankWordFor(color, fromSquare) {
-    const fileIdx = (fromSquare || 'a1').charCodeAt(0) - 97; // a=0 ... h=7
-    const leftForWhite = fileIdx <= 3;
-    const isLeft = color === 'w' ? leftForWhite : !leftForWhite;
-    return isLeft ? 'esquerra' : 'dreta';
-}
-
+// Descriu un moviment amb llenguatge planer (nom de la peça, casella d'origen
+// si cal desambiguar, columna del peó) en comptes de notació algebraica, perquè
+// sigui llegible per a algú sense coneixements de nomenclatura. Retorna també la
+// SAN i les caselles origen/destí per poder visualitzar la jugada al tauler.
 function pieceArticle(name) {
     const n = String(name || '').trim();
     if (!n) return 'la peça';
@@ -8202,15 +8261,14 @@ function describeMoveHuman(fen, move) {
             if (mv.promotion) text += ` i corona ${promoNames[mv.promotion] || 'dama'}`;
         } else {
             let name = names[mv.piece] || 'peça';
-            // Desambiguació dreta/esquerra només si hi ha dues peces iguals del mateix color.
-            if (mv.piece === 'n' || mv.piece === 'b' || mv.piece === 'r') {
+            // Desambiguació per casella d'origen ("l'alfil de f8 va a e7") només
+            // quan hi ha dues peces iguals del mateix color: és verificable al
+            // tauler, cosa que "de la dreta/esquerra" no garantia.
+            if (mv.piece === 'n' || mv.piece === 'b' || mv.piece === 'r' || mv.piece === 'q') {
                 const field = fen.split(' ')[0];
                 const letter = mv.color === 'w' ? mv.piece.toUpperCase() : mv.piece.toLowerCase();
                 const count = (field.match(new RegExp(letter, 'g')) || []).length;
-                if (count > 1) {
-                    const flank = flankWordFor(mv.color, mv.from);
-                    name += flank === 'esquerra' ? " de l'esquerra" : ' de la dreta';
-                }
+                if (count > 1) name += ` de ${mv.from}`;
             }
             const verb = mv.captured ? 'captura a' : 'va a';
             text = `${pieceArticle(name)} ${verb} ${mv.to}`;
@@ -8344,10 +8402,34 @@ function practiceOpeningFromHistory(idx, color) {
     } catch (e) { console.warn('practiceOpeningFromHistory', e); }
 }
 
+// Tema dominant de les errades de la partida, reduït a les sis famílies de
+// "La lliçó d'avui" (material, atac al rei, profilaxi, obertura, final,
+// general). Surt de la classificació local dels moveReviews, mai d'IA lliure.
+function dominantLessonTheme(entry) {
+    const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
+    const counts = {};
+    reviews.forEach(r => {
+        if (!r || !['inaccuracy', 'mistake', 'blunder'].includes(r.quality)) return;
+        let key = 'general';
+        try { key = detectPlanSubtheme(r) || 'general'; } catch (e) { key = 'general'; }
+        counts[key] = (counts[key] || 0) + 1;
+    });
+    let top = null, topN = 0;
+    Object.keys(counts).forEach(k => { if (counts[k] > topN) { top = k; topN = counts[k]; } });
+    if (!top) return 'general';
+    if (/material|fork|pin|skewer|hanging|tactic/.test(top)) return 'material';
+    if (/king|attack|mate/.test(top)) return 'king_attack';
+    if (/defens|prophyla|quiet/.test(top)) return 'prophylaxis';
+    if (/opening|develop/.test(top)) return 'opening';
+    if (/endgame|final|passed/.test(top)) return 'endgame';
+    return 'general';
+}
+
 // =================== RESSENYA LOCAL EN HTML (sense OpenAI) ===================
-// Construeix la ressenya rica de l'historial: debrief, obertura amb enllaç a la
-// pràctica i % de correcció, % i temes del mig joc, % i consell del final, i els
-// moments clau amb jugades descriptives clicables.
+// Construeix la ressenya rica de l'historial: debrief, color del jugador, lliçó
+// del dia, obertura amb enllaç a la pràctica i correcció per fases (amb nombre
+// de jugades), moments clau amb jugades descriptives clicables i pla de 10
+// minuts per repassar les jugades més importants.
 function renderLocalReviewHtml(entry, opts = {}) {
     if (!entry) return '';
     const blocks = [];
@@ -8369,8 +8451,19 @@ function renderLocalReviewHtml(entry, opts = {}) {
             const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey));
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
+
+        // --- Color del jugador: que quedi clar quines decisions es comenten ---
+        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor))}</p>`);
+
+        // --- La lliçó d'avui: una consigna curta segons el patró dominant,
+        // derivada de dades locals (mai d'IA lliure) ---
+        const lesson = ElTaulerCore.lessonOfTheDay(dominantLessonTheme(entry));
+        if (lesson) blocks.push(`<p><strong>La lliçó d'avui:</strong> ${escapeHtml(lesson)}</p>`);
+
         const phases = buildPhaseStats(entry);
         const pct = v => (typeof v === 'number' ? `${v}%` : '—');
+        // Línia de fase amb el nombre de jugades i avís de poques dades.
+        const phaseLine = p => ElTaulerCore.formatPhaseLine(p.precision, p.total);
 
         // --- Obertura (centrada en LA TEVA obertura, sigui quina sigui) ---
         const sanMoves = getHistoryMoves(entry);
@@ -8410,7 +8503,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
             practiceIdx = userOp.index; practiceName = userOp.name; practiceEco = userOp.eco;
         } else if (userOp) {
             // Vas jugar la teva obertura (el rival hi va entrar, o la vas variar tu).
-            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
+            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · ${escapeHtml(phaseLine(phases.opening) || `correcció ${pct(phases.opening.precision)}.`)}`;
             if (!stayedInUserOpening && userOp.firstDevPly >= 0 && userOp.firstDevBy === (entry.playerColor || 'w')) {
                 const dn = Math.floor(userOp.firstDevPly / 2) + 1;
                 txt += ` Vas sortir de la teva línia a la jugada ${dn}`;
@@ -8421,7 +8514,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         } else if (realizedName) {
             // No hem pogut identificar cap obertura teva del repertori: mostrem
             // l'obertura realitzada (per posició/ECO) amb la desviació de la teoria.
-            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''} · correcció ${pct(phases.opening.precision)}.`;
+            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''} · ${escapeHtml(phaseLine(phases.opening) || `correcció ${pct(phases.opening.precision)}.`)}`;
             if (!curated && oa && oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
                 openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
@@ -8456,7 +8549,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
 
         // --- Mig joc ---
         if (phases.middlegame.total > 0) {
-            let midTxt = `<strong>Mig joc:</strong> correcció ${pct(phases.middlegame.precision)}.`;
+            let midTxt = `<strong>Mig joc:</strong> ${escapeHtml(phaseLine(phases.middlegame))}`;
             if (phases.middlegame.themes.length) {
                 midTxt += ` Errors més habituals: ${phases.middlegame.themes.map(escapeHtml).join(', ')}.`;
             } else {
@@ -8465,9 +8558,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
             blocks.push(`<p>${midTxt}</p>`);
         }
 
-        // --- Final ---
-        if (phases.endgame.total > 0) {
-            let endTxt = `<strong>Final:</strong> correcció ${pct(phases.endgame.precision)}.`;
+        // --- Final (amb menys de 2 jugades no diu res fiable i s'omet) ---
+        if (phases.endgame.total >= 2) {
+            let endTxt = `<strong>Final:</strong> ${escapeHtml(phaseLine(phases.endgame))}`;
             const advice = buildPhaseAdvice(phases.endgame.themes, 'endgame');
             if (advice) endTxt += ` ${escapeHtml(advice)}`;
             blocks.push(`<p>${endTxt}</p>`);
@@ -8499,19 +8592,34 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const header = badge
                     ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): ${tail}`
                     : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
+                // Cada línia només s'afegeix si és una frase completa: res de
+                // camps tallats amb "…" ni acabats en connector.
+                const coachLine = (visible, value, label) => {
+                    const v = String(value || '').trim();
+                    if (!visible || !v || isIncompleteCoachText(v)) return '';
+                    return label
+                        ? `<span><strong>${label}:</strong> ${escapeHtml(v)}</span>`
+                        : `<span>${escapeHtml(v)}</span>`;
+                };
                 const lines = [
                     header,
-                    show.fact ? (m.structured?.fact ? `<span><strong>Posició:</strong> ${escapeHtml(m.structured.fact)}</span>` : (m.positional ? `<span><strong>Posició:</strong> ${escapeHtml(m.positional)}</span>` : '')) : '',
-                    show.mistake ? (m.structured?.mistake ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.structured.mistake)}</span>` : (m.diagnosis ? `<span><strong>Què va fallar:</strong> ${escapeHtml(m.diagnosis)}</span>` : '')) : '',
-                    show.consequence && m.structured?.consequence ? `<span><strong>Conseqüència:</strong> ${escapeHtml(m.structured.consequence)}</span>` : '',
-                    show.refutation && m.structured?.refutation ? `<span>${escapeHtml(m.structured.refutation)}</span>` : '',
-                    show.plan ? (m.structured?.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.structured.plan)}</span>` : (m.plan ? `<span><strong>Pla millor:</strong> ${escapeHtml(m.plan)}</span>` : '')) : '',
-                    show.continuation && m.structured?.continuation ? `<span><strong>Moviments següents:</strong> ${escapeHtml(m.structured.continuation)}</span>` : ''
+                    coachLine(show.fact, m.structured?.fact || m.positional, 'Posició'),
+                    coachLine(show.mistake, m.structured?.mistake || m.diagnosis, 'Què va fallar'),
+                    coachLine(show.consequence, m.structured?.consequence, 'Conseqüència'),
+                    coachLine(show.refutation, m.structured?.refutation),
+                    coachLine(show.plan, m.structured?.plan || m.plan, 'Pla millor'),
+                    coachLine(show.continuation, m.structured?.continuation, 'Moviments següents')
                 ].filter(Boolean);
+                // Si tot ha quedat filtrat, un mínim segur en lloc de res.
+                if (lines.length === 1) lines.push(`<span>${escapeHtml(SAFE_COACH_FALLBACK)}</span>`);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
             blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
+
+        // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
+        const planText = ElTaulerCore.buildTenMinutePlan(moments.map(m => Number(m.moveNumber)));
+        blocks.push(`<p><strong>Pla de 10 minuts:</strong> ${escapeHtml(planText.replace(/^Pla de 10 minuts:\s*/, ''))}</p>`);
 
         // --- Llista completa de jugades (per copiar i verificar la detecció) ---
         // Posem totes les jugades en ordre, en notació numerada estil PGN, en un
@@ -8595,8 +8703,13 @@ function updateHistoryErrorNotes(entry) {
     const block = $('#history-error-notes-block');
     if (!container.length) return;
     // Comentem un mínim de 3 errades (si la partida en té), completant amb les
-    // pitjors imprecisions quan no hi ha prou errades greus.
-    const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
+    // pitjors imprecisions quan no hi ha prou errades greus. Les jugades que ja
+    // s'expliquen a "Moments clau" no es repeteixen aquí: si no en queda cap,
+    // el bloc sencer s'amaga.
+    const allErrors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
+    let momentKeys = new Set();
+    try { momentKeys = new Set(selectHumanPlanReviews(entry).map(m => reviewErrorKey(m))); } catch (e) {}
+    const errors = allErrors.filter(err => !momentKeys.has(reviewErrorKey(err)));
     if (!errors.length) {
         if (block.length) block.hide();
         container.empty();
@@ -8608,13 +8721,13 @@ function updateHistoryErrorNotes(entry) {
     errors.forEach((err, idx) => {
         const d = describeSevereError(err);
         const note = notes[getErrorNoteKey(err)] || null;
-        // Nomenclatura descriptiva (nom de peça, ala dreta/esquerra, columna del peó)
-        // perquè sigui llegible sense conèixer la notació.
+        // Nomenclatura descriptiva (nom de peça, casella d'origen si cal,
+        // columna del peó) perquè sigui llegible sense conèixer la notació.
         const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
         const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
         let body;
         if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
-        else if (note && note.status === 'pending') body = '<em>Generant l’explicació...</em>';
+        else if (note && note.status === 'pending') body = '<em>S’està generant l’explicació.</em>';
         // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
         // de Stockfish, perquè cada errada sempre tingui una explicació útil.
         else body = escapeHtml(buildLocalErrorNote(err, entry));
@@ -11720,15 +11833,28 @@ function ensureCoachTextQuality(text, fallback = '', opts = {}) {
     return validateCoachText(polishedFallback).score >= quality.score ? polishedFallback : polished;
 }
 
+// Escurça SENSE deixar mai una frase a mitges amb "…": talla per frases
+// senceres (redactor.js). Millor una frase completa de menys que text trencat.
 function shortenCoachComment(text, maxWords = 18) {
     const raw = String(text || '').trim();
     if (!raw) return '';
-    const words = raw.split(/\s+/);
-    if (words.length <= maxWords) return raw;
-    let cut = words.slice(0, maxWords).join(' ');
-    cut = cut.replace(/[,:;–—-]?\s*$/, '').replace(/[.!?…]+$/, '');
-    return cut + '…';
+    const redactor = getRedactor();
+    if (redactor && redactor.escurcaFrasesSenceres) return redactor.escurcaFrasesSenceres(raw, maxWords);
+    return raw;
 }
+
+// Una línia de l'entrenador només es mostra si és una frase completa: res de
+// punts suspensius finals ni connectors penjats ("i el", "en lloc de"...).
+function isIncompleteCoachText(text) {
+    const t = String(text || '').trim();
+    if (!t) return false;
+    const redactor = getRedactor();
+    if (redactor && redactor.esTextIncomplet) return redactor.esTextIncomplet(t);
+    return /(\.\.\.|…)$/.test(t);
+}
+
+// Fallback curt i segur quan una explicació queda buida o trencada.
+const SAFE_COACH_FALLBACK = 'La jugada afluixava la posició. Revisa la millor jugada al tauler i compara què queda defensat.';
 
 function compactStructuredCoachText(text, fallback = '', opts = {}) {
     return shortenCoachComment(ensureCoachTextQuality(text, fallback, opts), opts.maxWords || 18);
@@ -14454,6 +14580,45 @@ function setupEvents() {
         } else {
             updateHistoryReview(entry);
             showToast('Ressenya regenerada ✓', 'success');
+        }
+    });
+    // Reanàlisi profunda sota demanda (mai automàtica: pot trigar uns segons).
+    // Passa el motor per les posicions clau a més profunditat, actualitza les
+    // etiquetes i línies dels moments clau i refresca la ressenya en acabar.
+    $('#history-deepen-review').off('click').on('click', async function() {
+        if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
+        const entry = historyReplay.entry;
+        if (!Array.isArray(entry.moveReviews) || !entry.moveReviews.length) {
+            showToast('Aquesta partida no té anàlisi de jugades per aprofundir.', 'info');
+            return;
+        }
+        if (deepReviewInProgress || waitingForBlunderAnalysis) {
+            showToast('Hi ha una anàlisi en curs; torna-ho a provar d\'aquí a un moment.', 'info');
+            return;
+        }
+        const btn = $(this);
+        const originalHtml = btn.html();
+        btn.prop('disabled', true).text('Recalculant…');
+        let updated = 0;
+        try {
+            updated = await deepenEntryAnalysis(entry, {
+                force: true,
+                onProgress: (done, total) => {
+                    if (total > 0) btn.text(`Recalculant ${Math.min(done + 1, total)}/${total}…`);
+                }
+            });
+        } catch (e) {
+            console.warn('[DeepReview] recalcular moments clau', e);
+        }
+        btn.prop('disabled', false).html(originalHtml);
+        if (updated > 0) {
+            // Refresca ressenya, desglossament i errades comentades amb les dades noves.
+            if (historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id) {
+                updateHistoryDetails(entry);
+            }
+            showToast(`Moments clau recalculats (${updated} posicions) ✓`, 'success');
+        } else {
+            showToast('Ara mateix no puc recalcular (motor ocupat o sense resposta). La ressenya actual es conserva.', 'warn');
         }
     });
     $('#history-download-review').off('click').on('click', () => {
@@ -19093,12 +19258,13 @@ COACH_DEBRIEF_TEMPLATES.win_high.push(
     "Victòria sòlida i neta ({prec}%): el cap ha manat per damunt de l’impuls."
 );
 COACH_DEBRIEF_TEMPLATES.win_low.push(
-    "Tres punts són tres punts, però amb {prec}% hi ha marge per jugar més fi.",
+    "Victòria és victòria, però la precisió ({prec}%) mostra feina pendent.",
+    "El punt és teu, però la partida encara deixa una lliçó clara ({prec}%).",
     "Has guanyat la batalla; ara guanya també la precisió ({prec}%).",
     "Victòria amb ensurts ({prec}%): repassa els moments en què t’has complicat."
 );
 COACH_DEBRIEF_TEMPLATES.draw.push(
-    "Repartiment de punts. Mirem on podies haver inclinat la balança.",
+    "Taules, però la revisió mostra on podies pressionar més.",
     "Taules honestes. Hi ha detalls per polir que la pròxima vegada donaran mig punt més.",
     "Empat: ni drama ni festa, però sí material per aprendre."
 );
@@ -19108,6 +19274,7 @@ COACH_DEBRIEF_TEMPLATES.loss_high.push(
     "Avui no ha entrat, però amb {prec}% de precisió els resultats arribaran."
 );
 COACH_DEBRIEF_TEMPLATES.loss_low.push(
+    "Derrota clara, però també patró clar: això es pot entrenar ({prec}%).",
     "Derrota amb avisos ({prec}%): la bona notícia és que són errades molt corregibles.",
     "No ha sortit bé ({prec}%), però cada errada d’avui és una lliçó per demà.",
     "Dia complicat al tauler ({prec}%). Respira, revisa i torna-hi."
@@ -20035,18 +20202,25 @@ function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     };
 }
 
-function buildHumanPlanMoments(entry, insights = null, opts = {}) {
+// Selecció dels moments clau (els 2-3 pitjors errors mostrables), SENSE
+// construir-ne els textos: la fan servir buildHumanPlanMoments i el filtre
+// que evita repetir aquestes jugades a "Errades comentades".
+function selectHumanPlanReviews(entry) {
     const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
     const priority = { blunder: 4, mistake: 3, inaccuracy: 2, good: 1, excel: 0 };
-    const ins = insights || buildPlayerInsights(entry && entry.id);
+    const validationOpts = reviewErrorValidationOpts(entry);
     return reviews
         .filter(r => r && ['inaccuracy', 'mistake', 'blunder'].includes(r.quality))
-        // Defensa per a partides ja desades: si la jugada feta coincideix amb la
-        // millor, no és cap error (swing fantasma) i no s'ha de mostrar com a moment.
-        .filter(r => !(r.playerMove && r.bestMove && r.playerMove === r.bestMove)
-                  && !(r.playerMoveSan && r.bestMoveSan && r.playerMoveSan === r.bestMoveSan))
+        // Validació forta: cap moment amb FEN o jugades invàlides, número de
+        // jugada impossible o jugada feta igual a la millor (swing fantasma).
+        .filter(r => isRenderableReviewError(entry, r, validationOpts))
         .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
-        .slice(0, 3)
+        .slice(0, 3);
+}
+
+function buildHumanPlanMoments(entry, insights = null, opts = {}) {
+    const ins = insights || buildPlayerInsights(entry && entry.id);
+    return selectHumanPlanReviews(entry)
         .map(r => {
             const ctx = buildPlanContext(r);
             const themeKey = detectPlanSubtheme(r, ctx);

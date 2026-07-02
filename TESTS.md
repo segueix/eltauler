@@ -42,6 +42,13 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   terminologia, concordances), auditoria de fiabilitat (xifres inventades,
   percentatges sense %, notació SAN, residus de JSON) i redacció local del
   diagnòstic (fidelitat a les dades, determinisme, concordança).
+- **`review.test.js`** — qualitat de la ressenya postpartida: validació forta
+  de les errades abans de mostrar-les (FEN present, número de jugada dins de
+  la partida, jugades legals, jugada feta diferent de la millor), clau de
+  deduplicació entre «Moments clau» i «Errades comentades», línia de color del
+  jugador, línies de fase amb nombre de jugades i avís de poques dades, lliçó
+  del dia i pla de 10 minuts, detecció de text inacabat (punts suspensius i
+  connectors penjats) i escurçament per frases senceres sense «…».
 
 ## Integració contínua
 

@@ -247,6 +247,60 @@
     // el text ha d'anomenar les jugades de manera descriptiva.
     const RE_SAN = /\b[KQRBNTACD][a-h]?[1-8]?x[a-h][1-8][+#]?\b|\b[KQRBN][a-h][1-8][+#]?\b|\bO-O(?:-O)?\b|=[QRBNTACD]\b/;
 
+    // Text inacabat: frases tallades que no s'han de mostrar mai a l'alumne.
+    // Es detecten els punts suspensius finals ("en lloc de…", "i la dama...")
+    // i els finals en connector o determinant ("i el", "la columna", "amb"),
+    // que delaten un tall a mitja frase.
+    const RE_PUNTS_SUSPENSIUS_FINAL = /(\.\.\.|…)["'”’)\]]*$/;
+    const CONNECTORS_FINALS = [
+        // Conjuncions i preposicions que mai tanquen una frase.
+        /(^|\s)(i|o|ni|però|perquè|que|com|amb|per|de|del|dels|a|al|als|en|sense|entre|contra|sobre|sota|davant|darrere|cap a|fins a|des de)$/i,
+        // Determinants i articles penjats ("i la", "el seu", "aquesta").
+        /(^|\s)(el|la|els|les|un|una|uns|unes|aquest|aquesta|aquests|aquestes|seu|seva|seus|seves|cada|cap)$/i,
+        /l['’]$/i,
+        // Locucions típiques dels talls de l'entrenador.
+        /\ben lloc de$/i,
+        /\bla columna$/i,
+        /\bla fila$/i,
+        /\bla diagonal$/i
+    ];
+    function esTextIncomplet(text) {
+        const brut = String(text == null ? '' : text).trim();
+        if (!brut) return false;
+        if (RE_PUNTS_SUSPENSIUS_FINAL.test(brut)) return true;
+        // Un final en coma, dos punts o guionet deixa la frase penjada.
+        if (/[,;:–—-]$/.test(brut)) return true;
+        // Amb puntuació final la frase és completa ("obre la columna." és
+        // vàlid); els connectors només delaten un tall quan no n'hi ha.
+        if (/[.!?]["'”’)\]]*$/.test(brut)) return false;
+        const senseCometes = brut.replace(/["'”’)\]]+$/, '').trim();
+        return CONNECTORS_FINALS.some(re => re.test(senseCometes));
+    }
+
+    // Escurça un text SENSE deixar mai una frase a mitges: talla per frases
+    // senceres fins al límit de paraules. Si ni la primera frase hi cap, la
+    // retorna sencera quan és raonable (fins al doble del límit) o res si és
+    // desmesurada: millor menys text que text trencat amb "…".
+    function escurcaFrasesSenceres(text, maxParaules) {
+        const brut = String(text == null ? '' : text).trim();
+        if (!brut) return '';
+        const max = Number(maxParaules) > 0 ? Number(maxParaules) : 18;
+        if (brut.split(/\s+/).length <= max) return brut;
+        const frases = brut.match(/[^.!?]+[.!?]+["'”’)\]]*\s*/g) || [brut];
+        let sortida = '';
+        let paraules = 0;
+        for (let i = 0; i < frases.length; i++) {
+            const f = frases[i].trim();
+            const n = f.split(/\s+/).length;
+            if (paraules + n > max) break;
+            sortida += (sortida ? ' ' : '') + f;
+            paraules += n;
+        }
+        if (sortida) return sortida;
+        const primera = frases[0].trim();
+        return primera.split(/\s+/).length <= max * 2 ? primera : '';
+    }
+
     function auditarCatala(text, opcions) {
         const opts = opcions || {};
         const brut = String(text == null ? '' : text).trim();
@@ -281,6 +335,13 @@
         // Etiquetes amb majúscula enmig de frase.
         RE_TERME_ENMIG.lastIndex = 0;
         if (RE_TERME_ENMIG.test(brut)) afegeix('majuscula_enmig');
+
+        // Text inacabat: cap línia pot quedar tallada amb punts suspensius ni
+        // acabar en un connector penjat ("i el", "en lloc de", "la columna").
+        brut.split('\n').forEach(linia => {
+            const l = linia.trim();
+            if (l && esTextIncomplet(l)) afegeix('text_inacabat', l.slice(-30));
+        });
 
         // Xifres: cada número del text ha de sortir de les dades permeses.
         const numeros = [];
@@ -556,6 +617,8 @@
         corregirCatala,
         forcarPercentatges,
         auditarCatala,
+        esTextIncomplet,
+        escurcaFrasesSenceres,
         esmenarTextEntrenador,
         redactarDiagnostic,
         fetsEnCatala,
