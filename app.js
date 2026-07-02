@@ -1527,7 +1527,13 @@ function resizeBoardToViewport() {
     boardEl.style.width = size + 'px';
     boardEl.style.height = size + 'px';
 
-    if (board && typeof board.resize === 'function') board.resize();
+    if (board && typeof board.resize === 'function') {
+        board.resize();
+        // resize() reconstrueix les caselles i esborra els ressaltats: reapliquem
+        // la marca de l'última jugada perquè no desaparegui (sobretot al primer
+        // moviment, mentre el layout encara s'estabilitza en carregar).
+        reapplyEngineMoveHighlight();
+    }
 }
 
 function resizeTvBoardToViewport() {
@@ -1592,16 +1598,34 @@ function clearTvTapSelection() {
     applyEpaperMode(loadEpaperPreference(), { skipSave: true });
 }
 
+// Font única de la marca de l'última jugada al tauler principal. La desem perqu
+// sobrevisqui a un board.resize() (que reconstrueix les caselles i esborra les
+// classes): sense això, un resize just després del primer moviment del motor
+// —típic mentre el layout s'estabilitza en carregar— deixava el requadre buit o
+// desincronitzat respecte de la jugada.
+let currentEngineMoveHighlight = null;
+
 function clearEngineMoveHighlights() {
+    currentEngineMoveHighlight = null;
     $('#myBoard .square-55d63').removeClass('engine-move');
 }
 
 function highlightEngineMove(from, to) {
-    clearEngineMoveHighlights();
+    currentEngineMoveHighlight = { from: from || null, to: to || null };
+    $('#myBoard .square-55d63').removeClass('engine-move');
     [from, to].forEach((sq) => {
         if (sq) {
             $(`#myBoard .square-55d63[data-square='${sq}']`).addClass('engine-move');
         }
+    });
+}
+
+// Reaplica la marca desada (després d'un board.resize(), que recrea les caselles).
+function reapplyEngineMoveHighlight() {
+    const h = currentEngineMoveHighlight;
+    if (!h) return;
+    [h.from, h.to].forEach((sq) => {
+        if (sq) $(`#myBoard .square-55d63[data-square='${sq}']`).addClass('engine-move');
     });
 }
 
@@ -21337,7 +21361,9 @@ $(document).ready(() => {
     }
     if (!window.__boardResizeBound) {
         window.__boardResizeBound = true;
-        window.addEventListener('resize', () => { if (board) board.resize(); });
+        window.addEventListener('resize', () => {
+            if (board) { board.resize(); reapplyEngineMoveHighlight(); }
+        });
     }
 
     setInterval(() => {
