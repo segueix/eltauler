@@ -1610,13 +1610,20 @@ function clearEngineMoveHighlights() {
     $('#myBoard .square-55d63').removeClass('engine-move');
 }
 
+function getMainBoardSquare(sq) {
+    if (!sq) return $();
+    // chessboard.js manté una classe lògica square-e4 independentment de
+    // l'orientació. En canvi, el data-square pot quedar assignat segons la
+    // posició visual quan el tauler està orientat amb negres i marcar una
+    // altra columna (p. ex. g2-g3 es veia com d2-d3).
+    return $(`#myBoard .square-${sq}`);
+}
+
 function highlightEngineMove(from, to) {
     currentEngineMoveHighlight = { from: from || null, to: to || null };
     $('#myBoard .square-55d63').removeClass('engine-move');
     [from, to].forEach((sq) => {
-        if (sq) {
-            $(`#myBoard .square-55d63[data-square='${sq}']`).addClass('engine-move');
-        }
+        getMainBoardSquare(sq).addClass('engine-move');
     });
 }
 
@@ -1624,8 +1631,9 @@ function highlightEngineMove(from, to) {
 function reapplyEngineMoveHighlight() {
     const h = currentEngineMoveHighlight;
     if (!h) return;
+    $('#myBoard .square-55d63').removeClass('engine-move');
     [h.from, h.to].forEach((sq) => {
-        if (sq) $(`#myBoard .square-55d63[data-square='${sq}']`).addClass('engine-move');
+        getMainBoardSquare(sq).addClass('engine-move');
     });
 }
 
