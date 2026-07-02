@@ -641,6 +641,120 @@
         return Object.assign({}, s, { step: nextStep, solved, reply, result: solved ? 'solved' : 'correct' });
     }
 
+    // ----------------------------------------------------------------------
+    // Qualitat de la ressenya postpartida (lògica pura; app.js hi delega)
+    // ----------------------------------------------------------------------
+
+    // Norma d'una jugada per comparar-la: sense anotacions (+ # ! ?) i en
+    // minúscula si és UCI, perquè "e2e4" i "E2E4" siguin la mateixa jugada.
+    function normalizeMoveForKey(move) {
+        const raw = String(move == null ? '' : move).trim().replace(/[+#!?]/g, '');
+        return /^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw) ? raw.toLowerCase() : raw;
+    }
+
+    // Clau única d'una errada o d'un moment clau (posició de decisió + jugada
+    // feta), per no repetir la mateixa errada a "Moments clau" i a "Errades
+    // comentades". Amb FEN la clau és fiable; sense FEN cau al número de jugada.
+    function reviewErrorKey(err) {
+        const e = err || {};
+        const fen = String(e.fen || '').split(' ').slice(0, 4).join(' ');
+        const played = normalizeMoveForKey(e.playerMove || e.playedUci || e.playerMoveSan || e.played);
+        if (fen) return fen + '|' + played;
+        return 'n:' + (e.moveNumber == null ? '?' : e.moveNumber) + '|' + played;
+    }
+
+    // Validació forta d'una errada abans de mostrar-la a la ressenya. Una
+    // errada només és mostrable si té posició de decisió (FEN), un número de
+    // jugada dins de la partida real, la jugada feta i la millor jugada són
+    // legals sobre aquella FEN, i no són la mateixa jugada.
+    //
+    // opts.maxMoveNumber: nombre real de jugades (numeració completa) de la
+    //   partida; si és conegut, cap errada pot dir "Jugada 15" en una partida
+    //   de 4 jugades.
+    // opts.applyMove(fen, move) -> booleà: diu si la jugada (UCI o SAN) és
+    //   legal sobre la FEN. app.js hi injecta chess.js (amb tolerància de
+    //   torn via normalizeFenTurn); els tests hi injecten un doble.
+    function isRenderableReviewError(err, opts) {
+        const e = err || {};
+        const o = opts || {};
+        if (!e.fen || String(e.fen).split(' ').length < 2) return false;
+        const n = Number(e.moveNumber);
+        if (!isFinite(n) || n < 1) return false;
+        if (isFinite(o.maxMoveNumber) && o.maxMoveNumber > 0 && n > o.maxMoveNumber) return false;
+        const played = e.playerMove || e.playerMoveSan;
+        const best = e.bestMove || e.bestMoveSan;
+        if (!played || !best) return false;
+        // La jugada feta i la millor no poden ser la mateixa (swing fantasma).
+        if (normalizeMoveForKey(e.playerMove) && normalizeMoveForKey(e.bestMove)
+            && normalizeMoveForKey(e.playerMove) === normalizeMoveForKey(e.bestMove)) return false;
+        if (normalizeMoveForKey(e.playerMoveSan) && normalizeMoveForKey(e.bestMoveSan)
+            && normalizeMoveForKey(e.playerMoveSan) === normalizeMoveForKey(e.bestMoveSan)) return false;
+        if (typeof o.applyMove === 'function') {
+            if (!o.applyMove(e.fen, played)) return false;
+            if (!o.applyMove(e.fen, best)) return false;
+        }
+        return true;
+    }
+
+    function plural(n, singular, pluralForm) {
+        return n === 1 ? singular : pluralForm;
+    }
+
+    // Línia de fase amb el nombre de jugades i, si n'hi ha poques, un avís
+    // perquè el percentatge no es llegeixi com una conclusió forta.
+    // Retorna '' si la fase no té cap jugada.
+    function formatPhaseLine(precision, total) {
+        const t = Number(total) || 0;
+        if (t <= 0) return '';
+        const pct = (typeof precision === 'number' && isFinite(precision)) ? precision + '%' : '—';
+        let line = 'correcció ' + pct + ' en ' + t + ' ' + plural(t, 'jugada', 'jugades') + '.';
+        if (t < 3) line += ' Poques dades; no en traiem conclusions fortes.';
+        return line;
+    }
+
+    // La lliçó del dia: una consigna curta i segura segons el patró dominant
+    // de les errades. Surt de dades locals (el tema ja ve classificat), mai
+    // d'un model de llenguatge.
+    const LESSONS_BY_THEME = {
+        material: 'abans de capturar, compta atacants i defensors.',
+        king_attack: 'no busquis escacs solts; suma peces i calcula la seqüència.',
+        prophylaxis: "abans de moure, pregunta't quina amenaça real té el rival.",
+        opening: 'desenvolupa, disputa el centre i no moguis massa cops la mateixa peça.',
+        endgame: "activa el rei i converteix l'avantatge sense donar contrajoc.",
+        general: 'revisa escacs, captures i amenaces abans de decidir.'
+    };
+    function lessonOfTheDay(themeKey) {
+        return LESSONS_BY_THEME[themeKey] || LESSONS_BY_THEME.general;
+    }
+
+    // Pla de 10 minuts: recomana repassar les 2-3 jugades més importants.
+    // moveNumbers ve ordenat per importància (el primer és el més greu).
+    function buildTenMinutePlan(moveNumbers) {
+        const nums = (moveNumbers || []).map(Number).filter(n => isFinite(n) && n > 0);
+        if (!nums.length) {
+            return "Pla de 10 minuts: rejuga l'obertura i comprova si pots arribar al mig joc amb totes les peces actives.";
+        }
+        if (nums.length === 1) {
+            return 'Pla de 10 minuts: repeteix la posició de la jugada ' + nums[0] +
+                ' fins que trobis la millor jugada sense pista.';
+        }
+        if (nums.length === 2) {
+            return 'Pla de 10 minuts: revisa primer la jugada ' + nums[0] +
+                ' i acaba repetint la posició de la jugada ' + nums[1] +
+                ' fins que trobis la millor jugada sense pista.';
+        }
+        return 'Pla de 10 minuts: revisa primer la jugada ' + nums[0] +
+            ', després la ' + nums[1] +
+            ', i acaba repetint la posició de la jugada ' + nums[2] +
+            ' fins que vegis la millor jugada abans de moure.';
+    }
+
+    // Frase inicial que deixa clar amb quin color jugava l'usuari.
+    function playerColorIntro(playerColor) {
+        const color = playerColor === 'b' ? 'negres' : 'blanques';
+        return 'Has jugat amb ' + color + '. La revisió comenta les teves decisions.';
+    }
+
     return {
         clampElo,
         bestLineEvalScore,
@@ -680,6 +794,12 @@
         analyzeGameOpeningByPositions,
         findCuratedOpeningByPosition,
         matchUserRepertoireOpening,
+        reviewErrorKey,
+        isRenderableReviewError,
+        formatPhaseLine,
+        lessonOfTheDay,
+        buildTenMinutePlan,
+        playerColorIntro,
         START_POSITION_KEY
     };
 });
