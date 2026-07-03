@@ -55,8 +55,10 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   «seqüència forçada» quan el rival tenia altres opcions (es diu «una possible
   variant del motor és...»), que sí que es pot dir «forçada» amb mat demostrat
   (per chess.js o per `score mate` del motor) o amb resposta única legal («la
-  resposta del rival era l’única legal»), i que sense prou dades només es diu
-  «la millor jugada era...». També cobreix els fets del tauler
+  resposta del rival era l’única legal»), que sense prou dades només es diu
+  «la millor jugada era...», i el cas «perduda igualment»: si fins i tot la
+  millor resposta del rival el deixa clarament perdut, la variant no forçada
+  es reforça amb «totes el deixaven igual de perdut». També cobreix els fets del tauler
   (`createPvBoardHelpers`: escac, respostes legals, captura de dama, mat, peça
   penjada), `computePvForcingInfo`/`classifyPvLanguage` i la redacció catalana
   dels moviments (`descriuMovimentFets`: «la dama negra captura el peó a h2 amb

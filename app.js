@@ -5971,6 +5971,7 @@ async function deepenEntryAnalysis(entry, opts = {}) {
                     replyAlternatives: replyAlternatives,
                     evalBefore: bm.eval,
                     evalBeforeType: bm.evalType,
+                    evalAfterBest: (typeof evalAfterBest === 'number') ? evalAfterBest : undefined,
                     board: getPvBoardHelpers()
                 });
             } catch (e) { r.forcingInfo = null; }
@@ -8177,6 +8178,7 @@ function getEntryReviewErrors(entry, minCount = 3, maxCount = 5) {
                 afterFen: r.afterFen || null,
                 multipvBefore: r.multipvBefore || null,
                 replyAlternatives: r.replyAlternatives || null,
+                evalAfterBest: r.evalAfterBest ?? null,
                 forcingInfo: r.forcingInfo || null,
                 quality: r.quality || 'inaccuracy',
                 severity: r.quality === 'blunder' ? 'high' : 'med'
@@ -8250,12 +8252,17 @@ function buildErrorNotePrompt(err) {
     // pot dir "forçat" ni "obligat".
     let pvLine = '';
     if (d.pv) {
+        const fi = reviewForcingInfo(err);
         const lang = ElTaulerCore.classifyPvLanguage({
             bestPv: err.bestPv || err.bestMovePv || [],
-            forcingInfo: reviewForcingInfo(err)
+            forcingInfo: fi
         });
         if (lang === 'forced') pvLine = `\nSeqüència forçada després de la millor jugada: ${d.pv}`;
-        else if (lang === 'illustrative') pvLine = `\nUna possible variant del motor (el rival tenia altres opcions; NO és forçada): ${d.pv}`;
+        else if (lang === 'illustrative') {
+            pvLine = (fi && fi.allRepliesLosing)
+                ? `\nUna possible variant del motor (NO és forçada, però qualsevol resposta del rival el deixava perdut): ${d.pv}`
+                : `\nUna possible variant del motor (el rival tenia altres opcions; NO és forçada): ${d.pv}`;
+        }
     }
     return `Ets un entrenador d'escacs directe i clar que parla en català i tuteja l'alumne.
 Posició abans de la jugada (FEN): ${err.fen}
@@ -8305,6 +8312,7 @@ function buildLocalErrorNote(err, entry, opts = {}) {
         forcingInfo: err.forcingInfo || null,
         multipvBefore: err.multipvBefore || null,
         replyAlternatives: err.replyAlternatives || null,
+        evalAfterBest: err.evalAfterBest ?? null,
         quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake')
     };
     let ctx = null;
@@ -8331,6 +8339,7 @@ function buildLocalErrorNote(err, entry, opts = {}) {
         forcingInfo: review.forcingInfo || null,
         multipvBefore: review.multipvBefore || null,
         replyAlternatives: review.replyAlternatives || null,
+        evalAfterBest: review.evalAfterBest ?? null,
         fen: review.fen,
         pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
         positional: buildPositionalNote(ctx),
@@ -9664,12 +9673,17 @@ function buildOpenAIReviewPrompt(entry, severeErrors) {
         // no la vengui com a seqüència obligada.
         let pvDetail = '—';
         if (pvLine) {
+            const fi = reviewForcingInfo(err);
             const lang = ElTaulerCore.classifyPvLanguage({
                 bestPv: err.bestPv || err.bestMovePv || [],
-                forcingInfo: reviewForcingInfo(err)
+                forcingInfo: fi
             });
             if (lang === 'forced') pvDetail = `${pvLine} (seqüència forçada demostrada)`;
-            else if (lang === 'illustrative') pvDetail = `${pvLine} (possible variant del motor, NO forçada: el rival tenia altres opcions)`;
+            else if (lang === 'illustrative') {
+                pvDetail = (fi && fi.allRepliesLosing)
+                    ? `${pvLine} (possible variant, NO forçada, però qualsevol resposta del rival quedava perduda)`
+                    : `${pvLine} (possible variant del motor, NO forçada: el rival tenia altres opcions)`;
+            }
         }
 
         return `Errada ${idx + 1}:
@@ -20096,18 +20110,24 @@ function coachQualityBadgeHtml(moment, swingLegacy) {
 // demostrat", que és exactament la prudència que volem.
 function reviewForcingInfo(review) {
     const r = review || {};
-    if (r.forcingInfo && typeof r.forcingInfo === 'object') return r.forcingInfo;
+    const stored = (r.forcingInfo && typeof r.forcingInfo === 'object') ? r.forcingInfo : null;
+    // Entrades desades abans d'afegir allRepliesLosing ("perduda igualment"):
+    // es recalcula al vol amb les mateixes dades desades; si no es pot, es
+    // conserva el forcingInfo antic tal qual.
+    if (stored && stored.allRepliesLosing !== undefined) return stored;
     try {
-        return ElTaulerCore.buildPvForcingInfo({
+        const computed = ElTaulerCore.buildPvForcingInfo({
             fen: r.fen || r.beforeFen || null,
             bestPv: (Array.isArray(r.pv) && r.pv.length) ? r.pv
                 : ((Array.isArray(r.bestPv) && r.bestPv.length) ? r.bestPv : (r.bestMovePv || [])),
             multipvBefore: r.multipvBefore || null,
             replyAlternatives: r.replyAlternatives || null,
             evalBefore: (typeof r.evalBefore === 'number') ? r.evalBefore : null,
+            evalAfterBest: (typeof r.evalAfterBest === 'number') ? r.evalAfterBest : undefined,
             board: getPvBoardHelpers()
         });
-    } catch (e) { return null; }
+        return computed || stored;
+    } catch (e) { return stored; }
 }
 
 // Descriu la continuació real de la millor jugada (la PV ja calculada) en
@@ -20130,7 +20150,8 @@ function buildContinuationNote(moment) {
     return ElTaulerCore.pvNarrationText(lang, {
         lineText: seq,
         bestText: bestText,
-        replyIsOnlyLegal: !!(fi && fi.replyIsOnlyLegal)
+        replyIsOnlyLegal: !!(fi && fi.replyIsOnlyLegal),
+        allRepliesLosing: !!(fi && fi.allRepliesLosing)
     });
 }
 
@@ -20436,6 +20457,7 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
                 forcingInfo: r.forcingInfo || null,
                 multipvBefore: r.multipvBefore || null,
                 replyAlternatives: r.replyAlternatives || null,
+                evalAfterBest: r.evalAfterBest ?? null,
                 positional: buildPositionalNote(ctx),
                 candidates: buildCandidatesNote(r),
                 isPattern

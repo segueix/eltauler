@@ -658,6 +658,13 @@
     // ("forçada") i val més quedar-se curt que mentir.
     const PV_FORCED_REPLY_GAP_CP = 200;
 
+    // Llindar (cp) perquè la posició del rival compti com a "clarament
+    // perduda" després de la millor jugada. Si fins i tot la seva MILLOR
+    // resposta el deixa per sota d'això, qualsevol altra també (per definició
+    // del MultiPV): la línia no és forçada, però el RESULTAT sí — es pot dir
+    // que totes les respostes acabaven igual de perdudes.
+    const PV_LOSING_REPLY_CP = 300;
+
     // Les avaluacions ja convertides (mat → ±10000 cp) es comparen com a cp;
     // les crues (evalType 'mate' amb distància de mat) passen per
     // bestLineEvalScore, que ja fa dominar el mat.
@@ -823,6 +830,24 @@
         if (mateForPlayer || isOpponentReplyForced === true) isLineForced = true;
         else if (isOpponentReplyForced === false) isLineForced = false;
 
+        // "Perduda igualment": encara que la línia no sigui forçada, si la
+        // MILLOR resposta del rival (màxim del MultiPV, en la seva perspectiva)
+        // ja el deixa clarament perdut, qualsevol resposta l'hi deixa. També es
+        // pot demostrar amb evalAfterBest (perspectiva del JUGADOR: positiu i
+        // gran = el rival està perdut faci el que faci).
+        const losingCp = typeof d.losingReplyCp === 'number' ? d.losingReplyCp : PV_LOSING_REPLY_CP;
+        let allRepliesLosing = null;
+        if (Array.isArray(d.replyAlternatives) && d.replyAlternatives.length) {
+            const scores = d.replyAlternatives
+                .map(e => bestLineEvalScore(pvEvalEntryForGap(e)))
+                .filter(s => s !== null);
+            if (scores.length) allRepliesLosing = Math.max.apply(null, scores) <= -losingCp;
+        }
+        if (allRepliesLosing === null && typeof d.evalAfterBest === 'number') {
+            allRepliesLosing = d.evalAfterBest >= losingCp;
+        }
+        if (allRepliesLosing === null && mateForPlayer) allRepliesLosing = true;
+
         return {
             bestMoveGapCp: bestMoveGapCp,
             opponentReplyGapCp: opponentReplyGapCp,
@@ -831,7 +856,8 @@
             replyIsOnlyLegal: legal === null ? null : replyIsOnlyLegal,
             endsInMate: mateForPlayer,
             isOpponentReplyForced: isOpponentReplyForced,
-            isLineForced: isLineForced
+            isLineForced: isLineForced,
+            allRepliesLosing: allRepliesLosing
         };
     }
 
@@ -855,11 +881,13 @@
         return computePvForcingInfo({
             multipvBefore: p.multipvBefore,
             replyAlternatives: p.replyAlternatives,
+            evalAfterBest: typeof p.evalAfterBest === 'number' ? p.evalAfterBest : undefined,
             opponentLegalReplies: facts ? facts.opponentLegalReplies : null,
             opponentInCheck: facts ? facts.opponentInCheck : null,
             pvEndsInMate: facts ? facts.pvEndsInMate : null,
             mateForPlayer: mateForPlayer,
-            forcedReplyGapCp: p.forcedReplyGapCp
+            forcedReplyGapCp: p.forcedReplyGapCp,
+            losingReplyCp: p.losingReplyCp
         });
     }
 
@@ -888,6 +916,9 @@
     //                     explicar la línia)
     //   replyIsOnlyLegal→ si la resposta del rival era l'única legal, es diu
     //                     explícitament (és el cas més fort i és demostrat)
+    //   allRepliesLosing→ la línia no és forçada, però el RESULTAT sí: fins i
+    //                     tot la millor resposta del rival el deixava perdut,
+    //                     així que la variant s'explica amb aquesta força extra.
     function pvNarrationText(language, parts) {
         const p = parts || {};
         const seq = String(p.lineText || '').trim();
@@ -898,7 +929,9 @@
                 : 'La seqüència forçada era ' + seq + '.';
         }
         if (language === 'illustrative' && seq) {
-            return 'Una possible variant del motor és ' + seq + '.';
+            return p.allRepliesLosing
+                ? 'Una possible variant del motor és ' + seq + '; el rival tenia altres respostes, però totes el deixaven igual de perdut.'
+                : 'Una possible variant del motor és ' + seq + '.';
         }
         return best ? 'La millor jugada era ' + best + '.' : '';
     }
@@ -1023,6 +1056,7 @@
         bestLineGapCp,
         bestLineStepQualifies,
         PV_FORCED_REPLY_GAP_CP,
+        PV_LOSING_REPLY_CP,
         pvGapCp,
         createPvBoardHelpers,
         computePvForcingInfo,

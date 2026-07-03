@@ -227,6 +227,71 @@ describe('única jugada legal — aquí sí que es pot dir "única resposta"', (
     });
 });
 
+describe('"perduda igualment" — la línia no és forçada però el resultat sí', () => {
+    test('si la millor resposta del rival ja el deixa perdut, totes el deixen', () => {
+        const info = Core.computePvForcingInfo({
+            opponentLegalReplies: 25,
+            // Perspectiva del rival: fins i tot la millor opció està a -450.
+            replyAlternatives: [{ eval: -450, evalType: 'cp' }, { eval: -520, evalType: 'cp' }]
+        });
+        expect(info.allRepliesLosing).toBe(true);
+        // El gap entre respostes és petit: la LÍNIA continua sense ser forçada.
+        expect(info.isLineForced).toBe(false);
+    });
+
+    test('si el rival té una resposta que aguanta, no es pot dir "perduda igualment"', () => {
+        const info = Core.computePvForcingInfo({
+            opponentLegalReplies: 25,
+            replyAlternatives: [{ eval: -40, evalType: 'cp' }, { eval: -350, evalType: 'cp' }]
+        });
+        expect(info.allRepliesLosing).toBe(false);
+    });
+
+    test('mat en contra del rival a totes les respostes → perduda igualment', () => {
+        const info = Core.computePvForcingInfo({
+            opponentLegalReplies: 8,
+            replyAlternatives: [{ eval: -3, evalType: 'mate' }, { eval: -2, evalType: 'mate' }]
+        });
+        expect(info.allRepliesLosing).toBe(true);
+    });
+
+    test('també es demostra amb evalAfterBest (perspectiva del jugador)', () => {
+        expect(Core.computePvForcingInfo({ evalAfterBest: 600 }).allRepliesLosing).toBe(true);
+        expect(Core.computePvForcingInfo({ evalAfterBest: 150 }).allRepliesLosing).toBe(false);
+    });
+
+    test('sense dades queda desconegut', () => {
+        expect(Core.computePvForcingInfo({}).allRepliesLosing).toBeNull();
+    });
+
+    test('el text il·lustratiu es reforça sense dir mai "forçada"', () => {
+        const forcingInfo = Core.buildPvForcingInfo({
+            fen: FEN_A,
+            bestPv: PV_A,
+            replyAlternatives: [{ eval: -450, evalType: 'cp' }, { eval: -520, evalType: 'cp' }],
+            evalBefore: 450,
+            board
+        });
+        expect(forcingInfo.isLineForced).toBe(false);
+        expect(forcingInfo.allRepliesLosing).toBe(true);
+
+        const lang = Core.classifyPvLanguage({ bestPv: PV_A, forcingInfo });
+        expect(lang).toBe('illustrative');
+        const text = Core.pvNarrationText(lang, {
+            lineText: 'l’alfil blanc va a f4, i la dama negra captura el peó a h2 amb escac (Qxh2+), i el rei blanc captura la dama a h2 (Kxh2)',
+            allRepliesLosing: forcingInfo.allRepliesLosing
+        });
+        expect(text).toContain('possible variant');
+        expect(text).toContain('totes el deixaven igual de perdut');
+        expect(text.toLowerCase()).not.toContain('forçad');
+    });
+
+    test('sense el reforç, el text il·lustratiu queda com abans', () => {
+        const text = Core.pvNarrationText('illustrative', { lineText: 'una línia', allRepliesLosing: false });
+        expect(text).toBe('Una possible variant del motor és una línia.');
+    });
+});
+
 describe('sense prou dades — no s\'explica la PV', () => {
     test('unclear cau a "la millor jugada era..."', () => {
         const text = Core.pvNarrationText('unclear', {
