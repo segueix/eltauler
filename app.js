@@ -1211,9 +1211,10 @@ function reviewHtmlElementToText(el) {
 
 // Munta les errades comentades per a l'exportació, amb el text complet (sense
 // retallar) i un camp per línia, perquè es llegeixin millor que a la targeta.
-function buildErrorNotesExportText(entry) {
+function buildErrorNotesExportText(entry, voiceStyle) {
     const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
     if (!errors.length) return '';
+    const style = getReviewVoiceStyle(voiceStyle);
     // No repetim aquí les jugades que ja s'expliquen senceres a "Moments clau"
     // (mateixa posició de decisió i mateixa jugada): cada error apareix un sol cop.
     let momentKeys = new Set();
@@ -1223,19 +1224,21 @@ function buildErrorNotesExportText(entry) {
     errors.forEach(err => {
         const d = describeSevereError(err);
         if (momentKeys.has(reviewErrorKey(err))) return;
-        const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
-        const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
+        const playedTxt = voiceMoveText(err.fen, err.playerMove || err.playerMoveSan, d.played, style);
+        const bestTxt = voiceMoveText(err.fen, err.bestMove || err.bestMoveSan, d.best, style);
         const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
         const meta = coachQualityMeta(quality);
         const label = meta ? meta.label : 'Error';
         const samePB = d.played && d.best && d.played === d.best;
         const head = samePB
-            ? `${label} · Jugada ${d.moveNumber}: la millor jugada era ${withSan(bestDesc, d.best)}`
-            : `${label} · Jugada ${d.moveNumber}: vas jugar ${withSan(playedDesc, d.played)} · la millor era ${withSan(bestDesc, d.best)}`;
+            ? `${label} · Jugada ${d.moveNumber}: la millor jugada era ${bestTxt}`
+            : `${label} · Jugada ${d.moveNumber}: vas jugar ${playedTxt} · la millor era ${bestTxt}`;
         const note = notes[getErrorNoteKey(err)] || null;
-        const body = (note && note.status === 'done' && note.text)
+        // Mateix criteri que a pantalla: la nota d'OpenAI només si és de la veu
+        // exportada; si no, l'explicació local re-redactada amb aquesta veu.
+        const body = (note && note.status === 'done' && note.text && (note.voiceStyle || 'balanced') === style)
             ? note.text
-            : buildLocalErrorNote(err, entry, { full: true });
+            : buildLocalErrorNote(err, entry, { full: true, voiceStyle: style });
         blocks.push(`${head}\n${body}`);
     });
     return blocks.join('\n\n');
@@ -1263,12 +1266,14 @@ function buildHistoryReviewText(entry) {
 
     // Regenerem la ressenya amb full=true per tenir el text complet (sense "…"),
     // afegint-hi la redacció d'IA al davant si n'hi ha (com a pantalla).
+    // S'exporta amb la mateixa veu que s'està veient a la ressenya.
+    const voiceStyle = historyReviewVoiceStyle();
     let reviewText = '';
     try {
         const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
         let html = '';
         if (review && review.text) html += `<div>${formatOpenAIReviewText(review.text)}</div>`;
-        html += renderLocalReviewHtml(entry, { full: true });
+        html += renderLocalReviewHtml(entry, { full: true, voiceStyle });
         const tmp = document.createElement('div');
         tmp.innerHTML = html;
         reviewText = reviewHtmlElementToText(tmp);
@@ -1278,7 +1283,7 @@ function buildHistoryReviewText(entry) {
     }
     lines.push('\n=== Ressenya i moments clau ===', reviewText || '(sense ressenya generada)');
 
-    const notesText = buildErrorNotesExportText(entry);
+    const notesText = buildErrorNotesExportText(entry, voiceStyle);
     if (notesText) lines.push('\n=== Errades comentades ===', notesText);
 
     return lines.join('\n');
@@ -7755,7 +7760,7 @@ function updateHistoryReview(entry) {
     // La ressenya local rica (obertura, fases, obertura semblant per practicar i
     // moments clau) es mostra SEMPRE, fins i tot quan hi ha una ressenya d'OpenAI:
     // la d'OpenAI, si n'hi ha, va a dalt com a redacció addicional.
-    const localHtml = renderLocalReviewHtml(entry);
+    const localHtml = renderLocalReviewHtml(entry, { voiceStyle: historyReviewVoiceStyle() });
     let html = '';
     if (review && review.text) {
         html += `<div class="ai-review-text">${formatOpenAIReviewText(review.text)}</div>`;
@@ -7813,7 +7818,12 @@ function regenerateLocalReview(entry) {
     entry.reviewSeed = (entry.reviewSeed || 0) + 1;
     const newKey = entry.id + ':r' + entry.reviewSeed;
     try {
-        if (_localDebriefCache && typeof _localDebriefCache === 'object') delete _localDebriefCache[newKey];
+        if (_localDebriefCache && typeof _localDebriefCache === 'object') {
+            // La memòria cau del debrief porta la veu com a sufix de la clau.
+            Object.keys(_localDebriefCache)
+                .filter(k => k === newKey || k.indexOf(newKey + '|') === 0)
+                .forEach(k => { delete _localDebriefCache[k]; });
+        }
         if (_coachVoiceByKey && typeof _coachVoiceByKey === 'object') delete _coachVoiceByKey[newKey];
     } catch (e) {}
     try { saveStorage(); } catch (e) {}
@@ -8349,6 +8359,7 @@ function findMoveReviewForError(entry, err) {
 // la línia i una pregunta de reflexió. Reaprofita el banc de plans humans.
 function buildLocalErrorNote(err, entry, opts = {}) {
     if (!err) return 'Errada detectada en aquesta posició.';
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
     const d = describeSevereError(err);
     const mr = findMoveReviewForError(entry, err);
     const review = mr || {
@@ -8399,7 +8410,7 @@ function buildLocalErrorNote(err, entry, opts = {}) {
         fen: review.fen,
         pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
         positional: buildPositionalNote(ctx),
-        candidates: buildCandidatesNote(review)
+        candidates: buildCandidatesNote(review, voiceStyle)
     };
     let plan = {};
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
@@ -8423,7 +8434,7 @@ function buildLocalErrorNote(err, entry, opts = {}) {
     addPart(show.question, structured.question, 'Pregunta clau');
     // A l'exportació (full) posem cada camp en una línia; a pantalla, en línia seguida.
     const text = parts.join(opts.full ? '\n' : ' ').trim();
-    return text || SAFE_COACH_FALLBACK;
+    return text || voiceText(voiceStyle, 'safeFallback');
 }
 
 // =================== NOMENCLATURA DESCRIPTIVA + ENLLAÇOS ===================
@@ -8519,14 +8530,14 @@ function buildPhaseStats(entry) {
 }
 
 // Comentari de millora segons els temes d'error d'una fase (reaprofita el banc de
-// plans humans). Si no hi ha temes concrets, dona un consell genèric de la fase.
-function buildPhaseAdvice(themes, phaseKey) {
-    const fallbackByPhase = {
-        opening: 'Desenvolupa les peces cap al centre, no moguis dues vegades la mateixa peça i enroca aviat.',
-        middlegame: 'Abans de cada jugada, mira els escacs, captures i amenaces; coordina les peces cap a un pla.',
-        endgame: 'Al final, activa el rei cap al centre, empeny els peons passats i posa les torres darrere dels peons.'
-    };
-    if (!themes || !themes.length) return fallbackByPhase[phaseKey] || '';
+// plans humans). Si no hi ha temes concrets, dona un consell genèric de la fase
+// en el registre de la veu triada. A les veus casual i tècnica el consell de
+// fase és sempre el de la seva veu (el detall del tema ja surt al costat).
+function buildPhaseAdvice(themes, phaseKey, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const advices = REVIEW_VOICE_TEXT[style].phaseAdvice || REVIEW_VOICE_TEXT.balanced.phaseAdvice;
+    const fallback = advices[phaseKey] || REVIEW_VOICE_TEXT.balanced.phaseAdvice[phaseKey] || '';
+    if (!themes || !themes.length || style !== 'balanced') return fallback;
     const labelToKey = {};
     Object.keys(HUMAN_PLAN_BANK).forEach(k => { labelToKey[planThemeDisplayLabel(k)] = k; });
     const key = labelToKey[themes[0]];
@@ -8535,7 +8546,7 @@ function buildPhaseAdvice(themes, phaseKey) {
         const tip = fillPlanTemplate(pickFreshPlanLine(pool, `phaseadvice:${phaseKey}:${key}`), {});
         if (tip) return tip;
     }
-    return fallbackByPhase[phaseKey] || '';
+    return fallback;
 }
 
 // =================== NAVEGACIÓ A LA PRÀCTICA D'OBERTURA ===================
@@ -8617,6 +8628,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
     if (!entry) return '';
     const blocks = [];
     try {
+        // Veu de la ressenya: la demanada explícitament (desplegable de la
+        // ressenya) o la preferència de l'usuari. Només canvia la redacció.
+        const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
         const facts = buildDebriefFacts(entry);
         // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
         // màxima noves) cada cop que es prem «Regenerar la ressenya», sense dependre
@@ -8631,22 +8645,22 @@ function renderLocalReviewHtml(entry, opts = {}) {
         }
 
         if (facts) {
-            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey));
+            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey), voiceStyle);
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
 
         // --- Color del jugador: que quedi clar quines decisions es comenten ---
-        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor))}</p>`);
+        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle))}</p>`);
 
         // --- La lliçó d'avui: una consigna curta segons el patró dominant,
         // derivada de dades locals (mai d'IA lliure) ---
-        const lesson = ElTaulerCore.lessonOfTheDay(dominantLessonTheme(entry));
+        const lesson = ElTaulerCore.lessonOfTheDay(dominantLessonTheme(entry), voiceStyle);
         if (lesson) blocks.push(`<p><strong>La lliçó d'avui:</strong> ${escapeHtml(lesson)}</p>`);
 
         const phases = buildPhaseStats(entry);
         const pct = v => (typeof v === 'number' ? `${v}%` : '—');
         // Línia de fase amb el nombre de jugades i avís de poques dades.
-        const phaseLine = p => ElTaulerCore.formatPhaseLine(p.precision, p.total);
+        const phaseLine = p => ElTaulerCore.formatPhaseLine(p.precision, p.total, voiceStyle);
 
         // --- Obertura (centrada en LA TEVA obertura, sigui quina sigui) ---
         const sanMoves = getHistoryMoves(entry);
@@ -8708,7 +8722,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
                         for (let i = 0; i < (oa.deviationPly || 0); i++) { if (!g.move(sanMoves[i], { sloppy: true })) break; }
                         devFen = g.fen();
                     } catch (e) { devFen = null; }
-                    const theoryDesc = devFen ? moveHumanText(devFen, oa.theoryMoves[0]) : oa.theoryMoves[0];
+                    const theoryDesc = devFen ? voiceMoveText(devFen, oa.theoryMoves[0], oa.theoryMoves[0], voiceStyle) : oa.theoryMoves[0];
                     openingTxt += `; la teoria seguia amb ${escapeHtml(theoryDesc)}.`;
                 } else openingTxt += '.';
             }
@@ -8736,7 +8750,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
             if (phases.middlegame.themes.length) {
                 midTxt += ` Errors més habituals: ${phases.middlegame.themes.map(escapeHtml).join(', ')}.`;
             } else {
-                midTxt += ' Sense errors destacats en aquesta fase.';
+                midTxt += ` ${escapeHtml(voiceText(voiceStyle, 'noPhaseErrors'))}`;
             }
             blocks.push(`<p>${midTxt}</p>`);
         }
@@ -8744,16 +8758,16 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // --- Final (amb menys de 2 jugades no diu res fiable i s'omet) ---
         if (phases.endgame.total >= 2) {
             let endTxt = `<strong>Final:</strong> ${escapeHtml(phaseLine(phases.endgame))}`;
-            const advice = buildPhaseAdvice(phases.endgame.themes, 'endgame');
+            const advice = buildPhaseAdvice(phases.endgame.themes, 'endgame', voiceStyle);
             if (advice) endTxt += ` ${escapeHtml(advice)}`;
             blocks.push(`<p>${endTxt}</p>`);
         }
 
         // --- Moments clau (jugades descriptives clicables) ---
-        const moments = buildHumanPlanMoments(entry, null, opts);
+        const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
         if (moments.length) {
             const items = moments.map(m => {
-                const desc = withSan(m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best, m.best);
+                const desc = m.fen ? voiceMoveText(m.fen, m.bestMoveUci || m.best, m.best, voiceStyle) : m.best;
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
@@ -8768,7 +8782,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const playedSan = String(m.played || '').trim();
                 const bestSan = String(m.best || '').trim();
                 const samePlayedBest = playedSan && bestSan && playedSan === bestSan;
-                const playedTxt = withSan(m.playedDesc || m.played || '—', m.played);
+                const playedTxt = m.fen && (m.playedUci || m.played)
+                    ? voiceMoveText(m.fen, m.playedUci || m.played, m.played, voiceStyle)
+                    : (m.playedDesc || m.played || '—');
                 const tail = samePlayedBest
                     ? `millor jugada → ${link}.`
                     : `vas jugar ${escapeHtml(playedTxt)}; la millor era → ${link}.`;
@@ -8794,15 +8810,19 @@ function renderLocalReviewHtml(entry, opts = {}) {
                     coachLine(show.continuation, m.structured?.continuation, 'Moviments següents')
                 ].filter(Boolean);
                 // Si tot ha quedat filtrat, un mínim segur en lloc de res.
-                if (lines.length === 1) lines.push(`<span>${escapeHtml(SAFE_COACH_FALLBACK)}</span>`);
+                if (lines.length === 1) lines.push(`<span>${escapeHtml(voiceText(voiceStyle, 'safeFallback'))}</span>`);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
             blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
 
         // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
-        const planText = ElTaulerCore.buildTenMinutePlan(moments.map(m => Number(m.moveNumber)));
+        const planText = ElTaulerCore.buildTenMinutePlan(moments.map(m => Number(m.moveNumber)), voiceStyle);
         blocks.push(`<p><strong>Pla de 10 minuts:</strong> ${escapeHtml(planText.replace(/^Pla de 10 minuts:\s*/, ''))}</p>`);
+
+        // --- Tancament motivador (segons la veu; estable per llavor de ressenya) ---
+        const motivation = pickVoiceMotivation(voiceStyle, seedKey);
+        if (motivation) blocks.push(`<p>${escapeHtml(motivation)}</p>`);
 
         // --- Llista completa de jugades (per copiar i verificar la detecció) ---
         // Posem totes les jugades en ordre, en notació numerada estil PGN, en un
@@ -8853,6 +8873,9 @@ async function requestErrorNotes(entry, severeErrors) {
         entry.errorNotes[key] = { status: 'pending', text: '' };
     });
     refreshHistoryErrorNotes(entry);
+    // Les notes es redacten amb la veu per defecte de l'usuari (no amb una veu
+    // temporal de la ressenya): es desa amb la nota per saber a quina veu pertany.
+    const notesVoiceStyle = getReviewVoiceStyle();
     await Promise.all(pending.map(async err => {
         const key = getErrorNoteKey(err);
         try {
@@ -8863,7 +8886,7 @@ async function requestErrorNotes(entry, severeErrors) {
             // local de buildLocalErrorNote, que sempre és correcta.
             const esmena = esmenaCatalaCoach(result.text.replace(/\*\*/g, '').trim(), { maxParaules: 60 });
             if (!esmena.ok) throw new Error('Text descartat pel corrector: ' + esmena.problemes.map(p => p.codi).join(', '));
-            entry.errorNotes[key] = { status: 'done', text: esmena.text };
+            entry.errorNotes[key] = { status: 'done', text: esmena.text, voiceStyle: notesVoiceStyle };
         } catch (e) {
             console.error('[ErrorNotes]', e?.message || e);
             entry.errorNotes[key] = { status: 'error', text: '', message: e?.message || '' };
@@ -8900,24 +8923,30 @@ function updateHistoryErrorNotes(entry) {
     }
     if (block.length) block.show();
     const notes = entry.errorNotes || {};
+    // Veu vigent de la ressenya oberta: canviar-la només regenera aquest text.
+    const voiceStyle = historyReviewVoiceStyle();
     let html = '';
     errors.forEach((err, idx) => {
         const d = describeSevereError(err);
         const note = notes[getErrorNoteKey(err)] || null;
-        // Nomenclatura descriptiva (nom de peça, casella d'origen si cal,
-        // columna del peó) perquè sigui llegible sense conèixer la notació.
-        const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
-        const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
+        // Nomenclatura descriptiva segons la veu (nom de peça, casella d'origen
+        // si cal, SAN segons el registre) perquè sigui llegible per a tothom.
+        const playedTxt = voiceMoveText(err.fen, err.playerMove || err.playerMoveSan, d.played, voiceStyle);
+        const bestTxt = voiceMoveText(err.fen, err.bestMove || err.bestMoveSan, d.best, voiceStyle);
+        // La nota d'OpenAI es va redactar amb una veu concreta (les antigues,
+        // amb l'equilibrada): si la veu actual és una altra, es mostra
+        // l'explicació local re-redactada, sense tornar a cridar cap IA.
+        const noteMatchesVoice = note && (note.voiceStyle || 'balanced') === voiceStyle;
         let body;
-        if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
+        if (note && note.status === 'done' && note.text && noteMatchesVoice) body = escapeHtml(note.text);
         else if (note && note.status === 'pending') body = '<em>S’està generant l’explicació.</em>';
-        // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
-        // de Stockfish, perquè cada errada sempre tingui una explicació útil.
-        else body = escapeHtml(buildLocalErrorNote(err, entry));
+        // Sense nota d'OpenAI (o sense clau, o amb una altra veu): explicació
+        // local a partir de l'anàlisi de Stockfish ja desada.
+        else body = escapeHtml(buildLocalErrorNote(err, entry, { voiceStyle }));
         const samePB = d.played && d.best && d.played === d.best;
         const headMoves = samePB
-            ? `la millor jugada era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`
-            : `vas jugar <strong>${escapeHtml(withSan(playedDesc, d.played))}</strong> · la millor era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`;
+            ? `la millor jugada era <strong>${escapeHtml(bestTxt)}</strong>`
+            : `vas jugar <strong>${escapeHtml(playedTxt)}</strong> · la millor era <strong>${escapeHtml(bestTxt)}</strong>`;
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
             <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: ${headMoves}</div>
             <div class="error-note-body">${body}</div>
@@ -11984,11 +12013,23 @@ function esmenaCatalaCoach(text, opcions) {
     return r.esmenarTextEntrenador(text, opcions || {});
 }
 
+// Regla de registre segons la veu de l'entrenador, per als textos d'IA. No
+// toca les normes de notació de cada prompt (si un prompt prohibeix la SAN,
+// segueix prohibida): només fixa el to i la densitat de tecnicismes.
+const REVIEW_VOICE_OPENAI_RULES = {
+    casual: '- TO DE VEU (casual): parla planer, directe i amable, com a un principiant; evita tecnicismes com "seqüència forçada", "sobrecàrrega" o "compensació posicional" i explica-ho amb paraules senzilles, sense fer-ho infantil.',
+    balanced: '',
+    technical: '- TO DE VEU (tècnic): escriu precís i professional, per a un jugador avançat; pots usar termes com forquilla, clavada, desviació, sobrecàrrega o qualitat, mantenint les frases curtes i sense allargar el text.'
+};
 // Bloc de normes d'estil compartit que s'afegeix a tots els prompts de
-// l'entrenador perquè el model escrigui català normatiu, amb % i sense SAN.
+// l'entrenador perquè el model escrigui català normatiu, amb % i sense SAN,
+// en el registre de la veu per defecte de l'usuari.
 function coachStyleRulesBlock() {
     const r = getRedactor();
-    return r ? '\n' + r.REGLES_ESTIL_CATALA : '';
+    let block = r ? '\n' + r.REGLES_ESTIL_CATALA : '';
+    const voiceRule = REVIEW_VOICE_OPENAI_RULES[getReviewVoiceStyle()];
+    if (voiceRule) block += '\n' + voiceRule;
+    return block;
 }
 
 function polishCoachText(text, opts = {}) {
@@ -19693,13 +19734,17 @@ try { if (typeof localStorage !== 'undefined' && localStorage.getItem('eltauler_
 
 // Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
 // Usa l'anti-repetició persistent compartida (pickFreshPlanLine) i memoritza el
-// text per partida perquè rerenderitzacions dins la mateixa partida siguin estables.
+// text per partida perquè rerenderitzacions dins la mateixa partida siguin
+// estables. La memòria cau inclou la veu: canviar-la regenera el resum a
+// l'acte, i tornar a la veu anterior recupera el mateix text.
 let _localDebriefCache = {};
-function composeDebriefText(facts, seedStr, voice) {
-    const cacheKey = String(seedStr || 'debrief');
+function composeDebriefText(facts, seedStr, voice, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const cacheKey = String(seedStr || 'debrief') + '|' + style;
     if (_localDebriefCache[cacheKey]) return _localDebriefCache[cacheKey];
     const v = voice || pickCoachVoiceForKey(cacheKey);
-    const pick = cat => pickFreshPlanLine(COACH_DEBRIEF_TEMPLATES[cat] || [], 'debrief:' + cat);
+    const pools = REVIEW_VOICE_TEXT[style].debrief || COACH_DEBRIEF_TEMPLATES;
+    const pick = cat => pickFreshPlanLine(pools[cat] || COACH_DEBRIEF_TEMPLATES[cat] || [], 'debrief:' + style + ':' + cat);
     const data = {
         prec: facts.precision !== null ? facts.precision : '—',
         avg: facts.avgPrecision,
@@ -19716,8 +19761,10 @@ function composeDebriefText(facts, seedStr, voice) {
     const goodPrecision = facts.precision !== null && facts.precision >= 70;
     const sentences = [];
 
-    // To de la veu: obertura ocasional que personalitza l'entrenador.
-    if (Math.random() <= 0.65) sentences.push(pickFreshPlanLine(v.openers, 'voiceopen:' + v.id));
+    // To de la veu: obertura ocasional que personalitza l'entrenador. Les
+    // "personalitats" (serè, directe...) són cosa de la veu equilibrada; el
+    // casual i el tècnic mantenen el seu registre net.
+    if (style === 'balanced' && Math.random() <= 0.65) sentences.push(pickFreshPlanLine(v.openers, 'voiceopen:' + v.id));
 
     if (facts.result === 'win') sentences.push(pick(goodPrecision ? 'win_high' : 'win_low'));
     else if (facts.result === 'draw') sentences.push(pick('draw'));
@@ -19745,8 +19792,13 @@ function composeDebriefText(facts, seedStr, voice) {
     else if (facts.srsDue >= 3) sentences.push(pick('advice_srs'));
     else sentences.push(pick('advice_theme'));
 
-    // Tancament ocasional amb la signatura de la veu.
-    if (Math.random() <= 0.4) sentences.push(pickFreshPlanLine(v.signoffs, 'voicesign:' + v.id));
+    // Tancament ocasional: la signatura de la personalitat (veu equilibrada)
+    // o una frase motivacional del registre triat (casual/tècnica).
+    if (style === 'balanced') {
+        if (Math.random() <= 0.4) sentences.push(pickFreshPlanLine(v.signoffs, 'voicesign:' + v.id));
+    } else if (Math.random() <= 0.4) {
+        sentences.push(pickFreshPlanLine(REVIEW_VOICE_TEXT[style].motivation || [], 'voicemotiv:' + style));
+    }
 
     // Consell adaptat al nivell (ELO) del jugador.
     const level = playerLevelBand();
@@ -19896,11 +19948,13 @@ function uciLineToSan(fen, uciList, maxPlies) {
     return out;
 }
 
-// Descriu una seqüència de jugades (UCI) en llenguatge planer, recorrent la línia
-// per anomenar cada moviment. A captures i escacs s'hi afegeix la SAN entre
-// parèntesis perquè la frase sigui verificable contra el tauler ("el rei negre
-// captura la dama a h7 (Kxh7)").
-function describeLineHuman(fen, uciList, startPly, maxPhrases) {
+// Descriu una seqüència de jugades (UCI) en llenguatge planer, recorrent la
+// línia per anomenar cada moviment. La presència de SAN depèn de la veu:
+//   casual    → mai (només la descripció: "el rei negre captura la dama a h7")
+//   balanced  → a captures, escacs i mats, perquè la frase sigui verificable
+//   technical → a totes les jugades ("el rei negre captura la dama a h7 (Kxh7)")
+function describeLineHuman(fen, uciList, startPly, maxPhrases, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
     try {
         const g = new Chess(fen);
         const phrases = [];
@@ -19912,7 +19966,8 @@ function describeLineHuman(fen, uciList, startPly, maxPhrases) {
             if (!mv) break;
             if (i >= startPly) {
                 const d = describeMoveHuman(beforeFen, u);
-                const needsSan = !!mv.captured || mv.san.indexOf('+') !== -1 || mv.san.indexOf('#') !== -1;
+                const needsSan = style === 'technical'
+                    || (style !== 'casual' && (!!mv.captured || mv.san.indexOf('+') !== -1 || mv.san.indexOf('#') !== -1));
                 phrases.push(d ? (needsSan ? `${d.text} (${mv.san})` : d.text) : mv.san);
             }
         }
@@ -19921,7 +19976,8 @@ function describeLineHuman(fen, uciList, startPly, maxPhrases) {
 }
 
 // TIER 1 — compara candidates (MultiPV ja guardats) i mostra la continuació de la idea.
-function buildCandidatesNote(review) {
+function buildCandidatesNote(review, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
     try {
         const fen = review && review.fen;
         if (!fen) return '';
@@ -19934,7 +19990,10 @@ function buildCandidatesNote(review) {
                 const gap = Math.abs((a0.eval || 0) - (a1.eval || 0));
                 if (gap <= 70) {
                     const altSan = uciLineToSan(fen, [a1.move], 1)[0];
-                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${withSan(moveHumanText(fen, a1.move, altSan), altSan)}.`);
+                    if (altSan && altSan !== bestSan) {
+                        const tpl = REVIEW_VOICE_TEXT[style].alsoGood || REVIEW_VOICE_TEXT.balanced.alsoGood;
+                        parts.push(tpl(voiceMoveText(fen, a1.move, altSan, style)));
+                    }
                 }
             }
         }
@@ -20199,22 +20258,23 @@ function reviewForcingInfo(review) {
 //                   motor, però el rival tenia altres opcions raonables)
 //   sense dades  → no es narra la PV; només "La millor jugada era...".
 // Mai no es diu "línia guanyadora" ni "forçada" sense demostració.
-function buildContinuationNote(moment) {
+function buildContinuationNote(moment, voiceStyle) {
     const m = moment || {};
+    const style = getReviewVoiceStyle(voiceStyle);
     if (!m.fen) return '';
     const pv = Array.isArray(m.pv) ? m.pv : [];
     const fi = reviewForcingInfo(m);
     const lang = ElTaulerCore.classifyPvLanguage({ bestPv: pv, forcingInfo: fi });
-    const seq = (lang !== 'unclear' && pv.length >= 2) ? describeLineHuman(m.fen, pv, 0, 3) : '';
+    const seq = (lang !== 'unclear' && pv.length >= 2) ? describeLineHuman(m.fen, pv, 0, 3, style) : '';
     let bestText = '';
-    if (m.bestDesc && m.bestDesc !== '—') bestText = withSan(m.bestDesc, m.best);
-    else if (m.bestMoveUci) bestText = withSan(moveHumanText(m.fen, m.bestMoveUci, m.best), m.best);
+    if (m.bestMoveUci) bestText = voiceMoveText(m.fen, m.bestMoveUci, m.best, style);
+    else if (m.bestDesc && m.bestDesc !== '—') bestText = style === 'casual' ? m.bestDesc : withSan(m.bestDesc, m.best);
     return ElTaulerCore.pvNarrationText(lang, {
         lineText: seq,
         bestText: bestText,
         replyIsOnlyLegal: !!(fi && fi.replyIsOnlyLegal),
         allRepliesLosing: !!(fi && fi.allRepliesLosing)
-    });
+    }, style);
 }
 
 // ── FASE B — Classificació determinista del resultat de l'error ──────────────
@@ -20620,25 +20680,27 @@ function voiceMoveText(fen, move, fallback, voiceStyle) {
 // El càstig concret de la jugada feta, en llenguatge planer (nom de la peça i
 // casella de destí) en comptes de notació algebraica. En condicional ("podia"):
 // és la millor rèplica del motor, no una seqüència que hagi de passar per força.
-function buildRefutationNote(moment) {
+function buildRefutationNote(moment, voiceStyle) {
     const m = moment || {};
+    const style = getReviewVoiceStyle(voiceStyle);
     const afterFen = m.afterFen;
     const pv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
     if (!afterFen || pv.length < 1) return '';
-    const seq = describeLineHuman(afterFen, pv, 0, 3);
-    return seq ? `Com et podia castigar el rival: ${seq}.` : '';
+    const seq = describeLineHuman(afterFen, pv, 0, 3, style);
+    return seq ? `${voiceText(style, 'refutationIntro')}: ${seq}.` : '';
 }
 
-function buildStructuredConsequence(moment) {
+function buildStructuredConsequence(moment, voiceStyle) {
     const m = moment || {};
-    const severity = m.quality === 'blunder'
-        ? 'Això era crític perquè'
-        : (m.quality === 'mistake' ? 'Això importava perquè' : 'El detall importava perquè');
+    const style = getReviewVoiceStyle(voiceStyle);
+    const severity = voiceSeverityIntro(style, m.quality);
 
     // Resultat determinista a partir de la refutació i l'avaluació reals.
     const outcome = classifyMoveOutcome(m);
     if (outcome) {
-        const pool = OUTCOME_CONSEQUENCES[outcome] || OUTCOME_CONSEQUENCES.lets_advantage_slip;
+        const pool = voicePool(style, 'outcomeConsequence', outcome).length
+            ? voicePool(style, 'outcomeConsequence', outcome)
+            : voicePool(style, 'outcomeConsequence', 'lets_advantage_slip');
         const base = `${severity} ${toInlineAdvice(pickStableLine(pool, m))}`;
         const cost = coachCostSuffix(m);
         return cost ? `${base} (${cost}).` : `${base}.`;
@@ -20653,6 +20715,8 @@ function buildStructuredConsequence(moment) {
 
 function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     const fallbackPlan = plan && typeof plan === 'object' ? plan : {};
+    // La veu de l'entrenador canvia la redacció d'aquests camps, mai els fets.
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
     // full=true (exportació per analitzar): no retallem el text a 14-16 paraules
     // amb "…"; deixem les frases senceres perquè no quedin tallades a mitja frase.
     const full = !!opts.full;
@@ -20668,12 +20732,14 @@ function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     // realment va passar, perquè no contradiguin la conseqüència ni el tauler.
     // ensureCoachTextQuality (a baix) ja capitalitza i afegeix punt final.
     const outcome = classifyMoveOutcome(moment || {});
-    const mistake = (outcome && OUTCOME_DIAGNOSIS[outcome])
-        ? pickStableLine(OUTCOME_DIAGNOSIS[outcome], moment, 'diag')
+    const diagPool = outcome ? voicePool(voiceStyle, 'outcomeDiagnosis', outcome) : [];
+    const mistake = diagPool.length
+        ? pickStableLine(diagPool, moment, 'diag')
         : (stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.');
-    const consequence = buildStructuredConsequence(moment || {});
-    const betterPlan = (outcome && OUTCOME_PLANS[outcome])
-        ? pickStableLine(OUTCOME_PLANS[outcome], moment, 'plan')
+    const consequence = buildStructuredConsequence(moment || {}, voiceStyle);
+    const planPool = outcome ? voicePool(voiceStyle, 'outcomePlan', outcome) : [];
+    const betterPlan = planPool.length
+        ? pickStableLine(planPool, moment, 'plan')
         : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
     return {
         fact: fld(fact, '', { maxWords: 16 }),
@@ -20682,8 +20748,8 @@ function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
         plan: fld(betterPlan, 'Tria una jugada amb funció clara i poc contrajoc.', { maxWords: 16 }),
         // La continuació i la refutació contenen notació SAN deliberadament, així
         // que NO passen pel validador de text (que penalitza la SAN).
-        continuation: sanFld(buildContinuationNote(moment || {}), 14),
-        refutation: sanFld(buildRefutationNote(moment || {}), 14),
+        continuation: sanFld(buildContinuationNote(moment || {}, voiceStyle), 14),
+        refutation: sanFld(buildRefutationNote(moment || {}, voiceStyle), 14),
         question: fld(fallbackPlan.question || '', '', { sentence: false, maxWords: 14 })
     };
 }
@@ -20706,6 +20772,7 @@ function selectHumanPlanReviews(entry) {
 
 function buildHumanPlanMoments(entry, insights = null, opts = {}) {
     const ins = insights || buildPlayerInsights(entry && entry.id);
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
     return selectHumanPlanReviews(entry)
         .map(r => {
             const ctx = buildPlanContext(r);
@@ -20741,7 +20808,7 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
                 replyAlternatives: r.replyAlternatives || null,
                 evalAfterBest: r.evalAfterBest ?? null,
                 positional: buildPositionalNote(ctx),
-                candidates: buildCandidatesNote(r),
+                candidates: buildCandidatesNote(r, voiceStyle),
                 isPattern
             };
             const plan = buildLocalHumanPlan(moment);
@@ -20973,7 +21040,7 @@ function renderGameDebrief(targetEntry) {
     if (!facts) return;
 
     const coachVoice = pickCoachVoiceForKey(entry.id);
-    const localText = composeDebriefText(facts, entry.id, coachVoice);
+    const localText = composeDebriefText(facts, entry.id, coachVoice, getReviewVoiceStyle());
     box.empty().show();
     box.append($('<div class="coach-kicker"></div>').append(
         $('<span></span>').text(`🎓 L'entrenador diu · ${coachVoice.name}`),
