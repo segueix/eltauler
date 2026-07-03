@@ -3130,6 +3130,9 @@ let pendingAnalysisFen = null;
 let pendingAnalysisDepth = null;
 let pendingBestMovePv = [];
 let pendingAlternatives = [];
+// MultiPV cru (avaluació + tipus + línia de cada opció, la millor inclosa) de
+// la posició de decisió: és la base per saber si la línia era forçada.
+let pendingMultipvBefore = [];
 // Refutació: la millor línia del rival DESPRÉS de la jugada real (el càstig
 // concret). Abans es calculava i es llençava; ara la capturem per descriure
 // conseqüències realistes.
@@ -5895,6 +5898,12 @@ async function deepenEntryAnalysis(entry, opts = {}) {
                 move: a.move, moveSan: a.move ? uciToSan(r.fen, a.move) : null,
                 eval: cpOf(a), evalType: a.evalType, pv: a.pv || []
             }));
+            // MultiPV cru (avaluació sense convertir: el mat conserva la
+            // distància i el tipus), per mesurar gaps de forçament amb fidelitat.
+            r.multipvBefore = (before.alternatives || []).map(a => ({
+                move: a.move, moveSan: a.move ? uciToSan(r.fen, a.move) : null,
+                eval: a.eval, evalType: a.evalType, pv: a.pv || []
+            }));
             // DESPRÉS de la jugada real: refutació (perspectiva del rival).
             let afterFen = null;
             if (r.playerMove && r.playerMove.length >= 4) {
@@ -5912,12 +5921,59 @@ async function deepenEntryAnalysis(entry, opts = {}) {
                     r.evalAfter = cpOf(after.bestMove);
                 }
             }
+            // DESPRÉS de la millor jugada: alternatives de RESPOSTA del rival,
+            // per saber si la rèplica de la PV era forçada (gap MultiPV) i què
+            // valia la posició si hagués jugat el millor (evalAfterBest).
+            let evalAfterBest = null;
+            let replyAlternatives = null;
+            let bestAfterFen = null;
+            try {
+                const g = new Chess(r.fen);
+                const mv = g.move({ from: bm.move.slice(0, 2), to: bm.move.slice(2, 4), promotion: bm.move.length > 4 ? bm.move[4] : undefined });
+                if (mv) bestAfterFen = g.fen();
+            } catch (e) {}
+            if (bestAfterFen && !(opts.shouldAbort && opts.shouldAbort()) && Date.now() - startedAt <= deadlineMs) {
+                const afterBest = await analyzeFenRobust(bestAfterFen, depth, 3, 6000, opts.shouldAbort);
+                if (afterBest && afterBest.bestMove) {
+                    // El rival mou a bestAfterFen: negat = perspectiva del jugador.
+                    evalAfterBest = -cpOf(afterBest.bestMove);
+                    replyAlternatives = (afterBest.alternatives || []).map(a => ({
+                        move: a.move, eval: a.eval, evalType: a.evalType
+                    }));
+                }
+            }
             // Recalcular swing/qualitat amb les avaluacions noves (mateix conveni
             // que el viu: swing = evalBefore + evalAfter, perspectives oposades).
             if (typeof r.evalBefore === 'number' && typeof r.evalAfter === 'number') {
                 r.swing = Math.abs(r.evalBefore + r.evalAfter);
                 r.quality = classifyMoveQuality(r.swing, r.playerMove, r.bestMove);
             }
+            // CAMPS CANÒNICS DE L'ERRADA (noms estables; perspectiva del jugador).
+            r.beforeFen = r.fen;
+            r.playedMoveUci = (r.playerMove && r.playerMove !== '—') ? r.playerMove : null;
+            r.playedMoveSan = (r.playerMoveSan && r.playerMoveSan !== '—') ? r.playerMoveSan : null;
+            r.bestMoveUci = bm.move;
+            r.bestPv = bm.pv || [];
+            r.playedPv = Array.isArray(r.refutationPv) ? r.refutationPv : [];
+            r.evalAfterPlayed = typeof r.evalAfter === 'number' ? -r.evalAfter : null;
+            r.evalAfterBest = evalAfterBest;
+            r.replyAlternatives = replyAlternatives;
+            r.cpLoss = (typeof r.evalBefore === 'number' && typeof r.evalAfterPlayed === 'number')
+                ? Math.max(0, Math.round(r.evalBefore - r.evalAfterPlayed))
+                : (typeof r.swing === 'number' ? Math.round(r.swing) : null);
+            // Forçament de la línia: gap de la millor jugada, gap de la resposta
+            // del rival, i fets del tauler (única legal, escac, mat) via chess.js.
+            try {
+                r.forcingInfo = ElTaulerCore.buildPvForcingInfo({
+                    fen: r.fen,
+                    bestPv: r.bestPv,
+                    multipvBefore: r.multipvBefore,
+                    replyAlternatives: replyAlternatives,
+                    evalBefore: bm.eval,
+                    evalBeforeType: bm.evalType,
+                    board: getPvBoardHelpers()
+                });
+            } catch (e) { r.forcingInfo = null; }
             r.depth = before.depth || depth;
             r.deep = true;
             updated++;
@@ -6920,8 +6976,35 @@ function registerMoveReview(swing, analysisData = {}) {
         } catch (e) {}
     }
     
+    const beforeFen = analysisData.fen || lastPosition || null;
+    // Convenció de perspectives: evalBefore és del JUGADOR (posició de decisió,
+    // mou ell) i evalAfter és del RIVAL (posició després de la jugada feta).
+    // Les còpies canòniques (evalAfterPlayed, cpLoss) queden totes en
+    // perspectiva del jugador, que és com les llegeix la ressenya.
+    const evalBeforeNum = typeof analysisData.evalBefore === 'number' ? analysisData.evalBefore : null;
+    const evalAfterNum = typeof analysisData.evalAfter === 'number' ? analysisData.evalAfter : null;
+    const evalAfterPlayed = evalAfterNum !== null ? -evalAfterNum : null;
+    const cpLoss = (evalBeforeNum !== null && evalAfterPlayed !== null)
+        ? Math.max(0, Math.round(evalBeforeNum - evalAfterPlayed))
+        : Math.max(0, Math.round(Math.abs(swing)));
+
+    // És la línia del motor una seqüència forçada? Sense reanàlisi profunda
+    // només es pot demostrar per fets del tauler (única resposta legal, mat);
+    // la resta queda com a "no demostrat" i la ressenya en parla amb prudència.
+    let forcingInfo = null;
+    try {
+        forcingInfo = ElTaulerCore.buildPvForcingInfo({
+            fen: beforeFen,
+            bestPv: analysisData.bestMovePv || [],
+            multipvBefore: analysisData.multipvBefore || null,
+            replyAlternatives: null,
+            evalBefore: evalBeforeNum,
+            board: getPvBoardHelpers()
+        });
+    } catch (e) {}
+
     currentReview.push({
-        fen: analysisData.fen || lastPosition || null,
+        fen: beforeFen,
         moveNumber: Math.ceil(history.length / 2),
         playerMove: lastHumanMoveUci || '—',
         playerMoveSan: lastMove ? lastMove.san : '—',
@@ -6934,7 +7017,7 @@ function registerMoveReview(swing, analysisData = {}) {
         isCapture: lastMove ? !!lastMove.captured : false,
         isCheck: game.in_check(),
         timestamp: Date.now(),
-        
+
         // NOUS CAMPS ENRIQUITS
         depth: analysisData.depth || null,
         bestMoveSan: bestMoveSan,
@@ -6942,7 +7025,20 @@ function registerMoveReview(swing, analysisData = {}) {
         alternatives: analysisData.alternatives || [],
         // Línia de refutació (el càstig concret) i la posició a què es refereix.
         refutationPv: analysisData.refutationPv || [],
-        afterFen: analysisData.afterFen || null
+        afterFen: analysisData.afterFen || null,
+
+        // CAMPS CANÒNICS DE L'ERRADA (noms estables; perspectiva del jugador)
+        beforeFen: beforeFen,
+        playedMoveUci: lastHumanMoveUci || null,
+        playedMoveSan: lastMove ? lastMove.san : null,
+        bestMoveUci: analysisData.bestMove || null,
+        evalAfterPlayed: evalAfterPlayed,
+        evalAfterBest: null, // només la reanàlisi profunda analitza la millor jugada
+        cpLoss: cpLoss,
+        bestPv: analysisData.bestMovePv || [],
+        playedPv: analysisData.refutationPv || [],
+        multipvBefore: analysisData.multipvBefore || null,
+        forcingInfo: forcingInfo
     });
 }
 
@@ -7969,7 +8065,23 @@ function getSevereErrors(entries) {
             isCheck: !!entry.isCheck,
             depth: entry.depth || null,
             alternatives: entry.alternatives || [],
-            quality: entry.quality || 'blunder'
+            quality: entry.quality || 'blunder',
+            // Camps canònics + dades de forçament (per triar el llenguatge de
+            // la PV: forçada / possible variant / sense prou dades).
+            beforeFen: entry.beforeFen || entry.fen || null,
+            playedMoveUci: entry.playedMoveUci || entry.playerMove || null,
+            playedMoveSan: entry.playedMoveSan || entry.playerMoveSan || null,
+            bestMoveUci: entry.bestMoveUci || entry.bestMove || null,
+            evalAfterPlayed: entry.evalAfterPlayed ?? null,
+            evalAfterBest: entry.evalAfterBest ?? null,
+            cpLoss: entry.cpLoss ?? null,
+            bestPv: entry.bestPv || entry.bestMovePv || [],
+            playedPv: entry.playedPv || entry.refutationPv || [],
+            refutationPv: entry.refutationPv || [],
+            afterFen: entry.afterFen || null,
+            multipvBefore: entry.multipvBefore || null,
+            replyAlternatives: entry.replyAlternatives || null,
+            forcingInfo: entry.forcingInfo || null
         }));
 }
 
@@ -8061,6 +8173,11 @@ function getEntryReviewErrors(entry, minCount = 3, maxCount = 5) {
                 evalAfter: r.evalAfter ?? null,
                 swing: r.swing || null,
                 alternatives: r.alternatives || [],
+                refutationPv: r.refutationPv || [],
+                afterFen: r.afterFen || null,
+                multipvBefore: r.multipvBefore || null,
+                replyAlternatives: r.replyAlternatives || null,
+                forcingInfo: r.forcingInfo || null,
                 quality: r.quality || 'inaccuracy',
                 severity: r.quality === 'blunder' ? 'high' : 'med'
             }))
@@ -8128,9 +8245,21 @@ function buildErrorNotePrompt(err) {
         playedCtx ? `Jugada errònia: ${playedCtx.piece} ${playedCtx.from}-${playedCtx.to}` : '',
         bestCtx ? `Millor jugada: ${bestCtx.piece} ${bestCtx.from}-${bestCtx.to}` : ''
     ].filter(Boolean).join('\n');
+    // La PV del motor es presenta amb el llenguatge que les dades permeten: si
+    // no està demostrat que és forçada, es diu explícitament al model que no
+    // pot dir "forçat" ni "obligat".
+    let pvLine = '';
+    if (d.pv) {
+        const lang = ElTaulerCore.classifyPvLanguage({
+            bestPv: err.bestPv || err.bestMovePv || [],
+            forcingInfo: reviewForcingInfo(err)
+        });
+        if (lang === 'forced') pvLine = `\nSeqüència forçada després de la millor jugada: ${d.pv}`;
+        else if (lang === 'illustrative') pvLine = `\nUna possible variant del motor (el rival tenia altres opcions; NO és forçada): ${d.pv}`;
+    }
     return `Ets un entrenador d'escacs directe i clar que parla en català i tuteja l'alumne.
 Posició abans de la jugada (FEN): ${err.fen}
-A la jugada ${d.moveNumber} l'alumne va jugar ${d.played}, però la millor jugada era ${d.best}.${d.pv ? `\nContinuació correcta: ${d.pv}` : ''}
+A la jugada ${d.moveNumber} l'alumne va jugar ${d.played}, però la millor jugada era ${d.best}.${pvLine}
 ${coordLine ? `\n${coordLine}` : ''}
 
 Explica l'errada en 2 frases curtes (màxim 45 paraules).
@@ -8139,6 +8268,7 @@ REGLES OBLIGATÒRIES
 - Escriu només noms de peces i caselles amb lletra+número (exemples: cavall f3, dama h5, de e2 a e4).
 - No escriguis notació algebraica/SAN com Nxe5, Qh5+, O-O ni símbols com +, #, ! o ?.
 - No facis servir llistes, markdown ni cometes.
+- No diguis mai que una jugada era "forçada", "obligada" o "l'única" si les dades d'aquí sobre no ho indiquen.
 - No inventis jugades que no es dedueixin de la posició.${coachStyleRulesBlock()}`;
 }
 
@@ -8172,6 +8302,9 @@ function buildLocalErrorNote(err, entry, opts = {}) {
         evalAfter: err.evalAfter ?? null,
         refutationPv: err.refutationPv || [],
         afterFen: err.afterFen || null,
+        forcingInfo: err.forcingInfo || null,
+        multipvBefore: err.multipvBefore || null,
+        replyAlternatives: err.replyAlternatives || null,
         quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake')
     };
     let ctx = null;
@@ -8195,6 +8328,9 @@ function buildLocalErrorNote(err, entry, opts = {}) {
         evalAfter: review.evalAfter ?? null,
         refutationPv: Array.isArray(review.refutationPv) ? review.refutationPv : [],
         afterFen: review.afterFen || null,
+        forcingInfo: review.forcingInfo || null,
+        multipvBefore: review.multipvBefore || null,
+        replyAlternatives: review.replyAlternatives || null,
         fen: review.fen,
         pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
         positional: buildPositionalNote(ctx),
@@ -8226,56 +8362,36 @@ function buildLocalErrorNote(err, entry, opts = {}) {
 }
 
 // =================== NOMENCLATURA DESCRIPTIVA + ENLLAÇOS ===================
-// Descriu un moviment amb llenguatge planer (nom de la peça, casella d'origen
-// si cal desambiguar, columna del peó) en comptes de notació algebraica, perquè
-// sigui llegible per a algú sense coneixements de nomenclatura. Retorna també la
-// SAN i les caselles origen/destí per poder visualitzar la jugada al tauler.
-function pieceArticle(name) {
-    const n = String(name || '').trim();
-    if (!n) return 'la peça';
-    if (/^(dama|torre)\b/.test(n)) return `la ${n}`;
-    if (/^(alfil)\b/.test(n)) return `l'${n}`;
-    return `el ${n}`;
+// Descriu un moviment amb llenguatge planer (nom i COLOR de la peça, casella
+// d'origen si cal desambiguar, columna del peó) en comptes de notació
+// algebraica, perquè sigui llegible per a algú sense coneixements de
+// nomenclatura. Retorna també la SAN i les caselles origen/destí per poder
+// visualitzar la jugada al tauler.
+
+// Ajudants de tauler compartits (core.js + chess.js) per verificar PV i
+// descriure moviments. Cache d'una sola instància.
+let pvBoardHelpersCache = null;
+function getPvBoardHelpers() {
+    if (!pvBoardHelpersCache && typeof Chess !== 'undefined') {
+        try { pvBoardHelpersCache = ElTaulerCore.createPvBoardHelpers(Chess); } catch (e) {}
+    }
+    return pvBoardHelpersCache;
 }
 
 function describeMoveHuman(fen, move) {
     if (!fen || !move) return null;
     try {
-        const g = new Chess(fen);
-        const raw = String(move).trim();
-        let mv;
-        if (/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)) {
-            mv = g.move({ from: raw.slice(0, 2).toLowerCase(), to: raw.slice(2, 4).toLowerCase(), promotion: (raw[4] || 'q').toLowerCase() });
-        } else {
-            mv = g.move(raw, { sloppy: true });
-        }
-        if (!mv) return null;
-        const names = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
-        const promoNames = { q: 'dama', r: 'torre', b: 'alfil', n: 'cavall' };
-        let text;
-        if (mv.flags.includes('k')) text = 'enroc curt';
-        else if (mv.flags.includes('q')) text = 'enroc llarg';
-        else if (mv.piece === 'p') {
-            const verb = mv.captured ? 'captura a' : 'avança a';
-            text = `el peó de la columna ${mv.from[0]} ${verb} ${mv.to}`;
-            if (mv.promotion) text += ` i corona ${promoNames[mv.promotion] || 'dama'}`;
-        } else {
-            let name = names[mv.piece] || 'peça';
-            // Desambiguació per casella d'origen ("l'alfil de f8 va a e7") només
-            // quan hi ha dues peces iguals del mateix color: és verificable al
-            // tauler, cosa que "de la dreta/esquerra" no garantia.
-            if (mv.piece === 'n' || mv.piece === 'b' || mv.piece === 'r' || mv.piece === 'q') {
-                const field = fen.split(' ')[0];
-                const letter = mv.color === 'w' ? mv.piece.toUpperCase() : mv.piece.toLowerCase();
-                const count = (field.match(new RegExp(letter, 'g')) || []).length;
-                if (count > 1) name += ` de ${mv.from}`;
-            }
-            const verb = mv.captured ? 'captura a' : 'va a';
-            text = `${pieceArticle(name)} ${verb} ${mv.to}`;
-        }
-        if (mv.san.includes('#')) text += ' amb escac i mat';
-        else if (mv.san.includes('+')) text += ' amb escac';
-        return { text, san: mv.san, from: mv.from, to: mv.to };
+        const helpers = getPvBoardHelpers();
+        const facts = helpers ? helpers.moveFacts(fen, move) : null;
+        if (!facts) return null;
+        // La redacció catalana (color de la peça, peça capturada, escac...) viu
+        // al redactor normatiu, que és pur i testejat: "la dama blanca captura
+        // el peó a h7 amb escac", "el rei negre captura la dama a h7".
+        const text = (typeof ElTaulerRedactor !== 'undefined' && ElTaulerRedactor.descriuMovimentFets)
+            ? ElTaulerRedactor.descriuMovimentFets(facts)
+            : null;
+        if (!text) return null;
+        return { text, san: facts.san, from: facts.origen, to: facts.desti };
     } catch (e) { return null; }
 }
 
@@ -8290,7 +8406,9 @@ function moveHumanText(fen, move, fallback) {
 function withSan(humanText, san) {
     const h = String(humanText || '').trim();
     const s = String(san || '').trim();
-    return (s && s !== '—' && s !== '?' && s !== h) ? `${h} (${s})` : h;
+    if (!s || s === '—' || s === '?' || s === h) return h;
+    if (h.indexOf(s) !== -1) return h; // la descripció ja porta la SAN
+    return `${h} (${s})`;
 }
 
 // =================== ANÀLISI PER FASES DE LA PARTIDA ===================
@@ -9541,13 +9659,25 @@ function buildOpenAIReviewPrompt(entry, severeErrors) {
         const best = err.bestMoveSan || err.bestMove || '?';
         const swing = err.swing || 0;
         const pvLine = (err.bestMovePvSan || err.bestMovePv || []).slice(0, 4).join(' ');
-        
+        // La línia del motor només es presenta com a "forçada" si està
+        // demostrat; si no, s'etiqueta com a possible variant perquè el model
+        // no la vengui com a seqüència obligada.
+        let pvDetail = '—';
+        if (pvLine) {
+            const lang = ElTaulerCore.classifyPvLanguage({
+                bestPv: err.bestPv || err.bestMovePv || [],
+                forcingInfo: reviewForcingInfo(err)
+            });
+            if (lang === 'forced') pvDetail = `${pvLine} (seqüència forçada demostrada)`;
+            else if (lang === 'illustrative') pvDetail = `${pvLine} (possible variant del motor, NO forçada: el rival tenia altres opcions)`;
+        }
+
         return `Errada ${idx + 1}:
   - Número de jugada: ${moveNum}
   - Jugada feta: ${played}
   - Millor jugada: ${best}
   - Pèrdua: ${swing} centipeons
-  - Continuació correcta: ${pvLine || '—'}`;
+  - Línia del motor: ${pvDetail}`;
     }).join('\n\n');
 
     const totalMoves = moves.length;
@@ -9584,6 +9714,7 @@ REGLES
 - Màxim 220 paraules
 - Prosa natural en paràgrafs (sense llistes ni numeracions)
 - Comentaris de jugada curts: evita explicacions llargues i repeticions
+- No diguis mai que una línia era "forçada", "obligada" o "guanyadora segura" si les dades no ho marquen com a seqüència forçada demostrada; parla de "possible variant"
 - Les màximes sempre entre cometes dobles
 - To objectiu i professional
 
@@ -17598,7 +17729,11 @@ function extractEnrichedAnalysis() {
         depth: null,
         bestMove: null,
         bestMovePv: [],
-        alternatives: []
+        alternatives: [],
+        // MultiPV cru (millor opció inclosa), amb l'avaluació SENSE convertir
+        // (mat = distància en jugades + evalType 'mate'): és el format que
+        // esperen bestLineGapCp/buildPvForcingInfo per mesurar el gap real.
+        multipvRaw: []
     };
 
     const pv1 = enrichedAnalysisBuffer['1'];
@@ -17607,6 +17742,18 @@ function extractEnrichedAnalysis() {
         result.bestMove = pv1.move;
         result.bestMovePv = pv1.pv || [];
     }
+
+    ['1', '2', '3'].forEach(key => {
+        const alt = enrichedAnalysisBuffer[key];
+        if (alt && alt.move) {
+            result.multipvRaw.push({
+                move: alt.move,
+                eval: alt.score,
+                evalType: alt.scoreType || 'cp',
+                pv: alt.pv || []
+            });
+        }
+    });
 
     // Afegir alternatives (multipv 2 i 3)
     ['2', '3'].forEach(key => {
@@ -17951,6 +18098,7 @@ function handleEngineMessage(rawMsg) {
             pendingBestMovePv = enriched.bestMovePv || [];
             pendingAnalysisDepth = enriched.depth || null;
             pendingAlternatives = enriched.alternatives || [];
+            pendingMultipvBefore = enriched.multipvRaw || [];
             pendingEvalBefore = tempAnalysisScore;
             
             // Resetejar buffer i MultiPV per la segona anàlisi
@@ -17988,6 +18136,7 @@ function handleEngineMessage(rawMsg) {
                 bestMovePv: pendingBestMovePv,
                 depth: pendingAnalysisDepth,
                 alternatives: pendingAlternatives,
+                multipvBefore: pendingMultipvBefore,
                 evalBefore: pendingEvalBefore,
                 evalAfter: pendingEvalAfter,
                 refutationPv: pendingRefutationPv,
@@ -18025,6 +18174,7 @@ function handleEngineMessage(rawMsg) {
             pendingBestMovePv = [];
             pendingAnalysisDepth = null;
             pendingAlternatives = [];
+            pendingMultipvBefore = [];
             pendingEvalBefore = null;
             pendingEvalAfter = null;
             pendingAnalysisFen = null;
@@ -19671,7 +19821,9 @@ function uciLineToSan(fen, uciList, maxPlies) {
 }
 
 // Descriu una seqüència de jugades (UCI) en llenguatge planer, recorrent la línia
-// per anomenar cada moviment sense notació algebraica.
+// per anomenar cada moviment. A captures i escacs s'hi afegeix la SAN entre
+// parèntesis perquè la frase sigui verificable contra el tauler ("el rei negre
+// captura la dama a h7 (Kxh7)").
 function describeLineHuman(fen, uciList, startPly, maxPhrases) {
     try {
         const g = new Chess(fen);
@@ -19684,7 +19836,8 @@ function describeLineHuman(fen, uciList, startPly, maxPhrases) {
             if (!mv) break;
             if (i >= startPly) {
                 const d = describeMoveHuman(beforeFen, u);
-                phrases.push(d ? d.text : mv.san);
+                const needsSan = !!mv.captured || mv.san.indexOf('+') !== -1 || mv.san.indexOf('#') !== -1;
+                phrases.push(d ? (needsSan ? `${d.text} (${mv.san})` : d.text) : mv.san);
             }
         }
         return phrases.join(', i ');
@@ -19936,20 +20089,49 @@ function coachQualityBadgeHtml(moment, swingLegacy) {
     return `<span style="display:inline-block;padding:1px 7px;border-radius:6px;font-size:0.82em;font-weight:700;color:${meta.color};background:${meta.bg};margin-right:6px;white-space:nowrap;">${label}</span>`;
 }
 
+// forcingInfo d'una errada o moment: el desat per la reanàlisi profunda o, si
+// no n'hi ha, un de derivat al vol de fets del tauler (chess.js) i del MultiPV
+// en viu. Sense anàlisi de la resposta del rival només es pot DEMOSTRAR el
+// forçament per única jugada legal o per mat; la resta queda com a "no
+// demostrat", que és exactament la prudència que volem.
+function reviewForcingInfo(review) {
+    const r = review || {};
+    if (r.forcingInfo && typeof r.forcingInfo === 'object') return r.forcingInfo;
+    try {
+        return ElTaulerCore.buildPvForcingInfo({
+            fen: r.fen || r.beforeFen || null,
+            bestPv: (Array.isArray(r.pv) && r.pv.length) ? r.pv
+                : ((Array.isArray(r.bestPv) && r.bestPv.length) ? r.bestPv : (r.bestMovePv || [])),
+            multipvBefore: r.multipvBefore || null,
+            replyAlternatives: r.replyAlternatives || null,
+            evalBefore: (typeof r.evalBefore === 'number') ? r.evalBefore : null,
+            board: getPvBoardHelpers()
+        });
+    } catch (e) { return null; }
+}
+
 // Descriu la continuació real de la millor jugada (la PV ja calculada) en
-// llenguatge planer —nom de la peça i casella de destí ("el cavall captura a
-// d4")— sense notació algebraica, perquè sigui comprensible per a tothom.
+// llenguatge planer, amb el llenguatge que les DADES permeten:
+//   forçada      → "La seqüència forçada era..." (només si està demostrat)
+//   il·lustrativa→ "Una possible variant del motor és..." (línia real del
+//                   motor, però el rival tenia altres opcions raonables)
+//   sense dades  → no es narra la PV; només "La millor jugada era...".
+// Mai no es diu "línia guanyadora" ni "forçada" sense demostració.
 function buildContinuationNote(moment) {
     const m = moment || {};
     if (!m.fen) return '';
     const pv = Array.isArray(m.pv) ? m.pv : [];
-    if (pv.length < 2) return '';
-    const seq = describeLineHuman(m.fen, pv, 0, 3);
-    if (!seq) return '';
-    const lead = (coachEvalNum(m.evalBefore) !== null && m.evalBefore >= COACH_EVAL_DECISIVE)
-        ? 'La línia guanyadora era'
-        : 'La idea continuava amb';
-    return `${lead} ${seq}.`;
+    const fi = reviewForcingInfo(m);
+    const lang = ElTaulerCore.classifyPvLanguage({ bestPv: pv, forcingInfo: fi });
+    const seq = (lang !== 'unclear' && pv.length >= 2) ? describeLineHuman(m.fen, pv, 0, 3) : '';
+    let bestText = '';
+    if (m.bestDesc && m.bestDesc !== '—') bestText = withSan(m.bestDesc, m.best);
+    else if (m.bestMoveUci) bestText = withSan(moveHumanText(m.fen, m.bestMoveUci, m.best), m.best);
+    return ElTaulerCore.pvNarrationText(lang, {
+        lineText: seq,
+        bestText: bestText,
+        replyIsOnlyLegal: !!(fi && fi.replyIsOnlyLegal)
+    });
 }
 
 // ── FASE B — Classificació determinista del resultat de l'error ──────────────
@@ -20133,14 +20315,15 @@ function pickStableLine(pool, moment, salt = '') {
 }
 
 // El càstig concret de la jugada feta, en llenguatge planer (nom de la peça i
-// casella de destí) en comptes de notació algebraica.
+// casella de destí) en comptes de notació algebraica. En condicional ("podia"):
+// és la millor rèplica del motor, no una seqüència que hagi de passar per força.
 function buildRefutationNote(moment) {
     const m = moment || {};
     const afterFen = m.afterFen;
     const pv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
     if (!afterFen || pv.length < 1) return '';
     const seq = describeLineHuman(afterFen, pv, 0, 3);
-    return seq ? `Com et castiga: ${seq}.` : '';
+    return seq ? `Com et podia castigar el rival: ${seq}.` : '';
 }
 
 function buildStructuredConsequence(moment) {
@@ -20248,6 +20431,11 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
                 afterFen: r.afterFen || null,
                 fen: r.fen || null,
                 pv: Array.isArray(r.bestMovePv) ? r.bestMovePv : [],
+                // Dades de forçament de la línia (reanàlisi profunda o derivades
+                // al vol), per triar el llenguatge de la narració de la PV.
+                forcingInfo: r.forcingInfo || null,
+                multipvBefore: r.multipvBefore || null,
+                replyAlternatives: r.replyAlternatives || null,
                 positional: buildPositionalNote(ctx),
                 candidates: buildCandidatesNote(r),
                 isPattern

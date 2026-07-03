@@ -5,7 +5,7 @@ Proves mínimes amb [Jest](https://jestjs.io/) per a la lògica crítica de l'ap
 ## Com executar-les
 
 ```bash
-npm install   # només el primer cop (instal·la Jest)
+npm install   # només el primer cop (instal·la Jest i chess.js)
 npm test      # executa tota la suite
 ```
 
@@ -49,6 +49,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   jugador, línies de fase amb nombre de jugades i avís de poques dades, lliçó
   del dia i pla de 10 minuts, detecció de text inacabat (punts suspensius i
   connectors penjats) i escurçament per frases senceres sense «…».
+- **`forcing.test.js`** — llenguatge prudent per a les línies del motor (PV):
+  amb `chess.js` real (devDependency, la mateixa versió que carrega el
+  navegador) es verifica que una PV com «Bf4 Qxh2+ Kxh2» NO es presenta com a
+  «seqüència forçada» quan el rival tenia altres opcions (es diu «una possible
+  variant del motor és...»), que sí que es pot dir «forçada» amb mat demostrat
+  (per chess.js o per `score mate` del motor) o amb resposta única legal («la
+  resposta del rival era l’única legal»), i que sense prou dades només es diu
+  «la millor jugada era...». També cobreix els fets del tauler
+  (`createPvBoardHelpers`: escac, respostes legals, captura de dama, mat, peça
+  penjada), `computePvForcingInfo`/`classifyPvLanguage` i la redacció catalana
+  dels moviments (`descriuMovimentFets`: «la dama negra captura el peó a h2 amb
+  escac», «el rei blanc captura la dama a h2», color sempre explícit).
 
 ## Integració contínua
 
