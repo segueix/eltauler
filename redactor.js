@@ -652,19 +652,29 @@
         const f = fets || {};
         const o = opcions || {};
         const tecnic = o.estil === 'technical';
+        // En mode expert es dona preferentment la casella d'origen encara que no
+        // calgui desambiguar ("el cavall de c6 captura a e5"), perquè la
+        // descripció sigui tan precisa com la SAN. En casual/equilibrat només
+        // quan desambigua de debò (dues peces iguals), per no carregar la frase.
+        const origenSempre = tecnic;
         if (f.enroc === 'k') return { accio: "fer l'enroc curt", clausula: "el rei fa l'enroc curt" };
         if (f.enroc === 'q') return { accio: "fer l'enroc llarg", clausula: "el rei fa l'enroc llarg" };
         const nom = NOMS_PECES[f.peca];
         if (!nom || !f.desti) return null;
 
-        // Subjecte sense color: casella d'origen només quan desambigua de debò
-        // (dues peces iguals del mateix color) i, per al peó, la columna.
+        // Subjecte sense color. Per a les peces, la casella d'origen només
+        // quan desambigua de debò (dues peces iguals del mateix color). Per al
+        // peó, l'ACCIÓ (casual, sense SAN) diu "el peó de la columna X" perquè
+        // no quedi "el peó de a a a4"; la CLÀUSULA (acompanya la SAN, que ja
+        // mostra la columna) fa servir el subjecte curt "el peó".
+        const columna = f.peca === 'p' ? String(f.origen || '').charAt(0) : '';
+        const subjectePeoAccio = 'el peó' + (columna ? ' de la columna ' + columna : '');
+        const mostraOrigen = f.origen && (f.desambigua || origenSempre);
         let subjecte;
         if (f.peca === 'p') {
-            const columna = String(f.origen || '').charAt(0);
-            subjecte = 'el peó' + (columna ? ' de ' + columna : '');
+            subjecte = 'el peó';
         } else {
-            subjecte = articleNomPeca(nom + (f.desambigua && f.origen ? ' de ' + f.origen : ''));
+            subjecte = articleNomPeca(nom + (mostraOrigen ? ' de ' + f.origen : ''));
         }
 
         let accio, clausula;
@@ -672,15 +682,16 @@
             const objecte = articleNomPeca(NOMS_PECES[f.captura] || 'peça');
             // Sense casella d'origen, "amb el teu cavall" llegeix millor que
             // "amb el cavall" (sobretot si captura una peça del mateix nom).
-            const ambQui = (f.peca !== 'p' && !(f.desambigua && f.origen))
-                ? (PECES_FEMENINES[f.peca] ? 'la teva ' : 'el teu ') + nom
-                : subjecte;
+            const ambQui = f.peca === 'p'
+                ? subjectePeoAccio
+                : (mostraOrigen ? subjecte : (PECES_FEMENINES[f.peca] ? 'la teva ' : 'el teu ') + nom);
             accio = 'capturar ' + objecte + ' a ' + f.desti + ' amb ' + ambQui;
             // La peça capturada no es repeteix a la clàusula: la SAN del davant
             // (p. ex. Nxf6) ja diu que és una captura.
             clausula = subjecte + ' captura a ' + f.desti;
         } else if (f.peca === 'p') {
-            accio = 'avançar ' + subjecte + ' a ' + f.desti;
+            // "avançar el peó de la columna a fins a a4" (evita "de a a a4").
+            accio = 'avançar ' + subjectePeoAccio + ' fins a ' + f.desti;
             clausula = subjecte + ' avança a ' + f.desti;
         } else {
             accio = 'portar ' + subjecte + ' a ' + f.desti;

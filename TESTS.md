@@ -79,7 +79,10 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   fa Ne4) i que el número de jugada quadri amb el comptador de la FEN; i
   `auditReviewVoiceText` (core) detecta UCI visible, SAN nua en casual, la
   fletxa maquinal «→», la construcció «vas jugar el cavall … va a …» i el text
-  tallat amb el·lipsi.
+  tallat amb el·lipsi. El poliment de registres també s'hi cobreix: l'avanç de
+  peó es diu «el peó de la columna a fins a a4» (mai «de a a a4»), i en mode
+  expert la casella d'origen apareix encara que no calgui desambiguar («el
+  cavall de f3 captura a e5»), mentre que en casual s'omet quan no cal.
 
 ## Integració contínua
 

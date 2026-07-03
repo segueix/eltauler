@@ -74,6 +74,39 @@ describe('descriuJugadaPerVeu — tres registres per a la mateixa jugada', () =>
         expect(casual.accio).toBe('capturar el peó a f7 amb el teu cavall');
     });
 
+    test('avanç de peó: "de la columna X fins a Y" (mai "de a a a4")', () => {
+        const g = new Chess();
+        const f = facts(g.fen(), 'a2a4');
+        expect(f.san).toBe('a4');
+        const casual = Redactor.descriuJugadaPerVeu(f, { estil: 'casual' });
+        expect(casual.accio).toBe('avançar el peó de la columna a fins a a4');
+        expect(casual.accio).not.toMatch(/de a a a4/);
+        // La clàusula (acompanya la SAN, que ja mostra la columna) és curta.
+        expect(casual.clausula).toBe('el peó avança a a4');
+    });
+
+    test('captura de peó: "amb el peó de la columna X"', () => {
+        const g = new Chess();
+        ['e4', 'd5'].forEach(m => g.move(m));
+        const f = facts(g.fen(), 'e4d5');
+        expect(f.san).toBe('exd5');
+        const casual = Redactor.descriuJugadaPerVeu(f, { estil: 'casual' });
+        expect(casual.accio).toBe('capturar el peó a d5 amb el peó de la columna e');
+    });
+
+    test('mode expert: casella d\'origen encara que no calgui desambiguar', () => {
+        // Cavall únic a f3 captura a e5: casual no diu origen, tècnic sí.
+        const g = new Chess('4k3/8/8/4p3/8/5N2/8/4K3 w - - 0 1');
+        const f = facts(g.fen(), 'f3e5');
+        expect(f.san).toBe('Nxe5');
+        expect(f.desambigua).toBe(false);
+        const tech = Redactor.descriuJugadaPerVeu(f, { estil: 'technical' });
+        const casual = Redactor.descriuJugadaPerVeu(f, { estil: 'casual' });
+        expect(tech.clausula).toBe('el cavall de f3 captura a e5');
+        expect(casual.clausula).toBe('el cavall captura a e5');
+        expect(casual.accio).toBe('capturar el peó a e5 amb el teu cavall');
+    });
+
     test('coronació: "coronar el peó a e8 en dama"', () => {
         const g = new Chess('8/4P3/8/8/8/8/8/k1K5 w - - 0 1');
         const f = facts(g.fen(), 'e7e8q');
