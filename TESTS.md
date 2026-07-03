@@ -69,6 +69,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   mateixes dades i tres redaccions, i narració de la PV amb la mateixa
   prudència en tots els registres (cap veu no diu «forçada» sense demostració
   i cap text no queda tallat).
+- **`puzzles.test.js`** — jeroglífics tàctics: validació pas a pas de la solució
+  de 3 jugades (`puzzleSubmitMove`), criteris d'acceptació, dedup per FEN,
+  dificultat/explicació i, sobretot, el **classificador de final tàctic**
+  (`createHieroglyphicMotifHelpers` amb chess.js real): mat, escac amb/sense
+  avantatge, forquilla real rei+dama i falsa forquilla (peça que penja), clavada,
+  descoberta, promoció, guany de dama/torre i cap final permès (`none`). També el
+  filtre per preferència de final (`requiredFinalMotifs`) i les metadades d'una
+  variant legal treta d'una FEN real (`hieroglyphicVariantMeta`:
+  `origin: 'game_variant'`, conserva `sourceGameId`/`sourceFen` sense alterar la
+  partida).
 - **`voice-nomenclature.test.js`** — nomenclatura de jugades per veu (font única
   de veritat): `descriuJugadaPerVeu` (redactor) redacta la MATEIXA jugada com a
   acció en infinitiu (casual: «portar el cavall de f3 a h4»), clàusula sense

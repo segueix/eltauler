@@ -670,6 +670,27 @@
         .hg-panel .hg-comment {
             font-size: 0.92rem; font-weight: bold; color: var(--text-primary);
         }
+        /* Etiquetes petites d'origen i final del jeroglífic. */
+        .hg-panel .hg-tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0 2px; }
+        .hg-panel .hg-tag {
+            display: inline-flex; align-items: center; padding: 2px 8px; border-radius: 999px;
+            font-size: 0.68rem; font-weight: 700; letter-spacing: 0.02em;
+            background: rgba(124, 77, 201, 0.14); color: var(--accent-purple, #7c4dc9);
+            border: 1px solid rgba(124, 77, 201, 0.30);
+        }
+        .hg-panel .hg-tag-origin.hg-origin-game_variant { background: rgba(31, 95, 168, 0.14); color: var(--accent-blue, #1f5fa8); border-color: rgba(31, 95, 168, 0.30); }
+        .hg-panel .hg-tag-origin.hg-origin-composition { background: rgba(201, 162, 39, 0.16); color: var(--accent-gold, #c9a227); border-color: rgba(201, 162, 39, 0.34); }
+        .hg-panel .hg-tag-final { background: rgba(46, 204, 113, 0.14); color: #2ecc71; border-color: rgba(46, 204, 113, 0.30); }
+        .hg-panel .hg-origin-note { font-size: 0.78rem; color: var(--text-secondary); line-height: 1.4; margin-top: 3px; }
+        body.epaper-mode .hg-panel .hg-tag { background: #e0e0e0 !important; color: #333 !important; border-color: #bbb !important; }
+        body.epaper-mode .hg-panel .hg-origin-note { color: #444; }
+        /* Selector de final del jeroglífic (a la secció de jeroglífics). */
+        .hg-final-selector { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 10px 0 4px; }
+        .hg-final-selector label { font-size: 0.78rem; color: var(--text-secondary); font-weight: 600; }
+        .hg-final-selector select {
+            font-size: 0.82rem; padding: 4px 8px; border-radius: 8px;
+            border: 1px solid rgba(124, 77, 201, 0.35); background: var(--bg-card, #222); color: var(--text-primary);
+        }
         .hg-panel .hg-history-title {
             font-size: 0.74rem; text-transform: uppercase; letter-spacing: 0.04em;
             color: var(--text-secondary); margin-bottom: 4px;
@@ -3395,6 +3416,19 @@
                             <span class="training-title">Jeroglífic</span>
                             <span class="training-desc" id="bestline-info">Troba els 3 millors moviments</span>
                         </button>
+                    </div>
+                    <div class="hg-final-selector">
+                        <label for="hg-final-select">Final del jeroglífic</label>
+                        <select id="hg-final-select">
+                            <option value="any">Qualsevol</option>
+                            <option value="mate">Escac i mat</option>
+                            <option value="check">Escac</option>
+                            <option value="fork">Forquilla</option>
+                            <option value="pin">Clavada</option>
+                            <option value="discovery">Descoberta</option>
+                            <option value="promotion">Promoció</option>
+                            <option value="major_win">Guany de dama o torre</option>
+                        </select>
                     </div>
                 </div>
             </div>

@@ -6698,6 +6698,59 @@ function getPuzzles(status) {
     return puzzles.filter(p => p && p.status === status);
 }
 
+// ── Classificador de FINAL TÀCTIC ───────────────────────────────────────────
+// Embolcall prim sobre el classificador pur de core.js (necessita chess.js).
+// Un jeroglífic només s'aprova si acaba amb una imatge tàctica clara: mat,
+// escac (amb avantatge), forquilla, clavada, descoberta, promoció o guany de
+// dama/torre.
+const HIERO_ALLOWED_FINAL_MOTIFS = ElTaulerCore.HIERO_ALLOWED_FINAL_MOTIFS;
+const HIERO_FINAL_MOTIF_LABELS = ElTaulerCore.HIERO_FINAL_MOTIF_LABELS;
+let _hieroMotifHelpers = null;
+function hieroMotifHelpers() {
+    if (_hieroMotifHelpers) return _hieroMotifHelpers;
+    if (typeof Chess === 'undefined') return null;
+    _hieroMotifHelpers = ElTaulerCore.createHieroglyphicMotifHelpers(Chess);
+    return _hieroMotifHelpers;
+}
+function classifyPuzzleFinalMotif(initialFen, fullLineUci, opts = {}) {
+    const H = hieroMotifHelpers();
+    if (!H) return { motif: 'none', motifs: [], isCheck: false, isMate: false, finalFen: null, finalMoveUci: null, finalMoveSan: null, confidence: 'low', reason: 'Sense motor d’escacs disponible.' };
+    return H.classifyPuzzleFinalMotif(initialFen, fullLineUci, opts);
+}
+// Construeix la línia completa UCI (jugador + rèpliques entremig) d'un puzzle a
+// partir de solutionUci/engineRepliesUci si no en porta ja de feta.
+function puzzleFullLineUci(p) {
+    if (p && Array.isArray(p.fullLineUci) && p.fullLineUci.length) return p.fullLineUci.slice();
+    const sol = (p && Array.isArray(p.solutionUci)) ? p.solutionUci : (p && Array.isArray(p.solutionMoves) ? p.solutionMoves : []);
+    const rep = (p && Array.isArray(p.engineRepliesUci)) ? p.engineRepliesUci : (p && Array.isArray(p.replyMoves) ? p.replyMoves : []);
+    const line = [];
+    for (let i = 0; i < sol.length; i++) {
+        line.push(sol[i]);
+        if (rep[i] && i < sol.length - 1) line.push(rep[i]);
+    }
+    return line;
+}
+// Calcula el motiu de final i el desa dins del puzzle (finalMotif, finalMotifs,
+// finalMotifLabel, finalMotifReason, finalMotifConfidence). Retorna motifInfo.
+function attachFinalMotif(p, opts = {}) {
+    if (!p || !p.fen) return null;
+    const line = puzzleFullLineUci(p);
+    const info = classifyPuzzleFinalMotif(p.fen, line, Object.assign({
+        finalEval: typeof p.finalEval === 'number' ? p.finalEval : undefined,
+        marginOk: p.endsInMate || p.bestMoveMargin === Infinity || (typeof p.bestMoveMargin === 'number' && p.bestMoveMargin >= 150)
+    }, opts));
+    p.finalMotif = info.motif;
+    p.finalMotifs = info.motifs;
+    p.finalMotifLabel = HIERO_FINAL_MOTIF_LABELS[info.motif] || null;
+    p.finalMotifReason = info.reason;
+    p.finalMotifConfidence = info.confidence;
+    return info;
+}
+if (typeof window !== 'undefined') {
+    window.classifyPuzzleFinalMotif = classifyPuzzleFinalMotif;
+    window.attachFinalMotif = attachFinalMotif;
+}
+
 // Desa un puzzle: dedup per FEN, completa dificultat/rating/explicació i
 // AUTO-APROVA si compleix els criteris (si no, queda 'rejected'). Retorna el
 // puzzle desat o null si era duplicat / dades incompletes.
@@ -6721,8 +6774,12 @@ function savePuzzleDraft(raw) {
     p.difficulty = ElTaulerCore.puzzleDifficulty(p);
     p.ratingEstimate = ElTaulerCore.puzzleRatingEstimate(p);
     p.explanation = ElTaulerCore.puzzleExplanation(p);
-    // Auto-aprovació segons criteris (gap ≥150 o mat, final decisiu, 3 jugades).
-    p.status = ElTaulerCore.puzzleMeetsCriteria(p) ? 'approved' : 'rejected';
+    p.origin = p.origin || 'game_real';
+    // Classifica el final tàctic i el desa dins del puzzle.
+    try { attachFinalMotif(p); } catch (e) { p.finalMotif = p.finalMotif || 'none'; }
+    // Auto-aprovació: a més dels criteris de qualitat (gap ≥150 o mat, final
+    // decisiu, 3 jugades) cal un FINAL TÀCTIC permès amb confiança no baixa.
+    p.status = ElTaulerCore.hieroglyphicMeetsFinalMotifCriteria(p, { requiredFinalMotifs: HIERO_ALLOWED_FINAL_MOTIFS }) ? 'approved' : 'rejected';
 
     puzzles.push(p);
     if (puzzles.length > 500) puzzles = puzzles.slice(-500);
@@ -11635,6 +11692,28 @@ const HIERO_STATS_KEY = 'eltauler_hieroglyphic_stats';
 // Historial de jeroglífics resolts (clau amb prefix eltauler_ → se sincronitza al
 // núvol amb la resta de dades, així queda disponible des de qualsevol aparell).
 const HIERO_HISTORY_KEY = 'eltauler_hieroglyphic_history';
+// Preferència de FINAL del jeroglífic (selector de la UI). Valors interns:
+// 'any' | 'mate' | 'check' | 'fork' | 'pin' | 'discovery' | 'promotion' | 'major_win'.
+const HIERO_PREF_FINAL_KEY = 'eltauler_hieroglyphic_final_pref';
+let hieroglyphicPreferredFinalMotif = 'any';
+function loadHieroglyphicPreferredFinalMotif() {
+    const v = readJsonStorage(HIERO_PREF_FINAL_KEY, 'any');
+    hieroglyphicPreferredFinalMotif = (v === 'any' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(v) !== -1) ? v : 'any';
+    return hieroglyphicPreferredFinalMotif;
+}
+function setHieroglyphicPreferredFinalMotif(motif) {
+    const v = (motif === 'any' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(motif) !== -1) ? motif : 'any';
+    hieroglyphicPreferredFinalMotif = v;
+    writeJsonStorage(HIERO_PREF_FINAL_KEY, v);
+    return v;
+}
+// El puzzle `p` encaixa amb la preferència actual (o amb `pref` si es passa)?
+function hieroglyphicMatchesFinalPref(p, pref) {
+    const want = pref || hieroglyphicPreferredFinalMotif || 'any';
+    if (want === 'any') return true;
+    if (!p) return false;
+    return p.finalMotif === want || (Array.isArray(p.finalMotifs) && p.finalMotifs.indexOf(want) !== -1);
+}
 // Dades del jeroglífic en curs (per registrar l'historial i permetre reintentar-lo)
 // i comptador d'errades de l'intent actual (per saber si s'ha resolt a la primera).
 let currentHieroglyphicPuzzle = null;
@@ -12739,6 +12818,15 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
         theme: puzzle.theme || null,
         tacticKind: puzzle.tacticKind || null,
         playerMove: puzzle.playerMove || null,
+        // Final tàctic i origen (per mostrar-los i reconstruir-los en reintentar).
+        finalMotif: puzzle.finalMotif || (existing && existing.finalMotif) || null,
+        finalMotifs: puzzle.finalMotifs || (existing && existing.finalMotifs) || null,
+        finalMotifLabel: puzzle.finalMotifLabel || (existing && existing.finalMotifLabel) || null,
+        origin: puzzle.origin || (existing && existing.origin) || 'game_real',
+        sourceGameId: puzzle.sourceGameId || (existing && existing.sourceGameId) || null,
+        sourceFen: puzzle.sourceFen || (existing && existing.sourceFen) || puzzle.fen,
+        sourceMoveNumber: puzzle.sourceMoveNumber ?? (existing && existing.sourceMoveNumber) ?? null,
+        adaptationNote: puzzle.adaptationNote || (existing && existing.adaptationNote) || null,
         moves: (Array.isArray(puzzle.solutionMoves) && puzzle.solutionMoves.length) || 3,
         difficultyPercent: hieroglyphicDifficultyPercent(puzzle),
         solved: !!solved,
@@ -13550,6 +13638,8 @@ async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
     }
     return Object.assign({}, candidate, {
         stockfishValidated: true,
+        // La seqüència REAL de la tàctica que ja va aparèixer a la partida.
+        origin: 'game_real',
         engineDepth: opts.depth || 14,
         evalBefore: stepEvals[0] ?? candidate.evalBefore ?? null,
         alternatives: stepAlternatives[0] || [],
@@ -13575,6 +13665,9 @@ function candidateFromPreparedBestLine(candidate, prepared) {
     if (solution.length < 2) return null;
     return Object.assign({}, candidate, {
         stockfishValidated: true,
+        // Línia trobada per Stockfish des d'una FEN real: és una VARIANT legal,
+        // no necessàriament la que es va jugar a la partida.
+        origin: candidate.origin === 'game_real' ? 'game_variant' : (candidate.origin || 'game_variant'),
         engineDepth: 14,
         evalBefore: prepared.step1.evalBefore ?? candidate.evalBefore ?? null,
         alternatives: prepared.step1.alternatives || [],
@@ -13607,6 +13700,34 @@ async function closeHieroglyphicCandidateWithStockfish(candidate, opts = {}) {
     }
     return null;
 }
+// Classifica el final tàctic d'un candidat ja validat amb Stockfish i li desa
+// les metadades (finalMotif…). Retorna false si el final NO és tàctic permès o
+// si té confiança baixa (llavors el candidat es descarta), o si es demana un
+// motiu concret que no coincideix. Així, cap jeroglífic del rebost queda sense
+// un final clar i verificable.
+function stampHieroglyphicFinalMotif(candidate, opts = {}) {
+    if (!candidate || !candidate.fen) return false;
+    const solution = (candidate.solutionMoves || []).slice(0, 3);
+    const replies = (candidate.replyMoves || []).slice(0, Math.max(0, solution.length - 1));
+    const line = [];
+    for (let i = 0; i < solution.length; i++) { line.push(solution[i]); if (replies[i] && i < solution.length - 1) line.push(replies[i]); }
+    const info = classifyPuzzleFinalMotif(candidate.fen, line, {
+        finalEval: typeof candidate.evalAfter === 'number' ? candidate.evalAfter : (typeof candidate.evalBefore === 'number' ? candidate.evalBefore : undefined)
+    });
+    if (!info || !info.motif || info.motif === 'none') return false;
+    if (HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1) return false;
+    if (info.confidence === 'low') return false;
+    const required = opts.requiredFinalMotif && opts.requiredFinalMotif !== 'any' ? opts.requiredFinalMotif : null;
+    if (required && info.motif !== required && (info.motifs || []).indexOf(required) === -1) return false;
+    candidate.finalMotif = info.motif;
+    candidate.finalMotifs = info.motifs;
+    candidate.finalMotifLabel = HIERO_FINAL_MOTIF_LABELS[info.motif] || null;
+    candidate.finalMotifReason = info.reason;
+    candidate.finalMotifConfidence = info.confidence;
+    candidate.origin = candidate.origin || 'game_real';
+    return true;
+}
+
 async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = {}) {
     const recent = new Set((hieroglyphicStats.generatedFens || []).slice(-8));
     const exclude = opts.excludeFens instanceof Set ? opts.excludeFens : new Set(opts.excludeFens || []);
@@ -13619,17 +13740,114 @@ async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = 
     }
     for (const candidate of tacticCandidates.slice(0, opts.maxCandidates || 8)) {
         const validated = await closeHieroglyphicCandidateWithStockfish(candidate, opts);
-        if (validated) return validated;
+        // Filtre de FINAL TÀCTIC obligatori: només acceptem el candidat si acaba
+        // en un motiu permès i clar (i, si l'usuari n'ha triat un, que coincideixi).
+        if (validated && stampHieroglyphicFinalMotif(validated, opts)) return validated;
     }
     return null;
 }
 
+// ── Variant legal des d'una partida (origin: 'game_variant') ─────────────────
+// Extreu FENs REALS d'una partida (errades i moments clau primer, després totes
+// les posicions abans de jugada del jugador) sense modificar la partida.
+function extractGameEntryCandidateFens(entry, maxN = 12) {
+    const out = [];
+    const seen = new Set();
+    const add = (fen, moveNumber) => {
+        const key = ElTaulerCore.puzzleFenKey(fen);
+        if (fen && key && !seen.has(key)) { seen.add(key); out.push({ fen, moveNumber: moveNumber || null }); }
+    };
+    (entry && Array.isArray(entry.errors) ? entry.errors : []).forEach(e => { if (e && e.fen) add(e.fen, e.moveNumber); });
+    (entry && Array.isArray(entry.moveReviews) ? entry.moveReviews : []).forEach(r => {
+        if (r && r.fen && (['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80)) add(r.fen, r.moveNumber);
+    });
+    const moves = entryMovesForHieroglyphicScan(entry);
+    if (moves.length) {
+        try {
+            const g = new Chess();
+            for (let i = 0; i < moves.length; i++) {
+                const beforeFen = g.fen();
+                const mv = g.move(moves[i], { sloppy: true });
+                if (!mv) break;
+                add(beforeFen, Math.ceil((i + 1) / 2)); // posició abans d'aquesta jugada
+            }
+        } catch (e) {}
+    }
+    return out.slice(0, maxN);
+}
+
+// Construeix un jeroglífic com a VARIANT LEGAL des d'una FEN real de la partida:
+// per cada FEN candidata crida prepareBestLineExercise (línia alternativa de
+// Stockfish) i exigeix que el final passi classifyPuzzleFinalMotif. No altera la
+// partida ni canvia peces de lloc: només busca una variant que ja hi era amagada.
+async function tryBuildAdaptedHieroglyphicFromGameEntry(entry, opts = {}) {
+    if (!entry) return null;
+    const shouldAbort = opts.shouldAbort || null;
+    const requiredMotif = opts.requiredFinalMotif && opts.requiredFinalMotif !== 'any' ? opts.requiredFinalMotif : null;
+    const exclude = opts.excludeFens instanceof Set ? opts.excludeFens : new Set(opts.excludeFens || []);
+    const fens = extractGameEntryCandidateFens(entry, opts.maxCandidates || 12).filter(x => !exclude.has(x.fen));
+    for (const { fen, moveNumber } of fens) {
+        if (shouldAbort && shouldAbort()) return null;
+        const prepared = await prepareBestLineExercise(fen, { playerMoves: 3, gapCp: opts.minGapCp || 80, depth: opts.depth || 14, shouldAbort });
+        if (!prepared || !prepared.step1) continue;
+        const line = prepared.fullSequence || [];
+        const info = classifyPuzzleFinalMotif(fen, line, { finalEval: prepared.step1.evalBefore });
+        if (!info || info.motif === 'none' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1 || info.confidence === 'low') continue;
+        if (requiredMotif && info.motif !== requiredMotif && (info.motifs || []).indexOf(requiredMotif) === -1) continue;
+        const solution = [];
+        const replies = [];
+        for (let i = 1; i <= (prepared.totalSteps || 3); i++) {
+            const step = prepared['step' + i];
+            if (step && step.playerMove) solution.push(step.playerMove);
+            const reply = i === 1 ? prepared.opponentMove : (i === 2 ? prepared.opponentMove2 : null);
+            if (reply && reply.move) replies.push(reply.move);
+        }
+        if (solution.length < 3) continue;
+        const steps = [prepared.step1, prepared.step2, prepared.step3].filter(Boolean);
+        return Object.assign({
+            fen,
+            bestMove: solution[0],
+            bestMoveSan: prepared.step1.playerMoveSan || null,
+            pv: prepared.step1.playerMovePv || line,
+            lineUci: line,
+            solutionMoves: solution.slice(0, 3),
+            replyMoves: replies.slice(0, Math.max(0, solution.length - 1)),
+            stepAlternatives: steps.map(s => s.alternatives || []),
+            stepEvals: steps.map(s => s.evalBefore ?? null),
+            stepPvs: steps.map(s => s.playerMovePv || []),
+            evalBefore: prepared.step1.evalBefore ?? null,
+            source: 'gameHistory.tactic',
+            stockfishValidated: true,
+            engineDepth: opts.depth || 14,
+            finalMotif: info.motif,
+            finalMotifs: info.motifs,
+            finalMotifLabel: HIERO_FINAL_MOTIF_LABELS[info.motif] || null,
+            finalMotifReason: info.reason,
+            finalMotifConfidence: info.confidence,
+            theme: info.motif,
+            tacticKind: HIERO_FINAL_MOTIF_LABELS[info.motif] || null
+        }, ElTaulerCore.hieroglyphicVariantMeta(entry, fen, moveNumber));
+    }
+    return null;
+}
+if (typeof window !== 'undefined') {
+    window.tryBuildAdaptedHieroglyphicFromGameEntry = tryBuildAdaptedHieroglyphicFromGameEntry;
+    window.extractGameEntryCandidateFens = extractGameEntryCandidateFens;
+}
+
 async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
     if (personalHieroglyphicPrepInFlight) return false;
-    if (personalHieroglyphicPool.length >= PERSONAL_HIERO_POOL_TARGET) return false;
+    // Si l'usuari demana un motiu concret i el rebost no en té cap, permetem
+    // preparar-ne un encara que el rebost estigui ple d'altres motius.
+    const pref = opts.requiredFinalMotif || hieroglyphicPreferredFinalMotif || 'any';
+    const needPreferred = pref !== 'any' && !personalHieroglyphicPool.some(p => hieroglyphicMatchesFinalPref(p, pref));
+    if (personalHieroglyphicPool.length >= PERSONAL_HIERO_POOL_TARGET && !needPreferred) return false;
     const poolFens = new Set(personalHieroglyphicPool.map(p => p.fen));
     const candidates = collectPersonalHieroglyphicCandidates(null).filter(c => !poolFens.has(c.fen));
-    if (!candidates.length) { refreshJeroglificButton(); return false; }
+    const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-6).reverse() : [];
+    // Si no hi ha ni candidats de tàctica jugada ni partides on buscar variants,
+    // no hi ha res a preparar.
+    if (!candidates.length && !recentGames.length) { refreshJeroglificButton(); return false; }
     // En segon pla no toquem la UI (no deshabilitem botons): la generació ha de ser
     // invisible perquè ara corre a qualsevol pantalla, no només al menú.
     const silent = !!opts.background;
@@ -13637,7 +13855,20 @@ async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
     personalHieroglyphicLastAttempt = Date.now();
     if (!silent) setHieroglyphicGenerating(true);
     try {
-        const prepared = await chooseStockfishValidatedHieroglyphicCandidate(candidates, Object.assign({}, opts, { excludeFens: poolFens }));
+        const chooseOpts = Object.assign({}, opts, { excludeFens: poolFens });
+        // Quan hi ha preferència, dirigim la cerca cap a aquell motiu.
+        if (pref !== 'any') chooseOpts.requiredFinalMotif = pref;
+        // PRIORITAT 1 — game_real: la tàctica que ja va aparèixer a la partida.
+        let prepared = await chooseStockfishValidatedHieroglyphicCandidate(candidates, chooseOpts);
+        // PRIORITAT 2 — game_variant: una variant legal amagada des d'una FEN real.
+        if (!prepared) {
+            for (const entry of recentGames) {
+                prepared = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, chooseOpts);
+                if (prepared) break;
+                if (opts.shouldAbort && opts.shouldAbort()) break;
+            }
+        }
+        // PRIORITAT 3 — composition: reservada (el banc artificial està desactivat).
         if (prepared && !personalHieroglyphicPool.some(p => p.fen === prepared.fen)) {
             personalHieroglyphicPool.push(prepared);
         }
@@ -13651,7 +13882,21 @@ async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
     return personalHieroglyphicPool.length > 0;
 }
 function takePreparedPersonalHieroglyphic() {
-    const prepared = personalHieroglyphicPool.shift() || null;
+    // Si l'usuari ha triat un motiu concret, busca primer al rebost un puzzle que
+    // hi coincideixi; si no n'hi ha cap, no en servim cap d'un altre motiu (es
+    // prepararà en segon pla el que toqui).
+    const pref = hieroglyphicPreferredFinalMotif || 'any';
+    let idx = 0;
+    if (pref !== 'any') {
+        idx = personalHieroglyphicPool.findIndex(p => hieroglyphicMatchesFinalPref(p, pref));
+        if (idx < 0) {
+            // No hi ha cap puzzle del motiu demanat: dispara una preparació dirigida.
+            if (typeof ensurePersonalHieroglyphicPoolTick === 'function') setTimeout(() => { void ensurePersonalHieroglyphicPoolTick({ background: true }); }, 50);
+            refreshJeroglificButton();
+            return null;
+        }
+    }
+    const prepared = personalHieroglyphicPool.splice(idx, 1)[0] || null;
     refreshJeroglificButton();
     if (typeof backgroundPrepTick === 'function') setTimeout(backgroundPrepTick, 800);
     return prepared;
@@ -13841,7 +14086,17 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
             playerMove: chosen.playerMove || null,
             swing: chosen.swing ?? null,
             ratingEstimate: chosen.ratingEstimate ?? null,
-            difficultyPercent: hieroglyphicDifficultyPercent(chosen)
+            difficultyPercent: hieroglyphicDifficultyPercent(chosen),
+            // Final tàctic i origen (per a les etiquetes visibles i l'historial).
+            finalMotif: chosen.finalMotif || null,
+            finalMotifs: chosen.finalMotifs || null,
+            finalMotifLabel: chosen.finalMotifLabel || (chosen.finalMotif ? HIERO_FINAL_MOTIF_LABELS[chosen.finalMotif] : null),
+            finalMotifReason: chosen.finalMotifReason || null,
+            origin: chosen.origin || 'game_real',
+            sourceGameId: chosen.sourceGameId || chosen.entryId || null,
+            sourceFen: chosen.sourceFen || chosen.fen,
+            sourceMoveNumber: chosen.sourceMoveNumber ?? chosen.moveNumber ?? null,
+            adaptationNote: chosen.adaptationNote || null
         };
         currentHieroglyphicWrongMoves = 0;
         // Registra el jeroglífic generat a l'historial sincronitzat (pendent fins resoldre'l).
@@ -13873,11 +14128,35 @@ function retryHieroglyphicFromHistory(id) {
         theme: entry.theme,
         tacticKind: entry.tacticKind,
         playerMove: entry.playerMove,
-        difficultyPercent: entry.difficultyPercent ?? null
+        difficultyPercent: entry.difficultyPercent ?? null,
+        finalMotif: entry.finalMotif || null,
+        finalMotifs: entry.finalMotifs || null,
+        finalMotifLabel: entry.finalMotifLabel || (entry.finalMotif ? HIERO_FINAL_MOTIF_LABELS[entry.finalMotif] : null),
+        origin: entry.origin || 'game_real',
+        sourceGameId: entry.sourceGameId || null,
+        sourceFen: entry.sourceFen || entry.fen,
+        sourceMoveNumber: entry.sourceMoveNumber ?? null,
+        adaptationNote: entry.adaptationNote || null
     };
     startPersonalHieroglyphicFromLastGame(null, chosen);
 }
 if (typeof window !== 'undefined') window.retryHieroglyphicFromHistory = retryHieroglyphicFromHistory;
+
+// Etiquetes d'ORIGEN visibles per a l'usuari. Mai no s'ha de presentar una
+// variant com si fos la partida real, ni una composició com si hagués passat.
+const HIERO_ORIGIN_LABELS = {
+    game_real: 'Extret de la teva partida',
+    game_variant: 'Variant amagada de la teva partida',
+    composition: 'Composició tàctica'
+};
+const HIERO_ORIGIN_NOTES = {
+    game_real: 'Aquest jeroglífic surt d’una posició real de la teva partida.',
+    game_variant: 'Aquesta combinació no va passar a la partida, però era una variant legal amagada.',
+    composition: 'No hi havia cap motiu clar a les teves partides recents; t’he preparat una composició tàctica.'
+};
+function hieroglyphicOriginLabel(origin) { return HIERO_ORIGIN_LABELS[origin] || HIERO_ORIGIN_LABELS.game_real; }
+function hieroglyphicOriginNote(origin) { return HIERO_ORIGIN_NOTES[origin] || HIERO_ORIGIN_NOTES.game_real; }
+function hieroglyphicFinalLabel(motif) { return motif ? (HIERO_FINAL_MOTIF_LABELS[motif] || null) : null; }
 
 // Mostra, sota el comentari del tauler, el comentari del jeroglífic i el seu
 // historial (resolt a la primera o no) amb opció de reintentar.
@@ -13893,7 +14172,17 @@ function renderHieroglyphicPanel() {
     }
     const moves = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.solutionMoves && currentHieroglyphicPuzzle.solutionMoves.length)
         || hieroglyphicSolutionUci.length || 3;
-    panel.html(`<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`).show();
+    // Etiquetes petites d'ORIGEN i FINAL (sense enganyar l'usuari: variant =
+    // variant, composició = composició).
+    const origin = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.origin) || 'game_real';
+    const finalLabel = hieroglyphicFinalLabel(currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.finalMotif);
+    let tags = `<span class="hg-tag hg-tag-origin hg-origin-${origin}">${escapeHtml(hieroglyphicOriginLabel(origin))}</span>`;
+    if (finalLabel) tags += `<span class="hg-tag hg-tag-final">Final: ${escapeHtml(finalLabel)}</span>`;
+    panel.html(
+        `<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`
+        + `<div class="hg-tags">${tags}</div>`
+        + `<div class="hg-origin-note">${escapeHtml(hieroglyphicOriginNote(origin))}</div>`
+    ).show();
 
     // L'historial manté sempre el mateix ordre, fins i tot mentre es juga un dels
     // seus jeroglífics: si l'amaguéssim mentre està actiu, la llista es reordenaria
@@ -15185,6 +15474,19 @@ function setupEvents() {
         startTacticsPuzzle();
     });
     $('#btn-bestline').off('click').on('click', () => { void startBestLineExercise(); });
+    // Selector de FINAL del jeroglífic: desa la preferència a localStorage i, si
+    // el rebost no té cap puzzle d'aquell motiu, en prepara un en segon pla.
+    // No recalcula res si ja n'hi ha un de preparat que encaixa.
+    loadHieroglyphicPreferredFinalMotif();
+    const $hgFinal = $('#hg-final-select');
+    if ($hgFinal.length) {
+        $hgFinal.val(hieroglyphicPreferredFinalMotif);
+        $hgFinal.off('change').on('change', function () {
+            const v = setHieroglyphicPreferredFinalMotif($(this).val());
+            const hasMatch = Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.some(p => hieroglyphicMatchesFinalPref(p, v));
+            if (!hasMatch) { void ensurePersonalHieroglyphicPoolTick({ background: true, requiredFinalMotif: v }); }
+        });
+    }
     refreshJeroglificButton(); // actiu si hi ha un de nou o algun pendent per refer
 
     $(document).on('click', '.eng-cta', function() {
@@ -16239,16 +16541,30 @@ async function startBestLineExercise() {
     // Rectificació: el botó Jeroglífic ja no usa bancs de mat ni finals KQ/KR.
     // Obre un jeroglífic nou si ja està validat; si encara no n'hi ha cap, permet
     // refer-ne un de l'historial que no hagi sortit a la primera.
-    if (jeroglificsReady()) {
+    const pref = hieroglyphicPreferredFinalMotif || 'any';
+    // Només obrim un jeroglífic del rebost si encaixa amb el final demanat.
+    const hasMatch = Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.some(p => hieroglyphicMatchesFinalPref(p, pref));
+    if (hasMatch) {
         await startPersonalHieroglyphicFromLastGame(null);
         return;
     }
-    const retry = retryableHieroglyphicHistory()[0];
+    // Un jeroglífic pendent de l'historial que encaixi amb el final demanat.
+    const retry = retryableHieroglyphicHistory().find(e => pref === 'any' || hieroglyphicMatchesFinalPref(e, pref));
     if (retry) {
         retryHieroglyphicFromHistory(retry.id);
         return;
     }
-    void ensurePersonalHieroglyphicPoolTick();
+    // No n'hi ha cap de preparat: en preparem en segon pla i informem amb calma.
+    void ensurePersonalHieroglyphicPoolTick({ requiredFinalMotif: pref !== 'any' ? pref : undefined });
+    const hasGames = Array.isArray(gameHistory) && gameHistory.length > 0;
+    if (!hasGames) {
+        showToast('Juga unes quantes partides i podré crear jeroglífics personals a partir dels teus moments clau.', 'warn');
+        return;
+    }
+    if (pref !== 'any') {
+        showToast('Encara no tinc cap jeroglífic amb aquest final. N’estic preparant un amb posicions de les teves partides.', 'warn');
+        return;
+    }
     showToast('Encara s’està preparant un jeroglífic personal validat.', 'warn');
 }
 
