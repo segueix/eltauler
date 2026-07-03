@@ -63,6 +63,12 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   penjada), `computePvForcingInfo`/`classifyPvLanguage` i la redacció catalana
   dels moviments (`descriuMovimentFets`: «la dama negra captura el peó a h2 amb
   escac», «el rei blanc captura la dama a h2», color sempre explícit).
+- **`voice.test.js`** — veu de l'entrenador (casual / equilibrada / tècnica):
+  normalització d'estils (valors invàlids o antics cauen a `balanced`), lliçó
+  del dia, avís de poques dades, pla de 10 minuts i intro de color amb les
+  mateixes dades i tres redaccions, i narració de la PV amb la mateixa
+  prudència en tots els registres (cap veu no diu «forçada» sense demostració
+  i cap text no queda tallat).
 
 ## Integració contínua
 

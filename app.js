@@ -19749,12 +19749,22 @@ function lintLocalBanks() {
         Object.keys(OFFLINE_MAXIMS).forEach(k => checkPool(OFFLINE_MAXIMS[k], `OFFLINE_MAXIMS.${k}`, null));
         Object.keys(COACH_LEVEL_TIPS).forEach(k => checkPool(COACH_LEVEL_TIPS[k], `COACH_LEVEL_TIPS.${k}`, null));
         COACH_VOICES.forEach(v => { checkPool(v.openers, `voice.${v.id}.openers`, null); checkPool(v.signoffs, `voice.${v.id}.signoffs`, null); });
+        // Bancs de la veu de l'entrenador (l'equilibrada reutilitza els d'aquí sobre).
+        ['casual', 'technical'].forEach(s => {
+            const v = REVIEW_VOICE_TEXT[s];
+            Object.keys(v.debrief).forEach(c => checkPool(v.debrief[c], `REVIEW_VOICE_TEXT.${s}.debrief.${c}`, ALLOWED_DEBRIEF));
+            ['outcomeConsequence', 'outcomeDiagnosis', 'outcomePlan'].forEach(g =>
+                Object.keys(v[g]).forEach(k => checkPool(v[g][k], `REVIEW_VOICE_TEXT.${s}.${g}.${k}`, null)));
+            checkPool(v.motivation, `REVIEW_VOICE_TEXT.${s}.motivation`, null);
+        });
     } catch (e) { issues.push('error linter: ' + e.message); }
     if (issues.length) console.warn(`[BankLint] ${issues.length} problema(es):\n` + issues.join('\n'));
     else console.log('[BankLint] Tots els bancs locals OK');
     return issues;
 }
-try { if (typeof localStorage !== 'undefined' && localStorage.getItem('eltauler_lint') === '1') lintLocalBanks(); } catch (e) {}
+// S'executa amb un setTimeout perquè els bancs de la veu (REVIEW_VOICE_TEXT)
+// es declaren més avall i cal que tot el fitxer s'hagi avaluat abans.
+try { if (typeof localStorage !== 'undefined' && localStorage.getItem('eltauler_lint') === '1') setTimeout(lintLocalBanks, 0); } catch (e) {}
 
 // Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
 // Usa l'anti-repetició persistent compartida (pickFreshPlanLine) i memoritza el
