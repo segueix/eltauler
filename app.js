@@ -7677,6 +7677,11 @@ function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
     activeReviewHighlight = null; // nova partida: cap moment clau actiu encara
+    // La veu temporal és de cada ressenya oberta: en obrir-ne una altra,
+    // es torna a la veu per defecte de l'usuari.
+    historyReviewVoiceOverride = null;
+    const voiceSel = document.getElementById('history-voice-select');
+    if (voiceSel) voiceSel.value = getReviewVoiceStyle();
     // Engega la construcció del graf de posicions (si encara no s'ha fet): així,
     // quan estigui llest, la ressenya s'actualitzarà amb el nom d'obertura precís.
     try { prewarmOpeningPositionGraph(); } catch (e) {}
@@ -14808,6 +14813,25 @@ function setupEvents() {
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
+    // Veu de la ressenya oberta: canvia NOMÉS aquesta ressenya (regenera el
+    // text local amb les mateixes dades; ni Stockfish ni reanàlisi). El botó
+    // «Fer per defecte» converteix la veu triada en la de tota l'app.
+    $('#history-voice-select').off('change').on('change', function() {
+        historyReviewVoiceOverride = ElTaulerCore.normalizeReviewVoiceStyle($(this).val());
+        $(this).val(historyReviewVoiceOverride);
+        if (historyReplay && historyReplay.entry) {
+            updateHistoryReview(historyReplay.entry);
+            updateHistoryErrorNotes(historyReplay.entry);
+        }
+    });
+    $('#history-voice-default').off('click').on('click', () => {
+        const sel = document.getElementById('history-voice-select');
+        applyReviewVoiceStyle(sel ? sel.value : historyReviewVoiceStyle());
+        // La veu triada ja és la per defecte: la ressenya deixa de tenir veu temporal.
+        historyReviewVoiceOverride = null;
+        showToast('Veu per defecte actualitzada.', 'success');
+    });
+
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
         const entry = historyReplay.entry;
@@ -22424,7 +22448,7 @@ $(document).ready(() => {
     applyBoardTheme(loadBoardTheme(), { skipSave: true });
     applyPieceTheme(loadPieceTheme(), { skipSave: true });
     applyLuckyMode(loadLuckyMode(), { skipSave: true, skipRoll: true });
-    applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true, skipRefresh: true });
+    applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
