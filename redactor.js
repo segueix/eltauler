@@ -569,6 +569,70 @@
         return corregirCatala(frases.join(' '));
     }
 
+    // ----------------------------------------------------------------------
+    // Descripció d'un moviment d'escacs en català planer
+    // ----------------------------------------------------------------------
+    // Rep els FETS d'un moviment (calculats amb chess.js fora d'aquí:
+    // core.createPvBoardHelpers().moveFacts) i redacta la frase. Sempre diu el
+    // COLOR de la peça que mou ("la dama blanca captura a h7", no "la dama
+    // captura a h7", que és ambigu quan tots dos bàndols tenen dama) i, si la
+    // jugada és una captura, anomena la peça capturada ("el rei negre captura
+    // la dama a h7").
+
+    const NOMS_PECES = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
+    const PECES_FEMENINES = { r: true, q: true };
+
+    // "dama blanca" → "la dama blanca"; "alfil negre de f8" → "l'alfil negre de f8".
+    function articleNomPeca(nom) {
+        const n = String(nom || '').trim();
+        if (!n) return 'la peça';
+        if (/^(dama|torre)\b/.test(n)) return 'la ' + n;
+        if (/^alfil\b/.test(n)) return "l'" + n;
+        return 'el ' + n;
+    }
+
+    function adjectiuColorPeca(peca, color) {
+        const femeni = !!PECES_FEMENINES[peca];
+        if (color === 'b') return femeni ? 'negra' : 'negre';
+        return femeni ? 'blanca' : 'blanc';
+    }
+
+    // fets = { peca:'q', color:'w'|'b', origen:'d1', desti:'h5', captura:'q'|null,
+    //          escac:bool, mat:bool, enroc:'k'|'q'|null, coronacio:'q'|null,
+    //          desambigua:bool } → frase en català. Retorna '' si no hi ha fets.
+    function descriuMovimentFets(fets) {
+        const f = fets || {};
+        if (f.enroc === 'k') return 'enroc curt';
+        if (f.enroc === 'q') return 'enroc llarg';
+        const nom = NOMS_PECES[f.peca];
+        if (!nom || !f.desti) return '';
+        const adjectiu = adjectiuColorPeca(f.peca, f.color);
+        let subjecte;
+        if (f.peca === 'p') {
+            const columna = String(f.origen || '').charAt(0);
+            subjecte = 'el peó ' + adjectiu + (columna ? ' de la columna ' + columna : '');
+        } else {
+            let nomComplet = nom + ' ' + adjectiu;
+            // Desambiguació per casella d'origen només quan hi ha dues peces
+            // iguals del mateix color: és verificable al tauler.
+            if (f.desambigua && f.origen) nomComplet += ' de ' + f.origen;
+            subjecte = articleNomPeca(nomComplet);
+        }
+        let text;
+        if (f.captura) {
+            const objecte = articleNomPeca(NOMS_PECES[f.captura] || 'peça');
+            text = subjecte + ' captura ' + objecte + ' a ' + f.desti;
+        } else if (f.peca === 'p') {
+            text = subjecte + ' avança a ' + f.desti;
+        } else {
+            text = subjecte + ' va a ' + f.desti;
+        }
+        if (f.coronacio) text += ' i corona ' + (NOMS_PECES[f.coronacio] || 'dama');
+        if (f.mat) text += ' amb escac i mat';
+        else if (f.escac) text += ' amb escac';
+        return text;
+    }
+
     // Presenta els fets del diagnòstic com a frases en català per al prompt,
     // en lloc de JSON: així el model no copia claus ("precisioPerFase") ni
     // etiquetes amb majúscula, i veu els percentatges ja formatats amb %.
@@ -621,6 +685,7 @@
         escurcaFrasesSenceres,
         esmenarTextEntrenador,
         redactarDiagnostic,
+        descriuMovimentFets,
         fetsEnCatala,
         llistaEnCatala,
         etiquetaEnFrase,

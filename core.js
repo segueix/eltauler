@@ -642,6 +642,301 @@
     }
 
     // ----------------------------------------------------------------------
+    // Línies del motor (PV) — és forçada o només il·lustrativa?
+    // ----------------------------------------------------------------------
+    // Una PV de Stockfish ("Bf4 Qxh7+ Kxh7") NO és una seqüència obligada: el
+    // rival pot jugar altres coses. Abans de dir "la línia guanyadora era..."
+    // cal DEMOSTRAR que la resposta del rival era forçada (única jugada legal,
+    // o clarament forçada pel gap MultiPV) o que la línia és un mat forçat.
+    // Aquest bloc calcula aquesta demostració a partir de dades del motor
+    // (MultiPV abans i després de la millor jugada) i de fets verificables amb
+    // chess.js (injectat via createPvBoardHelpers, per mantenir el nucli pur).
+
+    // Llindar (cp) perquè la resposta del rival compti com a "clarament
+    // forçada": qualsevol alternativa perd almenys això més. És més exigent
+    // que el llindar dels exercicis (150) perquè aquí es fa una AFIRMACIÓ
+    // ("forçada") i val més quedar-se curt que mentir.
+    const PV_FORCED_REPLY_GAP_CP = 200;
+
+    // Llindar (cp) perquè la posició del rival compti com a "clarament
+    // perduda" després de la millor jugada. Si fins i tot la seva MILLOR
+    // resposta el deixa per sota d'això, qualsevol altra també (per definició
+    // del MultiPV): la línia no és forçada, però el RESULTAT sí — es pot dir
+    // que totes les respostes acabaven igual de perdudes.
+    const PV_LOSING_REPLY_CP = 300;
+
+    // Les avaluacions ja convertides (mat → ±10000 cp) es comparen com a cp;
+    // les crues (evalType 'mate' amb distància de mat) passen per
+    // bestLineEvalScore, que ja fa dominar el mat.
+    function pvEvalEntryForGap(e) {
+        if (!e || typeof e.eval !== 'number') return e;
+        if (e.evalType === 'mate' && Math.abs(e.eval) >= 9000) return { eval: e.eval, evalType: 'cp' };
+        return e;
+    }
+
+    // Gap (cp) entre la millor opció i la segona d'una llista MultiPV, tolerant
+    // tots dos formats d'avaluació (crua o convertida).
+    function pvGapCp(list) {
+        if (!Array.isArray(list) || !list.length) return null;
+        return bestLineGapCp(list.map(pvEvalEntryForGap));
+    }
+
+    // Fàbrica d'ajudants de tauler per a la PV. Rep el constructor de chess.js
+    // (window.Chess al navegador, require('chess.js').Chess als tests) i
+    // retorna funcions que comproven fets REALS sobre el tauler: jugades
+    // legals, escacs, captures, mats. Retorna null si no hi ha constructor.
+    function createPvBoardHelpers(ChessCtor) {
+        if (typeof ChessCtor !== 'function') return null;
+
+        function loadFen(fen) {
+            try {
+                const g = new ChessCtor(fen);
+                // chess.js 0.10 accepta FEN corruptes en silenci: validem que hi
+                // hagi tauler jugable.
+                return (g && typeof g.moves === 'function') ? g : null;
+            } catch (e) { return null; }
+        }
+
+        function applyMoveOn(g, move) {
+            const raw = String(move || '').trim();
+            if (!raw) return null;
+            try {
+                if (/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)) {
+                    // Coronació per defecte a dama si la UCI no la porta (mateix
+                    // criteri que la resta de l'app); chess.js la ignora quan la
+                    // jugada no corona.
+                    return g.move({
+                        from: raw.slice(0, 2).toLowerCase(),
+                        to: raw.slice(2, 4).toLowerCase(),
+                        promotion: raw.length > 4 ? raw[4].toLowerCase() : 'q'
+                    }) || null;
+                }
+                return g.move(raw, { sloppy: true }) || null;
+            } catch (e) { return null; }
+        }
+
+        // Fets d'un sol moviment (UCI o SAN) sobre una FEN, en un objecte pla
+        // que el redactor pot convertir en text català. Retorna null si la
+        // jugada no és legal.
+        function moveFacts(fen, move) {
+            const g = loadFen(fen);
+            if (!g) return null;
+            const field = String(fen || '').split(' ')[0] || '';
+            const mv = applyMoveOn(g, move);
+            if (!mv) return null;
+            let desambigua = false;
+            if (mv.piece === 'n' || mv.piece === 'b' || mv.piece === 'r' || mv.piece === 'q') {
+                const letter = mv.color === 'w' ? mv.piece.toUpperCase() : mv.piece.toLowerCase();
+                desambigua = (field.match(new RegExp(letter, 'g')) || []).length > 1;
+            }
+            return {
+                peca: mv.piece,
+                color: mv.color,
+                origen: mv.from,
+                desti: mv.to,
+                captura: mv.captured || null,
+                san: mv.san,
+                escac: mv.san.indexOf('+') !== -1 || mv.san.indexOf('#') !== -1,
+                mat: mv.san.indexOf('#') !== -1,
+                enroc: mv.flags.indexOf('k') !== -1 ? 'k' : (mv.flags.indexOf('q') !== -1 ? 'q' : null),
+                coronacio: mv.promotion || null,
+                desambigua: desambigua
+            };
+        }
+
+        // Fets verificables de la PV d'una errada: després de la primera jugada
+        // (la millor del jugador), quantes respostes legals té el rival? Està en
+        // escac? La resposta de la PV captura la dama? La línia acaba en mat FET
+        // PEL JUGADOR? Tot surt de reproduir la línia amb chess.js.
+        function pvBoardFacts(fen, pv) {
+            const g = loadFen(fen);
+            if (!g) return null;
+            const list = Array.isArray(pv) ? pv : [];
+            const facts = {
+                pliesVerified: 0,
+                opponentLegalReplies: null,
+                opponentInCheck: null,
+                replyIsOnlyLegal: null,
+                pvEndsInMate: false,
+                firstMoveIsCheck: false,
+                firstMoveIsCapture: false,
+                firstMoveCapturesQueen: false,
+                replyIsCheck: false,
+                replyIsCapture: false,
+                replyCapturesQueen: false,
+                replyCaptureUndefended: false
+            };
+            for (let i = 0; i < list.length; i++) {
+                const mv = applyMoveOn(g, list[i]);
+                if (!mv) break;
+                facts.pliesVerified++;
+                if (i === 0) {
+                    facts.firstMoveIsCheck = g.in_check();
+                    facts.firstMoveIsCapture = !!mv.captured;
+                    facts.firstMoveCapturesQueen = mv.captured === 'q';
+                    facts.opponentInCheck = g.in_check();
+                    facts.opponentLegalReplies = g.moves().length;
+                    facts.replyIsOnlyLegal = facts.opponentLegalReplies === 1;
+                } else if (i === 1) {
+                    facts.replyIsCheck = g.in_check();
+                    facts.replyIsCapture = !!mv.captured;
+                    facts.replyCapturesQueen = mv.captured === 'q';
+                    // La captura era d'una peça penjada si el jugador no pot
+                    // recapturar a la mateixa casella.
+                    if (mv.captured) {
+                        try {
+                            const recaptures = g.moves({ verbose: true })
+                                .filter(m => m.to === mv.to && m.captured);
+                            facts.replyCaptureUndefended = recaptures.length === 0;
+                        } catch (e) {}
+                    }
+                }
+                if (g.in_checkmate()) {
+                    // Mat només compta com a demostració si el fa el JUGADOR
+                    // (plies parells de la línia: 1a, 3a, 5a jugada...).
+                    if (i % 2 === 0) facts.pvEndsInMate = true;
+                    break;
+                }
+            }
+            return facts;
+        }
+
+        return { moveFacts: moveFacts, pvBoardFacts: pvBoardFacts };
+    }
+
+    // Combina les dades del motor i els fets del tauler en el forcingInfo d'una
+    // errada. Convenció de veritat PRUDENT: true = demostrat; false = NO
+    // demostrat (encara que potser ho sigui); null = sense dades per jutjar-ho.
+    function computePvForcingInfo(data) {
+        const d = data || {};
+        const bestMoveGapCp = pvGapCp(d.multipvBefore);
+        const legal = (typeof d.opponentLegalReplies === 'number' && isFinite(d.opponentLegalReplies))
+            ? d.opponentLegalReplies : null;
+        const replyIsOnlyLegal = legal === 1;
+        let opponentReplyGapCp = pvGapCp(d.replyAlternatives);
+        // bestLineGapCp retorna Infinity quan només hi ha UNA línia, però això
+        // només demostra res si el rival té de debò una única jugada legal; si
+        // en té més, el gap real és desconegut.
+        if (opponentReplyGapCp === Infinity && !replyIsOnlyLegal) opponentReplyGapCp = null;
+        const threshold = (typeof d.forcedReplyGapCp === 'number') ? d.forcedReplyGapCp : PV_FORCED_REPLY_GAP_CP;
+        const mateForPlayer = d.mateForPlayer === true || d.pvEndsInMate === true;
+
+        let isOpponentReplyForced = null;
+        if (replyIsOnlyLegal) isOpponentReplyForced = true;
+        else if (typeof opponentReplyGapCp === 'number') isOpponentReplyForced = opponentReplyGapCp >= threshold;
+        else if (legal !== null && legal > 1) isOpponentReplyForced = false; // no demostrat
+
+        let isLineForced = null;
+        if (mateForPlayer || isOpponentReplyForced === true) isLineForced = true;
+        else if (isOpponentReplyForced === false) isLineForced = false;
+
+        // "Perduda igualment": encara que la línia no sigui forçada, si la
+        // MILLOR resposta del rival (màxim del MultiPV, en la seva perspectiva)
+        // ja el deixa clarament perdut, qualsevol resposta l'hi deixa. També es
+        // pot demostrar amb evalAfterBest (perspectiva del JUGADOR: positiu i
+        // gran = el rival està perdut faci el que faci).
+        const losingCp = typeof d.losingReplyCp === 'number' ? d.losingReplyCp : PV_LOSING_REPLY_CP;
+        let allRepliesLosing = null;
+        if (Array.isArray(d.replyAlternatives) && d.replyAlternatives.length) {
+            const scores = d.replyAlternatives
+                .map(e => bestLineEvalScore(pvEvalEntryForGap(e)))
+                .filter(s => s !== null);
+            if (scores.length) allRepliesLosing = Math.max.apply(null, scores) <= -losingCp;
+        }
+        if (allRepliesLosing === null && typeof d.evalAfterBest === 'number') {
+            allRepliesLosing = d.evalAfterBest >= losingCp;
+        }
+        if (allRepliesLosing === null && mateForPlayer) allRepliesLosing = true;
+
+        return {
+            bestMoveGapCp: bestMoveGapCp,
+            opponentReplyGapCp: opponentReplyGapCp,
+            opponentLegalReplies: legal,
+            opponentInCheck: typeof d.opponentInCheck === 'boolean' ? d.opponentInCheck : null,
+            replyIsOnlyLegal: legal === null ? null : replyIsOnlyLegal,
+            endsInMate: mateForPlayer,
+            isOpponentReplyForced: isOpponentReplyForced,
+            isLineForced: isLineForced,
+            allRepliesLosing: allRepliesLosing
+        };
+    }
+
+    // Construeix el forcingInfo d'una errada a partir del que hi hagi: la FEN
+    // de decisió i la PV (per als fets del tauler, si board no és null), el
+    // MultiPV de la posició de decisió, les alternatives de resposta del rival
+    // (MultiPV després de la millor jugada, si la reanàlisi profunda les ha
+    // calculades) i l'avaluació prèvia (un mat a favor demostra línia forçada).
+    function buildPvForcingInfo(params) {
+        const p = params || {};
+        const board = p.board || null;
+        const facts = (board && typeof board.pvBoardFacts === 'function' && p.fen)
+            ? board.pvBoardFacts(p.fen, p.bestPv || [])
+            : null;
+        const evalBefore = typeof p.evalBefore === 'number' ? p.evalBefore : null;
+        const mateForPlayer = p.mateForPlayer === true
+            || (p.evalBeforeType === 'mate' && evalBefore !== null && evalBefore > 0)
+            // Avaluacions ja convertides: ±10000 és el codi de mat de l'app.
+            || (evalBefore !== null && evalBefore >= 9000)
+            || !!(facts && facts.pvEndsInMate);
+        return computePvForcingInfo({
+            multipvBefore: p.multipvBefore,
+            replyAlternatives: p.replyAlternatives,
+            evalAfterBest: typeof p.evalAfterBest === 'number' ? p.evalAfterBest : undefined,
+            opponentLegalReplies: facts ? facts.opponentLegalReplies : null,
+            opponentInCheck: facts ? facts.opponentInCheck : null,
+            pvEndsInMate: facts ? facts.pvEndsInMate : null,
+            mateForPlayer: mateForPlayer,
+            forcedReplyGapCp: p.forcedReplyGapCp,
+            losingReplyCp: p.losingReplyCp
+        });
+    }
+
+    // Quin llenguatge es pot fer servir per explicar la PV d'una errada?
+    //   'forced'       → demostrat: es pot dir "la seqüència forçada era..."
+    //   'illustrative' → línia real del motor però NO demostrada com a forçada:
+    //                    "una possible variant del motor és..."
+    //   'unclear'      → sense prou dades: no s'explica la PV, només la millor
+    //                    jugada.
+    function classifyPvLanguage(error) {
+        const e = error || {};
+        const pv = (Array.isArray(e.bestPv) && e.bestPv.length) ? e.bestPv
+            : ((Array.isArray(e.pv) && e.pv.length) ? e.pv
+                : (Array.isArray(e.bestMovePv) ? e.bestMovePv : []));
+        if (pv.length < 2) return 'unclear'; // sense línia més enllà de la millor jugada
+        const fi = e.forcingInfo;
+        if (!fi || typeof fi !== 'object') return 'unclear';
+        if (fi.isLineForced === true) return 'forced';
+        if (fi.isLineForced === false) return 'illustrative';
+        return 'unclear';
+    }
+
+    // Frase de la "continuació" segons el llenguatge permès. parts:
+    //   lineText        → la línia ja descrita en llenguatge planer
+    //   bestText        → la millor jugada descrita (fallback quan no es pot
+    //                     explicar la línia)
+    //   replyIsOnlyLegal→ si la resposta del rival era l'única legal, es diu
+    //                     explícitament (és el cas més fort i és demostrat)
+    //   allRepliesLosing→ la línia no és forçada, però el RESULTAT sí: fins i
+    //                     tot la millor resposta del rival el deixava perdut,
+    //                     així que la variant s'explica amb aquesta força extra.
+    function pvNarrationText(language, parts) {
+        const p = parts || {};
+        const seq = String(p.lineText || '').trim();
+        const best = String(p.bestText || '').trim();
+        if (language === 'forced' && seq) {
+            return p.replyIsOnlyLegal
+                ? 'La seqüència forçada era ' + seq + '; la resposta del rival era l’única legal.'
+                : 'La seqüència forçada era ' + seq + '.';
+        }
+        if (language === 'illustrative' && seq) {
+            return p.allRepliesLosing
+                ? 'Una possible variant del motor és ' + seq + '; el rival tenia altres respostes, però totes el deixaven igual de perdut.'
+                : 'Una possible variant del motor és ' + seq + '.';
+        }
+        return best ? 'La millor jugada era ' + best + '.' : '';
+    }
+
+    // ----------------------------------------------------------------------
     // Qualitat de la ressenya postpartida (lògica pura; app.js hi delega)
     // ----------------------------------------------------------------------
 
@@ -760,6 +1055,14 @@
         bestLineEvalScore,
         bestLineGapCp,
         bestLineStepQualifies,
+        PV_FORCED_REPLY_GAP_CP,
+        PV_LOSING_REPLY_CP,
+        pvGapCp,
+        createPvBoardHelpers,
+        computePvForcingInfo,
+        buildPvForcingInfo,
+        classifyPvLanguage,
+        pvNarrationText,
         puzzleFenKey,
         puzzleIsDuplicateFen,
         puzzleMeetsCriteria,
