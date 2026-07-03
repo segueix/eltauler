@@ -20397,6 +20397,226 @@ function pickStableLine(pool, moment, salt = '') {
     return pool[coachStableHash(seed) % pool.length];
 }
 
+/* ===========================================================================
+   CAPA CENTRALITZADA DE TEXTOS PER VEU (casual / balanced / technical)
+   ---------------------------------------------------------------------------
+   Un sol lloc amb totes les redaccions que canvien segons la veu de
+   l'entrenador. Les funcions de la ressenya no fan `if (style === ...)`
+   escampats: demanen el text a aquesta capa. La veu equilibrada reutilitza
+   els bancs de sempre, així que sense preferència res no canvia. Les DADES
+   (jugades, temes, avaluacions) són idèntiques en totes les veus.
+   =========================================================================== */
+const REVIEW_VOICE_TEXT = {
+    casual: {
+        safeFallback: 'La jugada et deixava una mica pitjor. Mira la millor jugada al tauler i compara què queda defensat.',
+        refutationIntro: 'Així et podia castigar el rival',
+        alsoGood: m => `També era bona ${m}.`,
+        noPhaseErrors: 'Cap error que valgui la pena destacar en aquesta fase.',
+        severity: { blunder: 'Això era greu perquè', mistake: 'Això importava perquè', inaccuracy: 'El detall compta perquè' },
+        outcomeConsequence: {
+            allows_mate: ['deixava el rei sense sortida: el rival podia fer mat', 'obria la porta a un mat que ja no es podia aturar'],
+            lets_win_slip: ['tenies la partida guanyada i se t’escapava de les mans', 'deixava fugir una posició que ja era teva'],
+            loses_major: ['regalava una torre o la dama sense res a canvi', 'costava una peça grossa per no res'],
+            loses_piece: ['deixava una peça penjada i el rival se la podia quedar', 'perdia una peça sense res a canvi'],
+            loses_exchange: ['canviava una torre per una peça més petita sense treure’n res', 'cedia la torre per una peça menor i el compte sortia perdent'],
+            loses_pawn: ['regalava un peó sense res a canvi', 'cedia un peó dels que es noten al final'],
+            decisive_counterplay: ['donava al rival un atac que ja no es podia frenar', 'deixava el rival manant a la partida'],
+            cedes_initiative: ['deixava que el rival portés la iniciativa', 'passava el comandament de la partida al rival'],
+            lets_advantage_slip: ['tornava a igualar una posició que tenies millor', 'deixava escapar la part bona de la posició']
+        },
+        outcomeDiagnosis: {
+            allows_mate: ['la jugada no va veure que el rival tenia un camí de mat', 'hi havia un mat sobre el tauler i la jugada va mirar cap a una altra banda'],
+            lets_win_slip: ['ja guanyaves i la jugada va afluixar en lloc de rematar', 'tenies la partida a la mà i la jugada va donar aire al rival'],
+            loses_major: ['la jugada va deixar una torre o la dama a tir del rival', 'una peça grossa va quedar on el rival la podia agafar'],
+            loses_piece: ['has deixat una peça massa exposada i el rival la podia capturar', 'la jugada va deixar una peça penjada'],
+            loses_exchange: ['la jugada deixava que el rival es quedés la torre per una peça més petita', 'el canvi sortia car: torre per peça menor'],
+            loses_pawn: ['la jugada va regalar un peó sense res a canvi', 'un peó va quedar sense defensa i el rival se’l podia quedar']
+        },
+        outcomePlan: {
+            allows_mate: ['primer de tot, mira els escacs: o remates tu o pares el mat del rival', 'quan flairis un mat, atura’t i calcula la línia sencera abans de moure'],
+            lets_win_slip: ['quan ja guanyes, busca la jugada més directa i no donis respir al rival', 'amb la partida a la mà, remata sense obrir portes noves'],
+            loses_major: ['abans de moure, mira si la torre o la dama queden a tir', 'posa la peça grossa fora de perill abans de fer plans'],
+            loses_piece: ['abans de moure, mira què et pot capturar el rival', 'assegura’t que totes les peces tenen qui les defensi'],
+            loses_exchange: ['no canviïs la torre per una peça més petita si no en treus res clar', 'conserva la torre quan el canvi no et doni res'],
+            loses_pawn: ['defensa el peó o assegura’t que en treus alguna cosa a canvi', 'no regalis peons: al final es noten']
+        },
+        phaseAdvice: {
+            opening: 'A l’obertura, treu peces, lluita pel centre i enroca aviat.',
+            middlegame: 'Al mig joc, abans de cada jugada mira escacs, captures i amenaces.',
+            endgame: 'Al final, activa el rei i evita donar contrajoc.'
+        },
+        motivation: [
+            'Cada partida t’ensenya alguna cosa; aquesta també.',
+            'Bona feina revisant la partida: així és com es millora.',
+            'Queda’t amb una idea d’avui i prova-la a la pròxima partida.'
+        ],
+        debrief: {
+            win_high: ['Has guanyat i has jugat molt bé ({prec}% de precisió). Molt bona feina.', 'Victòria i bones decisions ({prec}%): avui ha sortit rodó.'],
+            win_low: ['Has guanyat, però hi ha hagut moments delicats ({prec}%). Val la pena mirar-los.', 'Punt guanyat! Tot i això, el rival t’ha perdonat alguna cosa ({prec}%).'],
+            draw: ['Taules. Partida igualada; mirem què en pots aprendre.', 'Empat. Ni drama ni festa: hi ha coses bones per repetir.'],
+            loss_high: ['Has perdut, però has jugat bé ({prec}%). Aquestes partides fan pujar de nivell.', 'Derrota amb bones decisions ({prec}%): el rival ho ha fet molt bé.'],
+            loss_low: ['Has perdut i hi ha hagut massa errades ({prec}%). Tranquil: les repassem i a una altra.', 'Dia difícil ({prec}%). Res que no s’arregli amb una bona revisió.'],
+            highlight_clean: ['El millor d’avui: cap errada greu en tota la partida.', 'Zero errades greus: això és jugar amb el cap.'],
+            highlight_above_avg: ['Has jugat per sobre de la teva mitjana ({avg}%): vas pel bon camí.', 'Avui has fet un {prec}% i la teva mitjana és del {avg}%: es nota el progrés.'],
+            highlight_no_blunders: ['Cap errada greu avui: només detalls per polir.', 'Has evitat les errades grosses; els detalls venen sols amb la pràctica.'],
+            weak_theme: ['On has patit més avui: {tema}.', 'El que més s’ha repetit avui és {tema}.'],
+            weak_phase: ['El tram més fluix ha estat {fase}.', 'La partida se t’ha complicat sobretot en {fase}.'],
+            weak_mastery: ['Cap errada greu avui; si vols seguir pujant, practica {tema}.', 'Partida neta. El següent pas és treballar {tema}.'],
+            advice_srs: ['Tens repassos pendents: deu minuts i llestos.', 'Abans de tornar a jugar, passa pels repassos pendents.'],
+            advice_theme: ['Dedica una estona curta a {tema} i ho notaràs de seguida.', 'Un consell: practica una mica {tema} abans de la pròxima partida.'],
+            advice_keep: ['Segueix jugant així: no cal tocar gaire res.', 'Vas molt bé: mantén aquesta manera de jugar.'],
+            advice_blunder: ['Mira les errades greus una per una: és el camí més curt per millorar.', 'Repassa els moments clau d’avui; és on hi ha més punts a guanyar.']
+        }
+    },
+    balanced: {
+        safeFallback: SAFE_COACH_FALLBACK,
+        refutationIntro: 'Com et podia castigar el rival',
+        alsoGood: m => `També era bona ${m}.`,
+        noPhaseErrors: 'Sense errors destacats en aquesta fase.',
+        severity: { blunder: 'Això era crític perquè', mistake: 'Això importava perquè', inaccuracy: 'El detall importava perquè' },
+        outcomeConsequence: OUTCOME_CONSEQUENCES,
+        outcomeDiagnosis: OUTCOME_DIAGNOSIS,
+        outcomePlan: OUTCOME_PLANS,
+        phaseAdvice: {
+            opening: 'Desenvolupa les peces cap al centre, no moguis dues vegades la mateixa peça i enroca aviat.',
+            middlegame: 'Abans de cada jugada, mira els escacs, captures i amenaces; coordina les peces cap a un pla.',
+            endgame: 'Al final, activa el rei cap al centre, empeny els peons passats i posa les torres darrere dels peons.'
+        },
+        motivation: [
+            'Repassa aquests moments amb calma: és la manera més ràpida de millorar.',
+            'La constància en el repàs converteix aquestes errades en punts.',
+            'Tria una lliçó d’avui i aplica-la a la pròxima partida.'
+        ],
+        debrief: COACH_DEBRIEF_TEMPLATES
+    },
+    technical: {
+        safeFallback: 'La jugada empitjorava l’avaluació. Revisa la millor jugada al tauler i compara atacants i defensors.',
+        refutationIntro: 'Refutació',
+        alsoGood: m => `Alternativa equivalent: ${m}.`,
+        noPhaseErrors: 'Sense errors significatius en aquesta fase.',
+        severity: { blunder: 'Això era decisiu perquè', mistake: 'Això tenia pes perquè', inaccuracy: 'El matís importava perquè' },
+        outcomeConsequence: {
+            allows_mate: ['permetia una xarxa de mat forçada', 'donava accés a una seqüència de mat sense defensa suficient'],
+            lets_win_slip: ['reduïa un avantatge decisiu a una posició sense guany clar', 'no convertia un avantatge tècnicament guanyador'],
+            loses_major: ['perdia material pesant (torre o dama) sense compensació', 'cedia una peça major sense contrapartida tàctica'],
+            loses_piece: ['deixava una peça indefensa i el rival la guanyava tàcticament', 'perdia una peça neta per manca de defensors'],
+            loses_exchange: ['cedia la qualitat (torre per peça menor) sense compensació', 'perdia la qualitat sense contrapartida posicional'],
+            loses_pawn: ['cedia un peó sense compensació estructural ni dinàmica', 'perdia un peó rellevant de cara al final'],
+            decisive_counterplay: ['concedia al rival una iniciativa d’avaluació decisiva', 'transferia el control de la partida al rival amb atac directe'],
+            cedes_initiative: ['cedia la iniciativa i el rival passava a dictar el ritme', 'concedia tempos i el rival prenia la direcció del joc'],
+            lets_advantage_slip: ['diluïa l’avantatge fins a la igualtat', 'retornava l’avaluació a l’equilibri sense necessitat']
+        },
+        outcomeDiagnosis: {
+            allows_mate: ['la jugada ometia una seqüència de mat forçada', 'la jugada ignorava una combinació de mat que es podia calcular'],
+            lets_win_slip: ['amb avantatge decisiu, la jugada renunciava a la continuació que el convertia', 'la jugada relaxava la pressió en una posició tècnicament guanyada'],
+            loses_major: ['la jugada exposava una peça major a una captura sense compensació', 'després de la jugada, una peça pesant quedava dominada tàcticament'],
+            loses_piece: ['la jugada perd material perquè deixa una peça indefensa i permet una seqüència tàctica directa', 'la jugada deixava una peça sense defensors suficients'],
+            loses_exchange: ['la jugada concedia la qualitat sense compensació', 'la jugada permetia el guany de qualitat del rival'],
+            loses_pawn: ['la jugada cedia un peó sense compensació dinàmica', 'la jugada perdia un peó per un càlcul incomplet de la seqüència']
+        },
+        outcomePlan: {
+            allows_mate: ['la prioritat era la seqüència forçada: executar el mat propi o neutralitzar el del rival', 'calia calcular la línia de mat abans de qualsevol pla posicional'],
+            lets_win_slip: ['amb avantatge decisiu, tocava la continuació més forçada i la simplificació favorable', 'la conversió demanava jugades directes que no donessin contrajoc'],
+            loses_major: ['calia verificar la seguretat de les peces majors abans de decidir', 'tocava reubicar la peça pesant o evitar la variant que la perdia'],
+            loses_piece: ['abans de decidir, compta atacants i defensors de cada peça pròpia', 'calia mantenir totes les peces defensades o amb casella de sortida'],
+            loses_exchange: ['calia evitar el canvi de torre per peça menor sense compensació concreta', 'la qualitat només es cedeix amb compensació verificable'],
+            loses_pawn: ['calia defensar el peó o obtenir-ne compensació concreta en activitat o estructura', 'el peó només es cedeix amb una contrapartida calculada']
+        },
+        phaseAdvice: {
+            opening: 'La fase d’obertura demana completar el desenvolupament, consolidar el centre i assegurar el rei sense perdre temps.',
+            middlegame: 'Al mig joc, ordena les candidates (escacs, captures, amenaces) i coordina les peces cap a un pla concret.',
+            endgame: 'El final requeria activació del rei, simplificació favorable i control de les ruptures del rival.'
+        },
+        motivation: [
+            'Consolida aquests patrons: la correcció sistemàtica és el que fa pujar el nivell.',
+            'Repassar els moments crítics amb mètode converteix l’anàlisi en punts.',
+            'Integra la lliçó d’avui al teu protocol de decisió abans de la pròxima partida.'
+        ],
+        debrief: {
+            win_high: ['Victòria amb un {prec}% de precisió: conversió neta i poques concessions.', 'Victòria sòlida ({prec}%): decisions consistents durant tota la partida.'],
+            win_low: ['Victòria amb un {prec}% de precisió: el resultat és bo, però l’avaluació va oscil·lar més del compte.', 'Punt aconseguit, però la precisió ({prec}%) indica concessions evitables.'],
+            draw: ['Taules: partida equilibrada, amb marge de millora en els moments crítics.', 'Empat coherent amb el desenvolupament de la partida; queden detalls per optimitzar.'],
+            loss_high: ['Derrota amb un {prec}% de precisió: el nivell de joc va ser alt i el resultat es va decidir per marges petits.', 'Has perdut jugant a bon nivell ({prec}%): la diferència es va decidir en pocs moments concrets.'],
+            loss_low: ['Derrota amb un {prec}% de precisió: els errors identificats expliquen el resultat.', 'La precisió ({prec}%) assenyala errors concrets i corregibles: revisa’ls amb mètode.'],
+            highlight_clean: ['Dada destacada: cap error greu en tota la partida.', 'Sense errors greus: solidesa remarcable en la presa de decisions.'],
+            highlight_above_avg: ['Rendiment {diff} punts per sobre de la teva mitjana ({avg}%): tendència positiva.', 'Precisió d’avui ({prec}%) superior a la mitjana ({avg}%): progressió mesurable.'],
+            highlight_no_blunders: ['Cap error greu: només imprecisions de cost menor.', 'Els errors d’avui són menors; el nivell de risc va estar controlat.'],
+            weak_theme: ['La concentració d’errors apunta a {tema} ({moments}).', 'El patró d’error dominant d’avui és {tema}.'],
+            weak_phase: ['Els errors es concentren en {fase}: és el tram a analitzar.', 'La fase crítica va ser {fase}; la resta va mantenir bon nivell.'],
+            weak_mastery: ['Partida neta; l’àrea amb més marge de millora continua sent {tema}.', 'Sense errors greus avui; {tema} segueix sent el punt a treballar.'],
+            advice_srs: ['Tens repassos pendents: liquidar-los té més valor formatiu que una partida ràpida.', 'Prioritza els repassos pendents abans de la pròxima partida.'],
+            advice_theme: ['Recomanació: una sessió específica de {tema} abans de tornar a jugar.', 'El pla de treball més eficient ara mateix és {tema}.'],
+            advice_keep: ['Mantén el nivell d’exigència actual i apuja gradualment la dificultat.', 'Sense correccions urgents: continua amb el mateix mètode.'],
+            advice_blunder: ['Analitza cada error greu fins a identificar-ne la causa: és la via de millora més eficient.', 'Els errors decisius d’avui són el material d’entrenament prioritari.']
+        }
+    }
+};
+
+// Text simple (cadena) d'una clau de la capa de veu, amb reserva a la veu
+// equilibrada si l'estil demanat no té la clau.
+function voiceText(style, key, fallbackKey = null) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const own = REVIEW_VOICE_TEXT[safeStyle] ? REVIEW_VOICE_TEXT[safeStyle][key] : null;
+    if (typeof own === 'string' && own) return own;
+    const bal = REVIEW_VOICE_TEXT.balanced[fallbackKey || key];
+    return (typeof bal === 'string' && bal) ? bal : '';
+}
+
+// Vector de variants d'un grup ('outcomeDiagnosis', 'outcomePlan'...) per a una
+// clau, amb reserva a la veu equilibrada. Retorna [] si tampoc no hi és.
+function voicePool(style, group, key) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const own = REVIEW_VOICE_TEXT[safeStyle] && REVIEW_VOICE_TEXT[safeStyle][group];
+    if (own && Array.isArray(own[key]) && own[key].length) return own[key];
+    const bal = REVIEW_VOICE_TEXT.balanced[group];
+    return (bal && Array.isArray(bal[key])) ? bal[key] : [];
+}
+
+// Connector de gravetat ("Això era crític perquè...") segons la veu.
+function voiceSeverityIntro(style, quality) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const q = (quality === 'blunder' || quality === 'mistake') ? quality : 'inaccuracy';
+    const own = REVIEW_VOICE_TEXT[safeStyle].severity || REVIEW_VOICE_TEXT.balanced.severity;
+    return own[q] || REVIEW_VOICE_TEXT.balanced.severity[q];
+}
+
+// Frase motivacional final de la ressenya: estable per partida (canvia amb la
+// llavor de «Regenerar la ressenya»), diferent segons la veu.
+function pickVoiceMotivation(style, seedKey) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const pool = REVIEW_VOICE_TEXT[safeStyle].motivation || REVIEW_VOICE_TEXT.balanced.motivation || [];
+    if (!pool.length) return '';
+    return pool[coachStableHash(String(seedKey || '') + ':motivacio') % pool.length];
+}
+
+/* =================== NOMENCLATURA DE JUGADES SEGONS LA VEU ===================
+   La MATEIXA jugada, tres presentacions. Mai UCI en cap veu; la SAN nua només
+   com a últim recurs quan la posició no permet una descripció verificable.
+     casual    → només la descripció planera ("el cavall salta a f7 amb escac")
+     balanced  → descripció amb la SAN entre parèntesis quan aporta verificació
+     technical → SAN al davant i la descripció al costat ("Nxf7+ (el cavall...)")
+   ========================================================================== */
+function describeMoveByVoice(fen, moveUciOrSan, opts = {}) {
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
+    const d = describeMoveHuman(fen, moveUciOrSan);
+    if (!d) {
+        const san = uciToSanSafe(fen, moveUciOrSan);
+        return san ? { text: String(san), san: String(san), from: null, to: null } : null;
+    }
+    let text;
+    if (voiceStyle === 'casual') text = d.text;
+    else if (voiceStyle === 'technical') text = (d.san && d.san !== d.text) ? `${d.san} (${d.text})` : d.text;
+    else text = withSan(d.text, d.san);
+    return { text, san: d.san, from: d.from, to: d.to };
+}
+
+// Drecera de describeMoveByVoice quan només cal la cadena de text; el
+// fallback (normalment la SAN desada) és l'últim recurs.
+function voiceMoveText(fen, move, fallback, voiceStyle) {
+    const d = describeMoveByVoice(fen, move, { voiceStyle });
+    return (d && d.text) ? d.text : (fallback || uciToSanSafe(fen, move) || String(move || ''));
+}
+
 // El càstig concret de la jugada feta, en llenguatge planer (nom de la peça i
 // casella de destí) en comptes de notació algebraica. En condicional ("podia"):
 // és la millor rèplica del motor, no una seqüència que hagi de passar per força.
