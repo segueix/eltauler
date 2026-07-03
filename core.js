@@ -1029,6 +1029,53 @@
         return true;
     }
 
+    // Identitat d'una jugada de ressenya: cap moment no pot dir "Jugada 14 ·
+    // Nh4" si la jugada 14 real de la partida és Ne4. Es comprova que:
+    //   1. el número de jugada coincideix amb el comptador de la FEN de decisió;
+    //   2. la SAN recalculada amb chess.js sobre la FEN (o.sanForMove) coincideix
+    //      amb la jugada real de l'historial en aquell ply (o.historySanAt).
+    // Les dependències s'injecten (com a isRenderableReviewError) per mantenir
+    // el nucli pur. Sense historial o sense recalculadora, no es pot contradir
+    // res i la jugada es considera coherent (partides antigues sense llista).
+    function reviewMoveIdentityOk(err, opts) {
+        const e = err || {};
+        const o = opts || {};
+        const n = Number(e.moveNumber);
+        const fenN = parseInt(String(e.fen || '').split(' ')[5], 10);
+        if (isFinite(n) && n > 0 && isFinite(fenN) && fenN > 0 && n !== fenN) return false;
+        if (typeof o.sanForMove !== 'function' || typeof o.historySanAt !== 'function') return true;
+        const realSan = o.sanForMove(e.fen, e.playerMove || e.playerMoveSan);
+        if (!realSan) return true;
+        const moveNo = (isFinite(n) && n > 0) ? n : ((isFinite(fenN) && fenN > 0) ? fenN : null);
+        if (moveNo === null) return true;
+        const ply = (moveNo - 1) * 2 + (o.playerColor === 'b' ? 1 : 0);
+        const histSan = o.historySanAt(ply);
+        if (!histSan) return true;
+        return normalizeMoveForKey(histSan) === normalizeMoveForKey(realSan);
+    }
+
+    // ----------------------------------------------------------------------
+    // Auditoria del text de ressenya segons la veu (abans de renderitzar)
+    // ----------------------------------------------------------------------
+    // Sobre TEXT PLA (sense HTML). Detecta el que cap veu no pot mostrar mai
+    // (UCI, fletxes "la millor era →", construccions "vas jugar el cavall ...
+    // va a ...", talls amb el·lipsi) i, en veu casual, la SAN nua de peça
+    // (Nxf6, Qd2+, exd5, e8=Q, O-O). Les caselles soltes ("porta el cavall a
+    // f7") no es marquen: són llenguatge natural.
+    const RE_AUDIT_UCI = /\b[a-h][1-8][a-h][1-8][qrbn]?\b/;
+    const RE_AUDIT_SAN_CASUAL = /(?:\b[KQRBN][a-h]?[1-8]?x?[a-h][1-8][+#]?|\b[a-h]x[a-h][1-8][+#]?|\b[a-h][1-8]=[QRBN][+#]?|\bO-O(?:-O)?[+#]?)/;
+    const RE_AUDIT_FRASE_MAL_FORMADA = /\bvas jugar +(?:el|la|l[’'])[^.:;()]{0,60}\b(?:va|avança|captura|corona) a\b/i;
+    function auditReviewVoiceText(text, style) {
+        const t = String(text == null ? '' : text);
+        const problems = [];
+        if (RE_AUDIT_UCI.test(t)) problems.push('uci_visible');
+        if (t.indexOf('→') !== -1) problems.push('fletxa_maquinal');
+        if (RE_AUDIT_FRASE_MAL_FORMADA.test(t)) problems.push('frase_mal_formada');
+        if (/(\.\.\.|…)\s*$/.test(t.trim())) problems.push('text_tallat');
+        if (normalizeReviewVoiceStyle(style) === 'casual' && RE_AUDIT_SAN_CASUAL.test(t)) problems.push('san_en_casual');
+        return { ok: problems.length === 0, problems: problems };
+    }
+
     function plural(n, singular, pluralForm) {
         return n === 1 ? singular : pluralForm;
     }
@@ -1177,6 +1224,8 @@
         matchUserRepertoireOpening,
         reviewErrorKey,
         isRenderableReviewError,
+        reviewMoveIdentityOk,
+        auditReviewVoiceText,
         REVIEW_VOICE_STYLES,
         normalizeReviewVoiceStyle,
         formatPhaseLine,

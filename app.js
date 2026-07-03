@@ -1224,15 +1224,15 @@ function buildErrorNotesExportText(entry, voiceStyle) {
     errors.forEach(err => {
         const d = describeSevereError(err);
         if (momentKeys.has(reviewErrorKey(err))) return;
-        const playedTxt = voiceMoveText(err.fen, err.playerMove || err.playerMoveSan, d.played, style);
-        const bestTxt = voiceMoveText(err.fen, err.bestMove || err.bestMoveSan, d.best, style);
+        const playedPhrase = playedPhraseByVoice(err.fen, err.playerMove || err.playerMoveSan, style);
+        const best = bestPhraseByVoice(err.fen, err.bestMove || err.bestMoveSan, style);
         const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
         const meta = coachQualityMeta(quality);
         const label = meta ? meta.label : 'Error';
         const samePB = d.played && d.best && d.played === d.best;
-        const head = samePB
-            ? `${label} · Jugada ${d.moveNumber}: la millor jugada era ${bestTxt}`
-            : `${label} · Jugada ${d.moveNumber}: vas jugar ${playedTxt} · la millor era ${bestTxt}`;
+        const head = (samePB || !playedPhrase || !best)
+            ? `${label} · Jugada ${d.moveNumber}: ${best ? `la millor jugada era ${best.body}` : 'revisa la posició al tauler'}`
+            : `${label} · Jugada ${d.moveNumber}: ${playedPhrase} · ${best.prefix}${best.body}`;
         const note = notes[getErrorNoteKey(err)] || null;
         // Mateix criteri que a pantalla: la nota d'OpenAI només si és de la veu
         // exportada; si no, l'explicació local re-redactada amb aquesta veu.
@@ -8192,18 +8192,28 @@ function entryMaxMoveNumber(entry) {
 // Opcions de validació calculades UNA vegada per entrada (getHistoryMoves pot
 // haver de reparsejar el PGN), per passar-les a totes les errades d'un bucle.
 function reviewErrorValidationOpts(entry) {
+    let moves = [];
+    try { moves = getHistoryMoves(entry) || []; } catch (e) { moves = []; }
     return {
-        maxMoveNumber: entryMaxMoveNumber(entry),
+        maxMoveNumber: moves.length ? Math.ceil(moves.length / 2) : entryMaxMoveNumber(entry),
         // Legalitat sobre la FEN de decisió: resolveMoveOnFen ja tolera el torn
         // invertit (equivalent a normalitzar amb normalizeFenTurn).
-        applyMove: (fen, move) => !!resolveMoveOnFen(fen, move)
+        applyMove: (fen, move) => !!resolveMoveOnFen(fen, move),
+        // Identitat de la jugada (reviewMoveIdentityOk): la SAN recalculada amb
+        // chess.js ha de coincidir amb la jugada real de la partida al ply del
+        // número de jugada. Sense llista de jugades (partides antigues), no es
+        // pot contradir res i no es descarta.
+        playerColor: (entry && entry.playerColor === 'b') ? 'b' : 'w',
+        historySanAt: (ply) => (ply >= 0 && ply < moves.length ? moves[ply] : null),
+        sanForMove: (fen, move) => sanOnFen(fen, move)
     };
 }
 
 // Validació forta abans de mostrar una errada: FEN present i interpretable,
 // número de jugada dins de la partida real, jugada feta i millor jugada legals
-// sobre la FEN i diferents entre elles. La lògica viu a core.js; aquí hi
-// injectem chess.js i les dades reals de la partida.
+// sobre la FEN i diferents entre elles, i IDENTITAT amb la partida real (cap
+// "Jugada 14 · Nh4" si al PGN la jugada 14 és Ne4). La lògica viu a core.js;
+// aquí hi injectem chess.js i les dades reals de la partida.
 function isRenderableReviewError(entry, err, opts) {
     if (!err) return false;
     const o = opts || reviewErrorValidationOpts(entry);
@@ -8216,7 +8226,9 @@ function isRenderableReviewError(entry, err, opts) {
         const n = parseInt(String(fen).split(' ')[5], 10);
         if (isFinite(n) && n > 0) moveNumber = n;
     }
-    return ElTaulerCore.isRenderableReviewError(Object.assign({}, err, { fen, moveNumber }), o);
+    const normalized = Object.assign({}, err, { fen, moveNumber });
+    return ElTaulerCore.isRenderableReviewError(normalized, o)
+        && ElTaulerCore.reviewMoveIdentityOk(normalized, o);
 }
 
 // Errades per comentar a la revisió, garantint un mínim (per defecte 3) si la
@@ -8287,8 +8299,13 @@ function describeSevereError(err) {
     const parts = (err.fen || '').split(' ');
     return {
         moveNumber: err.moveNumber || parseInt(parts[5], 10) || '?',
-        played: uciToSanSafe(err.fen, err.playerMoveSan || err.playerMove) || '?',
-        best: uciToSanSafe(err.fen, err.bestMoveSan || err.bestMove) || '?',
+        // La SAN que es mostra es recalcula SEMPRE amb chess.js sobre la FEN
+        // (la UCI primer, que és la dada de motor): una SAN desada antiga no
+        // pot contradir mai el tauler. Les cadenes desades són l'últim recurs.
+        played: sanOnFen(err.fen, err.playerMove || err.playerMoveSan)
+            || uciToSanSafe(err.fen, err.playerMoveSan || err.playerMove) || '?',
+        best: sanOnFen(err.fen, err.bestMove || err.bestMoveSan)
+            || uciToSanSafe(err.fen, err.bestMoveSan || err.bestMove) || '?',
         pv: (err.bestMovePvSan || err.bestMovePv || []).slice(0, 4).map(m => uciToSanSafe(err.fen, m)).join(' ')
     };
 }
@@ -8480,6 +8497,17 @@ function describeMoveHuman(fen, move) {
 function moveHumanText(fen, move, fallback) {
     const d = describeMoveHuman(fen, move);
     return d ? d.text : (fallback || uciToSanSafe(fen, move) || String(move || ''));
+}
+
+// SAN real d'una jugada (UCI o SAN) recalculada amb chess.js sobre la FEN de
+// decisió. És la font de veritat per MOSTRAR jugades: mai no es confia en una
+// SAN desada que no es pugui verificar. Retorna null si la jugada no és legal.
+function sanOnFen(fen, move) {
+    try {
+        const helpers = getPvBoardHelpers();
+        const facts = helpers ? helpers.moveFacts(fen, move) : null;
+        return facts ? facts.san : null;
+    } catch (e) { return null; }
 }
 
 // Afegeix la notació SAN entre parèntesis darrere la descripció planera, perquè
@@ -8772,11 +8800,15 @@ function renderLocalReviewHtml(entry, opts = {}) {
         const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
         if (moments.length) {
             const items = moments.map(m => {
-                const desc = m.fen ? voiceMoveText(m.fen, m.bestMoveUci || m.best, m.best, voiceStyle) : m.best;
+                // Frases per veu VERIFICADES sobre la FEN de decisió: si la
+                // millor jugada no s'hi pot verificar, el moment no es mostra
+                // (mai una jugada inventada; passa al següent moment vàlid).
+                const best = m.fen ? bestPhraseByVoice(m.fen, m.bestMoveUci || m.best, voiceStyle) : null;
+                if (!best) return '';
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
-                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
+                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(best.body)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const badge = coachQualityBadgeHtml(m);
                 const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
@@ -8787,12 +8819,18 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const playedSan = String(m.played || '').trim();
                 const bestSan = String(m.best || '').trim();
                 const samePlayedBest = playedSan && bestSan && playedSan === bestSan;
-                const playedTxt = m.fen && (m.playedUci || m.played)
-                    ? voiceMoveText(m.fen, m.playedUci || m.played, m.played, voiceStyle)
-                    : (m.playedDesc || m.played || '—');
-                const tail = samePlayedBest
-                    ? `millor jugada → ${link}.`
-                    : `vas jugar ${escapeHtml(playedTxt)}; la millor era → ${link}.`;
+                const playedPhrase = (!samePlayedBest && m.fen)
+                    ? playedPhraseByVoice(m.fen, m.playedUci || m.played, voiceStyle)
+                    : '';
+                let tail = playedPhrase
+                    ? `${escapeHtml(playedPhrase)}. ${escapeHtml(best.prefix.charAt(0).toUpperCase() + best.prefix.slice(1))}${link}.`
+                    : `la millor jugada era ${link}.`;
+                // Auditoria final del text (sense HTML): si alguna construcció
+                // prohibida s'ha escapat (UCI, SAN nua en casual, fletxes,
+                // "vas jugar el cavall ... va a ..."), es degrada a la forma
+                // mínima segura en lloc de mostrar text incoherent.
+                const tailAudit = ElTaulerCore.auditReviewVoiceText(String(tail).replace(/<[^>]*>/g, ' '), voiceStyle);
+                if (!tailAudit.ok) tail = `la millor jugada era ${link}.`;
                 const header = badge
                     ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): ${tail}`
                     : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
@@ -8934,10 +8972,11 @@ function updateHistoryErrorNotes(entry) {
     errors.forEach((err, idx) => {
         const d = describeSevereError(err);
         const note = notes[getErrorNoteKey(err)] || null;
-        // Nomenclatura descriptiva segons la veu (nom de peça, casella d'origen
-        // si cal, SAN segons el registre) perquè sigui llegible per a tothom.
-        const playedTxt = voiceMoveText(err.fen, err.playerMove || err.playerMoveSan, d.played, voiceStyle);
-        const bestTxt = voiceMoveText(err.fen, err.bestMove || err.bestMoveSan, d.best, voiceStyle);
+        // Frases per veu verificades sobre la FEN ("vas portar el cavall...",
+        // "vas jugar Nh4: el cavall de f3 va a h4"), mai SAN desada sense
+        // verificar ni construccions "vas jugar el cavall ... va a ...".
+        const playedPhrase = playedPhraseByVoice(err.fen, err.playerMove || err.playerMoveSan, voiceStyle);
+        const best = bestPhraseByVoice(err.fen, err.bestMove || err.bestMoveSan, voiceStyle);
         // La nota d'OpenAI es va redactar amb una veu concreta (les antigues,
         // amb l'equilibrada): si la veu actual és una altra, es mostra
         // l'explicació local re-redactada, sense tornar a cridar cap IA.
@@ -8949,9 +8988,11 @@ function updateHistoryErrorNotes(entry) {
         // local a partir de l'anàlisi de Stockfish ja desada.
         else body = escapeHtml(buildLocalErrorNote(err, entry, { voiceStyle }));
         const samePB = d.played && d.best && d.played === d.best;
-        const headMoves = samePB
-            ? `la millor jugada era <strong>${escapeHtml(bestTxt)}</strong>`
-            : `vas jugar <strong>${escapeHtml(playedTxt)}</strong> · la millor era <strong>${escapeHtml(bestTxt)}</strong>`;
+        let headMoves = (samePB || !playedPhrase || !best)
+            ? (best ? `la millor jugada era <strong>${escapeHtml(best.body)}</strong>` : 'revisa la posició al tauler')
+            : `<strong>${escapeHtml(playedPhrase)}</strong> · ${escapeHtml(best.prefix)}<strong>${escapeHtml(best.body)}</strong>`;
+        const headAudit = ElTaulerCore.auditReviewVoiceText(String(headMoves).replace(/<[^>]*>/g, ' '), voiceStyle);
+        if (!headAudit.ok) headMoves = best ? `la millor jugada era <strong>${escapeHtml(best.body)}</strong>` : 'revisa la posició al tauler';
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
             <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: ${headMoves}</div>
             <div class="error-note-body">${body}</div>
@@ -20684,31 +20725,73 @@ function pickVoiceMotivation(style, seedKey) {
 }
 
 /* =================== NOMENCLATURA DE JUGADES SEGONS LA VEU ===================
-   La MATEIXA jugada, tres presentacions. Mai UCI en cap veu; la SAN nua només
-   com a últim recurs quan la posició no permet una descripció verificable.
-     casual    → només la descripció planera ("el cavall salta a f7 amb escac")
-     balanced  → descripció amb la SAN entre parèntesis quan aporta verificació
+   FONT ÚNICA DE VERITAT per descriure una jugada: es valida sobre la FEN amb
+   chess.js (moveFacts) i tot el text —SAN inclosa— surt d'aquesta verificació,
+   mai d'una cadena antiga desada. Si la jugada no és legal sobre la FEN, es
+   retorna null i qui crida ha d'amagar el moment o usar un fallback segur.
+     casual    → llenguatge natural, sense SAN ni UCI ("el cavall va a f7")
+     balanced  → descripció amb la SAN entre parèntesis ("el cavall va a f7 (Nf7)")
      technical → SAN al davant i la descripció al costat ("Nxf7+ (el cavall...)")
+   A més del text en línia, retorna les peces per compondre frases:
+     accio    → infinitiu ("portar el cavall de f3 a h4") per a "vas ..." /
+                "el millor pla era ..." en veu casual
+     clausula → subjecte+verb sense color ("el cavall de f3 va a h4") per a
+                "vas jugar Nh4: ..." en veus equilibrada i tècnica
    ========================================================================== */
 function describeMoveByVoice(fen, moveUciOrSan, opts = {}) {
     const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
-    const d = describeMoveHuman(fen, moveUciOrSan);
-    if (!d) {
-        const san = uciToSanSafe(fen, moveUciOrSan);
-        return san ? { text: String(san), san: String(san), from: null, to: null } : null;
-    }
+    let facts = null;
+    try {
+        const helpers = getPvBoardHelpers();
+        facts = helpers ? helpers.moveFacts(fen, moveUciOrSan) : null;
+    } catch (e) { facts = null; }
+    if (!facts) return null;
+    const R = (typeof ElTaulerRedactor !== 'undefined') ? ElTaulerRedactor : null;
+    const veu = (R && R.descriuJugadaPerVeu) ? R.descriuJugadaPerVeu(facts, { estil: voiceStyle }) : null;
+    const clausula = (veu && veu.clausula) || (R && R.descriuMovimentFets ? R.descriuMovimentFets(facts) : '') || facts.san;
+    const accio = (veu && veu.accio) || clausula;
     let text;
-    if (voiceStyle === 'casual') text = d.text;
-    else if (voiceStyle === 'technical') text = (d.san && d.san !== d.text) ? `${d.san} (${d.text})` : d.text;
-    else text = withSan(d.text, d.san);
-    return { text, san: d.san, from: d.from, to: d.to };
+    if (voiceStyle === 'casual') text = clausula;
+    else if (voiceStyle === 'technical') text = (facts.san && facts.san !== clausula) ? `${facts.san} (${clausula})` : clausula;
+    else text = withSan(clausula, facts.san);
+    return { text, san: facts.san, from: facts.origen, to: facts.desti, accio, clausula };
 }
 
-// Drecera de describeMoveByVoice quan només cal la cadena de text; el
-// fallback (normalment la SAN desada) és l'últim recurs.
+// Drecera de describeMoveByVoice quan només cal la cadena de text. Si la
+// jugada no és verificable sobre la FEN, el fallback només s'usa quan NO
+// sembla UCI (cap veu no pot mostrar mai "g5f7"); si no, cadena buida.
 function voiceMoveText(fen, move, fallback, voiceStyle) {
     const d = describeMoveByVoice(fen, move, { voiceStyle });
-    return (d && d.text) ? d.text : (fallback || uciToSanSafe(fen, move) || String(move || ''));
+    if (d && d.text) return d.text;
+    const fb = String(fallback || '').trim();
+    if (fb && !/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(fb)) return fb;
+    return '';
+}
+
+// "Vas jugar ..." segons la veu, a partir de la jugada VERIFICADA sobre la FEN:
+//   casual    → "vas portar el cavall de f3 a h4"
+//   balanced  → "vas jugar Nh4: el cavall de f3 va a h4"
+//   technical → "vas jugar Nh4: el cavall de f3 es reubica a h4"
+// Retorna '' si la jugada no és verificable (qui crida decideix el fallback).
+function playedPhraseByVoice(fen, move, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const d = describeMoveByVoice(fen, move, { voiceStyle: style });
+    if (!d) return '';
+    if (style === 'casual') return `vas ${d.accio}`;
+    return `vas jugar ${d.san}: ${d.clausula}`;
+}
+
+// "La millor era ..." segons la veu, en dues peces perquè el cos pugui ser un
+// enllaç clicable. Mai el format maquinal "la millor era → SAN".
+//   casual    → { prefix: 'el millor pla era ', body: 'portar la dama a d2' }
+//   balanced  → { prefix: 'la millor era ', body: 'Qd2: la dama va a d2' }
+//   technical → { prefix: 'la millor era ', body: 'Qd2: la dama es reubica a d2' }
+function bestPhraseByVoice(fen, move, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const d = describeMoveByVoice(fen, move, { voiceStyle: style });
+    if (!d) return null;
+    if (style === 'casual') return { prefix: 'el millor pla era ', body: d.accio };
+    return { prefix: 'la millor era ', body: `${d.san}: ${d.clausula}` };
 }
 
 // El càstig concret de la jugada feta, en llenguatge planer (nom de la peça i
@@ -20818,9 +20901,11 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
                 phase: phaseFromContext(ctx, r.moveNumber),
                 themeKey,
                 theme: planThemeDisplayLabel(themeKey),
-                played: r.playerMoveSan || r.playerMove || '—',
+                // SAN recalculada sobre la FEN: la que es mostra i la que fa
+                // servir l'enllaç per localitzar la jugada a l'historial.
+                played: (r.fen ? sanOnFen(r.fen, r.playerMove || r.playerMoveSan) : null) || r.playerMoveSan || r.playerMove || '—',
                 playedUci: (r.playerMove && r.playerMove !== '—') ? r.playerMove : null,
-                best: r.bestMoveSan || r.bestMove || '—',
+                best: (r.fen ? sanOnFen(r.fen, r.bestMove || r.bestMoveSan) : null) || r.bestMoveSan || r.bestMove || '—',
                 // Versions en llenguatge planer per a les frases (sense notació SAN).
                 playedDesc: r.fen ? moveHumanText(r.fen, r.playerMove || r.playerMoveSan, r.playerMoveSan) : (r.playerMoveSan || '—'),
                 bestDesc: r.fen ? moveHumanText(r.fen, r.bestMove || r.bestMoveSan, r.bestMoveSan) : (r.bestMoveSan || '—'),
