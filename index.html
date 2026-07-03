@@ -2392,6 +2392,33 @@
             margin-bottom: 8px;
         }
         body.epaper-mode .history-review-title { color: #222; }
+        /* Selector de veu de la ressenya: discret, tocable i que no trenca en mòbil. */
+        .review-voice-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: 0 0 10px;
+        }
+        .review-voice-control label {
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+        }
+        .review-voice-control .select-control {
+            flex: 0 1 auto;
+            min-width: 130px;
+            min-height: 38px;
+            padding: 6px 10px;
+            font-size: 0.88rem;
+        }
+        .review-voice-control .btn {
+            width: auto;
+            flex: 0 0 auto;
+            padding: 6px 12px;
+            font-size: 0.8rem;
+            min-height: 38px;
+        }
+        body.device-mobile .review-voice-control .select-control { flex: 1 1 140px; }
         .history-review-content {
             font-size: 1.15rem;
             color: var(--text-primary);
@@ -3557,6 +3584,15 @@
                         <option value="top2">Només les dues millors</option>
                     </select>
                 </div>
+                <div class="setting-row">
+                    <label class="setting-label" for="review-voice-select">Veu de l'entrenador</label>
+                    <select id="review-voice-select" class="select-control">
+                        <option value="casual">Casual</option>
+                        <option value="balanced" selected>Equilibrada</option>
+                        <option value="technical">Tècnica</option>
+                    </select>
+                </div>
+                <div class="setting-help">Canvia com s'expliquen les ressenyes i errades. L'anàlisi és la mateixa; només canvia el to.</div>
             </div>
 
             <div class="settings-panel">
@@ -3759,6 +3795,15 @@
                         <div class="history-detail-body">
                             <div class="history-review">
                                 <div class="history-review-title">Revisió de la partida</div>
+                                <div class="review-voice-control">
+                                    <label for="history-voice-select">Veu</label>
+                                    <select id="history-voice-select" class="select-control">
+                                        <option value="casual">Casual</option>
+                                        <option value="balanced" selected>Equilibrada</option>
+                                        <option value="technical">Tècnica</option>
+                                    </select>
+                                    <button type="button" class="btn btn-secondary" id="history-voice-default">Fer per defecte</button>
+                                </div>
                                 <div class="history-review-content" id="history-review-content">—</div>
                                 <div id="history-error-notes-block" style="display:none;">
                                     <div class="history-review-title" style="margin-top:14px;">Errades comentades</div>
@@ -4650,8 +4695,8 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
-    <script src="core.js?v=1.0.3"></script>
-    <script src="redactor.js?v=1.0.2"></script>
+    <script src="core.js?v=1.0.6"></script>
+    <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.4"></script>
     <script>
         window.APP_VERSION = '1.0.24';
@@ -4660,7 +4705,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.37"></script>
+    <script src="app.js?v=1.0.40"></script>
 
     <!-- Service Worker Registration -->
     <script>

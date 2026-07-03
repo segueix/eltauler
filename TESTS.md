@@ -63,6 +63,26 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   penjada), `computePvForcingInfo`/`classifyPvLanguage` i la redacció catalana
   dels moviments (`descriuMovimentFets`: «la dama negra captura el peó a h2 amb
   escac», «el rei blanc captura la dama a h2», color sempre explícit).
+- **`voice.test.js`** — veu de l'entrenador (casual / equilibrada / tècnica):
+  normalització d'estils (valors invàlids o antics cauen a `balanced`), lliçó
+  del dia, avís de poques dades, pla de 10 minuts i intro de color amb les
+  mateixes dades i tres redaccions, i narració de la PV amb la mateixa
+  prudència en tots els registres (cap veu no diu «forçada» sense demostració
+  i cap text no queda tallat).
+- **`voice-nomenclature.test.js`** — nomenclatura de jugades per veu (font única
+  de veritat): `descriuJugadaPerVeu` (redactor) redacta la MATEIXA jugada com a
+  acció en infinitiu (casual: «portar el cavall de f3 a h4»), clàusula sense
+  color per acompanyar la SAN (equilibrada: «el cavall de f3 va a h4»; tècnica:
+  «es reubica a») i casos de captura, coronació, mat i enroc, sense color ni
+  UCI; `reviewMoveIdentityOk` (core) rebutja un moment la jugada del qual no
+  coincideix amb la partida real en aquell ply (cap «Jugada 14 · Nh4» si el PGN
+  fa Ne4) i que el número de jugada quadri amb el comptador de la FEN; i
+  `auditReviewVoiceText` (core) detecta UCI visible, SAN nua en casual, la
+  fletxa maquinal «→», la construcció «vas jugar el cavall … va a …» i el text
+  tallat amb el·lipsi. El poliment de registres també s'hi cobreix: l'avanç de
+  peó es diu «el peó de la columna a fins a a4» (mai «de a a a4»), i en mode
+  expert la casella d'origen apareix encara que no calgui desambiguar («el
+  cavall de f3 captura a e5»), mentre que en casual s'omet quan no cal.
 
 ## Integració contínua
 

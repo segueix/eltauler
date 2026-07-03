@@ -767,6 +767,60 @@ function maybeRollLuckyThemes() {
     if (luckyModeEnabled) rollLuckyThemes();
 }
 
+/* ===========================================================================
+   Veu de l'entrenador: com s'expliquen les ressenyes, errades i moments clau.
+   L'anàlisi (FEN, jugades, temes, avaluacions) és sempre la mateixa; només
+   canvia la redacció. La preferència es desa a localStorage amb prefix
+   eltauler_, així que se sincronitza al núvol com la resta de configuracions.
+   =========================================================================== */
+const REVIEW_VOICE_STYLE_KEY = 'eltauler_review_voice_style';
+let reviewVoiceStyle = 'balanced'; // 'casual' | 'balanced' | 'technical'
+// Veu temporal de la ressenya oberta a l'historial (no es desa amb la partida:
+// canviar-la només regenera el text local, mai l'anàlisi guardada).
+let historyReviewVoiceOverride = null;
+
+// Resol l'estil efectiu: l'explícit si és vàlid; si no, la preferència de
+// l'usuari; i si tampoc no és vàlida (valor antic o corrupte), 'balanced'.
+function getReviewVoiceStyle(explicitStyle) {
+    const style = explicitStyle || reviewVoiceStyle || 'balanced';
+    return ElTaulerCore.normalizeReviewVoiceStyle(style);
+}
+
+function loadReviewVoiceStyle() {
+    try { return ElTaulerCore.normalizeReviewVoiceStyle(localStorage.getItem(REVIEW_VOICE_STYLE_KEY)); }
+    catch (e) { return 'balanced'; }
+}
+
+// Desa i aplica la veu per defecte. Si hi ha una ressenya oberta sense veu
+// temporal pròpia, es re-renderitza a l'acte (només text; res del motor).
+function applyReviewVoiceStyle(style, options = {}) {
+    reviewVoiceStyle = ElTaulerCore.normalizeReviewVoiceStyle(style);
+    const sel = document.getElementById('review-voice-select');
+    if (sel) sel.value = reviewVoiceStyle;
+    if (!options.skipSave) {
+        try { localStorage.setItem(REVIEW_VOICE_STYLE_KEY, reviewVoiceStyle); } catch (e) {}
+    }
+    if (!options.skipRefresh) refreshOpenReviewVoice();
+}
+
+// Veu efectiva de la ressenya oberta a l'historial (temporal o per defecte).
+function historyReviewVoiceStyle() {
+    return getReviewVoiceStyle(historyReviewVoiceOverride);
+}
+
+// Re-renderitza la ressenya i les errades comentades de la partida oberta amb
+// la veu vigent, sense recalcular Stockfish ni tocar l'anàlisi desada.
+function refreshOpenReviewVoice() {
+    try {
+        const sel = document.getElementById('history-voice-select');
+        if (sel && !historyReviewVoiceOverride) sel.value = reviewVoiceStyle;
+        if (typeof historyReplay !== 'undefined' && historyReplay && historyReplay.entry) {
+            updateHistoryReview(historyReplay.entry);
+            updateHistoryErrorNotes(historyReplay.entry);
+        }
+    } catch (e) { console.warn('refreshOpenReviewVoice', e); }
+}
+
 function loadTvJeroglyphicsPreference() {
     try { return localStorage.getItem(TV_JEROGLYPHICS_KEY) === 'on'; }
     catch (e) { return false; }
@@ -1157,9 +1211,10 @@ function reviewHtmlElementToText(el) {
 
 // Munta les errades comentades per a l'exportació, amb el text complet (sense
 // retallar) i un camp per línia, perquè es llegeixin millor que a la targeta.
-function buildErrorNotesExportText(entry) {
+function buildErrorNotesExportText(entry, voiceStyle) {
     const errors = entry ? getEntryReviewErrors(entry, 3, ERROR_NOTES_MAX) : [];
     if (!errors.length) return '';
+    const style = getReviewVoiceStyle(voiceStyle);
     // No repetim aquí les jugades que ja s'expliquen senceres a "Moments clau"
     // (mateixa posició de decisió i mateixa jugada): cada error apareix un sol cop.
     let momentKeys = new Set();
@@ -1169,19 +1224,21 @@ function buildErrorNotesExportText(entry) {
     errors.forEach(err => {
         const d = describeSevereError(err);
         if (momentKeys.has(reviewErrorKey(err))) return;
-        const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
-        const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
+        const playedPhrase = playedPhraseByVoice(err.fen, err.playerMove || err.playerMoveSan, style);
+        const best = bestPhraseByVoice(err.fen, err.bestMove || err.bestMoveSan, style);
         const quality = err.quality || (err.severity === 'high' ? 'blunder' : 'mistake');
         const meta = coachQualityMeta(quality);
         const label = meta ? meta.label : 'Error';
         const samePB = d.played && d.best && d.played === d.best;
-        const head = samePB
-            ? `${label} · Jugada ${d.moveNumber}: la millor jugada era ${withSan(bestDesc, d.best)}`
-            : `${label} · Jugada ${d.moveNumber}: vas jugar ${withSan(playedDesc, d.played)} · la millor era ${withSan(bestDesc, d.best)}`;
+        const head = (samePB || !playedPhrase || !best)
+            ? `${label} · Jugada ${d.moveNumber}: ${best ? `la millor jugada era ${best.body}` : 'revisa la posició al tauler'}`
+            : `${label} · Jugada ${d.moveNumber}: ${playedPhrase} · ${best.prefix}${best.body}`;
         const note = notes[getErrorNoteKey(err)] || null;
-        const body = (note && note.status === 'done' && note.text)
+        // Mateix criteri que a pantalla: la nota d'OpenAI només si és de la veu
+        // exportada; si no, l'explicació local re-redactada amb aquesta veu.
+        const body = (note && note.status === 'done' && note.text && (note.voiceStyle || 'balanced') === style)
             ? note.text
-            : buildLocalErrorNote(err, entry, { full: true });
+            : buildLocalErrorNote(err, entry, { full: true, voiceStyle: style });
         blocks.push(`${head}\n${body}`);
     });
     return blocks.join('\n\n');
@@ -1209,12 +1266,14 @@ function buildHistoryReviewText(entry) {
 
     // Regenerem la ressenya amb full=true per tenir el text complet (sense "…"),
     // afegint-hi la redacció d'IA al davant si n'hi ha (com a pantalla).
+    // S'exporta amb la mateixa veu que s'està veient a la ressenya.
+    const voiceStyle = historyReviewVoiceStyle();
     let reviewText = '';
     try {
         const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
         let html = '';
         if (review && review.text) html += `<div>${formatOpenAIReviewText(review.text)}</div>`;
-        html += renderLocalReviewHtml(entry, { full: true });
+        html += renderLocalReviewHtml(entry, { full: true, voiceStyle });
         const tmp = document.createElement('div');
         tmp.innerHTML = html;
         reviewText = reviewHtmlElementToText(tmp);
@@ -1224,7 +1283,7 @@ function buildHistoryReviewText(entry) {
     }
     lines.push('\n=== Ressenya i moments clau ===', reviewText || '(sense ressenya generada)');
 
-    const notesText = buildErrorNotesExportText(entry);
+    const notesText = buildErrorNotesExportText(entry, voiceStyle);
     if (notesText) lines.push('\n=== Errades comentades ===', notesText);
 
     return lines.join('\n');
@@ -4893,6 +4952,8 @@ function saveStorage() {
 function reloadAppStateFromStorage() {
     try {
         loadStorage();
+        // La veu de l'entrenador pot haver canviat en un altre dispositiu.
+        applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true });
         if (typeof isCalibrationActive === 'function' && !isCalibrationActive()) {
             syncEngineEloFromUser();
         }
@@ -7616,6 +7677,11 @@ function loadHistoryEntry(entry) {
     if (!entry) return;
     stopHistoryPlayback();
     activeReviewHighlight = null; // nova partida: cap moment clau actiu encara
+    // La veu temporal és de cada ressenya oberta: en obrir-ne una altra,
+    // es torna a la veu per defecte de l'usuari.
+    historyReviewVoiceOverride = null;
+    const voiceSel = document.getElementById('history-voice-select');
+    if (voiceSel) voiceSel.value = getReviewVoiceStyle();
     // Engega la construcció del graf de posicions (si encara no s'ha fet): així,
     // quan estigui llest, la ressenya s'actualitzarà amb el nom d'obertura precís.
     try { prewarmOpeningPositionGraph(); } catch (e) {}
@@ -7699,7 +7765,7 @@ function updateHistoryReview(entry) {
     // La ressenya local rica (obertura, fases, obertura semblant per practicar i
     // moments clau) es mostra SEMPRE, fins i tot quan hi ha una ressenya d'OpenAI:
     // la d'OpenAI, si n'hi ha, va a dalt com a redacció addicional.
-    const localHtml = renderLocalReviewHtml(entry);
+    const localHtml = renderLocalReviewHtml(entry, { voiceStyle: historyReviewVoiceStyle() });
     let html = '';
     if (review && review.text) {
         html += `<div class="ai-review-text">${formatOpenAIReviewText(review.text)}</div>`;
@@ -7757,7 +7823,12 @@ function regenerateLocalReview(entry) {
     entry.reviewSeed = (entry.reviewSeed || 0) + 1;
     const newKey = entry.id + ':r' + entry.reviewSeed;
     try {
-        if (_localDebriefCache && typeof _localDebriefCache === 'object') delete _localDebriefCache[newKey];
+        if (_localDebriefCache && typeof _localDebriefCache === 'object') {
+            // La memòria cau del debrief porta la veu com a sufix de la clau.
+            Object.keys(_localDebriefCache)
+                .filter(k => k === newKey || k.indexOf(newKey + '|') === 0)
+                .forEach(k => { delete _localDebriefCache[k]; });
+        }
         if (_coachVoiceByKey && typeof _coachVoiceByKey === 'object') delete _coachVoiceByKey[newKey];
     } catch (e) {}
     try { saveStorage(); } catch (e) {}
@@ -8121,18 +8192,28 @@ function entryMaxMoveNumber(entry) {
 // Opcions de validació calculades UNA vegada per entrada (getHistoryMoves pot
 // haver de reparsejar el PGN), per passar-les a totes les errades d'un bucle.
 function reviewErrorValidationOpts(entry) {
+    let moves = [];
+    try { moves = getHistoryMoves(entry) || []; } catch (e) { moves = []; }
     return {
-        maxMoveNumber: entryMaxMoveNumber(entry),
+        maxMoveNumber: moves.length ? Math.ceil(moves.length / 2) : entryMaxMoveNumber(entry),
         // Legalitat sobre la FEN de decisió: resolveMoveOnFen ja tolera el torn
         // invertit (equivalent a normalitzar amb normalizeFenTurn).
-        applyMove: (fen, move) => !!resolveMoveOnFen(fen, move)
+        applyMove: (fen, move) => !!resolveMoveOnFen(fen, move),
+        // Identitat de la jugada (reviewMoveIdentityOk): la SAN recalculada amb
+        // chess.js ha de coincidir amb la jugada real de la partida al ply del
+        // número de jugada. Sense llista de jugades (partides antigues), no es
+        // pot contradir res i no es descarta.
+        playerColor: (entry && entry.playerColor === 'b') ? 'b' : 'w',
+        historySanAt: (ply) => (ply >= 0 && ply < moves.length ? moves[ply] : null),
+        sanForMove: (fen, move) => sanOnFen(fen, move)
     };
 }
 
 // Validació forta abans de mostrar una errada: FEN present i interpretable,
 // número de jugada dins de la partida real, jugada feta i millor jugada legals
-// sobre la FEN i diferents entre elles. La lògica viu a core.js; aquí hi
-// injectem chess.js i les dades reals de la partida.
+// sobre la FEN i diferents entre elles, i IDENTITAT amb la partida real (cap
+// "Jugada 14 · Nh4" si al PGN la jugada 14 és Ne4). La lògica viu a core.js;
+// aquí hi injectem chess.js i les dades reals de la partida.
 function isRenderableReviewError(entry, err, opts) {
     if (!err) return false;
     const o = opts || reviewErrorValidationOpts(entry);
@@ -8145,7 +8226,9 @@ function isRenderableReviewError(entry, err, opts) {
         const n = parseInt(String(fen).split(' ')[5], 10);
         if (isFinite(n) && n > 0) moveNumber = n;
     }
-    return ElTaulerCore.isRenderableReviewError(Object.assign({}, err, { fen, moveNumber }), o);
+    const normalized = Object.assign({}, err, { fen, moveNumber });
+    return ElTaulerCore.isRenderableReviewError(normalized, o)
+        && ElTaulerCore.reviewMoveIdentityOk(normalized, o);
 }
 
 // Errades per comentar a la revisió, garantint un mínim (per defecte 3) si la
@@ -8216,8 +8299,13 @@ function describeSevereError(err) {
     const parts = (err.fen || '').split(' ');
     return {
         moveNumber: err.moveNumber || parseInt(parts[5], 10) || '?',
-        played: uciToSanSafe(err.fen, err.playerMoveSan || err.playerMove) || '?',
-        best: uciToSanSafe(err.fen, err.bestMoveSan || err.bestMove) || '?',
+        // La SAN que es mostra es recalcula SEMPRE amb chess.js sobre la FEN
+        // (la UCI primer, que és la dada de motor): una SAN desada antiga no
+        // pot contradir mai el tauler. Les cadenes desades són l'últim recurs.
+        played: sanOnFen(err.fen, err.playerMove || err.playerMoveSan)
+            || uciToSanSafe(err.fen, err.playerMoveSan || err.playerMove) || '?',
+        best: sanOnFen(err.fen, err.bestMove || err.bestMoveSan)
+            || uciToSanSafe(err.fen, err.bestMoveSan || err.bestMove) || '?',
         pv: (err.bestMovePvSan || err.bestMovePv || []).slice(0, 4).map(m => uciToSanSafe(err.fen, m)).join(' ')
     };
 }
@@ -8293,6 +8381,7 @@ function findMoveReviewForError(entry, err) {
 // la línia i una pregunta de reflexió. Reaprofita el banc de plans humans.
 function buildLocalErrorNote(err, entry, opts = {}) {
     if (!err) return 'Errada detectada en aquesta posició.';
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
     const d = describeSevereError(err);
     const mr = findMoveReviewForError(entry, err);
     const review = mr || {
@@ -8343,7 +8432,7 @@ function buildLocalErrorNote(err, entry, opts = {}) {
         fen: review.fen,
         pv: Array.isArray(review.bestMovePv) ? review.bestMovePv : [],
         positional: buildPositionalNote(ctx),
-        candidates: buildCandidatesNote(review)
+        candidates: buildCandidatesNote(review, voiceStyle)
     };
     let plan = {};
     try { plan = buildLocalHumanPlan(moment); } catch (e) { plan = {}; }
@@ -8367,7 +8456,7 @@ function buildLocalErrorNote(err, entry, opts = {}) {
     addPart(show.question, structured.question, 'Pregunta clau');
     // A l'exportació (full) posem cada camp en una línia; a pantalla, en línia seguida.
     const text = parts.join(opts.full ? '\n' : ' ').trim();
-    return text || SAFE_COACH_FALLBACK;
+    return text || voiceText(voiceStyle, 'safeFallback');
 }
 
 // =================== NOMENCLATURA DESCRIPTIVA + ENLLAÇOS ===================
@@ -8408,6 +8497,17 @@ function describeMoveHuman(fen, move) {
 function moveHumanText(fen, move, fallback) {
     const d = describeMoveHuman(fen, move);
     return d ? d.text : (fallback || uciToSanSafe(fen, move) || String(move || ''));
+}
+
+// SAN real d'una jugada (UCI o SAN) recalculada amb chess.js sobre la FEN de
+// decisió. És la font de veritat per MOSTRAR jugades: mai no es confia en una
+// SAN desada que no es pugui verificar. Retorna null si la jugada no és legal.
+function sanOnFen(fen, move) {
+    try {
+        const helpers = getPvBoardHelpers();
+        const facts = helpers ? helpers.moveFacts(fen, move) : null;
+        return facts ? facts.san : null;
+    } catch (e) { return null; }
 }
 
 // Afegeix la notació SAN entre parèntesis darrere la descripció planera, perquè
@@ -8463,14 +8563,14 @@ function buildPhaseStats(entry) {
 }
 
 // Comentari de millora segons els temes d'error d'una fase (reaprofita el banc de
-// plans humans). Si no hi ha temes concrets, dona un consell genèric de la fase.
-function buildPhaseAdvice(themes, phaseKey) {
-    const fallbackByPhase = {
-        opening: 'Desenvolupa les peces cap al centre, no moguis dues vegades la mateixa peça i enroca aviat.',
-        middlegame: 'Abans de cada jugada, mira els escacs, captures i amenaces; coordina les peces cap a un pla.',
-        endgame: 'Al final, activa el rei cap al centre, empeny els peons passats i posa les torres darrere dels peons.'
-    };
-    if (!themes || !themes.length) return fallbackByPhase[phaseKey] || '';
+// plans humans). Si no hi ha temes concrets, dona un consell genèric de la fase
+// en el registre de la veu triada. A les veus casual i tècnica el consell de
+// fase és sempre el de la seva veu (el detall del tema ja surt al costat).
+function buildPhaseAdvice(themes, phaseKey, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const advices = REVIEW_VOICE_TEXT[style].phaseAdvice || REVIEW_VOICE_TEXT.balanced.phaseAdvice;
+    const fallback = advices[phaseKey] || REVIEW_VOICE_TEXT.balanced.phaseAdvice[phaseKey] || '';
+    if (!themes || !themes.length || style !== 'balanced') return fallback;
     const labelToKey = {};
     Object.keys(HUMAN_PLAN_BANK).forEach(k => { labelToKey[planThemeDisplayLabel(k)] = k; });
     const key = labelToKey[themes[0]];
@@ -8479,7 +8579,7 @@ function buildPhaseAdvice(themes, phaseKey) {
         const tip = fillPlanTemplate(pickFreshPlanLine(pool, `phaseadvice:${phaseKey}:${key}`), {});
         if (tip) return tip;
     }
-    return fallbackByPhase[phaseKey] || '';
+    return fallback;
 }
 
 // =================== NAVEGACIÓ A LA PRÀCTICA D'OBERTURA ===================
@@ -8561,6 +8661,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
     if (!entry) return '';
     const blocks = [];
     try {
+        // Veu de la ressenya: la demanada explícitament (desplegable de la
+        // ressenya) o la preferència de l'usuari. Només canvia la redacció.
+        const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
         const facts = buildDebriefFacts(entry);
         // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
         // màxima noves) cada cop que es prem «Regenerar la ressenya», sense dependre
@@ -8575,22 +8678,43 @@ function renderLocalReviewHtml(entry, opts = {}) {
         }
 
         if (facts) {
-            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey));
+            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey), voiceStyle);
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
 
         // --- Color del jugador: que quedi clar quines decisions es comenten ---
-        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor))}</p>`);
+        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle))}</p>`);
 
         // --- La lliçó d'avui: una consigna curta segons el patró dominant,
         // derivada de dades locals (mai d'IA lliure) ---
-        const lesson = ElTaulerCore.lessonOfTheDay(dominantLessonTheme(entry));
+        const lesson = ElTaulerCore.lessonOfTheDay(dominantLessonTheme(entry), voiceStyle);
         if (lesson) blocks.push(`<p><strong>La lliçó d'avui:</strong> ${escapeHtml(lesson)}</p>`);
 
         const phases = buildPhaseStats(entry);
         const pct = v => (typeof v === 'number' ? `${v}%` : '—');
         // Línia de fase amb el nombre de jugades i avís de poques dades.
-        const phaseLine = p => ElTaulerCore.formatPhaseLine(p.precision, p.total);
+        const phaseLine = p => ElTaulerCore.formatPhaseLine(p.precision, p.total, voiceStyle);
+
+        // Capçalera de la línia d'obertura per veu. En casual es prioritza la
+        // lectura humana: sense ECO i amb una valoració en paraules en lloc de
+        // "correcció X% en N jugades" (l'ECO i el % es poden veure a la llista
+        // de jugades i a la resta de fases). En balanced/technical es manté la
+        // dada precisa.
+        const openingCorrectionCasual = p => {
+            const pr = p && typeof p.precision === 'number' ? p.precision : null;
+            if (pr === null || (p.total || 0) < 2) return 'Has sortit bé de l’obertura.';
+            if (pr >= 80) return 'L’obertura ha estat força correcta.';
+            if (pr >= 60) return 'L’obertura ha anat prou bé.';
+            return 'L’obertura ha tingut algun ensurt.';
+        };
+        const openingHead = (labelHtml, name, eco, p) => {
+            if (voiceStyle === 'casual') {
+                return `${labelHtml} ${escapeHtml(name)}. ${escapeHtml(openingCorrectionCasual(p))}`;
+            }
+            const ecoHtml = eco ? ` (${escapeHtml(eco)})` : '';
+            return `${labelHtml} ${escapeHtml(name)}${ecoHtml} · ${escapeHtml(phaseLine(p) || `correcció ${pct(p.precision)}.`)}`;
+        };
+        const ecoParen = eco => (voiceStyle === 'casual' || !eco) ? '' : ` (${escapeHtml(eco)})`;
 
         // --- Obertura (centrada en LA TEVA obertura, sigui quina sigui) ---
         const sanMoves = getHistoryMoves(entry);
@@ -8619,18 +8743,18 @@ function renderLocalReviewHtml(entry, opts = {}) {
             // CANVI FORÇAT: 100% de correcció d'obertura i argument del canvi.
             const devNum = Math.floor((userOp.firstDevPly || 0) / 2) + 1;
             const devNotation = `${devNum}${userOp.firstDevBy === 'w' ? '.' : '...'}${userOp.deviationMove}`;
-            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · correcció <strong>100%</strong>.`;
+            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${ecoParen(userOp.eco)} · correcció <strong>100%</strong>.`;
             txt += ` El rival no va entrar a la teva línia: va jugar <strong>${escapeHtml(devNotation)}</strong>`;
             if (userOp.expectedMove) txt += ` (hi esperaves ${escapeHtml(userOp.expectedMove)})`;
             if (realizedName && (!realizedEco || realizedEco !== userOp.eco)) {
-                txt += `, transposant cap a ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''}`;
+                txt += `, transposant cap a ${escapeHtml(realizedName)}${ecoParen(realizedEco)}`;
             }
             txt += `. Vas mantenir el teu pla amb solidesa, així que el canvi no és culpa teva: la correcció d'obertura és del 100%.`;
             blocks.push(`<p>${txt}</p>`);
             practiceIdx = userOp.index; practiceName = userOp.name; practiceEco = userOp.eco;
         } else if (userOp) {
             // Vas jugar la teva obertura (el rival hi va entrar, o la vas variar tu).
-            let txt = `<strong>La teva obertura:</strong> ${escapeHtml(userOp.name)}${userOp.eco ? ` (${escapeHtml(userOp.eco)})` : ''} · ${escapeHtml(phaseLine(phases.opening) || `correcció ${pct(phases.opening.precision)}.`)}`;
+            let txt = openingHead('<strong>La teva obertura:</strong>', userOp.name, userOp.eco, phases.opening);
             if (!stayedInUserOpening && userOp.firstDevPly >= 0 && userOp.firstDevBy === (entry.playerColor || 'w')) {
                 const dn = Math.floor(userOp.firstDevPly / 2) + 1;
                 txt += ` Vas sortir de la teva línia a la jugada ${dn}`;
@@ -8641,7 +8765,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         } else if (realizedName) {
             // No hem pogut identificar cap obertura teva del repertori: mostrem
             // l'obertura realitzada (per posició/ECO) amb la desviació de la teoria.
-            let openingTxt = `<strong>Obertura:</strong> ${escapeHtml(realizedName)}${realizedEco ? ` (${escapeHtml(realizedEco)})` : ''} · ${escapeHtml(phaseLine(phases.opening) || `correcció ${pct(phases.opening.precision)}.`)}`;
+            let openingTxt = openingHead('<strong>Obertura:</strong>', realizedName, realizedEco, phases.opening);
             if (!curated && oa && oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
                 openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
@@ -8652,7 +8776,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
                         for (let i = 0; i < (oa.deviationPly || 0); i++) { if (!g.move(sanMoves[i], { sloppy: true })) break; }
                         devFen = g.fen();
                     } catch (e) { devFen = null; }
-                    const theoryDesc = devFen ? moveHumanText(devFen, oa.theoryMoves[0]) : oa.theoryMoves[0];
+                    const theoryDesc = devFen ? voiceMoveText(devFen, oa.theoryMoves[0], oa.theoryMoves[0], voiceStyle) : oa.theoryMoves[0];
                     openingTxt += `; la teoria seguia amb ${escapeHtml(theoryDesc)}.`;
                 } else openingTxt += '.';
             }
@@ -8666,21 +8790,37 @@ function renderLocalReviewHtml(entry, opts = {}) {
             if (closest) { practiceIdx = closest.index; practiceName = closest.opening.name; practiceEco = closest.opening.eco; }
         }
         if (practiceIdx !== null && practiceName) {
-            const wLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="w">practicar amb blanques</a>`;
-            const bLink = `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="b">practicar amb negres</a>`;
-            const lead = (userOp || curated)
-                ? `reforça la teva <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''} del repertori`
-                : `l'obertura del repertori més semblant a la que vas jugar és <strong>${escapeHtml(practiceName)}</strong>${practiceEco ? ` (${escapeHtml(practiceEco)})` : ''}`;
-            blocks.push(`<p><strong>Per practicar:</strong> ${lead}. ${wLink} · ${bLink}.</p>`);
+            // Els enllaços visibles comencen amb majúscula i no semblen UI
+            // enganxada: "Practicar amb blanques · Practicar amb negres". En
+            // casual s'integren en una frase natural ("Pots practicar-la...").
+            const nameHtml = `<strong>${escapeHtml(practiceName)}</strong>`;
+            const ecoHtml = practiceEco ? ` (${escapeHtml(practiceEco)})` : '';
+            const mkLink = (color, text) => `<a href="#" class="opening-practice-link" data-idx="${practiceIdx}" data-color="${color}">${text}</a>`;
+            let practiceHtml;
+            if (voiceStyle === 'casual') {
+                // Sense ECO al cos; enllaços integrats amb minúscula dins la frase.
+                const lead = (userOp || curated)
+                    ? `reforça la teva ${nameHtml} del repertori`
+                    : `l'obertura del repertori més semblant és ${nameHtml}`;
+                practiceHtml = `<strong>Per practicar:</strong> ${lead}. Pots practicar-la ${mkLink('w', 'amb blanques')} o ${mkLink('b', 'amb negres')}.`;
+            } else {
+                const lead = (userOp || curated)
+                    ? `reforça la teva ${nameHtml}${ecoHtml} del repertori`
+                    : `${voiceStyle === 'technical' ? 'la línia de repertori més propera' : 'l\'obertura del repertori més semblant a la que vas jugar'} és ${nameHtml}${ecoHtml}`;
+                practiceHtml = `<strong>Per practicar:</strong> ${lead}. ${mkLink('w', 'Practicar amb blanques')} · ${mkLink('b', 'Practicar amb negres')}.`;
+            }
+            blocks.push(`<p>${practiceHtml}</p>`);
         }
 
         // --- Mig joc ---
         if (phases.middlegame.total > 0) {
             let midTxt = `<strong>Mig joc:</strong> ${escapeHtml(phaseLine(phases.middlegame))}`;
-            if (phases.middlegame.themes.length) {
-                midTxt += ` Errors més habituals: ${phases.middlegame.themes.map(escapeHtml).join(', ')}.`;
+            // "joc general" no aporta res com a "error més habitual": es filtra.
+            const midThemes = (phases.middlegame.themes || []).filter(t => t && t !== 'joc general');
+            if (midThemes.length) {
+                midTxt += ` Errors més habituals: ${midThemes.map(escapeHtml).join(', ')}.`;
             } else {
-                midTxt += ' Sense errors destacats en aquesta fase.';
+                midTxt += ` ${escapeHtml(voiceText(voiceStyle, 'noPhaseErrors'))}`;
             }
             blocks.push(`<p>${midTxt}</p>`);
         }
@@ -8688,20 +8828,24 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // --- Final (amb menys de 2 jugades no diu res fiable i s'omet) ---
         if (phases.endgame.total >= 2) {
             let endTxt = `<strong>Final:</strong> ${escapeHtml(phaseLine(phases.endgame))}`;
-            const advice = buildPhaseAdvice(phases.endgame.themes, 'endgame');
+            const advice = buildPhaseAdvice(phases.endgame.themes, 'endgame', voiceStyle);
             if (advice) endTxt += ` ${escapeHtml(advice)}`;
             blocks.push(`<p>${endTxt}</p>`);
         }
 
         // --- Moments clau (jugades descriptives clicables) ---
-        const moments = buildHumanPlanMoments(entry, null, opts);
+        const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
         if (moments.length) {
             const items = moments.map(m => {
-                const desc = withSan(m.fen ? moveHumanText(m.fen, m.bestMoveUci || m.best, m.best) : m.best, m.best);
+                // Frases per veu VERIFICADES sobre la FEN de decisió: si la
+                // millor jugada no s'hi pot verificar, el moment no es mostra
+                // (mai una jugada inventada; passa al següent moment vàlid).
+                const best = m.fen ? bestPhraseByVoice(m.fen, m.bestMoveUci || m.best, voiceStyle) : null;
+                if (!best) return '';
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
-                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(desc)}</a>`;
+                const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(best.body)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const badge = coachQualityBadgeHtml(m);
                 const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
@@ -8712,10 +8856,18 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const playedSan = String(m.played || '').trim();
                 const bestSan = String(m.best || '').trim();
                 const samePlayedBest = playedSan && bestSan && playedSan === bestSan;
-                const playedTxt = withSan(m.playedDesc || m.played || '—', m.played);
-                const tail = samePlayedBest
-                    ? `millor jugada → ${link}.`
-                    : `vas jugar ${escapeHtml(playedTxt)}; la millor era → ${link}.`;
+                const playedPhrase = (!samePlayedBest && m.fen)
+                    ? playedPhraseByVoice(m.fen, m.playedUci || m.played, voiceStyle)
+                    : '';
+                let tail = playedPhrase
+                    ? `${escapeHtml(playedPhrase)}. ${escapeHtml(best.prefix.charAt(0).toUpperCase() + best.prefix.slice(1))}${link}.`
+                    : `la millor jugada era ${link}.`;
+                // Auditoria final del text (sense HTML): si alguna construcció
+                // prohibida s'ha escapat (UCI, SAN nua en casual, fletxes,
+                // "vas jugar el cavall ... va a ..."), es degrada a la forma
+                // mínima segura en lloc de mostrar text incoherent.
+                const tailAudit = ElTaulerCore.auditReviewVoiceText(String(tail).replace(/<[^>]*>/g, ' '), voiceStyle);
+                if (!tailAudit.ok) tail = `la millor jugada era ${link}.`;
                 const header = badge
                     ? `${moveNumLabel} · ${badge} (${escapeHtml(m.theme)}): ${tail}`
                     : `${moveNumLabel} (${escapeHtml(m.theme)}): ${tail}`;
@@ -8738,15 +8890,27 @@ function renderLocalReviewHtml(entry, opts = {}) {
                     coachLine(show.continuation, m.structured?.continuation, 'Moviments següents')
                 ].filter(Boolean);
                 // Si tot ha quedat filtrat, un mínim segur en lloc de res.
-                if (lines.length === 1) lines.push(`<span>${escapeHtml(SAFE_COACH_FALLBACK)}</span>`);
+                if (lines.length === 1) lines.push(`<span>${escapeHtml(voiceText(voiceStyle, 'safeFallback'))}</span>`);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
             blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
 
         // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
-        const planText = ElTaulerCore.buildTenMinutePlan(moments.map(m => Number(m.moveNumber)));
+        const planText = ElTaulerCore.buildTenMinutePlan(moments.map(m => Number(m.moveNumber)), voiceStyle);
         blocks.push(`<p><strong>Pla de 10 minuts:</strong> ${escapeHtml(planText.replace(/^Pla de 10 minuts:\s*/, ''))}</p>`);
+
+        // --- Tancament motivador (segons la veu; estable per llavor de ressenya).
+        // No repeteix una frase que ja hagi sortit al resum inicial: si coincideix,
+        // en tria una altra del banc. ---
+        let motivation = pickVoiceMotivation(voiceStyle, seedKey);
+        const priorText = blocks.join(' ');
+        if (motivation && priorText.indexOf(escapeHtml(motivation)) !== -1) {
+            const pool = (REVIEW_VOICE_TEXT[voiceStyle] || REVIEW_VOICE_TEXT.balanced).motivation || [];
+            const alt = pool.find(t => priorText.indexOf(escapeHtml(t)) === -1);
+            motivation = alt || '';
+        }
+        if (motivation) blocks.push(`<p>${escapeHtml(motivation)}</p>`);
 
         // --- Llista completa de jugades (per copiar i verificar la detecció) ---
         // Posem totes les jugades en ordre, en notació numerada estil PGN, en un
@@ -8797,6 +8961,9 @@ async function requestErrorNotes(entry, severeErrors) {
         entry.errorNotes[key] = { status: 'pending', text: '' };
     });
     refreshHistoryErrorNotes(entry);
+    // Les notes es redacten amb la veu per defecte de l'usuari (no amb una veu
+    // temporal de la ressenya): es desa amb la nota per saber a quina veu pertany.
+    const notesVoiceStyle = getReviewVoiceStyle();
     await Promise.all(pending.map(async err => {
         const key = getErrorNoteKey(err);
         try {
@@ -8807,7 +8974,7 @@ async function requestErrorNotes(entry, severeErrors) {
             // local de buildLocalErrorNote, que sempre és correcta.
             const esmena = esmenaCatalaCoach(result.text.replace(/\*\*/g, '').trim(), { maxParaules: 60 });
             if (!esmena.ok) throw new Error('Text descartat pel corrector: ' + esmena.problemes.map(p => p.codi).join(', '));
-            entry.errorNotes[key] = { status: 'done', text: esmena.text };
+            entry.errorNotes[key] = { status: 'done', text: esmena.text, voiceStyle: notesVoiceStyle };
         } catch (e) {
             console.error('[ErrorNotes]', e?.message || e);
             entry.errorNotes[key] = { status: 'error', text: '', message: e?.message || '' };
@@ -8844,24 +9011,33 @@ function updateHistoryErrorNotes(entry) {
     }
     if (block.length) block.show();
     const notes = entry.errorNotes || {};
+    // Veu vigent de la ressenya oberta: canviar-la només regenera aquest text.
+    const voiceStyle = historyReviewVoiceStyle();
     let html = '';
     errors.forEach((err, idx) => {
         const d = describeSevereError(err);
         const note = notes[getErrorNoteKey(err)] || null;
-        // Nomenclatura descriptiva (nom de peça, casella d'origen si cal,
-        // columna del peó) perquè sigui llegible sense conèixer la notació.
-        const playedDesc = moveHumanText(err.fen, err.playerMove || err.playerMoveSan, d.played);
-        const bestDesc = moveHumanText(err.fen, err.bestMove || err.bestMoveSan, d.best);
+        // Frases per veu verificades sobre la FEN ("vas portar el cavall...",
+        // "vas jugar Nh4: el cavall de f3 va a h4"), mai SAN desada sense
+        // verificar ni construccions "vas jugar el cavall ... va a ...".
+        const playedPhrase = playedPhraseByVoice(err.fen, err.playerMove || err.playerMoveSan, voiceStyle);
+        const best = bestPhraseByVoice(err.fen, err.bestMove || err.bestMoveSan, voiceStyle);
+        // La nota d'OpenAI es va redactar amb una veu concreta (les antigues,
+        // amb l'equilibrada): si la veu actual és una altra, es mostra
+        // l'explicació local re-redactada, sense tornar a cridar cap IA.
+        const noteMatchesVoice = note && (note.voiceStyle || 'balanced') === voiceStyle;
         let body;
-        if (note && note.status === 'done' && note.text) body = escapeHtml(note.text);
+        if (note && note.status === 'done' && note.text && noteMatchesVoice) body = escapeHtml(note.text);
         else if (note && note.status === 'pending') body = '<em>S’està generant l’explicació.</em>';
-        // Sense nota d'OpenAI (o sense clau): explicació local a partir de l'anàlisi
-        // de Stockfish, perquè cada errada sempre tingui una explicació útil.
-        else body = escapeHtml(buildLocalErrorNote(err, entry));
+        // Sense nota d'OpenAI (o sense clau, o amb una altra veu): explicació
+        // local a partir de l'anàlisi de Stockfish ja desada.
+        else body = escapeHtml(buildLocalErrorNote(err, entry, { voiceStyle }));
         const samePB = d.played && d.best && d.played === d.best;
-        const headMoves = samePB
-            ? `la millor jugada era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`
-            : `vas jugar <strong>${escapeHtml(withSan(playedDesc, d.played))}</strong> · la millor era <strong>${escapeHtml(withSan(bestDesc, d.best))}</strong>`;
+        let headMoves = (samePB || !playedPhrase || !best)
+            ? (best ? `la millor jugada era <strong>${escapeHtml(best.body)}</strong>` : 'revisa la posició al tauler')
+            : `<strong>${escapeHtml(playedPhrase)}</strong> · ${escapeHtml(best.prefix)}<strong>${escapeHtml(best.body)}</strong>`;
+        const headAudit = ElTaulerCore.auditReviewVoiceText(String(headMoves).replace(/<[^>]*>/g, ' '), voiceStyle);
+        if (!headAudit.ok) headMoves = best ? `la millor jugada era <strong>${escapeHtml(best.body)}</strong>` : 'revisa la posició al tauler';
         html += `<div class="error-note" data-error-idx="${idx}" role="button" tabindex="0" title="Clica per tornar a generar aquest exercici al tauler i resoldre'l amb pista i màxima">
             <div class="error-note-head">${coachQualityBadgeHtml({ quality: err.quality || (err.severity === 'high' ? 'blunder' : 'mistake'), swing: err.swing, evalBefore: err.evalBefore, evalAfter: err.evalAfter })} · Jugada ${escapeHtml(String(d.moveNumber))}: ${headMoves}</div>
             <div class="error-note-body">${body}</div>
@@ -11928,11 +12104,23 @@ function esmenaCatalaCoach(text, opcions) {
     return r.esmenarTextEntrenador(text, opcions || {});
 }
 
+// Regla de registre segons la veu de l'entrenador, per als textos d'IA. No
+// toca les normes de notació de cada prompt (si un prompt prohibeix la SAN,
+// segueix prohibida): només fixa el to i la densitat de tecnicismes.
+const REVIEW_VOICE_OPENAI_RULES = {
+    casual: '- TO DE VEU (casual): parla planer, directe i amable, com a un principiant; evita tecnicismes com "seqüència forçada", "sobrecàrrega" o "compensació posicional" i explica-ho amb paraules senzilles, sense fer-ho infantil.',
+    balanced: '',
+    technical: '- TO DE VEU (tècnic): escriu precís i professional, per a un jugador avançat; pots usar termes com forquilla, clavada, desviació, sobrecàrrega o qualitat, mantenint les frases curtes i sense allargar el text.'
+};
 // Bloc de normes d'estil compartit que s'afegeix a tots els prompts de
-// l'entrenador perquè el model escrigui català normatiu, amb % i sense SAN.
+// l'entrenador perquè el model escrigui català normatiu, amb % i sense SAN,
+// en el registre de la veu per defecte de l'usuari.
 function coachStyleRulesBlock() {
     const r = getRedactor();
-    return r ? '\n' + r.REGLES_ESTIL_CATALA : '';
+    let block = r ? '\n' + r.REGLES_ESTIL_CATALA : '';
+    const voiceRule = REVIEW_VOICE_OPENAI_RULES[getReviewVoiceStyle()];
+    if (voiceRule) block += '\n' + voiceRule;
+    return block;
 }
 
 function polishCoachText(text, opts = {}) {
@@ -14711,6 +14899,25 @@ function setupEvents() {
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
+    // Veu de la ressenya oberta: canvia NOMÉS aquesta ressenya (regenera el
+    // text local amb les mateixes dades; ni Stockfish ni reanàlisi). El botó
+    // «Fer per defecte» converteix la veu triada en la de tota l'app.
+    $('#history-voice-select').off('change').on('change', function() {
+        historyReviewVoiceOverride = ElTaulerCore.normalizeReviewVoiceStyle($(this).val());
+        $(this).val(historyReviewVoiceOverride);
+        if (historyReplay && historyReplay.entry) {
+            updateHistoryReview(historyReplay.entry);
+            updateHistoryErrorNotes(historyReplay.entry);
+        }
+    });
+    $('#history-voice-default').off('click').on('click', () => {
+        const sel = document.getElementById('history-voice-select');
+        applyReviewVoiceStyle(sel ? sel.value : historyReviewVoiceStyle());
+        // La veu triada ja és la per defecte: la ressenya deixa de tenir veu temporal.
+        historyReviewVoiceOverride = null;
+        showToast('Veu per defecte actualitzada.', 'success');
+    });
+
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
         const entry = historyReplay.entry;
@@ -14820,6 +15027,12 @@ function setupEvents() {
     // Mode de validació del Bundle (Revisió d'errors)
     $('#bundle-accept-select').off('change').on('change', function() {
         saveBundleAcceptMode($(this).val());
+    });
+
+    // Veu de l'entrenador: es desa a l'instant i la ressenya oberta (si no té
+    // una veu temporal pròpia) es re-redacta sense recalcular res del motor.
+    $('#review-voice-select').off('change').on('change', function() {
+        applyReviewVoiceStyle($(this).val());
     });
 
     // Rellotge de la nova partida (lliure/assistida): es tria abans de cada partida i
@@ -19322,6 +19535,19 @@ function buildDebriefFacts(entry) {
         if (t !== 'general' && themeMastery[t] < weakestVal) { weakestVal = themeMastery[t]; weakestTheme = t; }
     });
 
+    // Outcome dominant de les errades (conversió d'avantatge, atac fluix, pèrdua
+    // de material...), derivat de les MATEIXES dades ja calculades (mai motor
+    // nou). Serveix per concretar "joc general" en una frase útil.
+    const outcomeCounts = {};
+    (entry.moveReviews || []).forEach(r => {
+        if (r.quality !== 'mistake' && r.quality !== 'blunder') return;
+        let oc = null;
+        try { oc = classifyMoveOutcome(r); } catch (e) { oc = null; }
+        if (oc) outcomeCounts[oc] = (outcomeCounts[oc] || 0) + 1;
+    });
+    let dominantOutcome = null, domN = 0;
+    Object.keys(outcomeCounts).forEach(o => { if (outcomeCounts[o] > domN) { dominantOutcome = o; domN = outcomeCounts[o]; } });
+
     const mistakes = (counts.mistake || 0) + (counts.blunder || 0);
     return {
         result: debriefResultKind(entry.result),
@@ -19335,7 +19561,9 @@ function buildDebriefFacts(entry) {
         weakestTheme,
         weakestMastery: isFinite(weakestVal) ? Math.round(weakestVal * 100) : 0,
         srsDue: getDueErrors().length,
-        cleanGame: mistakes === 0 && totalMoves >= 10
+        cleanGame: mistakes === 0 && totalMoves >= 10,
+        dominantOutcome,
+        entryId: entry.id
     };
 }
 
@@ -19622,29 +19850,47 @@ function lintLocalBanks() {
         Object.keys(OFFLINE_MAXIMS).forEach(k => checkPool(OFFLINE_MAXIMS[k], `OFFLINE_MAXIMS.${k}`, null));
         Object.keys(COACH_LEVEL_TIPS).forEach(k => checkPool(COACH_LEVEL_TIPS[k], `COACH_LEVEL_TIPS.${k}`, null));
         COACH_VOICES.forEach(v => { checkPool(v.openers, `voice.${v.id}.openers`, null); checkPool(v.signoffs, `voice.${v.id}.signoffs`, null); });
+        // Bancs de la veu de l'entrenador (l'equilibrada reutilitza els d'aquí sobre).
+        ['casual', 'technical'].forEach(s => {
+            const v = REVIEW_VOICE_TEXT[s];
+            Object.keys(v.debrief).forEach(c => checkPool(v.debrief[c], `REVIEW_VOICE_TEXT.${s}.debrief.${c}`, ALLOWED_DEBRIEF));
+            ['outcomeConsequence', 'outcomeDiagnosis', 'outcomePlan'].forEach(g =>
+                Object.keys(v[g]).forEach(k => checkPool(v[g][k], `REVIEW_VOICE_TEXT.${s}.${g}.${k}`, null)));
+            checkPool(v.motivation, `REVIEW_VOICE_TEXT.${s}.motivation`, null);
+        });
     } catch (e) { issues.push('error linter: ' + e.message); }
     if (issues.length) console.warn(`[BankLint] ${issues.length} problema(es):\n` + issues.join('\n'));
     else console.log('[BankLint] Tots els bancs locals OK');
     return issues;
 }
-try { if (typeof localStorage !== 'undefined' && localStorage.getItem('eltauler_lint') === '1') lintLocalBanks(); } catch (e) {}
+// S'executa amb un setTimeout perquè els bancs de la veu (REVIEW_VOICE_TEXT)
+// es declaren més avall i cal que tot el fitxer s'hagi avaluat abans.
+try { if (typeof localStorage !== 'undefined' && localStorage.getItem('eltauler_lint') === '1') setTimeout(lintLocalBanks, 0); } catch (e) {}
 
 // Capa 2 (per defecte, sempre disponible): redacció amb plantilles en català.
 // Usa l'anti-repetició persistent compartida (pickFreshPlanLine) i memoritza el
-// text per partida perquè rerenderitzacions dins la mateixa partida siguin estables.
+// text per partida perquè rerenderitzacions dins la mateixa partida siguin
+// estables. La memòria cau inclou la veu: canviar-la regenera el resum a
+// l'acte, i tornar a la veu anterior recupera el mateix text.
 let _localDebriefCache = {};
-function composeDebriefText(facts, seedStr, voice) {
-    const cacheKey = String(seedStr || 'debrief');
+function composeDebriefText(facts, seedStr, voice, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const cacheKey = String(seedStr || 'debrief') + '|' + style;
     if (_localDebriefCache[cacheKey]) return _localDebriefCache[cacheKey];
     const v = voice || pickCoachVoiceForKey(cacheKey);
-    const pick = cat => pickFreshPlanLine(COACH_DEBRIEF_TEMPLATES[cat] || [], 'debrief:' + cat);
+    const pools = REVIEW_VOICE_TEXT[style].debrief || COACH_DEBRIEF_TEMPLATES;
+    const pick = cat => pickFreshPlanLine(pools[cat] || COACH_DEBRIEF_TEMPLATES[cat] || [], 'debrief:' + style + ':' + cat);
+    // El tema es diu en llenguatge útil (mai el sec "joc general"): si és un
+    // tema concret, la seva frase per veu; si és 'general', es concreta amb
+    // l'outcome dominant de la partida. Mateixes dades, només millor redacció.
+    const themeCtx = { outcome: facts.dominantOutcome, seed: (facts.entryId || '') + '|' + String(seedStr || '') };
     const data = {
         prec: facts.precision !== null ? facts.precision : '—',
         avg: facts.avgPrecision,
         diff: (facts.precision !== null && facts.avgPrecision !== null) ? facts.precision - facts.avgPrecision : 0,
         cops: facts.topErrorCount === 1 ? 'una errada relacionada' : `${facts.topErrorCount} errades relacionades`,
         moments: facts.topErrorCount === 1 ? 'un moment delicat' : `${facts.topErrorCount} moments delicats`,
-        tema: getThemeLabel(facts.topErrorTheme || facts.weakestTheme),
+        tema: humanizeDominantTheme(facts.topErrorTheme || facts.weakestTheme, themeCtx, { voiceStyle: style }),
         fase: COACH_PHASE_LABELS[facts.worstPhase] || 'el mig joc',
         due: facts.srsDue
     };
@@ -19654,8 +19900,10 @@ function composeDebriefText(facts, seedStr, voice) {
     const goodPrecision = facts.precision !== null && facts.precision >= 70;
     const sentences = [];
 
-    // To de la veu: obertura ocasional que personalitza l'entrenador.
-    if (Math.random() <= 0.65) sentences.push(pickFreshPlanLine(v.openers, 'voiceopen:' + v.id));
+    // To de la veu: obertura ocasional que personalitza l'entrenador. Les
+    // "personalitats" (serè, directe...) són cosa de la veu equilibrada; el
+    // casual i el tècnic mantenen el seu registre net.
+    if (style === 'balanced' && Math.random() <= 0.65) sentences.push(pickFreshPlanLine(v.openers, 'voiceopen:' + v.id));
 
     if (facts.result === 'win') sentences.push(pick(goodPrecision ? 'win_high' : 'win_low'));
     else if (facts.result === 'draw') sentences.push(pick('draw'));
@@ -19674,7 +19922,7 @@ function composeDebriefText(facts, seedStr, voice) {
     } else if (facts.worstPhase && facts.worstPhaseCount >= 2) {
         sentences.push(pick('weak_phase'));
     } else if (facts.cleanGame && facts.weakestMastery < 50) {
-        data.tema = getThemeLabel(facts.weakestTheme);
+        data.tema = humanizeDominantTheme(facts.weakestTheme, themeCtx, { voiceStyle: style });
         sentences.push(pick('weak_mastery'));
     }
 
@@ -19683,8 +19931,13 @@ function composeDebriefText(facts, seedStr, voice) {
     else if (facts.srsDue >= 3) sentences.push(pick('advice_srs'));
     else sentences.push(pick('advice_theme'));
 
-    // Tancament ocasional amb la signatura de la veu.
-    if (Math.random() <= 0.4) sentences.push(pickFreshPlanLine(v.signoffs, 'voicesign:' + v.id));
+    // Tancament ocasional: la signatura de la personalitat (veu equilibrada)
+    // o una frase motivacional del registre triat (casual/tècnica).
+    if (style === 'balanced') {
+        if (Math.random() <= 0.4) sentences.push(pickFreshPlanLine(v.signoffs, 'voicesign:' + v.id));
+    } else if (Math.random() <= 0.4) {
+        sentences.push(pickFreshPlanLine(REVIEW_VOICE_TEXT[style].motivation || [], 'voicemotiv:' + style));
+    }
 
     // Consell adaptat al nivell (ELO) del jugador.
     const level = playerLevelBand();
@@ -19834,11 +20087,13 @@ function uciLineToSan(fen, uciList, maxPlies) {
     return out;
 }
 
-// Descriu una seqüència de jugades (UCI) en llenguatge planer, recorrent la línia
-// per anomenar cada moviment. A captures i escacs s'hi afegeix la SAN entre
-// parèntesis perquè la frase sigui verificable contra el tauler ("el rei negre
-// captura la dama a h7 (Kxh7)").
-function describeLineHuman(fen, uciList, startPly, maxPhrases) {
+// Descriu una seqüència de jugades (UCI) en llenguatge planer, recorrent la
+// línia per anomenar cada moviment. La presència de SAN depèn de la veu:
+//   casual    → mai (només la descripció: "el rei negre captura la dama a h7")
+//   balanced  → a captures, escacs i mats, perquè la frase sigui verificable
+//   technical → a totes les jugades ("el rei negre captura la dama a h7 (Kxh7)")
+function describeLineHuman(fen, uciList, startPly, maxPhrases, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
     try {
         const g = new Chess(fen);
         const phrases = [];
@@ -19850,7 +20105,8 @@ function describeLineHuman(fen, uciList, startPly, maxPhrases) {
             if (!mv) break;
             if (i >= startPly) {
                 const d = describeMoveHuman(beforeFen, u);
-                const needsSan = !!mv.captured || mv.san.indexOf('+') !== -1 || mv.san.indexOf('#') !== -1;
+                const needsSan = style === 'technical'
+                    || (style !== 'casual' && (!!mv.captured || mv.san.indexOf('+') !== -1 || mv.san.indexOf('#') !== -1));
                 phrases.push(d ? (needsSan ? `${d.text} (${mv.san})` : d.text) : mv.san);
             }
         }
@@ -19859,7 +20115,8 @@ function describeLineHuman(fen, uciList, startPly, maxPhrases) {
 }
 
 // TIER 1 — compara candidates (MultiPV ja guardats) i mostra la continuació de la idea.
-function buildCandidatesNote(review) {
+function buildCandidatesNote(review, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
     try {
         const fen = review && review.fen;
         if (!fen) return '';
@@ -19872,7 +20129,10 @@ function buildCandidatesNote(review) {
                 const gap = Math.abs((a0.eval || 0) - (a1.eval || 0));
                 if (gap <= 70) {
                     const altSan = uciLineToSan(fen, [a1.move], 1)[0];
-                    if (altSan && altSan !== bestSan) parts.push(`També era bona ${withSan(moveHumanText(fen, a1.move, altSan), altSan)}.`);
+                    if (altSan && altSan !== bestSan) {
+                        const tpl = REVIEW_VOICE_TEXT[style].alsoGood || REVIEW_VOICE_TEXT.balanced.alsoGood;
+                        parts.push(tpl(voiceMoveText(fen, a1.move, altSan, style)));
+                    }
                 }
             }
         }
@@ -20137,22 +20397,23 @@ function reviewForcingInfo(review) {
 //                   motor, però el rival tenia altres opcions raonables)
 //   sense dades  → no es narra la PV; només "La millor jugada era...".
 // Mai no es diu "línia guanyadora" ni "forçada" sense demostració.
-function buildContinuationNote(moment) {
+function buildContinuationNote(moment, voiceStyle) {
     const m = moment || {};
+    const style = getReviewVoiceStyle(voiceStyle);
     if (!m.fen) return '';
     const pv = Array.isArray(m.pv) ? m.pv : [];
     const fi = reviewForcingInfo(m);
     const lang = ElTaulerCore.classifyPvLanguage({ bestPv: pv, forcingInfo: fi });
-    const seq = (lang !== 'unclear' && pv.length >= 2) ? describeLineHuman(m.fen, pv, 0, 3) : '';
+    const seq = (lang !== 'unclear' && pv.length >= 2) ? describeLineHuman(m.fen, pv, 0, 3, style) : '';
     let bestText = '';
-    if (m.bestDesc && m.bestDesc !== '—') bestText = withSan(m.bestDesc, m.best);
-    else if (m.bestMoveUci) bestText = withSan(moveHumanText(m.fen, m.bestMoveUci, m.best), m.best);
+    if (m.bestMoveUci) bestText = voiceMoveText(m.fen, m.bestMoveUci, m.best, style);
+    else if (m.bestDesc && m.bestDesc !== '—') bestText = style === 'casual' ? m.bestDesc : withSan(m.bestDesc, m.best);
     return ElTaulerCore.pvNarrationText(lang, {
         lineText: seq,
         bestText: bestText,
         replyIsOnlyLegal: !!(fi && fi.replyIsOnlyLegal),
         allRepliesLosing: !!(fi && fi.allRepliesLosing)
-    });
+    }, style);
 }
 
 // ── FASE B — Classificació determinista del resultat de l'error ──────────────
@@ -20335,31 +20596,385 @@ function pickStableLine(pool, moment, salt = '') {
     return pool[coachStableHash(seed) % pool.length];
 }
 
+/* ===========================================================================
+   CAPA CENTRALITZADA DE TEXTOS PER VEU (casual / balanced / technical)
+   ---------------------------------------------------------------------------
+   Un sol lloc amb totes les redaccions que canvien segons la veu de
+   l'entrenador. Les funcions de la ressenya no fan `if (style === ...)`
+   escampats: demanen el text a aquesta capa. La veu equilibrada reutilitza
+   els bancs de sempre, així que sense preferència res no canvia. Les DADES
+   (jugades, temes, avaluacions) són idèntiques en totes les veus.
+   =========================================================================== */
+const REVIEW_VOICE_TEXT = {
+    casual: {
+        safeFallback: 'La jugada et deixava una mica pitjor. Mira la millor jugada al tauler i compara què queda defensat.',
+        refutationIntro: 'Així et podia castigar el rival',
+        alsoGood: m => `També era bona ${m}.`,
+        noPhaseErrors: 'Cap error que valgui la pena destacar en aquesta fase.',
+        severity: { blunder: 'Això era greu perquè', mistake: 'Això importava perquè', inaccuracy: 'El detall compta perquè' },
+        outcomeConsequence: {
+            allows_mate: ['deixava el rei sense sortida: el rival podia fer mat', 'obria la porta a un mat que ja no es podia aturar', 'el rei es quedava sense defensa i queia'],
+            lets_win_slip: ['tenies la partida guanyada i se t’escapava de les mans', 'deixava fugir una posició que ja era teva', 'donava aire al rival just quan ja guanyaves', 'deixava escapar molt avantatge'],
+            loses_major: ['regalava una torre o la dama sense res a canvi', 'costava una peça grossa per no res', 'perdia molt material de cop'],
+            loses_piece: ['deixava una peça penjada i el rival se la podia quedar', 'perdia una peça sense res a canvi', 'una peça quedava a l’aire'],
+            loses_exchange: ['canviava una torre per una peça més petita sense treure’n res', 'cedia la torre per una peça menor i el compte sortia perdent', 'el canvi sortia a perdre'],
+            loses_pawn: ['regalava un peó sense res a canvi', 'cedia un peó dels que es noten al final', 'perdia un peó per res'],
+            decisive_counterplay: ['donava al rival un atac que ja no es podia frenar', 'deixava el rival manant a la partida', 'obria la porta a un contraatac fort'],
+            cedes_initiative: ['deixava que el rival portés la iniciativa', 'passava el comandament de la partida al rival', 'deixava que el rival tornés a respirar'],
+            lets_advantage_slip: ['tornava a igualar una posició que tenies millor', 'deixava escapar la part bona de la posició', 'feia baixar molta pressió de cop', 'donava aire al rival quan estaves millor']
+        },
+        outcomeDiagnosis: {
+            allows_mate: ['la jugada no va veure que el rival tenia un camí de mat', 'hi havia un mat sobre el tauler i la jugada va mirar cap a una altra banda', 'faltava veure l’amenaça de mat'],
+            lets_win_slip: ['ja tenies la partida de cara, però aquesta jugada va donar aire al rival', 'la posició era bona; aquí calia rematar amb més decisió', 'vas deixar que el rival tornés a respirar', 'aquí calia tancar la porta, no obrir-ne una de nova'],
+            loses_major: ['la jugada va deixar una torre o la dama a tir del rival', 'una peça grossa va quedar on el rival la podia agafar', 'vas exposar una peça important'],
+            loses_piece: ['has deixat una peça massa exposada i el rival la podia capturar', 'la jugada va deixar una peça penjada', 'una peça va quedar sense qui la defensés'],
+            loses_exchange: ['la jugada deixava que el rival es quedés la torre per una peça més petita', 'el canvi sortia car: torre per peça menor', 'vas cedir qualitat sense necessitat'],
+            loses_pawn: ['la jugada va regalar un peó sense res a canvi', 'un peó va quedar sense defensa i el rival se’l podia quedar', 'vas deixar caure un peó']
+        },
+        outcomePlan: {
+            allows_mate: ['primer de tot, mira els escacs: o remates tu o pares el mat del rival', 'quan flairis un mat, atura’t i calcula la línia sencera abans de moure', 'davant d’un mat, calcula abans de moure res més'],
+            lets_win_slip: ['quan ja guanyes, busca la jugada més directa i no donis respir', 'amb la partida a la mà, remata sense obrir portes noves', 'quan ja guanyes, no donis aire al rival', 'tanca la partida amb la jugada més clara, sense complicar-te'],
+            loses_major: ['abans de moure, mira si la torre o la dama queden a tir', 'posa la peça grossa fora de perill abans de fer plans', 'assegura les peces importants abans de res'],
+            loses_piece: ['abans de moure, mira què et pot capturar el rival', 'assegura’t que totes les peces tenen qui les defensi', 'no deixis cap peça a l’aire'],
+            loses_exchange: ['no canviïs la torre per una peça més petita si no en treus res clar', 'conserva la torre quan el canvi no et doni res', 'evita cedir qualitat sense compensació'],
+            loses_pawn: ['defensa el peó o assegura’t que en treus alguna cosa a canvi', 'no regalis peons: al final es noten', 'guarda els peons si no en treus res a canvi']
+        },
+        phaseAdvice: {
+            opening: 'A l’obertura, treu peces, lluita pel centre i enroca aviat.',
+            middlegame: 'Al mig joc, abans de cada jugada mira escacs, captures i amenaces.',
+            endgame: 'Al final, activa el rei i evita donar contrajoc.'
+        },
+        motivation: [
+            'Cada partida t’ensenya alguna cosa; aquesta també.',
+            'Bona feina revisant la partida: així és com es millora.',
+            'Queda’t amb una idea d’avui i prova-la a la pròxima partida.',
+            'Tria una d’aquestes posicions i repeteix-la avui mateix.',
+            'Una idea clara per a la pròxima: quan ja guanyes, no donis aire al rival.',
+            'Bon pas endavant: ara toca convertir millor els avantatges.'
+        ],
+        debrief: {
+            win_high: ['Has guanyat i has jugat molt bé ({prec}% de precisió). Molt bona feina.', 'Victòria i bones decisions ({prec}%): avui ha sortit rodó.'],
+            win_low: ['Has guanyat, però hi ha hagut moments delicats ({prec}%). Val la pena mirar-los.', 'Punt guanyat! Tot i això, el rival t’ha perdonat alguna cosa ({prec}%).'],
+            draw: ['Taules. Partida igualada; mirem què en pots aprendre.', 'Empat. Ni drama ni festa: hi ha coses bones per repetir.'],
+            loss_high: ['Has perdut, però has jugat bé ({prec}%). Aquestes partides fan pujar de nivell.', 'Derrota amb bones decisions ({prec}%): el rival ho ha fet molt bé.'],
+            loss_low: ['Has perdut i hi ha hagut massa errades ({prec}%). Tranquil: les repassem i a una altra.', 'Dia difícil ({prec}%). Res que no s’arregli amb una bona revisió.'],
+            highlight_clean: ['El millor d’avui: cap errada greu en tota la partida.', 'Zero errades greus: això és jugar amb el cap.'],
+            highlight_above_avg: ['Has jugat per sobre de la teva mitjana ({avg}%): vas pel bon camí.', 'Avui has fet un {prec}% i la teva mitjana és del {avg}%: es nota el progrés.'],
+            highlight_no_blunders: ['Cap errada greu avui: només detalls per polir.', 'Has evitat les errades grosses; els detalls venen sols amb la pràctica.'],
+            weak_theme: ['On has patit més avui: {tema}.', 'El que més s’ha repetit avui és {tema}.'],
+            weak_phase: ['El tram més fluix ha estat {fase}.', 'La partida se t’ha complicat sobretot en {fase}.'],
+            weak_mastery: ['Cap errada greu avui; si vols seguir pujant, practica {tema}.', 'Partida neta. El següent pas és treballar {tema}.'],
+            advice_srs: ['Tens repassos pendents: deu minuts i llestos.', 'Abans de tornar a jugar, passa pels repassos pendents.'],
+            advice_theme: ['Dedica una estona curta a {tema} i ho notaràs de seguida.', 'Un consell: practica una mica {tema} abans de la pròxima partida.'],
+            advice_keep: ['Segueix jugant així: no cal tocar gaire res.', 'Vas molt bé: mantén aquesta manera de jugar.'],
+            advice_blunder: ['Mira les errades greus una per una: és el camí més curt per millorar.', 'Repassa els moments clau d’avui; és on hi ha més punts a guanyar.']
+        }
+    },
+    balanced: {
+        safeFallback: SAFE_COACH_FALLBACK,
+        refutationIntro: 'Com et podia castigar el rival',
+        alsoGood: m => `També era bona ${m}.`,
+        noPhaseErrors: 'Sense errors destacats en aquesta fase.',
+        severity: { blunder: 'Això era crític perquè', mistake: 'Això importava perquè', inaccuracy: 'El detall importava perquè' },
+        outcomeConsequence: OUTCOME_CONSEQUENCES,
+        outcomeDiagnosis: OUTCOME_DIAGNOSIS,
+        outcomePlan: OUTCOME_PLANS,
+        phaseAdvice: {
+            opening: 'Desenvolupa les peces cap al centre, no moguis dues vegades la mateixa peça i enroca aviat.',
+            middlegame: 'Abans de cada jugada, mira els escacs, captures i amenaces; coordina les peces cap a un pla.',
+            endgame: 'Al final, activa el rei cap al centre, empeny els peons passats i posa les torres darrere dels peons.'
+        },
+        motivation: [
+            'Repassa aquests moments amb calma: és la manera més ràpida de millorar.',
+            'La constància en el repàs converteix aquestes errades en punts.',
+            'Tria una lliçó d’avui i aplica-la a la pròxima partida.'
+        ],
+        debrief: COACH_DEBRIEF_TEMPLATES
+    },
+    technical: {
+        safeFallback: 'La jugada empitjorava l’avaluació. Revisa la millor jugada al tauler i compara atacants i defensors.',
+        refutationIntro: 'Refutació',
+        alsoGood: m => `Alternativa equivalent: ${m}.`,
+        noPhaseErrors: 'Sense errors significatius en aquesta fase.',
+        severity: { blunder: 'Això era decisiu perquè', mistake: 'Això tenia pes perquè', inaccuracy: 'El matís importava perquè' },
+        outcomeConsequence: {
+            allows_mate: ['permetia una xarxa de mat forçada', 'donava accés a una seqüència de mat sense defensa suficient', 'concedia un mat forçat inaturable'],
+            lets_win_slip: ['reduïa un avantatge decisiu a una posició sense guany clar', 'no convertia un avantatge tècnicament guanyador', 'reduïa la pressió i permetia recursos defensius al rival', 'diluïa un avantatge guanyador per manca de precisió'],
+            loses_major: ['perdia material pesant (torre o dama) sense compensació', 'cedia una peça major sense contrapartida tàctica', 'concedia material decisiu'],
+            loses_piece: ['deixava una peça indefensa i el rival la guanyava tàcticament', 'perdia una peça neta per manca de defensors', 'exposava una peça a una seqüència tàctica'],
+            loses_exchange: ['cedia la qualitat (torre per peça menor) sense compensació', 'perdia la qualitat sense contrapartida posicional', 'concedia la qualitat sense compensació'],
+            loses_pawn: ['cedia un peó sense compensació estructural ni dinàmica', 'perdia un peó rellevant de cara al final', 'concedia un peó sense contrapartida'],
+            decisive_counterplay: ['concedia al rival una iniciativa d’avaluació decisiva', 'transferia el control de la partida al rival amb atac directe', 'activava recursos de contrajoc decisius'],
+            cedes_initiative: ['cedia la iniciativa i el rival passava a dictar el ritme', 'concedia tempos i el rival prenia la direcció del joc', 'permetia que el rival activés recursos defensius'],
+            lets_advantage_slip: ['diluïa l’avantatge fins a la igualtat', 'retornava l’avaluació a l’equilibri sense necessitat', 'reduïa la pressió i tornava a igualar la posició']
+        },
+        outcomeDiagnosis: {
+            allows_mate: ['la jugada ometia una seqüència de mat forçada', 'la jugada ignorava una combinació de mat que es podia calcular', 'la jugada no calculava la xarxa de mat present'],
+            lets_win_slip: ['amb avantatge decisiu, la jugada va reduir la pressió i va permetre recursos defensius', 'la jugada relaxava la pressió en una posició tècnicament guanyada', 'amb avantatge decisiu, la jugada renunciava a la continuació que el convertia', 'la jugada canviava una peça clau i reobria la defensa del rival'],
+            loses_major: ['la jugada exposava una peça major a una captura sense compensació', 'després de la jugada, una peça pesant quedava dominada tàcticament', 'la jugada deixava una peça major a l’abast d’una seqüència'],
+            loses_piece: ['la jugada perd material perquè deixa una peça indefensa i permet una seqüència tàctica directa', 'la jugada deixava una peça sense defensors suficients', 'la jugada exposava una peça a un guany tàctic'],
+            loses_exchange: ['la jugada concedia la qualitat sense compensació', 'la jugada permetia el guany de qualitat del rival', 'la jugada cedia qualitat sense contrapartida'],
+            loses_pawn: ['la jugada cedia un peó sense compensació dinàmica', 'la jugada perdia un peó per un càlcul incomplet de la seqüència', 'la jugada concedia un peó sense contrapartida']
+        },
+        outcomePlan: {
+            allows_mate: ['la prioritat era la seqüència forçada: executar el mat propi o neutralitzar el del rival', 'calia calcular la línia de mat abans de qualsevol pla posicional', 'tocava resoldre la xarxa de mat abans de res'],
+            lets_win_slip: ['amb avantatge decisiu, calia triar la continuació més forçada', 'la conversió demanava limitar contrajoc i simplificar en condicions favorables', 'la millor línia mantenia la iniciativa sense exposar peces ni rei', 'la conversió exigia precisió: conservar coordinació, evitar contrajoc i no canviar cap peça clau sense motiu'],
+            loses_major: ['calia verificar la seguretat de les peces majors abans de decidir', 'tocava reubicar la peça pesant o evitar la variant que la perdia', 'calia mantenir les peces majors fora d’abast tàctic'],
+            loses_piece: ['abans de decidir, compta atacants i defensors de cada peça pròpia', 'calia mantenir totes les peces defensades o amb casella de sortida', 'calia assegurar la coordinació defensiva de les peces'],
+            loses_exchange: ['calia evitar el canvi de torre per peça menor sense compensació concreta', 'la qualitat només es cedeix amb compensació verificable', 'calia conservar la qualitat sense contrapartida clara'],
+            loses_pawn: ['calia defensar el peó o obtenir-ne compensació concreta en activitat o estructura', 'el peó només es cedeix amb una contrapartida calculada', 'calia retenir el peó o assegurar compensació dinàmica']
+        },
+        phaseAdvice: {
+            opening: 'La fase d’obertura demana completar el desenvolupament, consolidar el centre i assegurar el rei sense perdre temps.',
+            middlegame: 'Al mig joc, ordena les candidates (escacs, captures, amenaces) i coordina les peces cap a un pla concret.',
+            endgame: 'El final requeria activació del rei, simplificació favorable i control de les ruptures del rival.'
+        },
+        motivation: [
+            'Consolida aquests patrons: la correcció sistemàtica és el que fa pujar el nivell.',
+            'Repassar els moments crítics amb mètode converteix l’anàlisi en punts.',
+            'Integra la lliçó d’avui al teu protocol de decisió abans de la pròxima partida.',
+            'Incorpora aquest patró al teu protocol de decisió: avantatge, contrajoc, conversió.',
+            'La millora vindrà de repetir aquests patrons fins que la conversió sigui automàtica.',
+            'Objectiu per a la pròxima partida: convertir l’avantatge sense permetre recursos defensius.'
+        ],
+        debrief: {
+            win_high: ['Victòria amb un {prec}% de precisió: conversió neta i poques concessions.', 'Victòria sòlida ({prec}%): decisions consistents durant tota la partida.'],
+            win_low: ['Victòria amb un {prec}% de precisió: el resultat és bo, però l’avaluació va oscil·lar més del compte.', 'Punt aconseguit, però la precisió ({prec}%) indica concessions evitables.'],
+            draw: ['Taules: partida equilibrada, amb marge de millora en els moments crítics.', 'Empat coherent amb el desenvolupament de la partida; queden detalls per optimitzar.'],
+            loss_high: ['Derrota amb un {prec}% de precisió: el nivell de joc va ser alt i el resultat es va decidir per marges petits.', 'Has perdut jugant a bon nivell ({prec}%): la diferència es va decidir en pocs moments concrets.'],
+            loss_low: ['Derrota amb un {prec}% de precisió: els errors identificats expliquen el resultat.', 'La precisió ({prec}%) assenyala errors concrets i corregibles: revisa’ls amb mètode.'],
+            highlight_clean: ['Dada destacada: cap error greu en tota la partida.', 'Sense errors greus: solidesa remarcable en la presa de decisions.'],
+            highlight_above_avg: ['Rendiment {diff} punts per sobre de la teva mitjana ({avg}%): tendència positiva.', 'Precisió d’avui ({prec}%) superior a la mitjana ({avg}%): progressió mesurable.'],
+            highlight_no_blunders: ['Cap error greu: només imprecisions de cost menor.', 'Els errors d’avui són menors; el nivell de risc va estar controlat.'],
+            weak_theme: ['La concentració d’errors apunta a {tema} ({moments}).', 'El patró d’error dominant d’avui és {tema}.'],
+            weak_phase: ['Els errors es concentren en {fase}: és el tram a analitzar.', 'La fase crítica va ser {fase}; la resta va mantenir bon nivell.'],
+            weak_mastery: ['Partida neta; l’àrea amb més marge de millora continua sent {tema}.', 'Sense errors greus avui; {tema} segueix sent el punt a treballar.'],
+            advice_srs: ['Tens repassos pendents: liquidar-los té més valor formatiu que una partida ràpida.', 'Prioritza els repassos pendents abans de la pròxima partida.'],
+            advice_theme: ['Recomanació: una sessió específica de {tema} abans de tornar a jugar.', 'El pla de treball més eficient ara mateix és {tema}.'],
+            advice_keep: ['Mantén el nivell d’exigència actual i apuja gradualment la dificultat.', 'Sense correccions urgents: continua amb el mateix mètode.'],
+            advice_blunder: ['Analitza cada error greu fins a identificar-ne la causa: és la via de millora més eficient.', 'Els errors decisius d’avui són el material d’entrenament prioritari.']
+        }
+    }
+};
+
+// Text simple (cadena) d'una clau de la capa de veu, amb reserva a la veu
+// equilibrada si l'estil demanat no té la clau.
+function voiceText(style, key, fallbackKey = null) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const own = REVIEW_VOICE_TEXT[safeStyle] ? REVIEW_VOICE_TEXT[safeStyle][key] : null;
+    if (typeof own === 'string' && own) return own;
+    const bal = REVIEW_VOICE_TEXT.balanced[fallbackKey || key];
+    return (typeof bal === 'string' && bal) ? bal : '';
+}
+
+// Vector de variants d'un grup ('outcomeDiagnosis', 'outcomePlan'...) per a una
+// clau, amb reserva a la veu equilibrada. Retorna [] si tampoc no hi és.
+function voicePool(style, group, key) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const own = REVIEW_VOICE_TEXT[safeStyle] && REVIEW_VOICE_TEXT[safeStyle][group];
+    if (own && Array.isArray(own[key]) && own[key].length) return own[key];
+    const bal = REVIEW_VOICE_TEXT.balanced[group];
+    return (bal && Array.isArray(bal[key])) ? bal[key] : [];
+}
+
+// Connector de gravetat ("Això era crític perquè...") segons la veu.
+function voiceSeverityIntro(style, quality) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const q = (quality === 'blunder' || quality === 'mistake') ? quality : 'inaccuracy';
+    const own = REVIEW_VOICE_TEXT[safeStyle].severity || REVIEW_VOICE_TEXT.balanced.severity;
+    return own[q] || REVIEW_VOICE_TEXT.balanced.severity[q];
+}
+
+// Frase motivacional final de la ressenya: estable per partida (canvia amb la
+// llavor de «Regenerar la ressenya»), diferent segons la veu.
+function pickVoiceMotivation(style, seedKey) {
+    const safeStyle = getReviewVoiceStyle(style);
+    const pool = REVIEW_VOICE_TEXT[safeStyle].motivation || REVIEW_VOICE_TEXT.balanced.motivation || [];
+    if (!pool.length) return '';
+    return pool[coachStableHash(String(seedKey || '') + ':motivacio') % pool.length];
+}
+
+/* =================== TEMA DOMINANT EN LLENGUATGE ÚTIL =====================
+   "joc general" és massa vague. Aquesta funció el converteix (i concreta els
+   temes reals) en una frase útil segons la veu. Quan el tema és 'general' i
+   sabem l'OUTCOME dominant de la partida (conversió d'avantatge, atac fluix,
+   pèrdua de material...), diem què va passar de debò en comptes de "general".
+   Les frases no porten dades ni SAN: només descriuen el patró. */
+const DOMINANT_THEME_TEXT = {
+    casual: {
+        _byOutcome: {
+            conversion: ['convertir l’avantatge sense donar aire al rival', 'rematar quan ja tenies la partida de cara', 'tancar les posicions bones amb més decisió'],
+            attack: ['atacar abans de tenir prou peces preparades', 'llançar l’atac al rei sense acabar de preparar-lo'],
+            material: ['vigilar què et pot capturar el rival abans de moure', 'no deixar peces despenjades'],
+            counterplay: ['no donar contrajoc quan ja estaves millor', 'evitar que el rival agafés iniciativa']
+        },
+        fork: 'aprofitar (o evitar) els dobles atacs de cavall',
+        pin: 'les clavades: peces que no es poden moure sense perdre’n una de més grossa',
+        skewer: 'els atacs en línia (raig X) sobre peces alineades',
+        king_attack: 'atacar el rei abans de tenir prou peces a prop',
+        material: 'comptar bé què et pot capturar el rival abans de moure',
+        center: 'el control del centre',
+        opening: 'sortir bé de l’obertura, amb les peces fora i el rei segur',
+        endgame: 'els finals: activar el rei i convertir sense presses',
+        general: 'triar un pla clar i seguir-lo unes quantes jugades'
+    },
+    balanced: {
+        _byOutcome: {
+            conversion: ['la conversió de l’avantatge sense donar contrajoc', 'rematar les posicions guanyadores amb decisió'],
+            attack: ['coordinar l’atac al rei abans de llançar-lo', 'preparar l’atac amb prou peces'],
+            material: ['el compte d’atacants i defensors abans de capturar', 'no deixar peces indefenses'],
+            counterplay: ['limitar el contrajoc del rival quan estaves millor', 'mantenir la iniciativa']
+        },
+        fork: 'les forquilles',
+        pin: 'les clavades',
+        skewer: 'els atacs en raig X',
+        king_attack: 'l’atac al rei',
+        material: 'la cura del material',
+        center: 'el control del centre',
+        opening: 'el desenvolupament i el centre a l’obertura',
+        endgame: 'la tècnica de finals',
+        general: 'triar i seguir un pla concret'
+    },
+    technical: {
+        _byOutcome: {
+            conversion: ['la conversió de l’avantatge i el control del contrajoc', 'transformar avantatges decisius en continuacions forçades', 'la conversió de posicions guanyadores limitant recursos defensius'],
+            attack: ['l’atac al rei sense prou coordinació de peces ni seqüència forçada', 'la coordinació de peces en atac i la conversió de posicions guanyadores'],
+            material: ['l’equilibri entre atacants i defensors abans de capturar', 'la seguretat del material davant seqüències tàctiques'],
+            counterplay: ['el control del contrajoc amb avantatge', 'la retenció de la iniciativa en posicions favorables']
+        },
+        fork: 'els dobles atacs (forquilla)',
+        pin: 'les clavades i la immobilització de peces',
+        skewer: 'els atacs en raig X sobre peces alineades',
+        king_attack: 'l’atac al rei sense prou coordinació de peces ni seqüència forçada',
+        material: 'l’equilibri material i el compte d’atacants i defensors',
+        center: 'el control i la ruptura del centre',
+        opening: 'el desenvolupament, el control central i la seguretat del rei',
+        endgame: 'la conversió i la tècnica de finals',
+        general: 'la tria i execució d’un pla concret'
+    }
+};
+function humanizeDominantTheme(themeKey, context = {}, opts = {}) {
+    const style = getReviewVoiceStyle(opts.voiceStyle);
+    const bank = DOMINANT_THEME_TEXT[style] || DOMINANT_THEME_TEXT.balanced;
+    const growth = normalizeGrowthTheme(themeKey);
+    // Tema concret conegut: frase específica per veu (mai el sec "joc general").
+    if (growth && growth !== 'general' && bank[growth]) return bank[growth];
+    // Tema 'general': si sabem l'outcome dominant, diem què va passar de debò.
+    const outcome = String(context.outcome || '');
+    let bucket = null;
+    if (/win_slip|advantage_slip|lets_win|lets_advantage/.test(outcome)) bucket = 'conversion';
+    else if (/counterplay|initiative|cedes/.test(outcome)) bucket = 'counterplay';
+    else if (/mate|king|attack/.test(outcome)) bucket = 'attack';
+    else if (/loses_|major|piece|exchange|pawn/.test(outcome)) bucket = 'material';
+    if (bucket && bank._byOutcome && bank._byOutcome[bucket] && bank._byOutcome[bucket].length) {
+        const pool = bank._byOutcome[bucket];
+        return pool[coachStableHash(String(context.seed || outcome || '') + ':domtheme:' + bucket) % pool.length];
+    }
+    return bank.general;
+}
+
+/* =================== NOMENCLATURA DE JUGADES SEGONS LA VEU ===================
+   FONT ÚNICA DE VERITAT per descriure una jugada: es valida sobre la FEN amb
+   chess.js (moveFacts) i tot el text —SAN inclosa— surt d'aquesta verificació,
+   mai d'una cadena antiga desada. Si la jugada no és legal sobre la FEN, es
+   retorna null i qui crida ha d'amagar el moment o usar un fallback segur.
+     casual    → llenguatge natural, sense SAN ni UCI ("el cavall va a f7")
+     balanced  → descripció amb la SAN entre parèntesis ("el cavall va a f7 (Nf7)")
+     technical → SAN al davant i la descripció al costat ("Nxf7+ (el cavall...)")
+   A més del text en línia, retorna les peces per compondre frases:
+     accio    → infinitiu ("portar el cavall de f3 a h4") per a "vas ..." /
+                "el millor pla era ..." en veu casual
+     clausula → subjecte+verb sense color ("el cavall de f3 va a h4") per a
+                "vas jugar Nh4: ..." en veus equilibrada i tècnica
+   ========================================================================== */
+function describeMoveByVoice(fen, moveUciOrSan, opts = {}) {
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
+    let facts = null;
+    try {
+        const helpers = getPvBoardHelpers();
+        facts = helpers ? helpers.moveFacts(fen, moveUciOrSan) : null;
+    } catch (e) { facts = null; }
+    if (!facts) return null;
+    const R = (typeof ElTaulerRedactor !== 'undefined') ? ElTaulerRedactor : null;
+    const veu = (R && R.descriuJugadaPerVeu) ? R.descriuJugadaPerVeu(facts, { estil: voiceStyle }) : null;
+    const clausula = (veu && veu.clausula) || (R && R.descriuMovimentFets ? R.descriuMovimentFets(facts) : '') || facts.san;
+    const accio = (veu && veu.accio) || clausula;
+    let text;
+    if (voiceStyle === 'casual') text = clausula;
+    else if (voiceStyle === 'technical') text = (facts.san && facts.san !== clausula) ? `${facts.san} (${clausula})` : clausula;
+    else text = withSan(clausula, facts.san);
+    return { text, san: facts.san, from: facts.origen, to: facts.desti, accio, clausula };
+}
+
+// Drecera de describeMoveByVoice quan només cal la cadena de text. Si la
+// jugada no és verificable sobre la FEN, el fallback només s'usa quan NO
+// sembla UCI (cap veu no pot mostrar mai "g5f7"); si no, cadena buida.
+function voiceMoveText(fen, move, fallback, voiceStyle) {
+    const d = describeMoveByVoice(fen, move, { voiceStyle });
+    if (d && d.text) return d.text;
+    const fb = String(fallback || '').trim();
+    if (fb && !/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(fb)) return fb;
+    return '';
+}
+
+// "Vas jugar ..." segons la veu, a partir de la jugada VERIFICADA sobre la FEN:
+//   casual    → "vas portar el cavall de f3 a h4"
+//   balanced  → "vas jugar Nh4: el cavall de f3 va a h4"
+//   technical → "vas jugar Nh4: el cavall de f3 es reubica a h4"
+// Retorna '' si la jugada no és verificable (qui crida decideix el fallback).
+function playedPhraseByVoice(fen, move, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const d = describeMoveByVoice(fen, move, { voiceStyle: style });
+    if (!d) return '';
+    if (style === 'casual') return `vas ${d.accio}`;
+    return `vas jugar ${d.san}: ${d.clausula}`;
+}
+
+// "La millor era ..." segons la veu, en dues peces perquè el cos pugui ser un
+// enllaç clicable. Mai el format maquinal "la millor era → SAN".
+//   casual    → { prefix: 'el millor pla era ', body: 'portar la dama a d2' }
+//   balanced  → { prefix: 'la millor era ', body: 'Qd2: la dama va a d2' }
+//   technical → { prefix: 'la millor era ', body: 'Qd2: la dama es reubica a d2' }
+function bestPhraseByVoice(fen, move, voiceStyle) {
+    const style = getReviewVoiceStyle(voiceStyle);
+    const d = describeMoveByVoice(fen, move, { voiceStyle: style });
+    if (!d) return null;
+    if (style === 'casual') return { prefix: 'el millor pla era ', body: d.accio };
+    return { prefix: 'la millor era ', body: `${d.san}: ${d.clausula}` };
+}
+
 // El càstig concret de la jugada feta, en llenguatge planer (nom de la peça i
 // casella de destí) en comptes de notació algebraica. En condicional ("podia"):
 // és la millor rèplica del motor, no una seqüència que hagi de passar per força.
-function buildRefutationNote(moment) {
+function buildRefutationNote(moment, voiceStyle) {
     const m = moment || {};
+    const style = getReviewVoiceStyle(voiceStyle);
     const afterFen = m.afterFen;
     const pv = Array.isArray(m.refutationPv) ? m.refutationPv : [];
     if (!afterFen || pv.length < 1) return '';
-    const seq = describeLineHuman(afterFen, pv, 0, 3);
-    return seq ? `Com et podia castigar el rival: ${seq}.` : '';
+    const seq = describeLineHuman(afterFen, pv, 0, 3, style);
+    return seq ? `${voiceText(style, 'refutationIntro')}: ${seq}.` : '';
 }
 
-function buildStructuredConsequence(moment) {
+function buildStructuredConsequence(moment, voiceStyle) {
     const m = moment || {};
-    const severity = m.quality === 'blunder'
-        ? 'Això era crític perquè'
-        : (m.quality === 'mistake' ? 'Això importava perquè' : 'El detall importava perquè');
+    const style = getReviewVoiceStyle(voiceStyle);
+    const severity = voiceSeverityIntro(style, m.quality);
 
     // Resultat determinista a partir de la refutació i l'avaluació reals.
     const outcome = classifyMoveOutcome(m);
     if (outcome) {
-        const pool = OUTCOME_CONSEQUENCES[outcome] || OUTCOME_CONSEQUENCES.lets_advantage_slip;
+        const pool = voicePool(style, 'outcomeConsequence', outcome).length
+            ? voicePool(style, 'outcomeConsequence', outcome)
+            : voicePool(style, 'outcomeConsequence', 'lets_advantage_slip');
         const base = `${severity} ${toInlineAdvice(pickStableLine(pool, m))}`;
+        // Cost en peons: visible en tècnica; en casual NO carrega la frase
+        // principal (el número ja surt al badge), llevat que sigui informació
+        // qualitativa de mat ("tenies mat en 3"), que sí que s'hi manté.
         const cost = coachCostSuffix(m);
-        return cost ? `${base} (${cost}).` : `${base}.`;
+        if (!cost) return `${base}.`;
+        if (style === 'casual' && /cost aproximat/.test(cost)) return `${base}.`;
+        return `${base} (${cost}).`;
     }
 
     // Legacy (partides sense avaluació ni refutació): comportament per tema.
@@ -20371,6 +20986,8 @@ function buildStructuredConsequence(moment) {
 
 function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     const fallbackPlan = plan && typeof plan === 'object' ? plan : {};
+    // La veu de l'entrenador canvia la redacció d'aquests camps, mai els fets.
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
     // full=true (exportació per analitzar): no retallem el text a 14-16 paraules
     // amb "…"; deixem les frases senceres perquè no quedin tallades a mitja frase.
     const full = !!opts.full;
@@ -20386,12 +21003,14 @@ function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
     // realment va passar, perquè no contradiguin la conseqüència ni el tauler.
     // ensureCoachTextQuality (a baix) ja capitalitza i afegeix punt final.
     const outcome = classifyMoveOutcome(moment || {});
-    const mistake = (outcome && OUTCOME_DIAGNOSIS[outcome])
-        ? pickStableLine(OUTCOME_DIAGNOSIS[outcome], moment, 'diag')
+    const diagPool = outcome ? voicePool(voiceStyle, 'outcomeDiagnosis', outcome) : [];
+    const mistake = diagPool.length
+        ? pickStableLine(diagPool, moment, 'diag')
         : (stripPlanIntro(fallbackPlan.diagnosis) || 'La jugada triada no resolia la necessitat principal de la posició.');
-    const consequence = buildStructuredConsequence(moment || {});
-    const betterPlan = (outcome && OUTCOME_PLANS[outcome])
-        ? pickStableLine(OUTCOME_PLANS[outcome], moment, 'plan')
+    const consequence = buildStructuredConsequence(moment || {}, voiceStyle);
+    const planPool = outcome ? voicePool(voiceStyle, 'outcomePlan', outcome) : [];
+    const betterPlan = planPool.length
+        ? pickStableLine(planPool, moment, 'plan')
         : (fallbackPlan.plan || 'El pla millor era triar una jugada amb funció clara i menys contrajoc.');
     return {
         fact: fld(fact, '', { maxWords: 16 }),
@@ -20400,8 +21019,8 @@ function buildStructuredLocalExplanation(moment, plan = {}, opts = {}) {
         plan: fld(betterPlan, 'Tria una jugada amb funció clara i poc contrajoc.', { maxWords: 16 }),
         // La continuació i la refutació contenen notació SAN deliberadament, així
         // que NO passen pel validador de text (que penalitza la SAN).
-        continuation: sanFld(buildContinuationNote(moment || {}), 14),
-        refutation: sanFld(buildRefutationNote(moment || {}), 14),
+        continuation: sanFld(buildContinuationNote(moment || {}, voiceStyle), 14),
+        refutation: sanFld(buildRefutationNote(moment || {}, voiceStyle), 14),
         question: fld(fallbackPlan.question || '', '', { sentence: false, maxWords: 14 })
     };
 }
@@ -20424,6 +21043,7 @@ function selectHumanPlanReviews(entry) {
 
 function buildHumanPlanMoments(entry, insights = null, opts = {}) {
     const ins = insights || buildPlayerInsights(entry && entry.id);
+    const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
     return selectHumanPlanReviews(entry)
         .map(r => {
             const ctx = buildPlanContext(r);
@@ -20435,9 +21055,11 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
                 phase: phaseFromContext(ctx, r.moveNumber),
                 themeKey,
                 theme: planThemeDisplayLabel(themeKey),
-                played: r.playerMoveSan || r.playerMove || '—',
+                // SAN recalculada sobre la FEN: la que es mostra i la que fa
+                // servir l'enllaç per localitzar la jugada a l'historial.
+                played: (r.fen ? sanOnFen(r.fen, r.playerMove || r.playerMoveSan) : null) || r.playerMoveSan || r.playerMove || '—',
                 playedUci: (r.playerMove && r.playerMove !== '—') ? r.playerMove : null,
-                best: r.bestMoveSan || r.bestMove || '—',
+                best: (r.fen ? sanOnFen(r.fen, r.bestMove || r.bestMoveSan) : null) || r.bestMoveSan || r.bestMove || '—',
                 // Versions en llenguatge planer per a les frases (sense notació SAN).
                 playedDesc: r.fen ? moveHumanText(r.fen, r.playerMove || r.playerMoveSan, r.playerMoveSan) : (r.playerMoveSan || '—'),
                 bestDesc: r.fen ? moveHumanText(r.fen, r.bestMove || r.bestMoveSan, r.bestMoveSan) : (r.bestMoveSan || '—'),
@@ -20459,7 +21081,7 @@ function buildHumanPlanMoments(entry, insights = null, opts = {}) {
                 replyAlternatives: r.replyAlternatives || null,
                 evalAfterBest: r.evalAfterBest ?? null,
                 positional: buildPositionalNote(ctx),
-                candidates: buildCandidatesNote(r),
+                candidates: buildCandidatesNote(r, voiceStyle),
                 isPattern
             };
             const plan = buildLocalHumanPlan(moment);
@@ -20691,7 +21313,7 @@ function renderGameDebrief(targetEntry) {
     if (!facts) return;
 
     const coachVoice = pickCoachVoiceForKey(entry.id);
-    const localText = composeDebriefText(facts, entry.id, coachVoice);
+    const localText = composeDebriefText(facts, entry.id, coachVoice, getReviewVoiceStyle());
     box.empty().show();
     box.append($('<div class="coach-kicker"></div>').append(
         $('<span></span>').text(`🎓 L'entrenador diu · ${coachVoice.name}`),
@@ -22075,6 +22697,7 @@ $(document).ready(() => {
     applyBoardTheme(loadBoardTheme(), { skipSave: true });
     applyPieceTheme(loadPieceTheme(), { skipSave: true });
     applyLuckyMode(loadLuckyMode(), { skipSave: true, skipRoll: true });
+    applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;

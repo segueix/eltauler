@@ -910,6 +910,21 @@
         return 'unclear';
     }
 
+    // ----------------------------------------------------------------------
+    // Veu de l'entrenador (estil de redacció de les ressenyes)
+    // ----------------------------------------------------------------------
+    // Tres registres per als MATEIXOS fets: la partida, les errades i les
+    // jugades no canvien mai; només canvia la manera d'explicar-les.
+    //   'casual'    → planer i amable, sense tecnicismes ni notació.
+    //   'balanced'  → didàctic (per defecte), vocabulari escacístic moderat.
+    //   'technical' → precís i professional, sense fer-se més llarg.
+    const REVIEW_VOICE_STYLES = ['casual', 'balanced', 'technical'];
+
+    // Qualsevol valor desconegut (o antic) cau a 'balanced'.
+    function normalizeReviewVoiceStyle(style) {
+        return REVIEW_VOICE_STYLES.indexOf(style) !== -1 ? style : 'balanced';
+    }
+
     // Frase de la "continuació" segons el llenguatge permès. parts:
     //   lineText        → la línia ja descrita en llenguatge planer
     //   bestText        → la millor jugada descrita (fallback quan no es pot
@@ -919,21 +934,44 @@
     //   allRepliesLosing→ la línia no és forçada, però el RESULTAT sí: fins i
     //                     tot la millor resposta del rival el deixava perdut,
     //                     així que la variant s'explica amb aquesta força extra.
-    function pvNarrationText(language, parts) {
+    // style: la MATEIXA prudència en tres registres. Cap veu no pot dir
+    // "forçat" si no està demostrat; el casual ho diu sense la paraula
+    // "seqüència" i el tècnic manté la terminologia exacta.
+    const PV_NARRATION_BY_STYLE = {
+        casual: {
+            forcedOnly: seq => 'A partir d’aquí les jugades venien soles: ' + seq + '. El rival només tenia aquesta resposta.',
+            forced: seq => 'A partir d’aquí les jugades venien soles: ' + seq + '.',
+            illustrativeLosing: seq => 'El motor proposava, per exemple: ' + seq + '. El rival podia jugar altres coses, però seguia perdut igualment.',
+            illustrative: seq => 'El motor proposava, per exemple: ' + seq + '. El rival també tenia altres opcions.',
+            bestOnly: best => 'La millor jugada era ' + best + '.'
+        },
+        balanced: {
+            forcedOnly: seq => 'La seqüència forçada era ' + seq + '; la resposta del rival era l’única legal.',
+            forced: seq => 'La seqüència forçada era ' + seq + '.',
+            illustrativeLosing: seq => 'Una possible variant del motor és ' + seq + '; el rival tenia altres respostes, però totes el deixaven igual de perdut.',
+            illustrative: seq => 'Una possible variant del motor és ' + seq + '.',
+            bestOnly: best => 'La millor jugada era ' + best + '.'
+        },
+        technical: {
+            forcedOnly: seq => 'La seqüència forçada era ' + seq + '; la rèplica del rival era l’única legal.',
+            forced: seq => 'La seqüència forçada era ' + seq + '.',
+            illustrativeLosing: seq => 'Variant il·lustrativa del motor: ' + seq + '. Cap resposta del rival evitava la posició perduda.',
+            illustrative: seq => 'Variant il·lustrativa del motor (no forçada): ' + seq + '.',
+            bestOnly: best => 'La millor jugada era ' + best + '.'
+        }
+    };
+    function pvNarrationText(language, parts, style) {
         const p = parts || {};
+        const t = PV_NARRATION_BY_STYLE[normalizeReviewVoiceStyle(style)];
         const seq = String(p.lineText || '').trim();
         const best = String(p.bestText || '').trim();
         if (language === 'forced' && seq) {
-            return p.replyIsOnlyLegal
-                ? 'La seqüència forçada era ' + seq + '; la resposta del rival era l’única legal.'
-                : 'La seqüència forçada era ' + seq + '.';
+            return p.replyIsOnlyLegal ? t.forcedOnly(seq) : t.forced(seq);
         }
         if (language === 'illustrative' && seq) {
-            return p.allRepliesLosing
-                ? 'Una possible variant del motor és ' + seq + '; el rival tenia altres respostes, però totes el deixaven igual de perdut.'
-                : 'Una possible variant del motor és ' + seq + '.';
+            return p.allRepliesLosing ? t.illustrativeLosing(seq) : t.illustrative(seq);
         }
-        return best ? 'La millor jugada era ' + best + '.' : '';
+        return best ? t.bestOnly(best) : '';
     }
 
     // ----------------------------------------------------------------------
@@ -991,63 +1029,150 @@
         return true;
     }
 
+    // Identitat d'una jugada de ressenya: cap moment no pot dir "Jugada 14 ·
+    // Nh4" si la jugada 14 real de la partida és Ne4. Es comprova que:
+    //   1. el número de jugada coincideix amb el comptador de la FEN de decisió;
+    //   2. la SAN recalculada amb chess.js sobre la FEN (o.sanForMove) coincideix
+    //      amb la jugada real de l'historial en aquell ply (o.historySanAt).
+    // Les dependències s'injecten (com a isRenderableReviewError) per mantenir
+    // el nucli pur. Sense historial o sense recalculadora, no es pot contradir
+    // res i la jugada es considera coherent (partides antigues sense llista).
+    function reviewMoveIdentityOk(err, opts) {
+        const e = err || {};
+        const o = opts || {};
+        const n = Number(e.moveNumber);
+        const fenN = parseInt(String(e.fen || '').split(' ')[5], 10);
+        if (isFinite(n) && n > 0 && isFinite(fenN) && fenN > 0 && n !== fenN) return false;
+        if (typeof o.sanForMove !== 'function' || typeof o.historySanAt !== 'function') return true;
+        const realSan = o.sanForMove(e.fen, e.playerMove || e.playerMoveSan);
+        if (!realSan) return true;
+        const moveNo = (isFinite(n) && n > 0) ? n : ((isFinite(fenN) && fenN > 0) ? fenN : null);
+        if (moveNo === null) return true;
+        const ply = (moveNo - 1) * 2 + (o.playerColor === 'b' ? 1 : 0);
+        const histSan = o.historySanAt(ply);
+        if (!histSan) return true;
+        return normalizeMoveForKey(histSan) === normalizeMoveForKey(realSan);
+    }
+
+    // ----------------------------------------------------------------------
+    // Auditoria del text de ressenya segons la veu (abans de renderitzar)
+    // ----------------------------------------------------------------------
+    // Sobre TEXT PLA (sense HTML). Detecta el que cap veu no pot mostrar mai
+    // (UCI, fletxes "la millor era →", construccions "vas jugar el cavall ...
+    // va a ...", talls amb el·lipsi) i, en veu casual, la SAN nua de peça
+    // (Nxf6, Qd2+, exd5, e8=Q, O-O). Les caselles soltes ("porta el cavall a
+    // f7") no es marquen: són llenguatge natural.
+    const RE_AUDIT_UCI = /\b[a-h][1-8][a-h][1-8][qrbn]?\b/;
+    const RE_AUDIT_SAN_CASUAL = /(?:\b[KQRBN][a-h]?[1-8]?x?[a-h][1-8][+#]?|\b[a-h]x[a-h][1-8][+#]?|\b[a-h][1-8]=[QRBN][+#]?|\bO-O(?:-O)?[+#]?)/;
+    const RE_AUDIT_FRASE_MAL_FORMADA = /\bvas jugar +(?:el|la|l[’'])[^.:;()]{0,60}\b(?:va|avança|captura|corona) a\b/i;
+    function auditReviewVoiceText(text, style) {
+        const t = String(text == null ? '' : text);
+        const problems = [];
+        if (RE_AUDIT_UCI.test(t)) problems.push('uci_visible');
+        if (t.indexOf('→') !== -1) problems.push('fletxa_maquinal');
+        if (RE_AUDIT_FRASE_MAL_FORMADA.test(t)) problems.push('frase_mal_formada');
+        if (/(\.\.\.|…)\s*$/.test(t.trim())) problems.push('text_tallat');
+        if (normalizeReviewVoiceStyle(style) === 'casual' && RE_AUDIT_SAN_CASUAL.test(t)) problems.push('san_en_casual');
+        return { ok: problems.length === 0, problems: problems };
+    }
+
     function plural(n, singular, pluralForm) {
         return n === 1 ? singular : pluralForm;
     }
 
     // Línia de fase amb el nombre de jugades i, si n'hi ha poques, un avís
     // perquè el percentatge no es llegeixi com una conclusió forta.
-    // Retorna '' si la fase no té cap jugada.
-    function formatPhaseLine(precision, total) {
+    // Retorna '' si la fase no té cap jugada. L'avís s'adapta a la veu.
+    const LOW_DATA_NOTES = {
+        casual: 'Hi ha poques jugades en aquesta fase; no en fem una conclusió forta.',
+        balanced: 'Poques dades; no en traiem conclusions fortes.',
+        technical: 'La mostra d’aquesta fase és massa petita per valorar-la amb fiabilitat.'
+    };
+    function formatPhaseLine(precision, total, style) {
         const t = Number(total) || 0;
         if (t <= 0) return '';
         const pct = (typeof precision === 'number' && isFinite(precision)) ? precision + '%' : '—';
         let line = 'correcció ' + pct + ' en ' + t + ' ' + plural(t, 'jugada', 'jugades') + '.';
-        if (t < 3) line += ' Poques dades; no en traiem conclusions fortes.';
+        if (t < 3) line += ' ' + LOW_DATA_NOTES[normalizeReviewVoiceStyle(style)];
         return line;
     }
 
     // La lliçó del dia: una consigna curta i segura segons el patró dominant
     // de les errades. Surt de dades locals (el tema ja ve classificat), mai
-    // d'un model de llenguatge.
+    // d'un model de llenguatge. El tema detectat és el mateix en totes les
+    // veus; només canvia la redacció.
     const LESSONS_BY_THEME = {
-        material: 'abans de capturar, compta atacants i defensors.',
-        king_attack: 'no busquis escacs solts; suma peces i calcula la seqüència.',
-        prophylaxis: "abans de moure, pregunta't quina amenaça real té el rival.",
-        opening: 'desenvolupa, disputa el centre i no moguis massa cops la mateixa peça.',
-        endgame: "activa el rei i converteix l'avantatge sense donar contrajoc.",
-        general: 'revisa escacs, captures i amenaces abans de decidir.'
+        casual: {
+            material: 'abans de moure, mira què et pot capturar el rival.',
+            king_attack: 'no ataquis el rei tot sol: primer porta-hi més peces.',
+            prophylaxis: 'abans de moure, mira què et vol fer el rival.',
+            opening: 'a l’obertura, treu peces i lluita pel centre abans de buscar aventures.',
+            endgame: 'al final, activa el rei i no tinguis pressa.',
+            general: 'abans de decidir, mira escacs, captures i amenaces.'
+        },
+        balanced: {
+            material: 'abans de capturar, compta atacants i defensors.',
+            king_attack: 'no busquis escacs solts; suma peces i calcula la seqüència.',
+            prophylaxis: "abans de moure, pregunta't quina amenaça real té el rival.",
+            opening: 'desenvolupa, disputa el centre i no moguis massa cops la mateixa peça.',
+            endgame: "activa el rei i converteix l'avantatge sense donar contrajoc.",
+            general: 'revisa escacs, captures i amenaces abans de decidir.'
+        },
+        technical: {
+            material: 'abans de capturar, verifica l’equilibri entre atacants i defensors de la casella.',
+            king_attack: 'un atac al rei només prospera amb prou peces coordinades i una seqüència calculada.',
+            prophylaxis: 'identifica l’amenaça més forta del rival abans de fixar el teu pla.',
+            opening: 'prioritza desenvolupament, control central i seguretat del rei abans de cap operació.',
+            endgame: 'el final demana rei actiu, simplificació favorable i control del contrajoc.',
+            general: 'ordena les candidates (escacs, captures, amenaces) i compara-les abans de jugar.'
+        }
     };
-    function lessonOfTheDay(themeKey) {
-        return LESSONS_BY_THEME[themeKey] || LESSONS_BY_THEME.general;
+    function lessonOfTheDay(themeKey, style) {
+        const bank = LESSONS_BY_THEME[normalizeReviewVoiceStyle(style)];
+        return bank[themeKey] || bank.general;
     }
 
     // Pla de 10 minuts: recomana repassar les 2-3 jugades més importants.
     // moveNumbers ve ordenat per importància (el primer és el més greu).
-    function buildTenMinutePlan(moveNumbers) {
+    // Les jugades recomanades són idèntiques en totes les veus.
+    const TEN_MINUTE_PLANS = {
+        casual: {
+            none: () => "Pla de 10 minuts: torna a jugar l'obertura amb calma i mira d'arribar al mig joc amb totes les peces fora.",
+            one: n => 'Pla de 10 minuts: torna a la jugada ' + n[0] + ' i busca la millor jugada sense pista fins que et surti sola.',
+            two: n => 'Pla de 10 minuts: mira primer la jugada ' + n[0] + ' i després torna a la jugada ' + n[1] + ' fins que trobis la millor jugada sense pista.',
+            three: n => 'Pla de 10 minuts: mira la jugada ' + n[0] + ', després la ' + n[1] + ' i acaba amb la jugada ' + n[2] + ', fins que vegis la millor jugada abans de moure.'
+        },
+        balanced: {
+            none: () => "Pla de 10 minuts: rejuga l'obertura i comprova si pots arribar al mig joc amb totes les peces actives.",
+            one: n => 'Pla de 10 minuts: repeteix la posició de la jugada ' + n[0] + ' fins que trobis la millor jugada sense pista.',
+            two: n => 'Pla de 10 minuts: revisa primer la jugada ' + n[0] + ' i acaba repetint la posició de la jugada ' + n[1] + ' fins que trobis la millor jugada sense pista.',
+            three: n => 'Pla de 10 minuts: revisa primer la jugada ' + n[0] + ', després la ' + n[1] + ', i acaba repetint la posició de la jugada ' + n[2] + ' fins que vegis la millor jugada abans de moure.'
+        },
+        technical: {
+            none: () => "Pla de 10 minuts: reprodueix la fase d'obertura i verifica que completes el desenvolupament sense concessions.",
+            one: n => 'Pla de 10 minuts: analitza la posició de la jugada ' + n[0] + ' fins a identificar la millor jugada sense ajuda.',
+            two: n => 'Pla de 10 minuts: analitza primer la jugada ' + n[0] + ' i després la posició de la jugada ' + n[1] + ', fins a identificar la millor jugada sense ajuda.',
+            three: n => 'Pla de 10 minuts: analitza la jugada ' + n[0] + ', després la ' + n[1] + ' i tanca amb la posició de la jugada ' + n[2] + ', fins a identificar la millor jugada abans de moure.'
+        }
+    };
+    function buildTenMinutePlan(moveNumbers, style) {
         const nums = (moveNumbers || []).map(Number).filter(n => isFinite(n) && n > 0);
-        if (!nums.length) {
-            return "Pla de 10 minuts: rejuga l'obertura i comprova si pots arribar al mig joc amb totes les peces actives.";
-        }
-        if (nums.length === 1) {
-            return 'Pla de 10 minuts: repeteix la posició de la jugada ' + nums[0] +
-                ' fins que trobis la millor jugada sense pista.';
-        }
-        if (nums.length === 2) {
-            return 'Pla de 10 minuts: revisa primer la jugada ' + nums[0] +
-                ' i acaba repetint la posició de la jugada ' + nums[1] +
-                ' fins que trobis la millor jugada sense pista.';
-        }
-        return 'Pla de 10 minuts: revisa primer la jugada ' + nums[0] +
-            ', després la ' + nums[1] +
-            ', i acaba repetint la posició de la jugada ' + nums[2] +
-            ' fins que vegis la millor jugada abans de moure.';
+        const bank = TEN_MINUTE_PLANS[normalizeReviewVoiceStyle(style)];
+        if (!nums.length) return bank.none();
+        if (nums.length === 1) return bank.one(nums);
+        if (nums.length === 2) return bank.two(nums);
+        return bank.three(nums);
     }
 
     // Frase inicial que deixa clar amb quin color jugava l'usuari.
-    function playerColorIntro(playerColor) {
+    const COLOR_INTROS = {
+        casual: color => 'Has jugat amb ' + color + '. Aquí comentem les teves jugades.',
+        balanced: color => 'Has jugat amb ' + color + '. La revisió comenta les teves decisions.',
+        technical: color => 'Has jugat amb ' + color + '. L’anàlisi valora les teves decisions.'
+    };
+    function playerColorIntro(playerColor, style) {
         const color = playerColor === 'b' ? 'negres' : 'blanques';
-        return 'Has jugat amb ' + color + '. La revisió comenta les teves decisions.';
+        return COLOR_INTROS[normalizeReviewVoiceStyle(style)](color);
     }
 
     return {
@@ -1099,6 +1224,10 @@
         matchUserRepertoireOpening,
         reviewErrorKey,
         isRenderableReviewError,
+        reviewMoveIdentityOk,
+        auditReviewVoiceText,
+        REVIEW_VOICE_STYLES,
+        normalizeReviewVoiceStyle,
         formatPhaseLine,
         lessonOfTheDay,
         buildTenMinutePlan,
