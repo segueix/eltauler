@@ -767,6 +767,60 @@ function maybeRollLuckyThemes() {
     if (luckyModeEnabled) rollLuckyThemes();
 }
 
+/* ===========================================================================
+   Veu de l'entrenador: com s'expliquen les ressenyes, errades i moments clau.
+   L'anàlisi (FEN, jugades, temes, avaluacions) és sempre la mateixa; només
+   canvia la redacció. La preferència es desa a localStorage amb prefix
+   eltauler_, així que se sincronitza al núvol com la resta de configuracions.
+   =========================================================================== */
+const REVIEW_VOICE_STYLE_KEY = 'eltauler_review_voice_style';
+let reviewVoiceStyle = 'balanced'; // 'casual' | 'balanced' | 'technical'
+// Veu temporal de la ressenya oberta a l'historial (no es desa amb la partida:
+// canviar-la només regenera el text local, mai l'anàlisi guardada).
+let historyReviewVoiceOverride = null;
+
+// Resol l'estil efectiu: l'explícit si és vàlid; si no, la preferència de
+// l'usuari; i si tampoc no és vàlida (valor antic o corrupte), 'balanced'.
+function getReviewVoiceStyle(explicitStyle) {
+    const style = explicitStyle || reviewVoiceStyle || 'balanced';
+    return ElTaulerCore.normalizeReviewVoiceStyle(style);
+}
+
+function loadReviewVoiceStyle() {
+    try { return ElTaulerCore.normalizeReviewVoiceStyle(localStorage.getItem(REVIEW_VOICE_STYLE_KEY)); }
+    catch (e) { return 'balanced'; }
+}
+
+// Desa i aplica la veu per defecte. Si hi ha una ressenya oberta sense veu
+// temporal pròpia, es re-renderitza a l'acte (només text; res del motor).
+function applyReviewVoiceStyle(style, options = {}) {
+    reviewVoiceStyle = ElTaulerCore.normalizeReviewVoiceStyle(style);
+    const sel = document.getElementById('review-voice-select');
+    if (sel) sel.value = reviewVoiceStyle;
+    if (!options.skipSave) {
+        try { localStorage.setItem(REVIEW_VOICE_STYLE_KEY, reviewVoiceStyle); } catch (e) {}
+    }
+    if (!options.skipRefresh) refreshOpenReviewVoice();
+}
+
+// Veu efectiva de la ressenya oberta a l'historial (temporal o per defecte).
+function historyReviewVoiceStyle() {
+    return getReviewVoiceStyle(historyReviewVoiceOverride);
+}
+
+// Re-renderitza la ressenya i les errades comentades de la partida oberta amb
+// la veu vigent, sense recalcular Stockfish ni tocar l'anàlisi desada.
+function refreshOpenReviewVoice() {
+    try {
+        const sel = document.getElementById('history-voice-select');
+        if (sel && !historyReviewVoiceOverride) sel.value = reviewVoiceStyle;
+        if (typeof historyReplay !== 'undefined' && historyReplay && historyReplay.entry) {
+            updateHistoryReview(historyReplay.entry);
+            updateHistoryErrorNotes(historyReplay.entry);
+        }
+    } catch (e) { console.warn('refreshOpenReviewVoice', e); }
+}
+
 function loadTvJeroglyphicsPreference() {
     try { return localStorage.getItem(TV_JEROGLYPHICS_KEY) === 'on'; }
     catch (e) { return false; }
@@ -4893,6 +4947,8 @@ function saveStorage() {
 function reloadAppStateFromStorage() {
     try {
         loadStorage();
+        // La veu de l'entrenador pot haver canviat en un altre dispositiu.
+        applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true });
         if (typeof isCalibrationActive === 'function' && !isCalibrationActive()) {
             syncEngineEloFromUser();
         }
@@ -14822,6 +14878,12 @@ function setupEvents() {
         saveBundleAcceptMode($(this).val());
     });
 
+    // Veu de l'entrenador: es desa a l'instant i la ressenya oberta (si no té
+    // una veu temporal pròpia) es re-redacta sense recalcular res del motor.
+    $('#review-voice-select').off('change').on('change', function() {
+        applyReviewVoiceStyle($(this).val());
+    });
+
     // Rellotge de la nova partida (lliure/assistida): es tria abans de cada partida i
     // comença sempre a "sense rellotge".
     $('#new-game-tc-select').off('change').on('change', function() {
@@ -22075,6 +22137,7 @@ $(document).ready(() => {
     applyBoardTheme(loadBoardTheme(), { skipSave: true });
     applyPieceTheme(loadPieceTheme(), { skipSave: true });
     applyLuckyMode(loadLuckyMode(), { skipSave: true, skipRoll: true });
+    applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true, skipRefresh: true });
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
