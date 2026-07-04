@@ -14931,7 +14931,10 @@ async function hgManualGenerateBurst() {
                     hgState.generation.lastError = null;
                     hgPruneQueue();
                     hgState.updatedAt = Date.now();
-                    hgSaveState({ flush: true });
+                    // Desa a disc a cada un (per no perdre'n cap), però NO forcem la
+                    // pujada al núvol dins del bucle: es fa una sola vegada al final
+                    // (evita que l'estat parpellegi a "Sincronitzant…" a cada puzzle).
+                    hgSaveState();
                 } else if (!hgGenerating) {
                     // La NOSTRA generació no ha donat res i ningú més està generant:
                     // guarda el motiu concret i atura (esperar no serviria de res).
@@ -14949,6 +14952,8 @@ async function hgManualGenerateBurst() {
     } finally {
         const aborted = hgManualBurstAbort;
         const made = Math.max(0, hgNewCount() - startCount);
+        // Una sola pujada al núvol al final, si s'ha generat res de nou.
+        if (made > 0) { try { hgSaveState({ flush: true }); } catch (e) {} }
         hgManualBurstRunning = false;
         hgManualBurstAbort = false;
         // Mostra breument el 100% quan s'ha completat, i després amaga la barra.
