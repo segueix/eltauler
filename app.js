@@ -8976,6 +8976,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
 
         // --- Moments clau (jugades descriptives clicables) ---
         const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
+        // FENs d'aquesta partida que poden generar un jeroglífic (per marcar-los).
+        const heiroSeeds = entryHieroglyphicSeedFenKeys(entry);
+        const heiroKeyOf = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
         if (moments.length) {
             const items = moments.map(m => {
                 // Frases per veu VERIFICADES sobre la FEN de decisió: si la
@@ -8989,7 +8992,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(best.body)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const badge = coachQualityBadgeHtml(m);
-                const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
+                // Marca 🔮 si aquest moment pot alimentar la generació d'un jeroglífic.
+                const isHeiroSeed = m.fen && heiroSeeds.has(heiroKeyOf(m.fen));
+                const heiroBadge = isHeiroSeed
+                    ? ' <span class="hg-seed-badge" title="Aquest moment es pot convertir en un jeroglífic">🔮</span>'
+                    : '';
+                const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>${heiroBadge}`;
                 // Inclou la jugada feta perquè el moment sigui autocontingut (i no
                 // calgui repetir-lo a "Errades comentades"). Si, per una atribució
                 // errònia, la jugada feta coincideix amb la millor, no mostrem el
@@ -9034,7 +9042,10 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 if (lines.length === 1) lines.push(`<span>${escapeHtml(voiceText(voiceStyle, 'safeFallback'))}</span>`);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
-            blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
+            const heiroNote = heiroSeeds.size
+                ? ` <span class="hg-seed-note">🔮 fins a ${heiroSeeds.size} ${heiroSeeds.size === 1 ? 'jeroglífic generable' : 'jeroglífics generables'}</span>`
+                : '';
+            blocks.push(`<p><strong>Moments clau:</strong>${heiroNote}</p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
 
         // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
@@ -13621,6 +13632,27 @@ function normalizeHieroglyphicCandidate(raw, source, entry = null) {
         entryId: entry?.id || null,
         score: severityRank * 1000 + (swing || 0)
     };
+}
+
+// Conjunt de FENs (claus normalitzades) d'una partida que poden alimentar la
+// generació de jeroglífics: errades desades, jugades imprecises/dolentes del
+// review i tàctiques que vas jugar (mat/forquilla/escac forçat). Serveix per
+// MARCAR aquests moments a la revisió de la partida. Exclou els ja resolts.
+function entryHieroglyphicSeedFenKeys(entry) {
+    const set = new Set();
+    if (!entry) return set;
+    const keyOf = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+    const solved = new Set((hieroglyphicStats.solvedFens || []).map(keyOf));
+    const add = (fen) => { if (!fen) return; const k = keyOf(fen); if (k && !solved.has(k)) set.add(k); };
+    (Array.isArray(entry.errors) ? entry.errors : []).forEach(e => {
+        if (e && e.fen && (e.bestMove || e.bestMoveUci || e.bestMoveSan)) add(e.fen);
+    });
+    (Array.isArray(entry.moveReviews) ? entry.moveReviews : []).forEach(r => {
+        if (r && r.fen && (r.bestMove || r.bestMoveUci) &&
+            (['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80)) add(r.fen);
+    });
+    try { (collectPlayedTacticHieroglyphicCandidates(entry) || []).forEach(c => add(c && c.fen)); } catch (e) {}
+    return set;
 }
 function collectPersonalHieroglyphicCandidates(preferredEntry = null) {
     const list = [];
