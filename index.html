@@ -2018,7 +2018,109 @@
         .league-banner-ranks { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; color: var(--text-secondary); }
         .league-banner-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
         .league-banner-actions .btn { width: 100%; max-width: 220px; }
-        
+
+        /* ── Bàner de Jeroglífics (sota la lliga) ─────────────────────────── */
+        .hieroglyphic-banner {
+            margin: 12px 0 4px;
+            border-radius: 14px;
+            border: 1px solid rgba(180, 130, 255, 0.55);
+            background: linear-gradient(135deg, #6a2cc4 0%, #8e3ad6 40%, #b3369e 75%, #d1477a 100%);
+            box-shadow: 0 10px 24px rgba(124, 40, 196, 0.40), inset 0 1px 0 rgba(255,255,255,0.18);
+            overflow: hidden;
+        }
+        .hieroglyphic-banner.hg-banner-has-new {
+            border-color: rgba(220, 190, 255, 0.9);
+            box-shadow: 0 12px 30px rgba(160, 60, 220, 0.55), inset 0 1px 0 rgba(255,255,255,0.22);
+        }
+        .hg-banner-main {
+            width: 100%;
+            display: flex; align-items: center; gap: 12px;
+            padding: 14px 16px;
+            background: transparent; border: none; cursor: pointer;
+            color: #fff; text-align: left;
+        }
+        .hg-banner-main:hover { background: rgba(255,255,255,0.10); }
+        .hg-banner-icon {
+            font-size: 1.7rem; line-height: 1; flex-shrink: 0;
+            filter: drop-shadow(0 2px 4px rgba(0,0,0,0.35));
+        }
+        .hg-banner-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+        .hg-banner-title {
+            font-family: 'Cinzel', serif; font-size: 1.08rem; letter-spacing: 0.6px;
+            color: #ffe9a8; text-shadow: 0 1px 3px rgba(0,0,0,0.35);
+        }
+        .hg-banner-sub { font-size: 0.82rem; color: rgba(255,255,255,0.86); }
+        .hg-banner-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 3px; }
+        .hg-banner-count { font-size: 0.86rem; font-weight: 700; color: #fff; }
+        .hg-banner-has-new .hg-banner-count { color: #fff4c2; }
+        .hg-banner-status {
+            font-size: 0.72rem; padding: 2px 8px; border-radius: 999px;
+            background: rgba(0,0,0,0.28); border: 1px solid rgba(255,255,255,0.28);
+            color: #fff; white-space: nowrap;
+        }
+        .hg-banner-cta {
+            flex-shrink: 0; font-weight: 800; font-size: 0.94rem;
+            color: #ffe9a8; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,0.35);
+        }
+        .hg-banner-has-new .hg-banner-cta { color: #fff; }
+        .hg-banner-foot {
+            display: flex; justify-content: flex-end;
+            padding: 0 16px 10px;
+        }
+        .hg-banner-history-btn {
+            background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.30);
+            color: #fff; font-size: 0.8rem; font-weight: 600;
+            padding: 6px 12px; border-radius: 999px; cursor: pointer;
+        }
+        .hg-banner-history-btn:hover { background: rgba(0,0,0,0.34); }
+        /* Modal d'historial de jeroglífics */
+        .hg-modal-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; max-height: 55vh; overflow-y: auto; }
+        .hg-modal-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(124, 77, 201, 0.10); border: 1px solid rgba(124, 77, 201, 0.20); }
+        .hg-modal-ic { font-size: 1.15rem; flex-shrink: 0; }
+        .hg-modal-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+        .hg-modal-kind { font-weight: 700; font-size: 0.9rem; color: var(--text-primary); }
+        .hg-modal-sub { font-size: 0.76rem; color: var(--text-secondary); }
+        .hg-modal-replay { flex-shrink: 0; padding: 6px 12px !important; font-size: 0.82rem !important; width: auto !important; }
+        body.epaper-mode .hg-banner-history-btn { background: #ddd !important; color: #333 !important; border-color: #bbb !important; }
+        .hg-banner-advanced {
+            border-top: 1px solid rgba(255,255,255,0.20);
+            padding: 0 16px; background: rgba(0,0,0,0.16);
+        }
+        .hg-banner-advanced summary {
+            list-style: none; cursor: pointer; padding: 8px 0;
+            font-size: 0.75rem; color: rgba(255,255,255,0.85); user-select: none;
+        }
+        .hg-banner-advanced summary::-webkit-details-marker { display: none; }
+        .hg-banner-advanced summary::before { content: '⚙ '; }
+        .hg-banner-advanced-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 0 0 12px; }
+        .hg-banner-advanced-row label { font-size: 0.78rem; color: rgba(255,255,255,0.85); font-weight: 600; }
+        .hg-banner-advanced-row select {
+            font-size: 0.82rem; padding: 4px 8px; border-radius: 8px; flex: 1; min-width: 120px;
+            border: 1px solid rgba(255,255,255,0.35); background: rgba(0,0,0,0.30); color: #fff;
+        }
+        /* Mòbil: compacte, sense desbordament horitzontal. */
+        @media (max-width: 480px) {
+            .hg-banner-main { padding: 12px 13px; gap: 9px; }
+            .hg-banner-icon { font-size: 1.4rem; }
+            .hg-banner-title { font-size: 0.98rem; }
+            .hg-banner-sub { font-size: 0.76rem; }
+            .hg-banner-cta { font-size: 0.85rem; }
+        }
+        /* Destaca amb una pulsació suau quan hi ha jeroglífics nous. */
+        @keyframes hg-banner-glow {
+            0%, 100% { box-shadow: 0 10px 26px rgba(124, 77, 201, 0.30), inset 0 1px 0 rgba(255,255,255,0.08); }
+            50% { box-shadow: 0 10px 30px rgba(155, 108, 232, 0.50), inset 0 1px 0 rgba(255,255,255,0.10); }
+        }
+        .hieroglyphic-banner.hg-banner-has-new { animation: hg-banner-glow 2.6s ease-in-out infinite; }
+        @media (prefers-reduced-motion: reduce) {
+            .hieroglyphic-banner.hg-banner-has-new { animation: none; }
+        }
+        body.epaper-mode .hieroglyphic-banner {
+            background: #ececec !important; border-color: #bbb !important; box-shadow: none !important; animation: none !important;
+        }
+        body.epaper-mode .hg-banner-title, body.epaper-mode .hg-banner-cta { color: #333 !important; }
+        body.epaper-mode .hg-banner-status { background: #ddd !important; color: #444 !important; }
+
         @keyframes blunder-pulse {
             0% { transform: scale(1); }
             50% { transform: scale(1.1); }
@@ -3383,6 +3485,41 @@
                         </div>
                     </div>
                     <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
+
+                    <!-- BÀNER DE JEROGLÍFICS (sota la lliga) -->
+                    <div class="hieroglyphic-banner" id="hieroglyphic-banner">
+                        <button class="hg-banner-main" id="btn-hieroglyphic-banner" type="button">
+                            <span class="hg-banner-icon" aria-hidden="true">🔮</span>
+                            <span class="hg-banner-text">
+                                <span class="hg-banner-title">Jeroglífics</span>
+                                <span class="hg-banner-sub">Troba els 3 millors moviments</span>
+                                <span class="hg-banner-meta">
+                                    <span class="hg-banner-count" id="hg-banner-count">Preparant-ne un…</span>
+                                    <span class="hg-banner-status" id="hg-banner-status">Preparats</span>
+                                </span>
+                            </span>
+                            <span class="hg-banner-cta">Resoldre ›</span>
+                        </button>
+                        <div class="hg-banner-foot">
+                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history">🔮 Historial de jeroglífics</button>
+                        </div>
+                        <details class="hg-banner-advanced">
+                            <summary>Opció avançada</summary>
+                            <div class="hg-banner-advanced-row">
+                                <label for="hg-final-select">Final del jeroglífic</label>
+                                <select id="hg-final-select">
+                                    <option value="any">Qualsevol</option>
+                                    <option value="mate">Escac i mat</option>
+                                    <option value="check">Escac</option>
+                                    <option value="fork">Forquilla</option>
+                                    <option value="pin">Clavada</option>
+                                    <option value="discovery">Descoberta</option>
+                                    <option value="promotion">Promoció</option>
+                                    <option value="major_win">Guany de dama o torre</option>
+                                </select>
+                            </div>
+                        </details>
+                    </div>
                 </div>
             </div>
 
@@ -3410,25 +3547,6 @@
                             <span class="training-title">Repàs intel·ligent</span>
                             <span class="training-desc" id="srs-info">Cua SRS</span>
                         </button>
-                        <button class="btn btn-hieroglyphic-main" id="btn-bestline">
-                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>
-                            <span class="training-kind">3 passos</span>
-                            <span class="training-title">Jeroglífic</span>
-                            <span class="training-desc" id="bestline-info">Troba els 3 millors moviments</span>
-                        </button>
-                    </div>
-                    <div class="hg-final-selector">
-                        <label for="hg-final-select">Final del jeroglífic</label>
-                        <select id="hg-final-select">
-                            <option value="any">Qualsevol</option>
-                            <option value="mate">Escac i mat</option>
-                            <option value="check">Escac</option>
-                            <option value="fork">Forquilla</option>
-                            <option value="pin">Clavada</option>
-                            <option value="discovery">Descoberta</option>
-                            <option value="promotion">Promoció</option>
-                            <option value="major_win">Guany de dama o torre</option>
-                        </select>
                     </div>
                 </div>
             </div>
@@ -3627,6 +3745,14 @@
                     </select>
                 </div>
                 <div class="setting-help">Canvia com s'expliquen les ressenyes i errades. L'anàlisi és la mateixa; només canvia el to.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Generar jeroglífics mentre faig servir l'app</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="hg-background-toggle" checked>
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Prepara jeroglífics mentre ets al menú, historial, lliga o altres pantalles tranquil·les. En mòbils lents pot consumir bateria.</div>
             </div>
 
             <div class="settings-panel">

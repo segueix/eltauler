@@ -4976,7 +4976,11 @@ function reloadAppStateFromStorage() {
         if (typeof loadPreparedExerciseHistory === 'function') loadPreparedExerciseHistory();
         if (typeof loadPreparedSequences === 'function') loadPreparedSequences();
         // Refresca els jeroglífics perquè els resolts en altres aparells apareguin a l'instant.
+        // La cua sincronitzada es fusiona a nivell d'app (CloudSync fa last-write-wins de tot,
+        // però aquí conservem els jeroglífics generats localment i encara no pujats).
+        if (typeof hgOnCloudApplied === 'function') hgOnCloudApplied();
         if (typeof refreshJeroglificButton === 'function') refreshJeroglificButton();
+        if (typeof renderHieroglyphicBanner === 'function') renderHieroglyphicBanner();
         if (typeof renderHieroglyphicPanel === 'function') renderHieroglyphicPanel();
         if (typeof showToast === 'function') showToast('Dades sincronitzades del núvol', 'success');
     } catch (e) {
@@ -6661,13 +6665,11 @@ function takeBestLineFromPool() {
 // El botó "Jeroglífic" queda gris/inactiu fins que hi ha moments clau
 // de partides pròpies que es poden validar abans de jugar-los.
 function jeroglificsReady() {
-    const ready = Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length > 0;
-    if (!ready && !personalHieroglyphicPrepInFlight) {
-        try {
-            if (hasPersonalHieroglyphicCandidate() && Date.now() - personalHieroglyphicLastAttempt > 15000) setTimeout(() => { void ensurePersonalHieroglyphicPoolTick({ background: true }); }, 50);
-        } catch (e) {}
-    }
-    return ready;
+    // La cua sincronitzada (eltauler_hieroglyphics_state) és la font principal; el
+    // rebost antic en memòria només compta com a reserva. La generació la porta
+    // hgTick (un sol camí, amb bloqueig entre dispositius i objectius per aparell).
+    const queueReady = (typeof hgNewCount === 'function') ? hgNewCount() > 0 : false;
+    return queueReady || (Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length > 0);
 }
 function refreshJeroglificButton() {
     const btn = document.getElementById('btn-bestline');
@@ -12696,7 +12698,10 @@ function loadHieroglyphicHistory() {
     return Array.isArray(list) ? list : [];
 }
 function saveHieroglyphicHistory(list) {
-    writeJsonStorage(HIERO_HISTORY_KEY, (list || []).slice(0, 30));
+    // L'historial de jeroglífics manté només els 10 últims per no inflar les dades
+    // sincronitzades (i perquè la secció en mostra 10 com a màxim).
+    const cap = (typeof HG_HISTORY_MAX === 'number') ? HG_HISTORY_MAX : 10;
+    writeJsonStorage(HIERO_HISTORY_KEY, (list || []).slice(0, cap));
     // Notifica la sincronització al núvol perquè l'historial viatgi entre aparells.
     try { if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave(); } catch (e) {}
 }
@@ -13837,6 +13842,10 @@ if (typeof window !== 'undefined') {
 
 async function ensurePersonalHieroglyphicPoolTick(opts = {}) {
     if (personalHieroglyphicPrepInFlight) return false;
+    // El rebost antic en memòria és secundari (la cua sincronitzada és la font
+    // principal). Si la generació en segon pla està desactivada, no l'omplim de
+    // manera automàtica: només generem quan és una petició explícita de l'usuari.
+    if (opts.background && typeof hgBackgroundEnabled === 'function' && !hgBackgroundEnabled()) return false;
     // Si l'usuari demana un motiu concret i el rebost no en té cap, permetem
     // preparar-ne un encara que el rebost estigui ple d'altres motius.
     const pref = opts.requiredFinalMotif || hieroglyphicPreferredFinalMotif || 'any';
@@ -14018,8 +14027,11 @@ function buildHieroglyphicBundleSequence(candidate) {
 async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle = null) {
     loadHieroglyphicStats();
     // En un "reintenta" de l'historial reutilitzem el jeroglífic desat; si no, n'agafem
-    // un de nou del rebost preparat en segon pla.
-    let chosen = presetPuzzle || takePreparedPersonalHieroglyphic();
+    // un de nou: primer de la cua sincronitzada (eltauler_hieroglyphics_state) i, com a
+    // reserva, del rebost antic en memòria.
+    let chosen = presetPuzzle;
+    if (!chosen && typeof hgConsumeNext === 'function') chosen = hgConsumeNext(hieroglyphicPreferredFinalMotif || 'any');
+    if (!chosen) chosen = takePreparedPersonalHieroglyphic();
     if (!chosen) {
         refreshJeroglificButton();
         showToast('Encara s’està preparant un jeroglífic personal validat. Torna-ho a provar en uns segons.', 'warn');
@@ -14190,10 +14202,16 @@ function renderHieroglyphicPanel() {
     // diferent cada cop (el botó canviaria de fila sota el dit). En lloc d'amagar-lo
     // el marquem com "En curs" i el deixem al seu lloc.
     const activeFen = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.fen;
-    const history = sortHieroglyphicHistoryForReview(loadHieroglyphicHistory());
+    // Historial propi de jeroglífics: només els 10 últims, ordenats per data del més
+    // recent al més antic (per solvedAt/finishedAt/updatedAt/createdAt).
+    const history = loadHieroglyphicHistory().slice().sort((a, b) => {
+        const da = (a && (a.solvedAt || a.finishedAt || a.ts || a.createdAt)) || 0;
+        const db = (b && (b.solvedAt || b.finishedAt || b.ts || b.createdAt)) || 0;
+        return db - da;
+    });
     let html = '<div class="hg-history-title">Historial de jeroglífics</div>';
     if (history.length) {
-        history.slice(0, 8).forEach(e => {
+        history.slice(0, HG_HISTORY_MAX).forEach(e => {
             const isActive = !!activeFen && e.fen === activeFen;
             const isNew = !e.solved;
             const cleanSolved = hieroglyphicEntryCleanSolved(e);
@@ -14231,18 +14249,589 @@ let hieroglyphicUpNext = [];
 function prefetchHieroglyphicClue(draw) { return; }
 function refillHieroglyphicQueue() { hieroglyphicUpNext = []; }
 
+// ═══════════════════════════════════════════════════════════════════════════
+//  CUA DE JEROGLÍFICS SINCRONITZADA (eltauler_hieroglyphics_state)
+//  ─────────────────────────────────────────────────────────────────────────
+//  Manté una cua de jeroglífics NOUS validats amb Stockfish, persistida i
+//  sincronitzada entre dispositius. Es genera en segon pla mentre l'usuari és
+//  a l'app però FORA de la secció de jeroglífics (menú, lliga, historial…),
+//  amb un bloqueig temporal per no duplicar entre aparells i un "mode lleuger"
+//  per a mòbils modestos. La font de posicions són les partides pròpies i, si
+//  no n'hi ha cap de vàlida, l'auto-joc del motor (cap banc predefinit).
+// ═══════════════════════════════════════════════════════════════════════════
+const HG_STATE_KEY = 'eltauler_hieroglyphics_state';
+const HG_LOCK_TTL_MS = 30000;      // durada del bloqueig de generació
+const HG_HISTORY_MAX = 10;         // l'historial en manté només els 10 últims
+let hgState = null;
+let hgGenerating = false;          // guarda contra dues generacions locals alhora
+let hgLightMode = false;           // mode lleuger (mòbils modestos)
+const hgRuntime = { lastDurationMs: 0, slowGenerations: 0, workerErrors: 0 };
+
+function hgDefaultState() {
+    return {
+        version: 1,
+        updatedAt: 0,
+        queue: [],
+        history: [],
+        settings: {
+            enabled: true,
+            backgroundGeneration: true,
+            targetQueueSize: 6,
+            maxQueueSize: 10,
+            mobileTargetQueueSize: 3,
+            lowEndMobileTargetQueueSize: 2,
+            desktopTargetQueueSize: 6,
+            finalPreference: 'any'
+        },
+        generation: { active: false, lastAttemptAt: 0, lastSuccessAt: 0, lastDurationMs: 0, lastError: null, generatedThisSession: 0 },
+        generationLock: { deviceId: null, startedAt: 0, expiresAt: 0 }
+    };
+}
+function hgSanitizeState(raw) {
+    const base = hgDefaultState();
+    if (!raw || typeof raw !== 'object') return base;
+    const st = Object.assign(base, raw);
+    st.settings = Object.assign(hgDefaultState().settings, raw.settings || {});
+    st.generation = Object.assign(hgDefaultState().generation, raw.generation || {});
+    st.generationLock = Object.assign(hgDefaultState().generationLock, raw.generationLock || {});
+    st.queue = Array.isArray(raw.queue) ? raw.queue.filter(it => it && it.fen) : [];
+    st.history = Array.isArray(raw.history) ? raw.history : [];
+    return st;
+}
+// L'identificador de dispositiu ha de ser PER APARELL: reutilitzem el de CloudSync
+// (clau amb prefix eltauler_cloud_, que NO se sincronitza) o en creem un de propi
+// amb el mateix prefix perquè tampoc viatgi al núvol.
+function hgDeviceId() {
+    try { const cs = localStorage.getItem('eltauler_cloud_deviceId'); if (cs) return cs; } catch (e) {}
+    try {
+        let id = localStorage.getItem('eltauler_cloud_hgDeviceId');
+        if (!id) { id = 'hgdev_' + Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem('eltauler_cloud_hgDeviceId', id); }
+        return id;
+    } catch (e) { return 'hgdev_unknown'; }
+}
+function hgEnsureState() {
+    if (!hgState) {
+        hgState = hgSanitizeState(readJsonStorage(HG_STATE_KEY, null));
+        hgPurgeStale();
+    }
+    return hgState;
+}
+function hgSaveState(opts = {}) {
+    if (!hgState) return;
+    hgState.updatedAt = hgState.updatedAt || Date.now();
+    writeJsonStorage(HG_STATE_KEY, hgState);
+    try { if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave(); } catch (e) {}
+    if (opts.flush) { try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {} }
+}
+function hgFingerprint(it) {
+    const san = Array.isArray(it && it.sanLine) ? it.sanLine.join('|') : '';
+    return (it && it.fen ? it.fen : '') + '#' + san;
+}
+// FENs ja coneguts (a la cua o a l'historial) per evitar duplicats.
+function hgSolvedHistoryFens() {
+    const set = new Set();
+    try { loadHieroglyphicHistory().forEach(e => { if (e && e.fen && e.solved) set.add(ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(e.fen) : e.fen); }); } catch (e) {}
+    return set;
+}
+function hgAllKnownFens() {
+    const set = new Set();
+    const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+    hgEnsureState().queue.forEach(it => { if (it && it.fen) set.add(norm(it.fen)); });
+    try { loadHieroglyphicHistory().forEach(e => { if (e && e.fen) set.add(norm(e.fen)); }); } catch (e) {}
+    return set;
+}
+// Treu de la cua els jeroglífics que ja s'han resolt (apareixen a l'historial):
+// un cop resolts deixen de comptar com a nous a qualsevol dispositiu.
+function hgPurgeStale() {
+    if (!hgState) return;
+    const solved = hgSolvedHistoryFens();
+    const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+    const seen = new Set();
+    hgState.queue = hgState.queue.filter(it => {
+        if (!it || !it.fen) return false;
+        const fp = hgFingerprint(it);
+        if (seen.has(fp)) return false; seen.add(fp);
+        return !solved.has(norm(it.fen));
+    });
+}
+function hgNewCount() {
+    return hgEnsureState().queue.filter(it => it && it.status === 'new').length;
+}
+// ── Detecció de dispositiu modest i mode lleuger ────────────────────────────
+function hgIsLowEndDevice() {
+    const cores = navigator.hardwareConcurrency || 8;
+    const mem = navigator.deviceMemory;
+    return (cores <= 4) || (typeof mem === 'number' && mem <= 3);
+}
+function hgUpdateLightMode() {
+    hgLightMode = hgIsLowEndDevice() || hgRuntime.slowGenerations >= 2 || hgRuntime.workerErrors >= 2;
+    return hgLightMode;
+}
+function hgDeviceTarget() {
+    const s = hgEnsureState().settings;
+    const global = s.targetQueueSize || 6;
+    hgUpdateLightMode();
+    if (hgLightMode) return Math.min(s.lowEndMobileTargetQueueSize || 2, global);
+    if (deviceType === 'mobile') return Math.min(s.mobileTargetQueueSize || 3, global);
+    return Math.min(s.desktopTargetQueueSize || 6, global);
+}
+function hgBackgroundEnabled() {
+    const s = hgEnsureState().settings;
+    return s.enabled !== false && s.backgroundGeneration !== false;
+}
+function hgSetBackgroundGeneration(on) {
+    hgEnsureState().settings.backgroundGeneration = !!on;
+    hgState.updatedAt = Date.now();
+    hgSaveState({ flush: true });
+    renderHieroglyphicBanner();
+}
+// ── Bloqueig temporal entre dispositius ─────────────────────────────────────
+function hgPruneExpiredLock() {
+    const lock = hgEnsureState().generationLock;
+    if (lock && lock.expiresAt && Date.now() > lock.expiresAt) { lock.deviceId = null; lock.startedAt = 0; lock.expiresAt = 0; }
+}
+function hgLockHeldByOther() {
+    hgPruneExpiredLock();
+    const lock = hgEnsureState().generationLock;
+    return !!(lock && lock.deviceId && lock.deviceId !== hgDeviceId() && lock.expiresAt > Date.now());
+}
+function hgAcquireLock() {
+    if (hgLockHeldByOther()) return false;
+    const now = Date.now();
+    hgEnsureState().generationLock = { deviceId: hgDeviceId(), startedAt: now, expiresAt: now + HG_LOCK_TTL_MS };
+    hgSaveState({ flush: true });   // publica el bloqueig de seguida perquè els altres el vegin
+    return true;
+}
+function hgReleaseLock() {
+    const lock = hgEnsureState().generationLock;
+    if (lock && lock.deviceId === hgDeviceId()) { lock.deviceId = null; lock.startedAt = 0; lock.expiresAt = 0; }
+}
+// L'usuari és dins la secció de jeroglífics (jugant-ne un)?
+function hgUserInSection() {
+    return !!hieroglyphicExerciseActive || (currentBundleSource === 'bestline' && $('#game-screen').hasClass('active'));
+}
+
+// ── Generació d'UN jeroglífic (partides → variants → auto-joc del motor) ─────
+// Genera una posició de mig-joc jugant moviments legals a l'atzar (barats, sense
+// motor) amb biaix cap a captures perquè surtin posicions més tàctiques; la
+// validació pesada (gap ≥120cp en 3 jugades + final tàctic clar) la fa Stockfish
+// via prepareBestLineExercise. Prova unes quantes llavors abans de rendir-se.
+function hgRandomSeedFen() {
+    if (typeof Chess === 'undefined') return null;
+    const g = new Chess();
+    const targetPlies = 10 + Math.floor(Math.random() * 14); // 10..23
+    for (let i = 0; i < targetPlies; i++) {
+        if (g.game_over()) break;
+        const legal = g.moves({ verbose: true });
+        if (!legal.length) break;
+        const captures = legal.filter(m => m.captured || m.flags.indexOf('e') !== -1);
+        const pool = (captures.length && Math.random() < 0.45) ? captures : legal;
+        const r = pool[Math.floor(Math.random() * pool.length)];
+        if (!g.move({ from: r.from, to: r.to, promotion: r.promotion || undefined })) break;
+    }
+    if (g.game_over()) return null;
+    // Ha de quedar prou material per a una combinació de 3 jugades.
+    const pieces = (g.fen().split(' ')[0].match(/[a-z]/gi) || []).length;
+    if (pieces < 8) return null;
+    return g.fen();
+}
+async function hgGenerateFromSelfPlaySeed(shouldAbort) {
+    if (typeof Chess === 'undefined') return null;
+    try { if (typeof ensureStockfish === 'function') ensureStockfish(); } catch (e) {}
+    const maxSeeds = 4;
+    for (let attempt = 0; attempt < maxSeeds; attempt++) {
+        if (shouldAbort && shouldAbort()) return null;
+        const fen = hgRandomSeedFen();
+        if (!fen) continue;
+        const prepared = await prepareBestLineExercise(fen, { playerMoves: 3, gapCp: 120, depth: 13, shouldAbort });
+        if (!prepared || !prepared.step1) continue;
+        const line = prepared.fullSequence || [];
+        const info = classifyPuzzleFinalMotif(fen, line, { finalEval: prepared.step1.evalBefore });
+        if (!info || info.motif === 'none' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1 || info.confidence === 'low') continue;
+        const solution = []; const replies = [];
+        for (let i = 1; i <= (prepared.totalSteps || 3); i++) {
+            const step = prepared['step' + i];
+            if (step && step.playerMove) solution.push(step.playerMove);
+            const reply = i === 1 ? prepared.opponentMove : (i === 2 ? prepared.opponentMove2 : null);
+            if (reply && reply.move) replies.push(reply.move);
+        }
+        if (solution.length < 3) continue;
+        return hgSelfPlayCandidate(fen, prepared, line, info, solution, replies);
+    }
+    return null;
+}
+function hgSelfPlayCandidate(fen, prepared, line, info, solution, replies) {
+    return {
+        fen, bestMove: solution[0], bestMoveSan: prepared.step1.playerMoveSan || null,
+        pv: prepared.step1.playerMovePv || line, lineUci: line,
+        solutionMoves: solution.slice(0, 3), replyMoves: replies.slice(0, Math.max(0, solution.length - 1)),
+        evalBefore: prepared.step1.evalBefore ?? null,
+        source: 'gameHistory.tactic', origin: 'composition', stockfishValidated: true,
+        finalMotif: info.motif, finalMotifs: info.motifs, finalMotifLabel: HIERO_FINAL_MOTIF_LABELS[info.motif] || null,
+        finalMotifReason: info.reason, theme: info.motif, tacticKind: HIERO_FINAL_MOTIF_LABELS[info.motif] || null
+    };
+}
+async function hgGenerateOne(shouldAbort, opts = {}) {
+    if (hgGenerating) return null;
+    hgGenerating = true;
+    const started = Date.now();
+    try {
+        const excludeFens = hgAllKnownFens();
+        const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+        let cand = null;
+        // PRIORITAT 1 — game_real: la tàctica que ja va aparèixer a la partida.
+        try {
+            const candidates = collectPersonalHieroglyphicCandidates(null);
+            cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, { excludeFens, shouldAbort });
+        } catch (e) {}
+        // PRIORITAT 2 — game_variant: una variant legal amagada d'una FEN real.
+        if (!cand && !(shouldAbort && shouldAbort())) {
+            const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-6).reverse() : [];
+            for (const entry of recentGames) {
+                try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, { excludeFens, shouldAbort }); } catch (e) {}
+                if (cand) break;
+                if (shouldAbort && shouldAbort()) break;
+            }
+        }
+        // PRIORITAT 3 — auto-joc del motor (només si les partides no donen res).
+        if (!cand && opts.allowSelfPlay !== false && !(shouldAbort && shouldAbort())) {
+            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) {}
+        }
+        if (cand && excludeFens.has(norm(cand.fen))) cand = null;
+        return cand;
+    } finally {
+        hgRuntime.lastDurationMs = Date.now() - started;
+        if (hgRuntime.lastDurationMs > 5000) hgRuntime.slowGenerations++;
+        hgGenerating = false;
+    }
+}
+// Converteix un candidat validat en un element de cua sincronitzable.
+function hgToQueueItem(cand, sourceTag) {
+    const line = Array.isArray(cand.lineUci) && cand.lineUci.length ? cand.lineUci.slice() : (cand.solutionMoves || []).slice();
+    let sideToMove = String(cand.fen).split(' ')[1] === 'b' ? 'b' : 'w';
+    const sanLine = [];
+    try {
+        const gg = new Chess(cand.fen);
+        sideToMove = gg.turn();
+        line.forEach(u => { const m = gg.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined }); if (m) sanLine.push(m.san); });
+    } catch (e) {}
+    const now = Date.now();
+    return {
+        id: 'hg_' + now.toString(36) + Math.random().toString(36).slice(2, 8),
+        createdAt: now, updatedAt: now,
+        source: sourceTag || 'background',
+        fen: cand.fen, sideToMove, line, sanLine,
+        finalType: cand.finalMotif || 'any',
+        difficulty: hieroglyphicDifficultyPercent(cand) || 1,
+        status: 'new', attempts: 0, startedAt: null, solvedAt: null,
+        deviceCreated: hgDeviceId(),
+        // camps de reconstrucció per poder jugar el jeroglífic
+        bestMove: cand.bestMove || null, bestMoveSan: cand.bestMoveSan || null,
+        solutionMoves: (cand.solutionMoves || []).slice(0, 3), replyMoves: (cand.replyMoves || []).slice(0, 2),
+        theme: cand.theme || null, tacticKind: cand.tacticKind || null, playerMove: cand.playerMove || null,
+        finalMotif: cand.finalMotif || null, finalMotifs: cand.finalMotifs || null,
+        finalMotifLabel: cand.finalMotifLabel || (cand.finalMotif ? HIERO_FINAL_MOTIF_LABELS[cand.finalMotif] : null),
+        finalMotifReason: cand.finalMotifReason || null, origin: cand.origin || 'game_real',
+        sourceGameId: cand.sourceGameId || cand.entryId || null,
+        sourceFen: cand.sourceFen || cand.fen, sourceMoveNumber: cand.sourceMoveNumber ?? cand.moveNumber ?? null,
+        adaptationNote: cand.adaptationNote || null,
+        difficultyPercent: hieroglyphicDifficultyPercent(cand), ratingEstimate: cand.ratingEstimate ?? null,
+        pv: cand.pv || line, evalBefore: cand.evalBefore ?? null
+    };
+}
+function hgQueueItemToChosen(item) {
+    return {
+        id: item.id, fen: item.fen, bestMove: item.bestMove, bestMoveSan: item.bestMoveSan,
+        solutionMoves: Array.isArray(item.solutionMoves) ? item.solutionMoves.slice() : [],
+        replyMoves: Array.isArray(item.replyMoves) ? item.replyMoves.slice() : [],
+        theme: item.theme, tacticKind: item.tacticKind, playerMove: item.playerMove,
+        pv: item.pv, evalBefore: item.evalBefore,
+        difficultyPercent: item.difficultyPercent ?? null, ratingEstimate: item.ratingEstimate ?? null,
+        finalMotif: item.finalMotif || (item.finalType !== 'any' ? item.finalType : null), finalMotifs: item.finalMotifs || null,
+        finalMotifLabel: item.finalMotifLabel || null, origin: item.origin || 'game_real',
+        sourceGameId: item.sourceGameId || null, sourceFen: item.sourceFen || item.fen,
+        sourceMoveNumber: item.sourceMoveNumber ?? null, adaptationNote: item.adaptationNote || null,
+        lineUci: item.line
+    };
+}
+function hgPruneQueue() {
+    const s = hgEnsureState().settings;
+    const max = s.maxQueueSize || 10;
+    // Si en sobren, elimina els més antics que encara siguin "new".
+    while (hgState.queue.filter(it => it.status === 'new').length > max) {
+        const idx = hgState.queue.findIndex(it => it.status === 'new');
+        if (idx < 0) break;
+        hgState.queue.splice(idx, 1);
+    }
+}
+// Treu el pròxim jeroglífic nou de la cua (respectant la preferència de final).
+function hgConsumeNext(pref) {
+    hgEnsureState();
+    hgPurgeStale();
+    const want = pref || hieroglyphicPreferredFinalMotif || 'any';
+    // La preferència de final és un ORDRE SUAU, no un bloqueig: si hi ha un
+    // jeroglífic nou del motiu demanat, se serveix aquell; si no, se serveix
+    // qualsevol jeroglífic nou (el comptador del bàner en promet accés).
+    let idx = hgState.queue.findIndex(it => it.status === 'new' && (want === 'any' || it.finalType === want || (Array.isArray(it.finalMotifs) && it.finalMotifs.indexOf(want) !== -1)));
+    if (idx < 0) idx = hgState.queue.findIndex(it => it.status === 'new');
+    if (idx < 0) return null;
+    const item = hgState.queue.splice(idx, 1)[0];
+    hgState.updatedAt = Date.now();
+    hgSaveState({ flush: true });
+    renderHieroglyphicBanner();
+    return hgQueueItemToChosen(item);
+}
+// Treu de la cua el pròxim jeroglífic nou que sí que es pot construir en un
+// exercici jugable. Descarta els que no es puguin reconstruir (dades incompletes
+// o línia il·legal) perquè un jeroglífic malmès no bloquegi mai l'accés.
+function hgConsumePlayable(pref) {
+    for (let guard = 0; guard < 15; guard++) {
+        const chosen = hgConsumeNext(pref);
+        if (!chosen) return null;
+        try { if (buildHieroglyphicBundleSequence(chosen)) return chosen; } catch (e) {}
+        // Aquest ítem no és jugable: ja s'ha tret de la cua; prova el següent.
+    }
+    return null;
+}
+
+// ── Cicle de generació en segon pla (el crida backgroundPrepTick) ───────────
+async function hgTick(shouldAbortOuter) {
+    try {
+        hgEnsureState();
+        hgPruneExpiredLock();
+        hgPurgeStale();
+        if (hgState.settings.enabled === false) { renderHieroglyphicBanner(); return; }
+        if (!hgBackgroundEnabled()) { renderHieroglyphicBanner(); return; }     // toggle OFF → només manual
+        if (document.visibilityState !== 'visible') return;
+        if (hgUserInSection()) return;
+        if (!isIdleForHieroglyphicPrep()) return;
+        const target = hgDeviceTarget();
+        const newCount = hgNewCount();
+        if (newCount >= target) { renderHieroglyphicBanner(); return; }
+        // Mode lleuger: només ajuda quan la cua global és 0 o 1.
+        if (hgLightMode && newCount > 1) { renderHieroglyphicBanner(); return; }
+        const now = Date.now();
+        const cooldown = newCount === 0 ? 1500 : 5000;   // prioritari si no n'hi ha cap
+        if (now - (hgState.generation.lastAttemptAt || 0) < cooldown) return;
+        if (hgLockHeldByOther()) { renderHieroglyphicBanner(); return; }
+        if (!hgAcquireLock()) return;
+        hgState.generation.active = true;
+        hgState.generation.lastAttemptAt = now;
+        hgSaveState();
+        renderHieroglyphicBanner();
+        const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHieroglyphicPrep();
+        let cand = null;
+        try { cand = await hgGenerateOne(shouldAbort, { allowSelfPlay: !hgLightMode || newCount === 0 }); } catch (e) { hgRuntime.workerErrors++; }
+        hgEnsureState();
+        if (cand && !hgAllKnownFens().has((() => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(cand.fen) : cand.fen; } catch (e) { return cand.fen; } })())) {
+            hgState.queue.push(hgToQueueItem(cand, 'background'));
+            hgState.generation.lastSuccessAt = Date.now();
+            hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
+            hgState.generation.lastError = null;
+            hgPruneQueue();
+        } else {
+            hgState.generation.lastError = cand ? 'duplicate' : 'empty';
+        }
+        hgState.generation.active = false;
+        hgState.generation.lastDurationMs = hgRuntime.lastDurationMs || 0;
+        hgReleaseLock();
+        hgUpdateLightMode();
+        hgState.updatedAt = Date.now();
+        hgSaveState({ flush: true });
+        renderHieroglyphicBanner();
+    } catch (e) {
+        try { hgReleaseLock(); hgSaveState(); } catch (_) {}
+        console.warn('[HG] tick error', e);
+    }
+}
+
+// ── Fusió amb les dades del núvol (CloudSync fa last-write-wins de tot; per no
+//    perdre jeroglífics generats en un aparell fusionem la cua a nivell d'app) ─
+function hgMergeInboundState(cloudRaw) {
+    const cloud = hgSanitizeState(cloudRaw);
+    const local = hgEnsureState();
+    const solved = hgSolvedHistoryFens();
+    const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+    const rank = { solved: 5, failed: 4, skipped: 3, started: 2, new: 1 };
+    const byId = new Map();
+    const byFp = new Map();
+    const consider = (it) => {
+        if (!it || !it.fen) return;
+        if (solved.has(norm(it.fen))) return;      // ja resolt → fora de la cua
+        const fp = hgFingerprint(it);
+        const prevById = it.id ? byId.get(it.id) : null;
+        const prevByFp = byFp.get(fp);
+        const prev = prevById || prevByFp;
+        if (!prev) { byId.set(it.id, it); byFp.set(fp, it); return; }
+        // Guanya l'estat més avançat; a igualtat, el updatedAt més recent.
+        const better = (rank[it.status] || 0) > (rank[prev.status] || 0)
+            || ((rank[it.status] || 0) === (rank[prev.status] || 0) && (it.updatedAt || 0) > (prev.updatedAt || 0));
+        if (better) { if (prev.id) byId.delete(prev.id); byId.set(it.id, it); byFp.set(fp, it); }
+    };
+    local.queue.forEach(consider);
+    cloud.queue.forEach(consider);
+    const merged = Array.from(new Set(byFp.values()));
+    merged.sort((a, b) => (a.createdAt || 0) - (b.createdAt || 0));
+    local.queue = merged;
+    // Configuració/generació: agafa la versió amb updatedAt més recent.
+    if ((cloud.updatedAt || 0) > (local.updatedAt || 0)) {
+        local.settings = Object.assign({}, local.settings, cloud.settings);
+    }
+    // El bloqueig: conserva el més recent (evita que un de vell bloquegi per sempre).
+    if ((cloud.generationLock && cloud.generationLock.startedAt || 0) > (local.generationLock && local.generationLock.startedAt || 0)) {
+        local.generationLock = cloud.generationLock;
+    }
+    hgPruneExpiredLock();
+    hgPruneQueue();
+    hgPurgeStale();
+    local.updatedAt = Math.max(local.updatedAt || 0, cloud.updatedAt || 0, Date.now());
+}
+// El crida reloadAppStateFromStorage just després d'aplicar dades del núvol:
+// en aquest punt localStorage ja té la versió del núvol, però hgState (en memòria)
+// encara reté la local amb els jeroglífics generats aquí i no sincronitzats.
+function hgOnCloudApplied() {
+    try {
+        const cloudRaw = readJsonStorage(HG_STATE_KEY, null);
+        hgMergeInboundState(cloudRaw);
+        writeJsonStorage(HG_STATE_KEY, hgState);           // desa la versió fusionada
+        renderHieroglyphicBanner();
+        try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+    } catch (e) { console.warn('[HG] merge error', e); }
+}
+
+// ── Bàner de la pantalla inicial ────────────────────────────────────────────
+function hgCloudSyncing() {
+    try { const st = window.CloudSync && window.CloudSync.getStatus && window.CloudSync.getStatus(); return !!(st && st.state === 'syncing'); } catch (e) { return false; }
+}
+function renderHieroglyphicBanner() {
+    const banner = document.getElementById('hieroglyphic-banner');
+    if (!banner) return;
+    hgEnsureState();
+    const newCount = hgNewCount();
+    const countEl = document.getElementById('hg-banner-count');
+    const statusEl = document.getElementById('hg-banner-status');
+    // Comptador
+    if (countEl) {
+        countEl.textContent = newCount === 0 ? '0 nous · preparant-ne un…'
+            : (newCount === 1 ? '1 nou esperant' : `${newCount} nous esperant`);
+    }
+    // Estat curt
+    let status = 'Preparats';
+    if (hgCloudSyncing()) status = 'Sincronitzant…';
+    else if (hgState.settings.enabled === false) status = 'Desactivat';
+    else if (!hgBackgroundEnabled()) status = 'Generació manual';
+    else if (hgLightMode) status = 'Mode lleuger';
+    else if (hgState.generation.active || hgGenerating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
+    else if (newCount === 0) status = 'Preparant-ne un…';
+    if (statusEl) statusEl.textContent = status;
+    // Destaca quan hi ha jeroglífics nous pendents.
+    banner.classList.toggle('hg-banner-has-new', newCount > 0);
+}
+
+// Entrada a la secció des del bàner (o des de qualsevol accés a jeroglífics):
+// si hi ha jeroglífics nous a la cua, en serveix un a l'instant; si no, en
+// prepara un de manera PRIORITÀRIA (encara que la generació en segon pla estigui
+// desactivada, perquè és una petició explícita de l'usuari).
+async function openHieroglyphicsFromBanner() {
+    if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
+    const pref = hieroglyphicPreferredFinalMotif || 'any';
+    // 1) Serveix un jeroglífic JUGABLE de la cua (descartant els malmesos).
+    const chosen = hgConsumePlayable(pref);
+    if (chosen) { await startPersonalHieroglyphicFromLastGame(null, chosen); return; }
+    // 2) Rebost antic en memòria (compatibilitat).
+    if (Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length) {
+        await startPersonalHieroglyphicFromLastGame(null); return;
+    }
+    // 3) Un jeroglífic pendent de l'historial (per no deixar l'usuari sense res).
+    const retry = retryableHieroglyphicHistory()[0];
+    // 4) Genera'n un de nou de manera prioritària.
+    const statusEl = document.getElementById('hg-banner-status');
+    if (statusEl) statusEl.textContent = 'Preparant el primer jeroglífic…';
+    showToast('Preparant el primer jeroglífic…', 'info');
+    let cand = null;
+    try { cand = await hgGenerateOne(() => false, { allowSelfPlay: true }); } catch (e) {}
+    if (cand) {
+        hgEnsureState();
+        const item = hgToQueueItem(cand, 'manual');
+        hgState.queue.push(item);
+        hgPruneQueue();
+        hgState.updatedAt = Date.now();
+        hgSaveState({ flush: true });
+        const pick = hgConsumePlayable(cand.finalMotif || 'any') || hgQueueItemToChosen(item);
+        await startPersonalHieroglyphicFromLastGame(null, pick);
+        return;
+    }
+    if (retry) { retryHieroglyphicFromHistory(retry.id); return; }
+    // 5) Sense res per jugar: obre l'historial (sempre accessible) i informa.
+    const hasGames = Array.isArray(gameHistory) && gameHistory.length > 0;
+    showToast(hasGames ? 'No he pogut preparar cap jeroglífic ara mateix. Aquí tens l’historial mentrestant.' : 'Juga unes quantes partides i podré crear jeroglífics a partir dels teus moments clau.', 'warn');
+    showHieroglyphicHistoryModal();
+    renderHieroglyphicBanner();
+}
+// Modal d'historial de jeroglífics: SEMPRE accessible des del menú (no depèn de
+// jugar-ne cap ni del calibratge). Mostra els 10 últims, del més recent al més
+// antic, amb botó "Reveure" per tornar-los a jugar.
+function showHieroglyphicHistoryModal() {
+    $('#hg-history-modal').remove();
+    const history = loadHieroglyphicHistory().slice().sort((a, b) => {
+        const da = (a && (a.solvedAt || a.finishedAt || a.ts || a.createdAt)) || 0;
+        const db = (b && (b.solvedAt || b.finishedAt || b.ts || b.createdAt)) || 0;
+        return db - da;
+    }).slice(0, HG_HISTORY_MAX);
+    let html = '<div class="modal-overlay" id="hg-history-modal" style="display:flex;"><div class="modal-content">';
+    html += '<div class="modal-title">🔮 Historial de jeroglífics</div>';
+    if (!history.length) {
+        html += '<div class="bundle-empty">Encara no tens jeroglífics a l’historial. Quan en resolguis, en saltis o en fallis algun, apareixerà aquí.</div>';
+    } else {
+        html += '<div class="hg-modal-list">';
+        history.forEach(e => {
+            const solved = !!e.solved;
+            const clean = hieroglyphicEntryCleanSolved(e);
+            const resultIcon = solved ? (clean ? '✅' : '☑️') : '⏳';
+            const resultText = solved ? (clean ? 'Resolt sense errors' : 'Resolt amb errades') : 'Pendent';
+            const kind = e.finalMotifLabel || e.tacticKind || (e.finalMotif ? (HIERO_FINAL_MOTIF_LABELS[e.finalMotif] || e.finalMotif) : (e.theme || 'Jeroglífic'));
+            const attempts = (typeof e.wrongMoves === 'number') ? (e.wrongMoves + (solved ? 1 : 0)) : null;
+            const dateText = formatHieroglyphicDate(e.solvedAt || e.finishedAt || e.ts || e.createdAt);
+            html += '<div class="hg-modal-row">';
+            html += `<span class="hg-modal-ic" title="${escapeHtml(resultText)}" aria-label="${escapeHtml(resultText)}">${resultIcon}</span>`;
+            html += '<span class="hg-modal-info">';
+            html += `<span class="hg-modal-kind">${escapeHtml(String(kind))}</span>`;
+            html += `<span class="hg-modal-sub">${escapeHtml(resultText)}${attempts !== null ? ` · ${attempts} intent${attempts === 1 ? '' : 's'}` : ''} · ${escapeHtml(dateText)}</span>`;
+            html += '</span>';
+            html += `<button class="btn btn-secondary hg-modal-replay" data-hg-id="${escapeHtml(String(e.id))}">Reveure</button>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    html += '<button class="close-modal" onclick="$(\'#hg-history-modal\').remove()">Tancar</button></div></div>';
+    $('body').append(html);
+    $('#hg-history-modal .hg-modal-replay').off('click').on('click', function () {
+        const id = $(this).attr('data-hg-id');
+        $('#hg-history-modal').remove();
+        retryHieroglyphicFromHistory(id);
+    });
+}
+if (typeof window !== 'undefined') {
+    window.openHieroglyphicsFromBanner = openHieroglyphicsFromBanner;
+    window.showHieroglyphicHistoryModal = showHieroglyphicHistoryModal;
+    window.renderHieroglyphicBanner = renderHieroglyphicBanner;
+    window.hgOnCloudApplied = hgOnCloudApplied;
+    window.hgTick = hgTick;
+}
+
 async function startHieroglyphicExercise() {
     await startPersonalHieroglyphicFromLastGame(null);
 }
 
 
 function hasOpeningHieroglyphicCandidate() {
-    return hasPersonalHieroglyphicCandidate();
+    return hasPersonalHieroglyphicCandidate() || ((typeof hgNewCount === 'function') && hgNewCount() > 0);
 }
 
 function getHieroglyphicNextButtonHtml() {
+    const queueReady = (typeof hgNewCount === 'function') && hgNewCount() > 0;
     if (hieroglyphicSource === 'personal') {
-        return hasPersonalHieroglyphicCandidate()
+        return (queueReady || hasPersonalHieroglyphicCandidate())
             ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Desxifra un altre error</button>'
             : '';
     }
@@ -15474,20 +16063,35 @@ function setupEvents() {
         startTacticsPuzzle();
     });
     $('#btn-bestline').off('click').on('click', () => { void startBestLineExercise(); });
-    // Selector de FINAL del jeroglífic: desa la preferència a localStorage i, si
-    // el rebost no té cap puzzle d'aquell motiu, en prepara un en segon pla.
-    // No recalcula res si ja n'hi ha un de preparat que encaixa.
+    // Bàner de Jeroglífics (sota la lliga): accés principal a la secció.
+    $('#btn-hieroglyphic-banner').off('click').on('click', () => { void openHieroglyphicsFromBanner(); });
+    // Historial de jeroglífics: sempre accessible des del menú (no depèn de jugar-ne cap).
+    $('#btn-hieroglyphic-history').off('click').on('click', () => { showHieroglyphicHistoryModal(); });
+    // Selector de FINAL del jeroglífic (ara integrat al bàner): desa la preferència
+    // i, si la cua no té cap jeroglífic d'aquell motiu, en dispara la preparació.
     loadHieroglyphicPreferredFinalMotif();
     const $hgFinal = $('#hg-final-select');
     if ($hgFinal.length) {
         $hgFinal.val(hieroglyphicPreferredFinalMotif);
         $hgFinal.off('change').on('change', function () {
             const v = setHieroglyphicPreferredFinalMotif($(this).val());
-            const hasMatch = Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.some(p => hieroglyphicMatchesFinalPref(p, v));
-            if (!hasMatch) { void ensurePersonalHieroglyphicPoolTick({ background: true, requiredFinalMotif: v }); }
+            hgEnsureState(); hgState.settings.finalPreference = v; hgSaveState();
+            const hasMatch = hgEnsureState().queue.some(it => it.status === 'new' && (v === 'any' || it.finalType === v));
+            if (!hasMatch && typeof backgroundPrepTick === 'function') setTimeout(backgroundPrepTick, 100);
+            renderHieroglyphicBanner();
         });
     }
+    // Toggle de Configuració: generació de jeroglífics en segon pla.
+    const $hgBgToggle = $('#hg-background-toggle');
+    if ($hgBgToggle.length) {
+        $hgBgToggle.prop('checked', hgBackgroundEnabled());
+        $hgBgToggle.off('change').on('change', function () { hgSetBackgroundGeneration(this.checked); });
+    }
     refreshJeroglificButton(); // actiu si hi ha un de nou o algun pendent per refer
+    hgEnsureState();
+    renderHieroglyphicBanner();
+    // Primer intent de generació poc després d'arrencar (si escau).
+    setTimeout(() => { try { if (typeof backgroundPrepTick === 'function') backgroundPrepTick(); } catch (e) {} }, 1500);
 
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
@@ -16537,35 +17141,10 @@ function startTacticsPuzzle() {
 
 // Llança un jeroglífic personal: només moments clau extrets de partides jugades.
 async function startBestLineExercise() {
-    if (!guardCalibrationAccess()) return;
-    // Rectificació: el botó Jeroglífic ja no usa bancs de mat ni finals KQ/KR.
-    // Obre un jeroglífic nou si ja està validat; si encara no n'hi ha cap, permet
-    // refer-ne un de l'historial que no hagi sortit a la primera.
-    const pref = hieroglyphicPreferredFinalMotif || 'any';
-    // Només obrim un jeroglífic del rebost si encaixa amb el final demanat.
-    const hasMatch = Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.some(p => hieroglyphicMatchesFinalPref(p, pref));
-    if (hasMatch) {
-        await startPersonalHieroglyphicFromLastGame(null);
-        return;
-    }
-    // Un jeroglífic pendent de l'historial que encaixi amb el final demanat.
-    const retry = retryableHieroglyphicHistory().find(e => pref === 'any' || hieroglyphicMatchesFinalPref(e, pref));
-    if (retry) {
-        retryHieroglyphicFromHistory(retry.id);
-        return;
-    }
-    // No n'hi ha cap de preparat: en preparem en segon pla i informem amb calma.
-    void ensurePersonalHieroglyphicPoolTick({ requiredFinalMotif: pref !== 'any' ? pref : undefined });
-    const hasGames = Array.isArray(gameHistory) && gameHistory.length > 0;
-    if (!hasGames) {
-        showToast('Juga unes quantes partides i podré crear jeroglífics personals a partir dels teus moments clau.', 'warn');
-        return;
-    }
-    if (pref !== 'any') {
-        showToast('Encara no tinc cap jeroglífic amb aquest final. N’estic preparant un amb posicions de les teves partides.', 'warn');
-        return;
-    }
-    showToast('Encara s’està preparant un jeroglífic personal validat.', 'warn');
+    // La secció de jeroglífics passa per la cua sincronitzada: si n'hi ha cap de nou
+    // se serveix a l'instant; si no, se'n prepara un de manera prioritària (encara que
+    // la generació en segon pla estigui desactivada, perquè és una petició explícita).
+    return openHieroglyphicsFromBanner();
 }
 
 if (typeof window !== 'undefined') window.startBestLineExercise = startBestLineExercise;
@@ -19273,6 +19852,7 @@ function returnToMainMenuImmediate() {
     blunderMode = false;
     updateBundleHintButtons();
     updateDisplay();
+    try { if (typeof renderHieroglyphicBanner === 'function') renderHieroglyphicBanner(); } catch (e) {}
     // De tornada al menú el motor queda lliure: reprèn la pre-generació d'exercicis
     setTimeout(backgroundPrepTick, 1200);
 }
@@ -22934,24 +23514,24 @@ function waitForBackgroundPrepToYield(timeoutMs = 1500) {
 
 async function backgroundPrepTick() {
     try { refillHieroglyphicQueue(); } catch (e) {}
+    try { if (typeof renderHieroglyphicBanner === 'function') renderHieroglyphicBanner(); } catch (e) {}
     if (backgroundPrepPromise) return;
     if (typeof isCalibrationActive === 'function' && isCalibrationActive()) return;
 
-    // 1) JEROGLÍFICS — es preparen amb el llindar de repòs AMPLI (isIdleForHieroglyphicPrep):
-    //    el rebost es continua omplint encara que l'usuari no sigui al menú, sempre que
-    //    no jugui una partida ni faci un exercici. Així "en segon pla" segueix creant-ne.
-    if (personalHieroglyphicPool.length < PERSONAL_HIERO_POOL_TARGET && isIdleForHieroglyphicPrep()) {
-        const before = personalHieroglyphicPool.length;
-        await ensurePersonalHieroglyphicPoolTick({ background: true, shouldAbort: () => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep() });
-        const grew = personalHieroglyphicPool.length > before;
-        // Mentre puguem afegir jeroglífics nous i no arribem a 3, seguim omplint el
-        // rebost de pressa (en repòs); quan ja n'hi hagi prou, deixem pas a la resta de prep.
-        if (grew && personalHieroglyphicPool.length < PERSONAL_HIERO_POOL_TARGET
+    // 1) JEROGLÍFICS — cua sincronitzada (eltauler_hieroglyphics_state): genera com a
+    //    màxim 1 jeroglífic per cicle en pantalles tranquil·les, amb bloqueig entre
+    //    dispositius, objectius per aparell i mode lleuger (vegeu hgTick). Si acaba de
+    //    generar-ne un i encara no s'ha arribat a l'objectiu, torna aviat per continuar.
+    if (isIdleForHieroglyphicPrep()) {
+        const beforeNew = (typeof hgNewCount === 'function') ? hgNewCount() : 0;
+        try { await hgTick(() => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep()); } catch (e) {}
+        const afterNew = (typeof hgNewCount === 'function') ? hgNewCount() : 0;
+        if (afterNew > beforeNew && afterNew < hgDeviceTarget()
             && !backgroundPrepAbortRequested && isIdleForHieroglyphicPrep()) {
-            setTimeout(backgroundPrepTick, 600);
+            setTimeout(backgroundPrepTick, 800);
             return;
         }
-        if (personalHieroglyphicPool.length > 0) return;
+        if (afterNew > 0) return;
     }
 
     // 2) SEQÜÈNCIES D'EXERCICIS (preparació pesada) — es manté al llindar ESTRICTE de
