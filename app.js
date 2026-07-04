@@ -19554,14 +19554,20 @@ function handleEngineMessage(rawMsg) {
 
             // Si has jugat la millor jugada, no és cap error encara que el swing
             // (comparant anàlisi prèvia profunda amb posterior més curta) sigui gran.
-            if (swing > 250 && !blunderMode && lastHumanMoveUci !== pendingBestMove) {
+            const isMoveError = !blunderMode && lastHumanMoveUci !== pendingBestMove;
+            // DESAR "per resoldre": alineat amb l'etiqueta "Error" del review
+            // (>100 cp). Així els errors moderats que ja veus marcats també entren
+            // a la cua per practicar-los, no només les errades grosses.
+            const isSolvableError = isMoveError && swing > 100;
+            // ALERTA VISUAL + pausa perquè es vegi: reservada a errades grosses
+            // (>250 cp), per no omplir la partida d'avisos ni alentir-la a cada
+            // imprecisió.
+            const isSevereBlunder = isMoveError && swing > 250;
+
+            if (isSolvableError) {
                 let severity = 'low';
                 if (swing > 800) severity = 'high';
                 else if (swing > 500) severity = 'med';
-
-                $('#blunder-alert').removeClass('alert-low alert-med alert-high')
-                    .addClass('alert-' + severity).show();
-
                 saveBlunderToBundle(
                     pendingAnalysisFen || lastPosition,
                     severity,
@@ -19569,11 +19575,17 @@ function handleEngineMessage(rawMsg) {
                     lastHumanMoveUci,
                     pendingBestMovePv
                 );
+            }
 
+            if (isSevereBlunder) {
+                let severity = 'low';
+                if (swing > 800) severity = 'high';
+                else if (swing > 500) severity = 'med';
+                $('#blunder-alert').removeClass('alert-low alert-med alert-high')
+                    .addClass('alert-' + severity).show();
                 engineMoveTimeout = setTimeout(() => {
                     if (!game.game_over()) makeEngineMove();
                 }, 1500);
-
             } else {
                 if (blunderMode) handleBundleSuccess();
                 else if (!game.game_over()) makeEngineMove();
