@@ -14627,6 +14627,7 @@ function hgGenReasonText(diag) {
         case 'all_known': return 'Ja tens preparats o resolts tots els jeroglífics de les teves partides recents; no en queda cap de nou.';
         case 'selfplay_empty': return 'L\'auto-joc del motor no ha trobat cap combinació tàctica prou neta aquest cop.';
         case 'no_candidates': return 'No hi ha cap posició adequada per convertir en jeroglífic ara mateix.';
+        case 'stalled': return 'La generació sembla encallada (el motor no respon a temps). Recarrega la pàgina i torna-ho a provar.';
         case 'aborted': return 'Generació interrompuda.';
         default: return 'No he pogut generar cap jeroglífic nou ara mateix.';
     }
@@ -14841,13 +14842,16 @@ function renderHieroglyphicBanner() {
         countEl.textContent = newCount === 0 ? '0 nous · preparant-ne un…'
             : (newCount === 1 ? '1 nou esperant' : `${newCount} nous esperant`);
     }
-    // Estat curt
+    // Estat curt. La generació ACTIVA té prioritat sobre "Sincronitzant…": abans,
+    // com que cada jeroglífic desat dispara una pujada al núvol, l'estat quedava
+    // gairebé sempre en "Sincronitzant…" i amagava que s'estava generant.
+    const generating = hgState.generation.active || hgGenerating || hgManualBurstRunning;
     let status = 'Preparats';
-    if (hgCloudSyncing()) status = 'Sincronitzant…';
-    else if (hgState.settings.enabled === false) status = 'Desactivat';
+    if (hgState.settings.enabled === false) status = 'Desactivat';
+    else if (generating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
+    else if (hgCloudSyncing()) status = 'Sincronitzant…';
     else if (!hgBackgroundEnabled()) status = 'Generació manual';
     else if (hgLightMode) status = 'Mode lleuger';
-    else if (hgState.generation.active || hgGenerating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
     else if (newCount === 0) status = 'Preparant-ne un…';
     if (statusEl) statusEl.textContent = status;
     // Destaca quan hi ha jeroglífics nous pendents.
@@ -14894,36 +14898,57 @@ async function hgManualGenerateBurst() {
     if (btn) { btn.classList.add('is-generating'); btn.textContent = '✋ Atura'; }
     hgEnsureState();
     const target = Math.max(1, hgDeviceTarget());
+    const startCount = hgNewCount();
     // Si la cua ja és plena, genera'n almenys un extra perquè el botó sempre faci alguna cosa.
-    const goal = Math.max(target, hgNewCount() + 1);
+    const goal = Math.max(target, startCount + 1);
     const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
-    let made = 0;
-    hgSetBannerProgress(hgNewCount() / goal, `Generant… ${hgNewCount()}/${goal}`, true);
+    let lastCount = startCount;
+    let lastProgressAt = Date.now();
+    let failDiag = null;
+    const STALL_MS = 30000;   // si en 30 s no avança res (ni el fons), ho donem per encallat
+    const setProg = () => {
+        const shown = Math.min(hgNewCount(), goal);
+        hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `Generant… ${shown}/${goal}`, true);
+    };
+    setProg();
     try {
         while (!hgManualBurstAbort && hgNewCount() < goal) {
-            let cand = null;
-            try { cand = await hgGenerateOne(() => hgManualBurstAbort, { allowSelfPlay: true }); }
-            catch (e) { cand = null; }
-            if (hgManualBurstAbort) break;
-            if (cand && !hgAllKnownFens().has(norm(cand.fen))) {
-                hgEnsureState();
-                hgState.queue.push(hgToQueueItem(cand, 'manual'));
-                hgState.generation.lastSuccessAt = Date.now();
-                hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
-                hgState.generation.lastError = null;
-                hgPruneQueue();
-                hgState.updatedAt = Date.now();
-                hgSaveState({ flush: true });
-                made++;
+            if (hgGenerating) {
+                // Ja hi ha una generació en marxa (típicament la de segon pla, que
+                // omple la MATEIXA cua). En comptes de fallar amb "busy", espera-la:
+                // el seu resultat també ens acosta a l'objectiu.
+                await new Promise(r => setTimeout(r, 400));
             } else {
-                // No s'ha pogut obtenir cap candidat nou: atura per no fer un bucle infinit.
-                break;
+                let cand = null;
+                try { cand = await hgGenerateOne(() => hgManualBurstAbort, { allowSelfPlay: true }); }
+                catch (e) { cand = null; }
+                if (hgManualBurstAbort) break;
+                if (cand && !hgAllKnownFens().has(norm(cand.fen))) {
+                    hgEnsureState();
+                    hgState.queue.push(hgToQueueItem(cand, 'manual'));
+                    hgState.generation.lastSuccessAt = Date.now();
+                    hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
+                    hgState.generation.lastError = null;
+                    hgPruneQueue();
+                    hgState.updatedAt = Date.now();
+                    hgSaveState({ flush: true });
+                } else if (!hgGenerating) {
+                    // La NOSTRA generació no ha donat res i ningú més està generant:
+                    // guarda el motiu concret i atura (esperar no serviria de res).
+                    failDiag = hgLastGenDiag;
+                    break;
+                }
             }
-            hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `Generant… ${hgNewCount()}/${goal}`, true);
+            // Progrés real per la cua (compta també el que afegeix el segon pla).
+            const now = hgNewCount();
+            if (now > lastCount) { lastCount = now; lastProgressAt = Date.now(); }
+            else if (Date.now() - lastProgressAt > STALL_MS) { failDiag = failDiag || hgLastGenDiag || { reason: 'stalled' }; break; }
+            setProg();
             renderHieroglyphicBanner();
         }
     } finally {
         const aborted = hgManualBurstAbort;
+        const made = Math.max(0, hgNewCount() - startCount);
         hgManualBurstRunning = false;
         hgManualBurstAbort = false;
         // Mostra breument el 100% quan s'ha completat, i després amaga la barra.
@@ -14936,8 +14961,8 @@ async function hgManualGenerateBurst() {
         } else if (made > 0) {
             showToast(made === 1 ? 'S\'ha generat 1 jeroglífic nou.' : `S'han generat ${made} jeroglífics nous.`, 'success');
         } else {
-            // Cap generat: explica el MOTIU concret (diagnòstic de l'últim intent).
-            const diag = hgLastGenDiag;
+            // Cap generat: explica el MOTIU concret (diagnòstic de l'últim intent real).
+            const diag = failDiag || hgLastGenDiag;
             try { console.warn('[HG] Generació manual sense resultat:', diag); } catch (e) {}
             showToast('No s\'ha pogut generar: ' + hgGenReasonText(diag), 'warn');
         }
