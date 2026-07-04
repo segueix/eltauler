@@ -14808,6 +14808,96 @@ function renderHieroglyphicBanner() {
     if (statusEl) statusEl.textContent = status;
     // Destaca quan hi ha jeroglífics nous pendents.
     banner.classList.toggle('hg-banner-has-new', newCount > 0);
+    // Etiqueta del botó "Generar ara" segons si hi ha una tanda en marxa.
+    const genBtn = document.getElementById('btn-hieroglyphic-generate');
+    if (genBtn && !hgManualBurstRunning) {
+        genBtn.classList.remove('is-generating');
+        genBtn.textContent = '⚡ Generar ara';
+    }
+}
+
+// ── Generació manual "sota demanda" amb barra de progrés ────────────────────
+// L'usuari pot forçar la generació de jeroglífics (útil quan la generació en
+// segon pla fa estona que no en prepara cap perquè no s'han donat les
+// condicions de repòs). La barra mostra el progrés omplint la cua fins a
+// l'objectiu del dispositiu.
+let hgManualBurstRunning = false;
+let hgManualBurstAbort = false;
+
+function hgSetBannerProgress(fraction, label, working) {
+    const wrap = document.getElementById('hg-banner-progress');
+    if (!wrap) return;
+    if (fraction === null || fraction === undefined) {
+        wrap.style.display = 'none';
+        wrap.classList.remove('is-working');
+        return;
+    }
+    wrap.style.display = 'flex';
+    wrap.classList.toggle('is-working', !!working);
+    const bar = document.getElementById('hg-banner-progress-bar');
+    const txt = document.getElementById('hg-banner-progress-text');
+    const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+    if (bar) bar.style.width = pct + '%';
+    if (txt) txt.textContent = (label !== null && label !== undefined) ? label : (pct + '%');
+}
+
+async function hgManualGenerateBurst() {
+    // Segon clic mentre corre = cancel·la la tanda.
+    if (hgManualBurstRunning) { hgManualBurstAbort = true; return; }
+    hgManualBurstRunning = true;
+    hgManualBurstAbort = false;
+    const btn = document.getElementById('btn-hieroglyphic-generate');
+    if (btn) { btn.classList.add('is-generating'); btn.textContent = '✋ Atura'; }
+    hgEnsureState();
+    const target = Math.max(1, hgDeviceTarget());
+    // Si la cua ja és plena, genera'n almenys un extra perquè el botó sempre faci alguna cosa.
+    const goal = Math.max(target, hgNewCount() + 1);
+    const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+    let made = 0;
+    hgSetBannerProgress(hgNewCount() / goal, `Generant… ${hgNewCount()}/${goal}`, true);
+    try {
+        while (!hgManualBurstAbort && hgNewCount() < goal) {
+            let cand = null;
+            try { cand = await hgGenerateOne(() => hgManualBurstAbort, { allowSelfPlay: true }); }
+            catch (e) { cand = null; }
+            if (hgManualBurstAbort) break;
+            if (cand && !hgAllKnownFens().has(norm(cand.fen))) {
+                hgEnsureState();
+                hgState.queue.push(hgToQueueItem(cand, 'manual'));
+                hgState.generation.lastSuccessAt = Date.now();
+                hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
+                hgState.generation.lastError = null;
+                hgPruneQueue();
+                hgState.updatedAt = Date.now();
+                hgSaveState({ flush: true });
+                made++;
+            } else {
+                // No s'ha pogut obtenir cap candidat nou: atura per no fer un bucle infinit.
+                break;
+            }
+            hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `Generant… ${hgNewCount()}/${goal}`, true);
+            renderHieroglyphicBanner();
+        }
+    } finally {
+        const aborted = hgManualBurstAbort;
+        hgManualBurstRunning = false;
+        hgManualBurstAbort = false;
+        // Mostra breument el 100% quan s'ha completat, i després amaga la barra.
+        if (!aborted && made > 0) hgSetBannerProgress(Math.min(1, hgNewCount() / goal), '100%', false);
+        setTimeout(() => { if (!hgManualBurstRunning) hgSetBannerProgress(null); }, 900);
+        if (btn) { btn.classList.remove('is-generating'); btn.textContent = '⚡ Generar ara'; }
+        renderHieroglyphicBanner();
+        if (aborted) {
+            showToast(made > 0 ? `Generació aturada (${made} de nou${made === 1 ? '' : 's'}).` : 'Generació aturada.', 'info');
+        } else if (made > 0) {
+            showToast(made === 1 ? 'S\'ha generat 1 jeroglífic nou.' : `S'han generat ${made} jeroglífics nous.`, 'success');
+        } else {
+            const hasGames = Array.isArray(gameHistory) && gameHistory.length > 0;
+            showToast(hasGames
+                ? 'No he pogut generar cap jeroglífic nou ara mateix. Prova-ho d\'aquí una estona.'
+                : 'Juga unes quantes partides i podré crear jeroglífics dels teus moments clau.', 'warn');
+        }
+    }
 }
 
 // Entrada a la secció des del bàner (o des de qualsevol accés a jeroglífics):
@@ -16154,6 +16244,9 @@ function setupEvents() {
     $('#btn-hieroglyphic-banner').off('click').on('click', () => { void openHieroglyphicsFromBanner(); });
     // Historial de jeroglífics: sempre accessible des del menú (no depèn de jugar-ne cap).
     $('#btn-hieroglyphic-history').off('click').on('click', () => { showHieroglyphicHistoryModal(); });
+    // Generació manual sota demanda (amb barra de progrés): força la preparació de
+    // jeroglífics encara que la generació en segon pla estigui inactiva.
+    $('#btn-hieroglyphic-generate').off('click').on('click', () => { void hgManualGenerateBurst(); });
     // Selector de FINAL del jeroglífic (ara integrat al bàner): desa la preferència
     // i, si la cua no té cap jeroglífic d'aquell motiu, en dispara la preparació.
     loadHieroglyphicPreferredFinalMotif();
