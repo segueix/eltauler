@@ -473,6 +473,12 @@
     }).then(function () {
       clearSyncWatchdog();
       subscribeRealtime();
+      // La conciliació inicial ha acabat: ja tenim (si n'hi havia) el nom d'usuari
+      // que viatja amb el compte al núvol. Avisem l'app perquè, si el compte encara
+      // no té nom, en demani un (cal per aparèixer al rànquing i a les col·lectives).
+      if (typeof window.onCloudSyncReady === 'function') {
+        try { window.onCloudSyncReady(currentUser ? (currentUser.email || currentUser.displayName || '') : ''); } catch (e) {}
+      }
     }).catch(function (e) {
       clearSyncWatchdog();
       console.warn('[CloudSync] sign-in sync error', e);

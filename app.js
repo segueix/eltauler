@@ -5070,21 +5070,89 @@ function loadUsernameIntoSettings() {
     const hint = document.getElementById('username-hint');
     if (hint) hint.textContent = getUsername() ? ('Nom actual: ' + getUsername()) : 'Encara no has posat cap nom.';
 }
+// Neteja i limita un nom d'usuari escrit per l'usuari (comú a Configuració i al
+// diàleg posterior a l'inici de sessió).
+function sanitizeUsername(raw) {
+    return String(raw || '').trim().replace(/\s+/g, ' ').slice(0, 24);
+}
+// Desa (o esborra) el nom d'usuari i propaga el canvi: sincronització al núvol
+// (viatja amb el compte), rànquing i xip de la pantalla d'inici. Retorna el nom
+// net que ha quedat desat.
+function setUsername(rawName) {
+    const prev = getUsername();
+    const name = sanitizeUsername(rawName);
+    try { if (name) localStorage.setItem(USERNAME_KEY, name); else localStorage.removeItem(USERNAME_KEY); } catch (e) {}
+    if (name !== prev) {
+        // El nom es desa a chess_username → viatja amb el compte de Google via CloudSync.
+        try { if (window.CloudSync && window.CloudSync.onLocalSave) window.CloudSync.onLocalSave(); } catch (e) {}
+        // Amb nom nou, publica'l de seguida al rànquing; en esborrar-lo, en surt.
+        try { if (typeof pushRankingStats === 'function') pushRankingStats(true); } catch (e) {}
+    }
+    try { renderHomeUserChip(); } catch (e) {}
+    return name;
+}
+window.setUsername = setUsername;
 function saveUsernameFromSettings() {
     const input = document.getElementById('username-input');
     if (!input) return;
     const prev = getUsername();
-    const name = String(input.value || '').trim().replace(/\s+/g, ' ').slice(0, 24);
-    try { if (name) localStorage.setItem(USERNAME_KEY, name); else localStorage.removeItem(USERNAME_KEY); } catch (e) {}
+    const name = setUsername(input.value);
     input.value = name;
     const hint = document.getElementById('username-hint');
     if (name !== prev) {
-        try { if (window.CloudSync && window.CloudSync.onLocalSave) window.CloudSync.onLocalSave(); } catch (e) {}
         try { showToast(name ? 'Nom d\'usuari desat ✓' : 'Nom d\'usuari esborrat', 'success'); } catch (e) {}
-        if (hint) hint.textContent = name ? ('Nom actual: ' + name) : 'Encara no has posat cap nom.';
     }
-    try { renderHomeUserChip(); } catch (e) {}
+    if (hint) hint.textContent = name ? ('Nom actual: ' + name) : 'Encara no has posat cap nom.';
 }
+
+// ---- Diàleg per demanar el nom d'usuari just després d'iniciar sessió ----
+// El nom queda vinculat al compte de Google (es desa a chess_username i se
+// sincronitza). Sense nom, l'usuari no apareix al rànquing.
+function openUsernameModal() {
+    const modal = document.getElementById('username-modal');
+    if (!modal) return;
+    const input = document.getElementById('username-modal-input');
+    const err = document.getElementById('username-modal-error');
+    if (err) { err.style.display = 'none'; err.textContent = ''; }
+    if (input) input.value = getUsername();
+    modal.style.display = 'flex';
+    setTimeout(function () { try { if (input) input.focus(); } catch (e) {} }, 40);
+}
+function closeUsernameModal() {
+    const modal = document.getElementById('username-modal');
+    if (modal) modal.style.display = 'none';
+}
+function saveUsernameFromModal() {
+    const input = document.getElementById('username-modal-input');
+    const err = document.getElementById('username-modal-error');
+    const name = sanitizeUsername(input ? input.value : '');
+    if (!name) {
+        if (err) { err.textContent = 'Escriu un nom per continuar (o toca «Ara no»).'; err.style.display = ''; }
+        try { if (input) input.focus(); } catch (e) {}
+        return;
+    }
+    setUsername(name);
+    // Manté sincronitzada la casella de Configuració si estava carregada.
+    try { const s = document.getElementById('username-input'); if (s) s.value = name; } catch (e) {}
+    try { const h = document.getElementById('username-hint'); if (h) h.textContent = 'Nom actual: ' + name; } catch (e) {}
+    closeUsernameModal();
+    try { showToast('Nom d\'usuari desat ✓', 'success'); } catch (e) {}
+}
+// Demana el nom d'usuari si el compte encara no en té cap. Es crida quan la
+// sincronització inicial ha acabat (així no molestem els comptes que ja en tenen
+// un al núvol, que s'acaba de baixar).
+function promptUsernameIfMissing() {
+    try {
+        if (!(window.CloudSync && window.CloudSync.isSignedIn && window.CloudSync.isSignedIn())) return;
+    } catch (e) { return; }
+    if (getUsername()) return;                 // ja té nom vinculat al compte
+    if (document.getElementById('username-modal') &&
+        document.getElementById('username-modal').style.display === 'flex') return;   // ja obert
+    openUsernameModal();
+}
+window.onCloudSyncReady = function () {
+    try { promptUsernameIfMissing(); } catch (e) {}
+};
 
 // ====== Consentiment (cookies/emmagatzematge) + capçalera de la pantalla d'inici ======
 // La preferència de consentiment és LOCAL del dispositiu (prefix eltauler_cloud_ →
@@ -5200,6 +5268,19 @@ function pushRankingStats(force) {
     const ref = rankingDocRef();
     if (!ref) return;
     const entry = myRankingEntry();
+    // Sense nom d'usuari vinculat al compte NO s'apareix al rànquing. Si abans
+    // n'hi havia una entrada i ara s'ha esborrat el nom, se'n treu del document.
+    if (!entry.name) {
+        if (_lastRankingHash === '__noname__') return;
+        _lastRankingHash = '__noname__';
+        try {
+            if (typeof firebase !== 'undefined' && firebase.firestore) {
+                const del = {}; del['players.' + user.uid] = firebase.firestore.FieldValue.delete();
+                ref.update(del).catch(function () {});
+            }
+        } catch (e) {}
+        return;
+    }
     const hash = [entry.name, entry.elo, entry.stars, entry.games, entry.hiero].join('|');
     if (!force && hash === _lastRankingHash) return;   // res nou a pujar
     _lastRankingHash = hash;
@@ -5259,8 +5340,9 @@ function renderRanking(players) {
     const myUid = me ? me.uid : null;
     const arr = Object.keys(players || {}).map(function (uid) {
         const p = players[uid] || {};
-        return { uid: uid, name: p.name || 'Anònim', val: Math.round(p[cat] || 0) };
-    });
+        return { uid: uid, name: (p.name || '').trim(), val: Math.round(p[cat] || 0) };
+    // Només apareixen al rànquing els comptes amb nom d'usuari.
+    }).filter(function (p) { return !!p.name; });
     arr.sort(function (a, b) { return b.val - a.val; });
     if (!arr.length) {
         list.html('<div class="ranking-empty">Encara no hi ha ningú al rànquing. Inicia sessió, posa\'t un nom a Configuració i juga per aparèixer-hi!</div>');
@@ -15522,6 +15604,11 @@ function setupEvents() {
     $('#btn-username-save').click(() => saveUsernameFromSettings());
     $('#username-input').on('blur', () => saveUsernameFromSettings());
     $('#username-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveUsernameFromSettings(); } });
+    // Diàleg de nom d'usuari (apareix just després d'iniciar sessió amb Google).
+    $('#username-modal-save').click(() => saveUsernameFromModal());
+    $('#username-modal-skip').click(() => closeUsernameModal());
+    $('#username-modal-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveUsernameFromModal(); } });
+    $('#username-modal').on('click', function (e) { if (e.target === this) closeUsernameModal(); });
     $('#btn-history').click(() => {
         $('#start-screen').hide();
         $('#history-screen').show();

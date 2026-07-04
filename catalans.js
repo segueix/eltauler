@@ -2071,6 +2071,10 @@
     const on = isNotifyEnabled(currentNotifyKey()) && Notification.permission === 'granted';
     btn.textContent = on ? '🔔' : '🔕';
     btn.classList.toggle('on', on);
+    // Batec suau quan es poden activar (suportades, no activades i no bloquejades):
+    // fa notar que aquesta partida col·lectiva pot avisar-te quan et toqui moure.
+    var canOffer = !on && Notification.permission !== 'denied';
+    btn.classList.toggle('pulse', canOffer);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
     btn.setAttribute('aria-label', on
       ? 'Notificacions d\'aquesta partida: activades'
