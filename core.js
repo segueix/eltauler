@@ -576,6 +576,13 @@
             const fe = typeof p.finalEval === 'number' ? Math.abs(p.finalEval) : 0;
             if (fe < decisiveCp) return false; // ha d'acabar amb avantatge decisiu
         }
+        // Filtre opcional de FINAL TÀCTIC: si es demanen motius concrets, el
+        // puzzle ha de portar un finalMotif permès i amb confiança no baixa.
+        if (Array.isArray(c.requiredFinalMotifs)) {
+            if (!p.finalMotif || p.finalMotif === 'none') return false;
+            if (c.requiredFinalMotifs.indexOf(p.finalMotif) === -1) return false;
+            if (p.finalMotifConfidence === 'low') return false;
+        }
         return true;
     }
 
@@ -639,6 +646,446 @@
         const solved = nextStep >= sol.length;
         const reply = solved ? null : ((s.repliesUci || [])[s.step] || null);
         return Object.assign({}, s, { step: nextStep, solved, reply, result: solved ? 'solved' : 'correct' });
+    }
+
+    // ----------------------------------------------------------------------
+    // Classificador de FINAL TÀCTIC dels jeroglífics (PUR amb chess.js injectat)
+    // ----------------------------------------------------------------------
+    // Un jeroglífic només s'aprova si acaba amb una imatge tàctica clara i
+    // verificable: escac i mat, escac (amb avantatge), forquilla real, clavada,
+    // descoberta, promoció o guany de dama/torre. Aquest bloc rep el constructor
+    // de chess.js (window.Chess al navegador, require('chess.js').Chess als
+    // tests) i retorna funcions que MIREN EL TAULER de debò després de l'última
+    // jugada del jugador. No accepta finals genèrics de "millor línia".
+
+    // Finals acceptats (l'ordre no és de prioritat; la prioritat viu a
+    // HIERO_MOTIF_PRIORITY). 'none' MAI no s'aprova.
+    const HIERO_ALLOWED_FINAL_MOTIFS = [
+        'mate', 'check', 'fork', 'pin', 'discovery', 'promotion', 'major_win'
+    ];
+    // Etiquetes en català visibles per a l'usuari.
+    const HIERO_FINAL_MOTIF_LABELS = {
+        mate: 'escac i mat',
+        check: 'escac',
+        fork: 'forquilla',
+        pin: 'clavada',
+        discovery: 'descoberta',
+        promotion: 'promoció',
+        major_win: 'guany de dama o torre'
+    };
+    // Prioritat per triar el motiu PRINCIPAL quan n'hi ha diversos: el mat mana
+    // sempre; després les imatges més nítides; l'escac és l'últim recurs.
+    const HIERO_MOTIF_PRIORITY = ['mate', 'promotion', 'fork', 'pin', 'discovery', 'major_win', 'check'];
+    // Nom estructurat (anglès) de cada peça per als camps de dades (targets,
+    // piece…) i nom en català per als textos visibles (reason).
+    const HIERO_PIECE_NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
+    const HIERO_PIECE_NAMES_CA = { p: 'el peó', n: 'el cavall', b: "l'alfil", r: 'la torre', q: 'la dama', k: 'el rei' };
+    const HIERO_PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+
+    // Fàbrica d'ajudants del classificador. Retorna null si no hi ha chess.js.
+    function createHieroglyphicMotifHelpers(ChessCtor) {
+        if (typeof ChessCtor !== 'function') return null;
+
+        function loadFen(fen) {
+            try {
+                const g = new ChessCtor(fen);
+                return (g && typeof g.moves === 'function') ? g : null;
+            } catch (e) { return null; }
+        }
+        function applyUci(g, uci) {
+            const raw = String(uci || '').trim();
+            if (!raw) return null;
+            try {
+                if (/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)) {
+                    return g.move({
+                        from: raw.slice(0, 2).toLowerCase(),
+                        to: raw.slice(2, 4).toLowerCase(),
+                        promotion: raw.length > 4 ? raw[4].toLowerCase() : 'q'
+                    }) || null;
+                }
+                return g.move(raw, { sloppy: true }) || null;
+            } catch (e) { return null; }
+        }
+        // Mapa { casella: {type,color} } a partir del camp de peces d'una FEN.
+        function boardMap(fen) {
+            const boardFen = String(fen || '').split(' ')[0] || '';
+            const map = {};
+            const rows = boardFen.split('/');
+            for (let r = 0; r < rows.length; r++) {
+                let file = 0;
+                for (const ch of rows[r]) {
+                    if (/\d/.test(ch)) { file += parseInt(ch, 10); continue; }
+                    const color = ch === ch.toUpperCase() ? 'w' : 'b';
+                    const sq = String.fromCharCode(97 + file) + (8 - r);
+                    map[sq] = { type: ch.toLowerCase(), color };
+                    file++;
+                }
+            }
+            return map;
+        }
+        function fileIdx(sq) { return sq.charCodeAt(0) - 97; }
+        function rankIdx(sq) { return parseInt(sq[1], 10); }
+        function sqName(f, r) { return String.fromCharCode(97 + f) + r; }
+        const oppColor = c => (c === 'w' ? 'b' : 'w');
+        const cap = s => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
+
+        // Caselles/peces enemigues que una peça a `from` (de color `color`)
+        // ataca, tenint en compte els bloquejos per a les peces de llarg abast.
+        function attacksFrom(board, from, piece, color) {
+            const file = fileIdx(from), rank = rankIdx(from);
+            const enemy = oppColor(color);
+            const hits = [];
+            const add = (f, r) => {
+                if (f < 0 || f > 7 || r < 1 || r > 8) return false;
+                const sq = sqName(f, r);
+                const target = board[sq];
+                if (target && target.color === enemy) hits.push({ square: sq, piece: target.type });
+                return !target; // pot continuar lliscant si la casella era buida
+            };
+            const slide = dirs => dirs.forEach(([df, dr]) => {
+                for (let f = file + df, r = rank + dr; f >= 0 && f <= 7 && r >= 1 && r <= 8; f += df, r += dr) { if (!add(f, r)) break; }
+            });
+            if (piece === 'n') [[1, 2], [2, 1], [-1, 2], [-2, 1], [1, -2], [2, -1], [-1, -2], [-2, -1]].forEach(([df, dr]) => add(file + df, rank + dr));
+            else if (piece === 'b') slide([[1, 1], [-1, 1], [1, -1], [-1, -1]]);
+            else if (piece === 'r') slide([[1, 0], [-1, 0], [0, 1], [0, -1]]);
+            else if (piece === 'q') slide([[1, 1], [-1, 1], [1, -1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]]);
+            else if (piece === 'p') [[-1, color === 'w' ? 1 : -1], [1, color === 'w' ? 1 : -1]].forEach(([df, dr]) => add(file + df, rank + dr));
+            else if (piece === 'k') [[1, 1], [-1, 1], [1, -1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([df, dr]) => add(file + df, rank + dr));
+            return hits;
+        }
+        // La casella `sq` (ocupada per una peça de color `ownerColor`) està
+        // defensada per alguna ALTRA peça del mateix color?
+        function isDefendedBy(board, sq, ownerColor) {
+            for (const from in board) {
+                if (from === sq) continue;
+                const p = board[from];
+                if (!p || p.color !== ownerColor) continue;
+                if (attacksFrom(board, from, p.type, ownerColor).some(h => h.square === sq)) return true;
+            }
+            return false;
+        }
+        // La casella `sq` és atacada per alguna peça de color `byColor`?
+        function isAttackedBy(board, sq, byColor) {
+            for (const from in board) {
+                const p = board[from];
+                if (!p || p.color !== byColor) continue;
+                if (attacksFrom(board, from, p.type, byColor).some(h => h.square === sq)) return true;
+            }
+            return false;
+        }
+        function material(fen) {
+            const map = boardMap(fen);
+            const mat = { w: 0, b: 0 };
+            for (const sq in map) mat[map[sq].color] += HIERO_PIECE_VALUE[map[sq].type] || 0;
+            return mat;
+        }
+
+        // Reprodueix la línia i retorna els fets de cada jugada + l'última del
+        // jugador. playerColor = qui mou a la FEN inicial (el que resol).
+        function replayLine(initialFen, fullLineUci) {
+            const g = loadFen(initialFen);
+            if (!g) return null;
+            const playerColor = g.turn();
+            const moves = [];
+            const list = Array.isArray(fullLineUci) ? fullLineUci : [];
+            for (let i = 0; i < list.length; i++) {
+                const beforeFen = g.fen();
+                const mv = applyUci(g, list[i]);
+                if (!mv) break;
+                moves.push({
+                    beforeFen, afterFen: g.fen(),
+                    uci: (mv.from + mv.to + (mv.promotion || '')),
+                    san: mv.san, color: mv.color, from: mv.from, to: mv.to,
+                    piece: mv.piece, captured: mv.captured || null, promotion: mv.promotion || null,
+                    inCheck: g.in_check(), inCheckmate: g.in_checkmate()
+                });
+            }
+            if (!moves.length) return null;
+            let lastPlayerIdx = -1;
+            for (let i = moves.length - 1; i >= 0; i--) { if (moves[i].color === playerColor) { lastPlayerIdx = i; break; } }
+            if (lastPlayerIdx < 0) return null;
+            return { playerColor, moves, lastPlayerIdx, finalMove: moves[lastPlayerIdx] };
+        }
+
+        // Forquilla REAL: després de la jugada final, la peça moguda ataca dues o
+        // més peces/objectius importants des de la casella d'arribada.
+        function detectRealForkAfterFinalMove(beforeFinalFen, finalMoveUci, opts = {}) {
+            const g = loadFen(beforeFinalFen);
+            if (!g) return null;
+            const mv = applyUci(g, finalMoveUci);
+            if (!mv) return null;
+            const color = mv.color;
+            const enemy = oppColor(color);
+            const to = mv.to;
+            const board = boardMap(g.fen());
+            const moved = board[to];
+            if (!moved) return null;
+            const hits = attacksFrom(board, to, moved.type, color);
+            // Classifica els objectius: rei/dama/torre sempre valen; una peça
+            // menor només compta si està indefensa (imatge nítida de doble atac).
+            const targets = [];
+            hits.forEach(h => {
+                if (h.piece === 'k' || h.piece === 'q' || h.piece === 'r') {
+                    targets.push({ name: HIERO_PIECE_NAMES[h.piece], type: h.piece, square: h.square });
+                } else if (h.piece === 'n' || h.piece === 'b') {
+                    if (!isDefendedBy(board, h.square, enemy)) targets.push({ name: HIERO_PIECE_NAMES[h.piece], type: h.piece, square: h.square });
+                }
+            });
+            if (targets.length < 2) return null;
+            const types = targets.map(t => t.type);
+            const has = t => types.includes(t);
+            const givesCheck = g.in_check(); // el rei és un dels objectius
+            // Fals positiu: si la peça que forqueja penja (atacada i indefensa) i
+            // NO dona escac, el rival la captura de franc i la forquilla s'esfuma.
+            if (!givesCheck && isAttackedBy(board, to, enemy) && !isDefendedBy(board, to, color)) return null;
+            let confidence = null;
+            const majors = types.filter(t => t === 'q' || t === 'r').length;
+            const minors = types.filter(t => t === 'n' || t === 'b').length;
+            if (has('k') && (has('q') || has('r'))) confidence = 'high';
+            else if (has('q') && has('r')) confidence = 'high';
+            else if (majors >= 2) confidence = 'high';
+            else if (has('k') && majors >= 1) confidence = 'high';
+            else if (has('k') && minors >= 1) confidence = 'medium';
+            else if (has('q') && minors >= 1) confidence = 'medium';
+            else if (minors >= 2) confidence = opts.finalEvalClear ? 'medium' : 'low';
+            else confidence = 'medium';
+            const targetNames = targets.map(t => t.name);
+            const targetsCa = targets.map(t => HIERO_PIECE_NAMES_CA[t.type]);
+            return {
+                motif: 'fork', targets: targetNames, piece: HIERO_PIECE_NAMES[moved.type], square: to,
+                confidence,
+                reason: `${cap(HIERO_PIECE_NAMES_CA[moved.type])} a ${to} ataca alhora ${targetsCa.join(' i ')}.`
+            };
+        }
+
+        // Clavada: després de la jugada final, una peça de llarg abast (dama,
+        // torre o alfil) clava una peça rival contra el rei, la dama o la torre.
+        function detectPinAfterFinalMove(beforeFinalFen, finalMoveUci) {
+            const g = loadFen(beforeFinalFen);
+            if (!g) return null;
+            const mv = applyUci(g, finalMoveUci);
+            if (!mv) return null;
+            const color = mv.color, enemy = oppColor(color), to = mv.to;
+            const board = boardMap(g.fen());
+            const moved = board[to];
+            if (!moved || !['b', 'r', 'q'].includes(moved.type)) return null;
+            const dirsFor = {
+                b: [[1, 1], [-1, 1], [1, -1], [-1, -1]],
+                r: [[1, 0], [-1, 0], [0, 1], [0, -1]],
+                q: [[1, 1], [-1, 1], [1, -1], [-1, -1], [1, 0], [-1, 0], [0, 1], [0, -1]]
+            };
+            const f0 = fileIdx(to), r0 = rankIdx(to);
+            for (const [df, dr] of dirsFor[moved.type]) {
+                let f = f0 + df, r = r0 + dr, pinned = null;
+                while (f >= 0 && f <= 7 && r >= 1 && r <= 8) {
+                    const sq = sqName(f, r), occ = board[sq];
+                    if (occ) {
+                        if (!pinned) {
+                            if (occ.color !== enemy) break;           // bloqueig propi: no hi ha clavada
+                            pinned = { square: sq, type: occ.type };
+                        } else {
+                            if (occ.color !== enemy) break;           // darrere hi ha peça pròpia: no clava res
+                            const behind = { square: sq, type: occ.type };
+                            if (behind.type === 'k') {
+                                return { motif: 'pin', pinned: { square: pinned.square, piece: HIERO_PIECE_NAMES[pinned.type] }, against: { square: behind.square, piece: 'king' }, piece: HIERO_PIECE_NAMES[moved.type], square: to, confidence: 'high', reason: `${cap(HIERO_PIECE_NAMES_CA[moved.type])} a ${to} clava ${HIERO_PIECE_NAMES_CA[pinned.type]} contra el rei.` };
+                            }
+                            if ((behind.type === 'q' || behind.type === 'r') && (HIERO_PIECE_VALUE[behind.type] > HIERO_PIECE_VALUE[pinned.type])) {
+                                const conf = behind.type === 'q' ? 'high' : 'medium';
+                                return { motif: 'pin', pinned: { square: pinned.square, piece: HIERO_PIECE_NAMES[pinned.type] }, against: { square: behind.square, piece: HIERO_PIECE_NAMES[behind.type] }, piece: HIERO_PIECE_NAMES[moved.type], square: to, confidence: conf, reason: `${cap(HIERO_PIECE_NAMES_CA[moved.type])} a ${to} clava ${HIERO_PIECE_NAMES_CA[pinned.type]} contra ${HIERO_PIECE_NAMES_CA[behind.type]}.` };
+                            }
+                            break;
+                        }
+                    }
+                    f += df; r += dr;
+                }
+            }
+            return null;
+        }
+
+        // Descoberta: en moure la peça es destapa la línia d'una peça pròpia de
+        // llarg abast (alfil/torre/dama) que ara ataca el rei, la dama o la torre.
+        function detectDiscoveryAfterFinalMove(beforeFinalFen, finalMoveUci) {
+            const g = loadFen(beforeFinalFen);
+            if (!g) return null;
+            const before = boardMap(beforeFinalFen);
+            const mv = applyUci(g, finalMoveUci);
+            if (!mv) return null;
+            const color = mv.color, enemy = oppColor(color), to = mv.to, from = mv.from;
+            const after = boardMap(g.fen());
+            // Casella del rei enemic.
+            let enemyKing = null;
+            for (const sq in after) { if (after[sq].type === 'k' && after[sq].color === enemy) { enemyKing = sq; break; } }
+            const isSlider = t => t === 'b' || t === 'r' || t === 'q';
+            // Escac descobert: el tauler està en escac i la peça moguda NO ataca
+            // el rei (l'escac ve d'una altra peça pròpia darrere).
+            if (g.in_check() && enemyKing) {
+                const movedAttacksKing = attacksFrom(after, to, after[to] && after[to].type, color).some(h => h.square === enemyKing);
+                let discoveredBy = null;
+                for (const sq in after) {
+                    if (sq === to) continue;
+                    const p = after[sq];
+                    if (!p || p.color !== color || !isSlider(p.type)) continue;
+                    if (attacksFrom(after, sq, p.type, color).some(h => h.square === enemyKing)) { discoveredBy = { square: sq, type: p.type }; break; }
+                }
+                if (discoveredBy && !movedAttacksKing) {
+                    return { motif: 'discovery', isCheck: true, discovered: { square: discoveredBy.square, piece: HIERO_PIECE_NAMES[discoveredBy.type] }, target: { square: enemyKing, piece: 'king' }, piece: HIERO_PIECE_NAMES[mv.piece], square: to, confidence: 'high', reason: `En moure a ${to} es destapa un escac descobert de ${HIERO_PIECE_NAMES_CA[discoveredBy.type]}.` };
+                }
+            }
+            // Atac descobert (sense escac) sobre dama o torre: una peça pròpia de
+            // llarg abast que ara ataca una q/r enemiga i que ABANS no ho feia
+            // (perquè la peça moguda li tapava la línia des de `from`).
+            for (const sq in after) {
+                if (sq === to) continue;
+                const p = after[sq];
+                if (!p || p.color !== color || !isSlider(p.type)) continue;
+                const afterHits = attacksFrom(after, sq, p.type, color).filter(h => h.piece === 'q' || h.piece === 'r');
+                if (!afterHits.length) continue;
+                const beforeHits = attacksFrom(before, sq, p.type, color).filter(h => h.piece === 'q' || h.piece === 'r').map(h => h.square);
+                const fresh = afterHits.filter(h => beforeHits.indexOf(h.square) === -1);
+                if (fresh.length) {
+                    const t = fresh[0];
+                    return { motif: 'discovery', isCheck: false, discovered: { square: sq, piece: HIERO_PIECE_NAMES[p.type] }, target: { square: t.square, piece: HIERO_PIECE_NAMES[t.piece] }, piece: HIERO_PIECE_NAMES[mv.piece], square: to, confidence: 'high', reason: `En moure a ${to} es destapa un atac de ${HIERO_PIECE_NAMES_CA[p.type]} sobre ${HIERO_PIECE_NAMES_CA[t.piece]}.` };
+                }
+            }
+            return null;
+        }
+
+        // Promoció: la jugada final del jugador corona (UCI de 5 caràcters o SAN
+        // amb =Q/=R/=B/=N).
+        function detectPromotionMotif(initialFen, fullLineUci) {
+            const info = replayLine(initialFen, fullLineUci);
+            if (!info) return null;
+            const fm = info.finalMove;
+            const isPromo = !!fm.promotion || /=[QRBN]/i.test(fm.san || '') || /^[a-h][1-8][a-h][1-8][qrbn]$/i.test(fm.uci || '');
+            if (!isPromo) return null;
+            return { motif: 'promotion', piece: 'pawn', square: fm.to, confidence: 'high', reason: `La jugada final corona un peó a ${fm.to}.` };
+        }
+
+        // Guany de dama o torre: la línia captura una q/r, o el material net que
+        // guanya el bàndol que resol és com a mínim d'una torre (5 punts).
+        function detectMajorWinMotif(initialFen, fullLineUci, opts = {}) {
+            const info = replayLine(initialFen, fullLineUci);
+            if (!info) return null;
+            const player = info.playerColor, enemy = oppColor(player);
+            // Captura directa de dama/torre en alguna jugada del jugador.
+            const majorCapture = info.moves.some(m => m.color === player && (m.captured === 'q' || m.captured === 'r'));
+            // Material net (perspectiva del jugador) entre l'inici i el final de
+            // la línia.
+            const before = material(info.moves[0].beforeFen);
+            const finalFen = info.moves[info.lastPlayerIdx].afterFen;
+            const after = material(finalFen);
+            const swing = (after[player] - after[enemy]) - (before[player] - before[enemy]);
+            if (majorCapture) {
+                return { motif: 'major_win', swing, captured: true, confidence: 'high', reason: 'La combinació guanya una peça major (dama o torre).' };
+            }
+            if (swing >= 5) {
+                return { motif: 'major_win', swing, captured: false, confidence: swing >= 9 ? 'high' : 'medium', reason: `La línia guanya material decisiu (${swing} punts nets).` };
+            }
+            return null;
+        }
+
+        // Classificador central: carrega la FEN, aplica la línia, mira el tauler
+        // just DESPRÉS de l'última jugada del jugador i retorna el motiu de final.
+        function classifyPuzzleFinalMotif(initialFen, fullLineUci, opts = {}) {
+            const none = { motif: 'none', motifs: [], isCheck: false, isMate: false, finalFen: null, finalMoveUci: null, finalMoveSan: null, confidence: 'low', reason: 'No s’ha detectat cap final tàctic clar.' };
+            const info = replayLine(initialFen, fullLineUci);
+            if (!info) return none;
+            const fm = info.finalMove;
+            const finalFen = fm.afterFen;
+            const isMate = !!fm.inCheckmate;
+            const isCheck = !!fm.inCheck;
+            const finalEvalClear = typeof opts.finalEval === 'number' && Math.abs(opts.finalEval) >= (typeof opts.decisiveCp === 'number' ? opts.decisiveCp : 500);
+            const marginOk = opts.marginOk !== false;
+
+            const detections = []; // { motif, confidence, reason, extra }
+            if (isMate) {
+                detections.push({ motif: 'mate', confidence: 'high', reason: 'La seqüència acaba en escac i mat.' });
+            }
+            const promo = detectPromotionMotif(initialFen, fullLineUci);
+            if (promo) detections.push(promo);
+            const fork = detectRealForkAfterFinalMove(fm.beforeFen, fm.uci, { finalEvalClear });
+            if (fork) detections.push(fork);
+            const pin = detectPinAfterFinalMove(fm.beforeFen, fm.uci);
+            if (pin) detections.push(pin);
+            const disc = detectDiscoveryAfterFinalMove(fm.beforeFen, fm.uci);
+            if (disc) detections.push(disc);
+            const major = detectMajorWinMotif(initialFen, fullLineUci, opts);
+            if (major) detections.push(major);
+            // Escac: només com a final vàlid si hi ha avantatge/marge clars o si
+            // porta a guany material clar (que ja seria major_win). Mai decoratiu.
+            if (isCheck && !isMate) {
+                let checkConf = 'low';
+                if (major || finalEvalClear) checkConf = (major && major.confidence === 'high') ? 'high' : 'medium';
+                if (!marginOk && !major) checkConf = 'low';
+                detections.push({ motif: 'check', confidence: checkConf, reason: checkConf === 'low' ? 'Escac sense avantatge clar.' : 'La jugada final dona un escac amb avantatge decisiu.' });
+            }
+
+            // Descarta les deteccions de confiança baixa per a l'aprovació.
+            const solid = detections.filter(d => d.confidence === 'high' || d.confidence === 'medium');
+            if (!solid.length) {
+                // Un escac és sempre un fet verificable del tauler: el reportem
+                // com a motiu 'check' encara que sigui decoratiu (confiança
+                // baixa), de manera que el filtre d'aprovació el rebutgi però
+                // el motiu quedi identificat. La resta de casos → none.
+                if (isCheck && !isMate) {
+                    return { motif: 'check', motifs: ['check'], isCheck: true, isMate: false, finalFen, finalMoveUci: fm.uci, finalMoveSan: fm.san, confidence: 'low', reason: 'Escac sense avantatge clar.' };
+                }
+                return Object.assign({}, none, { isCheck, isMate, finalFen, finalMoveUci: fm.uci, finalMoveSan: fm.san });
+            }
+            // Motiu principal per prioritat; el mat sempre mana.
+            solid.sort((a, b) => HIERO_MOTIF_PRIORITY.indexOf(a.motif) - HIERO_MOTIF_PRIORITY.indexOf(b.motif));
+            const principal = solid[0];
+            const motifs = [];
+            solid.forEach(d => { if (motifs.indexOf(d.motif) === -1) motifs.push(d.motif); });
+            // Escac/mat impliquen escac: fem-lo constar a `motifs` (informatiu)
+            // encara que l'escac no sigui el motiu principal ni una detecció
+            // pròpia. El principal, però, no canvia.
+            if ((isCheck || isMate) && motifs.indexOf('check') === -1) motifs.push('check');
+            return {
+                motif: principal.motif,
+                motifs,
+                isCheck, isMate,
+                finalFen, finalMoveUci: fm.uci, finalMoveSan: fm.san,
+                confidence: principal.confidence,
+                reason: principal.reason,
+                details: principal
+            };
+        }
+
+        return {
+            classifyPuzzleFinalMotif,
+            detectRealForkAfterFinalMove,
+            detectPinAfterFinalMove,
+            detectDiscoveryAfterFinalMove,
+            detectPromotionMotif,
+            detectMajorWinMotif
+        };
+    }
+
+    // Comprova el filtre de FINAL TÀCTIC sobre un puzzle que ja porta els camps
+    // finalMotif/finalMotifConfidence (calculats amb el classificador). PUR:
+    // no necessita chess.js perquè treballa sobre metadades ja desades.
+    function hieroglyphicMeetsFinalMotifCriteria(p, cfg) {
+        if (!p) return false;
+        if (!puzzleMeetsCriteria(p, cfg)) return false;
+        const allowed = (cfg && Array.isArray(cfg.requiredFinalMotifs)) ? cfg.requiredFinalMotifs : HIERO_ALLOWED_FINAL_MOTIFS;
+        if (!p.finalMotif || p.finalMotif === 'none') return false;
+        if (allowed.indexOf(p.finalMotif) === -1) return false;
+        if (p.finalMotifConfidence === 'low') return false;
+        return true;
+    }
+
+    // Metadades d'ORIGEN d'una VARIANT LEGAL treta d'una FEN real d'una partida.
+    // PUR: no modifica ni la partida ni el candidat; només retorna els camps a
+    // enganxar (origin 'game_variant' + traçabilitat a la partida original).
+    function hieroglyphicVariantMeta(entry, fen, moveNumber) {
+        return {
+            origin: 'game_variant',
+            sourceGameId: (entry && entry.id) || null,
+            sourceFen: fen || null,
+            sourceMoveNumber: (moveNumber === 0 || moveNumber) ? moveNumber : null,
+            adaptationNote: 'Variant legal des d’una posició de la teva partida.'
+        };
     }
 
     // ----------------------------------------------------------------------
@@ -1191,6 +1638,12 @@
         puzzleFenKey,
         puzzleIsDuplicateFen,
         puzzleMeetsCriteria,
+        HIERO_ALLOWED_FINAL_MOTIFS,
+        HIERO_FINAL_MOTIF_LABELS,
+        HIERO_MOTIF_PRIORITY,
+        createHieroglyphicMotifHelpers,
+        hieroglyphicMeetsFinalMotifCriteria,
+        hieroglyphicVariantMeta,
         puzzleDifficulty,
         puzzleRatingEstimate,
         puzzleExplanation,
