@@ -14553,23 +14553,37 @@ function hgSelfPlayCandidate(fen, prepared, line, info, solution, replies) {
         finalMotifReason: info.reason, theme: info.motif, tacticKind: HIERO_FINAL_MOTIF_LABELS[info.motif] || null
     };
 }
+// Diagnòstic de l'últim intent de generació (perquè el botó "Generar ara" pugui
+// dir PER QUÈ no ha sortit cap jeroglífic). Codis de motiu a hgGenReasonText().
+let hgLastGenDiag = null;
+
 async function hgGenerateOne(shouldAbort, opts = {}) {
-    if (hgGenerating) return null;
+    if (hgGenerating) { hgLastGenDiag = { reason: 'busy' }; return null; }
     hgGenerating = true;
+    const diag = {
+        reason: null, engine: false, candidates: 0,
+        gameRealFresh: 0, variantsTried: 0, selfPlayTried: false,
+        aborted: false, error: null
+    };
+    hgLastGenDiag = diag;
     const started = Date.now();
     try {
         const excludeFens = hgAllKnownFens();
         const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+        try { diag.engine = (typeof ensureStockfish === 'function') ? !!ensureStockfish() : true; } catch (e) { diag.engine = false; }
         let cand = null;
         // PRIORITAT 1 — game_real: la tàctica que ja va aparèixer a la partida.
         try {
             const candidates = collectPersonalHieroglyphicCandidates(null);
+            diag.candidates = candidates.length;
+            diag.gameRealFresh = candidates.filter(c => c && c.source === 'gameHistory.tactic' && !excludeFens.has(norm(c.fen))).length;
             cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, { excludeFens, shouldAbort });
-        } catch (e) {}
+        } catch (e) { diag.error = String((e && e.message) || e); }
         // PRIORITAT 2 — game_variant: una variant legal amagada d'una FEN real.
         if (!cand && !(shouldAbort && shouldAbort())) {
             const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-6).reverse() : [];
             for (const entry of recentGames) {
+                diag.variantsTried++;
                 try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, { excludeFens, shouldAbort }); } catch (e) {}
                 if (cand) break;
                 if (shouldAbort && shouldAbort()) break;
@@ -14577,14 +14591,44 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
         }
         // PRIORITAT 3 — auto-joc del motor (només si les partides no donen res).
         if (!cand && opts.allowSelfPlay !== false && !(shouldAbort && shouldAbort())) {
-            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) {}
+            diag.selfPlayTried = true;
+            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
         }
-        if (cand && excludeFens.has(norm(cand.fen))) cand = null;
+        if (shouldAbort && shouldAbort()) diag.aborted = true;
+        if (cand && excludeFens.has(norm(cand.fen))) { cand = null; diag.reason = 'duplicate'; }
+        // Classifica el motiu quan no hi ha candidat, de la causa més específica a
+        // la més general.
+        if (!cand && !diag.reason) {
+            if (diag.aborted) diag.reason = 'aborted';
+            else if (!diag.engine) diag.reason = 'no_engine';
+            else if (diag.error) diag.reason = 'error';
+            else if (diag.candidates === 0 && (!Array.isArray(gameHistory) || gameHistory.length === 0)) diag.reason = 'no_games';
+            else if (diag.gameRealFresh > 0) diag.reason = 'validation_rejected';
+            else if (diag.candidates > 0 && diag.gameRealFresh === 0) diag.reason = 'all_known';
+            else if (diag.selfPlayTried) diag.reason = 'selfplay_empty';
+            else diag.reason = 'no_candidates';
+        }
         return cand;
     } finally {
         hgRuntime.lastDurationMs = Date.now() - started;
         if (hgRuntime.lastDurationMs > 5000) hgRuntime.slowGenerations++;
         hgGenerating = false;
+    }
+}
+// Text llegible del motiu pel qual no s'ha pogut generar cap jeroglífic.
+function hgGenReasonText(diag) {
+    const r = diag && diag.reason;
+    switch (r) {
+        case 'busy': return 'Ja s\'estava generant un altre jeroglífic; espera un segon i torna-ho a provar.';
+        case 'no_engine': return 'El motor d\'escacs (Stockfish) no està disponible. Recarrega la pàgina i torna-ho a provar.';
+        case 'error': return 'Hi ha hagut un error del motor durant la generació' + (diag && diag.error ? ` (${diag.error})` : '') + '.';
+        case 'no_games': return 'Encara no tens partides d\'on treure jeroglífics. Juga\'n unes quantes primer.';
+        case 'validation_rejected': return 'Hi havia posicions candidates de les teves partides, però cap ha acabat en un final tàctic prou clar per fer-ne un jeroglífic.';
+        case 'all_known': return 'Ja tens preparats o resolts tots els jeroglífics de les teves partides recents; no en queda cap de nou.';
+        case 'selfplay_empty': return 'L\'auto-joc del motor no ha trobat cap combinació tàctica prou neta aquest cop.';
+        case 'no_candidates': return 'No hi ha cap posició adequada per convertir en jeroglífic ara mateix.';
+        case 'aborted': return 'Generació interrompuda.';
+        default: return 'No he pogut generar cap jeroglífic nou ara mateix.';
     }
 }
 // Converteix un candidat validat en un element de cua sincronitzable.
@@ -14892,10 +14936,10 @@ async function hgManualGenerateBurst() {
         } else if (made > 0) {
             showToast(made === 1 ? 'S\'ha generat 1 jeroglífic nou.' : `S'han generat ${made} jeroglífics nous.`, 'success');
         } else {
-            const hasGames = Array.isArray(gameHistory) && gameHistory.length > 0;
-            showToast(hasGames
-                ? 'No he pogut generar cap jeroglífic nou ara mateix. Prova-ho d\'aquí una estona.'
-                : 'Juga unes quantes partides i podré crear jeroglífics dels teus moments clau.', 'warn');
+            // Cap generat: explica el MOTIU concret (diagnòstic de l'últim intent).
+            const diag = hgLastGenDiag;
+            try { console.warn('[HG] Generació manual sense resultat:', diag); } catch (e) {}
+            showToast('No s\'ha pogut generar: ' + hgGenReasonText(diag), 'warn');
         }
     }
 }
