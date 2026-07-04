@@ -2063,6 +2063,25 @@
             color: #ffe9a8; white-space: nowrap; text-shadow: 0 1px 3px rgba(0,0,0,0.35);
         }
         .hg-banner-has-new .hg-banner-cta { color: #fff; }
+        .hg-banner-foot {
+            display: flex; justify-content: flex-end;
+            padding: 0 16px 10px;
+        }
+        .hg-banner-history-btn {
+            background: rgba(0,0,0,0.22); border: 1px solid rgba(255,255,255,0.30);
+            color: #fff; font-size: 0.8rem; font-weight: 600;
+            padding: 6px 12px; border-radius: 999px; cursor: pointer;
+        }
+        .hg-banner-history-btn:hover { background: rgba(0,0,0,0.34); }
+        /* Modal d'historial de jeroglífics */
+        .hg-modal-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; max-height: 55vh; overflow-y: auto; }
+        .hg-modal-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(124, 77, 201, 0.10); border: 1px solid rgba(124, 77, 201, 0.20); }
+        .hg-modal-ic { font-size: 1.15rem; flex-shrink: 0; }
+        .hg-modal-info { display: flex; flex-direction: column; min-width: 0; flex: 1; }
+        .hg-modal-kind { font-weight: 700; font-size: 0.9rem; color: var(--text-primary); }
+        .hg-modal-sub { font-size: 0.76rem; color: var(--text-secondary); }
+        .hg-modal-replay { flex-shrink: 0; padding: 6px 12px !important; font-size: 0.82rem !important; width: auto !important; }
+        body.epaper-mode .hg-banner-history-btn { background: #ddd !important; color: #333 !important; border-color: #bbb !important; }
         .hg-banner-advanced {
             border-top: 1px solid rgba(255,255,255,0.20);
             padding: 0 16px; background: rgba(0,0,0,0.16);
@@ -3481,6 +3500,9 @@
                             </span>
                             <span class="hg-banner-cta">Resoldre ›</span>
                         </button>
+                        <div class="hg-banner-foot">
+                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history">🔮 Historial de jeroglífics</button>
+                        </div>
                         <details class="hg-banner-advanced">
                             <summary>Opció avançada</summary>
                             <div class="hg-banner-advanced-row">

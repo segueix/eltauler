@@ -14569,8 +14569,10 @@ function hgConsumeNext(pref) {
     hgEnsureState();
     hgPurgeStale();
     const want = pref || hieroglyphicPreferredFinalMotif || 'any';
+    // La preferència de final és un ORDRE SUAU, no un bloqueig: si hi ha un
+    // jeroglífic nou del motiu demanat, se serveix aquell; si no, se serveix
+    // qualsevol jeroglífic nou (el comptador del bàner en promet accés).
     let idx = hgState.queue.findIndex(it => it.status === 'new' && (want === 'any' || it.finalType === want || (Array.isArray(it.finalMotifs) && it.finalMotifs.indexOf(want) !== -1)));
-    if (idx < 0 && want !== 'any') return null;
     if (idx < 0) idx = hgState.queue.findIndex(it => it.status === 'new');
     if (idx < 0) return null;
     const item = hgState.queue.splice(idx, 1)[0];
@@ -14578,6 +14580,18 @@ function hgConsumeNext(pref) {
     hgSaveState({ flush: true });
     renderHieroglyphicBanner();
     return hgQueueItemToChosen(item);
+}
+// Treu de la cua el pròxim jeroglífic nou que sí que es pot construir en un
+// exercici jugable. Descarta els que no es puguin reconstruir (dades incompletes
+// o línia il·legal) perquè un jeroglífic malmès no bloquegi mai l'accés.
+function hgConsumePlayable(pref) {
+    for (let guard = 0; guard < 15; guard++) {
+        const chosen = hgConsumeNext(pref);
+        if (!chosen) return null;
+        try { if (buildHieroglyphicBundleSequence(chosen)) return chosen; } catch (e) {}
+        // Aquest ítem no és jugable: ja s'ha tret de la cua; prova el següent.
+    }
+    return null;
 }
 
 // ── Cicle de generació en segon pla (el crida backgroundPrepTick) ───────────
@@ -14721,15 +14735,16 @@ function renderHieroglyphicBanner() {
 async function openHieroglyphicsFromBanner() {
     if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
     const pref = hieroglyphicPreferredFinalMotif || 'any';
-    const chosen = hgConsumeNext(pref);
+    // 1) Serveix un jeroglífic JUGABLE de la cua (descartant els malmesos).
+    const chosen = hgConsumePlayable(pref);
     if (chosen) { await startPersonalHieroglyphicFromLastGame(null, chosen); return; }
-    // Cap a la cua: mira si el rebost antic en té un que encaixi (compatibilitat).
-    if (Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.some(p => hieroglyphicMatchesFinalPref(p, pref))) {
+    // 2) Rebost antic en memòria (compatibilitat).
+    if (Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length) {
         await startPersonalHieroglyphicFromLastGame(null); return;
     }
-    // Un jeroglífic pendent de l'historial que encaixi (per no deixar l'usuari sense res).
-    const retry = retryableHieroglyphicHistory().find(e => pref === 'any' || hieroglyphicMatchesFinalPref(e, pref));
-    // Genera'n un de nou de manera prioritària.
+    // 3) Un jeroglífic pendent de l'historial (per no deixar l'usuari sense res).
+    const retry = retryableHieroglyphicHistory()[0];
+    // 4) Genera'n un de nou de manera prioritària.
     const statusEl = document.getElementById('hg-banner-status');
     if (statusEl) statusEl.textContent = 'Preparant el primer jeroglífic…';
     showToast('Preparant el primer jeroglífic…', 'info');
@@ -14742,17 +14757,63 @@ async function openHieroglyphicsFromBanner() {
         hgPruneQueue();
         hgState.updatedAt = Date.now();
         hgSaveState({ flush: true });
-        const pick = hgConsumeNext(cand.finalMotif || 'any') || hgQueueItemToChosen(item);
+        const pick = hgConsumePlayable(cand.finalMotif || 'any') || hgQueueItemToChosen(item);
         await startPersonalHieroglyphicFromLastGame(null, pick);
         return;
     }
     if (retry) { retryHieroglyphicFromHistory(retry.id); return; }
+    // 5) Sense res per jugar: obre l'historial (sempre accessible) i informa.
     const hasGames = Array.isArray(gameHistory) && gameHistory.length > 0;
-    showToast(hasGames ? 'No he pogut preparar cap jeroglífic ara mateix. Torna-ho a provar en uns segons.' : 'Juga unes quantes partides i podré crear jeroglífics a partir dels teus moments clau.', 'warn');
+    showToast(hasGames ? 'No he pogut preparar cap jeroglífic ara mateix. Aquí tens l’historial mentrestant.' : 'Juga unes quantes partides i podré crear jeroglífics a partir dels teus moments clau.', 'warn');
+    showHieroglyphicHistoryModal();
     renderHieroglyphicBanner();
+}
+// Modal d'historial de jeroglífics: SEMPRE accessible des del menú (no depèn de
+// jugar-ne cap ni del calibratge). Mostra els 10 últims, del més recent al més
+// antic, amb botó "Reveure" per tornar-los a jugar.
+function showHieroglyphicHistoryModal() {
+    $('#hg-history-modal').remove();
+    const history = loadHieroglyphicHistory().slice().sort((a, b) => {
+        const da = (a && (a.solvedAt || a.finishedAt || a.ts || a.createdAt)) || 0;
+        const db = (b && (b.solvedAt || b.finishedAt || b.ts || b.createdAt)) || 0;
+        return db - da;
+    }).slice(0, HG_HISTORY_MAX);
+    let html = '<div class="modal-overlay" id="hg-history-modal" style="display:flex;"><div class="modal-content">';
+    html += '<div class="modal-title">🔮 Historial de jeroglífics</div>';
+    if (!history.length) {
+        html += '<div class="bundle-empty">Encara no tens jeroglífics a l’historial. Quan en resolguis, en saltis o en fallis algun, apareixerà aquí.</div>';
+    } else {
+        html += '<div class="hg-modal-list">';
+        history.forEach(e => {
+            const solved = !!e.solved;
+            const clean = hieroglyphicEntryCleanSolved(e);
+            const resultIcon = solved ? (clean ? '✅' : '☑️') : '⏳';
+            const resultText = solved ? (clean ? 'Resolt sense errors' : 'Resolt amb errades') : 'Pendent';
+            const kind = e.finalMotifLabel || e.tacticKind || (e.finalMotif ? (HIERO_FINAL_MOTIF_LABELS[e.finalMotif] || e.finalMotif) : (e.theme || 'Jeroglífic'));
+            const attempts = (typeof e.wrongMoves === 'number') ? (e.wrongMoves + (solved ? 1 : 0)) : null;
+            const dateText = formatHieroglyphicDate(e.solvedAt || e.finishedAt || e.ts || e.createdAt);
+            html += '<div class="hg-modal-row">';
+            html += `<span class="hg-modal-ic" title="${escapeHtml(resultText)}" aria-label="${escapeHtml(resultText)}">${resultIcon}</span>`;
+            html += '<span class="hg-modal-info">';
+            html += `<span class="hg-modal-kind">${escapeHtml(String(kind))}</span>`;
+            html += `<span class="hg-modal-sub">${escapeHtml(resultText)}${attempts !== null ? ` · ${attempts} intent${attempts === 1 ? '' : 's'}` : ''} · ${escapeHtml(dateText)}</span>`;
+            html += '</span>';
+            html += `<button class="btn btn-secondary hg-modal-replay" data-hg-id="${escapeHtml(String(e.id))}">Reveure</button>`;
+            html += '</div>';
+        });
+        html += '</div>';
+    }
+    html += '<button class="close-modal" onclick="$(\'#hg-history-modal\').remove()">Tancar</button></div></div>';
+    $('body').append(html);
+    $('#hg-history-modal .hg-modal-replay').off('click').on('click', function () {
+        const id = $(this).attr('data-hg-id');
+        $('#hg-history-modal').remove();
+        retryHieroglyphicFromHistory(id);
+    });
 }
 if (typeof window !== 'undefined') {
     window.openHieroglyphicsFromBanner = openHieroglyphicsFromBanner;
+    window.showHieroglyphicHistoryModal = showHieroglyphicHistoryModal;
     window.renderHieroglyphicBanner = renderHieroglyphicBanner;
     window.hgOnCloudApplied = hgOnCloudApplied;
     window.hgTick = hgTick;
@@ -16004,6 +16065,8 @@ function setupEvents() {
     $('#btn-bestline').off('click').on('click', () => { void startBestLineExercise(); });
     // Bàner de Jeroglífics (sota la lliga): accés principal a la secció.
     $('#btn-hieroglyphic-banner').off('click').on('click', () => { void openHieroglyphicsFromBanner(); });
+    // Historial de jeroglífics: sempre accessible des del menú (no depèn de jugar-ne cap).
+    $('#btn-hieroglyphic-history').off('click').on('click', () => { showHieroglyphicHistoryModal(); });
     // Selector de FINAL del jeroglífic (ara integrat al bàner): desa la preferència
     // i, si la cua no té cap jeroglífic d'aquell motiu, en dispara la preparació.
     loadHieroglyphicPreferredFinalMotif();
