@@ -92,6 +92,8 @@
   let deferApplyTimer = null;
   let syncWatchdog = null;           // detecta sincronitzacions inicials encallades
   const SYNC_WATCHDOG_MS = 15000;
+  let pushWatchdog = null;           // detecta pujades encallades (ref.set() que no resol)
+  const PUSH_WATCHDOG_MS = 15000;
   let status = { state: 'init', email: null, lastSyncedAt: 0, error: null };
 
   // ---------------------------------------------------------------------------
@@ -242,18 +244,39 @@
     };
     pushInFlight = true;
     setStatus({ state: 'syncing' });
+    // Watchdog: amb persistència offline, ref.set() només resol quan el servidor
+    // confirma l'escriptura. Si la xarxa està bloquejada (algunes xarxes/extensions
+    // bloquegen Firestore), la promesa queda pendent indefinidament i la UI es
+    // quedaria eternament en "Sincronitzant…". No avortem l'escriptura (queda en
+    // cua i es reintenta sola), però treiem la UI d'aquest estat encallat.
+    clearPushWatchdog();
+    pushWatchdog = setTimeout(function () {
+      pushWatchdog = null;
+      if (status.state === 'syncing') {
+        console.warn('[CloudSync] pujada encallada (>' + PUSH_WATCHDOG_MS + ' ms); l\'escriptura queda en cua i es reintenta sola.');
+        setStatus({
+          state: 'error',
+          error: 'La pujada al núvol triga més del compte (xarxa lenta o Firestore ' +
+                 'bloquejat en aquesta xarxa/navegador). Les dades queden desades al ' +
+                 'dispositiu i es tornaran a sincronitzar soles quan es recuperi la connexió.'
+        });
+      }
+    }, PUSH_WATCHDOG_MS);
     return ref.set(payload).then(function () {
+      clearPushWatchdog();
       lastPushedHash = hash;
       setLocalChangeAt(ts);
       setLastSyncedAt(ts);
       pushInFlight = false;
       setStatus({ state: 'synced', error: null });
     }).catch(function (e) {
+      clearPushWatchdog();
       pushInFlight = false;
       console.warn('[CloudSync] push error', e);
       setStatus({ state: 'error', error: e && e.message ? e.message : 'Error de pujada' });
     });
   }
+  function clearPushWatchdog() { if (pushWatchdog) { clearTimeout(pushWatchdog); pushWatchdog = null; } }
 
   function schedulePush() {
     if (!currentUser) return;

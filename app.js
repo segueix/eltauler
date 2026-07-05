@@ -795,8 +795,10 @@ function loadReviewVoiceStyle() {
 // temporal pròpia, es re-renderitza a l'acte (només text; res del motor).
 function applyReviewVoiceStyle(style, options = {}) {
     reviewVoiceStyle = ElTaulerCore.normalizeReviewVoiceStyle(style);
-    const sel = document.getElementById('review-voice-select');
-    if (sel) sel.value = reviewVoiceStyle;
+    ['review-voice-select', 'coach-style-select', 'home-coach-style'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel) sel.value = reviewVoiceStyle;
+    });
     if (!options.skipSave) {
         try { localStorage.setItem(REVIEW_VOICE_STYLE_KEY, reviewVoiceStyle); } catch (e) {}
     }
@@ -5594,6 +5596,9 @@ function updateDisplay() {
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
     renderWeeklyPlan();
+    // Resum del diagnòstic de l'entrenador al bàner de la home (es regenera sol
+    // cada dia; aquí només el pinta amb el text vigent).
+    renderCoachDiagnosis();
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
 }
 
@@ -8976,6 +8981,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
 
         // --- Moments clau (jugades descriptives clicables) ---
         const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
+        // FENs d'aquesta partida que poden generar un jeroglífic (per marcar-los).
+        const heiroSeeds = entryHieroglyphicSeedFenKeys(entry);
+        const heiroKeyOf = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
         if (moments.length) {
             const items = moments.map(m => {
                 // Frases per veu VERIFICADES sobre la FEN de decisió: si la
@@ -8989,7 +8997,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const link = `<a href="#" class="hist-keymove-link" data-move-number="${m.moveNumber || ''}" data-san="${escapeHtml(m.played || '')}" data-played-uci="${escapeHtml(m.playedUci || '')}" data-best="${escapeHtml(m.bestMoveUci || m.best || '')}" data-fen="${escapeHtml(m.fen || '')}">${escapeHtml(best.body)}</a>`;
                 const show = coachSectionsFor(m.quality);
                 const badge = coachQualityBadgeHtml(m);
-                const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>`;
+                // Marca 🔮 si aquest moment pot alimentar la generació d'un jeroglífic.
+                const isHeiroSeed = m.fen && heiroSeeds.has(heiroKeyOf(m.fen));
+                const heiroBadge = isHeiroSeed
+                    ? ' <span class="hg-seed-badge" title="Aquest moment es pot convertir en un jeroglífic">🔮</span>'
+                    : '';
+                const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>${heiroBadge}`;
                 // Inclou la jugada feta perquè el moment sigui autocontingut (i no
                 // calgui repetir-lo a "Errades comentades"). Si, per una atribució
                 // errònia, la jugada feta coincideix amb la millor, no mostrem el
@@ -9034,7 +9047,10 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 if (lines.length === 1) lines.push(`<span>${escapeHtml(voiceText(voiceStyle, 'safeFallback'))}</span>`);
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
-            blocks.push(`<p><strong>Moments clau:</strong></p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
+            const heiroNote = heiroSeeds.size
+                ? ` <span class="hg-seed-note">🔮 fins a ${heiroSeeds.size} ${heiroSeeds.size === 1 ? 'jeroglífic generable' : 'jeroglífics generables'}</span>`
+                : '';
+            blocks.push(`<p><strong>Moments clau:</strong>${heiroNote}</p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
 
         // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
@@ -13622,6 +13638,27 @@ function normalizeHieroglyphicCandidate(raw, source, entry = null) {
         score: severityRank * 1000 + (swing || 0)
     };
 }
+
+// Conjunt de FENs (claus normalitzades) d'una partida que poden alimentar la
+// generació de jeroglífics: errades desades, jugades imprecises/dolentes del
+// review i tàctiques que vas jugar (mat/forquilla/escac forçat). Serveix per
+// MARCAR aquests moments a la revisió de la partida. Exclou els ja resolts.
+function entryHieroglyphicSeedFenKeys(entry) {
+    const set = new Set();
+    if (!entry) return set;
+    const keyOf = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+    const solved = new Set((hieroglyphicStats.solvedFens || []).map(keyOf));
+    const add = (fen) => { if (!fen) return; const k = keyOf(fen); if (k && !solved.has(k)) set.add(k); };
+    (Array.isArray(entry.errors) ? entry.errors : []).forEach(e => {
+        if (e && e.fen && (e.bestMove || e.bestMoveUci || e.bestMoveSan)) add(e.fen);
+    });
+    (Array.isArray(entry.moveReviews) ? entry.moveReviews : []).forEach(r => {
+        if (r && r.fen && (r.bestMove || r.bestMoveUci) &&
+            (['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80)) add(r.fen);
+    });
+    try { (collectPlayedTacticHieroglyphicCandidates(entry) || []).forEach(c => add(c && c.fen)); } catch (e) {}
+    return set;
+}
 function collectPersonalHieroglyphicCandidates(preferredEntry = null) {
     const list = [];
     (currentReview || []).forEach(r => {
@@ -14553,23 +14590,37 @@ function hgSelfPlayCandidate(fen, prepared, line, info, solution, replies) {
         finalMotifReason: info.reason, theme: info.motif, tacticKind: HIERO_FINAL_MOTIF_LABELS[info.motif] || null
     };
 }
+// Diagnòstic de l'últim intent de generació (perquè el botó "Generar ara" pugui
+// dir PER QUÈ no ha sortit cap jeroglífic). Codis de motiu a hgGenReasonText().
+let hgLastGenDiag = null;
+
 async function hgGenerateOne(shouldAbort, opts = {}) {
-    if (hgGenerating) return null;
+    if (hgGenerating) { hgLastGenDiag = { reason: 'busy' }; return null; }
     hgGenerating = true;
+    const diag = {
+        reason: null, engine: false, candidates: 0,
+        gameRealFresh: 0, variantsTried: 0, selfPlayTried: false,
+        aborted: false, error: null
+    };
+    hgLastGenDiag = diag;
     const started = Date.now();
     try {
         const excludeFens = hgAllKnownFens();
         const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+        try { diag.engine = (typeof ensureStockfish === 'function') ? !!ensureStockfish() : true; } catch (e) { diag.engine = false; }
         let cand = null;
         // PRIORITAT 1 — game_real: la tàctica que ja va aparèixer a la partida.
         try {
             const candidates = collectPersonalHieroglyphicCandidates(null);
+            diag.candidates = candidates.length;
+            diag.gameRealFresh = candidates.filter(c => c && c.source === 'gameHistory.tactic' && !excludeFens.has(norm(c.fen))).length;
             cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, { excludeFens, shouldAbort });
-        } catch (e) {}
+        } catch (e) { diag.error = String((e && e.message) || e); }
         // PRIORITAT 2 — game_variant: una variant legal amagada d'una FEN real.
         if (!cand && !(shouldAbort && shouldAbort())) {
             const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-6).reverse() : [];
             for (const entry of recentGames) {
+                diag.variantsTried++;
                 try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, { excludeFens, shouldAbort }); } catch (e) {}
                 if (cand) break;
                 if (shouldAbort && shouldAbort()) break;
@@ -14577,14 +14628,45 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
         }
         // PRIORITAT 3 — auto-joc del motor (només si les partides no donen res).
         if (!cand && opts.allowSelfPlay !== false && !(shouldAbort && shouldAbort())) {
-            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) {}
+            diag.selfPlayTried = true;
+            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
         }
-        if (cand && excludeFens.has(norm(cand.fen))) cand = null;
+        if (shouldAbort && shouldAbort()) diag.aborted = true;
+        if (cand && excludeFens.has(norm(cand.fen))) { cand = null; diag.reason = 'duplicate'; }
+        // Classifica el motiu quan no hi ha candidat, de la causa més específica a
+        // la més general.
+        if (!cand && !diag.reason) {
+            if (diag.aborted) diag.reason = 'aborted';
+            else if (!diag.engine) diag.reason = 'no_engine';
+            else if (diag.error) diag.reason = 'error';
+            else if (diag.candidates === 0 && (!Array.isArray(gameHistory) || gameHistory.length === 0)) diag.reason = 'no_games';
+            else if (diag.gameRealFresh > 0) diag.reason = 'validation_rejected';
+            else if (diag.candidates > 0 && diag.gameRealFresh === 0) diag.reason = 'all_known';
+            else if (diag.selfPlayTried) diag.reason = 'selfplay_empty';
+            else diag.reason = 'no_candidates';
+        }
         return cand;
     } finally {
         hgRuntime.lastDurationMs = Date.now() - started;
         if (hgRuntime.lastDurationMs > 5000) hgRuntime.slowGenerations++;
         hgGenerating = false;
+    }
+}
+// Text llegible del motiu pel qual no s'ha pogut generar cap jeroglífic.
+function hgGenReasonText(diag) {
+    const r = diag && diag.reason;
+    switch (r) {
+        case 'busy': return 'Ja s\'estava generant un altre jeroglífic; espera un segon i torna-ho a provar.';
+        case 'no_engine': return 'El motor d\'escacs (Stockfish) no està disponible. Recarrega la pàgina i torna-ho a provar.';
+        case 'error': return 'Hi ha hagut un error del motor durant la generació' + (diag && diag.error ? ` (${diag.error})` : '') + '.';
+        case 'no_games': return 'Encara no tens partides d\'on treure jeroglífics. Juga\'n unes quantes primer.';
+        case 'validation_rejected': return 'Hi havia posicions candidates de les teves partides, però cap ha acabat en un final tàctic prou clar per fer-ne un jeroglífic.';
+        case 'all_known': return 'Ja tens preparats o resolts tots els jeroglífics de les teves partides recents; no en queda cap de nou.';
+        case 'selfplay_empty': return 'L\'auto-joc del motor no ha trobat cap combinació tàctica prou neta aquest cop.';
+        case 'no_candidates': return 'No hi ha cap posició adequada per convertir en jeroglífic ara mateix.';
+        case 'stalled': return 'La generació sembla encallada (el motor no respon a temps). Recarrega la pàgina i torna-ho a provar.';
+        case 'aborted': return 'Generació interrompuda.';
+        default: return 'No he pogut generar cap jeroglífic nou ara mateix.';
     }
 }
 // Converteix un candidat validat en un element de cua sincronitzable.
@@ -14797,17 +14879,136 @@ function renderHieroglyphicBanner() {
         countEl.textContent = newCount === 0 ? '0 nous · preparant-ne un…'
             : (newCount === 1 ? '1 nou esperant' : `${newCount} nous esperant`);
     }
-    // Estat curt
+    // Estat curt. La generació ACTIVA té prioritat sobre "Sincronitzant…": abans,
+    // com que cada jeroglífic desat dispara una pujada al núvol, l'estat quedava
+    // gairebé sempre en "Sincronitzant…" i amagava que s'estava generant.
+    const generating = hgState.generation.active || hgGenerating || hgManualBurstRunning;
     let status = 'Preparats';
-    if (hgCloudSyncing()) status = 'Sincronitzant…';
-    else if (hgState.settings.enabled === false) status = 'Desactivat';
+    if (hgState.settings.enabled === false) status = 'Desactivat';
+    else if (generating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
+    else if (hgCloudSyncing()) status = 'Sincronitzant…';
     else if (!hgBackgroundEnabled()) status = 'Generació manual';
     else if (hgLightMode) status = 'Mode lleuger';
-    else if (hgState.generation.active || hgGenerating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
     else if (newCount === 0) status = 'Preparant-ne un…';
     if (statusEl) statusEl.textContent = status;
     // Destaca quan hi ha jeroglífics nous pendents.
     banner.classList.toggle('hg-banner-has-new', newCount > 0);
+    // Etiqueta del botó "Generar ara" segons si hi ha una tanda en marxa.
+    const genBtn = document.getElementById('btn-hieroglyphic-generate');
+    if (genBtn && !hgManualBurstRunning) {
+        genBtn.classList.remove('is-generating');
+        genBtn.textContent = '⚡ Generar ara';
+    }
+}
+
+// ── Generació manual "sota demanda" amb barra de progrés ────────────────────
+// L'usuari pot forçar la generació de jeroglífics (útil quan la generació en
+// segon pla fa estona que no en prepara cap perquè no s'han donat les
+// condicions de repòs). La barra mostra el progrés omplint la cua fins a
+// l'objectiu del dispositiu.
+let hgManualBurstRunning = false;
+let hgManualBurstAbort = false;
+
+function hgSetBannerProgress(fraction, label, working) {
+    const wrap = document.getElementById('hg-banner-progress');
+    if (!wrap) return;
+    if (fraction === null || fraction === undefined) {
+        wrap.style.display = 'none';
+        wrap.classList.remove('is-working');
+        return;
+    }
+    wrap.style.display = 'flex';
+    wrap.classList.toggle('is-working', !!working);
+    const bar = document.getElementById('hg-banner-progress-bar');
+    const txt = document.getElementById('hg-banner-progress-text');
+    const pct = Math.max(0, Math.min(100, Math.round(fraction * 100)));
+    if (bar) bar.style.width = pct + '%';
+    if (txt) txt.textContent = (label !== null && label !== undefined) ? label : (pct + '%');
+}
+
+async function hgManualGenerateBurst() {
+    // Segon clic mentre corre = cancel·la la tanda.
+    if (hgManualBurstRunning) { hgManualBurstAbort = true; return; }
+    hgManualBurstRunning = true;
+    hgManualBurstAbort = false;
+    const btn = document.getElementById('btn-hieroglyphic-generate');
+    if (btn) { btn.classList.add('is-generating'); btn.textContent = '✋ Atura'; }
+    hgEnsureState();
+    const target = Math.max(1, hgDeviceTarget());
+    const startCount = hgNewCount();
+    // Si la cua ja és plena, genera'n almenys un extra perquè el botó sempre faci alguna cosa.
+    const goal = Math.max(target, startCount + 1);
+    const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
+    let lastCount = startCount;
+    let lastProgressAt = Date.now();
+    let failDiag = null;
+    const STALL_MS = 30000;   // si en 30 s no avança res (ni el fons), ho donem per encallat
+    const setProg = () => {
+        const shown = Math.min(hgNewCount(), goal);
+        hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `Generant… ${shown}/${goal}`, true);
+    };
+    setProg();
+    try {
+        while (!hgManualBurstAbort && hgNewCount() < goal) {
+            if (hgGenerating) {
+                // Ja hi ha una generació en marxa (típicament la de segon pla, que
+                // omple la MATEIXA cua). En comptes de fallar amb "busy", espera-la:
+                // el seu resultat també ens acosta a l'objectiu.
+                await new Promise(r => setTimeout(r, 400));
+            } else {
+                let cand = null;
+                try { cand = await hgGenerateOne(() => hgManualBurstAbort, { allowSelfPlay: true }); }
+                catch (e) { cand = null; }
+                if (hgManualBurstAbort) break;
+                if (cand && !hgAllKnownFens().has(norm(cand.fen))) {
+                    hgEnsureState();
+                    hgState.queue.push(hgToQueueItem(cand, 'manual'));
+                    hgState.generation.lastSuccessAt = Date.now();
+                    hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
+                    hgState.generation.lastError = null;
+                    hgPruneQueue();
+                    hgState.updatedAt = Date.now();
+                    // Desa a disc a cada un (per no perdre'n cap), però NO forcem la
+                    // pujada al núvol dins del bucle: es fa una sola vegada al final
+                    // (evita que l'estat parpellegi a "Sincronitzant…" a cada puzzle).
+                    hgSaveState();
+                } else if (!hgGenerating) {
+                    // La NOSTRA generació no ha donat res i ningú més està generant:
+                    // guarda el motiu concret i atura (esperar no serviria de res).
+                    failDiag = hgLastGenDiag;
+                    break;
+                }
+            }
+            // Progrés real per la cua (compta també el que afegeix el segon pla).
+            const now = hgNewCount();
+            if (now > lastCount) { lastCount = now; lastProgressAt = Date.now(); }
+            else if (Date.now() - lastProgressAt > STALL_MS) { failDiag = failDiag || hgLastGenDiag || { reason: 'stalled' }; break; }
+            setProg();
+            renderHieroglyphicBanner();
+        }
+    } finally {
+        const aborted = hgManualBurstAbort;
+        const made = Math.max(0, hgNewCount() - startCount);
+        // Una sola pujada al núvol al final, si s'ha generat res de nou.
+        if (made > 0) { try { hgSaveState({ flush: true }); } catch (e) {} }
+        hgManualBurstRunning = false;
+        hgManualBurstAbort = false;
+        // Mostra breument el 100% quan s'ha completat, i després amaga la barra.
+        if (!aborted && made > 0) hgSetBannerProgress(Math.min(1, hgNewCount() / goal), '100%', false);
+        setTimeout(() => { if (!hgManualBurstRunning) hgSetBannerProgress(null); }, 900);
+        if (btn) { btn.classList.remove('is-generating'); btn.textContent = '⚡ Generar ara'; }
+        renderHieroglyphicBanner();
+        if (aborted) {
+            showToast(made > 0 ? `Generació aturada (${made} de nou${made === 1 ? '' : 's'}).` : 'Generació aturada.', 'info');
+        } else if (made > 0) {
+            showToast(made === 1 ? 'S\'ha generat 1 jeroglífic nou.' : `S'han generat ${made} jeroglífics nous.`, 'success');
+        } else {
+            // Cap generat: explica el MOTIU concret (diagnòstic de l'últim intent real).
+            const diag = failDiag || hgLastGenDiag;
+            try { console.warn('[HG] Generació manual sense resultat:', diag); } catch (e) {}
+            showToast('No s\'ha pogut generar: ' + hgGenReasonText(diag), 'warn');
+        }
+    }
 }
 
 // Entrada a la secció des del bàner (o des de qualsevol accés a jeroglífics):
@@ -15596,6 +15797,13 @@ function setupEvents() {
 
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
+    // Diagnòstic de l'entrenador: bàner de la home, selectors d'estil i botons "Actualitza".
+    $('#btn-home-coach').off('click').on('click', () => openCoachDiagnosis());
+    $('#home-coach-style').off('change').on('change', function () { onCoachStyleChange(this.value); });
+    $('#coach-style-select').off('change').on('change', function () { onCoachStyleChange(this.value); });
+    $('#btn-home-coach-refresh').off('click').on('click', (e) => { e.stopPropagation(); regenerateCoachDiagnosisNow(); });
+    $('#btn-coach-refresh').off('click').on('click', () => regenerateCoachDiagnosisNow());
+    syncCoachStyleSelects();
     $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
     $('#btn-ranking').click(() => openRankingScreen());
     $('#btn-ranking-back').click(() => { $('#ranking-screen').hide(); $('#start-screen').show(); });
@@ -15998,6 +16206,9 @@ function setupEvents() {
     // una veu temporal pròpia) es re-redacta sense recalcular res del motor.
     $('#review-voice-select').off('change').on('change', function() {
         applyReviewVoiceStyle($(this).val());
+        // Manté sincronitzats els altres selectors d'estil i regenera el diagnòstic.
+        syncCoachStyleSelects();
+        renderCoachDiagnosis();
     });
 
     // Rellotge de la nova partida (lliure/assistida): es tria abans de cada partida i
@@ -16154,6 +16365,9 @@ function setupEvents() {
     $('#btn-hieroglyphic-banner').off('click').on('click', () => { void openHieroglyphicsFromBanner(); });
     // Historial de jeroglífics: sempre accessible des del menú (no depèn de jugar-ne cap).
     $('#btn-hieroglyphic-history').off('click').on('click', () => { showHieroglyphicHistoryModal(); });
+    // Generació manual sota demanda (amb barra de progrés): força la preparació de
+    // jeroglífics encara que la generació en segon pla estigui inactiva.
+    $('#btn-hieroglyphic-generate').off('click').on('click', () => { void hgManualGenerateBurst(); });
     // Selector de FINAL del jeroglífic (ara integrat al bàner): desa la preferència
     // i, si la cua no té cap jeroglífic d'aquell motiu, en dispara la preparació.
     loadHieroglyphicPreferredFinalMotif();
@@ -17593,21 +17807,72 @@ function coachDiagnosisAuditOptions(facts) {
     return { xifresPermeses: xifres, percentatges, maxParaules: 140 };
 }
 
+// Comptador de regeneracions manuals (botó "Actualitza"): canvia l'empremta
+// perquè la redacció local (determinista per llavor) i la d'OpenAI en donin una
+// de nova. No es persisteix: en recarregar es torna a la del dia, estable.
+let coachDiagnosisSalt = 0;
 function coachDiagnosisFingerprint() {
-    return `${gameHistory.length}:${savedErrors.length}`;
+    // Inclou el DIA i l'ESTIL de veu: així el diagnòstic es regenera cada dia
+    // (encara que no hi hagi partides noves) i quan l'usuari canvia l'estil.
+    return `${gameHistory.length}:${savedErrors.length}:${getPlanDayKey()}:${getReviewVoiceStyle()}:${coachDiagnosisSalt}`;
+}
+
+// Sincronitza tots els selectors d'estil (home, estadístiques, configuració).
+function syncCoachStyleSelects() {
+    const v = getReviewVoiceStyle();
+    ['coach-style-select', 'home-coach-style', 'review-voice-select'].forEach(id => {
+        const s = document.getElementById(id);
+        if (s) s.value = v;
+    });
+}
+
+// Canvi d'estil des de qualsevol selector: desa la preferència global i
+// regenera el diagnòstic (que depèn de l'estil via l'empremta).
+function onCoachStyleChange(style) {
+    applyReviewVoiceStyle(style);
+    syncCoachStyleSelects();
+    renderCoachDiagnosis();
+}
+
+// Botó "Actualitza": força una redacció nova d'avui (nou salt).
+function regenerateCoachDiagnosisNow() {
+    coachDiagnosisSalt++;
+    renderCoachDiagnosis();
+    try { showToast('Diagnòstic regenerat.', 'success'); } catch (e) {}
+}
+
+// Escriu el text del diagnòstic a TOTES les vistes (targeta d'estadístiques i
+// resum de la pàgina principal), perquè sempre coincideixin.
+function paintCoachDiagnosis(text, opts = {}) {
+    const stats = document.getElementById('coach-diagnosis');
+    if (stats) {
+        if (opts.html) stats.innerHTML = text; else stats.textContent = text;
+    }
+    const homeText = document.getElementById('home-coach-text');
+    if (homeText) {
+        // A la home en mostrem un resum curt (les dues primeres frases).
+        const plain = opts.html ? String(text).replace(/<[^>]*>/g, '') : String(text);
+        const short = plain.length > 180 ? plain.slice(0, 177).replace(/\s+\S*$/, '') + '…' : plain;
+        homeText.textContent = short;
+    }
+    const homeBanner = document.getElementById('home-coach-banner');
+    if (homeBanner) homeBanner.style.display = '';
 }
 
 function renderCoachDiagnosis() {
     const el = document.getElementById('coach-diagnosis');
-    if (!el) return;
+    const homeBanner = document.getElementById('home-coach-banner');
+    // Amb poques dades, ni la targeta ni la home prometen un diagnòstic.
     if (gameHistory.length < 3 && savedErrors.length < 5) {
-        el.innerHTML = '<span style="color:var(--text-secondary);">Juga unes quantes partides més i l\'entrenador escriurà aquí el teu diagnòstic.</span>';
+        if (el) el.innerHTML = '<span style="color:var(--text-secondary);">Juga unes quantes partides més i l\'entrenador escriurà aquí el teu diagnòstic.</span>';
+        if (homeBanner) homeBanner.style.display = 'none';
         return;
     }
+    if (!el && !homeBanner) return;
     const fingerprint = coachDiagnosisFingerprint();
     const stored = readJsonStorage(COACH_DIAGNOSIS_KEY, null);
     const storedValid = !!(stored && stored.text && stored.fingerprint === fingerprint);
-    if (stored && stored.text) el.textContent = stored.text;
+    if (stored && stored.text) paintCoachDiagnosis(stored.text);
     const facts = buildCoachDiagnosisFacts();
 
     // Redacció LOCAL per defecte: sempre disponible (també sense clau d'OpenAI),
@@ -17616,10 +17881,10 @@ function renderCoachDiagnosis() {
         const r = getRedactor();
         const localText = r ? r.redactarDiagnostic(facts, fingerprint) : '';
         if (localText) {
-            el.textContent = localText;
+            paintCoachDiagnosis(localText);
             writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text: localText, font: 'local', day: getPlanDayKey() });
         } else if (!stored || !stored.text) {
-            el.innerHTML = '<em>L\'entrenador està repassant les teves partides...</em>';
+            paintCoachDiagnosis('<em>L\'entrenador està repassant les teves partides...</em>', { html: true });
         }
     }
 
@@ -17644,9 +17909,21 @@ function renderCoachDiagnosis() {
             return;
         }
         writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text: esmena.text, font: 'openai', day: getPlanDayKey() });
-        const target = document.getElementById('coach-diagnosis');
-        if (target) target.textContent = esmena.text;
+        paintCoachDiagnosis(esmena.text);
     }).finally(() => { coachDiagnosisPending = false; });
+}
+
+// Obre la pantalla d'estadístiques i desplaça fins al diagnòstic de l'entrenador
+// (accés directe des del bàner de la pàgina principal).
+function openCoachDiagnosis() {
+    $('#start-screen').hide();
+    $('#stats-screen').show();
+    updateStatsDisplay();
+    navPush('stats-screen');
+    const target = document.getElementById('coach-diagnosis');
+    if (target && target.scrollIntoView) {
+        setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+    }
 }
 
 /* ===================== BANC DE MÀXIMES OFFLINE + CAU ===================== */
@@ -19355,14 +19632,20 @@ function handleEngineMessage(rawMsg) {
 
             // Si has jugat la millor jugada, no és cap error encara que el swing
             // (comparant anàlisi prèvia profunda amb posterior més curta) sigui gran.
-            if (swing > 250 && !blunderMode && lastHumanMoveUci !== pendingBestMove) {
+            const isMoveError = !blunderMode && lastHumanMoveUci !== pendingBestMove;
+            // DESAR "per resoldre": alineat amb l'etiqueta "Error" del review
+            // (>100 cp). Així els errors moderats que ja veus marcats també entren
+            // a la cua per practicar-los, no només les errades grosses.
+            const isSolvableError = isMoveError && swing > 100;
+            // ALERTA VISUAL + pausa perquè es vegi: reservada a errades grosses
+            // (>250 cp), per no omplir la partida d'avisos ni alentir-la a cada
+            // imprecisió.
+            const isSevereBlunder = isMoveError && swing > 250;
+
+            if (isSolvableError) {
                 let severity = 'low';
                 if (swing > 800) severity = 'high';
                 else if (swing > 500) severity = 'med';
-
-                $('#blunder-alert').removeClass('alert-low alert-med alert-high')
-                    .addClass('alert-' + severity).show();
-
                 saveBlunderToBundle(
                     pendingAnalysisFen || lastPosition,
                     severity,
@@ -19370,11 +19653,17 @@ function handleEngineMessage(rawMsg) {
                     lastHumanMoveUci,
                     pendingBestMovePv
                 );
+            }
 
+            if (isSevereBlunder) {
+                let severity = 'low';
+                if (swing > 800) severity = 'high';
+                else if (swing > 500) severity = 'med';
+                $('#blunder-alert').removeClass('alert-low alert-med alert-high')
+                    .addClass('alert-' + severity).show();
                 engineMoveTimeout = setTimeout(() => {
                     if (!game.game_over()) makeEngineMove();
                 }, 1500);
-
             } else {
                 if (blunderMode) handleBundleSuccess();
                 else if (!game.game_over()) makeEngineMove();
@@ -22021,7 +22310,9 @@ function selectHumanPlanReviews(entry) {
         // jugada impossible o jugada feta igual a la millor (swing fantasma).
         .filter(r => isRenderableReviewError(entry, r, validationOpts))
         .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
-        .slice(0, 3);
+        // Fins a 5 moments clau (abans 3): així a la ressenya apareixen més
+        // moviments clau i errors principals de la partida.
+        .slice(0, 5);
 }
 
 function buildHumanPlanMoments(entry, insights = null, opts = {}) {
