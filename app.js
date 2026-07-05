@@ -795,8 +795,10 @@ function loadReviewVoiceStyle() {
 // temporal pròpia, es re-renderitza a l'acte (només text; res del motor).
 function applyReviewVoiceStyle(style, options = {}) {
     reviewVoiceStyle = ElTaulerCore.normalizeReviewVoiceStyle(style);
-    const sel = document.getElementById('review-voice-select');
-    if (sel) sel.value = reviewVoiceStyle;
+    ['review-voice-select', 'coach-style-select', 'home-coach-style'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel) sel.value = reviewVoiceStyle;
+    });
     if (!options.skipSave) {
         try { localStorage.setItem(REVIEW_VOICE_STYLE_KEY, reviewVoiceStyle); } catch (e) {}
     }
@@ -5594,6 +5596,9 @@ function updateDisplay() {
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
     renderWeeklyPlan();
+    // Resum del diagnòstic de l'entrenador al bàner de la home (es regenera sol
+    // cada dia; aquí només el pinta amb el text vigent).
+    renderCoachDiagnosis();
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
 }
 
@@ -15792,6 +15797,13 @@ function setupEvents() {
 
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
+    // Diagnòstic de l'entrenador: bàner de la home, selectors d'estil i botons "Actualitza".
+    $('#btn-home-coach').off('click').on('click', () => openCoachDiagnosis());
+    $('#home-coach-style').off('change').on('change', function () { onCoachStyleChange(this.value); });
+    $('#coach-style-select').off('change').on('change', function () { onCoachStyleChange(this.value); });
+    $('#btn-home-coach-refresh').off('click').on('click', (e) => { e.stopPropagation(); regenerateCoachDiagnosisNow(); });
+    $('#btn-coach-refresh').off('click').on('click', () => regenerateCoachDiagnosisNow());
+    syncCoachStyleSelects();
     $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
     $('#btn-ranking').click(() => openRankingScreen());
     $('#btn-ranking-back').click(() => { $('#ranking-screen').hide(); $('#start-screen').show(); });
@@ -16194,6 +16206,9 @@ function setupEvents() {
     // una veu temporal pròpia) es re-redacta sense recalcular res del motor.
     $('#review-voice-select').off('change').on('change', function() {
         applyReviewVoiceStyle($(this).val());
+        // Manté sincronitzats els altres selectors d'estil i regenera el diagnòstic.
+        syncCoachStyleSelects();
+        renderCoachDiagnosis();
     });
 
     // Rellotge de la nova partida (lliure/assistida): es tria abans de cada partida i
@@ -17792,21 +17807,72 @@ function coachDiagnosisAuditOptions(facts) {
     return { xifresPermeses: xifres, percentatges, maxParaules: 140 };
 }
 
+// Comptador de regeneracions manuals (botó "Actualitza"): canvia l'empremta
+// perquè la redacció local (determinista per llavor) i la d'OpenAI en donin una
+// de nova. No es persisteix: en recarregar es torna a la del dia, estable.
+let coachDiagnosisSalt = 0;
 function coachDiagnosisFingerprint() {
-    return `${gameHistory.length}:${savedErrors.length}`;
+    // Inclou el DIA i l'ESTIL de veu: així el diagnòstic es regenera cada dia
+    // (encara que no hi hagi partides noves) i quan l'usuari canvia l'estil.
+    return `${gameHistory.length}:${savedErrors.length}:${getPlanDayKey()}:${getReviewVoiceStyle()}:${coachDiagnosisSalt}`;
+}
+
+// Sincronitza tots els selectors d'estil (home, estadístiques, configuració).
+function syncCoachStyleSelects() {
+    const v = getReviewVoiceStyle();
+    ['coach-style-select', 'home-coach-style', 'review-voice-select'].forEach(id => {
+        const s = document.getElementById(id);
+        if (s) s.value = v;
+    });
+}
+
+// Canvi d'estil des de qualsevol selector: desa la preferència global i
+// regenera el diagnòstic (que depèn de l'estil via l'empremta).
+function onCoachStyleChange(style) {
+    applyReviewVoiceStyle(style);
+    syncCoachStyleSelects();
+    renderCoachDiagnosis();
+}
+
+// Botó "Actualitza": força una redacció nova d'avui (nou salt).
+function regenerateCoachDiagnosisNow() {
+    coachDiagnosisSalt++;
+    renderCoachDiagnosis();
+    try { showToast('Diagnòstic regenerat.', 'success'); } catch (e) {}
+}
+
+// Escriu el text del diagnòstic a TOTES les vistes (targeta d'estadístiques i
+// resum de la pàgina principal), perquè sempre coincideixin.
+function paintCoachDiagnosis(text, opts = {}) {
+    const stats = document.getElementById('coach-diagnosis');
+    if (stats) {
+        if (opts.html) stats.innerHTML = text; else stats.textContent = text;
+    }
+    const homeText = document.getElementById('home-coach-text');
+    if (homeText) {
+        // A la home en mostrem un resum curt (les dues primeres frases).
+        const plain = opts.html ? String(text).replace(/<[^>]*>/g, '') : String(text);
+        const short = plain.length > 180 ? plain.slice(0, 177).replace(/\s+\S*$/, '') + '…' : plain;
+        homeText.textContent = short;
+    }
+    const homeBanner = document.getElementById('home-coach-banner');
+    if (homeBanner) homeBanner.style.display = '';
 }
 
 function renderCoachDiagnosis() {
     const el = document.getElementById('coach-diagnosis');
-    if (!el) return;
+    const homeBanner = document.getElementById('home-coach-banner');
+    // Amb poques dades, ni la targeta ni la home prometen un diagnòstic.
     if (gameHistory.length < 3 && savedErrors.length < 5) {
-        el.innerHTML = '<span style="color:var(--text-secondary);">Juga unes quantes partides més i l\'entrenador escriurà aquí el teu diagnòstic.</span>';
+        if (el) el.innerHTML = '<span style="color:var(--text-secondary);">Juga unes quantes partides més i l\'entrenador escriurà aquí el teu diagnòstic.</span>';
+        if (homeBanner) homeBanner.style.display = 'none';
         return;
     }
+    if (!el && !homeBanner) return;
     const fingerprint = coachDiagnosisFingerprint();
     const stored = readJsonStorage(COACH_DIAGNOSIS_KEY, null);
     const storedValid = !!(stored && stored.text && stored.fingerprint === fingerprint);
-    if (stored && stored.text) el.textContent = stored.text;
+    if (stored && stored.text) paintCoachDiagnosis(stored.text);
     const facts = buildCoachDiagnosisFacts();
 
     // Redacció LOCAL per defecte: sempre disponible (també sense clau d'OpenAI),
@@ -17815,10 +17881,10 @@ function renderCoachDiagnosis() {
         const r = getRedactor();
         const localText = r ? r.redactarDiagnostic(facts, fingerprint) : '';
         if (localText) {
-            el.textContent = localText;
+            paintCoachDiagnosis(localText);
             writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text: localText, font: 'local', day: getPlanDayKey() });
         } else if (!stored || !stored.text) {
-            el.innerHTML = '<em>L\'entrenador està repassant les teves partides...</em>';
+            paintCoachDiagnosis('<em>L\'entrenador està repassant les teves partides...</em>', { html: true });
         }
     }
 
@@ -17843,9 +17909,21 @@ function renderCoachDiagnosis() {
             return;
         }
         writeJsonStorage(COACH_DIAGNOSIS_KEY, { fingerprint, text: esmena.text, font: 'openai', day: getPlanDayKey() });
-        const target = document.getElementById('coach-diagnosis');
-        if (target) target.textContent = esmena.text;
+        paintCoachDiagnosis(esmena.text);
     }).finally(() => { coachDiagnosisPending = false; });
+}
+
+// Obre la pantalla d'estadístiques i desplaça fins al diagnòstic de l'entrenador
+// (accés directe des del bàner de la pàgina principal).
+function openCoachDiagnosis() {
+    $('#start-screen').hide();
+    $('#stats-screen').show();
+    updateStatsDisplay();
+    navPush('stats-screen');
+    const target = document.getElementById('coach-diagnosis');
+    if (target && target.scrollIntoView) {
+        setTimeout(() => target.scrollIntoView({ behavior: 'smooth', block: 'center' }), 80);
+    }
 }
 
 /* ===================== BANC DE MÀXIMES OFFLINE + CAU ===================== */
@@ -22232,7 +22310,9 @@ function selectHumanPlanReviews(entry) {
         // jugada impossible o jugada feta igual a la millor (swing fantasma).
         .filter(r => isRenderableReviewError(entry, r, validationOpts))
         .sort((a, b) => ((priority[b.quality] || 0) - (priority[a.quality] || 0)) || ((b.swing || 0) - (a.swing || 0)))
-        .slice(0, 3);
+        // Fins a 5 moments clau (abans 3): així a la ressenya apareixen més
+        // moviments clau i errors principals de la partida.
+        .slice(0, 5);
 }
 
 function buildHumanPlanMoments(entry, insights = null, opts = {}) {
