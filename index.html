@@ -1089,6 +1089,22 @@
         .btn-hieroglyphic-main { background: linear-gradient(135deg, #123c73 0%, #071d3d 100%); color: #eaf3ff; }
         .btn-history  { background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: #fff; }
         .btn-stats    { background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: #fff; }
+
+        /* ── Trio de navegació homogeni ─────────────────────────────────────
+           Tres botons idèntics a totes les pantalles: la casa (daurat) porta a
+           la pàgina principal, «Veure tauler» (verd) tanca la finestra per
+           contemplar la posició final de la jugada, i el botó de secció (blau)
+           torna a la secció d'origen (Tàctiques, Revisa errors, Lliga...). */
+        .nav-trio { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; margin-top: 12px; align-items: stretch; }
+        .nav-trio .btn {
+            flex: 1 1 0; width: auto; min-width: 108px;
+            padding: 11px 8px; font-size: 0.82rem; letter-spacing: 0.4px;
+        }
+        .nav-trio .btn-nav-home { flex: 0 0 56px; min-width: 56px; }
+        .btn-nav-home { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
+        .btn-nav-home .btn-ic { width: 1.5em; height: 1.5em; }
+        .btn-nav-board { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: #fff; }
+        .btn-nav-section { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: #fff; }
         .menu-grid .btn {
             flex-direction: column;
             gap: 5px;
@@ -1156,15 +1172,12 @@
         .btn-hero .btn-ic { width: 1.35em; height: 1.35em; }
         .menu-grid .btn .btn-ic { width: 1.7em; height: 1.7em; }
         .coach-ic { width: 1.2em; height: 1.2em; vertical-align: -0.2em; margin-right: 2px; }
-        /* Separador de la zona de dades/sync */
-        .sync-divider {
-            margin: 22px 0 12px; height: 1px;
-            background: rgba(201,162,39,0.18); position: relative;
-        }
-        .sync-divider span {
-            position: absolute; top: -9px; left: 50%; transform: translateX(-50%);
-            background: var(--bg-card); padding: 0 12px; font-size: 0.72rem;
-            color: var(--text-secondary); text-transform: uppercase; letter-spacing: 1px;
+        /* Icona de peça de puzle dels jeroglífics (substitueix l'antic emoji 🔮):
+           mida 1em perquè s'escali amb el text que l'acompanya. */
+        .hg-ic {
+            width: 1em; height: 1em; display: inline-block; vertical-align: -0.12em;
+            fill: none; stroke: currentColor; stroke-width: 1.9;
+            stroke-linecap: round; stroke-linejoin: round;
         }
 
         .opening-section {
@@ -1446,11 +1459,36 @@
         }
         
         body.device-tablet .menu-buttons,
+        /* ── Escriptori: graella equilibrada de 2 columnes ──────────────────
+           Els botons es reparteixen en parelles de mida igual; els bàners,
+           el rellotge i les graelles internes ocupen tota la fila. */
         body.device-desktop .menu-buttons {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 12px;
         }
+        body.device-desktop .menu-buttons > .setting-row,
+        body.device-desktop .menu-buttons > .catalans-banner,
+        body.device-desktop .menu-buttons > #custom-banners,
+        body.device-desktop .menu-buttons > .custom-create-banner,
+        body.device-desktop .menu-buttons > .league-banner,
+        body.device-desktop .menu-buttons > .hieroglyphic-banner,
+        body.device-desktop .menu-buttons > .menu-grid,
+        body.device-desktop .menu-buttons > .btn-opening,
+        body.device-desktop .menu-buttons > .btn-settings,
+        body.device-desktop .menu-buttons > #btn-league {
+            grid-column: 1 / -1;
+        }
+        /* El botó principal no sobresurt tant a escriptori: mida propera a la resta */
+        body.device-desktop .btn-hero { font-size: 1.02rem; padding: 15px 18px; }
+        /* La graella d'entrenament aprofita l'amplada amb 3 columnes iguals */
+        body.device-desktop .menu-grid-3 { grid-template-columns: repeat(3, 1fr); }
+        /* Els bàners dins d'un bloc de botons se separen amb el gap, sense marges propis */
+        .menu-buttons > .catalans-banner,
+        .menu-buttons > .custom-create-banner,
+        .menu-buttons > .hieroglyphic-banner,
+        .menu-buttons > .league-banner { margin: 0; }
+        .menu-buttons > #custom-banners:empty { display: none; }
         
         .btn-hint {
             background: linear-gradient(135deg, #7b1fa2, #4a148c);
@@ -3464,6 +3502,18 @@
             <path d="M10 20.5h4"/>
             <path d="M14.8 14.2c.2-1 .8-1.8 1.6-2.5A5.5 5.5 0 1 0 7.6 11.7c.8.7 1.4 1.5 1.6 2.5"/>
         </symbol>
+        <symbol id="ic-home" viewBox="0 0 24 24">
+            <path d="M3 11.5 12 4l9 7.5"/>
+            <path d="M5.5 9.9V20h13V9.9"/>
+            <path d="M10 20v-5.5h4V20"/>
+        </symbol>
+        <symbol id="ic-board" viewBox="0 0 24 24">
+            <rect x="3.5" y="3.5" width="17" height="17" rx="2"/>
+            <path d="M3.5 9.17h17"/>
+            <path d="M3.5 14.83h17"/>
+            <path d="M9.17 3.5v17"/>
+            <path d="M14.83 3.5v17"/>
+        </symbol>
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
@@ -3505,71 +3555,14 @@
                 </div>
             </div>
             
-            <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
-                <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
-                <span class="catalans-banner-text">
-                    <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
-                    <span class="catalans-banner-title">Catalans vs Stockfish</span>
-                    <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
-                    <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
-                </span>
-                <span class="catalans-banner-cta">Juga-hi ›</span>
-            </button>
-
-            <!-- Bàners de partides col·lectives pròpies (es generen dinàmicament) -->
-            <div id="custom-banners"></div>
-            <button class="custom-create-banner" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
-                <span class="ccb-plus">＋</span>
-                <span class="ccb-text">
-                    <span class="ccb-title">Crea la teva partida col·lectiva</span>
-                    <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
-                </span>
-            </button>
-
-            <button class="ranking-banner" id="btn-ranking" aria-label="Rànquing">
-                <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
-                <span class="ranking-banner-text">
-                    <span class="ranking-banner-title">Rànquing</span>
-                    <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · 🔮 jeroglífics</span>
-                </span>
-                <span class="ranking-banner-cta">Veure ›</span>
-            </button>
-
-            <div class="coach-banner" id="home-coach-banner" style="display:none;">
-                <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
-                    <span class="coach-banner-ic" aria-hidden="true">🧠</span>
-                    <span class="coach-banner-text">
-                        <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
-                        <span class="coach-banner-sub" id="home-coach-text">—</span>
-                    </span>
-                    <span class="coach-banner-cta">Veure ›</span>
-                </button>
-                <div class="coach-banner-foot">
-                    <label for="home-coach-style">Estil</label>
-                    <select id="home-coach-style" class="select-control">
-                        <option value="casual">Casual</option>
-                        <option value="balanced">Equilibrada</option>
-                        <option value="technical">Tècnica</option>
-                    </select>
-                    <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
-                </div>
-            </div>
-
+            <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
             <div class="engagement-banner" id="engagement-banner" style="display:none;">
                 <span class="eng-icon">💡</span>
                 <span class="eng-text"></span>
                 <button class="btn eng-cta" data-eng-action="play"></button>
             </div>
 
-            <div class="missions-panel">
-                <div class="missions-header">
-                    <div class="missions-title">Missions Diàries</div>
-                    <button class="badges-btn" id="btn-badges">Trofeus</button>
-                </div>
-                <div id="missions-list"></div>
-            </div>
-
-            <!-- JUGA -->
+            <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
                 <div class="menu-buttons">
@@ -3585,6 +3578,29 @@
                             <option value="15+10">Clàssic 15+10</option>
                         </select>
                     </div>
+
+                    <!-- Partides cooperatives (col·lectives), just sota el rellotge -->
+                    <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
+                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
+                        <span class="catalans-banner-text">
+                            <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
+                            <span class="catalans-banner-title">Catalans vs Stockfish</span>
+                            <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
+                            <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
+                        </span>
+                        <span class="catalans-banner-cta">Juga-hi ›</span>
+                    </button>
+
+                    <!-- Bàners de partides col·lectives pròpies (es generen dinàmicament) -->
+                    <div id="custom-banners"></div>
+                    <button class="custom-create-banner" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
+                        <span class="ccb-plus">＋</span>
+                        <span class="ccb-text">
+                            <span class="ccb-title">Crea la teva partida col·lectiva</span>
+                            <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
+                        </span>
+                    </button>
+
                     <div class="league-banner" id="league-banner" style="display:none;">
                         <div class="league-banner-header">
                             <span>🏅 Proper partit de lliga</span>
@@ -3603,11 +3619,16 @@
                         </div>
                     </div>
                     <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
+                </div>
+            </div>
 
-                    <!-- BÀNER DE JEROGLÍFICS (sota la lliga) -->
+            <!-- ENTRENA: exercicis per millorar, amb els jeroglífics al capdavant -->
+            <div class="menu-section">
+                <div class="menu-section-title">Entrena</div>
+                <div class="menu-buttons">
                     <div class="hieroglyphic-banner" id="hieroglyphic-banner">
                         <button class="hg-banner-main" id="btn-hieroglyphic-banner" type="button">
-                            <span class="hg-banner-icon" aria-hidden="true">🔮</span>
+                            <span class="hg-banner-icon" aria-hidden="true"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg></span>
                             <span class="hg-banner-text">
                                 <span class="hg-banner-title">Jeroglífics</span>
                                 <span class="hg-banner-sub">Troba els 3 millors moviments</span>
@@ -3628,7 +3649,7 @@
                             </div>
                         </div>
                         <div class="hg-banner-foot">
-                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history">🔮 Historial de jeroglífics</button>
+                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Historial de jeroglífics</button>
                         </div>
                         <details class="hg-banner-advanced">
                             <summary>Opció avançada</summary>
@@ -3647,15 +3668,8 @@
                             </div>
                         </details>
                     </div>
-                </div>
-            </div>
-
-            <!-- ENTRENA -->
-            <div class="menu-section">
-                <div class="menu-section-title">Entrena</div>
-                <div class="menu-buttons">
                     <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
-                    <div class="menu-grid">
+                    <div class="menu-grid menu-grid-3">
                         <button class="btn btn-tactics" id="btn-tactics">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
                             <span class="training-kind">General</span>
@@ -3678,25 +3692,72 @@
                 </div>
             </div>
 
-            <!-- PROGRÉS -->
-            <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
-                <div class="coach-kicker">
-                    <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
-                    <span class="coach-kicker-right">
-                        <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
-                        <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                    </span>
+            <!-- EL TEU ENTRENADOR: diagnòstic, pla del dia i missions -->
+            <div class="menu-section">
+                <div class="menu-section-title">El teu entrenador</div>
+
+                <div class="coach-banner" id="home-coach-banner" style="display:none;">
+                    <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
+                        <span class="coach-banner-ic" aria-hidden="true">🧠</span>
+                        <span class="coach-banner-text">
+                            <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
+                            <span class="coach-banner-sub" id="home-coach-text">—</span>
+                        </span>
+                        <span class="coach-banner-cta">Veure ›</span>
+                    </button>
+                    <div class="coach-banner-foot">
+                        <label for="home-coach-style">Estil</label>
+                        <select id="home-coach-style" class="select-control">
+                            <option value="casual">Casual</option>
+                            <option value="balanced">Equilibrada</option>
+                            <option value="technical">Tècnica</option>
+                        </select>
+                        <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                    </div>
                 </div>
-                <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
-                <div class="coach-plan-progress" id="weekly-plan-progress">
-                    <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
-                    <span class="coach-plan-progress-label">0/0 passos</span>
+
+                <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                    <div class="coach-kicker">
+                        <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
+                        <span class="coach-kicker-right">
+                            <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
+                            <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                        </span>
+                    </div>
+                    <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                    <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                    <div class="coach-plan-progress" id="weekly-plan-progress">
+                        <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                        <span class="coach-plan-progress-label">0/0 passos</span>
+                    </div>
+                    <div id="weekly-plan-list"></div>
+                    <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
                 </div>
-                <div id="weekly-plan-list"></div>
-                <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
+
+                <div class="missions-panel">
+                    <div class="missions-header">
+                        <div class="missions-title">Missions Diàries</div>
+                        <button class="badges-btn" id="btn-badges">Trofeus</button>
+                    </div>
+                    <div id="missions-list"></div>
+                </div>
             </div>
 
+            <!-- COMUNITAT: rànquing de jugadors -->
+            <div class="menu-section">
+                <div class="menu-section-title">Comunitat</div>
+
+                <button class="ranking-banner" id="btn-ranking" aria-label="Rànquing">
+                    <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
+                    <span class="ranking-banner-text">
+                        <span class="ranking-banner-title">Rànquing</span>
+                        <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> jeroglífics</span>
+                    </span>
+                    <span class="ranking-banner-cta">Veure ›</span>
+                </button>
+            </div>
+
+            <!-- PROGRÉS -->
             <div class="menu-section">
                 <div class="menu-section-title">Progrés</div>
                 <div class="menu-buttons">
@@ -3708,7 +3769,6 @@
                 </div>
             </div>
 
-            <div class="sync-divider"><span>Dades</span></div>
             <div class="sync-container">
                 <button class="btn btn-share" id="btn-cloud-recover" style="display:none;background:linear-gradient(135deg,#3a6ea5 0%,#2a4d73 100%);color:#eaf2fb;">☁️ Recupera dades del núvol</button>
             </div>
@@ -3921,7 +3981,7 @@
                 <button class="btn btn-file" id="btn-export">💾 Exportar</button>
                 <button class="btn btn-file" id="btn-import">📂 Importar</button>
                 <input type="file" id="file-input" style="display:none;">
-                <button class="btn btn-primary" id="btn-back-settings">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-settings" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -3948,13 +4008,13 @@
                 <button class="ranking-tab active" data-cat="elo">ELO</button>
                 <button class="ranking-tab" data-cat="stars">⭐ Estrelles</button>
                 <button class="ranking-tab" data-cat="games">Partides</button>
-                <button class="ranking-tab" data-cat="hiero">🔮 Jeroglífics</button>
+                <button class="ranking-tab" data-cat="hiero"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics</button>
             </div>
             <div id="ranking-status" class="setting-help" style="text-align:center; min-height:1.2em;"></div>
             <div id="ranking-list"></div>
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-secondary" id="btn-ranking-refresh">🔄 Actualitza</button>
-                <button class="btn btn-primary" id="btn-ranking-back">Menú</button>
+                <button class="btn btn-nav-home" id="btn-ranking-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4049,7 +4109,7 @@
             </div>
 
             <div class="menu-buttons" style="margin-top:20px;">
-                <button class="btn btn-primary" id="btn-back-stats">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-stats" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
    
@@ -4133,7 +4193,7 @@
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
-                <button class="btn btn-primary" id="btn-back-history">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-history" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4242,10 +4302,13 @@
                 <div class="review-actions">
                     <button class="btn btn-primary" id="btn-review-again" style="display:none;">🔁 Tornar a jugar</button>
                     <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
-                    <button class="btn btn-secondary" id="btn-review-hieroglyphic">🔮 Desxifra el teu error</button>
+                    <button class="btn btn-secondary" id="btn-review-hieroglyphic"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Desxifra el teu error</button>
                     <button class="btn btn-secondary" id="btn-review-stats">📊 Veure evolució</button>
-                    <button class="btn btn-secondary" id="btn-review-menu">Menú</button>
-                    <button class="close-modal" id="btn-review-close">Tancar</button>
+                </div>
+                <div class="nav-trio">
+                    <button class="btn btn-nav-home" id="btn-review-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                    <button class="btn btn-nav-board" id="btn-review-close" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                    <button class="btn btn-nav-section" id="btn-review-section">📜 Historial</button>
                 </div>
             </div>
         </div>
@@ -4297,7 +4360,7 @@
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-primary" id="btn-league-play">Jugar</button>
                 <button class="btn btn-secondary" id="btn-league-new" style="display:none;">Generar nova lliga</button>
-                <button class="btn btn-secondary" id="btn-back-league">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-league" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4356,7 +4419,7 @@
                         <span>Màxima</span>
                     </button>
                     <button class="btn btn-primary" id="btn-opening-bundle-resign">Rendir-se</button>
-                    <button class="btn btn-secondary" id="btn-opening-bundle-menu">Menú</button>
+                    <button class="btn btn-nav-home" id="btn-opening-bundle-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
             <div class="opening-section" id="opening-stats-section">
@@ -4366,14 +4429,14 @@
                 <div class="opening-stats-note" id="opening-stats-note">—</div>
             </div>
             <div class="opening-section" id="opening-hieroglyphic-section">
-                <div class="opening-section-title">Bloc 4 · 🔮 Jeroglífics d'obertura</div>
+                <div class="opening-section-title">Bloc 4 · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics d'obertura</div>
                 <div class="opening-section-desc">Exercici especial: desxifra la pista estratègica i troba la jugada teòrica correcta sense barrejar-lo amb la pràctica principal.</div>
                 <div class="hieroglyphic-section">
-                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise">🔮 Començar exercici</button>
+                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Començar exercici</button>
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
-                <button class="btn btn-primary" id="btn-back-opening">Menú</button>
+                <button class="btn btn-nav-home" id="btn-back-opening" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
 
             <!-- Overlay d'èxit per errors d'obertura -->
@@ -4384,8 +4447,12 @@
                     <div class="bundle-success-title">Blunder resolt</div>
                     <div class="bundle-success-remaining" id="opening-error-remaining">—</div>
                     <div class="bundle-success-actions">
-                        <button class="btn btn-secondary" id="btn-opening-error-home">Tornar</button>
                         <button class="btn btn-primary" id="btn-opening-error-again">Un altre</button>
+                    </div>
+                    <div class="nav-trio">
+                        <button class="btn btn-nav-home" id="btn-opening-error-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                        <button class="btn btn-nav-board" id="btn-opening-error-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                        <button class="btn btn-nav-section" id="btn-opening-error-home">📖 Obertures</button>
                     </div>
                 </div>
             </div>
@@ -4771,7 +4838,7 @@
 
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-share" id="btn-catalans-share">Comparteix</button>
-                <button class="btn btn-secondary" id="btn-catalans-back">Menú</button>
+                <button class="btn btn-nav-home" id="btn-catalans-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4833,7 +4900,11 @@
                         <div class="bundle-success-remaining">Blunders pendents</div>
                         <div class="bundle-success-actions">
                             <button class="btn btn-primary" id="btn-bundle-random-again">🎲 Un altre</button>
-                            <button class="btn btn-secondary" id="btn-bundle-random-home">🏠 Tornar</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-bundle-random-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-bundle-random-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-bundle-random-section">Tornar</button>
                         </div>
                     </div>
                 </div> 
@@ -4845,8 +4916,11 @@
                         <div class="bundle-success-remaining">Queden errors d'aquesta categoria</div>
                         <div class="bundle-success-actions">
                             <button class="btn btn-primary" id="btn-bundle-category-again">➡️ Un altre d'aquesta categoria</button>
-                            <button class="btn btn-secondary" id="btn-bundle-category-home">📚 Tornar a «Revisa errors»</button>
-                            <button class="btn btn-secondary" id="btn-bundle-category-menu">🏠 Tornar al menú</button>                      
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-bundle-category-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-bundle-category-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-bundle-category-home">🔍 Revisa errors</button>
                         </div>
                     </div>
                 </div>           
@@ -4857,8 +4931,12 @@
                         <div class="bundle-success-title">Error revisat</div>
                         <div class="bundle-success-remaining" id="match-error-remaining">—</div>
                         <div class="bundle-success-actions">
-                            <button class="btn btn-secondary" id="btn-match-error-home">Tornar</button>
                             <button class="btn btn-primary" id="btn-match-error-again">Un altre</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-match-error-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-match-error-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-match-error-home">Tornar</button>
                         </div>
                     </div>
                 </div>
@@ -4893,21 +4971,10 @@
                     </button>
                     <button class="btn btn-analyze" id="btn-analyze" title="Analitza la posició actual" style="display:none;">🔬 Analitza</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
-                    <button class="btn btn-secondary" id="btn-back">Menú</button>
+                    <button class="btn btn-nav-home" id="btn-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
    
-        </div>
-    </div>
-
-    <div class="modal-overlay" id="menu-exit-modal">
-        <div class="modal-content">
-            <div class="modal-title" id="menu-exit-title">Sortir de la partida?</div>
-            <div class="subtitle" id="menu-exit-message">Vols sortir de la partida?</div>
-            <div class="resign-modal-actions">
-                <button class="btn btn-primary" id="btn-menu-exit-confirm">Sí</button>
-                <button class="btn btn-secondary" id="btn-menu-exit-cancel">No</button>
-            </div>
         </div>
     </div>
 
