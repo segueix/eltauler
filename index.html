@@ -2416,7 +2416,7 @@
         #stats-screen { text-align: left; }
   
         .history-section {
-            margin-top: 20px;
+            margin-top: 16px;
             background: rgba(0,0,0,0.2);
             border: 1px solid rgba(201, 162, 39, 0.2);
             border-radius: 12px;
@@ -2426,12 +2426,55 @@
             background: var(--bg-card);
             border: 1px solid #cfcfcf;
         }
+        /* Capçalera de la secció: rellotge de sorra daurat + subtítol */
+        .history-logo {
+            display: flex; align-items: center; justify-content: center;
+        }
+        .history-logo-ic {
+            width: 52px; height: 52px;
+            fill: none; stroke: var(--accent-gold);
+            stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round;
+            filter: drop-shadow(0 2px 6px rgba(201, 162, 39, 0.35));
+        }
+        body.epaper-mode .history-logo-ic { filter: none; }
+        .history-subtitle {
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-top: 4px;
+        }
+        /* Resum ràpid: fitxes petites amb els totals de l'historial */
+        .history-summary {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+            gap: 8px;
+            margin-top: 16px;
+        }
+        .history-summary-tile {
+            background: rgba(0,0,0,0.22);
+            border: 1px solid rgba(201, 162, 39, 0.16);
+            border-radius: 10px;
+            padding: 8px 10px;
+            text-align: center;
+        }
+        body.epaper-mode .history-summary-tile { background: #eaeaea; border-color: #cfcfcf; }
+        body.day-mode .history-summary-tile { background: rgba(120,95,40,0.08); border-color: rgba(120,95,40,0.22); }
+        .history-summary-tile .hst-label {
+            font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.5px;
+            color: var(--text-secondary); margin-bottom: 2px;
+        }
+        .history-summary-tile .hst-value {
+            font-size: 1.15rem; font-weight: 600; color: var(--text-primary);
+        }
+        .history-list-head {
+            display: flex; align-items: baseline; justify-content: space-between;
+            gap: 8px; margin-bottom: 10px;
+        }
         .history-title {
             font-family: 'Cinzel', serif;
             font-size: 0.95rem;
             color: var(--accent-gold);
-            margin-bottom: 10px;
         }
+        .history-count { font-size: 0.75rem; color: var(--text-secondary); }
         .history-filters {
             display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
         }
@@ -2442,75 +2485,110 @@
             gap: 16px;
         }
         body.device-tablet .history-layout {
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: minmax(220px, 1fr) minmax(0, 1.6fr);
+            align-items: start;
         }
         body.device-desktop .history-layout {
-            grid-template-columns: minmax(220px, 1fr) minmax(280px, 1.4fr) minmax(240px, 1fr);
+            grid-template-columns: minmax(230px, 0.85fr) minmax(0, 2.3fr);
             align-items: start;
         }
         .history-list {
             display: flex;
             flex-direction: column;
-            gap: 10px;
-            max-height: 360px;
+            gap: 8px;
+            max-height: 320px;
             overflow-y: auto;
             padding-right: 4px;
         }
+        body.device-tablet .history-list,
         body.device-desktop .history-list {
             max-height: none;
             overflow: visible;
             padding-right: 0;
-            grid-column: 1;
         }
+        /* Targeta de partida: tota la targeta és clicable per obrir-ne el detall */
         .history-item {
             display: flex;
             align-items: center;
-            justify-content: space-between;
             gap: 10px;
             background: rgba(0,0,0,0.25);
             border-radius: 10px;
-            padding: 10px 12px;
+            padding: 9px 10px;
             border: 1px solid rgba(201, 162, 39, 0.15);
-            flex-wrap: wrap;        
+            border-left: 4px solid var(--text-secondary);
+            cursor: pointer;
+            transition: background 0.15s ease, border-color 0.15s ease, transform 0.1s ease;
+        }
+        .history-item:hover, .history-item:focus-visible {
+            background: rgba(0,0,0,0.4);
+            outline: none;
+            transform: translateY(-1px);
+        }
+        .history-item.hi-win { border-left-color: var(--accent-green); }
+        .history-item.hi-loss { border-left-color: #c0392b; }
+        .history-item.hi-draw { border-left-color: var(--text-secondary); }
+        .history-item.active {
+            border-color: var(--accent-gold);
+            background: rgba(201, 162, 39, 0.12);
         }
         body.epaper-mode .history-item {
             background: #eaeaea;
             border-color: #cfcfcf;
         }
+        body.epaper-mode .history-item.active { border-color: #555; background: #ddd; }
+        .history-item-icon {
+            flex: 0 0 auto;
+            width: 34px; height: 34px;
+            display: flex; align-items: center; justify-content: center;
+            border-radius: 50%;
+            font-size: 1rem;
+            background: rgba(255,255,255,0.06);
+        }
+        body.epaper-mode .history-item-icon { background: #ddd; }
         .history-item-main {
-            flex: 1 1 180px;
+            flex: 1 1 auto;
+            min-width: 0;
         }
-        .history-item-actions {
-            display: flex;
-            gap: 6px;
-            flex-wrap: wrap;
-            justify-content: flex-end;
+        .history-item-title {
+            font-weight: 600; font-size: 0.92rem;
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
-        .history-item-actions .btn {
-            padding: 8px 10px;
+        .history-item-meta {
+            font-size: 0.72rem; color: var(--text-secondary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .history-item-side {
+            flex: 0 0 auto;
+            display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
+        }
+        .history-prec-pill {
+            font-size: 0.78rem; font-weight: 700;
+            padding: 2px 8px; border-radius: 10px;
+            background: rgba(255,255,255,0.07);
+            color: var(--text-primary);
+        }
+        .history-prec-pill.hp-good { color: #7fcf9a; background: rgba(46, 204, 113, 0.14); }
+        .history-prec-pill.hp-mid { color: #ffcf7d; background: rgba(212, 172, 13, 0.16); }
+        .history-prec-pill.hp-low { color: #ff9d94; background: rgba(231, 76, 60, 0.16); }
+        body.day-mode .history-prec-pill.hp-good { color: #2f6b46; }
+        body.day-mode .history-prec-pill.hp-mid { color: #806712; }
+        body.day-mode .history-prec-pill.hp-low { color: #b22f2f; }
+        .history-item .history-delete {
+            background: transparent;
+            color: var(--text-secondary);
+            border: none;
+            width: auto;
+            padding: 4px 6px;
             font-size: 0.8rem;
-        }        
-        .history-item-actions .history-review {
-            background: linear-gradient(135deg, #ff9f1a 0%, #ff7a00 100%);
-            color: #1b1b1b;
-            border: 1px solid rgba(255, 122, 0, 0.6);
+            border-radius: 6px;
+            box-shadow: none;
         }
-        .history-item-actions .history-review:hover {
-            filter: brightness(1.05);
-        }
-        .history-item-actions .history-delete {
-            background: rgba(200, 60, 60, 0.12);
+        .history-item .history-delete:hover {
             color: #ff7a70;
-            border: 1px solid rgba(200, 60, 60, 0.4);
-            padding: 8px 10px;
+            background: rgba(200, 60, 60, 0.15);
+            transform: none;
         }
-        .history-item-actions .history-delete:hover {
-            background: linear-gradient(135deg, #c0392b 0%, #922b21 100%);
-            color: #fff;
-        }
-        body.epaper-mode .history-item-actions .history-delete { color:#a33; border-color:#c99; }
-        .history-item-title { font-weight: 600; font-size: 0.95rem; }
-        .history-item-meta { font-size: 0.75rem; color: var(--text-secondary); }
+        body.epaper-mode .history-item .history-delete { color:#a33; }
         .history-empty { color: var(--text-secondary); font-size: 0.85rem; text-align: center; padding: 12px; }
         .history-detail {
             background: var(--bg-warm);
@@ -2519,20 +2597,17 @@
             border: 1px solid rgba(201, 162, 39, 0.25);
             min-width: 0;
             max-width: 100%;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
         }
         body.epaper-mode .history-detail {
             background: #ededed;
             border-color: #cfcfcf;
         }
-        body.device-desktop .history-detail {
-            display: flex;
-            flex-direction: column;
-            gap: 12px;
-            grid-column: 2 / 4;
-        }
         body.device-desktop .history-detail-body {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) minmax(0, 0.9fr);
+            grid-template-columns: minmax(0, 0.95fr) minmax(0, 1.05fr);
             gap: 12px;
             align-items: start;
             min-width: 0;
@@ -2542,6 +2617,8 @@
             position: sticky;
             top: 16px;
             align-self: start;
+        }
+        .history-side {
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -2572,22 +2649,175 @@
             display: flex;
             flex-direction: column;
             gap: 4px;
-            margin-bottom: 10px;
         }
-        .history-detail-title { font-size: 1rem; font-weight: 600; }
+        .history-detail-titlerow {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .history-detail-title { font-size: 1.05rem; font-weight: 600; }
+        .history-detail-prec {
+            font-size: 0.8rem;
+            color: var(--text-secondary);
+            padding: 3px 10px;
+            border-radius: 12px;
+            background: rgba(255,255,255,0.06);
+            white-space: nowrap;
+        }
+        .history-detail-prec strong { font-size: 0.95rem; color: var(--text-primary); }
+        .history-detail-prec.hp-good strong { color: #7fcf9a; }
+        .history-detail-prec.hp-mid strong { color: #ffcf7d; }
+        .history-detail-prec.hp-low strong { color: #ff9d94; }
+        body.day-mode .history-detail-prec.hp-good strong { color: #2f6b46; }
+        body.day-mode .history-detail-prec.hp-mid strong { color: #806712; }
+        body.day-mode .history-detail-prec.hp-low strong { color: #b22f2f; }
+        body.epaper-mode .history-detail-prec { background: #ddd; }
         .history-detail-meta { font-size: 0.8rem; color: var(--text-secondary); }
+
+        /* ===== Gràfic de precisió per fases (SVG propi, sense llibreries) ===== */
+        .history-graph-card {
+            background: var(--bg-card);
+            border-radius: 10px;
+            padding: 12px 14px;
+            border: 1px solid rgba(201, 162, 39, 0.18);
+        }
+        body.epaper-mode .history-graph-card { background: #ededed; border-color: #cfcfcf; }
+        .history-graph { position: relative; min-width: 0; }
+        .history-graph svg { display: block; width: 100%; height: auto; }
+        .history-graph .hgc-grid { stroke: rgba(168, 154, 138, 0.22); stroke-width: 1; }
+        .history-graph .hgc-axis { fill: var(--text-secondary); font-size: 10px; font-family: 'Inter', sans-serif; }
+        .history-graph .hgc-band { fill: rgba(168, 154, 138, 0.07); }
+        .history-graph .hgc-band-sep { stroke: rgba(168, 154, 138, 0.35); stroke-width: 1; }
+        .history-graph .hgc-band-label {
+            fill: var(--text-secondary); font-size: 10px; font-weight: 600;
+            letter-spacing: 0.6px; text-transform: uppercase; font-family: 'Inter', sans-serif;
+        }
+        .history-graph .hgc-area { fill: rgba(201, 162, 39, 0.10); }
+        .history-graph .hgc-line { fill: none; stroke: var(--accent-gold); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .history-graph .hgc-dot { stroke: var(--bg-card); stroke-width: 2; }
+        body.epaper-mode .history-graph .hgc-dot { stroke: #ededed; }
+        .history-graph .hgc-glyph {
+            fill: var(--text-primary); font-size: 10px; font-weight: 700;
+            font-family: 'Inter', sans-serif; text-anchor: middle;
+        }
+        .history-graph .hgc-endlabel { fill: var(--text-primary); font-size: 11px; font-weight: 600; font-family: 'Inter', sans-serif; }
+        .history-graph .hgc-hit { fill: transparent; cursor: pointer; }
+        .history-graph .hgc-hit:focus { outline: none; }
+        .history-graph .hgc-hit:focus + .hgc-dot,
+        .history-graph .hgc-hit:hover + .hgc-dot { stroke: var(--accent-gold); }
+        .history-graph-tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(20, 14, 8, 0.94);
+            color: var(--text-primary);
+            border: 1px solid rgba(201, 162, 39, 0.4);
+            border-radius: 8px;
+            padding: 6px 9px;
+            font-size: 0.75rem;
+            line-height: 1.4;
+            max-width: 220px;
+            z-index: 5;
+            display: none;
+        }
+        .history-graph-tooltip strong { font-size: 0.85rem; }
+        body.epaper-mode .history-graph-tooltip { background: #fff; color: #222; border-color: #999; }
+        body.day-mode .history-graph-tooltip { background: #fffdf7; color: #2e2618; border-color: rgba(120,95,40,0.4); }
+
+        /* Fitxes de fase (obertura / mig joc / final) amb el repte «Rejugar +5%» */
+        .history-phase-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 8px;
+            margin-top: 10px;
+        }
+        .history-phase-card {
+            background: rgba(0,0,0,0.22);
+            border: 1px solid rgba(201, 162, 39, 0.16);
+            border-radius: 10px;
+            padding: 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+            min-width: 0;
+        }
+        body.epaper-mode .history-phase-card { background: #eaeaea; border-color: #cfcfcf; }
+        body.day-mode .history-phase-card { background: rgba(120,95,40,0.08); border-color: rgba(120,95,40,0.22); }
+        .history-phase-card .hpc-name {
+            font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.6px;
+            color: var(--text-secondary); font-weight: 600;
+        }
+        .history-phase-card .hpc-pct { font-size: 1.3rem; font-weight: 700; color: var(--text-primary); }
+        .history-phase-card .hpc-meta { font-size: 0.72rem; color: var(--text-secondary); }
+        .history-phase-card .hpc-empty { font-size: 0.78rem; color: var(--text-secondary); font-style: italic; }
+        .phase-replay-btn {
+            margin-top: 6px;
+            padding: 8px 10px;
+            font-size: 0.78rem;
+            letter-spacing: 0;
+            font-family: 'Inter', sans-serif;
+            font-weight: 600;
+            background: rgba(201, 162, 39, 0.14);
+            color: var(--accent-gold);
+            border: 1px solid rgba(201, 162, 39, 0.45);
+            border-radius: 8px;
+        }
+        .phase-replay-btn:hover { background: rgba(201, 162, 39, 0.26); }
+        .phase-replay-btn .btn-ic { width: 1.1em; height: 1.1em; }
+        body.day-mode .phase-replay-btn { color: #806712; border-color: rgba(154,125,31,0.55); background: rgba(154,125,31,0.10); }
+
+        /* Bàner de progrés del repte «Rejugar +5%» (pantalla de joc) */
+        .phase-replay-banner {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(201, 162, 39, 0.12);
+            border: 1px solid rgba(201, 162, 39, 0.4);
+            border-radius: 10px;
+            padding: 8px 12px;
+            margin-bottom: 12px;
+            font-size: 0.85rem;
+            color: var(--text-primary);
+        }
+        .phase-replay-banner .btn-ic { color: var(--accent-gold); flex: 0 0 auto; }
+        body.epaper-mode .phase-replay-banner { background: #e6e6e6; border-color: #cfcfcf; }
+        .phase-replay-result-detail {
+            font-size: 0.9rem;
+            line-height: 1.5;
+            margin: 4px 0 10px;
+        }
+        .phase-replay-result-detail .prr-meter {
+            position: relative;
+            height: 14px;
+            border-radius: 7px;
+            background: rgba(0,0,0,0.35);
+            overflow: hidden;
+            margin-top: 8px;
+        }
+        .phase-replay-result-detail .prr-meter-fill {
+            height: 100%;
+            border-radius: 7px;
+            background: var(--accent-green);
+        }
+        .phase-replay-result-detail .prr-meter-fill.ko { background: var(--severity-med); }
+        .phase-replay-result-detail .prr-meter-target {
+            position: absolute; top: 0; width: 2px; height: 100%;
+            background: rgba(255,255,255,0.75);
+        }
+        .phase-replay-result-detail .prr-note { font-size: 0.78rem; color: var(--text-secondary); margin-top: 6px; }
+
         .history-board {
             width: 100%;
             max-width: min(360px, 100%);
             min-width: 0;
-            margin: 10px auto 12px;
+            margin: 0 auto;
         }
         .history-review {
             background: var(--bg-card);
             border-radius: 10px;
             padding: 12px 14px;
             border: 1px solid rgba(201, 162, 39, 0.18);
-            margin-top: 10px;
             max-height: 500px;
             overflow-y: auto;
         }
@@ -2781,9 +3011,17 @@
             display: flex;
             justify-content: center;
             gap: 8px;
-            flex-wrap: wrap;
+            flex-wrap: nowrap;
             margin-bottom: 8px;
+            width: 100%;
         }
+        /* Una sola fila: enrere · reprodueix · pausa · endavant */
+        .history-controls .btn {
+            width: auto;
+            flex: 0 1 auto;
+            padding: 10px 12px;
+        }
+        .history-controls #history-play { flex: 1 1 auto; max-width: 220px; }
         .history-actions {
             display: grid;
             grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3323,15 +3561,9 @@
             margin-top: 12px;
         }
 
-        /* Historial: controls a sobre del tauler en mòbil */
-        body.device-mobile .history-detail {
-            display: flex;
-            flex-direction: column;
-        }
-        body.device-mobile .history-detail-header { order: 1; }
-        body.device-mobile #history-breakdown { order: 2; }
+        /* Historial en mòbil: el DOM ja va en l'ordre de lectura
+           (capçalera → desglossament → gràfic → tauler i controls → revisió). */
         body.device-mobile .history-detail-body {
-            order: 3;
             display: flex;
             flex-direction: column;
             gap: 10px;
@@ -3339,18 +3571,12 @@
             max-width: 100%;
         }
         body.device-mobile .history-side {
-            order: 1;
-            display: flex;
-            flex-direction: column;
             align-items: center;
             width: 100%;
-            min-width: 0;
-            max-width: 100%;
         }
-        body.device-mobile .history-controls { order: 1; margin-bottom: 10px; width: 100%; }
-        body.device-mobile .history-board { order: 2; max-width: 100%; }
+        body.device-mobile .history-controls { width: 100%; }
+        body.device-mobile .history-board { max-width: 100%; }
         body.device-mobile .history-actions {
-            order: 3;
             grid-template-columns: repeat(2, minmax(0, 1fr));
             width: 100%;
             padding: 0 4px;
@@ -3362,9 +3588,12 @@
             body.device-mobile .history-actions {
                 grid-template-columns: 1fr;
             }
+            body.device-mobile .history-phase-cards {
+                grid-template-columns: 1fr;
+            }
         }
-        body.device-mobile .history-progress { order: 4; width: 100%; }
-        body.device-mobile .history-review { order: 2; width: 100%; }
+        body.device-mobile .history-progress { width: 100%; }
+        body.device-mobile .history-review { width: 100%; }
         /* Evitar desbordament horitzontal i mantenir tot centrat en mòbil */
         body.device-mobile .history-detail,
         body.device-mobile .history-detail-body,
@@ -3466,10 +3695,13 @@
             <path d="M6 10.5V15c0 1.3 2.7 2.4 6 2.4s6-1.1 6-2.4v-4.5"/>
             <path d="M21.5 8.5v5"/>
         </symbol>
+        <!-- Historial: rellotge de sorra (mateix traç line-icon que la resta) -->
         <symbol id="ic-history" viewBox="0 0 24 24">
-            <path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.7L3 8"/>
-            <path d="M3 3v5h5"/>
-            <path d="M12 7.5v5l3.5 2"/>
+            <path d="M5.75 3.5h12.5"/>
+            <path d="M5.75 20.5h12.5"/>
+            <path d="M8 3.5V6c0 2.4 4 3.6 4 6s-4 3.6-4 6v2.5"/>
+            <path d="M16 3.5V6c0 2.4-4 3.6-4 6s4 3.6 4 6v2.5"/>
+            <path d="M12 14.6v3.1"/>
         </symbol>
         <symbol id="ic-bars" viewBox="0 0 24 24">
             <path d="M4 20.5h16"/>
@@ -4115,25 +4347,33 @@
    
         <div id="history-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
-                <div class="app-logo">📜</div>
+                <div class="app-logo history-logo"><svg class="history-logo-ic" aria-hidden="true"><use href="#ic-history"/></svg></div>
                 <h1>Historial</h1>
+                <div class="history-subtitle">Les teves partides, amb revisió jugada a jugada i reptes per millorar-les.</div>
             </div>
+
+            <!-- Resum ràpid de tot l'historial -->
+            <div class="history-summary" id="history-summary"></div>
+
             <div class="history-section">
-                <div class="history-title">Partides guardades</div>
+                <div class="history-list-head">
+                    <div class="history-title">Partides guardades</div>
+                    <div class="history-count" id="history-count"></div>
+                </div>
                 <div class="history-filters">
-                    <select id="history-filter-result" class="select-control">
+                    <select id="history-filter-result" class="select-control" aria-label="Filtra per resultat">
                         <option value="all">Tots els resultats</option>
                         <option value="win">Victòries</option>
                         <option value="loss">Derrotes</option>
                         <option value="draw">Taules</option>
                     </select>
-                    <select id="history-filter-mode" class="select-control">
+                    <select id="history-filter-mode" class="select-control" aria-label="Filtra per mode">
                         <option value="all">Tots els modes</option>
                         <option value="free">Amistoses</option>
                         <option value="assisted">Assistides</option>
                         <option value="league">Lliga</option>
                     </select>
-                    <select id="history-filter-prec" class="select-control">
+                    <select id="history-filter-prec" class="select-control" aria-label="Filtra per precisió">
                         <option value="0">Qualsevol precisió</option>
                         <option value="60">Precisió ≥ 60%</option>
                         <option value="75">Precisió ≥ 75%</option>
@@ -4142,14 +4382,45 @@
                 </div>
                 <div class="history-layout">
                     <div class="history-list" id="history-list"></div>
-                    <div class="history-detail">
+                    <div class="history-detail" id="history-detail">
                         <div class="history-detail-header">
-                            <div class="history-detail-title" id="history-result">—</div>
-                            <div class="history-detail-meta" id="history-meta">Selecciona una partida per veure detalls.</div>
-                            <div class="history-detail-meta">Precisió: <strong id="history-precision">—</strong></div>
+                            <div class="history-detail-titlerow">
+                                <div class="history-detail-title" id="history-result">—</div>
+                                <div class="history-detail-prec" id="history-precision-pill">Precisió <strong id="history-precision">—</strong></div>
+                            </div>
+                            <div class="history-detail-meta" id="history-meta">Selecciona una partida per veure'n els detalls.</div>
                         </div>
                         <div class="review-legend" id="history-breakdown"></div>
+
+                        <!-- Gràfic de precisió per fases (obertura / mig joc / final) amb reptes de rejugar -->
+                        <div class="history-graph-card" id="history-graph-card" style="display:none;">
+                            <div class="history-review-title">Precisió al llarg de la partida</div>
+                            <div class="history-graph" id="history-graph"></div>
+                            <div class="history-phase-cards" id="history-phase-cards"></div>
+                        </div>
+
                         <div class="history-detail-body">
+                            <div class="history-side">
+                                <div class="history-board">
+                                    <div id="history-board"></div>
+                                </div>
+                                <div id="review-board-legend" class="review-board-legend" style="display:none;">
+                                    <span id="review-legend-played"><span class="sw" style="background:#e74c3c;"></span>la teva jugada</span>
+                                    <span id="review-legend-best"><span class="sw" style="background:#2ecc71;"></span><span id="review-legend-best-text">la millor jugada</span></span>
+                                </div>
+                                <div class="history-controls">
+                                    <button class="btn btn-secondary" id="history-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
+                                    <button class="btn btn-primary" id="history-play"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Reprodueix</button>
+                                    <button class="btn btn-secondary" id="history-pause" aria-label="Pausa" title="Pausa"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg></button>
+                                    <button class="btn btn-secondary" id="history-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
+                                </div>
+                                <div class="history-progress" id="history-progress">0/0</div>
+                                <div class="history-actions">
+                                    <button class="btn btn-secondary" id="history-generate-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Regenerar la ressenya</button>
+                                    <button class="btn btn-secondary" id="history-deepen-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Recalcular moments clau</button>
+                                    <button class="btn btn-secondary" id="history-export-pgn" style="grid-column:1 / -1;">♟ Exportar la partida (PGN)</button>
+                                </div>
+                            </div>
                             <div class="history-review">
                                 <div class="history-review-title">Revisió de la partida</div>
                                 <div class="review-voice-control">
@@ -4166,26 +4437,6 @@
                                     <div class="history-review-title" style="margin-top:14px;">Errades comentades</div>
                                     <div id="history-error-notes"></div>
                                 </div>
-                            </div>
-                            <div class="history-side">
-                                <div class="history-board">
-                                    <div id="history-board"></div>
-                                </div>
-                                <div id="review-board-legend" class="review-board-legend" style="display:none;">
-                                    <span class="sw" style="background:#e74c3c;"></span>la teva jugada
-                                    <span class="sw" style="background:#2ecc71;"></span>la millor jugada
-                                </div>
-                                <div class="history-controls">
-                                    <button class="btn btn-secondary" id="history-prev"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg>Enrere</button>
-                                    <button class="btn btn-primary" id="history-play"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Reprodueix</button>
-                                    <button class="btn btn-secondary" id="history-pause"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg>Pausa</button>
-                                    <button class="btn btn-secondary" id="history-next"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg>Endavant</button>
-                                </div>
-                                <div class="history-actions">
-                                    <button class="btn btn-secondary" id="history-generate-review" style="grid-column:1 / -1;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Regenerar la ressenya</button>
-                                    <button class="btn btn-secondary" id="history-deepen-review" style="grid-column:1 / -1;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Recalcular moments clau</button>
-                                </div>
-                                <div class="history-progress" id="history-progress">0/0</div>
                             </div>
                         </div>
                     </div>
@@ -4308,7 +4559,7 @@
                 <div class="nav-trio">
                     <button class="btn btn-nav-home" id="btn-review-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                     <button class="btn btn-nav-board" id="btn-review-close" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
-                    <button class="btn btn-nav-section" id="btn-review-section">📜 Historial</button>
+                    <button class="btn btn-nav-section" id="btn-review-section"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
                 </div>
             </div>
         </div>
@@ -4874,8 +5125,14 @@
                 </div>
                 <div class="precision-stat">
                     <div class="precision-label">Objectiu</div>
-                    <div class="precision-value precision-target-text">75%</div>
+                    <div class="precision-value precision-target-text" id="precision-target-text">75%</div>
                 </div>
+            </div>
+
+            <!-- Repte «Rejugar +5%» des de l'historial: progrés de la fase que es rejuga -->
+            <div class="phase-replay-banner" id="phase-replay-banner" style="display:none;">
+                <svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>
+                <span class="prb-text" id="phase-replay-banner-text"></span>
             </div>
 
             <div id="error-context-banner" style="display:none;">
@@ -4892,6 +5149,23 @@
 
             <div class="board-container">
                 <div id="myBoard"></div>
+                <!-- Final del repte «Rejugar +5%»: resultat sobre el tauler -->
+                <div class="bundle-success-overlay" id="phase-replay-overlay">
+                    <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
+                        <div class="bundle-success-icon" id="phase-replay-result-icon">⏳</div>
+                        <div class="bundle-success-title" id="phase-replay-result-title">Repte acabat</div>
+                        <div class="phase-replay-result-detail" id="phase-replay-result-detail"></div>
+                        <div class="bundle-success-actions">
+                            <button class="btn btn-primary" id="btn-phase-replay-retry">↻ Reintenta el repte</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-phase-replay-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-phase-replay-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-phase-replay-history"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
+                        </div>
+                    </div>
+                </div>
                 <div class="bundle-success-overlay" id="bundle-success-overlay">
                     <div class="bundle-success-content">
                         <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
@@ -5092,7 +5366,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.41"></script>
+    <script src="app.js?v=1.0.42"></script>
 
     <!-- Service Worker Registration -->
     <script>
