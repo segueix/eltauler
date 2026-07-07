@@ -3530,71 +3530,14 @@
                 </div>
             </div>
             
-            <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
-                <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
-                <span class="catalans-banner-text">
-                    <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
-                    <span class="catalans-banner-title">Catalans vs Stockfish</span>
-                    <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
-                    <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
-                </span>
-                <span class="catalans-banner-cta">Juga-hi ›</span>
-            </button>
-
-            <!-- Bàners de partides col·lectives pròpies (es generen dinàmicament) -->
-            <div id="custom-banners"></div>
-            <button class="custom-create-banner" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
-                <span class="ccb-plus">＋</span>
-                <span class="ccb-text">
-                    <span class="ccb-title">Crea la teva partida col·lectiva</span>
-                    <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
-                </span>
-            </button>
-
-            <button class="ranking-banner" id="btn-ranking" aria-label="Rànquing">
-                <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
-                <span class="ranking-banner-text">
-                    <span class="ranking-banner-title">Rànquing</span>
-                    <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> jeroglífics</span>
-                </span>
-                <span class="ranking-banner-cta">Veure ›</span>
-            </button>
-
-            <div class="coach-banner" id="home-coach-banner" style="display:none;">
-                <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
-                    <span class="coach-banner-ic" aria-hidden="true">🧠</span>
-                    <span class="coach-banner-text">
-                        <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
-                        <span class="coach-banner-sub" id="home-coach-text">—</span>
-                    </span>
-                    <span class="coach-banner-cta">Veure ›</span>
-                </button>
-                <div class="coach-banner-foot">
-                    <label for="home-coach-style">Estil</label>
-                    <select id="home-coach-style" class="select-control">
-                        <option value="casual">Casual</option>
-                        <option value="balanced">Equilibrada</option>
-                        <option value="technical">Tècnica</option>
-                    </select>
-                    <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
-                </div>
-            </div>
-
+            <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
             <div class="engagement-banner" id="engagement-banner" style="display:none;">
                 <span class="eng-icon">💡</span>
                 <span class="eng-text"></span>
                 <button class="btn eng-cta" data-eng-action="play"></button>
             </div>
 
-            <div class="missions-panel">
-                <div class="missions-header">
-                    <div class="missions-title">Missions Diàries</div>
-                    <button class="badges-btn" id="btn-badges">Trofeus</button>
-                </div>
-                <div id="missions-list"></div>
-            </div>
-
-            <!-- JUGA -->
+            <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
                 <div class="menu-buttons">
@@ -3628,8 +3571,13 @@
                         </div>
                     </div>
                     <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
+                </div>
+            </div>
 
-                    <!-- BÀNER DE JEROGLÍFICS (sota la lliga) -->
+            <!-- ENTRENA: exercicis per millorar, amb els jeroglífics al capdavant -->
+            <div class="menu-section">
+                <div class="menu-section-title">Entrena</div>
+                <div class="menu-buttons">
                     <div class="hieroglyphic-banner" id="hieroglyphic-banner">
                         <button class="hg-banner-main" id="btn-hieroglyphic-banner" type="button">
                             <span class="hg-banner-icon" aria-hidden="true"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg></span>
@@ -3672,13 +3620,6 @@
                             </div>
                         </details>
                     </div>
-                </div>
-            </div>
-
-            <!-- ENTRENA -->
-            <div class="menu-section">
-                <div class="menu-section-title">Entrena</div>
-                <div class="menu-buttons">
                     <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
                     <div class="menu-grid">
                         <button class="btn btn-tactics" id="btn-tactics">
@@ -3703,25 +3644,93 @@
                 </div>
             </div>
 
-            <!-- PROGRÉS -->
-            <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
-                <div class="coach-kicker">
-                    <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
-                    <span class="coach-kicker-right">
-                        <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
-                        <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                    </span>
+            <!-- EL TEU ENTRENADOR: diagnòstic, pla del dia i missions -->
+            <div class="menu-section">
+                <div class="menu-section-title">El teu entrenador</div>
+
+                <div class="coach-banner" id="home-coach-banner" style="display:none;">
+                    <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
+                        <span class="coach-banner-ic" aria-hidden="true">🧠</span>
+                        <span class="coach-banner-text">
+                            <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
+                            <span class="coach-banner-sub" id="home-coach-text">—</span>
+                        </span>
+                        <span class="coach-banner-cta">Veure ›</span>
+                    </button>
+                    <div class="coach-banner-foot">
+                        <label for="home-coach-style">Estil</label>
+                        <select id="home-coach-style" class="select-control">
+                            <option value="casual">Casual</option>
+                            <option value="balanced">Equilibrada</option>
+                            <option value="technical">Tècnica</option>
+                        </select>
+                        <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                    </div>
                 </div>
-                <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
-                <div class="coach-plan-progress" id="weekly-plan-progress">
-                    <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
-                    <span class="coach-plan-progress-label">0/0 passos</span>
+
+                <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                    <div class="coach-kicker">
+                        <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
+                        <span class="coach-kicker-right">
+                            <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
+                            <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                        </span>
+                    </div>
+                    <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                    <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                    <div class="coach-plan-progress" id="weekly-plan-progress">
+                        <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                        <span class="coach-plan-progress-label">0/0 passos</span>
+                    </div>
+                    <div id="weekly-plan-list"></div>
+                    <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
                 </div>
-                <div id="weekly-plan-list"></div>
-                <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
+
+                <div class="missions-panel">
+                    <div class="missions-header">
+                        <div class="missions-title">Missions Diàries</div>
+                        <button class="badges-btn" id="btn-badges">Trofeus</button>
+                    </div>
+                    <div id="missions-list"></div>
+                </div>
             </div>
 
+            <!-- COMUNITAT: partides col·lectives en directe i rànquing -->
+            <div class="menu-section">
+                <div class="menu-section-title">Comunitat</div>
+
+                <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
+                    <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
+                    <span class="catalans-banner-text">
+                        <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
+                        <span class="catalans-banner-title">Catalans vs Stockfish</span>
+                        <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
+                        <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
+                    </span>
+                    <span class="catalans-banner-cta">Juga-hi ›</span>
+                </button>
+
+                <!-- Bàners de partides col·lectives pròpies (es generen dinàmicament) -->
+                <div id="custom-banners"></div>
+                <button class="custom-create-banner" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
+                    <span class="ccb-plus">＋</span>
+                    <span class="ccb-text">
+                        <span class="ccb-title">Crea la teva partida col·lectiva</span>
+                        <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
+                    </span>
+                </button>
+
+                <button class="ranking-banner" id="btn-ranking" aria-label="Rànquing">
+                    <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
+                    <span class="ranking-banner-text">
+                        <span class="ranking-banner-title">Rànquing</span>
+                        <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> jeroglífics</span>
+                    </span>
+                    <span class="ranking-banner-cta">Veure ›</span>
+                </button>
+            </div>
+
+            <!-- PROGRÉS -->
             <div class="menu-section">
                 <div class="menu-section-title">Progrés</div>
                 <div class="menu-buttons">
