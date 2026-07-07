@@ -15886,23 +15886,12 @@ function setupEvents() {
         $('#start-screen').show();
         navStack.pop();
     };
-    const confirmOpeningExit = () => {
-        if (hieroglyphicExerciseActive || openingErrorPracticeActive) {
-            const copy = getMenuExitCopy();
-            showAppConfirm(copy.message, exitOpeningScreenToMenu, {
-                title: copy.title,
-                confirmText: 'Sí',
-                cancelText: 'No'
-            });
-            return;
-        }
-        exitOpeningScreenToMenu();
-    };
+    // El botó-casa surt directament a la pàgina principal, sense preguntar.
     $('#btn-back-opening').click(() => {
-        confirmOpeningExit();
+        exitOpeningScreenToMenu();
     });
     $('#btn-opening-bundle-menu').click(() => {
-        confirmOpeningExit();
+        exitOpeningScreenToMenu();
     });
     $('#btn-opening-bundle-hint').click(() => {
         if (!openingPracticeGame || openingPracticeGame.game_over()) return;
@@ -16500,61 +16489,14 @@ function setupEvents() {
         }
     });
 
-    const getMenuExitCopy = () => {
-        const isHieroglyphicExit = hieroglyphicExerciseActive || currentBundleSource === 'bestline';
-        const isTacticsExit = isTacticsSession || currentBundleSource === 'tactics';
-        const isSrsReviewExit = isSrsReviewSession || currentBundleSource === 'srs';
-        const isErrorReviewExit = isMatchErrorReviewSession
-            || openingErrorPracticeActive
-            || (blunderMode && !['bestline', 'mate_drill', 'opening_drill', 'tactics'].includes(currentBundleSource));
-
-        if (isHieroglyphicExit) {
-            return {
-                title: 'Sortir del jeroglífic?',
-                message: 'Vols anar a la pàgina principal o tornar al tauler?',
-                confirmText: 'Pàgina principal',
-                cancelText: 'Tornar al tauler'
-            };
-        }
-        if (isTacticsExit) {
-            return {
-                title: 'Sortir de la tàctica?',
-                message: 'Vols anar a la pàgina principal o tornar al tauler?',
-                confirmText: 'Pàgina principal',
-                cancelText: 'Tornar al tauler'
-            };
-        }
-        if (isSrsReviewExit) {
-            return {
-                title: 'Sortir del repàs intel·ligent?',
-                message: 'Vols anar a la pàgina principal o tornar al tauler?',
-                confirmText: 'Pàgina principal',
-                cancelText: 'Tornar al tauler'
-            };
-        }
-        if (isErrorReviewExit) {
-            return {
-                title: 'Sortir de la revisió?',
-                message: 'Vols anar a la pàgina principal o tornar al tauler?',
-                confirmText: 'Pàgina principal',
-                cancelText: 'Tornar al tauler'
-            };
-        }
-        if (leagueActiveMatch && currentGameMode === 'league') {
-            return {
-                title: 'Sortir de la partida?',
-                message: 'Sortir de la partida de lliga? Comptarà com a derrota.',
-                confirmText: 'Sí',
-                cancelText: 'No'
-            };
-        }
-        return {
-            title: 'Sortir de la partida?',
-            message: 'Vols anar a la pàgina principal o tornar al tauler?',
-            confirmText: 'Pàgina principal',
-            cancelText: 'Tornar al tauler'
-        };
-    };
+    // El botó-casa ja no pregunta: aquest modal només es fa servir per confirmar
+    // l'abandonament d'una partida de lliga en curs (compta com a derrota).
+    const getMenuExitCopy = () => ({
+        title: 'Sortir de la partida?',
+        message: 'Sortir de la partida de lliga? Comptarà com a derrota.',
+        confirmText: 'Sí',
+        cancelText: 'No'
+    });
 
     const showMenuExitModal = () => {
         const copy = getMenuExitCopy();
@@ -16572,7 +16514,14 @@ function setupEvents() {
     };
 
     $('#btn-back').click(() => {
-       showMenuExitModal();
+        // El botó-casa porta directament a la pàgina principal, sense preguntar.
+        // Única excepció: una partida de lliga en curs, perquè sortir-ne compta
+        // com a derrota i cal confirmar-ho.
+        if (leagueActiveMatch && currentGameMode === 'league' && game && !game.game_over()) {
+            showMenuExitModal();
+            return;
+        }
+        returnToMainMenuImmediate();
     });
 
     const showResignModal = () => {
