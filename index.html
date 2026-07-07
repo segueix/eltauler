@@ -1459,11 +1459,36 @@
         }
         
         body.device-tablet .menu-buttons,
+        /* ── Escriptori: graella equilibrada de 2 columnes ──────────────────
+           Els botons es reparteixen en parelles de mida igual; els bàners,
+           el rellotge i les graelles internes ocupen tota la fila. */
         body.device-desktop .menu-buttons {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            grid-template-columns: repeat(2, minmax(0, 1fr));
             gap: 12px;
         }
+        body.device-desktop .menu-buttons > .setting-row,
+        body.device-desktop .menu-buttons > .catalans-banner,
+        body.device-desktop .menu-buttons > #custom-banners,
+        body.device-desktop .menu-buttons > .custom-create-banner,
+        body.device-desktop .menu-buttons > .league-banner,
+        body.device-desktop .menu-buttons > .hieroglyphic-banner,
+        body.device-desktop .menu-buttons > .menu-grid,
+        body.device-desktop .menu-buttons > .btn-opening,
+        body.device-desktop .menu-buttons > .btn-settings,
+        body.device-desktop .menu-buttons > #btn-league {
+            grid-column: 1 / -1;
+        }
+        /* El botó principal no sobresurt tant a escriptori: mida propera a la resta */
+        body.device-desktop .btn-hero { font-size: 1.02rem; padding: 15px 18px; }
+        /* La graella d'entrenament aprofita l'amplada amb 3 columnes iguals */
+        body.device-desktop .menu-grid-3 { grid-template-columns: repeat(3, 1fr); }
+        /* Els bàners dins d'un bloc de botons se separen amb el gap, sense marges propis */
+        .menu-buttons > .catalans-banner,
+        .menu-buttons > .custom-create-banner,
+        .menu-buttons > .hieroglyphic-banner,
+        .menu-buttons > .league-banner { margin: 0; }
+        .menu-buttons > #custom-banners:empty { display: none; }
         
         .btn-hint {
             background: linear-gradient(135deg, #7b1fa2, #4a148c);
@@ -3553,6 +3578,29 @@
                             <option value="15+10">Clàssic 15+10</option>
                         </select>
                     </div>
+
+                    <!-- Partides cooperatives (col·lectives), just sota el rellotge -->
+                    <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
+                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
+                        <span class="catalans-banner-text">
+                            <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
+                            <span class="catalans-banner-title">Catalans vs Stockfish</span>
+                            <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
+                            <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
+                        </span>
+                        <span class="catalans-banner-cta">Juga-hi ›</span>
+                    </button>
+
+                    <!-- Bàners de partides col·lectives pròpies (es generen dinàmicament) -->
+                    <div id="custom-banners"></div>
+                    <button class="custom-create-banner" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
+                        <span class="ccb-plus">＋</span>
+                        <span class="ccb-text">
+                            <span class="ccb-title">Crea la teva partida col·lectiva</span>
+                            <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
+                        </span>
+                    </button>
+
                     <div class="league-banner" id="league-banner" style="display:none;">
                         <div class="league-banner-header">
                             <span>🏅 Proper partit de lliga</span>
@@ -3621,7 +3669,7 @@
                         </details>
                     </div>
                     <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
-                    <div class="menu-grid">
+                    <div class="menu-grid menu-grid-3">
                         <button class="btn btn-tactics" id="btn-tactics">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
                             <span class="training-kind">General</span>
@@ -3695,30 +3743,9 @@
                 </div>
             </div>
 
-            <!-- COMUNITAT: partides col·lectives en directe i rànquing -->
+            <!-- COMUNITAT: rànquing de jugadors -->
             <div class="menu-section">
                 <div class="menu-section-title">Comunitat</div>
-
-                <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
-                    <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
-                    <span class="catalans-banner-text">
-                        <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
-                        <span class="catalans-banner-title">Catalans vs Stockfish</span>
-                        <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
-                        <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
-                    </span>
-                    <span class="catalans-banner-cta">Juga-hi ›</span>
-                </button>
-
-                <!-- Bàners de partides col·lectives pròpies (es generen dinàmicament) -->
-                <div id="custom-banners"></div>
-                <button class="custom-create-banner" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
-                    <span class="ccb-plus">＋</span>
-                    <span class="ccb-text">
-                        <span class="ccb-title">Crea la teva partida col·lectiva</span>
-                        <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
-                    </span>
-                </button>
 
                 <button class="ranking-banner" id="btn-ranking" aria-label="Rànquing">
                     <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
