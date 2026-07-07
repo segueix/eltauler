@@ -11457,9 +11457,9 @@ function showOpeningErrorSuccessOverlay(noMore) {
     if (globalRemaining === 0) {
         message = 'Has resolt totes les errades!';
     } else if (remaining > 0) {
-        message = `${remaining} errada${remaining > 1 ? 'es' : ''} restant${remaining > 1 ? 's' : ''}`;
+        message = `${remaining} errad${remaining > 1 ? 'es' : 'a'} restant${remaining > 1 ? 's' : ''}`;
     } else {
-        message = `${globalRemaining} errada${globalRemaining > 1 ? 'es' : ''} d'altres moviments`;
+        message = `${globalRemaining} errad${globalRemaining > 1 ? 'es' : 'a'} d'altres moviments`;
     }
     $('#opening-error-remaining').text(message);
 
@@ -11474,13 +11474,14 @@ function showOpeningErrorSuccessOverlay(noMore) {
     overlay.css('display', 'flex');
 
     // Event handlers
-    const btnHome = document.getElementById('btn-opening-error-home');
-    if (btnHome) {
-        btnHome.onclick = function() {
-            overlay.hide();
+    wireNavTrio(overlay, {
+        onHome: () => {
             exitOpeningErrorPractice();
-        };
-    }
+            goToHomeScreen();
+        },
+        sectionLabel: '📖 Obertures',
+        onSection: () => exitOpeningErrorPractice()
+    });
 
     if (btnAgain) {
         btnAgain.onclick = function() {
@@ -15142,16 +15143,15 @@ function showHieroglyphicSuccessOverlay() {
     }
     overlay.find('.bundle-success-title').text('Jeroglífic fet ✅');
     overlay.find('.bundle-success-remaining').text('').hide();
-    overlay.find('#btn-bundle-random-again').text('➡️ Següent jeroglífic').prop('disabled', !hasNext).toggle(hasNext);
-    overlay.find('#btn-bundle-random-home').text('🏠 Tornar');
+    // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
+    overlay.find('#btn-bundle-random-again').hide();
     overlay.css('display', 'flex');
-    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
-        overlay.hide();
-        returnToMainMenuImmediate();
-    });
-    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
-        overlay.hide();
-        if (jeroglificsReady()) void startPersonalHieroglyphicFromLastGame(null);
+    wireNavTrio(overlay, {
+        sectionLabel: '🔮 Jeroglífics',
+        sectionDisabled: !hasNext,
+        onSection: () => {
+            if (jeroglificsReady()) void startPersonalHieroglyphicFromLastGame(null);
+        }
     });
 }
 function refreshHieroglyphicStepContext(statusText = '') {
@@ -17291,14 +17291,15 @@ function showSrsSuccessOverlay() {
     }
     overlay.find('.bundle-success-title').text('Repàs fet ✅');
     overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara').show();
-    overlay.find('#btn-bundle-random-again').text('➡️ Següent repàs').prop('disabled', due === 0).toggle(due > 0);
+    overlay.find('#btn-bundle-random-again').hide();
     overlay.css('display', 'flex');
-    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
-        isSrsReviewSession = false; overlay.hide(); returnToMainMenuImmediate();
-    });
-    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
-        overlay.hide();
-        if (!startNextSrsReview()) { isSrsReviewSession = false; returnToMainMenuImmediate(); }
+    wireNavTrio(overlay, {
+        onHome: () => { isSrsReviewSession = false; goToHomeScreen(); },
+        sectionLabel: '🔁 Repàs intel·ligent',
+        sectionDisabled: due === 0,
+        onSection: () => {
+            if (!startNextSrsReview()) { isSrsReviewSession = false; goToHomeScreen(); }
+        }
     });
 }
 
@@ -17387,15 +17388,16 @@ function showDailyPuzzleOverlay() {
     overlay.find('.bundle-success-title').text('Repte diari superat 🏆 (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`).show();
     const hasMoreProblems = Array.isArray(TACTICS_BANK) && TACTICS_BANK.length > 0;
-    overlay.find('#btn-bundle-random-again').text('⚡ Un altre problema').prop('disabled', !hasMoreProblems).toggle(hasMoreProblems);
+    overlay.find('#btn-bundle-random-again').hide();
     overlay.css('display', 'flex');
-    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
-        overlay.hide();
-        isDailyPuzzleSession = false;
-        startTacticsPuzzle();
-    });
-    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
-        isDailyPuzzleSession = false; overlay.hide(); returnToMainMenuImmediate();
+    wireNavTrio(overlay, {
+        onHome: () => { isDailyPuzzleSession = false; goToHomeScreen(); },
+        sectionLabel: '⚡ Tàctiques',
+        sectionDisabled: !hasMoreProblems,
+        onSection: () => {
+            isDailyPuzzleSession = false;
+            startTacticsPuzzle();
+        }
     });
 }
 
@@ -17473,13 +17475,13 @@ function showTacticsOverlay() {
     if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`).show();
-    overlay.find('#btn-bundle-random-again').text('⚡ Una altra').prop('disabled', false).toggle(true);
+    // El botó de secció (⚡ Tàctiques) ja llança la següent tàctica.
+    overlay.find('#btn-bundle-random-again').hide();
     overlay.css('display', 'flex');
-    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
-        overlay.hide(); startTacticsPuzzle();
-    });
-    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
-        isTacticsSession = false; overlay.hide(); returnToMainMenuImmediate();
+    wireNavTrio(overlay, {
+        onHome: () => { isTacticsSession = false; goToHomeScreen(); },
+        sectionLabel: '⚡ Tàctiques',
+        onSection: () => startTacticsPuzzle()
     });
 }
 
@@ -17489,17 +17491,16 @@ function showHieroglyphicBundleOverlay() {
     const hasNext = jeroglificsReady();
     overlay.find('.bundle-success-title').text('Jeroglífic resolt ⚡ (+1 ★)');
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${hieroglyphicStats.solved || 0} · Ratxa: ${hieroglyphicStats.currentStreak || 0} · Rècord: ${hieroglyphicStats.bestStreak || 0}`).show();
-    overlay.find('#btn-bundle-random-again').text('⚡ Un altre').prop('disabled', !hasNext).toggle(true);
-    overlay.find('#btn-bundle-random-home').text('🏠 Tornar');
+    // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
+    overlay.find('#btn-bundle-random-again').hide();
     overlay.css('display', 'flex');
-    overlay.find('#btn-bundle-random-again').off('click').on('click', () => {
-        overlay.hide();
-        if (jeroglificsReady()) void startBestLineExercise();
-        else returnToMainMenuImmediate();
-    });
-    overlay.find('#btn-bundle-random-home').off('click').on('click', () => {
-        overlay.hide();
-        returnToMainMenuImmediate();
+    wireNavTrio(overlay, {
+        sectionLabel: '🔮 Jeroglífics',
+        sectionDisabled: !hasNext,
+        onSection: () => {
+            if (jeroglificsReady()) void startBestLineExercise();
+            else goToHomeScreen();
+        }
     });
 }
 
@@ -18514,17 +18515,11 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
     const fromHistory = currentBundleSource === 'history';
     $('#match-error-remaining').text(
         noMore ? (fromHistory ? 'Has revisat totes les errades d’aquesta partida a l’historial!' : 'Has revisat totes les errades!') :
-        remaining > 0 ? `${remaining} errada${remaining > 1 ? 'es' : ''} restant${remaining > 1 ? 's' : ''} d’aquesta partida` :
+        remaining > 0 ? `${remaining} errad${remaining > 1 ? 'es' : 'a'} restant${remaining > 1 ? 's' : ''} d’aquesta partida` :
         'No en queden més!'
     );
 
-    if (fromHistory) {
-        $('#btn-match-error-home').text('Tornar a l’historial');
-        $('#btn-match-error-again').text('Una altra errada');
-    } else {
-        $('#btn-match-error-home').text('Tornar');
-        $('#btn-match-error-again').text('Un altre');
-    }
+    $('#btn-match-error-again').text(fromHistory ? 'Una altra errada' : 'Un altre');
 
     const btnAgain = document.getElementById('btn-match-error-again');
     if (btnAgain) {
@@ -18533,20 +18528,25 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
 
     overlay.css('display', 'flex');
 
-    const btnHome = document.getElementById('btn-match-error-home');
-    if (btnHome) {
-        btnHome.onclick = function() {
-            overlay.hide();
-            endMatchErrorReviewSession();
-        };
-    }
-
     if (btnAgain) {
         btnAgain.onclick = function() {
             overlay.hide();
             launchNextMatchError();
         };
     }
+
+    // Secció d'origen: l'historial o la revisió de la partida acabada de jugar.
+    const sectionLabel = fromHistory
+        ? '📜 Historial'
+        : (currentBundleSource === 'match' && matchErrorReturnReviewSnapshot ? '📈 Revisió de la partida' : 'Tornar');
+    wireNavTrio(overlay, {
+        onHome: () => {
+            matchErrorReturnReviewSnapshot = null;
+            goToHomeScreen();
+        },
+        sectionLabel: sectionLabel,
+        onSection: () => endMatchErrorReviewSession()
+    });
 }
 
 function promptMatchErrorNext() {
@@ -20166,6 +20166,9 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         }
     }
 
+    // «Veure tauler»: tanca la ressenya i deixa la posició final a la vista.
+    // En partides de calibratge conservem el tancament original (onClose mostra
+    // la pantalla de resultats del calibratge).
     $('#btn-review-close').off('click').on('click', () => {
          if (reviewAutoCloseTimer) {
             clearTimeout(reviewAutoCloseTimer);
@@ -20175,9 +20178,9 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
             clearTimeout(reviewOpenDelayTimer);
             reviewOpenDelayTimer = null;
         }
-        checkmateOverlay.hide();        
+        checkmateOverlay.hide();
         modal.hide();
-        if (typeof onClose === 'function') onClose();
+        if (options.disableGrowth && typeof onClose === 'function') onClose();
     });
     $('#btn-review-stats').off('click').on('click', () => {
         if (reviewAutoCloseTimer) {
@@ -20206,8 +20209,50 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         }
         checkmateOverlay.hide();
         modal.hide();
-        returnToMainMenuImmediate();
+        goToHomeScreen();
     });
+
+    // Botó de secció del trio: a la lliga si el partit era de lliga; a
+    // l'historial (amb la partida acabada seleccionada) en qualsevol altre cas.
+    const sectionBtn = $('#btn-review-section');
+    if (sectionBtn.length) {
+        const wasLeague = currentGameMode === 'league';
+        sectionBtn.text(wasLeague ? '🏆 Lliga' : '📜 Historial');
+        sectionBtn.off('click').on('click', () => {
+            if (reviewAutoCloseTimer) {
+                clearTimeout(reviewAutoCloseTimer);
+                reviewAutoCloseTimer = null;
+            }
+            if (reviewOpenDelayTimer) {
+                clearTimeout(reviewOpenDelayTimer);
+                reviewOpenDelayTimer = null;
+            }
+            checkmateOverlay.hide();
+            modal.hide();
+            if (wasLeague) {
+                if (typeof onClose === 'function') {
+                    onClose();
+                } else {
+                    stopGameClock();
+                    $('#game-screen').removeClass('active').hide();
+                    $('#start-screen').hide();
+                    openLeague();
+                }
+                navStack = []; navPush('league-screen');
+            } else {
+                stopGameClock();
+                $('#game-screen').removeClass('active').hide();
+                $('#start-screen').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide();
+                $('#history-screen').show();
+                initHistoryBoard();
+                renderGameHistory();
+                const latestEntry = gameHistory[gameHistory.length - 1];
+                if (latestEntry) loadHistoryEntry(latestEntry);
+                navStack = []; navPush('history-screen');
+                setTimeout(() => resizeHistoryBoardToViewport(), 0);
+            }
+        });
+    }
 }
 
 function returnToMainMenuImmediate() {
@@ -20231,6 +20276,49 @@ function returnToMainMenuImmediate() {
     try { if (typeof renderHieroglyphicBanner === 'function') renderHieroglyphicBanner(); } catch (e) {}
     // De tornada al menú el motor queda lliure: reprèn la pre-generació d'exercicis
     setTimeout(backgroundPrepTick, 1200);
+}
+
+/* ===================== TRIO DE NAVEGACIÓ HOMOGENI =====================
+   Tres botons idèntics a totes les finestres de final d'exercici o partida:
+   - 🏠 (daurat): torna a la pàgina principal.
+   - «Veure tauler» (verd): tanca la finestra per contemplar la posició final.
+   - Botó de secció (blau): torna a la secció d'origen (Tàctiques, Revisa
+     errors, Repàs intel·ligent, Lliga, Obertures...). */
+
+// Torna a la pàgina principal des de qualsevol pantalla (també amaga les
+// pantalles que returnToMainMenuImmediate no gestiona).
+function goToHomeScreen() {
+    $('#opening-screen').hide();
+    $('#history-screen').hide();
+    $('#ranking-screen').hide();
+    returnToMainMenuImmediate();
+}
+
+// Connecta els tres botons d'un overlay/modal que contingui un .nav-trio.
+// opts: { onHome, onBoard, sectionLabel, sectionDisabled, onSection }
+function wireNavTrio(overlay, opts = {}) {
+    const o = $(overlay);
+    if (!o.length) return;
+    o.find('.btn-nav-home').off('click').on('click', () => {
+        o.hide();
+        if (typeof opts.onHome === 'function') opts.onHome();
+        else goToHomeScreen();
+    });
+    // «Veure tauler»: només tanca la finestra; la posició final queda a la vista.
+    o.find('.btn-nav-board').off('click').on('click', () => {
+        o.hide();
+        if (typeof opts.onBoard === 'function') opts.onBoard();
+    });
+    const section = o.find('.btn-nav-section');
+    if (section.length) {
+        if (opts.sectionLabel) section.text(opts.sectionLabel);
+        section.prop('disabled', !!opts.sectionDisabled);
+        section.off('click').on('click', () => {
+            if (opts.sectionDisabled) return;
+            o.hide();
+            if (typeof opts.onSection === 'function') opts.onSection();
+        });
+    }
 }
 
 function handleBundleSuccess() {
@@ -20341,15 +20429,18 @@ function showRandomBundleSuccessOverlay() {
     overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
     overlay.css('display', 'flex');
 
-    $('#btn-bundle-random-home').off('click').on('click', () => {
-        isRandomBundleSession = false;
-        overlay.hide();
-        returnToBundleMenu();
-    });
-
     $('#btn-bundle-random-again').off('click').on('click', () => {
         overlay.hide();
         if (!startRandomBundleGame()) {
+            isRandomBundleSession = false;
+            returnToBundleMenu();
+        }
+    });
+
+    wireNavTrio(overlay, {
+        onHome: () => { isRandomBundleSession = false; goToHomeScreen(); },
+        sectionLabel: '🔍 Revisa errors',
+        onSection: () => {
             isRandomBundleSession = false;
             returnToBundleMenu();
         }
@@ -20375,21 +20466,16 @@ function showCategoryBundleSuccessOverlay() {
     againBtn.prop('disabled', remaining === 0 || !severity);
     overlay.css('display', 'flex');
 
-    $('#btn-bundle-category-home').off('click').on('click', () => {
-        overlay.hide();
-        returnToBundleMenu();
-    });
-
-     $('#btn-bundle-category-menu').off('click').on('click', () => {
-        overlay.hide();
-        returnToMainMenuImmediate();
-    });
-
     againBtn.off('click').on('click', () => {
         overlay.hide();
         if (!startCategoryBundleNext(severity)) {
             returnToBundleMenu();
         }
+    });
+
+    wireNavTrio(overlay, {
+        sectionLabel: '🔍 Revisa errors',
+        onSection: () => returnToBundleMenu()
     });
 }
 
@@ -23498,13 +23584,20 @@ function showDrillSuccessOverlay(titleText, onAgain) {
     overlay.find('.bundle-success-remaining').text('Pla diari actualitzat').show();
     overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false).toggle(true);
     overlay.css('display', 'flex');
-    $('#btn-bundle-random-home').off('click').on('click', () => {
-        overlay.hide();
-        returnToMainMenuImmediate();
-    });
     $('#btn-bundle-random-again').off('click').on('click', () => {
         overlay.hide();
         onAgain();
+    });
+    wireNavTrio(overlay, {
+        sectionLabel: '🎓 Pla d\'entrenament',
+        onSection: () => {
+            goToHomeScreen();
+            // Duu l'usuari directament al panell del pla de l'entrenador.
+            setTimeout(() => {
+                const panel = document.getElementById('weekly-plan-panel');
+                if (panel && panel.style.display !== 'none') panel.scrollIntoView({ behavior: 'smooth', block: 'center' });
+            }, 80);
+        }
     });
 }
 

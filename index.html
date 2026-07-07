@@ -1089,6 +1089,22 @@
         .btn-hieroglyphic-main { background: linear-gradient(135deg, #123c73 0%, #071d3d 100%); color: #eaf3ff; }
         .btn-history  { background: linear-gradient(135deg, #6d7b87 0%, #47515a 100%); color: #fff; }
         .btn-stats    { background: linear-gradient(135deg, #607d8b 0%, #455a64 100%); color: #fff; }
+
+        /* ── Trio de navegació homogeni ─────────────────────────────────────
+           Tres botons idèntics a totes les pantalles: la casa (daurat) porta a
+           la pàgina principal, «Veure tauler» (verd) tanca la finestra per
+           contemplar la posició final de la jugada, i el botó de secció (blau)
+           torna a la secció d'origen (Tàctiques, Revisa errors, Lliga...). */
+        .nav-trio { display: flex; flex-wrap: wrap; gap: 8px; width: 100%; margin-top: 12px; align-items: stretch; }
+        .nav-trio .btn {
+            flex: 1 1 0; width: auto; min-width: 108px;
+            padding: 11px 8px; font-size: 0.82rem; letter-spacing: 0.4px;
+        }
+        .nav-trio .btn-nav-home { flex: 0 0 56px; min-width: 56px; }
+        .btn-nav-home { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
+        .btn-nav-home .btn-ic { width: 1.5em; height: 1.5em; }
+        .btn-nav-board { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: #fff; }
+        .btn-nav-section { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: #fff; }
         .menu-grid .btn {
             flex-direction: column;
             gap: 5px;
@@ -3464,6 +3480,18 @@
             <path d="M10 20.5h4"/>
             <path d="M14.8 14.2c.2-1 .8-1.8 1.6-2.5A5.5 5.5 0 1 0 7.6 11.7c.8.7 1.4 1.5 1.6 2.5"/>
         </symbol>
+        <symbol id="ic-home" viewBox="0 0 24 24">
+            <path d="M3 11.5 12 4l9 7.5"/>
+            <path d="M5.5 9.9V20h13V9.9"/>
+            <path d="M10 20v-5.5h4V20"/>
+        </symbol>
+        <symbol id="ic-board" viewBox="0 0 24 24">
+            <rect x="3.5" y="3.5" width="17" height="17" rx="2"/>
+            <path d="M3.5 9.17h17"/>
+            <path d="M3.5 14.83h17"/>
+            <path d="M9.17 3.5v17"/>
+            <path d="M14.83 3.5v17"/>
+        </symbol>
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
@@ -3921,7 +3949,7 @@
                 <button class="btn btn-file" id="btn-export">💾 Exportar</button>
                 <button class="btn btn-file" id="btn-import">📂 Importar</button>
                 <input type="file" id="file-input" style="display:none;">
-                <button class="btn btn-primary" id="btn-back-settings">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-settings" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -3954,7 +3982,7 @@
             <div id="ranking-list"></div>
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-secondary" id="btn-ranking-refresh">🔄 Actualitza</button>
-                <button class="btn btn-primary" id="btn-ranking-back">Menú</button>
+                <button class="btn btn-nav-home" id="btn-ranking-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4049,7 +4077,7 @@
             </div>
 
             <div class="menu-buttons" style="margin-top:20px;">
-                <button class="btn btn-primary" id="btn-back-stats">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-stats" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
    
@@ -4133,7 +4161,7 @@
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
-                <button class="btn btn-primary" id="btn-back-history">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-history" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4244,8 +4272,11 @@
                     <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
                     <button class="btn btn-secondary" id="btn-review-hieroglyphic">🔮 Desxifra el teu error</button>
                     <button class="btn btn-secondary" id="btn-review-stats">📊 Veure evolució</button>
-                    <button class="btn btn-secondary" id="btn-review-menu">Menú</button>
-                    <button class="close-modal" id="btn-review-close">Tancar</button>
+                </div>
+                <div class="nav-trio">
+                    <button class="btn btn-nav-home" id="btn-review-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                    <button class="btn btn-nav-board" id="btn-review-close" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                    <button class="btn btn-nav-section" id="btn-review-section">📜 Historial</button>
                 </div>
             </div>
         </div>
@@ -4297,7 +4328,7 @@
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-primary" id="btn-league-play">Jugar</button>
                 <button class="btn btn-secondary" id="btn-league-new" style="display:none;">Generar nova lliga</button>
-                <button class="btn btn-secondary" id="btn-back-league">Tornar al menú</button>
+                <button class="btn btn-nav-home" id="btn-back-league" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4356,7 +4387,7 @@
                         <span>Màxima</span>
                     </button>
                     <button class="btn btn-primary" id="btn-opening-bundle-resign">Rendir-se</button>
-                    <button class="btn btn-secondary" id="btn-opening-bundle-menu">Menú</button>
+                    <button class="btn btn-nav-home" id="btn-opening-bundle-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
             <div class="opening-section" id="opening-stats-section">
@@ -4373,7 +4404,7 @@
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
-                <button class="btn btn-primary" id="btn-back-opening">Menú</button>
+                <button class="btn btn-nav-home" id="btn-back-opening" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
 
             <!-- Overlay d'èxit per errors d'obertura -->
@@ -4384,8 +4415,12 @@
                     <div class="bundle-success-title">Blunder resolt</div>
                     <div class="bundle-success-remaining" id="opening-error-remaining">—</div>
                     <div class="bundle-success-actions">
-                        <button class="btn btn-secondary" id="btn-opening-error-home">Tornar</button>
                         <button class="btn btn-primary" id="btn-opening-error-again">Un altre</button>
+                    </div>
+                    <div class="nav-trio">
+                        <button class="btn btn-nav-home" id="btn-opening-error-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                        <button class="btn btn-nav-board" id="btn-opening-error-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                        <button class="btn btn-nav-section" id="btn-opening-error-home">📖 Obertures</button>
                     </div>
                 </div>
             </div>
@@ -4771,7 +4806,7 @@
 
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-share" id="btn-catalans-share">Comparteix</button>
-                <button class="btn btn-secondary" id="btn-catalans-back">Menú</button>
+                <button class="btn btn-nav-home" id="btn-catalans-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
@@ -4833,7 +4868,11 @@
                         <div class="bundle-success-remaining">Blunders pendents</div>
                         <div class="bundle-success-actions">
                             <button class="btn btn-primary" id="btn-bundle-random-again">🎲 Un altre</button>
-                            <button class="btn btn-secondary" id="btn-bundle-random-home">🏠 Tornar</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-bundle-random-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-bundle-random-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-bundle-random-section">Tornar</button>
                         </div>
                     </div>
                 </div> 
@@ -4845,8 +4884,11 @@
                         <div class="bundle-success-remaining">Queden errors d'aquesta categoria</div>
                         <div class="bundle-success-actions">
                             <button class="btn btn-primary" id="btn-bundle-category-again">➡️ Un altre d'aquesta categoria</button>
-                            <button class="btn btn-secondary" id="btn-bundle-category-home">📚 Tornar a «Revisa errors»</button>
-                            <button class="btn btn-secondary" id="btn-bundle-category-menu">🏠 Tornar al menú</button>                      
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-bundle-category-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-bundle-category-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-bundle-category-home">🔍 Revisa errors</button>
                         </div>
                     </div>
                 </div>           
@@ -4857,8 +4899,12 @@
                         <div class="bundle-success-title">Error revisat</div>
                         <div class="bundle-success-remaining" id="match-error-remaining">—</div>
                         <div class="bundle-success-actions">
-                            <button class="btn btn-secondary" id="btn-match-error-home">Tornar</button>
                             <button class="btn btn-primary" id="btn-match-error-again">Un altre</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-match-error-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-match-error-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-match-error-home">Tornar</button>
                         </div>
                     </div>
                 </div>
@@ -4893,7 +4939,7 @@
                     </button>
                     <button class="btn btn-analyze" id="btn-analyze" title="Analitza la posició actual" style="display:none;">🔬 Analitza</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
-                    <button class="btn btn-secondary" id="btn-back">Menú</button>
+                    <button class="btn btn-nav-home" id="btn-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
    
