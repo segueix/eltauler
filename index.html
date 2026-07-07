@@ -1172,6 +1172,13 @@
         .btn-hero .btn-ic { width: 1.35em; height: 1.35em; }
         .menu-grid .btn .btn-ic { width: 1.7em; height: 1.7em; }
         .coach-ic { width: 1.2em; height: 1.2em; vertical-align: -0.2em; margin-right: 2px; }
+        /* Icona de peça de puzle dels jeroglífics (substitueix l'antic emoji 🔮):
+           mida 1em perquè s'escali amb el text que l'acompanya. */
+        .hg-ic {
+            width: 1em; height: 1em; display: inline-block; vertical-align: -0.12em;
+            fill: none; stroke: currentColor; stroke-width: 1.9;
+            stroke-linecap: round; stroke-linejoin: round;
+        }
 
         .opening-section {
             margin-top: 12px;
@@ -3548,7 +3555,7 @@
                 <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
                 <span class="ranking-banner-text">
                     <span class="ranking-banner-title">Rànquing</span>
-                    <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · 🔮 jeroglífics</span>
+                    <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> jeroglífics</span>
                 </span>
                 <span class="ranking-banner-cta">Veure ›</span>
             </button>
@@ -3625,7 +3632,7 @@
                     <!-- BÀNER DE JEROGLÍFICS (sota la lliga) -->
                     <div class="hieroglyphic-banner" id="hieroglyphic-banner">
                         <button class="hg-banner-main" id="btn-hieroglyphic-banner" type="button">
-                            <span class="hg-banner-icon" aria-hidden="true">🔮</span>
+                            <span class="hg-banner-icon" aria-hidden="true"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg></span>
                             <span class="hg-banner-text">
                                 <span class="hg-banner-title">Jeroglífics</span>
                                 <span class="hg-banner-sub">Troba els 3 millors moviments</span>
@@ -3646,7 +3653,7 @@
                             </div>
                         </div>
                         <div class="hg-banner-foot">
-                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history">🔮 Historial de jeroglífics</button>
+                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Historial de jeroglífics</button>
                         </div>
                         <details class="hg-banner-advanced">
                             <summary>Opció avançada</summary>
@@ -3965,7 +3972,7 @@
                 <button class="ranking-tab active" data-cat="elo">ELO</button>
                 <button class="ranking-tab" data-cat="stars">⭐ Estrelles</button>
                 <button class="ranking-tab" data-cat="games">Partides</button>
-                <button class="ranking-tab" data-cat="hiero">🔮 Jeroglífics</button>
+                <button class="ranking-tab" data-cat="hiero"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics</button>
             </div>
             <div id="ranking-status" class="setting-help" style="text-align:center; min-height:1.2em;"></div>
             <div id="ranking-list"></div>
@@ -4259,7 +4266,7 @@
                 <div class="review-actions">
                     <button class="btn btn-primary" id="btn-review-again" style="display:none;">🔁 Tornar a jugar</button>
                     <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
-                    <button class="btn btn-secondary" id="btn-review-hieroglyphic">🔮 Desxifra el teu error</button>
+                    <button class="btn btn-secondary" id="btn-review-hieroglyphic"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Desxifra el teu error</button>
                     <button class="btn btn-secondary" id="btn-review-stats">📊 Veure evolució</button>
                 </div>
                 <div class="nav-trio">
@@ -4386,10 +4393,10 @@
                 <div class="opening-stats-note" id="opening-stats-note">—</div>
             </div>
             <div class="opening-section" id="opening-hieroglyphic-section">
-                <div class="opening-section-title">Bloc 4 · 🔮 Jeroglífics d'obertura</div>
+                <div class="opening-section-title">Bloc 4 · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics d'obertura</div>
                 <div class="opening-section-desc">Exercici especial: desxifra la pista estratègica i troba la jugada teòrica correcta sense barrejar-lo amb la pràctica principal.</div>
                 <div class="hieroglyphic-section">
-                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise">🔮 Començar exercici</button>
+                    <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Començar exercici</button>
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">

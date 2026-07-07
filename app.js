@@ -34,6 +34,8 @@ let userELO = 50;
 let engineELO = 50;
 let savedErrors = [];
 let puzzles = []; // jeroglífics (puzzles tàctics de 3 jugades) generats de partides pròpies
+// Icona de peça de puzle dels jeroglífics (substitueix l'antic emoji 🔮).
+const HG_ICON_SVG = '<svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>';
 let currentReview = [];
 let reviewHistory = [];
 let reviewChart = null;
@@ -9000,7 +9002,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 // Marca 🔮 si aquest moment pot alimentar la generació d'un jeroglífic.
                 const isHeiroSeed = m.fen && heiroSeeds.has(heiroKeyOf(m.fen));
                 const heiroBadge = isHeiroSeed
-                    ? ' <span class="hg-seed-badge" title="Aquest moment es pot convertir en un jeroglífic">🔮</span>'
+                    ? ` <span class="hg-seed-badge" title="Aquest moment es pot convertir en un jeroglífic">${HG_ICON_SVG}</span>`
                     : '';
                 const moveNumLabel = `<strong>Jugada ${escapeHtml(String(m.moveNumber))}</strong>${heiroBadge}`;
                 // Inclou la jugada feta perquè el moment sigui autocontingut (i no
@@ -9048,7 +9050,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
             }).join('');
             const heiroNote = heiroSeeds.size
-                ? ` <span class="hg-seed-note">🔮 fins a ${heiroSeeds.size} ${heiroSeeds.size === 1 ? 'jeroglífic generable' : 'jeroglífics generables'}</span>`
+                ? ` <span class="hg-seed-note">${HG_ICON_SVG} fins a ${heiroSeeds.size} ${heiroSeeds.size === 1 ? 'jeroglífic generable' : 'jeroglífics generables'}</span>`
                 : '';
             blocks.push(`<p><strong>Moments clau:</strong>${heiroNote}</p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
         }
@@ -11110,7 +11112,7 @@ function setOpeningScreenMode(mode = 'overview') {
     const header = document.querySelector('#opening-screen .stats-header h1');
     const logo = document.querySelector('#opening-screen .stats-header .app-logo');
     if (header) header.textContent = isHieroglyphicMode ? 'Jeroglífics' : 'Obertures';
-    if (logo) logo.textContent = isHieroglyphicMode ? '🔮' : '📖';
+    if (logo) logo.innerHTML = isHieroglyphicMode ? HG_ICON_SVG : '📖';
     $('#opening-practice-section .opening-section-title').text(isHieroglyphicMode ? 'Jeroglífic personal' : 'Bloc 2 · Pràctica de línia');
     $('#opening-practice-section .opening-section-desc').text(isHieroglyphicMode ? 'Desxifra una seqüència tàctica validada amb Stockfish a partir d’un moment clau de les teves partides.' : 'Practica obertures amb un màxim de 10 moviments per bàndol. La base teòrica detectada només identifica línies; el repertori recomanat és la guia pedagògica principal.');
     $('#opening-practice-section .opening-mode-row').toggle(!isHieroglyphicMode);
@@ -13452,8 +13454,8 @@ function getHieroglyphicRewardText() {
 }
 
 function getHieroglyphicTitle() {
-    if (hieroglyphicSource === 'personal') return '🔮 Desxifra el teu error';
-    return `🔮 Exercici Jeroglífic — ${hieroglyphicOpening ? hieroglyphicOpening.name : 'posició'}`;
+    if (hieroglyphicSource === 'personal') return `${HG_ICON_SVG} Desxifra el teu error`;
+    return `${HG_ICON_SVG} Exercici Jeroglífic — ${hieroglyphicOpening ? hieroglyphicOpening.name : 'posició'}`;
 }
 function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const noteEl = document.getElementById('opening-practice-note');
@@ -14311,7 +14313,7 @@ function renderHieroglyphicPanel() {
     let tags = `<span class="hg-tag hg-tag-origin hg-origin-${origin}">${escapeHtml(hieroglyphicOriginLabel(origin))}</span>`;
     if (finalLabel) tags += `<span class="hg-tag hg-tag-final">Final: ${escapeHtml(finalLabel)}</span>`;
     panel.html(
-        `<div class="hg-comment">🔮 Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`
+        `<div class="hg-comment">${HG_ICON_SVG} Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`
         + `<div class="hg-tags">${tags}</div>`
         + `<div class="hg-origin-note">${escapeHtml(hieroglyphicOriginNote(origin))}</div>`
     ).show();
@@ -15063,7 +15065,7 @@ function showHieroglyphicHistoryModal() {
         return db - da;
     }).slice(0, HG_HISTORY_MAX);
     let html = '<div class="modal-overlay" id="hg-history-modal" style="display:flex;"><div class="modal-content">';
-    html += '<div class="modal-title">🔮 Historial de jeroglífics</div>';
+    html += `<div class="modal-title">${HG_ICON_SVG} Historial de jeroglífics</div>`;
     if (!history.length) {
         html += '<div class="bundle-empty">Encara no tens jeroglífics a l’historial. Quan en resolguis, en saltis o en fallis algun, apareixerà aquí.</div>';
     } else {
@@ -15147,7 +15149,7 @@ function showHieroglyphicSuccessOverlay() {
     overlay.find('#btn-bundle-random-again').hide();
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
-        sectionLabel: '🔮 Jeroglífics',
+        sectionLabel: `${HG_ICON_SVG} Jeroglífics`,
         sectionDisabled: !hasNext,
         onSection: () => {
             if (jeroglificsReady()) void startPersonalHieroglyphicFromLastGame(null);
@@ -17444,7 +17446,7 @@ function showHieroglyphicBundleOverlay() {
     overlay.find('#btn-bundle-random-again').hide();
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
-        sectionLabel: '🔮 Jeroglífics',
+        sectionLabel: `${HG_ICON_SVG} Jeroglífics`,
         sectionDisabled: !hasNext,
         onSection: () => {
             if (jeroglificsReady()) void startBestLineExercise();
@@ -18795,8 +18797,8 @@ blunderMode = isBundle;
         if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
         else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
         else if (currentBundleSource === 'srs') bundleTitle = '🧠 Repàs intel·ligent';
-        else if (currentBundleSource === 'bestline') bundleTitle = '🔮 Jeroglífic';
-        $('#game-mode-title').text(bundleTitle).css('font-size', '');
+        else if (currentBundleSource === 'bestline') bundleTitle = `${HG_ICON_SVG} Jeroglífic`;
+        $('#game-mode-title').html(bundleTitle).css('font-size', '');
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -20260,7 +20262,8 @@ function wireNavTrio(overlay, opts = {}) {
     });
     const section = o.find('.btn-nav-section');
     if (section.length) {
-        if (opts.sectionLabel) section.text(opts.sectionLabel);
+        // L'etiqueta pot dur icones SVG inline (p. ex. la peça de puzle dels jeroglífics).
+        if (opts.sectionLabel) section.html(opts.sectionLabel);
         section.prop('disabled', !!opts.sectionDisabled);
         section.off('click').on('click', () => {
             if (opts.sectionDisabled) return;
