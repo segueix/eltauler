@@ -16491,37 +16491,13 @@ function setupEvents() {
         }
     });
 
-    // El botó-casa ja no pregunta: aquest modal només es fa servir per confirmar
-    // l'abandonament d'una partida de lliga en curs (compta com a derrota).
-    const getMenuExitCopy = () => ({
-        title: 'Sortir de la partida?',
-        message: 'Sortir de la partida de lliga? Comptarà com a derrota.',
-        confirmText: 'Sí',
-        cancelText: 'No'
-    });
-
-    const showMenuExitModal = () => {
-        const copy = getMenuExitCopy();
-        $('#menu-exit-title').text(copy.title);
-        $('#menu-exit-message').text(copy.message);
-        $('#btn-menu-exit-confirm').text(copy.confirmText || 'Sí');
-        $('#btn-menu-exit-cancel').text(copy.cancelText || 'No');
-        $('#menu-exit-modal').css('display', 'flex');
-        pauseGameClock();
-    };
-
-    const hideMenuExitModal = () => {
-        $('#menu-exit-modal').hide();
-        resumeGameClock();
-    };
-
     $('#btn-back').click(() => {
-        // El botó-casa porta directament a la pàgina principal, sense preguntar.
-        // Única excepció: una partida de lliga en curs, perquè sortir-ne compta
-        // com a derrota i cal confirmar-ho.
+        // El botó-casa porta SEMPRE directament a la pàgina principal, sense
+        // preguntar res. Si hi havia una partida de lliga en curs, abandonar-la
+        // s'aplica com a derrota a la classificació i s'avisa amb un toast.
         if (leagueActiveMatch && currentGameMode === 'league' && game && !game.game_over()) {
-            showMenuExitModal();
-            return;
+            applyLeagueAfterGame('loss');
+            showToast('Has abandonat la partida de lliga: compta com a derrota.', 'warn');
         }
         returnToMainMenuImmediate();
     });
@@ -16560,30 +16536,6 @@ function setupEvents() {
     onModalAction('#resign-modal', (event) => {
         if (event.target.id === 'resign-modal') {
             hideResignModal();
-        }
-    });
-
-    onModalAction('#btn-menu-exit-confirm', () => {
-        hideMenuExitModal();
-        // Només una partida de lliga REAL es resol com a derrota en sortir. Els
-        // exercicis (tàctiques, repàs intel·ligent, revisió d'errors, jeroglífics…)
-        // no són partides: tot i que pugui quedar una partida de lliga pendent a
-        // l'estat, sortir-ne ha de portar directament a la pàgina principal sense
-        // disparar la revisió/tancament de partida.
-        if (leagueActiveMatch && currentGameMode === 'league') {
-            runAfterPaint(() => handleGameOver(true));
-            return;
-        }
-        returnToMainMenuImmediate();
-    });
-
-    onModalAction('#btn-menu-exit-cancel', () => {
-        hideMenuExitModal();
-    });
-
-    onModalAction('#menu-exit-modal', (event) => {
-        if (event.target.id === 'menu-exit-modal') {
-            hideMenuExitModal();
         }
     });
 
