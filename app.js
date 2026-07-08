@@ -260,6 +260,10 @@ const TIME_CONTROL_ELOS_KEY = 'chess_timeControlElos';
 // Ritme de la partida en curs ('none' si es juga sense rellotge): es fixa en
 // començar i decideix a quin ELO puntua el resultat i a quin nivell juga el rival.
 let currentGameTimeControlId = 'none';
+// Calibratge d'un ritme de rellotge: partida única ADAPTATIVA (el rival
+// s'ajusta a la precisió del jugador durant la partida) per fer la primera
+// estimació d'ELO d'aquell ritme. Guarda l'id del ritme en curs o null.
+let timedCalibrationTcId = null;
 let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
 let calibrationResultsChart = null;
 let currentGameStartTs = null;
@@ -4032,6 +4036,11 @@ function getAdaptiveNormalized() {
 function getActiveStrengthElo() {
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
     if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
+    // Calibratge d'un ritme: el rival és ADAPTATIU dins de la mateixa partida
+    // (comença al nivell principal i s'ajusta amb la precisió del jugador).
+    if (timedCalibrationTcId && timedCalibrationTcId === currentGameTimeControlId && gameClock.enabled) {
+        return getTimedCalibrationOpponentElo();
+    }
     // Partida amb rellotge: el rival juga al nivell de l'ELO del ritme, perquè
     // cada modalitat de temps sigui una escala independent. Si el ritme encara
     // no té ELO (primera partida), s'arrenca del nivell adaptatiu principal.
@@ -4452,6 +4461,51 @@ function getTimeControlRating(tcId) {
 function getTimeControlLabel(tcId) {
     const cfg = TIME_CONTROLS.find(t => t.id === tcId);
     return cfg ? cfg.label : tcId;
+}
+
+// Rival de la partida de calibratge d'un ritme: comença al nivell adaptatiu
+// principal i, a mesura que el jugador va movent, s'acosta al seu nivell real
+// (lògica pura a core.js; aquí només s'hi passen els comptadors de la partida).
+function getTimedCalibrationOpponentElo() {
+    const seed = clampEngineElo(currentElo);
+    return clampEngineElo(ElTaulerCore.timedCalibrationOpponentElo(seed, goodMoves, totalPlayerMoves));
+}
+
+// Fixa la primera estimació d'ELO d'un ritme en acabar la partida de
+// calibratge: nivell final del rival adaptatiu + resultat + qualitat de joc
+// (la mateixa mètrica de qualitat que el calibratge inicial).
+function applyTimeControlCalibrationEstimate(tcId, resultScore, precision, avgCpLoss, blunders) {
+    const opponentElo = getTimedCalibrationOpponentElo();
+    const quality = ElTaulerCore.getCalibrationGameQuality({ avgCpLoss, precision, blunders });
+    const estimate = Math.max(50, Math.min(ELO_MAX,
+        ElTaulerCore.estimateTimedCalibrationElo(opponentElo, resultScore, quality)));
+    timeControlElos[tcId] = {
+        elo: estimate,
+        games: 1,
+        wins: resultScore === 1 ? 1 : 0,
+        draws: resultScore === 0.5 ? 1 : 0,
+        losses: resultScore === 0 ? 1 : 0
+    };
+    saveStorage();
+    return estimate;
+}
+
+// Engega la partida de calibratge d'un ritme des d'Estadístiques: partida
+// lliure amb el rellotge del ritme i rival adaptatiu, que en acabar deixa la
+// primera estimació d'ELO del ritme.
+function startTimeControlCalibration(tcId) {
+    if (!TIME_CONTROLS.some(t => t.id === tcId && t.id !== 'none')) return;
+    if (getTimeControlRating(tcId) !== null) {
+        showToast('Aquest ritme ja té ELO propi', 'warn');
+        return;
+    }
+    if (!guardCalibrationAccess()) return;
+    timedCalibrationTcId = tcId;
+    pendingFreeTimeControl = tcId;
+    const sel = document.getElementById('new-game-tc-select');
+    if (sel) sel.value = tcId;
+    showToast(`Calibratge ${getTimeControlLabel(tcId)}: el rival s'adaptarà al teu joc`, 'success');
+    novaPartida();
 }
 
 // Aplica el resultat d'una partida amb rellotge a l'ELO del seu ritme (i NOMÉS
@@ -5701,10 +5755,15 @@ function renderTimeControlEloStats() {
         const hasElo = entry && typeof entry.elo === 'number';
         const games = (entry && entry.games) || 0;
         const record = `${(entry && entry.wins) || 0}V · ${(entry && entry.draws) || 0}T · ${(entry && entry.losses) || 0}D`;
+        // Sense ELO al ritme: s'ofereix una partida de calibratge adaptativa
+        // (amb el rellotge del ritme) per fer-ne la primera estimació.
+        const footer = hasElo
+            ? `<div class="tc-elo-games">${games} ${games === 1 ? 'partida' : 'partides'} · ${record}</div>`
+            : `<button type="button" class="btn btn-secondary tc-elo-calibrate" data-tc="${t.id}">⚖️ Calibra</button>`;
         html += `<div class="stat-card">
             <div class="stat-card-value">${hasElo ? Math.round(entry.elo) : '—'}</div>
             <div class="stat-card-label">${t.label}</div>
-            <div class="tc-elo-games">${games > 0 ? `${games} ${games === 1 ? 'partida' : 'partides'} · ${record}` : 'Encara sense partides'}</div>
+            ${footer}
         </div>`;
     });
     container.innerHTML = html;
@@ -16510,6 +16569,10 @@ function setupEvents() {
 
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
+    // Calibratge d'un ritme sense ELO des de la graella «ELO per ritme de joc».
+    $('#stats-tc-elos').off('click', '.tc-elo-calibrate').on('click', '.tc-elo-calibrate', function () {
+        startTimeControlCalibration($(this).data('tc'));
+    });
     // Diagnòstic de l'entrenador: bàner de la home, selectors d'estil i botons "Actualitza".
     $('#btn-home-coach').off('click').on('click', () => openCoachDiagnosis());
     $('#home-coach-style').off('change').on('change', function () { onCoachStyleChange(this.value); });
@@ -19613,6 +19676,11 @@ blunderMode = isBundle;
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
+    // Un calibratge de ritme demanat només val per a la partida d'AQUELL ritme:
+    // qualsevol altra partida (exercici, ritme canviat, lliga...) el descarta.
+    if (timedCalibrationTcId && (isBundle || currentGameMode !== 'free' || currentGameTimeControlId !== timedCalibrationTcId)) {
+        timedCalibrationTcId = null;
+    }
     currentGameActiveStrengthElo = getActiveStrengthElo();
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
     updateEloDisplay();
@@ -21398,8 +21466,21 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     if (finalPrecision >= 85) sessionStats.perfectGames++;
     
     if (isTimedRatedGame) {
-        change = applyTimeControlEloDelta(currentGameTimeControlId, resultScore, adaptationActiveStrengthElo);
-        msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
+        const isTimedCalibration = timedCalibrationTcId === currentGameTimeControlId
+            && getTimeControlRating(currentGameTimeControlId) === null;
+        if (isTimedCalibration && totalPlayerMoves < 5) {
+            // Massa curta per estimar res (p. ex. rendició immediata): es
+            // cancel·la el calibratge sense deixar cap ELO al ritme.
+            msg += ' · Calibratge cancel·lat: partida massa curta';
+        } else if (isTimedCalibration) {
+            const estimate = applyTimeControlCalibrationEstimate(
+                currentGameTimeControlId, resultScore, finalPrecision, avgCpLoss, blundersOver200);
+            msg += ` · Primer ELO ${getTimeControlLabel(currentGameTimeControlId)}: ${estimate}`;
+        } else {
+            change = applyTimeControlEloDelta(currentGameTimeControlId, resultScore, adaptationActiveStrengthElo);
+            msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
+        }
+        timedCalibrationTcId = null;
     } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;

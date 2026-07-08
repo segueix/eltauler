@@ -1622,6 +1622,31 @@
         return COLOR_INTROS[normalizeReviewVoiceStyle(style)](color);
     }
 
+    // Rival adaptatiu del calibratge per ritme de rellotge: comença al nivell
+    // inicial (seed) i, a mesura que hi ha jugades avaluades, s'acosta al
+    // nivell real del jugador (més precisió → rival més fort). L'ajust creix
+    // amb el nombre de jugades (confiança) i queda acotat a ±250.
+    function timedCalibrationOpponentElo(seedElo, goodMoves, totalMoves) {
+        const seed = isNaN(seedElo) ? 800 : seedElo;
+        const total = totalMoves || 0;
+        if (total < 4) return Math.round(seed);
+        const precision = Math.max(0, Math.min(1, (goodMoves || 0) / total));
+        const confidence = Math.min(1, total / 20);
+        const offset = (precision - 0.55) * 500 * confidence;
+        return Math.round(seed + Math.max(-250, Math.min(250, offset)));
+    }
+
+    // Primera estimació d'ELO d'un ritme a partir d'una única partida de
+    // calibratge: nivell final del rival adaptatiu, corregit pel resultat
+    // (±150) i per la qualitat de joc 0..1 (±100), la mateixa mètrica de
+    // qualitat que el calibratge inicial (getCalibrationGameQuality).
+    function estimateTimedCalibrationElo(opponentElo, resultScore, quality) {
+        const opp = isNaN(opponentElo) ? 800 : opponentElo;
+        const result = (typeof resultScore === 'number' && !isNaN(resultScore)) ? resultScore : 0.5;
+        const q = Math.max(0, Math.min(1, (typeof quality === 'number' && !isNaN(quality)) ? quality : 0.5));
+        return Math.round(opp + (result - 0.5) * 300 + (q - 0.5) * 200);
+    }
+
     // Delta d'ELO d'una partida puntuada contra un rival de força coneguda
     // (fórmula d'Elo estàndard amb K=24 i mínim de ±8 en victòria/derrota,
     // el mateix criteri que l'ELO principal d'app.js). S'usa per als ELO
@@ -1876,6 +1901,8 @@
         eloToSearchDepth,
         computeEloDelta,
         ratedEloDelta,
+        timedCalibrationOpponentElo,
+        estimateTimedCalibrationElo,
         evaluateGameQuality,
         parsePgnToMoves,
         buildOpeningTrie,
