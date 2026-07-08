@@ -1638,6 +1638,10 @@ function resizeHistoryBoardToViewport() {
     // resize() reconstrueix les caselles i esborra els ressaltats: els reapliquem
     // perquè el vermell/verd del moment clau no desapareguin després d'un resize.
     applyReviewHighlights();
+    // El gràfic de precisió es dibuixa a mida del contenidor: es regenera aquí.
+    try {
+        if (historyReplay && historyReplay.entry) renderHistoryPhaseChart(historyReplay.entry);
+    } catch (e) {}
 }
 
 function scheduleBoardResize() {
@@ -1756,6 +1760,7 @@ function resolvePromotionPicker(piece) {
 }
 
 function commitHumanMove(from, to, promotionPiece) {
+    if (phaseReplayInputLocked()) return false;
     $('#blunder-alert').hide();
     if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
 
@@ -7855,19 +7860,23 @@ function loadHistoryEntry(entry) {
     };
     updateHistoryDetails(entry);
     updateHistoryBoard();
+    syncHistoryListActive();
 }
 
 function updateHistoryDetails(entry) {
     const resultEl = $('#history-result');
     const precisionEl = $('#history-precision');
+    const precisionPill = $('#history-precision-pill');
     const metaEl = $('#history-meta');
     const breakdown = $('#history-breakdown');
     const reviewContent = $('#history-review-content');
     if (!entry) {
         resultEl.text('—');
         precisionEl.text('—');
-        metaEl.text('Selecciona una partida per veure detalls.');
+        if (precisionPill.length) precisionPill.removeClass('hp-good hp-mid hp-low');
+        metaEl.text('Selecciona una partida per veure\'n els detalls.');
         breakdown.empty();
+        renderHistoryPhaseChart(null);
         if (reviewContent.length) reviewContent.text('—');
         updateHistoryErrorNotes(null);
         updateHistoryProgress();
@@ -7877,8 +7886,14 @@ function updateHistoryDetails(entry) {
 
     resultEl.text(entry.result || '—');
     precisionEl.text(typeof entry.precision === 'number' ? `${entry.precision}%` : '—');
-    const movesLabel = `${getHistoryMoves(entry).length} jugades`;
-    const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesLabel}`;
+    if (precisionPill.length) {
+        precisionPill.removeClass('hp-good hp-mid hp-low');
+        const pillCls = precisionPillClass(entry.precision);
+        if (pillCls) precisionPill.addClass(pillCls);
+    }
+    const movesLabel = `${Math.ceil(getHistoryMoves(entry).length / 2)} jugades`;
+    const colorTag = entry.playerColor === 'b' ? 'amb negres' : 'amb blanques';
+    const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesLabel} · ${colorTag}`;
     metaEl.text(meta);
 
     const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
@@ -7889,6 +7904,7 @@ function updateHistoryDetails(entry) {
         <div class="review-chip mistake">Errors: <strong>${counts.mistake || 0}</strong></div>
         <div class="review-chip blunder">Errades greus: <strong>${counts.blunder || 0}</strong></div>
     `);
+    renderHistoryPhaseChart(entry);
     updateHistoryReview(entry);
     updateHistoryErrorNotes(entry);
     void requestErrorNotes(entry);
@@ -7940,6 +7956,23 @@ function updateHistoryReview(entry) {
         jumpToHistoryMove(moveNumber, playedSan, decisionFen, playedUci); // ressalta la teva jugada (vermell)
         // I la millor jugada (verd) sobre la mateixa posició de decisió.
         if (best) setKeyMomentBest(best);
+        const boardEl = document.getElementById('history-board');
+        if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    });
+    // Moviments excepcionals: la jugada feta ERA la millor, així que es marca
+    // NOMÉS aquesta jugada i en verd (cap ressaltat vermell).
+    reviewContent.find('.hist-brilliant-link').off('click').on('click', function(event) {
+        event.preventDefault();
+        const moveNumber = Number($(this).data('move-number'));
+        const san = String($(this).data('san') || '').trim();
+        const uci = String($(this).data('uci') || '').trim();
+        const fen = String($(this).data('fen') || '').trim();
+        jumpToHistoryMove(moveNumber, san, fen, uci);
+        if (activeReviewHighlight) {
+            activeReviewHighlight.best = activeReviewHighlight.played || uci || san;
+            activeReviewHighlight.played = null;
+            applyReviewHighlights();
+        }
         const boardEl = document.getElementById('history-board');
         if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
     });
@@ -8125,7 +8158,8 @@ function applyReviewHighlights() {
     if (!h || !h.beforeFen) { showReviewBoardLegend(false); return; }
     if (h.played) highlightReviewedMove(h.beforeFen, h.played, 'highlight-played');
     if (h.best) highlightReviewedMove(h.beforeFen, h.best, 'highlight-best');
-    showReviewBoardLegend(!!h.best);
+    // Sense jugada vermella (moviment excepcional), la llegenda només mostra el verd.
+    showReviewBoardLegend(!!h.best, { playedShown: !!h.played });
 }
 
 // Afegeix la millor jugada (verd) al moment clau actiu i la pinta.
@@ -8139,9 +8173,16 @@ function clearReviewHighlights() {
     $('#history-board .square-55d63').removeClass('highlight-hint highlight-played highlight-best highlight-played-from highlight-played-to highlight-best-from highlight-best-to highlight-overlap');
 }
 
-function showReviewBoardLegend(show) {
+function showReviewBoardLegend(show, opts = {}) {
     const el = $('#review-board-legend');
-    if (el.length) el.toggle(!!show);
+    if (!el.length) return;
+    el.toggle(!!show);
+    if (!show) return;
+    const playedShown = opts.playedShown !== false;
+    const playedEl = $('#review-legend-played');
+    if (playedEl.length) playedEl.toggle(playedShown);
+    const bestText = $('#review-legend-best-text');
+    if (bestText.length) bestText.text(playedShown ? 'la millor jugada' : 'moviment excepcional (vas jugar la millor)');
 }
 
 // Ressalta origen i destí d'un moviment sobre beforeFen amb la classe donada.
@@ -8730,6 +8771,524 @@ function buildPhaseAdvice(themes, phaseKey, voiceStyle) {
     return fallback;
 }
 
+/* =================== GRÀFIC DE PRECISIÓ PER FASES + REPTE «REJUGAR +5%» ===================
+   Al detall de cada partida de l'historial es dibuixa un gràfic (SVG propi, sense
+   llibreries): eix vertical = % d'encert ACUMULAT (la mateixa mètrica que la barra
+   de precisió en viu), eix horitzontal = número de moviment de l'usuari, amb les
+   tres franges de la partida (obertura / mig joc / final). Sota el gràfic, cada
+   fase té la seva fitxa amb el % aconseguit i el botó «Rejugar +5%», que porta el
+   jugador a la primera jugada de la fase per rejugar-la contra el motor amb un
+   objectiu un 5% més alt del que va aconseguir a la partida original. */
+
+const PHASE_REPLAY_BONUS = 5;
+const PHASE_DISPLAY_LABELS = { opening: 'Obertura', middlegame: 'Mig joc', endgame: 'Final' };
+const HISTORY_ICON_SVG = '<svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>';
+
+// Estat del repte «Rejugar +5%»: el pla pendent (el consumeix startGame) i el repte viu.
+let phaseReplayPending = null;
+let phaseReplayState = null;
+
+// Línia temporal de les jugades del jugador amb la precisió acumulada després de
+// cada una (bona = excel·lent o bona, com a la barra de precisió en viu).
+function computeHistoryMoveTimeline(entry) {
+    const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews.slice() : [];
+    reviews.sort((a, b) => (Number(a?.moveNumber) || 0) - (Number(b?.moveNumber) || 0));
+    const out = [];
+    let good = 0, total = 0;
+    reviews.forEach(r => {
+        if (!r || !r.quality) return;
+        total++;
+        if (r.quality === 'excel' || r.quality === 'good') good++;
+        out.push({
+            idx: total,
+            moveNumber: Number(r.moveNumber) || total,
+            quality: r.quality,
+            phase: classifyPhaseByMoveNumber(Number(r.moveNumber) || total),
+            cumPct: Math.round((good / total) * 100),
+            review: r
+        });
+    });
+    return out;
+}
+
+// Converteix una puntuació del MultiPV desat ({eval, evalType}) a centipeons.
+function multipvScoreToCp(item) {
+    if (!item || typeof item.eval !== 'number') return null;
+    if (item.evalType === 'mate') {
+        const n = Math.min(Math.abs(item.eval), 50);
+        return item.eval > 0 ? 10000 - n * 10 : -10000 + n * 10;
+    }
+    return item.eval;
+}
+
+// Diferència (en cp) entre la millor jugada i la segona opció del motor en la
+// posició de decisió. Serveix per detectar moviments excepcionals: si el marge
+// és gran, trobar la millor jugada tenia mèrit de debò.
+function reviewBestSecondGap(r) {
+    const multi = Array.isArray(r?.multipvBefore) ? r.multipvBefore : [];
+    if (multi.length >= 2) {
+        const cps = multi.map(multipvScoreToCp).filter(v => typeof v === 'number');
+        if (cps.length >= 2) return cps[0] - cps[1];
+    }
+    // Entrades sense MultiPV cru: la millor puntuació és evalBefore i les
+    // alternatives desades són les opcions 2 i 3 del motor.
+    const alts = Array.isArray(r?.alternatives) ? r.alternatives : [];
+    if (alts.length && typeof r.evalBefore === 'number' && typeof alts[0].eval === 'number') {
+        return r.evalBefore - alts[0].eval;
+    }
+    return null;
+}
+
+// Moviment excepcional: el jugador va trobar EXACTAMENT la millor jugada del
+// motor en una posició on la segona opció era clarament pitjor. Mai no s'inventa:
+// sense dades de MultiPV/alternatives no es marca res.
+const BRILLIANT_MIN_GAP_CP = 150;
+function isBrilliantReview(r) {
+    if (!r || r.quality !== 'excel' || !r.fen) return false;
+    const played = String(r.playerMove || '').toLowerCase().trim();
+    const best = String(r.bestMove || '').toLowerCase().trim();
+    if (!played || !best || played !== best) return false;
+    const gap = reviewBestSecondGap(r);
+    return typeof gap === 'number' && gap >= BRILLIANT_MIN_GAP_CP;
+}
+
+function selectBrilliantReviews(entry, maxCount = 2) {
+    const reviews = Array.isArray(entry?.moveReviews) ? entry.moveReviews : [];
+    return reviews
+        .filter(isBrilliantReview)
+        .sort((a, b) => (reviewBestSecondGap(b) || 0) - (reviewBestSecondGap(a) || 0))
+        .slice(0, maxCount);
+}
+
+// Ítems de "Moments clau" per als moviments excepcionals: frase verificada per
+// veu, insígnia verda i enllaç que marca NOMÉS la jugada feta (en verd) al tauler.
+function buildBrilliantMomentItems(entry, voiceStyle) {
+    return selectBrilliantReviews(entry).map(r => {
+        const phrase = r.fen ? bestPhraseByVoice(r.fen, r.playerMove || r.playerMoveSan, voiceStyle) : null;
+        if (!phrase) return null;
+        const san = sanOnFen(r.fen, r.playerMove) || r.playerMoveSan || '';
+        const gap = reviewBestSecondGap(r) || 0;
+        const link = `<a href="#" class="hist-brilliant-link" data-move-number="${r.moveNumber || ''}" data-san="${escapeHtml(san)}" data-uci="${escapeHtml(r.playerMove || '')}" data-fen="${escapeHtml(r.fen || '')}">${escapeHtml(phrase.body)}</a>`;
+        const badge = coachQualityBadgeHtml({ quality: 'excel', swing: 0 });
+        const why = gap >= 800
+            ? 'Era pràcticament l\'única jugada bona en aquella posició.'
+            : `La segona millor opció del motor quedava clarament per sota (uns ${(gap / 100).toFixed(1)} peons de diferència).`;
+        let sentence = `vas trobar la millor jugada: ${link}.`;
+        const audit = ElTaulerCore.auditReviewVoiceText(String(sentence + ' ' + why).replace(/<[^>]*>/g, ' '), voiceStyle);
+        const tail = audit.ok ? `${sentence} ${escapeHtml(why)}` : sentence;
+        return {
+            moveNumber: Number(r.moveNumber) || 0,
+            html: `<li style="margin-bottom:10px;"><strong>Jugada ${escapeHtml(String(r.moveNumber || '?'))}</strong> · ${badge}: ${tail}</li>`
+        };
+    }).filter(Boolean);
+}
+
+// Glifs d'escacs com a codificació secundària dels punts del gràfic (a més del
+// color): així les qualitats es distingeixen també en e-paper i amb daltonisme.
+const CHART_QUALITY_META = {
+    blunder: { glyph: '??', color: '#e74c3c', label: 'Errada greu' },
+    mistake: { glyph: '?', color: '#e67e22', label: 'Error' },
+    inaccuracy: { glyph: '?!', color: '#d4ac0d', label: 'Imprecisió' },
+    brilliant: { glyph: '!', color: '#2ecc71', label: 'Moviment excepcional' }
+};
+
+// Dibuixa el gràfic de precisió del detall de l'historial. Amb entrada nul·la o
+// sense revisió jugada a jugada, amaga la targeta sencera.
+function renderHistoryPhaseChart(entry) {
+    const card = $('#history-graph-card');
+    const holder = document.getElementById('history-graph');
+    const cardsEl = document.getElementById('history-phase-cards');
+    if (!card.length || !holder || !cardsEl) return;
+    const timeline = entry ? computeHistoryMoveTimeline(entry) : [];
+    if (timeline.length < 2) {
+        card.hide();
+        holder.innerHTML = '';
+        cardsEl.innerHTML = '';
+        return;
+    }
+    card.show();
+
+    const n = timeline.length;
+    const W = Math.max(300, Math.min(760, holder.clientWidth || 560));
+    const H = 222;
+    const padL = 38, padR = 16, padT = 26, padB = 38;
+    const plotW = W - padL - padR;
+    const plotH = H - padT - padB;
+    const xFor = idx => padL + (n === 1 ? plotW / 2 : (idx - 1) * (plotW / (n - 1)));
+    const yFor = pct => padT + plotH * (1 - pct / 100);
+    const halfStep = n > 1 ? (plotW / (n - 1)) / 2 : plotW / 2;
+
+    let svg = `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Precisió acumulada per moviment de l'usuari, amb les fases de la partida">`;
+
+    // Franges de fase (obertura / mig joc / final) com a fons alternat + etiqueta.
+    const phasesInOrder = ['opening', 'middlegame', 'endgame'];
+    const bands = [];
+    phasesInOrder.forEach(ph => {
+        const pts = timeline.filter(t => t.phase === ph);
+        if (!pts.length) return;
+        bands.push({ phase: ph, firstIdx: pts[0].idx, lastIdx: pts[pts.length - 1].idx });
+    });
+    bands.forEach((band, bi) => {
+        const x1 = Math.max(padL, xFor(band.firstIdx) - halfStep);
+        const x2 = Math.min(padL + plotW, xFor(band.lastIdx) + halfStep);
+        if (bi % 2 === 1) {
+            svg += `<rect class="hgc-band" x="${x1.toFixed(1)}" y="${padT}" width="${(x2 - x1).toFixed(1)}" height="${plotH}"/>`;
+        }
+        if (bi > 0) {
+            svg += `<line class="hgc-band-sep" x1="${x1.toFixed(1)}" y1="${padT - 14}" x2="${x1.toFixed(1)}" y2="${padT + plotH}"/>`;
+        }
+        const cx = (x1 + x2) / 2;
+        svg += `<text class="hgc-band-label" x="${cx.toFixed(1)}" y="${padT - 8}" text-anchor="middle">${PHASE_DISPLAY_LABELS[band.phase]}</text>`;
+    });
+
+    // Graella horitzontal (0-100%) fina i discreta, amb les etiquetes de l'eix Y.
+    [0, 25, 50, 75, 100].forEach(pct => {
+        const y = yFor(pct);
+        svg += `<line class="hgc-grid" x1="${padL}" y1="${y.toFixed(1)}" x2="${padL + plotW}" y2="${y.toFixed(1)}"/>`;
+        svg += `<text class="hgc-axis" x="${padL - 6}" y="${(y + 3).toFixed(1)}" text-anchor="end">${pct}%</text>`;
+    });
+
+    // Etiquetes de l'eix X: primer moviment i final de cada franja (número de
+    // moviment de l'usuari), amb el títol de l'eix en una línia a part.
+    const xTickIdx = new Set([1]);
+    bands.forEach(b => xTickIdx.add(b.lastIdx));
+    xTickIdx.forEach(idx => {
+        svg += `<text class="hgc-axis" x="${xFor(idx).toFixed(1)}" y="${H - 22}" text-anchor="middle">${idx}</text>`;
+    });
+    svg += `<text class="hgc-axis" x="${(padL + plotW / 2).toFixed(1)}" y="${H - 6}" text-anchor="middle" opacity="0.85">moviments teus</text>`;
+
+    // Àrea + línia de precisió acumulada.
+    const linePts = timeline.map(t => `${xFor(t.idx).toFixed(1)},${yFor(t.cumPct).toFixed(1)}`);
+    svg += `<path class="hgc-area" d="M${xFor(1).toFixed(1)},${yFor(0).toFixed(1)} L${linePts.join(' L')} L${xFor(n).toFixed(1)},${yFor(0).toFixed(1)} Z"/>`;
+    svg += `<path class="hgc-line" d="M${linePts.join(' L')}"/>`;
+
+    // Punts significatius: errades (vermell/taronja/groc amb ?? ? ?!) i moviments
+    // excepcionals (només verd amb !). La resta de jugades queden a la línia.
+    const brilliantSet = new Set(selectBrilliantReviews(entry, 3).map(r => r.fen));
+    const dots = [];
+    timeline.forEach(t => {
+        let kind = null;
+        if (t.quality === 'blunder' || t.quality === 'mistake' || t.quality === 'inaccuracy') kind = t.quality;
+        else if (t.review && t.review.fen && brilliantSet.has(t.review.fen)) kind = 'brilliant';
+        if (kind) dots.push({ t, kind });
+    });
+    dots.forEach(({ t, kind }) => {
+        const meta = CHART_QUALITY_META[kind];
+        const x = xFor(t.idx).toFixed(1);
+        const y = yFor(t.cumPct).toFixed(1);
+        const r = t.review || {};
+        const san = (r.fen ? sanOnFen(r.fen, r.playerMove || r.playerMoveSan) : null) || r.playerMoveSan || '';
+        // L'àrea de toc és més gran que el punt (mínim ~26px) i porta les dades de la jugada.
+        svg += `<circle class="hgc-hit" cx="${x}" cy="${y}" r="13" tabindex="0" role="button"`
+            + ` data-kind="${kind}" data-idx="${t.idx}" data-move-number="${t.moveNumber}" data-cum="${t.cumPct}"`
+            + ` data-san="${escapeHtml(san)}" data-uci="${escapeHtml(r.playerMove || '')}"`
+            + ` data-best="${escapeHtml(r.bestMove || '')}" data-fen="${escapeHtml(r.fen || '')}"`
+            + ` aria-label="Jugada ${t.moveNumber}: ${meta.label}. Toca per veure-la al tauler."><title>Jugada ${t.moveNumber} · ${meta.label}</title></circle>`;
+        svg += `<circle class="hgc-dot" cx="${x}" cy="${y}" r="4.5" fill="${meta.color}" pointer-events="none"/>`;
+        svg += `<text class="hgc-glyph" x="${x}" y="${(yFor(t.cumPct) - 9).toFixed(1)}" pointer-events="none">${meta.glyph}</text>`;
+    });
+
+    // Etiqueta directa del final de la línia: la precisió final de la partida.
+    const lastT = timeline[n - 1];
+    const endX = xFor(n), endY = yFor(lastT.cumPct);
+    const endAnchor = endX > padL + plotW - 30 ? 'end' : 'start';
+    const endLabelY = Math.max(padT + 10, endY - 8);
+    svg += `<text class="hgc-endlabel" x="${(endAnchor === 'end' ? endX - 2 : endX + 4).toFixed(1)}" y="${endLabelY.toFixed(1)}" text-anchor="${endAnchor}">${lastT.cumPct}%</text>`;
+    svg += '</svg>';
+
+    holder.innerHTML = svg + '<div class="history-graph-tooltip"></div>';
+    bindHistoryChartDots(holder, entry);
+    renderHistoryPhaseCards(entry, timeline);
+}
+
+// Tooltip + clic dels punts del gràfic: mostra la jugada i, en clicar, la porta
+// al tauler amb el mateix ressaltat que els moments clau (vermell la teva, verd
+// la millor; si és un moviment excepcional, NOMÉS la jugada en verd).
+function bindHistoryChartDots(holder, entry) {
+    const tooltip = holder.querySelector('.history-graph-tooltip');
+    const hits = holder.querySelectorAll('.hgc-hit');
+    const showTip = (el) => {
+        if (!tooltip) return;
+        const kind = el.getAttribute('data-kind');
+        const meta = CHART_QUALITY_META[kind] || {};
+        const san = el.getAttribute('data-san') || '';
+        const mn = el.getAttribute('data-move-number');
+        const cum = el.getAttribute('data-cum');
+        tooltip.textContent = '';
+        const strong = document.createElement('strong');
+        strong.textContent = `Jugada ${mn}${san ? ' · ' + san : ''}`;
+        tooltip.appendChild(strong);
+        tooltip.appendChild(document.createElement('br'));
+        tooltip.appendChild(document.createTextNode(`${meta.label || ''} ${meta.glyph || ''}`.trim()));
+        tooltip.appendChild(document.createElement('br'));
+        tooltip.appendChild(document.createTextNode(`Encert acumulat: ${cum}%`));
+        tooltip.style.display = 'block';
+        const holderRect = holder.getBoundingClientRect();
+        const elRect = el.getBoundingClientRect();
+        let left = elRect.left - holderRect.left + elRect.width / 2 + 10;
+        let top = elRect.top - holderRect.top - 10;
+        const maxLeft = holder.clientWidth - tooltip.offsetWidth - 4;
+        if (left > maxLeft) left = Math.max(4, elRect.left - holderRect.left - tooltip.offsetWidth - 10);
+        tooltip.style.left = `${Math.max(4, left)}px`;
+        tooltip.style.top = `${Math.max(0, top)}px`;
+    };
+    const hideTip = () => { if (tooltip) tooltip.style.display = 'none'; };
+    hits.forEach(el => {
+        el.addEventListener('pointerenter', () => showTip(el));
+        el.addEventListener('pointerleave', hideTip);
+        el.addEventListener('focus', () => showTip(el));
+        el.addEventListener('blur', hideTip);
+        const activate = (event) => {
+            event.preventDefault();
+            showTip(el);
+            const kind = el.getAttribute('data-kind');
+            const moveNumber = Number(el.getAttribute('data-move-number'));
+            const san = el.getAttribute('data-san') || '';
+            const uci = el.getAttribute('data-uci') || '';
+            const best = el.getAttribute('data-best') || '';
+            const fen = el.getAttribute('data-fen') || '';
+            jumpToHistoryMove(moveNumber, san, fen, uci);
+            if (kind === 'brilliant') {
+                // Moviment excepcional: només la jugada feta, en verd.
+                if (activeReviewHighlight) {
+                    activeReviewHighlight.best = activeReviewHighlight.played || uci || san;
+                    activeReviewHighlight.played = null;
+                    applyReviewHighlights();
+                }
+            } else if (best) {
+                setKeyMomentBest(best);
+            }
+            const boardEl = document.getElementById('history-board');
+            if (boardEl && boardEl.scrollIntoView) boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        };
+        el.addEventListener('click', activate);
+        el.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') activate(event);
+        });
+    });
+}
+
+// Fitxes de fase sota el gràfic: % d'encert DINS de cada fase, jugades i errades,
+// i el botó del repte «Rejugar +5%».
+function renderHistoryPhaseCards(entry, timeline) {
+    const cardsEl = document.getElementById('history-phase-cards');
+    if (!cardsEl) return;
+    const html = ['opening', 'middlegame', 'endgame'].map(key => {
+        const pts = (timeline || []).filter(t => t.phase === key);
+        const name = PHASE_DISPLAY_LABELS[key];
+        if (!pts.length) {
+            return `<div class="history-phase-card"><div class="hpc-name">${name}</div><div class="hpc-empty">La partida no va arribar a aquesta fase.</div></div>`;
+        }
+        const good = pts.filter(t => t.quality === 'excel' || t.quality === 'good').length;
+        const errs = pts.length - good;
+        const phasePct = Math.round((good / pts.length) * 100);
+        const plan = computePhaseReplayPlan(entry, key);
+        const btn = plan
+            ? `<button type="button" class="btn phase-replay-btn" data-phase="${key}" title="Torna a la jugada ${plan.startMoveNumber} i rejuga ${name.toLowerCase()} contra el motor amb un objectiu del ${plan.targetPct}% (a la partida hi vas arribar amb ${plan.origEndPct}%)">${HISTORY_ICON_SVG}Rejugar +5%</button>`
+            : `<div class="hpc-meta" style="margin-top:6px;">Sense prou dades per rejugar-la.</div>`;
+        return `<div class="history-phase-card">
+            <div class="hpc-name">${name}</div>
+            <div class="hpc-pct">${phasePct}%</div>
+            <div class="hpc-meta">${pts.length} ${pts.length === 1 ? 'jugada' : 'jugades'} · ${errs} ${errs === 1 ? 'errada' : 'errades'}${plan ? ` · objectiu ${plan.targetPct}%` : ''}</div>
+            ${btn}
+        </div>`;
+    }).join('');
+    cardsEl.innerHTML = html;
+    $(cardsEl).find('.phase-replay-btn').off('click').on('click', function() {
+        const phaseKey = $(this).data('phase');
+        startPhaseReplayChallenge(entry, phaseKey);
+    });
+}
+
+// Pla del repte «Rejugar +5%» d'una fase: posició inicial (FEN abans de la teva
+// primera jugada de la fase), comptadors de precisió previs (perquè la barra
+// comenci EXACTAMENT amb el percentatge del primer moviment de la fase durant la
+// partida), nombre de jugades a jugar i objectiu (+5% sobre el que hi vas fer).
+function computePhaseReplayPlan(entry, phaseKey) {
+    if (!entry) return null;
+    const timeline = computeHistoryMoveTimeline(entry);
+    if (!timeline.length) return null;
+    const inPhase = timeline.filter(t => t.phase === phaseKey);
+    if (!inPhase.length) return null;
+    const first = inPhase[0];
+    const last = inPhase[inPhase.length - 1];
+    const playerColor = entry.playerColor === 'b' ? 'b' : 'w';
+    const moves = getHistoryMoves(entry);
+    if (!moves.length) return null;
+    const startPly = (first.moveNumber - 1) * 2 + (playerColor === 'b' ? 1 : 0);
+    if (startPly < 0 || startPly >= moves.length) return null;
+    let baseFen = null;
+    try {
+        const g = new Chess();
+        for (let i = 0; i < startPly; i++) {
+            if (!g.move(moves[i], { sloppy: true })) return null;
+        }
+        if (g.game_over()) return null;
+        // La posició reconstruïda ha de tocar al jugador; si no, les dades de la
+        // revisió no quadren amb la partida real i el repte no seria fidel.
+        if (g.turn() !== playerColor) return null;
+        baseFen = g.fen();
+    } catch (e) { return null; }
+    let seedGood = 0, seedTotal = 0;
+    timeline.forEach(t => {
+        if (t.idx < first.idx) {
+            seedTotal++;
+            if (t.quality === 'excel' || t.quality === 'good') seedGood++;
+        }
+    });
+    const startPct = seedTotal > 0 ? Math.round((seedGood / seedTotal) * 100) : null;
+    const origEndPct = last.cumPct;
+    return {
+        entryId: entry.id,
+        phaseKey,
+        phaseLabel: PHASE_DISPLAY_LABELS[phaseKey],
+        playerColor,
+        baseFen,
+        startMoveNumber: first.moveNumber,
+        movesTarget: inPhase.length,
+        seedGood,
+        seedTotal,
+        startPct,
+        origEndPct,
+        targetPct: Math.min(100, origEndPct + PHASE_REPLAY_BONUS),
+        engineRoc: (typeof entry.roc === 'number' && entry.roc > 0) ? entry.roc : null
+    };
+}
+
+// Arrenca el repte: surt de l'historial i comença una partida real contra el
+// motor des de la primera jugada de la fase. No toca ELO, ni lliga, ni historial.
+function startPhaseReplayChallenge(entry, phaseKey) {
+    const plan = computePhaseReplayPlan(entry, phaseKey);
+    if (!plan) {
+        showToast('Aquesta fase no es pot rejugar (falten dades de la revisió).', 'warn');
+        return;
+    }
+    stopHistoryPlayback();
+    // Cap sessió d'exercicis a mitges: el repte és una partida normal amb objectiu.
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isTacticsSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = null;
+    currentBundleSeverity = null;
+    phaseReplayPending = plan;
+    $('#history-screen').hide();
+    startGame(false, plan.baseFen);
+}
+
+// HUD del repte a la pantalla de joc: fase, jugada actual, objectiu.
+function updatePhaseReplayHud() {
+    const banner = $('#phase-replay-banner');
+    if (!banner.length) return;
+    if (currentGameMode !== 'phase_replay' || !phaseReplayState) {
+        banner.hide();
+        return;
+    }
+    const st = phaseReplayState;
+    const current = Math.min(st.movesPlayed + (st.finished ? 0 : 1), st.movesTarget);
+    const startTxt = st.startPct === null ? 'de zero' : `amb ${st.startPct}%`;
+    $('#phase-replay-banner-text').text(
+        `Rejugues ${st.phaseLabel.toLowerCase()} · jugada ${current} de ${st.movesTarget} · comences ${startTxt} · objectiu ${st.targetPct}% (original ${st.origEndPct}%)`
+    );
+    banner.show();
+}
+
+// Marca vertical i text de l'objectiu del panell de precisió: al repte és
+// l'objectiu real (+5%); a la resta de partides, el 75% de sempre.
+function updatePrecisionTargetUI() {
+    const marker = document.getElementById('precision-target');
+    const text = document.getElementById('precision-target-text');
+    const target = (currentGameMode === 'phase_replay' && phaseReplayState) ? phaseReplayState.targetPct : 75;
+    if (marker) marker.style.left = `${target}%`;
+    if (text) text.textContent = `${target}%`;
+}
+
+// Es crida quan s'ha acabat d'avaluar una jugada del jugador durant el repte.
+function notePhaseReplayMoveEvaluated() {
+    if (currentGameMode !== 'phase_replay' || !phaseReplayState || phaseReplayState.finished) return;
+    phaseReplayState.movesPlayed++;
+    updatePhaseReplayHud();
+    if (phaseReplayState.movesPlayed >= phaseReplayState.movesTarget) {
+        finishPhaseReplay('completed');
+    }
+}
+
+function phaseReplayInputLocked() {
+    return currentGameMode === 'phase_replay' && phaseReplayState && phaseReplayState.finished;
+}
+
+// Tanca el repte: atura el motor, calcula el resultat i mostra la finestra.
+// No es registra res (ni ELO, ni historial, ni estadístiques de partida).
+function finishPhaseReplay(reason) {
+    if (!phaseReplayState || phaseReplayState.finished) return;
+    const st = phaseReplayState;
+    st.finished = true;
+    stopGameClock();
+    if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+    $('#blunder-alert').hide();
+    hidePostGameStatusChip();
+    try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
+    st.finalPct = totalPlayerMoves > 0 ? Math.round((goodMoves / totalPlayerMoves) * 100) : 0;
+    st.reason = reason;
+    st.success = reason !== 'resign' && st.finalPct >= st.targetPct;
+    updatePhaseReplayHud();
+    showPhaseReplayOverlay(st);
+}
+
+function showPhaseReplayOverlay(st) {
+    const overlay = $('#phase-replay-overlay');
+    if (!overlay.length) return;
+    const icon = st.success ? '🎉' : (st.reason === 'resign' ? '🏳️' : '🎯');
+    const title = st.success ? 'Repte superat!' : (st.reason === 'resign' ? 'Repte abandonat' : 'Objectiu no assolit');
+    $('#phase-replay-result-icon').text(icon);
+    $('#phase-replay-result-title').text(title);
+    const detail = $('#phase-replay-result-detail');
+    let html = `<p><strong>${escapeHtml(st.phaseLabel)}</strong>: has acabat amb <strong>${st.finalPct}%</strong> de precisió acumulada.`
+        + ` L'objectiu era <strong>${st.targetPct}%</strong> (a la partida original vas tancar la fase amb ${st.origEndPct}%).</p>`;
+    html += `<div class="prr-meter"><div class="prr-meter-fill${st.success ? '' : ' ko'}" style="width:${Math.max(0, Math.min(100, st.finalPct))}%"></div>`
+        + `<div class="prr-meter-target" style="left:${st.targetPct}%"></div></div>`;
+    if (st.reason === 'gameover' && st.movesPlayed < st.movesTarget) {
+        html += `<div class="prr-note">La partida s'ha acabat abans d'hora: has jugat ${st.movesPlayed} de ${st.movesTarget} jugades del repte.</div>`;
+    } else if (!st.success && st.reason !== 'resign') {
+        html += `<div class="prr-note">Torna-ho a provar: només et cal ${st.targetPct - st.finalPct > 0 ? `un ${st.targetPct - st.finalPct}% més` : 'una mica més de precisió'}.</div>`;
+    }
+    detail.html(html);
+    const retryBtn = $('#btn-phase-replay-retry');
+    retryBtn.off('click').on('click', () => {
+        overlay.hide();
+        const entry = gameHistory.find(g => g.id === st.entryId);
+        if (!entry) {
+            showToast('La partida original ja no és a l\'historial.', 'warn');
+            returnToHistoryFromPhaseReplay();
+            return;
+        }
+        startPhaseReplayChallenge(entry, st.phaseKey);
+    });
+    overlay.find('.overlay-close-x').off('click').on('click', () => overlay.hide());
+    wireNavTrio(overlay, {
+        sectionLabel: `${HISTORY_ICON_SVG} Historial`,
+        onSection: () => returnToHistoryFromPhaseReplay()
+    });
+    overlay.css('display', 'flex');
+}
+
+// Torna a l'historial amb la partida del repte seleccionada.
+function returnToHistoryFromPhaseReplay() {
+    const targetId = phaseReplayState ? phaseReplayState.entryId : null;
+    returnToMainMenuImmediate();
+    $('#start-screen').hide();
+    $('#history-screen').show();
+    initHistoryBoard();
+    renderGameHistory();
+    const entry = targetId ? gameHistory.find(g => g.id === targetId) : null;
+    if (entry) loadHistoryEntry(entry);
+    navPush('history-screen');
+    setTimeout(() => resizeHistoryBoardToViewport(), 0);
+}
+
 // =================== NAVEGACIÓ A LA PRÀCTICA D'OBERTURA ===================
 // Troba l'obertura del repertori (CURATED_OPENINGS) més semblant a la partida
 // jugada, comparant la coincidència de jugades des de l'inici (prefix comú).
@@ -8981,18 +9540,21 @@ function renderLocalReviewHtml(entry, opts = {}) {
             blocks.push(`<p>${endTxt}</p>`);
         }
 
-        // --- Moments clau (jugades descriptives clicables) ---
+        // --- Moments clau (jugades descriptives clicables): les errades (vermell
+        // la teva jugada, verd la millor) I els moviments excepcionals (només
+        // verd la jugada feta), tot ordenat per número de jugada. ---
         const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
+        const brilliantMoments = buildBrilliantMomentItems(entry, voiceStyle);
         // FENs d'aquesta partida que poden generar un jeroglífic (per marcar-los).
         const heiroSeeds = entryHieroglyphicSeedFenKeys(entry);
         const heiroKeyOf = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
-        if (moments.length) {
-            const items = moments.map(m => {
+        if (moments.length || brilliantMoments.length) {
+            const errorItems = moments.map(m => {
                 // Frases per veu VERIFICADES sobre la FEN de decisió: si la
                 // millor jugada no s'hi pot verificar, el moment no es mostra
                 // (mai una jugada inventada; passa al següent moment vàlid).
                 const best = m.fen ? bestPhraseByVoice(m.fen, m.bestMoveUci || m.best, voiceStyle) : null;
-                if (!best) return '';
+                if (!best) return null;
                 // Enllaç especialitzat: la millor jugada no es va jugar mai, així que
                 // naveguem a la posició de decisió (per la jugada realment feta) i
                 // hi ressaltem la jugada recomanada al tauler.
@@ -9047,12 +9609,22 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 ].filter(Boolean);
                 // Si tot ha quedat filtrat, un mínim segur en lloc de res.
                 if (lines.length === 1) lines.push(`<span>${escapeHtml(voiceText(voiceStyle, 'safeFallback'))}</span>`);
-                return `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`;
-            }).join('');
+                return {
+                    moveNumber: Number(m.moveNumber) || 0,
+                    html: `<li style="margin-bottom:10px;">${lines.join('<br>')}</li>`
+                };
+            }).filter(Boolean);
+            // Cronologia única: errades i moviments excepcionals per ordre de jugada.
+            const items = errorItems.concat(brilliantMoments)
+                .sort((a, b) => a.moveNumber - b.moveNumber)
+                .map(x => x.html)
+                .join('');
             const heiroNote = heiroSeeds.size
                 ? ` <span class="hg-seed-note">${HG_ICON_SVG} fins a ${heiroSeeds.size} ${heiroSeeds.size === 1 ? 'jeroglífic generable' : 'jeroglífics generables'}</span>`
                 : '';
-            blocks.push(`<p><strong>Moments clau:</strong>${heiroNote}</p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
+            if (items) {
+                blocks.push(`<p><strong>Moments clau:</strong>${heiroNote}</p><ul style="margin:4px 0 0 18px; padding:0;">${items}</ul>`);
+            }
         }
 
         // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
@@ -10840,60 +11412,119 @@ function historyEntryPasses(entry) {
     return true;
 }
 
+// Icona i classe visual del resultat d'una partida per a la llista de l'historial.
+function historyOutcomeMeta(entry) {
+    const outcome = entryOutcome(entry);
+    if (outcome === 'win') return { outcome, cls: 'hi-win', icon: '🏆' };
+    if (outcome === 'loss') return { outcome, cls: 'hi-loss', icon: '💔' };
+    if (outcome === 'draw') return { outcome, cls: 'hi-draw', icon: '🤝' };
+    return { outcome: null, cls: 'hi-draw', icon: '♟' };
+}
+
+// Classe de color d'una precisió (mateixos llindars que la barra en viu de la partida).
+function precisionPillClass(p) {
+    if (typeof p !== 'number') return '';
+    if (p >= 75) return 'hp-good';
+    if (p >= 50) return 'hp-mid';
+    return 'hp-low';
+}
+
+// Fitxes-resum de la capçalera de l'historial: partides, balanç i precisió mitjana.
+function renderHistorySummary() {
+    const el = $('#history-summary');
+    if (!el.length) return;
+    if (!gameHistory.length) { el.empty().hide(); return; }
+    let wins = 0, losses = 0, draws = 0, precSum = 0, precN = 0;
+    gameHistory.forEach(e => {
+        const o = entryOutcome(e);
+        if (o === 'win') wins++;
+        else if (o === 'loss') losses++;
+        else if (o === 'draw') draws++;
+        if (typeof e.precision === 'number') { precSum += e.precision; precN++; }
+    });
+    const avg = precN ? Math.round(precSum / precN) : null;
+    const tile = (label, value) => `<div class="history-summary-tile"><div class="hst-label">${label}</div><div class="hst-value">${value}</div></div>`;
+    el.html(
+        tile('Partides', String(gameHistory.length)) +
+        tile('Balanç', `${wins}V · ${draws}E · ${losses}D`) +
+        tile('Precisió mitjana', avg === null ? '—' : `${avg}%`)
+    ).show();
+}
+
+// Marca la partida seleccionada a la llista sense repintar-la sencera.
+function syncHistoryListActive() {
+    const activeId = historyReplay && historyReplay.entry ? historyReplay.entry.id : null;
+    $('#history-list .history-item').each(function() {
+        $(this).toggleClass('active', $(this).data('history-id') === activeId);
+    });
+}
+
 function renderGameHistory() {
     const container = $('#history-list');
     if (!container.length) return;
+    renderHistorySummary();
+    const countEl = $('#history-count');
     if (!gameHistory.length) {
-        container.html('<div class="history-empty">Encara no hi ha partides guardades.</div>');
+        container.html('<div class="history-empty">Encara no hi ha partides guardades. Juga una partida i la revisió apareixerà aquí.</div>');
+        if (countEl.length) countEl.text('');
         historyReplay = null;
         updateHistoryDetails(null);
         return;
     }
     const filtered = gameHistory.filter(historyEntryPasses);
+    if (countEl.length) {
+        countEl.text(filtered.length === gameHistory.length
+            ? `${gameHistory.length} ${gameHistory.length === 1 ? 'partida' : 'partides'}`
+            : `${filtered.length} de ${gameHistory.length}`);
+    }
     if (!filtered.length) {
         container.html('<div class="history-empty">Cap partida coincideix amb els filtres.</div>');
         return;
     }
+    const activeId = historyReplay && historyReplay.entry ? historyReplay.entry.id : null;
     const items = filtered
         .slice()
         .reverse()
         .map(entry => {
-            const movesCount = getHistoryMoves(entry).length;
-            const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesCount} jugades`;
+            const movesCount = Math.ceil(getHistoryMoves(entry).length / 2);
+            const om = historyOutcomeMeta(entry);
+            const prec = typeof entry.precision === 'number' ? entry.precision : null;
+            const colorTag = entry.playerColor === 'b' ? 'negres' : 'blanques';
+            const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesCount} jugades · ${colorTag}`;
             return `
-                <div class="history-item" data-history-id="${entry.id}">
+                <div class="history-item ${om.cls}${entry.id === activeId ? ' active' : ''}" data-history-id="${entry.id}" role="button" tabindex="0" title="Obre el detall i la revisió d'aquesta partida">
+                    <div class="history-item-icon" aria-hidden="true">${om.icon}</div>
                     <div class="history-item-main">
-                        <div class="history-item-title">${entry.result || '—'}</div>
-                        <div class="history-item-meta">${meta}</div>
+                        <div class="history-item-title">${escapeHtml(entry.result || '—')}</div>
+                        <div class="history-item-meta">${escapeHtml(meta)}</div>
                     </div>
-                           <div class="history-item-actions">
-                        <button class="btn btn-secondary history-select" data-history-id="${entry.id}">▶️ Veure</button>
+                    <div class="history-item-side">
+                        <span class="history-prec-pill ${precisionPillClass(prec)}" title="Precisió de la partida">${prec === null ? '—' : `${prec}%`}</span>
                         <button class="btn history-delete" data-history-id="${entry.id}" title="Esborrar aquesta partida de l'historial" aria-label="Esborrar aquesta partida de l'historial"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg></button>
-                        <button class="btn btn-primary history-review" data-history-id="${entry.id}">📈 Revisió</button>
                     </div>
                 </div>
             `;
         })
         .join('');
     container.html(items);
-    $('.history-select').off('click').on('click', function() {
+    // Tota la targeta obre el detall de la partida (a més del teclat, per accessibilitat).
+    container.find('.history-item').off('click keydown').on('click keydown', function(event) {
+        if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
         const id = $(this).data('history-id');
         const entry = gameHistory.find(item => item.id === id);
+        if (!entry) return;
         loadHistoryEntry(entry);
-        // En mòbil, centrar a la pantalla el tauler de la partida seleccionada
+        syncHistoryListActive();
+        // En mòbil, porta la vista al detall de la partida seleccionada.
         if (deviceType === 'mobile') {
-            const boardEl = document.getElementById('history-board');
-            if (boardEl && boardEl.scrollIntoView) {
-                setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+            const detailEl = document.getElementById('history-detail');
+            if (detailEl && detailEl.scrollIntoView) {
+                setTimeout(() => detailEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
             }
         }
     });
         stopTvPlayback();
-    $('.history-review').off('click').on('click', function() {
-        const id = $(this).data('history-id');
-        const entry = gameHistory.find(item => item.id === id);
-        showHistoryReview(entry);
-    });
     // Esborrar una partida concreta de l'historial (amb confirmació). Actualitza el
     // desat (i la sincronització al núvol) i refresca la llista i el detall.
     $('.history-delete').off('click').on('click', function(e) {
@@ -10921,28 +11552,6 @@ function renderGameHistory() {
     });
     if (!historyReplay || !historyReplay.entry) {
         loadHistoryEntry(gameHistory[gameHistory.length - 1]);
-    }
-}
-
-function showHistoryReview(entry) {
-    if (!entry) return;
-    currentGameErrors = Array.isArray(entry.errors)
-        ? entry.errors.map(err => ({
-            fen: err.fen,
-            severity: err.severity,
-            bestMove: err.bestMove || null,
-            playerMove: err.playerMove || null,
-            bestMovePv: err.bestMovePv || []  // ← AFEGIR AQUEST CAMP
-        }))
-        : [];
-    // Carreguem la partida al panell de detall (que SÍ que té tauler) i hi
-    // desplacem la vista: així la ressenya rica (obertura, fases, moments clau)
-    // i la visualització de jugades al tauler funcionen. El modal antic no tenia
-    // tauler i no mostrava ni l'obertura ni permetia visualitzar les jugades.
-    loadHistoryEntry(entry);
-    const reviewEl = document.getElementById('history-review-content');
-    if (reviewEl && reviewEl.scrollIntoView) {
-        setTimeout(() => reviewEl.scrollIntoView({ behavior: 'smooth', block: 'start' }), 60);
     }
 }
 
@@ -18440,7 +19049,7 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
 
     // Secció d'origen: l'historial o la revisió de la partida acabada de jugar.
     const sectionLabel = fromHistory
-        ? '📜 Historial'
+        ? `${HISTORY_ICON_SVG} Historial`
         : (currentBundleSource === 'match' && matchErrorReturnReviewSnapshot ? '📈 Revisió de la partida' : 'Tornar');
     wireNavTrio(overlay, {
         onHome: () => {
@@ -18579,6 +19188,10 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     lastReviewSnapshot = null;
     setResultIndicator(null);
     hidePostGameStatusChip();
+    // El repte «Rejugar +5%» només queda viu si aquesta mateixa crida el consumeix
+    // (phaseReplayPending); qualsevol altra partida el descarta.
+    phaseReplayState = null;
+    $('#phase-replay-overlay').hide();
     $('#btn-resign').prop('disabled', false);
     const checkmateImage = $('#checkmate-image');
     if (checkmateImage.length) checkmateImage.hide();
@@ -18609,7 +19222,7 @@ blunderMode = isBundle;
     // El botó de rendir-se només té sentit a les PARTIDES, no als exercicis
     // (tàctiques, revisió d'errors, mats…).
     $('#btn-resign').toggle(!isBundle);
-    isCalibrationGame = isCalibrationActive() && !isBundle;
+    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending;
     currentBundleFen = fen;
     
     // ✅ CALCULAR SEQÜÈNCIA FIXA PER BUNDLES
@@ -18696,6 +19309,10 @@ blunderMode = isBundle;
     if (isBundle) {
         playerColor = game.turn();
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (phaseReplayPending) {
+        // Repte «Rejugar +5%»: es rejuga amb el MATEIX color de la partida original.
+        playerColor = phaseReplayPending.playerColor === 'b' ? 'b' : 'w';
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else {
         const isWhite = Math.random() < 0.5;
         playerColor = isWhite ? 'w' : 'b';
@@ -18751,6 +19368,23 @@ blunderMode = isBundle;
         else if (currentBundleSource === 'srs') bundleTitle = '🧠 Repàs intel·ligent';
         else if (currentBundleSource === 'bestline') bundleTitle = `${HG_ICON_SVG} Jeroglífic`;
         $('#game-mode-title').html(bundleTitle).css('font-size', '');
+    } else if (phaseReplayPending) {
+        // Repte «Rejugar +5%» des de l'historial: partida real contra el motor
+        // (a la força de la partida original), però sense tocar ELO ni historial.
+        currentGameMode = 'phase_replay';
+        currentOpponent = null;
+        phaseReplayState = Object.assign({ movesPlayed: 0, finished: false }, phaseReplayPending);
+        phaseReplayPending = null;
+        // La barra de precisió comença EXACTAMENT amb el percentatge que hi havia
+        // en el primer moviment de la fase durant la partida original.
+        totalPlayerMoves = phaseReplayState.seedTotal;
+        goodMoves = phaseReplayState.seedGood;
+        const replayRoc = phaseReplayState.engineRoc || currentElo;
+        aiDifficulty = levelToDifficulty(replayRoc);
+        if (engineReady) applyEngineEloStrength(replayRoc);
+        $('#engine-elo').text(`ROC ${replayRoc}`);
+        $('#game-mode-title').html(`${HISTORY_ICON_SVG} Rejugar ${escapeHtml(phaseReplayState.phaseLabel.toLowerCase())} +5%`);
+        updatePrecisionDisplay();
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -18791,8 +19425,13 @@ blunderMode = isBundle;
     updateStatus();
     updateBundleHintButtons();
 
-    // Inicialitza el rellotge (només modes de partida real, no exercicis ni calibratge)
-    initGameClock(!isBundle && !isCalibrationGame);
+    // Inicialitza el rellotge (només modes de partida real, no exercicis,
+    // calibratge ni el repte «Rejugar +5%», que es juga sense pressa)
+    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'phase_replay');
+
+    // HUD del repte «Rejugar +5%» i objectiu del panell de precisió (75% per defecte)
+    updatePhaseReplayHud();
+    updatePrecisionTargetUI();
 
     // Forçar actualització visual després de 100ms
     setTimeout(() => {
@@ -18825,6 +19464,7 @@ blunderMode = isBundle;
 
 function onDragStart(source, piece, position, orientation) {
     if (isViewingGameHistory()) return false;
+    if (phaseReplayInputLocked()) return false;
     if (game.game_over() || isEngineThinking) return false;
     if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || 
         (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
@@ -18959,9 +19599,12 @@ function showIllegalMoveFeedback(square) {
 }
 
 function makeEngineMove() {
+    // Repte «Rejugar +5%» acabat: el motor ja no respon (la finestra de resultat
+    // és oberta i la posició queda tal com estava en assolir el final de la fase).
+    if (phaseReplayInputLocked()) return;
     if (!stockfish && !ensureStockfish()) return;
 
-    isEngineThinking = true; 
+    isEngineThinking = true;
     $('#status').text("L'adversari pensa...");
 
     const depth = getAIDepth();
@@ -19085,6 +19728,8 @@ function resolvePendingMoveEvaluation(moveQuality) {
     }
     pendingMoveEvaluation = false;
     updatePrecisionDisplay();
+    // Repte «Rejugar +5%»: cada jugada avaluada compta cap al final de la fase.
+    notePhaseReplayMoveEvaluated();
 }
 
 /**
@@ -20120,7 +20765,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     const sectionBtn = $('#btn-review-section');
     if (sectionBtn.length) {
         const wasLeague = currentGameMode === 'league';
-        sectionBtn.text(wasLeague ? '🏆 Lliga' : '📜 Historial');
+        sectionBtn.html(wasLeague ? '🏆 Lliga' : `${HISTORY_ICON_SVG} Historial`);
         sectionBtn.off('click').on('click', () => {
             if (reviewAutoCloseTimer) {
                 clearTimeout(reviewAutoCloseTimer);
@@ -20163,6 +20808,12 @@ function returnToMainMenuImmediate() {
     $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#calibration-result-screen').hide(); $('#start-screen').show(); navStack = [];
     if (stockfish) stockfish.postMessage('stop');
     clearTapSelection();
+    // El repte «Rejugar +5%» mor en sortir de la partida.
+    phaseReplayState = null;
+    phaseReplayPending = null;
+    if (currentGameMode === 'phase_replay') currentGameMode = 'free';
+    $('#phase-replay-overlay').hide();
+    updatePhaseReplayHud();
     isMatchErrorReviewSession = false;
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
@@ -20480,6 +21131,20 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
 }
 
 function handleGameOver(manualResign = false, timeoutColor = null) {
+    // El repte «Rejugar +5%» es tanca amb la seva pròpia finestra i NO toca res
+    // més (ni ELO, ni historial, ni estadístiques, ni ajust adaptatiu).
+    if (currentGameMode === 'phase_replay' && phaseReplayState) {
+        pendingMoveEvaluation = false;
+        stopGameClock();
+        if (phaseReplayState.finished) {
+            // Repte ja tancat (p. ex. «Rendir-se» amb la posició final a la vista):
+            // es torna a mostrar el resultat.
+            showPhaseReplayOverlay(phaseReplayState);
+        } else {
+            finishPhaseReplay(manualResign ? 'resign' : 'gameover');
+        }
+        return;
+    }
     pendingMoveEvaluation = false;
     stopGameClock();
     let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
@@ -21592,10 +22257,12 @@ function coachSectionsFor(quality) {
 }
 
 // Classificació visual de la jugada (estil chess.com): etiqueta + color per gravetat.
+// 'excel' només s'usa per als MOVIMENTS EXCEPCIONALS dels moments clau (verd).
 function coachQualityMeta(quality) {
     if (quality === 'blunder') return { label: 'Error greu', color: '#e74c3c', bg: 'rgba(231,76,60,0.18)' };
     if (quality === 'mistake') return { label: 'Error', color: '#e67e22', bg: 'rgba(230,126,34,0.18)' };
     if (quality === 'inaccuracy') return { label: 'Imprecisió', color: '#d4ac0d', bg: 'rgba(212,172,13,0.18)' };
+    if (quality === 'excel') return { label: 'Excepcional', color: '#2ecc71', bg: 'rgba(46,204,113,0.18)' };
     return null;
 }
 
