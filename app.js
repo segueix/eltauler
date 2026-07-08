@@ -1284,7 +1284,7 @@ function buildHistoryReviewText(entry) {
         : String(entry.result || '').split('·')[0].trim();
     const meta = [
         resultWord,
-        formatHistoryMode(entry.mode),
+        describeHistoryGame(entry),
         (typeof entry.precision === 'number' ? `Precisió ${entry.precision}%` : '')
     ].filter(Boolean).join(' · ');
     if (meta) lines.push(meta);
@@ -4038,6 +4038,11 @@ function getAdaptiveNormalized() {
 function getActiveStrengthElo() {
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
     if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
+    // Repte «Rejugar +5%»: el rival juga a la força de la partida original,
+    // encara que el repte porti rellotge (no ha de saltar a l'ELO del ritme).
+    if (currentGameMode === 'phase_replay' && phaseReplayState) {
+        return clampEngineElo(phaseReplayState.engineRoc || currentElo);
+    }
     // Calibratge d'un ritme: el rival és ADAPTATIU dins de la mateixa partida
     // (comença al nivell principal i s'ajusta amb la precisió del jugador).
     if (timedCalibrationTcId && timedCalibrationTcId === currentGameTimeControlId && gameClock.enabled) {
@@ -7652,6 +7657,25 @@ function formatHistoryMode(mode) {
     return 'Partida';
 }
 
+// Ritme de rellotge d'una entrada de l'historial ("Blitz 3+2"...), o null si es
+// va jugar sense rellotge (o l'entrada és antiga i no el va desar).
+function historyTimeControlLabel(entry) {
+    const tcId = entry && entry.timeControl;
+    if (!tcId || tcId === 'none') return null;
+    const cfg = TIME_CONTROLS.find(t => t.id === tcId);
+    return cfg ? cfg.label : null;
+}
+
+// Descripció de la partida en una sola frase natural (mode, ritme si en tenia i
+// color de les peces), en lloc d'encadenar etiquetes soltes amb "· amb blanques"
+// al final: "Amistosa Blitz 3+2 amb blanques", "Lliga amb negres"...
+function describeHistoryGame(entry) {
+    const mode = formatHistoryMode(entry.mode);
+    const color = entry.playerColor === 'b' ? 'negres' : 'blanques';
+    const tcLabel = historyTimeControlLabel(entry);
+    return tcLabel ? `${mode} ${tcLabel} amb ${color}` : `${mode} amb ${color}`;
+}
+
 const TV_LICHESS_CHANNELS = [
     { id: 'featured', label: 'Destacada' },
     { id: 'classical', label: 'Clàssiques' },
@@ -8055,8 +8079,7 @@ function updateHistoryDetails(entry) {
         if (pillCls) precisionPill.addClass(pillCls);
     }
     const movesLabel = `${Math.ceil(getHistoryMoves(entry).length / 2)} jugades`;
-    const colorTag = entry.playerColor === 'b' ? 'amb negres' : 'amb blanques';
-    const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesLabel} · ${colorTag}`;
+    const meta = `${entry.label || '—'} · ${describeHistoryGame(entry)} · ${movesLabel}`;
     metaEl.text(meta);
 
     const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
@@ -8944,6 +8967,9 @@ function buildPhaseAdvice(themes, phaseKey, voiceStyle) {
    objectiu un 5% més alt del que va aconseguir a la partida original. */
 
 const PHASE_REPLAY_BONUS = 5;
+// Si la partida original era amb rellotge, la fase es rejuga amb rellotge:
+// cada bàndol rep aquesta fracció del temps total del ritme original.
+const PHASE_REPLAY_CLOCK_FRACTION = 0.3;
 const PHASE_DISPLAY_LABELS = { opening: 'Obertura', middlegame: 'Mig joc', endgame: 'Final' };
 const HISTORY_ICON_SVG = '<svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>';
 
@@ -9246,8 +9272,11 @@ function renderHistoryPhaseCards(entry, timeline) {
         const errs = pts.length - good;
         const phasePct = Math.round((good / pts.length) * 100);
         const plan = computePhaseReplayPlan(entry, key);
+        const clockTxt = plan && plan.timeControlId
+            ? ` Es juga amb rellotge: el 30% del temps de ${getTimeControlLabel(plan.timeControlId)}.`
+            : '';
         const btn = plan
-            ? `<button type="button" class="btn phase-replay-btn" data-phase="${key}" title="Torna a la jugada ${plan.startMoveNumber} i rejuga ${name.toLowerCase()} contra el motor amb un objectiu del ${plan.targetPct}% (a la partida hi vas arribar amb ${plan.origEndPct}%)">${HISTORY_ICON_SVG}Rejugar +5%</button>`
+            ? `<button type="button" class="btn phase-replay-btn" data-phase="${key}" title="Torna a la jugada ${plan.startMoveNumber} i rejuga ${name.toLowerCase()} contra el motor amb un objectiu del ${plan.targetPct}% (a la partida hi vas fer un ${plan.origPhasePct}%).${clockTxt}">${HISTORY_ICON_SVG}Rejugar +5%</button>`
             : `<div class="hpc-meta" style="margin-top:6px;">Sense prou dades per rejugar-la.</div>`;
         return `<div class="history-phase-card">
             <div class="hpc-name">${name}</div>
@@ -9264,9 +9293,11 @@ function renderHistoryPhaseCards(entry, timeline) {
 }
 
 // Pla del repte «Rejugar +5%» d'una fase: posició inicial (FEN abans de la teva
-// primera jugada de la fase), comptadors de precisió previs (perquè la barra
-// comenci EXACTAMENT amb el percentatge del primer moviment de la fase durant la
-// partida), nombre de jugades a jugar i objectiu (+5% sobre el que hi vas fer).
+// primera jugada de la fase), nombre de jugades a jugar i objectiu. Tots els
+// percentatges són DE LA FASE (encerts dins la fase / jugades de la fase): el
+// mateix número que mostra la fitxa, de manera que l'objectiu és exactament
+// aquell número +5. Si la partida original era amb rellotge, el repte també en
+// porta: cada bàndol rep el 30% del temps total del ritme original.
 function computePhaseReplayPlan(entry, phaseKey) {
     if (!entry) return null;
     const timeline = computeHistoryMoveTimeline(entry);
@@ -9274,7 +9305,6 @@ function computePhaseReplayPlan(entry, phaseKey) {
     const inPhase = timeline.filter(t => t.phase === phaseKey);
     if (!inPhase.length) return null;
     const first = inPhase[0];
-    const last = inPhase[inPhase.length - 1];
     const playerColor = entry.playerColor === 'b' ? 'b' : 'w';
     const moves = getHistoryMoves(entry);
     if (!moves.length) return null;
@@ -9292,15 +9322,10 @@ function computePhaseReplayPlan(entry, phaseKey) {
         if (g.turn() !== playerColor) return null;
         baseFen = g.fen();
     } catch (e) { return null; }
-    let seedGood = 0, seedTotal = 0;
-    timeline.forEach(t => {
-        if (t.idx < first.idx) {
-            seedTotal++;
-            if (t.quality === 'excel' || t.quality === 'good') seedGood++;
-        }
-    });
-    const startPct = seedTotal > 0 ? Math.round((seedGood / seedTotal) * 100) : null;
-    const origEndPct = last.cumPct;
+    const goodInPhase = inPhase.filter(t => t.quality === 'excel' || t.quality === 'good').length;
+    const origPhasePct = Math.round((goodInPhase / inPhase.length) * 100);
+    const tcId = (entry.timeControl && entry.timeControl !== 'none'
+        && TIME_CONTROLS.some(t => t.id === entry.timeControl)) ? entry.timeControl : null;
     return {
         entryId: entry.id,
         phaseKey,
@@ -9309,11 +9334,9 @@ function computePhaseReplayPlan(entry, phaseKey) {
         baseFen,
         startMoveNumber: first.moveNumber,
         movesTarget: inPhase.length,
-        seedGood,
-        seedTotal,
-        startPct,
-        origEndPct,
-        targetPct: Math.min(100, origEndPct + PHASE_REPLAY_BONUS),
+        origPhasePct,
+        targetPct: Math.min(100, origPhasePct + PHASE_REPLAY_BONUS),
+        timeControlId: tcId,
         engineRoc: (typeof entry.roc === 'number' && entry.roc > 0) ? entry.roc : null
     };
 }
@@ -9352,9 +9375,9 @@ function updatePhaseReplayHud() {
     }
     const st = phaseReplayState;
     const current = Math.min(st.movesPlayed + (st.finished ? 0 : 1), st.movesTarget);
-    const startTxt = st.startPct === null ? 'de zero' : `amb ${st.startPct}%`;
+    const clockTxt = st.timeControlId ? ` · rellotge 30% de ${getTimeControlLabel(st.timeControlId)}` : '';
     $('#phase-replay-banner-text').text(
-        `Rejugues ${st.phaseLabel.toLowerCase()} · jugada ${current} de ${st.movesTarget} · comences ${startTxt} · objectiu ${st.targetPct}% (original ${st.origEndPct}%)`
+        `Rejugues ${st.phaseLabel.toLowerCase()} · jugada ${current} de ${st.movesTarget} · objectiu ${st.targetPct}% (a l'original ${st.origPhasePct}%)${clockTxt}`
     );
     banner.show();
 }
@@ -9385,6 +9408,8 @@ function phaseReplayInputLocked() {
 
 // Tanca el repte: atura el motor, calcula el resultat i mostra la finestra.
 // No es registra res (ni ELO, ni historial, ni estadístiques de partida).
+// Els comptadors comencen a zero al repte, així que finalPct és el % DE LA FASE
+// rejugada: directament comparable amb origPhasePct i amb l'objectiu (+5).
 function finishPhaseReplay(reason) {
     if (!phaseReplayState || phaseReplayState.finished) return;
     const st = phaseReplayState;
@@ -9396,7 +9421,8 @@ function finishPhaseReplay(reason) {
     try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
     st.finalPct = totalPlayerMoves > 0 ? Math.round((goodMoves / totalPlayerMoves) * 100) : 0;
     st.reason = reason;
-    st.success = reason !== 'resign' && st.finalPct >= st.targetPct;
+    // Rendir-se o quedar-se sense temps no pot comptar com a repte superat.
+    st.success = reason !== 'resign' && reason !== 'flag_player' && st.finalPct >= st.targetPct;
     updatePhaseReplayHud();
     showPhaseReplayOverlay(st);
 }
@@ -9404,16 +9430,22 @@ function finishPhaseReplay(reason) {
 function showPhaseReplayOverlay(st) {
     const overlay = $('#phase-replay-overlay');
     if (!overlay.length) return;
-    const icon = st.success ? '🎉' : (st.reason === 'resign' ? '🏳️' : '🎯');
-    const title = st.success ? 'Repte superat!' : (st.reason === 'resign' ? 'Repte abandonat' : 'Objectiu no assolit');
+    const icon = st.success ? '🎉' : (st.reason === 'resign' ? '🏳️' : (st.reason === 'flag_player' ? '⏱️' : '🎯'));
+    const title = st.success ? 'Repte superat!'
+        : (st.reason === 'resign' ? 'Repte abandonat'
+        : (st.reason === 'flag_player' ? "T'has quedat sense temps" : 'Objectiu no assolit'));
     $('#phase-replay-result-icon').text(icon);
     $('#phase-replay-result-title').text(title);
     const detail = $('#phase-replay-result-detail');
-    let html = `<p><strong>${escapeHtml(st.phaseLabel)}</strong>: has acabat amb <strong>${st.finalPct}%</strong> de precisió acumulada.`
-        + ` L'objectiu era <strong>${st.targetPct}%</strong> (a la partida original vas tancar la fase amb ${st.origEndPct}%).</p>`;
+    let html = `<p><strong>${escapeHtml(st.phaseLabel)}</strong>: has acabat amb <strong>${st.finalPct}%</strong> d'encert a la fase.`
+        + ` L'objectiu era <strong>${st.targetPct}%</strong> (a la partida original hi vas fer un ${st.origPhasePct}%).</p>`;
     html += `<div class="prr-meter"><div class="prr-meter-fill${st.success ? '' : ' ko'}" style="width:${Math.max(0, Math.min(100, st.finalPct))}%"></div>`
         + `<div class="prr-meter-target" style="left:${st.targetPct}%"></div></div>`;
-    if (st.reason === 'gameover' && st.movesPlayed < st.movesTarget) {
+    if (st.reason === 'flag_player') {
+        html += `<div class="prr-note">El rellotge del repte era el 30% del temps de ${escapeHtml(getTimeControlLabel(st.timeControlId) || 'la partida original')} i se t'ha acabat. Torna-ho a provar jugant una mica més de pressa.</div>`;
+    } else if (st.reason === 'flag_engine') {
+        html += `<div class="prr-note">El rival s'ha quedat sense temps.</div>`;
+    } else if (st.reason === 'gameover' && st.movesPlayed < st.movesTarget) {
         html += `<div class="prr-note">La partida s'ha acabat abans d'hora: has jugat ${st.movesPlayed} de ${st.movesTarget} jugades del repte.</div>`;
     } else if (!st.success && st.reason !== 'resign') {
         html += `<div class="prr-note">Torna-ho a provar: només et cal ${st.targetPct - st.finalPct > 0 ? `un ${st.targetPct - st.finalPct}% més` : 'una mica més de precisió'}.</div>`;
@@ -9552,8 +9584,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
 
-        // --- Color del jugador: que quedi clar quines decisions es comenten ---
-        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle))}</p>`);
+        // --- Color del jugador (i ritme, si era una partida amb rellotge): una
+        // sola frase natural que situa quines decisions es comenten ---
+        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle, historyTimeControlLabel(entry)))}</p>`);
 
         // --- La lliçó d'avui: una consigna curta segons el patró dominant,
         // derivada de dades locals (mai d'IA lliure) ---
@@ -11652,8 +11685,7 @@ function renderGameHistory() {
             const movesCount = Math.ceil(getHistoryMoves(entry).length / 2);
             const om = historyOutcomeMeta(entry);
             const prec = typeof entry.precision === 'number' ? entry.precision : null;
-            const colorTag = entry.playerColor === 'b' ? 'negres' : 'blanques';
-            const meta = `${entry.label || '—'} · ${formatHistoryMode(entry.mode)} · ${movesCount} jugades · ${colorTag}`;
+            const meta = `${entry.label || '—'} · ${describeHistoryGame(entry)} · ${movesCount} jugades`;
             return `
                 <div class="history-item ${om.cls}${entry.id === activeId ? ' active' : ''}" data-history-id="${entry.id}" role="button" tabindex="0" title="Obre el detall i la revisió d'aquesta partida">
                     <div class="history-item-icon" aria-hidden="true">${om.icon}</div>
@@ -11764,6 +11796,10 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             : getSevereErrors(currentReview),
         aiReview: options.aiReview || options.deepseekReview || options.geminiReview || null,
         playerColor: playerColor,
+        // Ritme de rellotge amb què es va jugar ('none' si era sense rellotge):
+        // la revisió l'ensenya com a tipus de partida i el repte «Rejugar +5%»
+        // el fa servir per posar rellotge a la fase que es rejuga.
+        timeControl: currentGameTimeControlId || 'none',
         opponent: currentOpponent || null,
         fen: game.fen(),
         pgn: game.pgn(),
@@ -18252,6 +18288,11 @@ function classifyPositionTheme(fen, uci) {
     return 'general';
 }
 
+// Fases en clau catalana per a les febleses, mapades des de la classificació
+// única de fases (classifyPhaseByMoveNumber): un sol límit d'obertura/migjoc/final
+// a tota l'app, perquè els percentatges de fase siguin comparables entre pantalles.
+const WEAKNESS_PHASE_KEYS = { opening: 'obertura', middlegame: 'migjoc', endgame: 'final' };
+
 const WEAKNESS_LABELS = {
     king: 'Atacs i seguretat del rei',
     king_attack: 'Atacs i seguretat del rei',
@@ -18280,9 +18321,8 @@ function analyzeWeaknesses() {
     errors.forEach(e => {
         let fullmove = 10;
         try { fullmove = parseInt((e.fen || '').split(' ')[5]) || 10; } catch (_) {}
-        if (fullmove <= 10) phase.obertura++;
-        else if (fullmove <= 30) phase.migjoc++;
-        else phase.final++;
+        // Mateixos límits de fase que a tota l'app (classifyPhaseByMoveNumber).
+        phase[WEAKNESS_PHASE_KEYS[classifyPhaseByMoveNumber(fullmove)]]++;
         const classifiedTheme = normalizeGrowthTheme(classifyPositionTheme(e.fen, e.bestMove || ''));
         theme[classifiedTheme] = (theme[classifiedTheme] || 0) + 1;
         if (e.severity === 'high') severity.high++;
@@ -18316,7 +18356,7 @@ function analyzePhasePrecision() {
             const w = QUALITY_WEIGHTS[r.quality];
             if (typeof w !== 'number') return;
             const mn = r.moveNumber || 1;
-            const bucket = mn <= 10 ? 'obertura' : (mn <= 30 ? 'migjoc' : 'final');
+            const bucket = WEAKNESS_PHASE_KEYS[classifyPhaseByMoveNumber(mn)];
             phases[bucket].sum += w;
             phases[bucket].n++;
         });
@@ -19242,6 +19282,11 @@ function getActiveTimeControlId() {
     if (currentGameMode === 'league' && currentLeague) {
         return currentLeague.timeControl || 'none';
     }
+    // Repte «Rejugar +5%»: el ritme és el de la partida original que es rejuga
+    // (o cap, si aquella partida era sense rellotge), no el triat per a noves partides.
+    if (currentGameMode === 'phase_replay') {
+        return (phaseReplayState && phaseReplayState.timeControlId) || 'none';
+    }
     return pendingFreeTimeControl || 'none';
 }
 function getTimeControlConfig() {
@@ -19367,14 +19412,18 @@ function initGameClock(applies) {
     stopGameClock();
     const cfg = getTimeControlConfig();
     const enabled = applies && cfg.id !== 'none';
+    // Al repte «Rejugar +5%» només es juga UNA fase de la partida: cada bàndol
+    // rep el 30% del temps total del ritme original (l'increment es manté).
+    const fraction = currentGameMode === 'phase_replay' ? PHASE_REPLAY_CLOCK_FRACTION : 1;
+    const baseMs = enabled ? Math.round(cfg.base * 1000 * fraction) : 0;
     gameClock = {
         enabled,
-        white: enabled ? cfg.base * 1000 : 0,
-        black: enabled ? cfg.base * 1000 : 0,
+        white: baseMs,
+        black: baseMs,
         inc: enabled ? cfg.inc * 1000 : 0,
         // Avís de temps baix proporcional al ritme: als bullets de 30s/1min,
         // el llindar fix de 20s cobriria (quasi) tota la partida.
-        lowMs: enabled ? Math.min(20000, Math.max(5000, cfg.base * 1000 * 0.2)) : 20000,
+        lowMs: enabled ? Math.min(20000, Math.max(5000, baseMs * 0.2)) : 20000,
         active: null,
         interval: null,
         lastTs: 0,
@@ -19635,10 +19684,9 @@ blunderMode = isBundle;
         currentOpponent = null;
         phaseReplayState = Object.assign({ movesPlayed: 0, finished: false }, phaseReplayPending);
         phaseReplayPending = null;
-        // La barra de precisió comença EXACTAMENT amb el percentatge que hi havia
-        // en el primer moviment de la fase durant la partida original.
-        totalPlayerMoves = phaseReplayState.seedTotal;
-        goodMoves = phaseReplayState.seedGood;
+        // La barra de precisió comença a zero: al repte només compten les jugades
+        // de la fase rejugada, el mateix percentatge que mostra la fitxa de fase
+        // (i que l'objectiu apuja exactament un 5%).
         const replayRoc = phaseReplayState.engineRoc || currentElo;
         aiDifficulty = levelToDifficulty(replayRoc);
         if (engineReady) applyEngineEloStrength(replayRoc);
@@ -19685,9 +19733,11 @@ blunderMode = isBundle;
     updateStatus();
     updateBundleHintButtons();
 
-    // Inicialitza el rellotge (només modes de partida real, no exercicis,
-    // calibratge ni el repte «Rejugar +5%», que es juga sense pressa)
-    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'phase_replay');
+    // Inicialitza el rellotge (només modes de partida real, no exercicis ni
+    // calibratge). El repte «Rejugar +5%» en porta si la partida original era
+    // amb rellotge (el 30% del temps del ritme); si era sense, getActiveTimeControlId
+    // retorna 'none' i es juga sense pressa com sempre.
+    initGameClock(!isBundle && !isCalibrationGame);
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -21429,7 +21479,11 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             // es torna a mostrar el resultat.
             showPhaseReplayOverlay(phaseReplayState);
         } else {
-            finishPhaseReplay(manualResign ? 'resign' : 'gameover');
+            // La bandera també tanca el repte aquí (sense tocar ELO ni historial):
+            // caure de temps el suspèn; que caigui el rival només l'acaba abans.
+            const reason = manualResign ? 'resign'
+                : (timeoutColor ? (timeoutColor === playerColor ? 'flag_player' : 'flag_engine') : 'gameover');
+            finishPhaseReplay(reason);
         }
         return;
     }

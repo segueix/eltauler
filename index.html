@@ -1708,16 +1708,56 @@
         body.epaper-mode .clock-pill { background: #ededed; border-color: #cfcfcf; }
         body.epaper-mode .clock-pill.clock-active { border-color: #444; background: #e0e0e0; box-shadow: none; }
 
-        .precision-panel { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; display: flex; align-items: center; gap: 15px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
+        /* ============================================================
+           Barra de precisió dels taulers (partida, obertures...):
+           una pista fina encastada, amb marques discretes a 25/50/75,
+           ompliment amb degradat i lluïssor del color d'estat, i una
+           fita daurada com a objectiu. Substitueix el bloc pla de 20px
+           perquè quedi integrada amb l'estètica de fusta/pergamí.
+           ============================================================ */
+        .precision-panel { background: var(--bg-card); padding: 12px 16px; border-radius: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 14px; border: 1px solid rgba(201,162,39,0.15); box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
         .precision-stat { text-align: center; min-width: 70px; }
-        .precision-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 3px; }
+        .precision-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); margin-bottom: 3px; }
         .precision-value { font-family: 'Cinzel', serif; font-size: 1.3rem; font-weight: 700; color: var(--accent-gold); }
         .precision-target-text { color: var(--text-secondary); }
-        
-        .precision-bar-container { flex: 1; height: 20px; background: rgba(0,0,0,0.3); border-radius: 10px; position: relative; overflow: hidden; }
-        .precision-bar { height: 100%; background: var(--accent-green); border-radius: 10px; width: 0%; transition: width 0.3s, background 0.3s; }
-        .precision-bar.warning { background: var(--severity-med); }
-        .precision-bar.danger { background: var(--severity-high); }
+
+        .precision-bar-container {
+            flex: 1; height: 12px; position: relative; border-radius: 999px;
+            /* Marques de referència a 25/50/75 sota l'ompliment */
+            background: repeating-linear-gradient(to right,
+                    transparent, transparent calc(25% - 1px),
+                    rgba(244,228,188,0.16) calc(25% - 1px), rgba(244,228,188,0.16) 25%),
+                rgba(0,0,0,0.28);
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.35);
+        }
+        .precision-bar {
+            position: absolute; top: 2px; left: 2px; bottom: 2px;
+            width: 0%; max-width: calc(100% - 4px);
+            border-radius: 999px;
+            background: linear-gradient(180deg, #6aa87e, var(--accent-green));
+            box-shadow: 0 0 8px rgba(74,124,89,0.45);
+            transition: width 0.35s ease, background 0.3s, box-shadow 0.3s;
+        }
+        .precision-bar.warning { background: linear-gradient(180deg, #ffa733, var(--severity-med)); box-shadow: 0 0 8px rgba(255,140,0,0.4); }
+        .precision-bar.danger { background: linear-gradient(180deg, #ff5b4d, var(--severity-high)); box-shadow: 0 0 8px rgba(220,40,30,0.4); }
+        /* Fita de l'objectiu: agulla daurada amb el rombe al capdamunt */
+        .precision-target {
+            position: absolute; left: 75%; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+            background: var(--accent-gold); border-radius: 1px; opacity: 0.95; z-index: 1;
+        }
+        .precision-target::after {
+            content: ''; position: absolute; left: 50%; top: -5px;
+            width: 6px; height: 6px; transform: translateX(-50%) rotate(45deg);
+            background: var(--accent-gold); border-radius: 1px;
+        }
+        body.day-mode .precision-bar-container {
+            background: repeating-linear-gradient(to right,
+                    transparent, transparent calc(25% - 1px),
+                    rgba(120,95,40,0.22) calc(25% - 1px), rgba(120,95,40,0.22) 25%),
+                rgba(120,95,40,0.18);
+        }
+        body.epaper-mode .precision-bar-container { background: #d5d5d5; box-shadow: none; }
+        body.epaper-mode .precision-bar { background: #555; }
 
         /* Animació pols per a la barra de precisió */
         @keyframes precision-pulse {
@@ -1975,9 +2015,8 @@
         }
         .status-message.elo-reveal {
             animation: pulse-purple 1.2s ease-in-out 2;
-        }        
-        .precision-target { position: absolute; left: 75%; top: 0; width: 2px; height: 100%; background: rgba(255,255,255,0.5); }
-        
+        }
+
         .board-container { position: relative; margin-bottom: 15px; }
         .blunder-alert {
             position: absolute; top: 10px; right: 10px; width: 45px; height: 45px; background: var(--severity-high);
@@ -2787,23 +2826,31 @@
             line-height: 1.5;
             margin: 4px 0 10px;
         }
+        /* Mateix llenguatge visual que la barra de precisió dels taulers */
         .phase-replay-result-detail .prr-meter {
             position: relative;
-            height: 14px;
-            border-radius: 7px;
+            height: 12px;
+            border-radius: 999px;
             background: rgba(0,0,0,0.35);
-            overflow: hidden;
-            margin-top: 8px;
+            box-shadow: inset 0 1px 3px rgba(0,0,0,0.35);
+            margin-top: 10px;
         }
         .phase-replay-result-detail .prr-meter-fill {
-            height: 100%;
-            border-radius: 7px;
-            background: var(--accent-green);
+            position: absolute; top: 2px; left: 2px; bottom: 2px;
+            max-width: calc(100% - 4px);
+            border-radius: 999px;
+            background: linear-gradient(180deg, #6aa87e, var(--accent-green));
+            box-shadow: 0 0 8px rgba(74,124,89,0.45);
         }
-        .phase-replay-result-detail .prr-meter-fill.ko { background: var(--severity-med); }
+        .phase-replay-result-detail .prr-meter-fill.ko { background: linear-gradient(180deg, #ffa733, var(--severity-med)); box-shadow: 0 0 8px rgba(255,140,0,0.4); }
         .phase-replay-result-detail .prr-meter-target {
-            position: absolute; top: 0; width: 2px; height: 100%;
-            background: rgba(255,255,255,0.75);
+            position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px;
+            background: var(--accent-gold); border-radius: 1px;
+        }
+        .phase-replay-result-detail .prr-meter-target::after {
+            content: ''; position: absolute; left: 50%; top: -5px;
+            width: 6px; height: 6px; transform: translateX(-50%) rotate(45deg);
+            background: var(--accent-gold); border-radius: 1px;
         }
         .phase-replay-result-detail .prr-note { font-size: 0.78rem; color: var(--text-secondary); margin-top: 6px; }
 
@@ -5377,7 +5424,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
-    <script src="core.js?v=1.0.6"></script>
+    <script src="core.js?v=1.0.7"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.5"></script>
     <script>
@@ -5387,7 +5434,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.42"></script>
+    <script src="app.js?v=1.0.43"></script>
 
     <!-- Service Worker Registration -->
     <script>

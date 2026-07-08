@@ -1611,15 +1611,24 @@
         return bank.three(nums);
     }
 
-    // Frase inicial que deixa clar amb quin color jugava l'usuari.
+    // Frase inicial que deixa clar amb quin color jugava l'usuari. Si la partida
+    // era amb rellotge, el ritme s'integra a la mateixa frase (p. ex. "una
+    // partida de Blitz 3+2 amb blanques") en lloc d'afegir-lo com una dada solta.
     const COLOR_INTROS = {
         casual: color => 'Has jugat amb ' + color + '. Aquí comentem les teves jugades.',
         balanced: color => 'Has jugat amb ' + color + '. La revisió comenta les teves decisions.',
         technical: color => 'Has jugat amb ' + color + '. L’anàlisi valora les teves decisions.'
     };
-    function playerColorIntro(playerColor, style) {
+    const COLOR_RHYTHM_INTROS = {
+        casual: (color, rhythm) => 'Has jugat una partida de ' + rhythm + ' amb ' + color + '. Aquí comentem les teves jugades.',
+        balanced: (color, rhythm) => 'Has jugat una partida de ' + rhythm + ' amb ' + color + '. La revisió comenta les teves decisions.',
+        technical: (color, rhythm) => 'Partida de ' + rhythm + ' jugada amb ' + color + '. L’anàlisi valora les teves decisions.'
+    };
+    function playerColorIntro(playerColor, style, rhythmLabel) {
         const color = playerColor === 'b' ? 'negres' : 'blanques';
-        return COLOR_INTROS[normalizeReviewVoiceStyle(style)](color);
+        const s = normalizeReviewVoiceStyle(style);
+        if (rhythmLabel) return COLOR_RHYTHM_INTROS[s](color, String(rhythmLabel));
+        return COLOR_INTROS[s](color);
     }
 
     // Rival adaptatiu del calibratge per ritme de rellotge: comença al nivell

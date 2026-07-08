@@ -104,6 +104,20 @@ describe('playerColorIntro per veu', () => {
     test('sense estil es manté la frase de sempre', () => {
         expect(Core.playerColorIntro('b')).toBe('Has jugat amb negres. La revisió comenta les teves decisions.');
     });
+    test('amb ritme de rellotge, el tipus de partida s\'integra a la mateixa frase', () => {
+        STYLES.forEach(s => {
+            const t = Core.playerColorIntro('w', s, 'Blitz 3+2');
+            expect(t).toContain('Blitz 3+2');
+            expect(t).toContain('blanques');
+        });
+        expect(Core.playerColorIntro('b', 'balanced', 'Ràpid 10+0'))
+            .toBe('Has jugat una partida de Ràpid 10+0 amb negres. La revisió comenta les teves decisions.');
+    });
+    test('sense ritme, la frase no canvia respecte a abans', () => {
+        STYLES.forEach(s => {
+            expect(Core.playerColorIntro('w', s, null)).toBe(Core.playerColorIntro('w', s));
+        });
+    });
 });
 
 describe('pvNarrationText per veu — mateixa prudència, tres registres', () => {
