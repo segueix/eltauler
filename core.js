@@ -1622,6 +1622,19 @@
         return COLOR_INTROS[normalizeReviewVoiceStyle(style)](color);
     }
 
+    // Delta d'ELO d'una partida puntuada contra un rival de força coneguda
+    // (fórmula d'Elo estàndard amb K=24 i mínim de ±8 en victòria/derrota,
+    // el mateix criteri que l'ELO principal d'app.js). S'usa per als ELO
+    // independents per ritme de rellotge.
+    function ratedEloDelta(playerElo, opponentElo, resultScore, kFactor) {
+        const k = kFactor || 24;
+        const expected = 1 / (1 + Math.pow(10, (opponentElo - playerElo) / 400));
+        const raw = k * (resultScore - expected);
+        if (resultScore === 0) return Math.min(-8, Math.round(raw));
+        if (resultScore === 1) return Math.max(8, Math.round(raw));
+        return Math.round(raw);
+    }
+
     // ----------------------------------------------------------------------
     // Temps de resposta humanitzat de l'enginy
     // ----------------------------------------------------------------------
@@ -1862,6 +1875,7 @@
         rocToEngineElo,
         eloToSearchDepth,
         computeEloDelta,
+        ratedEloDelta,
         evaluateGameQuality,
         parsePgnToMoves,
         buildOpeningTrie,

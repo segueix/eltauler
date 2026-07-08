@@ -251,6 +251,15 @@ const TIME_CONTROL_KEY = 'chess_timeControl';
 // es tria a la pantalla de joc abans de cada nova partida. La lliga té el seu propi ritme
 // fixat (currentLeague.timeControl), independent d'aquest.
 let pendingFreeTimeControl = 'none';
+// ELO independent per ritme de rellotge: cada modalitat (30s, 1+0, 3+2...)
+// guarda la seva pròpia puntuació, de manera que les partides amb rellotge NO
+// es barregen amb l'ELO principal (reservat per a les partides sense rellotge).
+// Estructura: { '3+2': { elo, games, wins, draws, losses } }
+let timeControlElos = {};
+const TIME_CONTROL_ELOS_KEY = 'chess_timeControlElos';
+// Ritme de la partida en curs ('none' si es juga sense rellotge): es fixa en
+// començar i decideix a quin ELO puntua el resultat i a quin nivell juga el rival.
+let currentGameTimeControlId = 'none';
 let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
 let calibrationResultsChart = null;
 let currentGameStartTs = null;
@@ -4023,6 +4032,13 @@ function getAdaptiveNormalized() {
 function getActiveStrengthElo() {
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
     if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
+    // Partida amb rellotge: el rival juga al nivell de l'ELO del ritme, perquè
+    // cada modalitat de temps sigui una escala independent. Si el ritme encara
+    // no té ELO (primera partida), s'arrenca del nivell adaptatiu principal.
+    if (gameClock.enabled && currentGameTimeControlId !== 'none') {
+        const rating = getTimeControlRating(currentGameTimeControlId);
+        if (rating !== null) return clampEngineElo(rating);
+    }
     return currentElo;
 }
 
@@ -4426,6 +4442,38 @@ function formatEloChange(delta) {
     return `${delta > 0 ? '+' : ''}${delta}`;
 }
 
+/* ---- ELO independent per ritme de rellotge ---- */
+// Puntuació actual d'un ritme, o null si encara no s'hi ha jugat cap partida.
+function getTimeControlRating(tcId) {
+    const entry = timeControlElos[tcId];
+    return (entry && typeof entry.elo === 'number') ? entry.elo : null;
+}
+
+function getTimeControlLabel(tcId) {
+    const cfg = TIME_CONTROLS.find(t => t.id === tcId);
+    return cfg ? cfg.label : tcId;
+}
+
+// Aplica el resultat d'una partida amb rellotge a l'ELO del seu ritme (i NOMÉS
+// a aquest: l'ELO principal no es toca). La primera partida d'un ritme arrenca
+// des de l'ELO principal del jugador, com a punt de partida raonable.
+function applyTimeControlEloDelta(tcId, resultScore, opponentElo) {
+    if (!tcId || tcId === 'none') return 0;
+    let entry = timeControlElos[tcId];
+    if (!entry || typeof entry.elo !== 'number') {
+        entry = { elo: Math.max(50, Math.round(userELO)), games: 0, wins: 0, draws: 0, losses: 0 };
+        timeControlElos[tcId] = entry;
+    }
+    const delta = ElTaulerCore.ratedEloDelta(entry.elo, opponentElo, resultScore);
+    entry.elo = Math.max(50, entry.elo + delta);
+    entry.games = (entry.games || 0) + 1;
+    if (resultScore === 1) entry.wins = (entry.wins || 0) + 1;
+    else if (resultScore === 0) entry.losses = (entry.losses || 0) + 1;
+    else entry.draws = (entry.draws || 0) + 1;
+    saveStorage();
+    return delta;
+}
+
 function resetEngineMoveCandidates() {
     engineMoveCandidates = [];
 }
@@ -4778,6 +4826,8 @@ function ensureStockfish() {
 
 function loadStorage() {
     const elo = localStorage.getItem('chess_userELO'); if (elo) userELO = parseInt(elo);
+    const tcElos = localStorage.getItem(TIME_CONTROL_ELOS_KEY);
+    if (tcElos) { try { const parsed = JSON.parse(tcElos); if (parsed && typeof parsed === 'object') timeControlElos = parsed; } catch (e) {} }
     const errors = localStorage.getItem('chess_savedErrors'); if (errors) savedErrors = JSON.parse(errors);
     try { const pz = localStorage.getItem('chess_puzzles'); if (pz) puzzles = JSON.parse(pz) || []; } catch (e) { puzzles = []; }
     const streak = localStorage.getItem('chess_streak'); if (streak) currentStreak = parseInt(streak);
@@ -4911,6 +4961,7 @@ function loadStorage() {
 
 function saveStorage() {
     localStorage.setItem('chess_userELO', userELO);
+    localStorage.setItem(TIME_CONTROL_ELOS_KEY, JSON.stringify(timeControlElos));
     localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
     try { localStorage.setItem('chess_puzzles', JSON.stringify(puzzles)); } catch (e) {}
     localStorage.setItem('chess_streak', currentStreak);
@@ -5601,7 +5652,13 @@ function getDisplayedElo(value) {
 function updateEloDisplay() {
     const displayValue = getDisplayedElo(userELO);
     $('#current-elo').text(displayValue);
-    $('#game-elo').text(displayValue);
+    // A la pantalla de joc, si la partida és amb rellotge es mostra l'ELO del
+    // ritme (el que realment puntua); si el ritme encara no en té, el principal.
+    // La lliga queda fora: té la seva pròpia classificació i no puntua per ritme.
+    const timedRating = (gameClock.enabled && currentGameMode !== 'league' && currentGameTimeControlId !== 'none')
+        ? getTimeControlRating(currentGameTimeControlId)
+        : null;
+    $('#game-elo').text(timedRating !== null ? getDisplayedElo(Math.round(timedRating)) : displayValue);
 }
 
 function updateDisplay() {
@@ -5628,7 +5685,33 @@ function updateDisplay() {
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
 }
 
+// Targetes d'ELO per ritme a dalt de tot d'Estadístiques: primer l'ELO
+// principal (partides sense rellotge) i després cada ritme amb la seva
+// puntuació independent i el balanç de partides.
+function renderTimeControlEloStats() {
+    const container = document.getElementById('stats-tc-elos');
+    if (!container) return;
+    let html = `<div class="stat-card">
+        <div class="stat-card-value">${getDisplayedElo(Math.round(userELO))}</div>
+        <div class="stat-card-label">Principal</div>
+        <div class="tc-elo-games">Partides sense rellotge</div>
+    </div>`;
+    TIME_CONTROLS.filter(t => t.id !== 'none').forEach(t => {
+        const entry = timeControlElos[t.id];
+        const hasElo = entry && typeof entry.elo === 'number';
+        const games = (entry && entry.games) || 0;
+        const record = `${(entry && entry.wins) || 0}V · ${(entry && entry.draws) || 0}T · ${(entry && entry.losses) || 0}D`;
+        html += `<div class="stat-card">
+            <div class="stat-card-value">${hasElo ? Math.round(entry.elo) : '—'}</div>
+            <div class="stat-card-label">${t.label}</div>
+            <div class="tc-elo-games">${games > 0 ? `${games} ${games === 1 ? 'partida' : 'partides'} · ${record}` : 'Encara sense partides'}</div>
+        </div>`;
+    });
+    container.innerHTML = html;
+}
+
 function updateStatsDisplay() {
+    renderTimeControlEloStats();
     $('#stats-total-games').text(totalGamesPlayed);
     $('#stats-total-wins').text(totalWins);
     $('#stats-bundles-count').text(savedErrors.length);
@@ -16662,6 +16745,7 @@ function setupEvents() {
         isCalibrating = true;
         calibratgeComplet = false;
         currentCalibrationOpponentRoc = null;
+        timeControlElos = {};
         saveStorage();
         updateDisplay();
         showToast('Calibratge reiniciat. Comença la nova seqüència de 5 partides.', 'success');
@@ -16918,6 +17002,7 @@ function setupEvents() {
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = []; adaptationReport = [];
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
+            timeControlElos = {};
             saveStorage(); generateDailyMissions(); updateDisplay();
             $('#settings-screen').hide(); $('#start-screen').show(); $('#confirm-delete-panel').hide();
             showToast("S'han esborrat totes les dades. Torna a començar!", 'success');
@@ -19525,6 +19610,12 @@ blunderMode = isBundle;
     // Inicialitza el rellotge (només modes de partida real, no exercicis,
     // calibratge ni el repte «Rejugar +5%», que es juga sense pressa)
     initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'phase_replay');
+    // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
+    // principal), tant per a la força del rival com per puntuar el resultat.
+    currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
+    currentGameActiveStrengthElo = getActiveStrengthElo();
+    currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
+    updateEloDisplay();
 
     // HUD del repte «Rejugar +5%» i objectiu del panell de precisió (75% per defecte)
     updatePhaseReplayHud();
@@ -21266,6 +21357,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     const isFreeMode = currentGameMode === 'free' || currentGameMode === 'assisted';
     const isLeagueMode = currentGameMode === 'league';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
+    // Partida amb rellotge (lliure/assistida): puntua a l'ELO del seu ritme i
+    // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
+    const isTimedRatedGame = !blunderMode && !calibrationGameWasActive && !isLeagueMode
+        && currentGameTimeControlId !== 'none';
     const adaptationPlayerEloBefore = userELO;
     const adaptationCurrentEloBefore = currentElo;
     const adaptationAdjustmentLogStart = adjustmentLog.length;
@@ -21302,14 +21397,17 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
     if (finalPrecision >= 85) sessionStats.perfectGames++;
     
-    if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
+    if (isTimedRatedGame) {
+        change = applyTimeControlEloDelta(currentGameTimeControlId, resultScore, adaptationActiveStrengthElo);
+        msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
+    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
     }
-    
+
     if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
-    
-    if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
+
+    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
         userELO = Math.max(50, userELO + change);
         updateEloHistory(userELO);
         syncEngineEloFromUser();
@@ -21325,7 +21423,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         });
     }
 
-    if (!blunderMode && !calibrationGameWasActive) {
+    // Les partides amb rellotge NO passen per l'ajust adaptatiu (continu ni
+    // inicial): el seu nivell viu a l'ELO del ritme i s'ha actualitzat a dalt.
+    if (!blunderMode && !calibrationGameWasActive && !isTimedRatedGame) {
         if (shouldContinuousAdjust) {
             const adjustResult = registerFreeGameAdjustment(resultScore, finalPrecision, {
                 avgCpLoss: avgCpLoss,
@@ -21353,10 +21453,14 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             const currentDelta = currentElo - adaptationCurrentEloBefore;
             appliedDelta = playerDelta || currentDelta || 0;
         }
+        // En partides amb rellotge el delta s'ha aplicat a l'ELO del ritme,
+        // no al principal: es reflecteix igualment a l'informe.
+        if (isTimedRatedGame && !appliedDelta) appliedDelta = change || 0;
         let adjustmentReason = adjustmentSummary.reason;
         if (adjustmentReason === 'Sense ajust adaptatiu') {
             if (calibrationGameWasActive) adjustmentReason = 'Partida de calibratge';
             else if (isLeagueMode) adjustmentReason = 'Mode lliga: sense ajust adaptatiu';
+            else if (isTimedRatedGame) adjustmentReason = `Partida amb rellotge: puntua a l'ELO ${getTimeControlLabel(currentGameTimeControlId)}`;
             else if (!shouldContinuousAdjust) adjustmentReason = 'Ajust adaptatiu inicial per resultat';
         }
         recordAdaptationGame(buildAdaptationGameRecord({
