@@ -7858,6 +7858,72 @@ function updateHistoryProgress() {
     progress.text(`${historyReplay.moveIndex}/${historyReplay.moves.length}`);
 }
 
+// Transcripció clicable de la partida oberta a l'historial: cada jugada duu el
+// tauler a la posició de després de jugar-la, i la jugada actual queda marcada
+// perquè sempre sigui clar de quin moviment es parla.
+function renderHistoryMovesList() {
+    const box = $('#history-moves');
+    if (!box.length) return;
+    const moves = (historyReplay && historyReplay.moves) || [];
+    if (!moves.length) { box.hide().empty(); return; }
+    let html = '';
+    for (let i = 0; i < moves.length; i++) {
+        if (i % 2 === 0) html += '<span class="hist-move-num">' + (i / 2 + 1) + '.</span> ';
+        html += '<span class="hist-move" data-idx="' + (i + 1) + '" title="Toca per veure aquesta jugada al tauler">' + escapeHtml(moves[i]) + '</span> ';
+    }
+    box.html(html).show();
+    updateHistoryMovesActive();
+}
+
+// Marca a la transcripció la jugada on és el tauler (l'última aplicada) i
+// manté-la a la vista dins la caixa (sense moure la pàgina).
+function updateHistoryMovesActive() {
+    const box = document.getElementById('history-moves');
+    if (!box) return;
+    $('#history-moves .hist-move').removeClass('hist-move-active');
+    // Amb un moment clau actiu es marca la jugada de la qual es parla; si no,
+    // l'última jugada aplicada al tauler.
+    const idx = !historyReplay ? 0
+        : (activeReviewHighlight ? (historyReplay.keyMoveIdx || 0) : historyReplay.moveIndex);
+    if (idx <= 0) return;
+    const el = box.querySelector('.hist-move[data-idx="' + idx + '"]');
+    if (!el) return;
+    el.classList.add('hist-move-active');
+    if (el.offsetTop < box.scrollTop || el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight) {
+        box.scrollTop = Math.max(0, el.offsetTop - box.clientHeight / 2);
+    }
+}
+
+// Salta a la posició de DESPRÉS de la jugada `idx` (1-based) de la transcripció.
+function seekHistoryMove(idx) {
+    if (!historyReplay || !historyReplay.entry) return;
+    stopHistoryPlayback();
+    const target = Math.max(0, Math.min(idx, historyReplay.moves.length));
+    const game = new Chess();
+    let last = null;
+    for (let i = 0; i < target; i++) {
+        const mv = game.move(historyReplay.moves[i], { sloppy: true });
+        if (!mv) break;
+        last = mv;
+    }
+    historyReplay.game = game;
+    historyReplay.moveIndex = target;
+    historyReplay.lastMove = last ? { from: last.from, to: last.to } : null;
+    activeReviewHighlight = null; // el moment clau deixa pas a la jugada clicada
+    updateHistoryBoard();
+}
+
+// Caselles (origen→destinació) de la jugada actual, en or. Només quan no hi ha
+// cap moment clau actiu (el vermell/verd del moment clau té prioritat).
+function applyCurrentMoveMark() {
+    $('#history-board .square-55d63').removeClass('hl-cur-from hl-cur-to');
+    if (activeReviewHighlight) return;
+    const lm = historyReplay && historyReplay.lastMove;
+    if (!lm) return;
+    $("#history-board .square-55d63[data-square='" + lm.from + "']").addClass('hl-cur-from');
+    $("#history-board .square-55d63[data-square='" + lm.to + "']").addClass('hl-cur-to');
+}
+
 function updateHistoryBoard() {
     if (!historyBoard || !historyReplay || !historyReplay.game) return;
     // Sempre orienta el tauler cap al color del jugador perquè les TEVES peces
@@ -7871,6 +7937,8 @@ function updateHistoryBoard() {
     if (typeof historyBoard.resize === 'function') historyBoard.resize();
     // Reaplica els ressaltats del moment clau actiu (si n'hi ha); si no, els neteja.
     applyReviewHighlights();
+    applyCurrentMoveMark();
+    updateHistoryMovesActive();
     updateHistoryProgress();
     updateHistoryControls();
 }
@@ -8042,10 +8110,12 @@ function loadHistoryEntry(entry) {
         game: new Chess(),
         moves: moves,
         moveIndex: 0,
+        lastMove: null,
         timer: null,
         isPlaying: false
     };
     updateHistoryDetails(entry);
+    renderHistoryMovesList();
     updateHistoryBoard();
     syncHistoryListActive();
 }
@@ -8066,6 +8136,7 @@ function updateHistoryDetails(entry) {
         renderHistoryPhaseChart(null);
         if (reviewContent.length) reviewContent.text('—');
         updateHistoryErrorNotes(null);
+        $('#history-moves').hide().empty();
         updateHistoryProgress();
         updateHistoryControls();
         return;
@@ -8332,6 +8403,10 @@ function jumpToHistoryMove(moveNumber, san, decisionFen, playedUci) {
         played: playedMove,
         best: null
     };
+    // La jugada de la qual parla el moment clau, per marcar-la a la transcripció.
+    historyReplay.lastMove = null;
+    historyReplay.keyMoveIdx = (targetIndex && targetIndex > 0 && targetIndex <= historyReplay.moves.length)
+        ? targetIndex : null;
     updateHistoryBoard(); // reaplica els ressaltats actius
 }
 
@@ -10874,8 +10949,9 @@ async function requestOpenAIReview(entry, severeErrors) {
 function historyStepForward() {
     if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex >= historyReplay.moves.length) return;
     const move = historyReplay.moves[historyReplay.moveIndex];
-    historyReplay.game.move(move, { sloppy: true });
+    const mv = historyReplay.game.move(move, { sloppy: true });
     historyReplay.moveIndex++;
+    historyReplay.lastMove = mv ? { from: mv.from, to: mv.to } : null;
     activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
     updateHistoryBoard();
 }
@@ -10884,6 +10960,9 @@ function historyStepBack() {
     if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex <= 0) return;
     historyReplay.game.undo();
     historyReplay.moveIndex--;
+    const h = historyReplay.game.history({ verbose: true });
+    const last = h.length ? h[h.length - 1] : null;
+    historyReplay.lastMove = last ? { from: last.from, to: last.to } : null;
     activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
     updateHistoryBoard();
 }
@@ -16876,6 +16955,11 @@ function setupEvents() {
     $('#history-pause').off('click').on('click', () => { stopHistoryPlayback(); });
     $('#history-prev').off('click').on('click', () => { historyStepBack(); });
     $('#history-next').off('click').on('click', () => { historyStepForward(); });
+    // Transcripció clicable: salta a la jugada tocada (i la marca).
+    $('#history-moves').off('click').on('click', '.hist-move', function () {
+        const idx = parseInt($(this).attr('data-idx'), 10);
+        if (!isNaN(idx)) seekHistoryMove(idx);
+    });
     // Veu de la ressenya oberta: canvia NOMÉS aquesta ressenya (regenera el
     // text local amb les mateixes dades; ni Stockfish ni reanàlisi). El botó
     // «Fer per defecte» converteix la veu triada en la de tota l'app.

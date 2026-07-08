@@ -1425,9 +1425,38 @@
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
       });
     }
+    renderReplayMoves();
     replayRender();
     setTimeout(function () { if (replayBoard && replayBoard.resize) replayBoard.resize(); replayRender(); }, 60);
     $('#catalans-replay')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Transcripció clicable del reproductor: toca una jugada per anar-hi directament.
+  function renderReplayMoves() {
+    const box = $('#catalans-replay-moves');
+    if (!box.length) return;
+    if (!replay || !replay.moves.length) { box.hide().empty(); return; }
+    let html = '';
+    for (let i = 0; i < replay.moves.length; i++) {
+      if (i % 2 === 0) html += '<span class="cat-move-num">' + (i / 2 + 1) + '.</span> ';
+      html += '<span class="cat-move" data-idx="' + (i + 1) + '" title="Toca per veure aquesta jugada al tauler">' + escapeSan(replay.moves[i]) + '</span> ';
+    }
+    box.html(html).show();
+  }
+
+  // Marca a la transcripció la jugada que s'està veient i manté-la a la vista
+  // (només desplaça la caixa de jugades, mai la pàgina).
+  function markReplayActiveMove() {
+    const box = document.getElementById('catalans-replay-moves');
+    if (!box) return;
+    $('#catalans-replay-moves .cat-move').removeClass('cat-move-active');
+    if (!replay || replay.idx <= 0) return;
+    const el = box.querySelector('.cat-move[data-idx="' + replay.idx + '"]');
+    if (!el) return;
+    el.classList.add('cat-move-active');
+    if (el.offsetTop < box.scrollTop || el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTop = Math.max(0, el.offsetTop - box.clientHeight / 2);
+    }
   }
 
   function replayChessAt(idx) {
@@ -1458,6 +1487,7 @@
     const sanLabel = replay.idx > 0 ? (r.last ? r.last.san : replay.moves[replay.idx - 1]) : 'inici';
     $('#catalans-replay-status').text('Jugada ' + replay.idx + ' / ' + total + (replay.idx > 0 ? ' · ' + moveNum + (replay.idx % 2 === 1 ? '.' : '…') + ' ' + sanLabel : ''));
     $('#catalans-replay-play').text(replay.playing ? '⏸ Pausa' : '▶ Reproduir');
+    markReplayActiveMove();
   }
 
   function replaySeek(idx) {
@@ -2349,6 +2379,11 @@
     $('#catalans-history-list').on('click', '.catalans-hist-play', function () {
       const idx = parseInt($(this).attr('data-idx'), 10);
       if (!isNaN(idx)) openReplayGame(idx);
+    });
+    // Transcripció del reproductor: toca una jugada per veure-la (queda marcada).
+    $('#catalans-replay-moves').on('click', '.cat-move', function () {
+      const idx = parseInt($(this).attr('data-idx'), 10);
+      if (!isNaN(idx)) { replayStopPlay(); replaySeek(idx); }
     });
     // Controls del reproductor.
     $('#catalans-replay-first').on('click', function () { replayStopPlay(); replaySeek(0); });

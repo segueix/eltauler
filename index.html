@@ -1801,6 +1801,27 @@
             box-shadow: inset 0 0 0 4px rgba(244, 67, 54, 0.8) !important;
             background-color: rgba(244, 67, 54, 0.3) !important;
         }
+        /* Jugada actual del reproductor de l'historial (origen→destinació en or) */
+        #history-board .square-55d63.hl-cur-from,
+        #history-board .square-55d63.hl-cur-to {
+            box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.85);
+        }
+        /* Transcripció clicable de l'historial: la jugada activa queda marcada */
+        #history-moves {
+            position: relative; margin-top: 8px; max-height: 118px; overflow-y: auto;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(201,162,39,0.15);
+            border-radius: 10px; padding: 8px 10px; font-size: 0.86rem; line-height: 1.9;
+            font-family: 'Courier New', monospace;
+        }
+        #history-moves .hist-move-num { color: var(--text-secondary); margin-right: 2px; }
+        #history-moves .hist-move { cursor: pointer; padding: 2px 5px; border-radius: 6px; color: var(--text-primary); }
+        #history-moves .hist-move:hover { background: rgba(201,162,39,0.18); }
+        #history-moves .hist-move.hist-move-active {
+            background: rgba(201,162,39,0.42); color: #fff; font-weight: 700;
+            box-shadow: 0 0 0 1px rgba(201,162,39,0.85);
+        }
+        body.epaper-mode #history-moves { background: #f4f4f4; border-color: #cfcfcf; }
+        body.epaper-mode #history-moves .hist-move.hist-move-active { background: #ddd; color: #111; box-shadow: 0 0 0 1px #666; }
 
         /* Icones de feedback sobre caselles */
         .opening-move-icon {
@@ -4488,6 +4509,8 @@
                                     <button class="btn btn-secondary" id="history-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
                                 </div>
                                 <div class="history-progress" id="history-progress">0/0</div>
+                                <!-- Transcripció clicable: toca una jugada per veure-la al tauler (queda marcada) -->
+                                <div id="history-moves" style="display:none;"></div>
                                 <div class="history-actions">
                                     <button class="btn btn-secondary" id="history-generate-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Regenerar la ressenya</button>
                                     <button class="btn btn-secondary" id="history-deepen-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Recalcular moments clau</button>
@@ -4996,11 +5019,18 @@
             /* Barra de previsualització (revisió de jugades/propostes) */
             #catalans-preview-bar { display:none; text-align:center; margin:6px 0 2px; font-size:0.85rem; }
             #catalans-preview-bar .cat-preview-label { color: var(--accent-gold); font-weight:600; margin-right:8px; }
-            /* Transcripció clicable */
-            #catalans-moves .cat-move { cursor:pointer; padding:1px 3px; border-radius:4px; color: var(--text-primary); }
-            #catalans-moves .cat-move:hover { background: rgba(201,162,39,0.18); }
-            #catalans-moves .cat-move.cat-move-active { background: rgba(201,162,39,0.32); font-weight:700; }
-            #catalans-moves .cat-move-num { color: var(--text-secondary); }
+            /* Transcripció clicable (partida en curs i reproductor de l'historial) */
+            #catalans-moves .cat-move,
+            #catalans-replay-moves .cat-move { cursor:pointer; padding:1px 3px; border-radius:4px; color: var(--text-primary); }
+            #catalans-moves .cat-move:hover,
+            #catalans-replay-moves .cat-move:hover { background: rgba(201,162,39,0.18); }
+            /* Jugada activa ben marcada: sempre és clar de quin moviment es parla */
+            #catalans-moves .cat-move.cat-move-active,
+            #catalans-replay-moves .cat-move.cat-move-active { background: rgba(201,162,39,0.42); color:#fff; font-weight:700; box-shadow:0 0 0 1px rgba(201,162,39,0.85); }
+            body.epaper-mode #catalans-moves .cat-move.cat-move-active,
+            body.epaper-mode #catalans-replay-moves .cat-move.cat-move-active { background:#ddd; color:#111; box-shadow:0 0 0 1px #666; }
+            #catalans-moves .cat-move-num,
+            #catalans-replay-moves .cat-move-num { color: var(--text-secondary); }
             #catalans-moves .cat-moves-hint { display:block; margin-top:6px; color: var(--text-secondary); font-size:0.74rem; }
             #catalans-status { text-align:center; min-height:1.2em; color: var(--accent-gold); font-size:0.88rem; margin:6px 0; }
             .catalans-vote-head { display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; }
@@ -5009,7 +5039,9 @@
             #catalans-vote-list { margin-top:6px; }
             .catalans-vote-row { display:flex; flex-direction:column; gap:3px; margin:6px 0; cursor:pointer; padding:4px 6px; border-radius:6px; }
             .catalans-vote-row:hover { background: rgba(201,162,39,0.10); }
-            .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.55); }
+            /* Vot que s'està revisant al tauler: marcat clarament (vora + fons) */
+            .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.95); background: rgba(201,162,39,0.14); }
+            body.epaper-mode .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px #555; background:#e8e8e8; }
             .catalans-vote-row.catalans-vote-mine .catalans-vote-san { font-weight:700; }
             .catalans-vote-main { display:flex; align-items:center; gap:8px; }
             .catalans-vote-san { min-width:54px; }
@@ -5058,6 +5090,10 @@
             #catalans-replay-board .square-55d63.cat-preview-from,
             #catalans-replay-board .square-55d63.cat-preview-to { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.8); }
             #catalans-replay-status { text-align:center; font-size:0.82rem; color: var(--text-secondary); margin:4px 0; }
+            /* Transcripció clicable del reproductor (reutilitza l'estil .cat-move) */
+            #catalans-replay-moves { position:relative; max-height:96px; overflow-y:auto; margin:4px auto 8px; max-width:420px;
+                background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.15); border-radius:10px;
+                padding:7px 9px; font-family:'Courier New', monospace; font-size:0.84rem; line-height:1.9; }
             .catalans-replay-controls { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
             .catalans-replay-controls .btn { padding:4px 12px; }
             .catalans-info-panel { margin-top:14px; background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.15); border-radius:12px; padding:12px 14px; font-size:0.84rem; color: var(--text-secondary); line-height:1.5; }
@@ -5126,6 +5162,8 @@
                 <div id="catalans-replay-title"></div>
                 <div id="catalans-replay-board"></div>
                 <div id="catalans-replay-status"></div>
+                <!-- Transcripció clicable: toca una jugada per veure-la (queda marcada) -->
+                <div id="catalans-replay-moves" style="display:none;"></div>
                 <div class="catalans-replay-controls">
                     <button class="btn btn-secondary" id="catalans-replay-first">⏮</button>
                     <button class="btn btn-secondary" id="catalans-replay-prev">◀</button>
