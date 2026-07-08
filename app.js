@@ -262,7 +262,9 @@ const TIME_CONTROL_ELOS_KEY = 'chess_timeControlElos';
 let currentGameTimeControlId = 'none';
 // Calibratge d'un ritme de rellotge: partida única ADAPTATIVA (el rival
 // s'ajusta a la precisió del jugador durant la partida) per fer la primera
-// estimació d'ELO d'aquell ritme. Guarda l'id del ritme en curs o null.
+// estimació d'ELO d'aquell ritme. S'activa AUTOMÀTICAMENT a startGame quan la
+// partida (nova o assistida) es juga amb un rellotge que encara no té ELO.
+// Guarda l'id del ritme en curs o null.
 let timedCalibrationTcId = null;
 let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
 let calibrationResultsChart = null;
@@ -4490,21 +4492,21 @@ function applyTimeControlCalibrationEstimate(tcId, resultScore, precision, avgCp
     return estimate;
 }
 
-// Engega la partida de calibratge d'un ritme des d'Estadístiques: partida
-// lliure amb el rellotge del ritme i rival adaptatiu, que en acabar deixa la
-// primera estimació d'ELO del ritme.
+// Engega la partida de calibratge d'un ritme des d'Estadístiques: fixa el
+// rellotge del ritme i obre una partida nova; startGame detecta que el ritme
+// no té ELO i activa el mode de calibratge adaptatiu automàticament.
 function startTimeControlCalibration(tcId) {
     if (!TIME_CONTROLS.some(t => t.id === tcId && t.id !== 'none')) return;
     if (getTimeControlRating(tcId) !== null) {
         showToast('Aquest ritme ja té ELO propi', 'warn');
         return;
     }
+    // Durant el calibratge inicial les partides noves són de calibratge
+    // general (sense rellotge), així que el de ritme encara no pot començar.
     if (!guardCalibrationAccess()) return;
-    timedCalibrationTcId = tcId;
     pendingFreeTimeControl = tcId;
     const sel = document.getElementById('new-game-tc-select');
     if (sel) sel.value = tcId;
-    showToast(`Calibratge ${getTimeControlLabel(tcId)}: el rival s'adaptarà al teu joc`, 'success');
     novaPartida();
 }
 
@@ -19676,10 +19678,18 @@ blunderMode = isBundle;
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
-    // Un calibratge de ritme demanat només val per a la partida d'AQUELL ritme:
-    // qualsevol altra partida (exercici, ritme canviat, lliga...) el descarta.
-    if (timedCalibrationTcId && (isBundle || currentGameMode !== 'free' || currentGameTimeControlId !== timedCalibrationTcId)) {
-        timedCalibrationTcId = null;
+    // Calibratge de ritme AUTOMÀTIC: tota primera partida (nova o assistida)
+    // d'un ritme que encara no té ELO es juga en mode adaptatiu de calibratge,
+    // tant si es tria el rellotge aquí com si s'engega des del botó «Calibra»
+    // d'Estadístiques. Qualsevol altra partida (exercici, lliga, ritme amb ELO
+    // ja fixat...) descarta el calibratge.
+    const eligibleTimedGame = !isBundle && currentGameTimeControlId !== 'none'
+        && (currentGameMode === 'free' || currentGameMode === 'assisted');
+    timedCalibrationTcId = (eligibleTimedGame && getTimeControlRating(currentGameTimeControlId) === null)
+        ? currentGameTimeControlId
+        : null;
+    if (timedCalibrationTcId) {
+        showToast(`Calibratge ${getTimeControlLabel(timedCalibrationTcId)}: rival adaptatiu per estimar el teu ELO del ritme`, 'success');
     }
     currentGameActiveStrengthElo = getActiveStrengthElo();
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
