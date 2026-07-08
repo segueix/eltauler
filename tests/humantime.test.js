@@ -89,6 +89,34 @@ describe('phaseFromFen', () => {
     });
 });
 
+describe('clockManagementSkill (gestió del rellotge segons ELO)', () => {
+    test("un ROC baix sobreinverteix, guarda poca reserva i s'arrisca a la bandera", () => {
+        const low = Core.clockManagementSkill(300);
+        expect(low.spendBias).toBeCloseTo(1.4, 5);
+        expect(low.reserveFactor).toBeCloseTo(0.2, 5);
+        expect(low.flagGuardMs).toBe(100);
+    });
+
+    test("un ROC alt manté la disciplina: reserva completa i marge antibandera gran", () => {
+        const high = Core.clockManagementSkill(1600);
+        expect(high.spendBias).toBeCloseTo(1.0, 5);
+        expect(high.reserveFactor).toBeCloseTo(1.0, 5);
+        expect(high.flagGuardMs).toBe(400);
+    });
+
+    test('és monòtona entre els dos extrems', () => {
+        let prevBias = Infinity;
+        let prevReserve = -Infinity;
+        for (let elo = 200; elo <= 1600; elo += 200) {
+            const s = Core.clockManagementSkill(elo);
+            expect(s.spendBias).toBeLessThanOrEqual(prevBias);
+            expect(s.reserveFactor).toBeGreaterThanOrEqual(prevReserve);
+            prevBias = s.spendBias;
+            prevReserve = s.reserveFactor;
+        }
+    });
+});
+
 describe('humanThinkTimeMs', () => {
     const base = {
         incMs: 0,
@@ -152,6 +180,22 @@ describe('humanThinkTimeMs', () => {
     test('un ritme desconegut cau al perfil none sense petar', () => {
         const t = Core.humanThinkTimeMs({ ...base, timeControlId: 'ritme-inexistent', remainingMs: null, elo: 1400, complexity: 0.5 });
         expect(t).toBeGreaterThan(0);
+    });
+
+    test('un ROC baix crema més rellotge al llarg de la partida i acaba amb menys temps', () => {
+        const remainingAfter = (elo) => {
+            let rem = 60000;
+            for (let mv = 1; mv <= 40; mv++) {
+                const t = Core.humanThinkTimeMs({
+                    timeControlId: '1+0', remainingMs: rem, incMs: 0, elo,
+                    complexity: 0.5, phase: mv <= 10 ? 'opening' : 'middlegame',
+                    moveNumber: mv, random: fixedRandom
+                });
+                rem = Math.max(0, rem - t);
+            }
+            return rem;
+        };
+        expect(remainingAfter(300)).toBeLessThan(remainingAfter(1600));
     });
 
     test('amb soroll real es manté dins dels límits del perfil', () => {

@@ -1742,6 +1742,22 @@
         return 1;
     }
 
+    // Perícia de GESTIÓ DEL RELLOTGE segons ELO. Un jugador fluix no només juga
+    // pitjor: administra malament el temps. Per sota de ~1400 (i sobretot cap a
+    // ~400), el motor sobreinverteix per jugada (spendBias), guarda una reserva
+    // d'emergència mínima (reserveFactor) i s'acosta a la bandera molt més
+    // (flagGuardMs, el marge antibandera que usa app.js). A ROC baix el motor
+    // pot arribar a perdre per temps, com li passaria a un humà del seu nivell;
+    // a ROC alt manté la disciplina d'abans i no perd mai per bandera.
+    function clockManagementSkill(elo) {
+        const n = clampNum(((isNaN(elo) ? 1400 : elo) - 400) / 1000, 0, 1); // 400..1400
+        return {
+            spendBias: 1.4 - 0.4 * n,          // ×1.4 a ROC ≤400 → ×1.0 a ≥1400
+            reserveFactor: 0.2 + 0.8 * n,      // 20% de la reserva → 100%
+            flagGuardMs: Math.round(100 + 300 * n) // marge antibandera 100 → 400 ms
+        };
+    }
+
     // Complexitat C ∈ [0,1] a partir de proxies visibles per UCI (informe):
     //  g escletxa 1a-2a línia, b candidates quasi equivalents, v inestabilitat
     //  del millor moviment, e volatilitat d'avaluació, q swing superficial vs
@@ -1823,6 +1839,8 @@
         const remainingMs = typeof p.remainingMs === 'number' ? p.remainingMs : null;
         const moveNumber = Math.max(1, p.moveNumber || 1);
         const useClock = !profile.fixedBudgetMs && remainingMs !== null;
+        // La gestió del rellotge (sobreinversió i reserva) depèn del nivell.
+        const skill = clockManagementSkill(elo);
 
         let tau0;
         let capMs = profile.maxMs;
@@ -1832,9 +1850,10 @@
             const phaseIdx = phase === 'opening' ? 0 : (phase === 'endgame' ? 2 : 1);
             const horizon = profile.horizon[phaseIdx];
             const overheadMs = 50; // marge de GUI/repintat per jugada
-            const effectiveMs = Math.max(1, remainingMs - profile.reserveMs - (2 + horizon) * overheadMs);
-            tau0 = effectiveMs / horizon + profile.incShare * incMs;
-            capMs = Math.min(profile.maxMs, profile.capFrac * effectiveMs + 0.6 * incMs);
+            const reserveMs = profile.reserveMs * skill.reserveFactor;
+            const effectiveMs = Math.max(1, remainingMs - reserveMs - (2 + horizon) * overheadMs);
+            tau0 = (effectiveMs / horizon) * skill.spendBias + profile.incShare * incMs;
+            capMs = Math.min(profile.maxMs, profile.capFrac * effectiveMs * skill.spendBias + 0.6 * incMs);
         }
 
         const M = eloComplexityTimeMultiplier(elo, complexity);
@@ -1849,7 +1868,9 @@
 
         if (useClock) {
             // Mode d'emergència: amb el rellotge sota mínims es respon a l'acte.
-            const panicAtMs = profile.reserveMs * 1.8;
+            // El llindar escala amb el nivell: els ROC baixos triguen molt més a
+            // adonar-se que van justos de temps.
+            const panicAtMs = profile.reserveMs * skill.reserveFactor * 1.8;
             if (remainingMs <= panicAtMs) {
                 tau = clampNum(remainingMs / 16 + 0.35 * incMs, 80, 500);
             }
@@ -1929,6 +1950,7 @@
         estimateMoveComplexity,
         eloComplexityTimeMultiplier,
         phaseTimeMultiplier,
+        clockManagementSkill,
         phaseFromFen,
         humanThinkTimeMs,
         START_POSITION_KEY

@@ -19305,19 +19305,32 @@ function computeHumanReplyDelayMs() {
     const fen = game.fen();
     const moveNumber = parseInt(fen.split(' ')[5], 10) || 1;
     const complexity = estimateEngineMoveComplexity();
+    const engineElo = getActiveStrengthElo();
     const thinkMs = ElTaulerCore.humanThinkTimeMs({
         timeControlId: rhythmId,
         remainingMs,
         incMs: gameClock.enabled ? gameClock.inc : 0,
-        elo: getActiveStrengthElo(),
+        elo: engineElo,
         complexity: complexity.score,
         phase: ElTaulerCore.phaseFromFen(fen),
         moveNumber
     });
     const elapsedMs = engineReplyStartTs ? Math.max(0, Date.now() - engineReplyStartTs) : 0;
-    let delay = Math.max(ENGINE_REPLY_MIN_UI_MS, thinkMs - elapsedMs);
+    // El mínim escènic s'encongeix amb la pressió de temps: a bullet i en
+    // zeitnot un humà mou quasi a l'acte, i un mínim fix de 250 ms seria un
+    // llast fatal per al rellotge del motor en partides llargues de 30s/1+0.
+    let uiFloorMs = ENGINE_REPLY_MIN_UI_MS;
     if (gameClock.enabled && typeof remainingMs === 'number') {
-        delay = Math.min(delay, Math.max(50, remainingMs - 400));
+        if (remainingMs <= 10000) uiFloorMs = 60;
+        else if (rhythmId === '30s' || rhythmId === '1+0') uiFloorMs = 120;
+    }
+    let delay = Math.max(uiFloorMs, thinkMs - elapsedMs);
+    if (gameClock.enabled && typeof remainingMs === 'number') {
+        // Marge antibandera segons el nivell: els ROC alts no s'acosten mai a
+        // la bandera; els baixos apuren com un humà del seu nivell i, entre el
+        // marge mínim i el temps real de cerca, poden arribar a perdre per temps.
+        const guardMs = ElTaulerCore.clockManagementSkill(engineElo).flagGuardMs;
+        delay = Math.min(delay, Math.max(50, remainingMs - guardMs));
     }
     return delay;
 }
