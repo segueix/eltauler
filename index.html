@@ -1801,11 +1801,8 @@
             box-shadow: inset 0 0 0 4px rgba(244, 67, 54, 0.8) !important;
             background-color: rgba(244, 67, 54, 0.3) !important;
         }
-        /* Jugada actual del reproductor de l'historial (origen→destinació en or) */
-        #history-board .square-55d63.hl-cur-from,
-        #history-board .square-55d63.hl-cur-to {
-            box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.85);
-        }
+        /* La jugada actual del reproductor (hl-cur-from/to) duu el requadre compartit
+           amb .engine-move, definit al bloc de dalt. */
         /* Transcripció clicable de l'historial: la jugada activa queda marcada */
         #history-moves {
             position: relative; margin-top: 8px; max-height: 118px; overflow-y: auto;
@@ -3545,7 +3542,16 @@
         body.opening-mode-hieroglyphic #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: rgba(244, 228, 188, 0.95); background: rgba(139, 95, 199, 0.22); }
         body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after,
         body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
-        .square-55d63.engine-move {
+        /* Requadre de jugada (el mateix que marca els moviments de l'enginy en una
+           partida): també per a la jugada revisada a les partides col·lectives
+           (vots i transcripció) i als reproductors dels historials. */
+        .square-55d63.engine-move,
+        #catalans-board .square-55d63.cat-preview-from,
+        #catalans-board .square-55d63.cat-preview-to,
+        #catalans-replay-board .square-55d63.cat-preview-from,
+        #catalans-replay-board .square-55d63.cat-preview-to,
+        #history-board .square-55d63.hl-cur-from,
+        #history-board .square-55d63.hl-cur-to {
             border-radius: 10px;
             box-shadow: inset 0 0 0 3px #4b2f18 !important;
             outline: none !important;
@@ -5014,8 +5020,9 @@
             body.epaper-mode #catalans-board .square-55d63.cat-target::after { border-color:#111; }
             body.epaper-mode #catalans-board .square-55d63.black-3c85d.cat-target::after { border-color:#f2f2f2; }
             #catalans-board .square-55d63.cat-myvote { box-shadow: inset 0 0 0 4px rgba(46,160,67,0.85); }
-            #catalans-board .square-55d63.cat-preview-from,
-            #catalans-board .square-55d63.cat-preview-to { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.8); }
+            /* .cat-preview-from/.cat-preview-to: requadre compartit amb .engine-move
+               (definit al bloc d'estils principal, perquè es vegi IGUAL que la marca
+               de les jugades de l'enginy a les partides). */
             /* Barra de previsualització (revisió de jugades/propostes) */
             #catalans-preview-bar { display:none; text-align:center; margin:6px 0 2px; font-size:0.85rem; }
             #catalans-preview-bar .cat-preview-label { color: var(--accent-gold); font-weight:600; margin-right:8px; }
@@ -5087,8 +5094,8 @@
             #catalans-replay { display:none; margin-top:12px; padding:10px; background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.18); border-radius:12px; }
             #catalans-replay-title { text-align:center; font-weight:700; margin-bottom:6px; }
             #catalans-replay-board { max-width: 380px; margin: 4px auto; width: 100%; }
-            #catalans-replay-board .square-55d63.cat-preview-from,
-            #catalans-replay-board .square-55d63.cat-preview-to { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.8); }
+            /* El requadre de la jugada del reproductor és el compartit amb .engine-move
+               (bloc d'estils principal). */
             #catalans-replay-status { text-align:center; font-size:0.82rem; color: var(--text-secondary); margin:4px 0; }
             /* Transcripció clicable del reproductor (reutilitza l'estil .cat-move) */
             #catalans-replay-moves { position:relative; max-height:96px; overflow-y:auto; margin:4px auto 8px; max-width:420px;
