@@ -150,3 +150,55 @@ describe('getCalibrationPerformanceScore', () => {
         expect(dolent).toBeGreaterThanOrEqual(0);
     });
 });
+
+describe('timedCalibrationOpponentElo (calibratge per ritme de rellotge)', () => {
+    test('amb poques jugades es manté al nivell inicial', () => {
+        expect(Core.timedCalibrationOpponentElo(800, 0, 0)).toBe(800);
+        expect(Core.timedCalibrationOpponentElo(800, 3, 3)).toBe(800);
+    });
+
+    test("amb bona precisió el rival puja; amb mala precisió baixa", () => {
+        const fort = Core.timedCalibrationOpponentElo(800, 18, 20);
+        const fluix = Core.timedCalibrationOpponentElo(800, 3, 20);
+        expect(fort).toBeGreaterThan(800);
+        expect(fluix).toBeLessThan(800);
+    });
+
+    test("l'ajust creix amb el nombre de jugades (confiança)", () => {
+        const aviat = Core.timedCalibrationOpponentElo(800, 8, 8);
+        const tard = Core.timedCalibrationOpponentElo(800, 20, 20);
+        expect(tard - 800).toBeGreaterThan(aviat - 800);
+    });
+
+    test("l'ajust queda acotat a ±250", () => {
+        expect(Core.timedCalibrationOpponentElo(800, 40, 40)).toBeLessThanOrEqual(1050);
+        expect(Core.timedCalibrationOpponentElo(800, 0, 40)).toBeGreaterThanOrEqual(550);
+    });
+
+    test('una seed no numèrica cau al valor per defecte sense petar', () => {
+        expect(Core.timedCalibrationOpponentElo(NaN, 0, 0)).toBe(800);
+    });
+});
+
+describe('estimateTimedCalibrationElo (primera estimació per ritme)', () => {
+    test('victòria amb bona qualitat estima per sobre del rival', () => {
+        expect(Core.estimateTimedCalibrationElo(800, 1, 0.8)).toBeGreaterThan(800);
+    });
+
+    test('derrota amb mala qualitat estima per sota del rival', () => {
+        expect(Core.estimateTimedCalibrationElo(800, 0, 0.2)).toBeLessThan(800);
+    });
+
+    test('taules amb qualitat neutra estima el nivell del rival', () => {
+        expect(Core.estimateTimedCalibrationElo(800, 0.5, 0.5)).toBe(800);
+    });
+
+    test("l'amplitud màxima és ±250 (resultat ±150, qualitat ±100)", () => {
+        expect(Core.estimateTimedCalibrationElo(800, 1, 1)).toBe(1050);
+        expect(Core.estimateTimedCalibrationElo(800, 0, 0)).toBe(550);
+    });
+
+    test('entrades no numèriques cauen a valors neutres sense petar', () => {
+        expect(Core.estimateTimedCalibrationElo(NaN, undefined, NaN)).toBe(800);
+    });
+});

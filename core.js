@@ -1622,6 +1622,264 @@
         return COLOR_INTROS[normalizeReviewVoiceStyle(style)](color);
     }
 
+    // Rival adaptatiu del calibratge per ritme de rellotge: comença al nivell
+    // inicial (seed) i, a mesura que hi ha jugades avaluades, s'acosta al
+    // nivell real del jugador (més precisió → rival més fort). L'ajust creix
+    // amb el nombre de jugades (confiança) i queda acotat a ±250.
+    function timedCalibrationOpponentElo(seedElo, goodMoves, totalMoves) {
+        const seed = isNaN(seedElo) ? 800 : seedElo;
+        const total = totalMoves || 0;
+        if (total < 4) return Math.round(seed);
+        const precision = Math.max(0, Math.min(1, (goodMoves || 0) / total));
+        const confidence = Math.min(1, total / 20);
+        const offset = (precision - 0.55) * 500 * confidence;
+        return Math.round(seed + Math.max(-250, Math.min(250, offset)));
+    }
+
+    // Primera estimació d'ELO d'un ritme a partir d'una única partida de
+    // calibratge: nivell final del rival adaptatiu, corregit pel resultat
+    // (±150) i per la qualitat de joc 0..1 (±100), la mateixa mètrica de
+    // qualitat que el calibratge inicial (getCalibrationGameQuality).
+    function estimateTimedCalibrationElo(opponentElo, resultScore, quality) {
+        const opp = isNaN(opponentElo) ? 800 : opponentElo;
+        const result = (typeof resultScore === 'number' && !isNaN(resultScore)) ? resultScore : 0.5;
+        const q = Math.max(0, Math.min(1, (typeof quality === 'number' && !isNaN(quality)) ? quality : 0.5));
+        return Math.round(opp + (result - 0.5) * 300 + (q - 0.5) * 200);
+    }
+
+    // Delta d'ELO d'una partida puntuada contra un rival de força coneguda
+    // (fórmula d'Elo estàndard amb K=24 i mínim de ±8 en victòria/derrota,
+    // el mateix criteri que l'ELO principal d'app.js). S'usa per als ELO
+    // independents per ritme de rellotge.
+    function ratedEloDelta(playerElo, opponentElo, resultScore, kFactor) {
+        const k = kFactor || 24;
+        const expected = 1 / (1 + Math.pow(10, (opponentElo - playerElo) / 400));
+        const raw = k * (resultScore - expected);
+        if (resultScore === 0) return Math.min(-8, Math.round(raw));
+        if (resultScore === 1) return Math.max(8, Math.round(raw));
+        return Math.round(raw);
+    }
+
+    // ----------------------------------------------------------------------
+    // Temps de resposta humanitzat de l'enginy
+    // ----------------------------------------------------------------------
+    // Basat en l'informe «Control de temps humanitzat per Stockfish»: la jugada
+    // que tria el motor NO canvia mai; només es modula QUAN es mostra, com si
+    // un humà del nivell marcat hi hagués dedicat el temps. El model segueix
+    // l'algorisme híbrid de l'informe: pressupost base per ritme (temps restant
+    // dividit per un horitzó de jugades + fracció de l'increment), multiplicador
+    // per ELO i complexitat (matriu de l'informe), multiplicador de fase,
+    // soroll log-normal truncat perquè el patró no sigui mecànic, i mode
+    // d'emergència perquè el retard escènic no faci mai perdre per bandera.
+
+    function clampNum(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+    }
+
+    // Paràmetres per ritme (taula de l'informe, adaptada):
+    //  - horizon: jugades restants estimades [obertura, migjoc, final]; el
+    //    pressupost base és tempsRestant/horitzó, així el gast decau suaument.
+    //  - reserveMs (R_min): reserva d'emergència que mai es toca.
+    //  - incShare (λ_I): fracció de l'increment tractada com a renda per jugada.
+    //  - minMs (τ_min) / maxMs: sòl i sostre del temps visible per jugada.
+    //  - capFrac: cap jugada pot gastar més d'aquesta fracció del temps útil.
+    //  - noiseMix (ρ) i sigma: pes i amplada del soroll log-normal.
+    const HUMAN_TIME_PROFILES = {
+        '30s':   { horizon: [34, 24, 15], reserveMs: 2200, incShare: 0,    minMs: 120, maxMs: 4000,  capFrac: 0.14, noiseMix: 0.30, sigma: 0.45 },
+        '1+0':   { horizon: [34, 24, 15], reserveMs: 2500, incShare: 0,    minMs: 160, maxMs: 6000,  capFrac: 0.14, noiseMix: 0.30, sigma: 0.45 },
+        '3+2':   { horizon: [36, 26, 16], reserveMs: 1800, incShare: 0.30, minMs: 220, maxMs: 12000, capFrac: 0.16, noiseMix: 0.25, sigma: 0.40 },
+        '5+0':   { horizon: [36, 26, 16], reserveMs: 3500, incShare: 0,    minMs: 300, maxMs: 15000, capFrac: 0.14, noiseMix: 0.25, sigma: 0.40 },
+        '10+0':  { horizon: [38, 28, 17], reserveMs: 5000, incShare: 0,    minMs: 450, maxMs: 22000, capFrac: 0.14, noiseMix: 0.25, sigma: 0.35 },
+        '15+10': { horizon: [40, 30, 18], reserveMs: 4000, incShare: 0.45, minMs: 700, maxMs: 28000, capFrac: 0.16, noiseMix: 0.20, sigma: 0.35 },
+        // Sense rellotge: pressupost fictici moderat perquè la resposta també
+        // «respiri» segons ELO i dificultat, sense fer esperar l'usuari.
+        'none':  { fixedBudgetMs: 1300, minMs: 350, maxMs: 4500, noiseMix: 0.25, sigma: 0.40 }
+    };
+
+    // Matriu ELO–complexitat de l'informe: els nivells baixos sobreinverteixen
+    // en posicions fàcils i subinverteixen en les difícils; els alts, al revés.
+    // Files ancorades al centre de cada banda; columnes a C baixa/mitjana/alta.
+    const HUMAN_TIME_ELO_MATRIX = [
+        { elo: 1000, mult: [1.15, 1.05, 0.95] },
+        { elo: 1400, mult: [1.08, 1.00, 1.00] },
+        { elo: 1800, mult: [0.95, 1.00, 1.10] },
+        { elo: 2200, mult: [0.85, 0.95, 1.20] },
+        { elo: 2600, mult: [0.75, 0.90, 1.30] }
+    ];
+    const HUMAN_TIME_C_ANCHORS = [0.16, 0.50, 0.84];
+
+    function interpolateComplexityRow(mult, c) {
+        const [c0, c1, c2] = HUMAN_TIME_C_ANCHORS;
+        if (c <= c0) return mult[0];
+        if (c >= c2) return mult[2];
+        if (c <= c1) return mult[0] + (mult[1] - mult[0]) * ((c - c0) / (c1 - c0));
+        return mult[1] + (mult[2] - mult[1]) * ((c - c1) / (c2 - c1));
+    }
+
+    // Multiplicador M(E, C): interpolació bilineal (per C dins de cada banda i
+    // per ELO entre bandes) sobre la matriu de l'informe.
+    function eloComplexityTimeMultiplier(elo, complexity) {
+        const c = clampNum(isNaN(complexity) ? 0.5 : complexity, 0, 1);
+        const rows = HUMAN_TIME_ELO_MATRIX;
+        const e = clampNum(isNaN(elo) ? 1400 : elo, rows[0].elo, rows[rows.length - 1].elo);
+        for (let i = 0; i < rows.length - 1; i++) {
+            if (e <= rows[i + 1].elo) {
+                const t = (e - rows[i].elo) / (rows[i + 1].elo - rows[i].elo);
+                const low = interpolateComplexityRow(rows[i].mult, c);
+                const high = interpolateComplexityRow(rows[i + 1].mult, c);
+                return low + (high - low) * t;
+            }
+        }
+        return interpolateComplexityRow(rows[rows.length - 1].mult, c);
+    }
+
+    // Multiplicador de fase P(E, φ): els jugadors forts van més ràpid en
+    // obertures conegudes i reserven temps per als finals delicats.
+    function phaseTimeMultiplier(elo, phase) {
+        const n = clampNum(((isNaN(elo) ? 1400 : elo) - 800) / 1600, 0, 1);
+        if (phase === 'opening') return 1.05 - 0.35 * n;
+        if (phase === 'endgame') return 0.90 + 0.25 * n;
+        return 1;
+    }
+
+    // Perícia de GESTIÓ DEL RELLOTGE segons ELO. Un jugador fluix no només juga
+    // pitjor: administra malament el temps. Per sota de ~1400 (i sobretot cap a
+    // ~400), el motor sobreinverteix per jugada (spendBias), guarda una reserva
+    // d'emergència mínima (reserveFactor) i s'acosta a la bandera molt més
+    // (flagGuardMs, el marge antibandera que usa app.js). A ROC baix el motor
+    // pot arribar a perdre per temps, com li passaria a un humà del seu nivell;
+    // a ROC alt manté la disciplina d'abans i no perd mai per bandera.
+    function clockManagementSkill(elo) {
+        const n = clampNum(((isNaN(elo) ? 1400 : elo) - 400) / 1000, 0, 1); // 400..1400
+        return {
+            spendBias: 1.4 - 0.4 * n,          // ×1.4 a ROC ≤400 → ×1.0 a ≥1400
+            reserveFactor: 0.2 + 0.8 * n,      // 20% de la reserva → 100%
+            flagGuardMs: Math.round(100 + 300 * n) // marge antibandera 100 → 400 ms
+        };
+    }
+
+    // Complexitat C ∈ [0,1] a partir de proxies visibles per UCI (informe):
+    //  g escletxa 1a-2a línia, b candidates quasi equivalents, v inestabilitat
+    //  del millor moviment, e volatilitat d'avaluació, q swing superficial vs
+    //  profund (estrès de quiescència) i t bandera tàctica {0, 0.5, 1}.
+    //  C = 0.24g + 0.16b + 0.20v + 0.18e + 0.12q + 0.10t
+    function estimateMoveComplexity(input) {
+        const src = input || {};
+        const cands = (Array.isArray(src.candidates) ? src.candidates : [])
+            .filter(c => c && typeof c.score === 'number')
+            .slice()
+            .sort((a, b) => b.score - a.score);
+        let g = 0.35; // sense segona línia visible, incertesa neutra tirant a baixa
+        let b = 0;
+        if (cands.length >= 2) {
+            const gapCp = Math.max(0, cands[0].score - cands[1].score);
+            g = 1 - clampNum(gapCp / 120, 0, 1);
+            const nearBest = cands.filter(c => cands[0].score - c.score <= 50).length;
+            b = clampNum((nearBest - 1) / Math.max(1, cands.length - 1), 0, 1);
+        }
+        const v = clampNum((src.bestMoveChanges || 0) / 3, 0, 1);
+        const samples = Array.isArray(src.evalSamples)
+            ? src.evalSamples.filter(n => typeof n === 'number')
+            : [];
+        let e = 0;
+        if (samples.length >= 2) {
+            const mean = samples.reduce((sum, n) => sum + n, 0) / samples.length;
+            const variance = samples.reduce((sum, n) => sum + (n - mean) * (n - mean), 0) / samples.length;
+            e = clampNum(Math.sqrt(variance) / 60, 0, 1);
+        }
+        const q = clampNum(Math.abs(src.shallowDeepSwingCp || 0) / 80, 0, 1);
+        const t = clampNum(src.tacticalFlag || 0, 0, 1);
+        const score = clampNum(0.24 * g + 0.16 * b + 0.20 * v + 0.18 * e + 0.12 * q + 0.10 * t, 0, 1);
+        const level = score < 0.33 ? 'low' : (score < 0.66 ? 'medium' : 'high');
+        return { score, level };
+    }
+
+    // Soroll log-normal amb mitjana 1 (mu = -sigma²/2), truncat perquè cap
+    // jugada surti absurdament curta ni llarga. El generador s'injecta per
+    // poder fer tests deterministes.
+    function truncatedLogNormalFactor(sigma, random) {
+        const u1 = Math.max(1e-9, random());
+        const u2 = random();
+        const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        return clampNum(Math.exp(-sigma * sigma / 2 + sigma * gauss), 0.45, 2.4);
+    }
+
+    // Fase de la partida a partir del FEN (sense dependre de chess.js):
+    // final si queda poc material no-peó; obertura si és aviat i el material
+    // segueix al tauler; migjoc en la resta de casos.
+    const PHASE_PIECE_VALUES = { q: 9, r: 5, b: 3, n: 3 };
+    function phaseFromFen(fen) {
+        if (typeof fen !== 'string' || !fen.trim()) return 'middlegame';
+        const parts = fen.trim().split(/\s+/);
+        const placement = parts[0] || '';
+        const fullmove = parseInt(parts[5], 10) || 1;
+        let nonPawnValue = 0;
+        let nonPawnCount = 0;
+        for (const ch of placement) {
+            const val = PHASE_PIECE_VALUES[ch.toLowerCase()];
+            if (val) { nonPawnValue += val; nonPawnCount++; }
+        }
+        if (nonPawnValue <= 13) return 'endgame';
+        if (fullmove <= 10 && nonPawnCount >= 10) return 'opening';
+        return 'middlegame';
+    }
+
+    // Temps de pensament humanitzat (ms) per a la propera jugada de l'enginy.
+    // params: { timeControlId, remainingMs, incMs, elo, complexity, phase,
+    //           moveNumber, random }. Amb remainingMs null (sense rellotge)
+    // s'usa el pressupost fix del perfil 'none'.
+    function humanThinkTimeMs(params) {
+        const p = params || {};
+        const profile = HUMAN_TIME_PROFILES[p.timeControlId] || HUMAN_TIME_PROFILES.none;
+        const random = typeof p.random === 'function' ? p.random : Math.random;
+        const phase = (p.phase === 'opening' || p.phase === 'endgame') ? p.phase : 'middlegame';
+        const complexity = clampNum(typeof p.complexity === 'number' ? p.complexity : 0.5, 0, 1);
+        const elo = typeof p.elo === 'number' ? p.elo : 1400;
+        const incMs = Math.max(0, p.incMs || 0);
+        const remainingMs = typeof p.remainingMs === 'number' ? p.remainingMs : null;
+        const moveNumber = Math.max(1, p.moveNumber || 1);
+        const useClock = !profile.fixedBudgetMs && remainingMs !== null;
+        // La gestió del rellotge (sobreinversió i reserva) depèn del nivell.
+        const skill = clockManagementSkill(elo);
+
+        let tau0;
+        let capMs = profile.maxMs;
+        if (!useClock) {
+            tau0 = profile.fixedBudgetMs || HUMAN_TIME_PROFILES.none.fixedBudgetMs;
+        } else {
+            const phaseIdx = phase === 'opening' ? 0 : (phase === 'endgame' ? 2 : 1);
+            const horizon = profile.horizon[phaseIdx];
+            const overheadMs = 50; // marge de GUI/repintat per jugada
+            const reserveMs = profile.reserveMs * skill.reserveFactor;
+            const effectiveMs = Math.max(1, remainingMs - reserveMs - (2 + horizon) * overheadMs);
+            tau0 = (effectiveMs / horizon) * skill.spendBias + profile.incShare * incMs;
+            capMs = Math.min(profile.maxMs, profile.capFrac * effectiveMs * skill.spendBias + 0.6 * incMs);
+        }
+
+        const M = eloComplexityTimeMultiplier(elo, complexity);
+        const P = phaseTimeMultiplier(elo, phase);
+        // Les primeres jugades «de llibre» surten ràpid, com fan els humans.
+        const bookRamp = clampNum(0.12 + 0.11 * (moveNumber - 1), 0.12, 1);
+        const deterministic = tau0 * M * P * bookRamp;
+
+        const z = truncatedLogNormalFactor(profile.sigma, random);
+        let tau = (1 - profile.noiseMix) * deterministic + profile.noiseMix * deterministic * z;
+        tau = clampNum(tau, profile.minMs, Math.max(profile.minMs, capMs));
+
+        if (useClock) {
+            // Mode d'emergència: amb el rellotge sota mínims es respon a l'acte.
+            // El llindar escala amb el nivell: els ROC baixos triguen molt més a
+            // adonar-se que van justos de temps.
+            const panicAtMs = profile.reserveMs * skill.reserveFactor * 1.8;
+            if (remainingMs <= panicAtMs) {
+                tau = clampNum(remainingMs / 16 + 0.35 * incMs, 80, 500);
+            }
+            // Cap jugada escènica pot gastar més de la meitat del temps restant.
+            tau = Math.min(tau, Math.max(60, remainingMs * 0.5 - 150));
+        }
+        return Math.round(Math.max(0, tau));
+    }
+
     return {
         clampElo,
         bestLineEvalScore,
@@ -1663,6 +1921,9 @@
         rocToEngineElo,
         eloToSearchDepth,
         computeEloDelta,
+        ratedEloDelta,
+        timedCalibrationOpponentElo,
+        estimateTimedCalibrationElo,
         evaluateGameQuality,
         parsePgnToMoves,
         buildOpeningTrie,
@@ -1685,6 +1946,13 @@
         lessonOfTheDay,
         buildTenMinutePlan,
         playerColorIntro,
+        HUMAN_TIME_PROFILES,
+        estimateMoveComplexity,
+        eloComplexityTimeMultiplier,
+        phaseTimeMultiplier,
+        clockManagementSkill,
+        phaseFromFen,
+        humanThinkTimeMs,
         START_POSITION_KEY
     };
 });

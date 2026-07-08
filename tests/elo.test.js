@@ -96,3 +96,31 @@ describe('eloToSearchDepth', () => {
         }
     });
 });
+
+describe('ratedEloDelta (ELO independent per ritme de rellotge)', () => {
+    test('contra un rival igualat: victòria +12, derrota -12, taules 0', () => {
+        expect(Core.ratedEloDelta(1000, 1000, 1)).toBe(12);
+        expect(Core.ratedEloDelta(1000, 1000, 0)).toBe(-12);
+        expect(Core.ratedEloDelta(1000, 1000, 0.5)).toBe(0);
+    });
+
+    test('guanyar contra un rival més fort dona més punts', () => {
+        const vsStronger = Core.ratedEloDelta(1000, 1400, 1);
+        const vsEqual = Core.ratedEloDelta(1000, 1000, 1);
+        expect(vsStronger).toBeGreaterThan(vsEqual);
+    });
+
+    test('mínims garantits: victòria sempre >= +8, derrota sempre <= -8', () => {
+        expect(Core.ratedEloDelta(2000, 1000, 1)).toBe(8);
+        expect(Core.ratedEloDelta(1000, 2000, 0)).toBe(-8);
+    });
+
+    test('les taules puntuen segons la diferència de nivell', () => {
+        expect(Core.ratedEloDelta(1000, 1400, 0.5)).toBeGreaterThan(0);
+        expect(Core.ratedEloDelta(1400, 1000, 0.5)).toBeLessThan(0);
+    });
+
+    test('accepta un factor K personalitzat', () => {
+        expect(Core.ratedEloDelta(1000, 1000, 1, 40)).toBe(20);
+    });
+});

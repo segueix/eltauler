@@ -3158,6 +3158,17 @@
             text-align: center;
         }
 
+        /* ELO per ritme de joc (dalt de tot d'Estadístiques) */
+        .tc-elo-grid { margin-bottom: 0; }
+        .tc-elo-note { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 10px; }
+        .tc-elo-games { font-size: 0.72rem; color: var(--text-secondary); margin-top: 3px; }
+        .tc-elo-calibrate {
+            width: 100%;
+            margin-top: 6px;
+            padding: 5px 8px;
+            font-size: 0.75rem;
+        }
+
         .weakness-group-title {
             font-family: 'Cinzel', serif;
             color: var(--accent-gold);
@@ -3804,6 +3815,8 @@
                         <div class="setting-label">Rellotge</div>
                         <select id="new-game-tc-select" class="select-control">
                             <option value="none">Sense rellotge</option>
+                            <option value="30s">Bullet 30s</option>
+                            <option value="1+0">Bullet 1+0</option>
                             <option value="3+2">Blitz 3+2</option>
                             <option value="5+0">Blitz 5+0</option>
                             <option value="10+0">Ràpid 10+0</option>
@@ -4257,6 +4270,12 @@
             </div>
 
             <div class="chart-container">
+                <div class="chart-title">ELO per ritme de joc</div>
+                <div class="tc-elo-note">Cada rellotge guarda la seva pròpia puntuació: les partides amb rellotge no toquen l'ELO principal. La primera partida d'un ritme sense ELO (des d'aquí amb «Calibra» o triant el rellotge a Nova partida / Partida assistida) es juga sempre com a calibratge adaptatiu per fer-ne la primera estimació.</div>
+                <div class="stats-grid tc-elo-grid" id="stats-tc-elos"></div>
+            </div>
+
+            <div class="chart-container">
                 <div class="chart-title">Progressió de l'ELO</div>
                 <canvas id="elo-chart"></canvas>
             </div>
@@ -4579,6 +4598,8 @@
                     <div class="setting-label">Rellotge</div>
                     <select id="league-tc-select" class="select-control">
                         <option value="none">Sense rellotge</option>
+                        <option value="30s">Bullet 30s</option>
+                        <option value="1+0">Bullet 1+0</option>
                         <option value="3+2">Blitz 3+2</option>
                         <option value="5+0">Blitz 5+0</option>
                         <option value="10+0">Ràpid 10+0</option>
