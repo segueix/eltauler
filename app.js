@@ -226,11 +226,21 @@ let isEngineThinking = false;
 // aplicar com si fos una altra jugada de l'enginy.
 let engineMoveApplyPending = false;
 let engineMoveCandidates = [];
+// Traça de la línia principal (multipv 1) durant la cerca de la jugada de
+// l'enginy: serveix per estimar la dificultat de la posició (inestabilitat
+// del millor moviment, volatilitat d'avaluació) per al temps humanitzat.
+let engineMoveSearchTrace = [];
+// Moment en què l'enginy "comença a pensar" (just després de la jugada de
+// l'usuari): el temps ja transcorregut (anàlisi + cerca real) es descompta
+// del temps de resposta humanitzat.
+let engineReplyStartTs = null;
 let openingEngineMoveCandidates = [];
 let lastReviewSnapshot = null;
 // Rellotge de partida (mode contrarellotge)
 const TIME_CONTROLS = [
     { id: 'none', label: 'Sense rellotge' },
+    { id: '30s', label: 'Bullet 30s', base: 30, inc: 0 },
+    { id: '1+0', label: 'Bullet 1+0', base: 60, inc: 0 },
     { id: '3+2', label: 'Blitz 3+2', base: 180, inc: 2 },
     { id: '5+0', label: 'Blitz 5+0', base: 300, inc: 0 },
     { id: '10+0', label: 'Ràpid 10+0', base: 600, inc: 0 },
@@ -1775,6 +1785,7 @@ function commitHumanMove(from, to, promotionPiece) {
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
     clockOnMove();
+    engineReplyStartTs = Date.now();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
     lastPosition = prevFen;
@@ -4447,6 +4458,14 @@ function trackEngineCandidate(msg) {
     const candidate = { multipv, move, score };
     if (existingIdx >= 0) targetCandidates[existingIdx] = candidate;
     else targetCandidates.push(candidate);
+
+    // Traça de la línia principal per profunditats: alimenta l'estimació de
+    // dificultat del temps de resposta humanitzat (canvis de millor jugada i
+    // volatilitat de l'avaluació mentre puja la cerca).
+    if (isEngineThinking && targetCandidates === engineMoveCandidates && multipv === 1) {
+        const depthMatch = msg.match(/\bdepth (\d+)/);
+        engineMoveSearchTrace.push({ depth: depthMatch ? parseInt(depthMatch[1]) : 0, score, move });
+    }
 }
 
 const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
@@ -19078,6 +19097,80 @@ function getActiveTimeControlId() {
 function getTimeControlConfig() {
     return TIME_CONTROLS.find(t => t.id === getActiveTimeControlId()) || TIME_CONTROLS[0];
 }
+
+/* ---- Temps de resposta humanitzat de l'enginy ----
+   La jugada triada pel motor NO canvia mai: només es modula QUAN s'aplica,
+   segons el ritme de la partida, l'ELO marcat de l'enginy i la dificultat
+   estimada de la jugada (proxies MultiPV de la mateixa cerca), seguint
+   l'informe de control de temps humanitzat. El càlcul viu a core.js. */
+const ENGINE_REPLY_MIN_UI_MS = 250;
+
+// Dificultat de la posició per a l'enginy a partir del que la cerca ja ha
+// publicat: escletxa i candidates quasi equivalents (MultiPV), inestabilitat
+// del millor moviment i volatilitat d'avaluació (traça per profunditats) i
+// senyal tàctic (escac, mat a la vista, primera línia captura/promoció/escac).
+function estimateEngineMoveComplexity() {
+    let bestMoveChanges = 0;
+    for (let i = 1; i < engineMoveSearchTrace.length; i++) {
+        if (engineMoveSearchTrace[i].move !== engineMoveSearchTrace[i - 1].move) bestMoveChanges++;
+    }
+    const evalSamples = engineMoveSearchTrace.map(s => s.score);
+    const shallowDeepSwingCp = engineMoveSearchTrace.length >= 2
+        ? engineMoveSearchTrace[engineMoveSearchTrace.length - 1].score - engineMoveSearchTrace[0].score
+        : 0;
+
+    let tacticalFlag = 0;
+    try {
+        const inCheck = game.in_check();
+        const hasMateScore = engineMoveCandidates.some(c => Math.abs(c.score) >= 9999);
+        const best = engineMoveCandidates.slice().sort((a, b) => b.score - a.score)[0];
+        let topMoveTactical = false;
+        if (best) {
+            const mv = game.moves({ verbose: true })
+                .find(m => `${m.from}${m.to}${m.promotion || ''}` === best.move);
+            topMoveTactical = !!(mv && (mv.captured || mv.promotion || (mv.san && mv.san.includes('+'))));
+        }
+        if (inCheck || hasMateScore) tacticalFlag = 1;
+        else if (topMoveTactical || Math.abs(shallowDeepSwingCp) > 150) tacticalFlag = 0.5;
+    } catch (e) {}
+
+    return ElTaulerCore.estimateMoveComplexity({
+        candidates: engineMoveCandidates,
+        bestMoveChanges,
+        evalSamples,
+        shallowDeepSwingCp,
+        tacticalFlag
+    });
+}
+
+// Retard (ms) amb què s'aplicarà la jugada ja decidida per l'enginy. Del temps
+// "pensat" es descompta el que la cerca real ja ha trigat, i mai es deixa
+// l'enginy en risc de bandera pel retard escènic.
+function computeHumanReplyDelayMs() {
+    const rhythmId = gameClock.enabled ? getActiveTimeControlId() : 'none';
+    const engineColor = playerColor === 'w' ? 'b' : 'w';
+    const remainingMs = gameClock.enabled
+        ? (engineColor === 'w' ? gameClock.white : gameClock.black)
+        : null;
+    const fen = game.fen();
+    const moveNumber = parseInt(fen.split(' ')[5], 10) || 1;
+    const complexity = estimateEngineMoveComplexity();
+    const thinkMs = ElTaulerCore.humanThinkTimeMs({
+        timeControlId: rhythmId,
+        remainingMs,
+        incMs: gameClock.enabled ? gameClock.inc : 0,
+        elo: getActiveStrengthElo(),
+        complexity: complexity.score,
+        phase: ElTaulerCore.phaseFromFen(fen),
+        moveNumber
+    });
+    const elapsedMs = engineReplyStartTs ? Math.max(0, Date.now() - engineReplyStartTs) : 0;
+    let delay = Math.max(ENGINE_REPLY_MIN_UI_MS, thinkMs - elapsedMs);
+    if (gameClock.enabled && typeof remainingMs === 'number') {
+        delay = Math.min(delay, Math.max(50, remainingMs - 400));
+    }
+    return delay;
+}
 function formatClock(ms) {
     if (ms < 0) ms = 0;
     const total = Math.ceil(ms / 1000);
@@ -19116,6 +19209,9 @@ function initGameClock(applies) {
         white: enabled ? cfg.base * 1000 : 0,
         black: enabled ? cfg.base * 1000 : 0,
         inc: enabled ? cfg.inc * 1000 : 0,
+        // Avís de temps baix proporcional al ritme: als bullets de 30s/1min,
+        // el llindar fix de 20s cobriria (quasi) tota la partida.
+        lowMs: enabled ? Math.min(20000, Math.max(5000, cfg.base * 1000 * 0.2)) : 20000,
         active: null,
         interval: null,
         lastTs: 0,
@@ -19166,15 +19262,16 @@ function renderClock() {
     const oppMs = oppColor === 'w' ? gameClock.white : gameClock.black;
     const youEl = document.getElementById('clock-you');
     const oppEl = document.getElementById('clock-opp');
+    const lowMs = gameClock.lowMs || 20000;
     if (youEl) {
         youEl.textContent = formatClock(youMs);
         youEl.parentElement.classList.toggle('clock-active', gameClock.active === youColor);
-        youEl.parentElement.classList.toggle('clock-low', youMs <= 20000);
+        youEl.parentElement.classList.toggle('clock-low', youMs <= lowMs);
     }
     if (oppEl) {
         oppEl.textContent = formatClock(oppMs);
         oppEl.parentElement.classList.toggle('clock-active', gameClock.active === oppColor);
-        oppEl.parentElement.classList.toggle('clock-low', oppMs <= 20000);
+        oppEl.parentElement.classList.toggle('clock-low', oppMs <= lowMs);
     }
 }
 
@@ -19489,6 +19586,7 @@ function onDrop(source, target) {
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
     clockOnMove();
+    engineReplyStartTs = Date.now();
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
     totalPlayerMoves++;
@@ -19611,6 +19709,10 @@ function makeEngineMove() {
     currentGameEngineDepth = depth;
     currentGameActiveStrengthElo = getActiveStrengthElo();
     resetEngineMoveCandidates();
+    engineMoveSearchTrace = [];
+    // Si l'usuari no acaba de moure (p. ex. primera jugada de l'enginy),
+    // el "pensament" comença ara.
+    if (!engineReplyStartTs) engineReplyStartTs = Date.now();
 
     // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
     // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
@@ -20245,6 +20347,9 @@ function handleEngineMessage(rawMsg) {
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
+            // Temps de resposta humanitzat: es calcula ABANS de netejar els
+            // candidats perquè la dificultat surt de la mateixa cerca MultiPV.
+            const replyDelayMs = computeHumanReplyDelayMs();
             registerEngineMovePrecision(moveStr, engineMoveCandidates);
             resetEngineMoveCandidates();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
@@ -20252,6 +20357,7 @@ function handleEngineMessage(rawMsg) {
             setTimeout(() => {
                 isEngineThinking = false;
                 engineMoveApplyPending = false;
+                engineReplyStartTs = null;
                 // Mai es juga pel color de l'usuari: un "bestmove" duplicat o
                 // antic no s'ha d'aplicar com si fos una jugada de l'enginy.
                 if (game.game_over() || game.turn() === playerColor) return;
@@ -20284,7 +20390,7 @@ function handleEngineMessage(rawMsg) {
                 // partida perquè el navegador pinti el moviment (inclòs el mat)
                 // a l'instant en lloc d'esperar al processament pesat.
                 if (game.game_over()) runAfterPaint(() => handleGameOver());
-            }, 900);
+            }, replyDelayMs);
         }
     }
 }
