@@ -5,30 +5,30 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#c9a227">
-    <meta name="description" content="Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés">
+    <meta name="description" content="Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="El Tauler">
     
-    <title>El Tauler — Entrenador d'Escacs en català</title>
+    <title>El Tauler — El teu company d'escacs en català</title>
 
     <!-- SEO / indexació (domini: eltauler.cat) -->
     <meta name="robots" content="index, follow">
     <meta name="author" content="Can Nyero">
-    <meta name="keywords" content="escacs, entrenador d'escacs, escacs en català, tàctiques, obertures, Stockfish, aprendre escacs, jeroglífic d'escacs">
+    <meta name="keywords" content="escacs, escacs en català, jugar escacs, company d'escacs, tàctiques, obertures, Stockfish, aprendre escacs, jeroglífic d'escacs, partides col·lectives">
     <link rel="canonical" href="https://eltauler.cat/">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="El Tauler">
     <meta property="og:locale" content="ca_ES">
-    <meta property="og:title" content="El Tauler — Entrenador d'Escacs en català">
-    <meta property="og:description" content="Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés.">
+    <meta property="og:title" content="El Tauler — El teu company d'escacs en català">
+    <meta property="og:description" content="Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.">
     <meta property="og:url" content="https://eltauler.cat/">
     <meta property="og:image" content="https://eltauler.cat/newicon-512.png">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="El Tauler — Entrenador d'Escacs en català">
-    <meta name="twitter:description" content="Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés.">
+    <meta name="twitter:title" content="El Tauler — El teu company d'escacs en català">
+    <meta name="twitter:description" content="Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.">
     <meta name="twitter:image" content="https://eltauler.cat/newicon-512.png">
     <script type="application/ld+json">
     {
@@ -36,7 +36,7 @@
       "@type": "WebApplication",
       "name": "El Tauler",
       "url": "https://eltauler.cat/",
-      "description": "Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés.",
+      "description": "Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.",
       "applicationCategory": "GameApplication",
       "operatingSystem": "Web",
       "inLanguage": "ca",
@@ -46,7 +46,7 @@
     </script>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json?v=1.0.10">
+    <link rel="manifest" href="manifest.json?v=1.0.11">
     
     <!-- Icons -->
     <link rel="apple-touch-icon" href="newicon-512.png">
@@ -118,6 +118,13 @@
             justify-content: center;
             align-items: center;
             padding: 15px;
+            /* App instal·lada (iOS, barra d'estat translúcida): sense aquests marges
+               de zona segura, el contingut de dalt (p. ex. la campana de notificacions
+               de la partida col·lectiva) queda SOTA la barra d'estat i no es pot tocar. */
+            padding-top: calc(15px + env(safe-area-inset-top, 0px));
+            padding-left: calc(15px + env(safe-area-inset-left, 0px));
+            padding-right: calc(15px + env(safe-area-inset-right, 0px));
+            padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px));
             overflow-x: hidden;
         }
         body.epaper-mode *,
@@ -1567,7 +1574,7 @@
 
         /* Notificacions internes (toast) */
         #toast-container {
-            position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+            position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
             z-index: 11000; width: calc(100% - 28px); max-width: 420px;
             display: flex; flex-direction: column; gap: 8px; pointer-events: none;
         }
@@ -3807,7 +3814,7 @@
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
-    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
+    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; padding-top:calc(12px + env(safe-area-inset-top, 0px)); box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
         <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
             <span style="font-size:14px;">Nova versió disponible</span>
             <div style="display:flex; gap:8px;">
@@ -3827,7 +3834,7 @@
             </div>
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
-            <div class="subtitle">Entrenador d'Escacs</div>
+            <div class="subtitle">El teu company d'escacs</div>
 
             <div class="stats-row">
                 <div class="stat-box">

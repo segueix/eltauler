@@ -1,8 +1,8 @@
 {
-  "name": "El Tauler - Entrenador d'Escacs",
+  "name": "El Tauler — El teu company d'escacs",
   "short_name": "El Tauler",
-  "version": "1.0.8",
-  "description": "Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés",
+  "version": "1.0.9",
+  "description": "Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#1a1410",

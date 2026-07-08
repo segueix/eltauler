@@ -1969,6 +1969,22 @@
     try { if (on) localStorage.setItem(notifyStorageKey(key), '1'); else localStorage.removeItem(notifyStorageKey(key)); } catch (e) {}
   }
   function notificationsSupported() { return typeof window !== 'undefined' && 'Notification' in window; }
+  // A iPhone/iPad l'API de notificacions NOMÉS existeix dins l'app instal·lada a
+  // la pantalla d'inici (iOS 16.4+); al Safari «normal» no hi és. També passa si
+  // s'obre eltauler.cat des d'una instal·lació feta amb el domini antic.
+  function isIosDevice() {
+    const ua = (navigator.userAgent || '');
+    return /iPad|iPhone|iPod/.test(ua) ||
+      (ua.indexOf('Macintosh') !== -1 && (navigator.maxTouchPoints || 0) > 1);
+  }
+  // Missatge de guia quan no es poden activar les notificacions en aquest context.
+  function notifyUnsupportedMsg() {
+    return isIosDevice()
+      ? 'A l\'iPhone i l\'iPad les notificacions només funcionen amb l\'app instal·lada: ' +
+        'obre eltauler.cat amb Safari, toca «Compartir» → «Afegir a pantalla d\'inici» ' +
+        'i activa-les des de l\'app instal·lada.'
+      : 'Aquest navegador no admet notificacions. Prova-ho amb un navegador més recent o instal·la l\'app.';
+  }
 
   const notifyWatchers = {};   // key -> { timer, notifiedTurn }
 
@@ -2066,8 +2082,19 @@
   function renderNotifyToggle() {
     const btn = document.getElementById('catalans-notify-toggle');
     if (!btn) return;
-    if (!notificationsSupported()) { btn.style.display = 'none'; return; }
     btn.style.display = '';
+    if (!notificationsSupported()) {
+      // NO l'amaguem: si l'amagàvem, a iOS (Safari o una instal·lació del domini
+      // antic) no hi havia CAP manera de saber com activar-les. Ara el botó es
+      // veu i, en tocar-lo, s'explica què cal fer (instal·lar l'app des de Safari).
+      btn.textContent = '🔕';
+      btn.classList.remove('on');
+      btn.classList.remove('pulse');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', 'Notificacions no disponibles en aquest navegador: toca per saber com activar-les');
+      btn.title = 'Toca per saber com activar els avisos de torn';
+      return;
+    }
     const on = isNotifyEnabled(currentNotifyKey()) && Notification.permission === 'granted';
     btn.textContent = on ? '🔔' : '🔕';
     btn.classList.toggle('on', on);
@@ -2084,8 +2111,14 @@
       : 'Rebre avís quan toqui moure en aquesta partida';
   }
 
+  // Avís visible (toast si n'hi ha, i sempre a la línia d'estat de la partida).
+  function notifyFeedback(msg, kind) {
+    setStatus(msg);
+    try { if (typeof window.showToast === 'function') window.showToast(msg, kind || 'info'); } catch (e) {}
+  }
+
   function toggleNotify() {
-    if (!notificationsSupported()) { setStatus('Aquest navegador no admet notificacions.'); return; }
+    if (!notificationsSupported()) { notifyFeedback(notifyUnsupportedMsg(), 'warn'); return; }
     const key = currentNotifyKey();
     if (isNotifyEnabled(key)) {
       setNotifyEnabledStored(key, false);
@@ -2103,13 +2136,18 @@
     };
     if (Notification.permission === 'granted') { enable(); return; }
     if (Notification.permission === 'denied') {
-      setStatus('Les notificacions estan bloquejades al navegador. Activa-les per a aquest lloc a la seva configuració.');
+      notifyFeedback('Les notificacions estan bloquejades per a eltauler.cat. Activa-les a la configuració del navegador (Configuració del lloc → Notificacions) i torna a tocar la campana.', 'warn');
       return;
     }
+    // La crida es fa DINS del gest de l'usuari (clic): iOS ho exigeix perquè
+    // aparegui el diàleg de permís a l'app instal·lada.
     Notification.requestPermission().then(function (perm) {
       if (perm === 'granted') enable();
-      else { renderNotifyToggle(); setStatus('Permís de notificacions denegat: no rebràs avisos.'); }
-    }).catch(function () {});
+      else { renderNotifyToggle(); notifyFeedback('Permís de notificacions denegat: no rebràs avisos.', 'warn'); }
+    }).catch(function () {
+      renderNotifyToggle();
+      notifyFeedback(notifyUnsupportedMsg(), 'warn');
+    });
   }
 
   // ---------------------------------------------------------------------------
