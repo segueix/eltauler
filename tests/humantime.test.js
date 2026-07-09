@@ -198,6 +198,14 @@ describe('humanThinkTimeMs', () => {
         expect(remainingAfter(300)).toBeLessThan(remainingAfter(1600));
     });
 
+
+
+    test("el ritme de l'usuari modula suaument el temps del motor", () => {
+        const fast = Core.humanThinkTimeMs({ ...base, timeControlId: '10+0', remainingMs: 600000, elo: 1400, complexity: 0.5, humanPaceMs: 1200, paceSamples: 8 });
+        const slow = Core.humanThinkTimeMs({ ...base, timeControlId: '10+0', remainingMs: 600000, elo: 1400, complexity: 0.5, humanPaceMs: 12000, paceSamples: 8 });
+        expect(fast).toBeLessThan(slow);
+    });
+
     test('amb soroll real es manté dins dels límits del perfil', () => {
         for (let i = 0; i < 200; i++) {
             const t = Core.humanThinkTimeMs({
@@ -208,5 +216,37 @@ describe('humanThinkTimeMs', () => {
             expect(t).toBeGreaterThanOrEqual(profile.minMs);
             expect(t).toBeLessThanOrEqual(profile.maxMs);
         }
+    });
+});
+
+describe('visibleHumanReplyDelayMs', () => {
+    test('visibleDelay = max(0, targetThinkMs - elapsed)', () => {
+        expect(Core.visibleHumanReplyDelayMs(1200, 450)).toBe(750);
+        expect(Core.visibleHumanReplyDelayMs(1200, 1500)).toBe(0);
+    });
+
+    test('en ritme none també hi ha retard acotat', () => {
+        const target = Core.humanThinkTimeMs({
+            timeControlId: 'none', remainingMs: null, incMs: 0, elo: 1400,
+            complexity: 0.5, phase: 'middlegame', moveNumber: 20, random: fixedRandom
+        });
+        const delay = Core.visibleHumanReplyDelayMs(target, 100);
+        expect(delay).toBeGreaterThan(0);
+        expect(delay).toBeLessThanOrEqual(Core.HUMAN_TIME_PROFILES.none.maxMs);
+    });
+
+    test('en bullet el retard visible és molt inferior al de ritmes lents', () => {
+        const baseParams = { incMs: 0, elo: 1400, complexity: 0.5, phase: 'middlegame', moveNumber: 20, random: fixedRandom };
+        const bullet = Core.visibleHumanReplyDelayMs(Core.humanThinkTimeMs({ ...baseParams, timeControlId: '30s', remainingMs: 30000 }), 0);
+        const slow = Core.visibleHumanReplyDelayMs(Core.humanThinkTimeMs({ ...baseParams, timeControlId: '15+10', remainingMs: 900000, incMs: 10000 }), 0);
+        expect(bullet).toBeLessThan(slow / 4);
+    });
+
+    test('amb remainingMs molt baix no genera un retard perillós', () => {
+        const target = Core.humanThinkTimeMs({
+            timeControlId: '1+0', remainingMs: 1200, incMs: 0, elo: 1400,
+            complexity: 0.9, phase: 'middlegame', moveNumber: 35, random: fixedRandom
+        });
+        expect(Core.visibleHumanReplyDelayMs(target, 0)).toBeLessThanOrEqual(500);
     });
 });

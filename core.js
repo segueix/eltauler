@@ -1837,6 +1837,12 @@
     // params: { timeControlId, remainingMs, incMs, elo, complexity, phase,
     //           moveNumber, random }. Amb remainingMs null (sense rellotge)
     // s'usa el pressupost fix del perfil 'none'.
+    function visibleHumanReplyDelayMs(targetThinkMs, elapsedMs) {
+        const target = Math.max(0, Number(targetThinkMs) || 0);
+        const elapsed = Math.max(0, Number(elapsedMs) || 0);
+        return Math.max(0, Math.round(target - elapsed));
+    }
+
     function humanThinkTimeMs(params) {
         const p = params || {};
         const profile = HUMAN_TIME_PROFILES[p.timeControlId] || HUMAN_TIME_PROFILES.none;
@@ -1873,6 +1879,21 @@
 
         const z = truncatedLogNormalFactor(profile.sigma, random);
         let tau = (1 - profile.noiseMix) * deterministic + profile.noiseMix * deterministic * z;
+
+        // Sincronitza lleugerament el ritme escènic amb el rival humà: si el
+        // jugador està movent molt ràpid, l'enginy també accelera; si està
+        // jugant pausadament, l'enginy respira una mica més. És deliberadament
+        // suau i queda sotmès igualment als límits del perfil i del rellotge.
+        const humanPaceMs = typeof p.humanPaceMs === 'number' ? p.humanPaceMs : null;
+        const paceSamples = Math.max(0, p.paceSamples || 0);
+        if (humanPaceMs !== null && paceSamples > 0) {
+            const paceRefMs = profile.fixedBudgetMs ? 5000 : (remainingMs !== null ? remainingMs / Math.max(18, profile.horizon[1]) : 5000);
+            const paceRatio = clampNum(humanPaceMs / Math.max(1, paceRefMs), 0.35, 2.5);
+            const confidence = clampNum(paceSamples / 6, 0, 1);
+            const paceMultiplier = 1 + (paceRatio - 1) * 0.22 * confidence;
+            tau *= clampNum(paceMultiplier, 0.75, 1.2);
+        }
+
         tau = clampNum(tau, profile.minMs, Math.max(profile.minMs, capMs));
 
         if (useClock) {
@@ -1962,6 +1983,7 @@
         clockManagementSkill,
         phaseFromFen,
         humanThinkTimeMs,
+        visibleHumanReplyDelayMs,
         START_POSITION_KEY
     };
 });

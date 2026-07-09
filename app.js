@@ -230,6 +230,11 @@ let engineMoveCandidates = [];
 // l'enginy: serveix per estimar la dificultat de la posició (inestabilitat
 // del millor moviment, volatilitat d'avaluació) per al temps humanitzat.
 let engineMoveSearchTrace = [];
+let engineMoveApplyTimeout = null;
+const DEBUG_ENGINE_TIMING = false;
+let humanPaceMs = null;
+let humanPaceSamples = 0;
+let lastEngineMoveAppliedTs = null;
 // Moment en què l'enginy "comença a pensar" (just després de la jugada de
 // l'usuari): el temps ja transcorregut (anàlisi + cerca real) es descompta
 // del temps de resposta humanitzat.
@@ -1787,7 +1792,7 @@ function resolvePromotionPicker(piece) {
 function commitHumanMove(from, to, promotionPiece) {
     if (phaseReplayInputLocked()) return false;
     $('#blunder-alert').hide();
-    if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+    clearEngineMoveTimers();
 
     $('.square-55d63').removeClass('highlight-hint');
     if (!promotionPiece && isUserPromotionMove(game, from, to)) {
@@ -1800,7 +1805,12 @@ function commitHumanMove(from, to, promotionPiece) {
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
     clockOnMove();
-    engineReplyStartTs = Date.now();
+    engineReplyStartTs = nowMs();
+    if (lastEngineMoveAppliedTs !== null) {
+        const sample = Math.max(0, engineReplyStartTs - lastEngineMoveAppliedTs);
+        humanPaceSamples++;
+        humanPaceMs = humanPaceMs === null ? sample : (humanPaceMs * 0.75 + sample * 0.25);
+    }
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
     lastPosition = prevFen;
@@ -3280,6 +3290,16 @@ let currentGameMode = 'free';
 let currentOpponent = null;
 let eloChart = null;
 let engineMoveTimeout = null;
+function nowMs() {
+    return (typeof performance !== 'undefined' && performance && typeof performance.now === 'function')
+        ? performance.now()
+        : Date.now();
+}
+function clearEngineMoveTimers() {
+    if (engineMoveTimeout) { clearTimeout(engineMoveTimeout); engineMoveTimeout = null; }
+    if (engineMoveApplyTimeout) { clearTimeout(engineMoveApplyTimeout); engineMoveApplyTimeout = null; }
+    engineMoveApplyPending = false;
+}
 
 const MISSION_TEMPLATES = [
     { id: 'play1', text: 'Juga 1 partida', stars: 1, check: () => sessionStats.gamesPlayed >= 1 },
@@ -17357,7 +17377,7 @@ function setupEvents() {
 
     // Click per desfer
     $('#blunder-alert').click(() => {
-        if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+        clearEngineMoveTimers();
 
         if (game && game.game_over()) {
             if (lastReviewSnapshot) {
@@ -19431,8 +19451,9 @@ function estimateEngineMoveComplexity() {
 }
 
 // Retard (ms) amb què s'aplicarà la jugada ja decidida per l'enginy. Del temps
-// "pensat" es descompta el que la cerca real ja ha trigat, i mai es deixa
-// l'enginy en risc de bandera pel retard escènic.
+// "pensat" es descompta el que la cerca real ja ha trigat; la protecció
+// antibandera queda centralitzada a humanThinkTimeMs (core.js) per no duplicar
+// descomptes ni afegir cap segona capa agressiva.
 function computeHumanReplyDelayMs() {
     const rhythmId = gameClock.enabled ? getActiveTimeControlId() : 'none';
     const engineColor = playerColor === 'w' ? 'b' : 'w';
@@ -19443,31 +19464,29 @@ function computeHumanReplyDelayMs() {
     const moveNumber = parseInt(fen.split(' ')[5], 10) || 1;
     const complexity = estimateEngineMoveComplexity();
     const engineElo = getActiveStrengthElo();
+    const phase = ElTaulerCore.phaseFromFen(fen);
     const thinkMs = ElTaulerCore.humanThinkTimeMs({
         timeControlId: rhythmId,
         remainingMs,
         incMs: gameClock.enabled ? gameClock.inc : 0,
         elo: engineElo,
         complexity: complexity.score,
-        phase: ElTaulerCore.phaseFromFen(fen),
-        moveNumber
+        phase,
+        moveNumber,
+        humanPaceMs,
+        paceSamples: humanPaceSamples
     });
-    const elapsedMs = engineReplyStartTs ? Math.max(0, Date.now() - engineReplyStartTs) : 0;
-    // El mínim escènic s'encongeix amb la pressió de temps: a bullet i en
-    // zeitnot un humà mou quasi a l'acte, i un mínim fix de 250 ms seria un
-    // llast fatal per al rellotge del motor en partides llargues de 30s/1+0.
-    let uiFloorMs = ENGINE_REPLY_MIN_UI_MS;
-    if (gameClock.enabled && typeof remainingMs === 'number') {
-        if (remainingMs <= 10000) uiFloorMs = 60;
-        else if (rhythmId === '30s' || rhythmId === '1+0') uiFloorMs = 120;
-    }
-    let delay = Math.max(uiFloorMs, thinkMs - elapsedMs);
-    if (gameClock.enabled && typeof remainingMs === 'number') {
-        // Marge antibandera segons el nivell: els ROC alts no s'acosten mai a
-        // la bandera; els baixos apuren com un humà del seu nivell i, entre el
-        // marge mínim i el temps real de cerca, poden arribar a perdre per temps.
-        const guardMs = ElTaulerCore.clockManagementSkill(engineElo).flagGuardMs;
-        delay = Math.min(delay, Math.max(50, remainingMs - guardMs));
+    const elapsedMs = engineReplyStartTs ? Math.max(0, nowMs() - engineReplyStartTs) : 0;
+    const delay = ElTaulerCore.visibleHumanReplyDelayMs
+        ? ElTaulerCore.visibleHumanReplyDelayMs(thinkMs, elapsedMs)
+        : Math.max(0, Math.round(thinkMs - elapsedMs));
+    if (DEBUG_ENGINE_TIMING) {
+        console.log('[engine timing]', {
+            rhythmId, engineElo, remainingMs, incMs: gameClock.enabled ? gameClock.inc : 0,
+            complexity: complexity.score, complexityLevel: complexity.level, phase, moveNumber,
+            humanPaceMs, paceSamples: humanPaceSamples, targetThinkMs: thinkMs, elapsed: elapsedMs,
+            visibleDelay: delay, apply: delay <= 0 ? 'immediate' : 'delayed'
+        });
     }
     return delay;
 }
@@ -19581,6 +19600,10 @@ function renderClock() {
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
+    clearEngineMoveTimers();
+    isEngineThinking = false;
+    engineReplyStartTs = null;
+    lastEngineMoveAppliedTs = null;
     maybeRollLuckyThemes();
     // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
     // preparant justament aquest exercici, que llavors es recull del rebost).
@@ -19901,7 +19924,7 @@ function onDrop(source, target) {
         return 'snapback';
     }
     $('#blunder-alert').hide();
-    if (engineMoveTimeout) clearTimeout(engineMoveTimeout);
+    clearEngineMoveTimers();
 
     $('.square-55d63').removeClass('highlight-hint');
     lastPosition = game.fen(); 
@@ -19910,7 +19933,12 @@ function onDrop(source, target) {
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
     clockOnMove();
-    engineReplyStartTs = Date.now();
+    engineReplyStartTs = nowMs();
+    if (lastEngineMoveAppliedTs !== null) {
+        const sample = Math.max(0, engineReplyStartTs - lastEngineMoveAppliedTs);
+        humanPaceSamples++;
+        humanPaceMs = humanPaceMs === null ? sample : (humanPaceMs * 0.75 + sample * 0.25);
+    }
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
     totalPlayerMoves++;
@@ -20034,9 +20062,10 @@ function makeEngineMove() {
     currentGameActiveStrengthElo = getActiveStrengthElo();
     resetEngineMoveCandidates();
     engineMoveSearchTrace = [];
+    clearEngineMoveTimers();
     // Si l'usuari no acaba de moure (p. ex. primera jugada de l'enginy),
     // el "pensament" comença ara.
-    if (!engineReplyStartTs) engineReplyStartTs = Date.now();
+    engineReplyStartTs = nowMs();
 
     // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
     // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
@@ -20678,7 +20707,8 @@ function handleEngineMessage(rawMsg) {
             resetEngineMoveCandidates();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
             engineMoveApplyPending = true;
-            setTimeout(() => {
+            engineMoveApplyTimeout = setTimeout(() => {
+                engineMoveApplyTimeout = null;
                 isEngineThinking = false;
                 engineMoveApplyPending = false;
                 engineReplyStartTs = null;
@@ -20693,6 +20723,7 @@ function handleEngineMessage(rawMsg) {
                     makeEngineMove();
                     return;
                 }
+                lastEngineMoveAppliedTs = nowMs();
                 clockOnMove();
                 updateStatus();
                 if (isViewingGameHistory() && !game.game_over()) {
@@ -21566,6 +21597,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // més (ni ELO, ni historial, ni estadístiques, ni ajust adaptatiu).
     if (currentGameMode === 'phase_replay' && phaseReplayState) {
         pendingMoveEvaluation = false;
+        clearEngineMoveTimers();
         stopGameClock();
         if (phaseReplayState.finished) {
             // Repte ja tancat (p. ex. «Rendir-se» amb la posició final a la vista):
@@ -21581,6 +21613,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         return;
     }
     pendingMoveEvaluation = false;
+    clearEngineMoveTimers();
     stopGameClock();
     let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
     const wasLeagueMatch = (currentGameMode === 'league') && !!leagueActiveMatch;
