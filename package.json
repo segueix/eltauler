@@ -1,7 +1,7 @@
 {
   "name": "eltauler",
   "version": "1.0.0",
-  "description": "El Tauler — entrenador d'escacs adaptatiu (PWA)",
+  "description": "El Tauler — escacs en català (PWA)",
   "private": true,
   "scripts": {
     "test": "jest"

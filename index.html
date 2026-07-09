@@ -5,30 +5,30 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
     <meta name="theme-color" content="#c9a227">
-    <meta name="description" content="Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés">
+    <meta name="description" content="Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="El Tauler">
     
-    <title>El Tauler — Entrenador d'Escacs en català</title>
+    <title>El Tauler — El teu company d'escacs en català</title>
 
     <!-- SEO / indexació (domini: eltauler.cat) -->
     <meta name="robots" content="index, follow">
     <meta name="author" content="Can Nyero">
-    <meta name="keywords" content="escacs, entrenador d'escacs, escacs en català, tàctiques, obertures, Stockfish, aprendre escacs, jeroglífic d'escacs">
+    <meta name="keywords" content="escacs, escacs en català, jugar escacs, company d'escacs, tàctiques, obertures, Stockfish, aprendre escacs, jeroglífic d'escacs, partides col·lectives">
     <link rel="canonical" href="https://eltauler.cat/">
     <meta property="og:type" content="website">
     <meta property="og:site_name" content="El Tauler">
     <meta property="og:locale" content="ca_ES">
-    <meta property="og:title" content="El Tauler — Entrenador d'Escacs en català">
-    <meta property="og:description" content="Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés.">
+    <meta property="og:title" content="El Tauler — El teu company d'escacs en català">
+    <meta property="og:description" content="Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.">
     <meta property="og:url" content="https://eltauler.cat/">
     <meta property="og:image" content="https://eltauler.cat/newicon-512.png">
     <meta name="twitter:card" content="summary_large_image">
-    <meta name="twitter:title" content="El Tauler — Entrenador d'Escacs en català">
-    <meta name="twitter:description" content="Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés.">
+    <meta name="twitter:title" content="El Tauler — El teu company d'escacs en català">
+    <meta name="twitter:description" content="Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.">
     <meta name="twitter:image" content="https://eltauler.cat/newicon-512.png">
     <script type="application/ld+json">
     {
@@ -36,7 +36,7 @@
       "@type": "WebApplication",
       "name": "El Tauler",
       "url": "https://eltauler.cat/",
-      "description": "Entrenador d'escacs en català amb IA adaptativa, missions diàries i sistema de progrés.",
+      "description": "Juga i millora als escacs en català: partides contra Stockfish al teu nivell, revisió de partides, jeroglífics, obertures i partides col·lectives.",
       "applicationCategory": "GameApplication",
       "operatingSystem": "Web",
       "inLanguage": "ca",
@@ -46,7 +46,7 @@
     </script>
 
     <!-- PWA Manifest -->
-    <link rel="manifest" href="manifest.json?v=1.0.10">
+    <link rel="manifest" href="manifest.json?v=1.0.11">
     
     <!-- Icons -->
     <link rel="apple-touch-icon" href="newicon-512.png">
@@ -118,6 +118,13 @@
             justify-content: center;
             align-items: center;
             padding: 15px;
+            /* App instal·lada (iOS, barra d'estat translúcida): sense aquests marges
+               de zona segura, el contingut de dalt (p. ex. la campana de notificacions
+               de la partida col·lectiva) queda SOTA la barra d'estat i no es pot tocar. */
+            padding-top: calc(15px + env(safe-area-inset-top, 0px));
+            padding-left: calc(15px + env(safe-area-inset-left, 0px));
+            padding-right: calc(15px + env(safe-area-inset-right, 0px));
+            padding-bottom: calc(15px + env(safe-area-inset-bottom, 0px));
             overflow-x: hidden;
         }
         body.epaper-mode *,
@@ -333,26 +340,34 @@
             background-color: rgba(156, 39, 176, 0.4) !important;
             animation: pulse-purple 1.5s infinite;
         }
-        /* Revisió de moments clau: la jugada que vas fer (vermell) vs la millor (verd). */
-        .highlight-played {
-            box-shadow: inset 0 0 0 4px #8f1f14 !important;
-            background-color: rgba(231, 76, 60, 0.38) !important;
+        /* ============================================================
+           MARCATGE UNIFICAT DE JUGADES A TOTA L'APP
+           · Jugada CORRECTA (o la millor): marc verd clar + fons verd fosc.
+           · Jugada ERRÒNIA (o la que vas fer malament): marc vermell intens
+             + fons vermell fosc.
+           Val per a les revisions de l'historial (highlight-played/best,
+           a origen i destí de cada jugada) i per als repassos i el feedback
+           en viu (move-correct/move-incorrect a qualsevol tauler).
+           ============================================================ */
+        .highlight-best,
+        .highlight-best-to,
+        .square-55d63.move-correct {
+            border-radius: 10px;
+            box-shadow: inset 0 0 0 4px #7ee787 !important;      /* marc verd clar */
+            background-color: rgba(20, 83, 45, 0.82) !important;  /* fons verd fosc */
         }
-        .highlight-best {
-            box-shadow: inset 0 0 0 4px #167a3b !important;
-            background-color: rgba(46, 204, 113, 0.38) !important;
+        .highlight-played,
+        .highlight-played-to,
+        .square-55d63.move-incorrect {
+            border-radius: 10px;
+            box-shadow: inset 0 0 0 4px #ff1744 !important;       /* marc vermell intens */
+            background-color: rgba(110, 15, 15, 0.82) !important; /* fons vermell fosc */
         }
+        /* Casella compartida per la jugada errònia i la bona: mig i mig. */
         .highlight-overlap {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.38) 0 50%, rgba(46, 204, 113, 0.38) 50% 100%) !important;
-            box-shadow: inset 0 0 0 3px #8f1f14, inset 0 0 0 6px #167a3b !important;
-        }
-        .highlight-played-to {
-            box-shadow: inset 0 0 0 4px #8f1f14 !important;
-            background-color: rgba(231, 76, 60, 0.22) !important;
-        }
-        .highlight-best-to {
-            box-shadow: inset 0 0 0 4px #167a3b !important;
-            background-color: rgba(46, 204, 113, 0.22) !important;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(110, 15, 15, 0.82) 0 50%, rgba(20, 83, 45, 0.82) 50% 100%) !important;
+            box-shadow: inset 0 0 0 3px #ff1744, inset 0 0 0 6px #7ee787 !important;
         }
         .review-board-legend {
             font-size: 12px; opacity: 0.9; margin-top: 6px; text-align: center;
@@ -1567,7 +1582,7 @@
 
         /* Notificacions internes (toast) */
         #toast-container {
-            position: fixed; top: 14px; left: 50%; transform: translateX(-50%);
+            position: fixed; top: calc(14px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%);
             z-index: 11000; width: calc(100% - 28px); max-width: 420px;
             display: flex; flex-direction: column; gap: 8px; pointer-events: none;
         }
@@ -1767,33 +1782,35 @@
         }
         .precision-pulse { animation: precision-pulse 0.4s ease-out; }
 
-        /* Feedback visual de moviments (obertures) */
-        #opening-board .square-55d63.move-correct {
-            box-shadow: inset 0 0 0 4px rgba(76, 175, 80, 0.8) !important;
-            background-color: rgba(76, 175, 80, 0.3) !important;
-        }
+        /* Feedback visual de moviments: move-correct/move-incorrect segueixen el
+           MARCATGE UNIFICAT (bloc de dalt de tot) a tots els taulers. Aquí només
+           queden les categories pròpies de les obertures: */
         #opening-board .square-55d63.move-good {
             box-shadow: inset 0 0 0 4px rgba(255, 193, 7, 0.8) !important;
             background-color: rgba(255, 193, 7, 0.2) !important;
-        }
-        #opening-board .square-55d63.move-incorrect {
-            box-shadow: inset 0 0 0 4px rgba(244, 67, 54, 0.8) !important;
-            background-color: rgba(244, 67, 54, 0.3) !important;
         }
         #opening-board .square-55d63.move-rival {
             box-shadow: inset 0 0 0 4px rgba(33, 150, 243, 0.85) !important;
             background-color: rgba(33, 150, 243, 0.28) !important;
         }
-        #myBoard .square-55d63.move-correct,
-        #history-board .square-55d63.move-correct {
-            box-shadow: inset 0 0 0 4px rgba(76, 175, 80, 0.8) !important;
-            background-color: rgba(76, 175, 80, 0.3) !important;
+        /* La jugada actual del reproductor (hl-cur-from/to) duu el requadre compartit
+           amb .engine-move, definit al bloc de dalt. */
+        /* Transcripció clicable de l'historial: la jugada activa queda marcada */
+        #history-moves {
+            position: relative; margin-top: 8px; max-height: 118px; overflow-y: auto;
+            background: rgba(255,255,255,0.03); border: 1px solid rgba(201,162,39,0.15);
+            border-radius: 10px; padding: 8px 10px; font-size: 0.86rem; line-height: 1.9;
+            font-family: 'Courier New', monospace;
         }
-        #myBoard .square-55d63.move-incorrect,
-        #history-board .square-55d63.move-incorrect {
-            box-shadow: inset 0 0 0 4px rgba(244, 67, 54, 0.8) !important;
-            background-color: rgba(244, 67, 54, 0.3) !important;
+        #history-moves .hist-move-num { color: var(--text-secondary); margin-right: 2px; }
+        #history-moves .hist-move { cursor: pointer; padding: 2px 5px; border-radius: 6px; color: var(--text-primary); }
+        #history-moves .hist-move:hover { background: rgba(201,162,39,0.18); }
+        #history-moves .hist-move.hist-move-active {
+            background: rgba(201,162,39,0.42); color: #fff; font-weight: 700;
+            box-shadow: 0 0 0 1px rgba(201,162,39,0.85);
         }
+        body.epaper-mode #history-moves { background: #f4f4f4; border-color: #cfcfcf; }
+        body.epaper-mode #history-moves .hist-move.hist-move-active { background: #ddd; color: #111; box-shadow: 0 0 0 1px #666; }
 
         /* Icones de feedback sobre caselles */
         .opening-move-icon {
@@ -3517,7 +3534,16 @@
         body.opening-mode-hieroglyphic #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: rgba(244, 228, 188, 0.95); background: rgba(139, 95, 199, 0.22); }
         body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after,
         body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
-        .square-55d63.engine-move {
+        /* Requadre de jugada (el mateix que marca els moviments de l'enginy en una
+           partida): també per a la jugada revisada a les partides col·lectives
+           (vots i transcripció) i als reproductors dels historials. */
+        .square-55d63.engine-move,
+        #catalans-board .square-55d63.cat-preview-from,
+        #catalans-board .square-55d63.cat-preview-to,
+        #catalans-replay-board .square-55d63.cat-preview-from,
+        #catalans-replay-board .square-55d63.cat-preview-to,
+        #history-board .square-55d63.hl-cur-from,
+        #history-board .square-55d63.hl-cur-to {
             border-radius: 10px;
             box-shadow: inset 0 0 0 3px #4b2f18 !important;
             outline: none !important;
@@ -3807,7 +3833,7 @@
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
-    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
+    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; padding-top:calc(12px + env(safe-area-inset-top, 0px)); box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
         <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
             <span style="font-size:14px;">Nova versió disponible</span>
             <div style="display:flex; gap:8px;">
@@ -3827,7 +3853,7 @@
             </div>
             <div class="app-logo">♔</div>
             <h1>EL TAULER</h1>
-            <div class="subtitle">Entrenador d'Escacs</div>
+            <div class="subtitle">El teu company d'escacs</div>
 
             <div class="stats-row">
                 <div class="stat-box">
@@ -4471,8 +4497,8 @@
                                     <div id="history-board"></div>
                                 </div>
                                 <div id="review-board-legend" class="review-board-legend" style="display:none;">
-                                    <span id="review-legend-played"><span class="sw" style="background:#e74c3c;"></span>la teva jugada</span>
-                                    <span id="review-legend-best"><span class="sw" style="background:#2ecc71;"></span><span id="review-legend-best-text">la millor jugada</span></span>
+                                    <span id="review-legend-played"><span class="sw" style="background:#6e0f0f; box-shadow: inset 0 0 0 2px #ff1744;"></span>la teva jugada</span>
+                                    <span id="review-legend-best"><span class="sw" style="background:#14532d; box-shadow: inset 0 0 0 2px #7ee787;"></span><span id="review-legend-best-text">la millor jugada</span></span>
                                 </div>
                                 <div class="history-controls">
                                     <button class="btn btn-secondary" id="history-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
@@ -4481,6 +4507,8 @@
                                     <button class="btn btn-secondary" id="history-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
                                 </div>
                                 <div class="history-progress" id="history-progress">0/0</div>
+                                <!-- Transcripció clicable: toca una jugada per veure-la al tauler (queda marcada) -->
+                                <div id="history-moves" style="display:none;"></div>
                                 <div class="history-actions">
                                     <button class="btn btn-secondary" id="history-generate-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Regenerar la ressenya</button>
                                     <button class="btn btn-secondary" id="history-deepen-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Recalcular moments clau</button>
@@ -4984,16 +5012,24 @@
             body.epaper-mode #catalans-board .square-55d63.cat-target::after { border-color:#111; }
             body.epaper-mode #catalans-board .square-55d63.black-3c85d.cat-target::after { border-color:#f2f2f2; }
             #catalans-board .square-55d63.cat-myvote { box-shadow: inset 0 0 0 4px rgba(46,160,67,0.85); }
-            #catalans-board .square-55d63.cat-preview-from,
-            #catalans-board .square-55d63.cat-preview-to { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.8); }
+            /* .cat-preview-from/.cat-preview-to: requadre compartit amb .engine-move
+               (definit al bloc d'estils principal, perquè es vegi IGUAL que la marca
+               de les jugades de l'enginy a les partides). */
             /* Barra de previsualització (revisió de jugades/propostes) */
             #catalans-preview-bar { display:none; text-align:center; margin:6px 0 2px; font-size:0.85rem; }
             #catalans-preview-bar .cat-preview-label { color: var(--accent-gold); font-weight:600; margin-right:8px; }
-            /* Transcripció clicable */
-            #catalans-moves .cat-move { cursor:pointer; padding:1px 3px; border-radius:4px; color: var(--text-primary); }
-            #catalans-moves .cat-move:hover { background: rgba(201,162,39,0.18); }
-            #catalans-moves .cat-move.cat-move-active { background: rgba(201,162,39,0.32); font-weight:700; }
-            #catalans-moves .cat-move-num { color: var(--text-secondary); }
+            /* Transcripció clicable (partida en curs i reproductor de l'historial) */
+            #catalans-moves .cat-move,
+            #catalans-replay-moves .cat-move { cursor:pointer; padding:1px 3px; border-radius:4px; color: var(--text-primary); }
+            #catalans-moves .cat-move:hover,
+            #catalans-replay-moves .cat-move:hover { background: rgba(201,162,39,0.18); }
+            /* Jugada activa ben marcada: sempre és clar de quin moviment es parla */
+            #catalans-moves .cat-move.cat-move-active,
+            #catalans-replay-moves .cat-move.cat-move-active { background: rgba(201,162,39,0.42); color:#fff; font-weight:700; box-shadow:0 0 0 1px rgba(201,162,39,0.85); }
+            body.epaper-mode #catalans-moves .cat-move.cat-move-active,
+            body.epaper-mode #catalans-replay-moves .cat-move.cat-move-active { background:#ddd; color:#111; box-shadow:0 0 0 1px #666; }
+            #catalans-moves .cat-move-num,
+            #catalans-replay-moves .cat-move-num { color: var(--text-secondary); }
             #catalans-moves .cat-moves-hint { display:block; margin-top:6px; color: var(--text-secondary); font-size:0.74rem; }
             #catalans-status { text-align:center; min-height:1.2em; color: var(--accent-gold); font-size:0.88rem; margin:6px 0; }
             .catalans-vote-head { display:flex; justify-content:space-between; align-items:baseline; margin-top:10px; }
@@ -5002,7 +5038,9 @@
             #catalans-vote-list { margin-top:6px; }
             .catalans-vote-row { display:flex; flex-direction:column; gap:3px; margin:6px 0; cursor:pointer; padding:4px 6px; border-radius:6px; }
             .catalans-vote-row:hover { background: rgba(201,162,39,0.10); }
-            .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.55); }
+            /* Vot que s'està revisant al tauler: marcat clarament (vora + fons) */
+            .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px rgba(201,162,39,0.95); background: rgba(201,162,39,0.14); }
+            body.epaper-mode .catalans-vote-row.catalans-vote-preview { box-shadow: inset 0 0 0 2px #555; background:#e8e8e8; }
             .catalans-vote-row.catalans-vote-mine .catalans-vote-san { font-weight:700; }
             .catalans-vote-main { display:flex; align-items:center; gap:8px; }
             .catalans-vote-san { min-width:54px; }
@@ -5048,9 +5086,13 @@
             #catalans-replay { display:none; margin-top:12px; padding:10px; background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.18); border-radius:12px; }
             #catalans-replay-title { text-align:center; font-weight:700; margin-bottom:6px; }
             #catalans-replay-board { max-width: 380px; margin: 4px auto; width: 100%; }
-            #catalans-replay-board .square-55d63.cat-preview-from,
-            #catalans-replay-board .square-55d63.cat-preview-to { box-shadow: inset 0 0 0 3px rgba(201,162,39,0.8); }
+            /* El requadre de la jugada del reproductor és el compartit amb .engine-move
+               (bloc d'estils principal). */
             #catalans-replay-status { text-align:center; font-size:0.82rem; color: var(--text-secondary); margin:4px 0; }
+            /* Transcripció clicable del reproductor (reutilitza l'estil .cat-move) */
+            #catalans-replay-moves { position:relative; max-height:96px; overflow-y:auto; margin:4px auto 8px; max-width:420px;
+                background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.15); border-radius:10px;
+                padding:7px 9px; font-family:'Courier New', monospace; font-size:0.84rem; line-height:1.9; }
             .catalans-replay-controls { display:flex; gap:6px; justify-content:center; flex-wrap:wrap; }
             .catalans-replay-controls .btn { padding:4px 12px; }
             .catalans-info-panel { margin-top:14px; background: rgba(255,255,255,0.03); border:1px solid rgba(201,162,39,0.15); border-radius:12px; padding:12px 14px; font-size:0.84rem; color: var(--text-secondary); line-height:1.5; }
@@ -5119,6 +5161,8 @@
                 <div id="catalans-replay-title"></div>
                 <div id="catalans-replay-board"></div>
                 <div id="catalans-replay-status"></div>
+                <!-- Transcripció clicable: toca una jugada per veure-la (queda marcada) -->
+                <div id="catalans-replay-moves" style="display:none;"></div>
                 <div class="catalans-replay-controls">
                     <button class="btn btn-secondary" id="catalans-replay-first">⏮</button>
                     <button class="btn btn-secondary" id="catalans-replay-prev">◀</button>

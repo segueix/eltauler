@@ -1425,9 +1425,38 @@
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
       });
     }
+    renderReplayMoves();
     replayRender();
     setTimeout(function () { if (replayBoard && replayBoard.resize) replayBoard.resize(); replayRender(); }, 60);
     $('#catalans-replay')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }
+
+  // Transcripció clicable del reproductor: toca una jugada per anar-hi directament.
+  function renderReplayMoves() {
+    const box = $('#catalans-replay-moves');
+    if (!box.length) return;
+    if (!replay || !replay.moves.length) { box.hide().empty(); return; }
+    let html = '';
+    for (let i = 0; i < replay.moves.length; i++) {
+      if (i % 2 === 0) html += '<span class="cat-move-num">' + (i / 2 + 1) + '.</span> ';
+      html += '<span class="cat-move" data-idx="' + (i + 1) + '" title="Toca per veure aquesta jugada al tauler">' + escapeSan(replay.moves[i]) + '</span> ';
+    }
+    box.html(html).show();
+  }
+
+  // Marca a la transcripció la jugada que s'està veient i manté-la a la vista
+  // (només desplaça la caixa de jugades, mai la pàgina).
+  function markReplayActiveMove() {
+    const box = document.getElementById('catalans-replay-moves');
+    if (!box) return;
+    $('#catalans-replay-moves .cat-move').removeClass('cat-move-active');
+    if (!replay || replay.idx <= 0) return;
+    const el = box.querySelector('.cat-move[data-idx="' + replay.idx + '"]');
+    if (!el) return;
+    el.classList.add('cat-move-active');
+    if (el.offsetTop < box.scrollTop || el.offsetTop + el.offsetHeight > box.scrollTop + box.clientHeight) {
+      box.scrollTop = Math.max(0, el.offsetTop - box.clientHeight / 2);
+    }
   }
 
   function replayChessAt(idx) {
@@ -1458,6 +1487,7 @@
     const sanLabel = replay.idx > 0 ? (r.last ? r.last.san : replay.moves[replay.idx - 1]) : 'inici';
     $('#catalans-replay-status').text('Jugada ' + replay.idx + ' / ' + total + (replay.idx > 0 ? ' · ' + moveNum + (replay.idx % 2 === 1 ? '.' : '…') + ' ' + sanLabel : ''));
     $('#catalans-replay-play').text(replay.playing ? '⏸ Pausa' : '▶ Reproduir');
+    markReplayActiveMove();
   }
 
   function replaySeek(idx) {
@@ -1969,6 +1999,22 @@
     try { if (on) localStorage.setItem(notifyStorageKey(key), '1'); else localStorage.removeItem(notifyStorageKey(key)); } catch (e) {}
   }
   function notificationsSupported() { return typeof window !== 'undefined' && 'Notification' in window; }
+  // A iPhone/iPad l'API de notificacions NOMÉS existeix dins l'app instal·lada a
+  // la pantalla d'inici (iOS 16.4+); al Safari «normal» no hi és. També passa si
+  // s'obre eltauler.cat des d'una instal·lació feta amb el domini antic.
+  function isIosDevice() {
+    const ua = (navigator.userAgent || '');
+    return /iPad|iPhone|iPod/.test(ua) ||
+      (ua.indexOf('Macintosh') !== -1 && (navigator.maxTouchPoints || 0) > 1);
+  }
+  // Missatge de guia quan no es poden activar les notificacions en aquest context.
+  function notifyUnsupportedMsg() {
+    return isIosDevice()
+      ? 'A l\'iPhone i l\'iPad les notificacions només funcionen amb l\'app instal·lada: ' +
+        'obre eltauler.cat amb Safari, toca «Compartir» → «Afegir a pantalla d\'inici» ' +
+        'i activa-les des de l\'app instal·lada.'
+      : 'Aquest navegador no admet notificacions. Prova-ho amb un navegador més recent o instal·la l\'app.';
+  }
 
   const notifyWatchers = {};   // key -> { timer, notifiedTurn }
 
@@ -2066,8 +2112,19 @@
   function renderNotifyToggle() {
     const btn = document.getElementById('catalans-notify-toggle');
     if (!btn) return;
-    if (!notificationsSupported()) { btn.style.display = 'none'; return; }
     btn.style.display = '';
+    if (!notificationsSupported()) {
+      // NO l'amaguem: si l'amagàvem, a iOS (Safari o una instal·lació del domini
+      // antic) no hi havia CAP manera de saber com activar-les. Ara el botó es
+      // veu i, en tocar-lo, s'explica què cal fer (instal·lar l'app des de Safari).
+      btn.textContent = '🔕';
+      btn.classList.remove('on');
+      btn.classList.remove('pulse');
+      btn.setAttribute('aria-pressed', 'false');
+      btn.setAttribute('aria-label', 'Notificacions no disponibles en aquest navegador: toca per saber com activar-les');
+      btn.title = 'Toca per saber com activar els avisos de torn';
+      return;
+    }
     const on = isNotifyEnabled(currentNotifyKey()) && Notification.permission === 'granted';
     btn.textContent = on ? '🔔' : '🔕';
     btn.classList.toggle('on', on);
@@ -2084,8 +2141,14 @@
       : 'Rebre avís quan toqui moure en aquesta partida';
   }
 
+  // Avís visible (toast si n'hi ha, i sempre a la línia d'estat de la partida).
+  function notifyFeedback(msg, kind) {
+    setStatus(msg);
+    try { if (typeof window.showToast === 'function') window.showToast(msg, kind || 'info'); } catch (e) {}
+  }
+
   function toggleNotify() {
-    if (!notificationsSupported()) { setStatus('Aquest navegador no admet notificacions.'); return; }
+    if (!notificationsSupported()) { notifyFeedback(notifyUnsupportedMsg(), 'warn'); return; }
     const key = currentNotifyKey();
     if (isNotifyEnabled(key)) {
       setNotifyEnabledStored(key, false);
@@ -2103,13 +2166,18 @@
     };
     if (Notification.permission === 'granted') { enable(); return; }
     if (Notification.permission === 'denied') {
-      setStatus('Les notificacions estan bloquejades al navegador. Activa-les per a aquest lloc a la seva configuració.');
+      notifyFeedback('Les notificacions estan bloquejades per a eltauler.cat. Activa-les a la configuració del navegador (Configuració del lloc → Notificacions) i torna a tocar la campana.', 'warn');
       return;
     }
+    // La crida es fa DINS del gest de l'usuari (clic): iOS ho exigeix perquè
+    // aparegui el diàleg de permís a l'app instal·lada.
     Notification.requestPermission().then(function (perm) {
       if (perm === 'granted') enable();
-      else { renderNotifyToggle(); setStatus('Permís de notificacions denegat: no rebràs avisos.'); }
-    }).catch(function () {});
+      else { renderNotifyToggle(); notifyFeedback('Permís de notificacions denegat: no rebràs avisos.', 'warn'); }
+    }).catch(function () {
+      renderNotifyToggle();
+      notifyFeedback(notifyUnsupportedMsg(), 'warn');
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -2311,6 +2379,11 @@
     $('#catalans-history-list').on('click', '.catalans-hist-play', function () {
       const idx = parseInt($(this).attr('data-idx'), 10);
       if (!isNaN(idx)) openReplayGame(idx);
+    });
+    // Transcripció del reproductor: toca una jugada per veure-la (queda marcada).
+    $('#catalans-replay-moves').on('click', '.cat-move', function () {
+      const idx = parseInt($(this).attr('data-idx'), 10);
+      if (!isNaN(idx)) { replayStopPlay(); replaySeek(idx); }
     });
     // Controls del reproductor.
     $('#catalans-replay-first').on('click', function () { replayStopPlay(); replaySeek(0); });
