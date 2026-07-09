@@ -340,26 +340,34 @@
             background-color: rgba(156, 39, 176, 0.4) !important;
             animation: pulse-purple 1.5s infinite;
         }
-        /* Revisió de moments clau: la jugada que vas fer (vermell) vs la millor (verd). */
-        .highlight-played {
-            box-shadow: inset 0 0 0 4px #8f1f14 !important;
-            background-color: rgba(231, 76, 60, 0.38) !important;
+        /* ============================================================
+           MARCATGE UNIFICAT DE JUGADES A TOTA L'APP
+           · Jugada CORRECTA (o la millor): marc verd clar + fons verd fosc.
+           · Jugada ERRÒNIA (o la que vas fer malament): marc vermell intens
+             + fons vermell fosc.
+           Val per a les revisions de l'historial (highlight-played/best,
+           a origen i destí de cada jugada) i per als repassos i el feedback
+           en viu (move-correct/move-incorrect a qualsevol tauler).
+           ============================================================ */
+        .highlight-best,
+        .highlight-best-to,
+        .square-55d63.move-correct {
+            border-radius: 10px;
+            box-shadow: inset 0 0 0 4px #7ee787 !important;      /* marc verd clar */
+            background-color: rgba(20, 83, 45, 0.82) !important;  /* fons verd fosc */
         }
-        .highlight-best {
-            box-shadow: inset 0 0 0 4px #167a3b !important;
-            background-color: rgba(46, 204, 113, 0.38) !important;
+        .highlight-played,
+        .highlight-played-to,
+        .square-55d63.move-incorrect {
+            border-radius: 10px;
+            box-shadow: inset 0 0 0 4px #ff1744 !important;       /* marc vermell intens */
+            background-color: rgba(110, 15, 15, 0.82) !important; /* fons vermell fosc */
         }
+        /* Casella compartida per la jugada errònia i la bona: mig i mig. */
         .highlight-overlap {
-            background: linear-gradient(135deg, rgba(231, 76, 60, 0.38) 0 50%, rgba(46, 204, 113, 0.38) 50% 100%) !important;
-            box-shadow: inset 0 0 0 3px #8f1f14, inset 0 0 0 6px #167a3b !important;
-        }
-        .highlight-played-to {
-            box-shadow: inset 0 0 0 4px #8f1f14 !important;
-            background-color: rgba(231, 76, 60, 0.22) !important;
-        }
-        .highlight-best-to {
-            box-shadow: inset 0 0 0 4px #167a3b !important;
-            background-color: rgba(46, 204, 113, 0.22) !important;
+            border-radius: 10px;
+            background: linear-gradient(135deg, rgba(110, 15, 15, 0.82) 0 50%, rgba(20, 83, 45, 0.82) 50% 100%) !important;
+            box-shadow: inset 0 0 0 3px #ff1744, inset 0 0 0 6px #7ee787 !important;
         }
         .review-board-legend {
             font-size: 12px; opacity: 0.9; margin-top: 6px; text-align: center;
@@ -1774,32 +1782,16 @@
         }
         .precision-pulse { animation: precision-pulse 0.4s ease-out; }
 
-        /* Feedback visual de moviments (obertures) */
-        #opening-board .square-55d63.move-correct {
-            box-shadow: inset 0 0 0 4px rgba(76, 175, 80, 0.8) !important;
-            background-color: rgba(76, 175, 80, 0.3) !important;
-        }
+        /* Feedback visual de moviments: move-correct/move-incorrect segueixen el
+           MARCATGE UNIFICAT (bloc de dalt de tot) a tots els taulers. Aquí només
+           queden les categories pròpies de les obertures: */
         #opening-board .square-55d63.move-good {
             box-shadow: inset 0 0 0 4px rgba(255, 193, 7, 0.8) !important;
             background-color: rgba(255, 193, 7, 0.2) !important;
         }
-        #opening-board .square-55d63.move-incorrect {
-            box-shadow: inset 0 0 0 4px rgba(244, 67, 54, 0.8) !important;
-            background-color: rgba(244, 67, 54, 0.3) !important;
-        }
         #opening-board .square-55d63.move-rival {
             box-shadow: inset 0 0 0 4px rgba(33, 150, 243, 0.85) !important;
             background-color: rgba(33, 150, 243, 0.28) !important;
-        }
-        #myBoard .square-55d63.move-correct,
-        #history-board .square-55d63.move-correct {
-            box-shadow: inset 0 0 0 4px rgba(76, 175, 80, 0.8) !important;
-            background-color: rgba(76, 175, 80, 0.3) !important;
-        }
-        #myBoard .square-55d63.move-incorrect,
-        #history-board .square-55d63.move-incorrect {
-            box-shadow: inset 0 0 0 4px rgba(244, 67, 54, 0.8) !important;
-            background-color: rgba(244, 67, 54, 0.3) !important;
         }
         /* La jugada actual del reproductor (hl-cur-from/to) duu el requadre compartit
            amb .engine-move, definit al bloc de dalt. */
@@ -4505,8 +4497,8 @@
                                     <div id="history-board"></div>
                                 </div>
                                 <div id="review-board-legend" class="review-board-legend" style="display:none;">
-                                    <span id="review-legend-played"><span class="sw" style="background:#e74c3c;"></span>la teva jugada</span>
-                                    <span id="review-legend-best"><span class="sw" style="background:#2ecc71;"></span><span id="review-legend-best-text">la millor jugada</span></span>
+                                    <span id="review-legend-played"><span class="sw" style="background:#6e0f0f; box-shadow: inset 0 0 0 2px #ff1744;"></span>la teva jugada</span>
+                                    <span id="review-legend-best"><span class="sw" style="background:#14532d; box-shadow: inset 0 0 0 2px #7ee787;"></span><span id="review-legend-best-text">la millor jugada</span></span>
                                 </div>
                                 <div class="history-controls">
                                     <button class="btn btn-secondary" id="history-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>

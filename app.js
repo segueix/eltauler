@@ -2323,11 +2323,13 @@ function showOpeningLessonTargetHint() {
 // Vist-i-plau verd persistent per a la jugada correcta d'una lliçó. A diferència de
 // showOpeningMoveVisualFeedback no s'esvaeix sol: es manté fins que l'enginy mou
 // (quan es crida clearOpeningMoveVisualFeedback).
-function showOpeningLessonCorrectMark(square) {
+function showOpeningLessonCorrectMark(square, fromSquare) {
     clearOpeningMoveVisualFeedback();
     const squareEl = $(`#opening-board .square-55d63[data-square='${square}']`);
     if (!squareEl.length) return;
     squareEl.addClass('move-correct');
+    // També l'origen de la jugada, amb el mateix marcatge unificat.
+    if (fromSquare) $(`#opening-board .square-55d63[data-square='${fromSquare}']`).addClass('move-correct');
     const iconEl = $('<div class="opening-move-icon opening-move-icon-correct">✓</div>');
     squareEl.append(iconEl);
     setTimeout(() => iconEl.addClass('show'), 10);
@@ -2691,29 +2693,32 @@ function handleOpeningUserMove(movePlayed, from, to, needsOpponentMove) {
     }
 }
 
-// Mostra feedback visual sobre el tauler
+// Mostra feedback visual sobre el tauler. Es marquen LES DUES caselles de la
+// jugada (origen i destinació) amb el marcatge unificat; la icona va al destí.
 function showOpeningMoveVisualFeedback(from, to, quality) {
     // Netejar feedback anterior
     clearOpeningMoveVisualFeedback();
 
     const toSquare = $(`#opening-board .square-55d63[data-square='${to}']`);
     if (!toSquare.length) return;
+    const fromSquare = $(`#opening-board .square-55d63[data-square='${from}']`);
+    const both = toSquare.add(fromSquare);
 
     // Afegir classe segons qualitat
     if (quality === 'correct') {
-        toSquare.addClass('move-correct');
+        both.addClass('move-correct');
         showOpeningMoveIcon(to, '✓', 'correct');
     } else if (quality === 'good') {
-        toSquare.addClass('move-good');
+        both.addClass('move-good');
         showOpeningMoveIcon(to, '~', 'good');
     } else if (quality === 'incorrect') {
-        toSquare.addClass('move-incorrect');
+        both.addClass('move-incorrect');
         showOpeningMoveIcon(to, '✗', 'incorrect');
     }
 
     // Eliminar feedback després d'un temps
     setTimeout(() => {
-        toSquare.removeClass('move-correct move-good move-incorrect');
+        both.removeClass('move-correct move-good move-incorrect');
     }, 2000);
 }
 
@@ -2758,17 +2763,20 @@ function showOpeningRivalMove(from, to) {
     }, 2000);
 }
 
-function showMainMoveVisualFeedback(to, quality) {
+// Marca LES DUES caselles de la jugada (origen i destinació) amb el marcatge
+// unificat de correcta/errònia.
+function showMainMoveVisualFeedback(to, quality, from) {
     clearMainMoveVisualFeedback();
     const toSquare = $(`#myBoard .square-55d63[data-square='${to}']`);
     if (!toSquare.length) return;
+    const both = toSquare.add(from ? $(`#myBoard .square-55d63[data-square='${from}']`) : $());
     if (quality === 'correct') {
-        toSquare.addClass('move-correct');
+        both.addClass('move-correct');
     } else if (quality === 'incorrect') {
-        toSquare.addClass('move-incorrect');
+        both.addClass('move-incorrect');
     }
     setTimeout(() => {
-        toSquare.removeClass('move-correct move-incorrect');
+        both.removeClass('move-correct move-incorrect');
     }, 1200);
 }
 
@@ -3015,7 +3023,7 @@ function handleOpeningLessonUserMove(from, to) {
     }
 
     // Jugada correcta: vist-i-plau verd que es manté fins que l'enginy mou
-    showOpeningLessonCorrectMark(to);
+    showOpeningLessonCorrectMark(to, from);
     registerOpeningLessonAttempt('correct');
     openingLessonStep++;
     openingBundleBoard.position(openingPracticeGame.fen());
@@ -20788,6 +20796,7 @@ function cacheBundleAnswer(fen, mode, bestMove, pvMoves, pvLine = null, pvLines 
 function evaluateBundleAttempt(bundleData) {
     const played = lastHumanMoveUci || '';
     const playedTo = played.length >= 4 ? played.slice(2, 4) : null;
+    const playedFrom = played.length >= 4 ? played.slice(0, 2) : null;
     
     // ✅ SI HI HA SEQÜÈNCIA FIXA, USAR-LA (2 o 3 passos de jugador)
     if (bundleFixedSequence) {
@@ -20816,7 +20825,7 @@ function evaluateBundleAttempt(bundleData) {
                 pendingMoveEvaluation = false;
                 updatePrecisionDisplay();
             }
-            if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
+            if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct', playedFrom);
 
             if (step < totalSteps) {
                 // CANVI: Netejar el missatge d’OpenAI només quan s'avança de pas
@@ -20837,7 +20846,7 @@ function evaluateBundleAttempt(bundleData) {
             lastBundleOpenAIHint = null;
             handleBundleSuccess();
         } else {
-            if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
+            if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect', playedFrom);
             if (currentBundleSource === 'bestline') currentHieroglyphicWrongMoves++;
             // Error - resetar al pas actual
             if (pendingMoveEvaluation) {
@@ -20874,8 +20883,8 @@ function evaluateBundleAttempt(bundleData) {
             pendingMoveEvaluation = false; 
             updatePrecisionDisplay(); 
         }
-        if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct');
-        
+        if (playedTo) showMainMoveVisualFeedback(playedTo, 'correct', playedFrom);
+
         if (bundleSequenceStep === 1) {
             // CANVI: Netejar el missatge d’OpenAI només quan s'avança al pas 2
             lastBundleOpenAIHint = null;
@@ -20896,7 +20905,7 @@ function evaluateBundleAttempt(bundleData) {
         lastBundleOpenAIHint = null;
         handleBundleSuccess();
     } else {
-        if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect');
+        if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect', playedFrom);
         if (currentBundleSource === 'bestline') currentHieroglyphicWrongMoves++;
         if (pendingMoveEvaluation) {
             pendingMoveEvaluation = false;
