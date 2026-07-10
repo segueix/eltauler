@@ -151,6 +151,25 @@ describe('getCalibrationPerformanceScore', () => {
     });
 });
 
+describe('estimateGamePerformanceRating (rendiment d’una partida)', () => {
+    test('unes taules amb qualitat neutra equivalen al nivell del rival', () => {
+        expect(Core.estimateGamePerformanceRating(1000, 0.5, 0.5)).toBe(1000);
+    });
+
+    test('una victòria de qualitat queda per sobre del rival', () => {
+        expect(Core.estimateGamePerformanceRating(1000, 1, 0.8)).toBe(1210);
+    });
+
+    test('una derrota de baixa qualitat queda per sota del rival', () => {
+        expect(Core.estimateGamePerformanceRating(1000, 0, 0.2)).toBe(790);
+    });
+
+    test('limita la qualitat al rang 0..1', () => {
+        expect(Core.estimateGamePerformanceRating(1000, 0.5, 4)).toBe(1100);
+        expect(Core.estimateGamePerformanceRating(1000, 0.5, -4)).toBe(900);
+    });
+});
+
 describe('timedCalibrationOpponentElo (calibratge per ritme de rellotge)', () => {
     test('amb poques jugades es manté al nivell inicial', () => {
         expect(Core.timedCalibrationOpponentElo(800, 0, 0)).toBe(800);

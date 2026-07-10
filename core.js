@@ -1645,15 +1645,20 @@
         return Math.round(seed + Math.max(-250, Math.min(250, offset)));
     }
 
-    // Primera estimació d'ELO d'un ritme a partir d'una única partida de
-    // calibratge: nivell final del rival adaptatiu, corregit pel resultat
-    // (±150) i per la qualitat de joc 0..1 (±100), la mateixa mètrica de
-    // qualitat que el calibratge inicial (getCalibrationGameQuality).
-    function estimateTimedCalibrationElo(opponentElo, resultScore, quality) {
-        const opp = isNaN(opponentElo) ? 800 : opponentElo;
+    // Rendiment estimat d'una única partida contra un rival de força coneguda:
+    // el nivell del rival es corregeix pel resultat (±150) i per la qualitat
+    // de joc 0..1 (±100). És una estimació orientativa, no un canvi de rating.
+    function estimateGamePerformanceRating(opponentRating, resultScore, quality) {
+        const opponent = isNaN(opponentRating) ? 800 : opponentRating;
         const result = (typeof resultScore === 'number' && !isNaN(resultScore)) ? resultScore : 0.5;
         const q = Math.max(0, Math.min(1, (typeof quality === 'number' && !isNaN(quality)) ? quality : 0.5));
-        return Math.round(opp + (result - 0.5) * 300 + (q - 0.5) * 200);
+        return Math.round(opponent + (result - 0.5) * 300 + (q - 0.5) * 200);
+    }
+
+    // Primera estimació d'ELO d'un ritme a partir d'una única partida de
+    // calibratge. Manté el mateix model que el rendiment estimat per partida.
+    function estimateTimedCalibrationElo(opponentElo, resultScore, quality) {
+        return estimateGamePerformanceRating(opponentElo, resultScore, quality);
     }
 
     // Delta d'ELO d'una partida puntuada contra un rival de força coneguda
@@ -1954,6 +1959,7 @@
         ratedEloDelta,
         timedCalibrationOpponentElo,
         estimateTimedCalibrationElo,
+        estimateGamePerformanceRating,
         evaluateGameQuality,
         parsePgnToMoves,
         buildOpeningTrie,
