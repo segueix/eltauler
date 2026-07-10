@@ -5,8 +5,6 @@ on:
   push:
     branches:
       - agent/calibratge-express
-    paths:
-      - '.github/workflows/apply-calibratge-express.yml'
 
 permissions:
   contents: write
@@ -49,8 +47,6 @@ jobs:
                   raise SystemExit(f'No s’ha trobat el patró obligatori: {old}')
               text = text.replace(old, new, 1)
 
-          # La finestra adaptativa existent és de tres partides. La convertim en
-          # el calibratge exprés immediatament posterior a la primera partida.
           marker = 'const CONTINUOUS_ADJUST_CONFIG = {\n    WINDOW_SIZE: 3,'
           if marker not in text:
               raise SystemExit('No s’ha trobat CONTINUOUS_ADJUST_CONFIG.WINDOW_SIZE')
@@ -62,8 +58,6 @@ jobs:
               1,
           )
 
-          # El valor calculat després de la primera partida ja és el ROC del jugador:
-          # es mostra de seguida, tot indicant que les tres partides següents l’afinaran.
           old_reveal = (
               'statusEl.text(`Calibratge completat! El teu nivell inicial és: ${rocValue} ROC ♟️`)'
               ".addClass('elo-reveal');"
@@ -77,9 +71,6 @@ jobs:
               raise SystemExit('No s’ha trobat el missatge de revelació del ROC')
           text = text.replace(old_reveal, new_reveal, 1)
 
-          # Desa al perfil que el ROC ja és visible però encara provisional. Com que
-          # calibrationProfile es desa amb saveStorage(), també queda sincronitzat
-          # entre dispositius per Firebase/Firestore.
           profile_marker = (
               'calibrationProfile = {\n'
               '        roc: userELO,\n'
@@ -100,17 +91,14 @@ jobs:
               raise SystemExit('No s’ha trobat calibrationProfile a finalizeCalibrationFromGames')
           text = text.replace(profile_marker, profile_replacement, 1)
 
-          # Actualitza textos literals habituals si existeixen, sense exigir-los.
           text = text.replace('5 partides de calibratge', '1 partida inicial de calibratge')
           text = text.replace('cinc partides de calibratge', 'una partida inicial de calibratge')
           text = text.replace('Partida de calibratge 1 de 5', 'Partida inicial de calibratge')
-          text = text.replace('Calibratge completat', 'ROC inicial calculat')
 
           if text == original:
               raise SystemExit('No s’ha aplicat cap canvi a app.js')
           app.write_text(text, encoding='utf-8')
 
-          # Bump de versions perquè la PWA no conservi app.js antic.
           index = Path('index.html')
           idx = index.read_text(encoding='utf-8')
           idx2 = re.sub(r"window\.APP_VERSION = '1\.0\.26';", "window.APP_VERSION = '1.0.27';", idx, count=1)
@@ -119,7 +107,6 @@ jobs:
               raise SystemExit('No s’ha pogut actualitzar la versió a index.html')
           index.write_text(idx2, encoding='utf-8')
 
-          # Actualitza la cache del service worker de manera idempotent.
           sw = Path('sw.js')
           if sw.exists():
               sw_text = sw.read_text(encoding='utf-8')
