@@ -178,15 +178,18 @@ const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
-// El calibratge obligatori és UNA SOLA partida: n'hi ha prou per estimar el ROC
-// inicial (resultat + qualitat de joc contra un rival conegut), mostrar-lo al
-// marcador i desbloquejar tota la resta de l'app. Les partides següents l'afinen
-// automàticament amb l'ajust adaptatiu continu, sense bloquejar cap opció.
+// El calibratge obligatori és UNA SOLA partida: el rival comença suau (ROC 300)
+// i s'ADAPTA DINS DE LA PARTIDA a la qualitat de joc demostrada (proporció de
+// jugades bones, amb tot el rang ROC disponible), de manera que un principiant i
+// un expert acaben davant de rivals — i d'estimacions — realistes. El ROC inicial
+// s'estima del nivell on ha convergit el rival + resultat + qualitat, es mostra
+// al marcador i desbloqueja tota la resta de l'app. Les partides següents
+// l'afinen automàticament amb l'ajust adaptatiu continu, sense bloquejar res.
 const CALIBRATION_GAME_COUNT = 1;
 // La força del rival de calibratge es deriva del seu ROC amb el MATEIX model en dues etapes
 // que el joc lliure (rocToEngineElo + eloToSearchDepth + selecció humana de moviments), de
 // manera que el nivell estimat reflecteix el que el jugador trobarà realment.
-const CALIBRATION_START_ROC = 300;            // ROC del rival de la partida de calibratge
+const CALIBRATION_START_ROC = 300;            // ROC amb què COMENÇA el rival adaptatiu
 const CALIBRATION_STEPS = [220, 160, 110, 80]; // passos de la cerca adaptativa (només si mai es calibra amb més d'una partida)
 const CALIBRATION_ROCS = [200, 350, 500, 650, 800]; // referència/llindar de compatibilitat
 const CALIBRATION_ROC_MIN = 200;
@@ -222,6 +225,10 @@ let calibrationProfile = null;
 let calibratgeComplet = false;
 let isCalibrationGame = false;
 let currentCalibrationOpponentRoc = null;
+// ROC amb què ha COMENÇAT el rival de la partida de calibratge en curs: és
+// l'ancora de l'adaptació dins de la partida (currentCalibrationOpponentRoc
+// se'n va allunyant segons la qualitat de joc demostrada).
+let calibrationStartOpponentRoc = null;
 let isEngineThinking = false;
 // Hi ha una jugada de l'enginy rebuda i pendent d'aplicar (finestra dels 900 ms).
 // Evita que un segon "bestmove" extraviat (pista, cerca duplicada) es torni a
@@ -4405,6 +4412,20 @@ function getCalibrationOpponentRoc() {
     });
 }
 
+// Rival ADAPTATIU dins de la partida de calibratge inicial: abans de cada
+// resposta del motor, el seu ROC es recalcula amb la proporció de jugades bones
+// del jugador fins al moment (mateix patró que el calibratge per ritme, però amb
+// tot el rang ROC). Així un jugador fort acaba la partida davant d'un rival — i
+// amb una estimació — realistes, en lloc de quedar ancorat al ROC 300 inicial.
+function updateCalibrationOpponentRoc() {
+    if (typeof calibrationStartOpponentRoc !== 'number') return currentCalibrationOpponentRoc;
+    currentCalibrationOpponentRoc = ElTaulerCore.initialCalibrationOpponentRoc(
+        calibrationStartOpponentRoc, goodMoves, totalPlayerMoves,
+        CALIBRATION_ROC_MIN, CALIBRATION_ROC_MAX);
+    updateAdaptiveEngineEloLabel();
+    return currentCalibrationOpponentRoc;
+}
+
 function getCalibrationProgressCount() {
     const extra = isCalibrationGame ? 1 : 0;
     return Math.min(calibrationGames.length + extra, CALIBRATION_GAME_COUNT);
@@ -4501,6 +4522,14 @@ function finalizeCalibrationFromGames() {
 function recordCalibrationGame(resultScore, precision, metrics) {
     const safePrecision = Math.max(0, Math.min(100, typeof precision === 'number' ? precision : 0));
     const result = resultScore === 1 ? 'win' : resultScore === 0 ? 'loss' : 'draw';
+    // Nivell FINAL del rival adaptatiu (amb totes les jugades avaluades, també
+    // les posteriors a l'última resposta del motor): és l'àncora de l'estimació.
+    if (typeof calibrationStartOpponentRoc === 'number') {
+        currentCalibrationOpponentRoc = ElTaulerCore.initialCalibrationOpponentRoc(
+            calibrationStartOpponentRoc, goodMoves, totalPlayerMoves,
+            CALIBRATION_ROC_MIN, CALIBRATION_ROC_MAX);
+        calibrationStartOpponentRoc = null;
+    }
     const opponentElo = typeof currentCalibrationOpponentRoc === 'number' ? currentCalibrationOpponentRoc : getCalibrationOpponentRoc();
     const gameMetrics = metrics || {};
     calibrationGames.push({
@@ -19796,6 +19825,7 @@ blunderMode = isBundle;
     // (tàctiques, revisió d'errors, mats…).
     $('#btn-resign').toggle(!isBundle);
     isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending;
+    if (!isCalibrationGame) calibrationStartOpponentRoc = null;
     currentBundleFen = fen;
     
     // ✅ CALCULAR SEQÜÈNCIA FIXA PER BUNDLES
@@ -19927,6 +19957,9 @@ blunderMode = isBundle;
     $('#game-mode-title').css('font-size', ''); // reset (el jeroglífic l'agranda després)
     if (isCalibrationGame) {
         currentCalibrationOpponentRoc = getCalibrationOpponentRoc();
+        // Ancora de l'adaptació dins de la partida: el rival comença aquí i puja
+        // (o baixa) segons la qualitat de joc que el jugador vagi demostrant.
+        calibrationStartOpponentRoc = currentCalibrationOpponentRoc;
         aiDifficulty = levelToDifficulty(currentCalibrationOpponentRoc);
         if (engineReady) applyEngineEloStrength(currentCalibrationOpponentRoc);
         $('#engine-elo').text(`ROC ${currentCalibrationOpponentRoc}`);
@@ -20216,6 +20249,9 @@ function makeEngineMove() {
     // el "pensament" comença ara.
     engineReplyStartTs = nowMs();
 
+    // Partida de calibratge inicial: el rival s'adapta ABANS de cada resposta a
+    // la qualitat de joc demostrada fins ara (com el calibratge per ritme).
+    if (isCalibrationGame) updateCalibrationOpponentRoc();
     // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
     // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
     // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada

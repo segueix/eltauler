@@ -41,3 +41,9 @@ Conduir amb Playwright + Chromium preinstal·lat
   `eltauler_cloud_consent=1`).
 - **Navegació**: usar els botons de l'app (`#btn-settings`,
   `#btn-back-settings`...), no `page.goBack()`.
+- **Jugar moviments reals**: context amb `hasTouch: true` (activa el mode
+  tap) i clicar `.square-e2` → `.square-e4`. Per forçar jugar amb blanques,
+  estubar `Math.random = () => 0.1` just abans de `#btn-new-game` i
+  restaurar-lo ~1 s després. Confirmar que la jugada s'ha aplicat mirant
+  `.square-<destí> img[data-piece^="w"]`; deixar ~6 s per resposta del motor
+  i avaluació de la jugada (comptador `goodMoves`).
