@@ -201,7 +201,13 @@ function patchCalibrationSource(source) {
 async function patchAppJsResponse(response) {
   const source = await response.text();
   const patched = patchCalibrationSource(source);
-  if (patched === source) return new Response(source, response);
+  if (patched === source) {
+    return new Response(source, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  }
 
   const headers = new Headers(response.headers);
   headers.delete('content-length');
