@@ -177,7 +177,8 @@ function patchCalibrationSource(source) {
   }
 
   const profileMarker = '    calibrationProfile = {\n        roc: userELO,';
-  if (patched.includes(profileMarker) && !patched.includes('expressCalibrationGames: EXPRESS_CALIBRATION_GAME_COUNT')) {
+  const finalizedProfileMarker = '    calibrationProfile = {\n        roc: userELO,\n        provisional: true,';
+  if (patched.includes(profileMarker) && !patched.includes(finalizedProfileMarker)) {
     patched = patched.replace(
       profileMarker,
       '    calibrationProfile = {\n        roc: userELO,\n        provisional: true,\n        expressCalibrationGames: EXPRESS_CALIBRATION_GAME_COUNT,'
