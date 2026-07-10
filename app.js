@@ -4576,6 +4576,35 @@ function applyTimeControlCalibrationEstimate(tcId, resultScore, precision, avgCp
     return estimate;
 }
 
+const ASSISTED_PERFORMANCE_MIN_MOVES = 5;
+
+// Estima el rendiment d'una partida assistida sense modificar el ROC/ELO real.
+// Reutilitza la qualitat del calibratge: precisió, pèrdua mitjana i blunders.
+function estimateAssistedGamePerformance(resultScore, precision, avgCpLoss, blunders, opponentRating, playerMoves) {
+    const moveCount = Math.max(0, Number(playerMoves) || 0);
+    if (moveCount < ASSISTED_PERFORMANCE_MIN_MOVES) {
+        return {
+            rating: null,
+            unit: null,
+            moveCount,
+            minMoves: ASSISTED_PERFORMANCE_MIN_MOVES
+        };
+    }
+
+    const quality = ElTaulerCore.getCalibrationGameQuality({ avgCpLoss, precision, blunders });
+    const rating = clampEngineElo(
+        ElTaulerCore.estimateGamePerformanceRating(opponentRating, resultScore, quality)
+    );
+    return {
+        rating,
+        unit: rating >= engineEloMin ? 'ELO' : 'ROC',
+        opponentRating: Math.round(opponentRating),
+        quality: Math.round(quality * 100) / 100,
+        moveCount,
+        minMoves: ASSISTED_PERFORMANCE_MIN_MOVES
+    };
+}
+
 // Engega la partida de calibratge d'un ritme des d'Estadístiques: fixa el
 // rellotge del ritme i obre una partida nova; startGame detecta que el ritme
 // no té ELO i activa el mode de calibratge adaptatiu automàticament.
@@ -11964,6 +11993,7 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         roc: currentElo,
         level: aiDifficulty,
         accuracy: finalPrecision,
+        assistedPerformance: options.assistedPerformance || null,
         mistakes: counts?.mistake || 0,
         createdAt: now.toISOString(),
         updatedAt: now.toISOString()
@@ -17150,7 +17180,7 @@ function setupEvents() {
             lastReviewSnapshot.finalPrecision,
             lastReviewSnapshot.counts,
             null,
-            { showCheckmate: lastReviewSnapshot.showCheckmate }
+            { showCheckmate: lastReviewSnapshot.showCheckmate, assistedPerformance: lastReviewSnapshot.assistedPerformance }
         );
     });
 
@@ -17437,7 +17467,7 @@ function setupEvents() {
                     lastReviewSnapshot.finalPrecision,
                     lastReviewSnapshot.counts,
                     null,
-                    { showCheckmate: lastReviewSnapshot.showCheckmate }
+                    { showCheckmate: lastReviewSnapshot.showCheckmate, assistedPerformance: lastReviewSnapshot.assistedPerformance }
                 );
             }
             $('#blunder-alert').hide();
@@ -19360,7 +19390,7 @@ function reopenPostGameReviewFromErrorPractice(snapshot) {
         snapshot.finalPrecision,
         snapshot.counts,
         null,
-        { showCheckmate: snapshot.showCheckmate }
+        { showCheckmate: snapshot.showCheckmate, assistedPerformance: snapshot.assistedPerformance }
     );
 }
 
@@ -21110,10 +21140,41 @@ function deepReviewTargets(entry) {
     return entry.moveReviews.filter(r => r && r.fen && DEEP_REVIEW_KEYS.includes(r.quality)).slice(0, 8);
 }
 
+function assistedPerformanceDisplay(performance) {
+    if (!performance) return null;
+    if (typeof performance.rating !== 'number' || !isFinite(performance.rating)) {
+        const minMoves = performance.minMoves || ASSISTED_PERFORMANCE_MIN_MOVES;
+        return {
+            value: 'No disponible',
+            note: `Partida massa curta: calen almenys ${minMoves} jugades teves per fer una estimació fiable.`
+        };
+    }
+    const unit = performance.unit === 'ELO' ? 'ELO' : 'ROC';
+    return {
+        value: `${unit} ${Math.round(performance.rating)}`,
+        note: 'Estimació orientativa segons la força del rival, el resultat i la qualitat de les jugades.'
+    };
+}
+
+function renderAssistedPerformance(performance) {
+    const box = $('#review-performance');
+    if (!box.length) return;
+    const display = assistedPerformanceDisplay(performance);
+    if (!display) {
+        box.hide();
+        return;
+    }
+    $('#review-performance-value').text(display.value);
+    $('#review-performance-note').text(display.note);
+    box.show();
+}
+
 function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) {
     const modal = $('#review-modal');
     if (!modal.length) {
-        alert(msg + (finalPrecision ? `\nPrecisió: ${finalPrecision}%` : ''));
+        const performance = assistedPerformanceDisplay(options.assistedPerformance);
+        const performanceLine = performance ? `\nRendiment assistit estimat: ${performance.value}` : '';
+        alert(msg + (finalPrecision ? `\nPrecisió: ${finalPrecision}%` : '') + performanceLine);
         if (typeof onClose === 'function') onClose();
         return;
     }
@@ -21132,6 +21193,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     
         $('#review-result-text').text(msg);
         $('#review-precision-value').text(finalPrecision ? `${finalPrecision}%` : '—');
+        renderAssistedPerformance(options.assistedPerformance);
         renderReviewBreakdown(counts || summarizeReview(currentReview));
         renderGameDebrief(options.entry);
         modal.css('display', 'flex');
@@ -21710,6 +21772,17 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             if (playerColor === 'b') sessionStats.blackWins++;
         } else { msg = "Derrota"; resultScore = 0; leagueOutcome = 'loss'; }
     } else { msg = "Taules"; resultScore = 0.5; leagueOutcome = 'draw'; }
+
+    const assistedPerformance = currentGameMode === 'assisted'
+        ? estimateAssistedGamePerformance(
+            resultScore,
+            finalPrecision,
+            avgCpLoss,
+            blundersOver200,
+            adaptationActiveStrengthElo,
+            totalPlayerMoves
+        )
+        : null;
         
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
@@ -21824,7 +21897,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }));
     }
     const severeErrors = currentGameErrors.slice(); // ← Usar currentGameErrors
-    recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors });
+    recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
     severeErrors.forEach(err => {
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
@@ -21854,7 +21927,8 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         msg: reviewHeader,
         finalPrecision: finalPrecision,
         counts: reviewCounts,
-        showCheckmate: showCheckmate
+        showCheckmate: showCheckmate,
+        assistedPerformance: assistedPerformance
     };
     
     let onClose = () => {
@@ -21870,7 +21944,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     $('#btn-resign').prop('disabled', true);
 
     const showFullReview = () => {
-        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive });
+        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive, assistedPerformance });
         if (calibrationJustCompleted) {
             showCalibrationReveal(userELO);
         }
