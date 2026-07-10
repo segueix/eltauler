@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.9.51';
+const SW_VERSION = '3.9.52';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 // Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
 // versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
@@ -142,6 +142,88 @@ self.addEventListener('fetch', (event) => {
   }
 });
 
+// ---------------------------------------------------------------------------
+// MIGRACIÓ TEMPORAL DEL CALIBRATGE
+// ---------------------------------------------------------------------------
+// app.js és molt gran i alguns clients podien conservar el flux antic de cinc
+// partides. Fins que el canvi quedi consolidat dins d'app.js, el SW transforma
+// la resposta abans d'executar-la: una partida obligatòria, ROC visible immediat
+// i tres partides normals posteriors que continuen afinant-lo.
+function patchCalibrationSource(source) {
+  if (typeof source !== 'string') return source;
+  let patched = source;
+
+  if (patched.includes('const CALIBRATION_GAME_COUNT = 5;')) {
+    patched = patched.replace(
+      'const CALIBRATION_GAME_COUNT = 5;',
+      'const CALIBRATION_GAME_COUNT = 1;\nconst EXPRESS_CALIBRATION_GAME_COUNT = 3;'
+    );
+  }
+
+  patched = patched.replace(
+    'const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;',
+    'const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT;'
+  );
+
+  patched = patched.replace(
+    'nivell real en 5 partides.',
+    'nivell inicial en una partida; les tres següents l’afinen sense bloquejar l’app.'
+  );
+
+  const loadMarker = '    if ((calibrationProfile || calibratgeComplet || calibrationGames.length >= CALIBRATION_GAME_COUNT)) {';
+  if (patched.includes(loadMarker) && !patched.includes('Migració del flux antic (5 partides) al nou (1 partida)')) {
+    const migration = `    // Migració del flux antic (5 partides) al nou (1 partida): si ja hi ha una\n    // partida desada però encara no existia perfil, calcula i mostra ara el ROC inicial.\n    if (!calibrationProfile && calibrationGames.length >= CALIBRATION_GAME_COUNT) {\n        const migratedRoc = estimateCalibrationRoc();\n        userELO = Math.max(ELO_MIN, migratedRoc);\n        currentElo = userELO;\n        calibrationRocFloor = userELO;\n        calibrationProfile = {\n            roc: userELO,\n            provisional: true,\n            expressCalibrationGames: EXPRESS_CALIBRATION_GAME_COUNT,\n            completedAt: new Date().toISOString(),\n            games: calibrationGames.slice()\n        };\n        setTimeout(() => saveStorage(), 0);\n    }\n\n`;
+    patched = patched.replace(loadMarker, migration + loadMarker);
+  }
+
+  const profileMarker = '    calibrationProfile = {\n        roc: userELO,';
+  const finalizedProfileMarker = '    calibrationProfile = {\n        roc: userELO,\n        provisional: true,';
+  if (patched.includes(profileMarker) && !patched.includes(finalizedProfileMarker)) {
+    patched = patched.replace(
+      profileMarker,
+      '    calibrationProfile = {\n        roc: userELO,\n        provisional: true,\n        expressCalibrationGames: EXPRESS_CALIBRATION_GAME_COUNT,'
+    );
+  }
+
+  patched = patched.replace(
+    'statusEl.text(`Calibratge completat! El teu nivell inicial és: ${rocValue} ROC ♟️`)',
+    'statusEl.text(`Primera partida completada! ROC inicial: ${rocValue}. Les ${EXPRESS_CALIBRATION_GAME_COUNT} partides següents l’afinaran sense bloquejar cap opció. ♟️`)'
+  );
+
+  patched = patched
+    .replaceAll('5 partides de calibratge', '1 partida inicial de calibratge')
+    .replaceAll('cinc partides de calibratge', 'una partida inicial de calibratge')
+    .replaceAll('Partida de calibratge 1 de 5', 'Partida inicial de calibratge')
+    .replaceAll('Completa 5 partides', 'Completa la partida inicial');
+
+  return patched;
+}
+
+async function patchAppJsResponse(response) {
+  const source = await response.text();
+  const patched = patchCalibrationSource(source);
+  if (patched === source) {
+    return new Response(source, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  }
+
+  const headers = new Headers(response.headers);
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  headers.delete('etag');
+  headers.set('content-type', 'application/javascript; charset=utf-8');
+  headers.set('cache-control', 'no-cache');
+  console.log('[SW] app.js servit amb calibratge inicial d’una partida.');
+  return new Response(patched, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
+
 // ================================
 // NETWORK-FIRST (HTML, JS, CSS…)
 // ================================
@@ -155,11 +237,15 @@ async function networkFirst(request) {
     // network-first pot retornar codi antic des de la cache HTTP.
     const res = await fetch(request, { signal: controller.signal, cache: 'no-cache' });
     clearTimeout(tid);
-    if (res && res.status === 200) {
-      const cache = await caches.open(CACHE_NAME);
-      cache.put(request, res.clone());
+    let finalResponse = res;
+    if (res && res.status === 200 && /\/app\.js(?:\?|$)/.test(url)) {
+      finalResponse = await patchAppJsResponse(res);
     }
-    return res;
+    if (finalResponse && finalResponse.status === 200) {
+      const cache = await caches.open(CACHE_NAME);
+      cache.put(request, finalResponse.clone());
+    }
+    return finalResponse;
   } catch (err) {
     const cached = await caches.match(request);
     if (cached) return cached;
