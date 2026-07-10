@@ -427,15 +427,66 @@ function applyFontSize(pct) {
 }
 
 // Navigation history management for mobile back gesture
+const NAVIGATION_SCREEN_IDS = [
+    'game-screen',
+    'stats-screen',
+    'history-screen',
+    'league-screen',
+    'catalans-screen',
+    'opening-screen',
+    'calibration-result-screen',
+    'settings-screen',
+    'ranking-screen'
+];
 let navStack = [];
+let lastNavigationScreen = null;
+let navigationScrollFrame = null;
+
 function getCurrentScreen() {
-    const screens = ['game-screen', 'stats-screen', 'history-screen', 'league-screen', 'catalans-screen', 'opening-screen', 'calibration-result-screen', 'settings-screen', 'ranking-screen'];
-    for (const s of screens) {
+    for (const s of NAVIGATION_SCREEN_IDS) {
         const el = document.getElementById(s);
         if (el && el.style.display !== 'none' && (s !== 'game-screen' || el.classList.contains('active'))) return s;
     }
     return 'start-screen';
 }
+
+// Cada canvi de pantalla comença a dalt. Un observador central cobreix tant els
+// botons actuals com els futurs, encara que la navegació amagui/mostri pantalles
+// directament en comptes de passar per navPush.
+function scrollNavigationToTop() {
+    if (navigationScrollFrame !== null) cancelAnimationFrame(navigationScrollFrame);
+    navigationScrollFrame = requestAnimationFrame(() => {
+        navigationScrollFrame = null;
+        window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+        const scrollingElement = document.scrollingElement;
+        if (scrollingElement) {
+            scrollingElement.scrollTop = 0;
+            scrollingElement.scrollLeft = 0;
+        }
+    });
+}
+
+function initNavigationScrollReset() {
+    lastNavigationScreen = getCurrentScreen();
+    if (typeof MutationObserver !== 'function') return;
+
+    const observer = new MutationObserver(() => {
+        const currentScreen = getCurrentScreen();
+        if (currentScreen === lastNavigationScreen) return;
+        lastNavigationScreen = currentScreen;
+        scrollNavigationToTop();
+    });
+
+    ['start-screen', ...NAVIGATION_SCREEN_IDS].forEach((screenId) => {
+        const screen = document.getElementById(screenId);
+        if (screen) observer.observe(screen, {
+            attributes: true,
+            attributeFilter: ['class', 'style']
+        });
+    });
+}
+
+initNavigationScrollReset();
 const SCREEN_URLS = {
     'catalans-screen': '#catalans-vs-stockfish'
 };
