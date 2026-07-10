@@ -178,19 +178,24 @@ const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
-const CALIBRATION_GAME_COUNT = 5;
-// El calibratge és una CERCA ADAPTATIVA del nivell del jugador, no una escala fixa que sempre
-// puja. Es parteix d'un ROC inicial i, després de cada partida, el rival s'adapta al resultat:
-// si el jugador guanya, puja; si perd, baixa; amb passos decreixents per convergir cap al seu
-// nivell real en 5 partides. La força de cada rival es deriva del seu ROC amb el MATEIX model
-// en dues etapes que el joc lliure (rocToEngineElo + eloToSearchDepth + selecció humana de
-// moviments), de manera que el nivell estimat reflecteix el que el jugador trobarà realment.
-const CALIBRATION_START_ROC = 300;            // punt de partida de la cerca (partida 1)
-const CALIBRATION_STEPS = [220, 160, 110, 80]; // passos decreixents (transicions partida 1→2…4→5)
+// El calibratge obligatori és UNA SOLA partida: el rival comença suau (ROC 300)
+// i s'ADAPTA DINS DE LA PARTIDA a la qualitat de joc demostrada (proporció de
+// jugades bones, amb tot el rang ROC disponible), de manera que un principiant i
+// un expert acaben davant de rivals — i d'estimacions — realistes. El ROC inicial
+// s'estima del nivell on ha convergit el rival + resultat + qualitat, es mostra
+// al marcador i desbloqueja tota la resta de l'app. Les partides següents
+// l'afinen automàticament amb l'ajust adaptatiu continu, sense bloquejar res.
+const CALIBRATION_GAME_COUNT = 1;
+// La força del rival de calibratge es deriva del seu ROC amb el MATEIX model en dues etapes
+// que el joc lliure (rocToEngineElo + eloToSearchDepth + selecció humana de moviments), de
+// manera que el nivell estimat reflecteix el que el jugador trobarà realment.
+const CALIBRATION_START_ROC = 300;            // ROC amb què COMENÇA el rival adaptatiu
+const CALIBRATION_STEPS = [220, 160, 110, 80]; // passos de la cerca adaptativa (només si mai es calibra amb més d'una partida)
 const CALIBRATION_ROCS = [200, 350, 500, 650, 800]; // referència/llindar de compatibilitat
 const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
-const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT + 1;
+// La lliga (i la resta de modes) es desbloquegen amb la mateixa partida de calibratge.
+const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT;
 // Rang REAL de UCI_Elo que accepta el binari de Stockfish inclòs. El build
 // (niklasf/stockfish.js, fork ddugovic) té un terra al voltant de 1350: per sota,
 // Stockfish retalla el valor silenciosament i juga sempre a la mateixa força. Aquests
@@ -220,6 +225,10 @@ let calibrationProfile = null;
 let calibratgeComplet = false;
 let isCalibrationGame = false;
 let currentCalibrationOpponentRoc = null;
+// ROC amb què ha COMENÇAT el rival de la partida de calibratge en curs: és
+// l'ancora de l'adaptació dins de la partida (currentCalibrationOpponentRoc
+// se'n va allunyant segons la qualitat de joc demostrada).
+let calibrationStartOpponentRoc = null;
 let isEngineThinking = false;
 // Hi ha una jugada de l'enginy rebuda i pendent d'aplicar (finestra dels 900 ms).
 // Evita que un segon "bestmove" extraviat (pista, cerca duplicada) es torni a
@@ -1489,6 +1498,19 @@ function importBackupData(data) {
     currentCalibrationOpponentRoc = null;
     if (!isCalibrating) {
         userELO = Math.max(50, currentElo);
+        syncEngineEloFromUser();
+    }
+    // Migració de còpies del flux antic de calibratge (5 partides): amb partides
+    // jugades però sense perfil, una sola partida ja basta per fixar el ROC inicial.
+    if (!calibrationProfile && calibrationGames.length >= CALIBRATION_GAME_COUNT) {
+        userELO = Math.max(50, estimateCalibrationRoc());
+        calibrationRocFloor = userELO;
+        calibrationProfile = {
+            roc: userELO,
+            completedAt: new Date().toISOString(),
+            migratedFromLegacyFlow: true,
+            games: calibrationGames.slice()
+        };
         syncEngineEloFromUser();
     }
     saveStorage(); updateDisplay(); showToast('Dades importades!', 'success');
@@ -3560,7 +3582,7 @@ function updateLeagueAccessUI() {
         leagueBtn.prop('disabled', !unlocked);
         leagueBtn.toggleClass('btn-disabled', !unlocked);
         if (unlocked) leagueBtn.removeAttr('title');
-        else leagueBtn.attr('title', `Disponible després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
+        else leagueBtn.attr('title', 'Es desbloqueja amb la partida inicial de calibratge.');
     }
     if (!unlocked) $('#league-banner').hide();
     else updateLeagueBanner();
@@ -3605,7 +3627,7 @@ function updateLeagueBanner() {
 
 function openLeague() {
     if (!isLeagueUnlocked()) {
-        alert(`La lliga s'activa després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
+        alert('La lliga es desbloqueja amb la partida inicial de calibratge.');
         return;
     }
     createNewLeague(false);
@@ -3757,9 +3779,9 @@ function applyResult(aId, bId, outcome) {
 
 function startLeagueRound() {
     if (!isLeagueUnlocked()) {
-        alert(`La lliga s'activa després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
+        alert('La lliga es desbloqueja amb la partida inicial de calibratge.');
         return;
-    }   
+    }
     if (!currentLeague) createNewLeague(false);
     syncLeagueUserRoc();
     if (currentLeague.completed) return;
@@ -4390,6 +4412,20 @@ function getCalibrationOpponentRoc() {
     });
 }
 
+// Rival ADAPTATIU dins de la partida de calibratge inicial: abans de cada
+// resposta del motor, el seu ROC es recalcula amb la proporció de jugades bones
+// del jugador fins al moment (mateix patró que el calibratge per ritme, però amb
+// tot el rang ROC). Així un jugador fort acaba la partida davant d'un rival — i
+// amb una estimació — realistes, en lloc de quedar ancorat al ROC 300 inicial.
+function updateCalibrationOpponentRoc() {
+    if (typeof calibrationStartOpponentRoc !== 'number') return currentCalibrationOpponentRoc;
+    currentCalibrationOpponentRoc = ElTaulerCore.initialCalibrationOpponentRoc(
+        calibrationStartOpponentRoc, goodMoves, totalPlayerMoves,
+        CALIBRATION_ROC_MIN, CALIBRATION_ROC_MAX);
+    updateAdaptiveEngineEloLabel();
+    return currentCalibrationOpponentRoc;
+}
+
 function getCalibrationProgressCount() {
     const extra = isCalibrationGame ? 1 : 0;
     return Math.min(calibrationGames.length + extra, CALIBRATION_GAME_COUNT);
@@ -4403,7 +4439,9 @@ function updateCalibrationProgressUI() {
         return;
     }
     const progressCount = getCalibrationProgressCount();
-    $('#calibration-progress-text').text(`Calibrant... Partida ${progressCount}/${CALIBRATION_GAME_COUNT}`);
+    $('#calibration-progress-text').text(CALIBRATION_GAME_COUNT === 1
+        ? 'Calibrant... Juga la primera partida per fixar el teu ROC inicial'
+        : `Calibrant... Partida ${progressCount}/${CALIBRATION_GAME_COUNT}`);
     $('#calibration-progress-fill').css('width', `${Math.round((progressCount / CALIBRATION_GAME_COUNT) * 100)}%`);
     container.show();
 }
@@ -4456,7 +4494,7 @@ function estimateCalibrationRoc() {
 function showCalibrationReveal(rocValue) {
     const statusEl = $('#status');
     if (!statusEl.length) return;
-    statusEl.text(`Calibratge completat! El teu nivell inicial és: ${rocValue} ROC ♟️`).addClass('elo-reveal');
+    statusEl.text(`Primera partida completada! El teu ROC inicial és: ${rocValue} ♟️ Les pròximes partides l'afinaran automàticament.`).addClass('elo-reveal');
     setTimeout(() => statusEl.removeClass('elo-reveal'), 2200);
 }
 
@@ -4476,11 +4514,22 @@ function finalizeCalibrationFromGames() {
     };
     saveStorage();
     updateDisplay();
+    // Primer ROC al marcador global: es publica de seguida al rànquing (si hi ha
+    // sessió i nom d'usuari; si no, hi anirà quan es compleixin les dues coses).
+    try { if (typeof pushRankingStats === 'function') pushRankingStats(true); } catch (e) {}
 }
 
 function recordCalibrationGame(resultScore, precision, metrics) {
     const safePrecision = Math.max(0, Math.min(100, typeof precision === 'number' ? precision : 0));
     const result = resultScore === 1 ? 'win' : resultScore === 0 ? 'loss' : 'draw';
+    // Nivell FINAL del rival adaptatiu (amb totes les jugades avaluades, també
+    // les posteriors a l'última resposta del motor): és l'àncora de l'estimació.
+    if (typeof calibrationStartOpponentRoc === 'number') {
+        currentCalibrationOpponentRoc = ElTaulerCore.initialCalibrationOpponentRoc(
+            calibrationStartOpponentRoc, goodMoves, totalPlayerMoves,
+            CALIBRATION_ROC_MIN, CALIBRATION_ROC_MAX);
+        calibrationStartOpponentRoc = null;
+    }
     const opponentElo = typeof currentCalibrationOpponentRoc === 'number' ? currentCalibrationOpponentRoc : getCalibrationOpponentRoc();
     const gameMetrics = metrics || {};
     calibrationGames.push({
@@ -5050,6 +5099,23 @@ function loadStorage() {
     if (calState === null && localStorage.getItem('chess_isCalibrationPhase') !== null) {
         isCalibrating = localStorage.getItem('chess_isCalibrationPhase') === 'true';
     }
+    // Migració del flux antic de calibratge (5 partides) al nou (1 partida): si hi
+    // ha partides de calibratge desades però encara cap perfil (l'usuari s'havia
+    // quedat a mig calibratge antic), amb el flux d'una sola partida ja n'hi ha
+    // prou: s'estima ara el ROC inicial, es crea el perfil i es desbloqueja l'app.
+    // El desat es difereix perquè loadStorage encara ha de llegir la resta de claus.
+    if (!calibrationProfile && calibrationGames.length >= CALIBRATION_GAME_COUNT) {
+        const migratedRoc = estimateCalibrationRoc();
+        userELO = Math.max(50, migratedRoc);
+        calibrationRocFloor = userELO;
+        calibrationProfile = {
+            roc: userELO,
+            completedAt: new Date().toISOString(),
+            migratedFromLegacyFlow: true,
+            games: calibrationGames.slice()
+        };
+        setTimeout(() => { try { saveStorage(); updateDisplay(); } catch (e) {} }, 0);
+    }
     if ((calibrationProfile || calibratgeComplet || calibrationGames.length >= CALIBRATION_GAME_COUNT)) {
         isCalibrating = false;
         calibratgeComplet = true;
@@ -5244,7 +5310,6 @@ function updateCloudSyncUI(st) {
     const accountEl = document.getElementById('cloud-sync-account');
     const hintEl = document.getElementById('cloud-sync-hint');
     const btnIn = document.getElementById('btn-cloud-signin');
-    const btnOut = document.getElementById('btn-cloud-signout');
     const btnNow = document.getElementById('btn-cloud-sync-now');
     if (!statusEl) return;
 
@@ -5290,20 +5355,29 @@ function updateCloudSyncUI(st) {
 
     const canSignIn = st.configured && st.state !== 'unavailable';
     show(btnIn, !signedIn && canSignIn);
-    show(btnOut, signedIn);
     show(btnNow, signedIn);
     updateCloudRecoverButton();
+    // El nom d'usuari va enganxat al compte: l'estat de la sessió decideix si es
+    // pot editar, així que la casella de Configuració es refresca amb cada canvi.
+    try { if (typeof loadUsernameIntoSettings === 'function') loadUsernameIntoSettings(); } catch (e) {}
 }
 window.onCloudSyncStatus = updateCloudSyncUI;
 
 // Quan s'inicia sessió correctament (també en tornar d'una redirecció a mòbil),
 // donem feedback clar i, si l'inici venia de la pantalla de Catalans, hi tornem.
 // ---- Nom d'usuari (es desa a chess_username i, per tant, se sincronitza) ----
+// El nom va COMPLETAMENT enganxat al compte de Google: només es pot posar o
+// canviar amb la sessió iniciada, viatja amb el compte via CloudSync i, com que
+// la sessió no es pot tancar des de l'app, mai no queda un nom "orfe" sense compte.
 const USERNAME_KEY = 'chess_username';
 function getUsername() {
     try { return (localStorage.getItem(USERNAME_KEY) || '').trim(); } catch (e) { return ''; }
 }
 window.getUsername = getUsername;
+// ¿Hi ha sessió de Google iniciada? (l'única manera de tenir/canviar el nom)
+function isCloudSignedIn() {
+    try { return !!(window.CloudSync && window.CloudSync.isSignedIn && window.CloudSync.isSignedIn()); } catch (e) { return false; }
+}
 // ELO/ROC actual del jugador (el mateix valor que es mostra a #current-elo). El
 // reusa la partida col·lectiva (catalans.js) per anotar qui proposa cada vot.
 function getUserElo() {
@@ -5314,9 +5388,21 @@ function getUserElo() {
 window.getUserElo = getUserElo;
 function loadUsernameIntoSettings() {
     const input = document.getElementById('username-input');
-    if (input) input.value = getUsername();
+    const btn = document.getElementById('btn-username-save');
     const hint = document.getElementById('username-hint');
-    if (hint) hint.textContent = getUsername() ? ('Nom actual: ' + getUsername()) : 'Encara no has posat cap nom.';
+    const signedIn = isCloudSignedIn();
+    if (input) {
+        // No trepitgis el que l'usuari està escrivint: els canvis d'estat del núvol
+        // (sincronitzant → sincronitzat) refresquen aquesta casella sovint.
+        if (document.activeElement !== input) input.value = getUsername();
+        input.disabled = !signedIn;
+    }
+    if (btn) btn.disabled = !signedIn;
+    if (hint) {
+        hint.textContent = !signedIn
+            ? 'El nom va enganxat al compte de Google: inicia sessió per posar-lo o canviar-lo.'
+            : (getUsername() ? ('Nom actual: ' + getUsername()) : 'Encara no has posat cap nom.');
+    }
 }
 // Neteja i limita un nom d'usuari escrit per l'usuari (comú a Configuració i al
 // diàleg posterior a l'inici de sessió).
@@ -5325,9 +5411,11 @@ function sanitizeUsername(raw) {
 }
 // Desa (o esborra) el nom d'usuari i propaga el canvi: sincronització al núvol
 // (viatja amb el compte), rànquing i xip de la pantalla d'inici. Retorna el nom
-// net que ha quedat desat.
+// net que ha quedat desat. NOMÉS actua amb sessió de Google iniciada: sense
+// compte no hi pot haver nom (el nom pertany al compte, no al dispositiu).
 function setUsername(rawName) {
     const prev = getUsername();
+    if (!isCloudSignedIn()) return prev;
     const name = sanitizeUsername(rawName);
     try { if (name) localStorage.setItem(USERNAME_KEY, name); else localStorage.removeItem(USERNAME_KEY); } catch (e) {}
     if (name !== prev) {
@@ -5343,6 +5431,12 @@ window.setUsername = setUsername;
 function saveUsernameFromSettings() {
     const input = document.getElementById('username-input');
     if (!input) return;
+    if (!isCloudSignedIn()) {
+        // El nom pertany al compte de Google: sense sessió no es pot tocar.
+        loadUsernameIntoSettings();
+        try { showToast('Inicia sessió amb Google per posar-te un nom d\'usuari', 'warn'); } catch (e) {}
+        return;
+    }
     const prev = getUsername();
     const name = setUsername(input.value);
     input.value = name;
@@ -5421,7 +5515,9 @@ function renderHomeUserChip() {
     } else {
         chip.classList.add('empty');
         chip.innerHTML = ic + '<span class="huc-name">Nom d\'usuari</span>';
-        chip.title = 'Posa el teu nom d\'usuari';
+        chip.title = isCloudSignedIn()
+            ? 'Posa el teu nom d\'usuari'
+            : 'Inicia sessió amb Google per posar-te un nom d\'usuari';
     }
 }
 window.renderHomeUserChip = renderHomeUserChip;
@@ -16766,7 +16862,9 @@ function guardCalibrationAccess() {
     if (!isCalibrationRequired()) return true;
     const remaining = Math.max(0, CALIBRATION_GAME_COUNT - calibrationGames.length);
     const txt = remaining > 0
-        ? `Juga ${remaining} ${remaining === 1 ? 'partida' : 'partides'} de calibratge més per desbloquejar aquest mode.`
+        ? (CALIBRATION_GAME_COUNT === 1
+            ? 'Juga la partida inicial de calibratge per desbloquejar aquest mode.'
+            : `Juga ${remaining} ${remaining === 1 ? 'partida' : 'partides'} de calibratge més per desbloquejar aquest mode.`)
         : 'Completa el calibratge inicial per desbloquejar aquest mode.';
     showToast(txt, 'warn');
     return false;
@@ -17037,7 +17135,7 @@ function setupEvents() {
         timeControlElos = {};
         saveStorage();
         updateDisplay();
-        showToast('Calibratge reiniciat. Comença la nova seqüència de 5 partides.', 'success');
+        showToast('Calibratge reiniciat. Juga una partida per fixar el nou ROC inicial.', 'success');
         }, { title: 'Reiniciar calibratge', confirmText: 'Reiniciar' });
     });
 
@@ -17227,11 +17325,10 @@ function setupEvents() {
     $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
 
     // --- Sincronització al núvol ---
+    // No hi ha botó de tancar sessió: el compte queda vinculat a l'app i el nom
+    // d'usuari sempre el segueix (per canviar de compte, es torna a iniciar sessió).
     $('#btn-cloud-signin').off('click').on('click', () => {
         if (window.CloudSync) window.CloudSync.signIn();
-    });
-    $('#btn-cloud-signout').off('click').on('click', () => {
-        if (window.CloudSync) window.CloudSync.signOut();
     });
     $('#btn-cloud-sync-now').off('click').on('click', () => {
         if (window.CloudSync) window.CloudSync.syncNow();
@@ -17459,6 +17556,15 @@ function setupEvents() {
     // Click per desfer
     $('#blunder-alert').click(() => {
         clearEngineMoveTimers();
+        // Si el clic arriba amb la resposta del motor en camí (cercant o dins
+        // del retard humanitzat), el temporitzador que s'acaba de cancel·lar
+        // era l'ÚNIC punt que tornava a posar isEngineThinking a false: sense
+        // aquest reinici el tauler quedava bloquejat per sempre (ni arrossegar
+        // ni tocar accepten jugades mentre "pensa"). Un bestmove tardà del
+        // motor queda descartat pels guards existents (ja no s'està pensant i,
+        // després de desfer, el torn és de l'usuari).
+        isEngineThinking = false;
+        engineReplyStartTs = null;
 
         if (game && game.game_over()) {
             if (lastReviewSnapshot) {
@@ -19728,6 +19834,7 @@ blunderMode = isBundle;
     // (tàctiques, revisió d'errors, mats…).
     $('#btn-resign').toggle(!isBundle);
     isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending;
+    if (!isCalibrationGame) calibrationStartOpponentRoc = null;
     currentBundleFen = fen;
     
     // ✅ CALCULAR SEQÜÈNCIA FIXA PER BUNDLES
@@ -19859,6 +19966,9 @@ blunderMode = isBundle;
     $('#game-mode-title').css('font-size', ''); // reset (el jeroglífic l'agranda després)
     if (isCalibrationGame) {
         currentCalibrationOpponentRoc = getCalibrationOpponentRoc();
+        // Ancora de l'adaptació dins de la partida: el rival comença aquí i puja
+        // (o baixa) segons la qualitat de joc que el jugador vagi demostrant.
+        calibrationStartOpponentRoc = currentCalibrationOpponentRoc;
         aiDifficulty = levelToDifficulty(currentCalibrationOpponentRoc);
         if (engineReady) applyEngineEloStrength(currentCalibrationOpponentRoc);
         $('#engine-elo').text(`ROC ${currentCalibrationOpponentRoc}`);
@@ -20148,6 +20258,9 @@ function makeEngineMove() {
     // el "pensament" comença ara.
     engineReplyStartTs = nowMs();
 
+    // Partida de calibratge inicial: el rival s'adapta ABANS de cada resposta a
+    // la qualitat de joc demostrada fins ara (com el calibratge per ritme).
+    if (isCalibrationGame) updateCalibrationOpponentRoc();
     // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
     // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
     // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada

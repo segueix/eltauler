@@ -4153,7 +4153,7 @@
 
             <div class="settings-panel">
                 <div class="settings-title">👤 Nom d'usuari</div>
-                <div class="setting-help" style="margin-bottom:10px;">El nom amb què apareixeràs a la partida col·lectiva i al rànquing.</div>
+                <div class="setting-help" style="margin-bottom:10px;">El nom amb què apareixeràs a la partida col·lectiva i al rànquing. Va enganxat al teu compte de Google: cal tenir la sessió iniciada per posar-lo o canviar-lo, i t'acompanya a tots els dispositius.</div>
                 <div class="setting-row">
                     <input type="text" id="username-input" maxlength="24" placeholder="El teu nom" autocomplete="off"
                         style="flex:1;min-width:0;background:rgba(255,255,255,0.06);border:1px solid rgba(201,162,39,0.25);border-radius:8px;color:var(--text-primary);padding:8px 10px;font-size:0.95rem;">
@@ -4164,7 +4164,7 @@
 
             <div class="settings-panel">
                 <div class="settings-title">☁️ Sincronització al núvol</div>
-                <div class="setting-help" style="margin-bottom:12px;">Inicia sessió amb Google per sincronitzar totes les teves dades (partides, errors, reptes diaris, ELO, missions, trofeus...) entre tots els teus dispositius.</div>
+                <div class="setting-help" style="margin-bottom:12px;">Inicia sessió amb Google per sincronitzar totes les teves dades (partides, errors, reptes diaris, ELO, missions, trofeus...) entre tots els teus dispositius. Un cop iniciada, la sessió queda vinculada a l'app: el compte no es tanca i el nom d'usuari sempre l'acompanya.</div>
                 <div class="setting-row">
                     <div class="setting-label">Estat</div>
                     <span id="cloud-sync-status" style="font-size:0.85rem;font-weight:600;text-align:right;flex:1;">—</span>
@@ -4173,7 +4173,6 @@
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     <button class="btn btn-secondary" id="btn-cloud-signin" style="flex:1;min-width:160px;">Inicia sessió amb Google</button>
                     <button class="btn btn-secondary" id="btn-cloud-sync-now" style="flex:1;min-width:120px;display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>Sincronitza ara</button>
-                    <button class="btn btn-secondary" id="btn-cloud-signout" style="flex:1;min-width:120px;display:none;">Tanca sessió</button>
                 </div>
                 <div class="setting-help" id="cloud-sync-hint" style="margin-top:10px;"></div>
             </div>
@@ -5237,7 +5236,7 @@
                     <div class="streak-badge">★ <span id="game-stars">0</span></div>
                 </div>
                 <div class="calibration-progress" id="calibration-progress">
-                    <div class="calibration-progress-text" id="calibration-progress-text">Calibrant... Partida 1/5</div>
+                    <div class="calibration-progress-text" id="calibration-progress-text">Calibrant... Juga la primera partida per fixar el teu ROC inicial</div>
                     <div class="calibration-progress-bar">
                         <div class="calibration-progress-fill" id="calibration-progress-fill"></div>
                     </div>
@@ -5500,7 +5499,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.45"></script>
+    <script src="app.js?v=1.0.46"></script>
 
     <!-- Service Worker Registration -->
     <script>

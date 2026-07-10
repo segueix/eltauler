@@ -1645,6 +1645,25 @@
         return Math.round(seed + Math.max(-250, Math.min(250, offset)));
     }
 
+    // Rival adaptatiu del CALIBRATGE INICIAL (la partida única obligatòria):
+    // mateix patró que el calibratge per ritme (proporció de jugades bones +
+    // confiança creixent), però amb TOT el rang ROC disponible en lloc de ±250.
+    // Amb una sola partida, l'estimació ha de poder arribar tant a un principiant
+    // (terra 200) com a un jugador expert (~1700+ abans del bonus per resultat i
+    // qualitat): si el rival quedés ancorat al ROC inicial (300), cap jugador fort
+    // no podria obtenir mai una primera estimació realista.
+    function initialCalibrationOpponentRoc(startRoc, goodMoves, totalMoves, rocMin, rocMax) {
+        const start = (typeof startRoc === 'number' && !isNaN(startRoc)) ? startRoc : 300;
+        const lo = (typeof rocMin === 'number' && !isNaN(rocMin)) ? rocMin : 200;
+        const hi = (typeof rocMax === 'number' && !isNaN(rocMax)) ? rocMax : 2000;
+        const total = totalMoves || 0;
+        if (total < 4) return Math.round(Math.max(lo, Math.min(hi, start)));
+        const precision = Math.max(0, Math.min(1, (goodMoves || 0) / total));
+        const confidence = Math.min(1, total / 24);
+        const offset = (precision - 0.55) * 3200 * confidence;
+        return Math.round(Math.max(lo, Math.min(hi, start + offset)));
+    }
+
     // Rendiment estimat d'una única partida contra un rival de força coneguda:
     // el nivell del rival es corregeix pel resultat (±150) i per la qualitat
     // de joc 0..1 (±100). És una estimació orientativa, no un canvi de rating.
@@ -1958,6 +1977,7 @@
         computeEloDelta,
         ratedEloDelta,
         timedCalibrationOpponentElo,
+        initialCalibrationOpponentRoc,
         estimateTimedCalibrationElo,
         estimateGamePerformanceRating,
         evaluateGameQuality,

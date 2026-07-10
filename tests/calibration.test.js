@@ -199,6 +199,43 @@ describe('timedCalibrationOpponentElo (calibratge per ritme de rellotge)', () =>
     });
 });
 
+describe('initialCalibrationOpponentRoc (rival adaptatiu del calibratge inicial)', () => {
+    test('amb poques jugades avaluades es queda al ROC inicial', () => {
+        expect(Core.initialCalibrationOpponentRoc(300, 0, 0, 200, 2000)).toBe(300);
+        expect(Core.initialCalibrationOpponentRoc(300, 3, 3, 200, 2000)).toBe(300);
+    });
+
+    test('un jugador molt precís empeny el rival molt més enllà del ±250 del calibratge per ritme', () => {
+        const roc = Core.initialCalibrationOpponentRoc(300, 23, 24, 200, 2000);
+        expect(roc).toBeGreaterThan(1300);   // 300 + (0.958-0.55)·3200 ≈ 1607
+    });
+
+    test('un jugador imprecís fa baixar el rival fins al terra ROC', () => {
+        expect(Core.initialCalibrationOpponentRoc(300, 4, 20, 200, 2000)).toBe(200);
+    });
+
+    test("l'ajust creix amb el nombre de jugades (confiança)", () => {
+        const aviat = Core.initialCalibrationOpponentRoc(300, 8, 8, 200, 2000);
+        const tard = Core.initialCalibrationOpponentRoc(300, 24, 24, 200, 2000);
+        expect(aviat).toBeGreaterThan(300);
+        expect(tard).toBeGreaterThan(aviat);
+    });
+
+    test('queda sempre dins del rang ROC i tolera entrades no numèriques', () => {
+        expect(Core.initialCalibrationOpponentRoc(1900, 24, 24, 200, 2000)).toBe(2000);
+        expect(Core.initialCalibrationOpponentRoc(NaN, 24, 24, 200, 2000)).toBeGreaterThan(1000);
+    });
+
+    test('el nivell convergit dona una estimació final realista per a un jugador fort', () => {
+        // Partida llarga i molt precisa → rival final alt; l'estimació de la
+        // partida (rendiment) queda clarament per sobre dels ~375 de l'antic
+        // ancoratge fix a ROC 300.
+        const finalOpponent = Core.initialCalibrationOpponentRoc(300, 34, 36, 200, 2000);
+        const estimate = Core.estimateGamePerformanceRating(finalOpponent, 1, 0.85);
+        expect(estimate).toBeGreaterThan(1500);
+    });
+});
+
 describe('estimateTimedCalibrationElo (primera estimació per ritme)', () => {
     test('victòria amb bona qualitat estima per sobre del rival', () => {
         expect(Core.estimateTimedCalibrationElo(800, 1, 0.8)).toBeGreaterThan(800);

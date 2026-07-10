@@ -583,10 +583,11 @@
     });
   }
 
-  function signOut() {
-    if (!auth) return Promise.resolve();
-    return auth.signOut().catch(function (e) { console.warn('[CloudSync] sign-out error', e); });
-  }
+  // NO hi ha signOut públic: la sessió queda vinculada a l'app de manera
+  // permanent perquè el nom d'usuari (i totes les dades) van enganxats al compte
+  // de Google i mai no han de quedar "orfes" en un dispositiu sense compte.
+  // handleSignedOut() es conserva només per a tancaments EXTERNS de sessió
+  // (token revocat, sessió caducada), que Firebase notifica via onAuthStateChanged.
 
   // Canviar de compte: amb prompt=select_account, n'hi ha prou amb tornar a iniciar
   // sessió (Google mostra el selector i, si tries un altre compte, s'hi canvia).
@@ -691,7 +692,6 @@
   window.CloudSync = {
     init: init,
     signIn: signIn,
-    signOut: signOut,
     switchAccount: switchAccount,
     syncNow: syncNow,
     // El crida saveStorage() de app.js cada cop que es desen dades locals.
