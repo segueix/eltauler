@@ -3610,6 +3610,24 @@
             color: var(--text-secondary);
             margin-bottom: 10px;
         }
+        .review-performance {
+            background: rgba(201,162,39,0.10);
+            border: 1px solid rgba(201,162,39,0.28);
+            border-radius: 10px;
+            margin: 0 0 12px;
+            padding: 10px 12px;
+            color: var(--text-secondary);
+        }
+        .review-performance strong {
+            color: var(--accent-gold);
+            font-size: 1.1rem;
+        }
+        .review-performance-note {
+            display: block;
+            margin-top: 4px;
+            font-size: 0.74rem;
+            line-height: 1.35;
+        }
         .review-opening-note {
             background: rgba(201,162,39,0.12);
             border: 1px solid rgba(201,162,39,0.25);
@@ -4639,6 +4657,10 @@
                 <img src="checkmate.svg" alt="Escac i mat" id="checkmate-image" class="checkmate-image">
                 <div class="review-modal-result" id="review-result-text">—</div>
                 <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>
+                <div class="review-performance" id="review-performance" style="display:none;">
+                    Rendiment assistit estimat: <strong id="review-performance-value">—</strong>
+                    <small class="review-performance-note" id="review-performance-note"></small>
+                </div>
                 <div class="review-highlight">Com han estat les teves jugades?</div>
                 <div class="review-legend" id="review-breakdown"></div>
                 <div class="review-opening-note" id="review-opening-note" style="display:none;"></div>
@@ -5468,17 +5490,17 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
-    <script src="core.js?v=1.0.7"></script>
+    <script src="core.js?v=1.0.8"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.5"></script>
     <script>
-        window.APP_VERSION = '1.0.25';
+        window.APP_VERSION = '1.0.26';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.44"></script>
+    <script src="app.js?v=1.0.45"></script>
 
     <!-- Service Worker Registration -->
     <script>
