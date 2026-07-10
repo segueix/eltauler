@@ -17556,6 +17556,15 @@ function setupEvents() {
     // Click per desfer
     $('#blunder-alert').click(() => {
         clearEngineMoveTimers();
+        // Si el clic arriba amb la resposta del motor en camí (cercant o dins
+        // del retard humanitzat), el temporitzador que s'acaba de cancel·lar
+        // era l'ÚNIC punt que tornava a posar isEngineThinking a false: sense
+        // aquest reinici el tauler quedava bloquejat per sempre (ni arrossegar
+        // ni tocar accepten jugades mentre "pensa"). Un bestmove tardà del
+        // motor queda descartat pels guards existents (ja no s'està pensant i,
+        // després de desfer, el torn és de l'usuari).
+        isEngineThinking = false;
+        engineReplyStartTs = null;
 
         if (game && game.game_over()) {
             if (lastReviewSnapshot) {
