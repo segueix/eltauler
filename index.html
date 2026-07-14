@@ -2,6 +2,14 @@
 <html lang="ca">
 <head>
     <meta charset="UTF-8">
+    <script>
+      // Força HTTPS al domini de producció. Si la PWA s'ha obert/instal·lat
+      // per http://eltauler.cat, Chrome marca la connexió com a insegura;
+      // aquesta redirecció ho corregeix sense dependre de la config del hosting.
+      if (location.protocol === 'http:' && location.hostname.endsWith('eltauler.cat')) {
+        location.replace('https://' + location.host + location.pathname + location.search + location.hash);
+      }
+    </script>
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
