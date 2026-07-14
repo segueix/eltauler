@@ -1689,7 +1689,11 @@ function resizeBoardToViewport() {
     } else {
         const verticalGaps = 24;
         const availableH = window.innerHeight - used - verticalGaps;
-        size = Math.floor(Math.max(240, Math.min(availableW, availableH)));
+        const boardContainer = boardEl.closest('.board-container');
+        const containerW = isDesktopLayout && boardContainer
+            ? boardContainer.getBoundingClientRect().width
+            : availableW;
+        size = Math.floor(Math.max(240, Math.min(containerW, availableH)));
         boardEl.style.marginLeft = 'auto';
         boardEl.style.marginRight = 'auto';
     }
