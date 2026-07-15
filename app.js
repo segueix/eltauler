@@ -21925,7 +21925,19 @@ function handleEngineMessage(rawMsg) {
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
             // Temps de resposta humanitzat: es calcula ABANS de netejar els
             // candidats perquè la dificultat surt de la mateixa cerca MultiPV.
-            const replyDelayMs = computeHumanReplyDelayMs();
+            let replyDelayMs = computeHumanReplyDelayMs();
+            // La jugada que ACABA la partida no espera la reflexió simulada:
+            // amb rellotge, el temps humanitzat pot ser de segons i retardava
+            // el resultat (guanyat/perdut/taules) quan ja estava decidit.
+            // Mateix principi d'immediatesa que el final de les partides
+            // sense rellotge (xip de resultat a l'instant).
+            if (gameClock.enabled && replyDelayMs > 250) {
+                try {
+                    const probe = new Chess(game.fen());
+                    const probeMove = probe.move({ from: fromSq, to: toSq, promotion: promotion });
+                    if (probeMove && probe.game_over()) replyDelayMs = 250;
+                } catch (e) {}
+            }
             registerEngineMovePrecision(moveStr, engineMoveCandidates);
             resetEngineMoveCandidates();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
