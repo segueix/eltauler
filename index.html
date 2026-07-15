@@ -1103,8 +1103,6 @@
 
         /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
         .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
-        /* Botó de Lliga una mica més gran a la pàgina principal (només escriptori). */
-        body.device-desktop #btn-league { padding: 18px 24px; font-size: 1.12rem; }
         .btn-bundle   { background: linear-gradient(135deg, #6e6359 0%, #4f463e 100%); color: #f4e4bc; }
         .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
         .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
@@ -1220,7 +1218,27 @@
             box-shadow: 0 3px 10px rgba(201,162,39,0.35);
         }
         .play-clock-chip.active .pcc-kind { opacity: 0.9; }
-        .play-modes { margin-top: 0; }
+        /* Els tres modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
+           l'amplada i Assistida + Lliga a sota en dues columnes. */
+        .play-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .play-modes .btn { margin-top: 0; }
+        .play-modes #btn-new-game { grid-column: 1 / -1; }
+        .play-modes .btn-assisted, .play-modes .btn-league {
+            flex-direction: column; gap: 4px; padding: 12px 10px;
+            font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
+        }
+        .play-modes .btn-assisted .btn-ic, .play-modes .btn-league .btn-ic { width: 1.7em; height: 1.7em; }
+        @media (max-width: 360px) { .play-modes { grid-template-columns: 1fr; } }
+        /* En escriptori, els TRES botons són rectangles grans i iguals que
+           omplen junts tota l'amplada del bloc, sota les fitxes del rellotge. */
+        body.device-desktop .play-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+        body.device-desktop .play-modes #btn-new-game { grid-column: auto; }
+        body.device-desktop .play-modes .btn {
+            flex-direction: column; justify-content: center; gap: 8px;
+            min-height: 104px; padding: 18px 14px; font-size: 1.05rem;
+            border-radius: 14px;
+        }
+        body.device-desktop .play-modes .btn .btn-ic { width: 1.9em; height: 1.9em; }
         .play-clock-hint {
             font-size: 0.72rem; color: var(--text-secondary); opacity: 0.8;
             text-align: center; margin-top: -2px;
@@ -1542,6 +1560,7 @@
             gap: 12px;
         }
         body.device-desktop .menu-buttons > .setting-row,
+        body.device-desktop .menu-buttons > .play-card,
         body.device-desktop .menu-buttons > .catalans-banner,
         body.device-desktop .menu-buttons > #custom-banners,
         body.device-desktop .menu-buttons > .custom-create-banner,
@@ -1549,6 +1568,7 @@
         body.device-desktop .menu-buttons > .hieroglyphic-banner,
         body.device-desktop .menu-buttons > .menu-grid,
         body.device-desktop .menu-buttons > .btn-opening,
+        body.device-desktop .menu-buttons > .btn-explorer-menu,
         body.device-desktop .menu-buttons > .btn-settings,
         body.device-desktop .menu-buttons > #btn-league {
             grid-column: 1 / -1;
@@ -3999,8 +4019,8 @@
                                 <option value="15+10">Clàssic 15+10</option>
                             </select>
                         </div>
-                        <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
-                        <div class="play-modes menu-grid">
+                        <div class="play-modes">
+                            <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
                             <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
                             <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                         </div>
