@@ -11064,7 +11064,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 `<div class="review-movelist" style="margin-top:12px;">` +
                     `<strong>Jugades de la partida</strong> ` +
                     `<button type="button" class="btn btn-secondary review-copy-moves" data-moves="${safe}" ` +
-                        `style="padding:2px 8px; font-size:0.8rem; margin-left:6px;">📋 Copiar</button>` +
+                        `style="padding:2px 8px; font-size:0.8rem; margin-left:6px;"><svg class="hg-ic" aria-hidden="true"><use href="#ic-copy"/></svg> Copiar</button>` +
                     `<pre class="review-moves-pre" style="white-space:pre-wrap; word-break:break-word; ` +
                         `user-select:all; -webkit-user-select:all; background:rgba(127,127,127,0.12); ` +
                         `padding:8px 10px; border-radius:6px; margin-top:6px; font-family:monospace; ` +
@@ -13506,7 +13506,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
             exitOpeningErrorPractice();
             goToHomeScreen();
         },
-        sectionLabel: '📖 Obertures',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures',
         onSection: () => exitOpeningErrorPractice()
     });
 
@@ -19327,7 +19327,7 @@ function showSrsSuccessOverlay() {
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isSrsReviewSession = false; goToHomeScreen(); },
-        sectionLabel: '🔁 Repàs intel·ligent',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Repàs intel·ligent',
         sectionDisabled: due === 0,
         onSection: () => {
             if (!startNextSrsReview()) { isSrsReviewSession = false; goToHomeScreen(); }
@@ -19424,7 +19424,7 @@ function showDailyPuzzleOverlay() {
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isDailyPuzzleSession = false; goToHomeScreen(); },
-        sectionLabel: '⚡ Tàctiques',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>Tàctiques',
         sectionDisabled: !hasMoreProblems,
         onSection: () => {
             isDailyPuzzleSession = false;
@@ -19512,7 +19512,7 @@ function showTacticsOverlay() {
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isTacticsSession = false; goToHomeScreen(); },
-        sectionLabel: '⚡ Tàctiques',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>Tàctiques',
         onSection: () => startTacticsPuzzle()
     });
 }
@@ -19753,7 +19753,7 @@ function renderWeaknesses() {
     }
     const topTheme = getTopWeaknessTheme();
     if (topTheme && data.theme[topTheme] > 0) {
-        html += `<button class="btn btn-secondary" id="btn-train-weakness" style="margin-top:12px;">🎯 Entrena: ${WEAKNESS_LABELS[topTheme]}</button>`;
+        html += `<button class="btn btn-secondary" id="btn-train-weakness" style="margin-top:12px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-target"/></svg>Entrena: ${WEAKNESS_LABELS[topTheme]}</button>`;
     }
     container.innerHTML = html;
     const trainBtn = document.getElementById('btn-train-weakness');
@@ -22698,7 +22698,7 @@ function showRandomBundleSuccessOverlay() {
 
     wireNavTrio(overlay, {
         onHome: () => { isRandomBundleSession = false; goToHomeScreen(); },
-        sectionLabel: '🔍 Revisa errors',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisa errors',
         onSection: () => {
             isRandomBundleSession = false;
             returnToBundleMenu();
@@ -22733,7 +22733,7 @@ function showCategoryBundleSuccessOverlay() {
     });
 
     wireNavTrio(overlay, {
-        sectionLabel: '🔍 Revisa errors',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisa errors',
         onSection: () => returnToBundleMenu()
     });
 }
@@ -25908,7 +25908,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
         onAgain();
     });
     wireNavTrio(overlay, {
-        sectionLabel: '🎓 Pla d\'entrenament',
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-cap"/></svg>Pla d\'entrenament',
         onSection: () => {
             goToHomeScreen();
             // Duu l'usuari directament al panell del pla de l'entrenador.
