@@ -4597,6 +4597,18 @@ function getTimeControlRating(tcId) {
     return (entry && typeof entry.elo === 'number') ? entry.elo : null;
 }
 
+// Afegeix un punt a l'historial d'ELO d'un ritme (un per partida puntuada,
+// màxim 100). L'historial viu DINS de timeControlElos[tcId].history, així que
+// es desa i viatja amb la resta de dades del ritme sense cap clau nova. És la
+// sèrie que dibuixa la gràfica de progressió quan es tria aquesta modalitat.
+function recordTimeControlEloHistory(tcId, newElo) {
+    const entry = timeControlElos[tcId];
+    if (!entry || typeof newElo !== 'number' || isNaN(newElo)) return;
+    if (!Array.isArray(entry.history)) entry.history = [];
+    entry.history.push({ date: getToday(), elo: Math.round(newElo) });
+    if (entry.history.length > 100) entry.history = entry.history.slice(-100);
+}
+
 function getTimeControlLabel(tcId) {
     const cfg = TIME_CONTROLS.find(t => t.id === tcId);
     return cfg ? cfg.label : tcId;
@@ -4625,6 +4637,7 @@ function applyTimeControlCalibrationEstimate(tcId, resultScore, precision, avgCp
         draws: resultScore === 0.5 ? 1 : 0,
         losses: resultScore === 0 ? 1 : 0
     };
+    recordTimeControlEloHistory(tcId, estimate);
     saveStorage();
     return estimate;
 }
@@ -4707,6 +4720,7 @@ function applyTimeControlEloDelta(tcId, resultScore, opponentElo) {
     if (resultScore === 1) entry.wins = (entry.wins || 0) + 1;
     else if (resultScore === 0) entry.losses = (entry.losses || 0) + 1;
     else entry.draws = (entry.draws || 0) + 1;
+    recordTimeControlEloHistory(tcId, entry.elo);
     saveStorage();
     return delta;
 }
@@ -6068,15 +6082,71 @@ function renderOpeningStats() {
     container.innerHTML = html;
 }
 
+// Modalitat que ensenya la gràfica de progressió: 'main' (ELO principal, les
+// partides sense rellotge) o l'id d'un ritme ('3+2'…). Es tria al desplegable
+// de sobre la gràfica i es manté mentre l'app és oberta.
+let eloChartTcId = 'main';
+
+// Omple el desplegable de modalitats de la gràfica: sempre l'ELO principal i,
+// a més, cada ritme que ja té ELO propi. Si la tria guardada ja no és vàlida
+// (p. ex. després d'esborrar dades), torna al principal. Amb només el
+// principal disponible, el desplegable s'amaga.
+function populateEloChartTcSelect() {
+    const sel = document.getElementById('elo-chart-tc-select');
+    if (!sel) return;
+    const options = [{ id: 'main', label: 'Principal · sense rellotge' }].concat(
+        TIME_CONTROLS
+            .filter(t => t.id !== 'none' && getTimeControlRating(t.id) !== null)
+            .map(t => ({ id: t.id, label: t.label }))
+    );
+    if (!options.some(o => o.id === eloChartTcId)) eloChartTcId = 'main';
+    sel.innerHTML = options
+        .map(o => `<option value="${o.id}"${o.id === eloChartTcId ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
+        .join('');
+    const bar = document.getElementById('elo-chart-toolbar');
+    if (bar) bar.style.display = options.length > 1 ? '' : 'none';
+}
+
+// Sèrie {date, elo} de la modalitat triada. Per als ritmes amb ELO d'abans que
+// es guardés historial, se'n crea un amb el valor actual com a primer punt.
+function eloChartSeries(tcId) {
+    if (tcId === 'main') {
+        if (eloHistory.length === 0) { eloHistory.push({ date: getToday(), elo: userELO }); saveStorage(); }
+        return eloHistory;
+    }
+    const entry = timeControlElos[tcId];
+    if (!entry || typeof entry.elo !== 'number') return [];
+    if (!Array.isArray(entry.history) || !entry.history.length) {
+        entry.history = [{ date: getToday(), elo: Math.round(entry.elo) }];
+        saveStorage();
+    }
+    return entry.history;
+}
+
 function updateEloChart() {
-    const ctx = document.getElementById('elo-chart').getContext('2d');
+    const canvas = document.getElementById('elo-chart');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
     if (isCalibrationActive()) {
         if (eloChart) eloChart.destroy();
         return;
-    }  
-    if (eloHistory.length === 0) { eloHistory.push({ date: getToday(), elo: userELO }); saveStorage(); }
-    const labels = eloHistory.map(entry => { const parts = entry.date.split('-'); return `${parts[2]}/${parts[1]}`; });
-    const data = eloHistory.map(entry => entry.elo);
+    }
+    populateEloChartTcSelect();
+    const series = eloChartSeries(eloChartTcId);
+    // Peu de la gràfica: quina modalitat s'està veient i quantes partides té.
+    const hint = document.getElementById('elo-chart-hint');
+    if (hint) {
+        if (eloChartTcId === 'main') {
+            hint.textContent = 'ELO principal: les partides sense rellotge.';
+        } else {
+            const entry = timeControlElos[eloChartTcId] || {};
+            const games = entry.games || 0;
+            hint.textContent = `${getTimeControlLabel(eloChartTcId)} · ${games} ${games === 1 ? 'partida' : 'partides'}`
+                + (series.length < 2 ? ' · la línia creixerà amb cada partida d\'aquest ritme' : '');
+        }
+    }
+    const labels = series.map(entry => { const parts = entry.date.split('-'); return `${parts[2]}/${parts[1]}`; });
+    const data = series.map(entry => entry.elo);
     const strokeColor = epaperEnabled ? '#555' : '#c9a227';
     const fillColor = epaperEnabled ? 'rgba(90, 90, 90, 0.12)' : 'rgba(201, 162, 39, 0.1)';
     const pointBorder = epaperEnabled ? '#666' : '#f4e4bc';
@@ -17331,6 +17401,11 @@ function setupEvents() {
     // Calibratge d'un ritme sense ELO des de la graella «ELO per ritme de joc».
     $('#stats-tc-elos').off('click', '.tc-elo-calibrate').on('click', '.tc-elo-calibrate', function () {
         startTimeControlCalibration($(this).data('tc'));
+    });
+    // Modalitat de la gràfica de progressió de l'ELO (principal o un ritme).
+    $('#elo-chart-tc-select').off('change').on('change', function () {
+        eloChartTcId = this.value || 'main';
+        updateEloChart();
     });
     // Diagnòstic de l'entrenador: bàner de la home, selectors d'estil i botons "Actualitza".
     $('#btn-home-coach').off('click').on('click', () => openCoachDiagnosis());
