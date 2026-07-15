@@ -1934,7 +1934,125 @@
         return Math.round(Math.max(0, tau));
     }
 
+    // ----------------------------------------------------------------------
+    // Importació de PGN extern (partides d'altres plataformes o de tornejos)
+    // ----------------------------------------------------------------------
+    // Funcions PURES de text: separar un fitxer PGN en partides, llegir-ne
+    // les capçaleres i netejar el movetext (comentaris, variants, NAGs...)
+    // fins a deixar només els tokens de jugada. La validació de legalitat amb
+    // chess.js es fa a app.js, que és qui té el motor de regles.
+
+    // Separa un text PGN (possiblement amb més d'una partida) en blocs d'una
+    // partida cadascun. Una partida nova comença quan apareix una línia de
+    // capçalera «[Tag "…"]» després d'haver vist movetext.
+    function splitPgnGames(text) {
+        if (!text || typeof text !== 'string') return [];
+        const lines = text.replace(/\r\n?/g, '\n').split('\n');
+        const games = [];
+        let current = [];
+        let inMoveText = false;
+        for (const line of lines) {
+            const trimmed = line.trim();
+            const isHeader = /^\[\s*\w+\s+"/.test(trimmed);
+            if (isHeader && inMoveText) {
+                if (current.join('\n').trim()) games.push(current.join('\n').trim());
+                current = [];
+                inMoveText = false;
+            }
+            if (trimmed && !isHeader) inMoveText = true;
+            current.push(line);
+        }
+        if (current.join('\n').trim()) games.push(current.join('\n').trim());
+        return games;
+    }
+
+    // Llegeix les capçaleres «[Tag "Valor"]» d'un bloc de partida i en separa
+    // el movetext. Retorna { headers: {Tag: valor}, moveText: '…' }.
+    function parsePgnHeaders(gameText) {
+        const headers = {};
+        const moveLines = [];
+        if (!gameText || typeof gameText !== 'string') return { headers, moveText: '' };
+        const lines = gameText.replace(/\r\n?/g, '\n').split('\n');
+        for (const line of lines) {
+            const m = line.trim().match(/^\[\s*(\w+)\s+"((?:[^"\\]|\\.)*)"\s*\]$/);
+            if (m) {
+                headers[m[1]] = m[2].replace(/\\(["\\])/g, '$1');
+            } else {
+                moveLines.push(line);
+            }
+        }
+        return { headers, moveText: moveLines.join('\n').trim() };
+    }
+
+    // Neteja el movetext d'un PGN i retorna només els tokens de jugada (SAN):
+    // treu comentaris {…} i «;», variants (…) encara que estiguin niades,
+    // NAGs ($n), números de jugada, punts suspensius, anotacions «!?» i el
+    // resultat final. Normalitza l'enroc escrit amb zeros (0-0 → O-O).
+    function sanitizePgnMoveText(moveText) {
+        if (!moveText || typeof moveText !== 'string') return [];
+        let text = moveText.replace(/\r\n?/g, '\n');
+        text = text.replace(/;[^\n]*/g, ' ');
+        text = text.replace(/\{[^}]*\}/g, ' ');
+        // Variants entre parèntesis, possiblement niades: comptador de profunditat.
+        let flat = '';
+        let depth = 0;
+        for (const ch of text) {
+            if (ch === '(') { depth++; continue; }
+            if (ch === ')') { if (depth > 0) depth--; continue; }
+            if (depth === 0) flat += ch;
+        }
+        const RESULT_TOKENS = { '1-0': true, '0-1': true, '1/2-1/2': true, '*': true };
+        const tokens = [];
+        for (let raw of flat.split(/\s+/)) {
+            if (!raw || RESULT_TOKENS[raw] || /^\$\d+$/.test(raw)) continue;
+            raw = raw.replace(/^(\d+)\.+/, '');     // «12.», «12...» (sols o enganxats a la jugada)
+            raw = raw.replace(/^\.+/, '');          // «…» separats de la jugada
+            if (!raw || RESULT_TOKENS[raw] || /^\d+$/.test(raw)) continue;
+            raw = raw.replace(/\$\d+$/, '');        // NAG enganxat al final de la jugada
+            raw = raw.replace(/[!?]+$/, '');        // anotacions «!», «?!»…
+            raw = raw.replace(/^0-0-0/, 'O-O-O').replace(/^0-0/, 'O-O');
+            if (!raw) continue;
+            tokens.push(raw);
+        }
+        return tokens;
+    }
+
+    // Converteix l'etiqueta Result d'un PGN en l'etiqueta de resultat de
+    // l'historial, segons el color del jugador. Retorna null si no se sap.
+    function pgnResultToLabel(resultTag, playerColor) {
+        const tag = String(resultTag || '').trim();
+        const white = playerColor !== 'b';
+        if (tag === '1-0') return white ? 'Victòria' : 'Derrota';
+        if (tag === '0-1') return white ? 'Derrota' : 'Victòria';
+        if (tag === '1/2-1/2') return 'Taules';
+        return null;
+    }
+
+    // Endevina amb quin color jugava l'usuari a partir de les capçaleres
+    // White/Black i el seu nom d'usuari. Retorna 'w', 'b' o null si no és
+    // clar (cap coincidència, o coincidència amb tots dos colors).
+    function guessPlayerColorFromPgnHeaders(headers, username) {
+        if (!headers) return null;
+        const norm = s => String(s || '').trim().toLowerCase();
+        const user = norm(username);
+        if (!user) return null;
+        const matches = (name) => {
+            const n = norm(name);
+            return !!n && n !== '?' && (n === user || n.includes(user) || user.includes(n));
+        };
+        const w = matches(headers.White);
+        const b = matches(headers.Black);
+        if (w && !b) return 'w';
+        if (b && !w) return 'b';
+        return null;
+    }
+
     return {
+        splitPgnGames,
+        parsePgnHeaders,
+        sanitizePgnMoveText,
+        pgnResultToLabel,
+        guessPlayerColorFromPgnHeaders,
         clampElo,
         bestLineEvalScore,
         bestLineGapCp,

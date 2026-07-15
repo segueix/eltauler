@@ -7862,6 +7862,7 @@ function formatHistoryMode(mode) {
     if (mode === 'league') return 'Lliga';
     if (mode === 'free') return 'Amistosa';
     if (mode === 'assisted') return 'Assistida';
+    if (mode === 'imported') return 'Importada';
     return 'Partida';
 }
 
@@ -8215,16 +8216,278 @@ function buildEntryPgn(entry) {
     if (res.includes('victòr') || res.includes('guany') || res.includes('win')) resultTag = playerWhite ? '1-0' : '0-1';
     else if (res.includes('derrot') || res.includes('perd') || res.includes('loss')) resultTag = playerWhite ? '0-1' : '1-0';
     else if (res.includes('tau') || res.includes('draw')) resultTag = '1/2-1/2';
+    // Les partides importades conserven les capçaleres del PGN original
+    // (noms reals, torneig, data); les jugades dins l'app porten les nostres.
+    const ih = entry.importHeaders || null;
     replay.header(
-        'Event', 'El Tauler',
-        'Site', 'El Tauler PWA',
-        'Date', (entry.date || new Date().toLocaleDateString()),
-        'White', playerWhite ? 'Jugador' : oppName,
-        'Black', playerWhite ? oppName : 'Jugador',
-        'Result', resultTag
+        'Event', (ih && ih.Event) || 'El Tauler',
+        'Site', (ih && ih.Site) || 'El Tauler PWA',
+        'Date', (ih && ih.Date) || (entry.date || new Date().toLocaleDateString()),
+        'White', (ih && ih.White) || (playerWhite ? 'Jugador' : oppName),
+        'Black', (ih && ih.Black) || (playerWhite ? oppName : 'Jugador'),
+        'Result', (ih && ih.Result) || resultTag
     );
     return replay.pgn();
 }
+
+// ── Importació de partides externes (PGN) ────────────────────────────────────
+// Permet portar a l'historial partides jugades fora de l'app (Lichess,
+// Chess.com, tornejos presencials…) i passar-les per la MATEIXA maquinària que
+// les partides pròpies: anàlisi amb Stockfish jugada a jugada, ressenya de
+// l'entrenador, errades comentades i biblioteca d'errors (SRS i jeroglífics).
+
+// Parseja un text PGN (una o més partides) i valida les jugades amb chess.js.
+// Retorna només les partides jugables: { headers, moves (SAN), finalFen,
+// skippedTokens (tokens que no s'han pogut interpretar al final) }.
+function parseExternalPgnGames(text) {
+    const blocks = ElTaulerCore.splitPgnGames(text);
+    const games = [];
+    for (const block of blocks) {
+        const parsed = ElTaulerCore.parsePgnHeaders(block);
+        // Posicions inicials personalitzades (FEN/SetUp): no es poden revisar
+        // des de la jugada 1, així que es descarten.
+        if (parsed.headers.FEN || parsed.headers.SetUp === '1') continue;
+        const tokens = ElTaulerCore.sanitizePgnMoveText(parsed.moveText);
+        if (!tokens.length) continue;
+        const g = new Chess();
+        const moves = [];
+        for (const tok of tokens) {
+            let mv = null;
+            try { mv = g.move(tok, { sloppy: true }); } catch (e) { mv = null; }
+            if (!mv) break;
+            moves.push(mv.san);
+        }
+        if (moves.length < 2) continue;
+        games.push({
+            headers: parsed.headers,
+            moves: moves,
+            finalFen: g.fen(),
+            skippedTokens: tokens.length - moves.length
+        });
+    }
+    return games;
+}
+
+// Data de la partida segons les capçaleres del PGN («2024.03.15»), o null.
+function importedPgnDate(headers) {
+    const raw = headers && (headers.UTCDate || headers.Date);
+    if (raw && /^\d{4}\.\d{2}\.\d{2}$/.test(raw)) {
+        const d = new Date(raw.replace(/\./g, '-') + 'T12:00:00');
+        if (!isNaN(d.getTime())) return d;
+    }
+    return null;
+}
+
+// Construeix una entrada de l'historial (mateixa forma que recordGameHistory)
+// a partir d'una partida importada. Arriba SENSE anàlisi (moveReviews buit):
+// l'anàlisi es fa després amb el motor, sota demanda o en acceptar l'avís.
+function buildImportedHistoryEntry(parsedGame, playerColor) {
+    const headers = parsedGame.headers || {};
+    const now = new Date();
+    const gameDate = importedPgnDate(headers);
+    const color = playerColor === 'b' ? 'b' : 'w';
+    const rivalName = (color === 'w' ? headers.Black : headers.White) || null;
+    const replay = new Chess();
+    parsedGame.moves.forEach(m => replay.move(m, { sloppy: true }));
+    return {
+        id: `import_${now.getTime()}_${Math.floor(Math.random() * 10000)}`,
+        label: '📥 ' + (gameDate || now).toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }),
+        date: (gameDate || now).toISOString(),
+        mode: 'imported',
+        result: ElTaulerCore.pgnResultToLabel(headers.Result, color) || 'Partida importada',
+        precision: null,
+        counts: null,
+        moves: parsedGame.moves.slice(),
+        errors: [],
+        moveReviews: [],
+        review: [],
+        severeErrors: [],
+        aiReview: null,
+        playerColor: color,
+        timeControl: 'none',
+        opponent: (rivalName && rivalName !== '?') ? { name: rivalName } : null,
+        fen: parsedGame.finalFen || replay.fen(),
+        pgn: replay.pgn(),
+        roc: null,
+        level: null,
+        accuracy: null,
+        mistakes: 0,
+        imported: true,
+        importHeaders: {
+            Event: headers.Event || null,
+            Site: headers.Site || null,
+            Date: headers.Date || null,
+            White: headers.White || null,
+            Black: headers.Black || null,
+            Result: headers.Result || null
+        },
+        createdAt: now.toISOString(),
+        updatedAt: now.toISOString()
+    };
+}
+
+// Anàlisi COMPLETA d'una entrada sense moveReviews (partida importada): passa
+// el motor per cada jugada del jugador (posició abans i després, com el joc en
+// viu) i omple moveReviews, counts, precisió i errades greus. Les errades
+// greus s'afegeixen a la biblioteca d'errors (savedErrors), de manera que la
+// partida alimenta el repàs SRS, els jeroglífics personals i el diagnòstic com
+// qualsevol partida jugada dins l'app. Reutilitza analyzeFenRobust i el mateix
+// flag de serialització que la reanàlisi profunda (deepReviewInProgress).
+async function analyzeHistoryEntryFromScratch(entry, opts = {}) {
+    if (!entry) return 0;
+    const moves = getHistoryMoves(entry);
+    if (!moves.length) return 0;
+    if (deepReviewInProgress || waitingForBlunderAnalysis) return 0;
+    deepReviewInProgress = true;
+    const depth = opts.depth || 13;
+    const startedAt = Date.now();
+    // Una partida llarga vol el seu temps (2 anàlisis per jugada pròpia), però
+    // amb un límit global perquè un mòbil lent no s'hi quedi girant per sempre.
+    const deadlineMs = opts.deadlineMs || 480000;
+    const cpOf = b => !b ? null : (b.evalType === 'mate' ? (b.eval > 0 ? 10000 : -10000) : b.eval);
+    try {
+        // El motor és NOSTRE mentre duri l'anàlisi: atura la generació en segon
+        // pla (jeroglífics i seqüències) i espera que la feina en curs cedeixi.
+        // Dues anàlisis alhora sobre el mateix worker es roben les respostes.
+        // (deepReviewInProgress ja impedeix que en comenci cap de nova.)
+        try { requestBackgroundPrepAbort(); } catch (e) {}
+        try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
+        const yieldStart = Date.now();
+        while ((hgGenerating || personalHieroglyphicPrepInFlight || backgroundPrepPromise) && Date.now() - yieldStart < 10000) {
+            await new Promise(r => setTimeout(r, 250));
+        }
+        // L'anàlisi sempre a força completa: el joc en viu re-afirma la seva
+        // força (UCI_LimitStrength/UCI_Elo) a cada jugada, així que no cal restaurar-la.
+        if (!stockfish) ensureStockfish();
+        try { stockfish.postMessage('setoption name UCI_LimitStrength value false'); } catch (e) {}
+        const playerColor = entry.playerColor === 'b' ? 'b' : 'w';
+        const g = new Chess();
+        const steps = [];
+        for (const san of moves) {
+            const fenBefore = g.fen();
+            const turn = g.turn();
+            const mv = g.move(san, { sloppy: true });
+            if (!mv) break;
+            steps.push({
+                fenBefore: fenBefore,
+                fenAfter: g.fen(),
+                turn: turn,
+                san: mv.san,
+                uci: mv.from + mv.to + (mv.promotion || ''),
+                moveNumber: parseInt(fenBefore.split(' ')[5], 10) || null,
+                mateDelivered: g.in_checkmate(),
+                drawnAfter: !g.in_checkmate() && g.game_over()
+            });
+        }
+        const playerSteps = steps.filter(s => s.turn === playerColor);
+        const total = playerSteps.length;
+        const reviews = [];
+        for (let i = 0; i < total; i++) {
+            const step = playerSteps[i];
+            if (typeof opts.onProgress === 'function') {
+                try { opts.onProgress(i, total); } catch (e) {}
+            }
+            if (opts.shouldAbort && opts.shouldAbort()) break;
+            if (Date.now() - startedAt > deadlineMs) break;
+            // ABANS de la jugada: millor jugada, línia i avaluació (perspectiva del jugador).
+            const before = await analyzeFenRobust(step.fenBefore, depth, 2, 5000, opts.shouldAbort);
+            if (!before || !before.bestMove || !before.bestMove.move) continue;
+            const bm = before.bestMove;
+            const review = {
+                moveNumber: step.moveNumber,
+                quality: 'unknown',
+                color: playerColor,
+                swing: 0,
+                fen: step.fenBefore,
+                bestMove: bm.move,
+                bestMoveSan: uciToSan(step.fenBefore, bm.move),
+                playerMove: step.uci,
+                playerMoveSan: step.san,
+                bestMovePv: bm.pv || [],
+                alternatives: (before.alternatives || []).map(a => ({
+                    move: a.move,
+                    moveSan: a.move ? uciToSan(step.fenBefore, a.move) : null,
+                    eval: cpOf(a),
+                    evalType: a.evalType,
+                    pv: a.pv || []
+                })),
+                evalBefore: cpOf(bm),
+                evalAfter: null,
+                refutationPv: [],
+                afterFen: step.fenAfter
+            };
+            // DESPRÉS de la jugada real (perspectiva del rival). Si la partida
+            // s'acaba amb la jugada, no cal motor: mat fet = -10000, taules = 0.
+            if (step.mateDelivered) {
+                review.evalAfter = -10000;
+            } else if (step.drawnAfter) {
+                review.evalAfter = 0;
+            } else {
+                const after = await analyzeFenRobust(step.fenAfter, depth, 1, 5000, opts.shouldAbort);
+                if (after && after.bestMove) {
+                    review.evalAfter = cpOf(after.bestMove);
+                    review.refutationPv = after.bestMove.pv || [];
+                }
+            }
+            // Mateix conveni que el joc en viu: swing = evalBefore + evalAfter
+            // (perspectives oposades: una bona jugada suma ~0).
+            if (typeof review.evalBefore === 'number' && typeof review.evalAfter === 'number') {
+                review.swing = Math.abs(review.evalBefore + review.evalAfter);
+                review.quality = classifyMoveQuality(review.swing, review.playerMove, review.bestMove);
+            } else if (review.playerMove === review.bestMove) {
+                review.quality = 'excel';
+            } else {
+                continue; // sense avaluació fiable, la jugada no es puntua
+            }
+            reviews.push(review);
+        }
+        if (!reviews.length) return 0;
+        entry.moveReviews = reviews;
+        entry.counts = summarizeReview(reviews);
+        entry.precision = Math.round(((entry.counts.excel + entry.counts.good) / reviews.length) * 100);
+        entry.accuracy = entry.precision;
+        entry.mistakes = entry.counts.mistake || 0;
+        entry.severeErrors = getSevereErrors(reviews);
+        entry.errors = entry.severeErrors.map(err => ({
+            fen: err.fen,
+            severity: err.quality || 'blunder',
+            bestMove: err.bestMove || null,
+            playerMove: err.playerMove || null,
+            bestMovePv: err.bestMovePv || []
+        }));
+        entry.analyzedAt = new Date().toISOString();
+        entry.updatedAt = entry.analyzedAt;
+        // Alimenta la biblioteca d'errors i el mapa de debilitats amb les
+        // errades greus, com si la partida s'hagués jugat dins l'app.
+        entry.severeErrors.forEach(err => {
+            if (!err.fen) return;
+            if (!savedErrors.some(e => e.fen === err.fen)) {
+                savedErrors.push({
+                    fen: err.fen,
+                    date: new Date().toLocaleDateString(),
+                    severity: err.quality === 'blunder' ? 'blunder' : 'mistake',
+                    elo: userELO,
+                    bestMove: err.bestMove || null,
+                    playerMove: err.playerMove || null,
+                    bestMovePv: err.bestMovePv || [],
+                    srsReps: 0,
+                    srsInterval: 0,
+                    srsDue: Date.now()
+                });
+            }
+            try {
+                const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
+                updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'imported_game' });
+            } catch (e) {}
+        });
+        regenerateLocalReview(entry); // nova llavor de ressenya + saveStorage()
+        try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+        return reviews.length;
+    } finally {
+        deepReviewInProgress = false;
+    }
+}
+if (typeof window !== 'undefined') window.analyzeHistoryEntryFromScratch = analyzeHistoryEntryFromScratch;
 
 // Repara les FEN de decisió dels moveReviews d'una entrada antiga o incompleta.
 // Algunes partides (sobretot inacabades o migrades de versions velles) es van
@@ -8375,6 +8638,152 @@ function updateHistoryDetails(entry) {
     void requestErrorNotes(entry);
     updateHistoryProgress();
     updateHistoryControls();
+    updateHistoryDeepenButton(entry);
+}
+
+// El botó del motor de l'historial té dues cares: per a una partida SENSE
+// anàlisi (importada) fa l'anàlisi completa jugada a jugada; per a una amb
+// anàlisi, la reanàlisi profunda dels moments clau de sempre.
+function updateHistoryDeepenButton(entry) {
+    const btn = $('#history-deepen-review');
+    if (!btn.length || btn.prop('disabled')) return; // no trepitgem una anàlisi en curs
+    const hasAnalysis = entry && Array.isArray(entry.moveReviews) && entry.moveReviews.length;
+    if (entry && !hasAnalysis && getHistoryMoves(entry).length) {
+        btn.html('<svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Analitza la partida');
+    } else {
+        btn.html('<svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Recalcular moments clau');
+    }
+}
+
+// Executa l'anàlisi completa d'una entrada sense anàlisi amb el progrés al
+// botó del motor de l'historial, i refresca el detall i la llista en acabar.
+async function runHistoryEntryAnalysisWithUi(entry) {
+    const btn = $('#history-deepen-review');
+    btn.prop('disabled', true).text('Analitzant…');
+    let analyzed = 0;
+    try {
+        analyzed = await analyzeHistoryEntryFromScratch(entry, {
+            onProgress: (done, total) => {
+                if (total > 0) btn.text(`Analitzant ${Math.min(done + 1, total)}/${total}…`);
+            }
+        });
+    } catch (e) {
+        console.warn('[ImportPGN] anàlisi completa', e);
+    }
+    btn.prop('disabled', false);
+    if (analyzed > 0) {
+        if (historyReplay && historyReplay.entry && historyReplay.entry.id === entry.id) {
+            updateHistoryDetails(entry);
+        }
+        renderGameHistory();
+        showToast(`Partida analitzada (${analyzed} jugades teves) ✓`, 'success');
+    } else {
+        updateHistoryDeepenButton(historyReplay && historyReplay.entry);
+        showToast('No s\'ha pogut analitzar (motor ocupat o sense resposta). Torna-ho a provar d\'aquí a un moment.', 'warn');
+    }
+    return analyzed;
+}
+
+// ── Modal d'importació de PGN ────────────────────────────────────────────────
+let pgnImportParsedGames = [];
+
+function openPgnImportModal() {
+    pgnImportParsedGames = [];
+    $('#pgn-import-text').val('');
+    $('#pgn-import-games').empty();
+    $('#pgn-import-status').hide().text('');
+    $('#pgn-import-modal').css('display', 'flex');
+}
+
+function closePgnImportModal() {
+    $('#pgn-import-modal').hide();
+}
+
+function pgnImportSetStatus(text, isError) {
+    $('#pgn-import-status')
+        .text(text)
+        .css('color', isError ? '#c0392b' : 'var(--text-secondary)')
+        .show();
+}
+
+function parsePgnImportText() {
+    const text = String($('#pgn-import-text').val() || '');
+    if (!text.trim()) {
+        pgnImportSetStatus('Enganxa un PGN o tria un fitxer primer.', true);
+        return;
+    }
+    let games = [];
+    try { games = parseExternalPgnGames(text); } catch (e) { console.warn('[ImportPGN] parseig', e); }
+    pgnImportParsedGames = games;
+    if (!games.length) {
+        $('#pgn-import-games').empty();
+        pgnImportSetStatus('No hi he sabut llegir cap partida. Comprova que sigui un PGN estàndard (i sense posició inicial personalitzada).', true);
+        return;
+    }
+    renderPgnImportGames(games);
+}
+
+function renderPgnImportGames(games) {
+    const container = $('#pgn-import-games');
+    const username = getUsername();
+    const rows = games.map((g, idx) => {
+        const h = g.headers || {};
+        const white = (h.White && h.White !== '?') ? h.White : 'Blanques';
+        const black = (h.Black && h.Black !== '?') ? h.Black : 'Negres';
+        const result = (h.Result && h.Result !== '*') ? h.Result : 'inacabada';
+        const nMoves = Math.ceil(g.moves.length / 2);
+        // Si el nom d'usuari coincideix amb White o Black, el color ja ve triat.
+        const guess = ElTaulerCore.guessPlayerColorFromPgnHeaders(h, username);
+        const extra = [
+            (h.Event && h.Event !== '?') ? h.Event : null,
+            (h.Date && h.Date !== '????.??.??') ? h.Date : null
+        ].filter(Boolean).join(' · ');
+        const warn = g.skippedTokens > 0
+            ? `<div class="pgn-import-warn">⚠️ No s'han pogut llegir les últimes jugades (${g.skippedTokens}); s'importa fins on s'ha pogut.</div>`
+            : '';
+        return `
+            <div class="pgn-import-game">
+                <div class="pgn-import-game-title">${escapeHtml(white)} – ${escapeHtml(black)} · ${escapeHtml(result)} · ${nMoves} jugades</div>
+                ${extra ? `<div class="pgn-import-game-meta">${escapeHtml(extra)}</div>` : ''}
+                ${warn}
+                <div class="pgn-import-game-row">
+                    <select class="select-control pgn-import-color" data-idx="${idx}" aria-label="Amb quin color jugaves">
+                        <option value="w"${guess !== 'b' ? ' selected' : ''}>Jo jugava amb blanques</option>
+                        <option value="b"${guess === 'b' ? ' selected' : ''}>Jo jugava amb negres</option>
+                    </select>
+                    <button type="button" class="btn btn-primary pgn-import-btn" data-idx="${idx}">Importa</button>
+                </div>
+            </div>`;
+    }).join('');
+    container.html(rows);
+    pgnImportSetStatus(games.length === 1
+        ? 'He llegit 1 partida. Tria el teu color i importa-la.'
+        : `He llegit ${games.length} partides. Tria el color de cadascuna i importa les que vulguis.`, false);
+    container.find('.pgn-import-btn').off('click').on('click', function () {
+        importPgnGameAt(parseInt($(this).attr('data-idx'), 10));
+    });
+}
+
+function importPgnGameAt(idx) {
+    const parsed = pgnImportParsedGames[idx];
+    if (!parsed) return;
+    const colorSel = $(`#pgn-import-games .pgn-import-color[data-idx="${idx}"]`);
+    const color = colorSel.val() === 'b' ? 'b' : 'w';
+    const entry = buildImportedHistoryEntry(parsed, color);
+    gameHistory.push(entry);
+    if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
+    saveStorage();
+    closePgnImportModal();
+    renderGameHistory();
+    loadHistoryEntry(entry);
+    showToast('Partida importada a l\'historial 📥', 'success');
+    // L'anàlisi és el que dona valor a la importació (ressenya, errades,
+    // exercicis), però gasta motor una estona: es demana, no s'imposa.
+    showAppConfirm(
+        'Vols analitzar-la ara amb el motor? Trigarà una mica (s\'avalua cada jugada teva) i en acabar tindràs la ressenya de l\'entrenador, les errades comentades i els exercicis derivats.',
+        () => { void runHistoryEntryAnalysisWithUi(entry); },
+        { title: 'Analitzar la partida importada', confirmText: 'Analitza-la ara', cancelText: 'Més tard' }
+    );
 }
 
 function updateHistoryReview(entry) {
@@ -8390,6 +8799,13 @@ function updateHistoryReview(entry) {
     // carregada (es pot tornar a demanar la redacció amb OpenAI tantes vegades
     // com calgui). Si no hi ha clau d'OpenAI configurada, en clicar-lo s'avisa.
     if (generateBtn.length) generateBtn.prop('disabled', false);
+    // Partida sense anàlisi de jugades (importada d'un PGN i encara no
+    // analitzada): la ressenya no tindria dades reals, així que en lloc de
+    // text buit es guia cap al botó d'anàlisi.
+    if ((!Array.isArray(entry.moveReviews) || !entry.moveReviews.length) && getHistoryMoves(entry).length) {
+        reviewContent.html('<p>Aquesta partida encara no s\'ha analitzat. Prem <strong>«Analitza la partida»</strong> (sota el tauler) perquè el motor avaluï cada jugada teva i l\'entrenador en pugui escriure la ressenya, amb les errades comentades i els exercicis derivats.</p>');
+        return;
+    }
     const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
     // La ressenya local rica (obertura, fases, obertura semblant per practicar i
     // moments clau) es mostra SEMPRE, fins i tot quan hi ha una ressenya d'OpenAI:
@@ -11948,7 +12364,7 @@ function renderGameHistory() {
     renderHistorySummary();
     const countEl = $('#history-count');
     if (!gameHistory.length) {
-        container.html('<div class="history-empty">Encara no hi ha partides guardades. Juga una partida i la revisió apareixerà aquí.</div>');
+        container.html('<div class="history-empty">Encara no hi ha partides guardades. Juga una partida o importa\'n una en PGN i la revisió apareixerà aquí.</div>');
         if (countEl.length) countEl.text('');
         historyReplay = null;
         updateHistoryDetails(null);
@@ -16936,6 +17352,24 @@ function setupEvents() {
         historyFilters.prec = parseInt($('#history-filter-prec').val(), 10) || 0;
         renderGameHistory();
     });
+    // Importació de partides externes (PGN): modal amb enganxat de text o fitxer.
+    $('#btn-import-pgn').off('click').on('click', openPgnImportModal);
+    $('#pgn-import-cancel').off('click').on('click', closePgnImportModal);
+    $('#pgn-import-modal').off('click').on('click', function (e) { if (e.target === this) closePgnImportModal(); });
+    $('#pgn-import-parse').off('click').on('click', parsePgnImportText);
+    $('#pgn-import-file-btn').off('click').on('click', () => $('#pgn-import-file').trigger('click'));
+    $('#pgn-import-file').off('change').on('change', function () {
+        const file = this.files && this.files[0];
+        this.value = ''; // permet tornar a triar el mateix fitxer
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = () => {
+            $('#pgn-import-text').val(String(reader.result || ''));
+            parsePgnImportText();
+        };
+        reader.onerror = () => pgnImportSetStatus('No s\'ha pogut llegir el fitxer.', true);
+        reader.readAsText(file);
+    });
     $('#btn-export-all-pgn').off('click').on('click', () => {
         if (!gameHistory.length) { showToast('No hi ha partides per exportar', 'warn'); return; }
         const pgns = gameHistory.map(e => buildEntryPgn(e)).filter(p => p && p.trim());
@@ -17213,7 +17647,17 @@ function setupEvents() {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
         const entry = historyReplay.entry;
         if (!Array.isArray(entry.moveReviews) || !entry.moveReviews.length) {
-            showToast('Aquesta partida no té anàlisi de jugades per aprofundir.', 'info');
+            // Partida sense anàlisi (normalment importada d'un PGN): anàlisi
+            // completa jugada a jugada en lloc de la reanàlisi de moments clau.
+            if (!getHistoryMoves(entry).length) {
+                showToast('Aquesta partida no té jugades per analitzar.', 'info');
+                return;
+            }
+            if (deepReviewInProgress || waitingForBlunderAnalysis) {
+                showToast('Hi ha una anàlisi en curs; torna-ho a provar d\'aquí a un moment.', 'info');
+                return;
+            }
+            await runHistoryEntryAnalysisWithUi(entry);
             return;
         }
         if (deepReviewInProgress || waitingForBlunderAnalysis) {

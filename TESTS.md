@@ -79,6 +79,12 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   variant legal treta d'una FEN real (`hieroglyphicVariantMeta`:
   `origin: 'game_variant'`, conserva `sourceGameId`/`sourceFen` sense alterar la
   partida).
+- **`import.test.js`** — importació de partides externes (PGN): separació d'un
+  fitxer amb diverses partides, lectura de capçaleres (amb cometes escapades),
+  neteja del movetext (comentaris `{...}` i `;`, variants niades, NAGs, números
+  de jugada enganxats, enroc amb zeros, resultat), rejugada legal dels tokens
+  netejats amb chess.js real, mapatge Result→etiqueta de l'historial (coherent
+  amb `entryOutcome`) i detecció del color del jugador pel nom d'usuari.
 - **`voice-nomenclature.test.js`** — nomenclatura de jugades per veu (font única
   de veritat): `descriuJugadaPerVeu` (redactor) redacta la MATEIXA jugada com a
   acció en infinitiu (casual: «portar el cavall de f3 a h4»), clàusula sense
