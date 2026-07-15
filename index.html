@@ -4001,6 +4001,14 @@
             <path d="M9.17 3.5v17"/>
             <path d="M14.83 3.5v17"/>
         </symbol>
+        <!-- Tauler d'anàlisi: tauler amb lupa (parent de l'ic-board) -->
+        <symbol id="ic-analysis" viewBox="0 0 24 24">
+            <path d="M11.5 16.5H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9.5a2 2 0 0 1 2 2v6.5"/>
+            <path d="M3 9.75h13.5"/>
+            <path d="M9.75 3v13.5"/>
+            <circle cx="16.5" cy="16.5" r="4.2"/>
+            <path d="M19.6 19.6 22.2 22.2"/>
+        </symbol>
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
@@ -4180,7 +4188,7 @@
                         </details>
                     </div>
                     <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
-                    <button class="btn btn-explorer-menu" id="btn-explorer"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Tauler d'anàlisi</button>
+                    <button class="btn btn-explorer-menu" id="btn-explorer"><svg class="btn-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>Tauler d'anàlisi</button>
                     <div class="menu-grid menu-grid-3">
                         <button class="btn btn-tactics" id="btn-tactics">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
@@ -4788,7 +4796,9 @@
                 color: var(--text-primary); padding: 8px 10px; font-size: 0.78rem;
                 font-family: monospace;
             }
-            .explorer-fen-row .btn { margin-top: 0; padding: 8px 12px; font-size: 0.8rem; white-space: nowrap; }
+            /* Els .btn de l'app fan width:100%: aquí han de cedir l'espai al
+               camp de FEN (que sense això quedava esclafat, com un botonet buit). */
+            .explorer-fen-row .btn { margin-top: 0; padding: 8px 12px; font-size: 0.8rem; white-space: nowrap; width: auto; flex: 0 0 auto; }
             .explorer-edit-toolbar {
                 background: var(--bg-card); border: 1px solid rgba(201,162,39,0.25);
                 border-radius: 12px; padding: 12px 14px; margin-top: 12px;
@@ -4800,7 +4810,7 @@
         </style>
         <div id="explorer-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
-                <div class="app-logo">🔭</div>
+                <div class="app-logo history-logo"><svg class="history-logo-ic" aria-hidden="true"><use href="#ic-analysis"/></svg></div>
                 <h1>Tauler d'anàlisi</h1>
                 <div class="history-subtitle">Mou les peces lliurement amb el motor avaluant cada posició, carrega un FEN o munta-la tu mateix.</div>
             </div>

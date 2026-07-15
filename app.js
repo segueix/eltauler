@@ -8678,11 +8678,20 @@ function updateExplorerBoardInteractivity() {
     if (useTap) enableExplorerTapToMove(); else disableExplorerTapToMove();
 }
 
+// Completa un FEN escurçat amb els camps per defecte: molts llocs copien
+// només la col·locació (o sense els comptadors), i chess.js vol els 6 camps.
+function normalizeExplorerFen(fen) {
+    const parts = String(fen || '').trim().replace(/\s+/g, ' ').split(' ');
+    if (parts.length >= 6) return parts.slice(0, 6).join(' ');
+    const defaults = ['', 'w', '-', '-', '0', '1'];
+    return parts.concat(defaults.slice(parts.length)).join(' ');
+}
+
 // Fixa una posició nova com a ARREL de l'exploració (la línia es buida).
 function setupExplorerPosition(fen, opts = {}) {
     const isStart = !fen || fen === 'start';
     const g = new Chess();
-    if (!isStart && !g.load(fen)) {
+    if (!isStart && !g.load(normalizeExplorerFen(fen))) {
         showToast('Aquest FEN no és vàlid.', 'warn');
         return false;
     }
@@ -18090,7 +18099,11 @@ function setupEvents() {
     });
     $('#explorer-fen-load').off('click').on('click', () => {
         const fen = String($('#explorer-fen-input').val() || '').trim();
-        if (fen) setupExplorerPosition(fen);
+        if (!fen) {
+            showToast('Enganxa un FEN al camp del costat i prem «Carrega» per muntar aquella posició al tauler.', 'info');
+            return;
+        }
+        if (setupExplorerPosition(fen)) showToast('Posició carregada ✓', 'success');
     });
     $('#explorer-fen-copy').off('click').on('click', async () => {
         if (!explorerGame) return;
