@@ -21887,9 +21887,13 @@ function handleEngineMessage(rawMsg) {
                 else if (swing > 500) severity = 'med';
                 $('#blunder-alert').removeClass('alert-low alert-med alert-high')
                     .addClass('alert-' + severity).show();
+                // Sense rellotge, l'avís es contempla 1,5 s abans que el rival
+                // respongui. Amb rellotge no es congela la resposta: l'avís es
+                // queda visible mentre el motor pensa, i si l'errada permet un
+                // mat el resultat arriba de seguida en lloc d'esperar l'escena.
                 engineMoveTimeout = setTimeout(() => {
                     if (!game.game_over()) makeEngineMove();
-                }, 1500);
+                }, gameClock.enabled ? 200 : 1500);
             } else {
                 if (blunderMode) handleBundleSuccess();
                 else if (!game.game_over()) makeEngineMove();
