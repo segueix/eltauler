@@ -4096,6 +4096,7 @@
                         </details>
                     </div>
                     <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
+                    <button class="btn btn-explorer-menu" id="btn-explorer"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Tauler d'anàlisi</button>
                     <div class="menu-grid menu-grid-3">
                         <button class="btn btn-tactics" id="btn-tactics">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
@@ -4625,6 +4626,7 @@
                                 <!-- Transcripció clicable: toca una jugada per veure-la al tauler (queda marcada) -->
                                 <div id="history-moves" style="display:none;"></div>
                                 <div class="history-actions">
+                                    <button class="btn btn-secondary" id="history-explore-position" style="grid-column:1 / -1;" title="Obre aquesta posició al tauler d'anàlisi lliure">🔭 Explora aquesta posició</button>
                                     <button class="btn btn-secondary" id="history-generate-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Regenerar la ressenya</button>
                                     <button class="btn btn-secondary" id="history-deepen-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Recalcular moments clau</button>
                                     <button class="btn btn-secondary" id="history-export-pgn" style="grid-column:1 / -1;">♟ Exportar la partida (PGN)</button>
@@ -4654,6 +4656,128 @@
             <div class="menu-buttons" style="margin-top:20px;">
                 <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
                 <button class="btn btn-nav-home" id="btn-back-history" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+            </div>
+        </div>
+
+        <!-- EXPLORADOR: tauler d'anàlisi lliure amb el motor avaluant -->
+        <style>
+            .btn-explorer-menu { background: linear-gradient(135deg, #4a6b52 0%, #2c4432 100%); color: #e9f2ea; box-shadow: 0 4px 12px rgba(74, 107, 82, 0.35); }
+            .explorer-eval-card {
+                background: var(--bg-card); border: 1px solid rgba(201,162,39,0.18);
+                border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+            }
+            .explorer-eval-bar {
+                height: 12px; border-radius: 6px; overflow: hidden;
+                background: #20242c; border: 1px solid rgba(255,255,255,0.18);
+            }
+            .explorer-eval-fill {
+                height: 100%; width: 50%; background: #f2ede2;
+                transition: width 0.4s ease; border-radius: 6px 0 0 6px;
+            }
+            body.epaper-mode .explorer-eval-bar { background: #666; border-color: #444; }
+            body.epaper-mode .explorer-eval-fill { background: #fff; transition: none; }
+            .explorer-eval-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
+            .explorer-eval-value { font-size: 1.15rem; font-weight: 800; color: var(--accent-gold); }
+            .explorer-eval-depth { font-size: 0.75rem; color: var(--text-secondary); }
+            .explorer-line { font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
+            .explorer-line.alt { opacity: 0.8; }
+            .explorer-play-best { margin-top: 10px; width: 100%; }
+            .explorer-status { text-align: center; font-size: 0.88rem; color: var(--text-secondary); margin: 10px 0 4px; }
+            .explorer-moves {
+                display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+                background: rgba(255,255,255,0.03); border-radius: 10px;
+                padding: 8px 10px; margin: 10px 0; min-height: 38px;
+            }
+            .explorer-moves-empty { font-size: 0.8rem; color: var(--text-secondary); opacity: 0.85; }
+            .explorer-move-no { font-size: 0.78rem; color: var(--text-secondary); margin-left: 4px; }
+            .explorer-move {
+                appearance: none; border: 1px solid transparent; background: rgba(255,255,255,0.06);
+                color: var(--text-primary); border-radius: 6px; padding: 2px 7px;
+                font-size: 0.85rem; cursor: pointer; font-family: inherit;
+            }
+            .explorer-move.future { opacity: 0.45; }
+            .explorer-move.active { background: linear-gradient(135deg, #c9a227 0%, #8a6d12 100%); color: #1b1712; font-weight: 700; }
+            .explorer-fen-row { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+            .explorer-fen-row input {
+                flex: 1; min-width: 0; background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(201,162,39,0.25); border-radius: 8px;
+                color: var(--text-primary); padding: 8px 10px; font-size: 0.78rem;
+                font-family: monospace;
+            }
+            .explorer-fen-row .btn { margin-top: 0; padding: 8px 12px; font-size: 0.8rem; white-space: nowrap; }
+            .explorer-edit-toolbar {
+                background: var(--bg-card); border: 1px solid rgba(201,162,39,0.25);
+                border-radius: 12px; padding: 12px 14px; margin-top: 12px;
+            }
+            .explorer-edit-hint { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; }
+            .explorer-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+            .explorer-edit-row label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
+            .explorer-tap-selected { box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.9) !important; }
+        </style>
+        <div id="explorer-screen" class="screen-anim" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">🔭</div>
+                <h1>Tauler d'anàlisi</h1>
+                <div class="history-subtitle">Mou les peces lliurement amb el motor avaluant cada posició, carrega un FEN o munta-la tu mateix.</div>
+            </div>
+
+            <div class="explorer-eval-card" id="explorer-eval-card">
+                <div class="explorer-eval-bar" title="Barra d'avaluació (part blanca = avantatge blanc)"><div class="explorer-eval-fill" id="explorer-eval-fill"></div></div>
+                <div class="explorer-eval-row">
+                    <span class="explorer-eval-value" id="explorer-eval-value">—</span>
+                    <span class="explorer-eval-depth" id="explorer-eval-depth"></span>
+                </div>
+                <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
+                <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
+                <button class="btn btn-secondary explorer-play-best" id="explorer-play-best" style="display:none;">▶ Juga la millor jugada</button>
+            </div>
+
+            <div class="history-board"><div id="explorer-board"></div></div>
+            <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
+
+            <div class="history-controls" id="explorer-nav">
+                <button class="btn btn-secondary" id="explorer-start-btn" title="A l'inici de la línia">⏮</button>
+                <button class="btn btn-secondary" id="explorer-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
+                <button class="btn btn-secondary" id="explorer-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
+                <button class="btn btn-secondary" id="explorer-flip" title="Gira el tauler">🔃</button>
+            </div>
+
+            <div class="explorer-moves" id="explorer-moves"></div>
+
+            <div id="explorer-tools">
+                <div class="explorer-fen-row">
+                    <input type="text" id="explorer-fen-input" spellcheck="false" autocomplete="off" aria-label="FEN de la posició" placeholder="Enganxa un FEN…">
+                    <button class="btn btn-secondary" id="explorer-fen-load">Carrega</button>
+                    <button class="btn btn-secondary" id="explorer-fen-copy" title="Copia el FEN">📋</button>
+                </div>
+                <div class="menu-grid">
+                    <button class="btn btn-secondary" id="explorer-reset">♻️ Posició inicial</button>
+                    <button class="btn btn-secondary" id="explorer-swap-turn">🔁 Canvia el torn</button>
+                </div>
+                <button class="btn btn-secondary" id="explorer-edit" style="width:100%; margin-top:10px;">🛠 Edita la posició</button>
+            </div>
+
+            <div class="explorer-edit-toolbar" id="explorer-edit-toolbar" style="display:none;">
+                <div class="explorer-edit-hint">Arrossega les peces on vulguis: les de fora del tauler n'afegeixen, i deixar-ne una fora la treu. Els drets d'enroc es dedueixen de reis i torres a la casella inicial.</div>
+                <div class="explorer-edit-row">
+                    <label for="explorer-edit-turn">Qui mou?</label>
+                    <select id="explorer-edit-turn" class="select-control">
+                        <option value="w">Les blanques</option>
+                        <option value="b">Les negres</option>
+                    </select>
+                </div>
+                <div class="explorer-edit-row">
+                    <button class="btn btn-secondary" id="explorer-edit-clear">Buida el tauler</button>
+                    <button class="btn btn-secondary" id="explorer-edit-start">Posició inicial</button>
+                </div>
+                <div class="explorer-edit-row" style="margin-bottom:0;">
+                    <button class="btn btn-primary" id="explorer-edit-done" style="flex:1;">Fet: analitza-la</button>
+                    <button class="btn btn-secondary" id="explorer-edit-cancel">Cancel·la</button>
+                </div>
+            </div>
+
+            <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-nav-home" id="btn-back-explorer" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
 
