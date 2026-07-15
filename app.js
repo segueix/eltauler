@@ -21931,11 +21931,11 @@ function handleEngineMessage(rawMsg) {
             // el resultat (guanyat/perdut/taules) quan ja estava decidit.
             // Mateix principi d'immediatesa que el final de les partides
             // sense rellotge (xip de resultat a l'instant).
-            if (gameClock.enabled && replyDelayMs > 250) {
+            if (gameClock.enabled && replyDelayMs > 150) {
                 try {
                     const probe = new Chess(game.fen());
                     const probeMove = probe.move({ from: fromSq, to: toSq, promotion: promotion });
-                    if (probeMove && probe.game_over()) replyDelayMs = 250;
+                    if (probeMove && probe.game_over()) replyDelayMs = 150;
                 } catch (e) {}
             }
             registerEngineMovePrecision(moveStr, engineMoveCandidates);
@@ -22366,9 +22366,11 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         if (checkmateOverlay.length) {
             checkmateOverlay.hide();
         }
-        reviewOpenDelayTimer = setTimeout(() => {            
+        // Amb rellotge (quickReveal) el mat es contempla mig segon i prou:
+        // la resolució ha d'arribar de seguida.
+        reviewOpenDelayTimer = setTimeout(() => {
             openReviewModal();
-        }, 2000);
+        }, options.quickReveal ? 500 : 2000);
     } else {
         openReviewModal();
     }
@@ -23097,8 +23099,12 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     }
     $('#btn-resign').prop('disabled', true);
 
+    // Amb rellotge, la resolució s'obre gairebé a l'instant: després d'una
+    // partida contra el temps, l'espera escènica de les partides tranquil·les
+    // (1,4 s de xip + 2 s de mat) es fa llarga. Sense rellotge no canvia res.
+    const quickResolve = gameClock.enabled;
     const showFullReview = () => {
-        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, growthTask: growthTask, disableGrowth: calibrationGameWasActive, assistedPerformance });
+        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, quickReveal: quickResolve, growthTask: growthTask, disableGrowth: calibrationGameWasActive, assistedPerformance });
         if (calibrationJustCompleted) {
             showCalibrationReveal(userELO);
         }
@@ -23114,14 +23120,14 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
     showPostGameStatusChip(postGameResultLabel(leagueOutcome));
     if (showCheckmate) {
-        // L'escac i mat té el seu propi retard de 2s dins showPostGameReview; el
-        // xip es veu mentrestant i s'amaga quan s'obre la ressenya.
+        // L'escac i mat té el seu propi retard dins showPostGameReview (2 s, o
+        // 0,5 s amb rellotge); el xip es veu mentrestant i s'amaga en obrir-se.
         showFullReview();
     } else {
         postGameJumpTimer = setTimeout(() => {
             postGameJumpTimer = null;
             showFullReview();
-        }, 1400);
+        }, quickResolve ? 350 : 1400);
     }
 
     // Persistència i actualitzacions pesades: serialització de tot l'historial
