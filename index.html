@@ -1183,6 +1183,57 @@
         .menu-grid .btn span { font-weight: 400; letter-spacing: 0; }
         @media (max-width: 360px) { .menu-grid { grid-template-columns: 1fr; } }
 
+        /* ── Bloc «Juga»: rellotge destacat + els tres modes contra el motor ── */
+        .play-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 16px;
+            padding: 12px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .play-clock-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px; margin: 0 2px 8px;
+        }
+        .play-clock-title {
+            display: flex; align-items: center; gap: 6px;
+            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--text-secondary);
+        }
+        .play-clock-current { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); }
+        .play-clock-chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        .play-clock-chip {
+            appearance: none; border: 1px solid rgba(201,162,39,0.25);
+            background: rgba(255,255,255,0.05); color: var(--text-secondary);
+            border-radius: 10px; padding: 7px 2px 6px; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; gap: 1px;
+            font-family: inherit; min-width: 0;
+            transition: transform 0.08s ease, background 0.15s ease;
+            touch-action: manipulation;
+        }
+        .play-clock-chip:active { transform: scale(0.96); }
+        .play-clock-chip .pcc-time { font-size: 0.88rem; font-weight: 800; line-height: 1.1; }
+        .play-clock-chip .pcc-kind { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.75; }
+        .play-clock-chip.active {
+            background: linear-gradient(135deg, #c9a227 0%, #8a6d12 100%);
+            border-color: transparent; color: #1b1712;
+            box-shadow: 0 3px 10px rgba(201,162,39,0.35);
+        }
+        .play-clock-chip.active .pcc-kind { opacity: 0.9; }
+        .play-modes { margin-top: 0; }
+        .play-clock-hint {
+            font-size: 0.72rem; color: var(--text-secondary); opacity: 0.8;
+            text-align: center; margin-top: -2px;
+        }
+        /* En pantalles estretes, dues files de fitxes (4+3) perquè es puguin tocar bé */
+        @media (max-width: 420px) { .play-clock-chips { grid-template-columns: repeat(4, 1fr); } }
+        body.day-mode .play-card { background: rgba(255,255,255,0.55); }
+        body.day-mode .play-clock-chip { background: rgba(120,95,40,0.08); }
+        body.epaper-mode .play-card, body.epaper-mode .play-clock-chip {
+            background: #f4f4f4; border-color: #888; box-shadow: none; transition: none;
+        }
+        body.epaper-mode .play-clock-chip.active { background: #222; color: #fff; box-shadow: none; }
+
         /* Icones de menú unificades: line-icons monocromes que hereten el color
            del text (currentColor) i s'adapten als 3 temes (fosc, dia, e-paper).
            Mida en em perquè quedin sempre al mateix nivell que el text. */
@@ -3806,6 +3857,11 @@
             <path d="M21.5 8.5v5"/>
         </symbol>
         <!-- Historial: rellotge de sorra (mateix traç line-icon que la resta) -->
+        <symbol id="ic-clock" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.25"/>
+            <path d="M12 7.5V12l3 2"/>
+            <path d="M12 2v1.5"/>
+        </symbol>
         <symbol id="ic-history" viewBox="0 0 24 24">
             <path d="M5.75 3.5h12.5"/>
             <path d="M5.75 20.5h12.5"/>
@@ -3908,22 +3964,63 @@
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
                 <div class="menu-buttons">
-                    <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
-                    <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
-                    <div class="setting-row" style="margin: 2px 4px 4px;">
-                        <div class="setting-label">Rellotge</div>
-                        <select id="new-game-tc-select" class="select-control">
-                            <option value="none">Sense rellotge</option>
-                            <option value="30s">Bullet 30s</option>
-                            <option value="1+0">Bullet 1+0</option>
-                            <option value="3+2">Blitz 3+2</option>
-                            <option value="5+0">Blitz 5+0</option>
-                            <option value="10+0">Ràpid 10+0</option>
-                            <option value="15+10">Clàssic 15+10</option>
-                        </select>
+                    <!-- Un sol bloc de joc: tria de rellotge ben visible i els
+                         tres modes contra el motor (nova, assistida i lliga) -->
+                    <div class="play-card">
+                        <div class="play-clock" role="group" aria-label="Rellotge de la partida">
+                            <div class="play-clock-head">
+                                <span class="play-clock-title"><svg class="btn-ic" aria-hidden="true"><use href="#ic-clock"/></svg>Rellotge</span>
+                                <span class="play-clock-current" id="play-clock-current">Sense rellotge</span>
+                            </div>
+                            <div class="play-clock-chips" id="play-clock-chips">
+                                <button type="button" class="play-clock-chip active" data-tc="none" title="Sense rellotge"><span class="pcc-time">∞</span><span class="pcc-kind">Sense</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="30s" title="Bullet 30 segons"><span class="pcc-time">30s</span><span class="pcc-kind">Bullet</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="1+0" title="Bullet 1 minut"><span class="pcc-time">1+0</span><span class="pcc-kind">Bullet</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="3+2" title="Blitz 3 minuts + 2 segons per jugada"><span class="pcc-time">3+2</span><span class="pcc-kind">Blitz</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="5+0" title="Blitz 5 minuts"><span class="pcc-time">5+0</span><span class="pcc-kind">Blitz</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="10+0" title="Ràpid 10 minuts"><span class="pcc-time">10+0</span><span class="pcc-kind">Ràpid</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="15+10" title="Clàssic 15 minuts + 10 segons per jugada"><span class="pcc-time">15+10</span><span class="pcc-kind">Clàssic</span></button>
+                            </div>
+                            <!-- El desplegable original queda amagat com a FONT DE LA VERITAT:
+                                 tota la lògica existent hi segueix llegint i escrivint; les
+                                 fitxes de sobre només el pinten i l'actualitzen. -->
+                            <select id="new-game-tc-select" class="select-control" style="display:none;" aria-hidden="true" tabindex="-1">
+                                <option value="none">Sense rellotge</option>
+                                <option value="30s">Bullet 30s</option>
+                                <option value="1+0">Bullet 1+0</option>
+                                <option value="3+2">Blitz 3+2</option>
+                                <option value="5+0">Blitz 5+0</option>
+                                <option value="10+0">Ràpid 10+0</option>
+                                <option value="15+10">Clàssic 15+10</option>
+                            </select>
+                        </div>
+                        <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
+                        <div class="play-modes menu-grid">
+                            <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
+                            <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
+                        </div>
+                        <div class="play-clock-hint">El rellotge triat val per a la partida nova i l'assistida; la lliga juga amb el ritme propi de la temporada.</div>
                     </div>
 
-                    <!-- Partides cooperatives (col·lectives), just sota el rellotge -->
+                    <div class="league-banner" id="league-banner" style="display:none;">
+                        <div class="league-banner-header">
+                            <span>🏅 Proper partit de lliga</span>
+                            <span class="league-badge" id="league-banner-opp-rank">#—</span>
+                        </div>
+                        <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
+                        <div class="league-banner-body">
+                            <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
+                            <div class="league-banner-ranks">
+                                <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
+                                <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
+                            </div>
+                        </div>
+                        <div class="league-banner-actions">
+                            <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
+                        </div>
+                    </div>
+
+                    <!-- Partides cooperatives (col·lectives) -->
                     <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
                         <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
                         <span class="catalans-banner-text">
@@ -3944,25 +4041,6 @@
                             <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
                         </span>
                     </button>
-
-                    <div class="league-banner" id="league-banner" style="display:none;">
-                        <div class="league-banner-header">
-                            <span>🏅 Proper partit de lliga</span>
-                            <span class="league-badge" id="league-banner-opp-rank">#—</span>
-                        </div>
-                        <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
-                        <div class="league-banner-body">
-                            <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
-                            <div class="league-banner-ranks">
-                                <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
-                                <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
-                            </div>
-                        </div>
-                        <div class="league-banner-actions">
-                            <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
-                        </div>
-                    </div>
-                    <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                 </div>
             </div>
 

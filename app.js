@@ -4658,6 +4658,20 @@ function estimateAssistedGamePerformance(resultScore, precision, avgCpLoss, blun
     };
 }
 
+// Sincronitza les fitxes del rellotge de la pàgina principal amb el desplegable
+// (amagat) #new-game-tc-select, que segueix sent la FONT DE LA VERITAT del ritme
+// triat: les fitxes només el pinten (activa) i n'ensenyen l'etiqueta completa.
+function refreshPlayClockChips() {
+    const sel = document.getElementById('new-game-tc-select');
+    const current = (sel && sel.value) || 'none';
+    document.querySelectorAll('#play-clock-chips .play-clock-chip').forEach(chip => {
+        chip.classList.toggle('active', chip.getAttribute('data-tc') === current);
+    });
+    const tc = TIME_CONTROLS.find(t => t.id === current) || TIME_CONTROLS[0];
+    const label = document.getElementById('play-clock-current');
+    if (label) label.textContent = tc.label;
+}
+
 // Engega la partida de calibratge d'un ritme des d'Estadístiques: fixa el
 // rellotge del ritme i obre una partida nova; startGame detecta que el ritme
 // no té ELO i activa el mode de calibratge adaptatiu automàticament.
@@ -4673,6 +4687,7 @@ function startTimeControlCalibration(tcId) {
     pendingFreeTimeControl = tcId;
     const sel = document.getElementById('new-game-tc-select');
     if (sel) sel.value = tcId;
+    refreshPlayClockChips();
     novaPartida();
 }
 
@@ -17758,6 +17773,12 @@ function setupEvents() {
     // comença sempre a "sense rellotge".
     $('#new-game-tc-select').off('change').on('change', function() {
         pendingFreeTimeControl = $(this).val() || 'none';
+        refreshPlayClockChips();
+    });
+    // Fitxes visuals del rellotge: escriuen el desplegable amagat i disparen el
+    // seu change, de manera que tota la lògica existent continua igual.
+    $('#play-clock-chips').off('click').on('click', '.play-clock-chip', function () {
+        $('#new-game-tc-select').val($(this).attr('data-tc') || 'none').trigger('change');
     });
 
     // Rellotge de la lliga: només es pot triar abans de jugar el primer partit; un cop
@@ -25822,6 +25843,7 @@ $(document).ready(() => {
     pendingFreeTimeControl = 'none';
     const tcSel = document.getElementById('new-game-tc-select');
     if (tcSel) tcSel.value = pendingFreeTimeControl;
+    refreshPlayClockChips();
     generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
     if (__customId) {
         setTimeout(function () { openCustomGameScreen(__customId, false); }, 0);
