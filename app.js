@@ -225,6 +225,7 @@ const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
+const DEFAULT_INITIAL_BOARD_FEN = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4';
 // El calibratge obligatori és UNA SOLA partida: el rival comença suau (ROC 300)
 // i s'ADAPTA DINS DE LA PARTIDA a la qualitat de joc demostrada (proporció de
 // jugades bones, amb tot el rang ROC disponible), de manera que un principiant i
@@ -21734,7 +21735,8 @@ blunderMode = isBundle;
     updateCalibrationProgressUI();
     updateEloDisplay();
     
-    game = new Chess(fen || undefined);
+    const initialFen = fen || DEFAULT_INITIAL_BOARD_FEN;
+    game = new Chess(initialFen);
     resetGameMoveNav();
     // En començar una partida/posició nova, elimina qualsevol marca de la
     // partida anterior abans que el resize inicial pugui reaplicar-la sobre
