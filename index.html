@@ -2600,6 +2600,31 @@
         .history-summary-tile .hst-value {
             font-size: 1.15rem; font-weight: 600; color: var(--text-primary);
         }
+        /* Pestanyes de l'historial: partides pròpies / partides PGN */
+        .history-tabs {
+            display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px;
+        }
+        .history-tab {
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(201,162,39,0.25);
+            color: var(--text-secondary);
+            border-radius: 999px; padding: 7px 16px;
+            font-size: 0.88rem; font-weight: 600; cursor: pointer;
+        }
+        .history-tab.active {
+            background: linear-gradient(135deg,#b5121b,#7a0c12);
+            color: #fff5e6; border-color: transparent; font-weight: 700;
+        }
+        body.epaper-mode .history-tab { background: #ededed; border-color: #777; color: #222; }
+        body.epaper-mode .history-tab.active { background: #222; color: #fff; }
+        body.day-mode .history-tab { background: rgba(120,95,40,0.08); border-color: rgba(120,95,40,0.22); }
+        body.day-mode .history-tab.active { background: linear-gradient(135deg,#b5121b,#7a0c12); color: #fff5e6; }
+        /* Capçalera de la revisió d'una partida PGN: jugadors, torneig i data */
+        .hist-imported-players {
+            margin: 0 0 10px 0; padding-bottom: 8px;
+            border-bottom: 1px solid rgba(201,162,39,0.25);
+            font-size: 0.95rem;
+        }
         .history-list-head {
             display: flex; align-items: baseline; justify-content: space-between;
             gap: 8px; margin-bottom: 10px;
@@ -3738,13 +3763,47 @@
         #checkmate-overlay .checkmate-image {
             display: block;
             margin: 0 auto;
-        }        
+        }
  .review-actions {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
             justify-content: center;
             margin-top: 12px;
+        }
+
+        /* ── Finestres flotants de final de partida i de primera anàlisi a
+           l'ordinador ─────────────────────────────────────────────────────
+           A escriptori aquestes finestres no es queden a l'amplada fixa de
+           mòbil (380px): s'eixamplen proporcionalment amb la pantalla, amb un
+           topall perquè el text no faci línies quilomètriques. Inclou la
+           resolució de la partida (#review-modal, també lliga/calibratge/
+           rellotge), el mat (#checkmate-overlay), la resolució del repte de
+           fase, la confirmació de rendició i el diàleg de confirmació que
+           proposa la primera anàlisi d'una partida importada
+           (#app-confirm-modal). */
+        body.device-desktop #review-modal .modal-content {
+            max-width: clamp(380px, 64vw, 960px);
+        }
+        /* Amb la finestra ampla, els botons d'acció comparteixen fila en lloc
+           d'apilar-se a tota l'amplada (ja eren contenidors amb flex-wrap). */
+        body.device-desktop #review-modal .review-actions .btn,
+        body.device-desktop #review-modal .growth-rec-actions .btn {
+            flex: 1 1 240px;
+            width: auto;
+        }
+        body.device-desktop #review-modal .checkmate-image {
+            width: clamp(180px, 18vw, 300px);
+        }
+        body.device-desktop #checkmate-overlay .checkmate-image {
+            width: clamp(220px, 26vw, 380px);
+        }
+        body.device-desktop #phase-replay-overlay .bundle-success-content {
+            max-width: clamp(340px, 52vw, 760px);
+        }
+        body.device-desktop #app-confirm-modal .modal-content,
+        body.device-desktop #resign-modal .modal-content {
+            max-width: clamp(380px, 44vw, 640px);
         }
 
         /* Historial en mòbil: el DOM ja va en l'ordre de lectura
@@ -4647,15 +4706,21 @@
             <div class="stats-header">
                 <div class="app-logo history-logo"><svg class="history-logo-ic" aria-hidden="true"><use href="#ic-history"/></svg></div>
                 <h1>Historial</h1>
-                <div class="history-subtitle">Les teves partides, amb revisió jugada a jugada i reptes per millorar-les.</div>
+                <div class="history-subtitle">Les teves partides i les que carreguis en PGN (p. ex. de grans mestres), amb revisió jugada a jugada i reptes per millorar-les.</div>
             </div>
 
             <!-- Resum ràpid de tot l'historial -->
             <div class="history-summary" id="history-summary"></div>
 
             <div class="history-section">
+                <!-- Pestanyes: partides jugades a l'app / partides carregades amb PGN
+                     (aquestes poden ser de grans mestres i van a la seva pròpia llista) -->
+                <div class="history-tabs" role="tablist" aria-label="Tipus de partides">
+                    <button class="history-tab active" id="history-tab-mine" role="tab" aria-selected="true" type="button">Les meves partides</button>
+                    <button class="history-tab" id="history-tab-pgn" role="tab" aria-selected="false" type="button">Partides PGN</button>
+                </div>
                 <div class="history-list-head">
-                    <div class="history-title">Partides guardades</div>
+                    <div class="history-title" id="history-list-title">Partides guardades</div>
                     <div class="history-count" id="history-count"></div>
                     <button class="btn btn-secondary history-import-btn" id="btn-import-pgn" type="button" title="Importa una partida externa (PGN) per analitzar-la aquí"><svg class="hg-ic" aria-hidden="true"><use href="#ic-import"/></svg> Importa PGN</button>
                 </div>
@@ -4671,7 +4736,6 @@
                         <option value="free">Amistoses</option>
                         <option value="assisted">Assistides</option>
                         <option value="league">Lliga</option>
-                        <option value="imported">Importades</option>
                     </select>
                     <select id="history-filter-prec" class="select-control" aria-label="Filtra per precisió">
                         <option value="0">Qualsevol precisió</option>

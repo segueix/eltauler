@@ -164,9 +164,11 @@
   function hasMeaningfulLocalData() {
     const elo = localStorage.getItem('chess_userELO');
     const games = localStorage.getItem('chess_gameHistory');
+    const imported = localStorage.getItem('chess_importedGameHistory');
     const errors = localStorage.getItem('chess_savedErrors');
     if (elo && parseInt(elo, 10) > 50) return true;
     try { if (games && JSON.parse(games).length > 0) return true; } catch (e) {}
+    try { if (imported && JSON.parse(imported).length > 0) return true; } catch (e) {}
     try { if (errors && JSON.parse(errors).length > 0) return true; } catch (e) {}
     if (localStorage.getItem('chess_totalGamesPlayed') &&
         parseInt(localStorage.getItem('chess_totalGamesPlayed'), 10) > 0) return true;

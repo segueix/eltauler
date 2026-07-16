@@ -2028,6 +2028,27 @@
         return null;
     }
 
+    // Nom llegible dels jugadors d'una partida importada, per a la llista i la
+    // revisió: «Blanques – Negres» segons les capçaleres del PGN. Si el PGN no
+    // duu noms, es recorre al nom del fitxer (sense extensió i amb els
+    // separadors _-. convertits en espais): els fitxers de partides de grans
+    // mestres solen dur-hi els jugadors. Retorna null si no hi ha res d'útil.
+    function pgnPlayersLabel(headers, fileName) {
+        const clean = v => {
+            const s = String(v == null ? '' : v).trim();
+            return s && s !== '?' ? s : null;
+        };
+        const white = clean(headers && headers.White);
+        const black = clean(headers && headers.Black);
+        if (white || black) return (white || 'Blanques') + ' – ' + (black || 'Negres');
+        const file = String(fileName || '')
+            .replace(/\.[^./\\]+$/, '')
+            .replace(/[_\-.]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+        return file || null;
+    }
+
     // Endevina amb quin color jugava l'usuari a partir de les capçaleres
     // White/Black i el seu nom d'usuari. Retorna 'w', 'b' o null si no és
     // clar (cap coincidència, o coincidència amb tots dos colors).
@@ -2052,6 +2073,7 @@
         parsePgnHeaders,
         sanitizePgnMoveText,
         pgnResultToLabel,
+        pgnPlayersLabel,
         guessPlayerColorFromPgnHeaders,
         clampElo,
         bestLineEvalScore,
