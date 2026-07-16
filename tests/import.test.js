@@ -153,6 +153,34 @@ describe('pgnResultToLabel', () => {
     });
 });
 
+describe('pgnPlayersLabel', () => {
+    test('amb capçaleres White/Black retorna «Blanques – Negres»', () => {
+        expect(Core.pgnPlayersLabel({ White: 'Kasparov, Garry', Black: 'Topalov, Veselin' }, null))
+            .toBe('Kasparov, Garry – Topalov, Veselin');
+    });
+
+    test('les capçaleres tenen prioritat sobre el nom del fitxer', () => {
+        expect(Core.pgnPlayersLabel({ White: 'Alba', Black: 'Bernat' }, 'partida_club.pgn'))
+            .toBe('Alba – Bernat');
+    });
+
+    test('amb només un nom conegut, l\'altre costat queda genèric', () => {
+        expect(Core.pgnPlayersLabel({ White: 'Morphy, Paul', Black: '?' }, null)).toBe('Morphy, Paul – Negres');
+        expect(Core.pgnPlayersLabel({ Black: 'Carlsen, Magnus' }, null)).toBe('Blanques – Carlsen, Magnus');
+    });
+
+    test('sense noms al PGN es recorre al nom del fitxer netejat', () => {
+        expect(Core.pgnPlayersLabel({}, 'kasparov_vs_karpov-1990.pgn')).toBe('kasparov vs karpov 1990');
+        expect(Core.pgnPlayersLabel({ White: '?', Black: '?' }, 'Fischer-Spassky.PGN')).toBe('Fischer Spassky');
+    });
+
+    test('sense noms ni fitxer dona null', () => {
+        expect(Core.pgnPlayersLabel({}, null)).toBeNull();
+        expect(Core.pgnPlayersLabel(null, '')).toBeNull();
+        expect(Core.pgnPlayersLabel({ White: ' ', Black: '?' }, '   ')).toBeNull();
+    });
+});
+
 describe('guessPlayerColorFromPgnHeaders', () => {
     const headers = { White: 'DanielMas', Black: 'rival_fort' };
 

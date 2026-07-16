@@ -84,7 +84,9 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   neteja del movetext (comentaris `{...}` i `;`, variants niades, NAGs, números
   de jugada enganxats, enroc amb zeros, resultat), rejugada legal dels tokens
   netejats amb chess.js real, mapatge Result→etiqueta de l'historial (coherent
-  amb `entryOutcome`) i detecció del color del jugador pel nom d'usuari.
+  amb `entryOutcome`), detecció del color del jugador pel nom d'usuari i el nom
+  llegible dels jugadors (`pgnPlayersLabel`: capçaleres White/Black amb
+  prioritat i, si no n'hi ha, el nom del fitxer PGN netejat).
 - **`voice-nomenclature.test.js`** — nomenclatura de jugades per veu (font única
   de veritat): `descriuJugadaPerVeu` (redactor) redacta la MATEIXA jugada com a
   acció en infinitiu (casual: «portar el cavall de f3 a h4»), clàusula sense

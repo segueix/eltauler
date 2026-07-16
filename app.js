@@ -112,8 +112,55 @@ let openingErrorMovesRemaining = 2; // Jugades restants per completar
 let openingErrorCurrentIndex = -1; // Índex de la posició actual
 
 let gameHistory = [];
+// Partides carregades amb PGN (poden ser d'altres jugadors, p. ex. grans
+// mestres): viuen a la seva pròpia llista i pestanya de l'historial, separades
+// de les partides pròpies perquè no en desplacin cap ni comptin a les
+// estadístiques personals. Se'n conserven com a màxim IMPORTED_HISTORY_MAX.
+let importedGameHistory = [];
+const IMPORTED_HISTORY_MAX = 10;
+let historyActiveTab = 'mine'; // pestanya activa de l'historial: 'mine' | 'pgn'
 let historyBoard = null;
 let historyReplay = null;
+
+// Una entrada de l'historial és de la pestanya PGN (importada)?
+function historyEntryIsImported(entry) {
+    return !!entry && (entry.imported === true || entry.mode === 'imported');
+}
+
+// Busca una entrada per id a les dues llistes de l'historial (pròpies i PGN).
+function findHistoryEntryById(id) {
+    if (!id) return null;
+    return gameHistory.find(e => e && e.id === id)
+        || importedGameHistory.find(e => e && e.id === id)
+        || null;
+}
+
+// Llista de partides de la pestanya activa de l'historial.
+function activeHistoryList() {
+    return historyActiveTab === 'pgn' ? importedGameHistory : gameHistory;
+}
+
+// Migració a les pestanyes de l'historial: les partides importades que vivien
+// barrejades amb les pròpies a gameHistory passen a la seva llista, i les
+// entrades velles sense nom de jugadors el recuperen de les capçaleres del PGN.
+function migrateImportedHistoryEntries() {
+    if (!Array.isArray(importedGameHistory)) importedGameHistory = [];
+    if (Array.isArray(gameHistory) && gameHistory.some(historyEntryIsImported)) {
+        const moved = gameHistory.filter(historyEntryIsImported);
+        gameHistory = gameHistory.filter(e => !historyEntryIsImported(e));
+        moved.forEach(e => {
+            if (!importedGameHistory.some(x => x && x.id === e.id)) importedGameHistory.push(e);
+        });
+    }
+    importedGameHistory.forEach(e => {
+        if (e && !e.players) {
+            e.players = ElTaulerCore.pgnPlayersLabel(e.importHeaders || null, e.sourceFile || null);
+        }
+    });
+    if (importedGameHistory.length > IMPORTED_HISTORY_MAX) {
+        importedGameHistory = importedGameHistory.slice(-IMPORTED_HISTORY_MAX);
+    }
+}
 // Moment clau actiu a la revisió: { beforeFen, played, best }. Es desa per poder
 // reaplicar els ressaltats (la teva jugada en vermell, la millor en verd) si el
 // tauler es redibuixa (p. ex. en un resize, que reconstrueix les caselles).
@@ -1080,7 +1127,10 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         hieroglyphicStats: hieroglyphicStats,
         preparedExerciseHistory: typeof preparedExerciseHistory !== 'undefined' ? preparedExerciseHistory : []
     };
-    if (includeGameHistory) base.gameHistory = gameHistory;
+    if (includeGameHistory) {
+        base.gameHistory = gameHistory;
+        base.importedGameHistory = importedGameHistory;
+    }
     return base;
 }
 
@@ -1478,6 +1528,8 @@ function importBackupData(data) {
     leagueActiveMatch = data.leagueActiveMatch || null;
     reviewHistory = data.reviewHistory || [];
     gameHistory = data.gameHistory || [];
+    importedGameHistory = Array.isArray(data.importedGameHistory) ? data.importedGameHistory : [];
+    migrateImportedHistoryEntries(); // còpies antigues duien les importades dins gameHistory
     if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
     if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0 }, data.tacticsStats);
     if (data.hieroglyphicStats && typeof data.hieroglyphicStats === 'object') hieroglyphicStats = Object.assign(hieroglyphicStats, data.hieroglyphicStats);
@@ -5170,6 +5222,9 @@ function loadStorage() {
     const lMatch = localStorage.getItem('chess_leagueActiveMatch'); if (lMatch) leagueActiveMatch = JSON.parse(lMatch);
     const reviews = localStorage.getItem('chess_reviewHistory'); if (reviews) reviewHistory = JSON.parse(reviews);
     const gameHistoryStored = localStorage.getItem('chess_gameHistory'); if (gameHistoryStored) gameHistory = JSON.parse(gameHistoryStored);
+    const importedHistoryStored = localStorage.getItem('chess_importedGameHistory');
+    importedGameHistory = importedHistoryStored ? JSON.parse(importedHistoryStored) : [];
+    migrateImportedHistoryEntries();
     const storedAdjustmentWindow = localStorage.getItem('chess_freeAdjustmentWindow');
     if (storedAdjustmentWindow) {
         try {
@@ -5258,7 +5313,8 @@ function saveStorage() {
     localStorage.setItem('chess_calibrationProfile', JSON.stringify(calibrationProfile));
     localStorage.setItem('chess_calibratgeComplet', String(calibratgeComplet));
     localStorage.setItem('chess_reviewHistory', JSON.stringify(reviewHistory));
-    localStorage.setItem('chess_gameHistory', JSON.stringify(gameHistory));    
+    localStorage.setItem('chess_gameHistory', JSON.stringify(gameHistory));
+    localStorage.setItem('chess_importedGameHistory', JSON.stringify(importedGameHistory));
     localStorage.setItem('chess_currentElo', currentElo);
     localStorage.setItem('chess_recentErrors', JSON.stringify(recentErrors));
     localStorage.setItem('chess_freeAdjustmentWindow', JSON.stringify(freeAdjustmentWindow));
@@ -8370,7 +8426,9 @@ function importedPgnDate(headers) {
 // Construeix una entrada de l'historial (mateixa forma que recordGameHistory)
 // a partir d'una partida importada. Arriba SENSE anàlisi (moveReviews buit):
 // l'anàlisi es fa després amb el motor, sota demanda o en acceptar l'avís.
-function buildImportedHistoryEntry(parsedGame, playerColor) {
+// sourceFileName és el nom del fitxer PGN triat (si n'hi havia): serveix de
+// recanvi per posar nom als jugadors quan el PGN no duu capçaleres White/Black.
+function buildImportedHistoryEntry(parsedGame, playerColor, sourceFileName) {
     const headers = parsedGame.headers || {};
     const now = new Date();
     const gameDate = importedPgnDate(headers);
@@ -8381,6 +8439,8 @@ function buildImportedHistoryEntry(parsedGame, playerColor) {
     return {
         id: `import_${now.getTime()}_${Math.floor(Math.random() * 10000)}`,
         label: '📥 ' + (gameDate || now).toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }),
+        players: ElTaulerCore.pgnPlayersLabel(headers, sourceFileName || null),
+        sourceFile: sourceFileName || null,
         date: (gameDate || now).toISOString(),
         mode: 'imported',
         result: ElTaulerCore.pgnResultToLabel(headers.Result, color) || 'Partida importada',
@@ -8547,8 +8607,12 @@ async function analyzeHistoryEntryFromScratch(entry, opts = {}) {
         entry.analyzedAt = new Date().toISOString();
         entry.updatedAt = entry.analyzedAt;
         // Alimenta la biblioteca d'errors i el mapa de debilitats amb les
-        // errades greus, com si la partida s'hagués jugat dins l'app.
-        entry.severeErrors.forEach(err => {
+        // errades greus, com si la partida s'hagués jugat dins l'app — però
+        // NOMÉS per a partides pròpies: les de la pestanya PGN poden ser
+        // d'altres jugadors (grans mestres) i les seves errades no diuen res
+        // del nostre joc. La revisió de la mateixa partida (errades i encerts
+        // comentats, gràfic, moments clau) es conserva igualment sencera.
+        if (!historyEntryIsImported(entry)) entry.severeErrors.forEach(err => {
             if (!err.fen) return;
             if (!savedErrors.some(e => e.fen === err.fen)) {
                 savedErrors.push({
@@ -9135,7 +9199,10 @@ function updateHistoryDetails(entry) {
         return;
     }
 
-    resultEl.text(entry.result || '—');
+    // A les partides PGN el titular del detall són els jugadors (capçaleres o
+    // nom del fitxer); el resultat es manté a la línia de metadades.
+    const detailImported = historyEntryIsImported(entry);
+    resultEl.text(detailImported && entry.players ? entry.players : (entry.result || '—'));
     precisionEl.text(typeof entry.precision === 'number' ? `${entry.precision}%` : '—');
     if (precisionPill.length) {
         precisionPill.removeClass('hp-good hp-mid hp-low');
@@ -9143,8 +9210,15 @@ function updateHistoryDetails(entry) {
         if (pillCls) precisionPill.addClass(pillCls);
     }
     const movesLabel = `${Math.ceil(getHistoryMoves(entry).length / 2)} jugades`;
-    const meta = `${entry.label || '—'} · ${describeHistoryGame(entry)} · ${movesLabel}`;
-    metaEl.text(meta);
+    const metaParts = [];
+    if (detailImported && entry.players && entry.result) metaParts.push(entry.result);
+    metaParts.push(entry.label || '—');
+    if (detailImported && entry.importHeaders && entry.importHeaders.Event && entry.importHeaders.Event !== '?') {
+        metaParts.push(entry.importHeaders.Event);
+    }
+    metaParts.push(describeHistoryGame(entry), movesLabel);
+    if (detailImported && entry.sourceFile) metaParts.push(`📄 ${entry.sourceFile}`);
+    metaEl.text(metaParts.join(' · '));
 
     const counts = entry.counts || { excel: 0, good: 0, inaccuracy: 0, mistake: 0, blunder: 0 };
     breakdown.html(`
@@ -9208,9 +9282,13 @@ async function runHistoryEntryAnalysisWithUi(entry) {
 
 // ── Modal d'importació de PGN ────────────────────────────────────────────────
 let pgnImportParsedGames = [];
+// Nom del fitxer PGN triat (si l'usuari n'ha carregat un): d'aquí surten els
+// noms dels jugadors quan el PGN no duu capçaleres White/Black.
+let pgnImportFileName = null;
 
 function openPgnImportModal() {
     pgnImportParsedGames = [];
+    pgnImportFileName = null;
     $('#pgn-import-text').val('');
     $('#pgn-import-games').empty();
     $('#pgn-import-status').hide().text('');
@@ -9250,8 +9328,9 @@ function renderPgnImportGames(games) {
     const username = getUsername();
     const rows = games.map((g, idx) => {
         const h = g.headers || {};
-        const white = (h.White && h.White !== '?') ? h.White : 'Blanques';
-        const black = (h.Black && h.Black !== '?') ? h.Black : 'Negres';
+        // Títol amb els jugadors: capçaleres del PGN o, si no n'hi ha, el nom
+        // del fitxer carregat (habitual en reculls de partides de grans mestres).
+        const players = ElTaulerCore.pgnPlayersLabel(h, pgnImportFileName) || 'Blanques – Negres';
         const result = (h.Result && h.Result !== '*') ? h.Result : 'inacabada';
         const nMoves = Math.ceil(g.moves.length / 2);
         // Si el nom d'usuari coincideix amb White o Black, el color ja ve triat.
@@ -9265,7 +9344,7 @@ function renderPgnImportGames(games) {
             : '';
         return `
             <div class="pgn-import-game">
-                <div class="pgn-import-game-title">${escapeHtml(white)} – ${escapeHtml(black)} · ${escapeHtml(result)} · ${nMoves} jugades</div>
+                <div class="pgn-import-game-title">${escapeHtml(players)} · ${escapeHtml(result)} · ${nMoves} jugades</div>
                 ${extra ? `<div class="pgn-import-game-meta">${escapeHtml(extra)}</div>` : ''}
                 ${warn}
                 <div class="pgn-import-game-row">
@@ -9291,13 +9370,18 @@ function importPgnGameAt(idx) {
     if (!parsed) return;
     const colorSel = $(`#pgn-import-games .pgn-import-color[data-idx="${idx}"]`);
     const color = colorSel.val() === 'b' ? 'b' : 'w';
-    const entry = buildImportedHistoryEntry(parsed, color);
-    gameHistory.push(entry);
-    if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
+    const entry = buildImportedHistoryEntry(parsed, color, pgnImportFileName);
+    // Les partides PGN van a la seva pròpia llista (pestanya «Partides PGN»),
+    // amb un màxim de IMPORTED_HISTORY_MAX: les noves desplacen les més velles
+    // sense tocar mai les partides pròpies.
+    importedGameHistory.push(entry);
+    if (importedGameHistory.length > IMPORTED_HISTORY_MAX) {
+        importedGameHistory = importedGameHistory.slice(-IMPORTED_HISTORY_MAX);
+    }
     saveStorage();
     closePgnImportModal();
-    renderGameHistory();
-    loadHistoryEntry(entry);
+    historyReplay = null; // que la pestanya PGN s'obri amb la partida acabada d'importar
+    setHistoryActiveTab('pgn');
     showToast('Partida importada a l\'historial 📥', 'success');
     // L'anàlisi és el que dona valor a la importació (ressenya, errades,
     // exercicis), però gasta motor una estona: es demana, no s'imposa.
@@ -9321,11 +9405,21 @@ function updateHistoryReview(entry) {
     // carregada (es pot tornar a demanar la redacció amb OpenAI tantes vegades
     // com calgui). Si no hi ha clau d'OpenAI configurada, en clicar-lo s'avisa.
     if (generateBtn.length) generateBtn.prop('disabled', false);
+    // Capçalera de la revisió de les partides PGN: els jugadors (de les
+    // capçaleres del PGN o del nom del fitxer), torneig i data si se saben.
+    let playersLine = '';
+    if (historyEntryIsImported(entry) && entry.players) {
+        const bits = [`<strong>${escapeHtml(entry.players)}</strong>`];
+        const ih = entry.importHeaders || {};
+        if (ih.Event && ih.Event !== '?') bits.push(escapeHtml(ih.Event));
+        if (ih.Date && ih.Date !== '????.??.??') bits.push(escapeHtml(ih.Date));
+        playersLine = `<p class="hist-imported-players">${bits.join(' · ')}</p>`;
+    }
     // Partida sense anàlisi de jugades (importada d'un PGN i encara no
     // analitzada): la ressenya no tindria dades reals, així que en lloc de
     // text buit es guia cap al botó d'anàlisi.
     if ((!Array.isArray(entry.moveReviews) || !entry.moveReviews.length) && getHistoryMoves(entry).length) {
-        reviewContent.html('<p>Aquesta partida encara no s\'ha analitzat. Prem <strong>«Analitza la partida»</strong> (sota el tauler) perquè el motor avaluï cada jugada teva i l\'entrenador en pugui escriure la ressenya, amb les errades comentades i els exercicis derivats.</p>');
+        reviewContent.html(playersLine + '<p>Aquesta partida encara no s\'ha analitzat. Prem <strong>«Analitza la partida»</strong> (sota el tauler) perquè el motor avaluï cada jugada del color triat i l\'entrenador en pugui escriure la ressenya, amb les errades i els encerts comentats.</p>');
         return;
     }
     const review = entry.aiReview || entry.deepseekReview || entry.geminiReview || null;
@@ -9333,7 +9427,7 @@ function updateHistoryReview(entry) {
     // moments clau) es mostra SEMPRE, fins i tot quan hi ha una ressenya d'OpenAI:
     // la d'OpenAI, si n'hi ha, va a dalt com a redacció addicional.
     const localHtml = renderLocalReviewHtml(entry, { voiceStyle: historyReviewVoiceStyle() });
-    let html = '';
+    let html = playersLine;
     if (review && review.text) {
         html += `<div class="ai-review-text">${formatOpenAIReviewText(review.text)}</div>`;
     } else if (review && review.status === 'pending') {
@@ -10675,7 +10769,7 @@ function showPhaseReplayOverlay(st) {
     const retryBtn = $('#btn-phase-replay-retry');
     retryBtn.off('click').on('click', () => {
         overlay.hide();
-        const entry = gameHistory.find(g => g.id === st.entryId);
+        const entry = findHistoryEntryById(st.entryId);
         if (!entry) {
             showToast('La partida original ja no és a l\'historial.', 'warn');
             returnToHistoryFromPhaseReplay();
@@ -10699,8 +10793,8 @@ function returnToHistoryFromPhaseReplay() {
     $('#history-screen').show();
     initHistoryBoard();
     renderGameHistory();
-    const entry = targetId ? gameHistory.find(g => g.id === targetId) : null;
-    if (entry) loadHistoryEntry(entry);
+    const entry = targetId ? findHistoryEntryById(targetId) : null;
+    if (entry) openHistoryEntry(entry);
     navPush('history-screen');
     setTimeout(() => resizeHistoryBoardToViewport(), 0);
 }
@@ -12828,7 +12922,9 @@ let historyFilters = { result: 'all', mode: 'all', prec: 0 };
 
 function historyEntryPasses(entry) {
     if (historyFilters.result !== 'all' && entryOutcome(entry) !== historyFilters.result) return false;
-    if (historyFilters.mode !== 'all' && entry.mode !== historyFilters.mode) return false;
+    // El filtre de mode només té sentit a la pestanya de partides pròpies (a la
+    // pestanya PGN totes són importades i el desplegable està amagat).
+    if (historyActiveTab !== 'pgn' && historyFilters.mode !== 'all' && entry.mode !== historyFilters.mode) return false;
     if (historyFilters.prec > 0 && (typeof entry.precision !== 'number' || entry.precision < historyFilters.prec)) return false;
     return true;
 }
@@ -12850,10 +12946,28 @@ function precisionPillClass(p) {
     return 'hp-low';
 }
 
-// Fitxes-resum de la capçalera de l'historial: partides, balanç i precisió mitjana.
+// Fitxes-resum de la capçalera de l'historial, segons la pestanya activa:
+// per a les partides pròpies, partides/balanç/precisió; per a la pestanya PGN,
+// quantes partides hi ha (del màxim de 10) i quantes estan analitzades.
 function renderHistorySummary() {
     const el = $('#history-summary');
     if (!el.length) return;
+    const tile = (label, value) => `<div class="history-summary-tile"><div class="hst-label">${label}</div><div class="hst-value">${value}</div></div>`;
+    if (historyActiveTab === 'pgn') {
+        if (!importedGameHistory.length) { el.empty().hide(); return; }
+        let analyzed = 0, precSum = 0, precN = 0;
+        importedGameHistory.forEach(e => {
+            if (Array.isArray(e.moveReviews) && e.moveReviews.length) analyzed++;
+            if (typeof e.precision === 'number') { precSum += e.precision; precN++; }
+        });
+        const avg = precN ? Math.round(precSum / precN) : null;
+        el.html(
+            tile('Partides PGN', `${importedGameHistory.length} de ${IMPORTED_HISTORY_MAX}`) +
+            tile('Analitzades', String(analyzed)) +
+            tile('Precisió mitjana', avg === null ? '—' : `${avg}%`)
+        ).show();
+        return;
+    }
     if (!gameHistory.length) { el.empty().hide(); return; }
     let wins = 0, losses = 0, draws = 0, precSum = 0, precN = 0;
     gameHistory.forEach(e => {
@@ -12864,12 +12978,51 @@ function renderHistorySummary() {
         if (typeof e.precision === 'number') { precSum += e.precision; precN++; }
     });
     const avg = precN ? Math.round(precSum / precN) : null;
-    const tile = (label, value) => `<div class="history-summary-tile"><div class="hst-label">${label}</div><div class="hst-value">${value}</div></div>`;
     el.html(
         tile('Partides', String(gameHistory.length)) +
         tile('Balanç', `${wins}V · ${draws}E · ${losses}D`) +
         tile('Precisió mitjana', avg === null ? '—' : `${avg}%`)
     ).show();
+}
+
+// Sincronitza els botons de pestanya de l'historial (actiu, comptadors), el
+// títol de la llista i la visibilitat del filtre de mode amb la pestanya activa.
+function syncHistoryTabsUi() {
+    const mineBtn = $('#history-tab-mine');
+    const pgnBtn = $('#history-tab-pgn');
+    if (!mineBtn.length || !pgnBtn.length) return;
+    const isPgn = historyActiveTab === 'pgn';
+    mineBtn.toggleClass('active', !isPgn).attr('aria-selected', String(!isPgn));
+    pgnBtn.toggleClass('active', isPgn).attr('aria-selected', String(isPgn));
+    mineBtn.text(`Les meves partides${gameHistory.length ? ` (${gameHistory.length})` : ''}`);
+    pgnBtn.text(`Partides PGN${importedGameHistory.length ? ` (${importedGameHistory.length})` : ''}`);
+    $('#history-filter-mode').toggle(!isPgn);
+    const titleEl = $('#history-list-title');
+    if (titleEl.length) titleEl.text(isPgn ? 'Partides importades (PGN)' : 'Partides jugades a l\'app');
+}
+
+// Canvia la pestanya activa de l'historial. Si la partida seleccionada no és
+// de la pestanya nova, es deixa anar i renderGameHistory carrega la més nova.
+function setHistoryActiveTab(tab) {
+    const next = tab === 'pgn' ? 'pgn' : 'mine';
+    if (historyActiveTab !== next) {
+        historyActiveTab = next;
+        const current = historyReplay && historyReplay.entry;
+        if (!current || historyEntryIsImported(current) !== (next === 'pgn')) historyReplay = null;
+    }
+    renderGameHistory();
+}
+
+// Obre una entrada concreta assegurant que la seva pestanya (pròpies o PGN)
+// està activa; les tornades de reptes i repassos d'errades passen per aquí.
+function openHistoryEntry(entry) {
+    if (!entry) return;
+    const tab = historyEntryIsImported(entry) ? 'pgn' : 'mine';
+    if (historyActiveTab !== tab) {
+        historyActiveTab = tab;
+        renderGameHistory();
+    }
+    loadHistoryEntry(entry);
 }
 
 // Marca la partida seleccionada a la llista sense repintar-la sencera.
@@ -12883,20 +13036,28 @@ function syncHistoryListActive() {
 function renderGameHistory() {
     const container = $('#history-list');
     if (!container.length) return;
+    syncHistoryTabsUi();
     renderHistorySummary();
+    const list = activeHistoryList();
     const countEl = $('#history-count');
-    if (!gameHistory.length) {
-        container.html('<div class="history-empty">Encara no hi ha partides guardades. Juga una partida o importa\'n una en PGN i la revisió apareixerà aquí.</div>');
+    if (!list.length) {
+        container.html(`<div class="history-empty">${historyActiveTab === 'pgn'
+            ? 'Encara no hi ha cap partida PGN. Prem «Importa PGN» per carregar-ne una (p. ex. de grans mestres) i podràs rejugar-la i analitzar-la aquí.'
+            : 'Encara no hi ha partides guardades. Juga una partida i la revisió apareixerà aquí.'}</div>`);
         if (countEl.length) countEl.text('');
-        historyReplay = null;
-        updateHistoryDetails(null);
+        // El detall només es buida si la partida oberta ja no existeix enlloc
+        // (l'altra pestanya pot seguir tenint la seva selecció carregada).
+        if (!historyReplay || !historyReplay.entry || !findHistoryEntryById(historyReplay.entry.id)) {
+            historyReplay = null;
+            updateHistoryDetails(null);
+        }
         return;
     }
-    const filtered = gameHistory.filter(historyEntryPasses);
+    const filtered = list.filter(historyEntryPasses);
     if (countEl.length) {
-        countEl.text(filtered.length === gameHistory.length
-            ? `${gameHistory.length} ${gameHistory.length === 1 ? 'partida' : 'partides'}`
-            : `${filtered.length} de ${gameHistory.length}`);
+        countEl.text(filtered.length === list.length
+            ? `${list.length} ${list.length === 1 ? 'partida' : 'partides'}`
+            : `${filtered.length} de ${list.length}`);
     }
     if (!filtered.length) {
         container.html('<div class="history-empty">Cap partida coincideix amb els filtres.</div>');
@@ -12910,12 +13071,26 @@ function renderGameHistory() {
             const movesCount = Math.ceil(getHistoryMoves(entry).length / 2);
             const om = historyOutcomeMeta(entry);
             const prec = typeof entry.precision === 'number' ? entry.precision : null;
-            const meta = `${entry.label || '—'} · ${describeHistoryGame(entry)} · ${movesCount} jugades`;
+            const imported = historyEntryIsImported(entry);
+            // A la pestanya PGN el titular són els jugadors (capçaleres del PGN
+            // o nom del fitxer) i el resultat original passa a la línia de sota.
+            const title = imported
+                ? (entry.players || entry.result || 'Partida PGN')
+                : (entry.result || '—');
+            const metaParts = [];
+            if (imported && entry.players) {
+                const rawResult = entry.importHeaders && entry.importHeaders.Result && entry.importHeaders.Result !== '*'
+                    ? entry.importHeaders.Result
+                    : entry.result;
+                if (rawResult) metaParts.push(rawResult);
+            }
+            metaParts.push(entry.label || '—', describeHistoryGame(entry), `${movesCount} jugades`);
+            const meta = metaParts.join(' · ');
             return `
                 <div class="history-item ${om.cls}${entry.id === activeId ? ' active' : ''}" data-history-id="${entry.id}" role="button" tabindex="0" title="Obre el detall i la revisió d'aquesta partida">
                     <div class="history-item-icon" aria-hidden="true">${om.icon}</div>
                     <div class="history-item-main">
-                        <div class="history-item-title">${escapeHtml(entry.result || '—')}</div>
+                        <div class="history-item-title">${escapeHtml(title)}</div>
                         <div class="history-item-meta">${escapeHtml(meta)}</div>
                     </div>
                     <div class="history-item-side">
@@ -12932,7 +13107,7 @@ function renderGameHistory() {
         if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
         const id = $(this).data('history-id');
-        const entry = gameHistory.find(item => item.id === id);
+        const entry = findHistoryEntryById(id);
         if (!entry) return;
         loadHistoryEntry(entry);
         syncHistoryListActive();
@@ -12950,14 +13125,19 @@ function renderGameHistory() {
     $('.history-delete').off('click').on('click', function(e) {
         if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
         const id = $(this).data('history-id');
-        const entry = gameHistory.find(item => item.id === id);
+        const entry = findHistoryEntryById(id);
         if (!entry) return;
         showAppConfirm(
             'Segur que vols esborrar aquesta partida de l\'historial? Aquesta acció no es pot desfer.',
             () => {
-                const idx = gameHistory.findIndex(item => item.id === id);
-                if (idx === -1) return;
-                gameHistory.splice(idx, 1);
+                // L'entrada pot ser d'una llista o de l'altra: esborra d'on sigui.
+                const ownIdx = gameHistory.findIndex(item => item.id === id);
+                if (ownIdx !== -1) gameHistory.splice(ownIdx, 1);
+                else {
+                    const impIdx = importedGameHistory.findIndex(item => item.id === id);
+                    if (impIdx === -1) return;
+                    importedGameHistory.splice(impIdx, 1);
+                }
                 try { saveStorage(); } catch (err) { console.warn('[Historial] esborrar', err); }
                 // Si esborrem la partida que s'estava mostrant, buida el detall perquè
                 // renderGameHistory en carregui una altra (o mostri l'estat buit).
@@ -12971,7 +13151,7 @@ function renderGameHistory() {
         );
     });
     if (!historyReplay || !historyReplay.entry) {
-        loadHistoryEntry(gameHistory[gameHistory.length - 1]);
+        loadHistoryEntry(list[list.length - 1]);
     }
 }
 
@@ -17879,6 +18059,10 @@ function setupEvents() {
         historyFilters.prec = parseInt($('#history-filter-prec').val(), 10) || 0;
         renderGameHistory();
     });
+    // Pestanyes de l'historial: partides pròpies / partides PGN importades.
+    $('#history-tab-mine, #history-tab-pgn').off('click').on('click', function () {
+        setHistoryActiveTab(this.id === 'history-tab-pgn' ? 'pgn' : 'mine');
+    });
     // Importació de partides externes (PGN): modal amb enganxat de text o fitxer.
     $('#btn-import-pgn').off('click').on('click', openPgnImportModal);
     $('#pgn-import-cancel').off('click').on('click', closePgnImportModal);
@@ -17889,6 +18073,7 @@ function setupEvents() {
         const file = this.files && this.files[0];
         this.value = ''; // permet tornar a triar el mateix fitxer
         if (!file) return;
+        pgnImportFileName = file.name || null;
         const reader = new FileReader();
         reader.onload = () => {
             $('#pgn-import-text').val(String(reader.result || ''));
@@ -17897,9 +18082,14 @@ function setupEvents() {
         reader.onerror = () => pgnImportSetStatus('No s\'ha pogut llegir el fitxer.', true);
         reader.readAsText(file);
     });
+    // Si l'usuari escriu o enganxa text a mà, el PGN ja no és el del fitxer
+    // triat: el nom del fitxer deixa de valer per batejar els jugadors.
+    $('#pgn-import-text').off('input').on('input', () => { pgnImportFileName = null; });
     $('#btn-export-all-pgn').off('click').on('click', () => {
-        if (!gameHistory.length) { showToast('No hi ha partides per exportar', 'warn'); return; }
-        const pgns = gameHistory.map(e => buildEntryPgn(e)).filter(p => p && p.trim());
+        // «Tot l'historial» són les dues pestanyes: partides pròpies i PGN.
+        const allEntries = gameHistory.concat(importedGameHistory);
+        if (!allEntries.length) { showToast('No hi ha partides per exportar', 'warn'); return; }
+        const pgns = allEntries.map(e => buildEntryPgn(e)).filter(p => p && p.trim());
         if (!pgns.length) { showToast('No hi ha partides amb moviments per exportar', 'warn'); return; }
         const blob = new Blob([pgns.join('\n\n\n')], { type: 'application/x-chess-pgn' });
         const url = URL.createObjectURL(blob);
@@ -18420,7 +18610,7 @@ function setupEvents() {
             aiDifficulty = levelToDifficulty(currentElo); recentGames = []; consecutiveWins = 0; consecutiveLosses = 0;
             isCalibrating = true; calibrationGames = []; calibrationProfile = null; calibratgeComplet = false;
             currentLeague = null; leagueActiveMatch = null;
-            reviewHistory = []; currentReview = []; gameHistory = []; adaptationReport = [];
+            reviewHistory = []; currentReview = []; gameHistory = []; importedGameHistory = []; adaptationReport = [];
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
             timeControlElos = {};
             saveStorage(); generateDailyMissions(); updateDisplay();
@@ -20510,8 +20700,8 @@ function returnToHistoryScreenFromErrorPractice() {
     initHistoryBoard();
     renderGameHistory();
     if (selectedId) {
-        const entry = gameHistory.find(g => g.id === selectedId);
-        if (entry) loadHistoryEntry(entry);
+        const entry = findHistoryEntryById(selectedId);
+        if (entry) openHistoryEntry(entry);
     }
     navPush('history-screen');
     setTimeout(() => resizeHistoryBoardToViewport(), 0);
@@ -22530,7 +22720,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
                 initHistoryBoard();
                 renderGameHistory();
                 const latestEntry = gameHistory[gameHistory.length - 1];
-                if (latestEntry) loadHistoryEntry(latestEntry);
+                if (latestEntry) openHistoryEntry(latestEntry); // sempre a la pestanya de partides pròpies
                 navStack = []; navPush('history-screen');
                 setTimeout(() => resizeHistoryBoardToViewport(), 0);
             }
