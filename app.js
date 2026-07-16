@@ -19454,6 +19454,11 @@ function setupEvents() {
     });
 
     // Fletxes de navegació de jugades (sota el tauler, al costat del nom del color)
+    $('#btn-move-start').click(() => {
+        if (!board || !game) return;
+        if (game.history().length <= 0) return;
+        stepGameMoveNav(-game.history().length);
+    });
     $('#btn-move-back').click(() => stepGameMoveNav(-1));
     $('#btn-move-fwd').click(() => stepGameMoveNav(1));
 
@@ -22055,7 +22060,7 @@ function resetGameMoveNav() {
 function updateGameMoveNavButtons() {
     const total = (game && game.history) ? game.history().length : 0;
     const current = (gameViewPly === null) ? total : gameViewPly;
-    $('#btn-move-back').prop('disabled', current <= 0);
+    $('#btn-move-start, #btn-move-back').prop('disabled', current <= 0);
     $('#btn-move-fwd').prop('disabled', gameViewPly === null);
 }
 
