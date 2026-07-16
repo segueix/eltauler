@@ -4634,6 +4634,7 @@ function getAdaptiveNormalized() {
 
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
 function getActiveStrengthElo() {
+    if (currentGameMode === 'fen_max') return ELO_MAX;
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
     if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
     // Repte «Rejugar +5%»: el rival juga a la força de la partida original,
@@ -14161,6 +14162,73 @@ function requestOpeningErrorBestMoveForUser() {
     } catch (e) {}
 }
 
+
+function canContinueOpeningErrorFenGame() {
+    return !!(openingPracticeGame && !openingPracticeGame.game_over());
+}
+
+function continueOpeningErrorFenGame() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+    const fen = openingPracticeGame.fen();
+    const orientation = openingBundleBoard && typeof openingBundleBoard.orientation === 'function'
+        ? openingBundleBoard.orientation()
+        : (openingPracticeGame.turn() === 'w' ? 'white' : 'black');
+    exitOpeningErrorPractice();
+    $('#opening-error-success-overlay').hide();
+    $('#start-screen, #opening-screen').hide();
+    $('#game-screen').addClass('active').show();
+    navPush('game-screen');
+    game = new Chess(fen);
+    playerColor = openingPracticeUserColor === 'b' ? 'b' : 'w';
+    blunderMode = false;
+    currentGameMode = 'fen_max';
+    currentOpponent = { id: 'fen-max', name: 'ELO màxim', elo: ELO_MAX };
+    currentGameActiveStrengthElo = ELO_MAX;
+    currentGameEngineDepth = eloToSearchDepth(ELO_MAX);
+    isEngineThinking = false;
+    engineMoveApplyPending = false;
+    pendingMoveEvaluation = false;
+    totalPlayerMoves = 0;
+    totalEngineMoves = 0;
+    goodMoves = 0;
+    goodEngineMoves = 0;
+    if (board) board.destroy();
+    board = Chessboard('myBoard', {
+        orientation: orientation === 'black' ? 'black' : 'white',
+        draggable: (controlMode === 'drag'),
+        position: game.fen(),
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd,
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+    if (controlMode === 'tap') { detachDragGuards(); disableTapToMove(); enableTapToMove(); }
+    else { disableTapToMove(); attachDragGuards(); clearTapSelection(); }
+    ensureStockfish();
+    if (stockfish) applyEngineEloStrength(ELO_MAX);
+    $('#engine-elo').text(`ELO ${ELO_MAX}`);
+    $('#game-mode-title').text('♟ Continua contra ELO màxim');
+    $('#btn-resign').show().prop('disabled', false);
+    $('#btn-analyze').toggle(false);
+    clearEngineMoveHighlights();
+    resetGameMoveNav();
+    updatePrecisionDisplay();
+    updateAIPrecisionDisplay();
+    updateStatus();
+    setTimeout(() => { resizeBoardToViewport(); }, 0);
+    if (game.turn() !== playerColor) {
+        setTimeout(makeEngineMove, 300);
+    }
+    return true;
+}
+
+function wireContinueOpeningErrorFenButton(overlay) {
+    const btn = overlay.find('.btn-continue-fen-game');
+    const show = canContinueOpeningErrorFenGame();
+    btn.toggle(show).prop('disabled', !show).text(`♟ Continua contra ELO màxim`);
+    btn.off('click').on('click', () => { continueOpeningErrorFenGame(); });
+}
+
 function showOpeningErrorSuccessOverlay(noMore) {
     const overlay = $('#opening-error-success-overlay');
     if (!overlay.length) {
@@ -14194,6 +14262,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
         console.log('[Overlay] btnAgain.style.display:', btnAgain.style.display);
     }
 
+    wireContinueOpeningErrorFenButton(overlay);
     overlay.css('display', 'flex');
 
     // Event handlers
@@ -21573,7 +21642,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
         }
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     $('#bundle-success-overlay').hide();
-    $('#btn-bundle-continue-game').hide();
+    $('.btn-continue-fen-game').hide();
     $('#bundle-category-success-overlay').hide(); 
     $('#match-error-success-overlay').hide();
     if (!isBundle) isRandomBundleSession = false;
@@ -23358,11 +23427,14 @@ function continueSolvedFenGame() {
     currentBundleFen = null;
     currentBundleSource = null;
     currentBundleSeverity = null;
-    currentGameMode = 'free';
-    currentOpponent = null;
+    currentGameMode = 'fen_max';
+    currentOpponent = { id: 'fen-max', name: 'ELO màxim', elo: ELO_MAX };
+    currentGameActiveStrengthElo = ELO_MAX;
+    currentGameEngineDepth = eloToSearchDepth(ELO_MAX);
+    if (stockfish) applyEngineEloStrength(ELO_MAX);
     if (board) board.draggable = (controlMode === 'drag');
-    updateAdaptiveEngineEloLabel();
-    $('#game-mode-title').text('♟ Continua la partida');
+    $('#engine-elo').text(`ELO ${ELO_MAX}`);
+    $('#game-mode-title').text('♟ Continua contra ELO màxim');
     $('#btn-resign').show().prop('disabled', false);
     $('#btn-analyze').toggle(false);
     updateStatus();
@@ -23376,9 +23448,11 @@ function continueSolvedFenGame() {
 }
 
 function wireContinueSolvedFenButton(overlay) {
-    const btn = overlay.find('#btn-bundle-continue-game');
-    if (!btn.length) return;
+    const btn = overlay.find('.btn-continue-fen-game');
     const show = canContinueSolvedFenGame();
+    $('.btn-continue-fen-game').hide().prop('disabled', true).off('click');
+    if (!btn.length) return;
+    btn.text(`♟ Continua contra ELO màxim`);
     btn.toggle(show).prop('disabled', !show);
     btn.off('click').on('click', () => { continueSolvedFenGame(); });
 }
@@ -23527,6 +23601,7 @@ function showCategoryBundleSuccessOverlay() {
     overlay.find('.bundle-success-remaining').text(remainingText);
     const againBtn = overlay.find('#btn-bundle-category-again');
     againBtn.prop('disabled', remaining === 0 || !severity);
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
 
     againBtn.off('click').on('click', () => {
