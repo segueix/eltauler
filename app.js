@@ -17868,6 +17868,7 @@ function showHieroglyphicSuccessOverlay() {
     overlay.find('.bundle-success-remaining').text('').hide();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         sectionLabel: `${HG_ICON_SVG} Jeroglífics`,
@@ -20059,6 +20060,7 @@ function showSrsSuccessOverlay() {
     overlay.find('.bundle-success-title').text('Repàs fet ✅');
     overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara').show();
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isSrsReviewSession = false; goToHomeScreen(); },
@@ -20156,6 +20158,7 @@ function showDailyPuzzleOverlay() {
     overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`).show();
     const hasMoreProblems = Array.isArray(TACTICS_BANK) && TACTICS_BANK.length > 0;
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isDailyPuzzleSession = false; goToHomeScreen(); },
@@ -20244,6 +20247,7 @@ function showTacticsOverlay() {
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`).show();
     // El botó de secció (⚡ Tàctiques) ja llança la següent tàctica.
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isTacticsSession = false; goToHomeScreen(); },
@@ -20260,6 +20264,7 @@ function showHieroglyphicBundleOverlay() {
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${hieroglyphicStats.solved || 0} · Ratxa: ${hieroglyphicStats.currentStreak || 0} · Rècord: ${hieroglyphicStats.bestStreak || 0}`).show();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         sectionLabel: `${HG_ICON_SVG} Jeroglífics`,
@@ -21568,6 +21573,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
         }
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     $('#bundle-success-overlay').hide();
+    $('#btn-bundle-continue-game').hide();
     $('#bundle-category-success-overlay').hide(); 
     $('#match-error-success-overlay').hide();
     if (!isBundle) isRandomBundleSession = false;
@@ -23334,6 +23340,49 @@ function wireNavTrio(overlay, opts = {}) {
     }
 }
 
+
+function canContinueSolvedFenGame() {
+    return !!(game && !game.game_over() && blunderMode);
+}
+
+function continueSolvedFenGame() {
+    if (!game || game.game_over()) return false;
+    $('#bundle-success-overlay, #bundle-category-success-overlay, #match-error-success-overlay, #opening-error-success-overlay').hide();
+    blunderMode = false;
+    bundleFixedSequence = null;
+    bundleSequenceStep = 1;
+    bundleStepStartFen = null;
+    bundleAutoReplyPending = false;
+    isBundleStrictAnalysis = false;
+    pendingMoveEvaluation = false;
+    currentBundleFen = null;
+    currentBundleSource = null;
+    currentBundleSeverity = null;
+    currentGameMode = 'free';
+    currentOpponent = null;
+    if (board) board.draggable = (controlMode === 'drag');
+    updateAdaptiveEngineEloLabel();
+    $('#game-mode-title').text('♟ Continua la partida');
+    $('#btn-resign').show().prop('disabled', false);
+    $('#btn-analyze').toggle(false);
+    updateStatus();
+    updateBundleHintButtons();
+    resetGameMoveNav();
+    if (board) board.position(game.fen(), false);
+    if (game.turn() !== playerColor) {
+        setTimeout(makeEngineMove, 300);
+    }
+    return true;
+}
+
+function wireContinueSolvedFenButton(overlay) {
+    const btn = overlay.find('#btn-bundle-continue-game');
+    if (!btn.length) return;
+    const show = canContinueSolvedFenGame();
+    btn.toggle(show).prop('disabled', !show);
+    btn.off('click').on('click', () => { continueSolvedFenGame(); });
+}
+
 function handleBundleSuccess() {
     bundleSequenceStep = 1;
     bundleStepStartFen = null;
@@ -23440,6 +23489,7 @@ function showRandomBundleSuccessOverlay() {
         remaining > 0 ? `${remaining} Blunders pendents` : 'No queda cap Blunder pendent'
     ).show();
     overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
 
     $('#btn-bundle-random-again').off('click').on('click', () => {
@@ -26660,6 +26710,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
     overlay.find('.bundle-success-title').text(titleText);
     overlay.find('.bundle-success-remaining').text('Pla diari actualitzat').show();
     overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false).toggle(true);
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     $('#btn-bundle-random-again').off('click').on('click', () => {
         overlay.hide();
