@@ -9543,7 +9543,7 @@ function enterExplorerEditMode() {
     const turnSel = document.getElementById('explorer-edit-turn');
     if (turnSel) turnSel.value = explorerGame.turn();
     createExplorerBoard(true);
-    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status, #explorer-opening').hide();
+    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status, #explorer-opening').hide();
     $('#explorer-edit-toolbar').show();
 }
 
@@ -9583,7 +9583,7 @@ function exitExplorerEditMode(apply) {
     }
     explorerEditMode = false;
     $('#explorer-edit-toolbar').hide();
-    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status').show();
+    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status').show();
     if (apply) {
         setupExplorerPosition(nextFen);
     } else {
@@ -9605,7 +9605,7 @@ function openExplorer(fen, opts = {}) {
     explorerActive = true;
     explorerEditMode = false;
     $('#explorer-edit-toolbar').hide();
-    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status').show();
+    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status').show();
     if (opts.pushHistory !== false) navPush('explorer-screen');
     try { requestBackgroundPrepAbort(); } catch (e) {}
     const initialFen = fen || ANALYSIS_BOARD_INITIAL_FEN;

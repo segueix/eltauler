@@ -5077,6 +5077,45 @@
                     z-index: 1;
                 }
             }
+            /* Contenidor de la informació lateral (avaluació + jugades + «Juga-la
+               contra Stockfish»). Per defecte és transparent (display:contents): a
+               mòbil, tauleta i finestres d'ordinador estretes, els seus fills flueixen
+               sota el tauler tal com abans. A l'ordinador ample passa a ser la columna
+               dreta (vegeu la media query de sota). */
+            #explorer-side { display: contents; }
+
+            /* ORDINADOR AMPLE: tauler (més gran) a l'esquerra i la informació a la
+               dreta. Es limita a finestres prou amples perquè, en un ordinador amb
+               finestra estreta, es mantingui la disposició d'una sola columna. */
+            @media (min-width: 900px) {
+                body.device-desktop #explorer-screen {
+                    display: grid;
+                    grid-template-columns: minmax(0, 520px) minmax(300px, 360px);
+                    justify-content: center;
+                    align-items: start;
+                    column-gap: 28px;
+                }
+                body.device-desktop #explorer-screen .stats-header { grid-column: 1 / -1; }
+                body.device-desktop #explorer-screen .history-board,
+                body.device-desktop #explorer-screen #explorer-status,
+                body.device-desktop #explorer-screen #explorer-opening,
+                body.device-desktop #explorer-screen #explorer-nav,
+                body.device-desktop #explorer-screen #explorer-tools,
+                body.device-desktop #explorer-screen #explorer-edit-toolbar,
+                body.device-desktop #explorer-screen .menu-buttons { grid-column: 1; }
+                /* El tauler, una mica més gran que els 360px per defecte. */
+                body.device-desktop #explorer-screen .history-board { max-width: 480px; }
+                /* Columna dreta: al costat del tauler (fila 2) i alineada a dalt. */
+                body.device-desktop #explorer-screen #explorer-side {
+                    grid-column: 2;
+                    grid-row: 2;
+                    align-self: start;
+                    display: flex;
+                    flex-direction: column;
+                }
+                body.device-desktop #explorer-screen #explorer-side .explorer-eval-card { margin-bottom: 12px; }
+                body.device-desktop #explorer-screen #explorer-side .explorer-moves { margin: 0 0 12px; }
+            }
         </style>
         <div id="explorer-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
@@ -5097,21 +5136,26 @@
                 <button class="btn btn-secondary" id="explorer-flip" aria-label="Gira el tauler" title="Gira el tauler"><svg class="btn-ic" aria-hidden="true"><use href="#ic-flip"/></svg></button>
             </div>
 
-            <div class="explorer-eval-card" id="explorer-eval-card">
-                <div class="explorer-eval-bar" title="Barra d'avaluació (part blanca = avantatge blanc)"><div class="explorer-eval-fill" id="explorer-eval-fill"></div></div>
-                <div class="explorer-eval-row">
-                    <span class="explorer-eval-value" id="explorer-eval-value">—</span>
-                    <span class="explorer-eval-depth" id="explorer-eval-depth"></span>
+            <!-- Informació lateral: a l'ordinador va a la DRETA del tauler; a
+                 mòbil/tauleta flueix sota el tauler (el contenidor és display:contents). -->
+            <div id="explorer-side">
+                <div class="explorer-eval-card" id="explorer-eval-card">
+                    <div class="explorer-eval-bar" title="Barra d'avaluació (part blanca = avantatge blanc)"><div class="explorer-eval-fill" id="explorer-eval-fill"></div></div>
+                    <div class="explorer-eval-row">
+                        <span class="explorer-eval-value" id="explorer-eval-value">—</span>
+                        <span class="explorer-eval-depth" id="explorer-eval-depth"></span>
+                    </div>
+                    <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
+                    <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
+                    <button class="btn btn-secondary explorer-play-best" id="explorer-play-best" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Juga la millor jugada</button>
                 </div>
-                <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
-                <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
-                <button class="btn btn-secondary explorer-play-best" id="explorer-play-best" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Juga la millor jugada</button>
+
+                <div class="explorer-moves" id="explorer-moves"></div>
+
+                <button class="btn btn-primary" id="explorer-play-vs" style="width:100%;">♟ Juga-la contra Stockfish</button>
             </div>
 
-            <div class="explorer-moves" id="explorer-moves"></div>
-
             <div id="explorer-tools">
-                <button class="btn btn-primary" id="explorer-play-vs" style="width:100%; margin-bottom:10px;">♟ Juga-la contra Stockfish</button>
                 <div class="explorer-fen-row">
                     <input type="text" id="explorer-fen-input" spellcheck="false" autocomplete="off" aria-label="FEN de la posició" placeholder="Enganxa un FEN…">
                     <button class="btn btn-secondary" id="explorer-fen-load">Carrega</button>
@@ -6128,7 +6172,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.47"></script>
+    <script src="app.js?v=1.0.48"></script>
 
     <!-- Service Worker Registration -->
     <script>
