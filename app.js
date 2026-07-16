@@ -1437,6 +1437,135 @@ function buildHistoryReviewText(entry) {
     return lines.join('\n');
 }
 
+
+// Lectura local de les ressenyes amb la veu del dispositiu. No envia cap text
+// fora de l'app: usa Web Speech API quan el navegador exposa speechSynthesis.
+const REVIEW_TTS_STATE = {
+    voicesReady: false,
+    isSpeaking: false,
+    isPaused: false,
+    lastText: ''
+};
+
+function reviewTtsSupported() {
+    return typeof window !== 'undefined'
+        && 'speechSynthesis' in window
+        && typeof window.SpeechSynthesisUtterance === 'function';
+}
+
+function normalizeTextForCatalanTTS(text) {
+    let out = String(text || '');
+    try {
+        if (typeof ElTaulerRedactor !== 'undefined' && ElTaulerRedactor && typeof ElTaulerRedactor.corregirCatala === 'function') {
+            out = ElTaulerRedactor.corregirCatala(out);
+        }
+    } catch (e) {}
+    return out
+        .replace(/\u00a0/g, ' ')
+        .replace(/\bPGN\b/g, 'pe ge ena')
+        .replace(/\bELO\b/g, 'elo')
+        .replace(/\bCP\b/g, 'centipeons')
+        .replace(/0-0-0/g, 'enroc llarg')
+        .replace(/0-0/g, 'enroc curt')
+        .replace(/([0-9]+)%/g, '$1 per cent')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+function getCatalanSpeechVoice() {
+    if (!reviewTtsSupported()) return null;
+    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+    return voices.find(v => /^ca([_-]|$)/i.test(v.lang || ''))
+        || voices.find(v => /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
+        || null;
+}
+
+function setReviewTtsStatus(text) {
+    const el = document.getElementById('history-tts-status');
+    if (el) el.textContent = text || '';
+}
+
+function updateReviewTtsButtons() {
+    const supported = reviewTtsSupported();
+    const hasEntry = !!(historyReplay && historyReplay.entry);
+    const playBtn = $('#history-tts-play');
+    const pauseBtn = $('#history-tts-pause');
+    const stopBtn = $('#history-tts-stop');
+    if (!playBtn.length) return;
+    playBtn.prop('disabled', !supported || !hasEntry);
+    pauseBtn.prop('disabled', !supported || !REVIEW_TTS_STATE.isSpeaking);
+    stopBtn.prop('disabled', !supported || (!REVIEW_TTS_STATE.isSpeaking && !REVIEW_TTS_STATE.isPaused));
+    const playLabel = REVIEW_TTS_STATE.isPaused ? 'Reprèn' : (REVIEW_TTS_STATE.isSpeaking ? 'Llegint…' : 'Escolta');
+    const playIcon = REVIEW_TTS_STATE.isPaused ? 'ic-play' : 'ic-play';
+    playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#${playIcon}"/></svg>${playLabel}`);
+    if (!supported) setReviewTtsStatus('Lectura local no disponible en aquest navegador.');
+    else if (!hasEntry) setReviewTtsStatus('Selecciona una partida per escoltar-ne la ressenya.');
+    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint la ressenya amb la veu local del dispositiu.');
+    else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
+    else {
+        const caVoice = getCatalanSpeechVoice();
+        setReviewTtsStatus(caVoice ? `Veu local: ${caVoice.name}` : 'No he trobat cap veu catalana local; provaré ca-ES amb la veu del dispositiu.');
+    }
+}
+
+function stopReviewTts() {
+    if (!reviewTtsSupported()) return;
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    REVIEW_TTS_STATE.isSpeaking = false;
+    REVIEW_TTS_STATE.isPaused = false;
+    updateReviewTtsButtons();
+}
+
+function pauseReviewTts() {
+    if (!reviewTtsSupported()) return;
+    try {
+        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+            window.speechSynthesis.pause();
+            REVIEW_TTS_STATE.isPaused = true;
+            REVIEW_TTS_STATE.isSpeaking = false;
+        }
+    } catch (e) {}
+    updateReviewTtsButtons();
+}
+
+function speakCurrentReview() {
+    if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
+    if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer.', 'warn'); updateReviewTtsButtons(); return; }
+    if (window.speechSynthesis.paused && REVIEW_TTS_STATE.isPaused) {
+        try { window.speechSynthesis.resume(); } catch (e) {}
+        REVIEW_TTS_STATE.isPaused = false;
+        REVIEW_TTS_STATE.isSpeaking = true;
+        updateReviewTtsButtons();
+        return;
+    }
+    const raw = buildHistoryReviewText(historyReplay.entry);
+    const text = normalizeTextForCatalanTTS(raw);
+    if (!text) { showToast('No hi ha text de ressenya per llegir.', 'warn'); return; }
+    stopReviewTts();
+    const utterance = new SpeechSynthesisUtterance(text);
+    utterance.lang = 'ca-ES';
+    const voice = getCatalanSpeechVoice();
+    if (voice) utterance.voice = voice;
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.onstart = () => { REVIEW_TTS_STATE.isSpeaking = true; REVIEW_TTS_STATE.isPaused = false; updateReviewTtsButtons(); };
+    utterance.onend = () => { REVIEW_TTS_STATE.isSpeaking = false; REVIEW_TTS_STATE.isPaused = false; updateReviewTtsButtons(); };
+    utterance.onerror = () => { REVIEW_TTS_STATE.isSpeaking = false; REVIEW_TTS_STATE.isPaused = false; setReviewTtsStatus("No s\'ha pogut completar la lectura local."); updateReviewTtsButtons(); };
+    REVIEW_TTS_STATE.lastText = text;
+    try { window.speechSynthesis.speak(utterance); } catch (e) { showToast("No s\'ha pogut iniciar la lectura local.", 'warn'); }
+    updateReviewTtsButtons();
+}
+
+function initReviewTts() {
+    if (!reviewTtsSupported()) { updateReviewTtsButtons(); return; }
+    try {
+        window.speechSynthesis.onvoiceschanged = () => { REVIEW_TTS_STATE.voicesReady = true; updateReviewTtsButtons(); };
+        window.speechSynthesis.getVoices();
+    } catch (e) {}
+    updateReviewTtsButtons();
+}
+
 // Exporta el text generat de la ressenya. La baixada clàssica via <a download>
 // és poc fiable a mòbil (iOS/PWA), així que provem, en ordre: compartir el
 // fitxer (mòbil pot "Desa a Fitxers"), baixar-lo (escriptori) i, com a últim
@@ -9196,6 +9325,8 @@ function updateHistoryDetails(entry) {
         $('#history-moves').hide().empty();
         updateHistoryProgress();
         updateHistoryControls();
+        stopReviewTts();
+        updateReviewTtsButtons();
         return;
     }
 
@@ -9235,6 +9366,7 @@ function updateHistoryDetails(entry) {
     updateHistoryProgress();
     updateHistoryControls();
     updateHistoryDeepenButton(entry);
+    updateReviewTtsButtons();
 }
 
 // El botó del motor de l'historial té dues cares: per a una partida SENSE
@@ -18455,6 +18587,10 @@ function setupEvents() {
         historyReviewVoiceOverride = null;
         showToast('Veu per defecte actualitzada.', 'success');
     });
+    $('#history-tts-play').off('click').on('click', () => { speakCurrentReview(); });
+    $('#history-tts-pause').off('click').on('click', () => { pauseReviewTts(); });
+    $('#history-tts-stop').off('click').on('click', () => { stopReviewTts(); });
+    initReviewTts();
 
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }

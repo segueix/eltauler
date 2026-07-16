@@ -3085,6 +3085,28 @@
             font-size: 0.8rem;
             min-height: 38px;
         }
+        .review-tts-control {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex-wrap: wrap;
+            margin: -2px 0 12px;
+        }
+        .review-tts-control .btn {
+            width: auto;
+            flex: 0 0 auto;
+            min-height: 38px;
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+        .review-tts-status {
+            flex: 1 1 160px;
+            min-width: 0;
+            color: var(--text-secondary);
+            font-size: 0.78rem;
+            line-height: 1.25;
+            text-align: left;
+        }
         body.device-mobile .review-voice-control .select-control { flex: 1 1 140px; }
         .history-review-content {
             font-size: 1.15rem;
@@ -3966,6 +3988,9 @@
         <symbol id="ic-pause" viewBox="0 0 24 24">
             <rect x="6" y="4" width="4" height="16" rx="1"/>
             <rect x="14" y="4" width="4" height="16" rx="1"/>
+        </symbol>
+        <symbol id="ic-stop" viewBox="0 0 24 24">
+            <rect x="6" y="6" width="12" height="12" rx="2"/>
         </symbol>
         <symbol id="ic-skip-forward" viewBox="0 0 24 24">
             <polygon points="5 4 15 12 5 20 5 4"/>
@@ -4857,6 +4882,12 @@
                                         <option value="technical">Tècnica</option>
                                     </select>
                                     <button type="button" class="btn btn-secondary" id="history-voice-default">Fer per defecte</button>
+                                </div>
+                                <div class="review-tts-control" id="history-tts-control">
+                                    <button type="button" class="btn btn-primary" id="history-tts-play"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Escolta</button>
+                                    <button type="button" class="btn btn-secondary" id="history-tts-pause" aria-label="Pausa la lectura" title="Pausa la lectura"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg></button>
+                                    <button type="button" class="btn btn-secondary" id="history-tts-stop" aria-label="Atura la lectura" title="Atura la lectura"><svg class="btn-ic" aria-hidden="true"><use href="#ic-stop"/></svg></button>
+                                    <span class="review-tts-status" id="history-tts-status">Lectura local del dispositiu</span>
                                 </div>
                                 <div class="history-review-content" id="history-review-content">—</div>
                                 <div id="history-error-notes-block" style="display:none;">
