@@ -126,6 +126,10 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
 - **Privadesa:** les dades viuen al teu Firestore privat, accessible només amb el
   teu compte. La clau API d'OpenAI **no** es sincronitza per seguretat (pots
   canviar-ho amb `SYNC_OPENAI_KEY = true` a `cloudsync.js`).
+- **Preferències per dispositiu:** el control del tauler (Tocar/Arrossegar)
+  tampoc **no** se sincronitza: cada aparell conserva la seva opció, perquè al
+  mòbil sol anar millor «Tocar» i a l'ordinador «Arrossegar» (vegeu
+  `EXCLUDE_KEYS` a `cloudsync.js`).
 - **Offline:** si no hi ha connexió, l'app funciona igual; els canvis es pugen
   quan torna la xarxa (Firestore manté una cua local).
 - **Límit:** un document de Firestore admet fins a 1 MB. L'historial de partides

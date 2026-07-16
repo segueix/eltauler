@@ -9103,6 +9103,7 @@ let explorerAnalysisToken = 0;     // descarta respostes del motor d'una posici�
 let explorerAnalysisTimer = null;  // petit debounce entre jugada i anàlisi
 let explorerLastBest = null;       // { fen, uci } de la millor jugada analitzada
 let explorerTapSquare = null;      // casella seleccionada en mode «tocar»
+let explorerLastTapEventTs = 0;    // antirebot: pointerdown+touchstart del mateix toc
 let explorerAnalysisRetries = 0;   // reintents si el motor no respon (contenció)
 let explorerBoardControlMode = null; // mode de control aplicat al tauler d'anàlisi
 
@@ -9140,35 +9141,68 @@ function createExplorerBoard(editMode) {
     updateExplorerBoardInteractivity();
 }
 
-// Mode «tocar» (preferència de control de l'usuari): tocar peça i destí.
+// Mode «tocar» (preferència de control de l'usuari): tocar peça i destí, amb
+// les MATEIXES indicacions que el tauler de joc (casella seleccionada marcada
+// i cercles als destins legals: classes compartides tap-selected/tap-move).
+function highlightExplorerTapSelection(square) {
+    $('#explorer-board .square-55d63').removeClass('tap-selected tap-move');
+    const moves = explorerGame ? explorerGame.moves({ square: square, verbose: true }) : [];
+    if (moves.length === 0) return false;
+
+    $(`#explorer-board .square-55d63[data-square='${square}']`).addClass('tap-selected');
+    for (const mv of moves) {
+        $(`#explorer-board .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
+    }
+    return true;
+}
+
 function enableExplorerTapToMove() {
     const boardEl = document.getElementById('explorer-board');
     if (boardEl) boardEl.style.touchAction = 'none';
     $('#explorer-board').off('.exp-tapmove')
-        .on('pointerdown.exp-tapmove', '.square-55d63', function (e) {
+        .on('pointerdown.exp-tapmove touchstart.exp-tapmove', '.square-55d63', function (e) {
             if (explorerEditMode || !explorerGame || explorerGame.game_over()) return;
             if (e && e.preventDefault) e.preventDefault();
+
+            const nowTs = Date.now();
+            if (nowTs - explorerLastTapEventTs < 180) return;
+            explorerLastTapEventTs = nowTs;
+
             const square = $(this).attr('data-square');
             if (!square) return;
+
             if (!explorerTapSquare) {
                 const p = explorerGame.get(square);
                 if (!p || p.color !== explorerGame.turn()) return;
-                explorerTapSquare = square;
-                $(`#explorer-board .square-${square}`).addClass('explorer-tap-selected');
+                if (highlightExplorerTapSelection(square)) explorerTapSquare = square;
                 return;
             }
+
+            if (square === explorerTapSquare) {
+                clearExplorerTapSelection();
+                return;
+            }
+
             const from = explorerTapSquare;
             clearExplorerTapSelection();
             // En mode «tocar» no hi ha onSnapEnd: el tauler es repinta aquí.
-            if (square !== from && explorerTryMove(from, square) && explorerBoard) {
-                explorerBoard.position(explorerGame.fen(), false);
+            if (explorerTryMove(from, square)) {
+                if (explorerBoard) explorerBoard.position(explorerGame.fen(), false);
+                return;
+            }
+
+            // Destinació il·legal sobre una altra peça pròpia: passa a
+            // seleccionar-la (mateix comportament que el tauler de joc).
+            const p2 = explorerGame.get(square);
+            if (p2 && p2.color === explorerGame.turn() && highlightExplorerTapSelection(square)) {
+                explorerTapSquare = square;
             }
         });
 }
 
 function clearExplorerTapSelection() {
     explorerTapSquare = null;
-    $('#explorer-board .square-55d63').removeClass('explorer-tap-selected');
+    $('#explorer-board .square-55d63').removeClass('tap-selected tap-move');
 }
 
 function disableExplorerTapToMove() {

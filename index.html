@@ -3703,9 +3703,11 @@
         .board-container { width: 100%; }
         .square-55d63.tap-selected { outline: 3px solid rgba(201, 162, 39, 0.95); outline-offset: -3px; }
         #myBoard .square-55d63.tap-move,
-        #opening-board .square-55d63.tap-move { position: relative; }
+        #opening-board .square-55d63.tap-move,
+        #explorer-board .square-55d63.tap-move { position: relative; }
         #myBoard .square-55d63.tap-move::after,
-        #opening-board .square-55d63.tap-move::after {
+        #opening-board .square-55d63.tap-move::after,
+        #explorer-board .square-55d63.tap-move::after {
             content: '';
             position: absolute;
             top: 50%;
@@ -3719,11 +3721,13 @@
             z-index: 3;
         }
         #myBoard .square-55d63.black-3c85d.tap-move::after,
-        #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
+        #opening-board .square-55d63.black-3c85d.tap-move::after,
+        #explorer-board .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
         body.opening-mode-hieroglyphic #opening-board .square-55d63.tap-move::after { border-color: rgba(139, 95, 199, 0.95); background: rgba(139, 95, 199, 0.14); }
         body.opening-mode-hieroglyphic #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: rgba(244, 228, 188, 0.95); background: rgba(139, 95, 199, 0.22); }
         body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after,
-        body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
+        body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after,
+        body.epaper-mode #explorer-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
         /* Requadre de jugada (el mateix que marca els moviments de l'enginy en una
            partida): també per a la jugada revisada a les partides col·lectives
            (vots i transcripció) i als reproductors dels historials. */
@@ -4651,7 +4655,7 @@
                         <option value="drag">Arrossegar</option>
                     </select>
                 </div>
-                <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar".</div>
+                <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar". Es desa per dispositiu (no se sincronitza al núvol): el mòbil i l'ordinador poden tenir opcions diferents.</div>
                 <div class="setting-row">
                     <div class="setting-label">Revisió d'errors (Blunder)</div>
                     <select id="bundle-accept-select" class="select-control">
@@ -5038,7 +5042,6 @@
             .explorer-edit-hint { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; }
             .explorer-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
             .explorer-edit-row label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
-            .explorer-tap-selected { box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.9) !important; }
             #explorer-start-btn.explorer-nav-start {
                 border-color: rgba(201, 162, 39, 0.65);
                 background: rgba(201, 162, 39, 0.16);
@@ -6107,7 +6110,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-    <script src="cloudsync.js?v=1.0.4"></script>
+    <script src="cloudsync.js?v=1.0.5"></script>
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.2"></script>
@@ -6121,7 +6124,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.46"></script>
+    <script src="app.js?v=1.0.47"></script>
 
     <!-- Service Worker Registration -->
     <script>
