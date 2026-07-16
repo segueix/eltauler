@@ -5007,8 +5007,28 @@
             .explorer-eval-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
             .explorer-eval-value { font-size: 1.15rem; font-weight: 800; color: var(--accent-gold); }
             .explorer-eval-depth { font-size: 0.75rem; color: var(--text-secondary); }
-            .explorer-line { font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
-            .explorer-line.alt { opacity: 0.8; }
+            .explorer-line { font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px; line-height: 1.7; overflow-wrap: anywhere; }
+            .explorer-line.alt { opacity: 0.85; }
+            .explorer-line-label { color: var(--text-secondary); }
+            /* Moviments clicables de les línies del motor (millor línia i alternatives).
+               La línia s'ajusta a diverses files perquè cap moviment quedi tallat. */
+            .explorer-pv { display: inline; }
+            .explorer-pv-move {
+                appearance: none; border: 1px solid transparent; background: rgba(255,255,255,0.06);
+                color: var(--text-primary); border-radius: 6px; padding: 3px 7px; margin: 1px 1px;
+                font-size: 0.85rem; cursor: pointer; font-family: inherit; line-height: 1.2;
+            }
+            .explorer-pv-move:hover, .explorer-pv-move:focus-visible { background: rgba(201,162,39,0.22); outline: 2px solid rgba(201,162,39,0.5); outline-offset: 1px; }
+            .explorer-pv-move.active { background: linear-gradient(135deg, #c9a227 0%, #8a6d12 100%); color: #1b1712; font-weight: 700; }
+            body.epaper-mode .explorer-pv-move { background: #e9e9e9; color: #111; }
+            body.epaper-mode .explorer-pv-move.active { background: #bbb; color: #000; }
+            body.device-mobile .explorer-pv-move { padding: 6px 10px; font-size: 0.9rem; }
+            /* Barra de navegació de la línia previsualitzada */
+            .explorer-preview { margin-top: 10px; border-top: 1px solid rgba(201,162,39,0.18); padding-top: 8px; }
+            .explorer-preview-status { font-size: 0.8rem; color: var(--accent-gold); margin-bottom: 6px; }
+            .explorer-preview-controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+            .explorer-preview-controls .btn { margin-top: 0; padding: 7px 10px; width: auto; flex: 0 0 auto; }
+            .explorer-preview-controls .explorer-pv-exit { flex: 1 1 auto; font-size: 0.8rem; min-width: 150px; }
             .explorer-play-best { margin-top: 10px; width: 100%; }
             .explorer-status { text-align: center; font-size: 0.88rem; color: var(--text-secondary); margin: 10px 0 4px; }
             /* Nom de l'obertura de la posició (graf de posicions: transposicions incloses) */
@@ -5147,6 +5167,17 @@
                     </div>
                     <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
                     <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
+                    <!-- Barra de navegació de la línia previsualitzada (només visible mentre es navega una línia) -->
+                    <div class="explorer-preview" id="explorer-preview-bar" style="display:none;">
+                        <div class="explorer-preview-status" id="explorer-preview-status" aria-live="polite"></div>
+                        <div class="explorer-preview-controls">
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-start" aria-label="Torna al principi de la línia" title="Principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg></button>
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-prev" aria-label="Moviment anterior" title="Moviment anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-next" aria-label="Moviment següent" title="Moviment següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-end" aria-label="Anar al final de la línia" title="Final de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-end"/></svg></button>
+                            <button type="button" class="btn btn-secondary explorer-pv-exit" id="explorer-pv-exit">Torna a la posició analitzada</button>
+                        </div>
+                    </div>
                     <button class="btn btn-secondary explorer-play-best" id="explorer-play-best" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Juga la millor jugada</button>
                 </div>
 
@@ -6162,7 +6193,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.8"></script>
+    <script src="core.js?v=1.0.9"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.5"></script>
     <script>
@@ -6172,7 +6203,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.48"></script>
+    <script src="app.js?v=1.0.49"></script>
 
     <!-- Service Worker Registration -->
     <script>

@@ -9111,6 +9111,20 @@ let explorerAnalysisRetries = 0;   // reintents si el motor no respon (contenci�
 let explorerBoardControlMode = null; // mode de control aplicat al tauler d'anàlisi
 let explorerEngineMoveHighlight = null; // { from, to } de l'última jugada del motor (requadre marró)
 let explorerPlayPending = null;    // { fen, playerColor }: petició de «Juga-la contra Stockfish»
+// Línies del motor (PV) de la posició analitzada, font ÚNICA per a la navegació
+// clicable: { startFen, lines: { best|alt: {label, ...buildPvPositions()} } }.
+let explorerPv = null;
+// Estat de PREVISUALITZACIÓ d'una línia, SEPARAT de la partida real (explorerGame).
+// Navegar-hi no toca explorerGame, ni el PGN, ni l'historial, ni el motor.
+let explorerPreview = {
+    active: false,     // previsualització en marxa?
+    startFen: null,    // FEN inicial de l'anàlisi (arrel de la línia)
+    lineKey: null,     // 'best' | 'alt'
+    plies: [],         // posicions de la línia (de ElTaulerCore.buildPvPositions)
+    stepIndex: 0,      // jugades aplicades (0 = posició inicial; N = final)
+    previewFen: null,  // FEN que es mostra al tauler
+    lastMove: null     // { from, to } de l'última jugada reproduïda (o null)
+};
 
 function createExplorerBoard(editMode) {
     if (explorerBoard && typeof explorerBoard.destroy === 'function') {
@@ -9129,10 +9143,13 @@ function createExplorerBoard(editMode) {
         config.dropOffBoard = 'trash';
     } else {
         config.onDragStart = (source, piece) => {
+            // Durant la previsualització d'una línia el tauler és de només lectura.
+            if (explorerPreview.active) return false;
             if (!explorerGame || explorerGame.game_over()) return false;
             return !!piece && piece.charAt(0) === explorerGame.turn();
         };
         config.onDrop = (source, target) => {
+            if (explorerPreview.active) return 'snapback';
             if (!explorerGame || !target || target === 'offboard') return 'snapback';
             return explorerTryMove(source, target) ? undefined : 'snapback';
         };
@@ -9167,7 +9184,7 @@ function enableExplorerTapToMove() {
     if (boardEl) boardEl.style.touchAction = 'none';
     $('#explorer-board').off('.exp-tapmove')
         .on('pointerdown.exp-tapmove touchstart.exp-tapmove', '.square-55d63', function (e) {
-            if (explorerEditMode || !explorerGame || explorerGame.game_over()) return;
+            if (explorerEditMode || explorerPreview.active || !explorerGame || explorerGame.game_over()) return;
             if (e && e.preventDefault) e.preventDefault();
 
             const nowTs = Date.now();
@@ -9363,24 +9380,6 @@ function explorerStatusText() {
     return g.in_check() ? `Mouen ${t} — escac!` : `Mouen ${t}`;
 }
 
-// Línia del motor amb numeració de jugades («12… Dh4 13. g3»), a partir del FEN.
-function explorerFormatPv(fen, pvUci, maxPlies = 10) {
-    const san = pvToSan(fen, (pvUci || []).slice(0, maxPlies));
-    const parts = fen.split(' ');
-    let moveNo = parseInt(parts[5], 10) || 1;
-    let whiteToMove = parts[1] !== 'b';
-    const out = [];
-    san.forEach((s, i) => {
-        if (whiteToMove) {
-            out.push(`${moveNo}. ${s}`);
-        } else {
-            out.push(i === 0 ? `${moveNo}… ${s}` : s);
-            moveNo++;
-        }
-        whiteToMove = !whiteToMove;
-    });
-    return out.join(' ');
-}
 
 // Passa una avaluació del motor (perspectiva del qui mou) a perspectiva BLANCA.
 function explorerWhiteEval(best, turn) {
@@ -9426,6 +9425,7 @@ async function runExplorerAnalysis() {
     const line2El = document.getElementById('explorer-line2');
     const playBest = document.getElementById('explorer-play-best');
     explorerLastBest = null;
+    explorerPv = null;
     if (playBest) playBest.style.display = 'none';
     // Posició acabada: el veredicte és del tauler, no cal motor.
     if (explorerGame.game_over()) {
@@ -9462,20 +9462,157 @@ async function runExplorerAnalysis() {
     explorerAnalysisRetries = 0;
     const we = explorerWhiteEval(res.bestMove, explorerGame.turn());
     setExplorerEvalDisplay(explorerEvalText(we), explorerWhiteShare(we), `prof. ${res.depth || '—'}`);
-    if (lineEl) lineEl.textContent = `Millor línia: ${explorerFormatPv(fen, res.bestMove.pv && res.bestMove.pv.length ? res.bestMove.pv : [res.bestMove.move])}`;
-    // Segona línia del MultiPV (si el motor n'ha donat una de diferent).
+    // Construeix les línies (millor + alternativa) com a UNA font de dades i les
+    // renderitza com a botons clicables. Prefereix la UCI (menys ambigua) per
+    // reproduir-les; la SAN és per mostrar-les.
+    const bestPv = (res.bestMove.pv && res.bestMove.pv.length) ? res.bestMove.pv.slice(0, 10) : [res.bestMove.move];
+    const lines = { best: Object.assign({ label: 'Millor línia' }, ElTaulerCore.buildPvPositions(Chess, fen, bestPv)) };
     const alt = (res.alternatives || []).find(a => a && a.move && a.move !== res.bestMove.move);
-    if (line2El) {
-        if (alt) {
-            const altWe = explorerWhiteEval(alt, explorerGame.turn());
-            line2El.textContent = `Alternativa (${explorerEvalText(altWe)}): ${explorerFormatPv(fen, alt.pv && alt.pv.length ? alt.pv : [alt.move], 6)}`;
-            line2El.style.display = '';
-        } else {
-            line2El.style.display = 'none';
-        }
+    if (alt) {
+        const altWe = explorerWhiteEval(alt, explorerGame.turn());
+        const altPv = (alt.pv && alt.pv.length) ? alt.pv.slice(0, 8) : [alt.move];
+        lines.alt = Object.assign(
+            { label: `Alternativa (${explorerEvalText(altWe)})` },
+            ElTaulerCore.buildPvPositions(Chess, fen, altPv)
+        );
     }
+    explorerPv = { startFen: fen, lines: lines };
+    renderExplorerPvLines();
     explorerLastBest = { fen: fen, uci: res.bestMove.move };
     if (playBest) playBest.style.display = '';
+}
+
+// Renderitza les línies del motor (#explorer-line i #explorer-line2) com a
+// seqüències de botons: cada moviment és clicable i navegable amb teclat.
+function renderExplorerPvLines() {
+    renderExplorerPvLine('best', document.getElementById('explorer-line'));
+    const line2El = document.getElementById('explorer-line2');
+    if (explorerPv && explorerPv.lines.alt && explorerPv.lines.alt.plies.length) {
+        renderExplorerPvLine('alt', line2El);
+        if (line2El) line2El.style.display = '';
+    } else if (line2El) {
+        line2El.style.display = 'none';
+        line2El.innerHTML = '';
+    }
+}
+
+function renderExplorerPvLine(lineKey, el) {
+    if (!el || !explorerPv || !explorerPv.lines[lineKey]) return;
+    const line = explorerPv.lines[lineKey];
+    const tokens = ElTaulerCore.pvDisplayTokens(line.plies);
+    let html = `<span class="explorer-line-label">${escapeHtml(line.label)}:</span> `;
+    if (!tokens.length) {
+        el.innerHTML = html + '<span class="explorer-line-empty">—</span>';
+        return;
+    }
+    html += '<span class="explorer-pv">';
+    tokens.forEach((tok) => {
+        const ply = line.plies[tok.index];
+        if (tok.numberLabel) html += `<span class="explorer-move-no">${tok.numberLabel}</span>`;
+        const isActive = explorerPreview.active
+            && explorerPreview.lineKey === lineKey
+            && explorerPreview.stepIndex === tok.index + 1;
+        const aria = escapeHtml(ElTaulerCore.pvMoveAriaLabel(ply));
+        html += `<button type="button" class="explorer-pv-move${isActive ? ' active' : ''}"`
+            + ` data-line="${lineKey}" data-step="${tok.index + 1}" aria-label="${aria}">`
+            + `${escapeHtml(tok.san)}</button>`;
+    });
+    html += '</span>';
+    el.innerHTML = html;
+}
+
+// ── Previsualització d'una línia del motor ───────────────────────────────────
+// Mostra al tauler la posició resultant d'una línia del motor SENSE tocar la
+// partida real (explorerGame), ni el PGN, ni l'historial, ni el motor. Només
+// canvia la posició VISUAL del tauler i el ressaltat; en sortir es restaura.
+
+// Ressalta al tauler les caselles d'origen/destí de l'última jugada reproduïda,
+// reutilitzant la classe .engine-move (el mateix requadre marró de la resta de
+// l'app), sense tocar el ressaltat persistent de «Juga la millor jugada».
+function paintExplorerPreviewMove(lastMove) {
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+    if (lastMove) {
+        [lastMove.from, lastMove.to].forEach((sq) => {
+            if (sq) $(`#explorer-board .square-${sq}`).addClass('engine-move');
+        });
+    }
+}
+
+function updateExplorerPreviewBar() {
+    const bar = document.getElementById('explorer-preview-bar');
+    if (!bar) return;
+    if (!explorerPreview.active) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    const total = explorerPreview.plies.length;
+    const i = explorerPreview.stepIndex;
+    const statusEl = document.getElementById('explorer-preview-status');
+    if (statusEl) {
+        if (i <= 0) {
+            statusEl.textContent = 'Posició inicial de l\'anàlisi';
+        } else {
+            const ply = explorerPreview.plies[i - 1];
+            const num = ply.isWhite ? `${ply.moveNo}.` : `${ply.moveNo}…`;
+            statusEl.textContent = `Posició després de ${num}${ply.san} · pas ${i} de ${total}`;
+        }
+    }
+    $('#explorer-pv-start, #explorer-pv-prev').prop('disabled', i <= 0);
+    $('#explorer-pv-next, #explorer-pv-end').prop('disabled', i >= total);
+    // Porta el moviment actiu a la zona visible (mòbil: la línia pot ocupar
+    // diverses files).
+    const activeBtn = document.querySelector('.explorer-pv-move.active');
+    if (activeBtn && activeBtn.scrollIntoView) {
+        try { activeBtn.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) {}
+    }
+}
+
+// Aplica un pas de la línia previsualitzada (0 = posició inicial de l'anàlisi).
+function explorerPreviewApply(stepIndex) {
+    const total = explorerPreview.plies.length;
+    const step = ElTaulerCore.pvStepClamp(stepIndex, total);
+    explorerPreview.stepIndex = step;
+    if (step <= 0) {
+        explorerPreview.previewFen = explorerPreview.startFen;
+        explorerPreview.lastMove = null;
+    } else {
+        const ply = explorerPreview.plies[step - 1];
+        explorerPreview.previewFen = ply.fenAfter;
+        explorerPreview.lastMove = { from: ply.from, to: ply.to };
+    }
+    // Només canvia la VISTA del tauler; explorerGame no es toca.
+    if (explorerBoard) explorerBoard.position(explorerPreview.previewFen, false);
+    paintExplorerPreviewMove(explorerPreview.lastMove);
+    renderExplorerPvLines();       // reactualitza el ressaltat del moviment actiu
+    updateExplorerPreviewBar();
+}
+
+// Selecciona una línia i hi entra en previsualització a un pas concret.
+function explorerPreviewSelect(lineKey, stepIndex) {
+    if (!explorerPv || !explorerPv.lines[lineKey]) return;
+    const line = explorerPv.lines[lineKey];
+    if (!line.plies || !line.plies.length) return;
+    clearExplorerTapSelection();
+    explorerPreview.active = true;
+    explorerPreview.startFen = explorerPv.startFen;
+    explorerPreview.lineKey = lineKey;
+    explorerPreview.plies = line.plies;
+    explorerPreviewApply(stepIndex);
+}
+
+// Surt de la previsualització i restaura la posició analitzada real i el seu
+// ressaltat persistent (el de «Juga la millor jugada», si n'hi havia).
+function exitExplorerPreview() {
+    if (!explorerPreview.active) return;
+    explorerPreview.active = false;
+    explorerPreview.plies = [];
+    explorerPreview.previewFen = null;
+    explorerPreview.lastMove = null;
+    explorerPreview.lineKey = null;
+    explorerPreview.stepIndex = 0;
+    if (explorerBoard && explorerGame) explorerBoard.position(explorerGame.fen(), false);
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+    reapplyExplorerEngineMoveHighlight();
+    updateExplorerPreviewBar();
+    renderExplorerPvLines();
 }
 
 // Llista de jugades de la línia explorada, clicable per navegar-hi.
@@ -9512,6 +9649,10 @@ function updateExplorerControls() {
 }
 
 function afterExplorerPositionChange() {
+    // La posició real ha canviat: qualsevol previsualització de línia queda
+    // obsoleta i les línies del motor s'han de recalcular.
+    exitExplorerPreview();
+    explorerPv = null;
     clearExplorerTapSelection();
     clearExplorerEngineMoveHighlight();
     explorerAnalysisRetries = 0;
@@ -9536,6 +9677,7 @@ function explorerSwapTurn() {
 // ── Editor de posició ────────────────────────────────────────────────────────
 function enterExplorerEditMode() {
     if (explorerEditMode || !explorerGame) return;
+    exitExplorerPreview();
     explorerEditMode = true;
     explorerEditSnapshot = { startFen: explorerStartFen, moves: explorerMoves.slice(), index: explorerIndex };
     ++explorerAnalysisToken; // descarta anàlisis en curs
@@ -9613,8 +9755,12 @@ function openExplorer(fen, opts = {}) {
 }
 
 function closeExplorerScreen() {
+    // En sortir de la pantalla, restaura la posició analitzada (surt de la
+    // previsualització) abans d'amagar-la.
+    exitExplorerPreview();
     explorerActive = false;
     explorerEditMode = false;
+    explorerPv = null;
     ++explorerAnalysisToken;
     if (explorerAnalysisTimer) { clearTimeout(explorerAnalysisTimer); explorerAnalysisTimer = null; }
     try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
@@ -19012,6 +19158,31 @@ function setupEvents() {
     $('#explorer-moves').off('click').on('click', '.explorer-move', function () {
         const idx = parseInt($(this).attr('data-idx'), 10);
         if (!isNaN(idx)) explorerSeek(idx + 1);
+    });
+    // Moviments clicables de les línies del motor (millor línia i alternativa):
+    // en prémer-ne un, es previsualitza al tauler la posició fins a aquell pas.
+    $('#explorer-line, #explorer-line2').off('click').on('click', '.explorer-pv-move', function () {
+        const lineKey = $(this).attr('data-line');
+        const step = parseInt($(this).attr('data-step'), 10);
+        if (lineKey && !isNaN(step)) explorerPreviewSelect(lineKey, step);
+    });
+    // Controls compactes de la previsualització de línia.
+    $('#explorer-pv-start').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(0); });
+    $('#explorer-pv-prev').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex - 1); });
+    $('#explorer-pv-next').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex + 1); });
+    $('#explorer-pv-end').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.plies.length); });
+    $('#explorer-pv-exit').off('click').on('click', exitExplorerPreview);
+    // Teclat: dins la informació lateral, les fletxes naveguen la previsualització.
+    $('#explorer-side').off('keydown.pvnav').on('keydown.pvnav', function (e) {
+        if (!explorerPreview.active) return;
+        let handled = true;
+        if (e.key === 'ArrowLeft') explorerPreviewApply(explorerPreview.stepIndex - 1);
+        else if (e.key === 'ArrowRight') explorerPreviewApply(explorerPreview.stepIndex + 1);
+        else if (e.key === 'Home') explorerPreviewApply(0);
+        else if (e.key === 'End') explorerPreviewApply(explorerPreview.plies.length);
+        else if (e.key === 'Escape') exitExplorerPreview();
+        else handled = false;
+        if (handled && e.preventDefault) e.preventDefault();
     });
     $('#explorer-play-best').off('click').on('click', () => {
         if (!explorerLastBest || !explorerGame || explorerLastBest.fen !== explorerGame.fen()) return;

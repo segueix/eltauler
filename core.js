@@ -1251,6 +1251,106 @@
         return { moveFacts: moveFacts, pvBoardFacts: pvBoardFacts };
     }
 
+    // ----------------------------------------------------------------------
+    // Navegació de línies del motor (PV) al tauler d'anàlisi
+    // ----------------------------------------------------------------------
+    // Aplica un moviment (UCI «e2e4»/«e7e8q» o SAN «Nc3») sobre una instància de
+    // chess.js i retorna l'objecte de jugada, o null si no és legal. La coronació
+    // per defecte és a dama quan la UCI no la porta (mateix criteri que la resta
+    // de l'app).
+    function applyPvLineMove(g, move) {
+        const raw = String(move || '').trim();
+        if (!raw) return null;
+        try {
+            if (/^[a-h][1-8][a-h][1-8][qrbn]?$/i.test(raw)) {
+                return g.move({
+                    from: raw.slice(0, 2).toLowerCase(),
+                    to: raw.slice(2, 4).toLowerCase(),
+                    promotion: raw.length > 4 ? raw[4].toLowerCase() : 'q'
+                }) || null;
+            }
+            return g.move(raw, { sloppy: true }) || null;
+        } catch (e) { return null; }
+    }
+
+    // Reprodueix una línia del motor des d'una FEN i retorna la llista de
+    // posicions resultants. És la font ÚNICA per a la navegació de PV al tauler
+    // d'anàlisi: cada element porta la SAN (per mostrar), la UCI (per reproduir
+    // sense ambigüitat), les caselles origen/destí, la FEN abans i després, i la
+    // numeració DERIVADA DE LA FEN (torn i número de jugada complet), de manera
+    // que funciona encara que la línia comenci amb les negres o al mig de la
+    // partida. Prefereix la UCI; cau a SAN. S'atura sense llançar a la primera
+    // jugada il·legal (línia truncada o buida) i ho indica a `truncatedAt`.
+    function buildPvPositions(ChessCtor, startFen, moves) {
+        const result = { startFen: startFen || null, plies: [], truncatedAt: null };
+        if (typeof ChessCtor !== 'function' || !startFen) return result;
+        let g;
+        try { g = new ChessCtor(startFen); } catch (e) { return result; }
+        if (!g || typeof g.move !== 'function' || typeof g.fen !== 'function') return result;
+        const list = Array.isArray(moves) ? moves : [];
+        for (let i = 0; i < list.length; i++) {
+            const fenBefore = g.fen();
+            const parts = fenBefore.split(' ');
+            const isWhite = parts[1] !== 'b';
+            const moveNo = parseInt(parts[5], 10) || 1;
+            const mv = applyPvLineMove(g, list[i]);
+            if (!mv) { result.truncatedAt = i; break; }
+            result.plies.push({
+                index: i,
+                san: mv.san,
+                uci: mv.from + mv.to + (mv.promotion ? mv.promotion : ''),
+                from: mv.from,
+                to: mv.to,
+                piece: mv.piece,
+                promotion: mv.promotion || null,
+                captured: mv.captured || null,
+                castle: (mv.flags && mv.flags.indexOf('k') !== -1) ? 'k'
+                    : ((mv.flags && mv.flags.indexOf('q') !== -1) ? 'q' : null),
+                isWhite: isWhite,
+                moveNo: moveNo,
+                fenBefore: fenBefore,
+                fenAfter: g.fen()
+            });
+        }
+        return result;
+    }
+
+    // Numeració/format per mostrar una línia PV: per a cada ply, quin número de
+    // jugada s'ha de mostrar (o cap) davant de la SAN, seguint la notació PGN
+    // habitual — «4.» abans d'una blanca i «4…» només davant de la primera negra
+    // de la línia (no es repeteix el número davant de cada mitja jugada).
+    function pvDisplayTokens(plies) {
+        return (Array.isArray(plies) ? plies : []).map(function (p, i) {
+            let numberLabel = null;
+            if (p.isWhite) numberLabel = p.moveNo + '.';
+            else if (i === 0) numberLabel = p.moveNo + '…';
+            return { index: i, numberLabel: numberLabel, san: p.san };
+        });
+    }
+
+    // Etiqueta accessible (aria-label) d'un moviment de la línia, en català:
+    // «Veure la posició després de 5, cavall a c3».
+    function pvMoveAriaLabel(ply) {
+        if (!ply) return '';
+        const num = ply.moveNo;
+        if (ply.castle === 'k') return `Veure la posició després de ${num}, enroc curt`;
+        if (ply.castle === 'q') return `Veure la posició després de ${num}, enroc llarg`;
+        const names = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
+        const piece = names[ply.piece] || 'peça';
+        let label = `Veure la posició després de ${num}, ${piece} a ${ply.to}`;
+        if (ply.captured) label += ', captura';
+        if (ply.promotion) label += `, corona a ${names[ply.promotion] || 'dama'}`;
+        return label;
+    }
+
+    // Estat de navegació d'una línia: limita l'índex de pas a l'interval vàlid
+    // [0, nombre de plies]. 0 = posició inicial de l'anàlisi; N = final de la línia.
+    function pvStepClamp(step, total) {
+        const t = Math.max(0, total | 0);
+        const s = Math.round(Number(step) || 0);
+        return Math.max(0, Math.min(t, s));
+    }
+
     // Combina les dades del motor i els fets del tauler en el forcingInfo d'una
     // errada. Convenció de veritat PRUDENT: true = demostrat; false = NO
     // demostrat (encara que potser ho sigui); null = sense dades per jutjar-ho.
@@ -2132,6 +2232,10 @@
         analyzeGameOpeningByPositions,
         findCuratedOpeningByPosition,
         matchUserRepertoireOpening,
+        buildPvPositions,
+        pvDisplayTokens,
+        pvMoveAriaLabel,
+        pvStepClamp,
         reviewErrorKey,
         isRenderableReviewError,
         reviewMoveIdentityOk,
