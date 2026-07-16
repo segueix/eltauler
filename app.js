@@ -532,7 +532,7 @@ function initNavigationScrollReset() {
         if (currentScreen === lastNavigationScreen) return;
         const previousScreen = lastNavigationScreen;
         lastNavigationScreen = currentScreen;
-        if ((previousScreen === 'history-screen' || previousScreen === 'stats-screen')
+        if ((previousScreen === 'history-screen' || previousScreen === 'stats-screen' || previousScreen === 'settings-screen')
             && currentScreen !== previousScreen
             && typeof stopReviewTts === 'function') {
             stopReviewTts();
@@ -624,6 +624,7 @@ function navGoBack() {
         $('#opening-screen').hide();
         $('#start-screen').show();
     } else if (current === 'settings-screen') {
+        if (typeof stopReviewTts === 'function') stopReviewTts();
         $('#settings-screen').hide();
         $('#start-screen').show();
     } else if (current === 'calibration-result-screen') {
@@ -1455,10 +1456,16 @@ const REVIEW_TTS_STATE = {
     stopRequested: false,
     lastText: '',
     source: null,
+    activePreset: null,
     chunks: [],
     chunkIndex: 0,
     utterance: null
 };
+
+const REVIEW_TTS_PRESETS_KEY = 'eltauler_tts_presets';
+const REVIEW_TTS_DEFAULT_KEY = 'eltauler_tts_default_preset';
+const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
+const DEFAULT_REVIEW_TTS_PRESET = { id: 'default', name: 'Català natural', voiceURI: '', pitch: 1, rate: 0.95, builtin: true };
 
 function reviewTtsSupported() {
     return typeof window !== 'undefined'
@@ -1523,6 +1530,131 @@ function getCatalanSpeechVoice() {
         || null;
 }
 
+function getSpeechVoiceByURI(voiceURI) {
+    if (!reviewTtsSupported() || !voiceURI) return null;
+    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+    return voices.find(v => v.voiceURI === voiceURI) || null;
+}
+
+function readReviewTtsPresets() {
+    try {
+        const arr = JSON.parse(localStorage.getItem(REVIEW_TTS_PRESETS_KEY) || '[]');
+        return Array.isArray(arr) ? arr.filter(p => p && p.id && p.name) : [];
+    } catch (e) { return []; }
+}
+
+function writeReviewTtsPresets(presets) {
+    try { localStorage.setItem(REVIEW_TTS_PRESETS_KEY, JSON.stringify(presets || [])); } catch (e) {}
+}
+
+function allReviewTtsPresets() {
+    return [DEFAULT_REVIEW_TTS_PRESET].concat(readReviewTtsPresets());
+}
+
+function getReviewTtsMode() {
+    try { return localStorage.getItem(REVIEW_TTS_MODE_KEY) === 'random' ? 'random' : 'fixed'; }
+    catch (e) { return 'fixed'; }
+}
+
+function setReviewTtsMode(mode) {
+    try { localStorage.setItem(REVIEW_TTS_MODE_KEY, mode === 'random' ? 'random' : 'fixed'); } catch (e) {}
+}
+
+function getDefaultReviewTtsPresetId() {
+    try { return localStorage.getItem(REVIEW_TTS_DEFAULT_KEY) || DEFAULT_REVIEW_TTS_PRESET.id; }
+    catch (e) { return DEFAULT_REVIEW_TTS_PRESET.id; }
+}
+
+function setDefaultReviewTtsPresetId(id) {
+    try { localStorage.setItem(REVIEW_TTS_DEFAULT_KEY, id || DEFAULT_REVIEW_TTS_PRESET.id); } catch (e) {}
+}
+
+function getReviewTtsPresetById(id) {
+    return allReviewTtsPresets().find(p => p.id === id) || DEFAULT_REVIEW_TTS_PRESET;
+}
+
+function getEffectiveReviewTtsPreset() {
+    const userPresets = readReviewTtsPresets();
+    if (getReviewTtsMode() === 'random' && userPresets.length) {
+        return userPresets[Math.floor(Math.random() * userPresets.length)] || DEFAULT_REVIEW_TTS_PRESET;
+    }
+    return getReviewTtsPresetById(getDefaultReviewTtsPresetId());
+}
+
+function currentReviewTtsSettingsPreset() {
+    const id = ($('#tts-preset-select').val() || '').trim();
+    return {
+        id: id && id !== 'default' ? id : `tts_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: String($('#tts-preset-name').val() || '').trim() || 'Perfil de veu',
+        voiceURI: String($('#tts-voice-select').val() || ''),
+        pitch: Math.max(0.5, Math.min(2, (+$('#tts-pitch-range').val() || 100) / 100)),
+        rate: Math.max(0.5, Math.min(2, (+$('#tts-rate-range').val() || 95) / 100))
+    };
+}
+
+function applyReviewTtsPresetToSettings(preset) {
+    const p = preset || DEFAULT_REVIEW_TTS_PRESET;
+    $('#tts-preset-name').val(p.builtin ? '' : p.name);
+    $('#tts-voice-select').val(p.voiceURI || '');
+    $('#tts-pitch-range').val(Math.round((p.pitch || 1) * 100));
+    $('#tts-rate-range').val(Math.round((p.rate || 0.95) * 100));
+    $('#tts-pitch-value').text(`${Math.round((p.pitch || 1) * 100)}%`);
+    $('#tts-rate-value').text(`${Math.round((p.rate || 0.95) * 100)}%`);
+}
+
+function refreshReviewTtsSettingsUi() {
+    const presets = allReviewTtsPresets();
+    const selected = getDefaultReviewTtsPresetId();
+    const presetSelect = $('#tts-preset-select');
+    if (presetSelect.length) {
+        presetSelect.empty();
+        presets.forEach(p => presetSelect.append($('<option></option>').val(p.id).text(p.builtin ? `${p.name} (base)` : p.name)));
+        presetSelect.val(presets.some(p => p.id === selected) ? selected : DEFAULT_REVIEW_TTS_PRESET.id);
+    }
+    $('#tts-preset-mode').val(getReviewTtsMode());
+    const voiceSelect = $('#tts-voice-select');
+    if (voiceSelect.length) {
+        const current = voiceSelect.val() || '';
+        voiceSelect.empty().append($('<option></option>').val('').text('Automàtica en català'));
+        if (reviewTtsSupported()) {
+            (window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [])
+                .filter(v => /^ca([_-]|$)/i.test(v.lang || '') || /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
+                .forEach(v => voiceSelect.append($('<option></option>').val(v.voiceURI).text(v.name || 'Català')));
+        }
+        voiceSelect.val(current);
+    }
+    applyReviewTtsPresetToSettings(getReviewTtsPresetById(presetSelect.val() || selected));
+    updateReviewTtsButtons();
+}
+
+function saveCurrentReviewTtsPreset() {
+    const preset = currentReviewTtsSettingsPreset();
+    const presets = readReviewTtsPresets();
+    const idx = presets.findIndex(p => p.id === preset.id);
+    if (idx >= 0) presets[idx] = preset; else presets.push(preset);
+    writeReviewTtsPresets(presets);
+    setDefaultReviewTtsPresetId(preset.id);
+    refreshReviewTtsSettingsUi();
+    $('#tts-preset-select').val(preset.id);
+    applyReviewTtsPresetToSettings(preset);
+    showToast('Perfil de veu desat.', 'success');
+}
+
+function deleteCurrentReviewTtsPreset() {
+    const id = $('#tts-preset-select').val();
+    if (!id || id === DEFAULT_REVIEW_TTS_PRESET.id) { showToast('El perfil base no es pot eliminar.', 'warn'); return; }
+    const presets = readReviewTtsPresets().filter(p => p.id !== id);
+    writeReviewTtsPresets(presets);
+    if (getDefaultReviewTtsPresetId() === id) setDefaultReviewTtsPresetId(DEFAULT_REVIEW_TTS_PRESET.id);
+    refreshReviewTtsSettingsUi();
+    showToast('Perfil de veu eliminat.', 'success');
+}
+
+function previewCurrentReviewTtsPreset() {
+    const preset = currentReviewTtsSettingsPreset();
+    beginReviewTts('Aquesta és una prova de lectura en català del perfil de veu seleccionat.', 'settings', preset);
+}
+
 function setReviewTtsStatus(text) {
     ['history-tts-status', 'coach-tts-status'].forEach(id => {
         const el = document.getElementById(id);
@@ -1564,6 +1696,7 @@ function resetReviewTtsState(keepPaused = false) {
     REVIEW_TTS_STATE.utterance = null;
     if (!keepPaused) {
         REVIEW_TTS_STATE.source = null;
+        REVIEW_TTS_STATE.activePreset = null;
         REVIEW_TTS_STATE.chunks = [];
         REVIEW_TTS_STATE.chunkIndex = 0;
     }
@@ -1597,10 +1730,11 @@ function speakReviewTtsChunk() {
     const utterance = new SpeechSynthesisUtterance(chunk);
     // Etiqueta genèrica: de cara a l'usuari és només «català», sense país.
     utterance.lang = 'ca';
-    const voice = getCatalanSpeechVoice();
+    const preset = REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET;
+    const voice = getSpeechVoiceByURI(preset.voiceURI) || getCatalanSpeechVoice();
     if (voice) utterance.voice = voice;
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
+    utterance.rate = Math.max(0.5, Math.min(2, preset.rate || 0.95));
+    utterance.pitch = Math.max(0.5, Math.min(2, preset.pitch || 1));
     utterance.onstart = () => {
         REVIEW_TTS_STATE.isSpeaking = true;
         REVIEW_TTS_STATE.isPaused = false;
@@ -1626,13 +1760,14 @@ function speakReviewTtsChunk() {
     updateReviewTtsButtons();
 }
 
-function beginReviewTts(rawText, source) {
+function beginReviewTts(rawText, source, presetOverride = null) {
     const text = normalizeTextForCatalanTTS(rawText);
     if (!text) { showToast('No hi ha text per llegir.', 'warn'); return; }
     stopReviewTts();
     REVIEW_TTS_STATE.stopRequested = false;
     REVIEW_TTS_STATE.lastText = text;
     REVIEW_TTS_STATE.source = source || null;
+    REVIEW_TTS_STATE.activePreset = presetOverride || getEffectiveReviewTtsPreset();
     REVIEW_TTS_STATE.chunks = splitReviewTtsText(text);
     REVIEW_TTS_STATE.chunkIndex = 0;
     speakReviewTtsChunk();
@@ -1683,6 +1818,7 @@ function initReviewTts() {
             REVIEW_TTS_STATE.voicesReady = true;
             if (typeof prev === 'function') { try { prev.call(window.speechSynthesis, event); } catch (e) {} }
             updateReviewTtsButtons();
+            refreshReviewTtsSettingsUi();
         };
         window.speechSynthesis.getVoices();
     } catch (e) {}
@@ -18356,7 +18492,7 @@ function setupEvents() {
     $('#coach-tts-pause').off('click').on('click', () => { pauseReviewTts(); });
     $('#coach-tts-stop').off('click').on('click', () => { stopReviewTts(); });
     syncCoachStyleSelects();
-    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
+    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); refreshReviewTtsSettingsUi(); });
     $('#btn-ranking').click(() => openRankingScreen());
     $('#btn-ranking-back').click(() => { $('#ranking-screen').hide(); $('#start-screen').show(); });
     $('#btn-ranking-refresh').click(() => loadRanking(true));
@@ -18369,6 +18505,18 @@ function setupEvents() {
     $('#username-modal-skip').click(() => closeUsernameModal());
     $('#username-modal-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveUsernameFromModal(); } });
     $('#username-modal').on('click', function (e) { if (e.target === this) closeUsernameModal(); });
+
+    $('#tts-preset-mode').off('change').on('change', function () { setReviewTtsMode(this.value); refreshReviewTtsSettingsUi(); });
+    $('#tts-preset-select').off('change').on('change', function () { applyReviewTtsPresetToSettings(getReviewTtsPresetById(this.value)); });
+    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-preset-name').off('input change').on('input change', function () {
+        $('#tts-pitch-value').text(`${$('#tts-pitch-range').val()}%`);
+        $('#tts-rate-value').text(`${$('#tts-rate-range').val()}%`);
+    });
+    $('#tts-preview').off('click').on('click', () => previewCurrentReviewTtsPreset());
+    $('#tts-stop-preview').off('click').on('click', () => stopReviewTts());
+    $('#tts-save').off('click').on('click', () => saveCurrentReviewTtsPreset());
+    $('#tts-delete').off('click').on('click', () => deleteCurrentReviewTtsPreset());
+    $('#tts-default').off('click').on('click', () => { setDefaultReviewTtsPresetId($('#tts-preset-select').val() || DEFAULT_REVIEW_TTS_PRESET.id); setReviewTtsMode('fixed'); refreshReviewTtsSettingsUi(); showToast('Perfil de veu per defecte actualitzat.', 'success'); });
     $('#btn-history').click(() => {
         $('#start-screen').hide();
         $('#history-screen').show();

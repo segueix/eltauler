@@ -4569,6 +4569,57 @@
             </div>
 
             <div class="settings-panel">
+                <div class="settings-title">🔊 Veus de lectura</div>
+                <div class="setting-help" style="margin-bottom:10px;">Crea perfils locals per llegir ressenyes i diagnòstics: tria veu del dispositiu, timbre més greu o agut i velocitat. Es desen només al teu navegador.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Ús per defecte</div>
+                    <select id="tts-preset-mode" class="select-control">
+                        <option value="fixed">Perfil triat</option>
+                        <option value="random">Aleatori entre els meus perfils</option>
+                    </select>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">Perfil</div>
+                    <select id="tts-preset-select" class="select-control"></select>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">Veu del dispositiu</div>
+                    <select id="tts-voice-select" class="select-control"></select>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">Nom del perfil</div>
+                    <input class="text-input" id="tts-preset-name" maxlength="28" placeholder="Ex. Greu tranquil·la">
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">Timbre / agudesa</div>
+                    <div class="font-size-control">
+                        <span style="font-size:0.78rem;opacity:0.7;">Greu</span>
+                        <input type="range" id="tts-pitch-range" min="60" max="160" step="1" value="100" style="accent-color:var(--accent);touch-action:none;">
+                        <span style="font-size:0.78rem;opacity:0.7;">Aguda</span>
+                        <span id="tts-pitch-value">100%</span>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">Velocitat</div>
+                    <div class="font-size-control">
+                        <span style="font-size:0.78rem;opacity:0.7;">Lenta</span>
+                        <input type="range" id="tts-rate-range" min="70" max="130" step="1" value="95" style="accent-color:var(--accent);touch-action:none;">
+                        <span style="font-size:0.78rem;opacity:0.7;">Ràpida</span>
+                        <span id="tts-rate-value">95%</span>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                    <button type="button" class="btn btn-primary" id="tts-preview" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Prova</button>
+                    <button type="button" class="btn btn-secondary" id="tts-save" style="flex:1;min-width:120px;">Desa perfil</button>
+                    <button type="button" class="btn btn-secondary" id="tts-default" style="flex:1;min-width:120px;">Per defecte</button>
+                    <button type="button" class="btn btn-secondary" id="tts-delete" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg>Elimina</button>
+                    <button type="button" class="btn btn-secondary" id="tts-stop-preview" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-stop"/></svg>Atura</button>
+                </div>
+                <div class="setting-help" id="tts-preset-hint">Si tries aleatori, cada lectura farà servir un dels perfils que hagis desat.</div>
+            </div>
+
+
+            <div class="settings-panel">
                 <div class="settings-title">Joc</div>
                 <div class="setting-row">
                     <div class="setting-label">Control del tauler</div>
