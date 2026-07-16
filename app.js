@@ -1444,7 +1444,11 @@ const REVIEW_TTS_STATE = {
     voicesReady: false,
     isSpeaking: false,
     isPaused: false,
-    lastText: ''
+    stopRequested: false,
+    lastText: '',
+    chunks: [],
+    chunkIndex: 0,
+    utterance: null
 };
 
 function reviewTtsSupported() {
@@ -1473,6 +1477,35 @@ function normalizeTextForCatalanTTS(text) {
         .trim();
 }
 
+function splitReviewTtsText(text, maxLen = 650) {
+    const clean = String(text || '').replace(/\r/g, '').trim();
+    if (!clean) return [];
+    const parts = clean
+        .split(/\n{2,}/)
+        .flatMap(paragraph => paragraph.split(/([.!?]+\s+)/).reduce((acc, piece, idx, arr) => {
+            if (idx % 2 === 0) {
+                const next = arr[idx + 1] || '';
+                if ((piece + next).trim()) acc.push((piece + next).trim());
+            }
+            return acc;
+        }, []))
+        .map(s => s.trim())
+        .filter(Boolean);
+    const chunks = [];
+    let current = '';
+    parts.forEach(part => {
+        if (!current) current = part;
+        else if ((current + ' ' + part).length <= maxLen) current += ' ' + part;
+        else { chunks.push(current); current = part; }
+        while (current.length > maxLen) {
+            chunks.push(current.slice(0, maxLen).trim());
+            current = current.slice(maxLen).trim();
+        }
+    });
+    if (current) chunks.push(current);
+    return chunks;
+}
+
 function getCatalanSpeechVoice() {
     if (!reviewTtsSupported()) return null;
     const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
@@ -1497,23 +1530,32 @@ function updateReviewTtsButtons() {
     pauseBtn.prop('disabled', !supported || !REVIEW_TTS_STATE.isSpeaking);
     stopBtn.prop('disabled', !supported || (!REVIEW_TTS_STATE.isSpeaking && !REVIEW_TTS_STATE.isPaused));
     const playLabel = REVIEW_TTS_STATE.isPaused ? 'Reprèn' : (REVIEW_TTS_STATE.isSpeaking ? 'Llegint…' : 'Escolta');
-    const playIcon = REVIEW_TTS_STATE.isPaused ? 'ic-play' : 'ic-play';
-    playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#${playIcon}"/></svg>${playLabel}`);
+    playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>${playLabel}`);
     if (!supported) setReviewTtsStatus('Lectura local no disponible en aquest navegador.');
     else if (!hasEntry) setReviewTtsStatus('Selecciona una partida per escoltar-ne la ressenya.');
-    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint la ressenya amb la veu local del dispositiu.');
+    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint la ressenya amb la veu local en català.');
     else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
     else {
         const caVoice = getCatalanSpeechVoice();
-        setReviewTtsStatus(caVoice ? `Veu local: ${caVoice.name}` : 'No he trobat cap veu catalana local; provaré ca-ES amb la veu del dispositiu.');
+        setReviewTtsStatus(caVoice ? 'Veu local: català' : 'No he trobat cap veu en català; provaré amb la veu del dispositiu.');
+    }
+}
+
+function resetReviewTtsState(keepPaused = false) {
+    REVIEW_TTS_STATE.isSpeaking = false;
+    REVIEW_TTS_STATE.isPaused = keepPaused;
+    REVIEW_TTS_STATE.utterance = null;
+    if (!keepPaused) {
+        REVIEW_TTS_STATE.chunks = [];
+        REVIEW_TTS_STATE.chunkIndex = 0;
     }
 }
 
 function stopReviewTts() {
     if (!reviewTtsSupported()) return;
+    REVIEW_TTS_STATE.stopRequested = true;
     try { window.speechSynthesis.cancel(); } catch (e) {}
-    REVIEW_TTS_STATE.isSpeaking = false;
-    REVIEW_TTS_STATE.isPaused = false;
+    resetReviewTtsState(false);
     updateReviewTtsButtons();
 }
 
@@ -1526,6 +1568,43 @@ function pauseReviewTts() {
             REVIEW_TTS_STATE.isSpeaking = false;
         }
     } catch (e) {}
+    updateReviewTtsButtons();
+}
+
+function speakReviewTtsChunk() {
+    if (!reviewTtsSupported()) return;
+    if (REVIEW_TTS_STATE.stopRequested) return;
+    const chunk = REVIEW_TTS_STATE.chunks[REVIEW_TTS_STATE.chunkIndex];
+    if (!chunk) { resetReviewTtsState(false); updateReviewTtsButtons(); return; }
+    const utterance = new SpeechSynthesisUtterance(chunk);
+    // Etiqueta genèrica: de cara a l'usuari és només «català», sense país.
+    utterance.lang = 'ca';
+    const voice = getCatalanSpeechVoice();
+    if (voice) utterance.voice = voice;
+    utterance.rate = 0.95;
+    utterance.pitch = 1;
+    utterance.onstart = () => {
+        REVIEW_TTS_STATE.isSpeaking = true;
+        REVIEW_TTS_STATE.isPaused = false;
+        updateReviewTtsButtons();
+    };
+    utterance.onend = () => {
+        if (REVIEW_TTS_STATE.stopRequested) return;
+        REVIEW_TTS_STATE.chunkIndex += 1;
+        if (REVIEW_TTS_STATE.chunkIndex < REVIEW_TTS_STATE.chunks.length) {
+            setTimeout(speakReviewTtsChunk, 40);
+        } else {
+            resetReviewTtsState(false);
+            updateReviewTtsButtons();
+        }
+    };
+    utterance.onerror = () => {
+        resetReviewTtsState(false);
+        setReviewTtsStatus("No s\'ha pogut completar la lectura local.");
+        updateReviewTtsButtons();
+    };
+    REVIEW_TTS_STATE.utterance = utterance;
+    try { window.speechSynthesis.speak(utterance); } catch (e) { showToast("No s\'ha pogut iniciar la lectura local.", 'warn'); }
     updateReviewTtsButtons();
 }
 
@@ -1543,24 +1622,22 @@ function speakCurrentReview() {
     const text = normalizeTextForCatalanTTS(raw);
     if (!text) { showToast('No hi ha text de ressenya per llegir.', 'warn'); return; }
     stopReviewTts();
-    const utterance = new SpeechSynthesisUtterance(text);
-    utterance.lang = 'ca-ES';
-    const voice = getCatalanSpeechVoice();
-    if (voice) utterance.voice = voice;
-    utterance.rate = 0.95;
-    utterance.pitch = 1;
-    utterance.onstart = () => { REVIEW_TTS_STATE.isSpeaking = true; REVIEW_TTS_STATE.isPaused = false; updateReviewTtsButtons(); };
-    utterance.onend = () => { REVIEW_TTS_STATE.isSpeaking = false; REVIEW_TTS_STATE.isPaused = false; updateReviewTtsButtons(); };
-    utterance.onerror = () => { REVIEW_TTS_STATE.isSpeaking = false; REVIEW_TTS_STATE.isPaused = false; setReviewTtsStatus("No s\'ha pogut completar la lectura local."); updateReviewTtsButtons(); };
+    REVIEW_TTS_STATE.stopRequested = false;
     REVIEW_TTS_STATE.lastText = text;
-    try { window.speechSynthesis.speak(utterance); } catch (e) { showToast("No s\'ha pogut iniciar la lectura local.", 'warn'); }
-    updateReviewTtsButtons();
+    REVIEW_TTS_STATE.chunks = splitReviewTtsText(text);
+    REVIEW_TTS_STATE.chunkIndex = 0;
+    speakReviewTtsChunk();
 }
 
 function initReviewTts() {
     if (!reviewTtsSupported()) { updateReviewTtsButtons(); return; }
     try {
-        window.speechSynthesis.onvoiceschanged = () => { REVIEW_TTS_STATE.voicesReady = true; updateReviewTtsButtons(); };
+        const prev = window.speechSynthesis.onvoiceschanged;
+        window.speechSynthesis.onvoiceschanged = event => {
+            REVIEW_TTS_STATE.voicesReady = true;
+            if (typeof prev === 'function') { try { prev.call(window.speechSynthesis, event); } catch (e) {} }
+            updateReviewTtsButtons();
+        };
         window.speechSynthesis.getVoices();
     } catch (e) {}
     updateReviewTtsButtons();
