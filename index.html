@@ -3763,13 +3763,47 @@
         #checkmate-overlay .checkmate-image {
             display: block;
             margin: 0 auto;
-        }        
+        }
  .review-actions {
             display: flex;
             gap: 10px;
             flex-wrap: wrap;
             justify-content: center;
             margin-top: 12px;
+        }
+
+        /* ── Finestres flotants de final de partida i de primera anàlisi a
+           l'ordinador ─────────────────────────────────────────────────────
+           A escriptori aquestes finestres no es queden a l'amplada fixa de
+           mòbil (380px): s'eixamplen proporcionalment amb la pantalla, amb un
+           topall perquè el text no faci línies quilomètriques. Inclou la
+           resolució de la partida (#review-modal, també lliga/calibratge/
+           rellotge), el mat (#checkmate-overlay), la resolució del repte de
+           fase, la confirmació de rendició i el diàleg de confirmació que
+           proposa la primera anàlisi d'una partida importada
+           (#app-confirm-modal). */
+        body.device-desktop #review-modal .modal-content {
+            max-width: clamp(380px, 64vw, 960px);
+        }
+        /* Amb la finestra ampla, els botons d'acció comparteixen fila en lloc
+           d'apilar-se a tota l'amplada (ja eren contenidors amb flex-wrap). */
+        body.device-desktop #review-modal .review-actions .btn,
+        body.device-desktop #review-modal .growth-rec-actions .btn {
+            flex: 1 1 240px;
+            width: auto;
+        }
+        body.device-desktop #review-modal .checkmate-image {
+            width: clamp(180px, 18vw, 300px);
+        }
+        body.device-desktop #checkmate-overlay .checkmate-image {
+            width: clamp(220px, 26vw, 380px);
+        }
+        body.device-desktop #phase-replay-overlay .bundle-success-content {
+            max-width: clamp(340px, 52vw, 760px);
+        }
+        body.device-desktop #app-confirm-modal .modal-content,
+        body.device-desktop #resign-modal .modal-content {
+            max-width: clamp(380px, 44vw, 640px);
         }
 
         /* Historial en mòbil: el DOM ja va en l'ordre de lectura
