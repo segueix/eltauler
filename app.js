@@ -2632,6 +2632,9 @@ function prewarmOpeningPositionGraph() {
             // (detecció pobra perquè el graf encara no estava llest), la refresquem
             // ara perquè mostri el nom d'obertura correcte.
             try { refreshCurrentHistoryReview(); } catch (e) {}
+            // El tauler d'anàlisi mostra el nom de l'obertura de la posició: si és
+            // obert, ara ja el pot ensenyar.
+            try { if (typeof updateExplorerOpeningLabel === 'function') updateExplorerOpeningLabel(); } catch (e) {}
         }
     }
     scheduleOpeningIdle(step);
@@ -9037,6 +9040,8 @@ async function analyzeHistoryEntryFromScratch(entry, opts = {}) {
         entry.accuracy = entry.precision;
         entry.mistakes = entry.counts.mistake || 0;
         entry.severeErrors = getSevereErrors(reviews);
+        // Recalcula el moment clau amb l'anàlisi profunda (dades més fiables).
+        try { entry.keyMoment = keyMomentToStored(computeKeyMoment(entry)); } catch (e) {}
         entry.errors = entry.severeErrors.map(err => ({
             fen: err.fen,
             severity: err.quality || 'blunder',
@@ -9103,8 +9108,27 @@ let explorerAnalysisToken = 0;     // descarta respostes del motor d'una posici�
 let explorerAnalysisTimer = null;  // petit debounce entre jugada i anàlisi
 let explorerLastBest = null;       // { fen, uci } de la millor jugada analitzada
 let explorerTapSquare = null;      // casella seleccionada en mode «tocar»
+let explorerLastTapEventTs = 0;    // antirebot: pointerdown+touchstart del mateix toc
 let explorerAnalysisRetries = 0;   // reintents si el motor no respon (contenció)
 let explorerBoardControlMode = null; // mode de control aplicat al tauler d'anàlisi
+let explorerEngineMoveHighlight = null; // { from, to } de l'última jugada del motor (requadre marró)
+let explorerPlayPending = null;    // { fen, playerColor }: petició de «Juga-la contra Stockfish»
+// Línies del motor (PV) de la posició analitzada, font ÚNICA per a la navegació
+// clicable: { startFen, lines: { best|alt: {label, ...buildPvPositions()} } }.
+let explorerPv = null;
+// Estat de PREVISUALITZACIÓ d'una línia, SEPARAT de la partida real (explorerGame).
+// Navegar-hi no toca explorerGame, ni el PGN, ni l'historial, ni el motor.
+let explorerPreview = {
+    active: false,     // previsualització en marxa?
+    startFen: null,    // FEN inicial de l'anàlisi (arrel de la línia)
+    lineKey: null,     // 'best' | 'alt'
+    plies: [],         // posicions de la línia (de ElTaulerCore.buildPvPositions)
+    stepIndex: 0,      // jugades aplicades (0 = posició inicial; N = final)
+    previewFen: null,  // FEN que es mostra al tauler
+    lastMove: null     // { from, to } de l'última jugada reproduïda (o null)
+};
+// Mode PRÀCTICA del moment clau: l'usuari torna a intentar la decisió.
+let explorerPractice = { active: false, km: null, answered: false };
 
 function createExplorerBoard(editMode) {
     if (explorerBoard && typeof explorerBoard.destroy === 'function') {
@@ -9123,10 +9147,13 @@ function createExplorerBoard(editMode) {
         config.dropOffBoard = 'trash';
     } else {
         config.onDragStart = (source, piece) => {
+            // Durant la previsualització d'una línia el tauler és de només lectura.
+            if (explorerPreview.active) return false;
             if (!explorerGame || explorerGame.game_over()) return false;
             return !!piece && piece.charAt(0) === explorerGame.turn();
         };
         config.onDrop = (source, target) => {
+            if (explorerPreview.active) return 'snapback';
             if (!explorerGame || !target || target === 'offboard') return 'snapback';
             return explorerTryMove(source, target) ? undefined : 'snapback';
         };
@@ -9138,37 +9165,71 @@ function createExplorerBoard(editMode) {
     explorerBoard = Chessboard('explorer-board', config);
     explorerBoardControlMode = desiredControlMode;
     updateExplorerBoardInteractivity();
+    if (!editMode) reapplyExplorerEngineMoveHighlight();
 }
 
-// Mode «tocar» (preferència de control de l'usuari): tocar peça i destí.
+// Mode «tocar» (preferència de control de l'usuari): tocar peça i destí, amb
+// les MATEIXES indicacions que el tauler de joc (casella seleccionada marcada
+// i cercles als destins legals: classes compartides tap-selected/tap-move).
+function highlightExplorerTapSelection(square) {
+    $('#explorer-board .square-55d63').removeClass('tap-selected tap-move');
+    const moves = explorerGame ? explorerGame.moves({ square: square, verbose: true }) : [];
+    if (moves.length === 0) return false;
+
+    $(`#explorer-board .square-55d63[data-square='${square}']`).addClass('tap-selected');
+    for (const mv of moves) {
+        $(`#explorer-board .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
+    }
+    return true;
+}
+
 function enableExplorerTapToMove() {
     const boardEl = document.getElementById('explorer-board');
     if (boardEl) boardEl.style.touchAction = 'none';
     $('#explorer-board').off('.exp-tapmove')
-        .on('pointerdown.exp-tapmove', '.square-55d63', function (e) {
-            if (explorerEditMode || !explorerGame || explorerGame.game_over()) return;
+        .on('pointerdown.exp-tapmove touchstart.exp-tapmove', '.square-55d63', function (e) {
+            if (explorerEditMode || explorerPreview.active || !explorerGame || explorerGame.game_over()) return;
             if (e && e.preventDefault) e.preventDefault();
+
+            const nowTs = Date.now();
+            if (nowTs - explorerLastTapEventTs < 180) return;
+            explorerLastTapEventTs = nowTs;
+
             const square = $(this).attr('data-square');
             if (!square) return;
+
             if (!explorerTapSquare) {
                 const p = explorerGame.get(square);
                 if (!p || p.color !== explorerGame.turn()) return;
-                explorerTapSquare = square;
-                $(`#explorer-board .square-${square}`).addClass('explorer-tap-selected');
+                if (highlightExplorerTapSelection(square)) explorerTapSquare = square;
                 return;
             }
+
+            if (square === explorerTapSquare) {
+                clearExplorerTapSelection();
+                return;
+            }
+
             const from = explorerTapSquare;
             clearExplorerTapSelection();
             // En mode «tocar» no hi ha onSnapEnd: el tauler es repinta aquí.
-            if (square !== from && explorerTryMove(from, square) && explorerBoard) {
-                explorerBoard.position(explorerGame.fen(), false);
+            if (explorerTryMove(from, square)) {
+                if (explorerBoard) explorerBoard.position(explorerGame.fen(), false);
+                return;
+            }
+
+            // Destinació il·legal sobre una altra peça pròpia: passa a
+            // seleccionar-la (mateix comportament que el tauler de joc).
+            const p2 = explorerGame.get(square);
+            if (p2 && p2.color === explorerGame.turn() && highlightExplorerTapSelection(square)) {
+                explorerTapSquare = square;
             }
         });
 }
 
 function clearExplorerTapSelection() {
     explorerTapSquare = null;
-    $('#explorer-board .square-55d63').removeClass('explorer-tap-selected');
+    $('#explorer-board .square-55d63').removeClass('tap-selected tap-move');
 }
 
 function disableExplorerTapToMove() {
@@ -9176,6 +9237,62 @@ function disableExplorerTapToMove() {
     const boardEl = document.getElementById('explorer-board');
     if (boardEl) boardEl.style.touchAction = '';
     clearExplorerTapSelection();
+}
+
+// Requadre marró de jugada del motor (el mateix .engine-move que a la resta de
+// l'app): marca la «millor jugada» quan la juga el motor i desapareix així que
+// la posició canvia (jugada de l'usuari, navegació, FEN nou o edició). Es desa
+// per reaplicar-la quan el tauler es recrea (canvi de mode de control) o es
+// gira, que reconstrueixen les caselles i n'esborren les classes.
+function clearExplorerEngineMoveHighlight() {
+    explorerEngineMoveHighlight = null;
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+}
+
+function reapplyExplorerEngineMoveHighlight() {
+    const h = explorerEngineMoveHighlight;
+    if (!h) return;
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+    [h.from, h.to].forEach((sq) => {
+        if (sq) $(`#explorer-board .square-${sq}`).addClass('engine-move');
+    });
+}
+
+function highlightExplorerEngineMove(from, to) {
+    explorerEngineMoveHighlight = { from: from || null, to: to || null };
+    reapplyExplorerEngineMoveHighlight();
+}
+
+// Nom de l'obertura de la posició explorada, pel GRAF de posicions (transposicions
+// incloses): es mostra el nom de la posició amb nom MÉS PROFUNDA assolida per la
+// línia fins al punt que s'està mirant (com fan els analitzadors habituals). Mentre
+// el graf encara es construeix en segon pla, la línia queda amagada; la crida de
+// getOpeningPositionGraph() n'engega la construcció i, en acabar, es refresca.
+function updateExplorerOpeningLabel() {
+    const el = document.getElementById('explorer-opening');
+    if (!el) return;
+    let hit = null;
+    if (explorerActive && !explorerEditMode && explorerGame && typeof ElTaulerCore !== 'undefined') {
+        const graph = getOpeningPositionGraph();
+        if (graph && graph.byPos) {
+            try {
+                const keyFn = ElTaulerCore.positionKeyFromFen;
+                const g = explorerStartFen === 'start' ? new Chess() : new Chess(explorerStartFen);
+                hit = graph.byPos.get(keyFn(g.fen())) || null;
+                for (let i = 0; i < explorerIndex; i++) {
+                    if (!g.move(explorerMoves[i], { sloppy: true })) break;
+                    hit = graph.byPos.get(keyFn(g.fen())) || hit;
+                }
+            } catch (e) { hit = null; }
+        }
+    }
+    if (hit) {
+        el.textContent = `📖 ${hit.eco ? hit.eco + ' · ' : ''}${hit.name}`;
+        el.style.display = '';
+    } else {
+        el.textContent = '';
+        el.style.display = 'none';
+    }
 }
 
 function updateExplorerBoardInteractivity() {
@@ -9207,6 +9324,8 @@ function setupExplorerPosition(fen, opts = {}) {
         showToast('Aquest FEN no és vàlid.', 'warn');
         return false;
     }
+    // Fixar una posició nova descarta la nota d'importació del moment clau.
+    showExplorerImportNote(null);
     explorerStartFen = isStart ? 'start' : g.fen();
     explorerGame = g;
     explorerMoves = [];
@@ -9234,12 +9353,20 @@ function explorerTryMove(from, to) {
 
 function applyExplorerMove(from, to, promotion) {
     if (!explorerGame) return false;
+    // Mode pràctica: la PRIMERA jugada des de la posició del moment clau és
+    // l'intent de l'usuari (s'avalua i es dona resposta pedagògica).
+    const practiceAttempt = explorerPractice.active && !explorerPractice.answered
+        && explorerIndex === 0 && explorerPractice.km && explorerGame.fen() === explorerPractice.km.fen;
     const mv = explorerGame.move({ from: from, to: to, promotion: promotion || undefined });
     if (!mv) return false;
     // Si estàvem enrere dins la línia, la jugada nova en talla la cua.
     explorerMoves = explorerMoves.slice(0, explorerIndex);
     explorerMoves.push(mv.san);
     explorerIndex = explorerMoves.length;
+    if (practiceAttempt) {
+        const uci = mv.from + mv.to + (mv.promotion || '');
+        void evaluateKeyMomentAttempt(uci, explorerGame.fen());
+    }
     afterExplorerPositionChange();
     return true;
 }
@@ -9267,24 +9394,6 @@ function explorerStatusText() {
     return g.in_check() ? `Mouen ${t} — escac!` : `Mouen ${t}`;
 }
 
-// Línia del motor amb numeració de jugades («12… Dh4 13. g3»), a partir del FEN.
-function explorerFormatPv(fen, pvUci, maxPlies = 10) {
-    const san = pvToSan(fen, (pvUci || []).slice(0, maxPlies));
-    const parts = fen.split(' ');
-    let moveNo = parseInt(parts[5], 10) || 1;
-    let whiteToMove = parts[1] !== 'b';
-    const out = [];
-    san.forEach((s, i) => {
-        if (whiteToMove) {
-            out.push(`${moveNo}. ${s}`);
-        } else {
-            out.push(i === 0 ? `${moveNo}… ${s}` : s);
-            moveNo++;
-        }
-        whiteToMove = !whiteToMove;
-    });
-    return out.join(' ');
-}
 
 // Passa una avaluació del motor (perspectiva del qui mou) a perspectiva BLANCA.
 function explorerWhiteEval(best, turn) {
@@ -9330,6 +9439,7 @@ async function runExplorerAnalysis() {
     const line2El = document.getElementById('explorer-line2');
     const playBest = document.getElementById('explorer-play-best');
     explorerLastBest = null;
+    explorerPv = null;
     if (playBest) playBest.style.display = 'none';
     // Posició acabada: el veredicte és del tauler, no cal motor.
     if (explorerGame.game_over()) {
@@ -9366,20 +9476,167 @@ async function runExplorerAnalysis() {
     explorerAnalysisRetries = 0;
     const we = explorerWhiteEval(res.bestMove, explorerGame.turn());
     setExplorerEvalDisplay(explorerEvalText(we), explorerWhiteShare(we), `prof. ${res.depth || '—'}`);
-    if (lineEl) lineEl.textContent = `Millor línia: ${explorerFormatPv(fen, res.bestMove.pv && res.bestMove.pv.length ? res.bestMove.pv : [res.bestMove.move])}`;
-    // Segona línia del MultiPV (si el motor n'ha donat una de diferent).
+    // Construeix les línies (millor + alternativa) com a UNA font de dades i les
+    // renderitza com a botons clicables. Prefereix la UCI (menys ambigua) per
+    // reproduir-les; la SAN és per mostrar-les.
+    const bestPv = (res.bestMove.pv && res.bestMove.pv.length) ? res.bestMove.pv.slice(0, 10) : [res.bestMove.move];
+    const lines = { best: Object.assign({ label: 'Millor línia' }, ElTaulerCore.buildPvPositions(Chess, fen, bestPv)) };
     const alt = (res.alternatives || []).find(a => a && a.move && a.move !== res.bestMove.move);
-    if (line2El) {
-        if (alt) {
-            const altWe = explorerWhiteEval(alt, explorerGame.turn());
-            line2El.textContent = `Alternativa (${explorerEvalText(altWe)}): ${explorerFormatPv(fen, alt.pv && alt.pv.length ? alt.pv : [alt.move], 6)}`;
-            line2El.style.display = '';
+    if (alt) {
+        const altWe = explorerWhiteEval(alt, explorerGame.turn());
+        const altPv = (alt.pv && alt.pv.length) ? alt.pv.slice(0, 8) : [alt.move];
+        lines.alt = Object.assign(
+            { label: `Alternativa (${explorerEvalText(altWe)})` },
+            ElTaulerCore.buildPvPositions(Chess, fen, altPv)
+        );
+    }
+    explorerPv = { startFen: fen, lines: lines };
+    explorerLastBest = { fen: fen, uci: res.bestMove.move };
+    // Mode pràctica sense resposta a la posició del moment clau: NO es revela la
+    // millor jugada (ni la línia ni el botó); la resta (barra i valoració) sí.
+    const maskForPractice = explorerPractice.active && !explorerPractice.answered
+        && explorerPractice.km && fen === explorerPractice.km.fen;
+    if (maskForPractice) {
+        if (lineEl) lineEl.textContent = 'Troba la millor jugada i mou-la al tauler.';
+        if (line2El) { line2El.style.display = 'none'; line2El.innerHTML = ''; }
+        if (playBest) playBest.style.display = 'none';
+    } else {
+        renderExplorerPvLines();
+        if (playBest) playBest.style.display = '';
+    }
+}
+
+// Renderitza les línies del motor (#explorer-line i #explorer-line2) com a
+// seqüències de botons: cada moviment és clicable i navegable amb teclat.
+function renderExplorerPvLines() {
+    renderExplorerPvLine('best', document.getElementById('explorer-line'));
+    const line2El = document.getElementById('explorer-line2');
+    if (explorerPv && explorerPv.lines.alt && explorerPv.lines.alt.plies.length) {
+        renderExplorerPvLine('alt', line2El);
+        if (line2El) line2El.style.display = '';
+    } else if (line2El) {
+        line2El.style.display = 'none';
+        line2El.innerHTML = '';
+    }
+}
+
+function renderExplorerPvLine(lineKey, el) {
+    if (!el || !explorerPv || !explorerPv.lines[lineKey]) return;
+    const line = explorerPv.lines[lineKey];
+    const tokens = ElTaulerCore.pvDisplayTokens(line.plies);
+    let html = `<span class="explorer-line-label">${escapeHtml(line.label)}:</span> `;
+    if (!tokens.length) {
+        el.innerHTML = html + '<span class="explorer-line-empty">—</span>';
+        return;
+    }
+    html += '<span class="explorer-pv">';
+    tokens.forEach((tok) => {
+        const ply = line.plies[tok.index];
+        if (tok.numberLabel) html += `<span class="explorer-move-no">${tok.numberLabel}</span>`;
+        const isActive = explorerPreview.active
+            && explorerPreview.lineKey === lineKey
+            && explorerPreview.stepIndex === tok.index + 1;
+        const aria = escapeHtml(ElTaulerCore.pvMoveAriaLabel(ply));
+        html += `<button type="button" class="explorer-pv-move${isActive ? ' active' : ''}"`
+            + ` data-line="${lineKey}" data-step="${tok.index + 1}" aria-label="${aria}">`
+            + `${escapeHtml(tok.san)}</button>`;
+    });
+    html += '</span>';
+    el.innerHTML = html;
+}
+
+// ── Previsualització d'una línia del motor ───────────────────────────────────
+// Mostra al tauler la posició resultant d'una línia del motor SENSE tocar la
+// partida real (explorerGame), ni el PGN, ni l'historial, ni el motor. Només
+// canvia la posició VISUAL del tauler i el ressaltat; en sortir es restaura.
+
+// Ressalta al tauler les caselles d'origen/destí de l'última jugada reproduïda,
+// reutilitzant la classe .engine-move (el mateix requadre marró de la resta de
+// l'app), sense tocar el ressaltat persistent de «Juga la millor jugada».
+function paintExplorerPreviewMove(lastMove) {
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+    if (lastMove) {
+        [lastMove.from, lastMove.to].forEach((sq) => {
+            if (sq) $(`#explorer-board .square-${sq}`).addClass('engine-move');
+        });
+    }
+}
+
+function updateExplorerPreviewBar() {
+    const bar = document.getElementById('explorer-preview-bar');
+    if (!bar) return;
+    if (!explorerPreview.active) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    const total = explorerPreview.plies.length;
+    const i = explorerPreview.stepIndex;
+    const statusEl = document.getElementById('explorer-preview-status');
+    if (statusEl) {
+        if (i <= 0) {
+            statusEl.textContent = 'Posició inicial de l\'anàlisi';
         } else {
-            line2El.style.display = 'none';
+            const ply = explorerPreview.plies[i - 1];
+            const num = ply.isWhite ? `${ply.moveNo}.` : `${ply.moveNo}…`;
+            statusEl.textContent = `Posició després de ${num}${ply.san} · pas ${i} de ${total}`;
         }
     }
-    explorerLastBest = { fen: fen, uci: res.bestMove.move };
-    if (playBest) playBest.style.display = '';
+    $('#explorer-pv-start, #explorer-pv-prev').prop('disabled', i <= 0);
+    $('#explorer-pv-next, #explorer-pv-end').prop('disabled', i >= total);
+    // Porta el moviment actiu a la zona visible (mòbil: la línia pot ocupar
+    // diverses files).
+    const activeBtn = document.querySelector('.explorer-pv-move.active');
+    if (activeBtn && activeBtn.scrollIntoView) {
+        try { activeBtn.scrollIntoView({ block: 'nearest', inline: 'center' }); } catch (e) {}
+    }
+}
+
+// Aplica un pas de la línia previsualitzada (0 = posició inicial de l'anàlisi).
+function explorerPreviewApply(stepIndex) {
+    const total = explorerPreview.plies.length;
+    const step = ElTaulerCore.pvStepClamp(stepIndex, total);
+    explorerPreview.stepIndex = step;
+    if (step <= 0) {
+        explorerPreview.previewFen = explorerPreview.startFen;
+        explorerPreview.lastMove = null;
+    } else {
+        const ply = explorerPreview.plies[step - 1];
+        explorerPreview.previewFen = ply.fenAfter;
+        explorerPreview.lastMove = { from: ply.from, to: ply.to };
+    }
+    // Només canvia la VISTA del tauler; explorerGame no es toca.
+    if (explorerBoard) explorerBoard.position(explorerPreview.previewFen, false);
+    paintExplorerPreviewMove(explorerPreview.lastMove);
+    renderExplorerPvLines();       // reactualitza el ressaltat del moviment actiu
+    updateExplorerPreviewBar();
+}
+
+// Selecciona una línia i hi entra en previsualització a un pas concret.
+function explorerPreviewSelect(lineKey, stepIndex) {
+    if (!explorerPv || !explorerPv.lines[lineKey]) return;
+    const line = explorerPv.lines[lineKey];
+    if (!line.plies || !line.plies.length) return;
+    clearExplorerTapSelection();
+    explorerPreview.active = true;
+    explorerPreview.startFen = explorerPv.startFen;
+    explorerPreview.lineKey = lineKey;
+    explorerPreview.plies = line.plies;
+    explorerPreviewApply(stepIndex);
+}
+
+// Surt de la previsualització i restaura la posició analitzada real i el seu
+// ressaltat persistent (el de «Juga la millor jugada», si n'hi havia).
+function exitExplorerPreview() {
+    if (!explorerPreview.active) return;
+    explorerPreview.active = false;
+    explorerPreview.plies = [];
+    explorerPreview.previewFen = null;
+    explorerPreview.lastMove = null;
+    explorerPreview.lineKey = null;
+    explorerPreview.stepIndex = 0;
+    if (explorerBoard && explorerGame) explorerBoard.position(explorerGame.fen(), false);
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+    reapplyExplorerEngineMoveHighlight();
+    updateExplorerPreviewBar();
+    renderExplorerPvLines();
 }
 
 // Llista de jugades de la línia explorada, clicable per navegar-hi.
@@ -9416,10 +9673,16 @@ function updateExplorerControls() {
 }
 
 function afterExplorerPositionChange() {
+    // La posició real ha canviat: qualsevol previsualització de línia queda
+    // obsoleta i les línies del motor s'han de recalcular.
+    exitExplorerPreview();
+    explorerPv = null;
     clearExplorerTapSelection();
+    clearExplorerEngineMoveHighlight();
     explorerAnalysisRetries = 0;
     renderExplorerMoves();
     updateExplorerControls();
+    updateExplorerOpeningLabel();
     scheduleExplorerAnalysis();
 }
 
@@ -9438,6 +9701,9 @@ function explorerSwapTurn() {
 // ── Editor de posició ────────────────────────────────────────────────────────
 function enterExplorerEditMode() {
     if (explorerEditMode || !explorerGame) return;
+    exitExplorerPreview();
+    hideKeyMomentPracticeBanner();
+    showExplorerImportNote(null);
     explorerEditMode = true;
     explorerEditSnapshot = { startFen: explorerStartFen, moves: explorerMoves.slice(), index: explorerIndex };
     ++explorerAnalysisToken; // descarta anàlisis en curs
@@ -9445,7 +9711,7 @@ function enterExplorerEditMode() {
     const turnSel = document.getElementById('explorer-edit-turn');
     if (turnSel) turnSel.value = explorerGame.turn();
     createExplorerBoard(true);
-    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status').hide();
+    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status, #explorer-opening').hide();
     $('#explorer-edit-toolbar').show();
 }
 
@@ -9485,7 +9751,7 @@ function exitExplorerEditMode(apply) {
     }
     explorerEditMode = false;
     $('#explorer-edit-toolbar').hide();
-    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status').show();
+    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status').show();
     if (apply) {
         setupExplorerPosition(nextFen);
     } else {
@@ -9507,22 +9773,52 @@ function openExplorer(fen, opts = {}) {
     explorerActive = true;
     explorerEditMode = false;
     $('#explorer-edit-toolbar').hide();
-    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status').show();
+    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status').show();
+    // Obertura NORMAL (no pràctica): descarta qualsevol mode de pràctica anterior.
+    if (!opts.practiceNote) hideKeyMomentPracticeBanner();
     if (opts.pushHistory !== false) navPush('explorer-screen');
     try { requestBackgroundPrepAbort(); } catch (e) {}
     const initialFen = fen || ANALYSIS_BOARD_INITIAL_FEN;
     if (!setupExplorerPosition(initialFen, opts)) setupExplorerPosition('start', opts);
+    // Notes contextuals (importació del moment clau / consigna de pràctica).
+    showExplorerImportNote(opts.importNote || null);
+    if (opts.practiceNote) setKeyMomentPracticeBanner(opts.practiceNote, 'info', false);
 }
 
 function closeExplorerScreen() {
+    // En sortir de la pantalla, restaura la posició analitzada (surt de la
+    // previsualització) abans d'amagar-la.
+    exitExplorerPreview();
+    hideKeyMomentPracticeBanner();
+    showExplorerImportNote(null);
     explorerActive = false;
     explorerEditMode = false;
+    explorerPv = null;
     ++explorerAnalysisToken;
     if (explorerAnalysisTimer) { clearTimeout(explorerAnalysisTimer); explorerAnalysisTimer = null; }
     try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
     $('#explorer-screen').hide();
 }
 if (typeof window !== 'undefined') window.openExplorer = openExplorer;
+
+// «Juga-la contra Stockfish»: converteix la posició explorada en una partida
+// REAL al nivell adaptatiu de l'usuari (com una partida lliure). L'usuari juga
+// el bàndol a qui toca moure (amb «Canvia el torn» es tria l'altre). La partida
+// NO puntua ELO ni es desa a l'historial: amb l'editor es pot muntar qualsevol
+// posició (fins i tot de guanyada) i no ha de poder inflar la puntuació.
+function startExplorerGame() {
+    if (!explorerGame || explorerEditMode) return;
+    if (explorerGame.game_over()) {
+        showToast('Aquesta posició ja està acabada: no s\'hi pot jugar.', 'warn');
+        return;
+    }
+    const fen = explorerGame.fen();
+    const color = explorerGame.turn();
+    closeExplorerScreen();
+    explorerPlayPending = { fen: fen, playerColor: color };
+    showToast(`Jugues amb ${color === 'w' ? 'blanques' : 'negres'} al teu nivell (sense puntuar)`, 'success');
+    void startGame(false, fen);
+}
 
 // Repara les FEN de decisió dels moveReviews d'una entrada antiga o incompleta.
 // Algunes partides (sobretot inacabades o migrades de versions velles) es van
@@ -9895,6 +10191,20 @@ function updateHistoryReview(entry) {
     }
     reviewContent.html(html);
     bindOpenAIMoveLinks(reviewContent);
+    // Secció «Moment clau de la partida»: pràctica, obertura al tauler d'anàlisi i
+    // còpia del FEN. Es captura l'entrada actual per resoldre el moment fresc.
+    const keyMomentEntry = entry;
+    reviewContent.find('.keymoment-practice').off('click').on('click', function() {
+        const km = getEntryKeyMoment(keyMomentEntry);
+        if (km) startKeyMomentPractice(km);
+    });
+    reviewContent.find('.keymoment-open-analysis').off('click').on('click', function() {
+        const km = getEntryKeyMoment(keyMomentEntry);
+        if (km) openKeyMomentInAnalysis(km);
+    });
+    reviewContent.find('.keymoment-copy-fen').off('click').on('click', function() {
+        void copyKeyMomentFen($(this).attr('data-fen'));
+    });
     // Moments clau: navega a la posició de decisió i ressalta la jugada recomanada al tauler.
     reviewContent.find('.hist-keymove-link').off('click').on('click', function(event) {
         event.preventDefault();
@@ -10314,6 +10624,316 @@ function getEntrySevereErrors(entry) {
         return getSevereErrors(entry.review);
     }
     return [];
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MOMENT CLAU DE LA PARTIDA
+// ═════════════════════════════════════════════════════════════════════════════
+// La lògica de PUNTUACIÓ i SELECCIÓ és pura (core.js). Aquí es GENEREN els
+// candidats a partir dels moveReviews (que ja són NOMÉS jugades de l'usuari) i
+// es NORMALITZEN les avaluacions a la perspectiva de l'usuari: a moveReviews,
+// evalBefore ja és perspectiva de l'usuari i evalAfter és perspectiva del rival
+// (conveni de swing = evalBefore + evalAfter), de manera que evalAfter de
+// l'usuari = −review.evalAfter i cpLoss (signat, positiu = pèrdua) = evalBefore
+// + evalAfter. El mat viatja com a ±10000 (cpOf), un codi controlat.
+function keyMomentEvalType(v) {
+    return (typeof v === 'number' && Math.abs(v) >= 9000) ? 'mate' : 'cp';
+}
+
+function buildKeyMomentCandidates(entry) {
+    const reviews = (entry && Array.isArray(entry.moveReviews)) ? entry.moveReviews : [];
+    const candidates = [];
+    for (const r of reviews) {
+        if (!r || !r.fen) continue;
+        const eb = (typeof r.evalBefore === 'number') ? r.evalBefore : null;
+        const eaOpp = (typeof r.evalAfter === 'number') ? r.evalAfter : null; // perspectiva del rival
+        const color = (r.color === 'b') ? 'b' : 'w';
+        const moveNumber = Number(r.moveNumber) || null;
+        // ply (mitja jugada, 1-based) derivat del número de jugada i el color.
+        const ply = moveNumber ? (color === 'w' ? 2 * moveNumber - 1 : 2 * moveNumber) : null;
+        // Nombre de jugades legals a la posició de decisió (per descartar jugades
+        // obligades / amb una única opció legal).
+        let legalCount = null;
+        try { legalCount = new Chess(r.fen).moves().length; } catch (e) { legalCount = null; }
+        const evalBeforeUser = eb;
+        const evalAfterUser = (eaOpp === null) ? null : -eaOpp;
+        const cpLoss = (eb === null || eaOpp === null) ? null : (eb + eaOpp);
+        candidates.push({
+            moveNumber: moveNumber,
+            ply: ply,
+            playerColor: color,
+            fenBefore: r.fen,
+            fenAfter: r.afterFen || null,
+            playedMoveUci: r.playerMove || null,
+            playedMoveSan: r.playerMoveSan || null,
+            bestMoveUci: r.bestMove || null,
+            bestMoveSan: r.bestMoveSan || null,
+            bestPv: Array.isArray(r.bestMovePv) ? r.bestMovePv : [],
+            evalBefore: evalBeforeUser,
+            evalAfter: evalAfterUser,
+            evalBeforeType: keyMomentEvalType(eb),
+            evalAfterType: keyMomentEvalType(evalAfterUser),
+            cpLoss: cpLoss,
+            classification: r.quality || null,
+            phase: (() => { try { return ElTaulerCore.phaseFromFen(r.fen); } catch (e) { return 'middlegame'; } })(),
+            forcingInfo: r.forcingInfo || null,
+            depth: (typeof r.depth === 'number') ? r.depth : null,
+            // Alternatives del MultiPV, perspectiva de l'usuari (fenBefore = usuari mou).
+            alternatives: Array.isArray(r.alternatives) ? r.alternatives.map(a => ({
+                uci: a.move || null,
+                san: a.moveSan || null,
+                eval: (typeof a.eval === 'number') ? a.eval : null,
+                evalType: a.evalType || 'cp',
+                pv: a.pv || []
+            })) : []
+        });
+    }
+    return candidates;
+}
+
+// Calcula el moment clau (forma completa) d'una entrada, o null si no n'hi ha cap
+// de prou rellevant. Selecció i explicació surten de dades verificables (core.js).
+function computeKeyMoment(entry) {
+    const candidates = buildKeyMomentCandidates(entry);
+    if (!candidates.length) return null;
+    return ElTaulerCore.selectKeyMoment(candidates, { minDepth: 10 });
+}
+
+// Forma COMPACTA per desar a l'historial (sense duplicar dades reconstruïbles).
+function keyMomentToStored(km) {
+    if (!km || !km.fen) return null;
+    return {
+        fen: km.fen,
+        moveNumber: km.moveNumber || null,
+        ply: km.ply || null,
+        playerColor: km.playerColor || 'w',
+        phase: km.phase || null,
+        playedMoveSan: (km.playedMove && km.playedMove.san) || null,
+        playedMoveUci: (km.playedMove && km.playedMove.uci) || null,
+        bestMoveSan: (km.bestMove && km.bestMove.san) || null,
+        bestMoveUci: (km.bestMove && km.bestMove.uci) || null,
+        bestPv: Array.isArray(km.bestPv) ? km.bestPv.slice(0, 12) : [],
+        evalBefore: (typeof km.evalBefore === 'number') ? km.evalBefore : null,
+        evalAfter: (typeof km.evalAfter === 'number') ? km.evalAfter : null,
+        cpLoss: (typeof km.cpLoss === 'number') ? km.cpLoss : null,
+        classification: km.classification || null,
+        reasonCode: km.reasonCode || null
+    };
+}
+
+// Rehidrata la forma compacta a la forma completa per renderitzar (l'explicació
+// i l'orientació són deterministes: no cal desar-les).
+function keyMomentFromStored(s) {
+    if (!s || !s.fen) return null;
+    return Object.assign({}, s, {
+        playedMove: { uci: s.playedMoveUci || null, san: s.playedMoveSan || null },
+        bestMove: { uci: s.bestMoveUci || null, san: s.bestMoveSan || null },
+        explanation: ElTaulerCore.keyMomentExplanation(s.reasonCode),
+        orientation: s.playerColor === 'b' ? 'black' : 'white'
+    });
+}
+
+// Moment clau d'una entrada per RENDERITZAR: el desat (compatible amb partides
+// antigues sense keyMoment) o, si no n'hi ha, calculat a l'instant dels moveReviews.
+function getEntryKeyMoment(entry) {
+    if (!entry) return null;
+    if (entry.keyMoment && entry.keyMoment.fen) return keyMomentFromStored(entry.keyMoment);
+    try { return computeKeyMoment(entry); } catch (e) { return null; }
+}
+
+// ── Renderitzat de la secció «Moment clau» ───────────────────────────────────
+function keyMomentEvalLabel(cp) {
+    if (typeof cp !== 'number') return '—';
+    if (cp >= 9000) return 'mat a favor';
+    if (cp <= -9000) return 'mat en contra';
+    const p = cp / 100;
+    return (p > 0 ? '+' : '') + p.toFixed(2);
+}
+function keyMomentPhaseLabel(phase) {
+    return phase === 'opening' ? "l'obertura" : (phase === 'endgame' ? 'el final' : 'el mig joc');
+}
+function keyMomentQualityLabel(q) {
+    return ({ excel: 'excel·lent', good: 'bona', inaccuracy: 'imprecisió', mistake: 'error', blunder: 'errada greu' })[q] || 'error';
+}
+
+// HTML de la secció destacada. Retorna '' si la partida no té dades analitzades;
+// si té anàlisi però cap decisió prou rellevant, mostra el missatge de «sense
+// moment crític clar». La millor jugada i el FEN queden en desplegables (no a la
+// vista per no desvelar la solució ni desbordar el mòbil).
+function renderKeyMomentHtml(entry) {
+    const hasAnalysis = !!(entry && ((entry.keyMoment && entry.keyMoment.fen) || (Array.isArray(entry.moveReviews) && entry.moveReviews.length)));
+    if (!hasAnalysis) return '';
+    const km = getEntryKeyMoment(entry);
+    if (!km || !km.fen) {
+        return `<div class="keymoment-card keymoment-empty"><div class="keymoment-title">🔑 Moment clau de la partida</div>`
+            + `<p>No hi ha cap moment crític clar en aquesta partida.</p></div>`;
+    }
+    const num = km.moveNumber || '?';
+    const phaseTxt = keyMomentPhaseLabel(km.phase);
+    const playedSan = (km.playedMove && km.playedMove.san) ? escapeHtml(km.playedMove.san) : '—';
+    const bestSan = (km.bestMove && km.bestMove.san) ? escapeHtml(km.bestMove.san) : '—';
+    const evalTxt = `${keyMomentEvalLabel(km.evalBefore)} → ${keyMomentEvalLabel(km.evalAfter)}`;
+    const qualityTxt = keyMomentQualityLabel(km.classification);
+    const explanationRaw = km.explanation || '';
+    // En incrustar l'explicació dins de la frase (després de la coma), la primera
+    // lletra va en minúscula («…durant l'obertura, la posició era favorable…»).
+    const explanationInline = escapeHtml(explanationRaw.charAt(0).toLowerCase() + explanationRaw.slice(1));
+    const fenSafe = escapeHtml(km.fen);
+    return `<div class="keymoment-card">
+        <div class="keymoment-title">🔑 Moment clau de la partida</div>
+        <p class="keymoment-lead">A la jugada <strong>${num}</strong>, durant ${escapeHtml(phaseTxt)}, ${explanationInline}</p>
+        <div class="keymoment-meta">
+            <span>La teva jugada: <strong>${playedSan}</strong></span>
+            <span>Valoració: <strong>${escapeHtml(evalTxt)}</strong></span>
+            <span>Classificació: <strong>${escapeHtml(qualityTxt)}</strong></span>
+        </div>
+        <div class="keymoment-actions">
+            <button type="button" class="btn btn-primary keymoment-practice" aria-label="Practica aquest moment: torna a intentar la decisió">Practica aquest moment</button>
+            <button type="button" class="btn btn-secondary keymoment-open-analysis" aria-label="Obre la posició al tauler d'anàlisi">Obre al tauler d'anàlisi</button>
+            <button type="button" class="btn btn-secondary keymoment-copy-fen" data-fen="${fenSafe}" aria-label="Copia el FEN de la posició al porta-retalls">Copiar FEN</button>
+        </div>
+        <details class="keymoment-reveal">
+            <summary>Mostra la millor jugada</summary>
+            <div class="keymoment-reveal-body">La millor jugada era <strong>${bestSan}</strong>.</div>
+        </details>
+        <details class="keymoment-fen">
+            <summary>Mostra el FEN</summary>
+            <code class="keymoment-fen-text">${fenSafe}</code>
+        </details>
+    </div>`;
+}
+
+// ── Còpia del FEN (amb sistema alternatiu i confirmació no intrusiva) ─────────
+async function copyKeyMomentFen(fen) {
+    const text = String(fen || '').trim();
+    if (!text) return;
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            showToast('FEN copiat.', 'success');
+            return;
+        }
+    } catch (e) {}
+    // Alternativa sense navigator.clipboard: camp temporal + execCommand.
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(ok ? 'FEN copiat.' : 'No s\'ha pogut copiar; selecciona el text manualment.', ok ? 'success' : 'warn');
+    } catch (e) {
+        showToast('No s\'ha pogut copiar; selecciona el text manualment.', 'warn');
+    }
+}
+
+// ── Importa el moment clau al tauler d'anàlisi ───────────────────────────────
+// Transfereix el FEN i les metadades per ESTAT central de l'app (no per URL ni
+// Firebase). No modifica la partida ni l'historial.
+let keyMomentPendingImport = null;
+function openKeyMomentInAnalysis(km) {
+    if (!km || !km.fen) return;
+    keyMomentPendingImport = {
+        fen: km.fen,
+        orientation: km.orientation || (km.playerColor === 'b' ? 'black' : 'white'),
+        moveNumber: km.moveNumber || null
+    };
+    openExplorer(km.fen, {
+        orientation: keyMomentPendingImport.orientation,
+        importNote: `Posició importada del moment clau de la partida${km.moveNumber ? ` (jugada ${km.moveNumber})` : ''}.`
+    });
+}
+
+// ── Nota d'importació al tauler d'anàlisi ────────────────────────────────────
+function showExplorerImportNote(text) {
+    const el = document.getElementById('explorer-import-note');
+    if (!el) return;
+    if (text) { el.textContent = text; el.style.display = ''; }
+    else { el.style.display = 'none'; el.textContent = ''; }
+}
+
+// ── Mode de pràctica del moment clau ─────────────────────────────────────────
+function keyMomentPracticePrompt(km) {
+    return `Practica el moment clau: mouen ${km.playerColor === 'b' ? 'les negres' : 'les blanques'}. Troba la millor jugada i mou-la al tauler.`;
+}
+
+function startKeyMomentPractice(km) {
+    if (!km || !km.fen) return;
+    explorerPractice = { active: true, km: km, answered: false };
+    keyMomentPendingImport = null;
+    openExplorer(km.fen, {
+        orientation: km.orientation || (km.playerColor === 'b' ? 'black' : 'white'),
+        practiceNote: keyMomentPracticePrompt(km)
+    });
+}
+
+function setKeyMomentPracticeBanner(text, tone, showRetry) {
+    const el = document.getElementById('explorer-keymoment');
+    if (!el) return;
+    el.style.display = '';
+    el.className = 'explorer-keymoment tone-' + (tone || 'info');
+    const retry = showRetry
+        ? '<button type="button" class="btn btn-secondary keymoment-retry" style="margin-top:8px;">Torna-ho a intentar</button>'
+        : '';
+    el.innerHTML = `<span class="explorer-keymoment-text" role="status" aria-live="polite">${escapeHtml(text)}</span>${retry}`;
+    const rb = el.querySelector('.keymoment-retry');
+    if (rb) rb.addEventListener('click', retryKeyMomentPractice);
+}
+
+function retryKeyMomentPractice() {
+    if (!explorerPractice.active || !explorerPractice.km) return;
+    explorerPractice.answered = false;
+    setupExplorerPosition(explorerPractice.km.fen, { orientation: explorerPractice.km.orientation });
+    setKeyMomentPracticeBanner(keyMomentPracticePrompt(explorerPractice.km), 'info', false);
+}
+
+function hideKeyMomentPracticeBanner() {
+    explorerPractice = { active: false, km: null, answered: false };
+    const el = document.getElementById('explorer-keymoment');
+    if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+
+// Avalua l'intent de l'usuari i dona resposta pedagògica (reutilitza el motor i
+// la classificació pura de core.js). No revela la millor jugada fins després.
+async function evaluateKeyMomentAttempt(attemptUci, fenAfter) {
+    if (!explorerPractice.active || explorerPractice.answered) return;
+    explorerPractice.answered = true;
+    const km = explorerPractice.km;
+    if (!km) return;
+    let verdict;
+    if (attemptUci === (km.bestMove && km.bestMove.uci)) {
+        verdict = ElTaulerCore.classifyPracticeAttempt({ attemptUci, bestUci: km.bestMove.uci });
+    } else {
+        setKeyMomentPracticeBanner('Avaluant la teva jugada…', 'info', false);
+        let attemptCpUser = null;
+        try {
+            const res = await analyzeFenRobust(fenAfter, 14, 1, 3000, () => !explorerPractice.active);
+            if (res && res.bestMove) {
+                const oppCp = res.bestMove.evalType === 'mate' ? (res.bestMove.eval > 0 ? 10000 : -10000) : res.bestMove.eval;
+                if (typeof oppCp === 'number') attemptCpUser = -oppCp; // perspectiva de l'usuari
+            }
+        } catch (e) {}
+        verdict = ElTaulerCore.classifyPracticeAttempt({
+            attemptUci,
+            bestUci: km.bestMove && km.bestMove.uci,
+            playedGameUci: km.playedMove && km.playedMove.uci,
+            attemptCpUser,
+            bestCpUser: km.evalBefore,
+            playedGameCpUser: km.evalAfter,
+            alternatives: [],
+            equivalentCp: 40
+        });
+    }
+    if (!explorerPractice.active) return;
+    const tone = (verdict.code === 'best' || verdict.code === 'equivalent') ? 'success'
+        : (verdict.code === 'better_not_best' ? 'info' : 'warn');
+    const bestSan = (km.bestMove && km.bestMove.san) ? km.bestMove.san : null;
+    const reveal = bestSan ? ` La millor jugada era ${bestSan}.` : '';
+    setKeyMomentPracticeBanner(verdict.text + reveal, tone, true);
 }
 
 // Clau d'una errada o d'un moment clau (posició de decisió + jugada feta),
@@ -11393,6 +12013,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
         if (maxim) {
             blocks.push(`<blockquote style="margin:0 0 12px 0; padding:8px 12px; border-left:3px solid var(--accent-gold); font-style:italic; opacity:0.95;">“${escapeHtml(maxim)}”</blockquote>`);
         }
+
+        // --- Moment clau de la partida (secció destacada, a dalt de tot) ---
+        try {
+            const kmHtml = renderKeyMomentHtml(entry);
+            if (kmHtml) blocks.push(kmHtml);
+        } catch (e) { console.warn('renderKeyMomentHtml', e); }
 
         if (facts) {
             const debrief = importedReview
@@ -13735,6 +14361,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         createdAt: now.toISOString(),
         updatedAt: now.toISOString()
     };
+    // Moment clau de la partida (decisió més rellevant de l'usuari): es desa en
+    // forma compacta si n'hi ha cap de prou important; si no, queda absent.
+    try { entry.keyMoment = keyMomentToStored(computeKeyMoment(entry)); } catch (e) { entry.keyMoment = null; }
     gameHistory.push(entry);
     if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
     // Bloc de neteja de reviews eliminat
@@ -18884,16 +19513,52 @@ function setupEvents() {
     $('#explorer-start-btn').off('click').on('click', () => explorerSeek(0));
     $('#explorer-prev').off('click').on('click', () => explorerSeek(explorerIndex - 1));
     $('#explorer-next').off('click').on('click', () => explorerSeek(explorerIndex + 1));
-    $('#explorer-flip').off('click').on('click', () => { if (explorerBoard) explorerBoard.flip(); });
+    $('#explorer-flip').off('click').on('click', () => {
+        if (!explorerBoard) return;
+        // flip() reconstrueix les caselles: es perd la selecció de «tocar» (i el
+        // seu estat intern quedaria orfe) i cal repintar el requadre del motor.
+        explorerBoard.flip();
+        clearExplorerTapSelection();
+        reapplyExplorerEngineMoveHighlight();
+    });
     $('#explorer-moves').off('click').on('click', '.explorer-move', function () {
         const idx = parseInt($(this).attr('data-idx'), 10);
         if (!isNaN(idx)) explorerSeek(idx + 1);
     });
+    // Moviments clicables de les línies del motor (millor línia i alternativa):
+    // en prémer-ne un, es previsualitza al tauler la posició fins a aquell pas.
+    $('#explorer-line, #explorer-line2').off('click').on('click', '.explorer-pv-move', function () {
+        const lineKey = $(this).attr('data-line');
+        const step = parseInt($(this).attr('data-step'), 10);
+        if (lineKey && !isNaN(step)) explorerPreviewSelect(lineKey, step);
+    });
+    // Controls compactes de la previsualització de línia.
+    $('#explorer-pv-start').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(0); });
+    $('#explorer-pv-prev').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex - 1); });
+    $('#explorer-pv-next').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex + 1); });
+    $('#explorer-pv-end').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.plies.length); });
+    $('#explorer-pv-exit').off('click').on('click', exitExplorerPreview);
+    // Teclat: dins la informació lateral, les fletxes naveguen la previsualització.
+    $('#explorer-side').off('keydown.pvnav').on('keydown.pvnav', function (e) {
+        if (!explorerPreview.active) return;
+        let handled = true;
+        if (e.key === 'ArrowLeft') explorerPreviewApply(explorerPreview.stepIndex - 1);
+        else if (e.key === 'ArrowRight') explorerPreviewApply(explorerPreview.stepIndex + 1);
+        else if (e.key === 'Home') explorerPreviewApply(0);
+        else if (e.key === 'End') explorerPreviewApply(explorerPreview.plies.length);
+        else if (e.key === 'Escape') exitExplorerPreview();
+        else handled = false;
+        if (handled && e.preventDefault) e.preventDefault();
+    });
     $('#explorer-play-best').off('click').on('click', () => {
         if (!explorerLastBest || !explorerGame || explorerLastBest.fen !== explorerGame.fen()) return;
         const uci = explorerLastBest.uci;
-        if (applyExplorerMove(uci.slice(0, 2), uci.slice(2, 4), uci.length > 4 ? uci[4] : null) && explorerBoard) {
+        const from = uci.slice(0, 2);
+        const to = uci.slice(2, 4);
+        if (applyExplorerMove(from, to, uci.length > 4 ? uci[4] : null) && explorerBoard) {
             explorerBoard.position(explorerGame.fen(), false);
+            // Requadre marró d'origen i destí, com les jugades del motor en partida.
+            highlightExplorerEngineMove(from, to);
         }
     });
     $('#explorer-fen-load').off('click').on('click', () => {
@@ -18911,6 +19576,7 @@ function setupEvents() {
     });
     $('#explorer-reset').off('click').on('click', () => setupExplorerPosition('start'));
     $('#explorer-swap-turn').off('click').on('click', explorerSwapTurn);
+    $('#explorer-play-vs').off('click').on('click', startExplorerGame);
     $('#explorer-edit').off('click').on('click', enterExplorerEditMode);
     $('#explorer-edit-done').off('click').on('click', () => exitExplorerEditMode(true));
     $('#explorer-edit-cancel').off('click').on('click', () => exitExplorerEditMode(false));
@@ -21637,6 +22303,10 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
     // preparant justament aquest exercici, que llavors es recull del rebost).
     requestBackgroundPrepAbort(isBundle ? fen : null);
+    // Petició del tauler d'anàlisi («Juga-la contra Stockfish»): es consumeix
+    // aquí perquè no pugui quedar penjada i contaminar cap altra partida.
+    const explorerPlayRequest = explorerPlayPending;
+    explorerPlayPending = null;
     currentReview = [];
     lastReviewSnapshot = null;
     setResultIndicator(null);
@@ -21676,7 +22346,7 @@ blunderMode = isBundle;
     // El botó de rendir-se només té sentit a les PARTIDES, no als exercicis
     // (tàctiques, revisió d'errors, mats…).
     $('#btn-resign').toggle(!isBundle);
-    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending;
+    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending && !explorerPlayRequest;
     if (!isCalibrationGame) calibrationStartOpponentRoc = null;
     currentBundleFen = fen;
     
@@ -21768,6 +22438,10 @@ blunderMode = isBundle;
         // Repte «Rejugar +5%»: es rejuga amb el MATEIX color de la partida original.
         playerColor = phaseReplayPending.playerColor === 'b' ? 'b' : 'w';
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (explorerPlayRequest) {
+        // Des del tauler d'anàlisi: l'usuari juga el bàndol a qui toca moure.
+        playerColor = explorerPlayRequest.playerColor === 'b' ? 'b' : 'w';
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else {
         const isWhite = Math.random() < 0.5;
         playerColor = isWhite ? 'w' : 'b';
@@ -21842,6 +22516,17 @@ blunderMode = isBundle;
         $('#engine-elo').text(`ROC ${replayRoc}`);
         $('#game-mode-title').html(`${HISTORY_ICON_SVG} Rejugar ${escapeHtml(phaseReplayState.phaseLabel.toLowerCase())} +5%`);
         updatePrecisionDisplay();
+    } else if (explorerPlayRequest) {
+        // Partida REAL des del tauler d'anàlisi, al nivell adaptatiu de l'usuari
+        // (com una partida lliure), però SENSE puntuar ELO ni desar-se a
+        // l'historial: amb l'editor es pot muntar qualsevol posició (fins i tot
+        // de guanyada) i no ha de poder inflar la puntuació ni el diagnòstic.
+        currentGameMode = 'explorer';
+        currentOpponent = null;
+        currentBundleFen = null;
+        updateAdaptiveEngineEloLabel();
+        $('#game-mode-title').text('🔍 Partida des de l\'anàlisi');
+        if (engineReady) applyEngineEloStrength(currentElo);
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -21885,8 +22570,10 @@ blunderMode = isBundle;
     // Inicialitza el rellotge (només modes de partida real, no exercicis ni
     // calibratge). El repte «Rejugar +5%» en porta si la partida original era
     // amb rellotge (el 30% del temps del ritme); si era sense, getActiveTimeControlId
-    // retorna 'none' i es juga sense pressa com sempre.
-    initGameClock(!isBundle && !isCalibrationGame);
+    // retorna 'none' i es juga sense pressa com sempre. Les partides des del
+    // tauler d'anàlisi van sempre sense rellotge: amb rellotge puntuarien
+    // l'ELO del ritme, i són partides que no han de puntuar res.
+    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer');
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -23360,7 +24047,7 @@ function returnToMainMenuImmediate() {
     // El repte «Rejugar +5%» mor en sortir de la partida.
     phaseReplayState = null;
     phaseReplayPending = null;
-    if (currentGameMode === 'phase_replay') currentGameMode = 'free';
+    if (currentGameMode === 'phase_replay' || currentGameMode === 'explorer') currentGameMode = 'free';
     $('#phase-replay-overlay').hide();
     updatePhaseReplayHud();
     isMatchErrorReviewSession = false;
@@ -23764,6 +24451,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     let calibrationJustCompleted = false;
     const isFreeMode = currentGameMode === 'free' || currentGameMode === 'assisted';
     const isLeagueMode = currentGameMode === 'league';
+    // Partida des del tauler d'anàlisi: es juga i es revisa com una partida
+    // normal, però NO puntua ELO, ni ajusta la dificultat, ni entra a
+    // l'historial ni al registre d'adaptació (la posició pot venir de l'editor).
+    const isExplorerMode = currentGameMode === 'explorer';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     // Partida amb rellotge (lliure/assistida): puntua a l'ELO del seu ritme i
     // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
@@ -23832,14 +24523,14 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
         }
         timedCalibrationTcId = null;
-    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
+    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
     }
 
     if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
 
-    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
+    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode) {
         userELO = Math.max(50, userELO + change);
         updateEloHistory(userELO);
         syncEngineEloFromUser();
@@ -23868,7 +24559,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             if (adjustResult && adjustResult.feedback) {
                 msg += ` · ${adjustResult.feedback}`;
             }
-        } else if (!isLeagueMode) {
+        } else if (!isLeagueMode && !isExplorerMode) {
             adjustAIDifficulty(playerWon, finalPrecision, resultScore);
         }
     }
@@ -23877,7 +24568,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         applyLeagueAfterGame(leagueOutcome);
     }
     const reviewCounts = summarizeReview(currentReview);
-    if (!blunderMode) {
+    if (!blunderMode && !isExplorerMode) {
         const adjustmentSummary = getLastAdjustmentSummary(adaptationAdjustmentLogStart);
         let appliedDelta = adjustmentSummary.appliedDelta;
         if (!appliedDelta) {
@@ -23921,7 +24612,11 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }));
     }
     const severeErrors = currentGameErrors.slice(); // ← Usar currentGameErrors
-    recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
+    // Les partides des del tauler d'anàlisi no entren a l'historial: comencen
+    // d'un FEN arbitrari i el reproductor/ressenya de l'historial reconstrueixen
+    // les partides des de la posició inicial. Les errades detectades en viu sí
+    // que alimenten la biblioteca d'errors (són jugades reals de l'usuari).
+    if (!isExplorerMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
     severeErrors.forEach(err => {
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
@@ -23976,7 +24671,8 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         if (calibrationJustCompleted) {
             showCalibrationReveal(userELO);
         }
-        if (!blunderMode && !calibrationGameWasActive) {
+        if (!blunderMode && !calibrationGameWasActive && !isExplorerMode) {
+            // (En mode explorador no hi ha entrada nova: l'última és d'una altra partida.)
             const latestEntry = gameHistory[gameHistory.length - 1];
             void requestOpenAIReview(latestEntry, severeErrors);
             void requestErrorNotes(latestEntry, severeErrors);

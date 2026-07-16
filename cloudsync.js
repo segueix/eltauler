@@ -73,6 +73,10 @@
   // Claus concretes que mai no volem pujar al núvol.
   const EXCLUDE_KEYS = new Set();
   if (!SYNC_OPENAI_KEY) EXCLUDE_KEYS.add('chess_openai_api_key');
+  // El control del tauler (Tocar/Arrossegar) és una preferència de CADA
+  // dispositiu: al mòbil sol anar millor «Tocar» i a l'ordinador «Arrossegar».
+  // Si es sincronitzés, l'últim aparell usat imposaria la seva opció als altres.
+  EXCLUDE_KEYS.add('eltauler_control_mode');
 
   // ---------------------------------------------------------------------------
   //  Estat del mòdul

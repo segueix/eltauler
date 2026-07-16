@@ -3115,6 +3115,32 @@
             line-height: 1.6;
         }
         body.epaper-mode .history-review-content { color: #444; }
+        /* ── Secció destacada «Moment clau de la partida» ── */
+        .keymoment-card {
+            background: linear-gradient(135deg, rgba(201,162,39,0.14) 0%, rgba(201,162,39,0.06) 100%);
+            border: 1px solid rgba(201,162,39,0.4);
+            border-radius: 12px; padding: 14px 16px; margin: 4px 0 16px;
+            font-size: 0.95rem; line-height: 1.5; white-space: normal;
+        }
+        body.epaper-mode .keymoment-card { background: #f0f0f0; border-color: #888; }
+        .keymoment-title { font-weight: 800; font-size: 1.05rem; color: var(--accent-gold); margin-bottom: 6px; }
+        body.epaper-mode .keymoment-title { color: #333; }
+        .keymoment-lead { margin: 0 0 8px; }
+        .keymoment-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 10px; }
+        .keymoment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .keymoment-actions .btn { width: auto; flex: 1 1 auto; min-width: 140px; margin-top: 0; padding: 10px 12px; }
+        .keymoment-actions .keymoment-practice { flex-basis: 100%; }
+        .keymoment-reveal, .keymoment-fen { margin-top: 10px; font-size: 0.86rem; }
+        .keymoment-reveal summary, .keymoment-fen summary { cursor: pointer; color: var(--accent-gold); outline-offset: 3px; }
+        body.epaper-mode .keymoment-reveal summary, body.epaper-mode .keymoment-fen summary { color: #333; }
+        .keymoment-reveal-body { margin-top: 6px; }
+        .keymoment-fen-text {
+            display: block; margin-top: 6px; font-family: monospace; font-size: 0.8rem;
+            background: rgba(0,0,0,0.18); border-radius: 6px; padding: 8px 10px;
+            white-space: pre-wrap; word-break: break-all; user-select: all; -webkit-user-select: all;
+        }
+        body.epaper-mode .keymoment-fen-text { background: #e2e2e2; color: #222; }
+        body.device-mobile .keymoment-actions .btn { flex-basis: 100%; }
         .error-note {
             padding: 10px 12px;
             background: rgba(255,255,255,0.04);
@@ -3703,9 +3729,11 @@
         .board-container { width: 100%; }
         .square-55d63.tap-selected { outline: 3px solid rgba(201, 162, 39, 0.95); outline-offset: -3px; }
         #myBoard .square-55d63.tap-move,
-        #opening-board .square-55d63.tap-move { position: relative; }
+        #opening-board .square-55d63.tap-move,
+        #explorer-board .square-55d63.tap-move { position: relative; }
         #myBoard .square-55d63.tap-move::after,
-        #opening-board .square-55d63.tap-move::after {
+        #opening-board .square-55d63.tap-move::after,
+        #explorer-board .square-55d63.tap-move::after {
             content: '';
             position: absolute;
             top: 50%;
@@ -3719,11 +3747,13 @@
             z-index: 3;
         }
         #myBoard .square-55d63.black-3c85d.tap-move::after,
-        #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
+        #opening-board .square-55d63.black-3c85d.tap-move::after,
+        #explorer-board .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
         body.opening-mode-hieroglyphic #opening-board .square-55d63.tap-move::after { border-color: rgba(139, 95, 199, 0.95); background: rgba(139, 95, 199, 0.14); }
         body.opening-mode-hieroglyphic #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: rgba(244, 228, 188, 0.95); background: rgba(139, 95, 199, 0.22); }
         body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after,
-        body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
+        body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after,
+        body.epaper-mode #explorer-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
         /* Requadre de jugada (el mateix que marca els moviments de l'enginy en una
            partida): també per a la jugada revisada a les partides col·lectives
            (vots i transcripció) i als reproductors dels historials. */
@@ -4651,7 +4681,7 @@
                         <option value="drag">Arrossegar</option>
                     </select>
                 </div>
-                <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar".</div>
+                <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar". Es desa per dispositiu (no se sincronitza al núvol): el mòbil i l'ordinador poden tenir opcions diferents.</div>
                 <div class="setting-row">
                     <div class="setting-label">Revisió d'errors (Blunder)</div>
                     <select id="bundle-accept-select" class="select-control">
@@ -5003,10 +5033,47 @@
             .explorer-eval-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
             .explorer-eval-value { font-size: 1.15rem; font-weight: 800; color: var(--accent-gold); }
             .explorer-eval-depth { font-size: 0.75rem; color: var(--text-secondary); }
-            .explorer-line { font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
-            .explorer-line.alt { opacity: 0.8; }
+            .explorer-line { font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px; line-height: 1.7; overflow-wrap: anywhere; }
+            .explorer-line.alt { opacity: 0.85; }
+            .explorer-line-label { color: var(--text-secondary); }
+            /* Moviments clicables de les línies del motor (millor línia i alternatives).
+               La línia s'ajusta a diverses files perquè cap moviment quedi tallat. */
+            .explorer-pv { display: inline; }
+            .explorer-pv-move {
+                appearance: none; border: 1px solid transparent; background: rgba(255,255,255,0.06);
+                color: var(--text-primary); border-radius: 6px; padding: 3px 7px; margin: 1px 1px;
+                font-size: 0.85rem; cursor: pointer; font-family: inherit; line-height: 1.2;
+            }
+            .explorer-pv-move:hover, .explorer-pv-move:focus-visible { background: rgba(201,162,39,0.22); outline: 2px solid rgba(201,162,39,0.5); outline-offset: 1px; }
+            .explorer-pv-move.active { background: linear-gradient(135deg, #c9a227 0%, #8a6d12 100%); color: #1b1712; font-weight: 700; }
+            body.epaper-mode .explorer-pv-move { background: #e9e9e9; color: #111; }
+            body.epaper-mode .explorer-pv-move.active { background: #bbb; color: #000; }
+            body.device-mobile .explorer-pv-move { padding: 6px 10px; font-size: 0.9rem; }
+            /* Barra de navegació de la línia previsualitzada */
+            .explorer-preview { margin-top: 10px; border-top: 1px solid rgba(201,162,39,0.18); padding-top: 8px; }
+            .explorer-preview-status { font-size: 0.8rem; color: var(--accent-gold); margin-bottom: 6px; }
+            .explorer-preview-controls { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+            .explorer-preview-controls .btn { margin-top: 0; padding: 7px 10px; width: auto; flex: 0 0 auto; }
+            .explorer-preview-controls .explorer-pv-exit { flex: 1 1 auto; font-size: 0.8rem; min-width: 150px; }
             .explorer-play-best { margin-top: 10px; width: 100%; }
             .explorer-status { text-align: center; font-size: 0.88rem; color: var(--text-secondary); margin: 10px 0 4px; }
+            /* Nom de l'obertura de la posició (graf de posicions: transposicions incloses) */
+            .explorer-opening { text-align: center; font-size: 0.8rem; color: var(--accent-gold); margin: 0 0 4px; }
+            /* Nota d'importació del moment clau al tauler d'anàlisi */
+            .explorer-import-note {
+                text-align: center; font-size: 0.82rem; color: var(--accent-gold);
+                background: rgba(201,162,39,0.12); border: 1px solid rgba(201,162,39,0.3);
+                border-radius: 8px; padding: 7px 10px; margin: 6px 0;
+            }
+            /* Banner del mode pràctica (consigna i veredicte) */
+            .explorer-keymoment {
+                display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+                font-size: 0.85rem; border-radius: 8px; padding: 9px 12px; margin: 6px 0;
+                border: 1px solid rgba(201,162,39,0.3); background: rgba(201,162,39,0.10);
+            }
+            .explorer-keymoment.tone-success { border-color: rgba(74,124,89,0.55); background: rgba(74,124,89,0.16); }
+            .explorer-keymoment.tone-warn { border-color: rgba(198,40,40,0.5); background: rgba(198,40,40,0.14); }
+            .explorer-keymoment .keymoment-retry { width: auto; align-self: flex-start; margin-top: 6px; padding: 6px 12px; font-size: 0.8rem; }
             .explorer-moves {
                 display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
                 background: rgba(255,255,255,0.03); border-radius: 10px;
@@ -5038,7 +5105,6 @@
             .explorer-edit-hint { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; }
             .explorer-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
             .explorer-edit-row label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
-            .explorer-tap-selected { box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.9) !important; }
             #explorer-start-btn.explorer-nav-start {
                 border-color: rgba(201, 162, 39, 0.65);
                 background: rgba(201, 162, 39, 0.16);
@@ -5072,6 +5138,45 @@
                     z-index: 1;
                 }
             }
+            /* Contenidor de la informació lateral (avaluació + jugades + «Juga-la
+               contra Stockfish»). Per defecte és transparent (display:contents): a
+               mòbil, tauleta i finestres d'ordinador estretes, els seus fills flueixen
+               sota el tauler tal com abans. A l'ordinador ample passa a ser la columna
+               dreta (vegeu la media query de sota). */
+            #explorer-side { display: contents; }
+
+            /* ORDINADOR AMPLE: tauler (més gran) a l'esquerra i la informació a la
+               dreta. Es limita a finestres prou amples perquè, en un ordinador amb
+               finestra estreta, es mantingui la disposició d'una sola columna. */
+            @media (min-width: 900px) {
+                body.device-desktop #explorer-screen {
+                    display: grid;
+                    grid-template-columns: minmax(0, 520px) minmax(300px, 360px);
+                    justify-content: center;
+                    align-items: start;
+                    column-gap: 28px;
+                }
+                body.device-desktop #explorer-screen .stats-header { grid-column: 1 / -1; }
+                body.device-desktop #explorer-screen .history-board,
+                body.device-desktop #explorer-screen #explorer-status,
+                body.device-desktop #explorer-screen #explorer-opening,
+                body.device-desktop #explorer-screen #explorer-nav,
+                body.device-desktop #explorer-screen #explorer-tools,
+                body.device-desktop #explorer-screen #explorer-edit-toolbar,
+                body.device-desktop #explorer-screen .menu-buttons { grid-column: 1; }
+                /* El tauler, una mica més gran que els 360px per defecte. */
+                body.device-desktop #explorer-screen .history-board { max-width: 480px; }
+                /* Columna dreta: al costat del tauler (fila 2) i alineada a dalt. */
+                body.device-desktop #explorer-screen #explorer-side {
+                    grid-column: 2;
+                    grid-row: 2;
+                    align-self: start;
+                    display: flex;
+                    flex-direction: column;
+                }
+                body.device-desktop #explorer-screen #explorer-side .explorer-eval-card { margin-bottom: 12px; }
+                body.device-desktop #explorer-screen #explorer-side .explorer-moves { margin: 0 0 12px; }
+            }
         </style>
         <div id="explorer-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
@@ -5083,6 +5188,10 @@
 
             <div class="history-board"><div id="explorer-board"></div></div>
             <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
+            <div class="explorer-opening" id="explorer-opening" style="display:none;"></div>
+            <!-- Nota d'importació del moment clau i banner del mode pràctica -->
+            <div class="explorer-import-note" id="explorer-import-note" role="status" style="display:none;"></div>
+            <div class="explorer-keymoment" id="explorer-keymoment" style="display:none;"></div>
 
             <div class="history-controls" id="explorer-nav">
                 <button class="btn btn-secondary explorer-nav-start" id="explorer-start-btn" aria-label="Torna al principi de la línia" title="Torna al principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg><span class="btn-label">Inici</span></button>
@@ -5091,18 +5200,35 @@
                 <button class="btn btn-secondary" id="explorer-flip" aria-label="Gira el tauler" title="Gira el tauler"><svg class="btn-ic" aria-hidden="true"><use href="#ic-flip"/></svg></button>
             </div>
 
-            <div class="explorer-eval-card" id="explorer-eval-card">
-                <div class="explorer-eval-bar" title="Barra d'avaluació (part blanca = avantatge blanc)"><div class="explorer-eval-fill" id="explorer-eval-fill"></div></div>
-                <div class="explorer-eval-row">
-                    <span class="explorer-eval-value" id="explorer-eval-value">—</span>
-                    <span class="explorer-eval-depth" id="explorer-eval-depth"></span>
+            <!-- Informació lateral: a l'ordinador va a la DRETA del tauler; a
+                 mòbil/tauleta flueix sota el tauler (el contenidor és display:contents). -->
+            <div id="explorer-side">
+                <div class="explorer-eval-card" id="explorer-eval-card">
+                    <div class="explorer-eval-bar" title="Barra d'avaluació (part blanca = avantatge blanc)"><div class="explorer-eval-fill" id="explorer-eval-fill"></div></div>
+                    <div class="explorer-eval-row">
+                        <span class="explorer-eval-value" id="explorer-eval-value">—</span>
+                        <span class="explorer-eval-depth" id="explorer-eval-depth"></span>
+                    </div>
+                    <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
+                    <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
+                    <!-- Barra de navegació de la línia previsualitzada (només visible mentre es navega una línia) -->
+                    <div class="explorer-preview" id="explorer-preview-bar" style="display:none;">
+                        <div class="explorer-preview-status" id="explorer-preview-status" aria-live="polite"></div>
+                        <div class="explorer-preview-controls">
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-start" aria-label="Torna al principi de la línia" title="Principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg></button>
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-prev" aria-label="Moviment anterior" title="Moviment anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-next" aria-label="Moviment següent" title="Moviment següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
+                            <button type="button" class="btn btn-secondary" id="explorer-pv-end" aria-label="Anar al final de la línia" title="Final de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-end"/></svg></button>
+                            <button type="button" class="btn btn-secondary explorer-pv-exit" id="explorer-pv-exit">Torna a la posició analitzada</button>
+                        </div>
+                    </div>
+                    <button class="btn btn-secondary explorer-play-best" id="explorer-play-best" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Juga la millor jugada</button>
                 </div>
-                <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
-                <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
-                <button class="btn btn-secondary explorer-play-best" id="explorer-play-best" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Juga la millor jugada</button>
-            </div>
 
-            <div class="explorer-moves" id="explorer-moves"></div>
+                <div class="explorer-moves" id="explorer-moves"></div>
+
+                <button class="btn btn-primary" id="explorer-play-vs" style="width:100%;">♟ Juga-la contra Stockfish</button>
+            </div>
 
             <div id="explorer-tools">
                 <div class="explorer-fen-row">
@@ -6107,11 +6233,11 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-    <script src="cloudsync.js?v=1.0.4"></script>
+    <script src="cloudsync.js?v=1.0.5"></script>
 
     <!-- App Logic -->
-    <script src="obertures.js?v=1.0.2"></script>
-    <script src="core.js?v=1.0.8"></script>
+    <script src="obertures.js?v=1.0.3"></script>
+    <script src="core.js?v=1.0.10"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.5"></script>
     <script>
@@ -6121,7 +6247,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.46"></script>
+    <script src="app.js?v=1.0.50"></script>
 
     <!-- Service Worker Registration -->
     <script>
