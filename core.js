@@ -1351,6 +1351,269 @@
         return Math.max(0, Math.min(t, s));
     }
 
+    // ----------------------------------------------------------------------
+    // MOMENT CLAU DE LA PARTIDA
+    // ----------------------------------------------------------------------
+    // Selecciona la decisió MÉS important de l'usuari en una partida, per
+    // rellevància PEDAGÒGICA (no per pèrdua bruta). Totes les avaluacions
+    // arriben ja NORMALITZADES a la perspectiva de l'usuari (positiu = bo per a
+    // l'usuari), en centipeons, amb el mat codificat com a ±10000 (conveni de
+    // l'app; per comparar es fa via bestLineEvalScore, que domina qualsevol cp).
+    // Les funcions són PURES i testejables; la construcció de candidats (que
+    // necessita chess.js/DOM) viu a app.js.
+    const KEY_MOMENT = {
+        MATE_CP: 9000,     // |eval| >= això → mat (codi controlat)
+        WIN: 150,          // avantatge clar (≈1,5 peons)
+        DECISIVE: 600,     // avantatge decisiu (≈6 peons)
+        MIN_SCORE: 22,     // llindar mínim de rellevància per mostrar un moment
+        TIE: 6,            // marge de puntuació per considerar dos candidats "semblants"
+        EQUIVALENT_CP: 40  // alternatives "gairebé equivalents" (mode pràctica)
+    };
+
+    function keyMomentNum(v) { return (typeof v === 'number' && isFinite(v)) ? v : null; }
+
+    // Cubell d'avantatge (perspectiva de l'usuari): 2 guanyada decisiva, 1
+    // guanyada, 0 igualada, -1 perduda, -2 perduda decisiva. El mat (±MATE_CP)
+    // cau a ±2. Serveix per detectar CANVIS D'ESTAT de la partida.
+    function keyMomentBucket(cp) {
+        const v = keyMomentNum(cp);
+        if (v === null) return 0;
+        if (v >= KEY_MOMENT.DECISIVE) return 2;
+        if (v >= KEY_MOMENT.WIN) return 1;
+        if (v <= -KEY_MOMENT.DECISIVE) return -2;
+        if (v <= -KEY_MOMENT.WIN) return -1;
+        return 0;
+    }
+
+    // Rendiments decreixents: una pèrdua pesa menys com més perduda ja estava la
+    // posició ABANS de la jugada. 400cp en igualada > 600cp en una de −10.
+    function keyMomentRecoverability(evalBefore) {
+        const eb = keyMomentNum(evalBefore);
+        if (eb === null) return 0.5;
+        if (eb >= -KEY_MOMENT.WIN) return 1.0;      // igualada o millor
+        if (eb >= -400) return 0.6;                 // una mica pitjor
+        if (eb >= -KEY_MOMENT.DECISIVE) return 0.4; // clarament pitjor
+        if (eb > -KEY_MOMENT.MATE_CP) return 0.2;   // gairebé perduda
+        return 0.05;                                // ja perduda (o rebent mat)
+    }
+
+    // Pes del canvi d'estat de la partida (de bucket abans → bucket després).
+    function keyMomentStateChangeScore(before, after) {
+        if (after >= before) return 0;              // no ha empitjorat per a l'usuari
+        const drop = before - after;                // caiguda de cubells (1..4)
+        let s = drop * 8;                            // base proporcional
+        if (before >= 1 && after <= 0) s += 6;       // deixar escapar avantatge
+        if (before >= 0 && after <= -1) s += 8;      // passar a perdedora
+        if (before === 2) s += 4;                    // partia d'avantatge decisiu
+        return Math.min(30, s);
+    }
+
+    // Claredat de la millor jugada: com de superior és sobre la 2a opció (gap del
+    // MultiPV, en cp comparables). Com més clar, més pedagògic; si totes les
+    // alternatives valen gairebé el mateix, la lliçó és feble.
+    function keyMomentClarityScore(gapCp, legalCount) {
+        if (typeof legalCount === 'number' && legalCount <= 1) return 0; // jugada obligada
+        if (gapCp === null || gapCp === undefined) return 0;             // sense dades
+        if (gapCp === Infinity) return 12;                              // una sola jugada bona clara
+        if (gapCp >= 300) return 20;
+        if (gapCp >= 150) return 14;
+        if (gapCp >= 80) return 8;
+        return 2;                                                        // alternatives ~iguals
+    }
+
+    // Codi de motiu VERIFICABLE (de dades de Stockfish + posició), no de text d'IA.
+    function keyMomentReasonCode(c) {
+        const eb = keyMomentNum(c.evalBefore);
+        const ea = keyMomentNum(c.evalAfter);
+        const before = keyMomentBucket(eb);
+        const after = keyMomentBucket(ea);
+        const loss = (typeof c.cpLoss === 'number') ? c.cpLoss : ((eb !== null && ea !== null) ? eb - ea : 0);
+        const flipped = after < before;
+        const missedMate = eb !== null && eb >= KEY_MOMENT.MATE_CP && (ea === null || ea < KEY_MOMENT.MATE_CP);
+        if (missedMate) return 'missed_win';
+        if (c.phase === 'endgame' && flipped && (before >= 0 || after <= -1)) return 'endgame_turning_point';
+        if (c.forcingInfo && c.forcingInfo.isLineForced === true && loss >= 200) return 'missed_tactic';
+        if (before === 2 && after <= 1) return 'missed_win';
+        if (before >= 1 && after === 0) return 'lost_advantage';
+        if (before >= 0 && after <= -1) return 'turned_losing';
+        if (loss >= 300) return 'lost_material';
+        return 'strategic_error';
+    }
+
+    // Explicació LOCAL i determinista segons el codi de motiu (una capa d'IA
+    // només en pot millorar l'estil, mai inventar valoracions ni jugades).
+    const KEY_MOMENT_EXPLANATIONS = {
+        missed_win: 'Tenies una continuació guanyadora, però la jugada de la partida va deixar escapar gran part de l’avantatge.',
+        lost_advantage: 'La posició era favorable, però aquesta decisió va permetre al rival tornar a la partida.',
+        turned_losing: 'La posició estava equilibrada fins que aquesta jugada va donar un avantatge clar al rival.',
+        missed_tactic: 'Hi havia una combinació tàctica concreta que permetia guanyar material o atacar el rival.',
+        lost_material: 'Aquesta jugada va permetre una pèrdua important de material.',
+        king_safety: 'Aquesta decisió va debilitar la seguretat del teu rei.',
+        endgame_turning_point: 'Aquesta decisió va canviar el resultat probable del final.',
+        strategic_error: 'Aquesta decisió va deteriorar la teva posició de manera notable.'
+    };
+    function keyMomentExplanation(reasonCode) {
+        return KEY_MOMENT_EXPLANATIONS[reasonCode] || KEY_MOMENT_EXPLANATIONS.strategic_error;
+    }
+
+    // Puntuació de rellevància pedagògica d'un candidat (jugada de l'usuari).
+    //   rellevància = impacte_avaluació + canvi_estat + claredat_millor_jugada
+    //               + importància_tàctica + valor_pedagògic
+    //               − penalització_posició_ja_perduda − penalització_dades_incompletes
+    // Retorna { score, reasonCode, components, disqualified }.
+    function scoreKeyMomentCandidate(candidate, context) {
+        const c = candidate || {};
+        const ctx = context || {};
+        const eb = keyMomentNum(c.evalBefore);
+        const ea = keyMomentNum(c.evalAfter);
+        // Dades incompletes: sense les dues avaluacions no es pot jutjar.
+        if (eb === null || ea === null) {
+            return { score: -Infinity, reasonCode: null, disqualified: true, components: null };
+        }
+        // Jugada obligada / amb una única opció legal: no és una "decisió".
+        if (typeof c.legalCount === 'number' && c.legalCount <= 1) {
+            return { score: -Infinity, reasonCode: null, disqualified: true, components: null };
+        }
+        // Posició ja perduda per mat abans de moure: no hi ha res a decidir.
+        if (eb <= -KEY_MOMENT.MATE_CP) {
+            return { score: -Infinity, reasonCode: null, disqualified: true, components: null };
+        }
+        const loss = (typeof c.cpLoss === 'number') ? c.cpLoss : (eb - ea);
+        const before = keyMomentBucket(eb);
+        const after = keyMomentBucket(ea);
+
+        // 1. Impacte d'avaluació amb rendiments decreixents.
+        const baseLoss = Math.max(0, Math.min(1000, loss));
+        const recov = keyMomentRecoverability(eb);
+        const impacte = (baseLoss / 20) * recov;
+
+        // 2. Canvi d'estat de la partida.
+        const estat = keyMomentStateChangeScore(before, after);
+
+        // La claredat i el valor pedagògic només compten en proporció al que
+        // COSTA de debò la jugada: una millor jugada molt clara però amb una
+        // pèrdua insignificant (típic a l'obertura) NO és un moment clau.
+        const lossWeight = Math.max(0, Math.min(1, loss / 200));
+
+        // 3. Claredat de la millor jugada (gap del MultiPV).
+        const gap = bestLineGapCp(Array.isArray(c.alternatives)
+            ? c.alternatives.map(function (a) { return { eval: a.eval, evalType: a.evalType }; })
+            : null);
+        const claredat = keyMomentClarityScore(gap, c.legalCount) * lossWeight;
+
+        // 4. Importància tàctica (mat deixat escapar, línia forçada, material).
+        let tactica = 0;
+        if (eb >= KEY_MOMENT.MATE_CP && ea < KEY_MOMENT.MATE_CP) tactica = 15;
+        else if (c.forcingInfo && c.forcingInfo.isLineForced === true) tactica = 8;
+        else if (loss >= 300) tactica = 5;
+        else if (loss >= KEY_MOMENT.WIN) tactica = 2;
+
+        // 5. Valor pedagògic (posició encara en joc + jugada clara disponible).
+        let pedag = 0;
+        if (before >= 0) pedag += 6;                          // podies triar bé
+        if (gap !== null && gap !== undefined && gap >= 150) pedag += 4;
+        pedag *= lossWeight;
+
+        // Penalitzacions.
+        const penaltyLost = before <= -1 ? (before === -1 ? 8 : 22) : 0;
+        let penaltyData = 0;
+        const minDepth = typeof ctx.minDepth === 'number' ? ctx.minDepth : 10;
+        if (typeof c.depth === 'number' && c.depth > 0 && c.depth < minDepth) penaltyData += 8;
+        if (gap === null || gap === undefined) penaltyData += 4;
+
+        const score = impacte + estat + claredat + tactica + pedag - penaltyLost - penaltyData;
+        const components = { impacte, estat, claredat, tactica, pedag, penaltyLost, penaltyData, gap, before, after, loss };
+        return { score: score, reasonCode: keyMomentReasonCode(c), disqualified: loss <= 0, components: components };
+    }
+
+    // Selecciona el millor candidat (o null si cap arriba al llindar mínim).
+    // Desempat: (1) més canvi d'estat de la partida, (2) millor jugada més clara,
+    // (3) més recuperable, (4) el moment MÉS PRIMERENC (sovint la causa dels
+    // errors posteriors) — evita que un error derivat en substitueixi l'original.
+    function selectKeyMoment(candidates, context) {
+        const list = Array.isArray(candidates) ? candidates : [];
+        const scored = [];
+        for (let i = 0; i < list.length; i++) {
+            const c = list[i];
+            const r = scoreKeyMomentCandidate(c, context);
+            if (r.disqualified || !isFinite(r.score) || r.score < KEY_MOMENT.MIN_SCORE) continue;
+            scored.push({ candidate: c, res: r });
+        }
+        if (!scored.length) return null;
+        scored.sort(function (a, b) {
+            if (Math.abs(a.res.score - b.res.score) > KEY_MOMENT.TIE) return b.res.score - a.res.score;
+            const stA = a.res.components.before - a.res.components.after;
+            const stB = b.res.components.before - b.res.components.after;
+            if (stA !== stB) return stB - stA;                                   // més canvi de resultat
+            const gA = a.res.components.gap === Infinity ? 1e9 : (a.res.components.gap || 0);
+            const gB = b.res.components.gap === Infinity ? 1e9 : (b.res.components.gap || 0);
+            if (gA !== gB) return gB - gA;                                       // millor jugada més clara
+            const ebA = keyMomentNum(a.candidate.evalBefore) || 0;
+            const ebB = keyMomentNum(b.candidate.evalBefore) || 0;
+            if (ebA !== ebB) return ebB - ebA;                                   // més recuperable (menys perduda)
+            const pA = keyMomentNum(a.candidate.ply); const pB = keyMomentNum(b.candidate.ply);
+            if (pA !== null && pB !== null && pA !== pB) return pA - pB;         // el més primerenc
+            return (a.candidate.moveNumber || 0) - (b.candidate.moveNumber || 0);
+        });
+        const win = scored[0];
+        const c = win.candidate;
+        const reasonCode = win.res.reasonCode;
+        return {
+            fen: c.fenBefore,
+            moveNumber: c.moveNumber,
+            ply: c.ply,
+            playerColor: c.playerColor,
+            phase: c.phase,
+            playedMove: { uci: c.playedMoveUci || null, san: c.playedMoveSan || null },
+            bestMove: { uci: c.bestMoveUci || null, san: c.bestMoveSan || null },
+            bestPv: Array.isArray(c.bestPv) ? c.bestPv : [],
+            evalBefore: keyMomentNum(c.evalBefore),
+            evalAfter: keyMomentNum(c.evalAfter),
+            cpLoss: (typeof c.cpLoss === 'number') ? c.cpLoss : (keyMomentNum(c.evalBefore) - keyMomentNum(c.evalAfter)),
+            classification: c.classification || null,
+            score: Math.round(win.res.score * 10) / 10,
+            reasonCode: reasonCode,
+            explanation: keyMomentExplanation(reasonCode),
+            orientation: c.playerColor === 'b' ? 'black' : 'white'
+        };
+    }
+
+    // Veredicte pedagògic del MODE PRÀCTICA: compara la jugada provada amb la
+    // millor, les alternatives gairebé equivalents i la jugada real de la partida.
+    // Totes les avaluacions en perspectiva de l'usuari (cp). PUR i testejable.
+    function classifyPracticeAttempt(params) {
+        const p = params || {};
+        const eq = typeof p.equivalentCp === 'number' ? p.equivalentCp : KEY_MOMENT.EQUIVALENT_CP;
+        const attempt = String(p.attemptUci || '');
+        const best = String(p.bestUci || '');
+        const played = String(p.playedGameUci || '');
+        const attemptCp = keyMomentNum(p.attemptCpUser);
+        const bestCp = keyMomentNum(p.bestCpUser);
+        const playedCp = keyMomentNum(p.playedGameCpUser);
+        const alts = Array.isArray(p.alternatives) ? p.alternatives : [];
+
+        if (attempt && best && attempt === best) {
+            return { code: 'best', text: 'Has trobat la millor jugada.' };
+        }
+        // Alternativa gairebé equivalent: per llista d'alternatives o per avaluació.
+        const matchAlt = alts.find(function (a) { return a && String(a.uci) === attempt; });
+        if (matchAlt && bestCp !== null && keyMomentNum(matchAlt.cpUser) !== null
+            && (bestCp - keyMomentNum(matchAlt.cpUser)) <= eq) {
+            return { code: 'equivalent', text: 'És una alternativa gairebé equivalent.' };
+        }
+        if (attemptCp !== null && bestCp !== null && (bestCp - attemptCp) <= eq) {
+            return { code: 'equivalent', text: 'És una alternativa gairebé equivalent.' };
+        }
+        if (attempt && played && attempt === played) {
+            return { code: 'repeated', text: 'Has repetit la jugada de la partida.' };
+        }
+        if (attemptCp !== null && playedCp !== null && bestCp !== null
+            && attemptCp > (playedCp + eq) && (bestCp - attemptCp) > eq) {
+            return { code: 'better_not_best', text: 'És millor que la jugada de la partida, però encara hi havia una opció més forta.' };
+        }
+        return { code: 'still_missing', text: 'Aquesta jugada continua perdent l’oportunitat.' };
+    }
+
     // Combina les dades del motor i els fets del tauler en el forcingInfo d'una
     // errada. Convenció de veritat PRUDENT: true = demostrat; false = NO
     // demostrat (encara que potser ho sigui); null = sense dades per jutjar-ho.
@@ -2236,6 +2499,12 @@
         pvDisplayTokens,
         pvMoveAriaLabel,
         pvStepClamp,
+        keyMomentBucket,
+        scoreKeyMomentCandidate,
+        selectKeyMoment,
+        keyMomentReasonCode,
+        keyMomentExplanation,
+        classifyPracticeAttempt,
         reviewErrorKey,
         isRenderableReviewError,
         reviewMoveIdentityOk,

@@ -9040,6 +9040,8 @@ async function analyzeHistoryEntryFromScratch(entry, opts = {}) {
         entry.accuracy = entry.precision;
         entry.mistakes = entry.counts.mistake || 0;
         entry.severeErrors = getSevereErrors(reviews);
+        // Recalcula el moment clau amb l'anàlisi profunda (dades més fiables).
+        try { entry.keyMoment = keyMomentToStored(computeKeyMoment(entry)); } catch (e) {}
         entry.errors = entry.severeErrors.map(err => ({
             fen: err.fen,
             severity: err.quality || 'blunder',
@@ -9125,6 +9127,8 @@ let explorerPreview = {
     previewFen: null,  // FEN que es mostra al tauler
     lastMove: null     // { from, to } de l'última jugada reproduïda (o null)
 };
+// Mode PRÀCTICA del moment clau: l'usuari torna a intentar la decisió.
+let explorerPractice = { active: false, km: null, answered: false };
 
 function createExplorerBoard(editMode) {
     if (explorerBoard && typeof explorerBoard.destroy === 'function') {
@@ -9320,6 +9324,8 @@ function setupExplorerPosition(fen, opts = {}) {
         showToast('Aquest FEN no és vàlid.', 'warn');
         return false;
     }
+    // Fixar una posició nova descarta la nota d'importació del moment clau.
+    showExplorerImportNote(null);
     explorerStartFen = isStart ? 'start' : g.fen();
     explorerGame = g;
     explorerMoves = [];
@@ -9347,12 +9353,20 @@ function explorerTryMove(from, to) {
 
 function applyExplorerMove(from, to, promotion) {
     if (!explorerGame) return false;
+    // Mode pràctica: la PRIMERA jugada des de la posició del moment clau és
+    // l'intent de l'usuari (s'avalua i es dona resposta pedagògica).
+    const practiceAttempt = explorerPractice.active && !explorerPractice.answered
+        && explorerIndex === 0 && explorerPractice.km && explorerGame.fen() === explorerPractice.km.fen;
     const mv = explorerGame.move({ from: from, to: to, promotion: promotion || undefined });
     if (!mv) return false;
     // Si estàvem enrere dins la línia, la jugada nova en talla la cua.
     explorerMoves = explorerMoves.slice(0, explorerIndex);
     explorerMoves.push(mv.san);
     explorerIndex = explorerMoves.length;
+    if (practiceAttempt) {
+        const uci = mv.from + mv.to + (mv.promotion || '');
+        void evaluateKeyMomentAttempt(uci, explorerGame.fen());
+    }
     afterExplorerPositionChange();
     return true;
 }
@@ -9477,9 +9491,19 @@ async function runExplorerAnalysis() {
         );
     }
     explorerPv = { startFen: fen, lines: lines };
-    renderExplorerPvLines();
     explorerLastBest = { fen: fen, uci: res.bestMove.move };
-    if (playBest) playBest.style.display = '';
+    // Mode pràctica sense resposta a la posició del moment clau: NO es revela la
+    // millor jugada (ni la línia ni el botó); la resta (barra i valoració) sí.
+    const maskForPractice = explorerPractice.active && !explorerPractice.answered
+        && explorerPractice.km && fen === explorerPractice.km.fen;
+    if (maskForPractice) {
+        if (lineEl) lineEl.textContent = 'Troba la millor jugada i mou-la al tauler.';
+        if (line2El) { line2El.style.display = 'none'; line2El.innerHTML = ''; }
+        if (playBest) playBest.style.display = 'none';
+    } else {
+        renderExplorerPvLines();
+        if (playBest) playBest.style.display = '';
+    }
 }
 
 // Renderitza les línies del motor (#explorer-line i #explorer-line2) com a
@@ -9678,6 +9702,8 @@ function explorerSwapTurn() {
 function enterExplorerEditMode() {
     if (explorerEditMode || !explorerGame) return;
     exitExplorerPreview();
+    hideKeyMomentPracticeBanner();
+    showExplorerImportNote(null);
     explorerEditMode = true;
     explorerEditSnapshot = { startFen: explorerStartFen, moves: explorerMoves.slice(), index: explorerIndex };
     ++explorerAnalysisToken; // descarta anàlisis en curs
@@ -9748,16 +9774,23 @@ function openExplorer(fen, opts = {}) {
     explorerEditMode = false;
     $('#explorer-edit-toolbar').hide();
     $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status').show();
+    // Obertura NORMAL (no pràctica): descarta qualsevol mode de pràctica anterior.
+    if (!opts.practiceNote) hideKeyMomentPracticeBanner();
     if (opts.pushHistory !== false) navPush('explorer-screen');
     try { requestBackgroundPrepAbort(); } catch (e) {}
     const initialFen = fen || ANALYSIS_BOARD_INITIAL_FEN;
     if (!setupExplorerPosition(initialFen, opts)) setupExplorerPosition('start', opts);
+    // Notes contextuals (importació del moment clau / consigna de pràctica).
+    showExplorerImportNote(opts.importNote || null);
+    if (opts.practiceNote) setKeyMomentPracticeBanner(opts.practiceNote, 'info', false);
 }
 
 function closeExplorerScreen() {
     // En sortir de la pantalla, restaura la posició analitzada (surt de la
     // previsualització) abans d'amagar-la.
     exitExplorerPreview();
+    hideKeyMomentPracticeBanner();
+    showExplorerImportNote(null);
     explorerActive = false;
     explorerEditMode = false;
     explorerPv = null;
@@ -10158,6 +10191,20 @@ function updateHistoryReview(entry) {
     }
     reviewContent.html(html);
     bindOpenAIMoveLinks(reviewContent);
+    // Secció «Moment clau de la partida»: pràctica, obertura al tauler d'anàlisi i
+    // còpia del FEN. Es captura l'entrada actual per resoldre el moment fresc.
+    const keyMomentEntry = entry;
+    reviewContent.find('.keymoment-practice').off('click').on('click', function() {
+        const km = getEntryKeyMoment(keyMomentEntry);
+        if (km) startKeyMomentPractice(km);
+    });
+    reviewContent.find('.keymoment-open-analysis').off('click').on('click', function() {
+        const km = getEntryKeyMoment(keyMomentEntry);
+        if (km) openKeyMomentInAnalysis(km);
+    });
+    reviewContent.find('.keymoment-copy-fen').off('click').on('click', function() {
+        void copyKeyMomentFen($(this).attr('data-fen'));
+    });
     // Moments clau: navega a la posició de decisió i ressalta la jugada recomanada al tauler.
     reviewContent.find('.hist-keymove-link').off('click').on('click', function(event) {
         event.preventDefault();
@@ -10577,6 +10624,316 @@ function getEntrySevereErrors(entry) {
         return getSevereErrors(entry.review);
     }
     return [];
+}
+
+// ═════════════════════════════════════════════════════════════════════════════
+// MOMENT CLAU DE LA PARTIDA
+// ═════════════════════════════════════════════════════════════════════════════
+// La lògica de PUNTUACIÓ i SELECCIÓ és pura (core.js). Aquí es GENEREN els
+// candidats a partir dels moveReviews (que ja són NOMÉS jugades de l'usuari) i
+// es NORMALITZEN les avaluacions a la perspectiva de l'usuari: a moveReviews,
+// evalBefore ja és perspectiva de l'usuari i evalAfter és perspectiva del rival
+// (conveni de swing = evalBefore + evalAfter), de manera que evalAfter de
+// l'usuari = −review.evalAfter i cpLoss (signat, positiu = pèrdua) = evalBefore
+// + evalAfter. El mat viatja com a ±10000 (cpOf), un codi controlat.
+function keyMomentEvalType(v) {
+    return (typeof v === 'number' && Math.abs(v) >= 9000) ? 'mate' : 'cp';
+}
+
+function buildKeyMomentCandidates(entry) {
+    const reviews = (entry && Array.isArray(entry.moveReviews)) ? entry.moveReviews : [];
+    const candidates = [];
+    for (const r of reviews) {
+        if (!r || !r.fen) continue;
+        const eb = (typeof r.evalBefore === 'number') ? r.evalBefore : null;
+        const eaOpp = (typeof r.evalAfter === 'number') ? r.evalAfter : null; // perspectiva del rival
+        const color = (r.color === 'b') ? 'b' : 'w';
+        const moveNumber = Number(r.moveNumber) || null;
+        // ply (mitja jugada, 1-based) derivat del número de jugada i el color.
+        const ply = moveNumber ? (color === 'w' ? 2 * moveNumber - 1 : 2 * moveNumber) : null;
+        // Nombre de jugades legals a la posició de decisió (per descartar jugades
+        // obligades / amb una única opció legal).
+        let legalCount = null;
+        try { legalCount = new Chess(r.fen).moves().length; } catch (e) { legalCount = null; }
+        const evalBeforeUser = eb;
+        const evalAfterUser = (eaOpp === null) ? null : -eaOpp;
+        const cpLoss = (eb === null || eaOpp === null) ? null : (eb + eaOpp);
+        candidates.push({
+            moveNumber: moveNumber,
+            ply: ply,
+            playerColor: color,
+            fenBefore: r.fen,
+            fenAfter: r.afterFen || null,
+            playedMoveUci: r.playerMove || null,
+            playedMoveSan: r.playerMoveSan || null,
+            bestMoveUci: r.bestMove || null,
+            bestMoveSan: r.bestMoveSan || null,
+            bestPv: Array.isArray(r.bestMovePv) ? r.bestMovePv : [],
+            evalBefore: evalBeforeUser,
+            evalAfter: evalAfterUser,
+            evalBeforeType: keyMomentEvalType(eb),
+            evalAfterType: keyMomentEvalType(evalAfterUser),
+            cpLoss: cpLoss,
+            classification: r.quality || null,
+            phase: (() => { try { return ElTaulerCore.phaseFromFen(r.fen); } catch (e) { return 'middlegame'; } })(),
+            forcingInfo: r.forcingInfo || null,
+            depth: (typeof r.depth === 'number') ? r.depth : null,
+            // Alternatives del MultiPV, perspectiva de l'usuari (fenBefore = usuari mou).
+            alternatives: Array.isArray(r.alternatives) ? r.alternatives.map(a => ({
+                uci: a.move || null,
+                san: a.moveSan || null,
+                eval: (typeof a.eval === 'number') ? a.eval : null,
+                evalType: a.evalType || 'cp',
+                pv: a.pv || []
+            })) : []
+        });
+    }
+    return candidates;
+}
+
+// Calcula el moment clau (forma completa) d'una entrada, o null si no n'hi ha cap
+// de prou rellevant. Selecció i explicació surten de dades verificables (core.js).
+function computeKeyMoment(entry) {
+    const candidates = buildKeyMomentCandidates(entry);
+    if (!candidates.length) return null;
+    return ElTaulerCore.selectKeyMoment(candidates, { minDepth: 10 });
+}
+
+// Forma COMPACTA per desar a l'historial (sense duplicar dades reconstruïbles).
+function keyMomentToStored(km) {
+    if (!km || !km.fen) return null;
+    return {
+        fen: km.fen,
+        moveNumber: km.moveNumber || null,
+        ply: km.ply || null,
+        playerColor: km.playerColor || 'w',
+        phase: km.phase || null,
+        playedMoveSan: (km.playedMove && km.playedMove.san) || null,
+        playedMoveUci: (km.playedMove && km.playedMove.uci) || null,
+        bestMoveSan: (km.bestMove && km.bestMove.san) || null,
+        bestMoveUci: (km.bestMove && km.bestMove.uci) || null,
+        bestPv: Array.isArray(km.bestPv) ? km.bestPv.slice(0, 12) : [],
+        evalBefore: (typeof km.evalBefore === 'number') ? km.evalBefore : null,
+        evalAfter: (typeof km.evalAfter === 'number') ? km.evalAfter : null,
+        cpLoss: (typeof km.cpLoss === 'number') ? km.cpLoss : null,
+        classification: km.classification || null,
+        reasonCode: km.reasonCode || null
+    };
+}
+
+// Rehidrata la forma compacta a la forma completa per renderitzar (l'explicació
+// i l'orientació són deterministes: no cal desar-les).
+function keyMomentFromStored(s) {
+    if (!s || !s.fen) return null;
+    return Object.assign({}, s, {
+        playedMove: { uci: s.playedMoveUci || null, san: s.playedMoveSan || null },
+        bestMove: { uci: s.bestMoveUci || null, san: s.bestMoveSan || null },
+        explanation: ElTaulerCore.keyMomentExplanation(s.reasonCode),
+        orientation: s.playerColor === 'b' ? 'black' : 'white'
+    });
+}
+
+// Moment clau d'una entrada per RENDERITZAR: el desat (compatible amb partides
+// antigues sense keyMoment) o, si no n'hi ha, calculat a l'instant dels moveReviews.
+function getEntryKeyMoment(entry) {
+    if (!entry) return null;
+    if (entry.keyMoment && entry.keyMoment.fen) return keyMomentFromStored(entry.keyMoment);
+    try { return computeKeyMoment(entry); } catch (e) { return null; }
+}
+
+// ── Renderitzat de la secció «Moment clau» ───────────────────────────────────
+function keyMomentEvalLabel(cp) {
+    if (typeof cp !== 'number') return '—';
+    if (cp >= 9000) return 'mat a favor';
+    if (cp <= -9000) return 'mat en contra';
+    const p = cp / 100;
+    return (p > 0 ? '+' : '') + p.toFixed(2);
+}
+function keyMomentPhaseLabel(phase) {
+    return phase === 'opening' ? "l'obertura" : (phase === 'endgame' ? 'el final' : 'el mig joc');
+}
+function keyMomentQualityLabel(q) {
+    return ({ excel: 'excel·lent', good: 'bona', inaccuracy: 'imprecisió', mistake: 'error', blunder: 'errada greu' })[q] || 'error';
+}
+
+// HTML de la secció destacada. Retorna '' si la partida no té dades analitzades;
+// si té anàlisi però cap decisió prou rellevant, mostra el missatge de «sense
+// moment crític clar». La millor jugada i el FEN queden en desplegables (no a la
+// vista per no desvelar la solució ni desbordar el mòbil).
+function renderKeyMomentHtml(entry) {
+    const hasAnalysis = !!(entry && ((entry.keyMoment && entry.keyMoment.fen) || (Array.isArray(entry.moveReviews) && entry.moveReviews.length)));
+    if (!hasAnalysis) return '';
+    const km = getEntryKeyMoment(entry);
+    if (!km || !km.fen) {
+        return `<div class="keymoment-card keymoment-empty"><div class="keymoment-title">🔑 Moment clau de la partida</div>`
+            + `<p>No hi ha cap moment crític clar en aquesta partida.</p></div>`;
+    }
+    const num = km.moveNumber || '?';
+    const phaseTxt = keyMomentPhaseLabel(km.phase);
+    const playedSan = (km.playedMove && km.playedMove.san) ? escapeHtml(km.playedMove.san) : '—';
+    const bestSan = (km.bestMove && km.bestMove.san) ? escapeHtml(km.bestMove.san) : '—';
+    const evalTxt = `${keyMomentEvalLabel(km.evalBefore)} → ${keyMomentEvalLabel(km.evalAfter)}`;
+    const qualityTxt = keyMomentQualityLabel(km.classification);
+    const explanationRaw = km.explanation || '';
+    // En incrustar l'explicació dins de la frase (després de la coma), la primera
+    // lletra va en minúscula («…durant l'obertura, la posició era favorable…»).
+    const explanationInline = escapeHtml(explanationRaw.charAt(0).toLowerCase() + explanationRaw.slice(1));
+    const fenSafe = escapeHtml(km.fen);
+    return `<div class="keymoment-card">
+        <div class="keymoment-title">🔑 Moment clau de la partida</div>
+        <p class="keymoment-lead">A la jugada <strong>${num}</strong>, durant ${escapeHtml(phaseTxt)}, ${explanationInline}</p>
+        <div class="keymoment-meta">
+            <span>La teva jugada: <strong>${playedSan}</strong></span>
+            <span>Valoració: <strong>${escapeHtml(evalTxt)}</strong></span>
+            <span>Classificació: <strong>${escapeHtml(qualityTxt)}</strong></span>
+        </div>
+        <div class="keymoment-actions">
+            <button type="button" class="btn btn-primary keymoment-practice" aria-label="Practica aquest moment: torna a intentar la decisió">Practica aquest moment</button>
+            <button type="button" class="btn btn-secondary keymoment-open-analysis" aria-label="Obre la posició al tauler d'anàlisi">Obre al tauler d'anàlisi</button>
+            <button type="button" class="btn btn-secondary keymoment-copy-fen" data-fen="${fenSafe}" aria-label="Copia el FEN de la posició al porta-retalls">Copiar FEN</button>
+        </div>
+        <details class="keymoment-reveal">
+            <summary>Mostra la millor jugada</summary>
+            <div class="keymoment-reveal-body">La millor jugada era <strong>${bestSan}</strong>.</div>
+        </details>
+        <details class="keymoment-fen">
+            <summary>Mostra el FEN</summary>
+            <code class="keymoment-fen-text">${fenSafe}</code>
+        </details>
+    </div>`;
+}
+
+// ── Còpia del FEN (amb sistema alternatiu i confirmació no intrusiva) ─────────
+async function copyKeyMomentFen(fen) {
+    const text = String(fen || '').trim();
+    if (!text) return;
+    try {
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(text);
+            showToast('FEN copiat.', 'success');
+            return;
+        }
+    } catch (e) {}
+    // Alternativa sense navigator.clipboard: camp temporal + execCommand.
+    try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.setAttribute('readonly', '');
+        ta.style.position = 'fixed';
+        ta.style.opacity = '0';
+        document.body.appendChild(ta);
+        ta.select();
+        const ok = document.execCommand && document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast(ok ? 'FEN copiat.' : 'No s\'ha pogut copiar; selecciona el text manualment.', ok ? 'success' : 'warn');
+    } catch (e) {
+        showToast('No s\'ha pogut copiar; selecciona el text manualment.', 'warn');
+    }
+}
+
+// ── Importa el moment clau al tauler d'anàlisi ───────────────────────────────
+// Transfereix el FEN i les metadades per ESTAT central de l'app (no per URL ni
+// Firebase). No modifica la partida ni l'historial.
+let keyMomentPendingImport = null;
+function openKeyMomentInAnalysis(km) {
+    if (!km || !km.fen) return;
+    keyMomentPendingImport = {
+        fen: km.fen,
+        orientation: km.orientation || (km.playerColor === 'b' ? 'black' : 'white'),
+        moveNumber: km.moveNumber || null
+    };
+    openExplorer(km.fen, {
+        orientation: keyMomentPendingImport.orientation,
+        importNote: `Posició importada del moment clau de la partida${km.moveNumber ? ` (jugada ${km.moveNumber})` : ''}.`
+    });
+}
+
+// ── Nota d'importació al tauler d'anàlisi ────────────────────────────────────
+function showExplorerImportNote(text) {
+    const el = document.getElementById('explorer-import-note');
+    if (!el) return;
+    if (text) { el.textContent = text; el.style.display = ''; }
+    else { el.style.display = 'none'; el.textContent = ''; }
+}
+
+// ── Mode de pràctica del moment clau ─────────────────────────────────────────
+function keyMomentPracticePrompt(km) {
+    return `Practica el moment clau: mouen ${km.playerColor === 'b' ? 'les negres' : 'les blanques'}. Troba la millor jugada i mou-la al tauler.`;
+}
+
+function startKeyMomentPractice(km) {
+    if (!km || !km.fen) return;
+    explorerPractice = { active: true, km: km, answered: false };
+    keyMomentPendingImport = null;
+    openExplorer(km.fen, {
+        orientation: km.orientation || (km.playerColor === 'b' ? 'black' : 'white'),
+        practiceNote: keyMomentPracticePrompt(km)
+    });
+}
+
+function setKeyMomentPracticeBanner(text, tone, showRetry) {
+    const el = document.getElementById('explorer-keymoment');
+    if (!el) return;
+    el.style.display = '';
+    el.className = 'explorer-keymoment tone-' + (tone || 'info');
+    const retry = showRetry
+        ? '<button type="button" class="btn btn-secondary keymoment-retry" style="margin-top:8px;">Torna-ho a intentar</button>'
+        : '';
+    el.innerHTML = `<span class="explorer-keymoment-text" role="status" aria-live="polite">${escapeHtml(text)}</span>${retry}`;
+    const rb = el.querySelector('.keymoment-retry');
+    if (rb) rb.addEventListener('click', retryKeyMomentPractice);
+}
+
+function retryKeyMomentPractice() {
+    if (!explorerPractice.active || !explorerPractice.km) return;
+    explorerPractice.answered = false;
+    setupExplorerPosition(explorerPractice.km.fen, { orientation: explorerPractice.km.orientation });
+    setKeyMomentPracticeBanner(keyMomentPracticePrompt(explorerPractice.km), 'info', false);
+}
+
+function hideKeyMomentPracticeBanner() {
+    explorerPractice = { active: false, km: null, answered: false };
+    const el = document.getElementById('explorer-keymoment');
+    if (el) { el.style.display = 'none'; el.innerHTML = ''; }
+}
+
+// Avalua l'intent de l'usuari i dona resposta pedagògica (reutilitza el motor i
+// la classificació pura de core.js). No revela la millor jugada fins després.
+async function evaluateKeyMomentAttempt(attemptUci, fenAfter) {
+    if (!explorerPractice.active || explorerPractice.answered) return;
+    explorerPractice.answered = true;
+    const km = explorerPractice.km;
+    if (!km) return;
+    let verdict;
+    if (attemptUci === (km.bestMove && km.bestMove.uci)) {
+        verdict = ElTaulerCore.classifyPracticeAttempt({ attemptUci, bestUci: km.bestMove.uci });
+    } else {
+        setKeyMomentPracticeBanner('Avaluant la teva jugada…', 'info', false);
+        let attemptCpUser = null;
+        try {
+            const res = await analyzeFenRobust(fenAfter, 14, 1, 3000, () => !explorerPractice.active);
+            if (res && res.bestMove) {
+                const oppCp = res.bestMove.evalType === 'mate' ? (res.bestMove.eval > 0 ? 10000 : -10000) : res.bestMove.eval;
+                if (typeof oppCp === 'number') attemptCpUser = -oppCp; // perspectiva de l'usuari
+            }
+        } catch (e) {}
+        verdict = ElTaulerCore.classifyPracticeAttempt({
+            attemptUci,
+            bestUci: km.bestMove && km.bestMove.uci,
+            playedGameUci: km.playedMove && km.playedMove.uci,
+            attemptCpUser,
+            bestCpUser: km.evalBefore,
+            playedGameCpUser: km.evalAfter,
+            alternatives: [],
+            equivalentCp: 40
+        });
+    }
+    if (!explorerPractice.active) return;
+    const tone = (verdict.code === 'best' || verdict.code === 'equivalent') ? 'success'
+        : (verdict.code === 'better_not_best' ? 'info' : 'warn');
+    const bestSan = (km.bestMove && km.bestMove.san) ? km.bestMove.san : null;
+    const reveal = bestSan ? ` La millor jugada era ${bestSan}.` : '';
+    setKeyMomentPracticeBanner(verdict.text + reveal, tone, true);
 }
 
 // Clau d'una errada o d'un moment clau (posició de decisió + jugada feta),
@@ -11656,6 +12013,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
         if (maxim) {
             blocks.push(`<blockquote style="margin:0 0 12px 0; padding:8px 12px; border-left:3px solid var(--accent-gold); font-style:italic; opacity:0.95;">“${escapeHtml(maxim)}”</blockquote>`);
         }
+
+        // --- Moment clau de la partida (secció destacada, a dalt de tot) ---
+        try {
+            const kmHtml = renderKeyMomentHtml(entry);
+            if (kmHtml) blocks.push(kmHtml);
+        } catch (e) { console.warn('renderKeyMomentHtml', e); }
 
         if (facts) {
             const debrief = importedReview
@@ -13998,6 +14361,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         createdAt: now.toISOString(),
         updatedAt: now.toISOString()
     };
+    // Moment clau de la partida (decisió més rellevant de l'usuari): es desa en
+    // forma compacta si n'hi ha cap de prou important; si no, queda absent.
+    try { entry.keyMoment = keyMomentToStored(computeKeyMoment(entry)); } catch (e) { entry.keyMoment = null; }
     gameHistory.push(entry);
     if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
     // Bloc de neteja de reviews eliminat

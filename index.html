@@ -3115,6 +3115,32 @@
             line-height: 1.6;
         }
         body.epaper-mode .history-review-content { color: #444; }
+        /* ── Secció destacada «Moment clau de la partida» ── */
+        .keymoment-card {
+            background: linear-gradient(135deg, rgba(201,162,39,0.14) 0%, rgba(201,162,39,0.06) 100%);
+            border: 1px solid rgba(201,162,39,0.4);
+            border-radius: 12px; padding: 14px 16px; margin: 4px 0 16px;
+            font-size: 0.95rem; line-height: 1.5; white-space: normal;
+        }
+        body.epaper-mode .keymoment-card { background: #f0f0f0; border-color: #888; }
+        .keymoment-title { font-weight: 800; font-size: 1.05rem; color: var(--accent-gold); margin-bottom: 6px; }
+        body.epaper-mode .keymoment-title { color: #333; }
+        .keymoment-lead { margin: 0 0 8px; }
+        .keymoment-meta { display: flex; flex-wrap: wrap; gap: 6px 16px; font-size: 0.86rem; color: var(--text-secondary); margin-bottom: 10px; }
+        .keymoment-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+        .keymoment-actions .btn { width: auto; flex: 1 1 auto; min-width: 140px; margin-top: 0; padding: 10px 12px; }
+        .keymoment-actions .keymoment-practice { flex-basis: 100%; }
+        .keymoment-reveal, .keymoment-fen { margin-top: 10px; font-size: 0.86rem; }
+        .keymoment-reveal summary, .keymoment-fen summary { cursor: pointer; color: var(--accent-gold); outline-offset: 3px; }
+        body.epaper-mode .keymoment-reveal summary, body.epaper-mode .keymoment-fen summary { color: #333; }
+        .keymoment-reveal-body { margin-top: 6px; }
+        .keymoment-fen-text {
+            display: block; margin-top: 6px; font-family: monospace; font-size: 0.8rem;
+            background: rgba(0,0,0,0.18); border-radius: 6px; padding: 8px 10px;
+            white-space: pre-wrap; word-break: break-all; user-select: all; -webkit-user-select: all;
+        }
+        body.epaper-mode .keymoment-fen-text { background: #e2e2e2; color: #222; }
+        body.device-mobile .keymoment-actions .btn { flex-basis: 100%; }
         .error-note {
             padding: 10px 12px;
             background: rgba(255,255,255,0.04);
@@ -5033,6 +5059,21 @@
             .explorer-status { text-align: center; font-size: 0.88rem; color: var(--text-secondary); margin: 10px 0 4px; }
             /* Nom de l'obertura de la posició (graf de posicions: transposicions incloses) */
             .explorer-opening { text-align: center; font-size: 0.8rem; color: var(--accent-gold); margin: 0 0 4px; }
+            /* Nota d'importació del moment clau al tauler d'anàlisi */
+            .explorer-import-note {
+                text-align: center; font-size: 0.82rem; color: var(--accent-gold);
+                background: rgba(201,162,39,0.12); border: 1px solid rgba(201,162,39,0.3);
+                border-radius: 8px; padding: 7px 10px; margin: 6px 0;
+            }
+            /* Banner del mode pràctica (consigna i veredicte) */
+            .explorer-keymoment {
+                display: flex; flex-direction: column; align-items: stretch; gap: 4px;
+                font-size: 0.85rem; border-radius: 8px; padding: 9px 12px; margin: 6px 0;
+                border: 1px solid rgba(201,162,39,0.3); background: rgba(201,162,39,0.10);
+            }
+            .explorer-keymoment.tone-success { border-color: rgba(74,124,89,0.55); background: rgba(74,124,89,0.16); }
+            .explorer-keymoment.tone-warn { border-color: rgba(198,40,40,0.5); background: rgba(198,40,40,0.14); }
+            .explorer-keymoment .keymoment-retry { width: auto; align-self: flex-start; margin-top: 6px; padding: 6px 12px; font-size: 0.8rem; }
             .explorer-moves {
                 display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
                 background: rgba(255,255,255,0.03); border-radius: 10px;
@@ -5148,6 +5189,9 @@
             <div class="history-board"><div id="explorer-board"></div></div>
             <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
             <div class="explorer-opening" id="explorer-opening" style="display:none;"></div>
+            <!-- Nota d'importació del moment clau i banner del mode pràctica -->
+            <div class="explorer-import-note" id="explorer-import-note" role="status" style="display:none;"></div>
+            <div class="explorer-keymoment" id="explorer-keymoment" style="display:none;"></div>
 
             <div class="history-controls" id="explorer-nav">
                 <button class="btn btn-secondary explorer-nav-start" id="explorer-start-btn" aria-label="Torna al principi de la línia" title="Torna al principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg><span class="btn-label">Inici</span></button>
@@ -6193,7 +6237,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.9"></script>
+    <script src="core.js?v=1.0.10"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.5"></script>
     <script>
@@ -6203,7 +6247,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.49"></script>
+    <script src="app.js?v=1.0.50"></script>
 
     <!-- Service Worker Registration -->
     <script>
