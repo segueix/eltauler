@@ -5011,6 +5011,8 @@
             .explorer-line.alt { opacity: 0.8; }
             .explorer-play-best { margin-top: 10px; width: 100%; }
             .explorer-status { text-align: center; font-size: 0.88rem; color: var(--text-secondary); margin: 10px 0 4px; }
+            /* Nom de l'obertura de la posició (graf de posicions: transposicions incloses) */
+            .explorer-opening { text-align: center; font-size: 0.8rem; color: var(--accent-gold); margin: 0 0 4px; }
             .explorer-moves {
                 display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
                 background: rgba(255,255,255,0.03); border-radius: 10px;
@@ -5086,6 +5088,7 @@
 
             <div class="history-board"><div id="explorer-board"></div></div>
             <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
+            <div class="explorer-opening" id="explorer-opening" style="display:none;"></div>
 
             <div class="history-controls" id="explorer-nav">
                 <button class="btn btn-secondary explorer-nav-start" id="explorer-start-btn" aria-label="Torna al principi de la línia" title="Torna al principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg><span class="btn-label">Inici</span></button>
@@ -5108,6 +5111,7 @@
             <div class="explorer-moves" id="explorer-moves"></div>
 
             <div id="explorer-tools">
+                <button class="btn btn-primary" id="explorer-play-vs" style="width:100%; margin-bottom:10px;">♟ Juga-la contra Stockfish</button>
                 <div class="explorer-fen-row">
                     <input type="text" id="explorer-fen-input" spellcheck="false" autocomplete="off" aria-label="FEN de la posició" placeholder="Enganxa un FEN…">
                     <button class="btn btn-secondary" id="explorer-fen-load">Carrega</button>
@@ -6113,7 +6117,7 @@
     <script src="cloudsync.js?v=1.0.5"></script>
 
     <!-- App Logic -->
-    <script src="obertures.js?v=1.0.2"></script>
+    <script src="obertures.js?v=1.0.3"></script>
     <script src="core.js?v=1.0.8"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.5"></script>

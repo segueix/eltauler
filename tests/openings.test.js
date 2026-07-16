@@ -251,4 +251,38 @@ describe('dades reals (obertures.js)', () => {
         // 1.e4 e5 ha de coincidir amb diverses obertures.
         expect(Core.getMatchingOpenings(trie, ['e4', 'e5']).length).toBeGreaterThan(0);
     });
+
+    test('cap entrada té els camps desplaçats (ECO vàlid i PGN amb jugades)', () => {
+        // Una entrada amb pgn buit «bateja» la POSICIÓ INICIAL al trie i al graf
+        // de posicions, i el nom sortia a qualsevol partida i al tauler d'anàlisi
+        // (p. ex. {eco:"Barnes Defense", name:"1. e4 f6", pgn:""}).
+        const data = loadData();
+        const badEco = data.filter(o => !/^[A-E]\d\d$/.test(o.eco || ''));
+        const emptyPgn = data.filter(o => Core.parsePgnToMoves(o.pgn).length === 0);
+        expect(badEco.map(o => o.name)).toEqual([]);
+        expect(emptyPgn.map(o => o.name)).toEqual([]);
+    });
+
+    test('tots els PGN es poden rejugar legalment amb chess.js', () => {
+        // Caça línies corruptes (truncades o fusionades, p. ex. «1. eC00» o
+        // «13. cxd44 c5 2. Nf3…»), que deixen branques mortes al trie i noms
+        // mal situats al graf de posicions. Es camina el TRIE amb move/undo
+        // perquè cada prefix compartit es validi una sola vegada (com fa l'app
+        // en construir el graf de posicions).
+        const { Chess } = require('chess.js');
+        const trie = Core.buildOpeningTrie(loadData(), Core.parsePgnToMoves);
+        const g = new Chess();
+        const illegal = [];
+        (function walk(node, path) {
+            for (const mv of Object.keys(node.children)) {
+                if (!g.move(mv, { sloppy: true })) {
+                    illegal.push(`${path.join(' ')} -> ${mv}`);
+                    continue;
+                }
+                walk(node.children[mv], path.concat(mv));
+                g.undo();
+            }
+        })(trie, []);
+        expect(illegal).toEqual([]);
+    });
 });

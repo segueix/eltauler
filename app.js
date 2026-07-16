@@ -2632,6 +2632,9 @@ function prewarmOpeningPositionGraph() {
             // (detecció pobra perquè el graf encara no estava llest), la refresquem
             // ara perquè mostri el nom d'obertura correcte.
             try { refreshCurrentHistoryReview(); } catch (e) {}
+            // El tauler d'anàlisi mostra el nom de l'obertura de la posició: si és
+            // obert, ara ja el pot ensenyar.
+            try { if (typeof updateExplorerOpeningLabel === 'function') updateExplorerOpeningLabel(); } catch (e) {}
         }
     }
     scheduleOpeningIdle(step);
@@ -9107,6 +9110,7 @@ let explorerLastTapEventTs = 0;    // antirebot: pointerdown+touchstart del mate
 let explorerAnalysisRetries = 0;   // reintents si el motor no respon (contenció)
 let explorerBoardControlMode = null; // mode de control aplicat al tauler d'anàlisi
 let explorerEngineMoveHighlight = null; // { from, to } de l'última jugada del motor (requadre marró)
+let explorerPlayPending = null;    // { fen, playerColor }: petició de «Juga-la contra Stockfish»
 
 function createExplorerBoard(editMode) {
     if (explorerBoard && typeof explorerBoard.destroy === 'function') {
@@ -9236,6 +9240,38 @@ function reapplyExplorerEngineMoveHighlight() {
 function highlightExplorerEngineMove(from, to) {
     explorerEngineMoveHighlight = { from: from || null, to: to || null };
     reapplyExplorerEngineMoveHighlight();
+}
+
+// Nom de l'obertura de la posició explorada, pel GRAF de posicions (transposicions
+// incloses): es mostra el nom de la posició amb nom MÉS PROFUNDA assolida per la
+// línia fins al punt que s'està mirant (com fan els analitzadors habituals). Mentre
+// el graf encara es construeix en segon pla, la línia queda amagada; la crida de
+// getOpeningPositionGraph() n'engega la construcció i, en acabar, es refresca.
+function updateExplorerOpeningLabel() {
+    const el = document.getElementById('explorer-opening');
+    if (!el) return;
+    let hit = null;
+    if (explorerActive && !explorerEditMode && explorerGame && typeof ElTaulerCore !== 'undefined') {
+        const graph = getOpeningPositionGraph();
+        if (graph && graph.byPos) {
+            try {
+                const keyFn = ElTaulerCore.positionKeyFromFen;
+                const g = explorerStartFen === 'start' ? new Chess() : new Chess(explorerStartFen);
+                hit = graph.byPos.get(keyFn(g.fen())) || null;
+                for (let i = 0; i < explorerIndex; i++) {
+                    if (!g.move(explorerMoves[i], { sloppy: true })) break;
+                    hit = graph.byPos.get(keyFn(g.fen())) || hit;
+                }
+            } catch (e) { hit = null; }
+        }
+    }
+    if (hit) {
+        el.textContent = `📖 ${hit.eco ? hit.eco + ' · ' : ''}${hit.name}`;
+        el.style.display = '';
+    } else {
+        el.textContent = '';
+        el.style.display = 'none';
+    }
 }
 
 function updateExplorerBoardInteractivity() {
@@ -9481,6 +9517,7 @@ function afterExplorerPositionChange() {
     explorerAnalysisRetries = 0;
     renderExplorerMoves();
     updateExplorerControls();
+    updateExplorerOpeningLabel();
     scheduleExplorerAnalysis();
 }
 
@@ -9506,7 +9543,7 @@ function enterExplorerEditMode() {
     const turnSel = document.getElementById('explorer-edit-turn');
     if (turnSel) turnSel.value = explorerGame.turn();
     createExplorerBoard(true);
-    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status').hide();
+    $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status, #explorer-opening').hide();
     $('#explorer-edit-toolbar').show();
 }
 
@@ -9584,6 +9621,25 @@ function closeExplorerScreen() {
     $('#explorer-screen').hide();
 }
 if (typeof window !== 'undefined') window.openExplorer = openExplorer;
+
+// «Juga-la contra Stockfish»: converteix la posició explorada en una partida
+// REAL al nivell adaptatiu de l'usuari (com una partida lliure). L'usuari juga
+// el bàndol a qui toca moure (amb «Canvia el torn» es tria l'altre). La partida
+// NO puntua ELO ni es desa a l'historial: amb l'editor es pot muntar qualsevol
+// posició (fins i tot de guanyada) i no ha de poder inflar la puntuació.
+function startExplorerGame() {
+    if (!explorerGame || explorerEditMode) return;
+    if (explorerGame.game_over()) {
+        showToast('Aquesta posició ja està acabada: no s\'hi pot jugar.', 'warn');
+        return;
+    }
+    const fen = explorerGame.fen();
+    const color = explorerGame.turn();
+    closeExplorerScreen();
+    explorerPlayPending = { fen: fen, playerColor: color };
+    showToast(`Jugues amb ${color === 'w' ? 'blanques' : 'negres'} al teu nivell (sense puntuar)`, 'success');
+    void startGame(false, fen);
+}
 
 // Repara les FEN de decisió dels moveReviews d'una entrada antiga o incompleta.
 // Algunes partides (sobretot inacabades o migrades de versions velles) es van
@@ -18983,6 +19039,7 @@ function setupEvents() {
     });
     $('#explorer-reset').off('click').on('click', () => setupExplorerPosition('start'));
     $('#explorer-swap-turn').off('click').on('click', explorerSwapTurn);
+    $('#explorer-play-vs').off('click').on('click', startExplorerGame);
     $('#explorer-edit').off('click').on('click', enterExplorerEditMode);
     $('#explorer-edit-done').off('click').on('click', () => exitExplorerEditMode(true));
     $('#explorer-edit-cancel').off('click').on('click', () => exitExplorerEditMode(false));
@@ -21709,6 +21766,10 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
     // preparant justament aquest exercici, que llavors es recull del rebost).
     requestBackgroundPrepAbort(isBundle ? fen : null);
+    // Petició del tauler d'anàlisi («Juga-la contra Stockfish»): es consumeix
+    // aquí perquè no pugui quedar penjada i contaminar cap altra partida.
+    const explorerPlayRequest = explorerPlayPending;
+    explorerPlayPending = null;
     currentReview = [];
     lastReviewSnapshot = null;
     setResultIndicator(null);
@@ -21748,7 +21809,7 @@ blunderMode = isBundle;
     // El botó de rendir-se només té sentit a les PARTIDES, no als exercicis
     // (tàctiques, revisió d'errors, mats…).
     $('#btn-resign').toggle(!isBundle);
-    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending;
+    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending && !explorerPlayRequest;
     if (!isCalibrationGame) calibrationStartOpponentRoc = null;
     currentBundleFen = fen;
     
@@ -21840,6 +21901,10 @@ blunderMode = isBundle;
         // Repte «Rejugar +5%»: es rejuga amb el MATEIX color de la partida original.
         playerColor = phaseReplayPending.playerColor === 'b' ? 'b' : 'w';
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (explorerPlayRequest) {
+        // Des del tauler d'anàlisi: l'usuari juga el bàndol a qui toca moure.
+        playerColor = explorerPlayRequest.playerColor === 'b' ? 'b' : 'w';
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else {
         const isWhite = Math.random() < 0.5;
         playerColor = isWhite ? 'w' : 'b';
@@ -21914,6 +21979,17 @@ blunderMode = isBundle;
         $('#engine-elo').text(`ROC ${replayRoc}`);
         $('#game-mode-title').html(`${HISTORY_ICON_SVG} Rejugar ${escapeHtml(phaseReplayState.phaseLabel.toLowerCase())} +5%`);
         updatePrecisionDisplay();
+    } else if (explorerPlayRequest) {
+        // Partida REAL des del tauler d'anàlisi, al nivell adaptatiu de l'usuari
+        // (com una partida lliure), però SENSE puntuar ELO ni desar-se a
+        // l'historial: amb l'editor es pot muntar qualsevol posició (fins i tot
+        // de guanyada) i no ha de poder inflar la puntuació ni el diagnòstic.
+        currentGameMode = 'explorer';
+        currentOpponent = null;
+        currentBundleFen = null;
+        updateAdaptiveEngineEloLabel();
+        $('#game-mode-title').text('🔍 Partida des de l\'anàlisi');
+        if (engineReady) applyEngineEloStrength(currentElo);
     } else if (leagueActiveMatch) {
         currentGameMode = 'league';
         const opp = getLeaguePlayer(leagueActiveMatch.opponentId);
@@ -21957,8 +22033,10 @@ blunderMode = isBundle;
     // Inicialitza el rellotge (només modes de partida real, no exercicis ni
     // calibratge). El repte «Rejugar +5%» en porta si la partida original era
     // amb rellotge (el 30% del temps del ritme); si era sense, getActiveTimeControlId
-    // retorna 'none' i es juga sense pressa com sempre.
-    initGameClock(!isBundle && !isCalibrationGame);
+    // retorna 'none' i es juga sense pressa com sempre. Les partides des del
+    // tauler d'anàlisi van sempre sense rellotge: amb rellotge puntuarien
+    // l'ELO del ritme, i són partides que no han de puntuar res.
+    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer');
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -23432,7 +23510,7 @@ function returnToMainMenuImmediate() {
     // El repte «Rejugar +5%» mor en sortir de la partida.
     phaseReplayState = null;
     phaseReplayPending = null;
-    if (currentGameMode === 'phase_replay') currentGameMode = 'free';
+    if (currentGameMode === 'phase_replay' || currentGameMode === 'explorer') currentGameMode = 'free';
     $('#phase-replay-overlay').hide();
     updatePhaseReplayHud();
     isMatchErrorReviewSession = false;
@@ -23836,6 +23914,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     let calibrationJustCompleted = false;
     const isFreeMode = currentGameMode === 'free' || currentGameMode === 'assisted';
     const isLeagueMode = currentGameMode === 'league';
+    // Partida des del tauler d'anàlisi: es juga i es revisa com una partida
+    // normal, però NO puntua ELO, ni ajusta la dificultat, ni entra a
+    // l'historial ni al registre d'adaptació (la posició pot venir de l'editor).
+    const isExplorerMode = currentGameMode === 'explorer';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     // Partida amb rellotge (lliure/assistida): puntua a l'ELO del seu ritme i
     // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
@@ -23904,14 +23986,14 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
         }
         timedCalibrationTcId = null;
-    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
+    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
     }
 
     if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
 
-    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust) {
+    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode) {
         userELO = Math.max(50, userELO + change);
         updateEloHistory(userELO);
         syncEngineEloFromUser();
@@ -23940,7 +24022,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             if (adjustResult && adjustResult.feedback) {
                 msg += ` · ${adjustResult.feedback}`;
             }
-        } else if (!isLeagueMode) {
+        } else if (!isLeagueMode && !isExplorerMode) {
             adjustAIDifficulty(playerWon, finalPrecision, resultScore);
         }
     }
@@ -23949,7 +24031,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         applyLeagueAfterGame(leagueOutcome);
     }
     const reviewCounts = summarizeReview(currentReview);
-    if (!blunderMode) {
+    if (!blunderMode && !isExplorerMode) {
         const adjustmentSummary = getLastAdjustmentSummary(adaptationAdjustmentLogStart);
         let appliedDelta = adjustmentSummary.appliedDelta;
         if (!appliedDelta) {
@@ -23993,7 +24075,11 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }));
     }
     const severeErrors = currentGameErrors.slice(); // ← Usar currentGameErrors
-    recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
+    // Les partides des del tauler d'anàlisi no entren a l'historial: comencen
+    // d'un FEN arbitrari i el reproductor/ressenya de l'historial reconstrueixen
+    // les partides des de la posició inicial. Les errades detectades en viu sí
+    // que alimenten la biblioteca d'errors (són jugades reals de l'usuari).
+    if (!isExplorerMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
     severeErrors.forEach(err => {
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
@@ -24048,7 +24134,8 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         if (calibrationJustCompleted) {
             showCalibrationReveal(userELO);
         }
-        if (!blunderMode && !calibrationGameWasActive) {
+        if (!blunderMode && !calibrationGameWasActive && !isExplorerMode) {
+            // (En mode explorador no hi ha entrada nova: l'última és d'una altra partida.)
             const latestEntry = gameHistory[gameHistory.length - 1];
             void requestOpenAIReview(latestEntry, severeErrors);
             void requestErrorNotes(latestEntry, severeErrors);
