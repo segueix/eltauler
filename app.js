@@ -9106,6 +9106,7 @@ let explorerTapSquare = null;      // casella seleccionada en mode «tocar»
 let explorerLastTapEventTs = 0;    // antirebot: pointerdown+touchstart del mateix toc
 let explorerAnalysisRetries = 0;   // reintents si el motor no respon (contenció)
 let explorerBoardControlMode = null; // mode de control aplicat al tauler d'anàlisi
+let explorerEngineMoveHighlight = null; // { from, to } de l'última jugada del motor (requadre marró)
 
 function createExplorerBoard(editMode) {
     if (explorerBoard && typeof explorerBoard.destroy === 'function') {
@@ -9139,6 +9140,7 @@ function createExplorerBoard(editMode) {
     explorerBoard = Chessboard('explorer-board', config);
     explorerBoardControlMode = desiredControlMode;
     updateExplorerBoardInteractivity();
+    if (!editMode) reapplyExplorerEngineMoveHighlight();
 }
 
 // Mode «tocar» (preferència de control de l'usuari): tocar peça i destí, amb
@@ -9210,6 +9212,30 @@ function disableExplorerTapToMove() {
     const boardEl = document.getElementById('explorer-board');
     if (boardEl) boardEl.style.touchAction = '';
     clearExplorerTapSelection();
+}
+
+// Requadre marró de jugada del motor (el mateix .engine-move que a la resta de
+// l'app): marca la «millor jugada» quan la juga el motor i desapareix així que
+// la posició canvia (jugada de l'usuari, navegació, FEN nou o edició). Es desa
+// per reaplicar-la quan el tauler es recrea (canvi de mode de control) o es
+// gira, que reconstrueixen les caselles i n'esborren les classes.
+function clearExplorerEngineMoveHighlight() {
+    explorerEngineMoveHighlight = null;
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+}
+
+function reapplyExplorerEngineMoveHighlight() {
+    const h = explorerEngineMoveHighlight;
+    if (!h) return;
+    $('#explorer-board .square-55d63').removeClass('engine-move');
+    [h.from, h.to].forEach((sq) => {
+        if (sq) $(`#explorer-board .square-${sq}`).addClass('engine-move');
+    });
+}
+
+function highlightExplorerEngineMove(from, to) {
+    explorerEngineMoveHighlight = { from: from || null, to: to || null };
+    reapplyExplorerEngineMoveHighlight();
 }
 
 function updateExplorerBoardInteractivity() {
@@ -9451,6 +9477,7 @@ function updateExplorerControls() {
 
 function afterExplorerPositionChange() {
     clearExplorerTapSelection();
+    clearExplorerEngineMoveHighlight();
     explorerAnalysisRetries = 0;
     renderExplorerMoves();
     updateExplorerControls();
@@ -18918,7 +18945,14 @@ function setupEvents() {
     $('#explorer-start-btn').off('click').on('click', () => explorerSeek(0));
     $('#explorer-prev').off('click').on('click', () => explorerSeek(explorerIndex - 1));
     $('#explorer-next').off('click').on('click', () => explorerSeek(explorerIndex + 1));
-    $('#explorer-flip').off('click').on('click', () => { if (explorerBoard) explorerBoard.flip(); });
+    $('#explorer-flip').off('click').on('click', () => {
+        if (!explorerBoard) return;
+        // flip() reconstrueix les caselles: es perd la selecció de «tocar» (i el
+        // seu estat intern quedaria orfe) i cal repintar el requadre del motor.
+        explorerBoard.flip();
+        clearExplorerTapSelection();
+        reapplyExplorerEngineMoveHighlight();
+    });
     $('#explorer-moves').off('click').on('click', '.explorer-move', function () {
         const idx = parseInt($(this).attr('data-idx'), 10);
         if (!isNaN(idx)) explorerSeek(idx + 1);
@@ -18926,8 +18960,12 @@ function setupEvents() {
     $('#explorer-play-best').off('click').on('click', () => {
         if (!explorerLastBest || !explorerGame || explorerLastBest.fen !== explorerGame.fen()) return;
         const uci = explorerLastBest.uci;
-        if (applyExplorerMove(uci.slice(0, 2), uci.slice(2, 4), uci.length > 4 ? uci[4] : null) && explorerBoard) {
+        const from = uci.slice(0, 2);
+        const to = uci.slice(2, 4);
+        if (applyExplorerMove(from, to, uci.length > 4 ? uci[4] : null) && explorerBoard) {
             explorerBoard.position(explorerGame.fen(), false);
+            // Requadre marró d'origen i destí, com les jugades del motor en partida.
+            highlightExplorerEngineMove(from, to);
         }
     });
     $('#explorer-fen-load').off('click').on('click', () => {
