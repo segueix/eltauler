@@ -1459,13 +1459,14 @@ const REVIEW_TTS_STATE = {
     activePreset: null,
     chunks: [],
     chunkIndex: 0,
-    utterance: null
+    utterance: null,
+    pauseTimer: null
 };
 
 const REVIEW_TTS_PRESETS_KEY = 'eltauler_tts_presets';
 const REVIEW_TTS_DEFAULT_KEY = 'eltauler_tts_default_preset';
 const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
-const DEFAULT_REVIEW_TTS_PRESET = { id: 'default', name: 'Català natural', voiceURI: '', pitch: 1, rate: 0.95, builtin: true };
+const DEFAULT_REVIEW_TTS_PRESET = { id: 'default', name: 'Català natural', voiceURI: '', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
 
 function reviewTtsSupported() {
     return typeof window !== 'undefined'
@@ -1493,34 +1494,67 @@ function normalizeTextForCatalanTTS(text) {
         .trim();
 }
 
-function splitReviewTtsText(text, maxLen = 650) {
+// NOU: trosseig expressiu per puntuació sense partir abreviatures habituals.
+function splitReviewTtsText(text, maxLen = 200) {
     const clean = String(text || '').replace(/\r/g, '').trim();
     if (!clean) return [];
-    const parts = clean
-        .split(/\n{2,}/)
-        .flatMap(paragraph => paragraph.split(/([.!?]+\s+)/).reduce((acc, piece, idx, arr) => {
-            if (idx % 2 === 0) {
-                const next = arr[idx + 1] || '';
-                if ((piece + next).trim()) acc.push((piece + next).trim());
-            }
-            return acc;
-        }, []))
-        .map(s => s.trim())
-        .filter(Boolean);
-    const chunks = [];
-    let current = '';
-    parts.forEach(part => {
-        if (!current) current = part;
-        else if ((current + ' ' + part).length <= maxLen) current += ' ' + part;
-        else { chunks.push(current); current = part; }
-        while (current.length > maxLen) {
-            chunks.push(current.slice(0, maxLen).trim());
-            current = current.slice(maxLen).trim();
-        }
+    const protectedDots = [];
+    const protect = m => { const token = `__DOT${protectedDots.length}__`; protectedDots.push(m); return token; };
+    let safe = clean
+        .replace(/\.\.\./g, protect)
+        .replace(/\b(?:Sr|Sra|Dr|Dra|St|Sta|núm|num|pàg|pag|etc|p\.\s*ex)\./gi, protect)
+        .replace(/\b(?:[A-ZÀ-Ý]\.){2,}/g, protect)
+        .replace(/\d+[.,]\d+/g, protect);
+    const out = [];
+    const paragraphs = safe.split(/\n{2,}/);
+    paragraphs.forEach((paragraph, pIdx) => {
+        const pieces = paragraph.match(/[^,;:.!?()—–-]+[,;:.!?()—–-]?/g) || [];
+        pieces.forEach((piece, idx) => {
+            let raw = piece.trim();
+            if (!raw) return;
+            protectedDots.forEach((val, i) => { raw = raw.replaceAll(`__DOT${i}__`, val); });
+            const lastChar = raw.slice(-1);
+            const kind = lastChar === '?' ? 'question' : (lastChar === '!' ? 'exclaim' : (/[,;:]/.test(lastChar) ? 'minor' : (lastChar === '.' ? 'sentence' : 'plain')));
+            const isIncise = /^[()—–-]/.test(raw) || /[()—–-]$/.test(raw) || (lastChar === ',' && idx > 0 && idx < pieces.length - 1);
+            const pauseBase = kind === 'minor' ? 250 : (kind === 'sentence' || kind === 'question' || kind === 'exclaim' ? 600 : 0);
+            const paragraphPause = idx === pieces.length - 1 && pIdx < paragraphs.length - 1 ? 1200 : 0;
+            pushTtsSubfragments(out, raw, { kind, isIncise, lastInParagraph: idx === pieces.length - 1, pauseBase: Math.max(pauseBase, paragraphPause) }, maxLen);
+        });
     });
-    if (current) chunks.push(current);
-    return chunks;
+    return out;
 }
+
+// NOU: cap fragment supera ~200 caràcters; les subdivisions no afegeixen pausa.
+function pushTtsSubfragments(out, text, meta, maxLen) {
+    let remaining = String(text || '').trim();
+    while (remaining.length > maxLen) {
+        let cut = Math.max(remaining.lastIndexOf(',', maxLen), remaining.lastIndexOf(' ', maxLen));
+        if (cut < 80) cut = maxLen;
+        out.push({ ...meta, text: remaining.slice(0, cut).trim(), pauseBase: 0 });
+        remaining = remaining.slice(cut).replace(/^,?\s*/, '').trim();
+    }
+    if (remaining) out.push({ ...meta, text: remaining });
+}
+
+function clampTts(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+// NOU: modulació de pitch/rate frase a frase segons expressivitat.
+function ttsProsodyForFragment(fragment, preset) {
+    const E = clampTts(preset.expressivity ?? 0.5, 0, 1);
+    let pitchMod = 1;
+    let rateMod = 1;
+    if (fragment.kind === 'question') pitchMod *= (1 + 0.12 * E);
+    if (fragment.kind === 'exclaim') { pitchMod *= (1 + 0.15 * E); rateMod *= (1 + 0.05 * E); }
+    if (fragment.isIncise) { pitchMod *= (1 - 0.10 * E); rateMod *= (1 + 0.10 * E); }
+    if (fragment.lastInParagraph) pitchMod *= (1 - 0.05 * E);
+    const jitter = 1 + (((Math.random() * 2) - 1) * 0.03 * E);
+    pitchMod *= jitter;
+    return {
+        pitch: clampTts((preset.pitch || 1) * pitchMod, 0, 2),
+        rate: clampTts((preset.rate || 0.95) * rateMod, 0.5, 2)
+    };
+}
+
 
 function getCatalanSpeechVoice() {
     if (!reviewTtsSupported()) return null;
@@ -1588,7 +1622,9 @@ function currentReviewTtsSettingsPreset() {
         name: String($('#tts-preset-name').val() || '').trim() || 'Perfil de veu',
         voiceURI: String($('#tts-voice-select').val() || ''),
         pitch: Math.max(0.5, Math.min(2, (+$('#tts-pitch-range').val() || 100) / 100)),
-        rate: Math.max(0.5, Math.min(2, (+$('#tts-rate-range').val() || 95) / 100))
+        rate: Math.max(0.5, Math.min(2, (+$('#tts-rate-range').val() || 95) / 100)),
+        expressivity: Math.max(0, Math.min(1, (+$('#tts-expressivity-range').val() || 0) / 100)),
+        cadence: Math.max(0, Math.min(1, (+$('#tts-cadence-range').val() || 0) / 100))
     };
 }
 
@@ -1598,8 +1634,12 @@ function applyReviewTtsPresetToSettings(preset) {
     $('#tts-voice-select').val(p.voiceURI || '');
     $('#tts-pitch-range').val(Math.round((p.pitch || 1) * 100));
     $('#tts-rate-range').val(Math.round((p.rate || 0.95) * 100));
+    $('#tts-expressivity-range').val(Math.round((p.expressivity ?? 0.5) * 100));
+    $('#tts-cadence-range').val(Math.round((p.cadence ?? 0.5) * 100));
     $('#tts-pitch-value').text(`${Math.round((p.pitch || 1) * 100)}%`);
     $('#tts-rate-value').text(`${Math.round((p.rate || 0.95) * 100)}%`);
+    $('#tts-expressivity-value').text(`${Math.round((p.expressivity ?? 0.5) * 100)}%`);
+    $('#tts-cadence-value').text(`${Math.round((p.cadence ?? 0.5) * 100)}%`);
 }
 
 function refreshReviewTtsSettingsUi() {
@@ -1705,6 +1745,7 @@ function resetReviewTtsState(keepPaused = false) {
 function stopReviewTts() {
     if (!reviewTtsSupported()) return;
     REVIEW_TTS_STATE.stopRequested = true;
+    if (REVIEW_TTS_STATE.pauseTimer) { clearTimeout(REVIEW_TTS_STATE.pauseTimer); REVIEW_TTS_STATE.pauseTimer = null; }
     try { window.speechSynthesis.cancel(); } catch (e) {}
     resetReviewTtsState(false);
     updateReviewTtsButtons();
@@ -1713,7 +1754,12 @@ function stopReviewTts() {
 function pauseReviewTts() {
     if (!reviewTtsSupported()) return;
     try {
-        if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+        if (REVIEW_TTS_STATE.pauseTimer) {
+            clearTimeout(REVIEW_TTS_STATE.pauseTimer);
+            REVIEW_TTS_STATE.pauseTimer = null;
+            REVIEW_TTS_STATE.isPaused = true;
+            REVIEW_TTS_STATE.isSpeaking = false;
+        } else if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
             window.speechSynthesis.pause();
             REVIEW_TTS_STATE.isPaused = true;
             REVIEW_TTS_STATE.isSpeaking = false;
@@ -1727,14 +1773,15 @@ function speakReviewTtsChunk() {
     if (REVIEW_TTS_STATE.stopRequested) return;
     const chunk = REVIEW_TTS_STATE.chunks[REVIEW_TTS_STATE.chunkIndex];
     if (!chunk) { resetReviewTtsState(false); updateReviewTtsButtons(); return; }
-    const utterance = new SpeechSynthesisUtterance(chunk);
+    const utterance = new SpeechSynthesisUtterance(chunk.text || String(chunk));
     // Etiqueta genèrica: de cara a l'usuari és només «català», sense país.
     utterance.lang = 'ca';
     const preset = REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET;
     const voice = getSpeechVoiceByURI(preset.voiceURI) || getCatalanSpeechVoice();
     if (voice) utterance.voice = voice;
-    utterance.rate = Math.max(0.5, Math.min(2, preset.rate || 0.95));
-    utterance.pitch = Math.max(0.5, Math.min(2, preset.pitch || 1));
+    const prosody = ttsProsodyForFragment(chunk, preset);
+    utterance.rate = prosody.rate;
+    utterance.pitch = prosody.pitch;
     utterance.onstart = () => {
         REVIEW_TTS_STATE.isSpeaking = true;
         REVIEW_TTS_STATE.isPaused = false;
@@ -1744,7 +1791,9 @@ function speakReviewTtsChunk() {
         if (REVIEW_TTS_STATE.stopRequested) return;
         REVIEW_TTS_STATE.chunkIndex += 1;
         if (REVIEW_TTS_STATE.chunkIndex < REVIEW_TTS_STATE.chunks.length) {
-            setTimeout(speakReviewTtsChunk, 40);
+            const cadence = clampTts((REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET).cadence ?? 0.5, 0, 1);
+            const delay = Math.round((chunk.pauseBase || 0) * cadence);
+            REVIEW_TTS_STATE.pauseTimer = setTimeout(speakReviewTtsChunk, delay);
         } else {
             resetReviewTtsState(false);
             updateReviewTtsButtons();
@@ -1758,6 +1807,18 @@ function speakReviewTtsChunk() {
     REVIEW_TTS_STATE.utterance = utterance;
     try { window.speechSynthesis.speak(utterance); } catch (e) { showToast("No s\'ha pogut iniciar la lectura local.", 'warn'); }
     updateReviewTtsButtons();
+}
+
+function resumeReviewTtsIfPaused() {
+    if (!REVIEW_TTS_STATE.isPaused) return false;
+    try {
+        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+        else speakReviewTtsChunk();
+    } catch (e) { speakReviewTtsChunk(); }
+    REVIEW_TTS_STATE.isPaused = false;
+    REVIEW_TTS_STATE.isSpeaking = true;
+    updateReviewTtsButtons();
+    return true;
 }
 
 function beginReviewTts(rawText, source, presetOverride = null) {
@@ -1785,13 +1846,7 @@ function getCoachDiagnosisText() {
 
 function speakCoachDiagnosis() {
     if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
-    if (window.speechSynthesis.paused && REVIEW_TTS_STATE.isPaused) {
-        try { window.speechSynthesis.resume(); } catch (e) {}
-        REVIEW_TTS_STATE.isPaused = false;
-        REVIEW_TTS_STATE.isSpeaking = true;
-        updateReviewTtsButtons();
-        return;
-    }
+    if (resumeReviewTtsIfPaused()) return;
     const text = getCoachDiagnosisText();
     if (!text) { showToast('Encara no hi ha diagnòstic per llegir.', 'warn'); updateReviewTtsButtons(); return; }
     beginReviewTts(text, 'coach');
@@ -1800,13 +1855,7 @@ function speakCoachDiagnosis() {
 function speakCurrentReview() {
     if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
     if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer.', 'warn'); updateReviewTtsButtons(); return; }
-    if (window.speechSynthesis.paused && REVIEW_TTS_STATE.isPaused) {
-        try { window.speechSynthesis.resume(); } catch (e) {}
-        REVIEW_TTS_STATE.isPaused = false;
-        REVIEW_TTS_STATE.isSpeaking = true;
-        updateReviewTtsButtons();
-        return;
-    }
+    if (resumeReviewTtsIfPaused()) return;
     beginReviewTts(buildHistoryReviewText(historyReplay.entry), 'history');
 }
 
@@ -18508,10 +18557,16 @@ function setupEvents() {
 
     $('#tts-preset-mode').off('change').on('change', function () { setReviewTtsMode(this.value); refreshReviewTtsSettingsUi(); });
     $('#tts-preset-select').off('change').on('change', function () { applyReviewTtsPresetToSettings(getReviewTtsPresetById(this.value)); });
-    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-preset-name').off('input change').on('input change', function () {
+    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-expressivity-range, #tts-cadence-range, #tts-preset-name').off('input change').on('input change', function () {
         $('#tts-pitch-value').text(`${$('#tts-pitch-range').val()}%`);
         $('#tts-rate-value').text(`${$('#tts-rate-range').val()}%`);
+        $('#tts-expressivity-value').text(`${$('#tts-expressivity-range').val()}%`);
+        $('#tts-cadence-value').text(`${$('#tts-cadence-range').val()}%`);
+        if (REVIEW_TTS_STATE.source === 'settings') REVIEW_TTS_STATE.activePreset = currentReviewTtsSettingsPreset();
     });
+    $('#tts-preset-news').off('click').on('click', () => { $('#tts-rate-range').val(120); $('#tts-cadence-range').val(25); $('#tts-expressivity-range').val(30).trigger('input'); });
+    $('#tts-preset-story').off('click').on('click', () => { $('#tts-rate-range').val(88); $('#tts-cadence-range').val(70); $('#tts-expressivity-range').val(85).trigger('input'); });
+    $('#tts-preset-dictation').off('click').on('click', () => { $('#tts-rate-range').val(72); $('#tts-cadence-range').val(100); $('#tts-expressivity-range').val(0).trigger('input'); });
     $('#tts-preview').off('click').on('click', () => previewCurrentReviewTtsPreset());
     $('#tts-stop-preview').off('click').on('click', () => stopReviewTts());
     $('#tts-save').off('click').on('click', () => saveCurrentReviewTtsPreset());

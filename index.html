@@ -4608,6 +4608,29 @@
                         <span id="tts-rate-value">95%</span>
                     </div>
                 </div>
+                <div class="setting-row">
+                    <div class="setting-label">Expressivitat</div>
+                    <div class="font-size-control">
+                        <span style="font-size:0.78rem;opacity:0.7;">Plana</span>
+                        <input type="range" id="tts-expressivity-range" min="0" max="100" step="1" value="50" style="accent-color:var(--accent);touch-action:none;">
+                        <span style="font-size:0.78rem;opacity:0.7;">Viva</span>
+                        <span id="tts-expressivity-value">50%</span>
+                    </div>
+                </div>
+                <div class="setting-row">
+                    <div class="setting-label">Cadència</div>
+                    <div class="font-size-control">
+                        <span style="font-size:0.78rem;opacity:0.7;">Sense pauses</span>
+                        <input type="range" id="tts-cadence-range" min="0" max="100" step="1" value="50" style="accent-color:var(--accent);touch-action:none;">
+                        <span style="font-size:0.78rem;opacity:0.7;">Pausada</span>
+                        <span id="tts-cadence-value">50%</span>
+                    </div>
+                </div>
+                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                    <button type="button" class="btn btn-secondary" id="tts-preset-news" style="flex:1;min-width:100px;">Notícies</button>
+                    <button type="button" class="btn btn-secondary" id="tts-preset-story" style="flex:1;min-width:100px;">Conte</button>
+                    <button type="button" class="btn btn-secondary" id="tts-preset-dictation" style="flex:1;min-width:100px;">Dictat</button>
+                </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
                     <button type="button" class="btn btn-primary" id="tts-preview" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Prova</button>
                     <button type="button" class="btn btn-secondary" id="tts-save" style="flex:1;min-width:120px;">Desa perfil</button>
