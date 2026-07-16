@@ -249,6 +249,27 @@
         /* Font scale system — --font-scale scales the root font-size so all rem units follow */
         html { font-size: calc(16px * var(--font-scale)); -webkit-text-size-adjust: 100%; text-size-adjust: 100%; }
 
+        /*
+           Text fitting safeguards
+           -----------------------
+           The settings slider deliberately allows large text sizes. These defaults
+           make labels, section names and buttons wrap inside their own boxes instead
+           of pushing cards wider than the viewport or being clipped by fixed-height
+           controls.
+        */
+        h1, h2, h3, p, label, button, input, select, textarea,
+        .btn, .setting-label, .settings-title, .menu-section-title,
+        .training-title, .training-desc, .play-clock-title,
+        .opening-section-title, .chart-title, .history-detail-title {
+            min-width: 0;
+            max-width: 100%;
+            overflow-wrap: anywhere;
+            word-break: normal;
+            hyphens: auto;
+        }
+        h1, h2, h3, .settings-title, .menu-section-title,
+        .opening-section-title, .chart-title { line-height: 1.18; }
+
         .font-size-preview { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
         .font-size-preview .preview-text { color: var(--text-primary); }
 
@@ -840,8 +861,9 @@
             text-align: left;
         }
         .settings-title { font-family: 'Cinzel', serif; font-size: 0.95rem; color: var(--accent-gold); margin-bottom: 10px; }
-        .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
-        .setting-label { font-size: 0.85rem; color: var(--text-primary); }
+        .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+        .setting-label { font-size: 0.85rem; color: var(--text-primary); flex: 1 1 12rem; line-height: 1.25; }
+        .setting-row > :not(.setting-label) { min-width: 0; }
         .select-control {
             background: rgba(0,0,0,0.25);
             border: 1px solid rgba(255,255,255,0.15);
@@ -875,7 +897,9 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            flex: 1;
+            flex: 1 1 14rem;
+            min-width: 0;
+            flex-wrap: wrap;
         }
         .setting-status {
             font-size: 0.75rem;
@@ -883,6 +907,38 @@
             min-width: 56px;
             text-align: right;
         }
+        .font-size-control {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            flex: 1 1 16rem;
+            justify-content: flex-end;
+            min-width: 0;
+            flex-wrap: wrap;
+        }
+        #font-size-range { flex: 1 1 9rem; min-width: min(9rem, 100%); max-width: 14rem; }
+        #font-size-value { flex: 0 0 auto; min-width: 3.2rem; text-align: center; font-size: 0.82rem; font-weight: 600; }
+        body.device-mobile #settings-screen,
+        body.device-mobile #stats-screen,
+        body.device-mobile #start-screen {
+            width: 100vw;
+            max-width: 100vw;
+            border-left: 0;
+            border-right: 0;
+            border-radius: 0;
+            padding-left: max(14px, env(safe-area-inset-left, 0px));
+            padding-right: max(14px, env(safe-area-inset-right, 0px));
+        }
+        @media (max-width: 420px) {
+            .setting-row { align-items: flex-start; }
+            .setting-label, .setting-inline, .font-size-control { flex-basis: 100%; }
+            .font-size-control { justify-content: flex-start; }
+            .select-control, .text-input { width: 100%; }
+            #settings-screen .setting-row .btn { flex: 1 1 100%; }
+            .nav-trio .btn { flex-basis: 100%; }
+            .nav-trio .btn-nav-home { flex-basis: 100%; }
+        }
+
         body.epaper-mode .select-control { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         body.epaper-mode .text-input { background: #e6e6e6; border: 1px solid #cfcfcf; color: #222; }
         .setting-help { margin-top: 8px; font-size: 0.75rem; color: var(--text-secondary); line-height: 1.25; }
@@ -897,7 +953,8 @@
         /* Botons d'acció dins d'una fila: mida segons contingut, no a tot l'ample */
         #settings-screen .setting-row .btn {
             width: auto;
-            flex: 0 0 auto;
+            flex: 0 1 auto;
+            min-width: min(9rem, 100%);
         }
         /* Estil secundari suau i daurat perquè s'integri amb el panell */
         #settings-screen .btn-secondary {
@@ -1081,6 +1138,8 @@
             font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 600; padding: 14px 18px;
             border: none; border-radius: 10px; cursor: pointer; width: 100%;
             display: flex; align-items: center; justify-content: center; gap: 10px; letter-spacing: 1px;
+            min-height: 2.75rem; height: auto; white-space: normal; line-height: 1.15;
+            overflow-wrap: anywhere; text-align: center;
         }
                body.epaper-mode .btn {
             background: #dcdcdc !important;
@@ -1178,7 +1237,7 @@
             flex-direction: column; gap: 4px; padding: 12px 10px;
             font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
         }
-        .menu-grid .btn span { font-weight: 400; letter-spacing: 0; }
+        .menu-grid .btn span { font-weight: 400; letter-spacing: 0; min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
         @media (max-width: 360px) { .menu-grid { grid-template-columns: 1fr; } }
 
         /* ── Bloc «Juga»: rellotge destacat + els tres modes contra el motor ── */
@@ -1191,7 +1250,7 @@
         }
         .play-clock-head {
             display: flex; align-items: center; justify-content: space-between;
-            gap: 8px; margin: 0 2px 8px;
+            gap: 8px; margin: 0 2px 8px; flex-wrap: wrap;
         }
         .play-clock-title {
             display: flex; align-items: center; gap: 6px;
@@ -1199,7 +1258,7 @@
             text-transform: uppercase; color: var(--text-secondary);
         }
         .play-clock-current { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); }
-        .play-clock-chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        .play-clock-chips { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(4.2rem, 100%), 1fr)); gap: 6px; }
         .play-clock-chip {
             appearance: none; border: 1px solid rgba(201,162,39,0.25);
             background: rgba(255,255,255,0.05); color: var(--text-secondary);
@@ -4424,11 +4483,11 @@
                 <div class="settings-title">Aparença</div>
                 <div class="setting-row">
                     <div class="setting-label">Mida de la lletra</div>
-                    <div style="display:flex;align-items:center;gap:10px;flex:1;justify-content:flex-end;">
+                    <div class="font-size-control">
                         <span style="font-size:0.75rem;opacity:0.6;">A</span>
-                        <input type="range" id="font-size-range" min="70" max="150" step="1" value="100" style="flex:1;max-width:140px;accent-color:var(--accent);touch-action:none;">
+                        <input type="range" id="font-size-range" min="70" max="150" step="1" value="100" style="accent-color:var(--accent);touch-action:none;">
                         <span style="font-size:1.1rem;opacity:0.6;">A</span>
-                        <span id="font-size-value" style="min-width:38px;text-align:center;font-size:0.82rem;font-weight:600;">100%</span>
+                        <span id="font-size-value">100%</span>
                     </div>
                 </div>
                 <div class="setting-help">Ajusta la mida del text, botons i categories de tota l'app. Ideal per a mòbil.</div>
