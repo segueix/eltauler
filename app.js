@@ -9272,7 +9272,8 @@ async function runHistoryEntryAnalysisWithUi(entry) {
             updateHistoryDetails(entry);
         }
         renderGameHistory();
-        showToast(`Partida analitzada (${analyzed} jugades teves) ✓`, 'success');
+        const analyzedLabel = historyEntryIsImported(entry) ? 'jugades del color analitzat' : 'jugades teves';
+        showToast(`Partida analitzada (${analyzed} ${analyzedLabel}) ✓`, 'success');
     } else {
         updateHistoryDeepenButton(historyReplay && historyReplay.entry);
         showToast('No s\'ha pogut analitzar (motor ocupat o sense resposta). Torna-ho a provar d\'aquí a un moment.', 'warn');
@@ -9348,9 +9349,9 @@ function renderPgnImportGames(games) {
                 ${extra ? `<div class="pgn-import-game-meta">${escapeHtml(extra)}</div>` : ''}
                 ${warn}
                 <div class="pgn-import-game-row">
-                    <select class="select-control pgn-import-color" data-idx="${idx}" aria-label="Amb quin color jugaves">
-                        <option value="w"${guess !== 'b' ? ' selected' : ''}>Jo jugava amb blanques</option>
-                        <option value="b"${guess === 'b' ? ' selected' : ''}>Jo jugava amb negres</option>
+                    <select class="select-control pgn-import-color" data-idx="${idx}" aria-label="Color que vols analitzar">
+                        <option value="w"${guess !== 'b' ? ' selected' : ''}>Analitza les blanques</option>
+                        <option value="b"${guess === 'b' ? ' selected' : ''}>Analitza les negres</option>
                     </select>
                     <button type="button" class="btn btn-primary pgn-import-btn" data-idx="${idx}">Importa</button>
                 </div>
@@ -9358,8 +9359,8 @@ function renderPgnImportGames(games) {
     }).join('');
     container.html(rows);
     pgnImportSetStatus(games.length === 1
-        ? 'He llegit 1 partida. Tria el teu color i importa-la.'
-        : `He llegit ${games.length} partides. Tria el color de cadascuna i importa les que vulguis.`, false);
+        ? 'He llegit 1 partida. Tria quin color vols analitzar i importa-la.'
+        : `He llegit ${games.length} partides. Tria quin color vols analitzar a cadascuna i importa les que vulguis.`, false);
     container.find('.pgn-import-btn').off('click').on('click', function () {
         importPgnGameAt(parseInt($(this).attr('data-idx'), 10));
     });
@@ -9680,10 +9681,15 @@ function showReviewBoardLegend(show, opts = {}) {
     el.toggle(!!show);
     if (!show) return;
     const playedShown = opts.playedShown !== false;
+    const imported = !!(historyReplay && historyReplay.entry && historyEntryIsImported(historyReplay.entry));
     const playedEl = $('#review-legend-played');
-    if (playedEl.length) playedEl.toggle(playedShown);
+    if (playedEl.length) {
+        const sw = '<span class="sw" style="background:#6e0f0f; box-shadow: inset 0 0 0 2px #ff1744;"></span>';
+        playedEl.html(sw + (imported ? 'jugada analitzada' : 'la teva jugada'));
+        playedEl.toggle(playedShown);
+    }
     const bestText = $('#review-legend-best-text');
-    if (bestText.length) bestText.text(playedShown ? 'la millor jugada' : 'moviment excepcional (vas jugar la millor)');
+    if (bestText.length) bestText.text(playedShown ? 'la millor jugada' : (imported ? 'moviment excepcional (era la millor)' : 'moviment excepcional (vas jugar la millor)'));
 }
 
 // Ressalta origen i destí d'un moviment sobre beforeFen amb la classe donada.
@@ -10366,7 +10372,9 @@ function selectBrilliantReviews(entry, maxCount = 2) {
 
 // Ítems de "Moments clau" per als moviments excepcionals: frase verificada per
 // veu, insígnia verda i enllaç que marca NOMÉS la jugada feta (en verd) al tauler.
-function buildBrilliantMomentItems(entry, voiceStyle) {
+function buildBrilliantMomentItems(entry, voiceStyle, opts = {}) {
+    const imported = !!opts.imported;
+    const actor = opts.actor || 'el jugador analitzat';
     return selectBrilliantReviews(entry).map(r => {
         const phrase = r.fen ? bestPhraseByVoice(r.fen, r.playerMove || r.playerMoveSan, voiceStyle) : null;
         if (!phrase) return null;
@@ -10377,7 +10385,9 @@ function buildBrilliantMomentItems(entry, voiceStyle) {
         const why = gap >= 800
             ? 'Era pràcticament l\'única jugada bona en aquella posició.'
             : `La segona millor opció del motor quedava clarament per sota (uns ${(gap / 100).toFixed(1)} peons de diferència).`;
-        let sentence = `vas trobar la millor jugada: ${link}.`;
+        let sentence = imported
+            ? `${escapeHtml(actor)} va trobar la millor jugada: ${link}.`
+            : `vas trobar la millor jugada: ${link}.`;
         const audit = ElTaulerCore.auditReviewVoiceText(String(sentence + ' ' + why).replace(/<[^>]*>/g, ' '), voiceStyle);
         const tail = audit.ok ? `${sentence} ${escapeHtml(why)}` : sentence;
         return {
@@ -10869,6 +10879,42 @@ function dominantLessonTheme(entry) {
     return 'general';
 }
 
+
+function historyEntryReviewedSideLabel(entry, opts = {}) {
+    const color = entry && entry.playerColor === 'b' ? 'b' : 'w';
+    const headers = (entry && entry.importHeaders) || {};
+    const name = color === 'b' ? headers.Black : headers.White;
+    const fallback = color === 'b' ? 'les negres' : 'les blanques';
+    if (name && name !== '?') return opts.withColor ? `${name} (${fallback})` : name;
+    return fallback;
+}
+
+function historyEntryReviewedSideIntro(entry, voiceStyle) {
+    const color = entry && entry.playerColor === 'b' ? 'negres' : 'blanques';
+    const who = historyEntryReviewedSideLabel(entry, { withColor: false });
+    const rhythm = historyTimeControlLabel(entry);
+    const rhythmText = rhythm ? ` de ${rhythm}` : '';
+    if (voiceStyle === 'technical') {
+        return `Partida${rhythmText}: s'avaluen les decisions de ${who}, que jugava amb ${color}.`;
+    }
+    return `En aquesta partida${rhythmText}, la revisió se centra en ${who}, que jugava amb ${color}.`;
+}
+
+function composeImportedDebriefText(entry, facts, voiceStyle) {
+    const who = historyEntryReviewedSideLabel(entry);
+    const prec = facts && facts.precision !== null ? `${facts.precision}%` : '—';
+    const errors = facts ? ((facts.blunders || 0) + (facts.mistakes || 0)) : 0;
+    const tema = facts && facts.topErrorTheme
+        ? humanizeDominantTheme(facts.topErrorTheme, { outcome: facts.dominantOutcome, seed: entry && entry.id }, { voiceStyle })
+        : null;
+    let text = `Anàlisi de ${who}: precisió ${prec}.`;
+    if (errors > 0 && tema) text += ` Els moments més delicats giren sobretot al voltant de ${tema}.`;
+    else if (errors > 0) text += ` Hi ha ${errors === 1 ? 'un moment crític' : `${errors} moments crítics`} per revisar amb calma.`;
+    else text += ` No hi ha errades greus destacades en el color analitzat.`;
+    text += ` La ressenya parla dels protagonistes de la partida, no del compte que l'ha importada.`;
+    return text;
+}
+
 // =================== RESSENYA LOCAL EN HTML (sense OpenAI) ===================
 // Construeix la ressenya rica de l'historial: debrief, color del jugador, lliçó
 // del dia, obertura amb enllaç a la pràctica i correcció per fases (amb nombre
@@ -10881,6 +10927,8 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // Veu de la ressenya: la demanada explícitament (desplegable de la
         // ressenya) o la preferència de l'usuari. Només canvia la redacció.
         const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
+        const importedReview = historyEntryIsImported(entry);
+        const reviewedActor = importedReview ? historyEntryReviewedSideLabel(entry) : 'tu';
         const facts = buildDebriefFacts(entry);
         // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
         // màxima noves) cada cop que es prem «Regenerar la ressenya», sense dependre
@@ -10895,13 +10943,18 @@ function renderLocalReviewHtml(entry, opts = {}) {
         }
 
         if (facts) {
-            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey), voiceStyle);
+            const debrief = importedReview
+                ? composeImportedDebriefText(entry, facts, voiceStyle)
+                : composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey), voiceStyle);
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
 
         // --- Color del jugador (i ritme, si era una partida amb rellotge): una
-        // sola frase natural que situa quines decisions es comenten ---
-        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle, historyTimeControlLabel(entry)))}</p>`);
+        // sola frase natural que situa quines decisions es comenten. A les PGN
+        // importades es parla del protagonista analitzat, no de l'usuari. ---
+        blocks.push(`<p>${escapeHtml(importedReview
+            ? historyEntryReviewedSideIntro(entry, voiceStyle)
+            : ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle, historyTimeControlLabel(entry)))}</p>`);
 
         // --- La lliçó d'avui: una consigna curta segons el patró dominant,
         // derivada de dades locals (mai d'IA lliure) ---
@@ -10945,7 +10998,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // QUINA obertura del repertori estaves jugant TU (per les teves jugades),
         // i si el rival et va forçar a canviar.
         let userOp = null;
-        try { userOp = identifyUserOpening(entry); } catch (e) { userOp = null; }
+        try { userOp = importedReview ? null : identifyUserOpening(entry); } catch (e) { userOp = null; }
 
         const realizedName = curated ? curated.name : (oa ? oa.name : null);
         const realizedEco = curated ? curated.eco : (oa ? oa.eco : null);
@@ -10983,10 +11036,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
         } else if (realizedName) {
             // No hem pogut identificar cap obertura teva del repertori: mostrem
             // l'obertura realitzada (per posició/ECO) amb la desviació de la teoria.
-            let openingTxt = openingHead('<strong>Obertura:</strong>', realizedName, realizedEco, phases.opening);
+            let openingTxt = openingHead(importedReview ? '<strong>Obertura de la partida:</strong>' : '<strong>Obertura:</strong>', realizedName, realizedEco, phases.opening);
             if (!curated && oa && oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
-                openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
+                openingTxt += importedReview
+                    ? ` ${escapeHtml(reviewedActor)} va sortir de la teoria a la jugada ${moveNum}`
+                    : ` Vas sortir de la teoria a la jugada ${moveNum}`;
                 if (Array.isArray(oa.theoryMoves) && oa.theoryMoves.length) {
                     let devFen = null;
                     try {
@@ -11017,14 +11072,18 @@ function renderLocalReviewHtml(entry, opts = {}) {
             let practiceHtml;
             if (voiceStyle === 'casual') {
                 // Sense ECO al cos; enllaços integrats amb minúscula dins la frase.
-                const lead = (userOp || curated)
-                    ? `reforça la teva ${nameHtml} del repertori`
-                    : `l'obertura del repertori més semblant és ${nameHtml}`;
+                const lead = importedReview
+                    ? `l'obertura del repertori més semblant per estudiar és ${nameHtml}`
+                    : ((userOp || curated)
+                        ? `reforça la teva ${nameHtml} del repertori`
+                        : `l'obertura del repertori més semblant és ${nameHtml}`);
                 practiceHtml = `<strong>Per practicar:</strong> ${lead}. Pots practicar-la ${mkLink('w', 'amb blanques')} o ${mkLink('b', 'amb negres')}.`;
             } else {
-                const lead = (userOp || curated)
-                    ? `reforça la teva ${nameHtml}${ecoHtml} del repertori`
-                    : `${voiceStyle === 'technical' ? 'la línia de repertori més propera' : 'l\'obertura del repertori més semblant a la que vas jugar'} és ${nameHtml}${ecoHtml}`;
+                const lead = importedReview
+                    ? `${voiceStyle === 'technical' ? 'la línia de repertori més propera' : 'l\'obertura del repertori més semblant a la partida'} és ${nameHtml}${ecoHtml}`
+                    : ((userOp || curated)
+                        ? `reforça la teva ${nameHtml}${ecoHtml} del repertori`
+                        : `${voiceStyle === 'technical' ? 'la línia de repertori més propera' : 'l\'obertura del repertori més semblant a la que vas jugar'} és ${nameHtml}${ecoHtml}`);
                 practiceHtml = `<strong>Per practicar:</strong> ${lead}. ${mkLink('w', 'Practicar amb blanques')} · ${mkLink('b', 'Practicar amb negres')}.`;
             }
             blocks.push(`<p>${practiceHtml}</p>`);
@@ -11055,7 +11114,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // la teva jugada, verd la millor) I els moviments excepcionals (només
         // verd la jugada feta), tot ordenat per número de jugada. ---
         const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
-        const brilliantMoments = buildBrilliantMomentItems(entry, voiceStyle);
+        const brilliantMoments = buildBrilliantMomentItems(entry, voiceStyle, { imported: importedReview, actor: reviewedActor });
         // FENs d'aquesta partida que poden generar un jeroglífic (per marcar-los).
         const heiroSeeds = entryHieroglyphicSeedFenKeys(entry);
         const heiroKeyOf = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
@@ -11085,9 +11144,14 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const playedSan = String(m.played || '').trim();
                 const bestSan = String(m.best || '').trim();
                 const samePlayedBest = playedSan && bestSan && playedSan === bestSan;
-                const playedPhrase = (!samePlayedBest && m.fen)
+                let playedPhrase = (!samePlayedBest && m.fen)
                     ? playedPhraseByVoice(m.fen, m.playedUci || m.played, voiceStyle)
                     : '';
+                if (importedReview && playedPhrase) {
+                    playedPhrase = playedPhrase
+                        .replace(/^vas jugar /i, `${reviewedActor} va jugar `)
+                        .replace(/^vas /i, `${reviewedActor} va `);
+                }
                 let tail = playedPhrase
                     ? `${escapeHtml(playedPhrase)}. ${escapeHtml(best.prefix.charAt(0).toUpperCase() + best.prefix.slice(1))}${link}.`
                     : `la millor jugada era ${link}.`;
@@ -11140,7 +11204,10 @@ function renderLocalReviewHtml(entry, opts = {}) {
 
         // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
         const planText = ElTaulerCore.buildTenMinutePlan(moments.map(m => Number(m.moveNumber)), voiceStyle);
-        blocks.push(`<p><strong>Pla de 10 minuts:</strong> ${escapeHtml(planText.replace(/^Pla de 10 minuts:\s*/, ''))}</p>`);
+        const cleanPlan = planText.replace(/^Pla de 10 minuts:\s*/, '');
+        blocks.push(`<p><strong>Pla de 10 minuts:</strong> ${escapeHtml(importedReview
+            ? cleanPlan.replace(/\bteves\b/g, 'del protagonista').replace(/\bteva\b/g, 'del protagonista').replace(/\bpròxima partida\b/g, 'propera partida del color analitzat')
+            : cleanPlan)}</p>`);
 
         // --- Tancament motivador (segons la veu; estable per llavor de ressenya).
         // No repeteix una frase que ja hagi sortit al resum inicial: si coincideix,
