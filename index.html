@@ -5039,6 +5039,39 @@
             .explorer-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
             .explorer-edit-row label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
             .explorer-tap-selected { box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.9) !important; }
+            #explorer-start-btn.explorer-nav-start {
+                border-color: rgba(201, 162, 39, 0.65);
+                background: rgba(201, 162, 39, 0.16);
+                box-shadow: inset 0 0 0 1px rgba(201, 162, 39, 0.18);
+            }
+            #explorer-start-btn.explorer-nav-start .btn-label { margin-left: 4px; font-size: 0.78rem; font-weight: 700; }
+            body.epaper-mode #explorer-start-btn.explorer-nav-start { background: #f0f0f0; border-color: #555; box-shadow: inset 0 0 0 1px #999; }
+            @media (max-width: 768px) {
+                body.device-mobile #explorer-screen {
+                    height: 100dvh;
+                    overflow-y: auto;
+                    overscroll-behavior: contain;
+                    -webkit-overflow-scrolling: touch;
+                }
+                body.device-mobile #explorer-screen .history-board {
+                    position: sticky;
+                    top: max(8px, env(safe-area-inset-top));
+                    z-index: 20;
+                    margin-top: 6px;
+                    margin-bottom: 8px;
+                    padding: 6px 0;
+                    background: var(--bg-primary);
+                    box-shadow: 0 8px 18px rgba(0,0,0,0.22), 0 -8px 18px rgba(0,0,0,0.12);
+                }
+                body.device-mobile #explorer-screen .stats-header,
+                body.device-mobile #explorer-screen .explorer-eval-card,
+                body.device-mobile #explorer-screen #explorer-moves,
+                body.device-mobile #explorer-screen #explorer-tools,
+                body.device-mobile #explorer-screen #explorer-edit-toolbar {
+                    position: relative;
+                    z-index: 1;
+                }
+            }
         </style>
         <div id="explorer-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
@@ -5062,7 +5095,7 @@
             <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
 
             <div class="history-controls" id="explorer-nav">
-                <button class="btn btn-secondary" id="explorer-start-btn" aria-label="A l'inici de la línia" title="A l'inici de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg></button>
+                <button class="btn btn-secondary explorer-nav-start" id="explorer-start-btn" aria-label="Torna al principi de la línia" title="Torna al principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg><span class="btn-label">Inici</span></button>
                 <button class="btn btn-secondary" id="explorer-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
                 <button class="btn btn-secondary" id="explorer-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
                 <button class="btn btn-secondary" id="explorer-flip" aria-label="Gira el tauler" title="Gira el tauler"><svg class="btn-ic" aria-hidden="true"><use href="#ic-flip"/></svg></button>
