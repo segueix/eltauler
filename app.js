@@ -2148,6 +2148,7 @@ function applyControlMode(mode, opts) {
     if (o.rebuild) rebuildBoardForControlMode();
     updateTvBoardInteractivity();
     updateOpeningBoardInteractivity();
+    updateExplorerBoardInteractivity();
 }
 
 // Resize del tauler perquè ocupi el màxim possible
@@ -9103,14 +9104,16 @@ let explorerAnalysisTimer = null;  // petit debounce entre jugada i anàlisi
 let explorerLastBest = null;       // { fen, uci } de la millor jugada analitzada
 let explorerTapSquare = null;      // casella seleccionada en mode «tocar»
 let explorerAnalysisRetries = 0;   // reintents si el motor no respon (contenció)
+let explorerBoardControlMode = null; // mode de control aplicat al tauler d'anàlisi
 
 function createExplorerBoard(editMode) {
     if (explorerBoard && typeof explorerBoard.destroy === 'function') {
         try { explorerBoard.destroy(); } catch (e) {}
     }
     const placement = explorerGame ? explorerGame.fen().split(' ')[0] : 'start';
+    const desiredControlMode = editMode ? 'drag' : (controlMode === 'tap' ? 'tap' : 'drag');
     const config = {
-        draggable: true,
+        draggable: desiredControlMode === 'drag',
         position: placement,
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     };
@@ -9133,6 +9136,7 @@ function createExplorerBoard(editMode) {
         };
     }
     explorerBoard = Chessboard('explorer-board', config);
+    explorerBoardControlMode = desiredControlMode;
     updateExplorerBoardInteractivity();
 }
 
@@ -9176,7 +9180,12 @@ function disableExplorerTapToMove() {
 
 function updateExplorerBoardInteractivity() {
     if (!explorerBoard) return;
-    const useTap = !explorerEditMode && controlMode === 'tap';
+    const desiredControlMode = explorerEditMode ? 'drag' : (controlMode === 'tap' ? 'tap' : 'drag');
+    if (explorerBoardControlMode !== desiredControlMode) {
+        createExplorerBoard(explorerEditMode);
+        return;
+    }
+    const useTap = desiredControlMode === 'tap';
     explorerBoard.draggable = !useTap;
     if (useTap) enableExplorerTapToMove(); else disableExplorerTapToMove();
 }
