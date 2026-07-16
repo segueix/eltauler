@@ -530,7 +530,13 @@ function initNavigationScrollReset() {
     const observer = new MutationObserver(() => {
         const currentScreen = getCurrentScreen();
         if (currentScreen === lastNavigationScreen) return;
+        const previousScreen = lastNavigationScreen;
         lastNavigationScreen = currentScreen;
+        if ((previousScreen === 'history-screen' || previousScreen === 'stats-screen' || previousScreen === 'settings-screen')
+            && currentScreen !== previousScreen
+            && typeof stopReviewTts === 'function') {
+            stopReviewTts();
+        }
         scrollNavigationToTop();
     });
 
@@ -601,10 +607,12 @@ function navGoBack() {
         $('#game-screen').removeClass('active').hide();
         $('#start-screen').show();
     } else if (current === 'stats-screen') {
+        if (typeof stopReviewTts === 'function') stopReviewTts();
         $('#stats-screen').hide();
         $('#start-screen').show();
     } else if (current === 'history-screen') {
         if (typeof stopHistoryPlayback === 'function') stopHistoryPlayback();
+        if (typeof stopReviewTts === 'function') stopReviewTts();
         $('#history-screen').hide();
         $('#start-screen').show();
     } else if (current === 'league-screen') {
@@ -616,6 +624,7 @@ function navGoBack() {
         $('#opening-screen').hide();
         $('#start-screen').show();
     } else if (current === 'settings-screen') {
+        if (typeof stopReviewTts === 'function') stopReviewTts();
         $('#settings-screen').hide();
         $('#start-screen').show();
     } else if (current === 'calibration-result-screen') {
@@ -1435,6 +1444,434 @@ function buildHistoryReviewText(entry) {
     if (notesText) lines.push('\n=== Errades comentades ===', notesText);
 
     return lines.join('\n');
+}
+
+
+// Lectura local de les ressenyes amb la veu del dispositiu. No envia cap text
+// fora de l'app: usa Web Speech API quan el navegador exposa speechSynthesis.
+const REVIEW_TTS_STATE = {
+    voicesReady: false,
+    isSpeaking: false,
+    isPaused: false,
+    stopRequested: false,
+    lastText: '',
+    source: null,
+    activePreset: null,
+    chunks: [],
+    chunkIndex: 0,
+    utterance: null,
+    pauseTimer: null
+};
+
+const REVIEW_TTS_PRESETS_KEY = 'eltauler_tts_presets';
+const REVIEW_TTS_DEFAULT_KEY = 'eltauler_tts_default_preset';
+const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
+const DEFAULT_REVIEW_TTS_PRESET = { id: 'default', name: 'Català natural', voiceURI: '', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
+
+function reviewTtsSupported() {
+    return typeof window !== 'undefined'
+        && 'speechSynthesis' in window
+        && typeof window.SpeechSynthesisUtterance === 'function';
+}
+
+function normalizeTextForCatalanTTS(text) {
+    let out = String(text || '');
+    try {
+        if (typeof ElTaulerRedactor !== 'undefined' && ElTaulerRedactor && typeof ElTaulerRedactor.corregirCatala === 'function') {
+            out = ElTaulerRedactor.corregirCatala(out);
+        }
+    } catch (e) {}
+    return out
+        .replace(/\u00a0/g, ' ')
+        .replace(/\bPGN\b/g, 'pe ge ena')
+        .replace(/\bELO\b/g, 'elo')
+        .replace(/\bCP\b/g, 'centipeons')
+        .replace(/0-0-0/g, 'enroc llarg')
+        .replace(/0-0/g, 'enroc curt')
+        .replace(/([0-9]+)%/g, '$1 per cent')
+        .replace(/[ \t]{2,}/g, ' ')
+        .replace(/\n{3,}/g, '\n\n')
+        .trim();
+}
+
+// NOU: trosseig expressiu per puntuació sense partir abreviatures habituals.
+function splitReviewTtsText(text, maxLen = 200) {
+    const clean = String(text || '').replace(/\r/g, '').trim();
+    if (!clean) return [];
+    const protectedDots = [];
+    const protect = m => { const token = `__DOT${protectedDots.length}__`; protectedDots.push(m); return token; };
+    let safe = clean
+        .replace(/\.\.\./g, protect)
+        .replace(/\b(?:Sr|Sra|Dr|Dra|St|Sta|núm|num|pàg|pag|etc|p\.\s*ex)\./gi, protect)
+        .replace(/\b(?:[A-ZÀ-Ý]\.){2,}/g, protect)
+        .replace(/\d+[.,]\d+/g, protect);
+    const out = [];
+    const paragraphs = safe.split(/\n{2,}/);
+    paragraphs.forEach((paragraph, pIdx) => {
+        const pieces = paragraph.match(/[^,;:.!?()—–-]+[,;:.!?()—–-]?/g) || [];
+        pieces.forEach((piece, idx) => {
+            let raw = piece.trim();
+            if (!raw) return;
+            protectedDots.forEach((val, i) => { raw = raw.replaceAll(`__DOT${i}__`, val); });
+            const lastChar = raw.slice(-1);
+            const kind = lastChar === '?' ? 'question' : (lastChar === '!' ? 'exclaim' : (/[,;:]/.test(lastChar) ? 'minor' : (lastChar === '.' ? 'sentence' : 'plain')));
+            const isIncise = /^[()—–-]/.test(raw) || /[()—–-]$/.test(raw) || (lastChar === ',' && idx > 0 && idx < pieces.length - 1);
+            const pauseBase = kind === 'minor' ? 250 : (kind === 'sentence' || kind === 'question' || kind === 'exclaim' ? 600 : 0);
+            const paragraphPause = idx === pieces.length - 1 && pIdx < paragraphs.length - 1 ? 1200 : 0;
+            pushTtsSubfragments(out, raw, { kind, isIncise, lastInParagraph: idx === pieces.length - 1, pauseBase: Math.max(pauseBase, paragraphPause) }, maxLen);
+        });
+    });
+    return out;
+}
+
+// NOU: cap fragment supera ~200 caràcters; les subdivisions no afegeixen pausa.
+function pushTtsSubfragments(out, text, meta, maxLen) {
+    let remaining = String(text || '').trim();
+    while (remaining.length > maxLen) {
+        let cut = Math.max(remaining.lastIndexOf(',', maxLen), remaining.lastIndexOf(' ', maxLen));
+        if (cut < 80) cut = maxLen;
+        out.push({ ...meta, text: remaining.slice(0, cut).trim(), pauseBase: 0 });
+        remaining = remaining.slice(cut).replace(/^,?\s*/, '').trim();
+    }
+    if (remaining) out.push({ ...meta, text: remaining });
+}
+
+function clampTts(n, min, max) { return Math.max(min, Math.min(max, n)); }
+
+// NOU: modulació de pitch/rate frase a frase segons expressivitat.
+function ttsProsodyForFragment(fragment, preset) {
+    const E = clampTts(preset.expressivity ?? 0.5, 0, 1);
+    let pitchMod = 1;
+    let rateMod = 1;
+    if (fragment.kind === 'question') pitchMod *= (1 + 0.12 * E);
+    if (fragment.kind === 'exclaim') { pitchMod *= (1 + 0.15 * E); rateMod *= (1 + 0.05 * E); }
+    if (fragment.isIncise) { pitchMod *= (1 - 0.10 * E); rateMod *= (1 + 0.10 * E); }
+    if (fragment.lastInParagraph) pitchMod *= (1 - 0.05 * E);
+    const jitter = 1 + (((Math.random() * 2) - 1) * 0.03 * E);
+    pitchMod *= jitter;
+    return {
+        pitch: clampTts((preset.pitch || 1) * pitchMod, 0, 2),
+        rate: clampTts((preset.rate || 0.95) * rateMod, 0.5, 2)
+    };
+}
+
+
+function getCatalanSpeechVoice() {
+    if (!reviewTtsSupported()) return null;
+    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+    return voices.find(v => /^ca([_-]|$)/i.test(v.lang || ''))
+        || voices.find(v => /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
+        || null;
+}
+
+function getSpeechVoiceByURI(voiceURI) {
+    if (!reviewTtsSupported() || !voiceURI) return null;
+    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
+    return voices.find(v => v.voiceURI === voiceURI) || null;
+}
+
+function readReviewTtsPresets() {
+    try {
+        const arr = JSON.parse(localStorage.getItem(REVIEW_TTS_PRESETS_KEY) || '[]');
+        return Array.isArray(arr) ? arr.filter(p => p && p.id && p.name) : [];
+    } catch (e) { return []; }
+}
+
+function writeReviewTtsPresets(presets) {
+    try { localStorage.setItem(REVIEW_TTS_PRESETS_KEY, JSON.stringify(presets || [])); } catch (e) {}
+}
+
+function allReviewTtsPresets() {
+    return [DEFAULT_REVIEW_TTS_PRESET].concat(readReviewTtsPresets());
+}
+
+function getReviewTtsMode() {
+    try { return localStorage.getItem(REVIEW_TTS_MODE_KEY) === 'random' ? 'random' : 'fixed'; }
+    catch (e) { return 'fixed'; }
+}
+
+function setReviewTtsMode(mode) {
+    try { localStorage.setItem(REVIEW_TTS_MODE_KEY, mode === 'random' ? 'random' : 'fixed'); } catch (e) {}
+}
+
+function getDefaultReviewTtsPresetId() {
+    try { return localStorage.getItem(REVIEW_TTS_DEFAULT_KEY) || DEFAULT_REVIEW_TTS_PRESET.id; }
+    catch (e) { return DEFAULT_REVIEW_TTS_PRESET.id; }
+}
+
+function setDefaultReviewTtsPresetId(id) {
+    try { localStorage.setItem(REVIEW_TTS_DEFAULT_KEY, id || DEFAULT_REVIEW_TTS_PRESET.id); } catch (e) {}
+}
+
+function getReviewTtsPresetById(id) {
+    return allReviewTtsPresets().find(p => p.id === id) || DEFAULT_REVIEW_TTS_PRESET;
+}
+
+function getEffectiveReviewTtsPreset() {
+    const userPresets = readReviewTtsPresets();
+    if (getReviewTtsMode() === 'random' && userPresets.length) {
+        return userPresets[Math.floor(Math.random() * userPresets.length)] || DEFAULT_REVIEW_TTS_PRESET;
+    }
+    return getReviewTtsPresetById(getDefaultReviewTtsPresetId());
+}
+
+function currentReviewTtsSettingsPreset() {
+    const id = ($('#tts-preset-select').val() || '').trim();
+    return {
+        id: id && id !== 'default' ? id : `tts_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        name: String($('#tts-preset-name').val() || '').trim() || 'Perfil de veu',
+        voiceURI: String($('#tts-voice-select').val() || ''),
+        pitch: Math.max(0.5, Math.min(2, (+$('#tts-pitch-range').val() || 100) / 100)),
+        rate: Math.max(0.5, Math.min(2, (+$('#tts-rate-range').val() || 95) / 100)),
+        expressivity: Math.max(0, Math.min(1, (+$('#tts-expressivity-range').val() || 0) / 100)),
+        cadence: Math.max(0, Math.min(1, (+$('#tts-cadence-range').val() || 0) / 100))
+    };
+}
+
+function applyReviewTtsPresetToSettings(preset) {
+    const p = preset || DEFAULT_REVIEW_TTS_PRESET;
+    $('#tts-preset-name').val(p.builtin ? '' : p.name);
+    $('#tts-voice-select').val(p.voiceURI || '');
+    $('#tts-pitch-range').val(Math.round((p.pitch || 1) * 100));
+    $('#tts-rate-range').val(Math.round((p.rate || 0.95) * 100));
+    $('#tts-expressivity-range').val(Math.round((p.expressivity ?? 0.5) * 100));
+    $('#tts-cadence-range').val(Math.round((p.cadence ?? 0.5) * 100));
+    $('#tts-pitch-value').text(`${Math.round((p.pitch || 1) * 100)}%`);
+    $('#tts-rate-value').text(`${Math.round((p.rate || 0.95) * 100)}%`);
+    $('#tts-expressivity-value').text(`${Math.round((p.expressivity ?? 0.5) * 100)}%`);
+    $('#tts-cadence-value').text(`${Math.round((p.cadence ?? 0.5) * 100)}%`);
+}
+
+function refreshReviewTtsSettingsUi() {
+    const presets = allReviewTtsPresets();
+    const selected = getDefaultReviewTtsPresetId();
+    const presetSelect = $('#tts-preset-select');
+    if (presetSelect.length) {
+        presetSelect.empty();
+        presets.forEach(p => presetSelect.append($('<option></option>').val(p.id).text(p.builtin ? `${p.name} (base)` : p.name)));
+        presetSelect.val(presets.some(p => p.id === selected) ? selected : DEFAULT_REVIEW_TTS_PRESET.id);
+    }
+    $('#tts-preset-mode').val(getReviewTtsMode());
+    const voiceSelect = $('#tts-voice-select');
+    if (voiceSelect.length) {
+        const current = voiceSelect.val() || '';
+        voiceSelect.empty().append($('<option></option>').val('').text('Automàtica en català'));
+        if (reviewTtsSupported()) {
+            (window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [])
+                .filter(v => /^ca([_-]|$)/i.test(v.lang || '') || /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
+                .forEach(v => voiceSelect.append($('<option></option>').val(v.voiceURI).text(v.name || 'Català')));
+        }
+        voiceSelect.val(current);
+    }
+    applyReviewTtsPresetToSettings(getReviewTtsPresetById(presetSelect.val() || selected));
+    updateReviewTtsButtons();
+}
+
+function saveCurrentReviewTtsPreset() {
+    const preset = currentReviewTtsSettingsPreset();
+    const presets = readReviewTtsPresets();
+    const idx = presets.findIndex(p => p.id === preset.id);
+    if (idx >= 0) presets[idx] = preset; else presets.push(preset);
+    writeReviewTtsPresets(presets);
+    setDefaultReviewTtsPresetId(preset.id);
+    refreshReviewTtsSettingsUi();
+    $('#tts-preset-select').val(preset.id);
+    applyReviewTtsPresetToSettings(preset);
+    showToast('Perfil de veu desat.', 'success');
+}
+
+function deleteCurrentReviewTtsPreset() {
+    const id = $('#tts-preset-select').val();
+    if (!id || id === DEFAULT_REVIEW_TTS_PRESET.id) { showToast('El perfil base no es pot eliminar.', 'warn'); return; }
+    const presets = readReviewTtsPresets().filter(p => p.id !== id);
+    writeReviewTtsPresets(presets);
+    if (getDefaultReviewTtsPresetId() === id) setDefaultReviewTtsPresetId(DEFAULT_REVIEW_TTS_PRESET.id);
+    refreshReviewTtsSettingsUi();
+    showToast('Perfil de veu eliminat.', 'success');
+}
+
+function previewCurrentReviewTtsPreset() {
+    const preset = currentReviewTtsSettingsPreset();
+    beginReviewTts('Aquesta és una prova de lectura en català del perfil de veu seleccionat.', 'settings', preset);
+}
+
+function setReviewTtsStatus(text) {
+    ['history-tts-status', 'coach-tts-status'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text || '';
+    });
+}
+
+function updateReviewTtsButtons() {
+    const supported = reviewTtsSupported();
+    const hasHistoryEntry = !!(historyReplay && historyReplay.entry);
+    const coachText = getCoachDiagnosisText();
+    const controls = [
+        { prefix: 'history-tts', hasText: hasHistoryEntry },
+        { prefix: 'coach-tts', hasText: !!coachText }
+    ];
+    controls.forEach(ctrl => {
+        const playBtn = $(`#${ctrl.prefix}-play`);
+        const pauseBtn = $(`#${ctrl.prefix}-pause`);
+        const stopBtn = $(`#${ctrl.prefix}-stop`);
+        if (!playBtn.length) return;
+        playBtn.prop('disabled', !supported || !ctrl.hasText);
+        pauseBtn.prop('disabled', !supported || !REVIEW_TTS_STATE.isSpeaking);
+        stopBtn.prop('disabled', !supported || (!REVIEW_TTS_STATE.isSpeaking && !REVIEW_TTS_STATE.isPaused));
+        const playLabel = REVIEW_TTS_STATE.isPaused ? 'Reprèn' : (REVIEW_TTS_STATE.isSpeaking ? 'Llegint…' : 'Escolta');
+        playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>${playLabel}`);
+    });
+    if (!supported) setReviewTtsStatus('Lectura local no disponible en aquest navegador.');
+    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint amb la veu local en català.');
+    else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
+    else {
+        const caVoice = getCatalanSpeechVoice();
+        setReviewTtsStatus(caVoice ? 'Veu local: català' : 'No he trobat cap veu en català; provaré amb la veu del dispositiu.');
+    }
+}
+
+function resetReviewTtsState(keepPaused = false) {
+    REVIEW_TTS_STATE.isSpeaking = false;
+    REVIEW_TTS_STATE.isPaused = keepPaused;
+    REVIEW_TTS_STATE.utterance = null;
+    if (!keepPaused) {
+        REVIEW_TTS_STATE.source = null;
+        REVIEW_TTS_STATE.activePreset = null;
+        REVIEW_TTS_STATE.chunks = [];
+        REVIEW_TTS_STATE.chunkIndex = 0;
+    }
+}
+
+function stopReviewTts() {
+    if (!reviewTtsSupported()) return;
+    REVIEW_TTS_STATE.stopRequested = true;
+    if (REVIEW_TTS_STATE.pauseTimer) { clearTimeout(REVIEW_TTS_STATE.pauseTimer); REVIEW_TTS_STATE.pauseTimer = null; }
+    try { window.speechSynthesis.cancel(); } catch (e) {}
+    resetReviewTtsState(false);
+    updateReviewTtsButtons();
+}
+
+function pauseReviewTts() {
+    if (!reviewTtsSupported()) return;
+    try {
+        if (REVIEW_TTS_STATE.pauseTimer) {
+            clearTimeout(REVIEW_TTS_STATE.pauseTimer);
+            REVIEW_TTS_STATE.pauseTimer = null;
+            REVIEW_TTS_STATE.isPaused = true;
+            REVIEW_TTS_STATE.isSpeaking = false;
+        } else if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
+            window.speechSynthesis.pause();
+            REVIEW_TTS_STATE.isPaused = true;
+            REVIEW_TTS_STATE.isSpeaking = false;
+        }
+    } catch (e) {}
+    updateReviewTtsButtons();
+}
+
+function speakReviewTtsChunk() {
+    if (!reviewTtsSupported()) return;
+    if (REVIEW_TTS_STATE.stopRequested) return;
+    const chunk = REVIEW_TTS_STATE.chunks[REVIEW_TTS_STATE.chunkIndex];
+    if (!chunk) { resetReviewTtsState(false); updateReviewTtsButtons(); return; }
+    const utterance = new SpeechSynthesisUtterance(chunk.text || String(chunk));
+    // Etiqueta genèrica: de cara a l'usuari és només «català», sense país.
+    utterance.lang = 'ca';
+    const preset = REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET;
+    const voice = getSpeechVoiceByURI(preset.voiceURI) || getCatalanSpeechVoice();
+    if (voice) utterance.voice = voice;
+    const prosody = ttsProsodyForFragment(chunk, preset);
+    utterance.rate = prosody.rate;
+    utterance.pitch = prosody.pitch;
+    utterance.onstart = () => {
+        REVIEW_TTS_STATE.isSpeaking = true;
+        REVIEW_TTS_STATE.isPaused = false;
+        updateReviewTtsButtons();
+    };
+    utterance.onend = () => {
+        if (REVIEW_TTS_STATE.stopRequested) return;
+        REVIEW_TTS_STATE.chunkIndex += 1;
+        if (REVIEW_TTS_STATE.chunkIndex < REVIEW_TTS_STATE.chunks.length) {
+            const cadence = clampTts((REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET).cadence ?? 0.5, 0, 1);
+            const delay = Math.round((chunk.pauseBase || 0) * cadence);
+            REVIEW_TTS_STATE.pauseTimer = setTimeout(speakReviewTtsChunk, delay);
+        } else {
+            resetReviewTtsState(false);
+            updateReviewTtsButtons();
+        }
+    };
+    utterance.onerror = () => {
+        resetReviewTtsState(false);
+        setReviewTtsStatus("No s\'ha pogut completar la lectura local.");
+        updateReviewTtsButtons();
+    };
+    REVIEW_TTS_STATE.utterance = utterance;
+    try { window.speechSynthesis.speak(utterance); } catch (e) { showToast("No s\'ha pogut iniciar la lectura local.", 'warn'); }
+    updateReviewTtsButtons();
+}
+
+function resumeReviewTtsIfPaused() {
+    if (!REVIEW_TTS_STATE.isPaused) return false;
+    try {
+        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
+        else speakReviewTtsChunk();
+    } catch (e) { speakReviewTtsChunk(); }
+    REVIEW_TTS_STATE.isPaused = false;
+    REVIEW_TTS_STATE.isSpeaking = true;
+    updateReviewTtsButtons();
+    return true;
+}
+
+function beginReviewTts(rawText, source, presetOverride = null) {
+    const text = normalizeTextForCatalanTTS(rawText);
+    if (!text) { showToast('No hi ha text per llegir.', 'warn'); return; }
+    stopReviewTts();
+    REVIEW_TTS_STATE.stopRequested = false;
+    REVIEW_TTS_STATE.lastText = text;
+    REVIEW_TTS_STATE.source = source || null;
+    REVIEW_TTS_STATE.activePreset = presetOverride || getEffectiveReviewTtsPreset();
+    REVIEW_TTS_STATE.chunks = splitReviewTtsText(text);
+    REVIEW_TTS_STATE.chunkIndex = 0;
+    speakReviewTtsChunk();
+}
+
+function getCoachDiagnosisText() {
+    const el = document.getElementById('coach-diagnosis');
+    if (!el) return '';
+    const txt = reviewHtmlElementToText(el);
+    if (!txt || txt === '—') return '';
+    if (/Juga unes quantes partides més/i.test(txt)) return '';
+    if (/entrenador està repassant/i.test(txt)) return '';
+    return txt;
+}
+
+function speakCoachDiagnosis() {
+    if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
+    if (resumeReviewTtsIfPaused()) return;
+    const text = getCoachDiagnosisText();
+    if (!text) { showToast('Encara no hi ha diagnòstic per llegir.', 'warn'); updateReviewTtsButtons(); return; }
+    beginReviewTts(text, 'coach');
+}
+
+function speakCurrentReview() {
+    if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
+    if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer.', 'warn'); updateReviewTtsButtons(); return; }
+    if (resumeReviewTtsIfPaused()) return;
+    beginReviewTts(buildHistoryReviewText(historyReplay.entry), 'history');
+}
+
+function initReviewTts() {
+    if (!reviewTtsSupported()) { updateReviewTtsButtons(); return; }
+    try {
+        const prev = window.speechSynthesis.onvoiceschanged;
+        window.speechSynthesis.onvoiceschanged = event => {
+            REVIEW_TTS_STATE.voicesReady = true;
+            if (typeof prev === 'function') { try { prev.call(window.speechSynthesis, event); } catch (e) {} }
+            updateReviewTtsButtons();
+            refreshReviewTtsSettingsUi();
+        };
+        window.speechSynthesis.getVoices();
+    } catch (e) {}
+    updateReviewTtsButtons();
 }
 
 // Exporta el text generat de la ressenya. La baixada clàssica via <a download>
@@ -9196,6 +9633,8 @@ function updateHistoryDetails(entry) {
         $('#history-moves').hide().empty();
         updateHistoryProgress();
         updateHistoryControls();
+        stopReviewTts();
+        updateReviewTtsButtons();
         return;
     }
 
@@ -9235,6 +9674,7 @@ function updateHistoryDetails(entry) {
     updateHistoryProgress();
     updateHistoryControls();
     updateHistoryDeepenButton(entry);
+    updateReviewTtsButtons();
 }
 
 // El botó del motor de l'historial té dues cares: per a una partida SENSE
@@ -9272,7 +9712,8 @@ async function runHistoryEntryAnalysisWithUi(entry) {
             updateHistoryDetails(entry);
         }
         renderGameHistory();
-        showToast(`Partida analitzada (${analyzed} jugades teves) ✓`, 'success');
+        const analyzedLabel = historyEntryIsImported(entry) ? 'jugades del color analitzat' : 'jugades teves';
+        showToast(`Partida analitzada (${analyzed} ${analyzedLabel}) ✓`, 'success');
     } else {
         updateHistoryDeepenButton(historyReplay && historyReplay.entry);
         showToast('No s\'ha pogut analitzar (motor ocupat o sense resposta). Torna-ho a provar d\'aquí a un moment.', 'warn');
@@ -9348,9 +9789,9 @@ function renderPgnImportGames(games) {
                 ${extra ? `<div class="pgn-import-game-meta">${escapeHtml(extra)}</div>` : ''}
                 ${warn}
                 <div class="pgn-import-game-row">
-                    <select class="select-control pgn-import-color" data-idx="${idx}" aria-label="Amb quin color jugaves">
-                        <option value="w"${guess !== 'b' ? ' selected' : ''}>Jo jugava amb blanques</option>
-                        <option value="b"${guess === 'b' ? ' selected' : ''}>Jo jugava amb negres</option>
+                    <select class="select-control pgn-import-color" data-idx="${idx}" aria-label="Color que vols analitzar">
+                        <option value="w"${guess !== 'b' ? ' selected' : ''}>Analitza les blanques</option>
+                        <option value="b"${guess === 'b' ? ' selected' : ''}>Analitza les negres</option>
                     </select>
                     <button type="button" class="btn btn-primary pgn-import-btn" data-idx="${idx}">Importa</button>
                 </div>
@@ -9358,8 +9799,8 @@ function renderPgnImportGames(games) {
     }).join('');
     container.html(rows);
     pgnImportSetStatus(games.length === 1
-        ? 'He llegit 1 partida. Tria el teu color i importa-la.'
-        : `He llegit ${games.length} partides. Tria el color de cadascuna i importa les que vulguis.`, false);
+        ? 'He llegit 1 partida. Tria quin color vols analitzar i importa-la.'
+        : `He llegit ${games.length} partides. Tria quin color vols analitzar a cadascuna i importa les que vulguis.`, false);
     container.find('.pgn-import-btn').off('click').on('click', function () {
         importPgnGameAt(parseInt($(this).attr('data-idx'), 10));
     });
@@ -9680,10 +10121,15 @@ function showReviewBoardLegend(show, opts = {}) {
     el.toggle(!!show);
     if (!show) return;
     const playedShown = opts.playedShown !== false;
+    const imported = !!(historyReplay && historyReplay.entry && historyEntryIsImported(historyReplay.entry));
     const playedEl = $('#review-legend-played');
-    if (playedEl.length) playedEl.toggle(playedShown);
+    if (playedEl.length) {
+        const sw = '<span class="sw" style="background:#6e0f0f; box-shadow: inset 0 0 0 2px #ff1744;"></span>';
+        playedEl.html(sw + (imported ? 'jugada analitzada' : 'la teva jugada'));
+        playedEl.toggle(playedShown);
+    }
     const bestText = $('#review-legend-best-text');
-    if (bestText.length) bestText.text(playedShown ? 'la millor jugada' : 'moviment excepcional (vas jugar la millor)');
+    if (bestText.length) bestText.text(playedShown ? 'la millor jugada' : (imported ? 'moviment excepcional (era la millor)' : 'moviment excepcional (vas jugar la millor)'));
 }
 
 // Ressalta origen i destí d'un moviment sobre beforeFen amb la classe donada.
@@ -10366,7 +10812,9 @@ function selectBrilliantReviews(entry, maxCount = 2) {
 
 // Ítems de "Moments clau" per als moviments excepcionals: frase verificada per
 // veu, insígnia verda i enllaç que marca NOMÉS la jugada feta (en verd) al tauler.
-function buildBrilliantMomentItems(entry, voiceStyle) {
+function buildBrilliantMomentItems(entry, voiceStyle, opts = {}) {
+    const imported = !!opts.imported;
+    const actor = opts.actor || 'el jugador analitzat';
     return selectBrilliantReviews(entry).map(r => {
         const phrase = r.fen ? bestPhraseByVoice(r.fen, r.playerMove || r.playerMoveSan, voiceStyle) : null;
         if (!phrase) return null;
@@ -10377,7 +10825,9 @@ function buildBrilliantMomentItems(entry, voiceStyle) {
         const why = gap >= 800
             ? 'Era pràcticament l\'única jugada bona en aquella posició.'
             : `La segona millor opció del motor quedava clarament per sota (uns ${(gap / 100).toFixed(1)} peons de diferència).`;
-        let sentence = `vas trobar la millor jugada: ${link}.`;
+        let sentence = imported
+            ? `${escapeHtml(actor)} va trobar la millor jugada: ${link}.`
+            : `vas trobar la millor jugada: ${link}.`;
         const audit = ElTaulerCore.auditReviewVoiceText(String(sentence + ' ' + why).replace(/<[^>]*>/g, ' '), voiceStyle);
         const tail = audit.ok ? `${sentence} ${escapeHtml(why)}` : sentence;
         return {
@@ -10869,6 +11319,42 @@ function dominantLessonTheme(entry) {
     return 'general';
 }
 
+
+function historyEntryReviewedSideLabel(entry, opts = {}) {
+    const color = entry && entry.playerColor === 'b' ? 'b' : 'w';
+    const headers = (entry && entry.importHeaders) || {};
+    const name = color === 'b' ? headers.Black : headers.White;
+    const fallback = color === 'b' ? 'les negres' : 'les blanques';
+    if (name && name !== '?') return opts.withColor ? `${name} (${fallback})` : name;
+    return fallback;
+}
+
+function historyEntryReviewedSideIntro(entry, voiceStyle) {
+    const color = entry && entry.playerColor === 'b' ? 'negres' : 'blanques';
+    const who = historyEntryReviewedSideLabel(entry, { withColor: false });
+    const rhythm = historyTimeControlLabel(entry);
+    const rhythmText = rhythm ? ` de ${rhythm}` : '';
+    if (voiceStyle === 'technical') {
+        return `Partida${rhythmText}: s'avaluen les decisions de ${who}, que jugava amb ${color}.`;
+    }
+    return `En aquesta partida${rhythmText}, la revisió se centra en ${who}, que jugava amb ${color}.`;
+}
+
+function composeImportedDebriefText(entry, facts, voiceStyle) {
+    const who = historyEntryReviewedSideLabel(entry);
+    const prec = facts && facts.precision !== null ? `${facts.precision}%` : '—';
+    const errors = facts ? ((facts.blunders || 0) + (facts.mistakes || 0)) : 0;
+    const tema = facts && facts.topErrorTheme
+        ? humanizeDominantTheme(facts.topErrorTheme, { outcome: facts.dominantOutcome, seed: entry && entry.id }, { voiceStyle })
+        : null;
+    let text = `Anàlisi de ${who}: precisió ${prec}.`;
+    if (errors > 0 && tema) text += ` Els moments més delicats giren sobretot al voltant de ${tema}.`;
+    else if (errors > 0) text += ` Hi ha ${errors === 1 ? 'un moment crític' : `${errors} moments crítics`} per revisar amb calma.`;
+    else text += ` No hi ha errades greus destacades en el color analitzat.`;
+    text += ` La ressenya parla dels protagonistes de la partida, no del compte que l'ha importada.`;
+    return text;
+}
+
 // =================== RESSENYA LOCAL EN HTML (sense OpenAI) ===================
 // Construeix la ressenya rica de l'historial: debrief, color del jugador, lliçó
 // del dia, obertura amb enllaç a la pràctica i correcció per fases (amb nombre
@@ -10881,6 +11367,8 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // Veu de la ressenya: la demanada explícitament (desplegable de la
         // ressenya) o la preferència de l'usuari. Només canvia la redacció.
         const voiceStyle = getReviewVoiceStyle(opts.voiceStyle);
+        const importedReview = historyEntryIsImported(entry);
+        const reviewedActor = importedReview ? historyEntryReviewedSideLabel(entry) : 'tu';
         const facts = buildDebriefFacts(entry);
         // Llavor de ressenya: permet regenerar una redacció local DIFERENT (veu i
         // màxima noves) cada cop que es prem «Regenerar la ressenya», sense dependre
@@ -10895,13 +11383,18 @@ function renderLocalReviewHtml(entry, opts = {}) {
         }
 
         if (facts) {
-            const debrief = composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey), voiceStyle);
+            const debrief = importedReview
+                ? composeImportedDebriefText(entry, facts, voiceStyle)
+                : composeDebriefText(facts, seedKey, pickCoachVoiceForKey(seedKey), voiceStyle);
             if (debrief) blocks.push(`<p>${escapeHtml(debrief)}</p>`);
         }
 
         // --- Color del jugador (i ritme, si era una partida amb rellotge): una
-        // sola frase natural que situa quines decisions es comenten ---
-        blocks.push(`<p>${escapeHtml(ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle, historyTimeControlLabel(entry)))}</p>`);
+        // sola frase natural que situa quines decisions es comenten. A les PGN
+        // importades es parla del protagonista analitzat, no de l'usuari. ---
+        blocks.push(`<p>${escapeHtml(importedReview
+            ? historyEntryReviewedSideIntro(entry, voiceStyle)
+            : ElTaulerCore.playerColorIntro(entry.playerColor, voiceStyle, historyTimeControlLabel(entry)))}</p>`);
 
         // --- La lliçó d'avui: una consigna curta segons el patró dominant,
         // derivada de dades locals (mai d'IA lliure) ---
@@ -10945,7 +11438,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // QUINA obertura del repertori estaves jugant TU (per les teves jugades),
         // i si el rival et va forçar a canviar.
         let userOp = null;
-        try { userOp = identifyUserOpening(entry); } catch (e) { userOp = null; }
+        try { userOp = importedReview ? null : identifyUserOpening(entry); } catch (e) { userOp = null; }
 
         const realizedName = curated ? curated.name : (oa ? oa.name : null);
         const realizedEco = curated ? curated.eco : (oa ? oa.eco : null);
@@ -10983,10 +11476,12 @@ function renderLocalReviewHtml(entry, opts = {}) {
         } else if (realizedName) {
             // No hem pogut identificar cap obertura teva del repertori: mostrem
             // l'obertura realitzada (per posició/ECO) amb la desviació de la teoria.
-            let openingTxt = openingHead('<strong>Obertura:</strong>', realizedName, realizedEco, phases.opening);
+            let openingTxt = openingHead(importedReview ? '<strong>Obertura de la partida:</strong>' : '<strong>Obertura:</strong>', realizedName, realizedEco, phases.opening);
             if (!curated && oa && oa.deviationMove && oa.deviationBy && entry.playerColor && oa.deviationBy === entry.playerColor) {
                 const moveNum = Math.floor((oa.deviationPly || 0) / 2) + 1;
-                openingTxt += ` Vas sortir de la teoria a la jugada ${moveNum}`;
+                openingTxt += importedReview
+                    ? ` ${escapeHtml(reviewedActor)} va sortir de la teoria a la jugada ${moveNum}`
+                    : ` Vas sortir de la teoria a la jugada ${moveNum}`;
                 if (Array.isArray(oa.theoryMoves) && oa.theoryMoves.length) {
                     let devFen = null;
                     try {
@@ -11017,14 +11512,18 @@ function renderLocalReviewHtml(entry, opts = {}) {
             let practiceHtml;
             if (voiceStyle === 'casual') {
                 // Sense ECO al cos; enllaços integrats amb minúscula dins la frase.
-                const lead = (userOp || curated)
-                    ? `reforça la teva ${nameHtml} del repertori`
-                    : `l'obertura del repertori més semblant és ${nameHtml}`;
+                const lead = importedReview
+                    ? `l'obertura del repertori més semblant per estudiar és ${nameHtml}`
+                    : ((userOp || curated)
+                        ? `reforça la teva ${nameHtml} del repertori`
+                        : `l'obertura del repertori més semblant és ${nameHtml}`);
                 practiceHtml = `<strong>Per practicar:</strong> ${lead}. Pots practicar-la ${mkLink('w', 'amb blanques')} o ${mkLink('b', 'amb negres')}.`;
             } else {
-                const lead = (userOp || curated)
-                    ? `reforça la teva ${nameHtml}${ecoHtml} del repertori`
-                    : `${voiceStyle === 'technical' ? 'la línia de repertori més propera' : 'l\'obertura del repertori més semblant a la que vas jugar'} és ${nameHtml}${ecoHtml}`;
+                const lead = importedReview
+                    ? `${voiceStyle === 'technical' ? 'la línia de repertori més propera' : 'l\'obertura del repertori més semblant a la partida'} és ${nameHtml}${ecoHtml}`
+                    : ((userOp || curated)
+                        ? `reforça la teva ${nameHtml}${ecoHtml} del repertori`
+                        : `${voiceStyle === 'technical' ? 'la línia de repertori més propera' : 'l\'obertura del repertori més semblant a la que vas jugar'} és ${nameHtml}${ecoHtml}`);
                 practiceHtml = `<strong>Per practicar:</strong> ${lead}. ${mkLink('w', 'Practicar amb blanques')} · ${mkLink('b', 'Practicar amb negres')}.`;
             }
             blocks.push(`<p>${practiceHtml}</p>`);
@@ -11055,7 +11554,7 @@ function renderLocalReviewHtml(entry, opts = {}) {
         // la teva jugada, verd la millor) I els moviments excepcionals (només
         // verd la jugada feta), tot ordenat per número de jugada. ---
         const moments = buildHumanPlanMoments(entry, null, { ...opts, voiceStyle });
-        const brilliantMoments = buildBrilliantMomentItems(entry, voiceStyle);
+        const brilliantMoments = buildBrilliantMomentItems(entry, voiceStyle, { imported: importedReview, actor: reviewedActor });
         // FENs d'aquesta partida que poden generar un jeroglífic (per marcar-los).
         const heiroSeeds = entryHieroglyphicSeedFenKeys(entry);
         const heiroKeyOf = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
@@ -11085,9 +11584,14 @@ function renderLocalReviewHtml(entry, opts = {}) {
                 const playedSan = String(m.played || '').trim();
                 const bestSan = String(m.best || '').trim();
                 const samePlayedBest = playedSan && bestSan && playedSan === bestSan;
-                const playedPhrase = (!samePlayedBest && m.fen)
+                let playedPhrase = (!samePlayedBest && m.fen)
                     ? playedPhraseByVoice(m.fen, m.playedUci || m.played, voiceStyle)
                     : '';
+                if (importedReview && playedPhrase) {
+                    playedPhrase = playedPhrase
+                        .replace(/^vas jugar /i, `${reviewedActor} va jugar `)
+                        .replace(/^vas /i, `${reviewedActor} va `);
+                }
                 let tail = playedPhrase
                     ? `${escapeHtml(playedPhrase)}. ${escapeHtml(best.prefix.charAt(0).toUpperCase() + best.prefix.slice(1))}${link}.`
                     : `la millor jugada era ${link}.`;
@@ -11140,7 +11644,10 @@ function renderLocalReviewHtml(entry, opts = {}) {
 
         // --- Pla de 10 minuts: les 2-3 jugades més importants per repassar ---
         const planText = ElTaulerCore.buildTenMinutePlan(moments.map(m => Number(m.moveNumber)), voiceStyle);
-        blocks.push(`<p><strong>Pla de 10 minuts:</strong> ${escapeHtml(planText.replace(/^Pla de 10 minuts:\s*/, ''))}</p>`);
+        const cleanPlan = planText.replace(/^Pla de 10 minuts:\s*/, '');
+        blocks.push(`<p><strong>Pla de 10 minuts:</strong> ${escapeHtml(importedReview
+            ? cleanPlan.replace(/\bteves\b/g, 'del protagonista').replace(/\bteva\b/g, 'del protagonista').replace(/\bpròxima partida\b/g, 'propera partida del color analitzat')
+            : cleanPlan)}</p>`);
 
         // --- Tancament motivador (segons la veu; estable per llavor de ressenya).
         // No repeteix una frase que ja hagi sortit al resum inicial: si coincideix,
@@ -18030,8 +18537,11 @@ function setupEvents() {
     $('#coach-style-select').off('change').on('change', function () { onCoachStyleChange(this.value); });
     $('#btn-home-coach-refresh').off('click').on('click', (e) => { e.stopPropagation(); regenerateCoachDiagnosisNow(); });
     $('#btn-coach-refresh').off('click').on('click', () => regenerateCoachDiagnosisNow());
+    $('#coach-tts-play').off('click').on('click', () => { speakCoachDiagnosis(); });
+    $('#coach-tts-pause').off('click').on('click', () => { pauseReviewTts(); });
+    $('#coach-tts-stop').off('click').on('click', () => { stopReviewTts(); });
     syncCoachStyleSelects();
-    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
+    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); refreshReviewTtsSettingsUi(); });
     $('#btn-ranking').click(() => openRankingScreen());
     $('#btn-ranking-back').click(() => { $('#ranking-screen').hide(); $('#start-screen').show(); });
     $('#btn-ranking-refresh').click(() => loadRanking(true));
@@ -18044,6 +18554,24 @@ function setupEvents() {
     $('#username-modal-skip').click(() => closeUsernameModal());
     $('#username-modal-input').on('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); saveUsernameFromModal(); } });
     $('#username-modal').on('click', function (e) { if (e.target === this) closeUsernameModal(); });
+
+    $('#tts-preset-mode').off('change').on('change', function () { setReviewTtsMode(this.value); refreshReviewTtsSettingsUi(); });
+    $('#tts-preset-select').off('change').on('change', function () { applyReviewTtsPresetToSettings(getReviewTtsPresetById(this.value)); });
+    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-expressivity-range, #tts-cadence-range, #tts-preset-name').off('input change').on('input change', function () {
+        $('#tts-pitch-value').text(`${$('#tts-pitch-range').val()}%`);
+        $('#tts-rate-value').text(`${$('#tts-rate-range').val()}%`);
+        $('#tts-expressivity-value').text(`${$('#tts-expressivity-range').val()}%`);
+        $('#tts-cadence-value').text(`${$('#tts-cadence-range').val()}%`);
+        if (REVIEW_TTS_STATE.source === 'settings') REVIEW_TTS_STATE.activePreset = currentReviewTtsSettingsPreset();
+    });
+    $('#tts-preset-news').off('click').on('click', () => { $('#tts-rate-range').val(120); $('#tts-cadence-range').val(25); $('#tts-expressivity-range').val(30).trigger('input'); });
+    $('#tts-preset-story').off('click').on('click', () => { $('#tts-rate-range').val(88); $('#tts-cadence-range').val(70); $('#tts-expressivity-range').val(85).trigger('input'); });
+    $('#tts-preset-dictation').off('click').on('click', () => { $('#tts-rate-range').val(72); $('#tts-cadence-range').val(100); $('#tts-expressivity-range').val(0).trigger('input'); });
+    $('#tts-preview').off('click').on('click', () => previewCurrentReviewTtsPreset());
+    $('#tts-stop-preview').off('click').on('click', () => stopReviewTts());
+    $('#tts-save').off('click').on('click', () => saveCurrentReviewTtsPreset());
+    $('#tts-delete').off('click').on('click', () => deleteCurrentReviewTtsPreset());
+    $('#tts-default').off('click').on('click', () => { setDefaultReviewTtsPresetId($('#tts-preset-select').val() || DEFAULT_REVIEW_TTS_PRESET.id); setReviewTtsMode('fixed'); refreshReviewTtsSettingsUi(); showToast('Perfil de veu per defecte actualitzat.', 'success'); });
     $('#btn-history').click(() => {
         $('#start-screen').hide();
         $('#history-screen').show();
@@ -18388,6 +18916,10 @@ function setupEvents() {
         historyReviewVoiceOverride = null;
         showToast('Veu per defecte actualitzada.', 'success');
     });
+    $('#history-tts-play').off('click').on('click', () => { speakCurrentReview(); });
+    $('#history-tts-pause').off('click').on('click', () => { pauseReviewTts(); });
+    $('#history-tts-stop').off('click').on('click', () => { stopReviewTts(); });
+    initReviewTts();
 
     $('#history-generate-review').off('click').on('click', () => {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
@@ -20097,6 +20629,7 @@ function paintCoachDiagnosis(text, opts = {}) {
     }
     const homeBanner = document.getElementById('home-coach-banner');
     if (homeBanner) homeBanner.style.display = '';
+    updateReviewTtsButtons();
 }
 
 function renderCoachDiagnosis() {
