@@ -225,6 +225,7 @@ const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
+const ANALYSIS_BOARD_INITIAL_FEN = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4';
 // El calibratge obligatori és UNA SOLA partida: el rival comença suau (ROC 300)
 // i s'ADAPTA DINS DE LA PARTIDA a la qualitat de joc demostrada (proporció de
 // jugades bones, amb tot el rang ROC disponible), de manera que un principiant i
@@ -2147,6 +2148,7 @@ function applyControlMode(mode, opts) {
     if (o.rebuild) rebuildBoardForControlMode();
     updateTvBoardInteractivity();
     updateOpeningBoardInteractivity();
+    updateExplorerBoardInteractivity();
 }
 
 // Resize del tauler perquè ocupi el màxim possible
@@ -4634,6 +4636,7 @@ function getAdaptiveNormalized() {
 
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
 function getActiveStrengthElo() {
+    if (currentGameMode === 'fen_max') return ELO_MAX;
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
     if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
     // Repte «Rejugar +5%»: el rival juga a la força de la partida original,
@@ -9101,14 +9104,16 @@ let explorerAnalysisTimer = null;  // petit debounce entre jugada i anàlisi
 let explorerLastBest = null;       // { fen, uci } de la millor jugada analitzada
 let explorerTapSquare = null;      // casella seleccionada en mode «tocar»
 let explorerAnalysisRetries = 0;   // reintents si el motor no respon (contenció)
+let explorerBoardControlMode = null; // mode de control aplicat al tauler d'anàlisi
 
 function createExplorerBoard(editMode) {
     if (explorerBoard && typeof explorerBoard.destroy === 'function') {
         try { explorerBoard.destroy(); } catch (e) {}
     }
     const placement = explorerGame ? explorerGame.fen().split(' ')[0] : 'start';
+    const desiredControlMode = editMode ? 'drag' : (controlMode === 'tap' ? 'tap' : 'drag');
     const config = {
-        draggable: true,
+        draggable: desiredControlMode === 'drag',
         position: placement,
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     };
@@ -9131,6 +9136,7 @@ function createExplorerBoard(editMode) {
         };
     }
     explorerBoard = Chessboard('explorer-board', config);
+    explorerBoardControlMode = desiredControlMode;
     updateExplorerBoardInteractivity();
 }
 
@@ -9174,7 +9180,12 @@ function disableExplorerTapToMove() {
 
 function updateExplorerBoardInteractivity() {
     if (!explorerBoard) return;
-    const useTap = !explorerEditMode && controlMode === 'tap';
+    const desiredControlMode = explorerEditMode ? 'drag' : (controlMode === 'tap' ? 'tap' : 'drag');
+    if (explorerBoardControlMode !== desiredControlMode) {
+        createExplorerBoard(explorerEditMode);
+        return;
+    }
+    const useTap = desiredControlMode === 'tap';
     explorerBoard.draggable = !useTap;
     if (useTap) enableExplorerTapToMove(); else disableExplorerTapToMove();
 }
@@ -9499,7 +9510,8 @@ function openExplorer(fen, opts = {}) {
     $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-tools, #explorer-status').show();
     if (opts.pushHistory !== false) navPush('explorer-screen');
     try { requestBackgroundPrepAbort(); } catch (e) {}
-    if (!setupExplorerPosition(fen || 'start', opts)) setupExplorerPosition('start', opts);
+    const initialFen = fen || ANALYSIS_BOARD_INITIAL_FEN;
+    if (!setupExplorerPosition(initialFen, opts)) setupExplorerPosition('start', opts);
 }
 
 function closeExplorerScreen() {
@@ -14161,6 +14173,73 @@ function requestOpeningErrorBestMoveForUser() {
     } catch (e) {}
 }
 
+
+function canContinueOpeningErrorFenGame() {
+    return !!(openingPracticeGame && !openingPracticeGame.game_over());
+}
+
+function continueOpeningErrorFenGame() {
+    if (!openingPracticeGame || openingPracticeGame.game_over()) return false;
+    const fen = openingPracticeGame.fen();
+    const orientation = openingBundleBoard && typeof openingBundleBoard.orientation === 'function'
+        ? openingBundleBoard.orientation()
+        : (openingPracticeGame.turn() === 'w' ? 'white' : 'black');
+    exitOpeningErrorPractice();
+    $('#opening-error-success-overlay').hide();
+    $('#start-screen, #opening-screen').hide();
+    $('#game-screen').addClass('active').show();
+    navPush('game-screen');
+    game = new Chess(fen);
+    playerColor = openingPracticeUserColor === 'b' ? 'b' : 'w';
+    blunderMode = false;
+    currentGameMode = 'fen_max';
+    currentOpponent = { id: 'fen-max', name: 'ELO màxim', elo: ELO_MAX };
+    currentGameActiveStrengthElo = ELO_MAX;
+    currentGameEngineDepth = eloToSearchDepth(ELO_MAX);
+    isEngineThinking = false;
+    engineMoveApplyPending = false;
+    pendingMoveEvaluation = false;
+    totalPlayerMoves = 0;
+    totalEngineMoves = 0;
+    goodMoves = 0;
+    goodEngineMoves = 0;
+    if (board) board.destroy();
+    board = Chessboard('myBoard', {
+        orientation: orientation === 'black' ? 'black' : 'white',
+        draggable: (controlMode === 'drag'),
+        position: game.fen(),
+        onDragStart: onDragStart,
+        onDrop: onDrop,
+        onSnapEnd: onSnapEnd,
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+    if (controlMode === 'tap') { detachDragGuards(); disableTapToMove(); enableTapToMove(); }
+    else { disableTapToMove(); attachDragGuards(); clearTapSelection(); }
+    ensureStockfish();
+    if (stockfish) applyEngineEloStrength(ELO_MAX);
+    $('#engine-elo').text(`ELO ${ELO_MAX}`);
+    $('#game-mode-title').text('♟ Continua contra ELO màxim');
+    $('#btn-resign').show().prop('disabled', false);
+    $('#btn-analyze').toggle(false);
+    clearEngineMoveHighlights();
+    resetGameMoveNav();
+    updatePrecisionDisplay();
+    updateAIPrecisionDisplay();
+    updateStatus();
+    setTimeout(() => { resizeBoardToViewport(); }, 0);
+    if (game.turn() !== playerColor) {
+        setTimeout(makeEngineMove, 300);
+    }
+    return true;
+}
+
+function wireContinueOpeningErrorFenButton(overlay) {
+    const btn = overlay.find('.btn-continue-fen-game');
+    const show = canContinueOpeningErrorFenGame();
+    btn.toggle(show).prop('disabled', !show).text(`♟ Continua contra ELO màxim`);
+    btn.off('click').on('click', () => { continueOpeningErrorFenGame(); });
+}
+
 function showOpeningErrorSuccessOverlay(noMore) {
     const overlay = $('#opening-error-success-overlay');
     if (!overlay.length) {
@@ -14194,6 +14273,7 @@ function showOpeningErrorSuccessOverlay(noMore) {
         console.log('[Overlay] btnAgain.style.display:', btnAgain.style.display);
     }
 
+    wireContinueOpeningErrorFenButton(overlay);
     overlay.css('display', 'flex');
 
     // Event handlers
@@ -17868,6 +17948,7 @@ function showHieroglyphicSuccessOverlay() {
     overlay.find('.bundle-success-remaining').text('').hide();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         sectionLabel: `${HG_ICON_SVG} Jeroglífics`,
@@ -19383,6 +19464,11 @@ function setupEvents() {
     });
 
     // Fletxes de navegació de jugades (sota el tauler, al costat del nom del color)
+    $('#btn-move-start').click(() => {
+        if (!board || !game) return;
+        if (game.history().length <= 0) return;
+        stepGameMoveNav(-game.history().length);
+    });
     $('#btn-move-back').click(() => stepGameMoveNav(-1));
     $('#btn-move-fwd').click(() => stepGameMoveNav(1));
 
@@ -20059,6 +20145,7 @@ function showSrsSuccessOverlay() {
     overlay.find('.bundle-success-title').text('Repàs fet ✅');
     overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara').show();
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isSrsReviewSession = false; goToHomeScreen(); },
@@ -20156,6 +20243,7 @@ function showDailyPuzzleOverlay() {
     overlay.find('.bundle-success-remaining').text(`Ratxa diària: ${dailyPuzzle.streak} · Rècord: ${dailyPuzzle.best}`).show();
     const hasMoreProblems = Array.isArray(TACTICS_BANK) && TACTICS_BANK.length > 0;
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isDailyPuzzleSession = false; goToHomeScreen(); },
@@ -20244,6 +20332,7 @@ function showTacticsOverlay() {
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`).show();
     // El botó de secció (⚡ Tàctiques) ja llança la següent tàctica.
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         onHome: () => { isTacticsSession = false; goToHomeScreen(); },
@@ -20260,6 +20349,7 @@ function showHieroglyphicBundleOverlay() {
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${hieroglyphicStats.solved || 0} · Ratxa: ${hieroglyphicStats.currentStreak || 0} · Rècord: ${hieroglyphicStats.bestStreak || 0}`).show();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
     overlay.find('#btn-bundle-random-again').hide();
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
         sectionLabel: `${HG_ICON_SVG} Jeroglífics`,
@@ -21568,6 +21658,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
         }
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     $('#bundle-success-overlay').hide();
+    $('.btn-continue-fen-game').hide();
     $('#bundle-category-success-overlay').hide(); 
     $('#match-error-success-overlay').hide();
     if (!isBundle) isRandomBundleSession = false;
@@ -21978,7 +22069,7 @@ function resetGameMoveNav() {
 function updateGameMoveNavButtons() {
     const total = (game && game.history) ? game.history().length : 0;
     const current = (gameViewPly === null) ? total : gameViewPly;
-    $('#btn-move-back').prop('disabled', current <= 0);
+    $('#btn-move-start, #btn-move-back').prop('disabled', current <= 0);
     $('#btn-move-fwd').prop('disabled', gameViewPly === null);
 }
 
@@ -23334,6 +23425,54 @@ function wireNavTrio(overlay, opts = {}) {
     }
 }
 
+
+function canContinueSolvedFenGame() {
+    return !!(game && !game.game_over() && blunderMode);
+}
+
+function continueSolvedFenGame() {
+    if (!game || game.game_over()) return false;
+    $('#bundle-success-overlay, #bundle-category-success-overlay, #match-error-success-overlay, #opening-error-success-overlay').hide();
+    blunderMode = false;
+    bundleFixedSequence = null;
+    bundleSequenceStep = 1;
+    bundleStepStartFen = null;
+    bundleAutoReplyPending = false;
+    isBundleStrictAnalysis = false;
+    pendingMoveEvaluation = false;
+    currentBundleFen = null;
+    currentBundleSource = null;
+    currentBundleSeverity = null;
+    currentGameMode = 'fen_max';
+    currentOpponent = { id: 'fen-max', name: 'ELO màxim', elo: ELO_MAX };
+    currentGameActiveStrengthElo = ELO_MAX;
+    currentGameEngineDepth = eloToSearchDepth(ELO_MAX);
+    if (stockfish) applyEngineEloStrength(ELO_MAX);
+    if (board) board.draggable = (controlMode === 'drag');
+    $('#engine-elo').text(`ELO ${ELO_MAX}`);
+    $('#game-mode-title').text('♟ Continua contra ELO màxim');
+    $('#btn-resign').show().prop('disabled', false);
+    $('#btn-analyze').toggle(false);
+    updateStatus();
+    updateBundleHintButtons();
+    resetGameMoveNav();
+    if (board) board.position(game.fen(), false);
+    if (game.turn() !== playerColor) {
+        setTimeout(makeEngineMove, 300);
+    }
+    return true;
+}
+
+function wireContinueSolvedFenButton(overlay) {
+    const btn = overlay.find('.btn-continue-fen-game');
+    const show = canContinueSolvedFenGame();
+    $('.btn-continue-fen-game').hide().prop('disabled', true).off('click');
+    if (!btn.length) return;
+    btn.text(`♟ Continua contra ELO màxim`);
+    btn.toggle(show).prop('disabled', !show);
+    btn.off('click').on('click', () => { continueSolvedFenGame(); });
+}
+
 function handleBundleSuccess() {
     bundleSequenceStep = 1;
     bundleStepStartFen = null;
@@ -23440,6 +23579,7 @@ function showRandomBundleSuccessOverlay() {
         remaining > 0 ? `${remaining} Blunders pendents` : 'No queda cap Blunder pendent'
     ).show();
     overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
 
     $('#btn-bundle-random-again').off('click').on('click', () => {
@@ -23477,6 +23617,7 @@ function showCategoryBundleSuccessOverlay() {
     overlay.find('.bundle-success-remaining').text(remainingText);
     const againBtn = overlay.find('#btn-bundle-category-again');
     againBtn.prop('disabled', remaining === 0 || !severity);
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
 
     againBtn.off('click').on('click', () => {
@@ -26660,6 +26801,7 @@ function showDrillSuccessOverlay(titleText, onAgain) {
     overlay.find('.bundle-success-title').text(titleText);
     overlay.find('.bundle-success-remaining').text('Pla diari actualitzat').show();
     overlay.find('#btn-bundle-random-again').text('➡️ Un altre').prop('disabled', false).toggle(true);
+    wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     $('#btn-bundle-random-again').off('click').on('click', () => {
         overlay.hide();
