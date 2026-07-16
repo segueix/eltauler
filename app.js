@@ -530,7 +530,13 @@ function initNavigationScrollReset() {
     const observer = new MutationObserver(() => {
         const currentScreen = getCurrentScreen();
         if (currentScreen === lastNavigationScreen) return;
+        const previousScreen = lastNavigationScreen;
         lastNavigationScreen = currentScreen;
+        if ((previousScreen === 'history-screen' || previousScreen === 'stats-screen')
+            && currentScreen !== previousScreen
+            && typeof stopReviewTts === 'function') {
+            stopReviewTts();
+        }
         scrollNavigationToTop();
     });
 
@@ -601,10 +607,12 @@ function navGoBack() {
         $('#game-screen').removeClass('active').hide();
         $('#start-screen').show();
     } else if (current === 'stats-screen') {
+        if (typeof stopReviewTts === 'function') stopReviewTts();
         $('#stats-screen').hide();
         $('#start-screen').show();
     } else if (current === 'history-screen') {
         if (typeof stopHistoryPlayback === 'function') stopHistoryPlayback();
+        if (typeof stopReviewTts === 'function') stopReviewTts();
         $('#history-screen').hide();
         $('#start-screen').show();
     } else if (current === 'league-screen') {
@@ -1446,6 +1454,7 @@ const REVIEW_TTS_STATE = {
     isPaused: false,
     stopRequested: false,
     lastText: '',
+    source: null,
     chunks: [],
     chunkIndex: 0,
     utterance: null
@@ -1515,25 +1524,33 @@ function getCatalanSpeechVoice() {
 }
 
 function setReviewTtsStatus(text) {
-    const el = document.getElementById('history-tts-status');
-    if (el) el.textContent = text || '';
+    ['history-tts-status', 'coach-tts-status'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.textContent = text || '';
+    });
 }
 
 function updateReviewTtsButtons() {
     const supported = reviewTtsSupported();
-    const hasEntry = !!(historyReplay && historyReplay.entry);
-    const playBtn = $('#history-tts-play');
-    const pauseBtn = $('#history-tts-pause');
-    const stopBtn = $('#history-tts-stop');
-    if (!playBtn.length) return;
-    playBtn.prop('disabled', !supported || !hasEntry);
-    pauseBtn.prop('disabled', !supported || !REVIEW_TTS_STATE.isSpeaking);
-    stopBtn.prop('disabled', !supported || (!REVIEW_TTS_STATE.isSpeaking && !REVIEW_TTS_STATE.isPaused));
-    const playLabel = REVIEW_TTS_STATE.isPaused ? 'Reprèn' : (REVIEW_TTS_STATE.isSpeaking ? 'Llegint…' : 'Escolta');
-    playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>${playLabel}`);
+    const hasHistoryEntry = !!(historyReplay && historyReplay.entry);
+    const coachText = getCoachDiagnosisText();
+    const controls = [
+        { prefix: 'history-tts', hasText: hasHistoryEntry },
+        { prefix: 'coach-tts', hasText: !!coachText }
+    ];
+    controls.forEach(ctrl => {
+        const playBtn = $(`#${ctrl.prefix}-play`);
+        const pauseBtn = $(`#${ctrl.prefix}-pause`);
+        const stopBtn = $(`#${ctrl.prefix}-stop`);
+        if (!playBtn.length) return;
+        playBtn.prop('disabled', !supported || !ctrl.hasText);
+        pauseBtn.prop('disabled', !supported || !REVIEW_TTS_STATE.isSpeaking);
+        stopBtn.prop('disabled', !supported || (!REVIEW_TTS_STATE.isSpeaking && !REVIEW_TTS_STATE.isPaused));
+        const playLabel = REVIEW_TTS_STATE.isPaused ? 'Reprèn' : (REVIEW_TTS_STATE.isSpeaking ? 'Llegint…' : 'Escolta');
+        playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>${playLabel}`);
+    });
     if (!supported) setReviewTtsStatus('Lectura local no disponible en aquest navegador.');
-    else if (!hasEntry) setReviewTtsStatus('Selecciona una partida per escoltar-ne la ressenya.');
-    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint la ressenya amb la veu local en català.');
+    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint amb la veu local en català.');
     else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
     else {
         const caVoice = getCatalanSpeechVoice();
@@ -1546,6 +1563,7 @@ function resetReviewTtsState(keepPaused = false) {
     REVIEW_TTS_STATE.isPaused = keepPaused;
     REVIEW_TTS_STATE.utterance = null;
     if (!keepPaused) {
+        REVIEW_TTS_STATE.source = null;
         REVIEW_TTS_STATE.chunks = [];
         REVIEW_TTS_STATE.chunkIndex = 0;
     }
@@ -1608,6 +1626,42 @@ function speakReviewTtsChunk() {
     updateReviewTtsButtons();
 }
 
+function beginReviewTts(rawText, source) {
+    const text = normalizeTextForCatalanTTS(rawText);
+    if (!text) { showToast('No hi ha text per llegir.', 'warn'); return; }
+    stopReviewTts();
+    REVIEW_TTS_STATE.stopRequested = false;
+    REVIEW_TTS_STATE.lastText = text;
+    REVIEW_TTS_STATE.source = source || null;
+    REVIEW_TTS_STATE.chunks = splitReviewTtsText(text);
+    REVIEW_TTS_STATE.chunkIndex = 0;
+    speakReviewTtsChunk();
+}
+
+function getCoachDiagnosisText() {
+    const el = document.getElementById('coach-diagnosis');
+    if (!el) return '';
+    const txt = reviewHtmlElementToText(el);
+    if (!txt || txt === '—') return '';
+    if (/Juga unes quantes partides més/i.test(txt)) return '';
+    if (/entrenador està repassant/i.test(txt)) return '';
+    return txt;
+}
+
+function speakCoachDiagnosis() {
+    if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
+    if (window.speechSynthesis.paused && REVIEW_TTS_STATE.isPaused) {
+        try { window.speechSynthesis.resume(); } catch (e) {}
+        REVIEW_TTS_STATE.isPaused = false;
+        REVIEW_TTS_STATE.isSpeaking = true;
+        updateReviewTtsButtons();
+        return;
+    }
+    const text = getCoachDiagnosisText();
+    if (!text) { showToast('Encara no hi ha diagnòstic per llegir.', 'warn'); updateReviewTtsButtons(); return; }
+    beginReviewTts(text, 'coach');
+}
+
 function speakCurrentReview() {
     if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
     if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer.', 'warn'); updateReviewTtsButtons(); return; }
@@ -1618,15 +1672,7 @@ function speakCurrentReview() {
         updateReviewTtsButtons();
         return;
     }
-    const raw = buildHistoryReviewText(historyReplay.entry);
-    const text = normalizeTextForCatalanTTS(raw);
-    if (!text) { showToast('No hi ha text de ressenya per llegir.', 'warn'); return; }
-    stopReviewTts();
-    REVIEW_TTS_STATE.stopRequested = false;
-    REVIEW_TTS_STATE.lastText = text;
-    REVIEW_TTS_STATE.chunks = splitReviewTtsText(text);
-    REVIEW_TTS_STATE.chunkIndex = 0;
-    speakReviewTtsChunk();
+    beginReviewTts(buildHistoryReviewText(historyReplay.entry), 'history');
 }
 
 function initReviewTts() {
@@ -18306,6 +18352,9 @@ function setupEvents() {
     $('#coach-style-select').off('change').on('change', function () { onCoachStyleChange(this.value); });
     $('#btn-home-coach-refresh').off('click').on('click', (e) => { e.stopPropagation(); regenerateCoachDiagnosisNow(); });
     $('#btn-coach-refresh').off('click').on('click', () => regenerateCoachDiagnosisNow());
+    $('#coach-tts-play').off('click').on('click', () => { speakCoachDiagnosis(); });
+    $('#coach-tts-pause').off('click').on('click', () => { pauseReviewTts(); });
+    $('#coach-tts-stop').off('click').on('click', () => { stopReviewTts(); });
     syncCoachStyleSelects();
     $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); });
     $('#btn-ranking').click(() => openRankingScreen());
@@ -20377,6 +20426,7 @@ function paintCoachDiagnosis(text, opts = {}) {
     }
     const homeBanner = document.getElementById('home-coach-banner');
     if (homeBanner) homeBanner.style.display = '';
+    updateReviewTtsButtons();
 }
 
 function renderCoachDiagnosis() {
