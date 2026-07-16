@@ -1103,8 +1103,6 @@
 
         /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
         .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
-        /* Botó de Lliga una mica més gran a la pàgina principal (només escriptori). */
-        body.device-desktop #btn-league { padding: 18px 24px; font-size: 1.12rem; }
         .btn-bundle   { background: linear-gradient(135deg, #6e6359 0%, #4f463e 100%); color: #f4e4bc; }
         .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
         .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
@@ -1182,6 +1180,77 @@
         }
         .menu-grid .btn span { font-weight: 400; letter-spacing: 0; }
         @media (max-width: 360px) { .menu-grid { grid-template-columns: 1fr; } }
+
+        /* ── Bloc «Juga»: rellotge destacat + els tres modes contra el motor ── */
+        .play-card {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 16px;
+            padding: 12px;
+            display: flex; flex-direction: column; gap: 10px;
+        }
+        .play-clock-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px; margin: 0 2px 8px;
+        }
+        .play-clock-title {
+            display: flex; align-items: center; gap: 6px;
+            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--text-secondary);
+        }
+        .play-clock-current { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); }
+        .play-clock-chips { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; }
+        .play-clock-chip {
+            appearance: none; border: 1px solid rgba(201,162,39,0.25);
+            background: rgba(255,255,255,0.05); color: var(--text-secondary);
+            border-radius: 10px; padding: 7px 2px 6px; cursor: pointer;
+            display: flex; flex-direction: column; align-items: center; gap: 1px;
+            font-family: inherit; min-width: 0;
+            transition: transform 0.08s ease, background 0.15s ease;
+            touch-action: manipulation;
+        }
+        .play-clock-chip:active { transform: scale(0.96); }
+        .play-clock-chip .pcc-time { font-size: 0.88rem; font-weight: 800; line-height: 1.1; }
+        .play-clock-chip .pcc-kind { font-size: 0.58rem; text-transform: uppercase; letter-spacing: 0.4px; opacity: 0.75; }
+        .play-clock-chip.active {
+            background: linear-gradient(135deg, #c9a227 0%, #8a6d12 100%);
+            border-color: transparent; color: #1b1712;
+            box-shadow: 0 3px 10px rgba(201,162,39,0.35);
+        }
+        .play-clock-chip.active .pcc-kind { opacity: 0.9; }
+        /* Els tres modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
+           l'amplada i Assistida + Lliga a sota en dues columnes. */
+        .play-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+        .play-modes .btn { margin-top: 0; }
+        .play-modes #btn-new-game { grid-column: 1 / -1; }
+        .play-modes .btn-assisted, .play-modes .btn-league {
+            flex-direction: column; gap: 4px; padding: 12px 10px;
+            font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
+        }
+        .play-modes .btn-assisted .btn-ic, .play-modes .btn-league .btn-ic { width: 1.7em; height: 1.7em; }
+        @media (max-width: 360px) { .play-modes { grid-template-columns: 1fr; } }
+        /* En escriptori, els TRES botons són rectangles grans i iguals que
+           omplen junts tota l'amplada del bloc, sota les fitxes del rellotge. */
+        body.device-desktop .play-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+        body.device-desktop .play-modes #btn-new-game { grid-column: auto; }
+        body.device-desktop .play-modes .btn {
+            flex-direction: column; justify-content: center; gap: 8px;
+            min-height: 104px; padding: 18px 14px; font-size: 1.05rem;
+            border-radius: 14px;
+        }
+        body.device-desktop .play-modes .btn .btn-ic { width: 1.9em; height: 1.9em; }
+        .play-clock-hint {
+            font-size: 0.72rem; color: var(--text-secondary); opacity: 0.8;
+            text-align: center; margin-top: -2px;
+        }
+        /* En pantalles estretes, dues files de fitxes (4+3) perquè es puguin tocar bé */
+        @media (max-width: 420px) { .play-clock-chips { grid-template-columns: repeat(4, 1fr); } }
+        body.day-mode .play-card { background: rgba(255,255,255,0.55); }
+        body.day-mode .play-clock-chip { background: rgba(120,95,40,0.08); }
+        body.epaper-mode .play-card, body.epaper-mode .play-clock-chip {
+            background: #f4f4f4; border-color: #888; box-shadow: none; transition: none;
+        }
+        body.epaper-mode .play-clock-chip.active { background: #222; color: #fff; box-shadow: none; }
 
         /* Icones de menú unificades: line-icons monocromes que hereten el color
            del text (currentColor) i s'adapten als 3 temes (fosc, dia, e-paper).
@@ -1491,6 +1560,7 @@
             gap: 12px;
         }
         body.device-desktop .menu-buttons > .setting-row,
+        body.device-desktop .menu-buttons > .play-card,
         body.device-desktop .menu-buttons > .catalans-banner,
         body.device-desktop .menu-buttons > #custom-banners,
         body.device-desktop .menu-buttons > .custom-create-banner,
@@ -1498,6 +1568,7 @@
         body.device-desktop .menu-buttons > .hieroglyphic-banner,
         body.device-desktop .menu-buttons > .menu-grid,
         body.device-desktop .menu-buttons > .btn-opening,
+        body.device-desktop .menu-buttons > .btn-explorer-menu,
         body.device-desktop .menu-buttons > .btn-settings,
         body.device-desktop .menu-buttons > #btn-league {
             grid-column: 1 / -1;
@@ -3233,6 +3304,11 @@
         /* ELO per ritme de joc (dalt de tot d'Estadístiques) */
         .tc-elo-grid { margin-bottom: 0; }
         .tc-elo-note { color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 10px; }
+        /* Selector de modalitat de la gràfica de progressió de l'ELO */
+        .elo-chart-toolbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+        .elo-chart-toolbar label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
+        .elo-chart-toolbar select { flex: 0 1 auto; min-width: 190px; }
+        #elo-chart-hint { font-size: 0.78rem; margin-bottom: 8px; }
         .tc-elo-games { font-size: 0.72rem; color: var(--text-secondary); margin-top: 3px; }
         .tc-elo-calibrate {
             width: 100%;
@@ -3806,6 +3882,75 @@
             <path d="M21.5 8.5v5"/>
         </symbol>
         <!-- Historial: rellotge de sorra (mateix traç line-icon que la resta) -->
+        <symbol id="ic-clock" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.25"/>
+            <path d="M12 7.5V12l3 2"/>
+            <path d="M12 2v1.5"/>
+        </symbol>
+        <symbol id="ic-to-start" viewBox="0 0 24 24">
+            <path d="M6 4.5v15"/>
+            <polygon points="19 5.5 10 12 19 18.5 19 5.5"/>
+        </symbol>
+        <symbol id="ic-to-end" viewBox="0 0 24 24">
+            <path d="M18 4.5v15"/>
+            <polygon points="5 5.5 14 12 5 18.5 5 5.5"/>
+        </symbol>
+        <symbol id="ic-flip" viewBox="0 0 24 24">
+            <path d="M4.5 9.5a8 8 0 0 1 14-3"/>
+            <polyline points="18.8 2.5 18.8 6.8 14.5 6.8"/>
+            <path d="M19.5 14.5a8 8 0 0 1-14 3"/>
+            <polyline points="5.2 21.5 5.2 17.2 9.5 17.2"/>
+        </symbol>
+        <symbol id="ic-copy" viewBox="0 0 24 24">
+            <rect x="9" y="9" width="11.5" height="11.5" rx="2"/>
+            <path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1"/>
+        </symbol>
+        <symbol id="ic-reset" viewBox="0 0 24 24">
+            <polyline points="2.5 4.5 2.5 10.5 8.5 10.5"/>
+            <path d="M5 15.5a9 9 0 1 0 2.1-9.4L2.5 10.5"/>
+        </symbol>
+        <symbol id="ic-swap" viewBox="0 0 24 24">
+            <path d="M4 7.5h15"/>
+            <polyline points="15.5 4 19 7.5 15.5 11"/>
+            <path d="M20 16.5H5"/>
+            <polyline points="8.5 13 5 16.5 8.5 20"/>
+        </symbol>
+        <symbol id="ic-pencil" viewBox="0 0 24 24">
+            <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
+        </symbol>
+        <symbol id="ic-scope" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="6.5"/>
+            <path d="M12 2.5v3"/>
+            <path d="M12 18.5v3"/>
+            <path d="M2.5 12h3"/>
+            <path d="M18.5 12h3"/>
+            <path d="M12 12h.01"/>
+        </symbol>
+        <symbol id="ic-target" viewBox="0 0 24 24">
+            <circle cx="12" cy="12" r="8.5"/>
+            <circle cx="12" cy="12" r="4.5"/>
+            <path d="M12 12h.01"/>
+        </symbol>
+        <symbol id="ic-import" viewBox="0 0 24 24">
+            <path d="M12 3.5v11"/>
+            <polyline points="7.5 10 12 14.5 16.5 10"/>
+            <path d="M3.5 15.5v3a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-3"/>
+        </symbol>
+        <symbol id="ic-export" viewBox="0 0 24 24">
+            <path d="M12 14.5v-11"/>
+            <polyline points="7.5 8 12 3.5 16.5 8"/>
+            <path d="M3.5 15.5v3a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-3"/>
+        </symbol>
+        <symbol id="ic-share" viewBox="0 0 24 24">
+            <circle cx="5.5" cy="12" r="2.6"/>
+            <circle cx="17.5" cy="5.5" r="2.6"/>
+            <circle cx="17.5" cy="18.5" r="2.6"/>
+            <path d="M7.9 10.7l7.2-4"/>
+            <path d="M7.9 13.3l7.2 4"/>
+        </symbol>
+        <symbol id="ic-cloud" viewBox="0 0 24 24">
+            <path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/>
+        </symbol>
         <symbol id="ic-history" viewBox="0 0 24 24">
             <path d="M5.75 3.5h12.5"/>
             <path d="M5.75 20.5h12.5"/>
@@ -3855,6 +4000,14 @@
             <path d="M3.5 14.83h17"/>
             <path d="M9.17 3.5v17"/>
             <path d="M14.83 3.5v17"/>
+        </symbol>
+        <!-- Tauler d'anàlisi: tauler amb lupa (parent de l'ic-board) -->
+        <symbol id="ic-analysis" viewBox="0 0 24 24">
+            <path d="M11.5 16.5H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9.5a2 2 0 0 1 2 2v6.5"/>
+            <path d="M3 9.75h13.5"/>
+            <path d="M9.75 3v13.5"/>
+            <circle cx="16.5" cy="16.5" r="4.2"/>
+            <path d="M19.6 19.6 22.2 22.2"/>
         </symbol>
     </svg>
 
@@ -3908,22 +4061,63 @@
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
                 <div class="menu-buttons">
-                    <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
-                    <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
-                    <div class="setting-row" style="margin: 2px 4px 4px;">
-                        <div class="setting-label">Rellotge</div>
-                        <select id="new-game-tc-select" class="select-control">
-                            <option value="none">Sense rellotge</option>
-                            <option value="30s">Bullet 30s</option>
-                            <option value="1+0">Bullet 1+0</option>
-                            <option value="3+2">Blitz 3+2</option>
-                            <option value="5+0">Blitz 5+0</option>
-                            <option value="10+0">Ràpid 10+0</option>
-                            <option value="15+10">Clàssic 15+10</option>
-                        </select>
+                    <!-- Un sol bloc de joc: tria de rellotge ben visible i els
+                         tres modes contra el motor (nova, assistida i lliga) -->
+                    <div class="play-card">
+                        <div class="play-clock" role="group" aria-label="Rellotge de la partida">
+                            <div class="play-clock-head">
+                                <span class="play-clock-title"><svg class="btn-ic" aria-hidden="true"><use href="#ic-clock"/></svg>Rellotge</span>
+                                <span class="play-clock-current" id="play-clock-current">Sense rellotge</span>
+                            </div>
+                            <div class="play-clock-chips" id="play-clock-chips">
+                                <button type="button" class="play-clock-chip active" data-tc="none" title="Sense rellotge"><span class="pcc-time">∞</span><span class="pcc-kind">Sense</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="30s" title="Bullet 30 segons"><span class="pcc-time">30s</span><span class="pcc-kind">Bullet</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="1+0" title="Bullet 1 minut"><span class="pcc-time">1+0</span><span class="pcc-kind">Bullet</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="3+2" title="Blitz 3 minuts + 2 segons per jugada"><span class="pcc-time">3+2</span><span class="pcc-kind">Blitz</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="5+0" title="Blitz 5 minuts"><span class="pcc-time">5+0</span><span class="pcc-kind">Blitz</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="10+0" title="Ràpid 10 minuts"><span class="pcc-time">10+0</span><span class="pcc-kind">Ràpid</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="15+10" title="Clàssic 15 minuts + 10 segons per jugada"><span class="pcc-time">15+10</span><span class="pcc-kind">Clàssic</span></button>
+                            </div>
+                            <!-- El desplegable original queda amagat com a FONT DE LA VERITAT:
+                                 tota la lògica existent hi segueix llegint i escrivint; les
+                                 fitxes de sobre només el pinten i l'actualitzen. -->
+                            <select id="new-game-tc-select" class="select-control" style="display:none;" aria-hidden="true" tabindex="-1">
+                                <option value="none">Sense rellotge</option>
+                                <option value="30s">Bullet 30s</option>
+                                <option value="1+0">Bullet 1+0</option>
+                                <option value="3+2">Blitz 3+2</option>
+                                <option value="5+0">Blitz 5+0</option>
+                                <option value="10+0">Ràpid 10+0</option>
+                                <option value="15+10">Clàssic 15+10</option>
+                            </select>
+                        </div>
+                        <div class="play-modes">
+                            <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
+                            <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
+                            <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
+                        </div>
+                        <div class="play-clock-hint">El rellotge triat val per a la partida nova i l'assistida; la lliga juga amb el ritme propi de la temporada.</div>
                     </div>
 
-                    <!-- Partides cooperatives (col·lectives), just sota el rellotge -->
+                    <div class="league-banner" id="league-banner" style="display:none;">
+                        <div class="league-banner-header">
+                            <span>🏅 Proper partit de lliga</span>
+                            <span class="league-badge" id="league-banner-opp-rank">#—</span>
+                        </div>
+                        <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
+                        <div class="league-banner-body">
+                            <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
+                            <div class="league-banner-ranks">
+                                <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
+                                <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
+                            </div>
+                        </div>
+                        <div class="league-banner-actions">
+                            <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-target"/></svg>Jugar ara</button>
+                        </div>
+                    </div>
+
+                    <!-- Partides cooperatives (col·lectives) -->
                     <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
                         <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
                         <span class="catalans-banner-text">
@@ -3944,25 +4138,6 @@
                             <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
                         </span>
                     </button>
-
-                    <div class="league-banner" id="league-banner" style="display:none;">
-                        <div class="league-banner-header">
-                            <span>🏅 Proper partit de lliga</span>
-                            <span class="league-badge" id="league-banner-opp-rank">#—</span>
-                        </div>
-                        <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
-                        <div class="league-banner-body">
-                            <div class="league-banner-opponent">vs <span id="league-banner-opponent">—</span> · ELO <span id="league-banner-elo">—</span></div>
-                            <div class="league-banner-ranks">
-                                <span class="league-badge">Tu: <span id="league-banner-my-rank">#—</span></span>
-                                <span class="league-badge">Si guanyes: <span id="league-banner-projected">#—</span></span>
-                            </div>
-                        </div>
-                        <div class="league-banner-actions">
-                            <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;">🎯 Jugar ara</button>
-                        </div>
-                    </div>
-                    <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                 </div>
             </div>
 
@@ -3984,7 +4159,7 @@
                             <span class="hg-banner-cta">Resoldre ›</span>
                         </button>
                         <div class="hg-banner-gen">
-                            <button type="button" class="hg-banner-gen-btn" id="btn-hieroglyphic-generate">⚡ Generar ara</button>
+                            <button type="button" class="hg-banner-gen-btn" id="btn-hieroglyphic-generate"><svg class="hg-ic" aria-hidden="true"><use href="#ic-zap"/></svg> Generar ara</button>
                             <div class="hg-banner-progress" id="hg-banner-progress" aria-hidden="true">
                                 <div class="hg-banner-progress-track">
                                     <div class="hg-banner-progress-bar" id="hg-banner-progress-bar"></div>
@@ -4013,6 +4188,7 @@
                         </details>
                     </div>
                     <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
+                    <button class="btn btn-explorer-menu" id="btn-explorer"><svg class="btn-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>Tauler d'anàlisi</button>
                     <div class="menu-grid menu-grid-3">
                         <button class="btn btn-tactics" id="btn-tactics">
                             <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
@@ -4114,7 +4290,7 @@
             </div>
 
             <div class="sync-container">
-                <button class="btn btn-share" id="btn-cloud-recover" style="display:none;background:linear-gradient(135deg,#3a6ea5 0%,#2a4d73 100%);color:#eaf2fb;">☁️ Recupera dades del núvol</button>
+                <button class="btn btn-share" id="btn-cloud-recover" style="display:none;background:linear-gradient(135deg,#3a6ea5 0%,#2a4d73 100%);color:#eaf2fb;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-cloud"/></svg>Recupera dades del núvol</button>
             </div>
             <div class="app-version-tag" id="app-version-tag"></div>
         </div>
@@ -4299,7 +4475,7 @@
                 <div class="setting-help">Això resetarà el teu perfil actual.</div>
                 <div class="setting-row" style="margin-top:10px;">
                     <div class="setting-label">Memòria cau</div>
-                    <button class="btn btn-secondary" id="btn-force-update">🔄 Força actualització</button>
+                    <button class="btn btn-secondary" id="btn-force-update"><svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>Força actualització</button>
                 </div>
                 <div class="setting-help">Si l'app carrega una versió antiga, esborra la memòria cau i recarrega.</div>
             </div>
@@ -4307,7 +4483,7 @@
             <div class="danger-zone">
                 <div class="danger-zone-title">⚠️ Zona Perillosa</div>
                 <button class="btn btn-danger" id="btn-show-delete" style="width:100%;">
-                    🗑️ Esborrar Totes les Dades
+                    <svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg>Esborrar Totes les Dades
                 </button>
 
                 <div class="confirm-delete" id="confirm-delete-panel">
@@ -4320,9 +4496,9 @@
             </div>
 
             <div class="menu-buttons" style="margin-top:20px;">
-                <button class="btn btn-share" id="btn-smart-share">📤 Comparteix el progrés</button>
-                <button class="btn btn-file" id="btn-export">💾 Exportar</button>
-                <button class="btn btn-file" id="btn-import">📂 Importar</button>
+                <button class="btn btn-share" id="btn-smart-share"><svg class="btn-ic" aria-hidden="true"><use href="#ic-share"/></svg>Comparteix el progrés</button>
+                <button class="btn btn-file" id="btn-export"><svg class="btn-ic" aria-hidden="true"><use href="#ic-export"/></svg>Exportar</button>
+                <button class="btn btn-file" id="btn-import"><svg class="btn-ic" aria-hidden="true"><use href="#ic-import"/></svg>Importar</button>
                 <input type="file" id="file-input" style="display:none;">
                 <button class="btn btn-nav-home" id="btn-back-settings" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
@@ -4356,7 +4532,7 @@
             <div id="ranking-status" class="setting-help" style="text-align:center; min-height:1.2em;"></div>
             <div id="ranking-list"></div>
             <div class="menu-buttons" style="margin-top:16px;">
-                <button class="btn btn-secondary" id="btn-ranking-refresh">🔄 Actualitza</button>
+                <button class="btn btn-secondary" id="btn-ranking-refresh"><svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>Actualitza</button>
                 <button class="btn btn-nav-home" id="btn-ranking-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
         </div>
@@ -4375,6 +4551,11 @@
 
             <div class="chart-container">
                 <div class="chart-title">Progressió de l'ELO</div>
+                <div class="elo-chart-toolbar" id="elo-chart-toolbar">
+                    <label for="elo-chart-tc-select">Modalitat</label>
+                    <select id="elo-chart-tc-select" class="select-control"></select>
+                </div>
+                <div class="tc-elo-note" id="elo-chart-hint"></div>
                 <canvas id="elo-chart"></canvas>
             </div>
             <div class="chart-container">
@@ -4429,7 +4610,7 @@
             <div class="chart-container">
                 <div class="chart-title">Informe d’adaptació</div>
                 <div style="color:var(--text-secondary);font-size:0.85rem;margin-bottom:10px;">Exporta localment les dades per valorar si la IA ajusta bé el nivell. Es generen un JSON complet i un CSV resumit; no s’envia res a cap servidor.</div>
-                <button class="btn btn-secondary" id="btn-export-adaptation-report" style="width:100%;">📤 Exportar informe d’adaptació</button>
+                <button class="btn btn-secondary" id="btn-export-adaptation-report" style="width:100%;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-export"/></svg>Exportar informe d’adaptació</button>
             </div>
 
             <div class="chart-container">
@@ -4476,6 +4657,7 @@
                 <div class="history-list-head">
                     <div class="history-title">Partides guardades</div>
                     <div class="history-count" id="history-count"></div>
+                    <button class="btn btn-secondary history-import-btn" id="btn-import-pgn" type="button" title="Importa una partida externa (PGN) per analitzar-la aquí"><svg class="hg-ic" aria-hidden="true"><use href="#ic-import"/></svg> Importa PGN</button>
                 </div>
                 <div class="history-filters">
                     <select id="history-filter-result" class="select-control" aria-label="Filtra per resultat">
@@ -4489,6 +4671,7 @@
                         <option value="free">Amistoses</option>
                         <option value="assisted">Assistides</option>
                         <option value="league">Lliga</option>
+                        <option value="imported">Importades</option>
                     </select>
                     <select id="history-filter-prec" class="select-control" aria-label="Filtra per precisió">
                         <option value="0">Qualsevol precisió</option>
@@ -4535,9 +4718,10 @@
                                 <!-- Transcripció clicable: toca una jugada per veure-la al tauler (queda marcada) -->
                                 <div id="history-moves" style="display:none;"></div>
                                 <div class="history-actions">
+                                    <button class="btn btn-secondary" id="history-explore-position" style="grid-column:1 / -1;" title="Obre aquesta posició al tauler d'anàlisi lliure"><svg class="btn-ic" aria-hidden="true"><use href="#ic-scope"/></svg>Explora aquesta posició</button>
                                     <button class="btn btn-secondary" id="history-generate-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Regenerar la ressenya</button>
                                     <button class="btn btn-secondary" id="history-deepen-review"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Recalcular moments clau</button>
-                                    <button class="btn btn-secondary" id="history-export-pgn" style="grid-column:1 / -1;">♟ Exportar la partida (PGN)</button>
+                                    <button class="btn btn-secondary" id="history-export-pgn" style="grid-column:1 / -1;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-export"/></svg>Exportar la partida (PGN)</button>
                                 </div>
                             </div>
                             <div class="history-review">
@@ -4562,8 +4746,166 @@
                 </div>
             </div>
             <div class="menu-buttons" style="margin-top:20px;">
-                <button class="btn btn-secondary" id="btn-export-all-pgn">📦 Exportar tot l'historial (PGN)</button>
+                <button class="btn btn-secondary" id="btn-export-all-pgn"><svg class="btn-ic" aria-hidden="true"><use href="#ic-export"/></svg>Exportar tot l'historial (PGN)</button>
                 <button class="btn btn-nav-home" id="btn-back-history" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+            </div>
+        </div>
+
+        <!-- EXPLORADOR: tauler d'anàlisi lliure amb el motor avaluant -->
+        <style>
+            .btn-explorer-menu { background: linear-gradient(135deg, #4a6b52 0%, #2c4432 100%); color: #e9f2ea; box-shadow: 0 4px 12px rgba(74, 107, 82, 0.35); }
+            .explorer-eval-card {
+                background: var(--bg-card); border: 1px solid rgba(201,162,39,0.18);
+                border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+            }
+            .explorer-eval-bar {
+                height: 12px; border-radius: 6px; overflow: hidden;
+                background: #20242c; border: 1px solid rgba(255,255,255,0.18);
+            }
+            .explorer-eval-fill {
+                height: 100%; width: 50%; background: #f2ede2;
+                transition: width 0.4s ease; border-radius: 6px 0 0 6px;
+            }
+            body.epaper-mode .explorer-eval-bar { background: #666; border-color: #444; }
+            body.epaper-mode .explorer-eval-fill { background: #fff; transition: none; }
+            .explorer-eval-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; margin-top: 8px; }
+            .explorer-eval-value { font-size: 1.15rem; font-weight: 800; color: var(--accent-gold); }
+            .explorer-eval-depth { font-size: 0.75rem; color: var(--text-secondary); }
+            .explorer-line { font-size: 0.85rem; color: var(--text-secondary); margin-top: 6px; line-height: 1.45; overflow-wrap: anywhere; }
+            .explorer-line.alt { opacity: 0.8; }
+            .explorer-play-best { margin-top: 10px; width: 100%; }
+            .explorer-status { text-align: center; font-size: 0.88rem; color: var(--text-secondary); margin: 10px 0 4px; }
+            .explorer-moves {
+                display: flex; flex-wrap: wrap; align-items: center; gap: 4px;
+                background: rgba(255,255,255,0.03); border-radius: 10px;
+                padding: 8px 10px; margin: 10px 0; min-height: 38px;
+            }
+            .explorer-moves-empty { font-size: 0.8rem; color: var(--text-secondary); opacity: 0.85; }
+            .explorer-move-no { font-size: 0.78rem; color: var(--text-secondary); margin-left: 4px; }
+            .explorer-move {
+                appearance: none; border: 1px solid transparent; background: rgba(255,255,255,0.06);
+                color: var(--text-primary); border-radius: 6px; padding: 2px 7px;
+                font-size: 0.85rem; cursor: pointer; font-family: inherit;
+            }
+            .explorer-move.future { opacity: 0.45; }
+            .explorer-move.active { background: linear-gradient(135deg, #c9a227 0%, #8a6d12 100%); color: #1b1712; font-weight: 700; }
+            .explorer-fen-row { display: flex; gap: 8px; align-items: center; margin: 10px 0; }
+            .explorer-fen-row input {
+                flex: 1; min-width: 0; background: rgba(255,255,255,0.06);
+                border: 1px solid rgba(201,162,39,0.25); border-radius: 8px;
+                color: var(--text-primary); padding: 8px 10px; font-size: 0.78rem;
+                font-family: monospace;
+            }
+            /* Els .btn de l'app fan width:100%: aquí han de cedir l'espai al
+               camp de FEN (que sense això quedava esclafat, com un botonet buit). */
+            .explorer-fen-row .btn { margin-top: 0; padding: 8px 12px; font-size: 0.8rem; white-space: nowrap; width: auto; flex: 0 0 auto; }
+            .explorer-edit-toolbar {
+                background: var(--bg-card); border: 1px solid rgba(201,162,39,0.25);
+                border-radius: 12px; padding: 12px 14px; margin-top: 12px;
+            }
+            .explorer-edit-hint { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; }
+            .explorer-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+            .explorer-edit-row label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
+            .explorer-tap-selected { box-shadow: inset 0 0 0 3px rgba(201, 162, 39, 0.9) !important; }
+        </style>
+        <div id="explorer-screen" class="screen-anim" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo history-logo"><svg class="history-logo-ic" aria-hidden="true"><use href="#ic-analysis"/></svg></div>
+                <h1>Tauler d'anàlisi</h1>
+                <div class="history-subtitle">Mou les peces lliurement amb el motor avaluant cada posició, carrega un FEN o munta-la tu mateix.</div>
+            </div>
+
+            <div class="explorer-eval-card" id="explorer-eval-card">
+                <div class="explorer-eval-bar" title="Barra d'avaluació (part blanca = avantatge blanc)"><div class="explorer-eval-fill" id="explorer-eval-fill"></div></div>
+                <div class="explorer-eval-row">
+                    <span class="explorer-eval-value" id="explorer-eval-value">—</span>
+                    <span class="explorer-eval-depth" id="explorer-eval-depth"></span>
+                </div>
+                <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
+                <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
+                <button class="btn btn-secondary explorer-play-best" id="explorer-play-best" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Juga la millor jugada</button>
+            </div>
+
+            <div class="history-board"><div id="explorer-board"></div></div>
+            <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
+
+            <div class="history-controls" id="explorer-nav">
+                <button class="btn btn-secondary" id="explorer-start-btn" aria-label="A l'inici de la línia" title="A l'inici de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg></button>
+                <button class="btn btn-secondary" id="explorer-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
+                <button class="btn btn-secondary" id="explorer-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
+                <button class="btn btn-secondary" id="explorer-flip" aria-label="Gira el tauler" title="Gira el tauler"><svg class="btn-ic" aria-hidden="true"><use href="#ic-flip"/></svg></button>
+            </div>
+
+            <div class="explorer-moves" id="explorer-moves"></div>
+
+            <div id="explorer-tools">
+                <div class="explorer-fen-row">
+                    <input type="text" id="explorer-fen-input" spellcheck="false" autocomplete="off" aria-label="FEN de la posició" placeholder="Enganxa un FEN…">
+                    <button class="btn btn-secondary" id="explorer-fen-load">Carrega</button>
+                    <button class="btn btn-secondary" id="explorer-fen-copy" aria-label="Copia el FEN" title="Copia el FEN"><svg class="btn-ic" aria-hidden="true"><use href="#ic-copy"/></svg></button>
+                </div>
+                <div class="menu-grid">
+                    <button class="btn btn-secondary" id="explorer-reset"><svg class="btn-ic" aria-hidden="true"><use href="#ic-reset"/></svg>Posició inicial</button>
+                    <button class="btn btn-secondary" id="explorer-swap-turn"><svg class="btn-ic" aria-hidden="true"><use href="#ic-swap"/></svg>Canvia el torn</button>
+                </div>
+                <button class="btn btn-secondary" id="explorer-edit" style="width:100%; margin-top:10px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pencil"/></svg>Edita la posició</button>
+            </div>
+
+            <div class="explorer-edit-toolbar" id="explorer-edit-toolbar" style="display:none;">
+                <div class="explorer-edit-hint">Arrossega les peces on vulguis: les de fora del tauler n'afegeixen, i deixar-ne una fora la treu. Els drets d'enroc es dedueixen de reis i torres a la casella inicial.</div>
+                <div class="explorer-edit-row">
+                    <label for="explorer-edit-turn">Qui mou?</label>
+                    <select id="explorer-edit-turn" class="select-control">
+                        <option value="w">Les blanques</option>
+                        <option value="b">Les negres</option>
+                    </select>
+                </div>
+                <div class="explorer-edit-row">
+                    <button class="btn btn-secondary" id="explorer-edit-clear">Buida el tauler</button>
+                    <button class="btn btn-secondary" id="explorer-edit-start">Posició inicial</button>
+                </div>
+                <div class="explorer-edit-row" style="margin-bottom:0;">
+                    <button class="btn btn-primary" id="explorer-edit-done" style="flex:1;">Fet: analitza-la</button>
+                    <button class="btn btn-secondary" id="explorer-edit-cancel">Cancel·la</button>
+                </div>
+            </div>
+
+            <div class="menu-buttons" style="margin-top:20px;">
+                <button class="btn btn-nav-home" id="btn-back-explorer" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+            </div>
+        </div>
+
+        <!-- Importar partides externes (PGN): Lichess, Chess.com, tornejos... -->
+        <style>
+            .history-import-btn { padding: 6px 12px; font-size: 0.78rem; margin-left: auto; white-space: nowrap; }
+            #pgn-import-modal .modal-content { max-height: 85vh; overflow-y: auto; }
+            #pgn-import-modal textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:110px;
+                background: rgba(0,0,0,0.18); border:1px solid rgba(201,162,39,0.35); border-radius:10px;
+                color: var(--text-primary); padding:8px 10px; font-family:'Inter',monospace,sans-serif; font-size:0.82rem; }
+            #pgn-import-modal textarea:focus { outline:none; border-color: var(--accent-gold); }
+            body.epaper-mode #pgn-import-modal textarea { background:#ededed; color:#222; border-color:#777; }
+            .pgn-import-game { text-align:left; background: rgba(255,255,255,0.04); border:1px solid rgba(201,162,39,0.22);
+                border-radius:10px; padding:10px 12px; margin-top:10px; }
+            .pgn-import-game-title { font-weight:700; font-size:0.9rem; }
+            .pgn-import-game-meta { font-size:0.78rem; color: var(--text-secondary); margin-top:2px; }
+            .pgn-import-warn { font-size:0.78rem; color:#d9822b; margin-top:4px; }
+            .pgn-import-game-row { display:flex; gap:8px; align-items:center; margin-top:8px; flex-wrap:wrap; }
+            .pgn-import-game-row .pgn-import-color { flex:1; min-width:170px; }
+            .pgn-import-game-row .pgn-import-btn { margin-top:0; min-width:90px; }
+        </style>
+        <div class="modal-overlay" id="pgn-import-modal">
+            <div class="modal-content">
+                <div class="modal-title">📥 Importa una partida (PGN)</div>
+                <p class="promotion-hint">Enganxa el PGN d'una partida jugada fora de l'app (Lichess, Chess.com, un torneig...) o tria un fitxer .pgn. Un cop importada la podràs analitzar amb el motor i tindràs la ressenya de l'entrenador, les errades comentades i els exercicis derivats, com si l'haguessis jugada aquí. L'historial guarda les 10 partides més recents.</p>
+                <textarea id="pgn-import-text" rows="6" spellcheck="false" placeholder='[Event "..."]&#10;[White "..."]&#10;[Black "..."]&#10;&#10;1. e4 e5 2. Nf3 ...'></textarea>
+                <div class="catalans-msg-actions">
+                    <button class="btn btn-primary" id="pgn-import-parse" type="button">Llegeix el PGN</button>
+                    <button class="btn btn-secondary" id="pgn-import-file-btn" type="button"><svg class="btn-ic" aria-hidden="true"><use href="#ic-import"/></svg>Tria un fitxer</button>
+                </div>
+                <input type="file" id="pgn-import-file" accept=".pgn,.txt,text/plain,application/x-chess-pgn" style="display:none;">
+                <div class="cc-elo-hint" id="pgn-import-status" style="display:none; margin-top:10px;"></div>
+                <div id="pgn-import-games"></div>
+                <button class="close-modal" id="pgn-import-cancel" type="button">Tanca</button>
             </div>
         </div>
 
@@ -4674,10 +5016,10 @@
                 <div class="review-newerrors" id="review-newerrors" style="display:none;"></div>
                 <div id="review-debrief" style="display:none;"></div>
                 <div class="review-actions">
-                    <button class="btn btn-primary" id="btn-review-again" style="display:none;">🔁 Tornar a jugar</button>
-                    <button class="btn btn-secondary" id="btn-review-errors">🔍 Revisar errors</button>
+                    <button class="btn btn-primary" id="btn-review-again" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Tornar a jugar</button>
+                    <button class="btn btn-secondary" id="btn-review-errors"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisar errors</button>
                     <button class="btn btn-secondary" id="btn-review-hieroglyphic"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Desxifra el teu error</button>
-                    <button class="btn btn-secondary" id="btn-review-stats">📊 Veure evolució</button>
+                    <button class="btn btn-secondary" id="btn-review-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Veure evolució</button>
                 </div>
                 <div class="nav-trio">
                     <button class="btn btn-nav-home" id="btn-review-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
@@ -5193,11 +5535,11 @@
                 <!-- Transcripció clicable: toca una jugada per veure-la (queda marcada) -->
                 <div id="catalans-replay-moves" style="display:none;"></div>
                 <div class="catalans-replay-controls">
-                    <button class="btn btn-secondary" id="catalans-replay-first">⏮</button>
-                    <button class="btn btn-secondary" id="catalans-replay-prev">◀</button>
-                    <button class="btn btn-primary" id="catalans-replay-play">▶ Reproduir</button>
-                    <button class="btn btn-secondary" id="catalans-replay-next">▶</button>
-                    <button class="btn btn-secondary" id="catalans-replay-last">⏭</button>
+                    <button class="btn btn-secondary" id="catalans-replay-first" aria-label="A l'inici" title="A l'inici"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg></button>
+                    <button class="btn btn-secondary" id="catalans-replay-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
+                    <button class="btn btn-primary" id="catalans-replay-play"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Reproduir</button>
+                    <button class="btn btn-secondary" id="catalans-replay-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
+                    <button class="btn btn-secondary" id="catalans-replay-last" aria-label="Al final" title="Al final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-end"/></svg></button>
                     <button class="btn btn-secondary" id="catalans-replay-close">Tancar</button>
                 </div>
             </div>
@@ -5335,7 +5677,7 @@
                         <div class="nav-trio">
                             <button class="btn btn-nav-home" id="btn-bundle-category-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                             <button class="btn btn-nav-board" id="btn-bundle-category-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
-                            <button class="btn btn-nav-section" id="btn-bundle-category-home">🔍 Revisa errors</button>
+                            <button class="btn btn-nav-section" id="btn-bundle-category-home"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisa errors</button>
                         </div>
                     </div>
                 </div>           
