@@ -23501,9 +23501,11 @@ function handleEngineMessage(rawMsg) {
                 afterFen: pendingAfterFen
             });
             resolvePendingMoveEvaluation(moveQuality);
-            // Joc posicional: la mateixa anàlisi alimenta la precisió de la
-            // jugada que es mostra al costat del tauler (i la pila del desfer).
-            registerPositionalMoveFeedback(swing, moveQuality);
+            // Joc posicional: la mateixa anàlisi dona l'índex Stockfish de la
+            // jugada i decideix el flux — la verda avança (l'enginy respon),
+            // la resta es tira enrere sola. Si ho gestiona, aquí no s'ha de
+            // demanar cap resposta del motor ni mostrar l'avís d'errada.
+            const positionalHandled = positionalHandleMoveOutcome(swing, moveQuality);
 
             // Si has jugat la millor jugada, no és cap error encara que el swing
             // (comparant anàlisi prèvia profunda amb posterior més curta) sigui gran.
@@ -23530,7 +23532,9 @@ function handleEngineMessage(rawMsg) {
                 );
             }
 
-            if (isSevereBlunder) {
+            if (positionalHandled) {
+                // El Joc posicional ja ha respost o programat el desfer automàtic.
+            } else if (isSevereBlunder) {
                 let severity = 'low';
                 if (swing > 800) severity = 'high';
                 else if (swing > 500) severity = 'med';
@@ -24489,21 +24493,38 @@ function returnToBundleMenu() {
 /* ===================== JOC POSICIONAL =====================
    Modalitat d'aprenentatge "en present": l'enginy només calcula la seva jugada
    i la resposta immediata de l'adversari (2 semijugades), sense càlcul a
-   jugades vista. Cada moviment del jugador rep una precisió pròpia (visible al
-   panell, al costat del tauler), es pot tirar enrere per provar una jugada
-   diferent (l'enginy recalcula la precisió de la nova), i el botó «Norma»
+   jugades vista. Cada jugada del jugador es marca amb el seu ÍNDEX STOCKFISH
+   (al panell de sobre el tauler, sense barra de precisió): VERD si és de les
+   millors de la posició, taronja o vermell segons la precisió si no ho és.
+   Sense verd no s'avança: la jugada no verda es tira enrere automàticament
+   (l'adversari no respon) fins que el jugador troba la verda. El botó «Norma»
    ensenya el principi posicional que hauria de regir el moviment. No puntua
    ELO ni ajusta la dificultat: és un gimnàs, no una prova. */
 
 const POSITIONAL_ENGINE_DEPTH = 2;
+// Llindar visual del verd: coherent amb positionalMovePrecisionPct (les
+// jugades verdes mai baixen de 85; les no verdes mai hi arriben).
+const POSITIONAL_GREEN_MIN = 85;
 
-// Pila de jugades avaluades del jugador en la partida posicional en curs:
+// Pila de jugades CONFIRMADES (verdes, que han fet avançar la partida):
 // { counted (sumava a goodMoves), precision (0-100), quality }. És el que permet
 // desfer una jugada revertint també la comptabilitat de precisió.
 let positionalMoveHistory = [];
 
+// Darrer intent avaluat (verd o no): { san, precision, quality, green }.
+// Sobreviu al desfer automàtic perquè el jugador vegi l'índex que ha tret
+// mentre busca la jugada verda.
+let positionalLastAttempt = null;
+
+// Temporitzador del desfer automàtic d'una jugada no verda.
+let positionalRetryTimeout = null;
+
 // Normes de la posició actual: { fen, list, idx } (es recalculen si canvia el FEN).
 let normaCache = null;
+
+function clearPositionalRetryTimer() {
+    if (positionalRetryTimeout) { clearTimeout(positionalRetryTimeout); positionalRetryTimeout = null; }
+}
 
 function isPositionalMode() {
     return currentGameMode === 'positional' && !blunderMode;
@@ -24521,14 +24542,23 @@ function positionalQualityLabel(quality) {
     return POSITIONAL_QUALITY_LABELS[quality] || '';
 }
 
-// Precisió d'UNA jugada (0-100) a partir de la pèrdua en centipeons. Corba
-// exponencial: 0 cp => 100, ~100 cp => ~75, ~300 cp => ~42, ~600 cp => ~18.
-// Si s'ha jugat la millor jugada del motor (quality 'excel'), mai baixa de 95.
+// És una jugada "verda"? = de les millors de la posició segons Stockfish
+// (la millor exacta o dins els ~50 cp que l'anàlisi considera bona). Només
+// les verdes fan avançar la partida.
+function positionalIsGreenQuality(quality) {
+    return quality === 'excel' || quality === 'good';
+}
+
+// Índex Stockfish d'UNA jugada (0-100) a partir de la pèrdua en centipeons.
+// Corba exponencial: 0 cp => 100, ~100 cp => ~75, ~300 cp => ~42, ~600 => ~18.
+// Les jugades verdes tenen sòl (excel 95, good 85) i les NO verdes sostre (84):
+// així el color i el número no es contradiuen mai (verd <=> índex >= 85).
 function positionalMovePrecisionPct(swing, quality) {
     const loss = Math.max(0, Math.round(Math.abs(swing || 0)));
     let pct = Math.round(100 * Math.exp(-loss / 350));
     if (quality === 'excel') pct = Math.max(pct, 95);
-    else if (quality === 'good') pct = Math.max(pct, 85);
+    else if (quality === 'good') pct = Math.max(pct, POSITIONAL_GREEN_MIN);
+    else pct = Math.min(pct, POSITIONAL_GREEN_MIN - 1);
     return Math.max(1, Math.min(100, pct));
 }
 
@@ -24536,16 +24566,19 @@ function updatePositionalMovePanel() {
     const valueEl = $('#move-precision');
     const qualityEl = $('#move-precision-quality');
     if (!valueEl.length) return;
-    const last = positionalMoveHistory[positionalMoveHistory.length - 1] || null;
+    const attempt = positionalLastAttempt;
     valueEl.removeClass('good warning danger');
-    if (!last) {
+    if (!attempt) {
         valueEl.text('—');
         if (qualityEl.length) qualityEl.text('');
         return;
     }
-    valueEl.text(last.precision + '%');
-    valueEl.addClass(last.precision >= 85 ? 'good' : (last.precision >= 55 ? 'warning' : 'danger'));
-    if (qualityEl.length) qualityEl.text(positionalQualityLabel(last.quality));
+    valueEl.text(attempt.precision + '%');
+    valueEl.addClass(attempt.green ? 'good' : (attempt.precision >= 55 ? 'warning' : 'danger'));
+    if (qualityEl.length) {
+        const sanPart = attempt.san ? attempt.san + ' · ' : '';
+        qualityEl.text(sanPart + positionalQualityLabel(attempt.quality) + (attempt.green ? ' ✓' : ''));
+    }
 }
 
 // Mostra/amaga i habilita els controls propis del joc posicional. És idempotent
@@ -24556,39 +24589,119 @@ function updatePositionalUI() {
     $('#btn-norma').toggle(positional);
     $('#btn-undo-move').toggle(positional);
     $('#move-precision-stat').toggle(positional);
+    // En aquesta secció NO hi ha barra de precisió ni objectiu: només l'índex
+    // Stockfish de la jugada, ben centrat al panell.
+    $('#precision-global-stat').toggle(!positional);
+    $('#game-precision-panel .precision-bar-container').toggle(!positional);
     $('#precision-objective-stat').toggle(!positional);
     $('#precision-target').toggle(!positional);
+    $('#game-precision-panel').toggleClass('positional-only', positional);
     if (!positional) {
         $('#norma-banner').hide();
         return;
     }
-    const busy = isEngineThinking || waitingForBlunderAnalysis || engineMoveApplyPending || pendingMoveEvaluation;
+    const busy = isEngineThinking || waitingForBlunderAnalysis || engineMoveApplyPending
+        || pendingMoveEvaluation || positionalRetryTimeout !== null;
     const over = !game || game.game_over();
     $('#btn-undo-move').prop('disabled', busy || over || positionalMoveHistory.length === 0);
     $('#btn-norma').prop('disabled', busy || over || isViewingGameHistory());
 }
 
 function resetPositionalState() {
+    clearPositionalRetryTimer();
     positionalMoveHistory = [];
+    positionalLastAttempt = null;
     normaCache = null;
     $('#norma-banner').hide();
     updatePositionalMovePanel();
     updatePositionalUI();
 }
 
-// S'invoca quan l'anàlisi de la jugada del jugador ha acabat (mateix moment i
-// mateixa qualitat que resolvePendingMoveEvaluation): desa la jugada a la pila
-// del mode i pinta la seva precisió al costat del tauler.
-function registerPositionalMoveFeedback(swing, quality) {
-    if (!isPositionalMode()) return;
-    const counted = (quality === 'excel' || quality === 'good');
-    positionalMoveHistory.push({
-        counted,
+// S'invoca quan l'anàlisi de la jugada del jugador ha acabat (just després de
+// resolvePendingMoveEvaluation) i DECIDEIX el flux del Joc posicional:
+//  - jugada VERDA (de les millors segons Stockfish): es confirma i l'enginy
+//    respon — la partida avança;
+//  - jugada NO verda: es marca amb l'índex (taronja/vermell), l'adversari NO
+//    respon i al cap d'un moment es tira enrere sola perquè el jugador provi
+//    una altra jugada. Sense verd no s'avança.
+// Retorna true si el mode posicional s'ha fet càrrec de la continuació.
+function positionalHandleMoveOutcome(swing, quality) {
+    if (!isPositionalMode()) return false;
+    const green = positionalIsGreenQuality(quality);
+    let san = null;
+    try {
+        const hist = game.history();
+        san = hist.length ? hist[hist.length - 1] : null;
+    } catch (e) {}
+    positionalLastAttempt = {
+        san,
         precision: positionalMovePrecisionPct(swing, quality),
-        quality
-    });
+        quality,
+        green
+    };
+    if (green) {
+        positionalMoveHistory.push({ counted: true, precision: positionalLastAttempt.precision, quality });
+    }
     updatePositionalMovePanel();
     updatePositionalUI();
+
+    if (green) {
+        if (!game.game_over()) makeEngineMove();
+        return true;
+    }
+
+    const pct = positionalLastAttempt.precision;
+    $('#status')
+        .text(`Índex ${pct}%${san ? ' (' + san + ')' : ''} — no és la verda: es tira enrere per provar-ne una altra`)
+        .css('color', pct >= 55 ? '#ffa733' : '#ff5b4d');
+    clearPositionalRetryTimer();
+    const scheduledGame = game;
+    positionalRetryTimeout = setTimeout(() => {
+        positionalRetryTimeout = null;
+        // Si mentrestant s'ha canviat de partida o de mode, no es toca res.
+        if (!isPositionalMode() || game !== scheduledGame || !game || game.game_over()) {
+            updatePositionalUI();
+            return;
+        }
+        positionalAutoRetryUndo();
+    }, 1500);
+    updatePositionalUI();
+    return true;
+}
+
+// Desfer automàtic d'una jugada NO verda: l'adversari encara no ha respost,
+// així que només es reverteix la semijugada del jugador i la seva
+// comptabilitat. L'índex de l'intent es manté visible al panell.
+function positionalAutoRetryUndo() {
+    try {
+        const verbose = game.history({ verbose: true });
+        const last = verbose[verbose.length - 1];
+        if (!last || last.color !== playerColor) { updatePositionalUI(); return; }
+        game.undo();
+    } catch (e) { updatePositionalUI(); return; }
+
+    totalPlayerMoves = Math.max(0, totalPlayerMoves - 1);
+    if (currentReview.length) currentReview.pop();
+    pendingMoveEvaluation = false;
+    lastHumanMoveUci = null;
+    normaCache = null;
+
+    $('#blunder-alert').hide();
+    $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
+    clearEngineMoveHighlights();
+    clearTapSelection();
+
+    resetGameMoveNav();
+    board.position(game.fen());
+    updatePrecisionDisplay();
+    updateGameMoveNavButtons();
+    updatePositionalUI();
+    const pct = positionalLastAttempt ? positionalLastAttempt.precision : null;
+    $('#status')
+        .text(pct !== null
+            ? `Jugada desfeta (índex ${pct}%): busca la verda (${POSITIONAL_GREEN_MIN}% o més) per avançar`
+            : 'Jugada desfeta: busca la jugada verda per avançar')
+        .css('color', 'var(--accent-cream)');
 }
 
 // Tirar enrere: desfà la rèplica de l'enginy (si ja l'ha feta) i la darrera
@@ -24600,12 +24713,14 @@ function positionalUndoMove(force = false) {
     if (!isPositionalMode()) return;
     if (!game || game.game_over()) return;
     if (positionalMoveHistory.length === 0) return;
-    const busy = isEngineThinking || waitingForBlunderAnalysis || engineMoveApplyPending || pendingMoveEvaluation;
+    const busy = isEngineThinking || waitingForBlunderAnalysis || engineMoveApplyPending
+        || pendingMoveEvaluation || positionalRetryTimeout !== null;
     if (busy && !force) {
         showToast("Espera que l'enginy acabi de respondre per tirar enrere", 'warn');
         return;
     }
     if (waitingForBlunderAnalysis) return; // mai a mitja anàlisi: es barrejarien respostes
+    clearPositionalRetryTimer();
     clearEngineMoveTimers();
     isEngineThinking = false;
     engineReplyStartTs = null;
@@ -24628,6 +24743,9 @@ function positionalUndoMove(force = false) {
     pendingMoveEvaluation = false;
     lastHumanMoveUci = null;
     normaCache = null;
+    // Es torna a una posició neta: l'indicador d'índex es buida fins al
+    // següent intent.
+    positionalLastAttempt = null;
 
     $('#blunder-alert').hide();
     $('#norma-banner').hide();
@@ -24641,7 +24759,7 @@ function positionalUndoMove(force = false) {
     updatePositionalMovePanel();
     updateGameMoveNavButtons();
     updatePositionalUI();
-    $('#status').text("Jugada desfeta: prova'n una altra i veuràs la nova precisió").css('color', 'var(--accent-cream)');
+    $('#status').text("Jugada desfeta: prova'n una altra i veuràs el seu índex Stockfish").css('color', 'var(--accent-cream)');
 }
 
 /* ---------- La Norma: principis que han de regir el moviment ---------- */
@@ -25234,6 +25352,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     }
     pendingMoveEvaluation = false;
     clearEngineMoveTimers();
+    // Si quedava pendent el desfer automàtic d'una jugada no verda (Joc
+    // posicional), s'anul·la: la partida ja s'ha tancat tal com està.
+    clearPositionalRetryTimer();
     stopGameClock();
     let msg = ""; let change = 0; let playerWon = false; let resultScore = 0.5;
     const wasLeagueMatch = (currentGameMode === 'league') && !!leagueActiveMatch;

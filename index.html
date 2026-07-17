@@ -714,11 +714,16 @@
         }
         body.epaper-mode .norma-text strong { color: #222; }
 
-        /* JOC POSICIONAL: precisió de la darrera jugada al panell de precisió */
+        /* JOC POSICIONAL: índex Stockfish de la darrera jugada al panell
+           (sense barra de precisió: l'índex ocupa el panell, ben centrat) */
         #move-precision.good { color: #66bb6a; }
         #move-precision.warning { color: #ffa733; }
         #move-precision.danger { color: #ff5b4d; }
         .move-precision-quality { font-size: 0.68rem; color: var(--text-secondary); margin-top: 2px; }
+        .precision-panel.positional-only { justify-content: center; }
+        .precision-panel.positional-only #move-precision-stat { min-width: 0; }
+        .precision-panel.positional-only #move-precision { font-size: 1.6rem; }
+        .precision-panel.positional-only .move-precision-quality { font-size: 0.78rem; }
         body.epaper-mode #move-precision.good,
         body.epaper-mode #move-precision.warning,
         body.epaper-mode #move-precision.danger { color: #222; }
@@ -4351,12 +4356,14 @@
                         <div class="positional-note" id="positional-note">
                             <strong>🔭 Joc posicional:</strong> modalitat per aprendre a jugar «en present», pensada
                             per a qui encara no calcula jugades futures. L'enginy només valora la jugada actual i la
-                            resposta immediata de l'adversari (res de càlculs a jugades vista). A cada moviment veuràs
-                            al costat del tauler la <strong>precisió</strong> de la teva jugada i podràs
-                            <strong>tirar enrere</strong> per provar-ne una altra i veure la nova precisió. A més de la
-                            <strong>Pista</strong>, el botó <strong>Norma</strong> t'indica quin principi d'escacs hauria
-                            de regir el moviment: controlar el centre, defensar el rei, atacar com a mínim amb dues
-                            peces… La partida no puntua ELO: és per entrenar l'ull posicional sense pressió.
+                            resposta immediata de l'adversari (res de càlculs a jugades vista). Cada jugada teva es
+                            marca amb el seu <strong>índex Stockfish</strong>: <strong>verd</strong> si és de les
+                            millors de la posició, i si no, <strong>taronja o vermell</strong> segons la precisió.
+                            Sense verd no s'avança: la jugada <strong>es tira enrere automàticament</strong> perquè en
+                            provis una altra fins trobar la verda. A més de la <strong>Pista</strong>, el botó
+                            <strong>Norma</strong> t'indica quin principi d'escacs hauria de regir el moviment:
+                            controlar el centre, defensar el rei, atacar com a mínim amb dues peces… La partida no
+                            puntua ELO: és per entrenar l'ull posicional sense pressió.
                         </div>
                     </div>
 
@@ -6096,8 +6103,8 @@
                 </div>
             </div>
             
-            <div class="precision-panel">
-                <div class="precision-stat">
+            <div class="precision-panel" id="game-precision-panel">
+                <div class="precision-stat" id="precision-global-stat">
                     <div class="precision-label">Precisió</div>
                     <div class="precision-value" id="current-precision">—</div>
                 </div>
@@ -6109,10 +6116,11 @@
                     <div class="precision-label">Objectiu</div>
                     <div class="precision-value precision-target-text" id="precision-target-text">75%</div>
                 </div>
-                <!-- Joc posicional: precisió de la DARRERA jugada, al costat del tauler
-                     (substitueix l'objectiu; l'enginy la recalcula si tires enrere) -->
+                <!-- Joc posicional: índex Stockfish de la DARRERA jugada intentada
+                     (aquí no hi ha barra de precisió; verd = jugada al màxim, que fa
+                     avançar; taronja/vermell = es tira enrere per provar-ne una altra) -->
                 <div class="precision-stat" id="move-precision-stat" style="display:none;">
-                    <div class="precision-label">Jugada</div>
+                    <div class="precision-label">Índex Stockfish</div>
                     <div class="precision-value" id="move-precision">—</div>
                     <div class="move-precision-quality" id="move-precision-quality"></div>
                 </div>
