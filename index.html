@@ -1490,6 +1490,13 @@
             text-align: left;
         }
         .positional-note strong { color: #58b98a; }
+        /* Desplegable de jugades vista del Joc posicional (a sota del comentari) */
+        .positional-vision-row { display: flex; flex-direction: column; gap: 6px; }
+        .positional-vision-label {
+            display: flex; align-items: center; gap: 6px;
+            font-size: 0.78rem; color: var(--text-secondary);
+        }
+        .positional-vision-row .select-control { width: 100%; }
         body.day-mode .positional-note { background: rgba(46, 125, 91, 0.08); }
         body.day-mode .positional-note strong { color: #1f6b49; }
         body.epaper-mode .positional-note {
@@ -4355,9 +4362,11 @@
                         <!-- Comentari de la modalitat Joc posicional: què és i per a qui -->
                         <div class="positional-note" id="positional-note">
                             <strong>🔭 Joc posicional:</strong> modalitat per aprendre a jugar «en present», pensada
-                            per a qui encara no calcula jugades futures. L'enginy juga sempre amb
-                            l'<strong>ELO màxim</strong> (tota la força de Stockfish), però només valora la jugada
-                            actual i la resposta immediata de l'adversari (res de càlculs a jugades vista). Cada jugada teva es
+                            per a qui encara no calcula jugades futures. Al desplegable de sota tries les
+                            <strong>jugades vista</strong> (del seu color) que calcula l'enginy: amb <strong>0</strong>
+                            només valora la jugada actual i la resposta immediata de l'adversari, i a cada opció el seu
+                            <strong>ELO s'adapta</strong> al que equival aquesta visió (amb 0, prou baix perquè tinguis
+                            opcions de guanyar partides). Cada jugada teva es
                             marca amb el seu <strong>índex Stockfish</strong>: <strong>verd</strong> si és de les
                             millors de la posició, i si no, <strong>taronja o vermell</strong> segons la precisió.
                             Sense verd no s'avança: la jugada <strong>es tira enrere automàticament</strong> perquè en
@@ -4365,6 +4374,20 @@
                             <strong>Norma</strong> t'indica quin principi d'escacs hauria de regir el moviment:
                             controlar el centre, defensar el rei, atacar com a mínim amb dues peces… La partida no
                             puntua ELO: és per entrenar l'ull posicional sense pressió.
+                        </div>
+                        <!-- Desplegable de jugades vista del Joc posicional: cada opció fixa
+                             l'horitzó de càlcul de l'enginy i l'ELO equivalent del rival -->
+                        <div class="positional-vision-row">
+                            <label class="positional-vision-label" for="positional-vision-select"><svg class="btn-ic" aria-hidden="true"><use href="#ic-scope"/></svg>Jugades vista de l'enginy (Joc posicional)</label>
+                            <select id="positional-vision-select" class="select-control">
+                                <option value="0">0 — només el present · rival ROC ~750</option>
+                                <option value="1">1 jugada vista · rival ROC ~1000</option>
+                                <option value="2">2 jugades vista · rival ROC ~1250</option>
+                                <option value="3">3 jugades vista · rival ELO ~1450</option>
+                                <option value="4">4 jugades vista · rival ELO ~1650</option>
+                                <option value="5">5 jugades vista · rival ELO ~1800</option>
+                                <option value="6">6 jugades vista · rival ELO ~1950</option>
+                            </select>
                         </div>
                     </div>
 

@@ -4639,6 +4639,11 @@ function getAdaptiveNormalized() {
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
 function getActiveStrengthElo() {
     if (currentGameMode === 'fen_max') return ELO_MAX;
+    // Joc posicional: la força del rival és l'EQUIVALENT del nombre de jugades
+    // vista triat al desplegable (no l'ELO adaptatiu de l'usuari). Amb aquest
+    // valor, tota la maquinària estàndard (UCI_Elo, MultiPV, selecció humana
+    // de jugades, temps de resposta) queda alineada amb la visió triada.
+    if (isPositionalMode()) return getPositionalVisionLevel().roc;
     if (isCalibrationGame) return currentCalibrationOpponentRoc || CALIBRATION_ROCS[0];
     if (currentGameMode === 'league' && leagueActiveMatch) return getLeagueOpponentRoc(leagueActiveMatch);
     // Repte «Rejugar +5%»: el rival juga a la força de la partida original,
@@ -5059,10 +5064,11 @@ function getOpponentElo() {
 }
 
 function getAIDepth() {
-    // Joc posicional: l'enginy només calcula la jugada present i la resposta
-    // immediata de l'adversari (2 semijugades), MAI més enllà. És la gràcia del
-    // mode: un rival que juga el present, com el jugador que aprèn.
-    if (!isCalibrationGame && currentGameMode === 'positional') return POSITIONAL_ENGINE_DEPTH;
+    // Joc posicional: l'horitzó del motor el fixa el desplegable de jugades
+    // vista (0 = només la jugada present i la resposta immediata de
+    // l'adversari; cada nivell de visió afegeix una jugada pròpia més, és a
+    // dir 2 semijugades). Sense atzar: l'horitzó triat és exacte.
+    if (!isCalibrationGame && currentGameMode === 'positional') return getPositionalVisionLevel().depth;
 
     const randomness = Math.floor(Math.random() * 3) - 1;
 
@@ -6425,9 +6431,11 @@ function updateAdaptiveEngineEloLabel() {
     // per sota és l'escala pròpia adaptativa ("ROC"), que el motor no reprodueix exactament.
     const unit = elo >= engineEloMin ? 'ELO' : 'ROC';
     if (currentGameMode === 'positional' && !blunderMode) {
-        // L'ELO de l'enginy al Joc posicional és sempre el màxim (sense límit
-        // de força): la seva única debilitat és no mirar més enllà del present.
-        $('#engine-elo').text('ELO màxim · només present');
+        // Al Joc posicional el rival juga a l'ELO EQUIVALENT de les jugades
+        // vista triades al desplegable del menú.
+        const level = getPositionalVisionLevel();
+        const levelUnit = level.roc >= engineEloMin ? 'ELO' : 'ROC';
+        $('#engine-elo').text(`${levelUnit} ~${level.roc} · ${positionalVisionText(level)}`);
         return;
     }
     if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
@@ -20046,6 +20054,9 @@ function setupEvents() {
     }
     isAnalyzingHint = true;
     $('#status').text("Buscant objectiu clau...");
+    // Al Joc posicional la pista guia cap a la jugada verda: es calcula a
+    // força màxima (el rival ja es re-limitarà a la seva propera resposta).
+    if (isPositionalMode()) applyEngineMaxStrength();
     stockfish.postMessage(`position fen ${game.fen()}`);
     stockfish.postMessage('go depth 15');
 });
@@ -20069,6 +20080,21 @@ function setupEvents() {
         window._startPositionalGame = true;
         startGame(false);
     });
+
+    // Desplegable de jugades vista del Joc posicional: fixa l'horitzó de
+    // càlcul de l'enginy i el seu ELO equivalent. Es desa i val per a la
+    // propera partida posicional (les partides en curs no es toquen).
+    const $positionalVisionSelect = $('#positional-vision-select');
+    if ($positionalVisionSelect.length) {
+        $positionalVisionSelect.val(String(positionalVision));
+        $positionalVisionSelect.on('change', function () {
+            const parsed = parseInt($(this).val(), 10);
+            positionalVision = isNaN(parsed)
+                ? 0
+                : Math.max(0, Math.min(POSITIONAL_VISION_LEVELS.length - 1, parsed));
+            try { localStorage.setItem(POSITIONAL_VISION_KEY, String(positionalVision)); } catch (e) {}
+        });
+    }
 
     // Joc posicional: la Norma (principi que ha de regir el moviment) i el
     // desfer de la darrera jugada per provar-ne una altra.
@@ -22684,15 +22710,15 @@ blunderMode = isBundle;
         $('#game-mode-title').text('🧭 Partida assistida');
         if (engineReady) applyEngineEloStrength(currentElo);
     } else if (startPositionalRequest) {
-        // Joc posicional: aprendre a jugar el PRESENT. L'enginy juga SEMPRE a
-        // força màxima (sense límit d'ELO) però amb l'horitzó retallat a
-        // 2 semijugades (vegeu getAIDepth i makeEngineMove); la partida no
-        // puntua ELO ni ajusta la dificultat.
+        // Joc posicional: aprendre a jugar el PRESENT. L'horitzó del motor i el
+        // seu ELO equivalent els fixa el desplegable de jugades vista (vegeu
+        // POSITIONAL_VISION_LEVELS, getAIDepth i getActiveStrengthElo); la
+        // partida no puntua ELO ni ajusta la dificultat.
         currentGameMode = 'positional';
         currentOpponent = null;
         updateAdaptiveEngineEloLabel();
         $('#game-mode-title').text('🔭 Joc posicional');
-        if (engineReady) applyEngineMaxStrength();
+        if (engineReady) applyEngineEloStrength(getActiveStrengthElo());
     } else {
         currentGameMode = 'free';
         currentOpponent = null;
@@ -22705,7 +22731,7 @@ blunderMode = isBundle;
     }
     currentGameActiveStrengthElo = getActiveStrengthElo();
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
-    if (currentGameMode === 'positional' && !isCalibrationGame) currentGameEngineDepth = POSITIONAL_ENGINE_DEPTH;
+    if (currentGameMode === 'positional' && !isCalibrationGame) currentGameEngineDepth = getPositionalVisionLevel().depth;
 
     // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
     $('#btn-analyze').toggle(currentGameMode === 'assisted' && !isCalibrationGame);
@@ -22951,13 +22977,11 @@ function makeEngineMove() {
     // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
     // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada
     // jugada per no heretar opcions d'altres modes (p. ex. pràctica d'obertures).
-    // EXCEPCIÓ: al Joc posicional l'ELO de l'enginy és SEMPRE el màxim (sense
-    // límit de força); la seva única debilitat és l'horitzó de 2 semijugades.
-    if (isPositionalMode()) applyEngineMaxStrength();
-    else applyEngineEloStrength(getActiveStrengthElo());
-    const multiPvValue = isPositionalMode()
-        ? 1 // a força màxima es juga la millor línia: no calen candidates per humanitzar
-        : getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
+    // Al Joc posicional, getActiveStrengthElo retorna l'ELO EQUIVALENT de les
+    // jugades vista triades, així que el rival juga (i s'humanitza) a aquell
+    // nivell; l'anàlisi de l'índex, en canvi, va a força màxima (analyzeMove).
+    applyEngineEloStrength(getActiveStrengthElo());
+    const multiPvValue = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     stockfish.postMessage(`position fen ${game.fen()}`); 
     stockfish.postMessage(`go depth ${depth}`);
@@ -23040,6 +23064,12 @@ function analyzeMove() {
         stockfish.postMessage('go depth 12');
         return;
     }
+
+    // Joc posicional: l'ÍNDEX Stockfish de la jugada es calcula sempre amb el
+    // motor a força màxima (sense límit d'ELO), encara que el RIVAL jugui a
+    // l'ELO equivalent de les jugades vista triades. makeEngineMove torna a
+    // limitar la força just abans de la resposta del rival.
+    if (isPositionalMode()) applyEngineMaxStrength();
 
     // CANVI: Activar MultiPV i resetejar buffer
     resetEnrichedAnalysisBuffer();
@@ -23593,17 +23623,12 @@ function handleEngineMessage(rawMsg) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
             // Mateix model de selecció per calibratge i joc lliure: així el ROC estimat
             // durant el calibratge reflecteix la força real que el jugador trobarà després.
-            // Al Joc posicional NO s'humanitza res: l'enginy juga sempre la millor
-            // jugada que ha trobat (força màxima, horitzó de 2 semijugades).
-            let moveStr;
-            if (isPositionalMode()) {
-                moveStr = fallbackMove;
-            } else {
-                const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
-                moveStr = (engineMoveCandidates.length > 0 && chosen.move)
-                    ? chosen.move
-                    : chooseFallbackMove(fallbackMove);
-            }
+            // (El Joc posicional també hi passa: la humanització treballa amb
+            // l'ELO equivalent de les jugades vista, via getActiveStrengthElo.)
+            const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
+            const moveStr = (engineMoveCandidates.length > 0 && chosen.move)
+                ? chosen.move
+                : chooseFallbackMove(fallbackMove);
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
@@ -24528,7 +24553,43 @@ function returnToBundleMenu() {
    ensenya el principi posicional que hauria de regir el moviment. No puntua
    ELO ni ajusta la dificultat: és un gimnàs, no una prova. */
 
-const POSITIONAL_ENGINE_DEPTH = 2;
+// Nivells de "jugades vista" del Joc posicional (desplegable del menú). Cada
+// opció fixa QUANTES jugades del seu propi color pot calcular l'enginy (vision)
+// — 0 = només la jugada present i la resposta immediata de l'adversari —, la
+// profunditat de cerca corresponent (2 semijugades per nivell de visió) i
+// l'ELO/ROC EQUIVALENT amb què juga el rival: la força s'adapta al que
+// equivaldria un jugador humà amb aquesta visió. L'opció base (0) és prou
+// baixa perquè l'usuari tingui opcions de guanyar partides.
+const POSITIONAL_VISION_LEVELS = [
+    { vision: 0, depth: 2, roc: 750 },
+    { vision: 1, depth: 4, roc: 1000 },
+    { vision: 2, depth: 6, roc: 1250 },
+    { vision: 3, depth: 8, roc: 1450 },
+    { vision: 4, depth: 10, roc: 1650 },
+    { vision: 5, depth: 12, roc: 1800 },
+    { vision: 6, depth: 14, roc: 1950 }
+];
+const POSITIONAL_VISION_KEY = 'chess_positionalVision';
+
+// Visió triada (0-6), persistida entre sessions.
+let positionalVision = 0;
+try {
+    const storedVision = parseInt(localStorage.getItem(POSITIONAL_VISION_KEY), 10);
+    if (!isNaN(storedVision)) {
+        positionalVision = Math.max(0, Math.min(POSITIONAL_VISION_LEVELS.length - 1, storedVision));
+    }
+} catch (e) {}
+
+function getPositionalVisionLevel() {
+    const idx = Math.max(0, Math.min(POSITIONAL_VISION_LEVELS.length - 1, positionalVision));
+    return POSITIONAL_VISION_LEVELS[idx];
+}
+
+function positionalVisionText(level = getPositionalVisionLevel()) {
+    if (level.vision === 0) return 'només present';
+    return `${level.vision} ${level.vision === 1 ? 'jugada' : 'jugades'} vista`;
+}
+
 // Llindar visual del verd: coherent amb positionalMovePrecisionPct (les
 // jugades verdes mai baixen de 85; les no verdes mai hi arriben).
 const POSITIONAL_GREEN_MIN = 85;
