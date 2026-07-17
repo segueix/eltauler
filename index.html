@@ -5107,6 +5107,14 @@
                 border-radius: 12px; padding: 12px 14px; margin-top: 12px;
             }
             .explorer-edit-hint { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; }
+            /* Editor: peça del palet seleccionada per col·locar-la per tocs
+               (marc daurat, com la selecció de «tocar» del tauler de joc). */
+            #explorer-board .spare-pieces-7492f .piece-417db { cursor: pointer; border-radius: 8px; }
+            #explorer-board .spare-pieces-7492f .piece-417db.spare-selected {
+                outline: 3px solid rgba(201, 162, 39, 0.95);
+                outline-offset: -2px;
+                background: rgba(201, 162, 39, 0.18);
+            }
             .explorer-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
             .explorer-edit-row label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
             @media (max-width: 768px) {
@@ -5256,7 +5264,7 @@
             </div>
 
             <div class="explorer-edit-toolbar" id="explorer-edit-toolbar" style="display:none;">
-                <div class="explorer-edit-hint">Arrossega les peces on vulguis: les de fora del tauler n'afegeixen, i deixar-ne una fora la treu. Els drets d'enroc es dedueixen de reis i torres a la casella inicial.</div>
+                <div class="explorer-edit-hint">Toca una peça de fora del tauler per seleccionar-la i ves tocant caselles buides per anar-la posant (es manté seleccionada fins que en triïs una altra). També pots arrossegar les peces on vulguis; deixar-ne una fora del tauler la treu. Els drets d'enroc es dedueixen de reis i torres a la casella inicial.</div>
                 <div class="explorer-edit-row">
                     <label for="explorer-edit-turn">Qui mou?</label>
                     <select id="explorer-edit-turn" class="select-control">

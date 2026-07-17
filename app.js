@@ -9104,6 +9104,7 @@ let explorerIndex = 0;             // jugades de la línia aplicades (per anar e
 let explorerActive = false;        // pantalla oberta: cedeix el motor a l'explorador
 let explorerEditMode = false;      // editor de posició actiu
 let explorerEditSnapshot = null;   // per restaurar la línia si es cancel·la l'edició
+let explorerEditSparePiece = null; // peça del palet seleccionada per col·locar-la per tocs
 let explorerAnalysisToken = 0;     // descarta respostes del motor d'una posició anterior
 let explorerAnalysisTimer = null;  // petit debounce entre jugada i anàlisi
 let explorerLastBest = null;       // { fen, uci } de la millor jugada analitzada
@@ -9165,7 +9166,38 @@ function createExplorerBoard(editMode) {
     explorerBoard = Chessboard('explorer-board', config);
     explorerBoardControlMode = desiredControlMode;
     updateExplorerBoardInteractivity();
+    // Cal lligar-ho aquí (i no un sol cop a l'inici): destroy() de
+    // chessboard.js fa unbind() de TOTS els esdeveniments del contenidor.
+    if (editMode) bindExplorerEditPlaceEvents();
     if (!editMode) reapplyExplorerEngineMoveHighlight();
+}
+
+// Editor: col·locació per tocs. S'escolta mousedown/touchstart (i no 'click')
+// perquè chessboard.js comença l'arrossegament amb el mateix toc i el 'click'
+// resultant acaba dirigit al body (la peça fantasma queda sota el punter). El
+// preventDefault del touchstart evita el mousedown sintetitzat (commutaria
+// dues vegades) i el desplaçament de la pàgina.
+function bindExplorerEditPlaceEvents() {
+    $('#explorer-board').off('.exp-editplace')
+        .on('mousedown.exp-editplace touchstart.exp-editplace', '.spare-pieces-7492f .piece-417db', function (e) {
+            if (!explorerEditMode) return;
+            if (e.type === 'touchstart') e.preventDefault();
+            const piece = $(this).attr('data-piece');
+            if (!piece) return;
+            setExplorerEditSparePiece(piece === explorerEditSparePiece ? null : piece);
+        })
+        .on('mousedown.exp-editplace touchstart.exp-editplace', '.square-55d63', function (e) {
+            if (!explorerEditMode || !explorerEditSparePiece || !explorerBoard) return;
+            const square = $(this).attr('data-square');
+            if (!square) return;
+            const pos = explorerBoard.position();
+            // Sobre una casella ocupada es deixa fer l'arrossegament normal
+            // (moure la peça o treure-la): la col·locació és a caselles buides.
+            if (pos[square]) return;
+            if (e.type === 'touchstart') e.preventDefault();
+            pos[square] = explorerEditSparePiece;
+            explorerBoard.position(pos, false);
+        });
 }
 
 // Mode «tocar» (preferència de control de l'usuari): tocar peça i destí, amb
@@ -9712,6 +9744,25 @@ function explorerSwapTurn() {
 }
 
 // ── Editor de posició ────────────────────────────────────────────────────────
+// Col·locació per tocs (mòbil i escriptori): a més d'arrossegar, tocar una
+// peça del palet la SELECCIONA (marc daurat) i cada toc en una casella buida
+// la col·loca, sense perdre la selecció, fins que se'n tria una altra, es
+// torna a tocar la mateixa o se surt de l'editor (jugar demana sortir-ne).
+function setExplorerEditSparePiece(piece) {
+    explorerEditSparePiece = piece || null;
+    applyExplorerEditSpareSelectionUI();
+}
+
+// Reaplica el marc de la peça seleccionada: el palet es reconstrueix quan el
+// tauler canvia de mida, i les classes es perdrien.
+function applyExplorerEditSpareSelectionUI() {
+    const $spares = $('#explorer-board .spare-pieces-7492f .piece-417db');
+    $spares.removeClass('spare-selected');
+    if (explorerEditSparePiece) {
+        $spares.filter(`[data-piece='${explorerEditSparePiece}']`).addClass('spare-selected');
+    }
+}
+
 function enterExplorerEditMode() {
     if (explorerEditMode || !explorerGame) return;
     exitExplorerPreview();
@@ -9723,6 +9774,7 @@ function enterExplorerEditMode() {
     if (explorerAnalysisTimer) { clearTimeout(explorerAnalysisTimer); explorerAnalysisTimer = null; }
     const turnSel = document.getElementById('explorer-edit-turn');
     if (turnSel) turnSel.value = explorerGame.turn();
+    setExplorerEditSparePiece(null); // l'editor comença sense cap peça del palet seleccionada
     createExplorerBoard(true);
     // Sense cap FEN carregat (exploració pristina des de la posició inicial),
     // l'editor comença amb el tauler BUIT: la posició es munta des de zero amb
@@ -9770,6 +9822,7 @@ function exitExplorerEditMode(apply) {
         }
     }
     explorerEditMode = false;
+    setExplorerEditSparePiece(null);
     $('#explorer-edit-toolbar').hide();
     $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status').show();
     if (apply) {
@@ -9814,6 +9867,7 @@ function closeExplorerScreen() {
     showExplorerImportNote(null);
     explorerActive = false;
     explorerEditMode = false;
+    explorerEditSparePiece = null;
     explorerPv = null;
     ++explorerAnalysisToken;
     if (explorerAnalysisTimer) { clearTimeout(explorerAnalysisTimer); explorerAnalysisTimer = null; }
@@ -19616,6 +19670,11 @@ function setupEvents() {
     $('#explorer-edit-cancel').off('click').on('click', () => exitExplorerEditMode(false));
     $('#explorer-edit-clear').off('click').on('click', () => { if (explorerEditMode && explorerBoard) explorerBoard.clear(false); });
     $('#explorer-edit-start').off('click').on('click', () => { if (explorerEditMode && explorerBoard) explorerBoard.start(false); });
+    // El palet es reconstrueix quan el tauler canvia de mida (gir del mòbil,
+    // finestra): es reaplica el marc de la peça seleccionada un cop redibuixat.
+    $(window).off('resize.exp-editplace').on('resize.exp-editplace', () => {
+        if (explorerEditMode && explorerEditSparePiece) setTimeout(applyExplorerEditSpareSelectionUI, 300);
+    });
     $('#btn-calibration-continue').click(() => {
         $('#calibration-result-screen').hide();
         $('#start-screen').show();
