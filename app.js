@@ -5059,6 +5059,11 @@ function getOpponentElo() {
 }
 
 function getAIDepth() {
+    // Joc posicional: l'enginy només calcula la jugada present i la resposta
+    // immediata de l'adversari (2 semijugades), MAI més enllà. És la gràcia del
+    // mode: un rival que juga el present, com el jugador que aprèn.
+    if (!isCalibrationGame && currentGameMode === 'positional') return POSITIONAL_ENGINE_DEPTH;
+
     const randomness = Math.floor(Math.random() * 3) - 1;
 
     if (isCalibrationGame || currentGameMode !== 'league') {
@@ -6419,6 +6424,10 @@ function updateAdaptiveEngineEloLabel() {
     // Per sobre del terra del motor el número és un UCI_Elo real de Stockfish ("ELO");
     // per sota és l'escala pròpia adaptativa ("ROC"), que el motor no reprodueix exactament.
     const unit = elo >= engineEloMin ? 'ELO' : 'ROC';
+    if (currentGameMode === 'positional' && !blunderMode) {
+        $('#engine-elo').text(`${unit} ${elo} · només present`);
+        return;
+    }
     if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
         $('#engine-elo').text(`${eloLevelLabel(elo)} · ${unit} ${elo} (adaptatiu)`);
         return;
@@ -8449,6 +8458,7 @@ function formatHistoryMode(mode) {
     if (mode === 'league') return 'Lliga';
     if (mode === 'free') return 'Amistosa';
     if (mode === 'assisted') return 'Assistida';
+    if (mode === 'positional') return 'Joc posicional';
     if (mode === 'imported') return 'Importada';
     return 'Partida';
 }
@@ -20040,6 +20050,17 @@ function setupEvents() {
         startGame(false);
     });
 
+    $('#btn-positional-game').click(() => {
+        if (!guardCalibrationAccess()) return;
+        window._startPositionalGame = true;
+        startGame(false);
+    });
+
+    // Joc posicional: la Norma (principi que ha de regir el moviment) i el
+    // desfer de la darrera jugada per provar-ne una altra.
+    $('#btn-norma').click(() => { showNextNorma(); });
+    $('#btn-undo-move').click(() => { positionalUndoMove(); });
+
     $('#btn-srs-review').click(() => startSrsReview());
     $('#btn-tactics').click(() => {
         // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
@@ -20146,6 +20167,13 @@ function setupEvents() {
 
     // Click per desfer
     $('#blunder-alert').click(() => {
+        // Al Joc posicional, l'avís d'errada fa el MATEIX desfer que el botó
+        // «Enrere»: reverteix jugada i comptabilitat (l'usuari en veurà la nova
+        // precisió), en lloc del "Rectifica" clàssic que no descompta res.
+        if (isPositionalMode() && game && !game.game_over() && !waitingForBlunderAnalysis) {
+            positionalUndoMove(true);
+            return;
+        }
         clearEngineMoveTimers();
         // Si el clic arriba amb la resposta del motor en camí (cercant o dins
         // del retard humanitzat), el temporitzador que s'acaba de cancel·lar
@@ -22574,6 +22602,11 @@ blunderMode = isBundle;
 
     // Lògica de Modes
     $('#game-mode-title').css('font-size', ''); // reset (el jeroglífic l'agranda després)
+    // La petició de Joc posicional es consumeix SEMPRE aquí (encara que un
+    // calibratge o una altra branca s'imposin), perquè no contamini cap
+    // partida posterior.
+    const startPositionalRequest = window._startPositionalGame === true;
+    window._startPositionalGame = false;
     if (isCalibrationGame) {
         currentCalibrationOpponentRoc = getCalibrationOpponentRoc();
         // Ancora de l'adaptació dins de la partida: el rival comença aquí i puja
@@ -22636,6 +22669,15 @@ blunderMode = isBundle;
         updateAdaptiveEngineEloLabel();
         $('#game-mode-title').text('🧭 Partida assistida');
         if (engineReady) applyEngineEloStrength(currentElo);
+    } else if (startPositionalRequest) {
+        // Joc posicional: aprendre a jugar el PRESENT. L'enginy manté la força
+        // adaptativa (UCI_Elo) però amb l'horitzó retallat a 2 semijugades
+        // (vegeu getAIDepth); la partida no puntua ELO ni ajusta la dificultat.
+        currentGameMode = 'positional';
+        currentOpponent = null;
+        updateAdaptiveEngineEloLabel();
+        $('#game-mode-title').text('🔭 Joc posicional');
+        if (engineReady) applyEngineEloStrength(currentElo);
     } else {
         currentGameMode = 'free';
         currentOpponent = null;
@@ -22648,9 +22690,13 @@ blunderMode = isBundle;
     }
     currentGameActiveStrengthElo = getActiveStrengthElo();
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
+    if (currentGameMode === 'positional' && !isCalibrationGame) currentGameEngineDepth = POSITIONAL_ENGINE_DEPTH;
 
     // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
     $('#btn-analyze').toggle(currentGameMode === 'assisted' && !isCalibrationGame);
+
+    // Controls i panells propis del Joc posicional (nets a cada partida nova)
+    resetPositionalState();
 
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
@@ -22666,7 +22712,9 @@ blunderMode = isBundle;
     // retorna 'none' i es juga sense pressa com sempre. Les partides des del
     // tauler d'anàlisi van sempre sense rellotge: amb rellotge puntuarien
     // l'ELO del ritme, i són partides que no han de puntuar res.
-    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer');
+    // El Joc posicional es juga sempre sense rellotge: és per pensar el present
+    // amb calma (i sense rellotge tampoc no interfereix amb els ELO per ritme).
+    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer' && currentGameMode !== 'positional');
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -22928,6 +22976,10 @@ function chooseFallbackMove(fallbackMove, chessInstance = game) {
 }
 
 function analyzeMove() {
+    // La Norma mostrada era per a la decisió que el jugador acaba de prendre:
+    // en jugar, deixa de ser vigent i s'amaga.
+    $('#norma-banner').hide();
+
     // Si la jugada del jugador acaba de finalitzar la partida, NO s'ha d'invocar
     // el motor sobre la posició final: en una posició sense jugades legals (escac
     // i mat, ofegat, taules...) Stockfish no retorna un "bestmove" fiable i
@@ -23449,6 +23501,9 @@ function handleEngineMessage(rawMsg) {
                 afterFen: pendingAfterFen
             });
             resolvePendingMoveEvaluation(moveQuality);
+            // Joc posicional: la mateixa anàlisi alimenta la precisió de la
+            // jugada que es mostra al costat del tauler (i la pila del desfer).
+            registerPositionalMoveFeedback(swing, moveQuality);
 
             // Si has jugat la millor jugada, no és cap error encara que el swing
             // (comparant anàlisi prèvia profunda amb posterior més curta) sigui gran.
@@ -24431,6 +24486,654 @@ function returnToBundleMenu() {
     }
 }
 
+/* ===================== JOC POSICIONAL =====================
+   Modalitat d'aprenentatge "en present": l'enginy només calcula la seva jugada
+   i la resposta immediata de l'adversari (2 semijugades), sense càlcul a
+   jugades vista. Cada moviment del jugador rep una precisió pròpia (visible al
+   panell, al costat del tauler), es pot tirar enrere per provar una jugada
+   diferent (l'enginy recalcula la precisió de la nova), i el botó «Norma»
+   ensenya el principi posicional que hauria de regir el moviment. No puntua
+   ELO ni ajusta la dificultat: és un gimnàs, no una prova. */
+
+const POSITIONAL_ENGINE_DEPTH = 2;
+
+// Pila de jugades avaluades del jugador en la partida posicional en curs:
+// { counted (sumava a goodMoves), precision (0-100), quality }. És el que permet
+// desfer una jugada revertint també la comptabilitat de precisió.
+let positionalMoveHistory = [];
+
+// Normes de la posició actual: { fen, list, idx } (es recalculen si canvia el FEN).
+let normaCache = null;
+
+function isPositionalMode() {
+    return currentGameMode === 'positional' && !blunderMode;
+}
+
+const POSITIONAL_QUALITY_LABELS = {
+    excel: 'Excel·lent',
+    good: 'Bona',
+    inaccuracy: 'Imprecisió',
+    mistake: 'Error',
+    blunder: 'Errada greu'
+};
+
+function positionalQualityLabel(quality) {
+    return POSITIONAL_QUALITY_LABELS[quality] || '';
+}
+
+// Precisió d'UNA jugada (0-100) a partir de la pèrdua en centipeons. Corba
+// exponencial: 0 cp => 100, ~100 cp => ~75, ~300 cp => ~42, ~600 cp => ~18.
+// Si s'ha jugat la millor jugada del motor (quality 'excel'), mai baixa de 95.
+function positionalMovePrecisionPct(swing, quality) {
+    const loss = Math.max(0, Math.round(Math.abs(swing || 0)));
+    let pct = Math.round(100 * Math.exp(-loss / 350));
+    if (quality === 'excel') pct = Math.max(pct, 95);
+    else if (quality === 'good') pct = Math.max(pct, 85);
+    return Math.max(1, Math.min(100, pct));
+}
+
+function updatePositionalMovePanel() {
+    const valueEl = $('#move-precision');
+    const qualityEl = $('#move-precision-quality');
+    if (!valueEl.length) return;
+    const last = positionalMoveHistory[positionalMoveHistory.length - 1] || null;
+    valueEl.removeClass('good warning danger');
+    if (!last) {
+        valueEl.text('—');
+        if (qualityEl.length) qualityEl.text('');
+        return;
+    }
+    valueEl.text(last.precision + '%');
+    valueEl.addClass(last.precision >= 85 ? 'good' : (last.precision >= 55 ? 'warning' : 'danger'));
+    if (qualityEl.length) qualityEl.text(positionalQualityLabel(last.quality));
+}
+
+// Mostra/amaga i habilita els controls propis del joc posicional. És idempotent
+// i es crida des d'updateStatus perquè segueixi l'estat de la partida sense
+// haver de tocar cada punt del flux del motor.
+function updatePositionalUI() {
+    const positional = isPositionalMode();
+    $('#btn-norma').toggle(positional);
+    $('#btn-undo-move').toggle(positional);
+    $('#move-precision-stat').toggle(positional);
+    $('#precision-objective-stat').toggle(!positional);
+    $('#precision-target').toggle(!positional);
+    if (!positional) {
+        $('#norma-banner').hide();
+        return;
+    }
+    const busy = isEngineThinking || waitingForBlunderAnalysis || engineMoveApplyPending || pendingMoveEvaluation;
+    const over = !game || game.game_over();
+    $('#btn-undo-move').prop('disabled', busy || over || positionalMoveHistory.length === 0);
+    $('#btn-norma').prop('disabled', busy || over || isViewingGameHistory());
+}
+
+function resetPositionalState() {
+    positionalMoveHistory = [];
+    normaCache = null;
+    $('#norma-banner').hide();
+    updatePositionalMovePanel();
+    updatePositionalUI();
+}
+
+// S'invoca quan l'anàlisi de la jugada del jugador ha acabat (mateix moment i
+// mateixa qualitat que resolvePendingMoveEvaluation): desa la jugada a la pila
+// del mode i pinta la seva precisió al costat del tauler.
+function registerPositionalMoveFeedback(swing, quality) {
+    if (!isPositionalMode()) return;
+    const counted = (quality === 'excel' || quality === 'good');
+    positionalMoveHistory.push({
+        counted,
+        precision: positionalMovePrecisionPct(swing, quality),
+        quality
+    });
+    updatePositionalMovePanel();
+    updatePositionalUI();
+}
+
+// Tirar enrere: desfà la rèplica de l'enginy (si ja l'ha feta) i la darrera
+// jugada del jugador, revertint la comptabilitat (precisió global, ressenya i
+// pila del mode) perquè la jugada substituta compti com si l'anterior no
+// s'hagués fet mai. Amb force=true (avís d'errada) se salta els bloquejos
+// d'ocupació i cancel·la la resposta pendent del motor.
+function positionalUndoMove(force = false) {
+    if (!isPositionalMode()) return;
+    if (!game || game.game_over()) return;
+    if (positionalMoveHistory.length === 0) return;
+    const busy = isEngineThinking || waitingForBlunderAnalysis || engineMoveApplyPending || pendingMoveEvaluation;
+    if (busy && !force) {
+        showToast("Espera que l'enginy acabi de respondre per tirar enrere", 'warn');
+        return;
+    }
+    if (waitingForBlunderAnalysis) return; // mai a mitja anàlisi: es barrejarien respostes
+    clearEngineMoveTimers();
+    isEngineThinking = false;
+    engineReplyStartTs = null;
+
+    // Desfés les jugades de l'enginy que hi hagi per sobre i UNA del jugador.
+    let guard = 0;
+    while (game.history().length > 0 && guard < 4) {
+        const verbose = game.history({ verbose: true });
+        const last = verbose[verbose.length - 1];
+        game.undo();
+        guard++;
+        if (last.color === playerColor) break;
+    }
+
+    const undone = positionalMoveHistory.pop();
+    totalPlayerMoves = Math.max(0, totalPlayerMoves - 1);
+    if (undone && undone.counted) goodMoves = Math.max(0, goodMoves - 1);
+    if (currentReview.length) currentReview.pop();
+
+    pendingMoveEvaluation = false;
+    lastHumanMoveUci = null;
+    normaCache = null;
+
+    $('#blunder-alert').hide();
+    $('#norma-banner').hide();
+    $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
+    clearEngineMoveHighlights();
+    clearTapSelection();
+
+    resetGameMoveNav();
+    board.position(game.fen());
+    updatePrecisionDisplay();
+    updatePositionalMovePanel();
+    updateGameMoveNavButtons();
+    updatePositionalUI();
+    $('#status').text("Jugada desfeta: prova'n una altra i veuràs la nova precisió").css('color', 'var(--accent-cream)');
+}
+
+/* ---------- La Norma: principis que han de regir el moviment ---------- */
+
+const NORMA_PIECE_NAMES = { p: 'el peó', n: 'el cavall', b: "l'alfil", r: 'la torre', q: 'la dama', k: 'el rei' };
+const NORMA_SQUARES = (function () {
+    const files = 'abcdefgh'; const out = [];
+    for (let r = 8; r >= 1; r--) for (let f = 0; f < 8; f++) out.push(files[f] + r);
+    return out;
+})();
+
+function normaPieceName(type) { return NORMA_PIECE_NAMES[type] || 'la peça'; }
+
+// Clon de la posició actual amb el torn forçat, per mirar el tauler amb els
+// ulls d'un bàndol concret sense tocar la partida real.
+function normaCloneWithTurn(turnColor) {
+    try {
+        const parts = game.fen().split(' ');
+        parts[1] = turnColor;
+        parts[3] = '-'; // la captura al pas no sobreviu el canvi de torn
+        const clone = new Chess(parts.join(' '));
+        return (clone && typeof clone.moves === 'function') ? clone : null;
+    } catch (e) { return null; }
+}
+
+// Quants defensors té la peça de `color` a `sq`? Es substitueix per una peça
+// rival en un clon i es compten les recaptures legals. Heurística (les clavades
+// hi compten soles), suficient per triar la norma adequada.
+function normaCountDefenders(sq, color) {
+    try {
+        const clone = normaCloneWithTurn(color);
+        if (!clone || !clone.get(sq)) return 0;
+        const rank = parseInt(sq[1], 10);
+        clone.remove(sq);
+        const put = clone.put({ type: (rank === 1 || rank === 8) ? 'n' : 'p', color: color === 'w' ? 'b' : 'w' }, sq);
+        if (!put) return 0;
+        return clone.moves({ verbose: true }).filter(m => m.to === sq && m.captured).length;
+    } catch (e) { return 0; }
+}
+
+// Radiografia barata de la posició per decidir quins principis toquen.
+function normaBuildContext() {
+    const my = playerColor;
+    const opp = my === 'w' ? 'b' : 'w';
+    const pieces = [];
+    NORMA_SQUARES.forEach(sq => {
+        const p = game.get(sq);
+        if (p) pieces.push({ sq, type: p.type, color: p.color });
+    });
+    const mine = pieces.filter(p => p.color === my);
+    const theirs = pieces.filter(p => p.color === opp);
+    const heavyVal = list => list.reduce((s, p) => (p.type === 'k' || p.type === 'p') ? s : s + (PIECE_VALUE[p.type] || 0), 0);
+    const materialOf = list => list.reduce((s, p) => p.type === 'k' ? s : s + (PIECE_VALUE[p.type] || 0), 0);
+
+    const ctx = {
+        my, opp, pieces, mine, theirs,
+        plies: game.history().length,
+        inCheck: game.in_check(),
+        myMaterial: materialOf(mine),
+        oppMaterial: materialOf(theirs),
+        queensOn: pieces.some(p => p.type === 'q'),
+        oppQueenOn: theirs.some(p => p.type === 'q'),
+        heavyTotal: heavyVal(mine) + heavyVal(theirs),
+        myKingSq: (mine.find(p => p.type === 'k') || {}).sq || null,
+        oppKingSq: (theirs.find(p => p.type === 'k') || {}).sq || null,
+        castlingField: (game.fen().split(' ')[1] !== undefined) ? game.fen().split(' ')[2] : '-'
+    };
+
+    // Fase de la partida
+    ctx.endgame = !ctx.queensOn || ctx.heavyTotal <= 26;
+    const homeMinorSquares = my === 'w'
+        ? [['b1', 'n'], ['g1', 'n'], ['c1', 'b'], ['f1', 'b']]
+        : [['b8', 'n'], ['g8', 'n'], ['c8', 'b'], ['f8', 'b']];
+    ctx.undevelopedMinors = homeMinorSquares.filter(([sq, t]) => {
+        const p = game.get(sq); return p && p.color === my && p.type === t;
+    });
+    const oppHomeMinors = my === 'w'
+        ? [['b8', 'n'], ['g8', 'n'], ['c8', 'b'], ['f8', 'b']]
+        : [['b1', 'n'], ['g1', 'n'], ['c1', 'b'], ['f1', 'b']];
+    ctx.oppUndevelopedMinors = oppHomeMinors.filter(([sq, t]) => {
+        const p = game.get(sq); return p && p.color === opp && p.type === t;
+    });
+    ctx.opening = !ctx.endgame && ctx.plies <= 20 && (ctx.undevelopedMinors.length + ctx.oppUndevelopedMinors.length) >= 2;
+    ctx.middlegame = !ctx.opening && !ctx.endgame;
+
+    // Rei: enrocat / pot enrocar
+    const castledSquares = my === 'w' ? ['g1', 'c1'] : ['g8', 'c8'];
+    ctx.castled = castledSquares.indexOf(ctx.myKingSq) !== -1;
+    ctx.canCastle = my === 'w'
+        ? /[KQ]/.test(ctx.castlingField || '')
+        : /[kq]/.test(ctx.castlingField || '');
+
+    // Peons i columnes
+    const fileOf = sq => sq.charCodeAt(0) - 97;
+    const rankOf = sq => parseInt(sq[1], 10);
+    ctx.myPawns = mine.filter(p => p.type === 'p');
+    ctx.oppPawns = theirs.filter(p => p.type === 'p');
+    ctx.centerPresence = ctx.myPawns.filter(p => ['d4', 'e4', 'd5', 'e5'].indexOf(p.sq) !== -1).length;
+    const filePawns = f => ({
+        mine: ctx.myPawns.filter(p => fileOf(p.sq) === f).length,
+        theirs: ctx.oppPawns.filter(p => fileOf(p.sq) === f).length
+    });
+    ctx.openFiles = []; ctx.semiOpenFiles = [];
+    for (let f = 0; f < 8; f++) {
+        const fp = filePawns(f);
+        if (fp.mine === 0 && fp.theirs === 0) ctx.openFiles.push(f);
+        else if (fp.mine === 0) ctx.semiOpenFiles.push(f);
+    }
+    ctx.myRooks = mine.filter(p => p.type === 'r');
+    ctx.rookOnOpenFile = ctx.myRooks.some(r => ctx.openFiles.indexOf(fileOf(r.sq)) !== -1 || ctx.semiOpenFiles.indexOf(fileOf(r.sq)) !== -1);
+    ctx.doubledFiles = [];
+    for (let f = 0; f < 8; f++) if (filePawns(f).mine >= 2) ctx.doubledFiles.push(f);
+    ctx.isolatedPawns = ctx.myPawns.filter(p => {
+        const f = fileOf(p.sq);
+        const left = f > 0 ? filePawns(f - 1).mine : 0;
+        const right = f < 7 ? filePawns(f + 1).mine : 0;
+        return left + right === 0;
+    });
+    const dir = my === 'w' ? 1 : -1;
+    ctx.passedPawns = ctx.myPawns.filter(p => {
+        const f = fileOf(p.sq); const r = rankOf(p.sq);
+        return !ctx.oppPawns.some(q => {
+            const qf = fileOf(q.sq); const qr = rankOf(q.sq);
+            return Math.abs(qf - f) <= 1 && (dir === 1 ? qr > r : qr < r);
+        });
+    });
+
+    // Dames fora d'hora
+    const myQueenHome = my === 'w' ? 'd1' : 'd8';
+    const oppQueenHome = my === 'w' ? 'd8' : 'd1';
+    const myQueen = mine.find(p => p.type === 'q');
+    const oppQueen = theirs.find(p => p.type === 'q');
+    ctx.myQueenOutEarly = !!(myQueen && myQueen.sq !== myQueenHome && ctx.plies <= 14 && ctx.undevelopedMinors.length >= 2);
+    ctx.oppQueenOutEarly = !!(oppQueen && oppQueen.sq !== oppQueenHome && ctx.plies <= 14 && ctx.oppUndevelopedMinors.length >= 2);
+
+    // Cavalls a la vora i alfils tancats
+    const minorHomeSet = homeMinorSquares.map(([sq]) => sq);
+    ctx.rimKnights = mine.filter(p => p.type === 'n' && minorHomeSet.indexOf(p.sq) === -1
+        && (fileOf(p.sq) === 0 || fileOf(p.sq) === 7 || rankOf(p.sq) === 1 || rankOf(p.sq) === 8));
+    const bishopBlocked = (bishopSq, pawnSq) => {
+        const b = game.get(bishopSq); const pw = game.get(pawnSq);
+        return b && b.type === 'b' && b.color === my && pw && pw.type === 'p' && pw.color === my;
+    };
+    ctx.blockedBishops = my === 'w'
+        ? [bishopBlocked('c1', 'd2'), bishopBlocked('f1', 'e2')].filter(Boolean).length
+        : [bishopBlocked('c8', 'd7'), bishopBlocked('f8', 'e7')].filter(Boolean).length;
+
+    // Escut de peons del rei enrocat
+    ctx.shieldIntact = null;
+    if (ctx.castled && ctx.myKingSq) {
+        const kf = fileOf(ctx.myKingSq);
+        const shieldRank = my === 'w' ? 2 : 7;
+        let count = 0;
+        for (let f = Math.max(0, kf - 1); f <= Math.min(7, kf + 1); f++) {
+            const sq = String.fromCharCode(97 + f) + shieldRank;
+            const p = game.get(sq);
+            if (p && p.type === 'p' && p.color === my) count++;
+        }
+        ctx.shieldIntact = count >= 2;
+    }
+
+    // El que es pot fer ARA (només al torn del jugador): jugades legals,
+    // captures que guanyen material, escacs i peces atacant la zona del rei rival.
+    ctx.myMoves = (game.turn() === my) ? game.moves({ verbose: true }) : [];
+    ctx.checksAvailable = ctx.myMoves.filter(m => (m.san || '').indexOf('+') !== -1 || (m.san || '').indexOf('#') !== -1).length;
+    ctx.capturesAvailable = ctx.myMoves.filter(m => m.captured).length;
+    ctx.winningCaptures = [];
+    if (!ctx.inCheck) {
+        ctx.myMoves.filter(m => m.captured && m.captured !== 'k').forEach(m => {
+            try {
+                const probe = new Chess(game.fen());
+                const uci = m.from + m.to + (m.promotion || '');
+                const net = (PIECE_VALUE[m.captured] || 0) - immediateMaterialLoss(uci, probe);
+                if (net >= 1) ctx.winningCaptures.push({ move: m, net });
+            } catch (e) {}
+        });
+        ctx.winningCaptures.sort((a, b) => b.net - a.net);
+    }
+
+    // Peces pròpies amenaçades de debò (captura rendible del rival) i peces soltes
+    ctx.hangingMine = [];
+    ctx.loosePieces = [];
+    if (!ctx.inCheck) {
+        const oppView = normaCloneWithTurn(opp);
+        const threatened = {};
+        if (oppView) {
+            oppView.moves({ verbose: true }).forEach(m => {
+                if (!m.captured || m.captured === 'k') return;
+                const victim = game.get(m.to);
+                if (!victim || victim.color !== my) return;
+                const attackerVal = PIECE_VALUE[m.piece] || 0;
+                const victimVal = PIECE_VALUE[victim.type] || 0;
+                if (!threatened[m.to]) threatened[m.to] = { sq: m.to, type: victim.type, cheapest: attackerVal };
+                else threatened[m.to].cheapest = Math.min(threatened[m.to].cheapest, attackerVal);
+            });
+        }
+        Object.keys(threatened).forEach(sq => {
+            const t = threatened[sq];
+            const victimVal = PIECE_VALUE[t.type] || 0;
+            const defenders = normaCountDefenders(sq, my);
+            if (defenders === 0 || t.cheapest < victimVal) {
+                ctx.hangingMine.push({ sq: t.sq, type: t.type, value: victimVal });
+            }
+        });
+        ctx.hangingMine.sort((a, b) => b.value - a.value);
+        // Peces soltes: sense cap defensor (encara que ara ningú les ataqui)
+        mine.filter(p => p.type !== 'k' && p.type !== 'p').forEach(p => {
+            if (ctx.hangingMine.some(h => h.sq === p.sq)) return;
+            if (normaCountDefenders(p.sq, my) === 0) ctx.loosePieces.push(p);
+        });
+    }
+
+    // Atacants propis sobre la zona del rei rival (per la norma de les dues peces)
+    ctx.kingZoneAttackers = 0;
+    if (ctx.oppKingSq && ctx.myMoves.length) {
+        const kf = fileOf(ctx.oppKingSq); const kr = rankOf(ctx.oppKingSq);
+        const zone = {};
+        for (let df = -1; df <= 1; df++) for (let dr = -1; dr <= 1; dr++) {
+            const f = kf + df; const r = kr + dr;
+            if (f >= 0 && f <= 7 && r >= 1 && r <= 8) zone[String.fromCharCode(97 + f) + r] = true;
+        }
+        const attackers = {};
+        ctx.myMoves.forEach(m => {
+            if (m.piece === 'k') return;
+            if (m.piece === 'p' && !m.captured) return; // el peó ataca en diagonal, no empenyent
+            if (zone[m.to]) attackers[m.from] = true;
+        });
+        ctx.kingZoneAttackers = Object.keys(attackers).length;
+    }
+
+    // Tensió central de peons (peó meu pot menjar peó rival)
+    ctx.pawnTension = ctx.myMoves.some(m => m.piece === 'p' && m.captured === 'p');
+
+    return ctx;
+}
+
+// El catàleg de normes. Cada norma mira la radiografia i, si toca, retorna el
+// seu consell adaptat a la posició. L'ordre final és per puntuació (urgència).
+const NORMA_PRINCIPLES = [
+    {
+        id: 'escac', score: 100,
+        build(ctx) {
+            if (!ctx.inCheck) return null;
+            return { title: 'Primer de tot, el rei', text: "Estàs en escac: no hi ha cap altra norma fins que el resolguis. Mira les tres sortides per ordre: menjar la peça que ataca, posar una peça entremig o moure el rei — i tria la que menys t'espatlli la posició." };
+        }
+    },
+    {
+        id: 'peca_penjada', score: 92,
+        build(ctx) {
+            if (!ctx.hangingMine.length) return null;
+            const h = ctx.hangingMine[0];
+            return { title: 'Salva la peça amenaçada', text: `El rival pot menjar-se ${normaPieceName(h.type)} de ${h.sq} i sortir-ne guanyant. Abans de cap pla, protegeix-la, mou-la o respon amb una amenaça igual de grossa.` };
+        }
+    },
+    {
+        id: 'captura_gratis', score: 88,
+        build(ctx) {
+            if (!ctx.winningCaptures.length) return null;
+            const c = ctx.winningCaptures[0].move;
+            return { title: 'El material primer', text: `Hi ha material del rival a l'abast: mira la captura a ${c.to}. Abans de fer-la, comprova l'única cosa que cal al joc en present: què em pot prendre ell just després?` };
+        }
+    },
+    {
+        id: 'rei_actiu_final', score: 80,
+        build(ctx) {
+            if (!ctx.endgame || !ctx.myKingSq) return null;
+            const f = ctx.myKingSq.charCodeAt(0) - 97; const r = parseInt(ctx.myKingSq[1], 10) - 1;
+            const distCenter = Math.max(Math.abs(3.5 - f), Math.abs(3.5 - r));
+            if (distCenter <= 1.5) return { title: 'El rei, al mig de la feina', text: 'Al final de partida el rei deixa de ser un tresor per protegir i es converteix en una peça d\'atac. El tens ben centrat: fes-lo treballar acompanyant els peons i tallant el pas al rei rival.' };
+            return { title: 'Desperta el rei', text: 'Som al final de partida: amb poques peces al tauler, el rei és una peça forta. Acosta\'l al centre o cap als peons; un rei actiu sol valer tant com una torre de diferència.' };
+        }
+    },
+    {
+        id: 'peo_passat', score: 78,
+        build(ctx) {
+            if (!ctx.endgame) return null;
+            if (ctx.passedPawns.length) {
+                const p = ctx.passedPawns[0];
+                return { title: 'Empeny el peó passat', text: `Tens un peó passat a ${p.sq} (cap peó rival el pot aturar pel camí). Als finals, els peons passats s'empenyen: cada pas endavant obliga el rival a vigilar-lo i t'acosta a la dama.` };
+            }
+            return { title: 'Crea un peó passat', text: "Als finals es guanya coronant peons. Busca on tens majoria de peons (més peons teus que seus en una banda) i avança-la per crear un peó passat que ningú pugui aturar." };
+        }
+    },
+    {
+        id: 'defensa_rei', score: 72,
+        build(ctx) {
+            if (ctx.castled || ctx.endgame) return null;
+            if (ctx.canCastle && ctx.plies >= 6) {
+                return { title: 'Defensar el rei: enroca', text: "El teu rei encara és al centre, on s'obren les columnes i arriben els atacs. Enrocar aviat és la manera més barata de defensar-lo: el poses darrere un mur de peons i actives una torre de passada." };
+            }
+            if (!ctx.canCastle) {
+                return { title: 'Defensar el rei, a mà', text: "Ja no pots enrocar, així que la seguretat del rei l'has de construir tu: porta'l a un racó tranquil pas a pas, tapa les columnes obertes del seu voltant i no hi deixis peces sense defensa a prop." };
+            }
+            return null;
+        }
+    },
+    {
+        id: 'desenvolupa', score: 68,
+        build(ctx) {
+            if (!ctx.opening || ctx.undevelopedMinors.length < 2) return null;
+            return { title: 'Desenvolupa les peces', text: `Encara tens ${ctx.undevelopedMinors.length} peces menors a casa. A l'obertura, cada jugada hauria de treure una peça nova cap al centre: cavalls i alfils primer, la dama més tard, i no moguis dues vegades la mateixa peça sense un bon motiu.` };
+        }
+    },
+    {
+        id: 'centre', score: 64,
+        build(ctx) {
+            if (ctx.endgame || ctx.centerPresence >= 2) return null;
+            if (!ctx.opening && ctx.centerPresence >= 1) return null;
+            return { title: 'Controla el centre', text: "Qui mana al centre (les caselles d4, e4, d5 i e5) mana a la partida: des d'allà les peces arriben a tot arreu. Ocupa'l amb peons o apunta-hi peces abans de pensar en atacs per les bandes." };
+        }
+    },
+    {
+        id: 'dama_a_casa', score: 60,
+        build(ctx) {
+            if (!ctx.myQueenOutEarly) return null;
+            return { title: 'La dama no surt la primera', text: "Has tret la dama abans d'hora: cada peça menor del rival la pot atacar guanyant temps, i tu perds jugades fugint. Torna-la a lloc segur i acaba primer el desenvolupament." };
+        }
+    },
+    {
+        id: 'castiga_dama', score: 58,
+        build(ctx) {
+            if (!ctx.oppQueenOutEarly) return null;
+            return { title: 'Castiga la dama passejera', text: "La dama rival ha sortit massa aviat. No la persegueixis amb la teva: ataca-la amb peces menors i peons mentre desenvolupes — cada cop que ella fuig, tu guanyes una jugada de franc." };
+        }
+    },
+    {
+        id: 'ataca_amb_dues', score: 56,
+        build(ctx) {
+            if (!ctx.middlegame || ctx.undevelopedMinors.length > 1) return null;
+            if (ctx.kingZoneAttackers >= 2) {
+                return { title: 'Ataca com a mínim amb dues peces', text: `Ja tens ${ctx.kingZoneAttackers} peces apuntant a la zona del rei rival. Regla d'or de l'atac: sempre més atacants que defensors — suma-hi la peça següent o busca el cop concret que ho remati.` };
+            }
+            return { title: 'Ataca com a mínim amb dues peces', text: "Una peça sola no fa mat: tota amenaça d'un sol atacant es defensa amb una jugada. Abans de llançar-te contra el rei rival, porta-hi com a mínim dues peces que col·laborin (i millor tres)." };
+        }
+    },
+    {
+        id: 'torre_oberta', score: 54,
+        build(ctx) {
+            if (ctx.opening || !ctx.myRooks.length || ctx.rookOnOpenFile) return null;
+            if (!ctx.openFiles.length && !ctx.semiOpenFiles.length) return null;
+            const f = (ctx.openFiles.length ? ctx.openFiles : ctx.semiOpenFiles)[0];
+            const fileName = String.fromCharCode(97 + f);
+            return { title: 'Torres a columnes obertes', text: `Les torres només respiren per columnes sense peons: mira la columna «${fileName}». Una torre en columna oberta ataca fins al fons del tauler i sol ser la primera a entrar a la setena fila.` };
+        }
+    },
+    {
+        id: 'connecta_torres', score: 52,
+        build(ctx) {
+            if (ctx.endgame || ctx.myRooks.length < 2 || ctx.undevelopedMinors.length > 0) return null;
+            const backRank = ctx.my === 'w' ? '1' : '8';
+            const rooksHome = ctx.myRooks.filter(r => r.sq[1] === backRank);
+            if (rooksHome.length < 2) return null;
+            const files = rooksHome.map(r => r.sq.charCodeAt(0) - 97).sort((a, b) => a - b);
+            let between = 0;
+            for (let f = files[0] + 1; f < files[1]; f++) {
+                if (game.get(String.fromCharCode(97 + f) + backRank)) between++;
+            }
+            if (between === 0) return null;
+            return { title: 'Connecta les torres', text: "Quan entre les teves dues torres no hi queda cap peça, es defensen l'una a l'altra i poden doblar-se a la columna que triïs. Acaba el desenvolupament (rei enrocat i dama fora de la primera fila) per connectar-les." };
+        }
+    },
+    {
+        id: 'escacs_i_captures', score: 50,
+        build(ctx) {
+            if (ctx.inCheck || (!ctx.checksAvailable && !ctx.capturesAvailable)) return null;
+            return { title: 'Repassa escacs i captures', text: "Abans de decidir res, fes la llista de totes les jugades de força: els escacs i les captures — teves i les que el rival tindrà després. És l'única aritmètica que el joc en present et demana, i la que evita el 90% dels disgustos." };
+        }
+    },
+    {
+        id: 'torre_darrere_peo', score: 48,
+        build(ctx) {
+            if (!ctx.endgame || !ctx.passedPawns.length || !ctx.myRooks.length) return null;
+            const p = ctx.passedPawns[0];
+            const rookOnFile = ctx.myRooks.some(r => r.sq[0] === p.sq[0]);
+            if (rookOnFile) return null;
+            return { title: 'La torre, darrere el peó passat', text: `Norma clàssica de Tarrasch: la torre va DARRERE el peó passat (el teu de ${p.sq}) — l'empeny com el vent una vela i mai li fa nosa. Davant del peó, en canvi, la torre s'hi encalla.` };
+        }
+    },
+    {
+        id: 'canvia_amb_avantatge', score: 46,
+        build(ctx) {
+            if (ctx.myMaterial - ctx.oppMaterial < 3) return null;
+            return { title: 'Amb avantatge, simplifica', text: "Tens més material que el rival. La manera més segura de guanyar és canviar PECES (no peons): amb cada canvi el teu avantatge pesa més i el seu contrajoc s'evapora. Evita les complicacions que no controles." };
+        }
+    },
+    {
+        id: 'evita_canvis', score: 46,
+        build(ctx) {
+            if (ctx.oppMaterial - ctx.myMaterial < 3) return null;
+            return { title: 'En desavantatge, complica', text: "Vas per sota de material: cada canvi de peces t'acosta a un final perdut. Evita els canvis, mantén peces al tauler i busca activitat i amenaces — el teu millor amic ara és el desordre." };
+        }
+    },
+    {
+        id: 'cavall_vora', score: 42,
+        build(ctx) {
+            if (!ctx.rimKnights.length) return null;
+            const n = ctx.rimKnights[0];
+            return { title: 'Cavall a la vora, poca cosa bona', text: `El cavall de ${n.sq} toca la vora del tauler i controla la meitat de caselles que un de centrat. Busca-li una casella central i estable (protegida per un peó teu) i deixa'l viure-hi.` };
+        }
+    },
+    {
+        id: 'obre_alfils', score: 40,
+        build(ctx) {
+            if (!ctx.opening || !ctx.blockedBishops) return null;
+            return { title: 'Obre camí als alfils', text: "Els teus alfils encara miren una paret de peons. Un alfil només val el que val la seva diagonal: avança els peons centrals (o prepara un fianchetto) perquè vegin tauler abans que la partida es decideixi sense ells." };
+        }
+    },
+    {
+        id: 'peces_soltes', score: 38,
+        build(ctx) {
+            if (!ctx.loosePieces.length) return null;
+            const p = ctx.loosePieces[0];
+            return { title: 'Cap peça sense defensa', text: `${normaPieceName(p.type).charAt(0).toUpperCase() + normaPieceName(p.type).slice(1)} de ${p.sq} no té cap defensor. Les peces soltes són l'esquer de tots els dobles atacs: lliga-les entre elles i el rival tindrà molt poc a pescar.` };
+        }
+    },
+    {
+        id: 'escut_del_rei', score: 36,
+        build(ctx) {
+            if (!ctx.castled || ctx.endgame || ctx.shieldIntact === null) return null;
+            if (ctx.shieldIntact) return { title: "No toquis l'escut del rei", text: "Els peons de davant del rei enrocat són el seu escut: cada pas que fan obre una escletxa que ja no es tanca mai. No els moguis sense una raó molt bona (i «atacar» rarament ho és, defensar sí)." };
+            return { title: 'Reforça el racó del rei', text: "L'escut de peons del teu rei ja té esquerdes. Vigila les caselles que han quedat febles al seu voltant: tapa-les amb peces, no obris més línies en aquell costat i pensa dues vegades abans de canviar els defensors." };
+        }
+    },
+    {
+        id: 'estructura', score: 34,
+        build(ctx) {
+            if (ctx.opening) return null;
+            if (!ctx.doubledFiles.length && !ctx.isolatedPawns.length) return null;
+            return { title: 'Els peons no tornen enrere', text: "Ja tens peons doblats o aïllats: són febleses que al final de la partida pesen com pedres. Abans de cada canvi o avanç de peó, pregunta't quina estructura et quedarà — els peons són l'única peça que no pot desfer el camí." };
+        }
+    },
+    {
+        id: 'tensio_central', score: 32,
+        build(ctx) {
+            if (!ctx.pawnTension || ctx.endgame) return null;
+            return { title: 'No resolguis la tensió de seguida', text: "Els teus peons i els seus es toquen al centre. No cal menjar a la primera: qui manté la tensió obliga l'altre a vigilar dues opcions alhora. Canvia només quan el canvi et doni alguna cosa concreta (una columna, una casella, temps)." };
+        }
+    },
+    {
+        id: 'amenaca', score: 30,
+        build(ctx) {
+            if (ctx.inCheck) return null;
+            return { title: 'Cada jugada, una feina', text: "Tota jugada ha de fer alguna cosa: crear una amenaça, millorar una peça o aturar un pla del rival. Si un moviment no fa cap de les tres coses, és una jugada perduda — i al joc en present, els temps són or." };
+        }
+    },
+    {
+        id: 'profilaxi', score: 28,
+        build(ctx) {
+            return { title: 'Pregunta-ho sempre: què vol ell?', text: "Abans de moure, mira la darrera jugada del rival i pregunta't: què amenaça? què voldrà fer ara? Si la teva jugada preferida no ho atura ni ho ignora amb motiu, torna a començar. Jugar en present és, sobretot, escoltar el tauler." };
+        }
+    }
+];
+
+const NORMA_FALLBACK = { title: 'Pregunta-ho sempre: què vol ell?', text: "Abans de moure, mira la darrera jugada del rival i pregunta't: què amenaça? Si la teva jugada no en té cap resposta, torna a començar." };
+
+// Llista ordenada (màx. 8) de normes aplicables a la posició actual.
+function normaComputeApplicable() {
+    const ctx = normaBuildContext();
+    const list = [];
+    NORMA_PRINCIPLES.forEach(rule => {
+        try {
+            const built = rule.build(ctx);
+            if (built) list.push({ score: rule.score, title: built.title, text: built.text });
+        } catch (e) {}
+    });
+    list.sort((a, b) => b.score - a.score);
+    return list.slice(0, 8);
+}
+
+// Botó «Norma»: mostra el principi més urgent de la posició; tocs successius
+// van passant la llista (mateixa posició = mateixa llista, en ordre).
+function showNextNorma() {
+    if (!isPositionalMode()) return;
+    if (!game || game.game_over() || isViewingGameHistory()) return;
+    if (game.turn() !== playerColor) { showToast('Espera el teu torn per consultar la Norma', 'warn'); return; }
+    const fen = game.fen();
+    if (!normaCache || normaCache.fen !== fen) {
+        let list = [];
+        try { list = normaComputeApplicable(); } catch (e) { list = []; }
+        if (!list.length) list = [NORMA_FALLBACK];
+        normaCache = { fen, list, idx: -1 };
+    }
+    normaCache.idx = (normaCache.idx + 1) % normaCache.list.length;
+    const norma = normaCache.list[normaCache.idx];
+    $('#norma-text').html(`<strong>📜 ${escapeHtml(norma.title)}.</strong> ${escapeHtml(norma.text)}`);
+    const n = normaCache.list.length;
+    $('#norma-cycle').text(n > 1
+        ? `Norma ${normaCache.idx + 1} de ${n} en aquesta posició · torna a tocar «Norma» per veure la següent`
+        : 'És la norma que mana en aquesta posició');
+    $('#norma-banner').show();
+}
+
 function updatePrecisionDisplay() {
     const precisionEl = $('#current-precision'); const barEl = $('#precision-bar');
     if (totalPlayerMoves === 0) { precisionEl.text('—'); barEl.css('width', '0%').removeClass('good warning danger'); return; }
@@ -24548,6 +25251,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // normal, però NO puntua ELO, ni ajusta la dificultat, ni entra a
     // l'historial ni al registre d'adaptació (la posició pot venir de l'editor).
     const isExplorerMode = currentGameMode === 'explorer';
+    // Joc posicional: mode d'aprenentatge amb desfer de jugades; es revisa i
+    // entra a l'historial, però NO puntua ELO ni ajusta la dificultat (amb el
+    // desfer, el resultat no mesura la força real).
+    const isPositionalGameMode = currentGameMode === 'positional';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     // Partida amb rellotge (lliure/assistida): puntua a l'ELO del seu ritme i
     // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
@@ -24616,14 +25323,16 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
         }
         timedCalibrationTcId = null;
-    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode) {
+    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
+    } else if (isPositionalGameMode) {
+        msg += ' · Joc posicional (sense ELO)';
     }
 
     if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
 
-    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode) {
+    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode) {
         userELO = Math.max(50, userELO + change);
         updateEloHistory(userELO);
         syncEngineEloFromUser();
@@ -24652,7 +25361,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             if (adjustResult && adjustResult.feedback) {
                 msg += ` · ${adjustResult.feedback}`;
             }
-        } else if (!isLeagueMode && !isExplorerMode) {
+        } else if (!isLeagueMode && !isExplorerMode && !isPositionalGameMode) {
             adjustAIDifficulty(playerWon, finalPrecision, resultScore);
         }
     }
@@ -24661,7 +25370,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         applyLeagueAfterGame(leagueOutcome);
     }
     const reviewCounts = summarizeReview(currentReview);
-    if (!blunderMode && !isExplorerMode) {
+    if (!blunderMode && !isExplorerMode && !isPositionalGameMode) {
         const adjustmentSummary = getLastAdjustmentSummary(adaptationAdjustmentLogStart);
         let appliedDelta = adjustmentSummary.appliedDelta;
         if (!appliedDelta) {
@@ -24834,6 +25543,9 @@ function updateStatus() {
         if (game.in_check()) s += ' — Escac!';
         $('#status').text(s).css('color', 'var(--accent-cream)');
     }
+    // Manté al dia els controls del Joc posicional (visibilitat i estat
+    // habilitat/deshabilitat); en qualsevol altre mode els amaga.
+    updatePositionalUI();
 }
 
 /* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA DIARI) =====================

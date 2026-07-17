@@ -693,6 +693,36 @@
         }
         body.epaper-mode .tactic-theme-text strong { color: #222; }
 
+        /* JOC POSICIONAL: bàner de la Norma (principi que ha de regir la jugada) */
+        #norma-banner {
+            background: rgba(46, 125, 91, 0.10);
+            border: 1px solid rgba(46, 125, 91, 0.35);
+            border-left: 4px solid #2e7d5b;
+            border-radius: 12px;
+            padding: 10px 12px;
+            margin-bottom: 12px;
+            text-align: left;
+        }
+        .norma-text { font-size: 0.86rem; line-height: 1.45; color: var(--text-primary); overflow-wrap: break-word; }
+        .norma-text strong { color: #58b98a; }
+        .norma-cycle { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.85; margin-top: 4px; }
+        body.device-mobile #norma-banner { margin-left: 8px; margin-right: 8px; margin-bottom: 8px; }
+        body.day-mode .norma-text strong { color: #1f6b49; }
+        body.epaper-mode #norma-banner {
+            background: #ededed !important; border-color: #cfcfcf !important;
+            border-left: 4px solid #777 !important; color: #222;
+        }
+        body.epaper-mode .norma-text strong { color: #222; }
+
+        /* JOC POSICIONAL: precisió de la darrera jugada al panell de precisió */
+        #move-precision.good { color: #66bb6a; }
+        #move-precision.warning { color: #ffa733; }
+        #move-precision.danger { color: #ff5b4d; }
+        .move-precision-quality { font-size: 0.68rem; color: var(--text-secondary); margin-top: 2px; }
+        body.epaper-mode #move-precision.good,
+        body.epaper-mode #move-precision.warning,
+        body.epaper-mode #move-precision.danger { color: #222; }
+
         /* JEROGLÍFIC: comentari del tauler + panell d'historial (estil targeta compartit) */
         .hg-panel {
             background: rgba(124, 77, 201, 0.10);
@@ -1277,21 +1307,24 @@
             box-shadow: 0 3px 10px rgba(201,162,39,0.35);
         }
         .play-clock-chip.active .pcc-kind { opacity: 0.9; }
-        /* Els tres modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
-           l'amplada i Assistida + Lliga a sota en dues columnes. */
+        /* Els quatre modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
+           l'amplada, Assistida + Joc posicional a sota en dues columnes i la
+           Lliga a tota l'amplada just abans del seu bàner. */
         .play-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .play-modes .btn { margin-top: 0; }
         .play-modes #btn-new-game { grid-column: 1 / -1; }
-        .play-modes .btn-assisted, .play-modes .btn-league {
+        .play-modes #btn-league { grid-column: 1 / -1; }
+        .play-modes .btn-assisted, .play-modes .btn-positional, .play-modes .btn-league {
             flex-direction: column; gap: 4px; padding: 12px 10px;
             font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
         }
-        .play-modes .btn-assisted .btn-ic, .play-modes .btn-league .btn-ic { width: 1.7em; height: 1.7em; }
+        .play-modes .btn-assisted .btn-ic, .play-modes .btn-positional .btn-ic, .play-modes .btn-league .btn-ic { width: 1.7em; height: 1.7em; }
         @media (max-width: 360px) { .play-modes { grid-template-columns: 1fr; } }
-        /* En escriptori, els TRES botons són rectangles grans i iguals que
+        /* En escriptori, els QUATRE botons són rectangles grans i iguals que
            omplen junts tota l'amplada del bloc, sota les fitxes del rellotge. */
-        body.device-desktop .play-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+        body.device-desktop .play-modes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
         body.device-desktop .play-modes #btn-new-game { grid-column: auto; }
+        body.device-desktop .play-modes #btn-league { grid-column: auto; }
         body.device-desktop .play-modes .btn {
             flex-direction: column; justify-content: center; gap: 8px;
             min-height: 104px; padding: 18px 14px; font-size: 1.05rem;
@@ -1433,6 +1466,32 @@
             box-shadow: 0 4px 12px rgba(58, 107, 140, 0.35);
             border: 1px solid rgba(255,255,255,0.12);
         }
+        .btn-positional {
+            background: linear-gradient(135deg, #2e7d5b 0%, #174d36 100%);
+            color: #e6f4ec;
+            box-shadow: 0 4px 12px rgba(46, 125, 91, 0.35);
+            border: 1px solid rgba(255,255,255,0.12);
+        }
+        /* Comentari de la pàgina inicial que explica la modalitat Joc posicional */
+        .positional-note {
+            background: rgba(46, 125, 91, 0.10);
+            border: 1px solid rgba(46, 125, 91, 0.35);
+            border-left: 4px solid #2e7d5b;
+            border-radius: 12px;
+            padding: 10px 12px;
+            font-size: 0.8rem;
+            line-height: 1.5;
+            color: var(--text-secondary);
+            text-align: left;
+        }
+        .positional-note strong { color: #58b98a; }
+        body.day-mode .positional-note { background: rgba(46, 125, 91, 0.08); }
+        body.day-mode .positional-note strong { color: #1f6b49; }
+        body.epaper-mode .positional-note {
+            background: #ededed !important; border-color: #cfcfcf !important;
+            border-left: 4px solid #777 !important; color: #222;
+        }
+        body.epaper-mode .positional-note strong { color: #222; }
         .opening-stats {
             display: flex;
             flex-direction: column;
@@ -1648,6 +1707,19 @@
             color: white;
             box-shadow: 0 4px 15px rgba(123, 31, 162, 0.4);
             border: 1px solid rgba(255,255,255,0.2);
+        }
+        /* Joc posicional: botó de la Norma (principis) i de tirar enrere */
+        .btn-norma {
+            background: linear-gradient(135deg, #8b6d2f, #5d4a1a);
+            color: #f6ecd4;
+            box-shadow: 0 4px 12px rgba(139, 109, 47, 0.4);
+            border: 1px solid rgba(255,255,255,0.18);
+        }
+        .btn-undo {
+            background: linear-gradient(135deg, #546e7a, #37474f);
+            color: #eceff1;
+            box-shadow: 0 4px 12px rgba(84, 110, 122, 0.4);
+            border: 1px solid rgba(255,255,255,0.14);
         }
         .opening-maxim-box {
             padding: 12px;
@@ -2501,6 +2573,8 @@
             text-align: center;
         }
         .controls .game-buttons #btn-hint { order: 1; }
+        .controls .game-buttons #btn-norma { order: 2; }
+        .controls .game-buttons #btn-undo-move { order: 2; }
         .controls .game-buttons #btn-brain-hint { order: 2; }
         .controls .game-buttons #btn-assisted-hint { order: 2; }
         .controls .game-buttons #btn-analyze { order: 2; }
@@ -4269,9 +4343,21 @@
                         <div class="play-modes">
                             <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
                             <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
+                            <button class="btn btn-positional" id="btn-positional-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-scope"/></svg>Joc posicional</button>
                             <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                         </div>
-                        <div class="play-clock-hint">El rellotge triat val per a la partida nova i l'assistida; la lliga juga amb el ritme propi de la temporada.</div>
+                        <div class="play-clock-hint">El rellotge triat val per a la partida nova i l'assistida; el joc posicional es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
+                        <!-- Comentari de la modalitat Joc posicional: què és i per a qui -->
+                        <div class="positional-note" id="positional-note">
+                            <strong>🔭 Joc posicional:</strong> modalitat per aprendre a jugar «en present», pensada
+                            per a qui encara no calcula jugades futures. L'enginy només valora la jugada actual i la
+                            resposta immediata de l'adversari (res de càlculs a jugades vista). A cada moviment veuràs
+                            al costat del tauler la <strong>precisió</strong> de la teva jugada i podràs
+                            <strong>tirar enrere</strong> per provar-ne una altra i veure la nova precisió. A més de la
+                            <strong>Pista</strong>, el botó <strong>Norma</strong> t'indica quin principi d'escacs hauria
+                            de regir el moviment: controlar el centre, defensar el rei, atacar com a mínim amb dues
+                            peces… La partida no puntua ELO: és per entrenar l'ull posicional sense pressió.
+                        </div>
                     </div>
 
                     <div class="league-banner" id="league-banner" style="display:none;">
@@ -6019,9 +6105,16 @@
                     <div class="precision-bar" id="precision-bar"></div>
                     <div class="precision-target" id="precision-target"></div>
                 </div>
-                <div class="precision-stat">
+                <div class="precision-stat" id="precision-objective-stat">
                     <div class="precision-label">Objectiu</div>
                     <div class="precision-value precision-target-text" id="precision-target-text">75%</div>
+                </div>
+                <!-- Joc posicional: precisió de la DARRERA jugada, al costat del tauler
+                     (substitueix l'objectiu; l'enginy la recalcula si tires enrere) -->
+                <div class="precision-stat" id="move-precision-stat" style="display:none;">
+                    <div class="precision-label">Jugada</div>
+                    <div class="precision-value" id="move-precision">—</div>
+                    <div class="move-precision-quality" id="move-precision-quality"></div>
                 </div>
             </div>
 
@@ -6038,6 +6131,12 @@
 
             <div id="tactic-theme-banner" style="display:none;">
                 <div class="tactic-theme-text" id="tactic-theme-text"></div>
+            </div>
+
+            <!-- Joc posicional: la Norma (principi que ha de regir el moviment) -->
+            <div id="norma-banner" style="display:none;">
+                <div class="norma-text" id="norma-text"></div>
+                <div class="norma-cycle" id="norma-cycle"></div>
             </div>
 
             <div id="hieroglyphic-panel" class="hg-panel" style="display:none;"></div>
@@ -6136,6 +6235,8 @@
                 </div>
                 <div class="game-buttons">
                     <button class="btn btn-hint" id="btn-hint" title="Demanar pista">💡 Pista</button>
+                    <button class="btn btn-norma" id="btn-norma" title="Quin principi ha de regir aquest moviment" style="display:none;">📜 Norma</button>
+                    <button class="btn btn-undo" id="btn-undo-move" title="Tira enrere la darrera jugada i prova'n una altra" style="display:none;">⟲ Enrere</button>
                     <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb OpenAI" style="display:none;">
                         <img src="brain.svg" alt="Cervell">
                         <span>Màxima</span>
