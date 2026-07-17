@@ -721,6 +721,8 @@
         #move-precision.danger { color: #ff5b4d; }
         .move-precision-quality { font-size: 0.68rem; color: var(--text-secondary); margin-top: 2px; }
         .precision-panel.positional-only { justify-content: center; }
+        .precision-panel.positional-only .positional-vision-panel { min-width: 170px; max-width: 220px; }
+        .precision-panel.positional-only .positional-vision-label { justify-content: center; text-transform: uppercase; letter-spacing: 0.06em; font-size: 0.65rem; }
         .precision-panel.positional-only #move-precision-stat { min-width: 0; }
         .precision-panel.positional-only #move-precision { font-size: 1.6rem; }
         .precision-panel.positional-only .move-precision-quality { font-size: 0.78rem; }
@@ -1497,6 +1499,8 @@
             font-size: 0.78rem; color: var(--text-secondary);
         }
         .positional-vision-row .select-control { width: 100%; }
+        .positional-note-game { margin-top: 12px; margin-bottom: 0; }
+        body.device-mobile .positional-note-game { margin-left: 8px; margin-right: 8px; }
         body.day-mode .positional-note { background: rgba(46, 125, 91, 0.08); }
         body.day-mode .positional-note strong { color: #1f6b49; }
         body.epaper-mode .positional-note {
@@ -4359,36 +4363,6 @@
                             <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                         </div>
                         <div class="play-clock-hint">El rellotge triat val per a la partida nova i l'assistida; el joc posicional es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
-                        <!-- Comentari de la modalitat Joc posicional: què és i per a qui -->
-                        <div class="positional-note" id="positional-note">
-                            <strong>🔭 Joc posicional:</strong> modalitat per aprendre a jugar «en present», pensada
-                            per a qui encara no calcula jugades futures. Al desplegable de sota tries les
-                            <strong>jugades vista</strong> (del seu color) que calcula l'enginy: amb <strong>0</strong>
-                            només valora la jugada actual i la resposta immediata de l'adversari, i a cada opció el seu
-                            <strong>ELO s'adapta</strong> al que equival aquesta visió (amb 0, prou baix perquè tinguis
-                            opcions de guanyar partides). Cada jugada teva es
-                            marca amb el seu <strong>índex Stockfish</strong>: <strong>verd</strong> si és de les
-                            millors de la posició, i si no, <strong>taronja o vermell</strong> segons la precisió.
-                            Sense verd no s'avança: la jugada <strong>es tira enrere automàticament</strong> perquè en
-                            provis una altra fins trobar la verda. A més de la <strong>Pista</strong>, el botó
-                            <strong>Norma</strong> t'indica quin principi d'escacs hauria de regir el moviment:
-                            controlar el centre, defensar el rei, atacar com a mínim amb dues peces… La partida no
-                            puntua ELO: és per entrenar l'ull posicional sense pressió.
-                        </div>
-                        <!-- Desplegable de jugades vista del Joc posicional: cada opció fixa
-                             l'horitzó de càlcul de l'enginy i l'ELO equivalent del rival -->
-                        <div class="positional-vision-row">
-                            <label class="positional-vision-label" for="positional-vision-select"><svg class="btn-ic" aria-hidden="true"><use href="#ic-scope"/></svg>Jugades vista de l'enginy (Joc posicional)</label>
-                            <select id="positional-vision-select" class="select-control">
-                                <option value="0">0 — només el present · rival ROC ~750</option>
-                                <option value="1">1 jugada vista · rival ROC ~1000</option>
-                                <option value="2">2 jugades vista · rival ROC ~1250</option>
-                                <option value="3">3 jugades vista · rival ELO ~1450</option>
-                                <option value="4">4 jugades vista · rival ELO ~1650</option>
-                                <option value="5">5 jugades vista · rival ELO ~1800</option>
-                                <option value="6">6 jugades vista · rival ELO ~1950</option>
-                            </select>
-                        </div>
                     </div>
 
                     <div class="league-banner" id="league-banner" style="display:none;">
@@ -6140,9 +6114,21 @@
                     <div class="precision-label">Objectiu</div>
                     <div class="precision-value precision-target-text" id="precision-target-text">75%</div>
                 </div>
-                <!-- Joc posicional: índex Stockfish de la DARRERA jugada intentada
-                     (aquí no hi ha barra de precisió; verd = jugada al màxim, que fa
-                     avançar; taronja/vermell = es tira enrere per provar-ne una altra) -->
+                <!-- Joc posicional: selector de jugades vista i índex Stockfish de la
+                     darrera jugada intentada. L'ELO/ROC equivalent es mostra només
+                     quan aquesta modalitat queda seleccionada. -->
+                <div class="positional-vision-row positional-vision-panel" id="positional-vision-panel" style="display:none;">
+                    <label class="positional-vision-label" for="positional-vision-select">Jugades vista</label>
+                    <select id="positional-vision-select" class="select-control">
+                        <option value="0">0 — només el present</option>
+                        <option value="1">1 jugada vista</option>
+                        <option value="2">2 jugades vista</option>
+                        <option value="3">3 jugades vista</option>
+                        <option value="4">4 jugades vista</option>
+                        <option value="5">5 jugades vista</option>
+                        <option value="6">6 jugades vista</option>
+                    </select>
+                </div>
                 <div class="precision-stat" id="move-precision-stat" style="display:none;">
                     <div class="precision-label">Índex Stockfish</div>
                     <div class="precision-value" id="move-precision">—</div>
@@ -6281,6 +6267,13 @@
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
                     <button class="btn btn-nav-home" id="btn-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
+            </div>
+            <div class="positional-note positional-note-game" id="positional-note-game" style="display:none;">
+                <strong>🔭 Joc posicional:</strong> practica el joc «en present». Tria les
+                <strong>jugades vista</strong> perquè l'enginy calculi només aquest horitzó; quan
+                seleccionis un nivell, veuràs l'ELO/ROC equivalent del rival. Cada jugada rep un
+                <strong>índex Stockfish</strong>: les verdes avancen, i les altres es desfan perquè en
+                puguis provar una de millor. La <strong>Norma</strong> resumeix el principi que cal aplicar.
             </div>
    
         </div>

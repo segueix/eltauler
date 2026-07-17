@@ -24676,7 +24676,9 @@ function updatePositionalUI() {
     const positional = isPositionalMode();
     $('#btn-norma').toggle(positional);
     $('#btn-undo-move').toggle(positional);
+    $('#positional-vision-panel').toggle(positional);
     $('#move-precision-stat').toggle(positional);
+    $('#positional-note-game').toggle(positional);
     // En aquesta secció NO hi ha barra de precisió ni objectiu: només l'índex
     // Stockfish de la jugada, ben centrat al panell.
     $('#precision-global-stat').toggle(!positional);
