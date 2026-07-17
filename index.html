@@ -4008,9 +4008,10 @@
         <symbol id="ic-hg-play" viewBox="0 0 24 24">
             <polygon points="8 5 8 19 19 12" fill="currentColor"/>
         </symbol>
+        <!-- Un pas enrere: triangle sol (la barra queda per a «vés al principi»,
+             #ic-to-start, perquè no semblin el mateix botó) -->
         <symbol id="ic-skip-back" viewBox="0 0 24 24">
-            <polygon points="19 20 9 12 19 4 19 20"/>
-            <line x1="5" y1="19" x2="5" y2="5"/>
+            <polygon points="17 4.5 7.5 12 17 19.5 17 4.5"/>
         </symbol>
         <symbol id="ic-play" viewBox="0 0 24 24">
             <polygon points="6 4 20 12 6 20 6 4"/>
@@ -4022,9 +4023,10 @@
         <symbol id="ic-stop" viewBox="0 0 24 24">
             <rect x="6" y="6" width="12" height="12" rx="2"/>
         </symbol>
+        <!-- Un pas endavant: triangle sol (la barra queda per a «vés al final»,
+             #ic-to-end) -->
         <symbol id="ic-skip-forward" viewBox="0 0 24 24">
-            <polygon points="5 4 15 12 5 20 5 4"/>
-            <line x1="19" y1="5" x2="19" y2="19"/>
+            <polygon points="7 4.5 16.5 12 7 19.5 7 4.5"/>
         </symbol>
         <symbol id="ic-trash" viewBox="0 0 24 24">
             <polyline points="3 6 5 6 21 6"/>
@@ -5107,13 +5109,6 @@
             .explorer-edit-hint { font-size: 0.8rem; color: var(--text-secondary); margin-bottom: 10px; }
             .explorer-edit-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
             .explorer-edit-row label { font-size: 0.82rem; color: var(--text-secondary); font-weight: 600; }
-            #explorer-start-btn.explorer-nav-start {
-                border-color: rgba(201, 162, 39, 0.65);
-                background: rgba(201, 162, 39, 0.16);
-                box-shadow: inset 0 0 0 1px rgba(201, 162, 39, 0.18);
-            }
-            #explorer-start-btn.explorer-nav-start .btn-label { margin-left: 4px; font-size: 0.78rem; font-weight: 700; }
-            body.epaper-mode #explorer-start-btn.explorer-nav-start { background: #f0f0f0; border-color: #555; box-shadow: inset 0 0 0 1px #999; }
             @media (max-width: 768px) {
                 body.device-mobile #explorer-screen {
                     height: 100dvh;
@@ -5140,11 +5135,12 @@
                     z-index: 1;
                 }
             }
-            /* Contenidor de la informació lateral (avaluació + jugades + «Juga-la
-               contra Stockfish»). Per defecte és transparent (display:contents): a
-               mòbil, tauleta i finestres d'ordinador estretes, els seus fills flueixen
-               sota el tauler tal com abans. A l'ordinador ample passa a ser la columna
-               dreta (vegeu la media query de sota). */
+            /* Contenidors transparents (display:contents) a mòbil, tauleta i
+               finestres d'ordinador estretes: els seus fills flueixen com abans.
+               A l'ordinador ample, #explorer-main és la cel·la del tauler (amb el
+               torn i el reproductor enganxats a sota, sense espais) i
+               #explorer-side la columna dreta (vegeu la media query de sota). */
+            #explorer-main { display: contents; }
             #explorer-side { display: contents; }
 
             /* ORDINADOR AMPLE: tauler (més gran) a l'esquerra i la informació a la
@@ -5161,13 +5157,19 @@
                     row-gap: 0;
                 }
                 body.device-desktop #explorer-screen .stats-header { grid-column: 1 / -1; }
-                body.device-desktop #explorer-screen .history-board,
-                body.device-desktop #explorer-screen #explorer-status,
-                body.device-desktop #explorer-screen #explorer-opening,
-                body.device-desktop #explorer-screen #explorer-nav,
                 body.device-desktop #explorer-screen #explorer-tools,
                 body.device-desktop #explorer-screen #explorer-edit-toolbar,
                 body.device-desktop #explorer-screen .menu-buttons { grid-column: 1; }
+                /* Bloc del tauler: UNA sola cel·la (tauler + torn + reproductor en
+                   columna, sense espais entre ells) perquè l'alçada de la columna
+                   lateral no els pugui separar. */
+                body.device-desktop #explorer-screen #explorer-main {
+                    grid-column: 1;
+                    grid-row: 2;
+                    align-self: start;
+                    display: flex;
+                    flex-direction: column;
+                }
                 /* El tauler, una mica més gran que els 360px per defecte. */
                 body.device-desktop #explorer-screen .history-board { max-width: 480px; }
                 /* Columna dreta: al costat del tauler (fila 2) i alineada a dalt. */
@@ -5190,18 +5192,26 @@
             </div>
 
 
-            <div class="history-board"><div id="explorer-board"></div></div>
-            <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
-            <div class="explorer-opening" id="explorer-opening" style="display:none;"></div>
-            <!-- Nota d'importació del moment clau i banner del mode pràctica -->
-            <div class="explorer-import-note" id="explorer-import-note" role="status" style="display:none;"></div>
-            <div class="explorer-keymoment" id="explorer-keymoment" style="display:none;"></div>
+            <!-- Bloc del tauler: tauler + torn + obertura + notes + reproductor,
+                 SENSE espai entre ells (a l'ordinador és una sola cel·la de la
+                 graella perquè la columna lateral no els separi). -->
+            <div id="explorer-main">
+                <div class="history-board"><div id="explorer-board"></div></div>
+                <div class="explorer-status" id="explorer-status">Mouen les blanques</div>
+                <div class="explorer-opening" id="explorer-opening" style="display:none;"></div>
+                <!-- Nota d'importació del moment clau i banner del mode pràctica -->
+                <div class="explorer-import-note" id="explorer-import-note" role="status" style="display:none;"></div>
+                <div class="explorer-keymoment" id="explorer-keymoment" style="display:none;"></div>
 
-            <div class="history-controls" id="explorer-nav">
-                <button class="btn btn-secondary explorer-nav-start" id="explorer-start-btn" aria-label="Torna al principi de la línia" title="Torna al principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg><span class="btn-label">Inici</span></button>
-                <button class="btn btn-secondary" id="explorer-prev" aria-label="Jugada anterior" title="Jugada anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
-                <button class="btn btn-secondary" id="explorer-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
-                <button class="btn btn-secondary" id="explorer-flip" aria-label="Gira el tauler" title="Gira el tauler"><svg class="btn-ic" aria-hidden="true"><use href="#ic-flip"/></svg></button>
+                <!-- Reproductor ÚNIC: navega la línia explorada i, quan se n'està
+                     previsualitzant una del motor, aquella línia. -->
+                <div class="history-controls" id="explorer-nav">
+                    <button class="btn btn-secondary" id="explorer-start-btn" aria-label="Vés al principi" title="Vés al principi"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg></button>
+                    <button class="btn btn-secondary" id="explorer-prev" aria-label="Un moviment enrere" title="Un moviment enrere"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
+                    <button class="btn btn-secondary" id="explorer-next" aria-label="Un moviment endavant" title="Un moviment endavant"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
+                    <button class="btn btn-secondary" id="explorer-end-btn" aria-label="Vés al final" title="Vés al final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-end"/></svg></button>
+                    <button class="btn btn-secondary" id="explorer-flip" aria-label="Gira el tauler" title="Gira el tauler"><svg class="btn-ic" aria-hidden="true"><use href="#ic-flip"/></svg></button>
+                </div>
             </div>
 
             <!-- Informació lateral: a l'ordinador va a la DRETA del tauler; a
@@ -5215,14 +5225,12 @@
                     </div>
                     <div class="explorer-line" id="explorer-line">Analitzant la posició…</div>
                     <div class="explorer-line alt" id="explorer-line2" style="display:none;"></div>
-                    <!-- Barra de navegació de la línia previsualitzada (només visible mentre es navega una línia) -->
+                    <!-- Estat de la línia previsualitzada (només visible mentre es
+                         navega una línia): la navegació es fa amb el reproductor
+                         únic de sota el tauler. -->
                     <div class="explorer-preview" id="explorer-preview-bar" style="display:none;">
                         <div class="explorer-preview-status" id="explorer-preview-status" aria-live="polite"></div>
                         <div class="explorer-preview-controls">
-                            <button type="button" class="btn btn-secondary" id="explorer-pv-start" aria-label="Torna al principi de la línia" title="Principi de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-start"/></svg></button>
-                            <button type="button" class="btn btn-secondary" id="explorer-pv-prev" aria-label="Moviment anterior" title="Moviment anterior"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg></button>
-                            <button type="button" class="btn btn-secondary" id="explorer-pv-next" aria-label="Moviment següent" title="Moviment següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
-                            <button type="button" class="btn btn-secondary" id="explorer-pv-end" aria-label="Anar al final de la línia" title="Final de la línia"><svg class="btn-ic" aria-hidden="true"><use href="#ic-to-end"/></svg></button>
                             <button type="button" class="btn btn-secondary explorer-pv-exit" id="explorer-pv-exit">Torna a la posició analitzada</button>
                         </div>
                     </div>
@@ -6251,7 +6259,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.50"></script>
+    <script src="app.js?v=1.0.51"></script>
 
     <!-- Service Worker Registration -->
     <script>

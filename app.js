@@ -225,7 +225,6 @@ const ERROR_WINDOW_N = 30;
 const TH_ERR = 80;
 const ELO_MIN = 200;
 const ELO_MAX = 2000;
-const ANALYSIS_BOARD_INITIAL_FEN = 'r1bqk1nr/pppp1ppp/2n5/2b1p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4';
 // El calibratge obligatori és UNA SOLA partida: el rival comença suau (ROC 300)
 // i s'ADAPTA DINS DE LA PARTIDA a la qualitat de joc demostrada (proporció de
 // jugades bones, amb tot el rang ROC disponible), de manera que un principiant i
@@ -9096,6 +9095,7 @@ if (typeof window !== 'undefined') window.analyzeHistoryEntryFromScratch = analy
 // i entrada/còpia de FEN. S'hi arriba des del menú («Tauler d'anàlisi») o des
 // de l'historial amb «Explora aquesta posició», que porta la posició que
 // s'està mirant a la revisió.
+const EXPLORER_START_FEN = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1';
 let explorerBoard = null;          // instància Chessboard
 let explorerGame = null;           // chess.js amb la línia explorada aplicada
 let explorerStartFen = 'start';    // arrel de l'exploració ('start' o un FEN)
@@ -9563,6 +9563,7 @@ function paintExplorerPreviewMove(lastMove) {
 }
 
 function updateExplorerPreviewBar() {
+    updateExplorerNavButtons();
     const bar = document.getElementById('explorer-preview-bar');
     if (!bar) return;
     if (!explorerPreview.active) { bar.style.display = 'none'; return; }
@@ -9579,8 +9580,6 @@ function updateExplorerPreviewBar() {
             statusEl.textContent = `Posició després de ${num}${ply.san} · pas ${i} de ${total}`;
         }
     }
-    $('#explorer-pv-start, #explorer-pv-prev').prop('disabled', i <= 0);
-    $('#explorer-pv-next, #explorer-pv-end').prop('disabled', i >= total);
     // Porta el moviment actiu a la zona visible (mòbil: la línia pot ocupar
     // diverses files).
     const activeBtn = document.querySelector('.explorer-pv-move.active');
@@ -9647,9 +9646,7 @@ function renderExplorerMoves() {
         el.innerHTML = '<span class="explorer-moves-empty">Mou una peça (o carrega un FEN) i el motor anirà avaluant cada posició.</span>';
         return;
     }
-    const startParts = (explorerStartFen === 'start'
-        ? 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1'
-        : explorerStartFen).split(' ');
+    const startParts = (explorerStartFen === 'start' ? EXPLORER_START_FEN : explorerStartFen).split(' ');
     let moveNo = parseInt(startParts[5], 10) || 1;
     let whiteToMove = startParts[1] !== 'b';
     let html = '';
@@ -9663,11 +9660,27 @@ function renderExplorerMoves() {
     el.innerHTML = html;
 }
 
+// Estat dels botons del reproductor (ÚNICS per a tot): mentre es previsualitza
+// una línia del motor naveguen aquella línia; si no, la línia explorada.
+function updateExplorerNavButtons() {
+    const previewing = explorerPreview.active;
+    const atStart = previewing ? explorerPreview.stepIndex <= 0 : explorerIndex === 0;
+    const atEnd = previewing
+        ? explorerPreview.stepIndex >= explorerPreview.plies.length
+        : explorerIndex >= explorerMoves.length;
+    $('#explorer-start-btn, #explorer-prev').prop('disabled', atStart);
+    $('#explorer-next, #explorer-end-btn').prop('disabled', atEnd);
+}
+
 function updateExplorerControls() {
-    $('#explorer-start-btn, #explorer-prev').prop('disabled', explorerIndex === 0);
-    $('#explorer-next').prop('disabled', explorerIndex >= explorerMoves.length);
+    updateExplorerNavButtons();
     const fenInput = document.getElementById('explorer-fen-input');
-    if (fenInput && document.activeElement !== fenInput && explorerGame) fenInput.value = explorerGame.fen();
+    if (fenInput && document.activeElement !== fenInput && explorerGame) {
+        // A la posició inicial estàndard el camp queda BUIT (no hi ha cap FEN
+        // «carregat»); per a qualsevol altra posició s'hi reflecteix el FEN.
+        const fen = explorerGame.fen();
+        fenInput.value = fen === EXPLORER_START_FEN ? '' : fen;
+    }
     const status = document.getElementById('explorer-status');
     if (status) status.textContent = explorerStatusText();
 }
@@ -9711,6 +9724,13 @@ function enterExplorerEditMode() {
     const turnSel = document.getElementById('explorer-edit-turn');
     if (turnSel) turnSel.value = explorerGame.turn();
     createExplorerBoard(true);
+    // Sense cap FEN carregat (exploració pristina des de la posició inicial),
+    // l'editor comença amb el tauler BUIT: la posició es munta des de zero amb
+    // les peces de recanvi. Amb una posició carregada (FEN, historial o
+    // jugades fetes), s'edita aquella posició.
+    if (explorerStartFen === 'start' && explorerMoves.length === 0 && explorerBoard) {
+        explorerBoard.clear(false);
+    }
     $('#explorer-eval-card, #explorer-nav, #explorer-moves, #explorer-play-vs, #explorer-tools, #explorer-status, #explorer-opening').hide();
     $('#explorer-edit-toolbar').show();
 }
@@ -9778,7 +9798,8 @@ function openExplorer(fen, opts = {}) {
     if (!opts.practiceNote) hideKeyMomentPracticeBanner();
     if (opts.pushHistory !== false) navPush('explorer-screen');
     try { requestBackgroundPrepAbort(); } catch (e) {}
-    const initialFen = fen || ANALYSIS_BOARD_INITIAL_FEN;
+    // Sense posició demanada, s'obre NET: posició inicial i cap FEN al camp.
+    const initialFen = fen || 'start';
     if (!setupExplorerPosition(initialFen, opts)) setupExplorerPosition('start', opts);
     // Notes contextuals (importació del moment clau / consigna de pràctica).
     showExplorerImportNote(opts.importNote || null);
@@ -19510,9 +19531,25 @@ function setupEvents() {
         $('#start-screen').show();
         navStack.pop();
     });
-    $('#explorer-start-btn').off('click').on('click', () => explorerSeek(0));
-    $('#explorer-prev').off('click').on('click', () => explorerSeek(explorerIndex - 1));
-    $('#explorer-next').off('click').on('click', () => explorerSeek(explorerIndex + 1));
+    // Reproductor ÚNIC (anar a l'inici · un enrere · un endavant · anar al
+    // final): amb una línia del motor en previsualització navega la línia;
+    // altrament, la línia explorada.
+    $('#explorer-start-btn').off('click').on('click', () => {
+        if (explorerPreview.active) explorerPreviewApply(0);
+        else explorerSeek(0);
+    });
+    $('#explorer-prev').off('click').on('click', () => {
+        if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex - 1);
+        else explorerSeek(explorerIndex - 1);
+    });
+    $('#explorer-next').off('click').on('click', () => {
+        if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex + 1);
+        else explorerSeek(explorerIndex + 1);
+    });
+    $('#explorer-end-btn').off('click').on('click', () => {
+        if (explorerPreview.active) explorerPreviewApply(explorerPreview.plies.length);
+        else explorerSeek(explorerMoves.length);
+    });
     $('#explorer-flip').off('click').on('click', () => {
         if (!explorerBoard) return;
         // flip() reconstrueix les caselles: es perd la selecció de «tocar» (i el
@@ -19532,11 +19569,8 @@ function setupEvents() {
         const step = parseInt($(this).attr('data-step'), 10);
         if (lineKey && !isNaN(step)) explorerPreviewSelect(lineKey, step);
     });
-    // Controls compactes de la previsualització de línia.
-    $('#explorer-pv-start').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(0); });
-    $('#explorer-pv-prev').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex - 1); });
-    $('#explorer-pv-next').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.stepIndex + 1); });
-    $('#explorer-pv-end').off('click').on('click', () => { if (explorerPreview.active) explorerPreviewApply(explorerPreview.plies.length); });
+    // Sortida de la previsualització de línia (la navegació es fa amb el
+    // reproductor únic de sota el tauler).
     $('#explorer-pv-exit').off('click').on('click', exitExplorerPreview);
     // Teclat: dins la informació lateral, les fletxes naveguen la previsualització.
     $('#explorer-side').off('keydown.pvnav').on('keydown.pvnav', function (e) {
