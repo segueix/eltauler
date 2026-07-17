@@ -20093,6 +20093,7 @@ function setupEvents() {
                 ? 0
                 : Math.max(0, Math.min(POSITIONAL_VISION_LEVELS.length - 1, parsed));
             try { localStorage.setItem(POSITIONAL_VISION_KEY, String(positionalVision)); } catch (e) {}
+            applySelectedPositionalVisionStrength();
         });
     }
 
@@ -24588,6 +24589,17 @@ function getPositionalVisionLevel() {
 function positionalVisionText(level = getPositionalVisionLevel()) {
     if (level.vision === 0) return 'només present';
     return `${level.vision} ${level.vision === 1 ? 'jugada' : 'jugades'} vista`;
+}
+
+function applySelectedPositionalVisionStrength() {
+    if (!isPositionalMode() || isCalibrationGame) return;
+    const level = getPositionalVisionLevel();
+    currentGameActiveStrengthElo = level.roc;
+    currentGameEngineDepth = level.depth;
+    updateAdaptiveEngineEloLabel();
+    if (stockfish || ensureStockfish()) {
+        applyEngineEloStrength(level.roc);
+    }
 }
 
 // Llindar visual del verd: coherent amb positionalMovePrecisionPct (les
