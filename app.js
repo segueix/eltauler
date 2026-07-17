@@ -6425,7 +6425,9 @@ function updateAdaptiveEngineEloLabel() {
     // per sota és l'escala pròpia adaptativa ("ROC"), que el motor no reprodueix exactament.
     const unit = elo >= engineEloMin ? 'ELO' : 'ROC';
     if (currentGameMode === 'positional' && !blunderMode) {
-        $('#engine-elo').text(`${unit} ${elo} · només present`);
+        // L'ELO de l'enginy al Joc posicional és sempre el màxim (sense límit
+        // de força): la seva única debilitat és no mirar més enllà del present.
+        $('#engine-elo').text('ELO màxim · només present');
         return;
     }
     if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
@@ -6444,6 +6446,18 @@ function applyEngineEloStrength(eloValue) {
     try {
         stockfish.postMessage('setoption name UCI_LimitStrength value true');
         stockfish.postMessage(`setoption name UCI_Elo value ${safeElo}`);
+    } catch (e) {}
+}
+
+// Força MÀXIMA del motor: es desactiva el límit d'ELO (UCI_LimitStrength) i
+// Stockfish juga i analitza al 100%. És la força del Joc posicional: allà la
+// única debilitat del rival és l'horitzó de 2 semijugades, no la qualitat.
+// (Els altres modes tornen a limitar la força amb applyEngineEloStrength, que
+// tots re-afirmen abans de cada cerca.)
+function applyEngineMaxStrength() {
+    if (!stockfish) return;
+    try {
+        stockfish.postMessage('setoption name UCI_LimitStrength value false');
     } catch (e) {}
 }
 
@@ -22670,14 +22684,15 @@ blunderMode = isBundle;
         $('#game-mode-title').text('🧭 Partida assistida');
         if (engineReady) applyEngineEloStrength(currentElo);
     } else if (startPositionalRequest) {
-        // Joc posicional: aprendre a jugar el PRESENT. L'enginy manté la força
-        // adaptativa (UCI_Elo) però amb l'horitzó retallat a 2 semijugades
-        // (vegeu getAIDepth); la partida no puntua ELO ni ajusta la dificultat.
+        // Joc posicional: aprendre a jugar el PRESENT. L'enginy juga SEMPRE a
+        // força màxima (sense límit d'ELO) però amb l'horitzó retallat a
+        // 2 semijugades (vegeu getAIDepth i makeEngineMove); la partida no
+        // puntua ELO ni ajusta la dificultat.
         currentGameMode = 'positional';
         currentOpponent = null;
         updateAdaptiveEngineEloLabel();
         $('#game-mode-title').text('🔭 Joc posicional');
-        if (engineReady) applyEngineEloStrength(currentElo);
+        if (engineReady) applyEngineMaxStrength();
     } else {
         currentGameMode = 'free';
         currentOpponent = null;
@@ -22936,8 +22951,13 @@ function makeEngineMove() {
     // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
     // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada
     // jugada per no heretar opcions d'altres modes (p. ex. pràctica d'obertures).
-    applyEngineEloStrength(getActiveStrengthElo());
-    const multiPvValue = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
+    // EXCEPCIÓ: al Joc posicional l'ELO de l'enginy és SEMPRE el màxim (sense
+    // límit de força); la seva única debilitat és l'horitzó de 2 semijugades.
+    if (isPositionalMode()) applyEngineMaxStrength();
+    else applyEngineEloStrength(getActiveStrengthElo());
+    const multiPvValue = isPositionalMode()
+        ? 1 // a força màxima es juga la millor línia: no calen candidates per humanitzar
+        : getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     stockfish.postMessage(`position fen ${game.fen()}`); 
     stockfish.postMessage(`go depth ${depth}`);
@@ -23573,10 +23593,17 @@ function handleEngineMessage(rawMsg) {
             const fallbackMove = match[1] + match[2] + (match[3] || '');
             // Mateix model de selecció per calibratge i joc lliure: així el ROC estimat
             // durant el calibratge reflecteix la força real que el jugador trobarà després.
-            const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
-            const moveStr = (engineMoveCandidates.length > 0 && chosen.move)
-                ? chosen.move
-                : chooseFallbackMove(fallbackMove);
+            // Al Joc posicional NO s'humanitza res: l'enginy juga sempre la millor
+            // jugada que ha trobat (força màxima, horitzó de 2 semijugades).
+            let moveStr;
+            if (isPositionalMode()) {
+                moveStr = fallbackMove;
+            } else {
+                const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
+                moveStr = (engineMoveCandidates.length > 0 && chosen.move)
+                    ? chosen.move
+                    : chooseFallbackMove(fallbackMove);
+            }
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
