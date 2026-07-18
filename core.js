@@ -649,6 +649,33 @@
     }
 
     // ----------------------------------------------------------------------
+    // Rotació del banc de tàctiques: una posició resolta no es torna a servir
+    // fins haver completat la resta del banc.
+    // ----------------------------------------------------------------------
+    // Candidates del cicle actual: les posicions del banc encara no resoltes.
+    // Si les dades de recents són inconsistents (p. ex. el banc ha canviat en
+    // una actualització i ja les cobreix totes), es torna el banc sencer.
+    function tacticsPickPool(bank, recentFens) {
+        const bankList = Array.isArray(bank) ? bank.filter(Boolean) : [];
+        if (!bankList.length) return [];
+        const recent = new Set(Array.isArray(recentFens) ? recentFens : []);
+        const pool = bankList.filter(f => !recent.has(f));
+        return pool.length ? pool : bankList.slice();
+    }
+
+    // Registra una posició resolta i retorna la nova llista de recents. Quan el
+    // cicle cobreix tot el banc, es reinicia conservant només l'última resolta
+    // perquè no pugui tornar a sortir immediatament.
+    function tacticsRecordSolved(bank, recentFens, fen) {
+        const prev = Array.isArray(recentFens) ? recentFens.filter(f => f && f !== fen) : [];
+        if (!fen) return prev;
+        const recent = prev.concat([fen]);
+        const bankList = Array.isArray(bank) ? bank.filter(Boolean) : [];
+        const covered = bankList.length > 0 && bankList.every(f => recent.includes(f));
+        return covered ? [fen] : recent;
+    }
+
+    // ----------------------------------------------------------------------
     // Classificador de FINAL TÀCTIC dels jeroglífics (PUR amb chess.js injectat)
     // ----------------------------------------------------------------------
     // Un jeroglífic només s'aprova si acaba amb una imatge tàctica clara i
@@ -2465,6 +2492,8 @@
         puzzleHint,
         puzzleInitPlay,
         puzzleSubmitMove,
+        tacticsPickPool,
+        tacticsRecordSolved,
         normalize,
         clampUserElo,
         getBaselineAdjustmentDelta,

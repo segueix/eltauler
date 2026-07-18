@@ -345,7 +345,7 @@ let isDailyPuzzleSession = false;
 let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, lastSolved: null };
 // Progrés d'aprenentatge d'obertures (ids ECO completats) i tàctiques resoltes
 let completedOpenings = [];
-let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
+let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0, recentFens: [] };
 let isTacticsSession = false;
 
 // Entrenador invisible: domini temàtic, recomanacions i estadístiques de creixement
@@ -1968,7 +1968,7 @@ function importBackupData(data) {
     importedGameHistory = Array.isArray(data.importedGameHistory) ? data.importedGameHistory : [];
     migrateImportedHistoryEntries(); // còpies antigues duien les importades dins gameHistory
     if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
-    if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0 }, data.tacticsStats);
+    if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0, recentFens: [] }, data.tacticsStats);
     if (data.hieroglyphicStats && typeof data.hieroglyphicStats === 'object') hieroglyphicStats = Object.assign(hieroglyphicStats, data.hieroglyphicStats);
        isCalibrating = typeof data.isCalibrating === 'boolean' ? data.isCalibrating : isCalibrating;
     calibrationGames = Array.isArray(data.calibrationGames) ? data.calibrationGames : calibrationGames;
@@ -21104,8 +21104,10 @@ const TACTICS_BANK = [
 ];
 
 function pickTacticsFen() {
+    // Rotació: les posicions ja resoltes no es repeteixen fins completar el banc.
+    const pool = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens);
     // Prefereix una posició amb la seqüència ja preparada en segon pla (inici instantani)
-    return pickPreferPrepared(TACTICS_BANK) || TACTICS_BANK[Math.floor(Math.random() * TACTICS_BANK.length)];
+    return pickPreferPrepared(pool) || pool[Math.floor(Math.random() * pool.length)];
 }
 
 function startTacticsPuzzle() {
@@ -21135,10 +21137,12 @@ async function startBestLineExercise() {
 
 if (typeof window !== 'undefined') window.startBestLineExercise = startBestLineExercise;
 
-function completeTacticsPuzzle(success) {
+function completeTacticsPuzzle(success, solvedFen) {
     tacticsStats.attempts = (tacticsStats.attempts || 0) + 1;
     if (success) {
         markGrowthTaskCompleted(currentGrowthTask && currentGrowthTask.type === 'tactics' ? currentGrowthTask : { type: 'tactics', theme: 'general', source: 'history' }, 'success');
+        // Recorda la posició resolta: la rotació no la tornarà a servir aquest cicle.
+        tacticsStats.recentFens = ElTaulerCore.tacticsRecordSolved(TACTICS_BANK, tacticsStats.recentFens, solvedFen);
         tacticsStats.solved = (tacticsStats.solved || 0) + 1;
         tacticsStats.streak = (tacticsStats.streak || 0) + 1;
         tacticsStats.best = Math.max(tacticsStats.best || 0, tacticsStats.streak);
@@ -24397,7 +24401,7 @@ function handleBundleSuccess() {
     board.draggable = false;
 
     if (isTacticsSession) {
-        completeTacticsPuzzle(true);
+        completeTacticsPuzzle(true, solvedFen);
         updateDisplay();
         showTacticsOverlay();
         return;
@@ -28872,7 +28876,8 @@ function getBackgroundPrepCandidates() {
     const add = (fen) => { if (fen && !seen[fen]) { seen[fen] = true; out.push(fen); } };
     try { ensureDailyPuzzle(); } catch (e) {}
     if (dailyPuzzle && dailyPuzzle.fen && !dailyPuzzle.solved) add(dailyPuzzle.fen);
-    samplePreferPrepared(TACTICS_BANK, PREPARED_SEQ_TARGET).forEach(add);
+    // Només posicions del cicle actual: les resoltes no es tornaran a servir.
+    samplePreferPrepared(ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens), PREPARED_SEQ_TARGET).forEach(add);
     getDueErrors().slice(0, PREPARED_SEQ_TARGET).forEach(e => add(e.fen));
     samplePreferPrepared(savedErrors.map(e => e.fen), PREPARED_SEQ_TARGET).forEach(add);
     samplePreferPrepared(getOpeningPhaseErrors().map(e => e.fen), PREPARED_SEQ_TARGET).forEach(add);
