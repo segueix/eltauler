@@ -4365,6 +4365,16 @@
                         <div class="play-clock-hint">El rellotge triat val per a la partida nova i l'assistida; el joc posicional es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
                     </div>
 
+                    <!-- Repte del bessó: juga contra una versió de tu mateix -->
+                    <button class="catalans-banner besso-banner" id="btn-besso" aria-label="Repte del bessó">
+                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swap"/></svg>
+                        <span class="catalans-banner-text">
+                            <span class="catalans-banner-title">Repte del bessó</span>
+                            <span class="catalans-banner-sub">Juga contra una versió de tu mateix: les teves obertures i el teu estil</span>
+                        </span>
+                        <span class="catalans-banner-cta">Juga-hi ›</span>
+                    </button>
+
                     <div class="league-banner" id="league-banner" style="display:none;">
                         <div class="league-banner-header">
                             <span>🏅 Proper partit de lliga</span>
@@ -5412,6 +5422,25 @@
             </div>
         </div>
 
+        <!-- Repte del bessó: tria de període (jo d'ara / jo del passat) -->
+        <div class="modal-overlay" id="besso-modal">
+            <div class="modal-content">
+                <div class="modal-title">🔀 Repte del bessó</div>
+                <p class="promotion-hint">Tria contra quina versió de tu mateix vols jugar. El bessó fa servir les <strong>teves obertures</strong> i juga cada fase amb la <strong>teva força</strong>.</p>
+                <div class="besso-options">
+                    <button class="besso-opt" id="btn-besso-now" type="button">
+                        <span class="besso-opt-title">El teu jo d'ara</span>
+                        <span class="besso-opt-sub">—</span>
+                    </button>
+                    <button class="besso-opt" id="btn-besso-past" type="button" style="display:none;">
+                        <span class="besso-opt-title">El teu jo del passat</span>
+                        <span class="besso-opt-sub">—</span>
+                    </button>
+                </div>
+                <button class="close-modal" id="btn-besso-cancel">Cancel·la</button>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="promotion-modal">
             <div class="modal-content">
                 <div class="modal-title">👑 Corona el peó</div>
@@ -5710,6 +5739,25 @@
             .catalans-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
             .catalans-banner-sub { font-size:0.8rem; opacity:0.9; line-height:1.25; }
             .catalans-banner-cta { flex:0 0 auto; z-index:1; font-weight:700; font-size:0.9rem; color: var(--accent-gold); background: rgba(0,0,0,0.25); padding:7px 14px; border-radius:999px; white-space:nowrap; }
+            /* Repte del bessó: reutilitza l'estructura del bàner col·lectiu amb una
+               paleta pròpia (blau-verd fred, per contrast amb el vermell dels Catalans). */
+            .besso-banner { background: linear-gradient(135deg, #245b6e 0%, #163f52 55%, #10303f 100%); border-color: rgba(120,200,220,0.4); margin-top:0; }
+            .besso-banner .catalans-banner-ic { stroke:#8fd6e6; }
+            .besso-banner::after { background: radial-gradient(circle, rgba(120,200,220,0.24), transparent 70%); }
+            .besso-banner .catalans-banner-cta { color:#bfe9f2; }
+            /* Opcions de període del repte del bessó (dins del modal). */
+            .besso-options { display:flex; flex-direction:column; gap:10px; margin:14px 0 6px; }
+            .besso-opt {
+                display:flex; flex-direction:column; align-items:flex-start; gap:2px;
+                width:100%; padding:12px 16px; border-radius:12px; cursor:pointer; text-align:left;
+                border:1px solid rgba(120,200,220,0.4); color:#eaf6fa;
+                background: linear-gradient(135deg, #245b6e 0%, #17414f 100%);
+                transition: transform .12s ease, box-shadow .12s ease;
+            }
+            .besso-opt:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.35); }
+            .besso-opt:active { transform: translateY(0); }
+            .besso-opt-title { font-weight:700; font-size:1rem; }
+            .besso-opt-sub { font-size:0.8rem; opacity:0.85; }
             /* Compte enrere del torn dins del bàner (hores, minuts i segons). */
             .catalans-banner-countdown { font-size:0.82rem; font-weight:700; color:#ffd9a8; margin-top:2px; font-variant-numeric: tabular-nums; letter-spacing:0.02em; }
             #custom-banners .catalans-banner-countdown { color:#ffe9c7; }

@@ -345,8 +345,14 @@ let isDailyPuzzleSession = false;
 let dailyPuzzle = { date: null, solved: false, streak: 0, best: 0, fen: null, lastSolved: null };
 // Progrés d'aprenentatge d'obertures (ids ECO completats) i tàctiques resoltes
 let completedOpenings = [];
-let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
+let tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0, recentFens: [] };
 let isTacticsSession = false;
+
+// El teu bessó: un rival que juga com tu (llibre d'obertures personal + força
+// per fase treta de les teves partides). Es construeix a l'inici de cada repte.
+let bessoState = null;        // { baseElo, label, profile, book, color, period }
+let bessoPlayPending = null;  // petició d'inici { color } (consumida a startGame)
+let bessoHelpers = null;      // helpers del nucli amb chess.js injectat (llibre)
 
 // Entrenador invisible: domini temàtic, recomanacions i estadístiques de creixement
 const TARGET_SUCCESS_RATE = 0.72;
@@ -1968,7 +1974,7 @@ function importBackupData(data) {
     importedGameHistory = Array.isArray(data.importedGameHistory) ? data.importedGameHistory : [];
     migrateImportedHistoryEntries(); // còpies antigues duien les importades dins gameHistory
     if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
-    if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0 }, data.tacticsStats);
+    if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0, recentFens: [] }, data.tacticsStats);
     if (data.hieroglyphicStats && typeof data.hieroglyphicStats === 'object') hieroglyphicStats = Object.assign(hieroglyphicStats, data.hieroglyphicStats);
        isCalibrating = typeof data.isCalibrating === 'boolean' ? data.isCalibrating : isCalibrating;
     calibrationGames = Array.isArray(data.calibrationGames) ? data.calibrationGames : calibrationGames;
@@ -4639,6 +4645,9 @@ function getAdaptiveNormalized() {
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
 function getActiveStrengthElo() {
     if (currentGameMode === 'fen_max') return ELO_MAX;
+    // El teu bessó: la força varia per FASE segons com jugues tu cada fase
+    // (obertura / mig joc / final), sobre l'ELO base del període triat.
+    if (currentGameMode === 'besso' && bessoState) return getBessoActiveElo();
     // Joc posicional: la força del rival és l'EQUIVALENT del nombre de jugades
     // vista triat al desplegable (no l'ELO adaptatiu de l'usuari). Amb aquest
     // valor, tota la maquinària estàndard (UCI_Elo, MultiPV, selecció humana
@@ -19448,6 +19457,13 @@ function setupEvents() {
     $('#btn-catalans').click(() => {
         openCatalansScreen(true);
     });
+
+    // Repte del bessó: obre el selector de període (jo d'ara / jo del passat).
+    onModalAction('#btn-besso', () => openBessoChallenge());
+    onModalAction('#btn-besso-now', () => { $('#besso-modal').hide(); startBessoGame('now'); });
+    onModalAction('#btn-besso-past', () => { $('#besso-modal').hide(); startBessoGame('past'); });
+    onModalAction('#btn-besso-cancel', () => { $('#besso-modal').hide(); });
+    $('#besso-modal').on('click', function (e) { if (e.target === this) $(this).hide(); });
     $('#btn-catalans-back').click(() => {
         closeCatalansScreen();
         navStack.pop();
@@ -21084,6 +21100,141 @@ function showDailyPuzzleOverlay() {
     });
 }
 
+/* ===================== EL TEU BESSÓ ===================== */
+// Un rival que juga com tu: obertures tretes del teu historial (llibre personal)
+// i força ajustada per fase (obertura / mig joc / final) segons com jugues cada
+// fase. Pots enfrontar-t'hi en la versió d'ARA o en la del PASSAT (si tens prou
+// historial d'ELO) per mesurar el progrés. No puntua ELO ni entra a l'historial.
+
+function getBessoHelpers() {
+    if (!bessoHelpers && typeof Chess !== 'undefined') {
+        try { bessoHelpers = ElTaulerCore.createBessoHelpers(Chess); } catch (e) { bessoHelpers = null; }
+    }
+    return bessoHelpers;
+}
+
+// ELO efectiu del bessó a la posició actual: base del període + desnivell de la
+// fase (una fase que jugues fluix la juga més fluix, i a l'inrevés).
+function getBessoActiveElo() {
+    if (!bessoState) return currentElo;
+    const ply = game ? game.history().length : 0;
+    const fen = game ? game.fen() : '';
+    const phase = ElTaulerCore.bessoPhaseOfPosition(fen, ply);
+    return clampEngineElo(ElTaulerCore.bessoPhaseElo(bessoState.baseElo, bessoState.profile, phase));
+}
+
+// Si el bessó té una jugada del teu llibre per a la posició actual, la juga
+// directament (sense motor) amb un temps de resposta humanitzat. Retorna true
+// si s'ha encarregat de la jugada.
+function tryBessoBookMove() {
+    const helpers = getBessoHelpers();
+    if (!helpers || !bessoState || !bessoState.book) return false;
+    let san = null;
+    try { san = helpers.bessoBookMove(bessoState.book, game.fen()); } catch (e) { san = null; }
+    if (!san) return false;
+    // Tradueix el SAN del llibre a coordenades i valida que sigui legal ARA.
+    let mv = null;
+    try { const probe = new Chess(game.fen()); mv = probe.move(san); } catch (e) { mv = null; }
+    if (!mv) return false;
+    isEngineThinking = true;
+    engineMoveApplyPending = true;
+    $('#status').text('El teu bessó respon amb la teva obertura…');
+    let delay = 500;
+    try { delay = Math.max(350, Math.min(1100, computeHumanReplyDelayMs())); } catch (e) {}
+    clearEngineMoveTimers();
+    engineMoveApplyTimeout = setTimeout(() => {
+        engineMoveApplyTimeout = null;
+        isEngineThinking = false;
+        engineMoveApplyPending = false;
+        engineReplyStartTs = null;
+        // Guarda de seguretat: mai jugar pel color de l'usuari ni sobre una
+        // partida acabada (una crida antiga no ha d'aplicar una jugada obsoleta).
+        if (game.game_over() || game.turn() === playerColor) return;
+        const applied = game.move({ from: mv.from, to: mv.to, promotion: mv.promotion || 'q' });
+        if (!applied) { makeEngineMove(); return; }
+        lastEngineMoveAppliedTs = nowMs();
+        updateStatus();
+        resetGameMoveNav();
+        board.position(game.fen());
+        highlightEngineMove(mv.from, mv.to);
+        setTimeout(reapplyEngineMoveHighlight, 0);
+        if (game.game_over()) runAfterPaint(() => handleGameOver());
+    }, delay);
+    return true;
+}
+
+// Prepara el bessó a partir de l'historial i llança el repte. `period`: 'now'
+// (jo actual) o 'past' (jo d'una data anterior, si n'hi ha prou historial).
+function startBessoGame(period = 'now') {
+    if (!guardCalibrationAccess()) return;
+    const games = ElTaulerCore.bessoEligibleGames(gameHistory);
+    if (games.length < ElTaulerCore.BESSO_CONFIG.minGames) {
+        showToast(`Necessites almenys ${ElTaulerCore.BESSO_CONFIG.minGames} partides jugades perquè el bessó aprengui el teu estil. Juga'n unes quantes i torna.`, 'warn', 5000);
+        return;
+    }
+    const helpers = getBessoHelpers();
+    if (!helpers) { showToast('No s\'ha pogut preparar el bessó (motor d\'escacs no carregat).', 'error'); return; }
+
+    const profile = ElTaulerCore.bessoProfileFromGames(gameHistory);
+    const book = helpers.bessoBuildBook(gameHistory, ElTaulerCore.BESSO_CONFIG.bookMaxPlies);
+    const color = ElTaulerCore.bessoDominantColor(gameHistory);
+
+    let baseElo = clampEngineElo(userELO);
+    let label = 'El teu jo d\'ara';
+    let periodResolved = 'now';
+    if (period === 'past') {
+        const snap = ElTaulerCore.bessoPastSnapshot(eloHistory, Date.now(), ElTaulerCore.BESSO_CONFIG.pastMinDays);
+        if (!snap) {
+            showToast('Encara no tens prou historial per jugar contra el teu jo del passat. Prova el jo d\'ara.', 'info', 5000);
+            return;
+        }
+        baseElo = clampEngineElo(snap.elo);
+        label = `El teu jo de ${snap.label}`;
+        periodResolved = 'past';
+    }
+
+    bessoState = { baseElo, label, profile, book, color, period: periodResolved };
+    bessoPlayPending = { color };
+    isTacticsSession = false;
+    isDailyPuzzleSession = false;
+    isSrsReviewSession = false;
+    isRandomBundleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    if (leagueActiveMatch) { leagueActiveMatch = null; saveStorage(); }
+    currentGameMode = 'besso';
+    currentOpponent = null;
+    startGame(false);
+}
+
+// Obre el selector de període del bessó (jo d'ara / jo del passat). Si no hi ha
+// instantània prou antiga, engega directament contra el jo d'ara.
+function openBessoChallenge() {
+    if (!guardCalibrationAccess()) return;
+    const games = ElTaulerCore.bessoEligibleGames(gameHistory);
+    if (games.length < ElTaulerCore.BESSO_CONFIG.minGames) {
+        showToast(`Necessites almenys ${ElTaulerCore.BESSO_CONFIG.minGames} partides jugades perquè el bessó aprengui el teu estil. Juga'n unes quantes i torna.`, 'warn', 5000);
+        return;
+    }
+    const snap = ElTaulerCore.bessoPastSnapshot(eloHistory, Date.now(), ElTaulerCore.BESSO_CONFIG.pastMinDays);
+    const modal = $('#besso-modal');
+    if (!modal.length) { startBessoGame('now'); return; }
+    const pastBtn = modal.find('#btn-besso-past');
+    if (snap) {
+        pastBtn.show().find('.besso-opt-sub').text(`ELO ${snap.elo} · ${snap.label}`);
+    } else {
+        pastBtn.hide();
+    }
+    modal.find('#btn-besso-now .besso-opt-sub').text(`ELO ${clampEngineElo(userELO)} · el teu nivell actual`);
+    modal.css('display', 'flex');
+}
+
+if (typeof window !== 'undefined') {
+    window.startBessoGame = startBessoGame;
+    window.openBessoChallenge = openBessoChallenge;
+}
+
 /* ===================== ENTRENAMENT DE TÀCTIQUES ===================== */
 // Banc de posicions tàctiques: el jugador ha de trobar la millor jugada (verificada per Stockfish).
 const TACTICS_BANK = [
@@ -21104,8 +21255,10 @@ const TACTICS_BANK = [
 ];
 
 function pickTacticsFen() {
+    // Rotació: les posicions ja resoltes no es repeteixen fins completar el banc.
+    const pool = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens);
     // Prefereix una posició amb la seqüència ja preparada en segon pla (inici instantani)
-    return pickPreferPrepared(TACTICS_BANK) || TACTICS_BANK[Math.floor(Math.random() * TACTICS_BANK.length)];
+    return pickPreferPrepared(pool) || pool[Math.floor(Math.random() * pool.length)];
 }
 
 function startTacticsPuzzle() {
@@ -21135,10 +21288,12 @@ async function startBestLineExercise() {
 
 if (typeof window !== 'undefined') window.startBestLineExercise = startBestLineExercise;
 
-function completeTacticsPuzzle(success) {
+function completeTacticsPuzzle(success, solvedFen) {
     tacticsStats.attempts = (tacticsStats.attempts || 0) + 1;
     if (success) {
         markGrowthTaskCompleted(currentGrowthTask && currentGrowthTask.type === 'tactics' ? currentGrowthTask : { type: 'tactics', theme: 'general', source: 'history' }, 'success');
+        // Recorda la posició resolta: la rotació no la tornarà a servir aquest cicle.
+        tacticsStats.recentFens = ElTaulerCore.tacticsRecordSolved(TACTICS_BANK, tacticsStats.recentFens, solvedFen);
         tacticsStats.solved = (tacticsStats.solved || 0) + 1;
         tacticsStats.streak = (tacticsStats.streak || 0) + 1;
         tacticsStats.best = Math.max(tacticsStats.best || 0, tacticsStats.streak);
@@ -22469,6 +22624,10 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // aquí perquè no pugui quedar penjada i contaminar cap altra partida.
     const explorerPlayRequest = explorerPlayPending;
     explorerPlayPending = null;
+    // Repte del bessó: es consumeix aquí (com la resta de peticions de partida)
+    // perquè no quedi penjada i afecti cap partida posterior.
+    const bessoPlayRequest = bessoPlayPending;
+    bessoPlayPending = null;
     currentReview = [];
     lastReviewSnapshot = null;
     setResultIndicator(null);
@@ -22508,7 +22667,7 @@ blunderMode = isBundle;
     // El botó de rendir-se només té sentit a les PARTIDES, no als exercicis
     // (tàctiques, revisió d'errors, mats…).
     $('#btn-resign').toggle(!isBundle);
-    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending && !explorerPlayRequest;
+    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending && !explorerPlayRequest && !bessoPlayRequest;
     if (!isCalibrationGame) calibrationStartOpponentRoc = null;
     currentBundleFen = fen;
     
@@ -22603,6 +22762,11 @@ blunderMode = isBundle;
     } else if (explorerPlayRequest) {
         // Des del tauler d'anàlisi: l'usuari juga el bàndol a qui toca moure.
         playerColor = explorerPlayRequest.playerColor === 'b' ? 'b' : 'w';
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (bessoPlayRequest) {
+        // El bessó juga amb el TEU color dominant (on tens més repertori); tu
+        // jugues amb el contrari i t'enfrontes a les teves pròpies obertures.
+        playerColor = bessoPlayRequest.color === 'w' ? 'b' : 'w';
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else {
         const isWhite = Math.random() < 0.5;
@@ -22710,6 +22874,15 @@ blunderMode = isBundle;
         updateAdaptiveEngineEloLabel();
         $('#game-mode-title').text('🧭 Partida assistida');
         if (engineReady) applyEngineEloStrength(currentElo);
+    } else if (bessoPlayRequest && bessoState) {
+        // Repte del bessó: rival que juga com tu. La força surt del perfil per
+        // fase (getActiveStrengthElo → getBessoActiveElo); no puntua ELO ni entra
+        // a l'historial (com el tauler d'anàlisi).
+        currentGameMode = 'besso';
+        currentOpponent = { id: 'besso-' + bessoState.period, name: bessoState.label, elo: bessoState.baseElo };
+        $('#engine-elo').text(bessoState.label);
+        $('#game-mode-title').html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-swap"/></svg>${escapeHtml(bessoState.label)}`).css('font-size', '');
+        if (engineReady) applyEngineEloStrength(getActiveStrengthElo());
     } else if (startPositionalRequest) {
         // Joc posicional: aprendre a jugar el PRESENT. L'horitzó del motor i el
         // seu ELO equivalent els fixa el desplegable de jugades vista (vegeu
@@ -22756,7 +22929,7 @@ blunderMode = isBundle;
     // l'ELO del ritme, i són partides que no han de puntuar res.
     // El Joc posicional es juga sempre sense rellotge: és per pensar el present
     // amb calma (i sense rellotge tampoc no interfereix amb els ELO per ritme).
-    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer' && currentGameMode !== 'positional');
+    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer' && currentGameMode !== 'positional' && currentGameMode !== 'besso');
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -22956,6 +23129,9 @@ function makeEngineMove() {
     // Repte «Rejugar +5%» acabat: el motor ja no respon (la finestra de resultat
     // és oberta i la posició queda tal com estava en assolir el final de la fase).
     if (phaseReplayInputLocked()) return;
+    // El teu bessó juga primer del TEU llibre d'obertures personal; només passa
+    // al motor quan la partida surt de les línies que jugues habitualment.
+    if (currentGameMode === 'besso' && bessoState && tryBessoBookMove()) return;
     if (!stockfish && !ensureStockfish()) return;
 
     isEngineThinking = true;
@@ -24397,7 +24573,7 @@ function handleBundleSuccess() {
     board.draggable = false;
 
     if (isTacticsSession) {
-        completeTacticsPuzzle(true);
+        completeTacticsPuzzle(true, solvedFen);
         updateDisplay();
         showTacticsOverlay();
         return;
@@ -25478,6 +25654,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // entra a l'historial, però NO puntua ELO ni ajusta la dificultat (amb el
     // desfer, el resultat no mesura la força real).
     const isPositionalGameMode = currentGameMode === 'positional';
+    // Repte del bessó: es juga i es revisa com una partida normal, però NO puntua
+    // ELO ni ajusta la dificultat ni entra a l'historial (com el tauler d'anàlisi).
+    // Així, guanyar (o perdre) contra tu mateix no infla ni desinfla el teu nivell.
+    const isBessoMode = currentGameMode === 'besso';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     // Partida amb rellotge (lliure/assistida): puntua a l'ELO del seu ritme i
     // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
@@ -25546,16 +25726,18 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
         }
         timedCalibrationTcId = null;
-    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode) {
+    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
     } else if (isPositionalGameMode) {
         msg += ' · Joc posicional (sense ELO)';
+    } else if (isBessoMode) {
+        msg += ` · ${bessoState ? bessoState.label : 'El teu bessó'} (sense ELO)`;
     }
 
     if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
 
-    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode) {
+    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
         userELO = Math.max(50, userELO + change);
         updateEloHistory(userELO);
         syncEngineEloFromUser();
@@ -25584,7 +25766,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             if (adjustResult && adjustResult.feedback) {
                 msg += ` · ${adjustResult.feedback}`;
             }
-        } else if (!isLeagueMode && !isExplorerMode && !isPositionalGameMode) {
+        } else if (!isLeagueMode && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
             adjustAIDifficulty(playerWon, finalPrecision, resultScore);
         }
     }
@@ -25593,7 +25775,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         applyLeagueAfterGame(leagueOutcome);
     }
     const reviewCounts = summarizeReview(currentReview);
-    if (!blunderMode && !isExplorerMode && !isPositionalGameMode) {
+    if (!blunderMode && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
         const adjustmentSummary = getLastAdjustmentSummary(adaptationAdjustmentLogStart);
         let appliedDelta = adjustmentSummary.appliedDelta;
         if (!appliedDelta) {
@@ -25641,7 +25823,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // d'un FEN arbitrari i el reproductor/ressenya de l'historial reconstrueixen
     // les partides des de la posició inicial. Les errades detectades en viu sí
     // que alimenten la biblioteca d'errors (són jugades reals de l'usuari).
-    if (!isExplorerMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
+    // El repte del bessó tampoc no s'hi desa: evita el bucle de retroalimentació
+    // (el bessó aprèn de les teves partides REALS, no de les que hi jugues en contra).
+    if (!isExplorerMode && !isBessoMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
     severeErrors.forEach(err => {
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
@@ -28872,7 +29056,8 @@ function getBackgroundPrepCandidates() {
     const add = (fen) => { if (fen && !seen[fen]) { seen[fen] = true; out.push(fen); } };
     try { ensureDailyPuzzle(); } catch (e) {}
     if (dailyPuzzle && dailyPuzzle.fen && !dailyPuzzle.solved) add(dailyPuzzle.fen);
-    samplePreferPrepared(TACTICS_BANK, PREPARED_SEQ_TARGET).forEach(add);
+    // Només posicions del cicle actual: les resoltes no es tornaran a servir.
+    samplePreferPrepared(ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens), PREPARED_SEQ_TARGET).forEach(add);
     getDueErrors().slice(0, PREPARED_SEQ_TARGET).forEach(e => add(e.fen));
     samplePreferPrepared(savedErrors.map(e => e.fen), PREPARED_SEQ_TARGET).forEach(add);
     samplePreferPrepared(getOpeningPhaseErrors().map(e => e.fen), PREPARED_SEQ_TARGET).forEach(add);

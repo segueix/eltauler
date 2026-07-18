@@ -649,6 +649,210 @@
     }
 
     // ----------------------------------------------------------------------
+    // Rotació del banc de tàctiques: una posició resolta no es torna a servir
+    // fins haver completat la resta del banc.
+    // ----------------------------------------------------------------------
+    // Candidates del cicle actual: les posicions del banc encara no resoltes.
+    // Si les dades de recents són inconsistents (p. ex. el banc ha canviat en
+    // una actualització i ja les cobreix totes), es torna el banc sencer.
+    function tacticsPickPool(bank, recentFens) {
+        const bankList = Array.isArray(bank) ? bank.filter(Boolean) : [];
+        if (!bankList.length) return [];
+        const recent = new Set(Array.isArray(recentFens) ? recentFens : []);
+        const pool = bankList.filter(f => !recent.has(f));
+        return pool.length ? pool : bankList.slice();
+    }
+
+    // Registra una posició resolta i retorna la nova llista de recents. Quan el
+    // cicle cobreix tot el banc, es reinicia conservant només l'última resolta
+    // perquè no pugui tornar a sortir immediatament.
+    function tacticsRecordSolved(bank, recentFens, fen) {
+        const prev = Array.isArray(recentFens) ? recentFens.filter(f => f && f !== fen) : [];
+        if (!fen) return prev;
+        const recent = prev.concat([fen]);
+        const bankList = Array.isArray(bank) ? bank.filter(Boolean) : [];
+        const covered = bankList.length > 0 && bankList.every(f => recent.includes(f));
+        return covered ? [fen] : recent;
+    }
+
+    // ----------------------------------------------------------------------
+    // EL TEU BESSÓ — un rival que juga com tu (lògica PURA i testable).
+    // El perfil surt de les partides pròpies: obertures reals (llibre personal
+    // indexat per posició), qualitat per fase (obertura / mig joc / final) i,
+    // si hi ha prou historial d'ELO, una versió del passat per mesurar el
+    // progrés jugant-hi en contra. La part de Stockfish i de UI viu a app.js.
+    // ----------------------------------------------------------------------
+    const BESSO_CONFIG = {
+        minGames: 3,          // partides pròpies necessàries per construir el bessó
+        bookMaxPlies: 16,     // profunditat màxima del llibre personal (semijugades)
+        pastMinDays: 21,      // antiguitat mínima perquè existeixi el "jo del passat"
+        openingMaxPly: 19,    // fins a la 10a jugada és fase d'obertura
+        endgameMaxPieces: 12, // amb 12 peces o menys és final
+        phaseMinSamples: 8,   // jugades revisades mínimes per ajustar una fase
+        phaseDeltaCpToElo: 1.2,   // conversió (cp de pèrdua) → punts d'ELO de la fase
+        phaseDeltaMaxElo: 120     // límit de l'ajust per fase
+    };
+
+    function bessoPieceCountFromFen(fen) {
+        const boardPart = String(fen || '').split(' ')[0];
+        return (boardPart.match(/[a-zA-Z]/g) || []).length;
+    }
+
+    // Fase de la posició: obertura per número de jugada, final per material.
+    function bessoPhaseOfPosition(fen, ply) {
+        if ((typeof ply === 'number' ? ply : 0) <= BESSO_CONFIG.openingMaxPly) return 'opening';
+        return bessoPieceCountFromFen(fen) <= BESSO_CONFIG.endgameMaxPieces ? 'endgame' : 'middlegame';
+    }
+
+    // Partides vàlides per construir el bessó: amb jugades i color del jugador.
+    function bessoEligibleGames(entries) {
+        return (Array.isArray(entries) ? entries : []).filter(e =>
+            e && Array.isArray(e.moves) && e.moves.length >= 4
+            && (e.playerColor === 'w' || e.playerColor === 'b'));
+    }
+
+    // Color amb què el jugador té més partides: el bessó jugarà amb aquest
+    // color, de manera que l'usuari s'enfronti al seu propi repertori.
+    function bessoDominantColor(entries) {
+        let w = 0, b = 0;
+        bessoEligibleGames(entries).forEach(e => { if (e.playerColor === 'b') b++; else w++; });
+        return b > w ? 'b' : 'w';
+    }
+
+    // Perfil de qualitat per fases a partir de les revisions de jugades pròpies:
+    // una fase jugada PITJOR que la mitjana dona un delta d'ELO negatiu (el bessó
+    // hi jugarà més fluix, com tu), i una fase forta el dona positiu.
+    function bessoProfileFromGames(entries) {
+        const games = bessoEligibleGames(entries);
+        const acc = {
+            opening: { loss: 0, n: 0 },
+            middlegame: { loss: 0, n: 0 },
+            endgame: { loss: 0, n: 0 }
+        };
+        games.forEach(e => {
+            (Array.isArray(e.moveReviews) ? e.moveReviews : []).forEach(r => {
+                if (!r || r.color !== e.playerColor) return;
+                const moveNumber = +r.moveNumber || 0;
+                const ply = Math.max(0, (moveNumber - 1) * 2);
+                const phase = r.fen
+                    ? bessoPhaseOfPosition(r.fen, ply)
+                    : (moveNumber <= 10 ? 'opening' : 'middlegame');
+                const swing = Math.max(0, Math.min(900, +r.swing || 0));
+                acc[phase].loss += swing;
+                acc[phase].n += 1;
+            });
+        });
+        const totalN = acc.opening.n + acc.middlegame.n + acc.endgame.n;
+        const totalLoss = acc.opening.loss + acc.middlegame.loss + acc.endgame.loss;
+        const avg = totalN ? totalLoss / totalN : 0;
+        const deltaFor = (phase) => {
+            const a = acc[phase];
+            if (!totalN || a.n < BESSO_CONFIG.phaseMinSamples) return 0;
+            const phaseAvg = a.loss / a.n;
+            const d = Math.round((avg - phaseAvg) * BESSO_CONFIG.phaseDeltaCpToElo);
+            return Math.max(-BESSO_CONFIG.phaseDeltaMaxElo, Math.min(BESSO_CONFIG.phaseDeltaMaxElo, d));
+        };
+        return {
+            games: games.length,
+            reviewedMoves: totalN,
+            avgCpLoss: Math.round(avg),
+            phaseEloDelta: {
+                opening: deltaFor('opening'),
+                middlegame: deltaFor('middlegame'),
+                endgame: deltaFor('endgame')
+            },
+            phaseSamples: {
+                opening: acc.opening.n,
+                middlegame: acc.middlegame.n,
+                endgame: acc.endgame.n
+            }
+        };
+    }
+
+    // Força del bessó en una fase: el seu ELO base més el desnivell de la fase.
+    function bessoPhaseElo(baseElo, profile, phase) {
+        const base = typeof baseElo === 'number' ? baseElo : 0;
+        const delta = (profile && profile.phaseEloDelta && typeof profile.phaseEloDelta[phase] === 'number')
+            ? profile.phaseEloDelta[phase] : 0;
+        return Math.round(base + delta);
+    }
+
+    function bessoDaysAgoLabel(days) {
+        const d = Math.max(1, Math.round(days || 0));
+        if (d >= 365) { const y = Math.round(d / 365); return y === 1 ? 'fa 1 any' : `fa ${y} anys`; }
+        if (d >= 55) return `fa ${Math.round(d / 30)} mesos`;
+        if (d >= 28) return 'fa 1 mes';
+        if (d >= 13) return `fa ${Math.round(d / 7)} setmanes`;
+        return d === 1 ? 'fa 1 dia' : `fa ${d} dies`;
+    }
+
+    // Instantània del passat a partir de l'historial d'ELO ({date, elo}): la
+    // més RECENT d'entre les prou antigues (minDays), o null si no n'hi ha.
+    function bessoPastSnapshot(eloHistoryList, nowTs, minDays) {
+        const min = typeof minDays === 'number' ? minDays : BESSO_CONFIG.pastMinDays;
+        const now = typeof nowTs === 'number' ? nowTs : Date.now();
+        const list = (Array.isArray(eloHistoryList) ? eloHistoryList : [])
+            .filter(e => e && e.date && typeof e.elo === 'number')
+            .map(e => ({ elo: e.elo, date: e.date, ts: Date.parse(e.date) }))
+            .filter(e => !isNaN(e.ts) && e.ts <= now)
+            .sort((a, b) => a.ts - b.ts);
+        const cutoff = now - min * 86400000;
+        const older = list.filter(e => e.ts <= cutoff);
+        if (!older.length) return null;
+        const snap = older[older.length - 1];
+        const days = Math.max(min, Math.round((now - snap.ts) / 86400000));
+        return { elo: snap.elo, date: snap.date, daysAgo: days, label: bessoDaysAgoLabel(days) };
+    }
+
+    // Helpers del bessó que necessiten el tauler (chess.js injectat, com al
+    // classificador de jeroglífics): llibre personal i tria de jugada de llibre.
+    function createBessoHelpers(ChessCtor) {
+        // Llibre personal: posició (positionKeyFromFen) → { SAN → vegades jugada }.
+        // Només s'hi guarden les jugades PRÒPIES (el torn era del jugador), dins
+        // de les primeres bookMaxPlies semijugades de cada partida.
+        function bessoBuildBook(entries, maxPlies) {
+            const max = typeof maxPlies === 'number' ? maxPlies : BESSO_CONFIG.bookMaxPlies;
+            const book = {};
+            bessoEligibleGames(entries).forEach(e => {
+                let ch;
+                try { ch = new ChessCtor(); } catch (err) { return; }
+                const limit = Math.min(e.moves.length, max);
+                for (let i = 0; i < limit; i++) {
+                    const key = positionKeyFromFen(ch.fen());
+                    const isPlayerTurn = ch.turn() === e.playerColor;
+                    let mv = null;
+                    try { mv = ch.move(e.moves[i]); } catch (err) { mv = null; }
+                    if (!mv) break; // jugada corrupta: la resta de la partida no és fiable
+                    if (isPlayerTurn) {
+                        const bucket = book[key] || (book[key] = {});
+                        bucket[e.moves[i]] = (bucket[e.moves[i]] || 0) + 1;
+                    }
+                }
+            });
+            return book;
+        }
+
+        // Jugada del llibre per a la posició actual, ponderada per freqüència
+        // (les línies més jugades surten més sovint, com faria el jugador real).
+        function bessoBookMove(book, fen, rng) {
+            const roll = typeof rng === 'function' ? rng : Math.random;
+            const bucket = book && book[positionKeyFromFen(fen)];
+            if (!bucket) return null;
+            const sans = Object.keys(bucket);
+            if (!sans.length) return null;
+            const total = sans.reduce((sum, san) => sum + bucket[san], 0);
+            let r = roll() * total;
+            for (const san of sans) {
+                r -= bucket[san];
+                if (r <= 0) return san;
+            }
+            return sans[sans.length - 1];
+        }
+
+        return { bessoBuildBook, bessoBookMove };
+    }
+
+    // ----------------------------------------------------------------------
     // Classificador de FINAL TÀCTIC dels jeroglífics (PUR amb chess.js injectat)
     // ----------------------------------------------------------------------
     // Un jeroglífic només s'aprova si acaba amb una imatge tàctica clara i
@@ -2465,6 +2669,18 @@
         puzzleHint,
         puzzleInitPlay,
         puzzleSubmitMove,
+        tacticsPickPool,
+        tacticsRecordSolved,
+        BESSO_CONFIG,
+        bessoPieceCountFromFen,
+        bessoPhaseOfPosition,
+        bessoEligibleGames,
+        bessoDominantColor,
+        bessoProfileFromGames,
+        bessoPhaseElo,
+        bessoDaysAgoLabel,
+        bessoPastSnapshot,
+        createBessoHelpers,
         normalize,
         clampUserElo,
         getBaselineAdjustmentDelta,
