@@ -22574,6 +22574,9 @@ function clockTick() {
         const flagged = gameClock.white <= 0 ? 'w' : 'b';
         stopGameClock();
         renderClock();
+        // En caure la bandera, mostra a l'instant qui ha guanyat (o taules): el
+        // resultat es pinta abans del processament pesat de handleGameOver.
+        showImmediateGameResult(false, flagged);
         runAfterPaint(() => handleGameOver(false, flagged));
     }
 }
@@ -23865,7 +23868,12 @@ function handleEngineMessage(rawMsg) {
                 // El moviment ja s'ha aplicat al tauler; es difereix el final de
                 // partida perquè el navegador pinti el moviment (inclòs el mat)
                 // a l'instant en lloc d'esperar al processament pesat.
-                if (game.game_over()) runAfterPaint(() => handleGameOver());
+                if (game.game_over()) {
+                    // Resultat a l'instant (qui guanya o taules) abans del
+                    // processament pesat: important en partides amb rellotge.
+                    showImmediateGameResult();
+                    runAfterPaint(() => handleGameOver());
+                }
             }, replyDelayMs);
         }
     }
