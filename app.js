@@ -24203,15 +24203,33 @@ function showPostGameStatusChip(resultLabel) {
         // pointer-events:auto, però el contenidor per defecte és "none").
         chip.style.pointerEvents = allowQuickExit ? 'auto' : 'none';
         chip.style.display = 'block';
-        if (allowQuickExit) {
-            const btn = document.getElementById('pg-home-btn');
-            // Click normal (el navegador ja converteix el toc en click als <button>);
-            // touch-action:manipulation al CSS n'elimina el retard. Evitem
-            // handlers de touch personalitzats amb preventDefault, que en alguns
-            // navegadors mòbils trencaven la resposta al toc.
-            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); leavePostGameForHome(); });
-        }
+        // La navegació cap a l'inici es gestiona per DELEGACIÓ a nivell de document
+        // (un sol handler, instal·lat una vegada). Així el toc sobre el botó sempre
+        // navega encara que el xip es torni a renderitzar: en les partides amb
+        // rellotge, showPostGameStatusChip() es crida DUES vegades —a l'instant des
+        // de la caiguda de bandera i, tot seguit, des de handleGameOver()—, i el
+        // segon innerHTML recreava el <button> deixant sense efecte l'antic
+        // addEventListener. La delegació és immune a aquesta recreació.
+        if (allowQuickExit) ensurePostGameHomeDelegation();
     } catch (e) {}
+}
+
+// Delegació única per al botó d'inici del xip de final de partida. En fase de
+// CAPTURA a document: rep el toc abans que cap capa superior o handler el pugui
+// aturar, i sobreviu a qualsevol re-render del xip (no cal reenganxar-lo).
+let postGameHomeDelegationReady = false;
+function ensurePostGameHomeDelegation() {
+    if (postGameHomeDelegationReady) return;
+    postGameHomeDelegationReady = true;
+    document.addEventListener('click', (e) => {
+        const t = e.target;
+        if (!t) return;
+        const hit = t.id === 'pg-home-btn' || (t.closest && t.closest('#pg-home-btn'));
+        if (!hit) return;
+        e.preventDefault();
+        e.stopPropagation();
+        leavePostGameForHome();
+    }, true);
 }
 
 // El botó d'inici al xip de resultat només té sentit a les partides normals
