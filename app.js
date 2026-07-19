@@ -24264,24 +24264,40 @@ let postGameLeaving = false;
 function leavePostGameForHome() {
     if (postGameLeaving) return;
     postGameLeaving = true;
+    const btn = document.getElementById('pg-home-btn');
+    if (btn) {
+        btn.disabled = true;
+        btn.setAttribute('aria-busy', 'true');
+        btn.textContent = 'Sortint…';
+    }
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
     if (reviewOpenDelayTimer) { clearTimeout(reviewOpenDelayTimer); reviewOpenDelayTimer = null; }
     if (reviewAutoCloseTimer) { clearTimeout(reviewAutoCloseTimer); reviewAutoCloseTimer = null; }
     // Si la partida acabada encara no s'ha registrat (l'anàlisi de l'última
     // jugada seguia en marxa, o el tancament diferit encara no ha corregut),
-    // tanca-la ara mateix —sense obrir el modal— abans de sortir.
-    if (gameOverHandledGen !== gameGeneration) {
-        postGameQuickExit = true;
-        pendingGameOverAfterMoveAnalysis = false;
-        if (gameOverWatchdogTimer) { clearTimeout(gameOverWatchdogTimer); gameOverWatchdogTimer = null; }
-        waitingForBlunderAnalysis = false;
-        handleGameOver();
+    // tanca-la ara mateix —sense obrir el modal— abans de sortir. El pas per
+    // handleGameOver() pot fer molta feina (historial, ELO, tasques, IA en segon
+    // pla) o trobar una resposta antiga del motor; per això la navegació cap a
+    // l'inici queda en un finally i el botó no pot semblar mort si aquesta feina
+    // falla o triga més del compte.
+    try {
+        if (stockfish) stockfish.postMessage('stop');
+        if (gameOverHandledGen !== gameGeneration) {
+            postGameQuickExit = true;
+            pendingGameOverAfterMoveAnalysis = false;
+            if (gameOverWatchdogTimer) { clearTimeout(gameOverWatchdogTimer); gameOverWatchdogTimer = null; }
+            waitingForBlunderAnalysis = false;
+            handleGameOver();
+        }
+    } catch (e) {
+        console.warn("[PostGame] sortida ràpida: no s'ha pogut tancar la partida abans de tornar a l'inici", e);
+    } finally {
+        hidePostGameStatusChip();
+        $('#checkmate-image').hide();
+        $('#checkmate-overlay').hide();
+        $('#review-modal').hide();
+        goToHomeScreen();
     }
-    hidePostGameStatusChip();
-    $('#checkmate-image').hide();
-    $('#checkmate-overlay').hide();
-    $('#review-modal').hide();
-    goToHomeScreen();
 }
 
 function hidePostGameStatusChip() {
