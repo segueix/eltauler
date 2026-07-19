@@ -24184,39 +24184,57 @@ function showPostGameStatusChip(resultLabel) {
         const rect = boardEl.getBoundingClientRect();
         chip.style.left = (rect.left + rect.width / 2) + 'px';
         chip.style.top = (rect.top + 12) + 'px';
-        // En partides lliures/assistides, ofereix tornar a la pàgina principal a
-        // l'instant: la ressenya (Stockfish + IA) segueix generant-se en segon
-        // pla i es desa a l'historial, sense esperar el modal de revisió.
-        const allowQuickExit = postGameChipQuickExitAllowed();
+        // El xip només informa (qui ha guanyat + "Generant anàlisi…"): mai rep tocs,
+        // així no pot interferir amb el botó d'inici, que és un element a part.
         chip.innerHTML = `<div style="font-weight:800;font-size:26px;line-height:1.2;">${escapeHtml(resultLabel)}</div>` +
             '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:6px;">' +
             '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
-            'Generant anàlisi…</div>' +
-            (allowQuickExit
-                ? '<button id="pg-home-btn" type="button" style="pointer-events:auto;cursor:pointer;margin-top:14px;' +
-                  'display:block;width:100%;box-sizing:border-box;min-height:52px;' +
-                  'background:#c99a3b;color:#1a1712;border:none;padding:14px 20px;border-radius:11px;' +
-                  'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 3px 8px rgba(0,0,0,0.35);">' +
-                  '🏠 Tornar a l\'inici</button>'
-                : '');
-        // Amb el botó present, el xip ha de rebre els clics (el botó té
-        // pointer-events:auto, però el contenidor per defecte és "none").
-        chip.style.pointerEvents = allowQuickExit ? 'auto' : 'none';
+            'Generant anàlisi…</div>';
+        chip.style.pointerEvents = 'none';
         chip.style.display = 'block';
-        // La navegació cap a l'inici es gestiona per DELEGACIÓ a nivell de document
-        // (un sol handler, instal·lat una vegada). Així el toc sobre el botó sempre
-        // navega encara que el xip es torni a renderitzar: en les partides amb
-        // rellotge, showPostGameStatusChip() es crida DUES vegades —a l'instant des
-        // de la caiguda de bandera i, tot seguit, des de handleGameOver()—, i el
-        // segon innerHTML recreava el <button> deixant sense efecte l'antic
-        // addEventListener. La delegació és immune a aquesta recreació.
-        if (allowQuickExit) ensurePostGameHomeDelegation();
+        // El botó de tornar a l'inici és INDEPENDENT del xip (element propi, fix a la
+        // part inferior): en partides lliures/assistides es mostra a part perquè cap
+        // re-render ni posicionament de la finestra de resultat no l'afecti.
+        if (postGameChipQuickExitAllowed()) showPostGameHomeButton();
     } catch (e) {}
 }
 
-// Delegació única per al botó d'inici del xip de final de partida. En fase de
-// CAPTURA a document: rep el toc abans que cap capa superior o handler el pugui
-// aturar, i sobreviu a qualsevol re-render del xip (no cal reenganxar-lo).
+// Botó "Tornar a l'inici" com a element INDEPENDENT de la finestra de resultat.
+// Motiu: quan es posava dins del xip, cada re-render del xip (a les partides amb
+// rellotge, showPostGameStatusChip() es crida dues vegades) recreava el <button> i
+// el reposicionava sobre el tauler, on capes superiors li podien robar els tocs.
+// Aquí és un botó fix propi, a baix de tot i amb z-index màxim: sempre al mateix
+// lloc, sempre tàctil, viu i mor amb independència del xip.
+function showPostGameHomeButton() {
+    try {
+        let btn = document.getElementById('pg-home-btn');
+        if (!btn) {
+            ensurePostGameSpinnerKeyframes(); // porta el CSS de #pg-home-btn (:active, touch-action)
+            btn = document.createElement('button');
+            btn.id = 'pg-home-btn';
+            btn.type = 'button';
+            btn.textContent = '🏠 Tornar a l\'inici';
+            // z-index per sobre del xip (12000), toasts (11000) i bàners (10000).
+            btn.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);' +
+                'bottom:calc(22px + env(safe-area-inset-bottom, 0px));z-index:12050;' +
+                'min-width:230px;max-width:88vw;min-height:54px;box-sizing:border-box;cursor:pointer;' +
+                'background:#c99a3b;color:#1a1712;border:none;padding:14px 26px;border-radius:12px;' +
+                'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 6px 18px rgba(0,0,0,0.5);';
+            document.body.appendChild(btn);
+        }
+        ensurePostGameHomeDelegation();
+        btn.style.display = 'block';
+    } catch (e) {}
+}
+
+function hidePostGameHomeButton() {
+    const btn = document.getElementById('pg-home-btn');
+    if (btn) btn.style.display = 'none';
+}
+
+// Delegació única per al botó d'inici. En fase de CAPTURA a document: rep el toc
+// abans que cap capa superior o handler el pugui aturar, i és immune a qualsevol
+// recreació de l'element (no cal reenganxar-lo mai).
 let postGameHomeDelegationReady = false;
 function ensurePostGameHomeDelegation() {
     if (postGameHomeDelegationReady) return;
@@ -24268,6 +24286,8 @@ function hidePostGameStatusChip() {
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
     const chip = document.getElementById('postgame-board-status');
     if (chip) chip.style.display = 'none';
+    // El botó d'inici és independent del xip: amaga'l també.
+    hidePostGameHomeButton();
 }
 
 // Mostra el resultat (Victòria/Taules/Derrota) a l'INSTANT en acabar la partida,
