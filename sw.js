@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.9.64';
+const SW_VERSION = '3.9.65';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 // Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
 // versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
@@ -63,6 +63,32 @@ const FIREBASE_HOSTS = [
   'apis.google.com',
   'accounts.google.com'
 ];
+
+// Protecció de compatibilitat per als clients que encara reben una versió
+// d'app.js on el primer rival de calibratge es calcula a partir de partides
+// antigues desades. Amb un calibratge obligatori d'una sola partida, el rival
+// ha de començar sempre a ROC 300; després ja s'adapta dins de la partida.
+const CALIBRATION_START_SOURCE = '        currentCalibrationOpponentRoc = getCalibrationOpponentRoc();';
+const CALIBRATION_START_PATCH =
+  "        // El calibratge inicial d'una sola partida comença sempre al ROC d'ancoratge.\n" +
+  '        currentCalibrationOpponentRoc = CALIBRATION_START_ROC;';
+
+async function patchAppJsResponse(response) {
+  const source = await response.text();
+  const patched = source.indexOf(CALIBRATION_START_SOURCE) !== -1
+    ? source.replace(CALIBRATION_START_SOURCE, CALIBRATION_START_PATCH)
+    : source;
+  const headers = new Headers(response.headers);
+  // El cos ja està descodificat i reconstruït; aquestes capçaleres del servidor
+  // original no poden conservar-se perquè Chrome no intenti descodificar-lo de nou.
+  headers.delete('content-length');
+  headers.delete('content-encoding');
+  return new Response(patched, {
+    status: response.status,
+    statusText: response.statusText,
+    headers
+  });
+}
 
 // ================================
 // INSTAL·LACIÓ
@@ -152,9 +178,14 @@ async function networkFirst(request) {
     // cache:'no-cache' revalida amb el servidor i ignora la cache HTTP del
     // navegador (GitHub Pages serveix amb max-age=600). Sense això el
     // network-first pot retornar codi antic des de la cache HTTP.
-    const res = await fetch(request, { signal: controller.signal, cache: 'no-cache' });
+    let res = await fetch(request, { signal: controller.signal, cache: 'no-cache' });
     clearTimeout(tid);
     if (res && res.status === 200) {
+      // Aplica la protecció només al codi principal. Quan app.js ja contingui
+      // directament la correcció, la substitució no trobarà res i serà un no-op.
+      if (request.url.indexOf('app.js') !== -1) {
+        res = await patchAppJsResponse(res);
+      }
       const cache = await caches.open(CACHE_NAME);
       cache.put(request, res.clone());
     }
