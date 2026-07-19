@@ -3833,6 +3833,25 @@ let pendingRefutationPv = [];
 let enrichedAnalysisBuffer = {};
 let pendingGameOverAfterMoveAnalysis = false;
 let gameOverWatchdogTimer = null;
+// Quan l'usuari demana començar una partida nova des del xip de resultat, la
+// partida acabada es registra igualment (historial, ELO, ressenya en segon pla)
+// però NO s'obre el modal de revisió: es marxa directament a la nova.
+let postGameQuickExit = false;
+// Comptador de partides: s'incrementa a cada partida nova. Els tancaments de
+// partida diferits (runAfterPaint) capturen la generació vigent per no executar-se
+// sobre una partida posterior si l'usuari ja n'ha començat una de nova.
+let gameGeneration = 0;
+// Generació ja processada per handleGameOver: fa el tancament idempotent (una
+// mateixa partida no es pot registrar dues vegades encara que hi arribin diverses
+// vies —anàlisi de l'última jugada, watchdog, sortida ràpida cap a partida nova).
+let gameOverHandledGen = -1;
+
+// Programa el tancament de partida després del pintat, però només si segueix
+// sent la mateixa partida (evita registrar-la sobre una de nova ja començada).
+function scheduleGameOverAfterPaint(fn) {
+    const g = gameGeneration;
+    runAfterPaint(() => { if (g === gameGeneration) fn(); });
+}
 
 // Xarxa de seguretat: si per qualsevol motiu l'anàlisi de l'última jugada no
 // acaba (p. ex. el motor no respon), el final de partida (resultat + revisió)
@@ -3854,7 +3873,7 @@ function finalizeGameOver() {
     pendingGameOverAfterMoveAnalysis = false;
     if (gameOverWatchdogTimer) { clearTimeout(gameOverWatchdogTimer); gameOverWatchdogTimer = null; }
     waitingForBlunderAnalysis = false;
-    runAfterPaint(() => handleGameOver());
+    scheduleGameOverAfterPaint(() => handleGameOver());
 }
 
 let eloHistory = [];
@@ -20320,7 +20339,7 @@ function setupEvents() {
         hideResignModal();
         // Es difereix perquè el modal es tanqui a l'instant; el processament
         // pesat del final de partida no ha de bloquejar el repintat.
-        runAfterPaint(() => handleGameOver(true));
+        scheduleGameOverAfterPaint(() => handleGameOver(true));
     });
 
     onModalAction('#btn-resign-cancel', () => {
@@ -21158,7 +21177,7 @@ function tryBessoBookMove() {
         board.position(game.fen());
         highlightEngineMove(mv.from, mv.to);
         setTimeout(reapplyEngineMoveHighlight, 0);
-        if (game.game_over()) runAfterPaint(() => handleGameOver());
+        if (game.game_over()) scheduleGameOverAfterPaint(() => handleGameOver());
     }, delay);
     return true;
 }
@@ -22577,7 +22596,7 @@ function clockTick() {
         // En caure la bandera, mostra a l'instant qui ha guanyat (o taules): el
         // resultat es pinta abans del processament pesat de handleGameOver.
         showImmediateGameResult(false, flagged);
-        runAfterPaint(() => handleGameOver(false, flagged));
+        scheduleGameOverAfterPaint(() => handleGameOver(false, flagged));
     }
 }
 // Quan algú acaba de moure: afegeix l'increment a qui ha mogut i passa el torn
@@ -22633,6 +22652,10 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     bessoPlayPending = null;
     currentReview = [];
     lastReviewSnapshot = null;
+    postGameQuickExit = false;
+    // Nova partida: invalida qualsevol tancament de la partida anterior que
+    // encara estigués pendent (diferit) perquè no s'executi sobre aquesta.
+    gameGeneration++;
     setResultIndicator(null);
     hidePostGameStatusChip();
     // El repte «Rejugar +5%» només queda viu si aquesta mateixa crida el consumeix
@@ -23872,7 +23895,7 @@ function handleEngineMessage(rawMsg) {
                     // Resultat a l'instant (qui guanya o taules) abans del
                     // processament pesat: important en partides amb rellotge.
                     showImmediateGameResult();
-                    runAfterPaint(() => handleGameOver());
+                    scheduleGameOverAfterPaint(() => handleGameOver());
                 }
             }, replyDelayMs);
         }
@@ -24155,12 +24178,54 @@ function showPostGameStatusChip(resultLabel) {
         const rect = boardEl.getBoundingClientRect();
         chip.style.left = (rect.left + rect.width / 2) + 'px';
         chip.style.top = (rect.top + 12) + 'px';
+        // En partides lliures/assistides, ofereix començar-ne una de nova a
+        // l'instant: la ressenya (Stockfish + IA) segueix generant-se en segon
+        // pla i es desa a l'historial, sense esperar el modal de revisió.
+        const allowQuickReplay = !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted');
         chip.innerHTML = `<div style="font-weight:800;font-size:26px;line-height:1.2;">${escapeHtml(resultLabel)}</div>` +
             '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:5px;">' +
             '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
-            'Generant anàlisi…</div>';
+            'Generant anàlisi…</div>' +
+            (allowQuickReplay
+                ? '<button id="pg-newgame-btn" type="button" style="pointer-events:auto;cursor:pointer;margin-top:11px;' +
+                  'background:#c99a3b;color:#1a1712;border:none;padding:8px 18px;border-radius:9px;' +
+                  'font-size:14px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.3);">Nova partida ↻</button>'
+                : '');
         chip.style.display = 'block';
+        if (allowQuickReplay) {
+            const btn = document.getElementById('pg-newgame-btn');
+            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); leavePostGameForNewGame(); });
+        }
     } catch (e) {}
+}
+
+// Comença una partida nova directament des del xip de resultat. Si l'última
+// jugada encara s'estava analitzant, tanca la partida acabada ara mateix
+// (registra historial i ELO i llança la ressenya en segon pla) en comptes
+// d'esperar el motor ni el modal de revisió.
+function leavePostGameForNewGame() {
+    // Conserva la modalitat: una partida assistida en comença una altra
+    // d'assistida (com el botó «Tornar a jugar» del modal).
+    const wasAssisted = (currentGameMode === 'assisted');
+    if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
+    if (reviewOpenDelayTimer) { clearTimeout(reviewOpenDelayTimer); reviewOpenDelayTimer = null; }
+    if (reviewAutoCloseTimer) { clearTimeout(reviewAutoCloseTimer); reviewAutoCloseTimer = null; }
+    // Si la partida acabada encara no s'ha registrat (l'anàlisi de l'última
+    // jugada seguia en marxa, o el tancament diferit encara no ha corregut),
+    // tanca-la ara mateix —sense obrir el modal— abans de començar la nova.
+    if (gameOverHandledGen !== gameGeneration) {
+        postGameQuickExit = true;
+        pendingGameOverAfterMoveAnalysis = false;
+        if (gameOverWatchdogTimer) { clearTimeout(gameOverWatchdogTimer); gameOverWatchdogTimer = null; }
+        waitingForBlunderAnalysis = false;
+        handleGameOver();
+    }
+    hidePostGameStatusChip();
+    $('#checkmate-image').hide();
+    $('#checkmate-overlay').hide();
+    $('#review-modal').hide();
+    if (wasAssisted) { window._startAssistedGame = true; startGame(false); }
+    else { novaPartida(); }
 }
 
 function hidePostGameStatusChip() {
@@ -25636,6 +25701,11 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }
         return;
     }
+    // Idempotència: una mateixa partida només es tanca (registra) una vegada,
+    // encara que hi arribin diverses vies (anàlisi de l'última jugada, watchdog,
+    // sortida ràpida cap a una partida nova).
+    if (gameOverHandledGen === gameGeneration) return;
+    gameOverHandledGen = gameGeneration;
     pendingMoveEvaluation = false;
     clearEngineMoveTimers();
     // Si quedava pendent el desfer automàtic d'una jugada no verda (Joc
@@ -25879,6 +25949,16 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     }
     $('#btn-resign').prop('disabled', true);
 
+    // La ressenya amb IA i les notes d'errors es generen SEMPRE en segon pla, aquí
+    // mateix i no dins del modal: així es pot sortir de la partida i començar-ne
+    // una de nova mentre es generen i es desen a l'historial.
+    if (!blunderMode && !calibrationGameWasActive && !isExplorerMode) {
+        // (En mode explorador no hi ha entrada nova: l'última és d'una altra partida.)
+        const latestEntry = gameHistory[gameHistory.length - 1];
+        void requestOpenAIReview(latestEntry, severeErrors);
+        void requestErrorNotes(latestEntry, severeErrors);
+    }
+
     // Amb rellotge, la resolució s'obre gairebé a l'instant: després d'una
     // partida contra el temps, l'espera escènica de les partides tranquil·les
     // (1,4 s de xip + 2 s de mat) es fa llarga. Sense rellotge no canvia res.
@@ -25888,27 +25968,28 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         if (calibrationJustCompleted) {
             showCalibrationReveal(userELO);
         }
-        if (!blunderMode && !calibrationGameWasActive && !isExplorerMode) {
-            // (En mode explorador no hi ha entrada nova: l'última és d'una altra partida.)
-            const latestEntry = gameHistory[gameHistory.length - 1];
-            void requestOpenAIReview(latestEntry, severeErrors);
-            void requestErrorNotes(latestEntry, severeErrors);
-        }
     };
 
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
-    // Sempre mostra el resultat sobre el tauler ("Has guanyat/perdut/taules" +
-    // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
-    showPostGameStatusChip(postGameResultLabel(leagueOutcome));
-    if (showCheckmate) {
-        // L'escac i mat té el seu propi retard dins showPostGameReview (2 s, o
-        // 0,5 s amb rellotge); el xip es veu mentrestant i s'amaga en obrir-se.
-        showFullReview();
+    if (postGameQuickExit) {
+        // L'usuari ja ha demanat començar una partida nova des del xip: no obris
+        // el modal de revisió (la ressenya segueix en segon pla i queda desada a
+        // l'historial per consultar-la després).
+        hidePostGameStatusChip();
     } else {
-        postGameJumpTimer = setTimeout(() => {
-            postGameJumpTimer = null;
+        // Sempre mostra el resultat sobre el tauler ("Has guanyat/perdut/taules" +
+        // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
+        showPostGameStatusChip(postGameResultLabel(leagueOutcome));
+        if (showCheckmate) {
+            // L'escac i mat té el seu propi retard dins showPostGameReview (2 s, o
+            // 0,5 s amb rellotge); el xip es veu mentrestant i s'amaga en obrir-se.
             showFullReview();
-        }, quickResolve ? 350 : 1400);
+        } else {
+            postGameJumpTimer = setTimeout(() => {
+                postGameJumpTimer = null;
+                showFullReview();
+            }, quickResolve ? 350 : 1400);
+        }
     }
 
     // Persistència i actualitzacions pesades: serialització de tot l'historial
