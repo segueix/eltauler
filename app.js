@@ -24153,7 +24153,11 @@ function ensurePostGameSpinnerKeyframes() {
     if (document.getElementById('postgame-spinner-kf')) return;
     const st = document.createElement('style');
     st.id = 'postgame-spinner-kf';
-    st.textContent = '@keyframes postgameSpin{to{transform:rotate(360deg)}}';
+    st.textContent = '@keyframes postgameSpin{to{transform:rotate(360deg)}}' +
+        // Feedback tàctil real en prémer el botó d'inici + elimina el retard de
+        // 300 ms i evita que el toc es tracti com a gest de desplaçament/zoom.
+        '#pg-home-btn{touch-action:manipulation;-webkit-user-select:none;user-select:none;transition:transform .06s ease,filter .06s ease;}' +
+        '#pg-home-btn:active{transform:scale(0.96);filter:brightness(0.92);}';
     document.head.appendChild(st);
 }
 
@@ -24169,7 +24173,9 @@ function showPostGameStatusChip(resultLabel) {
         if (!chip) {
             chip = document.createElement('div');
             chip.id = 'postgame-board-status';
-            chip.style.cssText = 'position:fixed;z-index:4000;transform:translateX(-50%);' +
+            // z-index molt alt: per sobre de toasts (11000) i bàners perquè res no
+            // pugui tapar el botó ni robar-li els tocs.
+            chip.style.cssText = 'position:fixed;z-index:12000;transform:translateX(-50%);' +
                 'background:rgba(20,18,15,0.94);color:#f2e9d8;padding:14px 22px;border-radius:15px;' +
                 'font-size:13px;text-align:center;box-shadow:0 8px 22px rgba(0,0,0,0.5);' +
                 'pointer-events:none;line-height:1.4;min-width:210px;max-width:88vw;';
@@ -24188,10 +24194,10 @@ function showPostGameStatusChip(resultLabel) {
             'Generant anàlisi…</div>' +
             (allowQuickExit
                 ? '<button id="pg-home-btn" type="button" style="pointer-events:auto;cursor:pointer;margin-top:14px;' +
-                  'display:block;width:100%;box-sizing:border-box;min-height:50px;' +
-                  'background:#c99a3b;color:#1a1712;border:none;padding:13px 20px;border-radius:11px;' +
-                  'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 3px 8px rgba(0,0,0,0.35);' +
-                  '-webkit-tap-highlight-color:rgba(0,0,0,0);">🏠 Tornar a l\'inici</button>'
+                  'display:block;width:100%;box-sizing:border-box;min-height:52px;' +
+                  'background:#c99a3b;color:#1a1712;border:none;padding:14px 20px;border-radius:11px;' +
+                  'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 3px 8px rgba(0,0,0,0.35);">' +
+                  '🏠 Tornar a l\'inici</button>'
                 : '');
         // Amb el botó present, el xip ha de rebre els clics (el botó té
         // pointer-events:auto, però el contenidor per defecte és "none").
@@ -24199,13 +24205,11 @@ function showPostGameStatusChip(resultLabel) {
         chip.style.display = 'block';
         if (allowQuickExit) {
             const btn = document.getElementById('pg-home-btn');
-            if (btn) {
-                // Click i touch: en mòbil, alguns navegadors poden "empassar-se" el
-                // click si hi ha elements a sobre; el touchend n'assegura la resposta.
-                const go = (e) => { e.preventDefault(); e.stopPropagation(); leavePostGameForHome(); };
-                btn.addEventListener('click', go);
-                btn.addEventListener('touchend', go, { passive: false });
-            }
+            // Click normal (el navegador ja converteix el toc en click als <button>);
+            // touch-action:manipulation al CSS n'elimina el retard. Evitem
+            // handlers de touch personalitzats amb preventDefault, que en alguns
+            // navegadors mòbils trencaven la resposta al toc.
+            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); leavePostGameForHome(); });
         }
     } catch (e) {}
 }
