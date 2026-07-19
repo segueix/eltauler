@@ -1,0 +1,72 @@
+name: Correcció puntual ROC inicial del calibratge
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/fix-calibration-start-roc.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  patch:
+    if: github.event.head_commit.message == 'Run one-off calibration start ROC fix'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Fixa ROC 300 a l'inici del calibratge únic
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          app = Path('app.js')
+          text = app.read_text(encoding='utf-8')
+          old = "        currentCalibrationOpponentRoc = getCalibrationOpponentRoc();"
+          new = (
+              "        // Amb un calibratge obligatori d'una sola partida, el rival ha de començar\n"
+              "        // sempre al punt d'ancoratge, encara que quedin dades antigues al dispositiu.\n"
+              "        // Després ja s'adapta dins de la partida segons la qualitat demostrada.\n"
+              "        currentCalibrationOpponentRoc = CALIBRATION_START_ROC;"
+          )
+          count = text.count(old)
+          if count != 1:
+              raise SystemExit(f'S\'esperava una assignació inicial i se n\'han trobat {count}')
+          app.write_text(text.replace(old, new, 1), encoding='utf-8')
+
+          index = Path('index.html')
+          html = index.read_text(encoding='utf-8')
+          replacements = {
+              "window.APP_VERSION = '1.0.26';": "window.APP_VERSION = '1.0.27';",
+              'app.js?v=1.0.51': 'app.js?v=1.0.52',
+          }
+          for before, after in replacements.items():
+              if before not in html:
+                  raise SystemExit(f'No s\'ha trobat la versió esperada a index.html: {before}')
+              html = html.replace(before, after, 1)
+          index.write_text(html, encoding='utf-8')
+
+          sw = Path('sw.js')
+          sw_text = sw.read_text(encoding='utf-8')
+          before_sw = "const SW_VERSION = '3.9.64';"
+          after_sw = "const SW_VERSION = '3.9.65';"
+          if before_sw not in sw_text:
+              raise SystemExit('No s\'ha trobat la versió 3.9.64 del service worker')
+          sw.write_text(sw_text.replace(before_sw, after_sw, 1), encoding='utf-8')
+          PY
+
+      - name: Executa els tests
+        run: npm test
+
+      - name: Desa la correcció i elimina el workflow puntual
+        run: |
+          rm .github/workflows/fix-calibration-start-roc.yml
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'El calibratge inicial comença sempre a ROC 300'
+          git push
