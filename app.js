@@ -24169,10 +24169,10 @@ function showPostGameStatusChip(resultLabel) {
         if (!chip) {
             chip = document.createElement('div');
             chip.id = 'postgame-board-status';
-            chip.style.cssText = 'position:fixed;z-index:1200;transform:translateX(-50%);' +
-                'background:rgba(20,18,15,0.92);color:#f2e9d8;padding:11px 20px;border-radius:13px;' +
-                'font-size:13px;text-align:center;box-shadow:0 6px 18px rgba(0,0,0,0.45);' +
-                'pointer-events:none;line-height:1.4;';
+            chip.style.cssText = 'position:fixed;z-index:4000;transform:translateX(-50%);' +
+                'background:rgba(20,18,15,0.94);color:#f2e9d8;padding:14px 22px;border-radius:15px;' +
+                'font-size:13px;text-align:center;box-shadow:0 8px 22px rgba(0,0,0,0.5);' +
+                'pointer-events:none;line-height:1.4;min-width:210px;max-width:88vw;';
             document.body.appendChild(chip);
         }
         const rect = boardEl.getBoundingClientRect();
@@ -24183,13 +24183,15 @@ function showPostGameStatusChip(resultLabel) {
         // pla i es desa a l'historial, sense esperar el modal de revisió.
         const allowQuickExit = postGameChipQuickExitAllowed();
         chip.innerHTML = `<div style="font-weight:800;font-size:26px;line-height:1.2;">${escapeHtml(resultLabel)}</div>` +
-            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:5px;">' +
+            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:6px;">' +
             '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
             'Generant anàlisi…</div>' +
             (allowQuickExit
-                ? '<button id="pg-home-btn" type="button" style="pointer-events:auto;cursor:pointer;margin-top:11px;' +
-                  'background:#c99a3b;color:#1a1712;border:none;padding:8px 18px;border-radius:9px;' +
-                  'font-size:14px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.3);">🏠 Inici</button>'
+                ? '<button id="pg-home-btn" type="button" style="pointer-events:auto;cursor:pointer;margin-top:14px;' +
+                  'display:block;width:100%;box-sizing:border-box;min-height:50px;' +
+                  'background:#c99a3b;color:#1a1712;border:none;padding:13px 20px;border-radius:11px;' +
+                  'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 3px 8px rgba(0,0,0,0.35);' +
+                  '-webkit-tap-highlight-color:rgba(0,0,0,0);">🏠 Tornar a l\'inici</button>'
                 : '');
         // Amb el botó present, el xip ha de rebre els clics (el botó té
         // pointer-events:auto, però el contenidor per defecte és "none").
@@ -24197,7 +24199,13 @@ function showPostGameStatusChip(resultLabel) {
         chip.style.display = 'block';
         if (allowQuickExit) {
             const btn = document.getElementById('pg-home-btn');
-            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); leavePostGameForHome(); });
+            if (btn) {
+                // Click i touch: en mòbil, alguns navegadors poden "empassar-se" el
+                // click si hi ha elements a sobre; el touchend n'assegura la resposta.
+                const go = (e) => { e.preventDefault(); e.stopPropagation(); leavePostGameForHome(); };
+                btn.addEventListener('click', go);
+                btn.addEventListener('touchend', go, { passive: false });
+            }
         }
     } catch (e) {}
 }
