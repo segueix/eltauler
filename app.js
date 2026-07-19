@@ -24199,35 +24199,48 @@ function showPostGameStatusChip(resultLabel) {
     } catch (e) {}
 }
 
-// Botó "Tornar a l'inici" com a element INDEPENDENT de la finestra de resultat.
-// Motiu: quan es posava dins del xip, cada re-render del xip (a les partides amb
-// rellotge, showPostGameStatusChip() es crida dues vegades) recreava el <button> i
-// el reposicionava sobre el tauler, on capes superiors li podien robar els tocs.
-// Aquí és un botó fix propi, a baix de tot i amb z-index màxim: sempre al mateix
-// lloc, sempre tàctil, viu i mor amb independència del xip.
+// Acció "Tornar a l'inici" independent del xip de resultat. Viu dins del flux
+// normal de la pantalla (sota el tauler) perquè no depengui de cap capa flotant.
 function showPostGameHomeButton() {
     try {
         // Reactiva la navegació per a aquesta partida (el pany es tanca en sortir).
         postGameLeaving = false;
+
+        // Alternativa al botó flotant anterior: el control viu dins del flux de la
+        // pantalla de partida, sota el tauler. Això evita problemes de z-index,
+        // safe-area i capes tàctils del tauler en mòbil, que podien fer que el
+        // botó no aparegués o no fos clickable mentre l'anàlisi seguia activa.
+        const panel = document.getElementById('postgame-quick-actions');
+        const inlineBtn = document.getElementById('postgame-home-btn');
+        if (panel && inlineBtn) {
+            inlineBtn.disabled = false;
+            inlineBtn.removeAttribute('aria-busy');
+            inlineBtn.textContent = '🏠 Tornar a l\'inici';
+            if (!inlineBtn.dataset.postgameWired) {
+                inlineBtn.dataset.postgameWired = '1';
+                inlineBtn.addEventListener('click', (e) => {
+                    if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_) {} }
+                    leavePostGameForHome();
+                });
+            }
+            panel.style.display = 'block';
+            return;
+        }
+
+        // Fallback per si l'HTML antic queda en memòria cau: manté el comportament
+        // anterior, però només si el panell persistent encara no existeix.
         let btn = document.getElementById('pg-home-btn');
         if (!btn) {
-            ensurePostGameSpinnerKeyframes(); // porta el CSS de #pg-home-btn (:active, touch-action)
+            ensurePostGameSpinnerKeyframes();
             btn = document.createElement('button');
             btn.id = 'pg-home-btn';
             btn.type = 'button';
             btn.textContent = '🏠 Tornar a l\'inici';
-            // z-index per sobre del xip (12000), toasts (11000) i bàners (10000).
             btn.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);' +
                 'bottom:calc(22px + env(safe-area-inset-bottom, 0px));z-index:12050;' +
                 'min-width:230px;max-width:88vw;min-height:54px;box-sizing:border-box;cursor:pointer;' +
                 'background:#c99a3b;color:#1a1712;border:none;padding:14px 26px;border-radius:12px;' +
                 'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 6px 18px rgba(0,0,0,0.5);';
-            // Handler DIRECTE sobre l'element. Ara el botó es crea una sola vegada i
-            // mai es recrea, així que enganxar-hi el handler directament és fiable
-            // (a diferència de la delegació a document, que en algun Chromium mòbil
-            // no disparava). Responem a 'click' i, com a xarxa de seguretat tàctil,
-            // a 'pointerup'; leavePostGameForHome() és idempotent, així que encara
-            // que salten tots dos només es navega una vegada.
             const go = (e) => {
                 if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_) {} }
                 leavePostGameForHome();
@@ -24236,11 +24249,22 @@ function showPostGameHomeButton() {
             btn.addEventListener('pointerup', go);
             document.body.appendChild(btn);
         }
+        btn.disabled = false;
+        btn.removeAttribute('aria-busy');
+        btn.textContent = '🏠 Tornar a l\'inici';
         btn.style.display = 'block';
     } catch (e) {}
 }
 
 function hidePostGameHomeButton() {
+    const panel = document.getElementById('postgame-quick-actions');
+    if (panel) panel.style.display = 'none';
+    const inlineBtn = document.getElementById('postgame-home-btn');
+    if (inlineBtn) {
+        inlineBtn.disabled = false;
+        inlineBtn.removeAttribute('aria-busy');
+        inlineBtn.textContent = '🏠 Tornar a l\'inici';
+    }
     const btn = document.getElementById('pg-home-btn');
     if (btn) btn.style.display = 'none';
 }
@@ -24264,7 +24288,7 @@ let postGameLeaving = false;
 function leavePostGameForHome() {
     if (postGameLeaving) return;
     postGameLeaving = true;
-    const btn = document.getElementById('pg-home-btn');
+    const btn = document.getElementById('postgame-home-btn') || document.getElementById('pg-home-btn');
     if (btn) {
         btn.disabled = true;
         btn.setAttribute('aria-busy', 'true');
