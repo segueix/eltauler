@@ -24207,6 +24207,8 @@ function showPostGameStatusChip(resultLabel) {
 // lloc, sempre tàctil, viu i mor amb independència del xip.
 function showPostGameHomeButton() {
     try {
+        // Reactiva la navegació per a aquesta partida (el pany es tanca en sortir).
+        postGameLeaving = false;
         let btn = document.getElementById('pg-home-btn');
         if (!btn) {
             ensurePostGameSpinnerKeyframes(); // porta el CSS de #pg-home-btn (:active, touch-action)
@@ -24220,9 +24222,20 @@ function showPostGameHomeButton() {
                 'min-width:230px;max-width:88vw;min-height:54px;box-sizing:border-box;cursor:pointer;' +
                 'background:#c99a3b;color:#1a1712;border:none;padding:14px 26px;border-radius:12px;' +
                 'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 6px 18px rgba(0,0,0,0.5);';
+            // Handler DIRECTE sobre l'element. Ara el botó es crea una sola vegada i
+            // mai es recrea, així que enganxar-hi el handler directament és fiable
+            // (a diferència de la delegació a document, que en algun Chromium mòbil
+            // no disparava). Responem a 'click' i, com a xarxa de seguretat tàctil,
+            // a 'pointerup'; leavePostGameForHome() és idempotent, així que encara
+            // que salten tots dos només es navega una vegada.
+            const go = (e) => {
+                if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_) {} }
+                leavePostGameForHome();
+            };
+            btn.addEventListener('click', go);
+            btn.addEventListener('pointerup', go);
             document.body.appendChild(btn);
         }
-        ensurePostGameHomeDelegation();
         btn.style.display = 'block';
     } catch (e) {}
 }
@@ -24232,24 +24245,6 @@ function hidePostGameHomeButton() {
     if (btn) btn.style.display = 'none';
 }
 
-// Delegació única per al botó d'inici. En fase de CAPTURA a document: rep el toc
-// abans que cap capa superior o handler el pugui aturar, i és immune a qualsevol
-// recreació de l'element (no cal reenganxar-lo mai).
-let postGameHomeDelegationReady = false;
-function ensurePostGameHomeDelegation() {
-    if (postGameHomeDelegationReady) return;
-    postGameHomeDelegationReady = true;
-    document.addEventListener('click', (e) => {
-        const t = e.target;
-        if (!t) return;
-        const hit = t.id === 'pg-home-btn' || (t.closest && t.closest('#pg-home-btn'));
-        if (!hit) return;
-        e.preventDefault();
-        e.stopPropagation();
-        leavePostGameForHome();
-    }, true);
-}
-
 // El botó d'inici al xip de resultat només té sentit a les partides normals
 // (lliure/assistida): no a lliga, calibratge, explorador, joc posicional,
 // bessó, repte de fase ni mode blunder, que tenen el seu propi tancament.
@@ -24257,11 +24252,18 @@ function postGameChipQuickExitAllowed() {
     return !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted');
 }
 
+// Pany d'una sola sortida: el botó respon a 'click' i 'pointerup' (i, si mai cal,
+// altres vies); aquest indicador evita que la navegació s'executi més d'un cop.
+// Es reobre a showPostGameHomeButton() en acabar la partida següent.
+let postGameLeaving = false;
+
 // Torna a la pàgina principal directament des del xip de resultat. Si l'última
 // jugada encara s'estava analitzant, tanca la partida acabada ara mateix
 // (registra historial i ELO i llança la ressenya en segon pla) en comptes
 // d'esperar el motor ni el modal de revisió.
 function leavePostGameForHome() {
+    if (postGameLeaving) return;
+    postGameLeaving = true;
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
     if (reviewOpenDelayTimer) { clearTimeout(reviewOpenDelayTimer); reviewOpenDelayTimer = null; }
     if (reviewAutoCloseTimer) { clearTimeout(reviewAutoCloseTimer); reviewAutoCloseTimer = null; }
