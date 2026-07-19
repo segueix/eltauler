@@ -24178,41 +24178,48 @@ function showPostGameStatusChip(resultLabel) {
         const rect = boardEl.getBoundingClientRect();
         chip.style.left = (rect.left + rect.width / 2) + 'px';
         chip.style.top = (rect.top + 12) + 'px';
-        // En partides lliures/assistides, ofereix començar-ne una de nova a
+        // En partides lliures/assistides, ofereix tornar a la pàgina principal a
         // l'instant: la ressenya (Stockfish + IA) segueix generant-se en segon
         // pla i es desa a l'historial, sense esperar el modal de revisió.
-        const allowQuickReplay = !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted');
+        const allowQuickExit = postGameChipQuickExitAllowed();
         chip.innerHTML = `<div style="font-weight:800;font-size:26px;line-height:1.2;">${escapeHtml(resultLabel)}</div>` +
             '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:5px;">' +
             '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
             'Generant anàlisi…</div>' +
-            (allowQuickReplay
-                ? '<button id="pg-newgame-btn" type="button" style="pointer-events:auto;cursor:pointer;margin-top:11px;' +
+            (allowQuickExit
+                ? '<button id="pg-home-btn" type="button" style="pointer-events:auto;cursor:pointer;margin-top:11px;' +
                   'background:#c99a3b;color:#1a1712;border:none;padding:8px 18px;border-radius:9px;' +
-                  'font-size:14px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.3);">Nova partida ↻</button>'
+                  'font-size:14px;font-weight:700;box-shadow:0 2px 6px rgba(0,0,0,0.3);">🏠 Inici</button>'
                 : '');
+        // Amb el botó present, el xip ha de rebre els clics (el botó té
+        // pointer-events:auto, però el contenidor per defecte és "none").
+        chip.style.pointerEvents = allowQuickExit ? 'auto' : 'none';
         chip.style.display = 'block';
-        if (allowQuickReplay) {
-            const btn = document.getElementById('pg-newgame-btn');
-            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); leavePostGameForNewGame(); });
+        if (allowQuickExit) {
+            const btn = document.getElementById('pg-home-btn');
+            if (btn) btn.addEventListener('click', (e) => { e.stopPropagation(); leavePostGameForHome(); });
         }
     } catch (e) {}
 }
 
-// Comença una partida nova directament des del xip de resultat. Si l'última
+// El botó d'inici al xip de resultat només té sentit a les partides normals
+// (lliure/assistida): no a lliga, calibratge, explorador, joc posicional,
+// bessó, repte de fase ni mode blunder, que tenen el seu propi tancament.
+function postGameChipQuickExitAllowed() {
+    return !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted');
+}
+
+// Torna a la pàgina principal directament des del xip de resultat. Si l'última
 // jugada encara s'estava analitzant, tanca la partida acabada ara mateix
 // (registra historial i ELO i llança la ressenya en segon pla) en comptes
 // d'esperar el motor ni el modal de revisió.
-function leavePostGameForNewGame() {
-    // Conserva la modalitat: una partida assistida en comença una altra
-    // d'assistida (com el botó «Tornar a jugar» del modal).
-    const wasAssisted = (currentGameMode === 'assisted');
+function leavePostGameForHome() {
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
     if (reviewOpenDelayTimer) { clearTimeout(reviewOpenDelayTimer); reviewOpenDelayTimer = null; }
     if (reviewAutoCloseTimer) { clearTimeout(reviewAutoCloseTimer); reviewAutoCloseTimer = null; }
     // Si la partida acabada encara no s'ha registrat (l'anàlisi de l'última
     // jugada seguia en marxa, o el tancament diferit encara no ha corregut),
-    // tanca-la ara mateix —sense obrir el modal— abans de començar la nova.
+    // tanca-la ara mateix —sense obrir el modal— abans de sortir.
     if (gameOverHandledGen !== gameGeneration) {
         postGameQuickExit = true;
         pendingGameOverAfterMoveAnalysis = false;
@@ -24224,8 +24231,7 @@ function leavePostGameForNewGame() {
     $('#checkmate-image').hide();
     $('#checkmate-overlay').hide();
     $('#review-modal').hide();
-    if (wasAssisted) { window._startAssistedGame = true; startGame(false); }
-    else { novaPartida(); }
+    goToHomeScreen();
 }
 
 function hidePostGameStatusChip() {
@@ -25972,10 +25978,16 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
 
     if (postGameJumpTimer) { clearTimeout(postGameJumpTimer); postGameJumpTimer = null; }
     if (postGameQuickExit) {
-        // L'usuari ja ha demanat començar una partida nova des del xip: no obris
-        // el modal de revisió (la ressenya segueix en segon pla i queda desada a
-        // l'historial per consultar-la després).
+        // L'usuari ja ha demanat sortir des del xip: no obris el modal de revisió
+        // (la ressenya segueix en segon pla i queda desada a l'historial).
         hidePostGameStatusChip();
+    } else if (postGameChipQuickExitAllowed()) {
+        // Partida normal (lliure/assistida): el resultat es queda sobre el tauler
+        // amb el botó «Inici» perquè es pugui sortir a l'instant. NO s'obre el
+        // modal de revisió automàticament (tapava el botó i n'impedia l'ús): la
+        // ressenya es genera en segon pla i queda a l'historial. Es pot reobrir
+        // tocant l'indicador de resultat (cantonada del tauler).
+        showPostGameStatusChip(postGameResultLabel(leagueOutcome));
     } else {
         // Sempre mostra el resultat sobre el tauler ("Has guanyat/perdut/taules" +
         // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
