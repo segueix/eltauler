@@ -24192,99 +24192,39 @@ function showPostGameStatusChip(resultLabel) {
             'Generant anàlisi…</div>';
         chip.style.pointerEvents = 'none';
         chip.style.display = 'block';
-        // El botó de tornar a l'inici és INDEPENDENT del xip (element propi, fix a la
-        // part inferior): en partides lliures/assistides es mostra a part perquè cap
-        // re-render ni posicionament de la finestra de resultat no l'afecti.
-        if (postGameChipQuickExitAllowed()) showPostGameHomeButton();
+        // Mentre l'anàlisi de l'última jugada continua, el xip és només informatiu.
+        // No hi afegim cap botó de sortida ràpida: forçar el tancament de partida
+        // abans que acabi Stockfish barrejava feina pesada (historial, ELO, IA) amb
+        // el motor actiu i en dispositius modestos podia col·lapsar la memòria.
     } catch (e) {}
 }
 
-// Acció "Tornar a l'inici" independent del xip de resultat. Viu dins del flux
-// normal de la pantalla (sota el tauler) perquè no depengui de cap capa flotant.
+// L'antic botó flotant/inline de sortida ràpida queda desactivat. La sortida
+// mentre es prepara l'anàlisi no es força: s'espera que acabi el tancament normal
+// de partida i llavors s'obre la ressenya, que ja té el trio de navegació.
 function showPostGameHomeButton() {
-    try {
-        // Reactiva la navegació per a aquesta partida (el pany es tanca en sortir).
-        postGameLeaving = false;
-
-        // Alternativa al botó flotant anterior: el control viu dins del flux de la
-        // pantalla de partida, sota el tauler. Això evita problemes de z-index,
-        // safe-area i capes tàctils del tauler en mòbil, que podien fer que el
-        // botó no aparegués o no fos clickable mentre l'anàlisi seguia activa.
-        const panel = document.getElementById('postgame-quick-actions');
-        const inlineBtn = document.getElementById('postgame-home-btn');
-        if (panel && inlineBtn) {
-            inlineBtn.disabled = false;
-            inlineBtn.removeAttribute('aria-busy');
-            inlineBtn.textContent = '🏠 Tornar a l\'inici';
-            if (!inlineBtn.dataset.postgameWired) {
-                inlineBtn.dataset.postgameWired = '1';
-                inlineBtn.addEventListener('click', (e) => {
-                    if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_) {} }
-                    leavePostGameForHome();
-                });
-            }
-            panel.style.display = 'block';
-            return;
-        }
-
-        // Fallback per si l'HTML antic queda en memòria cau: manté el comportament
-        // anterior, però només si el panell persistent encara no existeix.
-        let btn = document.getElementById('pg-home-btn');
-        if (!btn) {
-            ensurePostGameSpinnerKeyframes();
-            btn = document.createElement('button');
-            btn.id = 'pg-home-btn';
-            btn.type = 'button';
-            btn.textContent = '🏠 Tornar a l\'inici';
-            btn.style.cssText = 'position:fixed;left:50%;transform:translateX(-50%);' +
-                'bottom:calc(22px + env(safe-area-inset-bottom, 0px));z-index:12050;' +
-                'min-width:230px;max-width:88vw;min-height:54px;box-sizing:border-box;cursor:pointer;' +
-                'background:#c99a3b;color:#1a1712;border:none;padding:14px 26px;border-radius:12px;' +
-                'font-size:18px;font-weight:800;letter-spacing:0.3px;box-shadow:0 6px 18px rgba(0,0,0,0.5);';
-            const go = (e) => {
-                if (e) { try { e.preventDefault(); e.stopPropagation(); } catch (_) {} }
-                leavePostGameForHome();
-            };
-            btn.addEventListener('click', go);
-            btn.addEventListener('pointerup', go);
-            document.body.appendChild(btn);
-        }
-        btn.disabled = false;
-        btn.removeAttribute('aria-busy');
-        btn.textContent = '🏠 Tornar a l\'inici';
-        btn.style.display = 'block';
-    } catch (e) {}
+    hidePostGameHomeButton();
 }
 
 function hidePostGameHomeButton() {
     const panel = document.getElementById('postgame-quick-actions');
     if (panel) panel.style.display = 'none';
-    const inlineBtn = document.getElementById('postgame-home-btn');
-    if (inlineBtn) {
-        inlineBtn.disabled = false;
-        inlineBtn.removeAttribute('aria-busy');
-        inlineBtn.textContent = '🏠 Tornar a l\'inici';
-    }
     const btn = document.getElementById('pg-home-btn');
-    if (btn) btn.style.display = 'none';
+    if (btn) btn.remove();
 }
 
-// El botó d'inici al xip de resultat només té sentit a les partides normals
+// La ressenya automàtica post-xip només s'aplica a partides normals
 // (lliure/assistida): no a lliga, calibratge, explorador, joc posicional,
 // bessó, repte de fase ni mode blunder, que tenen el seu propi tancament.
 function postGameChipQuickExitAllowed() {
     return !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted');
 }
 
-// Pany d'una sola sortida: el botó respon a 'click' i 'pointerup' (i, si mai cal,
-// altres vies); aquest indicador evita que la navegació s'executi més d'un cop.
-// Es reobre a showPostGameHomeButton() en acabar la partida següent.
+// Pany de sortida heretat: ja no hi ha cap botó de sortida ràpida durant
+// l'anàlisi, però es conserva la funció per si una versió antiga del DOM encara
+// dispara l'acció després d'una actualització en calent.
 let postGameLeaving = false;
 
-// Torna a la pàgina principal directament des del xip de resultat. Si l'última
-// jugada encara s'estava analitzant, tanca la partida acabada ara mateix
-// (registra historial i ELO i llança la ressenya en segon pla) en comptes
-// d'esperar el motor ni el modal de revisió.
 function leavePostGameForHome() {
     if (postGameLeaving) return;
     postGameLeaving = true;
@@ -26074,12 +26014,16 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         // (la ressenya segueix en segon pla i queda desada a l'historial).
         hidePostGameStatusChip();
     } else if (postGameChipQuickExitAllowed()) {
-        // Partida normal (lliure/assistida): el resultat es queda sobre el tauler
-        // amb el botó «Inici» perquè es pugui sortir a l'instant. NO s'obre el
-        // modal de revisió automàticament (tapava el botó i n'impedia l'ús): la
-        // ressenya es genera en segon pla i queda a l'historial. Es pot reobrir
-        // tocant l'indicador de resultat (cantonada del tauler).
+        // Partida normal (lliure/assistida): mentre l'última anàlisi acaba, el xip
+        // només informa. Quan handleGameOver() ja ha registrat la partida, obrim
+        // la ressenya automàticament amb els botons de navegació normals. Això
+        // evita el botó de sortida ràpida que podia no rebre tocs i, sobretot,
+        // evita forçar finalització + motor + generació de ressenya alhora.
         showPostGameStatusChip(postGameResultLabel(leagueOutcome));
+        postGameJumpTimer = setTimeout(() => {
+            postGameJumpTimer = null;
+            showFullReview();
+        }, quickResolve ? 350 : 1400);
     } else {
         // Sempre mostra el resultat sobre el tauler ("Has guanyat/perdut/taules" +
         // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
