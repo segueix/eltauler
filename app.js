@@ -26100,14 +26100,17 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         // de debò. Això també captura respostes d'IA excepcionalment ràpides.
         runAfterPaint(() => {
             const persistenceStartedAt = nowMs();
-            const storageStats = endStorageSaveDeferral(postGameStorageBatch);
             persistReviewSummary(finalPrecision, msg);
             recordActivity();
-            saveStorage();
-            try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
             checkMissions();
             updateDisplay();
             updateReviewChart();
+
+            // Manté el lot actiu durant totes les actualitzacions: qualsevol
+            // saveStorage() intern també queda absorbit pel desament únic final.
+            const storageStats = endStorageSaveDeferral(postGameStorageBatch);
+            saveStorage();
+            try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
 
             postGamePerf.status = 'complete';
             postGamePerf.deferredSaveRequests = storageStats.deferredRequests;
