@@ -5767,7 +5767,68 @@ function loadStorage() {
     }
 }
 
+// Els tancaments de partida poden demanar diversos desaments complets seguits.
+// localStorage és síncron: amb historials grans, cada JSON.stringify bloqueja el
+// fil principal. Aquest petit controlador permet agrupar-los i fer-ne un de sol
+// després que la revisió ja sigui visible.
+let storageSaveDeferralDepth = 0;
+let storageSaveDeferred = false;
+let storageSaveDeferredRequestCount = 0;
+let lastStorageSaveDurationMs = 0;
+
+function beginStorageSaveDeferral(label = 'operation') {
+    const token = {
+        label,
+        released: false,
+        requestStart: storageSaveDeferredRequestCount,
+        startedAt: nowMs(),
+        safetyTimer: null
+    };
+    storageSaveDeferralDepth += 1;
+    token.safetyTimer = setTimeout(() => {
+        if (token.released) return;
+        const stats = endStorageSaveDeferral(token);
+        console.warn('[StoragePerf] ajornament alliberat pel límit de seguretat', {
+            label: token.label,
+            deferredRequests: stats.deferredRequests,
+            elapsedMs: stats.elapsedMs
+        });
+        if (storageSaveDeferralDepth === 0 && storageSaveDeferred) {
+            try { saveStorage(); } catch (error) {
+                console.error('[StoragePerf] no s’ha pogut completar el desament de seguretat', error);
+            }
+        }
+    }, 15000);
+    return token;
+}
+
+function endStorageSaveDeferral(token) {
+    if (!token || token.released) {
+        return { deferredRequests: 0, elapsedMs: 0 };
+    }
+    token.released = true;
+    if (token.safetyTimer) clearTimeout(token.safetyTimer);
+    if (storageSaveDeferralDepth > 0) storageSaveDeferralDepth -= 1;
+    return {
+        deferredRequests: Math.max(0, storageSaveDeferredRequestCount - token.requestStart),
+        elapsedMs: Math.round((nowMs() - token.startedAt) * 10) / 10
+    };
+}
+
 function saveStorage() {
+    if (storageSaveDeferralDepth > 0) {
+        storageSaveDeferred = true;
+        storageSaveDeferredRequestCount += 1;
+        return false;
+    }
+    storageSaveDeferred = false;
+    saveStorageNow();
+    return true;
+}
+
+function saveStorageNow() {
+    const storageSaveStartedAt = nowMs();
+    try {
     localStorage.setItem('chess_userELO', userELO);
     localStorage.setItem(TIME_CONTROL_ELOS_KEY, JSON.stringify(timeControlElos));
     localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
@@ -5833,6 +5894,12 @@ function saveStorage() {
     }
     // Rànquing global: puja les meves estadístiques (amb debounce, només si hi ha sessió).
     try { if (typeof schedulePushRanking === 'function') schedulePushRanking(); } catch (e) {}
+    } finally {
+        lastStorageSaveDurationMs = Math.round((nowMs() - storageSaveStartedAt) * 10) / 10;
+        if (lastStorageSaveDurationMs >= 50) {
+            console.info('[StoragePerf] desament complet', { durationMs: lastStorageSaveDurationMs });
+        }
+    }
 }
 
 // Recarrega tot l'estat del joc des del localStorage i refresca la interfície.
@@ -24326,6 +24393,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         const performance = assistedPerformanceDisplay(options.assistedPerformance);
         const performanceLine = performance ? `\nRendiment assistit estimat: ${performance.value}` : '';
         alert(msg + (finalPrecision ? `\nPrecisió: ${finalPrecision}%` : '') + performanceLine);
+        if (typeof options.onOpened === 'function') options.onOpened('fallback-alert');
         if (typeof onClose === 'function') onClose();
         return;
     }
@@ -24348,6 +24416,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         renderReviewBreakdown(counts || summarizeReview(currentReview));
         renderGameDebrief(options.entry);
         modal.css('display', 'flex');
+        if (typeof options.onOpened === 'function') options.onOpened('review-modal');
     };
     
     if (reviewAutoCloseTimer) {
@@ -25744,6 +25813,19 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // sortida ràpida cap a una partida nova).
     if (gameOverHandledGen === gameGeneration) return;
     gameOverHandledGen = gameGeneration;
+    const postGamePerfStartedAt = nowMs();
+    const postGamePerf = {
+        gameGeneration,
+        startedAt: new Date().toISOString(),
+        status: 'preparing',
+        reviewOpenedMs: null,
+        deferredSaveRequests: 0,
+        storageSaveMs: 0,
+        persistenceWorkMs: 0,
+        openReason: null
+    };
+    try { window.__eltaulerPostGamePerf = postGamePerf; } catch (e) {}
+    const postGameStorageBatch = beginStorageSaveDeferral('postgame');
     pendingMoveEvaluation = false;
     clearEngineMoveTimers();
     // Si quedava pendent el desfer automàtic d'una jugada no verda (Joc
@@ -25851,7 +25933,12 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         msg += ` · ${bessoState ? bessoState.label : 'El teu bessó'} (sense ELO)`;
     }
 
-    if (blunderMode && playerWon && currentBundleFen) { handleBundleSuccess(); return; }
+    if (blunderMode && playerWon && currentBundleFen) {
+        handleBundleSuccess();
+        endStorageSaveDeferral(postGameStorageBatch);
+        if (storageSaveDeferred) saveStorage();
+        return;
+    }
 
     if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
         userELO = Math.max(50, userELO + change);
@@ -26001,8 +26088,46 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // partida contra el temps, l'espera escènica de les partides tranquil·les
     // (1,4 s de xip + 2 s de mat) es fa llarga. Sense rellotge no canvia res.
     const quickResolve = gameClock.enabled;
+    let postGamePersistenceScheduled = false;
+    const persistPostGameAfterPaint = (openReason = 'review-modal') => {
+        if (postGamePersistenceScheduled) return;
+        postGamePersistenceScheduled = true;
+        postGamePerf.status = 'review-open';
+        postGamePerf.openReason = openReason;
+        postGamePerf.reviewOpenedMs = Math.round((nowMs() - postGamePerfStartedAt) * 10) / 10;
+
+        // Manté l'ajornament actiu durant dos frames: fins que el modal s'ha pintat
+        // de debò. Això també captura respostes d'IA excepcionalment ràpides.
+        runAfterPaint(() => {
+            const persistenceStartedAt = nowMs();
+            persistReviewSummary(finalPrecision, msg);
+            recordActivity();
+            checkMissions();
+            updateDisplay();
+            updateReviewChart();
+
+            // Manté el lot actiu durant totes les actualitzacions: qualsevol
+            // saveStorage() intern també queda absorbit pel desament únic final.
+            const storageStats = endStorageSaveDeferral(postGameStorageBatch);
+            saveStorage();
+            try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+
+            postGamePerf.status = 'complete';
+            postGamePerf.deferredSaveRequests = storageStats.deferredRequests;
+            postGamePerf.storageSaveMs = lastStorageSaveDurationMs;
+            postGamePerf.persistenceWorkMs = Math.round((nowMs() - persistenceStartedAt) * 10) / 10;
+            console.info('[PostGamePerf]', postGamePerf);
+        });
+    };
     const showFullReview = () => {
-        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, { showCheckmate: showCheckmate, quickReveal: quickResolve, growthTask: growthTask, disableGrowth: calibrationGameWasActive, assistedPerformance });
+        showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, {
+            showCheckmate: showCheckmate,
+            quickReveal: quickResolve,
+            growthTask: growthTask,
+            disableGrowth: calibrationGameWasActive,
+            assistedPerformance,
+            onOpened: persistPostGameAfterPaint
+        });
         if (calibrationJustCompleted) {
             showCalibrationReveal(userELO);
         }
@@ -26013,6 +26138,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         // L'usuari ja ha demanat sortir des del xip: no obris el modal de revisió
         // (la ressenya segueix en segon pla i queda desada a l'historial).
         hidePostGameStatusChip();
+        persistPostGameAfterPaint('quick-exit');
     } else if (postGameChipQuickExitAllowed()) {
         // Partida normal (lliure/assistida): mentre l'última anàlisi acaba, el xip
         // només informa. Quan handleGameOver() ja ha registrat la partida, obrim
@@ -26040,22 +26166,6 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }
     }
 
-    // Persistència i actualitzacions pesades: serialització de tot l'historial
-    // (saveStorage), sincronització al núvol, redibuix de Chart.js, missions i
-    // estadístiques. Es difereix fins després que el navegador hagi pintat el
-    // modal de revisió perquè el final de partida es vegi a l'instant i la
-    // generació de l'informe no interfereixi amb el repintat.
-    runAfterPaint(() => {
-        persistReviewSummary(finalPrecision, msg);
-        recordActivity();
-        saveStorage();
-        // Esdeveniment valuós (final de partida): puja de seguida al núvol perquè
-        // la finestra de dades sense sincronitzar entre dispositius sigui mínima.
-        try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
-        checkMissions();
-        updateDisplay();
-        updateReviewChart();
-    });
 }
 
 function setResultIndicator(outcome) {
