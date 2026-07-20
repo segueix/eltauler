@@ -20653,10 +20653,21 @@ function buildLastGameErrorCandidates() {
     return candidates;
 }
 
-function buildDueSrsCandidates() {
+const POSTGAME_DUE_CANDIDATE_LIMIT = 40;
+const POSTGAME_TRAINING_ERROR_LIMIT = 240;
+
+function buildDueSrsCandidates(limit = null) {
     const now = Date.now();
-    return (typeof getDueErrors === 'function' ? getDueErrors() : [])
-        .filter(err => err && err.fen)
+    let dueErrors = (typeof getDueErrors === 'function' ? getDueErrors() : [])
+        .filter(err => err && err.fen);
+    if (Number.isFinite(limit) && limit > 0 && dueErrors.length > limit) {
+        // Per a la recomanació només calen els repassos més vençuts. Limitar-los
+        // abans de classificar les posicions evita crear milers d'objectes Chess.
+        dueErrors = dueErrors.slice()
+            .sort((a, b) => getErrorDueTime(a) - getErrorDueTime(b))
+            .slice(0, limit);
+    }
+    return dueErrors
         .map(err => {
             const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
             const overdueDays = Math.max(0, (now - getErrorDueTime(err)) / 86400000);
@@ -20680,21 +20691,25 @@ function buildDueSrsCandidates() {
         });
 }
 
-function collectAllTrainingErrors() {
+function collectAllTrainingErrors(limit = null) {
     const errors = [];
-    (savedErrors || []).forEach(e => errors.push(e));
+    const hasLimit = Number.isFinite(limit) && limit > 0;
+    const stored = Array.isArray(savedErrors) ? savedErrors : [];
+    (hasLimit ? stored.slice(-limit) : stored).forEach(e => errors.push(e));
     (gameHistory || []).forEach(entry => {
         (entry.errors || []).forEach(e => errors.push(e));
         (entry.moveReviews || [])
             .filter(r => ['blunder', 'mistake', 'inaccuracy'].includes(r.quality) || (r.swing || 0) >= 80)
             .forEach(r => errors.push(Object.assign({}, r, { severity: r.severity || r.quality })));
     });
-    return errors;
+    // Les errades de les últimes partides s'han afegit al final i tenen prioritat.
+    return hasLimit ? errors.slice(-limit) : errors;
 }
 
-function buildWeaknessCandidates() {
+function buildWeaknessCandidates(sourceErrors = null) {
     const byTheme = {};
-    collectAllTrainingErrors().forEach(err => {
+    const errors = Array.isArray(sourceErrors) ? sourceErrors : collectAllTrainingErrors();
+    errors.forEach(err => {
         if (!err || !err.fen) return;
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         if (theme === 'opening') return;
@@ -20725,9 +20740,10 @@ function buildWeaknessCandidates() {
         });
 }
 
-function buildOpeningWeaknessCandidates() {
+function buildOpeningWeaknessCandidates(sourceErrors = null) {
     const openingErrors = [];
-    collectAllTrainingErrors().forEach(err => {
+    const errors = Array.isArray(sourceErrors) ? sourceErrors : collectAllTrainingErrors();
+    errors.forEach(err => {
         if (!err || !err.fen) return;
         let fullmove = 20;
         try { fullmove = parseInt((err.fen || '').split(' ')[5], 10) || 20; } catch (e) {}
@@ -20788,9 +20804,20 @@ function buildDefaultTrainingTask() {
     });
 }
 
-function getWeaknessWeight(theme) {
+function summarizeTrainingErrorsForScoring(errors) {
+    const data = { total: 0, theme: {} };
+    (Array.isArray(errors) ? errors : []).forEach(err => {
+        if (!err || !err.fen) return;
+        const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
+        data.theme[theme] = (data.theme[theme] || 0) + 1;
+        data.total += 1;
+    });
+    return data;
+}
+
+function getWeaknessWeight(theme, weaknessData = null) {
     const key = normalizeGrowthTheme(theme);
-    const data = typeof analyzeWeaknesses === 'function' ? analyzeWeaknesses() : null;
+    const data = weaknessData || (typeof analyzeWeaknesses === 'function' ? analyzeWeaknesses() : null);
     const total = data?.total || 0;
     const legacyTheme = key === 'king_attack' ? 'king' : key;
     const count = (data?.theme?.[key] || data?.theme?.[legacyTheme] || 0);
@@ -20836,8 +20863,11 @@ function getNoveltyWeight(task) {
     return clamp01(novelty);
 }
 
-function scoreGrowthTask(task) {
-    const weaknessWeight = Math.max(getWeaknessWeight(task.theme), clamp01((task.occurrences || 0) / 6));
+function scoreGrowthTask(task, context = null) {
+    const weaknessWeight = Math.max(
+        getWeaknessWeight(task.theme, context && context.weaknessData),
+        clamp01((task.occurrences || 0) / 6)
+    );
     const dueWeight = getDueWeight(task);
     const severityWeight = getSeverityWeight(task);
     const challengeFit = getChallengeFit(task);
@@ -20892,17 +20922,23 @@ function buildGrowthTaskMessage(task) {
 
 function getNextBestTrainingTask(options = {}) {
     loadThemeMastery();
+    // La biblioteca d'errors pot créixer molt. Per recomanar el següent exercici
+    // n'hi ha prou amb una mostra recent i els repassos més vençuts.
+    const trainingErrors = collectAllTrainingErrors(POSTGAME_TRAINING_ERROR_LIMIT);
+    const scoringContext = {
+        weaknessData: summarizeTrainingErrorsForScoring(trainingErrors)
+    };
     const candidates = []
-        .concat(buildDueSrsCandidates())
+        .concat(buildDueSrsCandidates(POSTGAME_DUE_CANDIDATE_LIMIT))
         .concat(buildLastGameErrorCandidates())
-        .concat(buildWeaknessCandidates())
-        .concat(buildOpeningWeaknessCandidates())
+        .concat(buildWeaknessCandidates(trainingErrors))
+        .concat(buildOpeningWeaknessCandidates(trainingErrors))
         .concat(buildVarietyCandidates());
 
     const defaultTask = buildDefaultTrainingTask();
     const scored = candidates
         .filter(Boolean)
-        .map(task => Object.assign(task, { growthScore: scoreGrowthTask(task) }))
+        .map(task => Object.assign(task, { growthScore: scoreGrowthTask(task, scoringContext) }))
         .sort((a, b) => b.growthScore - a.growthScore);
 
     let best = scored[0] || defaultTask;
@@ -20910,7 +20946,7 @@ function getNextBestTrainingTask(options = {}) {
         const alternative = scored.find(task => !wasRecentlyRecommended(task));
         if (alternative) best = alternative;
     }
-    best.growthScore = scoreGrowthTask(best);
+    best.growthScore = scoreGrowthTask(best, scoringContext);
     if (!best.message) best.message = buildGrowthTaskMessage(best);
     currentGrowthTask = best;
     if (!options.previewOnly) {
@@ -24459,7 +24495,9 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         });
     }
 
-    const taskForReview = options.disableGrowth ? null : (options.growthTask || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true, source: 'review' }));
+    const taskForReview = (options.disableGrowth || options.deferGrowth)
+        ? null
+        : (options.growthTask || currentGrowthTask || getNextBestTrainingTask({ previewOnly: true, source: 'review' }));
     renderGrowthRecommendation(taskForReview, onClose);
 
     // Comptador d'errors nous desats en aquesta partida
@@ -25822,6 +25860,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         deferredSaveRequests: 0,
         storageSaveMs: 0,
         persistenceWorkMs: 0,
+        growthTaskMs: null,
         openReason: null
     };
     try { window.__eltaulerPostGamePerf = postGamePerf; } catch (e) {}
@@ -26033,10 +26072,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
     });
-    // La persistència pesada (saveStorage, gràfics, missions) es difereix més
-    // avall, després de mostrar el modal. getNextBestTrainingTask es demana amb
-    // skipSave per no desar de forma síncrona ara mateix (ho farà el bloc diferit).
-    const growthTask = calibrationGameWasActive ? null : getNextBestTrainingTask({ source: 'postgame', skipSave: true });
+    // La recomanació pot recórrer la biblioteca d'errors. Es calcula després que
+    // el modal ja s'hagi pintat perquè mai no bloquegi l'obertura de la revisió.
+    const growthTask = null;
     $('#status').text(msg);
     // Gestió de l'indicador de resultat
     if (leagueOutcome === 'win') setResultIndicator('win');
@@ -26112,11 +26150,27 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             saveStorage();
             try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
 
-            postGamePerf.status = 'complete';
+            postGamePerf.status = calibrationGameWasActive ? 'complete' : 'growth-pending';
             postGamePerf.deferredSaveRequests = storageStats.deferredRequests;
             postGamePerf.storageSaveMs = lastStorageSaveDurationMs;
             postGamePerf.persistenceWorkMs = Math.round((nowMs() - persistenceStartedAt) * 10) / 10;
             console.info('[PostGamePerf]', postGamePerf);
+
+            if (!calibrationGameWasActive) {
+                setTimeout(() => {
+                    const growthStartedAt = nowMs();
+                    try {
+                        const deferredGrowthTask = getNextBestTrainingTask({ source: 'postgame', skipSave: true });
+                        renderGrowthRecommendation(deferredGrowthTask, onClose);
+                    } catch (error) {
+                        console.warn('[PostGamePerf] no s’ha pogut preparar la recomanació diferida', error);
+                    } finally {
+                        postGamePerf.growthTaskMs = Math.round((nowMs() - growthStartedAt) * 10) / 10;
+                        postGamePerf.status = 'complete';
+                        console.info('[PostGamePerf]', postGamePerf);
+                    }
+                }, 0);
+            }
         });
     };
     const showFullReview = () => {
@@ -26125,6 +26179,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             quickReveal: quickResolve,
             growthTask: growthTask,
             disableGrowth: calibrationGameWasActive,
+            deferGrowth: !calibrationGameWasActive,
             assistedPerformance,
             onOpened: persistPostGameAfterPaint
         });
