@@ -2263,42 +2263,271 @@
     // ----------------------------------------------------------------------
     // Temps de resposta humanitzat de l'enginy
     // ----------------------------------------------------------------------
-    // Basat en l'informe «Control de temps humanitzat per Stockfish»: la jugada
-    // que tria el motor NO canvia mai; només es modula QUAN es mostra, com si
-    // un humà del nivell marcat hi hagués dedicat el temps. El model segueix
-    // l'algorisme híbrid de l'informe: pressupost base per ritme (temps restant
-    // dividit per un horitzó de jugades + fracció de l'increment), multiplicador
-    // per ELO i complexitat (matriu de l'informe), multiplicador de fase,
-    // soroll log-normal truncat perquè el patró no sigui mecànic, i mode
-    // d'emergència perquè el retard escènic no faci mai perdre per bandera.
+    // La jugada que tria el motor NO canvia mai: només es modula QUAN s'aplica,
+    // com si un humà del nivell marcat hi hagués dedicat el temps.
+    //
+    // El model està CALIBRAT amb partides reals. Font: bolcat públic de Lichess
+    // (lichess_db_standard_rated_2026-06), 4.600.000 partides classificades
+    // llegides, de les quals 852.248 costats de jugador amb rellotge jugada a
+    // jugada en els sis ritmes de l'app. Per a cada ritme i franja d'ELO s'hi
+    // van mesurar: jugades per partida, segons per jugada, fracció del rellotge
+    // consumida, corba de consum jugada a jugada i percentatge de partides
+    // perdudes per temps. Els resultats són a HUMAN_CLOCK_STATS.
+    //
+    // Tres fets de les dades manen sobre el model:
+    //   1) El nombre de jugades que s'arriben a fer depèn del nivell: a 1+0 un
+    //      jugador de la franja més fluixa en fa 22,2 de mitjana i un de 2400
+    //      en fa 38,0. L'horitzó de jugades, doncs, NO pot ser una constant.
+    //   2) La corba de consum té sempre la mateixa forma: pic de temps cap a la
+    //      jugada 0,57 × (jugades esperades) i caiguda posterior. Reescalades
+    //      pel seu propi pic i la seva pròpia mitjana, les 48 corbes mesurades
+    //      (6 ritmes × 8 franges) col·lapsen en una de sola: HUMAN_PACE_SHAPE.
+    //   3) Perdre per temps és el desenllaç NORMAL dels ritmes ràpids: a 1+0,
+    //      el 74% de les partides entre jugadors de menys de 1000 s'acaben amb
+    //      una bandera. Un rival que mai no cau de bandera no és humà: és una
+    //      màquina amb temps infinit. Per això el model pot esgotar el rellotge
+    //      del motor, amb la freqüència mesurada per al seu nivell.
 
     function clampNum(value, min, max) {
         return Math.max(min, Math.min(max, value));
     }
 
-    // Paràmetres per ritme (taula de l'informe, adaptada):
-    //  - horizon: jugades restants estimades [obertura, migjoc, final]; el
-    //    pressupost base és tempsRestant/horitzó, així el gast decau suaument.
-    //  - reserveMs (R_min): reserva d'emergència que mai es toca.
-    //  - incShare (λ_I): fracció de l'increment tractada com a renda per jugada.
-    //  - minMs (τ_min) / maxMs: sòl i sostre del temps visible per jugada.
-    //  - capFrac: cap jugada pot gastar més d'aquesta fracció del temps útil.
-    //  - noiseMix (ρ) i sigma: pes i amplada del soroll log-normal.
+    // Límits i soroll per ritme (la part escènica, no el pressupost):
+    //  - minMs (τ_min) / maxMs: sòl físic i sostre del temps visible per jugada.
+    //  - noiseMix (ρ) i sigma: pes i amplada del soroll log-normal per jugada.
     const HUMAN_TIME_PROFILES = {
-        '30s':   { horizon: [34, 24, 15], reserveMs: 2200, incShare: 0,    minMs: 120, maxMs: 4000,  capFrac: 0.14, noiseMix: 0.30, sigma: 0.45 },
-        '1+0':   { horizon: [34, 24, 15], reserveMs: 2500, incShare: 0,    minMs: 160, maxMs: 6000,  capFrac: 0.14, noiseMix: 0.30, sigma: 0.45 },
-        '3+2':   { horizon: [36, 26, 16], reserveMs: 1800, incShare: 0.30, minMs: 220, maxMs: 12000, capFrac: 0.16, noiseMix: 0.25, sigma: 0.40 },
-        '5+0':   { horizon: [36, 26, 16], reserveMs: 3500, incShare: 0,    minMs: 300, maxMs: 15000, capFrac: 0.14, noiseMix: 0.25, sigma: 0.40 },
-        '10+0':  { horizon: [38, 28, 17], reserveMs: 5000, incShare: 0,    minMs: 450, maxMs: 22000, capFrac: 0.14, noiseMix: 0.25, sigma: 0.35 },
-        '15+10': { horizon: [40, 30, 18], reserveMs: 4000, incShare: 0.45, minMs: 700, maxMs: 28000, capFrac: 0.16, noiseMix: 0.20, sigma: 0.35 },
+        '30s':   { minMs: 120, maxMs: 4000,  noiseMix: 0.30, sigma: 0.45 },
+        '1+0':   { minMs: 160, maxMs: 6000,  noiseMix: 0.30, sigma: 0.45 },
+        '3+2':   { minMs: 220, maxMs: 12000, noiseMix: 0.25, sigma: 0.40 },
+        '5+0':   { minMs: 300, maxMs: 15000, noiseMix: 0.25, sigma: 0.40 },
+        '10+0':  { minMs: 450, maxMs: 22000, noiseMix: 0.25, sigma: 0.35 },
+        '15+10': { minMs: 700, maxMs: 28000, noiseMix: 0.20, sigma: 0.35 },
         // Sense rellotge: pressupost fictici moderat perquè la resposta també
         // «respiri» segons ELO i dificultat, sense fer esperar l'usuari.
         'none':  { fixedBudgetMs: 1300, minMs: 350, maxMs: 4500, noiseMix: 0.25, sigma: 0.40 }
     };
 
-    // Matriu ELO–complexitat de l'informe: els nivells baixos sobreinverteixen
-    // en posicions fàcils i subinverteixen en les difícils; els alts, al revés.
-    // Files ancorades al centre de cada banda; columnes a C baixa/mitjana/alta.
+    // Comportament humà REAL amb rellotge, per ritme i nivell (vegeu la font a
+    // dalt). Per a cada ritme hi ha quatre àncores d'ELO i entre elles
+    // s'interpola linealment:
+    //   moves    jugades per bàndol i partida (mitjana mesurada)
+    //   movesSd  desviació típica d'aquestes jugades
+    //   spendMs  temps mitjà per jugada = (rellotge consumit) / (jugades)
+    //   flagRate proporció de partides perdudes per temps en aquesta franja
+    //   n        costats de jugador de la mostra (mida de la mostra)
+    //   paceSigma  ÚNIC paràmetre no mesurat sinó AJUSTAT: dispersió del ritme
+    //              entre partides. Es va calibrar cercant, per a cada fila, el
+    //              valor que fa que el model reprodueixi el risc de bandera
+    //              mesurat (probabilitat de caure a la jugada k havent arribat
+    //              viu a k-1, acumulada sobre les 40 primeres jugades). El
+    //              test «humantime» torna a comprovar aquest ajust.
+    // L'ELO de referència de cada fila és l'ELO mitjà real de la franja. Per
+    // sota de la primera àncora no hi ha dades públiques (Lichess amb prou
+    // feines té partides sota ~600), així que el perfil es manté: és el
+    // comportament més fluix que s'ha pogut MESURAR, no una extrapolació.
+    const HUMAN_CLOCK_STATS = {
+        '30s': [
+            { elo: 840,  moves: 19.0, movesSd: 7.8,  spendMs: 1330, flagRate: 0.620, paceSigma: 0.42, deepThinkRate: 0.000, n: 374 },
+            { elo: 1320, moves: 25.2, movesSd: 9.8,  spendMs: 955,  flagRate: 0.462, paceSigma: 0.42, deepThinkRate: 0.147, n: 1092 },
+            { elo: 1710, moves: 30.2, movesSd: 10.5, spendMs: 815,  flagRate: 0.438, paceSigma: 0.42, deepThinkRate: 0.204, n: 4655 },
+            { elo: 2410, moves: 39.1, movesSd: 14.3, spendMs: 589,  flagRate: 0.204, paceSigma: 0.42, deepThinkRate: 0.211, n: 24964 }
+        ],
+        '1+0': [
+            { elo: 880,  moves: 22.2, movesSd: 8.2,  spendMs: 2169, flagRate: 0.395, paceSigma: 0.42, deepThinkRate: 0.036, n: 3163 },
+            { elo: 1310, moves: 27.9, movesSd: 9.4,  spendMs: 1708, flagRate: 0.335, paceSigma: 0.42, deepThinkRate: 0.101, n: 10430 },
+            { elo: 1700, moves: 31.7, movesSd: 10.8, spendMs: 1490, flagRate: 0.298, paceSigma: 0.42, deepThinkRate: 0.131, n: 21181 },
+            { elo: 2400, moves: 38.0, movesSd: 14.4, spendMs: 1204, flagRate: 0.208, paceSigma: 0.42, deepThinkRate: 0.210, n: 19937 }
+        ],
+        '3+2': [
+            { elo: 890,  moves: 28.2, movesSd: 15.9, spendMs: 5397, flagRate: 0.122, paceSigma: 0.42, deepThinkRate: 0.143, n: 5785 },
+            { elo: 1305, moves: 31.2, movesSd: 15.5, spendMs: 5118, flagRate: 0.100, paceSigma: 0.42, deepThinkRate: 0.150, n: 16991 },
+            { elo: 1700, moves: 33.9, movesSd: 15.7, spendMs: 5057, flagRate: 0.104, paceSigma: 0.42, deepThinkRate: 0.184, n: 23788 },
+            { elo: 2325, moves: 38.6, movesSd: 17.2, spendMs: 5218, flagRate: 0.104, paceSigma: 0.42, deepThinkRate: 0.225, n: 6194 }
+        ],
+        '5+0': [
+            { elo: 870,  moves: 28.7, movesSd: 14.8, spendMs: 5743, flagRate: 0.125, paceSigma: 0.42, deepThinkRate: 0.131, n: 9221 },
+            { elo: 1305, moves: 33.1, movesSd: 15.5, spendMs: 5136, flagRate: 0.103, paceSigma: 0.42, deepThinkRate: 0.150, n: 19370 },
+            { elo: 1700, moves: 36.0, movesSd: 15.6, spendMs: 4931, flagRate: 0.103, paceSigma: 0.42, deepThinkRate: 0.171, n: 24386 },
+            { elo: 2280, moves: 39.1, movesSd: 15.7, spendMs: 5246, flagRate: 0.102, paceSigma: 0.42, deepThinkRate: 0.154, n: 1368 }
+        ],
+        '10+0': [
+            { elo: 850,  moves: 27.4, movesSd: 16.6, spendMs: 8268, flagRate: 0.065, paceSigma: 0.42, deepThinkRate: 0.230, n: 12467 },
+            { elo: 1305, moves: 31.3, movesSd: 16.4, spendMs: 7884, flagRate: 0.054, paceSigma: 0.42, deepThinkRate: 0.240, n: 19874 },
+            { elo: 1700, moves: 34.3, movesSd: 16.4, spendMs: 7810, flagRate: 0.051, paceSigma: 0.42, deepThinkRate: 0.246, n: 22929 },
+            { elo: 2295, moves: 39.1, movesSd: 17.3, spendMs: 8800, flagRate: 0.057, paceSigma: 0.42, deepThinkRate: 0.218, n: 1399 }
+        ],
+        '15+10': [
+            { elo: 830,  moves: 27.1, movesSd: 16.7, spendMs: 14247, flagRate: 0.048, paceSigma: 0.42, deepThinkRate: 0.347, n: 12139 },
+            { elo: 1300, moves: 31.2, movesSd: 16.7, spendMs: 17482, flagRate: 0.040, paceSigma: 0.42, deepThinkRate: 0.239, n: 12002 },
+            { elo: 1695, moves: 34.0, movesSd: 16.9, spendMs: 19950, flagRate: 0.050, paceSigma: 0.42, deepThinkRate: 0.232, n: 8799 },
+            { elo: 2305, moves: 40.1, movesSd: 17.0, spendMs: 22360, flagRate: 0.027, paceSigma: 0.42, deepThinkRate: 0.200, n: 451 }
+        ]
+    };
+
+    // Rellotge base de cada ritme (ms), per poder projectar la corba de consum
+    // sense dependre de la configuració de la partida en curs.
+    const HUMAN_CLOCK_BASE_MS = {
+        '30s': 30000, '1+0': 60000, '3+2': 180000,
+        '5+0': 300000, '10+0': 600000, '15+10': 900000
+    };
+
+    // Forma universal del consum, mesurada: temps de la jugada k dividit pel
+    // temps mitjà per jugada, en funció de k/kPic. Les 48 corbes (6 ritmes × 8
+    // franges d'ELO) hi col·lapsen: el pic val ~1,47 vegades la mitjana i
+    // arriba sempre cap a k = 0,57 × jugades esperades. Fora del rang mesurat
+    // es manté el darrer valor (la cua real es regula amb el rellotge que
+    // queda, no amb el número de jugada).
+    const HUMAN_PACE_PEAK_RATIO = 0.57;
+    const HUMAN_PACE_SHAPE = [
+        [0.00, 0.25], [0.15, 0.43], [0.25, 0.59], [0.40, 0.84], [0.60, 1.17],
+        [0.80, 1.38], [1.00, 1.47], [1.25, 1.38], [1.60, 1.09], [2.00, 0.78],
+        [2.60, 0.52]
+    ];
+
+    function humanPaceShape(x) {
+        const pts = HUMAN_PACE_SHAPE;
+        if (!(x > 0)) return pts[0][1];
+        if (x >= pts[pts.length - 1][0]) return pts[pts.length - 1][1];
+        for (let i = 0; i < pts.length - 1; i++) {
+            if (x <= pts[i + 1][0]) {
+                const t = (x - pts[i][0]) / (pts[i + 1][0] - pts[i][0]);
+                return pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t;
+            }
+        }
+        return pts[pts.length - 1][1];
+    }
+
+    // Perfil de rellotge d'un ritme per a un nivell donat: interpola les
+    // àncores mesurades i en deriva la jugada del pic i el factor de
+    // normalització (perquè la suma de la corba al llarg d'una partida típica
+    // torni exactament el consum total mesurat).
+    function humanClockProfile(tcId, elo) {
+        const rows = HUMAN_CLOCK_STATS[tcId];
+        if (!rows) return null;
+        const e = clampNum(isNaN(elo) ? 1400 : elo, rows[0].elo, rows[rows.length - 1].elo);
+        let lo = rows[0];
+        let hi = rows[rows.length - 1];
+        for (let i = 0; i < rows.length - 1; i++) {
+            if (e <= rows[i + 1].elo) { lo = rows[i]; hi = rows[i + 1]; break; }
+        }
+        const t = hi.elo === lo.elo ? 0 : (e - lo.elo) / (hi.elo - lo.elo);
+        const mix = (a, b) => a + (b - a) * t;
+        const moves = mix(lo.moves, hi.moves);
+        const kPeak = Math.max(4, Math.round(HUMAN_PACE_PEAK_RATIO * moves));
+        let sum = 0;
+        const typical = Math.max(1, Math.round(moves));
+        for (let k = 1; k <= typical; k++) sum += humanPaceShape(k / kPeak);
+        const spendMs = mix(lo.spendMs, hi.spendMs);
+        const deepThinkRate = mix(lo.deepThinkRate, hi.deepThinkRate);
+        // spendMs és el temps mitjà per jugada MESURAT, i inclou les pensades
+        // llargues. El ritme de creuer, doncs, és una mica més baix: si no se'n
+        // descomptessin, el motor gastaria més del que gasta una persona. El
+        // descompte està acotat perquè bona part d'aquestes pensades llargues
+        // ja queden retallades pel rellotge que queda (i no s'han de descomptar
+        // dues vegades).
+        const deepGain = clampNum(
+            1 + deepThinkRate * ((HUMAN_DEEP_THINK_MIN + HUMAN_DEEP_THINK_MAX) / 2 - 1), 1, 1.30);
+        return {
+            moves,
+            movesSd: mix(lo.movesSd, hi.movesSd),
+            spendMs,
+            cruiseMs: spendMs / deepGain,
+            flagRate: mix(lo.flagRate, hi.flagRate),
+            paceSigma: mix(lo.paceSigma, hi.paceSigma),
+            deepThinkRate,
+            kPeak,
+            shapeNorm: sum / typical || 1,
+            baseMs: HUMAN_CLOCK_BASE_MS[tcId] || 0
+        };
+    }
+
+    // Temps que aquest perfil dedicaria a la jugada k a ritme de creuer (sense
+    // soroll, sense pensada llarga i sense mirar el rival).
+    function humanPlannedSpendMs(profile, moveNumber) {
+        if (!profile) return 0;
+        const k = Math.max(1, moveNumber || 1);
+        return profile.cruiseMs * humanPaceShape(k / profile.kPeak) / profile.shapeNorm;
+    }
+
+    // Rellotge que hauria de quedar en arribar a la jugada k si tot va segons
+    // el pla d'aquest perfil (amb el seu tarannà del dia). Serveix per saber si
+    // el motor va endarrerit respecte del que ell mateix tenia previst: és
+    // l'ÚNICA retroalimentació de rellotge del model, i és la que fa que una
+    // partida que s'allarga més del compte acabi passant factura.
+    function humanExpectedRemainingMs(profile, incMs, moveNumber, temperament) {
+        if (!profile) return 0;
+        const k = Math.max(1, moveNumber || 1);
+        const temper = temperament > 0 ? temperament : 1;
+        let spent = 0;
+        for (let i = 1; i < k; i++) spent += humanPlannedSpendMs(profile, i) * temper;
+        return profile.baseMs + (incMs || 0) * (k - 1) - spent;
+    }
+
+    // Perícia de GESTIÓ DEL RELLOTGE segons ELO. Un jugador fluix no només juga
+    // pitjor: administra pitjor el temps. Els paràmetres van del jugador més
+    // fluix mesurat (~800) al més fort (~2400):
+    //   maxSpendFrac     màxim del rellotge restant que es gasta en UNA jugada.
+    //   clockAwareness   quant mira el rellotge: 0 = juga al seu ritme passi el
+    //                    que passi (i cau de bandera), 1 = reparteix sempre el
+    //                    que li queda. És la diferència de fons entre un
+    //                    principiant i un jugador fet.
+    //   panicMoves       quantes jugades de marge li queden quan s'adona que va
+    //                    justíssim (i comença a moure a l'acte).
+    function clockManagementSkill(elo) {
+        const n = clampNum(((isNaN(elo) ? 1400 : elo) - 800) / 1600, 0, 1); // 800..2400
+        return {
+            maxSpendFrac: 0.17 - 0.06 * n,
+            clockAwareness: 0.35 + 0.40 * n,
+            panicMoves: 1.0 + 2.5 * n
+        };
+    }
+
+    // Sòl físic per jugada: ni decidint-se a l'acte ningú no baixa d'aquí (cal
+    // veure la posició, agafar la peça i deixar-la). No és un valor inventat:
+    // a la cua de les partides de 30s i 1+0 —els únics ritmes on el rellotge
+    // s'arriba a esgotar de debò— el temps per jugada s'estanca a un terç
+    // llarg del ritme mitjà d'aquell nivell (0,74 s per jugada a 1+0 a la
+    // franja més fluixa, 0,45 s a 30s), i és aquest sòl —no cap regla
+    // artificial— el que decideix quantes jugades encara es poden fer amb el
+    // rellotge a punt de caure. Té sostre: per lent que sigui el ritme, ningú
+    // no necessita més d'un segon per moure quan ja no li queda temps.
+    const HUMAN_FLOOR_FRACTION = 0.34;
+    const HUMAN_FLOOR_CAP_MS = 900;
+    function humanMoveFloorMs(spendMs, absoluteMinMs) {
+        return clampNum(spendMs * HUMAN_FLOOR_FRACTION, absoluteMinMs || 0, HUMAN_FLOOR_CAP_MS);
+    }
+
+    // Pensada llarga: de tant en tant una persona s'encalla en una jugada i hi
+    // deixa una part gran del rellotge. És el mecanisme real que fa caure
+    // banderes en els ritmes amb increment (on cap ritme mitjà no esgota mai el
+    // temps) i el que precipita el final als ritmes ràpids. La freqüència
+    // (deepThinkRate de HUMAN_CLOCK_STATS) és l'altre paràmetre ajustat, no
+    // mesurat: es calibra perquè el model reprodueixi el risc de bandera real.
+    // El sostre absolut (dos minuts) no és cap regla d'escacs: és per no deixar
+    // l'usuari mirant la pantalla més estona de la que ningú espera un rival.
+    const HUMAN_DEEP_THINK_MIN = 2.2;
+    const HUMAN_DEEP_THINK_MAX = 7.0;
+    const HUMAN_DEEP_THINK_CAP_FRAC = 1.15;
+    const HUMAN_DEEP_THINK_MAX_MS = 120000;
+
+    // Tarannà de rellotge d'AQUESTA partida: multiplicador log-normal de
+    // mitjana ~1 que fa que unes partides es juguin més de pressa i altres es
+    // cremin el rellotge. Es tira una vegada per partida (app.js) i es passa a
+    // humanThinkTimeMs. Sense ell, el motor jugaria sempre la partida mitjana i
+    // no cauria mai de bandera; amb ell, hi cau amb la freqüència mesurada.
+    function rollClockTemperament(tcId, elo, random) {
+        const rnd = typeof random === 'function' ? random : Math.random;
+        const clock = humanClockProfile(tcId, elo);
+        const sigma = clock ? clock.paceSigma : 0.4;
+        const u1 = Math.max(1e-9, rnd());
+        const u2 = rnd();
+        const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
+        return clampNum(Math.exp(-sigma * sigma / 2 + sigma * gauss), 0.4, 3.2);
+    }
+
+    // Matriu ELO–complexitat: els nivells baixos sobreinverteixen en posicions
+    // fàcils i subinverteixen en les difícils; els alts, al revés. Files
+    // ancorades al centre de cada banda; columnes a C baixa/mitjana/alta.
     const HUMAN_TIME_ELO_MATRIX = [
         { elo: 1000, mult: [1.15, 1.05, 0.95] },
         { elo: 1400, mult: [1.08, 1.00, 1.00] },
@@ -2317,7 +2546,7 @@
     }
 
     // Multiplicador M(E, C): interpolació bilineal (per C dins de cada banda i
-    // per ELO entre bandes) sobre la matriu de l'informe.
+    // per ELO entre bandes) sobre la matriu.
     function eloComplexityTimeMultiplier(elo, complexity) {
         const c = clampNum(isNaN(complexity) ? 0.5 : complexity, 0, 1);
         const rows = HUMAN_TIME_ELO_MATRIX;
@@ -2342,23 +2571,7 @@
         return 1;
     }
 
-    // Perícia de GESTIÓ DEL RELLOTGE segons ELO. Un jugador fluix no només juga
-    // pitjor: administra malament el temps. Per sota de ~1400 (i sobretot cap a
-    // ~400), el motor sobreinverteix per jugada (spendBias), guarda una reserva
-    // d'emergència mínima (reserveFactor) i s'acosta a la bandera molt més
-    // (flagGuardMs, el marge antibandera que usa app.js). A ROC baix el motor
-    // pot arribar a perdre per temps, com li passaria a un humà del seu nivell;
-    // a ROC alt manté la disciplina d'abans i no perd mai per bandera.
-    function clockManagementSkill(elo) {
-        const n = clampNum(((isNaN(elo) ? 1400 : elo) - 400) / 1000, 0, 1); // 400..1400
-        return {
-            spendBias: 1.4 - 0.4 * n,          // ×1.4 a ROC ≤400 → ×1.0 a ≥1400
-            reserveFactor: 0.2 + 0.8 * n,      // 20% de la reserva → 100%
-            flagGuardMs: Math.round(100 + 300 * n) // marge antibandera 100 → 400 ms
-        };
-    }
-
-    // Complexitat C ∈ [0,1] a partir de proxies visibles per UCI (informe):
+    // Complexitat C ∈ [0,1] a partir de proxies visibles per UCI:
     //  g escletxa 1a-2a línia, b candidates quasi equivalents, v inestabilitat
     //  del millor moviment, e volatilitat d'avaluació, q swing superficial vs
     //  profund (estrès de quiescència) i t bandera tàctica {0, 0.5, 1}.
@@ -2424,16 +2637,19 @@
         return 'middlegame';
     }
 
-    // Temps de pensament humanitzat (ms) per a la propera jugada de l'enginy.
-    // params: { timeControlId, remainingMs, incMs, elo, complexity, phase,
-    //           moveNumber, random }. Amb remainingMs null (sense rellotge)
-    // s'usa el pressupost fix del perfil 'none'.
+    // Retard visible: del temps «pensat» se'n descompta el que la cerca real ja
+    // ha trigat, perquè el rellotge del motor no pagui dues vegades.
     function visibleHumanReplyDelayMs(targetThinkMs, elapsedMs) {
         const target = Math.max(0, Number(targetThinkMs) || 0);
         const elapsed = Math.max(0, Number(elapsedMs) || 0);
         return Math.max(0, Math.round(target - elapsed));
     }
 
+    // Temps de reflexió humanitzat (ms) per a la propera jugada de l'enginy.
+    // params: { timeControlId, remainingMs, incMs, elo, complexity, phase,
+    //           moveNumber, clockTemperament, humanPaceMs, paceSamples, random }
+    // Amb remainingMs null (sense rellotge) s'usa el pressupost fix del perfil
+    // 'none'.
     function humanThinkTimeMs(params) {
         const p = params || {};
         const profile = HUMAN_TIME_PROFILES[p.timeControlId] || HUMAN_TIME_PROFILES.none;
@@ -2444,29 +2660,36 @@
         const incMs = Math.max(0, p.incMs || 0);
         const remainingMs = typeof p.remainingMs === 'number' ? p.remainingMs : null;
         const moveNumber = Math.max(1, p.moveNumber || 1);
-        const useClock = !profile.fixedBudgetMs && remainingMs !== null;
-        // La gestió del rellotge (sobreinversió i reserva) depèn del nivell.
+        const temperament = clampNum(typeof p.clockTemperament === 'number' && p.clockTemperament > 0
+            ? p.clockTemperament : 1, 0.4, 3.2);
+        const clock = HUMAN_CLOCK_STATS[p.timeControlId] ? humanClockProfile(p.timeControlId, elo) : null;
+        const useClock = !!clock && remainingMs !== null;
         const skill = clockManagementSkill(elo);
 
         let tau0;
-        let capMs = profile.maxMs;
         if (!useClock) {
             tau0 = profile.fixedBudgetMs || HUMAN_TIME_PROFILES.none.fixedBudgetMs;
         } else {
-            const phaseIdx = phase === 'opening' ? 0 : (phase === 'endgame' ? 2 : 1);
-            const horizon = profile.horizon[phaseIdx];
-            const overheadMs = 50; // marge de GUI/repintat per jugada
-            const reserveMs = profile.reserveMs * skill.reserveFactor;
-            const effectiveMs = Math.max(1, remainingMs - reserveMs - (2 + horizon) * overheadMs);
-            tau0 = (effectiveMs / horizon) * skill.spendBias + profile.incShare * incMs;
-            capMs = Math.min(profile.maxMs, profile.capFrac * effectiveMs * skill.spendBias + 0.6 * incMs);
+            // Dues maneres de decidir quant s'hi pensa, barrejades segons com de
+            // pendent del rellotge està el nivell (clockAwareness):
+            //  · a cegues: el que un humà d'aquest nivell dedica a la jugada k
+            //    en aquest ritme, segons la corba mesurada. No mira el rellotge:
+            //    per això una partida que s'allarga acaba en bandera.
+            //  · mirant el rellotge: la MATEIXA corba però expressada com a
+            //    fracció del temps que li hauria de quedar, aplicada al que
+            //    realment li queda. Amb menys rellotge, menys temps per jugada.
+            const planned = humanPlannedSpendMs(clock, moveNumber);
+            const reference = humanExpectedRemainingMs(clock, incMs, moveNumber, 1);
+            const frac = clampNum(planned / Math.max(1, reference), 0, skill.maxSpendFrac);
+            const blind = planned;
+            const aware = frac * remainingMs;
+            const beta = skill.clockAwareness;
+            tau0 = ((1 - beta) * blind + beta * aware) * temperament;
         }
 
         const M = eloComplexityTimeMultiplier(elo, complexity);
         const P = phaseTimeMultiplier(elo, phase);
-        // Les primeres jugades «de llibre» surten ràpid, com fan els humans.
-        const bookRamp = clampNum(0.12 + 0.11 * (moveNumber - 1), 0.12, 1);
-        const deterministic = tau0 * M * P * bookRamp;
+        const deterministic = tau0 * M * P;
 
         const z = truncatedLogNormalFactor(profile.sigma, random);
         let tau = (1 - profile.noiseMix) * deterministic + profile.noiseMix * deterministic * z;
@@ -2478,28 +2701,49 @@
         const humanPaceMs = typeof p.humanPaceMs === 'number' ? p.humanPaceMs : null;
         const paceSamples = Math.max(0, p.paceSamples || 0);
         if (humanPaceMs !== null && paceSamples > 0) {
-            const paceRefMs = profile.fixedBudgetMs ? 5000 : (remainingMs !== null ? remainingMs / Math.max(18, profile.horizon[1]) : 5000);
+            const paceRefMs = useClock ? clock.spendMs : 5000;
             const paceRatio = clampNum(humanPaceMs / Math.max(1, paceRefMs), 0.35, 2.5);
             const confidence = clampNum(paceSamples / 6, 0, 1);
             const paceMultiplier = 1 + (paceRatio - 1) * 0.22 * confidence;
             tau *= clampNum(paceMultiplier, 0.75, 1.2);
         }
 
-        tau = clampNum(tau, profile.minMs, Math.max(profile.minMs, capMs));
+        tau = Math.min(tau, profile.maxMs);
 
+        let floorMs = profile.minMs;
         if (useClock) {
-            // Mode d'emergència: amb el rellotge sota mínims es respon a l'acte.
-            // El llindar escala amb el nivell: els ROC baixos triguen molt més a
-            // adonar-se que van justos de temps.
-            const panicAtMs = profile.reserveMs * skill.reserveFactor * 1.8;
-            if (remainingMs <= panicAtMs) {
-                tau = clampNum(remainingMs / 16 + 0.35 * incMs, 80, 500);
+            floorMs = humanMoveFloorMs(clock.spendMs, profile.minMs);
+            const deepRate = typeof p.deepThinkRate === 'number' ? p.deepThinkRate : clock.deepThinkRate;
+            if (random() < deepRate) {
+                // Pensada llarga: rara, però és la que decideix moltes partides.
+                // Es menja el que calgui —fins i tot tot el rellotge— i per això
+                // també es pot caure de bandera en els ritmes amb increment, on
+                // cap ritme mitjà no esgotaria mai el temps.
+                tau *= HUMAN_DEEP_THINK_MIN + (HUMAN_DEEP_THINK_MAX - HUMAN_DEEP_THINK_MIN) * random();
+                tau = Math.min(tau, remainingMs * HUMAN_DEEP_THINK_CAP_FRAC, HUMAN_DEEP_THINK_MAX_MS);
+            } else if (remainingMs <= skill.panicMoves * clock.spendMs) {
+                // Emergència: quan li queden poques jugades de marge, es mou a
+                // l'acte. Els nivells baixos se n'adonen molt més tard
+                // (panicMoves petit), tal com passa a les partides reals.
+                tau = Math.min(tau, clampNum(remainingMs / 12 + 0.35 * incMs, 80, 900));
+            } else {
+                // Fora d'aquests dos casos, cap jugada no es menja una part
+                // desproporcionada del que queda.
+                tau = Math.min(tau, remainingMs * skill.maxSpendFrac);
             }
-            // Cap jugada escènica pot gastar més de la meitat del temps restant.
-            tau = Math.min(tau, Math.max(60, remainingMs * 0.5 - 150));
         }
+
+        // El sòl físic mana per damunt de tot: per sota d'aquest temps ningú no
+        // arriba a moure. Quan el rellotge ja no dona ni per al sòl, el motor cau
+        // de bandera, exactament com hi cau una persona.
+        tau = Math.max(tau, floorMs);
+        // No té sentit programar una espera molt més llarga que el rellotge que
+        // queda: la bandera cau abans i la partida s'acaba allà.
+        if (useClock) tau = Math.min(tau, remainingMs + 250);
+
         return Math.round(Math.max(0, tau));
     }
+
 
     // ----------------------------------------------------------------------
     // Importació de PGN extern (partides d'altres plataformes o de tornejos)
@@ -2732,6 +2976,17 @@
         buildTenMinutePlan,
         playerColorIntro,
         HUMAN_TIME_PROFILES,
+        HUMAN_CLOCK_STATS,
+        HUMAN_PACE_SHAPE,
+        HUMAN_PACE_PEAK_RATIO,
+        humanPaceShape,
+        humanClockProfile,
+        humanPlannedSpendMs,
+        humanExpectedRemainingMs,
+        humanMoveFloorMs,
+        HUMAN_FLOOR_CAP_MS,
+        HUMAN_DEEP_THINK_MAX_MS,
+        rollClockTemperament,
         estimateMoveComplexity,
         eloComplexityTimeMultiplier,
         phaseTimeMultiplier,

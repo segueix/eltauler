@@ -328,6 +328,11 @@ let currentGameTimeControlId = 'none';
 // Guarda l'id del ritme en curs o null.
 let timedCalibrationTcId = null;
 let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
+// Tarannà de rellotge del rival en la partida en curs: multiplicador del seu
+// ritme, tirat una sola vegada en començar (core.js: rollClockTemperament).
+// Hi ha partides que el motor juga còmode i partides que se li crema el
+// rellotge, tal com li passa a una persona; val 1 sense rellotge.
+let currentGameClockTemperament = 1;
 let calibrationResultsChart = null;
 let currentGameStartTs = null;
 
@@ -22607,6 +22612,7 @@ function computeHumanReplyDelayMs() {
         complexity: complexity.score,
         phase,
         moveNumber,
+        clockTemperament: currentGameClockTemperament,
         humanPaceMs,
         paceSamples: humanPaceSamples
     });
@@ -22695,6 +22701,10 @@ function clockTick() {
     if (gameClock.white <= 0 || gameClock.black <= 0) {
         const flagged = gameClock.white <= 0 ? 'w' : 'b';
         stopGameClock();
+        // Si la bandera cau mentre el motor «pensava», la jugada que tenia
+        // programada ja no s'ha de jugar: la partida s'ha acabat aquí.
+        clearEngineMoveTimers();
+        isEngineThinking = false;
         renderClock();
         // En caure la bandera, mostra a l'instant qui ha guanyat (o taules): el
         // resultat es pinta abans del processament pesat de handleGameOver.
@@ -23077,6 +23087,13 @@ blunderMode = isBundle;
     }
     currentGameActiveStrengthElo = getActiveStrengthElo();
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
+    // Tarannà de rellotge d'aquesta partida: es tira UNA vegada, en començar.
+    // És el que fa que el rival no jugui sempre la partida mitjana; hi ha dies
+    // que es crema el rellotge i cau de bandera, amb la freqüència que ho fa
+    // una persona del seu nivell en aquest ritme (dades reals, vegeu core.js).
+    currentGameClockTemperament = gameClock.enabled
+        ? ElTaulerCore.rollClockTemperament(currentGameTimeControlId, currentGameActiveStrengthElo)
+        : 1;
     updateEloDisplay();
 
     // HUD del repte «Rejugar +5%» i objectiu del panell de precisió (75% per defecte)
@@ -23272,9 +23289,14 @@ function makeEngineMove() {
     resetEngineMoveCandidates();
     engineMoveSearchTrace = [];
     clearEngineMoveTimers();
-    // Si l'usuari no acaba de moure (p. ex. primera jugada de l'enginy),
-    // el "pensament" comença ara.
-    engineReplyStartTs = nowMs();
+    // Si l'usuari no acaba de moure (p. ex. primera jugada de l'enginy), el
+    // "pensament" comença ara. Si sí que acaba de moure, es conserva la marca
+    // posada a onDrop: des d'aquell instant el rellotge del rival ja corre
+    // (mentre l'app analitza la jugada de l'usuari), i aquest temps ha de
+    // comptar DINS del temps de reflexió, no sumar-s'hi. Si no, el motor
+    // gastaria cada jugada el que ha decidit MÉS el que ha trigat l'anàlisi, i
+    // a un minut això són desenes de segons regalats.
+    if (engineReplyStartTs === null) engineReplyStartTs = nowMs();
 
     // Partida de calibratge inicial: el rival s'adapta ABANS de cada resposta a
     // la qualitat de joc demostrada fins ara (com el calibratge per ritme).

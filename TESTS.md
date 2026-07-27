@@ -34,6 +34,17 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
 - **`openings.test.js`** — parseig de PGN, construcció del trie d'obertures i
   cerca/anàlisi, incloent-hi una comprovació de sanitat sobre les dades reals
   d'`obertures.js`.
+- **`humantime.test.js`** — gestió del rellotge del rival. Cobreix l'estimació
+  de dificultat d'una jugada (`estimateMoveComplexity`), la matriu
+  ELO–complexitat, la fase a partir del FEN i, sobretot, el **model de rellotge
+  calibrat amb partides reals**: que la taula `HUMAN_CLOCK_STATS` (mesurada sobre
+  4,6 M de partides de Lichess) tingui la forma esperada, que `humanClockProfile`
+  interpoli per ELO sense extrapolar per sota de la franja mesurada (el cas d'un
+  ROC molt baix), que el pla sencer sumi el temps mesurat de la partida, i que
+  una simulació amb el codi REAL reprodueixi la corba de consum del rellotge i
+  el risc de bandera observats. Inclou la comprovació de fons: a 1+0 i ROC baix
+  el motor pot caure de bandera —perquè és el que fa una persona d'aquell
+  nivell— i als ritmes lents gairebé mai.
 - **`calibration.test.js`** — terra flexible de l'ELO d'usuari, ajust fi per
   resultat, fites d'ELO, i la cerca adaptativa del calibratge inicial (ROC del
   rival, qualitat i rendiment de les partides de calibratge).
