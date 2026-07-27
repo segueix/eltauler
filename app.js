@@ -2389,6 +2389,9 @@ function commitHumanMove(from, to, promotionPiece) {
     const prevFen = game.fen();
     const move = game.move({ from: from, to: to, promotion: promotionPiece || 'q' });
     if (move === null) { showIllegalMoveFeedback(from); return false; }
+    // Una jugada real consumeix qualsevol premove pendent: si en quedés una
+    // d'armada, es dispararia sobre la resposta següent del rival.
+    clearQueuedPremove();
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
     clockOnMove();
@@ -2425,28 +2428,114 @@ function commitHumanMove(from, to, promotionPiece) {
     return true;
 }
 
+// Finestra en què es pot marcar una jugada anticipada: partida amb rellotge en
+// curs i torn del RIVAL. Mirar el torn (i no isEngineThinking) també cobreix la
+// finestra en què l'app analitza la jugada anterior i el motor encara no ha
+// arrencat: a bullet són desenes de mil·lisegons en què el tauler quedava mut.
+function premoveAllowed() {
+    return !!(gameClock.enabled && game && !game.game_over()
+        && game.turn() !== playerColor
+        && !isViewingGameHistory() && !phaseReplayInputLocked());
+}
+
+// Caselles marcables des d'una casella d'origen (delegat al nucli, que és qui
+// sap generar jugades del bàndol que encara no té el torn).
+function premoveTargetsFrom(square) {
+    if (!premoveAllowed() || !square) return [];
+    try {
+        return ElTaulerCore.premoveTargets(game.fen(), square, playerColor) || [];
+    } catch (e) { return []; }
+}
+
+function clearPremoveHighlights() {
+    $('#myBoard .square-55d63').removeClass('premove-from premove-to');
+}
+
+function clearQueuedPremove() {
+    queuedPremove = null;
+    clearPremoveHighlights();
+}
+
+// Les marques es posen amb getMainBoardSquare (classe .square-<casella>), com
+// la resta de marques que surten de coordenades del joc i no d'un clic: la
+// jugada del motor, les pistes i el parpelleig de jugada il·legal.
+function highlightQueuedPremove() {
+    clearPremoveHighlights();
+    if (!queuedPremove) return;
+    getMainBoardSquare(queuedPremove.from).addClass('premove-from');
+    getMainBoardSquare(queuedPremove.to).addClass('premove-to');
+}
+
+// Selecció de peça per marcar una premove. No es pot fer servir
+// highlightTapSelection: demana les jugades a chess.js, que no en genera cap
+// mentre el torn és del rival (i per això, abans, tocar una peça no feia res).
+function highlightPremoveSelection(square) {
+    $('#myBoard .square-55d63').removeClass('tap-selected tap-move');
+    const targets = premoveTargetsFrom(square);
+    if (!targets.length) return false;
+    getMainBoardSquare(square).addClass('tap-selected');
+    for (const target of targets) getMainBoardSquare(target).addClass('tap-move');
+    return true;
+}
+
 function queueUserPremove(from, to, promotionPiece) {
-    if (!gameClock.enabled || !isEngineThinking || !from || !to) return false;
-    const piece = game.get(from);
-    if (!piece || piece.color !== playerColor) return false;
+    if (!premoveAllowed() || !from || !to) return false;
+    if (!ElTaulerCore.isPremoveTarget(game.fen(), from, to, playerColor)) return false;
+    // Sempre dama: obrir el selector de coronació mentre el rival pensa aturaria
+    // justament el temps que la premove vol estalviar (com als servidors ràpids).
     queuedPremove = { from, to, promotion: promotionPiece || 'q' };
     clearTapSelection();
-    $('#myBoard .square-55d63').removeClass('premove-from premove-to');
-    $(`#myBoard .square-55d63[data-square='${from}']`).addClass('premove-from');
-    $(`#myBoard .square-55d63[data-square='${to}']`).addClass('premove-to');
+    highlightQueuedPremove();
     return true;
 }
 
 function playQueuedPremove() {
     const premove = queuedPremove;
-    queuedPremove = null;
-    $('#myBoard .square-55d63').removeClass('premove-from premove-to');
+    clearQueuedPremove();
     if (!premove || !gameClock.enabled || game.game_over() || game.turn() !== playerColor) return false;
+    if (isViewingGameHistory() || phaseReplayInputLocked()) return false;
     // La resposta del rival pot haver fet la jugada impossible (peça capturada,
-    // casella ocupada, escac...). En aquest cas només es cancel·la.
-    const legal = game.moves({ square: premove.from, verbose: true })
-        .some(m => m.to === premove.to && (!m.promotion || m.promotion === premove.promotion));
-    return legal ? commitHumanMove(premove.from, premove.to, premove.promotion) : false;
+    // casella ocupada, escac...). En aquest cas només es cancel·la, amb un
+    // parpelleig a la casella d'origen perquè es vegi que no s'ha jugat.
+    const legal = ElTaulerCore.premoveMatchesLegalMove(
+        game.moves({ square: premove.from, verbose: true }), premove);
+    if (!legal) { showIllegalMoveFeedback(premove.from); return false; }
+    return commitHumanMove(premove.from, premove.to, premove.promotion);
+}
+
+// Torna el torn a l'usuari: la jugada marcada s'executa sola i sense esperes.
+// És tot el sentit de la premove, així que ha de passar després de QUALSEVOL
+// jugada del rival (cerca del motor, llibre del bessó...).
+function playPremoveIfQueued() {
+    if (!queuedPremove) return;
+    if (game.turn() !== playerColor) return;
+    setTimeout(playQueuedPremove, 0);
+}
+
+// La jugada anticipada no es veu enlloc de la interfície: sense un avís, ningú
+// no prova de moure mentre el rival pensa. Es diu una sola vegada, a la primera
+// partida amb rellotge.
+const PREMOVE_HINT_KEY = 'chess_premoveHintSeen';
+function maybeShowPremoveHint() {
+    if (!gameClock.enabled) return;
+    try {
+        if (localStorage.getItem(PREMOVE_HINT_KEY) === '1') return;
+        localStorage.setItem(PREMOVE_HINT_KEY, '1');
+    } catch (e) { return; }
+    showToast('Amb rellotge pots marcar la teva jugada mentre el rival pensa: es jugarà sola quan et torni el torn.', 'info', 6000);
+}
+
+// Botó dret sobre el tauler: anul·la la premove marcada (conveni dels
+// servidors d'escacs). Amb el mode «toc» ja n'hi ha prou tocant-ne les
+// caselles, però amb el mode «arrossegar» aquesta és l'única sortida.
+// #myBoard és estable (chessboard.js només en refà el contingut), així que
+// n'hi ha prou de lligar-hi l'esdeveniment una vegada.
+function enablePremoveCancelGesture() {
+    $('#myBoard').off('contextmenu.premove').on('contextmenu.premove', (e) => {
+        if (!queuedPremove) return;
+        e.preventDefault();
+        clearQueuedPremove();
+    });
 }
 
 function enableTapToMove() {
@@ -2469,11 +2558,25 @@ function enableTapToMove() {
         const square = $(this).attr('data-square');
         if (!square) return;
 
+        // Mentre pensa el rival, el toc marca una jugada anticipada en lloc de
+        // jugar-la: la peça pròpia es tria pel color del jugador (no pel torn,
+        // que és del rival) i els destins surten del generador de premoves.
+        const premoving = premoveAllowed();
+        const selectableColor = premoving ? playerColor : game.turn();
+        const selectSquare = (sq) => (premoving ? highlightPremoveSelection(sq) : highlightTapSelection(sq));
+
+        // Tocar una premove ja marcada l'anul·la: és l'única manera de fer-se
+        // enrere abans que el rival mogui i la jugada s'executi sola.
+        if (premoving && queuedPremove && !tapSelectedSquare
+            && (square === queuedPremove.from || square === queuedPremove.to)) {
+            clearQueuedPremove();
+            return;
+        }
+
         if (!tapSelectedSquare) {
             const p = game.get(square);
-            const selectableColor = isEngineThinking && gameClock.enabled ? playerColor : game.turn();
             if (!p || p.color !== selectableColor) return;
-            if (highlightTapSelection(square)) {
+            if (selectSquare(square)) {
                 tapSelectedSquare = square;
             }
             return;
@@ -2484,17 +2587,20 @@ function enableTapToMove() {
             return;
         }
 
-        const moved = isEngineThinking
+        const moved = premoving
             ? queueUserPremove(tapSelectedSquare, square)
             : commitHumanMove(tapSelectedSquare, square);
         if (moved) {
             clearTapSelection();
             return;
         }
+        // commitHumanMove ja marca l'origen quan la jugada és il·legal; amb
+        // premove el retorn és mut, així que el parpelleig es fa aquí.
+        if (premoving) showIllegalMoveFeedback(tapSelectedSquare);
 
         const p2 = game.get(square);
-        if (p2 && p2.color === game.turn()) {
-            if (highlightTapSelection(square)) {
+        if (p2 && p2.color === selectableColor) {
+            if (selectSquare(square)) {
                 tapSelectedSquare = square;
             } else {
                 tapSelectedSquare = null;
@@ -20364,6 +20470,8 @@ function setupEvents() {
         // després de desfer, el torn és de l'usuari).
         isEngineThinking = false;
         engineReplyStartTs = null;
+        // Desfer canvia la posició sota la premove: marcar-la ja no val.
+        clearQueuedPremove();
 
         if (game && game.game_over()) {
             if (lastReviewSnapshot) {
@@ -22737,6 +22845,7 @@ function clockTick() {
         // programada ja no s'ha de jugar: la partida s'ha acabat aquí.
         clearEngineMoveTimers();
         isEngineThinking = false;
+        clearQueuedPremove();
         renderClock();
         // En caure la bandera, mostra a l'instant qui ha guanyat (o taules): el
         // resultat es pinta abans del processament pesat de handleGameOver.
@@ -22782,8 +22891,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     clearEngineMoveTimers();
     isEngineThinking = false;
     engineReplyStartTs = null;
-    queuedPremove = null;
-    $('#myBoard .square-55d63').removeClass('premove-from premove-to');
+    clearQueuedPremove();
     lastEngineMoveAppliedTs = null;
     maybeRollLuckyThemes();
     // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
@@ -23119,6 +23227,7 @@ blunderMode = isBundle;
     if (timedCalibrationTcId) {
         showToast(`Calibratge ${getTimeControlLabel(timedCalibrationTcId)}: rival adaptatiu per estimar el teu ELO del ritme`, 'success');
     }
+    maybeShowPremoveHint();
     currentGameActiveStrengthElo = getActiveStrengthElo();
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
     // Tarannà de rellotge d'aquesta partida: es tira UNA vegada, en començar.
@@ -23167,21 +23276,27 @@ function onDragStart(source, piece, position, orientation) {
     if (isViewingGameHistory()) return false;
     if (phaseReplayInputLocked()) return false;
     if (game.game_over()) return false;
-    if (isEngineThinking) {
-        if (!gameClock.enabled) return false;
+    // Torn del rival en partida amb rellotge: arrossegar serveix per marcar una
+    // jugada anticipada, i per tant s'admeten les peces pròpies.
+    if (premoveAllowed()) {
         const ownPrefix = playerColor === 'w' ? /^w/ : /^b/;
         return piece.search(ownPrefix) !== -1;
     }
-    if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || 
+    if (isEngineThinking) return false;
+    if ((game.turn() === 'w' && piece.search(/^b/) !== -1) ||
         (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
     if (blunderMode && game.turn() !== playerColor) return false;
 }
 
 function onDrop(source, target) {
-    if (isEngineThinking) {
-        queueUserPremove(source, target);
+    // La peça torna al seu lloc: el tauler ha de seguir mostrant la posició
+    // real mentre el rival pensa. La jugada queda marcada (premove) i
+    // s'executarà sola quan torni el torn.
+    if (premoveAllowed()) {
+        if (!queueUserPremove(source, target)) showIllegalMoveFeedback(source);
         return 'snapback';
     }
+    if (isEngineThinking) return 'snapback';
     // Promoció de l'usuari: es deixa triar la peça abans de confirmar la jugada.
     // El peó torna a la casella d'origen mentre el selector és obert i la jugada
     // es completa (amb tota la comptabilitat) via commitHumanMove.
@@ -23196,6 +23311,7 @@ function onDrop(source, target) {
     lastPosition = game.fen(); 
     var move = game.move({ from: source, to: target, promotion: 'q' });
     if (move === null) { showIllegalMoveFeedback(source); return 'snapback'; }
+    clearQueuedPremove();
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
     clockOnMove();
@@ -23278,6 +23394,10 @@ function stepGameMoveNav(delta) {
     // jugaria una peça seleccionada abans de navegar.
     $('#myBoard .square-55d63').removeClass('highlight-hint');
     clearTapSelection();
+    // Repassar jugades anteriors treu el tauler de la posició en viu: una
+    // premove marcada allà ja no té sentit (i les marques quedarien sobre una
+    // posició antiga).
+    clearQueuedPremove();
     if (target >= total) {
         gameViewPly = null;
         board.position(game.fen(), true);
@@ -24053,9 +24173,7 @@ function handleEngineMessage(rawMsg) {
                 board.position(game.fen());
                 // La premove, si encara és legal després de la resposta, es
                 // juga al primer torn de l'esdeveniment i gairebé no gasta rellotge.
-                if (queuedPremove && game.turn() === playerColor) {
-                    setTimeout(playQueuedPremove, 0);
-                }
+                playPremoveIfQueued();
                 highlightEngineMove(fromSq, toSq);
                 // El primer moviment de l'enginy pot coincidir amb un resize
                 // pendent del tauler. Reapliquem la marca després del pintat
@@ -25897,6 +26015,9 @@ function saveBlunderToBundle(fen, severity, bestMove, playerMove, bestMovePv = [
 }
 
 function handleGameOver(manualResign = false, timeoutColor = null) {
+    // Partida acabada: cap jugada anticipada pendent s'ha de jugar (ni deixar
+    // les seves marques sobre la posició final).
+    clearQueuedPremove();
     // El repte «Rejugar +5%» es tanca amb la seva pròpia finestra i NO toca res
     // més (ni ELO, ni historial, ni estadístiques, ni ajust adaptatiu).
     if (currentGameMode === 'phase_replay' && phaseReplayState) {
@@ -29575,6 +29696,7 @@ $(document).ready(() => {
     if (tcSel) tcSel.value = pendingFreeTimeControl;
     refreshPlayClockChips();
     generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
+    enablePremoveCancelGesture();
     if (__customId) {
         setTimeout(function () { openCustomGameScreen(__customId, false); }, 0);
     } else if (__deepCatalans) {
