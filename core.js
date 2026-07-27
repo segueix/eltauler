@@ -2746,6 +2746,145 @@
 
 
     // ----------------------------------------------------------------------
+    // Premoves (jugada anticipada de les partides amb rellotge)
+    // ----------------------------------------------------------------------
+    // A les partides amb rellotge, l'usuari pot marcar la SEVA jugada mentre el
+    // rival encara pensa: quan li torna el torn s'executa sola i el rellotge
+    // gairebé no es mou. Per fer-ho cal saber quines caselles pot marcar una
+    // peça en una posició on ENCARA no li toca moure, i chess.js només genera
+    // jugades del bàndol que té el torn (per a la resta retorna una llista
+    // buida). D'aquí aquest generador propi, que llegeix el tauler de la FEN.
+    //
+    // El criteri és el dels servidors d'escacs ràpids: la premove NO es valida
+    // contra la posició actual sinó contra la que hi haurà, que encara no es
+    // coneix. Per això s'accepten jugades avui impossibles però que la resposta
+    // del rival pot fer legals:
+    //   · destí ocupat per una peça PRÒPIA (la premove més típica: recapturar
+    //     a la casella on el rival està a punt de menjar),
+    //   · captura de peó en diagonal cap a una casella ara buida,
+    //   · avanç de peó o salt de rei cap a caselles ara atacades o ocupades.
+    // El que sí que es respecta és la geometria de la peça i, a les línies, la
+    // primera peça del camí (que atura el raig, sigui de qui sigui). Quan
+    // arriba el torn, app.js torna a validar la jugada amb chess.js: si ja no
+    // és legal, la premove simplement s'anul·la.
+
+    const PREMOVE_KNIGHT_DELTAS = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
+    const PREMOVE_KING_DELTAS = [[1, 0], [1, 1], [0, 1], [-1, 1], [-1, 0], [-1, -1], [0, -1], [1, -1]];
+    const PREMOVE_ROOK_DIRS = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+    const PREMOVE_BISHOP_DIRS = [[1, 1], [1, -1], [-1, 1], [-1, -1]];
+
+    // Coordenades internes: x = columna 0-7 (a-h), y = fila 0-7 (1-8).
+    function premoveSquareToXY(square) {
+        const s = String(square || '').toLowerCase();
+        if (!/^[a-h][1-8]$/.test(s)) return null;
+        return [s.charCodeAt(0) - 97, s.charCodeAt(1) - 49];
+    }
+
+    function premoveXYToSquare(x, y) {
+        if (!(x >= 0 && x <= 7 && y >= 0 && y <= 7)) return null;
+        return String.fromCharCode(97 + x) + String(y + 1);
+    }
+
+    // Tauler {casella: {type, color}} a partir del primer camp de la FEN.
+    // Retorna null si la FEN no descriu 8 files completes.
+    function premoveBoardFromFen(fen) {
+        const rows = String(fen || '').trim().split(/\s+/)[0].split('/');
+        if (rows.length !== 8) return null;
+        const board = {};
+        for (let r = 0; r < 8; r++) {
+            const y = 7 - r;
+            let x = 0;
+            for (const ch of rows[r]) {
+                if (ch >= '1' && ch <= '8') { x += Number(ch); continue; }
+                if (!/[prnbqk]/i.test(ch) || x > 7) return null;
+                board[premoveXYToSquare(x, y)] = {
+                    type: ch.toLowerCase(),
+                    color: ch === ch.toUpperCase() ? 'w' : 'b'
+                };
+                x++;
+            }
+            if (x !== 8) return null;
+        }
+        return board;
+    }
+
+    // Caselles que la peça de `from` pot marcar com a destí d'una premove.
+    // Llista ordenada i sense repeticions; buida si la casella no té una peça
+    // del color demanat o si la FEN no és llegible.
+    function premoveTargets(fen, from, color) {
+        const board = premoveBoardFromFen(fen);
+        const origin = premoveSquareToXY(from);
+        if (!board || !origin) return [];
+        const source = String(from).toLowerCase();
+        const piece = board[source];
+        if (!piece || piece.color !== color) return [];
+
+        const [x, y] = origin;
+        const targets = new Set();
+        const add = (square) => { if (square && square !== source) targets.add(square); };
+        const slide = (dirs) => {
+            for (const [dx, dy] of dirs) {
+                for (let step = 1; step <= 7; step++) {
+                    const square = premoveXYToSquare(x + dx * step, y + dy * step);
+                    if (!square) break;
+                    add(square);
+                    // La primera peça del camí atura el raig: si és del rival la
+                    // premove seria una captura; si és pròpia, el rival encara la
+                    // pot menjar i deixar la casella lliure. Més enllà, no.
+                    if (board[square]) break;
+                }
+            }
+        };
+
+        if (piece.type === 'n') {
+            for (const [dx, dy] of PREMOVE_KNIGHT_DELTAS) add(premoveXYToSquare(x + dx, y + dy));
+        } else if (piece.type === 'b') {
+            slide(PREMOVE_BISHOP_DIRS);
+        } else if (piece.type === 'r') {
+            slide(PREMOVE_ROOK_DIRS);
+        } else if (piece.type === 'q') {
+            slide(PREMOVE_BISHOP_DIRS.concat(PREMOVE_ROOK_DIRS));
+        } else if (piece.type === 'k') {
+            for (const [dx, dy] of PREMOVE_KING_DELTAS) add(premoveXYToSquare(x + dx, y + dy));
+            // Enroc: només si la FEN encara en dóna el dret i el rei és a casa.
+            const rights = String(fen || '').trim().split(/\s+/)[2] || '-';
+            const homeRank = color === 'w' ? 0 : 7;
+            if (x === 4 && y === homeRank) {
+                if (rights.indexOf(color === 'w' ? 'K' : 'k') !== -1) add(premoveXYToSquare(6, homeRank));
+                if (rights.indexOf(color === 'w' ? 'Q' : 'q') !== -1) add(premoveXYToSquare(2, homeRank));
+            }
+        } else if (piece.type === 'p') {
+            const dir = color === 'w' ? 1 : -1;
+            add(premoveXYToSquare(x, y + dir));
+            if (y === (color === 'w' ? 1 : 6)) add(premoveXYToSquare(x, y + 2 * dir));
+            // Diagonals sempre marcables: hi pot arribar una peça del rival (o
+            // una captura al pas) just amb la jugada que s'està pensant.
+            add(premoveXYToSquare(x - 1, y + dir));
+            add(premoveXYToSquare(x + 1, y + dir));
+        }
+
+        return Array.from(targets).sort();
+    }
+
+    // Si `to` és un destí vàlid per marcar una premove des de `from`.
+    function isPremoveTarget(fen, from, to, color) {
+        const square = String(to || '').toLowerCase();
+        if (!/^[a-h][1-8]$/.test(square)) return false;
+        return premoveTargets(fen, from, color).indexOf(square) !== -1;
+    }
+
+    // Quan torna el torn: la premove marcada, ¿és una jugada legal ARA? Rep la
+    // llista verbose de chess.js per a la casella d'origen (app.js té el motor
+    // de regles) i la compara amb el destí i la coronació guardats.
+    function premoveMatchesLegalMove(legalMoves, premove) {
+        if (!Array.isArray(legalMoves) || !premove || !premove.to) return false;
+        const to = String(premove.to).toLowerCase();
+        const promotion = String(premove.promotion || 'q').toLowerCase();
+        return legalMoves.some((mv) => mv && mv.to === to && (!mv.promotion || mv.promotion === promotion));
+    }
+
+
+    // ----------------------------------------------------------------------
     // Importació de PGN extern (partides d'altres plataformes o de tornejos)
     // ----------------------------------------------------------------------
     // Funcions PURES de text: separar un fitxer PGN en partides, llegir-ne
@@ -2994,6 +3133,9 @@
         phaseFromFen,
         humanThinkTimeMs,
         visibleHumanReplyDelayMs,
+        premoveTargets,
+        isPremoveTarget,
+        premoveMatchesLegalMove,
         START_POSITION_KEY
     };
 });

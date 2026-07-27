@@ -45,6 +45,14 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   el risc de bandera observats. Inclou la comprovació de fons: a 1+0 i ROC baix
   el motor pot caure de bandera —perquè és el que fa una persona d'aquell
   nivell— i als ritmes lents gairebé mai.
+- **`premove.test.js`** — jugada anticipada de les partides amb rellotge.
+  `premoveTargets` genera els destins marcables d'una peça quan el torn ENCARA
+  és del rival (chess.js no en dóna cap, i per això calia un generador propi):
+  destí ocupat per una peça pròpia (la recaptura), diagonals de peó cap a
+  caselles buides, línies aturades per la primera peça del camí, enroc només
+  amb el dret a la FEN i entrades corruptes que no rebenten. Amb chess.js real
+  es comprova el desenllaç: `premoveMatchesLegalMove` deixa jugar la recaptura
+  quan el rival menja de debò i anul·la la premove quan no.
 - **`calibration.test.js`** — terra flexible de l'ELO d'usuari, ajust fi per
   resultat, fites d'ELO, i la cerca adaptativa del calibratge inicial (ROC del
   rival, qualitat i rendiment de les partides de calibratge).
