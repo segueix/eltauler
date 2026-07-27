@@ -295,6 +295,11 @@ let lastEngineMoveAppliedTs = null;
 // l'usuari): el temps ja transcorregut (anàlisi + cerca real) es descompta
 // del temps de resposta humanitzat.
 let engineReplyStartTs = null;
+// Jugada anticipada de l'usuari mentre pensa el rival. Al bullet, impedir tocar
+// el tauler durant cada resposta del motor obliga a pagar també el temps de
+// reacció i d'animació a cada jugada; una premove legal s'aplica tan bon punt
+// torna el torn de l'usuari, com als servidors d'escacs ràpids.
+let queuedPremove = null;
 let openingEngineMoveCandidates = [];
 let lastReviewSnapshot = null;
 // Rellotge de partida (mode contrarellotge)
@@ -2420,6 +2425,30 @@ function commitHumanMove(from, to, promotionPiece) {
     return true;
 }
 
+function queueUserPremove(from, to, promotionPiece) {
+    if (!gameClock.enabled || !isEngineThinking || !from || !to) return false;
+    const piece = game.get(from);
+    if (!piece || piece.color !== playerColor) return false;
+    queuedPremove = { from, to, promotion: promotionPiece || 'q' };
+    clearTapSelection();
+    $('#myBoard .square-55d63').removeClass('premove-from premove-to');
+    $(`#myBoard .square-55d63[data-square='${from}']`).addClass('premove-from');
+    $(`#myBoard .square-55d63[data-square='${to}']`).addClass('premove-to');
+    return true;
+}
+
+function playQueuedPremove() {
+    const premove = queuedPremove;
+    queuedPremove = null;
+    $('#myBoard .square-55d63').removeClass('premove-from premove-to');
+    if (!premove || !gameClock.enabled || game.game_over() || game.turn() !== playerColor) return false;
+    // La resposta del rival pot haver fet la jugada impossible (peça capturada,
+    // casella ocupada, escac...). En aquest cas només es cancel·la.
+    const legal = game.moves({ square: premove.from, verbose: true })
+        .some(m => m.to === premove.to && (!m.promotion || m.promotion === premove.promotion));
+    return legal ? commitHumanMove(premove.from, premove.to, premove.promotion) : false;
+}
+
 function enableTapToMove() {
     if (tapMoveEnabled) return;
     tapMoveEnabled = true;
@@ -2428,7 +2457,7 @@ function enableTapToMove() {
 
     $('#myBoard').off('.tapmove')
         .on(`pointerdown.tapmove touchstart.tapmove`, '.square-55d63', function(e) {
-        if (!game || game.game_over() || isEngineThinking) return;
+        if (!game || game.game_over()) return;
         if (isViewingGameHistory()) return;
 
         if (e && e.preventDefault) e.preventDefault();
@@ -2442,7 +2471,8 @@ function enableTapToMove() {
 
         if (!tapSelectedSquare) {
             const p = game.get(square);
-            if (!p || p.color !== game.turn()) return;
+            const selectableColor = isEngineThinking && gameClock.enabled ? playerColor : game.turn();
+            if (!p || p.color !== selectableColor) return;
             if (highlightTapSelection(square)) {
                 tapSelectedSquare = square;
             }
@@ -2454,7 +2484,9 @@ function enableTapToMove() {
             return;
         }
 
-        const moved = commitHumanMove(tapSelectedSquare, square);
+        const moved = isEngineThinking
+            ? queueUserPremove(tapSelectedSquare, square)
+            : commitHumanMove(tapSelectedSquare, square);
         if (moved) {
             clearTapSelection();
             return;
@@ -22750,6 +22782,8 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     clearEngineMoveTimers();
     isEngineThinking = false;
     engineReplyStartTs = null;
+    queuedPremove = null;
+    $('#myBoard .square-55d63').removeClass('premove-from premove-to');
     lastEngineMoveAppliedTs = null;
     maybeRollLuckyThemes();
     // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
@@ -23132,13 +23166,22 @@ blunderMode = isBundle;
 function onDragStart(source, piece, position, orientation) {
     if (isViewingGameHistory()) return false;
     if (phaseReplayInputLocked()) return false;
-    if (game.game_over() || isEngineThinking) return false;
+    if (game.game_over()) return false;
+    if (isEngineThinking) {
+        if (!gameClock.enabled) return false;
+        const ownPrefix = playerColor === 'w' ? /^w/ : /^b/;
+        return piece.search(ownPrefix) !== -1;
+    }
     if ((game.turn() === 'w' && piece.search(/^b/) !== -1) || 
         (game.turn() === 'b' && piece.search(/^w/) !== -1)) return false;
     if (blunderMode && game.turn() !== playerColor) return false;
 }
 
 function onDrop(source, target) {
+    if (isEngineThinking) {
+        queueUserPremove(source, target);
+        return 'snapback';
+    }
     // Promoció de l'usuari: es deixa triar la peça abans de confirmar la jugada.
     // El peó torna a la casella d'origen mentre el selector és obert i la jugada
     // es completa (amb tota la comptabilitat) via commitHumanMove.
@@ -24008,6 +24051,11 @@ function handleEngineMessage(rawMsg) {
                 }
                 resetGameMoveNav();
                 board.position(game.fen());
+                // La premove, si encara és legal després de la resposta, es
+                // juga al primer torn de l'esdeveniment i gairebé no gasta rellotge.
+                if (queuedPremove && game.turn() === playerColor) {
+                    setTimeout(playQueuedPremove, 0);
+                }
                 highlightEngineMove(fromSq, toSq);
                 // El primer moviment de l'enginy pot coincidir amb un resize
                 // pendent del tauler. Reapliquem la marca després del pintat
