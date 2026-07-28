@@ -8793,7 +8793,7 @@ function formatHistoryMode(mode) {
     if (mode === 'league') return 'Lliga';
     if (mode === 'free') return 'Amistosa';
     if (mode === 'assisted') return 'Assistida';
-    if (mode === 'positional') return 'Joc posicional';
+    if (mode === 'positional') return 'Joc vista';
     if (mode === 'imported') return 'Importada';
     return 'Partida';
 }
@@ -23257,7 +23257,7 @@ blunderMode = isBundle;
         currentGameMode = 'positional';
         currentOpponent = null;
         updateAdaptiveEngineEloLabel();
-        $('#game-mode-title').text('🔭 Joc posicional');
+        $('#game-mode-title').text('🔭 Joc vista');
         if (engineReady) applyEngineEloStrength(getActiveStrengthElo());
     } else {
         currentGameMode = 'free';
@@ -25210,7 +25210,13 @@ function returnToBundleMenu() {
     }
 }
 
-/* ===================== JOC POSICIONAL =====================
+/* ===================== JOC VISTA =====================
+   A la interfície la modalitat es diu «Joc vista» (pel desplegable de jugades
+   vista que la governa); dins del codi conserva el nom antic, "positional", a
+   l'id de mode, als elements, a les classes CSS i a la clau de localStorage
+   (chess_positionalVision), que no es poden reanomenar sense migrar dades
+   desades.
+
    Modalitat d'aprenentatge "en present": l'enginy només calcula la seva jugada
    i la resposta immediata de l'adversari (2 semijugades), sense càlcul a
    jugades vista. Cada jugada del jugador es marca amb el seu ÍNDEX STOCKFISH
@@ -26243,7 +26249,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
     } else if (isPositionalGameMode) {
-        msg += ' · Joc posicional (sense ELO)';
+        msg += ' · Joc vista (sense ELO)';
     } else if (isBessoMode) {
         msg += ` · ${bessoState ? bessoState.label : 'El teu bessó'} (sense ELO)`;
     }
