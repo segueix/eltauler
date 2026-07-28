@@ -314,8 +314,9 @@ const TIME_CONTROLS = [
 ];
 const TIME_CONTROL_KEY = 'chess_timeControl';
 // Ritme escollit per a la propera partida lliure/assistida. Comença sempre "sense rellotge";
-// es tria a la pantalla de joc abans de cada nova partida. La lliga té el seu propi ritme
-// fixat (currentLeague.timeControl), independent d'aquest.
+// es tria a la pantalla de joc abans de cada nova partida. Una lliga NOVA es genera amb
+// aquest ritme (i amb l'ELO que el jugador hi té), però un cop creada té el seu propi ritme
+// fixat (currentLeague.timeControl) i ja no mira aquest.
 let pendingFreeTimeControl = 'none';
 // ELO independent per ritme de rellotge: cada modalitat (30s, 1+0, 3+2...)
 // guarda la seva pròpia puntuació, de manera que les partides amb rellotge NO
@@ -4118,8 +4119,51 @@ function buildRoundRobinSchedule(playerIds) {
     return rounds;
 }
 
-function createNewLeague(force = false) {
+// Rellotge amb què es generarà una lliga NOVA: el que hi ha triat a l'app per a
+// les partides (fitxes de la pantalla de joc). Un cop creada, la lliga té el seu
+// propi ritme fixat i ja no mira aquest (vegeu getActiveTimeControlId).
+function getPendingLeagueTimeControlId() {
+    const id = pendingFreeTimeControl || 'none';
+    return TIME_CONTROLS.some(t => t.id === id) ? id : 'none';
+}
+
+function getLeagueTimeControlId(league = currentLeague) {
+    const id = (league && league.timeControl) || 'none';
+    return TIME_CONTROLS.some(t => t.id === id) ? id : 'none';
+}
+
+// ROC/ELO amb què es genera (i es mostra) una lliga d'un ritme determinat: el
+// del rellotge si ja en té de propi, i si no, el principal. Lògica a core.js.
+function getLeagueBaseRating(tcId) {
+    const timed = (tcId && tcId !== 'none') ? getTimeControlRating(tcId) : null;
+    const main = (typeof userELO === 'number') ? userELO : currentElo;
+    return ElTaulerCore.leagueBaseRating(timed, main, 50);
+}
+
+// D'on surt la puntuació de referència d'una lliga, per als textos de pantalla i
+// de confirmació: de l'ELO del ritme, o del principal si el ritme encara no en té.
+function describeLeagueRatingSource(tcId) {
+    const base = getLeagueBaseRating(tcId);
+    const timed = (tcId && tcId !== 'none') ? getTimeControlRating(tcId) : null;
+    if (timed !== null) return { base, timed: true, text: `el teu ELO de ${getTimeControlLabel(tcId)} (${base})` };
+    if (tcId && tcId !== 'none') {
+        return { base, timed: false, text: `el teu ELO principal (${base}): ${getTimeControlLabel(tcId)} encara no en té de propi` };
+    }
+    return { base, timed: false, text: `el teu ELO principal (${base})` };
+}
+
+function createNewLeague(force = false, options = {}) {
     if (currentLeague && !force) return currentLeague;
+
+    // Ritme de la temporada: el demanat explícitament (regenerar una lliga en
+    // manté el rellotge) o, si no, el que hi ha triat a l'app en aquest moment.
+    const requested = options.timeControlId;
+    const timeControlId = (requested && TIME_CONTROLS.some(t => t.id === requested))
+        ? requested
+        : getPendingLeagueTimeControlId();
+    // Tota la lliga —jugador i rivals— es sorteja sobre la puntuació d'aquell
+    // rellotge: una lliga a 3+2 es juga al nivell que el jugador té a 3+2.
+    const baseRating = getLeagueBaseRating(timeControlId);
 
     const baseNames = [
         'RocaNegra', 'AlfilFosc', 'CavallViu', 'DamaRàpida', 'ReiCalm', 'PeóFerm',
@@ -4131,11 +4175,11 @@ function createNewLeague(force = false) {
     const bots = [];
     for (let i = 0; i < 9; i++) {
         const name = baseNames[i] || `Rival${i + 1}`;
-        const elo = Math.max(50, userELO + randInt(-25, 25));
+        const elo = Math.max(50, baseRating + randInt(-25, 25));
         bots.push({ id: `bot${i + 1}`, name: name, elo: elo, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 });
     }
 
-    const me = { id: 'me', name: 'Tu', elo: userELO, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 };
+    const me = { id: 'me', name: 'Tu', elo: baseRating, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 };
     const players = [me, ...bots];
 
     const ids = ['me', ...shuffleArray(bots.map(b => b.id))];
@@ -4152,7 +4196,10 @@ function createNewLeague(force = false) {
         history: [],
         // Ritme de la temporada. Es pot triar mentre no s'hagi jugat cap partit;
         // un cop començada, queda fixat (vegeu isLeagueTimeControlLocked).
-        timeControl: 'none'
+        timeControl: timeControlId,
+        // Puntuació sobre la qual s'ha sortejat la graella (la del rellotge de
+        // la temporada). Serveix per reajustar-la si el ritme encara canvia.
+        baseRating: baseRating
     };
     leagueActiveMatch = null;
     saveStorage();
@@ -4164,9 +4211,11 @@ function getLeaguePlayer(id) {
     return currentLeague.players.find(p => p.id === id) || null;
 }
 
+// El ROC/ELO vigent del jugador a la lliga en curs: el del rellotge de la
+// temporada (cada ritme té el seu) o, si la lliga es juga sense rellotge, el
+// principal.
 function getCurrentUserLeagueRoc() {
-    const value = (typeof userELO === 'number') ? userELO : currentElo;
-    return Math.max(50, Math.round(value || 50));
+    return getLeagueBaseRating(getLeagueTimeControlId());
 }
 
 function syncLeagueUserRoc() {
@@ -4175,6 +4224,24 @@ function syncLeagueUserRoc() {
     // La lliga congela el ROC dels rivals quan es crea, però el jugador ha de
     // mostrar sempre el seu ROC actual si ha pujat o baixat fora de la lliga.
     me.elo = getCurrentUserLeagueRoc();
+}
+
+// Canvi de rellotge d'una lliga que encara no ha començat: a més del ritme
+// canvia la referència de puntuació (cada rellotge té el seu ELO), i la graella
+// es desplaça amb ella perquè els rivals continuïn essent del nivell del ritme.
+function setLeagueTimeControl(tcId) {
+    if (!currentLeague || isLeagueTimeControlLocked()) return false;
+    const id = TIME_CONTROLS.some(t => t.id === tcId) ? tcId : 'none';
+    if (id === getLeagueTimeControlId()) return false;
+    const oldBase = (typeof currentLeague.baseRating === 'number')
+        ? currentLeague.baseRating
+        : getCurrentUserLeagueRoc();
+    currentLeague.timeControl = id;
+    const newBase = getLeagueBaseRating(id);
+    currentLeague.players = ElTaulerCore.rebasedLeagueRatings(currentLeague.players, oldBase, newBase, 50);
+    currentLeague.baseRating = newBase;
+    saveStorage();
+    return true;
 }
 
 function getLeagueOpponentRoc(match = leagueActiveMatch) {
@@ -4317,11 +4384,12 @@ function isLeagueTimeControlLocked() {
 
 function renderLeagueTimeControl() {
     if (!currentLeague) return;
-    const id = currentLeague.timeControl || 'none';
+    const id = getLeagueTimeControlId();
     const cfg = TIME_CONTROLS.find(t => t.id === id) || TIME_CONTROLS[0];
     const locked = isLeagueTimeControlLocked();
     const sel = $('#league-tc-select');
     const lockedEl = $('#league-tc-locked');
+    const noteEl = $('#league-tc-note');
     if (sel.length) {
         sel.val(id);
         sel.prop('disabled', locked).toggle(!locked);
@@ -4329,6 +4397,12 @@ function renderLeagueTimeControl() {
     if (lockedEl.length) {
         if (locked) lockedEl.text(`Rellotge: ${cfg.label} · fixat 🔒`).show();
         else lockedEl.hide();
+    }
+    // D'on surt el nivell de la graella: mentre el ritme es pugui canviar, el
+    // text canvia amb ell (la lliga es reajusta al ROC/ELO del rellotge triat).
+    if (noteEl.length) {
+        if (isCalibrationActive()) noteEl.hide();
+        else noteEl.text(`Graella generada amb ${describeLeagueRatingSource(id).text}`).show();
     }
 }
 
@@ -6721,10 +6795,11 @@ function getDisplayedElo(value) {
 function updateEloDisplay() {
     const displayValue = getDisplayedElo(userELO);
     $('#current-elo').text(displayValue);
-    // A la pantalla de joc, si la partida és amb rellotge es mostra l'ELO del
-    // ritme (el que realment puntua); si el ritme encara no en té, el principal.
-    // La lliga queda fora: té la seva pròpia classificació i no puntua per ritme.
-    const timedRating = (gameClock.enabled && currentGameMode !== 'league' && currentGameTimeControlId !== 'none')
+    // A la pantalla de joc es mostra la puntuació que descriu el nivell que s'hi
+    // juga: amb rellotge, l'ELO d'aquell ritme (el que puntua a les partides
+    // lliures i el que ancora la graella de la lliga); si el ritme encara no en
+    // té de propi, el principal.
+    const timedRating = (gameClock.enabled && currentGameTimeControlId !== 'none')
         ? getTimeControlRating(currentGameTimeControlId)
         : null;
     $('#game-elo').text(timedRating !== null ? getDisplayedElo(Math.round(timedRating)) : displayValue);
@@ -19702,7 +19777,15 @@ function setupEvents() {
         }
     });
     $('#btn-back-league').click(() => { $('#league-screen').hide(); $('#start-screen').show(); navStack.pop(); });
-    $('#btn-league-new').click(() => { if (guardCalibrationAccess()) { createNewLeague(true); openLeague(); } });
+    // Temporada nova: hereta el rellotge de la que s'acaba (i, per tant, l'ELO
+    // d'aquell ritme com a referència); per canviar-lo, el selector de la lliga
+    // nova encara és obert fins al primer partit.
+    $('#btn-league-new').click(() => {
+        if (!guardCalibrationAccess()) return;
+        const keepTc = currentLeague ? getLeagueTimeControlId() : undefined;
+        createNewLeague(true, { timeControlId: keepTc });
+        openLeague();
+    });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
@@ -19820,10 +19903,11 @@ function setupEvents() {
             alert(`La lliga s'activa després de ${LEAGUE_UNLOCK_MIN_GAMES} partides un cop calibrat.`);
             return;
         }
+        const keepTc = currentLeague ? getLeagueTimeControlId() : getPendingLeagueTimeControlId();
         showAppConfirm(
-            "Vols reiniciar la lliga actual? Se'n crearà una de nova segons el teu ELO actual.",
+            `Vols reiniciar la lliga actual? Se'n crearà una de nova amb ${describeLeagueRatingSource(keepTc).text}.`,
             () => {
-                createNewLeague(true);
+                createNewLeague(true, { timeControlId: keepTc });
                 updateLeagueBanner();
                 showToast('Lliga reiniciada.', 'success');
             },
@@ -20184,9 +20268,10 @@ function setupEvents() {
     // començada, queda fixat per a tota la temporada i el selector es bloqueja.
     $('#league-tc-select').off('change').on('change', function() {
         if (!currentLeague || isLeagueTimeControlLocked()) { renderLeagueTimeControl(); return; }
-        currentLeague.timeControl = $(this).val() || 'none';
-        saveStorage();
-        renderLeagueTimeControl();
+        // Canviar el ritme abans de començar rebaixa o apuja tota la graella al
+        // nivell que el jugador té en aquell rellotge, així que cal repintar-la.
+        if (setLeagueTimeControl($(this).val() || 'none')) renderLeague();
+        else renderLeagueTimeControl();
     });
 
     // Analitza la posició actual
@@ -22671,7 +22756,7 @@ function promptMatchErrorNext() {
 // qualsevol altra partida, el triat per a la nova partida (per defecte, sense rellotge).
 function getActiveTimeControlId() {
     if (currentGameMode === 'league' && currentLeague) {
-        return currentLeague.timeControl || 'none';
+        return getLeagueTimeControlId();
     }
     // Repte «Rejugar +5%»: el ritme és el de la partida original que es rejuga
     // (o cap, si aquella partida era sense rellotge), no el triat per a noves partides.

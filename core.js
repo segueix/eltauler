@@ -2261,6 +2261,42 @@
     }
 
     // ----------------------------------------------------------------------
+    // Lliga
+    // ----------------------------------------------------------------------
+
+    // ROC/ELO de referència amb què es genera una lliga, segons el rellotge de
+    // la temporada: si aquell ritme ja té puntuació pròpia (la que es guanya
+    // jugant-hi partides amb rellotge), mana aquella; si no —lliga sense
+    // rellotge, o ritme encara sense calibrar—, la puntuació principal. Així una
+    // lliga a 3+2 es genera al nivell que el jugador té A 3+2, no al de les
+    // partides sense rellotge.
+    function leagueBaseRating(timedRating, mainRating, minRating) {
+        const floor = (typeof minRating === 'number' && !isNaN(minRating)) ? minRating : 50;
+        const timed = (typeof timedRating === 'number' && !isNaN(timedRating)) ? timedRating : null;
+        const main = (typeof mainRating === 'number' && !isNaN(mainRating)) ? mainRating : floor;
+        return Math.max(floor, Math.round(timed !== null ? timed : main));
+    }
+
+    // Reajusta la graella d'una lliga quan se'n canvia el rellotge abans de
+    // començar-la: el jugador passa a la referència nova i els rivals s'hi
+    // desplacen en bloc, de manera que es conserven les diferències amb què es
+    // va sortejar la lliga (el rival que anava 20 punts per sobre hi continua).
+    function rebasedLeagueRatings(players, oldBase, newBase, minRating) {
+        const list = Array.isArray(players) ? players : [];
+        const floor = (typeof minRating === 'number' && !isNaN(minRating)) ? minRating : 50;
+        const to = (typeof newBase === 'number' && !isNaN(newBase)) ? Math.round(newBase) : null;
+        if (to === null) return list.slice();
+        const from = (typeof oldBase === 'number' && !isNaN(oldBase)) ? Math.round(oldBase) : to;
+        const delta = to - from;
+        return list.map(function (p) {
+            if (!p) return p;
+            if (p.id === 'me') return Object.assign({}, p, { elo: Math.max(floor, to) });
+            const elo = (typeof p.elo === 'number' && !isNaN(p.elo)) ? p.elo : to;
+            return Object.assign({}, p, { elo: Math.max(floor, Math.round(elo + delta)) });
+        });
+    }
+
+    // ----------------------------------------------------------------------
     // Temps de resposta humanitzat de l'enginy
     // ----------------------------------------------------------------------
     // La jugada que tria el motor NO canvia mai: només es modula QUAN s'aplica,
@@ -3082,6 +3118,8 @@
         initialCalibrationOpponentRoc,
         estimateTimedCalibrationElo,
         estimateGamePerformanceRating,
+        leagueBaseRating,
+        rebasedLeagueRatings,
         evaluateGameQuality,
         parsePgnToMoves,
         buildOpeningTrie,
