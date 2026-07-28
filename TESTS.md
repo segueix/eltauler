@@ -56,6 +56,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
 - **`calibration.test.js`** — terra flexible de l'ELO d'usuari, ajust fi per
   resultat, fites d'ELO, i la cerca adaptativa del calibratge inicial (ROC del
   rival, qualitat i rendiment de les partides de calibratge).
+- **`league.test.js`** — la lliga s'ancora al rellotge de la temporada.
+  `leagueBaseRating` tria la referència amb què es genera la graella: l'ELO del
+  ritme si aquell rellotge ja en té de propi (encara que sigui MÉS BAIX que el
+  principal, com passa al bullet) i el principal si no —lliga sense rellotge o
+  ritme sense calibrar—, amb terra i arrodoniment. `rebasedLeagueRatings` cobreix
+  el canvi de rellotge abans de començar: el jugador passa a la referència nova i
+  els rivals s'hi desplacen en bloc conservant les diferències del sorteig, sense
+  tocar punts ni partides, sense baixar del terra i sense petar amb una lliga
+  desada abans del canvi (sense referència anotada).
 - **`redactor.test.js`** — corrector normatiu del català de l'entrenador
   (subjuntiu per indicatiu, participi per imperatiu, castellanismes,
   terminologia, concordances), auditoria de fiabilitat (xifres inventades,
