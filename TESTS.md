@@ -65,6 +65,14 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   els rivals s'hi desplacen en bloc conservant les diferències del sorteig, sense
   tocar punts ni partides, sense baixar del terra i sense petar amb una lliga
   desada abans del canvi (sense referència anotada).
+  `leagueRoundGameLinks` diu quina partida de l'historial és cada jornada
+  perquè s'hi pugui clicar: mana l'id desat quan la partida encara hi és, i les
+  jornades velles (jugades abans que se'n desés cap) es reconeixen pel nom del
+  rival entre les partides de lliga posteriors a la creació de la temporada.
+  Cobreix que cap partida no serveixi per a dues jornades, que una temporada
+  anterior amb el mateix rival no s'hi coli, que les partides lliures i les
+  importades en quedin fora, i que una jornada abandonada o amb la partida
+  esborrada no deixi cap enllaç mort.
 - **`redactor.test.js`** — corrector normatiu del català de l'entrenador
   (subjuntiu per indicatiu, participi per imperatiu, castellanismes,
   terminologia, concordances), auditoria de fiabilitat (xifres inventades,

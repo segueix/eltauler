@@ -1379,13 +1379,53 @@
             padding: 14px;
             text-align: center;
         }
+        /* Capçalera de bloc: icona, xip amb el número i nom. El número surt del
+           nom perquè es puguin distingir els cinc blocs d'un cop d'ull sense
+           llegir-los, i perquè el nom es pugui reescriure sol (el Bloc 2 canvia
+           de nom en mode jeroglífic). */
         .opening-section-title {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4px 8px;
             font-family: 'Cinzel', serif;
             color: var(--accent-gold);
             font-size: 1.05rem;
             letter-spacing: 1px;
-            margin-bottom: 6px;
+            margin-bottom: 8px;
+            padding-bottom: 8px;
+            border-bottom: 1px solid rgba(201, 162, 39, 0.16);
         }
+        .obs-ic {
+            width: 1.25rem;
+            height: 1.25rem;
+            flex: 0 0 auto;
+            fill: none;
+            stroke: var(--accent-gold);
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .obs-num {
+            flex: 0 0 auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.68rem;
+            font-weight: 700;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+            color: var(--accent-gold);
+            background: rgba(201, 162, 39, 0.16);
+            border: 1px solid rgba(201, 162, 39, 0.30);
+            border-radius: 999px;
+            padding: 2px 7px;
+            white-space: nowrap;
+        }
+        .obs-name { min-width: 0; }
+        body.day-mode .obs-num { background: rgba(120, 95, 40, 0.12); border-color: rgba(120, 95, 40, 0.28); }
+        body.day-mode .opening-section-title { border-bottom-color: rgba(120, 95, 40, 0.20); }
+        body.epaper-mode .obs-num { background: #fff; border-color: #cfcfcf; }
+        body.epaper-mode .opening-section-title { border-bottom-color: #cfcfcf; }
         .opening-section-desc {
             color: var(--text-secondary);
             font-size: 0.85rem;
@@ -1393,17 +1433,117 @@
         }
         .opening-lesson-list { display: flex; flex-direction: column; gap: 12px; }
         .opening-lesson-grid { display: flex; flex-direction: column; gap: 8px; }
-        .opening-lesson-btn { font-size: 0.9rem; padding: 11px 14px; }
+        /* Repertori recomanat: cada obertura és una fila tabulada de quatre
+           columnes fixes —peça, nom, marca d'apresa i codi ECO—, de manera que
+           tots els noms arrenquen al mateix punt i els codis queden en columna
+           encara que la fila del costat porti marca i l'altra no. El bàndol es
+           llegeix pel color: daurat les obertures amb blanques, blau-pissarra
+           les defenses amb negres, i verd el que ja tens après. */
+        .opening-lesson-btn {
+            position: relative;
+            overflow: hidden;
+            display: grid;
+            grid-template-columns: 1.2rem minmax(0, 1fr) 1.15rem 2.9rem;
+            align-items: center;
+            gap: 10px;
+            font-size: 0.9rem;
+            padding: 11px 12px 11px 16px;
+            text-align: left;
+            letter-spacing: 0.02em;
+            color: var(--text-primary);
+        }
+        .opening-lesson-btn::before {
+            content: '';
+            position: absolute;
+            left: 0; top: 0; bottom: 0;
+            width: 4px;
+            background: var(--accent-gold);
+        }
+        .ol-piece { font-size: 1.05rem; line-height: 1; text-align: center; }
+        .ol-name { min-width: 0; overflow-wrap: anywhere; }
+        .ol-flag {
+            font-size: 0.95rem; line-height: 1; text-align: center;
+            font-weight: 800; color: var(--accent-green);
+        }
+        .ol-eco {
+            font-family: 'Courier New', monospace;
+            font-size: 0.72rem;
+            letter-spacing: 0.04em;
+            font-variant-numeric: tabular-nums;
+            text-align: right;
+            opacity: 0.75;
+        }
+        .olg-white .opening-lesson-btn {
+            background: linear-gradient(90deg, rgba(201,162,39,0.20) 0%, rgba(201,162,39,0.07) 70%);
+            border: 1px solid rgba(201,162,39,0.32);
+        }
+        .olg-white .opening-lesson-btn:hover { background: linear-gradient(90deg, rgba(201,162,39,0.30) 0%, rgba(201,162,39,0.12) 70%); }
+        .olg-white .ol-piece { color: #f4e4bc; }
+        .olg-black .opening-lesson-btn {
+            background: linear-gradient(90deg, rgba(58,107,140,0.30) 0%, rgba(58,107,140,0.10) 70%);
+            border: 1px solid rgba(58,107,140,0.40);
+            color: #e9f1f7;   /* l'ivori càlid del tema desentona sobre el blau */
+        }
+        .olg-black .opening-lesson-btn:hover { background: linear-gradient(90deg, rgba(58,107,140,0.42) 0%, rgba(58,107,140,0.16) 70%); }
+        .olg-black .opening-lesson-btn::before { background: #3a6b8c; }
+        .olg-black .ol-piece { color: #9fc3dc; }
         .opening-lesson-group-title {
+            display: flex;
+            align-items: center;
+            gap: 8px;
             font-family: 'Cinzel', serif;
             font-size: 0.85rem;
             color: var(--accent-gold);
             padding: 6px 0 2px;
             letter-spacing: 0.03em;
+            text-align: left;
+        }
+        .olg-black .opening-lesson-group-title { color: #8fbdd8; }
+        .olg-label { flex: 0 1 auto; min-width: 0; }
+        .olg-rule { flex: 1 1 auto; height: 1px; min-width: 10px; background: linear-gradient(90deg, rgba(201,162,39,0.45), transparent); }
+        .olg-black .olg-rule { background: linear-gradient(90deg, rgba(120,180,215,0.45), transparent); }
+        .olg-count {
+            flex: 0 0 auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75rem;
+            font-variant-numeric: tabular-nums;
+            color: var(--text-secondary);
         }
         @media (min-width: 640px) {
             .opening-lesson-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
         }
+        /* Mode dia: els mateixos dos bàndols amb tints foscos, que sobre el
+           pergamí els clars no es veurien. */
+        body.day-mode .olg-white .opening-lesson-btn {
+            background: linear-gradient(90deg, rgba(120,95,40,0.16) 0%, rgba(120,95,40,0.05) 70%);
+            border-color: rgba(120,95,40,0.32);
+        }
+        body.day-mode .olg-white .opening-lesson-btn:hover { background: linear-gradient(90deg, rgba(120,95,40,0.24) 0%, rgba(120,95,40,0.09) 70%); }
+        body.day-mode .olg-white .ol-piece { color: #806712; }
+        body.day-mode .olg-black .opening-lesson-btn {
+            background: linear-gradient(90deg, rgba(31,95,168,0.16) 0%, rgba(31,95,168,0.05) 70%);
+            border-color: rgba(31,95,168,0.32);
+            color: var(--text-primary);
+        }
+        body.day-mode .olg-black .opening-lesson-btn:hover { background: linear-gradient(90deg, rgba(31,95,168,0.24) 0%, rgba(31,95,168,0.09) 70%); }
+        body.day-mode .olg-black .opening-lesson-btn::before { background: #1f5fa8; }
+        body.day-mode .olg-black .ol-piece { color: #1f5fa8; }
+        body.day-mode .olg-black .opening-lesson-group-title { color: #1f5fa8; }
+        body.day-mode .olg-rule { background: linear-gradient(90deg, rgba(120,95,40,0.4), transparent); }
+        body.day-mode .olg-black .olg-rule { background: linear-gradient(90deg, rgba(31,95,168,0.4), transparent); }
+        /* E-paper: el tema aplana els botons a gris, i el bàndol es llegeix pel
+           gruix del rail; l'apresa, amb el rail a trossos. */
+        body.epaper-mode .olg-white .opening-lesson-btn::before { background: #9a9a9a; }
+        body.epaper-mode .olg-black .opening-lesson-btn::before { background: #333; }
+        body.epaper-mode .opening-lesson-btn.lesson-done::before {
+            background: repeating-linear-gradient(180deg, #222 0 5px, transparent 5px 10px);
+        }
+        body.epaper-mode .olg-black .opening-lesson-group-title { color: #444; }
+        body.epaper-mode .olg-white .ol-piece { color: #666; }
+        body.epaper-mode .olg-black .ol-piece { color: #222; }
+        body.epaper-mode .olg-rule,
+        body.epaper-mode .olg-black .olg-rule { background: #cfcfcf; }
+        body.epaper-mode .ol-flag { color: #222; }
         .hieroglyphic-section {
             text-align: center;
             padding: 16px 0 8px;
@@ -1444,16 +1584,30 @@
         .opening-stat-eco { color: var(--text-secondary); font-size: 0.72rem; }
         .opening-stat-record { color: var(--text-secondary); font-size: 0.78rem; min-width: 90px; text-align: right; }
         .opening-stat-wr { font-weight: 700; min-width: 42px; text-align: right; }
-        .lesson-repeat-icon {
-            color: var(--accent-gold);
-            font-weight: 800;
-            font-size: 1.05rem;
-            line-height: 1;
-        }
-        .opening-lesson-btn.lesson-done { border-left: 3px solid var(--accent-green); }
+        /* Apresa: el rail verd la marca d'un cop d'ull i la ↻ diu que s'hi pot
+           tornar. Abans el rail era un border-left verd damunt d'un botó verd
+           i no es veia. */
+        .opening-lesson-btn.lesson-done::before { background: var(--accent-green); }
+        .opening-lesson-btn.lesson-done .ol-eco { opacity: 0.6; }
         .opening-progress-bar { margin-bottom: 12px; }
-        .opening-progress-label { font-size: 0.82rem; color: var(--text-secondary); margin-bottom: 5px; }
+        .opening-progress-label {
+            display: flex;
+            align-items: baseline;
+            justify-content: space-between;
+            gap: 10px;
+            font-size: 0.82rem;
+            color: var(--text-secondary);
+            margin-bottom: 5px;
+            text-align: left;
+        }
         .opening-progress-label strong { color: var(--accent-gold); }
+        .opening-progress-pct {
+            flex: 0 0 auto;
+            font-family: 'Courier New', monospace;
+            font-variant-numeric: tabular-nums;
+            color: var(--accent-gold);
+            font-weight: 700;
+        }
         .opening-progress-track {
             height: 8px; background: rgba(0,0,0,0.25); border-radius: 5px; overflow: hidden;
         }
@@ -1590,11 +1744,21 @@
         .rep-color-count { font-weight: 400; opacity: 0.75; }
         .rep-branch {
             border: 1px solid rgba(201, 162, 39, 0.18);
+            border-left: 3px solid var(--accent-gold);
             border-radius: 8px;
             padding: 10px 12px;
             margin-bottom: 8px;
             text-align: left;   /* la secció centra; una línia de jugades no */
         }
+        /* Mateix codi de colors que el repertori recomanat: el que jugues amb
+           blanques va en daurat i el que jugues amb negres en blau-pissarra. */
+        .rep-side-black .rep-branch { border-left-color: #3a6b8c; }
+        .rep-side-black .rep-color-title { color: #8fbdd8; }
+        body.day-mode .rep-side-black .rep-branch { border-left-color: #1f5fa8; }
+        body.day-mode .rep-side-black .rep-color-title { color: #1f5fa8; }
+        body.epaper-mode .rep-side-white .rep-branch { border-left-color: #9a9a9a; }
+        body.epaper-mode .rep-side-black .rep-branch { border-left-color: #333; }
+        body.epaper-mode .rep-side-black .rep-color-title { color: #444; }
         .rep-branch-head {
             display: flex;
             justify-content: space-between;
@@ -1643,13 +1807,117 @@
             line-height: 1.5;
         }
         .rep-warning { margin-bottom: 8px; font-style: italic; }
-        /* La teva obertura (construïda) */
-        .rep-divider {
-            height: 1px;
-            background: rgba(201, 162, 39, 0.2);
-            margin: 18px 0 14px;
+        /* La teva obertura (construïda): bàner clickable a dalt d'Obertures.
+           La capçalera és un botó d'una sola línia d'estat —com els bàners de
+           la pàgina principal— i la funció (construir, progrés i repertori
+           construït) viu dins del panell que obre. */
+        .opening-banner {
+            margin: 12px 0 4px;
+            background: var(--bg-warm);
+            border: 1px solid rgba(201, 162, 39, 0.42);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+            text-align: center;
         }
-        .rep-build-title { margin-top: 0; }
+        .opening-banner-head {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            width: 100%;
+            padding: 13px 14px;
+            text-align: left;
+            font: inherit;
+            color: var(--text-primary);
+            border: 0;
+            /* La línia només separa capçalera i panell: amb el panell tancat
+               quedaria doblada amb la vora del bàner. */
+            border-bottom: 1px solid transparent;
+            border-radius: 0;
+            cursor: pointer;
+            -webkit-appearance: none;
+            appearance: none;
+            background: linear-gradient(135deg, rgba(201,162,39,0.30) 0%, rgba(201,162,39,0.12) 55%, rgba(58,107,140,0.16) 100%);
+            transition: background 0.15s ease;
+        }
+        .opening-banner-head:hover { background: linear-gradient(135deg, rgba(201,162,39,0.40) 0%, rgba(201,162,39,0.18) 55%, rgba(58,107,140,0.22) 100%); }
+        .opening-banner-head:active { background: linear-gradient(135deg, rgba(201,162,39,0.34) 0%, rgba(201,162,39,0.14) 55%, rgba(58,107,140,0.18) 100%); }
+        .opening-banner-head:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: -3px; }
+        .opening-banner-ic {
+            width: 2.1rem;
+            height: 2.1rem;
+            flex: 0 0 auto;
+            fill: none;
+            stroke: var(--accent-gold);
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .opening-banner-headings { flex: 1 1 auto; min-width: 0; }
+        .opening-banner-title {
+            display: block;
+            font-family: 'Cinzel', serif;
+            color: var(--accent-gold);
+            font-size: 1.12rem;
+            letter-spacing: 1px;
+            line-height: 1.2;
+        }
+        /* Estat resumit: una línia que diu si la tens construïda, per quin
+           bàndol i quantes línies. El detall va dins del panell. */
+        .opening-banner-status {
+            display: block;
+            margin-top: 3px;
+            color: var(--text-secondary);
+            font-size: 0.8rem;
+            line-height: 1.35;
+        }
+        .opening-banner-cta {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            flex: 0 0 auto;
+            font-size: 0.82rem;
+            font-weight: 700;
+            color: var(--accent-gold);
+            background: rgba(0, 0, 0, 0.22);
+            padding: 6px 11px;
+            border-radius: 999px;
+            white-space: nowrap;
+        }
+        .opening-banner-chevron { font-size: 1.05rem; line-height: 1; transition: transform 0.18s ease; }
+        .opening-banner-head[aria-expanded="true"] { border-bottom-color: rgba(201, 162, 39, 0.22); }
+        .opening-banner-head[aria-expanded="true"] .opening-banner-chevron { transform: rotate(90deg); }
+        .opening-banner-head[aria-expanded="true"] .obc-open,
+        .opening-banner-head:not([aria-expanded="true"]) .obc-close { display: none; }
+        .opening-banner-sub {
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            line-height: 1.4;
+            text-align: left;
+        }
+        .opening-banner-body { padding: 12px 14px 14px; }
+        body.day-mode .opening-banner { box-shadow: 0 2px 8px rgba(120, 95, 40, 0.14); }
+        body.day-mode .opening-banner-cta { background: rgba(120, 95, 40, 0.12); }
+        body.epaper-mode .opening-banner {
+            background: #f7f7f7;
+            border-color: #cfcfcf;
+            box-shadow: none;
+        }
+        body.epaper-mode .opening-banner-head,
+        body.epaper-mode .opening-banner-head:hover { background: #ededed; }
+        body.epaper-mode .opening-banner-head[aria-expanded="true"] { border-bottom-color: #cfcfcf; }
+        body.epaper-mode .opening-banner-cta { background: #fff; border: 1px solid #cfcfcf; color: #222; }
+        @media (max-width: 480px) {
+            .opening-banner-head { padding: 12px; gap: 10px; }
+            .opening-banner-ic { width: 1.9rem; height: 1.9rem; }
+            .opening-banner-title { font-size: 1.05rem; }
+            .opening-banner-status { font-size: 0.76rem; }
+            .opening-banner-sub { font-size: 0.8rem; }
+            /* En pantalla estreta el xip es queda amb el senyal d'obrir/tancar */
+            .opening-banner-cta { padding: 6px 8px; }
+            .opening-banner-cta .obc-open,
+            .opening-banner-cta .obc-close { display: none; }
+        }
         .rep-build-actions {
             display: flex;
             flex-wrap: wrap;
@@ -3864,6 +4132,13 @@
         .league-history-row .lh-round { font-weight: 700; color: var(--accent-gold); min-width: 28px; }
         .league-history-row .lh-opp { flex: 1; color: var(--text-primary); }
         .league-history-row .lh-result { font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+        /* Jornades amb partida desada: obren la seva revisió a l'historial. */
+        .league-history-row.lh-openable { cursor: pointer; transition: background 0.15s ease, transform 0.15s ease; }
+        .league-history-row.lh-openable:hover { background: rgba(201, 162, 39, 0.16); transform: translateX(2px); }
+        .league-history-row.lh-openable:active { transform: translateX(0); }
+        .league-history-row.lh-openable:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+        .league-history-row .lh-go { color: var(--accent-gold); font-weight: 700; opacity: 0.75; }
+        body.epaper-mode .league-history-row.lh-openable:hover { background: #e2e2e2; }
         .lh-win { background: rgba(74,124,89,0.25); color: var(--text-positive); }
         .lh-loss { background: rgba(198,40,40,0.2); color: var(--text-negative); }
         .lh-draw { background: rgba(201,162,39,0.2); color: var(--accent-gold); }
@@ -5797,13 +6072,49 @@
                 <div class="app-logo">📖</div>
                 <h1>Obertures</h1>
             </div>
+            <div class="opening-banner" id="personal-opening-banner">
+                <button type="button" class="opening-banner-head" id="btn-personal-opening-toggle" aria-expanded="false" aria-controls="personal-opening-panel">
+                    <svg class="opening-banner-ic" aria-hidden="true"><use href="#ic-compass"/></svg>
+                    <span class="opening-banner-headings">
+                        <span class="opening-banner-title">La teva obertura</span>
+                        <span class="opening-banner-status" id="personal-opening-status">El teu repertori proposat a partir del que jugues.</span>
+                    </span>
+                    <span class="opening-banner-cta">
+                        <span class="obc-open">Obre</span>
+                        <span class="obc-close">Tanca</span>
+                        <span class="opening-banner-chevron" aria-hidden="true">›</span>
+                    </span>
+                </button>
+                <div class="opening-banner-body" id="personal-opening-panel" hidden>
+                    <div class="opening-banner-sub">A partir del que jugues, construeix un repertori <strong>proposat</strong>: entre les jugades que Stockfish valida com a sòlides es queda la teva, i on no en tens es cobreix el que et responen de debò. Es diu sempre d'on surt cada jugada.</div>
+                    <div class="rep-build-actions">
+                        <button class="btn btn-secondary" id="btn-build-opening-w">Construeix-la amb blanques</button>
+                        <button class="btn btn-secondary" id="btn-build-opening-b">Construeix-la amb negres</button>
+                        <button class="btn btn-primary" id="btn-cancel-build-opening" hidden>Atura</button>
+                    </div>
+                    <div class="opening-stats-note" id="personal-opening-hint">—</div>
+                    <div class="rep-progress" id="personal-opening-progress" hidden>
+                        <div class="rep-progress-track"><div class="rep-progress-bar" id="personal-opening-progress-bar"></div></div>
+                        <div class="rep-progress-text" id="personal-opening-progress-text">—</div>
+                    </div>
+                    <div id="personal-opening-result"></div>
+                </div>
+            </div>
             <div class="opening-section" id="opening-lessons-section">
-                <div class="opening-section-title">Bloc 1 · Repertori recomanat</div>
+                <div class="opening-section-title">
+                    <svg class="obs-ic" aria-hidden="true"><use href="#ic-book"/></svg>
+                    <span class="obs-num">Bloc 1</span>
+                    <span class="obs-name">Repertori recomanat</span>
+                </div>
                 <div class="opening-section-desc"><strong>Aprèn una obertura</strong> del repertori recomanat. Progrés, obertures amb blanques i defenses amb negres queden separats per estudiar amb ordre.</div>
                 <div class="opening-lesson-list" id="opening-lesson-list"></div>
             </div>
             <div class="opening-section" id="opening-practice-section">
-                <div class="opening-section-title">Bloc 2 · Pràctica de línia</div>
+                <div class="opening-section-title">
+                    <svg class="obs-ic" aria-hidden="true"><use href="#ic-board"/></svg>
+                    <span class="obs-num">Bloc 2</span>
+                    <span class="obs-name">Pràctica de línia</span>
+                </div>
                 <div class="opening-section-desc">Practica obertures amb un màxim de 10 moviments per bàndol. La base teòrica detectada només identifica línies; el repertori recomanat és la guia pedagògica principal.</div>
                 <div class="opening-mode-row">
                     <label for="opening-practice-mode-select">Rival</label>
@@ -5851,34 +6162,31 @@
                 </div>
             </div>
             <div class="opening-section" id="opening-stats-section">
-                <div class="opening-section-title">Bloc 3 · Errors en les primeres 10 jugades</div>
+                <div class="opening-section-title">
+                    <svg class="obs-ic" aria-hidden="true"><use href="#ic-scope"/></svg>
+                    <span class="obs-num">Bloc 3</span>
+                    <span class="obs-name">Errors en les primeres 10 jugades</span>
+                </div>
                 <div class="opening-section-desc">Mostra errors d'obertura per moviment a les primeres 10 jugades. Clica un error per entrar en pràctica enfocada.</div>
                 <div class="opening-stats" id="opening-stats-list"></div>
                 <div class="opening-stats-note" id="opening-stats-note">—</div>
             </div>
             <div class="opening-section" id="opening-repertoire-section">
-                <div class="opening-section-title">Bloc 4 · Obertura personal</div>
+                <div class="opening-section-title">
+                    <svg class="obs-ic" aria-hidden="true"><use href="#ic-bars"/></svg>
+                    <span class="obs-num">Bloc 4</span>
+                    <span class="obs-name">Obertura personal</span>
+                </div>
                 <div class="opening-section-desc">El teu repertori <strong>real</strong>: què jugues de debò a l'obertura, amb quina freqüència hi arribes, què hi puntues i on deixes el llibre. Surt només de les teves partides —cap recomanació, cap motor.</div>
                 <div class="repertoire" id="repertoire-list"></div>
                 <div class="opening-stats-note" id="repertoire-note">—</div>
-
-                <div class="rep-divider"></div>
-                <div class="opening-section-title rep-build-title">La teva obertura</div>
-                <div class="opening-section-desc">A partir del que jugues, construeix un repertori <strong>proposat</strong>: entre les jugades que Stockfish valida com a sòlides es queda la teva, i on no en tens es cobreix el que et responen de debò. Es diu sempre d'on surt cada jugada.</div>
-                <div class="rep-build-actions">
-                    <button class="btn btn-secondary" id="btn-build-opening-w">Construeix-la amb blanques</button>
-                    <button class="btn btn-secondary" id="btn-build-opening-b">Construeix-la amb negres</button>
-                    <button class="btn btn-primary" id="btn-cancel-build-opening" hidden>Atura</button>
-                </div>
-                <div class="opening-stats-note" id="personal-opening-hint">—</div>
-                <div class="rep-progress" id="personal-opening-progress" hidden>
-                    <div class="rep-progress-track"><div class="rep-progress-bar" id="personal-opening-progress-bar"></div></div>
-                    <div class="rep-progress-text" id="personal-opening-progress-text">—</div>
-                </div>
-                <div id="personal-opening-result"></div>
             </div>
             <div class="opening-section" id="opening-hieroglyphic-section">
-                <div class="opening-section-title">Bloc 5 · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics d'obertura</div>
+                <div class="opening-section-title">
+                    <svg class="obs-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>
+                    <span class="obs-num">Bloc 5</span>
+                    <span class="obs-name">Jeroglífics d'obertura</span>
+                </div>
                 <div class="opening-section-desc">Exercici especial: desxifra la pista estratègica i troba la jugada teòrica correcta sense barrejar-lo amb la pràctica principal.</div>
                 <div class="hieroglyphic-section">
                     <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Començar exercici</button>

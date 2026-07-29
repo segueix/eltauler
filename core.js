@@ -3158,6 +3158,75 @@
         });
     }
 
+    // Quina partida guardada correspon a cada jornada de la lliga.
+    //
+    // Les jornades noves ja duen l'id de la partida (gameId), perquè es desa en
+    // acabar-la. Les que es van jugar abans no en duen cap i s'han de
+    // reconèixer: dins d'una lliga cada rival hi surt UNA sola vegada, de
+    // manera que el nom del rival identifica la partida sense ambigüitat, i
+    // l'ordre de joc desempata si mai es repetís. Només s'hi miren partides de
+    // lliga posteriors a la creació de la temporada: les d'una lliga anterior
+    // poden dur el mateix nom de rival i no són aquestes.
+    //
+    // Una jornada sense partida (abandonada des del botó de casa, esborrada de
+    // l'historial o massa antiga) no rep cap enllaç: val més no oferir-lo que
+    // obrir una partida que no és.
+    function leagueRoundGameLinks(rounds, games, options) {
+        const opts = options || {};
+        const list = Array.isArray(games) ? games : [];
+        const known = new Set();
+        list.forEach(function (g) { if (g && g.id) known.add(g.id); });
+
+        const ordered = (Array.isArray(rounds) ? rounds : [])
+            .filter(function (r) { return r && typeof r.round === 'number'; })
+            .slice()
+            .sort(function (a, b) { return a.round - b.round; });
+
+        const taken = new Set();
+        const links = {};
+        // 1) L'id desat mana, sempre que la partida encara hi sigui.
+        ordered.forEach(function (r) {
+            if (r.gameId && known.has(r.gameId)) { links[r.round] = r.gameId; taken.add(r.gameId); }
+        });
+
+        // 2) La resta, pel nom del rival entre les partides de lliga d'aquesta
+        //    temporada, de la més antiga a la més nova.
+        const since = (typeof opts.createdAt === 'number' && !isNaN(opts.createdAt)) ? opts.createdAt : null;
+        const candidates = list
+            .filter(function (g) {
+                if (!g || !g.id || taken.has(g.id)) return false;
+                if (g.mode !== 'league') return false;
+                if (g.imported === true) return false;
+                return since === null || leagueGameTime(g) >= since;
+            })
+            .sort(function (a, b) { return leagueGameTime(a) - leagueGameTime(b); });
+
+        ordered.forEach(function (r) {
+            if (links[r.round]) return;
+            const name = leagueOpponentKey(r.oppName);
+            if (!name) return;
+            for (let i = 0; i < candidates.length; i++) {
+                const g = candidates[i];
+                if (taken.has(g.id)) continue;
+                if (leagueOpponentKey(g.opponent && g.opponent.name) !== name) continue;
+                links[r.round] = g.id;
+                taken.add(g.id);
+                break;
+            }
+        });
+        return links;
+    }
+
+    function leagueGameTime(entry) {
+        const raw = entry && (entry.date || entry.createdAt);
+        const time = raw ? Date.parse(raw) : NaN;
+        return isNaN(time) ? 0 : time;
+    }
+
+    function leagueOpponentKey(name) {
+        return String(name == null ? '' : name).trim().toLowerCase();
+    }
+
     // ----------------------------------------------------------------------
     // Temps de resposta humanitzat de l'enginy
     // ----------------------------------------------------------------------
@@ -3996,6 +4065,7 @@
         estimateGamePerformanceRating,
         leagueBaseRating,
         rebasedLeagueRatings,
+        leagueRoundGameLinks,
         evaluateGameQuality,
         parsePgnToMoves,
         buildOpeningTrie,
