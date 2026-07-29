@@ -129,6 +129,17 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   peó es diu «el peó de la columna a fins a a4» (mai «de a a a4»), i en mode
   expert la casella d'origen apareix encara que no calgui desambiguar («el
   cavall de f3 captura a e5»), mentre que en casual s'omet quan no cal.
+- **`gamestore.test.js`** — historial en dos nivells (`gamestore.js`): la
+  separació d'una partida en **índex lleuger** (resultat, jugades, precisió,
+  moment clau, resum per fases) i **cos pesat** (`moveReviews`, errades,
+  ressenya d'IA), que l'índex no deixi passar mai cap camp pesat cap al
+  localStorage, els resums que permeten respondre sense el cos (`hasBody`,
+  `reviewedMoves`), el cicle `shedBody` → `attachBody` sense pèrdua, i que 200
+  partides indexades càpiguen de sobres al document d'1 MiB de Firestore.
+  També cobreix el **resum per fases del bessó** (`bessoPhaseStatsFromGame`):
+  que el perfil surti idèntic calculat de les revisions o llegit del resum desat
+  a l'índex, que una partida vella sense cap dels dos no trenqui res, i que un
+  resum mal format es recalculi de les revisions.
 
 ## Integració contínua
 
