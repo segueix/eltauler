@@ -141,6 +141,30 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   a l'índex, que una partida vella sense cap dels dos no trenqui res, i que un
   resum mal format es recalculi de les revisions.
 
+- **`repertoire.test.js`** — repertori personal (`createRepertoireHelpers`): quines
+  partides compten (mai les importades d'un PGN, que poden ser d'altres jugadors,
+  ni les pràctiques d'errades), la construcció de l'arbre de jugades pròpies amb
+  la marca de qui juga cada una (amb negres la primera de l'arbre és del rival),
+  el recompte de freqüència, puntuació (victòria 1, taules ½) i precisió mitjana,
+  la línia principal —la continuació més jugada mentre hi hagi mostra— i la
+  detecció d'on es deixa el llibre creuant-ho amb el graf d'`obertures.js`,
+  incloent-hi qui el deixa i que sense graf el llibre quedi com a desconegut en
+  comptes d'inventar-se una desviació.
+
+- **`personalopening.test.js`** — construcció de l'obertura personal
+  (`createPersonalOpeningBuilder`). Cobreix la **porta de solidesa** (pèrdua
+  mesurada contra la millor de la posició; sense avaluació, cap xifra
+  inventada), la **tria de la jugada pròpia** (es respecta la teva si aguanta,
+  se substitueix i s'explica si perd massa, i entre dues de sòlides manen la
+  freqüència i el resultat), la **cobertura de rèpliques** per probabilitat
+  —amb la confiança creixent amb la mostra i el motor omplint només el que no
+  es confia, sense inflar mai la cua que es deixa fora—, i la construcció
+  sencera amb un motor fals **coherent** (negamax d'una jugada sobre una
+  avaluació de fulla). Hi ha dues proves clau del disseny: que la jugada pròpia
+  que el MultiPV no ensenya es **mesura a part** i que, sense aquesta mesura, el
+  repertori deixaria de ser el teu i passaria a ser el del motor; i que una
+  mesura que no correspon a la jugada demanada **no es dona per bona**.
+
 ## Integració contínua
 
 `.github/workflows/tests.yml` executa `npm ci` + `npm test` a cada push i pull
