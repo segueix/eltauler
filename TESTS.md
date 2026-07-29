@@ -151,6 +151,20 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   incloent-hi qui el deixa i que sense graf el llibre quedi com a desconegut en
   comptes d'inventar-se una desviació.
 
+- **`personalopening.test.js`** — construcció de l'obertura personal
+  (`createPersonalOpeningBuilder`). Cobreix la **porta de solidesa** (pèrdua
+  mesurada contra la millor de la posició; sense avaluació, cap xifra
+  inventada), la **tria de la jugada pròpia** (es respecta la teva si aguanta,
+  se substitueix i s'explica si perd massa, i entre dues de sòlides manen la
+  freqüència i el resultat), la **cobertura de rèpliques** per probabilitat
+  —amb la confiança creixent amb la mostra i el motor omplint només el que no
+  es confia, sense inflar mai la cua que es deixa fora—, i la construcció
+  sencera amb un motor fals **coherent** (negamax d'una jugada sobre una
+  avaluació de fulla). Hi ha dues proves clau del disseny: que la jugada pròpia
+  que el MultiPV no ensenya es **mesura a part** i que, sense aquesta mesura, el
+  repertori deixaria de ser el teu i passaria a ser el del motor; i que una
+  mesura que no correspon a la jugada demanada **no es dona per bona**.
+
 ## Integració contínua
 
 `.github/workflows/tests.yml` executa `npm ci` + `npm test` a cada push i pull

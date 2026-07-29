@@ -101,6 +101,9 @@ let openingLessonLine = [];
 let openingLessonStep = 0;
 let openingLessonInfo = null;
 let openingLessonCurrentIndex = null;
+// Lliçó que NO surt del repertori curat (una línia de l'obertura personal):
+// es guarda sencera perquè el botó de tornar a començar la pugui reprendre.
+let openingLessonCustom = null;
 let openingLessonUserColor = 'w';
 let openingLessonLastDetected = null; // Últim tipus d'obertura detectat (per avisar de canvis amb negres)
 let openingErrorCurrentPositions = []; // Posicions d'error disponibles
@@ -6146,6 +6149,7 @@ function loadStorage() {
     // Els cossos de les partides recents es carreguen en segon pla: mentrestant
     // la llista, les obertures i el bessó ja treballen amb l'índex.
     hydrateRecentHistoryBodies().then(onHistoryBodiesReady).catch(() => {});
+    loadPersonalOpenings();
     const storedAdjustmentWindow = localStorage.getItem('chess_freeAdjustmentWindow');
     if (storedAdjustmentWindow) {
         try {
@@ -6380,6 +6384,7 @@ function reloadAppStateFromStorage() {
         if (typeof renderOpeningStats === 'function') renderOpeningStats();
         if (typeof renderOpeningStatsScreen === 'function') renderOpeningStatsScreen();
         if (typeof renderPersonalRepertoire === 'function') renderPersonalRepertoire();
+        if (typeof renderPersonalOpeningSection === 'function') renderPersonalOpeningSection();
         if (typeof updateTacticsDisplay === 'function') updateTacticsDisplay();
         if (typeof loadPreparedExerciseHistory === 'function') loadPreparedExerciseHistory();
         if (typeof loadPreparedSequences === 'function') loadPreparedSequences();
@@ -12588,6 +12593,7 @@ function practiceOpeningFromHistory(idx, color) {
         const forceColor = (color === 'w' || color === 'b') ? color : undefined;
         renderOpeningStatsScreen();
         renderPersonalRepertoire();
+        renderPersonalOpeningSection();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
         $('#history-screen').hide();
@@ -15334,6 +15340,416 @@ function renderPersonalRepertoire() {
     }
 }
 
+/* ===================== L'OBERTURA PERSONAL =====================
+   Segona meitat: del repertori real se'n deriva un de PROPOSAT. La cerca i les
+   decisions són pures i viuen a core.js (createPersonalOpeningBuilder); aquí hi
+   ha el que no pot ser pur: parlar amb Stockfish, ensenyar progrés, deixar
+   cancel·lar i desar el resultat.
+
+   El motor es demana posició a posició, per ordre de probabilitat d'arribar-hi,
+   amb un pressupost tancat: així el temps es gasta a les línies que et trobaràs
+   de debò i la construcció acaba sempre. */
+
+const PERSONAL_OPENING_KEY = 'chess_personalOpening';
+const PERSONAL_OPENING_DEPTH = 16;
+const PERSONAL_OPENING_MULTIPV = 4;
+const PERSONAL_OPENING_MOVETIME_MS = 1200;
+const PERSONAL_OPENING_TIMEOUT_MS = 8000;
+
+let personalOpenings = { w: null, b: null };
+let personalOpeningBuild = null;   // { color, cancelled, done, total, note }
+
+function loadPersonalOpenings() {
+    try {
+        const raw = localStorage.getItem(PERSONAL_OPENING_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        personalOpenings = {
+            w: (parsed && parsed.w) || null,
+            b: (parsed && parsed.b) || null
+        };
+    } catch (e) { personalOpenings = { w: null, b: null }; }
+    return personalOpenings;
+}
+
+function savePersonalOpenings() {
+    try { localStorage.setItem(PERSONAL_OPENING_KEY, JSON.stringify(personalOpenings)); } catch (e) {}
+}
+
+let personalOpeningBuilder = null;
+function getPersonalOpeningBuilder() {
+    if (!personalOpeningBuilder && typeof Chess !== 'undefined') {
+        try { personalOpeningBuilder = ElTaulerCore.createPersonalOpeningBuilder(Chess); } catch (e) { personalOpeningBuilder = null; }
+    }
+    return personalOpeningBuilder;
+}
+
+// Motor PROPI de la construcció. El worker compartit va ple d'estat del joc en
+// viu (força limitada, MultiPV 1) i, sobretot, els missatges que encara fa una
+// cerca arriben a l'oient de la següent: cada anàlisi es trobava responent amb
+// les dades de l'anterior. Amb un worker a part la construcció no s'ha de
+// barallar amb ningú, i es tanca en acabar.
+let personalOpeningEngine = null;
+
+function ensurePersonalOpeningEngine() {
+    if (personalOpeningEngine) return personalOpeningEngine;
+    const worker = createStockfishWorker();
+    if (!worker) return null;
+    personalOpeningEngine = worker;
+    try {
+        worker.postMessage('uci');
+        worker.postMessage('setoption name UCI_LimitStrength value false');
+        worker.postMessage('ucinewgame');
+    } catch (e) {}
+    return personalOpeningEngine;
+}
+
+function releasePersonalOpeningEngine() {
+    if (!personalOpeningEngine) return;
+    try { personalOpeningEngine.postMessage('stop'); } catch (e) {}
+    try { personalOpeningEngine.terminate(); } catch (e) {}
+    personalOpeningEngine = null;
+}
+
+// Avaluació d'una posició per al constructor: MultiPV normalitzat a
+// {san, cp} des del punt de vista de qui mou (el conveni que espera el nucli).
+// Retorna null si el motor no ha pogut dir res: el nucli ho tracta com a
+// "aquesta branca s'atura", mai com a permís per endevinar.
+async function evaluateOpeningPosition(fen) {
+    const engine = ensurePersonalOpeningEngine();
+    if (!engine) return null;
+    let res = null;
+    try {
+        res = await analyzePositionEnrichedTimed(
+            engine, fen, PERSONAL_OPENING_DEPTH, PERSONAL_OPENING_MULTIPV,
+            PERSONAL_OPENING_MOVETIME_MS, PERSONAL_OPENING_TIMEOUT_MS);
+    } catch (e) { return null; }
+    const cpOf = a => (a.evalType === 'mate' ? (a.eval > 0 ? 10000 : -10000) : a.eval);
+    const moves = ((res && res.alternatives) || [])
+        .filter(a => a && a.move && typeof a.eval === 'number')
+        .map(a => {
+            let san = null;
+            try { san = uciToSan(fen, a.move); } catch (e) { san = null; }
+            return san ? { san: san, cp: cpOf(a) } : null;
+        })
+        .filter(Boolean)
+        .sort((a, b) => b.cp - a.cp);
+    return moves.length ? { moves: moves } : null;
+}
+
+// Valor d'UNA jugada concreta a la MATEIXA posició i amb la mateixa cerca que
+// la resta (`searchmoves`): així la pèrdua es mesura dins d'una sola escala.
+// Analitzar la posició de després i canviar-li el signe seria comparar dues
+// cerques diferents, i a poca profunditat això inventa pèrdues de desenes de
+// centpeons a jugades perfectament normals.
+function evaluateOpeningCandidate(fen, san) {
+    const engine = ensurePersonalOpeningEngine();
+    if (!engine) return Promise.resolve(null);
+    let uci = null;
+    try {
+        const chess = new Chess(fen);
+        const move = chess.move(san, { sloppy: true });
+        if (move) uci = move.from + move.to + (move.promotion || '');
+    } catch (e) { uci = null; }
+    if (!uci) return Promise.resolve(null);
+    return new Promise(resolve => {
+        let best = null;
+        let done = false;
+        let timeoutId = null;
+        const finish = () => {
+            if (done) return;
+            done = true;
+            try { engine.removeEventListener('message', onMessage); } catch (e) {}
+            if (timeoutId) clearTimeout(timeoutId);
+            resolve(best === null ? null : { moves: [{ san: san, cp: best }] });
+        };
+        const onMessage = event => {
+            const line = event.data;
+            if (typeof line !== 'string') return;
+            if (line.startsWith('info') && line.includes(' pv ')) {
+                const info = parseUciInfo(line);
+                if (info && typeof info.score === 'number') {
+                    best = info.scoreType === 'mate'
+                        ? (info.score > 0 ? 10000 : -10000)
+                        : info.score;
+                }
+            } else if (line.startsWith('bestmove')) finish();
+        };
+        timeoutId = setTimeout(() => { try { engine.postMessage('stop'); } catch (e) {} finish(); }, PERSONAL_OPENING_TIMEOUT_MS);
+        try {
+            engine.addEventListener('message', onMessage);
+            engine.postMessage('setoption name MultiPV value 1');
+            engine.postMessage(`position fen ${fen}`);
+            engine.postMessage(`go depth ${PERSONAL_OPENING_DEPTH} movetime ${PERSONAL_OPENING_MOVETIME_MS} searchmoves ${uci}`);
+        } catch (e) { finish(); }
+    });
+}
+
+function personalOpeningBuildInProgress() {
+    return !!(personalOpeningBuild && !personalOpeningBuild.done);
+}
+
+function cancelPersonalOpeningBuild() {
+    if (personalOpeningBuild) personalOpeningBuild.cancelled = true;
+}
+
+// Construeix l'obertura personal d'un color. Reclama el motor mentre dura
+// (dues anàlisis alhora sobre el mateix worker es roben les respostes) i el
+// deixa com l'ha trobat en acabar.
+async function buildPersonalOpening(color, options = {}) {
+    const builder = getPersonalOpeningBuilder();
+    if (!builder) return null;
+    if (personalOpeningBuildInProgress()) return null;
+    if (deepReviewInProgress || waitingForBlunderAnalysis) {
+        showToast('Hi ha una anàlisi en curs; torna-ho a provar d\'aquí a un moment.', 'info');
+        return null;
+    }
+    const graph = getOpeningPositionGraph();
+    const state = builder.start(gameHistory, color, Object.assign({ graph: graph }, options.config || {}));
+    const build = { color: color, cancelled: false, done: false, evaluated: 0, note: '' };
+    personalOpeningBuild = build;
+    const onProgress = typeof options.onProgress === 'function' ? options.onProgress : () => {};
+
+    try {
+        // La construcció fa servir un motor propi (ensurePersonalOpeningEngine),
+        // però la generació en segon pla competeix per la CPU: se li demana que
+        // pari mentre dura.
+        try { requestBackgroundPrepAbort(); } catch (e) {}
+        ensurePersonalOpeningEngine();
+
+        let job;
+        while ((job = builder.nextPosition(state))) {
+            if (build.cancelled) break;
+            let evaluation = null;
+            if (job.fen) {
+                evaluation = job.kind === 'candidate'
+                    ? await evaluateOpeningCandidate(job.fen, job.san)
+                    : await evaluateOpeningPosition(job.fen);
+            }
+            builder.feed(state, evaluation);
+            build.evaluated = state.evaluated;
+            onProgress(state.evaluated, state.evaluated + builder.remaining(state), job);
+        }
+    } catch (e) {
+        console.warn('[Obertura personal] error construint', e);
+    } finally {
+        build.done = true;
+        // El motor de la construcció no ha de sobreviure-la: el compartit no
+        // s'ha tocat i aquest ja no fa falta.
+        releasePersonalOpeningEngine();
+    }
+
+    const result = builder.result(state);
+    result.builtAt = new Date().toISOString();
+    result.cancelled = build.cancelled;
+    result.historyGames = gameHistory.length;
+    if (!build.cancelled) {
+        personalOpenings[color] = result;
+        savePersonalOpenings();
+    }
+    personalOpeningBuild = null;
+    return result;
+}
+
+// ── Pintat de l'obertura personal ───────────────────────────────────────────
+
+const PERSONAL_OPENING_REASONS = {
+    'own-best': 'la teva, i també la millor del motor',
+    'own-sound': 'la teva, validada pel motor',
+    'own-playable': 'la teva; el motor en prefereix una altra, però aguanta',
+    'replaces-unsound': 'canvia la que jugues',
+    'replaces-unknown': 'el motor no ha pogut mesurar la teva',
+    'new': 'nova: aquí encara no hi tens partides'
+};
+
+function personalOpeningColorLabel(color) {
+    return color === 'b' ? 'negres' : 'blanques';
+}
+
+// Línia en notació llegible, amb les jugades pròpies en negreta i marca a les
+// que canvien respecte del que jugues.
+function personalOpeningLineHtml(moves) {
+    return moves.map(step => {
+        const moveNumber = Math.floor(step.ply / 2) + 1;
+        const prefix = step.ply % 2 === 0 ? `<span class="rep-num">${moveNumber}.</span>` : '';
+        const cls = ['rep-move'];
+        if (step.mine) cls.push('rep-mine');
+        if (step.mine && step.source === 'engine') cls.push('rep-changed');
+        const title = step.mine
+            ? `${PERSONAL_OPENING_REASONS[step.reason] || ''}${typeof step.cpLoss === 'number' ? ` · ${step.cpLoss} cp` : ''}`
+            : (step.source === 'engine' ? 'rèplica del motor (aquí no hi tens partides)' : `te l'han jugat ${step.games} ${step.games === 1 ? 'vegada' : 'vegades'}`);
+        return `${prefix}<span class="${cls.join(' ')}" title="${escapeHtml(title)}">${escapeHtml(step.san)}</span>`;
+    }).join(' ');
+}
+
+// Decisions on l'obertura proposada s'aparta del que jugues: és el que
+// realment cal mirar-se.
+function personalOpeningChanges(root) {
+    const changes = [];
+    (function walk(node, path) {
+        (node.children || []).forEach(child => {
+            const next = path.concat([child]);
+            if (child.mine && child.source === 'engine' && child.replaces) {
+                changes.push({ node: child, path: next });
+            }
+            walk(child, next);
+        });
+    })(root, []);
+    changes.sort((a, b) => b.node.reachProb - a.node.reachProb);
+    return changes;
+}
+
+function renderPersonalOpeningResult(color) {
+    const opening = personalOpenings[color];
+    if (!opening) return '';
+    const s = opening.summary;
+    const label = personalOpeningColorLabel(color);
+    const tile = (value, caption) => `<div class="rep-tile"><div class="rep-tile-value">${value}</div><div class="rep-tile-caption">${caption}</div></div>`;
+    let html = `<div class="rep-built" data-color="${color}">
+        <div class="rep-built-head">
+            <div class="rep-built-title">Amb ${label}</div>
+            <div class="rep-built-meta">${opening.evaluated} posicions analitzades · ${opening.historyGames} partides a l'historial</div>
+        </div>
+        <div class="rep-tiles">
+            ${tile(s.ownMoves, 'jugades teves')}
+            ${tile(`${s.fromOwnGames}/${s.ownMoves}`, 'de les teves partides')}
+            ${tile(`${s.coverage}%`, 'del que et trobaràs')}
+            ${tile(s.avgCpLoss === null ? '—' : `${s.avgCpLoss} cp`, 'pèrdua mitjana')}
+        </div>`;
+
+    const lines = ElTaulerCore.personalOpeningLines(opening.root).slice(0, 6);
+    if (lines.length) {
+        html += '<div class="rep-subtitle">Les teves línies</div>';
+        lines.forEach((line, idx) => {
+            html += `<div class="rep-built-line">
+                <div class="rep-built-line-head">
+                    <span class="rep-built-prob">${Math.round(line.prob * 100)}%</span>
+                    <button class="btn btn-secondary rep-train-btn" data-color="${color}" data-line="${idx}">Entrena-la</button>
+                </div>
+                <div class="rep-line">${personalOpeningLineHtml(line.moves)}</div>
+            </div>`;
+        });
+    }
+
+    const changes = personalOpeningChanges(opening.root);
+    if (changes.length) {
+        html += '<div class="rep-subtitle">Què et proposa canviar</div>';
+        changes.slice(0, 5).forEach(change => {
+            const node = change.node;
+            const before = change.path.slice(0, -1).map(step =>
+                (step.ply % 2 === 0 ? `${Math.floor(step.ply / 2) + 1}.` : '') + step.san).join(' ');
+            const moveNumber = Math.floor(node.ply / 2) + 1;
+            html += `<div class="rep-change">
+                <div class="rep-change-line">${before ? escapeHtml(before) : 'Des de l\'inici'}</div>
+                <div class="rep-change-body">A la jugada ${moveNumber} jugues <strong>${escapeHtml(node.replaces.san)}</strong>${
+                    typeof node.replaces.cpLoss === 'number' ? ` (perd ${node.replaces.cpLoss} cp)` : ''
+                } ${node.replaces.games ? `en ${node.replaces.games} ${node.replaces.games === 1 ? 'partida' : 'partides'}` : ''} → et proposa <strong>${escapeHtml(node.san)}</strong>.</div>
+            </div>`;
+        });
+    }
+
+    if (!s.ownMoves) {
+        html += '<div class="rep-empty">El motor no ha pogut validar cap jugada. Torna-ho a provar amb el tauler tancat.</div>';
+    }
+    return html + '</div>';
+}
+
+function renderPersonalOpeningSection() {
+    const el = document.getElementById('personal-opening-result');
+    if (!el) return;
+    const data = buildPersonalRepertoireData();
+    ['w', 'b'].forEach(color => {
+        const btn = document.getElementById(`btn-build-opening-${color}`);
+        if (!btn) return;
+        const games = data ? (color === 'w' ? data.white.games : data.black.games) : 0;
+        const min = ElTaulerCore.PERSONAL_OPENING_CONFIG.minColorGames;
+        const built = !!personalOpenings[color];
+        const busy = personalOpeningBuildInProgress();
+        btn.textContent = built
+            ? `Refés-la amb ${personalOpeningColorLabel(color)}`
+            : `Construeix-la amb ${personalOpeningColorLabel(color)}`;
+        btn.disabled = busy || games < min;
+        btn.title = games < min
+            ? `Et falten ${min - games} partides amb ${personalOpeningColorLabel(color)}.`
+            : '';
+    });
+    el.innerHTML = ['w', 'b'].map(renderPersonalOpeningResult).join('');
+    const hintEl = document.getElementById('personal-opening-hint');
+    if (hintEl) {
+        const min = ElTaulerCore.PERSONAL_OPENING_CONFIG.minColorGames;
+        const white = data ? data.white.games : 0;
+        const black = data ? data.black.games : 0;
+        const missing = [];
+        if (white < min) missing.push(`${min - white} amb blanques`);
+        if (black < min) missing.push(`${min - black} amb negres`);
+        hintEl.textContent = missing.length
+            ? `Et falten ${missing.join(' i ')} partides perquè les teves dades diguin prou.`
+            : 'Analitza les posicions amb Stockfish. Triga una estona i pots aturar-ho quan vulguis.';
+    }
+}
+
+function updatePersonalOpeningProgress(done, total, job) {
+    const box = document.getElementById('personal-opening-progress');
+    const bar = document.getElementById('personal-opening-progress-bar');
+    const text = document.getElementById('personal-opening-progress-text');
+    if (!box) return;
+    box.hidden = false;
+    const pct = total ? Math.min(100, Math.round((done / total) * 100)) : 0;
+    if (bar) bar.style.width = `${pct}%`;
+    if (text) {
+        const what = job && job.kind === 'candidate'
+            ? `comprovant la teva ${job.san}`
+            : (job && job.mine ? 'triant la teva jugada' : 'mirant què et responen');
+        text.textContent = `${done} de ~${total} posicions · ${what}`;
+    }
+}
+
+// Entrena una línia de l'obertura personal al tauler de pràctica. La línia es
+// converteix en una «lliçó» amb el mateix format que el repertori curat, amb
+// una frase per jugada que explica d'on surt cadascuna.
+function trainPersonalOpeningLine(color, lineIndex) {
+    const opening = personalOpenings[color];
+    if (!opening) return;
+    const lines = ElTaulerCore.personalOpeningLines(opening.root);
+    const line = lines[lineIndex];
+    if (!line || !line.moves.length) { showToast('Aquesta línia ja no hi és; refés l\'obertura.', 'warn'); return; }
+    const named = line.moves.filter(step => step.name).pop();
+    const lesson = {
+        eco: named ? named.eco : '—',
+        name: named ? `La teva obertura · ${named.name}` : 'La teva obertura',
+        userColor: color,
+        cat: color === 'w' ? 'white' : 'black',
+        idea: `Línia del teu repertori: hi arribes en un ${Math.round(line.prob * 100)}% de les partides amb ${personalOpeningColorLabel(color)}.`,
+        moves: line.moves.map(step => step.san),
+        movePhrases: line.moves.map(step => {
+            if (!step.mine) {
+                return step.source === 'engine'
+                    ? `${step.san}: rèplica que el motor considera de les millors (aquí encara no hi tens partides).`
+                    : `${step.san}: te l'han jugat ${step.games} ${step.games === 1 ? 'vegada' : 'vegades'}.`;
+            }
+            const why = PERSONAL_OPENING_REASONS[step.reason] || '';
+            const cp = typeof step.cpLoss === 'number' && step.cpLoss > 0 ? ` (${step.cpLoss} cp per sota de la millor)` : '';
+            return `${step.san}: ${why}${cp}.`;
+        })
+    };
+    startOpeningLessonWith(lesson, color, null);
+}
+
+async function startPersonalOpeningBuild(color) {
+    if (personalOpeningBuildInProgress()) return;
+    const cancelBtn = document.getElementById('btn-cancel-build-opening');
+    if (cancelBtn) cancelBtn.hidden = false;
+    renderPersonalOpeningSection();
+    updatePersonalOpeningProgress(0, 1, null);
+    const result = await buildPersonalOpening(color, { onProgress: updatePersonalOpeningProgress });
+    const box = document.getElementById('personal-opening-progress');
+    if (box) box.hidden = true;
+    if (cancelBtn) cancelBtn.hidden = true;
+    renderPersonalOpeningSection();
+    if (!result) return;
+    if (result.cancelled) showToast('Construcció aturada', 'info');
+    else showToast(`Obertura amb ${personalOpeningColorLabel(color)} llesta ♟`, 'success');
+}
+
 // Variable global per guardar estadístiques d'obertura
 let openingStatsData = [];
 
@@ -15871,6 +16287,9 @@ function showOpeningRestartOverlay() {
 }
 
 function restartCompletedOpeningLesson() {
+    // Una línia de l'obertura personal no és al repertori curat: es reprèn
+    // amb la seva pròpia definició.
+    if (openingLessonCustom) { startOpeningLessonWith(openingLessonCustom, openingLessonCustom.userColor, null); return; }
     if (openingLessonCurrentIndex === null || openingLessonCurrentIndex === undefined) return;
     startOpeningLesson(openingLessonCurrentIndex);
 }
@@ -15878,13 +16297,23 @@ function restartCompletedOpeningLesson() {
 function startOpeningLesson(idx, forceColor) {
     const op = CURATED_OPENINGS[idx];
     if (!op) return;
+    startOpeningLessonWith(op, forceColor, idx);
+}
+
+// Practica una línia concreta al tauler d'obertures. `op` té la mateixa forma
+// que una entrada de CURATED_OPENINGS ({name, eco, idea, moves, userColor}），
+// de manera que tant el repertori curat com una línia de l'obertura personal
+// passen per la MATEIXA maquinària de pràctica.
+function startOpeningLessonWith(op, forceColor, idx) {
+    if (!op || !Array.isArray(op.moves) || !op.moves.length) return;
+    openingLessonCustom = (typeof idx === 'number') ? null : op;
     openingErrorPracticeActive = false;
     hieroglyphicExerciseActive = false;
     updateOpeningMaximButton();
     hideOpeningRestartOverlay();
     openingLessonActive = true;
     openingLessonInfo = op;
-    openingLessonCurrentIndex = idx;
+    openingLessonCurrentIndex = (typeof idx === 'number') ? idx : null;
     openingLessonLine = op.moves.slice();
     openingLessonStep = 0;
     openingLessonLastDetected = null;
@@ -19750,6 +20179,7 @@ function undoOpeningPracticeMove() {
     openingLessonActive = false;
     openingLessonInfo = null;
     openingLessonCurrentIndex = null;
+    openingLessonCustom = null;
     openingLessonStep = 0;
 
     // Cancel·lar variables de feedback instantani
@@ -20196,6 +20626,7 @@ function setupEvents() {
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
         renderPersonalRepertoire();
+        renderPersonalOpeningSection();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
         startOpeningPracticeAsColor(openingPracticeUserColor);
@@ -20210,6 +20641,17 @@ function setupEvents() {
     $(document).on('click', '.opening-lesson-btn', function() {
         const idx = parseInt($(this).attr('data-lesson'), 10);
         if (!isNaN(idx)) startOpeningLesson(idx);
+    });
+    // ── Obertura personal ───────────────────────────────────────────────
+    $('#btn-build-opening-w').click(() => { void startPersonalOpeningBuild('w'); });
+    $('#btn-build-opening-b').click(() => { void startPersonalOpeningBuild('b'); });
+    $('#btn-cancel-build-opening').click(() => cancelPersonalOpeningBuild());
+    // Entrenar una línia construïda: passa per la MATEIXA pràctica d'obertures
+    // que el repertori curat, amb la línia personal com a lliçó.
+    $(document).on('click', '.rep-train-btn', function () {
+        const color = $(this).attr('data-color') === 'b' ? 'b' : 'w';
+        const idx = parseInt($(this).attr('data-line'), 10);
+        trainPersonalOpeningLine(color, idx);
     });
     $('#opening-restart-overlay').click(() => restartCompletedOpeningLesson());
     $('#btn-hieroglyphic-exercise').click(() => {

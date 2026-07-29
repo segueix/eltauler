@@ -1112,6 +1112,609 @@
     }
 
     // ----------------------------------------------------------------------
+    // OBERTURA PERSONAL — construir el repertori, no només mirar-lo
+    // ----------------------------------------------------------------------
+    // Segona meitat. Del repertori real (què jugues) se'n deriva un repertori
+    // PROPOSAT, amb dos criteris diferents segons de qui és el torn:
+    //
+    //   · A les TEVES jugades es tria. Entre les que el motor considera sòlides
+    //     —pèrdua per sota d'un llindar respecte de la millor— es prefereix la
+    //     que ja jugues, ponderada per quantes vegades i què hi puntues. Si la
+    //     teva habitual no passa la porta, es proposa la millor i es diu per què.
+    //
+    //   · A les jugades del RIVAL no es tria: es COBREIX. Primer el que t'han
+    //     jugat de debò (l'app en té el recompte), i com a reserva les millors
+    //     del motor per a posicions on no has arribat mai. Es cobreix fins a
+    //     una probabilitat acumulada, no totes les rèpliques possibles: això és
+    //     el que manté el repertori memoritzable.
+    //
+    // La cerca s'expandeix per PROBABILITAT D'ARRIBAR-HI, de manera que el
+    // pressupost de motor es gasta a les línies que et trobaràs de debò.
+    // Aquest bloc és pur: rep les avaluacions ja fetes i decideix. El bucle que
+    // parla amb Stockfish viu a app.js.
+    const PERSONAL_OPENING_CONFIG = {
+        maxPlies: 12,            // profunditat del repertori (6 jugades per bàndol)
+        maxCpLoss: 40,           // porta de solidesa d'una jugada pròpia (centpeons)
+        preferOwnCpLoss: 25,     // per sota d'això, la teva habitual guanya sempre
+        coverage: 0.85,          // probabilitat de rèpliques que es cobreix
+        maxReplies: 3,           // rèpliques màximes per posició
+        minTrustedSample: 3,     // partides per fiar-se del tot d'una distribució
+        minBranchProb: 0.04,     // per sota d'això la branca no val la pena
+        maxPositions: 60,        // pressupost d'avaluacions de motor
+        minColorGames: 8,        // partides amb un color per construir res
+        engineReplyPool: 3,      // rèpliques del motor quan no hi ha dades teves
+        // El MultiPV només ensenya les N millors: si la teva jugada habitual no
+        // hi surt, s'avalua A PART. Sense això es descartaria per «no avaluada»
+        // i el repertori acabaria essent el del motor, no el teu.
+        maxCandidateChecks: 2,   // jugades pròpies que es mesuren a part per posició
+        minCandidateGames: 1     // vegades mínimes jugada per merèixer la mesura
+    };
+
+    // Distribució de rèpliques del rival en una posició, a partir del que t'han
+    // jugat de debò. Retorna [{san, games}] ordenat de més a menys.
+    function opponentReplyCounts(bucket) {
+        if (!bucket) return [];
+        return Object.keys(bucket)
+            .map(san => ({ san: san, games: bucket[san] }))
+            .sort((a, b) => (b.games - a.games) || a.san.localeCompare(b.san));
+    }
+
+    // Rèpliques que es cobreixen en una posició.
+    //
+    // La distribució surt del que t'han jugat de debò, però amb una mostra molt
+    // petita no ens la creiem del tot: la confiança creix amb el nombre de
+    // partides fins a minTrustedSample, i la part de probabilitat que no es
+    // confia se l'emporten les millors del motor. Amb prou mostra manen només
+    // les teves dades; sense cap dada, només el motor.
+    //
+    // La cua que queda fora per la cobertura o pel sostre de rèpliques NO es
+    // reparteix: són rèpliques que conscientment no es cobreixen, i inflar les
+    // altres seria dir que el repertori cobreix més del que cobreix.
+    function coverOpponentReplies(personalCounts, engineMoves, options) {
+        const cfg = Object.assign({}, PERSONAL_OPENING_CONFIG, options || {});
+        const counts = (personalCounts || []).filter(c => c && c.san && c.games > 0);
+        const total = counts.reduce((sum, c) => sum + c.games, 0);
+        const trust = total ? Math.min(1, total / cfg.minTrustedSample) : 0;
+        const picked = [];
+        let covered = 0;
+        for (const c of counts) {
+            if (picked.length >= cfg.maxReplies) break;
+            const share = c.games / total;
+            picked.push({ san: c.san, prob: share * trust, games: c.games, source: 'personal' });
+            covered += share;
+            if (covered >= cfg.coverage) break;
+        }
+        // El que no es confia a les dades pròpies (o tot, si no n'hi ha cap)
+        // se'l reparteixen les millors del motor: així no queden forats a les
+        // posicions on encara no has arribat mai.
+        const untrusted = 1 - trust;
+        if (untrusted > 0.001 && picked.length < cfg.maxReplies) {
+            const already = new Set(picked.map(p => p.san));
+            const pool = (engineMoves || [])
+                .filter(m => m && m.san && !already.has(m.san))
+                .slice(0, Math.min(cfg.engineReplyPool, cfg.maxReplies - picked.length));
+            if (pool.length) {
+                const share = untrusted / pool.length;
+                pool.forEach(m => picked.push({ san: m.san, prob: share, games: 0, source: 'engine' }));
+            } else if (picked.length) {
+                // Sense reserva del motor no hi ha on posar la part no confiada:
+                // es torna a les dades pròpies, que és tot el que tenim.
+                const back = untrusted / picked.length;
+                picked.forEach(p => { p.prob += back; });
+            }
+        }
+        return picked;
+    }
+
+    // Pèrdua d'una jugada respecte de la millor de la posició, en centpeons i
+    // sempre des del punt de vista de qui mou (les avaluacions arriben ja
+    // normalitzades així). Sense avaluació, null: no s'inventa cap xifra.
+    function moveCpLoss(evaluation, san) {
+        if (!evaluation || !Array.isArray(evaluation.moves) || !evaluation.moves.length) return null;
+        const best = evaluation.moves[0];
+        const found = evaluation.moves.find(m => m && m.san === san);
+        if (!found || typeof found.cp !== 'number' || typeof best.cp !== 'number') return null;
+        return Math.max(0, Math.round(best.cp - found.cp));
+    }
+
+    // Tria de la jugada PRÒPIA en una posició. `personal` és [{san, games, score}]
+    // ordenat com vulgui; `evaluation` és {moves:[{san, cp}]} amb la millor
+    // primera. Retorna la jugada triada amb el motiu, o null si no es pot decidir.
+    function choosePersonalMove(personal, evaluation, options) {
+        const cfg = Object.assign({}, PERSONAL_OPENING_CONFIG, options || {});
+        if (!evaluation || !Array.isArray(evaluation.moves) || !evaluation.moves.length) return null;
+        const best = evaluation.moves[0];
+        const mine = (personal || []).filter(p => p && p.san && p.games > 0);
+        const totalGames = mine.reduce((sum, p) => sum + p.games, 0);
+
+        // Candidates pròpies que passen la porta de solidesa.
+        const sound = [];
+        const rejected = [];
+        mine.forEach(p => {
+            const cpLoss = moveCpLoss(evaluation, p.san);
+            if (cpLoss === null) { rejected.push({ san: p.san, games: p.games, cpLoss: null, why: 'unevaluated' }); return; }
+            if (cpLoss > cfg.maxCpLoss) { rejected.push({ san: p.san, games: p.games, cpLoss: cpLoss, why: 'unsound' }); return; }
+            sound.push({
+                san: p.san, games: p.games, score: p.score, cpLoss: cpLoss,
+                share: totalGames ? p.games / totalGames : 0
+            });
+        });
+
+        if (sound.length) {
+            // Entre les sòlides mana el que jugues i com et va: la freqüència
+            // pesa, el resultat matisa i la pèrdua fa de desempat.
+            sound.forEach(c => {
+                const scorePart = typeof c.score === 'number' ? (c.score / 100) : 0.5;
+                c.rank = c.share * (0.6 + 0.8 * scorePart) - (c.cpLoss / 1000);
+            });
+            sound.sort((a, b) => (b.rank - a.rank) || (a.cpLoss - b.cpLoss));
+            const pick = sound[0];
+            const isBest = pick.san === best.san;
+            return {
+                san: pick.san,
+                source: 'own',
+                cp: best.cp - pick.cpLoss,
+                cpLoss: pick.cpLoss,
+                games: pick.games,
+                score: typeof pick.score === 'number' ? pick.score : null,
+                share: Math.round(pick.share * 100),
+                bestSan: best.san,
+                // «La jugues i és bona» / «la jugues i el motor la valida»
+                reason: isBest ? 'own-best' : (pick.cpLoss <= cfg.preferOwnCpLoss ? 'own-sound' : 'own-playable'),
+                rejected: rejected
+            };
+        }
+
+        // Cap jugada teva serveix (o no n'hi ha cap): es proposa la millor.
+        const worstOwn = rejected.filter(r => typeof r.cpLoss === 'number')
+            .sort((a, b) => a.cpLoss - b.cpLoss)[0] || null;
+        return {
+            san: best.san,
+            source: 'engine',
+            cp: best.cp,
+            cpLoss: 0,
+            games: 0,
+            score: null,
+            share: 0,
+            bestSan: best.san,
+            reason: mine.length ? (worstOwn ? 'replaces-unsound' : 'replaces-unknown') : 'new',
+            replaces: worstOwn,
+            rejected: rejected
+        };
+    }
+
+    // Resum d'una obertura personal construïda: mida, cobertura i solidesa.
+    // Serveix per ensenyar d'un cop d'ull què s'ha de memoritzar i què val.
+    function summarizePersonalOpening(root) {
+        const summary = {
+            positions: 0, ownMoves: 0, lines: 0,
+            fromOwnGames: 0, fromEngine: 0,
+            avgCpLoss: null, maxCpLoss: 0,
+            coverage: 0, maxDepth: 0
+        };
+        if (!root) return summary;
+        let cpSum = 0, cpN = 0;
+        (function walk(node, depth) {
+            const kids = Array.isArray(node.children) ? node.children : [];
+            if (depth > summary.maxDepth) summary.maxDepth = depth;
+            if (!kids.length) {
+                summary.lines += 1;
+                summary.coverage += (typeof node.reachProb === 'number' ? node.reachProb : 0);
+                return;
+            }
+            kids.forEach(child => {
+                summary.positions += 1;
+                if (child.mine) {
+                    summary.ownMoves += 1;
+                    if (child.source === 'own') summary.fromOwnGames += 1;
+                    else summary.fromEngine += 1;
+                    if (typeof child.cpLoss === 'number') {
+                        cpSum += child.cpLoss; cpN += 1;
+                        if (child.cpLoss > summary.maxCpLoss) summary.maxCpLoss = child.cpLoss;
+                    }
+                }
+                walk(child, depth + 1);
+            });
+        })(root, 0);
+        summary.avgCpLoss = cpN ? Math.round(cpSum / cpN) : null;
+        summary.coverage = Math.min(100, Math.round(summary.coverage * 100));
+        return summary;
+    }
+
+    // Aplana l'arbre en línies llegibles (de l'arrel a cada fulla), ordenades
+    // de la més probable a la menys.
+    function personalOpeningLines(root) {
+        const lines = [];
+        if (!root) return lines;
+        (function walk(node, path) {
+            const kids = Array.isArray(node.children) ? node.children : [];
+            if (!kids.length) {
+                if (path.length) {
+                    lines.push({
+                        moves: path.slice(),
+                        prob: typeof node.reachProb === 'number' ? node.reachProb : 0
+                    });
+                }
+                return;
+            }
+            kids.forEach(child => walk(child, path.concat([child])));
+        })(root, []);
+        lines.sort((a, b) => b.prob - a.prob);
+        return lines;
+    }
+
+    // Constructor de l'obertura personal. Necessita el tauler (chess.js
+    // injectat) i s'usa com una màquina d'estats perquè la part lenta —demanar
+    // avaluacions al motor— quedi FORA d'aquest fitxer:
+    //
+    //   const state = builder.start(gameHistory, 'w', opts);
+    //   let job; while ((job = builder.nextPosition(state))) {
+    //       builder.feed(state, await avaluaAmbStockfish(job.fen));
+    //   }
+    //   const opening = builder.result(state);
+    //
+    // Així el bucle es pot aturar, ensenyar progrés i reprendre's, i els tests
+    // el poden alimentar amb avaluacions inventades sense cap motor.
+    function createPersonalOpeningBuilder(ChessCtor) {
+        // Llibres de posició: les MEVES jugades amb el seu resultat, i les del
+        // rival amb el seu recompte. Una sola passada per l'historial.
+        function buildPositionBooks(entries, color, maxPlies) {
+            const mine = {};
+            const theirs = {};
+            repertoireEligibleGames(entries, color).forEach(entry => {
+                let chess;
+                try { chess = new ChessCtor(); } catch (e) { return; }
+                const outcome = historyEntryOutcome(entry.result);
+                const limit = Math.min(entry.moves.length, maxPlies);
+                for (let i = 0; i < limit; i++) {
+                    const key = positionKeyFromFen(chess.fen());
+                    const isMine = chess.turn() === color;
+                    const san = entry.moves[i];
+                    let move = null;
+                    try { move = chess.move(san, { sloppy: true }); } catch (e) { move = null; }
+                    if (!move) break;
+                    if (isMine) {
+                        const bucket = mine[key] || (mine[key] = {});
+                        const cell = bucket[san] || (bucket[san] = { games: 0, rated: 0, scoreSum: 0, precisionSum: 0, precisionN: 0 });
+                        cell.games += 1;
+                        if (outcome === 'win') { cell.rated += 1; cell.scoreSum += 1; }
+                        else if (outcome === 'draw') { cell.rated += 1; cell.scoreSum += 0.5; }
+                        else if (outcome === 'loss') { cell.rated += 1; }
+                        if (typeof entry.precision === 'number' && isFinite(entry.precision)) {
+                            cell.precisionSum += entry.precision;
+                            cell.precisionN += 1;
+                        }
+                    } else {
+                        const bucket = theirs[key] || (theirs[key] = {});
+                        bucket[san] = (bucket[san] || 0) + 1;
+                    }
+                }
+            });
+            return { mine: mine, theirs: theirs };
+        }
+
+        function personalMovesAt(books, key) {
+            const bucket = books.mine[key];
+            if (!bucket) return [];
+            return Object.keys(bucket).map(san => {
+                const cell = bucket[san];
+                return {
+                    san: san,
+                    games: cell.games,
+                    score: cell.rated ? Math.round((cell.scoreSum / cell.rated) * 100) : null,
+                    precision: cell.precisionN ? Math.round(cell.precisionSum / cell.precisionN) : null
+                };
+            }).sort((a, b) => b.games - a.games);
+        }
+
+        // ¿Les dades pròpies ja cobreixen prou aquesta posició del rival? Si sí,
+        // no cal gastar-hi motor.
+        function repliesNeedEngine(counts, cfg) {
+            if (!counts.length) return true;
+            const total = counts.reduce((sum, c) => sum + c.games, 0);
+            if (total < 2) return true;
+            let covered = 0;
+            for (let i = 0; i < counts.length && i < cfg.maxReplies; i++) covered += counts[i].games / total;
+            return covered < cfg.coverage;
+        }
+
+        function newNode(san, ply, mine, fen, reachProb) {
+            return {
+                san: san, ply: ply, mine: mine, fen: fen,
+                reachProb: reachProb, children: [],
+                cp: null, cpLoss: null, games: 0, score: null, share: 0,
+                source: null, reason: null, prob: null,
+                inTheory: null, name: null, eco: null
+            };
+        }
+
+        function annotateFromGraph(node, graph, beforeKey) {
+            if (!graph) return;
+            if (graph.theory) node.inTheory = setHas(mapGet(graph.theory, beforeKey), node.san);
+            const named = graph.byPos ? mapGet(graph.byPos, positionKeyFromFen(node.fen)) : null;
+            if (named) { node.name = named.name; node.eco = named.eco; }
+        }
+
+        // Estat inicial de la construcció.
+        function start(entries, color, options) {
+            const cfg = Object.assign({}, PERSONAL_OPENING_CONFIG, options || {});
+            const games = repertoireEligibleGames(entries, color);
+            const books = buildPositionBooks(entries, color, cfg.maxPlies);
+            let startFen = null;
+            try { startFen = new ChessCtor().fen(); } catch (e) { startFen = null; }
+            const root = newNode(null, -1, false, startFen, 1);
+            return {
+                color: color,
+                config: cfg,
+                graph: (options && options.graph) || null,
+                books: books,
+                games: games.length,
+                enough: games.length >= cfg.minColorGames,
+                root: root,
+                queue: startFen ? [{ node: root, ply: 0, mine: color === 'w', reachProb: 1, fen: startFen }] : [],
+                pending: null,
+                evaluated: 0,
+                skipped: 0,
+                done: !startFen
+            };
+        }
+
+        // Quantes posicions queden com a molt per avaluar (per al progrés).
+        function remaining(state) {
+            return Math.max(0, Math.min(
+                state.config.maxPositions - state.evaluated,
+                state.queue.length + (state.pending ? 1 : 0)
+            ));
+        }
+
+        function takeNext(state) {
+            if (!state.queue.length) return null;
+            let bestIdx = 0;
+            for (let i = 1; i < state.queue.length; i++) {
+                if (state.queue[i].reachProb > state.queue[bestIdx].reachProb) bestIdx = i;
+            }
+            return state.queue.splice(bestIdx, 1)[0];
+        }
+
+        // Jugades pròpies que el MultiPV no ha cobert i que val la pena mesurar
+        // a part (les més jugades primer, amb sostre).
+        function candidatesToMeasure(personal, evaluation, cfg) {
+            const covered = new Set(((evaluation && evaluation.moves) || []).map(m => m && m.san));
+            return personal
+                .filter(p => p.games >= cfg.minCandidateGames && !covered.has(p.san))
+                .slice(0, cfg.maxCandidateChecks)
+                .map(p => p.san);
+        }
+
+        // Afegeix a l'avaluació les jugades mesurades a part i reordena: la
+        // millor torna a quedar la primera, vingui d'on vingui.
+        function mergeMeasured(evaluation, extra) {
+            const moves = ((evaluation && evaluation.moves) || []).slice();
+            Object.keys(extra || {}).forEach(san => {
+                if (typeof extra[san] !== 'number') return;
+                if (moves.some(m => m && m.san === san)) return;
+                moves.push({ san: san, cp: extra[san], measured: true });
+            });
+            moves.sort((a, b) => b.cp - a.cp);
+            return Object.assign({}, evaluation, { moves: moves });
+        }
+
+        function expandOwn(state, item, evaluation) {
+            const cfg = state.config;
+            const key = positionKeyFromFen(item.fen);
+            const personal = personalMovesAt(state.books, key);
+            const pick = choosePersonalMove(personal, evaluation, cfg);
+            if (!pick) return;
+            let chess;
+            try { chess = new ChessCtor(item.fen); } catch (e) { return; }
+            let move = null;
+            try { move = chess.move(pick.san, { sloppy: true }); } catch (e) { move = null; }
+            if (!move) return;
+            const child = newNode(pick.san, item.ply, true, chess.fen(), item.reachProb);
+            child.cp = pick.cp;
+            child.cpLoss = pick.cpLoss;
+            child.games = pick.games;
+            child.score = pick.score;
+            child.share = pick.share;
+            child.source = pick.source;
+            child.reason = pick.reason;
+            if (pick.replaces) child.replaces = pick.replaces;
+            annotateFromGraph(child, state.graph, key);
+            item.node.children.push(child);
+            state.queue.push({ node: child, ply: item.ply + 1, mine: false, reachProb: item.reachProb, fen: child.fen });
+        }
+
+        function expandOpponent(state, item, evaluation) {
+            const cfg = state.config;
+            const key = positionKeyFromFen(item.fen);
+            const counts = opponentReplyCounts(state.books.theirs[key]);
+            const engineMoves = evaluation && Array.isArray(evaluation.moves) ? evaluation.moves : [];
+            const replies = coverOpponentReplies(counts, engineMoves, cfg);
+            replies.forEach(reply => {
+                const reach = item.reachProb * reply.prob;
+                if (reach < cfg.minBranchProb) { state.skipped += 1; return; }
+                let chess;
+                try { chess = new ChessCtor(item.fen); } catch (e) { return; }
+                let move = null;
+                try { move = chess.move(reply.san, { sloppy: true }); } catch (e) { move = null; }
+                if (!move) return;
+                const child = newNode(reply.san, item.ply, false, chess.fen(), reach);
+                child.prob = Math.round(reply.prob * 100);
+                child.games = reply.games;
+                child.source = reply.source;
+                annotateFromGraph(child, state.graph, key);
+                item.node.children.push(child);
+                state.queue.push({ node: child, ply: item.ply + 1, mine: true, reachProb: reach, fen: child.fen });
+            });
+        }
+
+        function expand(state, item, evaluation) {
+            if (item.mine) expandOwn(state, item, evaluation);
+            else expandOpponent(state, item, evaluation);
+        }
+
+        // ¿S'ha d'aturar aquesta branca abans d'expandir-la?
+        function shouldStop(state, item) {
+            const cfg = state.config;
+            if (item.ply >= cfg.maxPlies) return true;
+            if (item.reachProb < cfg.minBranchProb) return true;
+            return false;
+        }
+
+        // Següent posició que necessita el motor. Les que no el necessiten
+        // s'expandeixen aquí mateix, de manera que qui crida només s'ha
+        // d'ocupar d'avaluar el que se li demana.
+        // ¿Es pot fer aquesta jugada en aquesta posició? Una jugada que ja no és
+        // legal (dades velles) no es pot demanar al motor.
+        function moveIsLegal(fen, san) {
+            let chess;
+            try { chess = new ChessCtor(fen); } catch (e) { return false; }
+            try { return !!chess.move(san, { sloppy: true }); } catch (e) { return false; }
+        }
+
+        function describeJob(pending) {
+            if (pending.phase === 'candidate') {
+                const san = pending.missing[0];
+                return {
+                    kind: 'candidate',
+                    // Es demana el valor d'aquesta jugada A LA MATEIXA POSICIÓ i
+                    // amb la mateixa cerca que la resta. Mesurar-la analitzant la
+                    // posició de després seria comparar dues cerques diferents:
+                    // les escales no coincideixen i en surten pèrdues fantasma
+                    // de desenes de centpeons.
+                    fen: pending.item.fen,
+                    san: san,
+                    ply: pending.item.ply,
+                    mine: true,
+                    reachProb: pending.item.reachProb
+                };
+            }
+            return {
+                kind: 'position',
+                fen: pending.item.fen,
+                ply: pending.item.ply,
+                mine: pending.item.mine,
+                reachProb: pending.item.reachProb,
+                positionKey: positionKeyFromFen(pending.item.fen)
+            };
+        }
+
+        function budgetLeft(state) {
+            return state.evaluated < state.config.maxPositions;
+        }
+
+        // Següent posició que necessita el motor. Les que no el necessiten
+        // s'expandeixen aquí mateix, de manera que qui crida només s'ha
+        // d'ocupar d'avaluar el que se li demana.
+        function nextPosition(state) {
+            if (state.pending) {
+                const job = describeJob(state.pending);
+                // Una jugada que ni tan sols es pot fer no es pot mesurar.
+                if (state.pending.phase === 'candidate' && !moveIsLegal(job.fen, job.san)) {
+                    state.pending.missing.shift();
+                    if (!state.pending.missing.length) { finishOwn(state, state.pending); }
+                    return nextPosition(state);
+                }
+                return job;
+            }
+            while (state.queue.length) {
+                const item = takeNext(state);
+                if (shouldStop(state, item)) continue;
+                const needsEngine = item.mine
+                    ? true    // la porta de solidesa és tot el sentit de la tria
+                    : repliesNeedEngine(opponentReplyCounts(state.books.theirs[positionKeyFromFen(item.fen)]), state.config);
+                if (needsEngine && !budgetLeft(state)) {
+                    // Pressupost exhaurit: la branca es queda on és, no s'endevina.
+                    state.skipped += 1;
+                    continue;
+                }
+                if (!needsEngine) { expand(state, item, null); continue; }
+                state.pending = { item: item, phase: 'position', evaluation: null, missing: [], extra: {} };
+                return describeJob(state.pending);
+            }
+            state.done = true;
+            return null;
+        }
+
+        function finishOwn(state, pending) {
+            expandOwn(state, pending.item, mergeMeasured(pending.evaluation, pending.extra));
+            state.pending = null;
+        }
+
+        // Aplica l'avaluació demanada i continua. Amb `null` (el motor no ha
+        // pogut) la branca s'atura en comptes d'inventar-se una jugada.
+        function feed(state, evaluation) {
+            const pending = state.pending;
+            if (!pending) return false;
+            state.evaluated += 1;
+            const usable = evaluation && Array.isArray(evaluation.moves) && evaluation.moves.length
+                && typeof evaluation.moves[0].cp === 'number';
+
+            if (pending.phase === 'candidate') {
+                const san = pending.missing.shift();
+                // La mesura ve en la mateixa escala que la resta de la posició
+                // (mateixa cerca, mateix bàndol), així que s'hi afegeix tal qual.
+                // Ha de ser la jugada demanada: agafar-ne una altra faria passar
+                // per bona una jugada que no s'ha mesurat.
+                const measured = usable ? evaluation.moves.find(m => m && m.san === san) : null;
+                if (measured && typeof measured.cp === 'number') pending.extra[san] = measured.cp;
+                if (!pending.missing.length || !budgetLeft(state)) finishOwn(state, pending);
+                return true;
+            }
+
+            if (!pending.item.mine) {
+                // Posició del rival: encara que el motor falli, les dades
+                // pròpies poden cobrir-la.
+                expand(state, pending.item, usable ? evaluation : null);
+                state.pending = null;
+                return true;
+            }
+
+            if (!usable) { state.skipped += 1; state.pending = null; return true; }
+
+            pending.evaluation = evaluation;
+            const key = positionKeyFromFen(pending.item.fen);
+            const personal = personalMovesAt(state.books, key);
+            pending.missing = budgetLeft(state)
+                ? candidatesToMeasure(personal, evaluation, state.config)
+                : [];
+            if (!pending.missing.length) { finishOwn(state, pending); return true; }
+            pending.phase = 'candidate';
+            return true;
+        }
+
+        function result(state) {
+            return {
+                color: state.color,
+                builtAt: null,               // el posa qui ho desa
+                games: state.games,
+                enough: state.enough,
+                evaluated: state.evaluated,
+                skipped: state.skipped,
+                complete: state.done && !state.pending,
+                config: {
+                    maxPlies: state.config.maxPlies,
+                    maxCpLoss: state.config.maxCpLoss,
+                    coverage: state.config.coverage,
+                    maxPositions: state.config.maxPositions
+                },
+                summary: summarizePersonalOpening(state.root),
+                root: state.root
+            };
+        }
+
+        return {
+            buildPositionBooks,
+            personalMovesAt,
+            start,
+            nextPosition,
+            feed,
+            remaining,
+            result
+        };
+    }
+
+    // ----------------------------------------------------------------------
     // Classificador de FINAL TÀCTIC dels jeroglífics (PUR amb chess.js injectat)
     // ----------------------------------------------------------------------
     // Un jeroglífic només s'aprova si acaba amb una imatge tàctica clara i
@@ -3365,6 +3968,14 @@
         historyEntryOutcome,
         repertoireEligibleGames,
         createRepertoireHelpers,
+        PERSONAL_OPENING_CONFIG,
+        opponentReplyCounts,
+        coverOpponentReplies,
+        moveCpLoss,
+        choosePersonalMove,
+        summarizePersonalOpening,
+        personalOpeningLines,
+        createPersonalOpeningBuilder,
         normalize,
         clampUserElo,
         getBaselineAdjustmentDelta,
