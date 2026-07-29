@@ -77,6 +77,12 @@
   // dispositiu: al mòbil sol anar millor «Tocar» i a l'ordinador «Arrossegar».
   // Si es sincronitzés, l'últim aparell usat imposaria la seva opció als altres.
   EXCLUDE_KEYS.add('eltauler_control_mode');
+  // El COS pesat de les partides (revisions jugada a jugada amb les seves
+  // línies, errades i ressenya d'IA) viu a IndexedDB, fora d'aquesta
+  // instantània: són desenes de KB per partida i el document de Firestore té un
+  // límit d'1 MiB. Aquesta clau és només la xarxa de seguretat que fa servir
+  // gamestore.js quan IndexedDB no està disponible, i tampoc no s'ha de pujar.
+  EXCLUDE_KEYS.add('chess_gameBodies');
 
   // ---------------------------------------------------------------------------
   //  Estat del mòdul

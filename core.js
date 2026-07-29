@@ -719,27 +719,63 @@
         return b > w ? 'b' : 'w';
     }
 
+    const BESSO_PHASES = ['opening', 'middlegame', 'endgame'];
+
+    function bessoEmptyPhaseStats() {
+        return {
+            opening: { loss: 0, n: 0 },
+            middlegame: { loss: 0, n: 0 },
+            endgame: { loss: 0, n: 0 }
+        };
+    }
+
+    // Resum per fases d'UNA partida: sis números (pèrdua acumulada i jugades
+    // comptades per fase) que surten de les revisions de les jugades pròpies.
+    // Es calcula un sol cop, en acabar la partida, i es desa a l'índex lleuger
+    // de l'historial: així el perfil pot mirar centenars de partides sense
+    // haver de guardar-ne (ni carregar-ne) totes les revisions.
+    function bessoPhaseStatsFromGame(entry) {
+        const acc = bessoEmptyPhaseStats();
+        if (!entry) return acc;
+        (Array.isArray(entry.moveReviews) ? entry.moveReviews : []).forEach(r => {
+            if (!r || r.color !== entry.playerColor) return;
+            const moveNumber = +r.moveNumber || 0;
+            const ply = Math.max(0, (moveNumber - 1) * 2);
+            const phase = r.fen
+                ? bessoPhaseOfPosition(r.fen, ply)
+                : (moveNumber <= 10 ? 'opening' : 'middlegame');
+            acc[phase].loss += Math.max(0, Math.min(900, +r.swing || 0));
+            acc[phase].n += 1;
+        });
+        return acc;
+    }
+
+    // Resum per fases d'una partida: el desat si n'hi ha (partides que ja no
+    // porten les revisions a la memòria), o calculat al vol si no.
+    function bessoGamePhaseStats(entry) {
+        const stored = entry && entry.phaseStats;
+        const usable = stored && typeof stored === 'object'
+            && BESSO_PHASES.every(p => stored[p] && typeof stored[p].n === 'number');
+        if (!usable) return bessoPhaseStatsFromGame(entry);
+        const acc = bessoEmptyPhaseStats();
+        BESSO_PHASES.forEach(p => {
+            acc[p].loss = Math.max(0, +stored[p].loss || 0);
+            acc[p].n = Math.max(0, +stored[p].n || 0);
+        });
+        return acc;
+    }
+
     // Perfil de qualitat per fases a partir de les revisions de jugades pròpies:
     // una fase jugada PITJOR que la mitjana dona un delta d'ELO negatiu (el bessó
     // hi jugarà més fluix, com tu), i una fase forta el dona positiu.
     function bessoProfileFromGames(entries) {
         const games = bessoEligibleGames(entries);
-        const acc = {
-            opening: { loss: 0, n: 0 },
-            middlegame: { loss: 0, n: 0 },
-            endgame: { loss: 0, n: 0 }
-        };
+        const acc = bessoEmptyPhaseStats();
         games.forEach(e => {
-            (Array.isArray(e.moveReviews) ? e.moveReviews : []).forEach(r => {
-                if (!r || r.color !== e.playerColor) return;
-                const moveNumber = +r.moveNumber || 0;
-                const ply = Math.max(0, (moveNumber - 1) * 2);
-                const phase = r.fen
-                    ? bessoPhaseOfPosition(r.fen, ply)
-                    : (moveNumber <= 10 ? 'opening' : 'middlegame');
-                const swing = Math.max(0, Math.min(900, +r.swing || 0));
-                acc[phase].loss += swing;
-                acc[phase].n += 1;
+            const stats = bessoGamePhaseStats(e);
+            BESSO_PHASES.forEach(p => {
+                acc[p].loss += stats[p].loss;
+                acc[p].n += stats[p].n;
             });
         });
         const totalN = acc.opening.n + acc.middlegame.n + acc.endgame.n;
@@ -3095,6 +3131,8 @@
         bessoPhaseOfPosition,
         bessoEligibleGames,
         bessoDominantColor,
+        bessoPhaseStatsFromGame,
+        bessoGamePhaseStats,
         bessoProfileFromGames,
         bessoPhaseElo,
         bessoDaysAgoLabel,

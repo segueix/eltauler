@@ -202,6 +202,22 @@ L'ús real varia molt; són estimacions.
 **Emmagatzematge (1 GiB):** cada doc d'usuari ~20-200 KB → **~10.000 usuaris
 registrats** abans de tocar el límit (independent de l'activitat diària).
 
+**Historial de partides (aplicat):** el que feia créixer el document d'usuari era
+l'historial, perquè cada partida hi duia les revisions jugada a jugada amb les
+seves línies alternatives (**fins a ~80 KB per partida**: una desena de partides
+llargues ja s'acostava al límit d'1 MiB per document). Ara l'historial es desa en
+**dos nivells** (vegeu `gamestore.js`):
+
+| Meitat | Què hi ha | On viu | Se sincronitza? |
+|---|---|---|---|
+| **Índex** (~1 KB/partida) | resultat, jugades, precisió, moment clau, resum per fases | `localStorage` | Sí |
+| **Cos** (desenes de KB/partida) | `moveReviews`, `errors`, `severeErrors`, `aiReview` | IndexedDB | **No** |
+
+Amb això el document d'usuari **no creix amb l'historial**: 150 partides
+indexades ocupen ~130 KB, mentre que amb els cossos a dins passarien de 10 MB.
+El límit de partides guardades ha pujat de 10 a **200** justament perquè ara
+l'espai que consumeixen a la sincronització és marginal.
+
 ### Resum
 
 | Escenari | Coll d'ampolla | Capacitat aproximada |

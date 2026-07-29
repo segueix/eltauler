@@ -111,7 +111,16 @@ let openingErrorMoveFilter = null; // Número de moviment
 let openingErrorMovesRemaining = 2; // Jugades restants per completar
 let openingErrorCurrentIndex = -1; // Índex de la posició actual
 
+// L'historial es desa en DOS NIVELLS (vegeu gamestore.js): l'ÍNDEX lleuger de
+// cada partida (resultat, jugades, precisió, moment clau, estadístiques per
+// fase) va al localStorage i se sincronitza; el COS pesat (revisions jugada a
+// jugada, errades, ressenya d'IA) va a IndexedDB i NO se sincronitza. Per això
+// l'índex pot arribar a HISTORY_MAX partides sense acostar-se a la quota, i
+// alhora es mantenen en memòria els cossos de les HISTORY_HOT_BODIES últimes,
+// que és el que miren les estadístiques i els exercicis derivats d'errades.
 let gameHistory = [];
+const HISTORY_MAX = 200;
+const HISTORY_HOT_BODIES = 10;
 // Partides carregades amb PGN (poden ser d'altres jugadors, p. ex. grans
 // mestres): viuen a la seva pròpia llista i pestanya de l'historial, separades
 // de les partides pròpies perquè no en desplacin cap ni comptin a les
@@ -160,6 +169,182 @@ function migrateImportedHistoryEntries() {
     if (importedGameHistory.length > IMPORTED_HISTORY_MAX) {
         importedGameHistory = importedGameHistory.slice(-IMPORTED_HISTORY_MAX);
     }
+}
+
+// ── Historial en dos nivells: índex al localStorage, cos a IndexedDB ─────────
+// Tot passa per aquí perquè la resta de l'app no hagi de saber on viu cada
+// meitat: qui vulgui llegir revisions d'una partida crida ensureHistoryEntryBody
+// i qui desi progrés crida saveStorage() com sempre.
+
+function gameStore() {
+    return (typeof window !== 'undefined' && window.ElTaulerGameStore) ? window.ElTaulerGameStore : null;
+}
+
+// Empremtes dels cossos ja desats: evita reescriure a IndexedDB els que no han
+// canviat (una partida acabada es torna a desar moltes vegades per sessió).
+const historyBodyFingerprints = new Map();
+
+function historyBodyFingerprint(text) {
+    let h = 5381;
+    for (let i = 0; i < text.length; i++) h = ((h << 5) + h + text.charCodeAt(i)) | 0;
+    return `${text.length}:${h >>> 0}`;
+}
+
+// Totes les entrades de l'historial, de les dues pestanyes.
+function allHistoryEntries() {
+    return gameHistory.concat(importedGameHistory);
+}
+
+// Jugades revisades d'una entrada, tingui el cos carregat o no: és el que
+// distingeix una partida analitzada d'una que encara no ho està.
+function historyEntryReviewCount(entry) {
+    const store = gameStore();
+    if (store) return store.reviewCount(entry);
+    if (entry && Array.isArray(entry.moveReviews)) return entry.moveReviews.length;
+    return Number(entry && entry.reviewedMoves) || 0;
+}
+
+function historyEntryIsHydrated(entry) {
+    const store = gameStore();
+    return store ? store.isHydrated(entry) : true;
+}
+
+// Llista llesta per al localStorage: només els índexs lleugers.
+function historyIndexForStorage(list) {
+    const store = gameStore();
+    if (!store) return Array.isArray(list) ? list : [];
+    return store.indexForStorage(list);
+}
+
+// El desat pot fallar per quota (o perquè el navegador el bloqueja). Es diu una
+// sola vegada per sessió: repetir-ho a cada partida seria soroll.
+let storageSaveFailureNotified = false;
+function notifyStorageSaveFailure() {
+    if (storageSaveFailureNotified) return;
+    storageSaveFailureNotified = true;
+    if (typeof showToast === 'function') {
+        showToast('No hi ha prou espai per desar-ho tot al navegador. Esborra alguna partida de l\'historial.', 'warn');
+    }
+}
+
+// Assegura que una entrada porta el seu cos carregat. Resol amb `true` quan
+// l'entrada ja es pot llegir sencera (encara que la partida no tingui cos).
+function ensureHistoryEntryBody(entry) {
+    const store = gameStore();
+    if (!entry) return Promise.resolve(false);
+    if (!store) return Promise.resolve(historyEntryIsHydrated(entry));
+    return store.hydrate(entry).catch(() => false);
+}
+
+// Desa a IndexedDB els cossos de les entrades que ara mateix són a la memòria i
+// han canviat. No llança mai: perdre un cos no ha de tombar el desat general.
+function flushHistoryBodies() {
+    const store = gameStore();
+    if (!store) return;
+    allHistoryEntries().forEach(entry => {
+        if (!entry || !entry.id || !historyEntryIsHydrated(entry)) return;
+        let body;
+        try { body = store.splitEntry(entry).body; } catch (e) { return; }
+        let fingerprint;
+        try { fingerprint = historyBodyFingerprint(body ? JSON.stringify(body) : ''); } catch (e) { return; }
+        if (historyBodyFingerprints.get(entry.id) === fingerprint) return;
+        historyBodyFingerprints.set(entry.id, fingerprint);
+        store.putBody(entry.id, body).catch(() => { historyBodyFingerprints.delete(entry.id); });
+    });
+}
+
+// Treu de la MEMÒRIA els cossos de les partides velles (el disc no es toca):
+// les HISTORY_HOT_BODIES últimes de cada llista es queden carregades, que és el
+// que necessiten les estadístiques, els jeroglífics i l'entrenament d'errades.
+function shedColdHistoryBodies() {
+    const store = gameStore();
+    if (!store) return;
+    [gameHistory, importedGameHistory].forEach(list => {
+        const coldCount = Math.max(0, list.length - HISTORY_HOT_BODIES);
+        for (let i = 0; i < coldCount; i++) {
+            const entry = list[i];
+            if (!entry || !historyEntryIsHydrated(entry)) continue;
+            // Només es descarrega el que consta desat: sense empremta, el cos
+            // encara no ha arribat a IndexedDB i treure'l seria perdre'l.
+            if (!historyBodyFingerprints.has(entry.id)) continue;
+            store.shedBody(entry);
+        }
+    });
+}
+
+// Carrega els cossos de les partides recents. Es crida en arrencar i quan
+// arriben dades noves del núvol, perquè tot el que llegeix revisions sense
+// demanar-les (estadístiques, jeroglífics, diagnòstic) trobi el que espera.
+function hydrateRecentHistoryBodies() {
+    const store = gameStore();
+    if (!store) return Promise.resolve();
+    const pending = [];
+    [gameHistory, importedGameHistory].forEach(list => {
+        list.slice(-HISTORY_HOT_BODIES).forEach(entry => {
+            if (entry && !historyEntryIsHydrated(entry)) pending.push(ensureHistoryEntryBody(entry));
+        });
+    });
+    if (!pending.length) return Promise.resolve();
+    return Promise.all(pending).then(() => {});
+}
+
+// Prepara una llista acabada d'arribar (localStorage, núvol o còpia de
+// seguretat). Les entrades velles porten el cos a dins: es desa a IndexedDB i
+// es descarrega de la memòria si ja no és de les recents, de manera que la
+// migració passa sola i sense perdre res.
+function adoptHistoryEntries(list, { max = HISTORY_MAX } = {}) {
+    const store = gameStore();
+    let entries = (Array.isArray(list) ? list : []).filter(e => e && typeof e === 'object');
+    if (entries.length > max) entries = entries.slice(-max);
+    if (!store) return entries;
+    entries.forEach(entry => {
+        if (!entry.id) return;
+        // Partides d'abans dels dos nivells: el resum per fases es calcula ara,
+        // mentre les revisions encara hi són, perquè segueixin comptant per al
+        // perfil del bessó quan el seu cos passi a IndexedDB.
+        if (!entry.phaseStats && Array.isArray(entry.moveReviews) && entry.moveReviews.length) {
+            try { entry.phaseStats = ElTaulerCore.bessoPhaseStatsFromGame(entry); } catch (e) {}
+        }
+        const split = store.splitEntry(entry);
+        // Les entrades que porten el cos a dins són les que cal migrar; les que
+        // arriben ja partides (índex sol) no tenen res a desar.
+        if (split.body) {
+            try {
+                historyBodyFingerprints.set(entry.id, historyBodyFingerprint(JSON.stringify(split.body)));
+            } catch (e) {}
+            store.putBody(entry.id, split.body).catch(() => { historyBodyFingerprints.delete(entry.id); });
+        }
+        entry.hasBody = split.index.hasBody;
+        entry.reviewedMoves = split.index.reviewedMoves;
+    });
+    return entries;
+}
+
+// Quan els cossos de les partides recents ja són a la memòria, es refresquen
+// les superfícies que en depenen (errades acumulades, jeroglífics de partides
+// pròpies, diagnòstic de l'entrenador) per si ja s'havien pintat sense.
+function onHistoryBodiesReady() {
+    try { if (typeof renderGameHistory === 'function' && $('#history-screen').is(':visible')) renderGameHistory(); } catch (e) {}
+    try { if (typeof refreshJeroglificButton === 'function') refreshJeroglificButton(); } catch (e) {}
+    try { if (typeof renderCoachDiagnosis === 'function') renderCoachDiagnosis(); } catch (e) {}
+}
+
+function forgetHistoryEntryBody(id) {
+    const store = gameStore();
+    historyBodyFingerprints.delete(id);
+    if (store) store.deleteBody(id).catch(() => {});
+}
+
+// Esborra de IndexedDB els cossos de partides que ja no són a l'historial
+// (desplaçades pel límit, o esborrades des d'un altre dispositiu).
+function pruneHistoryBodies() {
+    const store = gameStore();
+    if (!store) return;
+    const ids = allHistoryEntries().map(e => e && e.id).filter(Boolean);
+    Array.from(historyBodyFingerprints.keys()).forEach(id => {
+        if (ids.indexOf(id) === -1) historyBodyFingerprints.delete(id);
+    });
+    store.keepOnly(ids).catch(() => {});
 }
 // Moment clau actiu a la revisió: { beforeFen, played, best }. Es desa per poder
 // reaplicar els ressaltats (la teva jugada en vermell, la millor en verd) si el
@@ -1160,6 +1345,23 @@ function buildBackupData({ includeGameHistory = false } = {}) {
     return base;
 }
 
+// Còpia de seguretat COMPLETA: a diferència de la sincronització al núvol —que
+// només ha de moure l'índex per no inflar el document de Firestore—, un fitxer
+// de backup ha de poder restaurar les partides senceres. Per això es carreguen
+// tots els cossos de IndexedDB abans de serialitzar, i després es tornen a
+// descarregar de la memòria els que ja no són de les partides recents.
+async function buildFullBackupData() {
+    try {
+        await Promise.all(allHistoryEntries().map(entry => ensureHistoryEntryBody(entry)));
+    } catch (e) { console.warn('[Backup] no s\'han pogut carregar totes les partides', e); }
+    const data = buildBackupData({ includeGameHistory: true });
+    // La serialització es fa aquí mateix (el que la crida ja només fa
+    // JSON.stringify d'aquest objecte), així que ja es pot alliberar memòria.
+    const snapshot = JSON.parse(JSON.stringify(data));
+    shedColdHistoryBodies();
+    return snapshot;
+}
+
 
 function normalizeAdaptationReport(report) {
     return (Array.isArray(report) ? report : [])
@@ -1984,6 +2186,12 @@ function importBackupData(data) {
     gameHistory = data.gameHistory || [];
     importedGameHistory = Array.isArray(data.importedGameHistory) ? data.importedGameHistory : [];
     migrateImportedHistoryEntries(); // còpies antigues duien les importades dins gameHistory
+    // Una còpia de seguretat pot dur les partides senceres (cos inclòs): es
+    // reparteixen entre l'índex i IndexedDB com les que arriben del localStorage.
+    gameHistory = adoptHistoryEntries(gameHistory);
+    importedGameHistory = adoptHistoryEntries(importedGameHistory, { max: IMPORTED_HISTORY_MAX });
+    shedColdHistoryBodies();
+    pruneHistoryBodies();
     if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
     if (data.tacticsStats && typeof data.tacticsStats === 'object') tacticsStats = Object.assign({ solved: 0, attempts: 0, best: 0, streak: 0, recentFens: [] }, data.tacticsStats);
     if (data.hieroglyphicStats && typeof data.hieroglyphicStats === 'object') hieroglyphicStats = Object.assign(hieroglyphicStats, data.hieroglyphicStats);
@@ -5923,6 +6131,14 @@ function loadStorage() {
     const importedHistoryStored = localStorage.getItem('chess_importedGameHistory');
     importedGameHistory = importedHistoryStored ? JSON.parse(importedHistoryStored) : [];
     migrateImportedHistoryEntries();
+    // Historial en dos nivells: les entrades velles que encara porten el cos a
+    // dins es migren a IndexedDB, i les recents es queden carregades a memòria.
+    gameHistory = adoptHistoryEntries(gameHistory);
+    importedGameHistory = adoptHistoryEntries(importedGameHistory, { max: IMPORTED_HISTORY_MAX });
+    shedColdHistoryBodies();
+    // Els cossos de les partides recents es carreguen en segon pla: mentrestant
+    // la llista, les obertures i el bessó ja treballen amb l'índex.
+    hydrateRecentHistoryBodies().then(onHistoryBodiesReady).catch(() => {});
     const storedAdjustmentWindow = localStorage.getItem('chess_freeAdjustmentWindow');
     if (storedAdjustmentWindow) {
         try {
@@ -6072,8 +6288,11 @@ function saveStorageNow() {
     localStorage.setItem('chess_calibrationProfile', JSON.stringify(calibrationProfile));
     localStorage.setItem('chess_calibratgeComplet', String(calibratgeComplet));
     localStorage.setItem('chess_reviewHistory', JSON.stringify(reviewHistory));
-    localStorage.setItem('chess_gameHistory', JSON.stringify(gameHistory));
-    localStorage.setItem('chess_importedGameHistory', JSON.stringify(importedGameHistory));
+    // Al localStorage hi va NOMÉS l'índex lleuger de cada partida: el cos pesat
+    // (revisions, errades, ressenya d'IA) es desa a IndexedDB just després,
+    // fora de la instantània que puja la sincronització del compte.
+    localStorage.setItem('chess_gameHistory', JSON.stringify(historyIndexForStorage(gameHistory)));
+    localStorage.setItem('chess_importedGameHistory', JSON.stringify(historyIndexForStorage(importedGameHistory)));
     localStorage.setItem('chess_currentElo', currentElo);
     localStorage.setItem('chess_recentErrors', JSON.stringify(recentErrors));
     localStorage.setItem('chess_freeAdjustmentWindow', JSON.stringify(freeAdjustmentWindow));
@@ -6111,7 +6330,16 @@ function saveStorageNow() {
     }
     // Rànquing global: puja les meves estadístiques (amb debounce, només si hi ha sessió).
     try { if (typeof schedulePushRanking === 'function') schedulePushRanking(); } catch (e) {}
+    } catch (e) {
+        // Quota exhaurida (o desat bloquejat): abans això sortia disparat i es
+        // perdien la sincronització i el rànquing d'aquesta tanda. Ara es
+        // registra i el desat segueix endavant amb el que s'hagi pogut escriure.
+        console.warn('[Storage] no s\'ha pogut completar el desat', e);
+        try { notifyStorageSaveFailure(); } catch (e2) {}
     } finally {
+        // El cos pesat de les partides carregades va a IndexedDB, sempre fora de
+        // la instantània del localStorage que puja la sincronització.
+        try { flushHistoryBodies(); } catch (e) {}
         lastStorageSaveDurationMs = Math.round((nowMs() - storageSaveStartedAt) * 10) / 10;
         if (lastStorageSaveDurationMs >= 50) {
             console.info('[StoragePerf] desament complet', { durationMs: lastStorageSaveDurationMs });
@@ -7451,6 +7679,8 @@ async function deepenEntryAnalysis(entry, opts = {}) {
         entry.deepAnalyzed = true;
         // La requalificació pot canviar el desglossament (excel·lents/errors…).
         try { entry.counts = summarizeReview(entry.moveReviews); } catch (e) {}
+        // …i, amb ell, el resum per fases que el bessó llegeix de l'índex.
+        try { entry.phaseStats = ElTaulerCore.bessoPhaseStatsFromGame(entry); } catch (e) {}
         if (typeof saveStorage === 'function') saveStorage();
     } catch (e) {
         console.warn('[DeepReview] error inesperat', e);
@@ -9386,6 +9616,9 @@ async function analyzeHistoryEntryFromScratch(entry, opts = {}) {
         entry.severeErrors = getSevereErrors(reviews);
         // Recalcula el moment clau amb l'anàlisi profunda (dades més fiables).
         try { entry.keyMoment = keyMomentToStored(computeKeyMoment(entry)); } catch (e) {}
+        // Resum per fases a l'índex: fins ara la partida no tenia revisions i,
+        // per tant, no comptava per al perfil del bessó.
+        try { entry.phaseStats = ElTaulerCore.bessoPhaseStatsFromGame(entry); } catch (e) {}
         entry.errors = entry.severeErrors.map(err => ({
             fen: err.fen,
             severity: err.quality || 'blunder',
@@ -10317,16 +10550,6 @@ function loadHistoryEntry(entry) {
     try { prewarmOpeningPositionGraph(); } catch (e) {}
     initHistoryBoard(entry);
     const moves = getHistoryMoves(entry);
-    // Repara les FEN de decisió inservibles d'entrades velles/inacabades i, si
-    // s'ha corregit res, ho desa una sola vegada perquè quedi net per sempre.
-    try {
-        if (repairEntryMoveReviewFens(entry, moves)) {
-            if (typeof entry.counts === 'undefined' || entry.counts === null) {
-                try { entry.counts = summarizeReview(entry.moveReviews); } catch (e) {}
-            }
-            saveStorage();
-        }
-    } catch (e) { console.warn('repairEntryMoveReviewFens', e); }
     historyReplay = {
         entry: entry,
         game: new Chess(),
@@ -10336,10 +10559,38 @@ function loadHistoryEntry(entry) {
         timer: null,
         isPlaying: false
     };
+    applyHistoryEntryBody(entry, moves);
     updateHistoryDetails(entry);
     renderHistoryMovesList();
     updateHistoryBoard();
     syncHistoryListActive();
+    // El cos pesat de les partides velles viu a IndexedDB: mentre arriba, el
+    // tauler i les jugades ja es veuen (surten de l'índex), i quan el tenim es
+    // repinta el detall sense tocar la posició del rejoc.
+    if (!historyEntryIsHydrated(entry)) {
+        ensureHistoryEntryBody(entry).then(loaded => {
+            if (!loaded) return;
+            if (!historyReplay || historyReplay.entry !== entry) return;
+            applyHistoryEntryBody(entry, moves);
+            updateHistoryDetails(entry);
+            renderHistoryMovesList();
+        });
+    }
+}
+
+// Feines que necessiten el cos de l'entrada carregat: reparar les FEN de decisió
+// inservibles d'entrades velles/inacabades i, si s'ha corregit res, desar-ho una
+// sola vegada perquè quedi net per sempre.
+function applyHistoryEntryBody(entry, moves) {
+    if (!entry || !historyEntryIsHydrated(entry)) return;
+    try {
+        if (repairEntryMoveReviewFens(entry, moves)) {
+            if (typeof entry.counts === 'undefined' || entry.counts === null) {
+                try { entry.counts = summarizeReview(entry.moveReviews); } catch (e) {}
+            }
+            saveStorage();
+        }
+    } catch (e) { console.warn('repairEntryMoveReviewFens', e); }
 }
 
 function updateHistoryDetails(entry) {
@@ -10411,7 +10662,9 @@ function updateHistoryDetails(entry) {
 function updateHistoryDeepenButton(entry) {
     const btn = $('#history-deepen-review');
     if (!btn.length || btn.prop('disabled')) return; // no trepitgem una anàlisi en curs
-    const hasAnalysis = entry && Array.isArray(entry.moveReviews) && entry.moveReviews.length;
+    // El recompte surt de l'índex: encara que el cos de la partida no hagi
+    // arribat de IndexedDB, ja se sap si està analitzada o no.
+    const hasAnalysis = entry && historyEntryReviewCount(entry) > 0;
     if (entry && !hasAnalysis && getHistoryMoves(entry).length) {
         btn.html('<svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Analitza la partida');
     } else {
@@ -10547,6 +10800,7 @@ function importPgnGameAt(idx) {
     if (importedGameHistory.length > IMPORTED_HISTORY_MAX) {
         importedGameHistory = importedGameHistory.slice(-IMPORTED_HISTORY_MAX);
     }
+    pruneHistoryBodies();
     saveStorage();
     closePgnImportModal();
     historyReplay = null; // que la pestanya PGN s'obri amb la partida acabada d'importar
@@ -10587,7 +10841,7 @@ function updateHistoryReview(entry) {
     // Partida sense anàlisi de jugades (importada d'un PGN i encara no
     // analitzada): la ressenya no tindria dades reals, així que en lloc de
     // text buit es guia cap al botó d'anàlisi.
-    if ((!Array.isArray(entry.moveReviews) || !entry.moveReviews.length) && getHistoryMoves(entry).length) {
+    if (!historyEntryReviewCount(entry) && getHistoryMoves(entry).length) {
         reviewContent.html(playersLine + '<p>Aquesta partida encara no s\'ha analitzat. Prem <strong>«Analitza la partida»</strong> (sota el tauler) perquè el motor avaluï cada jugada del color triat i l\'entrenador en pugui escriure la ressenya, amb les errades i els encerts comentats.</p>');
         return;
     }
@@ -11181,7 +11435,7 @@ function keyMomentQualityLabel(q) {
 // moment crític clar». La millor jugada i el FEN queden en desplegables (no a la
 // vista per no desvelar la solució ni desbordar el mòbil).
 function renderKeyMomentHtml(entry) {
-    const hasAnalysis = !!(entry && ((entry.keyMoment && entry.keyMoment.fen) || (Array.isArray(entry.moveReviews) && entry.moveReviews.length)));
+    const hasAnalysis = !!(entry && ((entry.keyMoment && entry.keyMoment.fen) || historyEntryReviewCount(entry) > 0));
     if (!hasAnalysis) return '';
     const km = getEntryKeyMoment(entry);
     if (!km || !km.fen) {
@@ -14522,7 +14776,7 @@ function renderHistorySummary() {
         if (!importedGameHistory.length) { el.empty().hide(); return; }
         let analyzed = 0, precSum = 0, precN = 0;
         importedGameHistory.forEach(e => {
-            if (Array.isArray(e.moveReviews) && e.moveReviews.length) analyzed++;
+            if (historyEntryReviewCount(e)) analyzed++;
             if (typeof e.precision === 'number') { precSum += e.precision; precN++; }
         });
         const avg = precN ? Math.round(precSum / precN) : null;
@@ -14703,6 +14957,8 @@ function renderGameHistory() {
                     if (impIdx === -1) return;
                     importedGameHistory.splice(impIdx, 1);
                 }
+                // El cos pesat de la partida viu a IndexedDB: se n'ha d'anar amb ella.
+                forgetHistoryEntryBody(id);
                 try { saveStorage(); } catch (err) { console.warn('[Historial] esborrar', err); }
                 // Si esborrem la partida que s'estava mostrant, buida el detall perquè
                 // renderGameHistory en carregui una altra (o mostri l'estat buit).
@@ -14784,9 +15040,16 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     // Moment clau de la partida (decisió més rellevant de l'usuari): es desa en
     // forma compacta si n'hi ha cap de prou important; si no, queda absent.
     try { entry.keyMoment = keyMomentToStored(computeKeyMoment(entry)); } catch (e) { entry.keyMoment = null; }
+    // Resum per fases (sis números): va a l'ÍNDEX lleuger, de manera que el
+    // perfil del bessó pugui mirar totes les partides guardades encara que les
+    // seves revisions ja no siguin a la memòria.
+    try { entry.phaseStats = ElTaulerCore.bessoPhaseStatsFromGame(entry); } catch (e) { entry.phaseStats = null; }
     gameHistory.push(entry);
-    if (gameHistory.length > 10) gameHistory = gameHistory.slice(-10);
-    // Bloc de neteja de reviews eliminat
+    if (gameHistory.length > HISTORY_MAX) gameHistory = gameHistory.slice(-HISTORY_MAX);
+    // El cos de les partides que han deixat de ser recents es descarrega de la
+    // memòria (a IndexedDB hi segueix, i es torna a carregar en obrir-les).
+    shedColdHistoryBodies();
+    pruneHistoryBodies();
 }
 
 function isOpeningMoveCorrect(quality) {
@@ -20144,6 +20407,9 @@ function setupEvents() {
     $('#history-deepen-review').off('click').on('click', async function() {
         if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer', 'warn'); return; }
         const entry = historyReplay.entry;
+        // La reanàlisi treballa sobre les revisions desades: si la partida és
+        // vella, el seu cos encara pot estar a IndexedDB.
+        await ensureHistoryEntryBody(entry);
         if (!Array.isArray(entry.moveReviews) || !entry.moveReviews.length) {
             // Partida sense anàlisi (normalment importada d'un PGN): anàlisi
             // completa jugada a jugada en lloc de la reanàlisi de moments clau.
@@ -20345,6 +20611,10 @@ function setupEvents() {
             isCalibrating = true; calibrationGames = []; calibrationProfile = null; calibratgeComplet = false;
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = []; importedGameHistory = []; adaptationReport = [];
+            // localStorage.clear() no toca IndexedDB: els cossos de les partides
+            // s'han d'esborrar a part perquè «esborrar-ho tot» ho sigui de debò.
+            historyBodyFingerprints.clear();
+            try { const store = gameStore(); if (store) store.clear().catch(() => {}); } catch (e) {}
             completedOpenings = []; tacticsStats = { solved: 0, attempts: 0, best: 0, streak: 0 };
             timeControlElos = {};
             saveStorage(); generateDailyMissions(); updateDisplay();
@@ -20495,8 +20765,10 @@ function setupEvents() {
         }
     });
 
-    $('#btn-export').click(() => {
-             const data = buildBackupData({ includeGameHistory: true });
+    $('#btn-export').click(async () => {
+        // La còpia de seguretat sí que ha de dur les partides SENCERES: els
+        // cossos que viuen a IndexedDB es carreguen abans de serialitzar-la.
+        const data = await buildFullBackupData();
         const filename = `eltauler_backup_${totalStars}stars.json`;
         if (supportsDirectoryPicker()) {
             writeBackupToDirectory(data, filename, { prompt: false })
