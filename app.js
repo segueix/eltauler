@@ -15234,7 +15234,11 @@ function setOpeningScreenMode(mode = 'overview') {
     const logo = document.querySelector('#opening-screen .stats-header .app-logo');
     if (header) header.textContent = isHieroglyphicMode ? 'Jeroglífics' : 'Obertures';
     if (logo) logo.innerHTML = isHieroglyphicMode ? HG_ICON_SVG : '📖';
-    $('#opening-practice-section .opening-section-title').text(isHieroglyphicMode ? 'Jeroglífic personal' : 'Bloc 2 · Pràctica de línia');
+    // El nom del bloc viu en un span propi: el mode jeroglífic el reescriu sense
+    // endur-se la icona ni el xip del número, que s'amaga perquè aquí no hi som
+    // per fer el Bloc 2.
+    $('#opening-practice-section .opening-section-title .obs-name').text(isHieroglyphicMode ? 'Jeroglífic personal' : 'Pràctica de línia');
+    $('#opening-practice-section .opening-section-title .obs-num').toggle(!isHieroglyphicMode);
     $('#opening-practice-section .opening-section-desc').text(isHieroglyphicMode ? 'Desxifra una seqüència tàctica validada amb Stockfish a partir d’un moment clau de les teves partides.' : 'Practica obertures amb un màxim de 10 moviments per bàndol. La base teòrica detectada només identifica línies; el repertori recomanat és la guia pedagògica principal.');
     $('#opening-practice-section .opening-mode-row').toggle(!isHieroglyphicMode);
     $('#opening-precision-panel').toggle(!isHieroglyphicMode);
@@ -15335,10 +15339,12 @@ function repertoireScoreClass(score) {
     return 'rep-score-low';
 }
 
-function renderRepertoireColumn(rep, label, icon) {
+function renderRepertoireColumn(rep, label, icon, side) {
     if (!rep) return '';
     const plural = n => n === 1 ? 'partida' : 'partides';
-    let html = `<div class="rep-color-block">
+    // El bàndol es llegeix pel color, com al repertori recomanat del Bloc 1:
+    // daurat el que jugues amb blanques, blau-pissarra el que jugues amb negres.
+    let html = `<div class="rep-color-block rep-side-${side === 'black' ? 'black' : 'white'}">
         <div class="rep-color-title">${icon} ${label} <span class="rep-color-count">${rep.games} ${plural(rep.games)}</span></div>`;
     if (!rep.games) {
         html += `<div class="rep-empty">Encara no has jugat cap partida amb ${label.toLowerCase()}. Quan en juguis, aquí hi sortirà el teu repertori real.</div></div>`;
@@ -15400,8 +15406,8 @@ function renderPersonalRepertoire() {
         return;
     }
     el.innerHTML =
-        renderRepertoireColumn(data.white, 'Blanques', '♔') +
-        renderRepertoireColumn(data.black, 'Negres', '♚');
+        renderRepertoireColumn(data.white, 'Blanques', '♔', 'white') +
+        renderRepertoireColumn(data.black, 'Negres', '♚', 'black');
     if (noteEl) {
         const total = data.white.games + data.black.games;
         noteEl.textContent = data.white.theoryKnown
@@ -15744,24 +15750,68 @@ function renderPersonalOpeningSection() {
             : '';
     });
     el.innerHTML = ['w', 'b'].map(renderPersonalOpeningResult).join('');
+    const min = ElTaulerCore.PERSONAL_OPENING_CONFIG.minColorGames;
+    const white = data ? data.white.games : 0;
+    const black = data ? data.black.games : 0;
+    const missing = [];
+    if (white < min) missing.push({ n: min - white, label: 'blanques' });
+    if (black < min) missing.push({ n: min - black, label: 'negres' });
+    // «partides» va només al primer tros: «3 partides amb blanques i 1 amb
+    // negres». Amb un sol color i una sola partida, tot va en singular.
+    const total = missing.reduce((sum, m) => sum + m.n, 0);
+    const parts = missing.map((m, idx) => idx === 0
+        ? `${m.n} ${m.n === 1 ? 'partida' : 'partides'} amb ${m.label}`
+        : `${m.n} amb ${m.label}`);
     const hintEl = document.getElementById('personal-opening-hint');
     if (hintEl) {
-        const min = ElTaulerCore.PERSONAL_OPENING_CONFIG.minColorGames;
-        const white = data ? data.white.games : 0;
-        const black = data ? data.black.games : 0;
-        const missing = [];
-        if (white < min) missing.push({ n: min - white, label: 'blanques' });
-        if (black < min) missing.push({ n: min - black, label: 'negres' });
-        // «partides» va només al primer tros: «3 partides amb blanques i 1 amb
-        // negres». Amb un sol color i una sola partida, tot va en singular.
-        const total = missing.reduce((sum, m) => sum + m.n, 0);
-        const parts = missing.map((m, idx) => idx === 0
-            ? `${m.n} ${m.n === 1 ? 'partida' : 'partides'} amb ${m.label}`
-            : `${m.n} amb ${m.label}`);
         hintEl.textContent = missing.length
             ? `${total === 1 ? 'Et falta' : 'Et falten'} ${parts.join(' i ')} perquè les teves dades diguin prou.`
             : 'Analitza les posicions amb Stockfish. Triga una estona i pots aturar-ho quan vulguis.';
     }
+    updatePersonalOpeningBannerStatus(missing, parts, total);
+}
+
+// Estat resumit del bàner plegat: amb el panell tancat, aquesta línia és tot el
+// que se'n veu, i ha de dir si la tens construïda, per quin bàndol i quant en
+// surt. Rep la mateixa feina de comptar partides que ja fa la frase de dins.
+function updatePersonalOpeningBannerStatus(missing, parts, totalMissing) {
+    const el = document.getElementById('personal-opening-status');
+    if (!el) return;
+    const build = personalOpeningBuildInProgress() ? personalOpeningBuild : null;
+    if (build) {
+        el.textContent = `Construint-la amb ${personalOpeningColorLabel(build.color)}…`;
+        return;
+    }
+    const countLines = color => {
+        const opening = personalOpenings[color];
+        if (!opening || !opening.root) return 0;
+        try { return ElTaulerCore.personalOpeningLines(opening.root).length; } catch (e) { return 0; }
+    };
+    const built = ['w', 'b'].filter(color => !!personalOpenings[color]);
+    if (built.length) {
+        const lines = built.reduce((sum, color) => sum + countLines(color), 0);
+        const labels = built.map(personalOpeningColorLabel).join(' i ');
+        const missingSide = built.length === 1 ? `, encara no amb ${personalOpeningColorLabel(built[0] === 'w' ? 'b' : 'w')}` : '';
+        el.textContent = `Construïda amb ${labels}${missingSide} · ${lines} ${lines === 1 ? 'línia' : 'línies'}.`;
+        return;
+    }
+    el.textContent = missing.length
+        ? `${totalMissing === 1 ? 'Et falta' : 'Et falten'} ${parts.join(' i ')}.`
+        : 'Encara no la tens construïda.';
+}
+
+// El bàner és clickable: la funció viu dins del panell que obre.
+function setPersonalOpeningPanelOpen(open) {
+    const btn = document.getElementById('btn-personal-opening-toggle');
+    const panel = document.getElementById('personal-opening-panel');
+    if (!btn || !panel) return;
+    panel.hidden = !open;
+    btn.setAttribute('aria-expanded', open ? 'true' : 'false');
+}
+
+function personalOpeningPanelIsOpen() {
+    const panel = document.getElementById('personal-opening-panel');
+    return !!panel && !panel.hidden;
 }
 
 function updatePersonalOpeningProgress(done, total, job) {
@@ -15815,6 +15865,9 @@ async function startPersonalOpeningBuild(color) {
     if (personalOpeningBuildInProgress()) return;
     const cancelBtn = document.getElementById('btn-cancel-build-opening');
     if (cancelBtn) cancelBtn.hidden = false;
+    // El progrés, el botó d'aturar i el resultat viuen dins del panell: mentre
+    // es construeix ha d'estar obert, i s'hi queda per veure com ha quedat.
+    setPersonalOpeningPanelOpen(true);
     renderPersonalOpeningSection();
     updatePersonalOpeningProgress(0, 1, null);
     const result = await buildPersonalOpening(color, { onProgress: updatePersonalOpeningProgress });
@@ -16519,23 +16572,38 @@ function renderOpeningLessonButtons() {
     if (!container) return;
     const whites = CURATED_OPENINGS.map((op, i) => ({ op, i })).filter(x => x.op.cat === 'white');
     const blacks = CURATED_OPENINGS.map((op, i) => ({ op, i })).filter(x => x.op.cat === 'black');
-    const renderGroup = (label, items) => {
+    // Cada obertura és una fila amb les MATEIXES quatre columnes —peça, nom,
+    // marca d'apresa i codi ECO—, també quan no hi ha marca: així tots els noms
+    // comencen al mateix punt i tots els codis queden l'un sota l'altre.
+    const renderGroup = (label, items, side) => {
         const btns = items.map(({ op, i }) => {
             const colorIcon = op.userColor === 'w' ? '♔' : '♚';
             const done = completedOpenings.includes(op.eco);
-            const repeat = done ? '<span class="lesson-repeat-icon" title="Torna a practicar aquesta obertura" aria-label="Torna a practicar">↻</span>' : '';
-            return `<button class="btn btn-secondary opening-lesson-btn${done ? ' lesson-done' : ''}" data-lesson="${i}" style="justify-content:space-between;">
-                <span>${colorIcon} ${op.name}</span>
-                <span style="display:flex; align-items:center; gap:6px;">${repeat}<span style="font-size:0.72rem; opacity:0.7;">${op.eco}</span></span>
+            const flag = done
+                ? '<span class="ol-flag" title="Ja l\'has apresa: torna-hi per repassar-la" aria-label="Apresa">↻</span>'
+                : '<span class="ol-flag" aria-hidden="true"></span>';
+            return `<button class="btn opening-lesson-btn${done ? ' lesson-done' : ''}" data-lesson="${i}">
+                <span class="ol-piece" aria-hidden="true">${colorIcon}</span>
+                <span class="ol-name">${op.name}</span>
+                ${flag}
+                <span class="ol-eco">${op.eco}</span>
             </button>`;
         }).join('');
-        return `<div class="opening-lesson-group-title">${label}</div><div class="opening-lesson-grid">${btns}</div>`;
+        const groupDone = items.filter(({ op }) => completedOpenings.includes(op.eco)).length;
+        return `<div class="opening-lesson-group olg-${side}">
+            <div class="opening-lesson-group-title">
+                <span class="olg-label">${label}</span>
+                <span class="olg-rule"></span>
+                <span class="olg-count">${groupDone}/${items.length}</span>
+            </div>
+            <div class="opening-lesson-grid">${btns}</div>
+        </div>`;
     };
     const total = CURATED_OPENINGS.length;
     const done = completedOpenings.filter(e => CURATED_OPENINGS.some(op => op.eco === e)).length;
     const pct = Math.round((done / total) * 100);
-    const progress = `<div class="opening-progress-bar"><div class="opening-progress-label">Obertures apreses: <strong>${done}/${total}</strong></div><div class="opening-progress-track"><div class="opening-progress-fill" style="width:${pct}%;"></div></div></div>`;
-    container.innerHTML = progress + renderGroup('♔ Obertures amb blanques', whites) + renderGroup('♚ Defenses amb negres', blacks);
+    const progress = `<div class="opening-progress-bar"><div class="opening-progress-label"><span>Obertures apreses: <strong>${done}/${total}</strong></span><span class="opening-progress-pct">${pct}%</span></div><div class="opening-progress-track"><div class="opening-progress-fill" style="width:${pct}%;"></div></div></div>`;
+    container.innerHTML = progress + renderGroup('♔ Obertures amb blanques', whites, 'white') + renderGroup('♚ Defenses amb negres', blacks, 'black');
 }
 
 /* ============ EXERCICIS GEROGLÍFICS D'OBERTURA ============ */
@@ -20726,6 +20794,7 @@ function setupEvents() {
         if (!isNaN(idx)) startOpeningLesson(idx);
     });
     // ── Obertura personal ───────────────────────────────────────────────
+    $('#btn-personal-opening-toggle').click(() => setPersonalOpeningPanelOpen(!personalOpeningPanelIsOpen()));
     $('#btn-build-opening-w').click(() => { void startPersonalOpeningBuild('w'); });
     $('#btn-build-opening-b').click(() => { void startPersonalOpeningBuild('b'); });
     $('#btn-cancel-build-opening').click(() => cancelPersonalOpeningBuild());
