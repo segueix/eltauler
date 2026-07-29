@@ -4244,8 +4244,11 @@ let totalWins = 0;
 let maxStreak = 0;
 
 // Lliga (mode escacs)
-let currentLeague = null; 
-let leagueActiveMatch = null; 
+let currentLeague = null;
+let leagueActiveMatch = null;
+// Jornada que espera saber amb quina partida de l'historial es correspon.
+// Viu només entre applyLeagueAfterGame() i recordGameHistory().
+let leagueRoundAwaitingGame = null;
 
 let currentGameMode = 'free';
 let currentOpponent = null;
@@ -4687,12 +4690,21 @@ function renderLeagueHistory() {
     }
     const label = { win: 'Victòria', loss: 'Derrota', draw: 'Taules' };
     const cls = { win: 'lh-win', loss: 'lh-loss', draw: 'lh-draw' };
+    const links = currentLeagueGameLinks();
     let html = '<div class="league-history-title">Les teves jornades</div>';
     hist.slice().reverse().forEach(h => {
-        html += `<div class="league-history-row">
+        // La jornada porta a la revisió de la seva partida. Les que no en tenen
+        // cap de guardada (abandonades o esborrades) es queden quietes: val més
+        // no oferir l'enllaç que obrir una partida que no és.
+        const gameId = links[h.round] || null;
+        const attrs = gameId
+            ? ` data-game-id="${escapeHtml(gameId)}" role="button" tabindex="0" title="Obre la revisió d'aquesta partida a l'historial"`
+            : ' title="Aquesta jornada no té cap partida guardada a l\'historial"';
+        html += `<div class="league-history-row${gameId ? ' lh-openable' : ''}"${attrs}>
             <span class="lh-round">J${h.round}</span>
             <span class="lh-opp">vs ${h.oppName}${h.oppElo ? ` · ${h.oppElo}` : ''}</span>
             <span class="lh-result ${cls[h.outcome] || ''}">${label[h.outcome] || '—'}</span>
+            ${gameId ? '<span class="lh-go" aria-hidden="true">›</span>' : ''}
         </div>`;
     });
     container.innerHTML = html;
@@ -4788,6 +4800,12 @@ function applyLeagueAfterGame(myOutcome) {
         oppElo: oppForHist ? oppForHist.elo : null,
         outcome: myOutcome
     });
+    // La partida encara no és a l'historial: recordGameHistory ve després i és
+    // qui inventa l'id. Es deixa apuntat quina jornada l'espera perquè la
+    // jornada pugui obrir la seva revisió. Si la partida no s'arriba a desar
+    // (abandonar-la des del botó de casa), la nota queda òrfia i la següent
+    // ronda la substitueix abans que ningú la faci servir.
+    leagueRoundAwaitingGame = { leagueId: currentLeague.id, round: roundNumber };
 
     const pairings = currentLeague.schedule[roundIdx] || [];
     for (const [aId, bId] of pairings) {
@@ -4810,6 +4828,50 @@ function applyLeagueAfterGame(myOutcome) {
 
     leagueActiveMatch = null;
     saveStorage();
+}
+
+// Enganxa l'id de la partida acabada de desar a la jornada que l'esperava. Es
+// crida des de recordGameHistory(), l'únic lloc on l'id ja existeix.
+function linkLeagueRoundToGame(entry) {
+    const pending = leagueRoundAwaitingGame;
+    leagueRoundAwaitingGame = null;
+    if (!pending || !entry || !entry.id || entry.mode !== 'league') return;
+    if (!currentLeague || currentLeague.id !== pending.leagueId) return;
+    const record = (currentLeague.history || []).find(h => h && h.round === pending.round && !h.gameId);
+    if (!record) return;
+    record.gameId = entry.id;
+    saveStorage();
+}
+
+// Enllaç jornada → partida de l'historial de la lliga en curs, incloses les
+// jornades velles que no duen l'id desat (vegeu ElTaulerCore.leagueRoundGameLinks).
+function currentLeagueGameLinks() {
+    if (!currentLeague || !Array.isArray(currentLeague.history)) return {};
+    try {
+        return ElTaulerCore.leagueRoundGameLinks(currentLeague.history, gameHistory, {
+            createdAt: currentLeague.createdAt
+        });
+    } catch (e) {
+        return {};
+    }
+}
+
+// Obre la revisió d'una partida de lliga dins de l'historial.
+function openLeagueRoundGame(gameId) {
+    const entry = findHistoryEntryById(gameId);
+    if (!entry) {
+        showToast('Aquesta partida ja no és a l\'historial.', 'warn');
+        renderLeagueHistory();
+        return;
+    }
+    $('#league-screen').hide();
+    $('#start-screen').hide();
+    $('#history-screen').show();
+    initHistoryBoard();
+    renderGameHistory();
+    openHistoryEntry(entry);
+    navPush('history-screen');
+    setTimeout(() => resizeHistoryBoardToViewport(), 0);
 }
 
 function generateDailyMissions() {
@@ -15056,6 +15118,9 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     // seves revisions ja no siguin a la memòria.
     try { entry.phaseStats = ElTaulerCore.bessoPhaseStatsFromGame(entry); } catch (e) { entry.phaseStats = null; }
     gameHistory.push(entry);
+    // La jornada de lliga que acabava de guardar el resultat ja pot apuntar a
+    // la seva partida: així s'hi arriba des de la classificació.
+    try { linkLeagueRoundToGame(entry); } catch (e) {}
     if (gameHistory.length > HISTORY_MAX) gameHistory = gameHistory.slice(-HISTORY_MAX);
     // El cos de les partides que han deixat de ser recents es descarrega de la
     // memòria (a IndexedDB hi segueix, i es torna a carregar en obrir-les).
@@ -20606,6 +20671,12 @@ function setupEvents() {
         showToast(`Exportades ${pgns.length} partides ♟`, 'success');
     });
     $('#btn-league').click(() => { if (guardCalibrationAccess()) { openLeague(); navPush('league-screen'); } });
+    // Cada jornada jugada obre la revisió de la seva partida a l'historial.
+    $(document).on('click keydown', '.league-history-row[data-game-id]', function (event) {
+        if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openLeagueRoundGame($(this).attr('data-game-id'));
+    });
     $('#btn-catalans').click(() => {
         openCatalansScreen(true);
     });

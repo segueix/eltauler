@@ -105,3 +105,113 @@ describe('lliga i ritme: el recorregut sencer', () => {
         expect(out.map(p => p.elo)).toEqual([560, 585, 535]);
     });
 });
+
+// ── Jornada → partida de l'historial ───────────────────────────────────────
+// La classificació enllaça cada jornada amb la seva partida guardada. Les
+// jornades noves duen l'id desat; les velles s'han de reconèixer pel rival.
+
+const LLIGA = 1_700_000_000_000;   // creació de la temporada (ms)
+
+function jornada(round, oppName, extra) {
+    return Object.assign({ round: round, oppName: oppName, outcome: 'win' }, extra || {});
+}
+
+// Partida tal com la desa recordGameHistory: id, mode i rival amb nom.
+function partida(id, oppName, minutsDespres, extra) {
+    return Object.assign({
+        id: id,
+        mode: 'league',
+        date: new Date(LLIGA + minutsDespres * 60000).toISOString(),
+        opponent: { id: 'bot', name: oppName, elo: 900 }
+    }, extra || {});
+}
+
+describe('leagueRoundGameLinks (quina partida és cada jornada)', () => {
+    test('la jornada que ja duu l\'id apunta a aquella partida', () => {
+        const games = [partida('game_1', 'RocaNegra', 10)];
+        const links = Core.leagueRoundGameLinks([jornada(1, 'RocaNegra', { gameId: 'game_1' })], games, { createdAt: LLIGA });
+        expect(links).toEqual({ 1: 'game_1' });
+    });
+
+    test('les jornades velles (sense id) es reconeixen pel nom del rival', () => {
+        const games = [
+            partida('game_1', 'RocaNegra', 10),
+            partida('game_2', 'AlfilFosc', 40),
+            partida('game_3', 'CavallViu', 90)
+        ];
+        const rounds = [jornada(1, 'RocaNegra'), jornada(2, 'AlfilFosc'), jornada(3, 'CavallViu')];
+        expect(Core.leagueRoundGameLinks(rounds, games, { createdAt: LLIGA }))
+            .toEqual({ 1: 'game_1', 2: 'game_2', 3: 'game_3' });
+    });
+
+    test('l\'ordre de les jornades no depèn de com arribin', () => {
+        const games = [partida('game_1', 'RocaNegra', 10), partida('game_2', 'AlfilFosc', 40)];
+        const rounds = [jornada(2, 'AlfilFosc'), jornada(1, 'RocaNegra')];
+        expect(Core.leagueRoundGameLinks(rounds, games, { createdAt: LLIGA }))
+            .toEqual({ 1: 'game_1', 2: 'game_2' });
+    });
+
+    test('cap partida no serveix per a dues jornades', () => {
+        const games = [partida('game_1', 'RocaNegra', 10)];
+        const rounds = [jornada(1, 'RocaNegra'), jornada(2, 'RocaNegra')];
+        const links = Core.leagueRoundGameLinks(rounds, games, { createdAt: LLIGA });
+        expect(links).toEqual({ 1: 'game_1' });   // la 2 es queda sense
+    });
+
+    test('una partida d\'una lliga anterior no es cola a la d\'ara', () => {
+        const vella = partida('game_vella', 'RocaNegra', -600);   // 10 h abans
+        const links = Core.leagueRoundGameLinks([jornada(1, 'RocaNegra')], [vella], { createdAt: LLIGA });
+        expect(links).toEqual({});
+    });
+
+    test('sense data de creació coneguda, es mira tot l\'historial', () => {
+        const vella = partida('game_vella', 'RocaNegra', -600);
+        expect(Core.leagueRoundGameLinks([jornada(1, 'RocaNegra')], [vella], {}))
+            .toEqual({ 1: 'game_vella' });
+    });
+
+    test('les partides que no són de lliga no s\'hi enllacen mai', () => {
+        const lliure = partida('game_lliure', 'RocaNegra', 10, { mode: 'free' });
+        const importada = partida('game_pgn', 'RocaNegra', 20, { imported: true });
+        expect(Core.leagueRoundGameLinks([jornada(1, 'RocaNegra')], [lliure, importada], { createdAt: LLIGA }))
+            .toEqual({});
+    });
+
+    test('una jornada abandonada (sense partida desada) no rep cap enllaç', () => {
+        const games = [partida('game_2', 'AlfilFosc', 40)];
+        const rounds = [jornada(1, 'RocaNegra'), jornada(2, 'AlfilFosc')];
+        expect(Core.leagueRoundGameLinks(rounds, games, { createdAt: LLIGA }))
+            .toEqual({ 2: 'game_2' });
+    });
+
+    test('un id desat que ja no és a l\'historial no deixa un enllaç mort', () => {
+        // La partida s'ha esborrat: no hi ha res a obrir, i tampoc no es pot
+        // agafar la del rival següent per fer-hi bondat.
+        const games = [partida('game_2', 'AlfilFosc', 40)];
+        const rounds = [jornada(1, 'RocaNegra', { gameId: 'game_esborrada' }), jornada(2, 'AlfilFosc')];
+        expect(Core.leagueRoundGameLinks(rounds, games, { createdAt: LLIGA }))
+            .toEqual({ 2: 'game_2' });
+    });
+
+    test('l\'id desat mana sobre el nom, i no roba la partida a ningú', () => {
+        // La jornada 2 duu l'id de la partida tardana; la 1, que va pel nom,
+        // s'ha de quedar l'altra encara que totes dues siguin del mateix rival.
+        const games = [partida('game_1', 'RocaNegra', 10), partida('game_2', 'RocaNegra', 80)];
+        const rounds = [jornada(1, 'RocaNegra'), jornada(2, 'RocaNegra', { gameId: 'game_2' })];
+        expect(Core.leagueRoundGameLinks(rounds, games, { createdAt: LLIGA }))
+            .toEqual({ 1: 'game_1', 2: 'game_2' });
+    });
+
+    test('el nom es compara sense diferències de majúscules ni espais', () => {
+        const games = [partida('game_1', ' rocanegra ', 10)];
+        expect(Core.leagueRoundGameLinks([jornada(1, 'RocaNegra')], games, { createdAt: LLIGA }))
+            .toEqual({ 1: 'game_1' });
+    });
+
+    test('entrades buides o invàlides no peten', () => {
+        expect(Core.leagueRoundGameLinks(null, null, null)).toEqual({});
+        expect(Core.leagueRoundGameLinks([], [], {})).toEqual({});
+        expect(Core.leagueRoundGameLinks([{ oppName: 'X' }], [partida('g', 'X', 5)], {})).toEqual({});
+        expect(Core.leagueRoundGameLinks([jornada(1, '')], [partida('g', '', 5)], {})).toEqual({});
+    });
+});

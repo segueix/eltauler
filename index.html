@@ -3921,6 +3921,13 @@
         .league-history-row .lh-round { font-weight: 700; color: var(--accent-gold); min-width: 28px; }
         .league-history-row .lh-opp { flex: 1; color: var(--text-primary); }
         .league-history-row .lh-result { font-size: 0.78rem; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+        /* Jornades amb partida desada: obren la seva revisió a l'historial. */
+        .league-history-row.lh-openable { cursor: pointer; transition: background 0.15s ease, transform 0.15s ease; }
+        .league-history-row.lh-openable:hover { background: rgba(201, 162, 39, 0.16); transform: translateX(2px); }
+        .league-history-row.lh-openable:active { transform: translateX(0); }
+        .league-history-row.lh-openable:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+        .league-history-row .lh-go { color: var(--accent-gold); font-weight: 700; opacity: 0.75; }
+        body.epaper-mode .league-history-row.lh-openable:hover { background: #e2e2e2; }
         .lh-win { background: rgba(74,124,89,0.25); color: var(--text-positive); }
         .lh-loss { background: rgba(198,40,40,0.2); color: var(--text-negative); }
         .lh-draw { background: rgba(201,162,39,0.2); color: var(--accent-gold); }
