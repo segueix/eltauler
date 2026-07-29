@@ -1576,6 +1576,78 @@
             font-size: 0.85rem;
             text-align: center;
         }
+        /* ── Obertura personal: el teu repertori ───────────────────────── */
+        .rep-color-block { margin-bottom: 18px; }
+        .rep-color-block:last-child { margin-bottom: 0; }
+        .rep-color-title {
+            font-weight: 600;
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            margin: 0 0 8px;
+            text-align: left;
+        }
+        .rep-empty, .rep-warning { text-align: left; }
+        .rep-color-count { font-weight: 400; opacity: 0.75; }
+        .rep-branch {
+            border: 1px solid rgba(201, 162, 39, 0.18);
+            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            text-align: left;   /* la secció centra; una línia de jugades no */
+        }
+        .rep-branch-head {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 10px;
+            flex-wrap: wrap;
+        }
+        .rep-branch-move { font-size: 1rem; }
+        .rep-branch-share { color: var(--text-secondary); font-size: 0.85rem; white-space: nowrap; }
+        .rep-name { color: var(--text-secondary); font-size: 0.85rem; margin-top: 2px; }
+        .rep-line {
+            margin-top: 6px;
+            font-size: 0.95rem;
+            line-height: 1.7;
+            overflow-x: auto;
+            white-space: nowrap;
+        }
+        .rep-num { color: var(--text-secondary); margin-right: 2px; }
+        .rep-move { margin-right: 8px; }
+        .rep-mine { font-weight: 600; }
+        .rep-offbook {
+            border-bottom: 2px solid var(--severity-med, #c9a227);
+            padding-bottom: 1px;
+        }
+        .rep-branch-stats {
+            margin-top: 8px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 6px 12px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+        }
+        .rep-score-good { color: #4a7c59; font-weight: 600; }
+        .rep-score-mid { color: #c9a227; font-weight: 600; }
+        .rep-score-low { color: #c62828; font-weight: 600; }
+        .rep-offbook-note {
+            margin-top: 6px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            font-style: italic;
+        }
+        .rep-inbook { opacity: 0.7; }
+        .rep-empty, .rep-warning {
+            color: var(--text-secondary);
+            font-size: 0.88rem;
+            line-height: 1.5;
+        }
+        .rep-warning { margin-bottom: 8px; font-style: italic; }
+        body.epaper-mode .rep-branch { border-color: #c9c9c9; }
+        body.epaper-mode .rep-score-good,
+        body.epaper-mode .rep-score-mid,
+        body.epaper-mode .rep-score-low { color: #222; }
+        body.epaper-mode .rep-offbook { border-bottom-color: #444; }
         #opening-practice-note {
             max-height: 400px;
             overflow-y: auto;
@@ -5681,8 +5753,14 @@
                 <div class="opening-stats" id="opening-stats-list"></div>
                 <div class="opening-stats-note" id="opening-stats-note">—</div>
             </div>
+            <div class="opening-section" id="opening-repertoire-section">
+                <div class="opening-section-title">Bloc 4 · Obertura personal</div>
+                <div class="opening-section-desc">El teu repertori <strong>real</strong>: què jugues de debò a l'obertura, amb quina freqüència hi arribes, què hi puntues i on deixes el llibre. Surt només de les teves partides —cap recomanació, cap motor.</div>
+                <div class="repertoire" id="repertoire-list"></div>
+                <div class="opening-stats-note" id="repertoire-note">—</div>
+            </div>
             <div class="opening-section" id="opening-hieroglyphic-section">
-                <div class="opening-section-title">Bloc 4 · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics d'obertura</div>
+                <div class="opening-section-title">Bloc 5 · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics d'obertura</div>
                 <div class="opening-section-desc">Exercici especial: desxifra la pista estratègica i troba la jugada teòrica correcta sense barrejar-lo amb la pràctica principal.</div>
                 <div class="hieroglyphic-section">
                     <button class="btn btn-hieroglyphic" id="btn-hieroglyphic-exercise"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Començar exercici</button>
@@ -6434,7 +6512,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.13"></script>
+    <script src="core.js?v=1.0.14"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.5"></script>
@@ -6445,7 +6523,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.57"></script>
+    <script src="app.js?v=1.0.58"></script>
 
     <!-- Service Worker Registration -->
     <script>

@@ -141,6 +141,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   a l'índex, que una partida vella sense cap dels dos no trenqui res, i que un
   resum mal format es recalculi de les revisions.
 
+- **`repertoire.test.js`** — repertori personal (`createRepertoireHelpers`): quines
+  partides compten (mai les importades d'un PGN, que poden ser d'altres jugadors,
+  ni les pràctiques d'errades), la construcció de l'arbre de jugades pròpies amb
+  la marca de qui juga cada una (amb negres la primera de l'arbre és del rival),
+  el recompte de freqüència, puntuació (victòria 1, taules ½) i precisió mitjana,
+  la línia principal —la continuació més jugada mentre hi hagi mostra— i la
+  detecció d'on es deixa el llibre creuant-ho amb el graf d'`obertures.js`,
+  incloent-hi qui el deixa i que sense graf el llibre quedi com a desconegut en
+  comptes d'inventar-se una desviació.
+
 ## Integració contínua
 
 `.github/workflows/tests.yml` executa `npm ci` + `npm test` a cada push i pull

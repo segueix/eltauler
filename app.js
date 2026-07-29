@@ -2992,6 +2992,13 @@ function prewarmOpeningPositionGraph() {
             // El tauler d'anàlisi mostra el nom de l'obertura de la posició: si és
             // obert, ara ja el pot ensenyar.
             try { if (typeof updateExplorerOpeningLabel === 'function') updateExplorerOpeningLabel(); } catch (e) {}
+            // El repertori personal necessita el graf per dir on es deixa el
+            // llibre: si s'ha pintat abans d'hora, ara es pot completar.
+            try {
+                if (typeof renderPersonalRepertoire === 'function' && $('#opening-repertoire-section').is(':visible')) {
+                    renderPersonalRepertoire();
+                }
+            } catch (e) {}
         }
     }
     scheduleOpeningIdle(step);
@@ -6372,6 +6379,7 @@ function reloadAppStateFromStorage() {
         if (typeof renderOpenings === 'function') renderOpenings();
         if (typeof renderOpeningStats === 'function') renderOpeningStats();
         if (typeof renderOpeningStatsScreen === 'function') renderOpeningStatsScreen();
+        if (typeof renderPersonalRepertoire === 'function') renderPersonalRepertoire();
         if (typeof updateTacticsDisplay === 'function') updateTacticsDisplay();
         if (typeof loadPreparedExerciseHistory === 'function') loadPreparedExerciseHistory();
         if (typeof loadPreparedSequences === 'function') loadPreparedSequences();
@@ -7108,11 +7116,7 @@ function updateStatsDisplay() {
 
 // Determina el resultat de la partida des de la perspectiva del jugador
 function entryOutcome(entry) {
-    const r = (entry.result || '').toLowerCase();
-    if (r.includes('victòr') || r.includes('guany')) return 'win';
-    if (r.includes('derrot') || r.includes('perd') || r.includes('rendit')) return 'loss';
-    if (r.includes('tau')) return 'draw';
-    return null;
+    return ElTaulerCore.historyEntryOutcome(entry && entry.result);
 }
 
 // Agrega estadístiques per obertura jugada a partir de l'historial (punt 4)
@@ -12583,6 +12587,7 @@ function practiceOpeningFromHistory(idx, color) {
     try {
         const forceColor = (color === 'w' || color === 'b') ? color : undefined;
         renderOpeningStatsScreen();
+        renderPersonalRepertoire();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
         $('#history-screen').hide();
@@ -15166,6 +15171,7 @@ function setOpeningScreenMode(mode = 'overview') {
         lessons: $('#opening-lessons-section'),
         practice: $('#opening-practice-section'),
         stats: $('#opening-stats-section'),
+        repertoire: $('#opening-repertoire-section'),
         hieroglyphic: $('#opening-hieroglyphic-section')
     };
     Object.values(sections).forEach($el => { if ($el && $el.length) $el.show(); });
@@ -15174,11 +15180,13 @@ function setOpeningScreenMode(mode = 'overview') {
     } else if (mode === 'error-practice') {
         sections.lessons.hide();
         sections.stats.hide();
+        sections.repertoire.hide();
         sections.hieroglyphic.hide();
         sections.practice.show();
     } else if (mode === 'hieroglyphic') {
         sections.lessons.hide();
         sections.stats.hide();
+        sections.repertoire.hide();
         sections.practice.show();
         // No mostrem el bloc d'entrada "Jeroglífics d'obertura" sota el tauler:
         // el mode actual ja és el jeroglífic personal.
@@ -15189,6 +15197,141 @@ function setOpeningScreenMode(mode = 'overview') {
     const hideResign = (mode === 'error-practice' || mode === 'hieroglyphic');
     $('#btn-opening-bundle-resign').toggle(!hideResign);
     updateOpeningMaximButton();
+}
+
+/* ===================== EL TEU REPERTORI =====================
+   Primera meitat de l'«obertura personal»: en comptes de recomanar res, es
+   llegeix l'historial i s'ensenya què jugues DE DEBÒ a l'obertura —amb quina
+   freqüència hi arribes, què hi puntues i on deixes el llibre—, separat per
+   blanques i negres. La lògica és pura i viu a core.js
+   (createRepertoireHelpers); aquí només hi ha la lectura de l'estat i el pintat.
+   No hi intervé el motor: totes les xifres surten de partides reals. */
+
+let repertoireHelpers = null;
+function getRepertoireHelpers() {
+    if (!repertoireHelpers && typeof Chess !== 'undefined') {
+        try { repertoireHelpers = ElTaulerCore.createRepertoireHelpers(Chess); } catch (e) { repertoireHelpers = null; }
+    }
+    return repertoireHelpers;
+}
+
+// Repertori a partir de l'historial propi. El graf de posicions és el que
+// permet dir si una jugada és de llibre; si encara s'està construint, el
+// repertori es calcula igualment i el llibre queda com a desconegut.
+function buildPersonalRepertoireData() {
+    const helpers = getRepertoireHelpers();
+    if (!helpers) return null;
+    const graph = getOpeningPositionGraph();
+    try {
+        return helpers.buildPersonalRepertoire(gameHistory, {
+            theory: graph ? graph.theory : null,
+            byPos: graph ? graph.byPos : null
+        });
+    } catch (e) {
+        console.warn('[Repertori] no s\'ha pogut construir', e);
+        return null;
+    }
+}
+
+// Línia en notació llegible («1.e4 e5 2.Nf3») amb la jugada que surt del
+// llibre marcada. La SAN es mostra crua, com a la transcripció de l'historial.
+function repertoireLineHtml(line, offBookPly) {
+    const parts = [];
+    (line || []).forEach(step => {
+        const moveNumber = Math.floor(step.ply / 2) + 1;
+        const isWhiteMove = step.ply % 2 === 0;
+        let text = '';
+        if (isWhiteMove) text += `<span class="rep-num">${moveNumber}.</span>`;
+        const san = escapeHtml(step.san);
+        const cls = ['rep-move'];
+        if (step.mine) cls.push('rep-mine');
+        if (offBookPly !== null && step.ply === offBookPly) cls.push('rep-offbook');
+        text += `<span class="${cls.join(' ')}">${san}</span>`;
+        parts.push(text);
+    });
+    return parts.join(' ');
+}
+
+function repertoireScoreClass(score) {
+    if (typeof score !== 'number') return '';
+    if (score >= 60) return 'rep-score-good';
+    if (score >= 45) return 'rep-score-mid';
+    return 'rep-score-low';
+}
+
+function renderRepertoireColumn(rep, label, icon) {
+    if (!rep) return '';
+    const plural = n => n === 1 ? 'partida' : 'partides';
+    let html = `<div class="rep-color-block">
+        <div class="rep-color-title">${icon} ${label} <span class="rep-color-count">${rep.games} ${plural(rep.games)}</span></div>`;
+    if (!rep.games) {
+        html += `<div class="rep-empty">Encara no has jugat cap partida amb ${label.toLowerCase()}. Quan en juguis, aquí hi sortirà el teu repertori real.</div></div>`;
+        return html;
+    }
+    if (!rep.enough) {
+        const falten = rep.minColorGames - rep.games;
+        html += `<div class="rep-warning">Mostra petita: amb ${rep.games} ${plural(rep.games)} les xifres encara ballen. Te'n ${falten === 1 ? 'falta' : 'falten'} ${falten} per tenir-les fiables.</div>`;
+    }
+    rep.branches.forEach(branch => {
+        // Amb blanques la primera jugada és teva; amb negres és la del rival i
+        // el repertori es llegeix «contra 1.e4, jugo…».
+        const headline = rep.branchesAreMine
+            ? `Jugo <strong>${escapeHtml(branch.san)}</strong>`
+            : `Contra <strong>1.${escapeHtml(branch.san)}</strong>`;
+        const nameLine = branch.name
+            ? `<div class="rep-name">${escapeHtml(branch.name)}${branch.eco ? ` · ${escapeHtml(branch.eco)}` : ''}</div>`
+            : '';
+        let offBook = '';
+        if (branch.offBookPly !== null) {
+            const moveNumber = Math.floor(branch.offBookPly / 2) + 1;
+            const who = branch.offBookBy === 'me' ? 'surts del llibre' : 'el rival surt del llibre';
+            offBook = `<div class="rep-offbook-note">A la jugada ${moveNumber} ${who} amb ${escapeHtml(branch.offBookSan)}.</div>`;
+        } else if (rep.theoryKnown && branch.line.length) {
+            offBook = `<div class="rep-offbook-note rep-inbook">Tota la línia és al llibre.</div>`;
+        }
+        html += `
+            <div class="rep-branch">
+                <div class="rep-branch-head">
+                    <div class="rep-branch-move">${headline}</div>
+                    <div class="rep-branch-share">${branch.share}% · ${branch.games} ${plural(branch.games)}</div>
+                </div>
+                ${nameLine}
+                <div class="rep-line">${repertoireLineHtml(branch.line, branch.offBookPly)}</div>
+                <div class="rep-branch-stats">
+                    <span class="rep-stat ${repertoireScoreClass(branch.score)}">${branch.score === null ? '—' : `${branch.score}%`} de puntuació</span>
+                    <span class="rep-stat">${branch.wins}V · ${branch.draws}E · ${branch.losses}D</span>
+                    <span class="rep-stat">${branch.precision === null ? '—' : `${branch.precision}%`} de precisió</span>
+                </div>
+                ${offBook}
+            </div>`;
+    });
+    return html + '</div>';
+}
+
+function renderPersonalRepertoire() {
+    const el = document.getElementById('repertoire-list');
+    if (!el) return;
+    const noteEl = document.getElementById('repertoire-note');
+    const data = buildPersonalRepertoireData();
+    if (!data) {
+        el.innerHTML = '<div class="rep-empty">El repertori encara no es pot calcular.</div>';
+        if (noteEl) noteEl.textContent = '—';
+        return;
+    }
+    if (!data.white.games && !data.black.games) {
+        el.innerHTML = '<div class="rep-empty">Encara no hi ha partides pròpies a l\'historial. Juga unes quantes partides i aquí hi trobaràs el teu repertori real: què jugues, amb quina freqüència, què hi puntues i on deixes el llibre.</div>';
+        if (noteEl) noteEl.textContent = '—';
+        return;
+    }
+    el.innerHTML =
+        renderRepertoireColumn(data.white, 'Blanques', '♔') +
+        renderRepertoireColumn(data.black, 'Negres', '♚');
+    if (noteEl) {
+        const total = data.white.games + data.black.games;
+        noteEl.textContent = data.white.theoryKnown
+            ? `Basat en les teves ${total} ${total === 1 ? 'partida' : 'partides'} de l'historial.`
+            : `Basat en les teves ${total} ${total === 1 ? 'partida' : 'partides'}. El llibre d'obertures encara s'està carregant.`;
+    }
 }
 
 // Variable global per guardar estadístiques d'obertura
@@ -20052,6 +20195,7 @@ function setupEvents() {
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
+        renderPersonalRepertoire();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
         startOpeningPracticeAsColor(openingPracticeUserColor);
@@ -21485,6 +21629,7 @@ function executeGrowthTask(task) {
                 $('#opening-screen').show();
                 navPush('opening-screen');
                 renderOpeningStatsScreen();
+                renderPersonalRepertoire();
                 setOpeningScreenMode('overview');
                 return;
             }

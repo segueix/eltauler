@@ -889,6 +889,229 @@
     }
 
     // ----------------------------------------------------------------------
+    // REPERTORI PERSONAL — què jugues de debò a l'obertura
+    // ----------------------------------------------------------------------
+    // Primera meitat de l'«obertura personal»: en comptes de recomanar res, es
+    // llegeix l'historial i es respon la pregunta «què jugo jo, en realitat?».
+    // De les partides pròpies en surt un arbre de jugades (les teves i les que
+    // t'han respost) amb, a cada node, quantes vegades hi has arribat, què hi
+    // has puntuat i quina precisió hi has fet. Creuant-ho amb el graf de
+    // posicions d'obertures.js se sap, a més, on deixes el llibre i qui el deixa.
+    //
+    // No hi intervé el motor: tot surt de dades que l'app ja té. Això la fa
+    // instantània i honesta —cada xifra es pot resseguir fins a partides reals.
+    const REPERTOIRE_CONFIG = {
+        maxPlies: 12,        // profunditat de l'arbre (6 jugades per bàndol)
+        minLineGames: 2,     // partides mínimes per allargar una línia principal
+        minColorGames: 8,    // partides amb un color perquè les xifres diguin res
+        maxBranches: 6       // primeres jugades que s'ensenyen per color
+    };
+
+    // Resultat d'una partida des de la perspectiva del jugador, a partir de
+    // l'etiqueta de resultat que desa l'historial. Font única de veritat:
+    // app.js hi delega amb entryOutcome().
+    function historyEntryOutcome(resultLabel) {
+        const r = String(resultLabel || '').toLowerCase();
+        if (r.includes('victòr') || r.includes('guany')) return 'win';
+        if (r.includes('derrot') || r.includes('perd') || r.includes('rendit')) return 'loss';
+        if (r.includes('tau')) return 'draw';
+        return null;
+    }
+
+    // Els mapes del graf d'obertures són Map, però acceptem també objectes
+    // plans (p. ex. si algun dia es desen serialitzats).
+    function mapGet(container, key) {
+        if (!container) return undefined;
+        if (typeof container.get === 'function') return container.get(key);
+        return container[key];
+    }
+
+    function setHas(container, value) {
+        if (!container) return false;
+        if (typeof container.has === 'function') return container.has(value);
+        if (Array.isArray(container)) return container.indexOf(value) !== -1;
+        return false;
+    }
+
+    // Partides que compten per al repertori: pròpies (mai les importades d'un
+    // PGN, que poden ser d'altres jugadors), d'aquell color, amb jugades de
+    // debò i que siguin partides senceres (no pràctiques d'errades).
+    function repertoireEligibleGames(entries, color) {
+        return (Array.isArray(entries) ? entries : []).filter(e =>
+            e && Array.isArray(e.moves) && e.moves.length >= 2
+            && e.playerColor === color
+            && e.imported !== true && e.mode !== 'imported' && e.mode !== 'bundle');
+    }
+
+    function createRepertoireHelpers(ChessCtor) {
+        function newNode(san, ply, mine) {
+            return {
+                san: san, ply: ply, mine: mine,
+                games: 0, wins: 0, draws: 0, losses: 0, rated: 0, scoreSum: 0,
+                precisionSum: 0, precisionN: 0,
+                inTheory: null, name: null, eco: null,
+                children: {}
+            };
+        }
+
+        function accumulate(node, entry, outcome) {
+            node.games += 1;
+            if (outcome === 'win') { node.wins += 1; node.rated += 1; node.scoreSum += 1; }
+            else if (outcome === 'draw') { node.draws += 1; node.rated += 1; node.scoreSum += 0.5; }
+            else if (outcome === 'loss') { node.losses += 1; node.rated += 1; }
+            if (typeof entry.precision === 'number' && isFinite(entry.precision)) {
+                node.precisionSum += entry.precision;
+                node.precisionN += 1;
+            }
+        }
+
+        // Arbre de jugades d'un color a partir de les partides pròpies.
+        function buildRepertoireTree(entries, color, options) {
+            const opts = options || {};
+            const maxPlies = typeof opts.maxPlies === 'number' ? opts.maxPlies : REPERTOIRE_CONFIG.maxPlies;
+            const theory = opts.theory || null;
+            const byPos = opts.byPos || null;
+            const games = repertoireEligibleGames(entries, color);
+            const root = newNode(null, -1, false);
+            games.forEach(entry => {
+                let chess;
+                try { chess = new ChessCtor(); } catch (e) { return; }
+                const outcome = historyEntryOutcome(entry.result);
+                let node = root;
+                const limit = Math.min(entry.moves.length, maxPlies);
+                for (let i = 0; i < limit; i++) {
+                    const beforeKey = positionKeyFromFen(chess.fen());
+                    const mine = chess.turn() === color;
+                    const san = entry.moves[i];
+                    let move = null;
+                    try { move = chess.move(san, { sloppy: true }); } catch (e) { move = null; }
+                    if (!move) break;   // jugada corrupta: la resta ja no és fiable
+                    let child = node.children[san];
+                    if (!child) {
+                        child = newNode(san, i, mine);
+                        // ¿La jugada és al llibre? Es mira al graf d'obertures: si
+                        // encara no està construït queda com a desconegut (null).
+                        if (theory) child.inTheory = setHas(mapGet(theory, beforeKey), san);
+                        const named = byPos ? mapGet(byPos, positionKeyFromFen(chess.fen())) : null;
+                        if (named) { child.name = named.name; child.eco = named.eco; }
+                        node.children[san] = child;
+                    }
+                    accumulate(child, entry, outcome);
+                    node = child;
+                }
+            });
+            root.games = games.length;
+            return root;
+        }
+
+        function sortedChildren(node) {
+            return Object.keys(node.children)
+                .map(san => node.children[san])
+                .sort((a, b) => (b.games - a.games) || a.san.localeCompare(b.san));
+        }
+
+        function nodeSummary(node) {
+            return {
+                san: node.san,
+                ply: node.ply,
+                mine: node.mine,
+                games: node.games,
+                wins: node.wins,
+                draws: node.draws,
+                losses: node.losses,
+                score: node.rated ? Math.round((node.scoreSum / node.rated) * 100) : null,
+                precision: node.precisionN ? Math.round(node.precisionSum / node.precisionN) : null,
+                inTheory: node.inTheory,
+                name: node.name,
+                eco: node.eco
+            };
+        }
+
+        // Línia principal des d'un node: a cada pas, la continuació més jugada,
+        // mentre hi hagi mostra suficient i no s'hagi arribat al fons de l'arbre.
+        function mainLineFrom(node, minLineGames, maxPlies) {
+            const min = typeof minLineGames === 'number' ? minLineGames : REPERTOIRE_CONFIG.minLineGames;
+            const max = typeof maxPlies === 'number' ? maxPlies : REPERTOIRE_CONFIG.maxPlies;
+            const line = [];
+            let current = node;
+            while (line.length < max) {
+                const kids = sortedChildren(current);
+                if (!kids.length) break;
+                const next = kids[0];
+                if (next.games < min) break;
+                line.push(nodeSummary(next));
+                current = next;
+            }
+            return line;
+        }
+
+        // Repertori d'un color: les primeres jugades més freqüents, cadascuna
+        // amb la seva línia principal, el nom d'obertura més profund que s'hi
+        // reconeix i el punt on la partida deixa el llibre.
+        function repertoireForColor(entries, color, options) {
+            const opts = options || {};
+            const maxPlies = typeof opts.maxPlies === 'number' ? opts.maxPlies : REPERTOIRE_CONFIG.maxPlies;
+            const minLineGames = typeof opts.minLineGames === 'number' ? opts.minLineGames : REPERTOIRE_CONFIG.minLineGames;
+            const minColorGames = typeof opts.minColorGames === 'number' ? opts.minColorGames : REPERTOIRE_CONFIG.minColorGames;
+            const maxBranches = typeof opts.maxBranches === 'number' ? opts.maxBranches : REPERTOIRE_CONFIG.maxBranches;
+            const root = buildRepertoireTree(entries, color, opts);
+            const total = root.games;
+            const branches = sortedChildren(root).slice(0, maxBranches).map(child => {
+                const head = nodeSummary(child);
+                const line = [head].concat(mainLineFrom(child, minLineGames, maxPlies - 1));
+                // Nom d'obertura: el més profund que es reconeix al llarg de la línia.
+                let name = null, eco = null;
+                line.forEach(step => { if (step.name) { name = step.name; eco = step.eco; } });
+                // On es deixa el llibre: primera jugada de la línia que no hi és.
+                let offBookPly = null, offBookBy = null, offBookSan = null;
+                for (const step of line) {
+                    if (step.inTheory === false) {
+                        offBookPly = step.ply;
+                        offBookBy = step.mine ? 'me' : 'opponent';
+                        offBookSan = step.san;
+                        break;
+                    }
+                }
+                return Object.assign(head, {
+                    share: total ? Math.round((child.games / total) * 100) : 0,
+                    line: line,
+                    name: name,
+                    eco: eco,
+                    offBookPly: offBookPly,
+                    offBookBy: offBookBy,
+                    offBookSan: offBookSan
+                });
+            });
+            return {
+                color: color,
+                games: total,
+                enough: total >= minColorGames,
+                minColorGames: minColorGames,
+                // Amb negres la primera jugada de l'arbre és del RIVAL: el
+                // repertori es llegeix «contra 1.e4, jugo…».
+                branchesAreMine: color === 'w',
+                theoryKnown: !!opts.theory,
+                branches: branches
+            };
+        }
+
+        // Repertori complet: blanques i negres, amb el mateix criteri.
+        function buildPersonalRepertoire(entries, options) {
+            return {
+                white: repertoireForColor(entries, 'w', options),
+                black: repertoireForColor(entries, 'b', options)
+            };
+        }
+
+        return {
+            buildRepertoireTree,
+            mainLineFrom,
+            repertoireForColor,
+            buildPersonalRepertoire
+        };
+    }
+
+    // ----------------------------------------------------------------------
     // Classificador de FINAL TÀCTIC dels jeroglífics (PUR amb chess.js injectat)
     // ----------------------------------------------------------------------
     // Un jeroglífic només s'aprova si acaba amb una imatge tàctica clara i
@@ -3138,6 +3361,10 @@
         bessoDaysAgoLabel,
         bessoPastSnapshot,
         createBessoHelpers,
+        REPERTOIRE_CONFIG,
+        historyEntryOutcome,
+        repertoireEligibleGames,
+        createRepertoireHelpers,
         normalize,
         clampUserElo,
         getBaselineAdjustmentDelta,
