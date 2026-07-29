@@ -1643,13 +1643,70 @@
             line-height: 1.5;
         }
         .rep-warning { margin-bottom: 8px; font-style: italic; }
-        /* La teva obertura (construïda) */
-        .rep-divider {
-            height: 1px;
-            background: rgba(201, 162, 39, 0.2);
-            margin: 18px 0 14px;
+        /* La teva obertura (construïda): bàner destacat a dalt d'Obertures.
+           Capçalera amb tint daurat perquè es vegi d'entrada, i cos amb el
+           mateix fons que els blocs, que és on hi va el repertori construït. */
+        .opening-banner {
+            margin: 12px 0 4px;
+            background: var(--bg-warm);
+            border: 1px solid rgba(201, 162, 39, 0.42);
+            border-radius: 14px;
+            overflow: hidden;
+            box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+            text-align: center;
         }
-        .rep-build-title { margin-top: 0; }
+        .opening-banner-head {
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
+            padding: 14px 16px;
+            text-align: left;
+            background: linear-gradient(135deg, rgba(201,162,39,0.26) 0%, rgba(201,162,39,0.10) 55%, rgba(58,107,140,0.14) 100%);
+            border-bottom: 1px solid rgba(201, 162, 39, 0.22);
+        }
+        .opening-banner-ic {
+            width: 2.2rem;
+            height: 2.2rem;
+            flex: 0 0 auto;
+            margin-top: 2px;
+            fill: none;
+            stroke: var(--accent-gold);
+            stroke-width: 1.8;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+        }
+        .opening-banner-headings { min-width: 0; }
+        .opening-banner-title {
+            font-family: 'Cinzel', serif;
+            color: var(--accent-gold);
+            font-size: 1.15rem;
+            letter-spacing: 1px;
+            line-height: 1.2;
+        }
+        .opening-banner-sub {
+            margin-top: 4px;
+            color: var(--text-secondary);
+            font-size: 0.85rem;
+            line-height: 1.4;
+        }
+        .opening-banner-body { padding: 12px 14px 14px; }
+        .opening-banner-body .rep-build-actions { margin-top: 0; }
+        body.day-mode .opening-banner { box-shadow: 0 2px 8px rgba(120, 95, 40, 0.14); }
+        body.epaper-mode .opening-banner {
+            background: #f7f7f7;
+            border-color: #cfcfcf;
+            box-shadow: none;
+        }
+        body.epaper-mode .opening-banner-head {
+            background: #ededed;
+            border-bottom-color: #cfcfcf;
+        }
+        @media (max-width: 480px) {
+            .opening-banner-head { padding: 12px; gap: 10px; }
+            .opening-banner-ic { width: 1.9rem; height: 1.9rem; }
+            .opening-banner-title { font-size: 1.05rem; }
+            .opening-banner-sub { font-size: 0.8rem; }
+        }
         .rep-build-actions {
             display: flex;
             flex-wrap: wrap;
@@ -5797,6 +5854,28 @@
                 <div class="app-logo">📖</div>
                 <h1>Obertures</h1>
             </div>
+            <div class="opening-banner" id="personal-opening-banner">
+                <div class="opening-banner-head">
+                    <svg class="opening-banner-ic" aria-hidden="true"><use href="#ic-compass"/></svg>
+                    <div class="opening-banner-headings">
+                        <div class="opening-banner-title">La teva obertura</div>
+                        <div class="opening-banner-sub">A partir del que jugues, construeix un repertori <strong>proposat</strong>: entre les jugades que Stockfish valida com a sòlides es queda la teva, i on no en tens es cobreix el que et responen de debò. Es diu sempre d'on surt cada jugada.</div>
+                    </div>
+                </div>
+                <div class="opening-banner-body">
+                    <div class="rep-build-actions">
+                        <button class="btn btn-secondary" id="btn-build-opening-w">Construeix-la amb blanques</button>
+                        <button class="btn btn-secondary" id="btn-build-opening-b">Construeix-la amb negres</button>
+                        <button class="btn btn-primary" id="btn-cancel-build-opening" hidden>Atura</button>
+                    </div>
+                    <div class="opening-stats-note" id="personal-opening-hint">—</div>
+                    <div class="rep-progress" id="personal-opening-progress" hidden>
+                        <div class="rep-progress-track"><div class="rep-progress-bar" id="personal-opening-progress-bar"></div></div>
+                        <div class="rep-progress-text" id="personal-opening-progress-text">—</div>
+                    </div>
+                    <div id="personal-opening-result"></div>
+                </div>
+            </div>
             <div class="opening-section" id="opening-lessons-section">
                 <div class="opening-section-title">Bloc 1 · Repertori recomanat</div>
                 <div class="opening-section-desc"><strong>Aprèn una obertura</strong> del repertori recomanat. Progrés, obertures amb blanques i defenses amb negres queden separats per estudiar amb ordre.</div>
@@ -5861,21 +5940,6 @@
                 <div class="opening-section-desc">El teu repertori <strong>real</strong>: què jugues de debò a l'obertura, amb quina freqüència hi arribes, què hi puntues i on deixes el llibre. Surt només de les teves partides —cap recomanació, cap motor.</div>
                 <div class="repertoire" id="repertoire-list"></div>
                 <div class="opening-stats-note" id="repertoire-note">—</div>
-
-                <div class="rep-divider"></div>
-                <div class="opening-section-title rep-build-title">La teva obertura</div>
-                <div class="opening-section-desc">A partir del que jugues, construeix un repertori <strong>proposat</strong>: entre les jugades que Stockfish valida com a sòlides es queda la teva, i on no en tens es cobreix el que et responen de debò. Es diu sempre d'on surt cada jugada.</div>
-                <div class="rep-build-actions">
-                    <button class="btn btn-secondary" id="btn-build-opening-w">Construeix-la amb blanques</button>
-                    <button class="btn btn-secondary" id="btn-build-opening-b">Construeix-la amb negres</button>
-                    <button class="btn btn-primary" id="btn-cancel-build-opening" hidden>Atura</button>
-                </div>
-                <div class="opening-stats-note" id="personal-opening-hint">—</div>
-                <div class="rep-progress" id="personal-opening-progress" hidden>
-                    <div class="rep-progress-track"><div class="rep-progress-bar" id="personal-opening-progress-bar"></div></div>
-                    <div class="rep-progress-text" id="personal-opening-progress-text">—</div>
-                </div>
-                <div id="personal-opening-result"></div>
             </div>
             <div class="opening-section" id="opening-hieroglyphic-section">
                 <div class="opening-section-title">Bloc 5 · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Jeroglífics d'obertura</div>

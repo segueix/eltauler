@@ -15174,6 +15174,9 @@ function setOpeningScreenMode(mode = 'overview') {
     $('#opening-practice-section .opening-mode-row').toggle(!isHieroglyphicMode);
     $('#opening-precision-panel').toggle(!isHieroglyphicMode);
     const sections = {
+        // El bàner «La teva obertura» encapçala la pantalla: segueix els
+        // mateixos blocs, i desapareix quan es resol un exercici concret.
+        personal: $('#personal-opening-banner'),
         lessons: $('#opening-lessons-section'),
         practice: $('#opening-practice-section'),
         stats: $('#opening-stats-section'),
@@ -15184,12 +15187,14 @@ function setOpeningScreenMode(mode = 'overview') {
     if (mode === 'lesson' || mode === 'practice') {
         sections.practice.show();
     } else if (mode === 'error-practice') {
+        sections.personal.hide();
         sections.lessons.hide();
         sections.stats.hide();
         sections.repertoire.hide();
         sections.hieroglyphic.hide();
         sections.practice.show();
     } else if (mode === 'hieroglyphic') {
+        sections.personal.hide();
         sections.lessons.hide();
         sections.stats.hide();
         sections.repertoire.hide();
@@ -15668,8 +15673,9 @@ function renderPersonalOpeningSection() {
             ? `Refés-la amb ${personalOpeningColorLabel(color)}`
             : `Construeix-la amb ${personalOpeningColorLabel(color)}`;
         btn.disabled = busy || games < min;
+        const short = min - games;
         btn.title = games < min
-            ? `Et falten ${min - games} partides amb ${personalOpeningColorLabel(color)}.`
+            ? `${short === 1 ? 'Et falta 1 partida' : `Et falten ${short} partides`} amb ${personalOpeningColorLabel(color)}.`
             : '';
     });
     el.innerHTML = ['w', 'b'].map(renderPersonalOpeningResult).join('');
@@ -15679,10 +15685,16 @@ function renderPersonalOpeningSection() {
         const white = data ? data.white.games : 0;
         const black = data ? data.black.games : 0;
         const missing = [];
-        if (white < min) missing.push(`${min - white} amb blanques`);
-        if (black < min) missing.push(`${min - black} amb negres`);
+        if (white < min) missing.push({ n: min - white, label: 'blanques' });
+        if (black < min) missing.push({ n: min - black, label: 'negres' });
+        // «partides» va només al primer tros: «3 partides amb blanques i 1 amb
+        // negres». Amb un sol color i una sola partida, tot va en singular.
+        const total = missing.reduce((sum, m) => sum + m.n, 0);
+        const parts = missing.map((m, idx) => idx === 0
+            ? `${m.n} ${m.n === 1 ? 'partida' : 'partides'} amb ${m.label}`
+            : `${m.n} amb ${m.label}`);
         hintEl.textContent = missing.length
-            ? `Et falten ${missing.join(' i ')} partides perquè les teves dades diguin prou.`
+            ? `${total === 1 ? 'Et falta' : 'Et falten'} ${parts.join(' i ')} perquè les teves dades diguin prou.`
             : 'Analitza les posicions amb Stockfish. Triga una estona i pots aturar-ho quan vulguis.';
     }
 }
