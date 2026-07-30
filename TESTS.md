@@ -294,3 +294,8 @@ sense que salti l'alarma.
 Quan vulguis fer testejable una funció nova, mou-ne la part pura a `core.js`
 (rebent per paràmetre el que abans llegia de variables globals), fes que la
 funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
+
+- **`antidote-feedback.test.js`** — comprova el panell de comentaris en viu,
+  l’alerta abans de la resposta del jugador, les pautes específiques per
+  categoria, els quatre resultats pedagògics i el text de Configuració.
+
