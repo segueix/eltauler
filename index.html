@@ -3267,6 +3267,19 @@
             display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px;
         }
         .history-filters .select-control { flex: 1; min-width: 120px; font-size: 0.82rem; padding: 7px 8px; }
+        /* Plega/desplega tots els grups d'antiguitat de cop. Va amb els filtres
+           perquè és un control de la llista, i mai s'escurça el text. */
+        .history-groups-toggle {
+            flex: 0 0 auto; white-space: nowrap; cursor: pointer;
+            font-family: inherit; font-size: 0.78rem; font-weight: 600;
+            padding: 7px 12px; border-radius: 999px;
+            background: rgba(255,255,255,0.05);
+            border: 1px solid rgba(201,162,39,0.25);
+            color: var(--text-secondary);
+        }
+        .history-groups-toggle:hover { color: var(--accent-gold); border-color: rgba(201,162,39,0.5); }
+        body.epaper-mode .history-groups-toggle { background: #ededed; border-color: #777; color: #222; }
+        body.day-mode .history-groups-toggle { background: rgba(120,95,40,0.08); border-color: rgba(120,95,40,0.22); }
         .history-layout {
             display: grid;
             grid-template-columns: 1fr;
@@ -3294,6 +3307,48 @@
             overflow: visible;
             padding-right: 0;
         }
+        /* Grups d'antiguitat (Avui, Ahir, Fa 2 dies, Fa 1 setmana...): seccions
+           desplegables perquè un historial llarg no sigui una llista infinita. */
+        .history-group { display: flex; flex-direction: column; }
+        .history-group-head {
+            display: flex; align-items: center; gap: 8px;
+            width: 100%; text-align: left; cursor: pointer;
+            background: rgba(201, 162, 39, 0.08);
+            border: 1px solid rgba(201, 162, 39, 0.22);
+            border-radius: 10px; padding: 7px 10px;
+            color: var(--text-primary); font-size: 0.85rem; font-family: inherit;
+        }
+        .history-group-head:hover { background: rgba(201, 162, 39, 0.16); }
+        .history-group-head:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+        .history-group.open > .history-group-head {
+            border-bottom-left-radius: 0; border-bottom-right-radius: 0;
+        }
+        .history-group-chevron {
+            flex: 0 0 auto; font-size: 1rem; line-height: 1;
+            color: var(--accent-gold); transition: transform 0.18s ease;
+        }
+        .history-group.open .history-group-chevron { transform: rotate(90deg); }
+        /* L'etiqueta d'antiguitat no s'escurça mai (és el que identifica el grup);
+           si la columna és estreta, el que es retalla és el resum. */
+        .history-group-label { flex: 0 0 auto; font-weight: 700; white-space: nowrap; }
+        .history-group-meta {
+            flex: 1 1 auto; min-width: 0; text-align: right;
+            font-size: 0.72rem; color: var(--text-secondary);
+            white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+        }
+        .history-group-body {
+            display: flex; flex-direction: column; gap: 8px;
+            padding: 8px 0 0 8px;
+            border-left: 1px solid rgba(201, 162, 39, 0.18);
+            margin-left: 6px;
+        }
+        .history-group-body[hidden] { display: none; }
+        body.epaper-mode .history-group-head { background: #ededed; border-color: #cfcfcf; color: #222; }
+        body.epaper-mode .history-group-head:hover { background: #e2e2e2; }
+        body.epaper-mode .history-group-chevron { color: #333; }
+        body.epaper-mode .history-group-body { border-left-color: #cfcfcf; }
+        body.day-mode .history-group-head { background: rgba(120, 95, 40, 0.10); border-color: rgba(120, 95, 40, 0.22); }
+        body.day-mode .history-group-head:hover { background: rgba(120, 95, 40, 0.18); }
         /* Targeta de partida: tota la targeta és clicable per obrir-ne el detall */
         .history-item {
             display: flex;
@@ -5522,6 +5577,8 @@
                         <option value="75">Precisió ≥ 75%</option>
                         <option value="85">Precisió ≥ 85%</option>
                     </select>
+                    <!-- Plega/desplega de cop tots els grups d'antiguitat de la llista -->
+                    <button class="history-groups-toggle" id="history-groups-toggle" type="button" style="display:none;">Desplega-ho tot</button>
                 </div>
                 <div class="history-layout">
                     <div class="history-list" id="history-list"></div>
@@ -7002,7 +7059,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.17"></script>
+    <script src="core.js?v=1.0.18"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.7"></script>
@@ -7013,7 +7070,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.65"></script>
+    <script src="app.js?v=1.0.66"></script>
 
     <!-- Service Worker Registration -->
     <script>

@@ -14994,6 +14994,115 @@ function openHistoryEntry(entry) {
     loadHistoryEntry(entry);
 }
 
+// ── Grups desplegables de l'historial ────────────────────────────────────────
+// Amb desenes de partides desades, una llista plana és inservible: les partides
+// es reparteixen en seccions per antiguitat (Avui, Ahir, Fa 2 dies, Fa 1
+// setmana, Fa 1 mes...) i només les més recents arriben desplegades.
+//
+// Aquí només hi viu QUÈ ha tocat l'usuari (clau del grup → obert/tancat), per
+// pestanya. No es desa entre sessions a propòsit: les claus són relatives a
+// AVUI, i «fa 2 dies» demà ja no vol dir el mateix.
+let historyGroupOpenState = { mine: {}, pgn: {} };
+
+function historyGroupStateForTab() {
+    const tab = historyActiveTab === 'pgn' ? 'pgn' : 'mine';
+    if (!historyGroupOpenState[tab]) historyGroupOpenState[tab] = {};
+    return historyGroupOpenState[tab];
+}
+
+// Resum d'una secció: quantes partides hi ha i, a les partides pròpies, el
+// balanç del grup (les PGN no tenen resultat propi i només es compten).
+function historyGroupSummary(group) {
+    const n = group.entries.length;
+    const count = `${n} ${n === 1 ? 'partida' : 'partides'}`;
+    if (historyActiveTab === 'pgn') return count;
+    let wins = 0, draws = 0, losses = 0;
+    group.entries.forEach(entry => {
+        const o = entryOutcome(entry);
+        if (o === 'win') wins++;
+        else if (o === 'draw') draws++;
+        else if (o === 'loss') losses++;
+    });
+    if (!wins && !draws && !losses) return count;
+    return `${count} · ${wins}V · ${draws}E · ${losses}D`;
+}
+
+// Targeta d'una partida de la llista.
+function historyItemHtml(entry, activeId) {
+    const movesCount = Math.ceil(getHistoryMoves(entry).length / 2);
+    const om = historyOutcomeMeta(entry);
+    const prec = typeof entry.precision === 'number' ? entry.precision : null;
+    const imported = historyEntryIsImported(entry);
+    // A la pestanya PGN el titular són els jugadors (capçaleres del PGN
+    // o nom del fitxer) i el resultat original passa a la línia de sota.
+    const title = imported
+        ? (entry.players || entry.result || 'Partida PGN')
+        : (entry.result || '—');
+    const metaParts = [];
+    if (imported && entry.players) {
+        const rawResult = entry.importHeaders && entry.importHeaders.Result && entry.importHeaders.Result !== '*'
+            ? entry.importHeaders.Result
+            : entry.result;
+        if (rawResult) metaParts.push(rawResult);
+    }
+    metaParts.push(entry.label || '—', describeHistoryGame(entry), `${movesCount} jugades`);
+    const meta = metaParts.join(' · ');
+    return `
+        <div class="history-item ${om.cls}${entry.id === activeId ? ' active' : ''}" data-history-id="${entry.id}" role="button" tabindex="0" title="Obre el detall i la revisió d'aquesta partida">
+            <div class="history-item-icon" aria-hidden="true">${om.icon}</div>
+            <div class="history-item-main">
+                <div class="history-item-title">${escapeHtml(title)}</div>
+                <div class="history-item-meta">${escapeHtml(meta)}</div>
+            </div>
+            <div class="history-item-side">
+                <span class="history-prec-pill ${precisionPillClass(prec)}" title="Precisió de la partida">${prec === null ? '—' : `${prec}%`}</span>
+                <button class="btn history-delete" data-history-id="${entry.id}" title="Esborrar aquesta partida de l'historial" aria-label="Esborrar aquesta partida de l'historial"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg></button>
+            </div>
+        </div>
+    `;
+}
+
+// Secció desplegable d'un grup d'antiguitat.
+function historyGroupHtml(group, isOpen, activeId) {
+    const tab = historyActiveTab === 'pgn' ? 'pgn' : 'mine';
+    const bodyId = `history-group-${tab}-${group.key}`;
+    const items = group.entries.map(entry => historyItemHtml(entry, activeId)).join('');
+    return `
+        <div class="history-group${isOpen ? ' open' : ''}" data-group-key="${escapeHtml(group.key)}">
+            <button type="button" class="history-group-head" aria-expanded="${isOpen ? 'true' : 'false'}" aria-controls="${bodyId}">
+                <span class="history-group-chevron" aria-hidden="true">›</span>
+                <span class="history-group-label">${escapeHtml(group.label)}</span>
+                <span class="history-group-meta">${escapeHtml(historyGroupSummary(group))}</span>
+            </button>
+            <div class="history-group-body" id="${bodyId}"${isOpen ? '' : ' hidden'}>${items}</div>
+        </div>
+    `;
+}
+
+// Botó «Desplega-ho tot / Plega-ho tot»: només surt si hi ha més d'un grup.
+function syncHistoryGroupsToggle() {
+    const btn = $('#history-groups-toggle');
+    if (!btn.length) return;
+    const heads = $('#history-list .history-group-head');
+    if (heads.length < 2) { btn.hide(); return; }
+    const anyClosed = heads.toArray().some(el => el.getAttribute('aria-expanded') !== 'true');
+    btn.show()
+        .text(anyClosed ? 'Desplega-ho tot' : 'Plega-ho tot')
+        .attr('title', anyClosed ? 'Obre tots els grups de partides' : 'Tanca tots els grups de partides')
+        .data('action', anyClosed ? 'expand' : 'collapse');
+}
+
+// Obre o tanca un grup (sense repintar la llista: així no salta l'scroll).
+function setHistoryGroupOpen(wrap, open) {
+    const el = $(wrap);
+    if (!el.length) return;
+    const key = el.data('group-key');
+    el.toggleClass('open', open);
+    el.find('.history-group-head').first().attr('aria-expanded', open ? 'true' : 'false');
+    el.find('.history-group-body').first().prop('hidden', !open);
+    if (key) historyGroupStateForTab()[key] = open;
+}
+
 // Marca la partida seleccionada a la llista sense repintar-la sencera.
 function syncHistoryListActive() {
     const activeId = historyReplay && historyReplay.entry ? historyReplay.entry.id : null;
@@ -15014,6 +15123,7 @@ function renderGameHistory() {
             ? 'Encara no hi ha cap partida PGN. Prem «Importa PGN» per carregar-ne una (p. ex. de grans mestres) i podràs rejugar-la i analitzar-la aquí.'
             : 'Encara no hi ha partides guardades. Juga una partida i la revisió apareixerà aquí.'}</div>`);
         if (countEl.length) countEl.text('');
+        syncHistoryGroupsToggle();
         // El detall només es buida si la partida oberta ja no existeix enlloc
         // (l'altra pestanya pot seguir tenint la seva selecció carregada).
         if (!historyReplay || !historyReplay.entry || !findHistoryEntryById(historyReplay.entry.id)) {
@@ -15030,47 +15140,31 @@ function renderGameHistory() {
     }
     if (!filtered.length) {
         container.html('<div class="history-empty">Cap partida coincideix amb els filtres.</div>');
+        syncHistoryGroupsToggle();
         return;
     }
     const activeId = historyReplay && historyReplay.entry ? historyReplay.entry.id : null;
-    const items = filtered
-        .slice()
-        .reverse()
-        .map(entry => {
-            const movesCount = Math.ceil(getHistoryMoves(entry).length / 2);
-            const om = historyOutcomeMeta(entry);
-            const prec = typeof entry.precision === 'number' ? entry.precision : null;
-            const imported = historyEntryIsImported(entry);
-            // A la pestanya PGN el titular són els jugadors (capçaleres del PGN
-            // o nom del fitxer) i el resultat original passa a la línia de sota.
-            const title = imported
-                ? (entry.players || entry.result || 'Partida PGN')
-                : (entry.result || '—');
-            const metaParts = [];
-            if (imported && entry.players) {
-                const rawResult = entry.importHeaders && entry.importHeaders.Result && entry.importHeaders.Result !== '*'
-                    ? entry.importHeaders.Result
-                    : entry.result;
-                if (rawResult) metaParts.push(rawResult);
-            }
-            metaParts.push(entry.label || '—', describeHistoryGame(entry), `${movesCount} jugades`);
-            const meta = metaParts.join(' · ');
-            return `
-                <div class="history-item ${om.cls}${entry.id === activeId ? ' active' : ''}" data-history-id="${entry.id}" role="button" tabindex="0" title="Obre el detall i la revisió d'aquesta partida">
-                    <div class="history-item-icon" aria-hidden="true">${om.icon}</div>
-                    <div class="history-item-main">
-                        <div class="history-item-title">${escapeHtml(title)}</div>
-                        <div class="history-item-meta">${escapeHtml(meta)}</div>
-                    </div>
-                    <div class="history-item-side">
-                        <span class="history-prec-pill ${precisionPillClass(prec)}" title="Precisió de la partida">${prec === null ? '—' : `${prec}%`}</span>
-                        <button class="btn history-delete" data-history-id="${entry.id}" title="Esborrar aquesta partida de l'historial" aria-label="Esborrar aquesta partida de l'historial"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg></button>
-                    </div>
-                </div>
-            `;
-        })
-        .join('');
-    container.html(items);
+    // Seccions per antiguitat (Avui, Ahir, Fa 2 dies, Fa 1 setmana...), de la
+    // més recent a la més antiga, amb les més noves ja desplegades.
+    const groups = ElTaulerCore.groupHistoryEntriesByAge(filtered);
+    const groupState = historyGroupStateForTab();
+    const openFlags = ElTaulerCore.historyGroupsOpenState(groups, groupState);
+    groups.forEach((group, i) => {
+        // El grup de la partida que s'està veient al detall s'obre sol, tret que
+        // l'usuari l'hagi plegat a mà: si no, la selecció quedaria amagada.
+        if (!openFlags[i] && !Object.prototype.hasOwnProperty.call(groupState, group.key)
+            && activeId && group.entries.some(entry => entry.id === activeId)) {
+            openFlags[i] = true;
+        }
+    });
+    container.html(groups.map((group, i) => historyGroupHtml(group, openFlags[i], activeId)).join(''));
+    // Capçalera del grup: plega/desplega la seva llista de partides.
+    container.find('.history-group-head').off('click').on('click', function() {
+        const wrap = $(this).closest('.history-group');
+        setHistoryGroupOpen(wrap, $(this).attr('aria-expanded') !== 'true');
+        syncHistoryGroupsToggle();
+    });
+    syncHistoryGroupsToggle();
     // Tota la targeta obre el detall de la partida (a més del teclat, per accessibilitat).
     container.find('.history-item').off('click keydown').on('click keydown', function(event) {
         if (event.type === 'keydown' && event.key !== 'Enter' && event.key !== ' ') return;
@@ -21276,6 +21370,12 @@ function setupEvents() {
         historyFilters.mode = $('#history-filter-mode').val();
         historyFilters.prec = parseInt($('#history-filter-prec').val(), 10) || 0;
         renderGameHistory();
+    });
+    // Desplega o plega TOTS els grups d'antiguitat de la llista de cop.
+    $('#history-groups-toggle').off('click').on('click', function () {
+        const open = $(this).data('action') !== 'collapse';
+        $('#history-list .history-group').each(function () { setHistoryGroupOpen(this, open); });
+        syncHistoryGroupsToggle();
     });
     // Pestanyes de l'historial: partides pròpies / partides PGN importades.
     $('#history-tab-mine, #history-tab-pgn').off('click').on('click', function () {
