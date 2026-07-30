@@ -20137,14 +20137,15 @@ async function startHieroglyphicExercise() {
 
 /* ============ JEROGLÍFICS D'OBERTURA (repertori catalogat) ============
    Dins la secció d'Obertures, el jeroglífic ha de parlar d'obertures: no surt
-   de cap partida ni de cap motor, sinó de les línies que l'app ja té
-   catalogades a CURATED_OPENINGS. Es juga la línia fins al TERCER o QUART
-   moviment i, a partir d'allà, l'exercici demana les jugades teòriques
-   següents (fins a tres) amb les respostes del rival de la mateixa línia.
+   de cap partida ni de cap motor, sinó de la teoria que l'app ja té a casa —les
+   línies de CURATED_OPENINGS i les BRANQUES de cada una a la base ECO
+   (obertures.js). Es juga la línia fins a un moviment d'entre el TERCER i el
+   VUITÈ i, a partir d'allà, l'exercici demana les jugades teòriques següents
+   (fins a tres) amb les respostes del rival de la mateixa línia.
    La construcció és pura i viu a core.js; aquí hi ha el tauler i les pistes. */
 
 const OPENING_HIERO_RECENT_KEY = 'eltauler_opening_hieroglyphic_recent';
-const OPENING_HIERO_RECENT_MAX = 6;
+const OPENING_HIERO_RECENT_MAX = 24;
 let currentOpeningHieroglyphic = null;
 let openingHieroglyphicHelpers = null;
 
@@ -20155,13 +20156,40 @@ function getOpeningHieroglyphicHelpers() {
     return openingHieroglyphicHelpers;
 }
 
+// ÍNDEX DE BRANQUES. El repertori catalogat dona un parell d'exercicis per
+// obertura; les branques de cada obertura —que ja són a la base ECO que l'app
+// carrega per analitzar partides— en donen desenes. L'índex és pura feina de
+// text (uns 100 ms per les 3.626 línies) i es munta un sol cop per sessió:
+// els exercicis NO es construeixen fins que se'n tria un.
+let openingBranchIndex = null;
+let openingBranchIndexBuilt = false;
+
+function getOpeningBranchIndex() {
+    if (openingBranchIndexBuilt) return openingBranchIndex;
+    openingBranchIndexBuilt = true;
+    try {
+        if (typeof OPENINGS_DATA === 'undefined' || typeof ElTaulerCore === 'undefined') return null;
+        openingBranchIndex = ElTaulerCore.buildOpeningBranchIndex(CURATED_OPENINGS, OPENINGS_DATA, { parsePgn: parsePgnToMoves });
+        console.log(`[OpeningHiero] Índex de branques: ${openingBranchIndex.slots.length} exercicis de ${CURATED_OPENINGS.length} obertures`);
+    } catch (e) {
+        console.warn('[OpeningHiero] No s’ha pogut muntar l’índex de branques', e);
+        openingBranchIndex = null;
+    }
+    return openingBranchIndex;
+}
+
 // Bàner destacat de la secció: quants exercicis hi ha i d'on surten. El
-// recompte es calcula un sol cop (construir-los tots costa una passada per
-// tot el repertori) i es guarda mentre duri la sessió.
+// recompte es calcula un sol cop i es guarda mentre duri la sessió.
 let openingHieroglyphicCandidateCount = null;
 
 function countOpeningHieroglyphicExercises() {
     if (openingHieroglyphicCandidateCount !== null) return openingHieroglyphicCandidateCount;
+    const index = getOpeningBranchIndex();
+    if (index && index.slots.length) {
+        openingHieroglyphicCandidateCount = index.slots.length;
+        return openingHieroglyphicCandidateCount;
+    }
+    // Sense base ECO només queda el repertori catalogat.
     const helpers = getOpeningHieroglyphicHelpers();
     try {
         openingHieroglyphicCandidateCount = helpers ? helpers.openingHieroglyphicCandidates(CURATED_OPENINGS).length : 0;
@@ -20176,9 +20204,14 @@ function renderOpeningHieroglyphicBanner() {
     if (!statusEl) return;
     const total = countOpeningHieroglyphicExercises();
     const openings = Array.isArray(CURATED_OPENINGS) ? CURATED_OPENINGS.length : 0;
-    statusEl.textContent = total
-        ? `${total} exercicis de les ${openings} obertures del repertori, a partir del tercer o quart moviment.`
-        : 'Desxifra la pista i troba la jugada teòrica d’una obertura del repertori.';
+    const index = getOpeningBranchIndex();
+    if (!total) {
+        statusEl.textContent = 'Desxifra la pista i troba la jugada teòrica d’una obertura del repertori.';
+        return;
+    }
+    statusEl.textContent = (index && index.slots.length)
+        ? `${total} exercicis de les ${openings} obertures del repertori i de les seves branques, del tercer al vuitè moviment.`
+        : `${total} exercicis de les ${openings} obertures del repertori, a partir del tercer o quart moviment.`;
 }
 
 function loadOpeningHieroglyphicRecent() {
@@ -20422,8 +20455,12 @@ function renderOpeningHieroglyphicNote(statusText = '') {
     const level = Math.min(3, Math.max(hieroglyphicHintLevel || 1, (hieroglyphicAttempts || 0) + 1));
     const colorTxt = puzzle.userColor === 'w' ? 'blanques' : 'negres';
     const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${escapeHtml(statusText)}</div>` : '';
+    // La variant diu en quina branca de l'obertura s'és. És la de la POSICIÓ DE
+    // PARTIDA: la del final de la línia sovint delata la solució.
+    const variation = puzzle.variation ? `<div class="maxim-text" style="opacity:0.72; font-size:0.8rem;">${escapeHtml(puzzle.variation)}</div>` : '';
     noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
         <div class="maxim-title">${HG_ICON_SVG} ${escapeHtml(puzzle.name)}${puzzle.eco ? ` (${escapeHtml(puzzle.eco)})` : ''}</div>
+        ${variation}
         <div class="maxim-voice">${escapeHtml(voice.name)}, ${escapeHtml(voice.work)} · moviment ${puzzle.startMoveNumber} amb ${colorTxt}</div>
         <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
         <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · ${openingHieroglyphicStepLabel()} · Troba la jugada de la teoria. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
@@ -20459,7 +20496,15 @@ function requestOpeningHieroglyphicHintLevel() {
 
 function startOpeningTheoryHieroglyphic() {
     const helpers = getOpeningHieroglyphicHelpers();
-    const puzzle = helpers ? helpers.pickOpeningHieroglyphic(CURATED_OPENINGS, { recentKeys: loadOpeningHieroglyphicRecent() }) : null;
+    const recentKeys = loadOpeningHieroglyphicRecent();
+    // Primer, les branques (moltes més i més variades); si la base ECO no hi
+    // fos, el repertori catalogat sol continua donant exercicis.
+    let puzzle = null;
+    const index = getOpeningBranchIndex();
+    if (helpers && index) {
+        try { puzzle = helpers.pickOpeningBranchHieroglyphic(index, { recentKeys }); } catch (e) { puzzle = null; }
+    }
+    if (!puzzle && helpers) puzzle = helpers.pickOpeningHieroglyphic(CURATED_OPENINGS, { recentKeys });
     if (!puzzle) {
         showToast('Ara mateix no es pot preparar cap jeroglífic d’obertura.', 'warn');
         return;
@@ -20568,8 +20613,15 @@ function completeOpeningTheoryHieroglyphic() {
             return `<strong>${escapeHtml(san)}</strong>${reply ? ` ${escapeHtml(reply)}` : ''}`;
         }).join(' · ');
         const idea = puzzle.idea ? `<div class="maxim-text" style="opacity:0.9; margin-top:6px;">${escapeHtml(puzzle.idea)}</div>` : '';
+        // Ara sí: resolt l'exercici, el nom de la línia on s'ha arribat ja no
+        // delata res i és el que li posa nom al que s'acaba de jugar.
+        const reached = puzzle.solvedVariation || puzzle.variation;
+        const variation = reached
+            ? `<div class="maxim-text" style="opacity:0.78; font-size:0.85rem;">${escapeHtml(reached)}${puzzle.solvedVariation && puzzle.solvedEco ? ` (${escapeHtml(puzzle.solvedEco)})` : ''}</div>`
+            : '';
         noteEl.innerHTML = `<div class="opening-maxim-box">
             <div class="maxim-title">✅ ${escapeHtml(puzzle.name)}${puzzle.eco ? ` (${escapeHtml(puzzle.eco)})` : ''}</div>
+            ${variation}
             <div class="maxim-text">Has desxifrat el signe: la teoria segueix ${line}.</div>
             ${idea}
             <div class="maxim-text" style="opacity:0.78; margin-top:6px;">Motiu: ${escapeHtml(openingHieroglyphicMotifPack(puzzle.motif).label)} · Jeroglífics resolts: ${hieroglyphicStats.solved}</div>
