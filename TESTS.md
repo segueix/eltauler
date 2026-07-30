@@ -281,7 +281,7 @@ enviament d'una fallada al repàs d'errades existent, historial amb
 `mode: "antidote"` que sobreviu a la recàrrega, ELO principal i ELO per ritme
 intactes, amplada mòbil, perfil buit, funcionament sense Firebase, els dos
 camins de fallback (cerca que peta i worker que no arrenca) i cap regressió a
-Nova partida, Partida assistida, Joc vista, Lliga, Bessó ni jeroglífics.
+Nova partida, Joc vista, Lliga ni jeroglífics.
 
 ## Integració contínua
 
@@ -320,4 +320,34 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   pesant com a fallada, que encertar-la a la primera sí que compti com a
   superada, que `retried`/`firstResult` viatgin amb la prova desada i que les
   proves antigues sense aquests camps segueixin valent.
+
+- **`tria.test.js`** — modalitat 🔀 **Tres camins**: repàs de les errades
+  pròpies amb tres opcions, on una de les tres és sempre la jugada que vas fer
+  de veritat. El pes de la prova va a la **tercera opció**, que és tot
+  l'exercici: es comprova que surti de la franja «dolenta però temptadora»
+  (`multipvBefore` + l'escala de mat de l'Antídot), que mai s'hi coli una segona
+  jugada bona —la pregunta ha de tenir UNA resposta—, ni una de pèssima que no
+  temptaria ningú, ni una que perdi pràcticament el mateix que la teva (empat
+  trampa), ni una il·legal a la posició; i que entre dues de vàlides mani la més
+  natural, la que una persona jugaria sense pensar (la captura per davant del
+  peó lateral). Si el MultiPV desat no en dona cap de digna, **no es construeix
+  cap pregunta**: el mateix reflex que ja tenen els jeroglífics d'obertura amb
+  una línia curta i l'obertura personal amb una pèrdua no mesurada.
+  El **temps concedit** es prova com a model: una posició difícil dona clarament
+  més temps que una de fàcil, és determinista (mateixa entrada, mateix
+  pressupost), conserva la forma humana calibrada —com més fort ets, més
+  contrast entre fàcil i difícil— i respecta terra i sostre. El terra és
+  generós a posta: per sota, no mesuraries criteri sinó velocitat de lectura.
+  Cada opció oberta al tauler afegeix el seu plus, amb un màxim.
+  De la **porta d'entrada**: errades greus i errors hi entren sempre, una
+  imprecisió només si repeteix un tema que el perfil de l'Antídot ja marca com
+  a debilitat, res es repeteix dues vegades (dedup per `reviewErrorKey`) i una
+  sola partida no pot omplir el repàs sencer.
+  Del **preview**: ensenya la teva candidata jugada i prou —el torn passa a
+  l'altre color i la resposta del rival no s'avança—, perquè trobar la
+  refutació és justament l'exercici.
+  I de la **puntuació**: obrir opcions no resta, es compta (un encert net i un
+  encert mirant-les totes tres són resultats diferents), quedar-se sense temps
+  no és mai un encert, i tornar a triar la teva pròpia jugada queda marcat a
+  part (`repeatedOwnMistake`): no és no saber-la, és no haver-la desaprès.
 
