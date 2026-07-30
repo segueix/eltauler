@@ -1078,9 +1078,12 @@
   }
 
   // --- Mode "toc": seleccionar origen i destí amb clics ---
+  // La selecció i les destinacions legals fan servir les MATEIXES classes que
+  // la resta de taulers de l'app (.tap-selected / .tap-move): contorn daurat a
+  // la peça i cercle buit a cada casella on pot anar.
   function clearSelection() {
     selectedSquare = null;
-    $('#catalans-board .square-55d63').removeClass('cat-selected cat-target');
+    $('#catalans-board .square-55d63').removeClass('tap-selected tap-move');
   }
   function squareEl(square) {
     return $("#catalans-board .square-55d63[data-square='" + square + "']");
@@ -1088,10 +1091,10 @@
   function highlightSelection(square) {
     clearSelection();
     selectedSquare = square;
-    squareEl(square).addClass('cat-selected');
+    squareEl(square).addClass('tap-selected');
     const c = newChess(state.fen);
     c.moves({ square: square, verbose: true }).forEach(function (m) {
-      squareEl(m.to).addClass('cat-target');
+      squareEl(m.to).addClass('tap-move');
     });
   }
   function onSquareClick(square) {
@@ -1706,7 +1709,7 @@
 
     // Neteja visual de la partida anterior (tauler, ressaltats, previsualització).
     $('#catalans-preview-bar').hide();
-    $('#catalans-board .square-55d63').removeClass('cat-myvote cat-preview-from cat-preview-to cat-selected cat-target');
+    $('#catalans-board .square-55d63').removeClass('cat-myvote cat-preview-from cat-preview-to tap-selected tap-move');
     if (board) { try { board.position('start', false); } catch (e) {} }
     setStatus('');
     renderHistory();
