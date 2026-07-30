@@ -1561,6 +1561,8 @@
         /* Jeroglífic d'obertura resolt: la pista desapareix i el botó de fer-ne
            un altre es queda sol a la fila, així que ocupa tota l'amplada. */
         body.opening-hiero-solved #btn-opening-hiero-next { grid-column: 1 / -1; }
+        /* La sortida de l'exercici cap a la secció d'Obertures va sempre sola. */
+        #btn-opening-hiero-back { grid-column: 1 / -1; }
         .hieroglyphic-clue {
             border-left: 3px solid #8b5fc7;
         }
@@ -2058,6 +2060,20 @@
             width: 100%;
             max-width: 360px;
             margin: 0 auto;
+        }
+        /* Escriptori: el tauler d'obertures (pràctica i jeroglífic) creix amb la
+           pantalla. La mida exacta la calcula resizeOpeningBoardToViewport() a
+           partir de l'amplada del contenidor i de l'alçada de la finestra; aquí
+           només es lleva el límit fix que el deixava sempre a 360 px. */
+        body.device-desktop #opening-board {
+            max-width: none;
+        }
+        /* …i el marc del tauler s'ajusta al tauler, en comptes de quedar-se una
+           targeta ampla mig buida. */
+        body.device-desktop .opening-bundle-board {
+            width: fit-content;
+            margin-left: auto;
+            margin-right: auto;
         }
         .opening-restart-overlay {
             position: absolute;
@@ -6167,6 +6183,7 @@
                     <!-- Al jeroglífic d'obertura, aquest botó substitueix el de casa
                          petit: allà baix ja hi ha el botó-casa de la secció. -->
                     <button class="btn btn-hieroglyphic" id="btn-opening-hiero-next" style="display:none;" title="Fes un altre jeroglífic d'obertura"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Un altre jeroglífic</button>
+                    <button class="btn btn-nav-section" id="btn-opening-hiero-back" style="display:none;" title="Deixa l'exercici i torna a la secció d'Obertures">📖 Tornar a Obertures</button>
                     <button class="btn btn-nav-home" id="btn-opening-bundle-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
@@ -6958,7 +6975,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.62"></script>
+    <script src="app.js?v=1.0.63"></script>
 
     <!-- Service Worker Registration -->
     <script>

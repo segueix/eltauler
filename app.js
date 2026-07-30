@@ -2473,12 +2473,75 @@ function resizeHistoryBoardToViewport() {
     } catch (e) {}
 }
 
+// Tauler d'obertures (pràctica de línia i jeroglífic d'obertura). A l'escriptori
+// es queda a 360 px per CSS, que a una pantalla gran és ridícul: aquí es calcula
+// la mida real a partir de l'amplada del contenidor i de l'alçada de la finestra,
+// deixant prou aire perquè la pista i els botons de sota es continuïn veient.
+// A mòbil i tauleta manen les regles CSS de sempre (a mòbil, tota l'amplada).
+const OPENING_BOARD_MIN = 320;
+const OPENING_BOARD_MAX = 680;
+const OPENING_BOARD_VH_RATIO = 0.62;
+
+function resizeOpeningBoardToViewport() {
+    const boardEl = document.getElementById('opening-board');
+    const screenEl = document.getElementById('opening-screen');
+    if (!boardEl || !screenEl) return;
+    const isVisible = (screenEl.style.display !== 'none') && (screenEl.offsetParent !== null);
+    if (!isVisible) return;
+
+    const overlayEl = document.getElementById('opening-restart-overlay');
+    if (deviceType !== 'desktop') {
+        // Fora de l'escriptori, la mida la torna a decidir el CSS (a mòbil, tota
+        // l'amplada de la pantalla).
+        boardEl.style.width = '';
+        boardEl.style.height = '';
+        if (overlayEl) { overlayEl.style.width = ''; overlayEl.style.height = ''; }
+        if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
+            openingBundleBoard.resize();
+            reapplyOpeningEngineMoveHighlight();
+        }
+        return;
+    }
+
+    // L'amplada disponible es mesura al BLOC que conté el tauler, no al marc del
+    // tauler: a l'escriptori el marc s'ajusta al tauler (width: fit-content) i
+    // mesurar-lo aquí seria una pescadilla que es mossega la cua.
+    const container = boardEl.closest('.opening-bundle-board');
+    const host = (container && container.parentElement) || screenEl;
+    const frameOf = (el) => {
+        if (!el) return 0;
+        const st = getComputedStyle(el);
+        return (parseFloat(st.paddingLeft) || 0) + (parseFloat(st.paddingRight) || 0)
+            + (parseFloat(st.borderLeftWidth) || 0) + (parseFloat(st.borderRightWidth) || 0);
+    };
+    const hostW = host ? host.getBoundingClientRect().width - frameOf(host) : window.innerWidth;
+    const availableW = hostW - frameOf(container);
+    const size = Math.floor(Math.max(OPENING_BOARD_MIN, Math.min(
+        availableW,
+        window.innerHeight * OPENING_BOARD_VH_RATIO,
+        OPENING_BOARD_MAX
+    )));
+
+    boardEl.style.width = size + 'px';
+    boardEl.style.height = size + 'px';
+    // El botó de tornar a començar es dibuixa a sobre del tauler: ha de créixer amb ell.
+    if (overlayEl) { overlayEl.style.width = size + 'px'; overlayEl.style.height = size + 'px'; }
+
+    if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
+        openingBundleBoard.resize();
+        // resize() reconstrueix les caselles: hi tornem a posar la marca de
+        // l'última jugada del rival.
+        reapplyOpeningEngineMoveHighlight();
+    }
+}
+
 function scheduleBoardResize() {
     if (resizeTimer) clearTimeout(resizeTimer);
     resizeTimer = setTimeout(() => {
         resizeBoardToViewport();
         resizeTvBoardToViewport();
         resizeHistoryBoardToViewport();
+        resizeOpeningBoardToViewport();
     }, 60);
 }
 
@@ -12701,9 +12764,7 @@ function practiceOpeningFromHistory(idx, color) {
             setOpeningScreenMode('overview');
             showToast('No tinc una lliçó concreta d’aquesta obertura; practica-la lliurement.', 'info');
         }
-        if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
-            setTimeout(() => openingBundleBoard.resize(), 50);
-        }
+        setTimeout(() => resizeOpeningBoardToViewport(), 50);
     } catch (e) { console.warn('practiceOpeningFromHistory', e); }
 }
 
@@ -15288,6 +15349,9 @@ function setOpeningScreenMode(mode = 'overview') {
     // fer-ne un altre, que és el que es vol allà.
     $('#btn-opening-hiero-next').toggle(isOpeningHiero);
     $('#btn-opening-bundle-menu').toggle(!isOpeningHiero);
+    // …i, per deixar l'exercici sense marxar de la pantalla, la sortida cap a la
+    // secció d'Obertures.
+    $('#btn-opening-hiero-back').toggle(isOpeningHiero);
     // La pista només desapareix amb l'exercici resolt; qualsevol canvi de mode
     // la torna a deixar disponible.
     $('#btn-opening-bundle-hint').show();
@@ -15327,6 +15391,9 @@ function setOpeningScreenMode(mode = 'overview') {
     const hideResign = (mode === 'error-practice' || isHieroglyphicMode);
     $('#btn-opening-bundle-resign').toggle(!hideResign);
     updateOpeningMaximButton();
+    // Cada mode ensenya i amaga blocs diferents: el tauler es torna a mesurar
+    // amb l'espai que li queda de debò.
+    resizeOpeningBoardToViewport();
 }
 
 /* ===================== EL TEU REPERTORI =====================
@@ -16094,11 +16161,7 @@ function loadRandomOpeningError() {
     setOpeningScreenMode('error-practice');
 
     // Forçar redimensionament del tauler per assegurar visualització
-    setTimeout(() => {
-        if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
-            openingBundleBoard.resize();
-        }
-    }, 100);
+    setTimeout(() => resizeOpeningBoardToViewport(), 100);
 
     // Scroll al tauler
     const boardEl = document.getElementById('opening-board');
@@ -20343,7 +20406,7 @@ function startOpeningTheoryHieroglyphic() {
     if (openingBundleBoard) {
         openingBundleBoard.orientation(puzzle.userColor === 'w' ? 'white' : 'black');
         openingBundleBoard.position(puzzle.fen);
-        if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+        resizeOpeningBoardToViewport();
     }
     // La posició arriba just després d'una jugada del rival: es marca com a
     // última jugada seva, igual que faria l'enginy a qualsevol altre exercici.
@@ -20357,6 +20420,23 @@ function startOpeningTheoryHieroglyphic() {
     // El tauler encara es pot redimensionar mentre el layout s'estabilitza:
     // llavors les caselles es refan i cal tornar-hi a posar la marca.
     setTimeout(() => reapplyOpeningEngineMoveHighlight(), 300);
+}
+
+// Deixa l'exercici i torna a la secció d'Obertures (no a la pàgina principal):
+// el tauler recupera la pràctica de línia i tornen a sortir tots els blocs.
+function exitOpeningHieroglyphicToOpenings() {
+    hieroglyphicExerciseActive = false;
+    currentOpeningHieroglyphic = null;
+    openingHieroglyphicSolvedCard = false;
+    openingHieroglyphicBaseClue = { key: null, text: '' };
+    hieroglyphicSource = 'opening';
+    clearOpeningEngineMoveHighlight();
+    clearOpeningHintHighlight();
+    clearOpeningMoveVisualFeedback();
+    startOpeningPracticeAsColor(openingPracticeUserColor);
+    setOpeningScreenMode('overview');
+    const screenEl = document.getElementById('opening-screen');
+    if (screenEl && screenEl.scrollIntoView) screenEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 // Exercici resolt: es queda a la secció d'Obertures i ensenya la línia sencera.
@@ -20662,7 +20742,7 @@ function initOpeningBundleBoard() {
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
     updateOpeningUndoButton();
-    if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+    resizeOpeningBoardToViewport();
 
     // Aplicar mode de control tàctil
     if (controlMode === 'tap') {
@@ -21003,7 +21083,7 @@ function resetOpeningPracticeBoard() {
     if (openingBundleBoard) {
         orientOpeningPracticeBoard(openingPracticeUserColor);
         openingBundleBoard.position('start');
-        if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+        resizeOpeningBoardToViewport();
     }
     updateOpeningPracticeStatus();
     updateOpeningPrecisionDisplay();
@@ -21269,9 +21349,7 @@ function setupEvents() {
         $('#start-screen').hide();
         $('#opening-screen').show();
         navPush('opening-screen');
-        if (openingBundleBoard && typeof openingBundleBoard.resize === 'function') {
-            setTimeout(() => openingBundleBoard.resize(), 50);
-        }
+        setTimeout(() => resizeOpeningBoardToViewport(), 50);
     });
     $(document).on('click', '.opening-lesson-btn', function() {
         const idx = parseInt($(this).attr('data-lesson'), 10);
@@ -21298,6 +21376,9 @@ function setupEvents() {
     });
     // Botó de la fila d'accions: en fa un altre sense sortir de l'exercici.
     $('#btn-opening-hiero-next').click(() => startOpeningTheoryHieroglyphic());
+    // …i el de tornar a la secció d'Obertures, que deixa l'exercici sense
+    // marxar a la pàgina principal.
+    $('#btn-opening-hiero-back').click(() => exitOpeningHieroglyphicToOpenings());
     const exitOpeningScreenToMenu = () => {
         $('#opening-screen').hide();
         $('#start-screen').show();
