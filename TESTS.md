@@ -295,7 +295,29 @@ Quan vulguis fer testejable una funció nova, mou-ne la part pura a `core.js`
 (rebent per paràmetre el que abans llegia de variables globals), fes que la
 funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
 
-- **`antidote-feedback.test.js`** — comprova el panell de comentaris en viu,
-  l’alerta abans de la resposta del jugador, les pautes específiques per
-  categoria, els quatre resultats pedagògics i el text de Configuració.
+- **`antidote-feedback.test.js`** — comentari en viu del Rival Antídot, i
+  sobretot la **invariant que el fa servir de res o no**: abans que el jugador
+  decideixi, el panell no pot anomenar ni la debilitat ni el subtema. La prova
+  no busca cadenes al codi font; agafa el missatge que retorna `core.js` i
+  comprova que **cap** de les ~40 etiquetes visibles (`ANTIDOTE_WEAKNESS_IDS` +
+  `ANTIDOTE_THEME_FAMILY`) hi apareix, ni cap jugada ni cap avaluació. El motiu
+  és doble: detectar el problema tu sol és la meitat difícil de l’exercici —a
+  la partida de veritat ningú no t’avisa— i, a més, el resultat de la prova
+  alimenta el perfil (`antidoteApplyTestFeedback`), de manera que mesurar
+  respostes amb pista faria baixar el pes d’una debilitat que en realitat
+  continua fallant. Es comprova també que la consigna sigui **constant**
+  (`antidoteTurnPrompt` no accepta cap argument i retorna sempre el mateix), per
+  no delatar ni tan sols quins torns porten prova.
+  A l’altra banda, que l’explicació **posterior** sí que ensenyi: diu el tema i
+  el subtema, dona la millor resposta quan s’ha fallat o s’ha encertat a mitges
+  (i no quan ja s’ha trobat), afegeix la pauta d’observació de la categoria,
+  distingeix els quatre resultats amb estil propi, no llança avís emergent quan
+  no hi ha conclusió i no escup mai `undefined` amb dades incompletes.
+  I el **desfer**: quan el jugador tira la seva jugada enrere i torna a provar,
+  el perfil ha de comptar el PRIMER intent, no el darrer (`firstResult`), perquè
+  el que mesura la seva força a la partida de veritat és què va fer sense saber
+  com acabaria. Es comprova que una prova fallada i després encertada segueixi
+  pesant com a fallada, que encertar-la a la primera sí que compti com a
+  superada, que `retried`/`firstResult` viatgin amb la prova desada i que les
+  proves antigues sense aquests camps segueixin valent.
 

@@ -5110,13 +5110,18 @@
         });
 
         // Proves ANTÍDOT anteriors: rendiment per categoria.
+        // Compta el PRIMER intent, no el darrer. Si el jugador ha tirat la
+        // jugada enrere i ha tornat a provar, el que mesura la seva força a la
+        // partida de veritat és què va fer sense saber-ho; comptar el segon
+        // intent faria baixar el pes d'una debilitat que continua sent-hi.
         tests.forEach(t => {
             if (!t || typeof t !== 'object') return;
             const id = raw[t.theme] ? t.theme : antidoteThemeFamily(t.theme);
             if (!raw[id]) return;
-            if (t.result === 'passed') raw[id].testsPassed += 1;
-            else if (t.result === 'partial') raw[id].testsPartial += 1;
-            else if (t.result === 'failed') {
+            const outcome = t.firstResult || t.result;
+            if (outcome === 'passed') raw[id].testsPassed += 1;
+            else if (outcome === 'partial') raw[id].testsPartial += 1;
+            else if (outcome === 'failed') {
                 raw[id].testsFailed += 1;
                 raw[id].occurrences += 1;
                 raw[id].severitySum += antidoteClamp01(antidoteNum(t.severity, 0.6));
@@ -5630,6 +5635,123 @@
     }
 
     // ----------------------------------------------------------------------
+    //  Textos de l'entrenador en viu
+    // ----------------------------------------------------------------------
+    // REGLA QUE MANA EN AQUEST BLOC: abans que el jugador decideixi no es pot
+    // dir mai QUÈ s'està examinant. Hi ha dues habilitats en joc i no són la
+    // mateixa: DETECTAR que la posició amaga una clavada (la part difícil, la
+    // que falla a les partides de veritat, on ningú no t'avisa) i RESOLDRE-LA
+    // un cop saps que hi és. Anunciar el tema entrena només la segona.
+    //
+    // I hi ha un efecte de segon ordre pitjor: el resultat de la prova
+    // alimenta el perfil (antidoteApplyTestFeedback). Mesurar respostes amb
+    // pista faria baixar el pes d'una debilitat que a les partides sense avís
+    // continua fallant, i el perfil es tornaria sistemàticament optimista —
+    // exactament el contrari del que serveix.
+    //
+    // Per això la consigna prèvia és CONSTANT: idèntica cada torn, hi hagi
+    // prova o no. Així entrena l'hàbit d'escanejar sense delatar ni què hi ha
+    // ni quins torns compten. Tot el que és específic es diu DESPRÉS de moure,
+    // que és quan ensenya.
+
+    const ANTIDOTE_SCAN_STEPS = 'Escacs · captures · amenaces · peces desprotegides';
+
+    // Consigna del torn del jugador. No rep cap argument A PROPÒSIT: si depengués
+    // de la posició o de la prova, ja seria una pista.
+    function antidoteTurnPrompt() {
+        return {
+            kind: 'scan',
+            title: '🧬 El teu torn',
+            text: 'Abans de decidir, mira la posició sencera: què ha canviat amb l’última jugada i què prepara el rival.',
+            guide: ANTIDOTE_SCAN_STEPS
+        };
+    }
+
+    // Missatge mentre el motor pensa. Tampoc no diu res de la posició.
+    function antidoteThinkingPrompt() {
+        return {
+            kind: 'thinking',
+            title: '🧬 El rival tria la jugada',
+            text: 'Stockfish compara diverses jugades fortes i es queda la que et farà treballar més.',
+            guide: 'Sempre serà una jugada objectivament bona: el que canvia és el valor d’entrenament.'
+        };
+    }
+
+    // Pauta d'observació per categoria. Es fa servir DESPRÉS de respondre, com
+    // a «llista que t'hauria fet veure el problema».
+    const ANTIDOTE_THEME_GUIDANCE = {
+        missed_win: 'Busca primer escacs, captures i amenaces; pot haver-hi una continuació que decideixi la partida.',
+        lost_advantage: 'Abans de simplificar o accelerar, comprova què manté la iniciativa i quines peces necessiten millorar.',
+        turned_losing: 'Atura’t i revisa amenaces immediates, peces sense cobertura i canvis irreversibles.',
+        missed_tactic: 'Fes l’escaneig tàctic: escacs, captures, amenaces, peces clavades i dobles atacs.',
+        lost_material: 'Comprova totes les peces atacades i cobertes, especialment les que només tenen un defensor.',
+        king_safety: 'Mira línies obertes, peces que apunten al rei, caselles d’escapada i possibles canvis de dames.',
+        endgame_turning_point: 'Valora activitat del rei, peons passats, oposició i si el canvi de peces t’afavoreix.',
+        strategic_error: 'Pregunta’t quina és la teva pitjor peça, quin pla prepara el rival i quina jugada millora la posició.'
+    };
+
+    function antidoteGuidanceForTheme(theme) {
+        return ANTIDOTE_THEME_GUIDANCE[theme]
+            || 'Mira què ha canviat amb l’última jugada, què amenaça el rival i quines respostes candidates tens.';
+    }
+
+    // Explicació DESPRÉS de la resposta: aquí sí que es diu el tema, la millor
+    // jugada i la pauta, perquè la decisió ja s'ha pres i és quan s'aprèn.
+    function antidoteResultFeedback(test) {
+        const t = test || {};
+        const themeLabel = antidoteWeaknessLabel(t.theme);
+        const subtheme = t.subtheme ? antidoteThemeLabel(t.subtheme) : '';
+        const focus = (subtheme && subtheme !== themeLabel) ? themeLabel + ' · ' + subtheme : themeLabel;
+        const best = t.bestResponseSan || t.bestResponse || null;
+        const loss = (typeof t.responseCpLoss === 'number' && isFinite(t.responseCpLoss))
+            ? Math.round(t.responseCpLoss) : null;
+        const lesson = 'La propera vegada: ' + antidoteGuidanceForTheme(t.theme);
+
+        if (t.result === 'passed') {
+            return {
+                kind: 'success',
+                title: '✅ Prova superada · ' + focus,
+                text: 'Has vist el problema tu sol i la teva resposta ha mantingut la posició sota control'
+                    + ((loss !== null && loss > 0) ? ' (només ' + loss + ' centpeons cedits).' : '.'),
+                guide: lesson,
+                toast: 'Prova superada',
+                toastKind: 'success'
+            };
+        }
+        if (t.result === 'partial') {
+            return {
+                kind: 'partial',
+                title: '🟡 Prova parcial · ' + focus,
+                text: 'Has vist una part del problema, però hi havia una resposta més precisa'
+                    + (best ? ': ' + best + '.' : '.'),
+                guide: lesson,
+                toast: 'Ho has defensat parcialment',
+                toastKind: 'info'
+            };
+        }
+        if (t.result === 'failed') {
+            return {
+                kind: 'failed',
+                title: '🔴 Patró repetit · ' + focus,
+                text: 'Aquesta era la situació que el rival buscava, i ha tornat a passar'
+                    + (best ? '. La resposta era ' + best + '.' : '.')
+                    + ' La posició queda disponible al repàs de les teves fallades.',
+                guide: lesson,
+                toast: 'Aquest patró tornarà al teu entrenament',
+                toastKind: 'warn'
+            };
+        }
+        return {
+            kind: 'info',
+            title: '🧬 Sense conclusió · ' + focus,
+            text: 'Aquí no es pot mesurar amb prou seguretat si el patró s’ha resolt.',
+            guide: 'No compta ni com a encert ni com a fallada.',
+            toast: null,
+            toastKind: 'info'
+        };
+    }
+
+    // ----------------------------------------------------------------------
     //  Persistència
     // ----------------------------------------------------------------------
 
@@ -5655,6 +5777,10 @@
             bestResponseSan: test.bestResponseSan || null,
             responseCpLoss: (typeof test.responseCpLoss === 'number') ? Math.round(test.responseCpLoss) : null,
             result: test.result || 'inconclusive',
+            // Resultat del PRIMER intent i marca de repetició: el resum ensenya
+            // com ha acabat, però el perfil es queda amb com va començar.
+            firstResult: test.firstResult || null,
+            retried: !!test.retried,
             severity: Math.round(antidoteClamp01(antidoteNum(test.severity, 0)) * 100) / 100
         };
     }
@@ -6463,6 +6589,12 @@
         antidoteGameSummary,
         updateAntidoteProgress,
         antidoteEvolutionReport,
+        ANTIDOTE_SCAN_STEPS,
+        ANTIDOTE_THEME_GUIDANCE,
+        antidoteTurnPrompt,
+        antidoteThinkingPrompt,
+        antidoteGuidanceForTheme,
+        antidoteResultFeedback,
         antidoteSerializeTest,
         antidoteSerializeGame,
         antidoteRestoreGame,

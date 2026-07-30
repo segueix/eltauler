@@ -5252,13 +5252,21 @@
                 </div>
                 <div class="setting-help">Cada partida o problema estrena un tauler i unes peces escollits a l'atzar.</div>
                 <div class="setting-row">
-                    <div class="setting-label">🧬 Avisos del Rival Antídot</div>
+                    <div class="setting-label">🧬 Consigna d’escaneig (Rival Antídot)</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="antidote-scan-toggle" checked>
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Durant el teu torn recorda la mateixa llista de sempre —escacs, captures, amenaces, peces desprotegides— per agafar l’hàbit de mirar-ho tot. No diu mai què s’examina: trobar-ho és l’exercici.</div>
+                <div class="setting-row">
+                    <div class="setting-label">🧬 Explicació després de moure</div>
                     <label class="epaper-toggle">
                         <input type="checkbox" id="antidote-notices-toggle" checked>
                         <span class="epaper-slider"></span>
                     </label>
                 </div>
-                <div class="setting-help">Mostra comentaris durant cada prova: avisa quan el rival activa un error habitual, dona una pauta d’observació i explica la resposta després de moure. El resum final sempre es veu.</div>
+                <div class="setting-help">Un cop has respost, diu quin patró s’estava treballant, quina era la millor resposta i què mirar la propera vegada. El resum final sempre es veu.</div>
             </div>
 
             <div class="settings-panel">
@@ -7204,7 +7212,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.20"></script>
+    <script src="core.js?v=1.0.22"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.7"></script>
@@ -7215,7 +7223,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.69"></script>
+    <script src="app.js?v=1.0.71"></script>
 
     <!-- Service Worker Registration -->
     <script>
