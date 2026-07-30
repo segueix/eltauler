@@ -185,6 +185,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   cada obertura ha de donar almenys un exercici i tota la línia ha de ser legal
   des de la FEN de partida.
 
+- **`historygroups.test.js`** — grups desplegables de l'historial
+  (`historyAgeGroup`, `groupHistoryEntriesByAge`, `historyGroupsOpenState`): que
+  els grups es comptin per dies de **calendari** i no per finestres de 24 hores
+  (les 23:50 d'ahir són «Ahir»), que la granularitat s'obri com toca —dia a dia
+  la primera setmana, després setmanes, mesos i anys— i que els trams frontera
+  no diguin bestieses («fa 12 mesos» no existeix: o són 11 mesos o és 1 any).
+  Es comprova també que agrupar no perdi ni reordeni cap partida, que les
+  entrades sense data (o amb data del futur, per un rellotge desajustat) tinguin
+  el seu lloc en comptes de desaparèixer de la llista, i quins grups arriben
+  desplegats: els més recents fins a completar el pressupost de partides
+  visibles, amb el que ha triat l'usuari manant sempre per damunt.
+
 ## Integració contínua
 
 `.github/workflows/tests.yml` executa `npm ci` + `npm test` a cada push i pull

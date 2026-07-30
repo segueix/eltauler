@@ -1106,6 +1106,132 @@
         return null;
     }
 
+    // ----------------------------------------------------------------------
+    // Agrupació de l'historial per antiguitat (avui, ahir, fa 2 dies...)
+    // ----------------------------------------------------------------------
+    // Amb moltes partides desades, la llista de l'historial es fa inacabable.
+    // Aquí es calcula a quin GRUP d'antiguitat pertany cada partida, de manera
+    // que app.js pugui pintar-la dins de seccions desplegables. La granularitat
+    // s'obre a mesura que la data s'acosta: dia a dia la primera setmana,
+    // setmanes fins al mes, mesos fins a l'any i anys a partir d'aquí.
+    const HISTORY_GROUP_CONFIG = {
+        dayGroupsMax: 6,       // dies solts (0 = avui ... 6 = fa 6 dies)
+        weekGroupsMaxDay: 27,  // fins aquí s'agrupa per setmanes
+        yearDays: 365,         // a partir d'aquí s'agrupa per anys
+        autoOpenGames: 10      // partides que es deixen desplegades per defecte
+    };
+
+    // Dies de CALENDARI entre dues dates (mitjanit a mitjanit, hora local): el
+    // que espera qui llegeix «ahir». Una partida de les 23:50 d'ahir és «ahir»
+    // encara que no hagin passat 24 hores.
+    function calendarDaysAgo(dateLike, nowTs) {
+        // Ull: new Date(null) NO és una data invàlida, és l'1 de gener del 1970.
+        // Les entrades velles de l'historial poden no tenir data, i han de caure
+        // al grup «Sense data», no a «fa 56 anys».
+        if (!dateLike && dateLike !== 0) return null;
+        const then = dateLike instanceof Date ? dateLike : new Date(dateLike);
+        if (!(then instanceof Date) || isNaN(then.getTime())) return null;
+        const now = new Date(typeof nowTs === 'number' ? nowTs : Date.now());
+        if (isNaN(now.getTime())) return null;
+        const a = new Date(then.getFullYear(), then.getMonth(), then.getDate()).getTime();
+        const b = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+        return Math.round((b - a) / 86400000);
+    }
+
+    // Grup d'antiguitat d'una data: { key, label, days }. `order` creix cap al
+    // passat, de manera que ordenar per `order` deixa les partides recents a
+    // dalt. Les dates impossibles (o del futur, per rellotge desajustat) cauen
+    // a «Avui» / «Sense data» en comptes de desaparèixer de la llista.
+    function historyAgeGroup(dateLike, nowTs) {
+        const days = calendarDaysAgo(dateLike, nowTs);
+        if (days === null) return { key: 'unknown', label: 'Sense data', days: null, order: Number.MAX_SAFE_INTEGER };
+        const d = Math.max(0, days);
+        if (d === 0) return { key: 'today', label: 'Avui', days: d, order: 0 };
+        if (d === 1) return { key: 'yesterday', label: 'Ahir', days: d, order: 1 };
+        if (d <= HISTORY_GROUP_CONFIG.dayGroupsMax) {
+            return { key: `day-${d}`, label: `Fa ${d} dies`, days: d, order: d };
+        }
+        if (d <= HISTORY_GROUP_CONFIG.weekGroupsMaxDay) {
+            const weeks = Math.floor(d / 7);
+            return {
+                key: `week-${weeks}`,
+                label: weeks === 1 ? 'Fa 1 setmana' : `Fa ${weeks} setmanes`,
+                days: d,
+                order: 100 + weeks
+            };
+        }
+        if (d < HISTORY_GROUP_CONFIG.yearDays) {
+            // Mes «comercial» de 30 dies: 28-59 dies → 1 mes, 60-89 → 2 mesos...
+            // Es limita a 11 perquè l'any ja té el seu propi grup.
+            const months = Math.min(11, Math.max(1, Math.floor(d / 30)));
+            return {
+                key: `month-${months}`,
+                label: months === 1 ? 'Fa 1 mes' : `Fa ${months} mesos`,
+                days: d,
+                order: 200 + months
+            };
+        }
+        const years = Math.max(1, Math.floor(d / HISTORY_GROUP_CONFIG.yearDays));
+        return {
+            key: `year-${years}`,
+            label: years === 1 ? 'Fa 1 any' : `Fa ${years} anys`,
+            days: d,
+            order: 300 + years
+        };
+    }
+
+    // Agrupa entrades de l'historial en seccions per antiguitat, de la més
+    // recent a la més antiga. Dins de cada secció les partides també van de la
+    // més nova a la més vella. No modifica ni ordena la llista original.
+    function groupHistoryEntriesByAge(entries, nowTs) {
+        const list = Array.isArray(entries) ? entries.filter(Boolean) : [];
+        const byKey = new Map();
+        list.forEach((entry, index) => {
+            const group = historyAgeGroup(entry.date, nowTs);
+            let bucket = byKey.get(group.key);
+            if (!bucket) {
+                bucket = { key: group.key, label: group.label, order: group.order, entries: [] };
+                byKey.set(group.key, bucket);
+            }
+            const ts = Date.parse(entry.date);
+            bucket.entries.push({ entry, ts: isNaN(ts) ? null : ts, index });
+        });
+        const groups = Array.from(byKey.values());
+        groups.sort((a, b) => a.order - b.order);
+        groups.forEach(group => {
+            // Sense data fiable manem l'ordre original de la llista (les entrades
+            // s'hi afegeixen per ordre cronològic d'arribada), invertit.
+            group.entries.sort((a, b) => {
+                if (a.ts !== null && b.ts !== null && a.ts !== b.ts) return b.ts - a.ts;
+                return b.index - a.index;
+            });
+            group.count = group.entries.length;
+            group.entries = group.entries.map(item => item.entry);
+        });
+        return groups;
+    }
+
+    // Quins grups es deixen desplegats quan encara no s'ha tocat res: els més
+    // recents fins a completar `autoOpenGames` partides visibles. El primer
+    // sempre s'obre (si no, la llista es veuria tota tancada) i els grups amb
+    // memòria d'usuari (`userState`: clau → obert/tancat) manen sempre.
+    function historyGroupsOpenState(groups, userState, autoOpenGames) {
+        const budget = typeof autoOpenGames === 'number' ? autoOpenGames : HISTORY_GROUP_CONFIG.autoOpenGames;
+        const state = userState && typeof userState === 'object' ? userState : {};
+        let shown = 0;
+        return (Array.isArray(groups) ? groups : []).map((group, i) => {
+            const remembered = Object.prototype.hasOwnProperty.call(state, group.key)
+                ? !!state[group.key]
+                : null;
+            const auto = i === 0 || shown < budget;
+            const open = remembered === null ? auto : remembered;
+            // Els grups oberts gasten pressupost: quan s'esgota, la resta arriba
+            // plegada (i qualsevol grup que l'usuari obri fa el mateix efecte).
+            if (open) shown += group.count || (group.entries ? group.entries.length : 0);
+            return open;
+        });
+    }
+
     // Els mapes del graf d'obertures són Map, però acceptem també objectes
     // plans (p. ex. si algun dia es desen serialitzats).
     function mapGet(container, key) {
@@ -4223,6 +4349,11 @@
         createBessoHelpers,
         REPERTOIRE_CONFIG,
         historyEntryOutcome,
+        HISTORY_GROUP_CONFIG,
+        calendarDaysAgo,
+        historyAgeGroup,
+        groupHistoryEntriesByAge,
+        historyGroupsOpenState,
         repertoireEligibleGames,
         createRepertoireHelpers,
         PERSONAL_OPENING_CONFIG,
