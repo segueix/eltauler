@@ -115,3 +115,58 @@ describe('Rival Antídot — l’explicació posterior sí que ensenya', () => {
             });
     });
 });
+
+describe('Rival Antídot — tornar a provar una jugada', () => {
+    const failedTest = () => ({
+        id: 'at_1', theme: 'missed_tactic', severity: 0.8, at: Date.UTC(2026, 0, 15),
+        result: 'failed'
+    });
+
+    test('el perfil compta el PRIMER intent, no el darrer', () => {
+        const now = Date.UTC(2026, 0, 15);
+        const direct = Core.buildAntidoteProfile({ tests: [failedTest()], now });
+        // Mateixa prova, però tirada enrere i encertada al segon intent.
+        const retried = Core.buildAntidoteProfile({
+            tests: [Object.assign(failedTest(), { result: 'passed', firstResult: 'failed', retried: true })],
+            now
+        });
+        expect(direct.weaknesses.missed_tactic.testsFailed).toBe(1);
+        expect(retried.weaknesses.missed_tactic.testsFailed).toBe(1);
+        expect(retried.weaknesses.missed_tactic.testsPassed).toBe(0);
+        // I per tant el pes de la debilitat no baixa per haver-ho repetit.
+        expect(retried.weaknesses.missed_tactic.weight)
+            .toBeCloseTo(direct.weaknesses.missed_tactic.weight, 6);
+    });
+
+    test('encertar-la a la primera sí que compta com a superada', () => {
+        const now = Date.UTC(2026, 0, 15);
+        const clean = Core.buildAntidoteProfile({
+            tests: [Object.assign(failedTest(), { result: 'passed' })], now
+        });
+        expect(clean.weaknesses.missed_tactic.testsPassed).toBe(1);
+        expect(clean.weaknesses.missed_tactic.testsFailed).toBe(0);
+    });
+
+    test('la repetició viatja amb la prova desada', () => {
+        const stored = Core.antidoteSerializeGame([
+            Object.assign(failedTest(), { result: 'partial', firstResult: 'failed', retried: true })
+        ]);
+        expect(stored.tests[0].firstResult).toBe('failed');
+        expect(stored.tests[0].retried).toBe(true);
+        // I es recupera intacta d'una entrada de l'historial.
+        const back = Core.antidoteRestoreGame({ antidote: stored });
+        expect(back.tests[0].retried).toBe(true);
+        expect(back.tests[0].firstResult).toBe('failed');
+    });
+
+    test('les proves antigues sense els camps nous segueixen valent', () => {
+        const stored = Core.antidoteSerializeGame([failedTest()]);
+        expect(stored.tests[0].firstResult).toBeNull();
+        expect(stored.tests[0].retried).toBe(false);
+        const profile = Core.buildAntidoteProfile({
+            tests: [{ id: 'vell', theme: 'king_safety', result: 'passed' }],
+            now: Date.UTC(2026, 0, 15)
+        });
+        expect(profile.weaknesses.king_safety.testsPassed).toBe(1);
+    });
+});

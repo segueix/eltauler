@@ -22211,7 +22211,10 @@ function setupEvents() {
     // Joc posicional: la Norma (principi que ha de regir el moviment) i el
     // desfer de la darrera jugada per provar-ne una altra.
     $('#btn-norma').click(() => { showNextNorma(); });
-    $('#btn-undo-move').click(() => { positionalUndoMove(); });
+    $('#btn-undo-move').click(() => {
+        if (isAntidoteMode()) antidoteUndoMove();
+        else positionalUndoMove();
+    });
 
     $('#btn-srs-review').click(() => startSrsReview());
     $('#btn-tactics').click(() => {
@@ -24781,7 +24784,8 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     antidotePlayPending = null;
     antidoteState = null;
     antidoteSearchToken++;   // invalida qualsevol cerca Antídot encara viva
-    antidoteResultHolding = false;
+    antidoteLiveSticky = false;
+    antidoteMoveHistory = [];
     if (!antidoteRequest) {
         releaseAntidoteEngine();
         hideAntidoteLivePanel();
@@ -25368,10 +25372,11 @@ let antidoteProgress = null;      // progrés acumulat entre partides
 let antidoteSearchToken = 0;      // invalida cerques d'una partida anterior
 let antidoteNoticesEnabled = true;   // explicació DESPRÉS de respondre
 let antidoteScanEnabled = true;      // consigna d'escaneig durant el torn
-// L'explicació d'una resposta reté el panell fins que torna a ser el teu torn.
-// Sense això, makeEngineMove() la sobreescriu amb «el rival tria la jugada» al
-// mateix tick i no s'arriba a pintar mai.
-let antidoteResultHolding = false;
+// Hi ha un missatge esperant que el tanquin? Mentre sigui cert, cap missatge
+// ambient no el pot substituir: la persona el llegeix i el tanca quan vol.
+let antidoteLiveSticky = false;
+// Jugades pròpies d'aquesta partida, per poder-ne tirar enrere l'última.
+let antidoteMoveHistory = [];
 
 function isAntidoteMode() {
     return currentGameMode === 'antidote' && !!antidoteState;
@@ -25455,8 +25460,10 @@ function ensureAntidoteLivePanel() {
     panel.setAttribute('role', 'status');
     panel.setAttribute('aria-live', 'polite');
     panel.style.display = 'none';
-    panel.innerHTML = '<div class="antidote-live-head"><span class="antidote-live-icon">🧬</span><strong class="antidote-live-title">Rival Antídot</strong></div>'
+    panel.innerHTML = '<div class="antidote-live-head"><span class="antidote-live-icon">🧬</span><strong class="antidote-live-title">Rival Antídot</strong>'
+        + '<button type="button" class="antidote-live-close" aria-label="Tanca el missatge" title="Tanca el missatge">✕</button></div>'
         + '<div class="antidote-live-text"></div><div class="antidote-live-guide"></div>';
+    panel.querySelector('.antidote-live-close').addEventListener('click', dismissAntidoteLiveComment);
     const anchor = document.getElementById('tactic-theme-banner');
     if (anchor && anchor.parentNode) anchor.insertAdjacentElement('afterend', panel);
     else {
@@ -25469,6 +25476,17 @@ function ensureAntidoteLivePanel() {
         style.textContent = `
             #antidote-live-coach{margin:10px 0 12px;padding:11px 13px;border:1px solid rgba(153,132,224,.42);border-left:5px solid #7b68b8;border-radius:12px;background:linear-gradient(135deg,rgba(74,61,114,.34),rgba(35,29,58,.52));text-align:left;line-height:1.4;box-shadow:0 4px 14px rgba(0,0,0,.16)}
             #antidote-live-coach .antidote-live-head{display:flex;align-items:center;gap:7px;margin-bottom:4px}
+            #antidote-live-coach .antidote-live-close{
+                margin-left:auto;appearance:none;border:1px solid rgba(255,255,255,.22);
+                background:rgba(255,255,255,.07);color:inherit;border-radius:8px;
+                width:30px;height:30px;line-height:1;font-size:.9rem;cursor:pointer;
+                flex:0 0 auto;touch-action:manipulation;opacity:.75}
+            #antidote-live-coach .antidote-live-close:hover{opacity:1;background:rgba(255,255,255,.14)}
+            #antidote-live-coach .antidote-live-close:active{transform:scale(.94)}
+            /* Els missatges ambient (consigna, «el rival pensa») se substitueixen
+               sols: no cal oferir-hi cap creu. Només la porten els que esperen
+               que la persona els tanqui. */
+            #antidote-live-coach:not(.antidote-live-sticky) .antidote-live-close{display:none}
             #antidote-live-coach .antidote-live-title{font-size:.88rem;letter-spacing:.2px}
             #antidote-live-coach .antidote-live-text{font-size:.86rem;color:var(--text-primary)}
             #antidote-live-coach .antidote-live-guide{font-size:.78rem;color:var(--text-secondary);margin-top:5px}
@@ -25479,6 +25497,7 @@ function ensureAntidoteLivePanel() {
             #antidote-live-coach.antidote-live-failed{border-left-color:#c0504d;background:linear-gradient(135deg,rgba(126,50,48,.3),rgba(58,29,29,.54))}
             #antidote-live-coach.antidote-live-thinking{opacity:.86}
             body.epaper-mode #antidote-live-coach{background:#f2f2f2;border-color:#aaa;color:#222;box-shadow:none;animation:none}
+            body.epaper-mode #antidote-live-coach .antidote-live-close{background:#e0e0e0;border-color:#999;color:#222;opacity:1}
             @media(max-width:420px){#antidote-live-coach{padding:9px 10px;margin:8px 0 10px}#antidote-live-coach .antidote-live-text{font-size:.82rem}}
         `;
         document.head.appendChild(style);
@@ -25489,18 +25508,37 @@ function ensureAntidoteLivePanel() {
 function hideAntidoteLivePanel() {
     const panel = document.getElementById('antidote-live-coach');
     if (panel) panel.style.display = 'none';
+    antidoteLiveSticky = false;
+}
+
+// Tancament MANUAL del missatge. Un cop tancat, si torna a ser el teu torn es
+// recupera la consigna d'escaneig perquè el panell no quedi buit.
+function dismissAntidoteLiveComment() {
+    antidoteLiveSticky = false;
+    hideAntidoteLivePanel();
+    if (isAntidoteMode() && game && !game.game_over() && game.turn() === playerColor) {
+        showAntidoteTurnPrompt();
+    }
 }
 
 // `message` és el que retorna core.js: { kind, title, text, guide }.
-function setAntidoteLiveComment(message) {
+// `sticky` marca els missatges que NO es poden substituir sols: es queden fins
+// que la persona els tanca. És el cas de l'explicació d'una resposta, que abans
+// s'esvaïa tota sola abans que ningú tingués temps de llegir-la.
+function setAntidoteLiveComment(message, sticky) {
     if (!isAntidoteMode() || !message) {
         hideAntidoteLivePanel();
         return;
     }
+    // Un missatge ambient (consigna, «el rival pensa») mai no tapa un missatge
+    // que encara està esperant que el tanquin.
+    if (antidoteLiveSticky && !sticky) return;
     const { kind, title, text, guide } = message;
     const panel = ensureAntidoteLivePanel();
     if (!panel) return;
-    panel.className = 'antidote-live-' + (kind || 'info');
+    antidoteLiveSticky = !!sticky;
+    panel.classList.toggle('antidote-live-sticky', !!sticky);
+    panel.className = 'antidote-live-' + (kind || 'info') + (sticky ? ' antidote-live-sticky' : '');
     const titleEl = panel.querySelector('.antidote-live-title');
     const textEl = panel.querySelector('.antidote-live-text');
     const guideEl = panel.querySelector('.antidote-live-guide');
@@ -25517,7 +25555,7 @@ function setAntidoteLiveComment(message) {
 // pas a l'explicació de la resposta anterior: mentre el rival pensa és
 // justament quan hi ha temps de llegir-la.
 function showAntidoteThinkingComment() {
-    if (!antidoteScanEnabled || antidoteResultHolding) return;
+    if (!antidoteScanEnabled || antidoteLiveSticky) return;
     setAntidoteLiveComment(ElTaulerCore.antidoteThinkingPrompt());
 }
 
@@ -25527,9 +25565,9 @@ function showAntidoteThinkingComment() {
 // finestreta a cada jugada tapa la capçalera i acaba sent soroll.
 function showAntidoteTurnPrompt() {
     if (!isAntidoteMode()) return;
-    // Comença un torn nou: l'explicació de la resposta anterior ja s'ha pogut
-    // llegir mentre el rival pensava i deixa de retenir el panell.
-    antidoteResultHolding = false;
+    // Si encara hi ha una explicació oberta, mana ella: es llegeix amb calma i
+    // la consigna torna sola quan la persona la tanqui (dismissAntidoteLiveComment).
+    if (antidoteLiveSticky) return;
     if (!antidoteScanEnabled) { hideAntidoteLivePanel(); return; }
     setAntidoteLiveComment(ElTaulerCore.antidoteTurnPrompt());
 }
@@ -25883,11 +25921,141 @@ function antidoteResolvePendingTest(context) {
 function showAntidoteMoveNotice(test) {
     if (!antidoteNoticesEnabled || !test) return;
     const comment = ElTaulerCore.antidoteResultFeedback(test);
-    setAntidoteLiveComment(comment);
-    // Reté el panell: la crida a makeEngineMove() ve tot seguit i, sense això,
-    // el missatge de «el rival pensa» l'esborrava abans de pintar-se.
-    antidoteResultHolding = true;
-    if (comment.toast) showToast(comment.toast, comment.toastKind);
+    // STICKY: es queda fins que la persona el tanca. Sense això, la crida a
+    // makeEngineMove() que ve tot seguit l'esborrava abans de pintar-se, i
+    // encara que es pintés s'esvaïa sol al torn següent. El toast s'ha tret:
+    // duplicava aquest mateix text i desapareixia als pocs segons.
+    setAntidoteLiveComment(comment, true);
+}
+
+
+// ── Tirar enrere la darrera jugada ──────────────────────────────────────────
+// Mateixa mecànica que el Joc vista (positionalUndoMove): es desfà la rèplica
+// del rival i la teva jugada, i tornes a tenir davant la MATEIXA decisió.
+//
+// Amb rellotge no s'ofereix: el temps ja s'ha gastat i tornar enrere el tauler
+// però no el rellotge seria una partida que no quadra.
+
+// Anota la jugada que s'acaba de puntuar, amb el que caldrà desfer si es tira
+// enrere: si comptava com a bona i quina prova ha resolt.
+function antidoteNotePlayerMove(moveQuality) {
+    if (!isAntidoteMode()) return;
+    const pending = antidoteState.pendingTest;
+    antidoteMoveHistory.push({
+        counted: moveQuality === 'excel' || moveQuality === 'good',
+        testId: pending && pending.id ? pending.id : null
+    });
+}
+
+// ¿Es pot tirar enrere ara mateix?
+function antidoteCanUndo() {
+    if (!isAntidoteMode()) return false;
+    if (!game || game.game_over()) return false;
+    if (gameClock.enabled) return false;
+    if (!antidoteMoveHistory.length) return false;
+    const busy = isEngineThinking || waitingForBlunderAnalysis || engineMoveApplyPending
+        || pendingMoveEvaluation || (antidoteState && antidoteState.searching);
+    return !busy;
+}
+
+function updateAntidoteUndoButton() {
+    const btn = $('#btn-undo-move');
+    if (!btn.length) return;
+    if (!isAntidoteMode()) return;   // el mode posicional ja l'ha resolt
+    // Amb rellotge el botó ni apareix: val més que no s'hi compti que no pas
+    // oferir-lo i haver-lo de negar a cada clic.
+    const offered = !gameClock.enabled;
+    btn.toggle(offered);
+    if (offered) btn.prop('disabled', !antidoteCanUndo());
+}
+
+// Torna la prova al seu estat de «pendent» perquè el jugador la torni a tenir
+// davant. Conserva el resultat del PRIMER intent: el resum ensenyarà com ha
+// acabat, però el perfil (buildAntidoteProfile) es queda amb com va començar.
+function antidoteRewindTest(test) {
+    if (!test) return;
+    if (test.result && test.result !== 'pending') {
+        if (!test.firstResult) test.firstResult = test.result;
+        test.retried = true;
+    }
+    test.result = 'pending';
+    test.playerResponse = null;
+    test.playerResponseSan = null;
+    test.responseCpLoss = null;
+}
+
+function antidoteUndoMove() {
+    if (!isAntidoteMode()) return;
+    if (gameClock.enabled) {
+        showToast('Amb rellotge no es pot tirar enrere: el temps ja s\'ha consumit', 'warn');
+        return;
+    }
+    if (!antidoteCanUndo()) {
+        if (antidoteMoveHistory.length) showToast('Espera que el rival acabi de respondre', 'warn');
+        return;
+    }
+
+    // Cap cerca de l'Antídot no ha de sobreviure al canvi de posició.
+    antidoteSearchToken++;
+    if (antidoteState) antidoteState.searching = false;
+    clearEngineMoveTimers();
+    isEngineThinking = false;
+    engineReplyStartTs = null;
+    try { if (antidoteEngine) antidoteEngine.postMessage('stop'); } catch (e) {}
+    try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
+
+    // La prova que havia creat la jugada del rival que ara desfem no ha
+    // arribat a existir per al jugador: fora.
+    const orphan = antidoteState.pendingTest;
+    if (orphan) {
+        const idx = antidoteState.tests.indexOf(orphan);
+        if (idx >= 0) antidoteState.tests.splice(idx, 1);
+        antidoteState.pendingTest = null;
+    }
+
+    // Desfés les jugades del rival que hi hagi per sobre i UNA de pròpia.
+    let guard = 0;
+    while (game.history().length > 0 && guard < 4) {
+        const verbose = game.history({ verbose: true });
+        const last = verbose[verbose.length - 1];
+        game.undo();
+        guard++;
+        if (last.color === playerColor) break;
+    }
+
+    const undone = antidoteMoveHistory.pop();
+    totalPlayerMoves = Math.max(0, totalPlayerMoves - 1);
+    if (undone && undone.counted) goodMoves = Math.max(0, goodMoves - 1);
+    if (currentReview.length) currentReview.pop();
+
+    // La prova que havies respost torna a estar oberta, i la tornes a tenir
+    // davant exactament igual que la primera vegada.
+    if (undone && undone.testId) {
+        const test = antidoteState.tests.find(t => t && t.id === undone.testId);
+        if (test) {
+            antidoteRewindTest(test);
+            antidoteState.pendingTest = test;
+        }
+    }
+
+    pendingMoveEvaluation = false;
+    lastHumanMoveUci = null;
+    waitingForBlunderAnalysis = false;
+    clearQueuedPremove();
+
+    $('#blunder-alert').hide();
+    $('.square-55d63').removeClass('highlight-hint tap-selected tap-move');
+    clearEngineMoveHighlights();
+    clearTapSelection();
+
+    resetGameMoveNav();
+    board.position(game.fen());
+    updatePrecisionDisplay();
+    updateGameMoveNavButtons();
+    hideAntidoteLivePanel();
+    showAntidoteTurnPrompt();
+    updateStatus();
+    $('#status').text('Jugada desfeta: tornes a tenir la mateixa decisió').css('color', 'var(--accent-cream)');
 }
 
 // ── Persistència ────────────────────────────────────────────────────────────
@@ -26758,6 +26926,7 @@ function handleEngineMessage(rawMsg) {
             // Rival Antídot: la MATEIXA anàlisi que acaba de puntuar la jugada
             // resol la prova pendent (no s'hi afegeix cap cerca nova).
             if (isAntidoteMode()) {
+                antidoteNotePlayerMove(moveQuality);
                 antidoteResolvePendingTest({
                     playerMove: lastHumanMoveUci,
                     playerMoveSan: pendingAnalysisFen && lastHumanMoveUci
@@ -29221,6 +29390,9 @@ function updateStatus() {
     // Manté al dia els controls del Joc posicional (visibilitat i estat
     // habilitat/deshabilitat); en qualsevol altre mode els amaga.
     updatePositionalUI();
+    // …i tot seguit el botó d'Enrere del Rival Antídot, que updatePositionalUI
+    // acaba d'amagar perquè aquell mode no és el posicional.
+    updateAntidoteUndoButton();
 }
 
 /* ===================== L'ENTRENADOR QUE PARLA (DEBRIEF + PLA DIARI) =====================

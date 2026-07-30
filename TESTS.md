@@ -313,4 +313,11 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   (i no quan ja s’ha trobat), afegeix la pauta d’observació de la categoria,
   distingeix els quatre resultats amb estil propi, no llança avís emergent quan
   no hi ha conclusió i no escup mai `undefined` amb dades incompletes.
+  I el **desfer**: quan el jugador tira la seva jugada enrere i torna a provar,
+  el perfil ha de comptar el PRIMER intent, no el darrer (`firstResult`), perquè
+  el que mesura la seva força a la partida de veritat és què va fer sense saber
+  com acabaria. Es comprova que una prova fallada i després encertada segueixi
+  pesant com a fallada, que encertar-la a la primera sí que compti com a
+  superada, que `retried`/`firstResult` viatgin amb la prova desada i que les
+  proves antigues sense aquests camps segueixin valent.
 

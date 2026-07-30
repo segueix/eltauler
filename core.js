@@ -5110,13 +5110,18 @@
         });
 
         // Proves ANTÍDOT anteriors: rendiment per categoria.
+        // Compta el PRIMER intent, no el darrer. Si el jugador ha tirat la
+        // jugada enrere i ha tornat a provar, el que mesura la seva força a la
+        // partida de veritat és què va fer sense saber-ho; comptar el segon
+        // intent faria baixar el pes d'una debilitat que continua sent-hi.
         tests.forEach(t => {
             if (!t || typeof t !== 'object') return;
             const id = raw[t.theme] ? t.theme : antidoteThemeFamily(t.theme);
             if (!raw[id]) return;
-            if (t.result === 'passed') raw[id].testsPassed += 1;
-            else if (t.result === 'partial') raw[id].testsPartial += 1;
-            else if (t.result === 'failed') {
+            const outcome = t.firstResult || t.result;
+            if (outcome === 'passed') raw[id].testsPassed += 1;
+            else if (outcome === 'partial') raw[id].testsPartial += 1;
+            else if (outcome === 'failed') {
                 raw[id].testsFailed += 1;
                 raw[id].occurrences += 1;
                 raw[id].severitySum += antidoteClamp01(antidoteNum(t.severity, 0.6));
@@ -5772,6 +5777,10 @@
             bestResponseSan: test.bestResponseSan || null,
             responseCpLoss: (typeof test.responseCpLoss === 'number') ? Math.round(test.responseCpLoss) : null,
             result: test.result || 'inconclusive',
+            // Resultat del PRIMER intent i marca de repetició: el resum ensenya
+            // com ha acabat, però el perfil es queda amb com va començar.
+            firstResult: test.firstResult || null,
+            retried: !!test.retried,
             severity: Math.round(antidoteClamp01(antidoteNum(test.severity, 0)) * 100) / 100
         };
     }
