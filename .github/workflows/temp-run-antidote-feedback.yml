@@ -1,0 +1,50 @@
+name: Temporary Antidote feedback executor
+
+on:
+  push:
+    branches:
+      - codex/antidote-live-comments-alerts
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    if: ${{ !contains(github.event.head_commit.message, 'Rival Antídot: alertes i comentaris pedagògics en viu') }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: codex/antidote-live-comments-alerts
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - name: Extract and run patch script
+        shell: bash
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          import textwrap
+          source = Path('.github/workflows/apply-antidote-live-feedback.yml').read_text(encoding='utf-8')
+          start_marker = "          python - <<'PY'\n"
+          end_marker = "\n          PY\n"
+          start = source.index(start_marker) + len(start_marker)
+          end = source.index(end_marker, start)
+          script = textwrap.dedent(source[start:end])
+          Path('/tmp/apply_antidote_feedback.py').write_text(script, encoding='utf-8')
+          PY
+          python /tmp/apply_antidote_feedback.py
+      - name: Run tests
+        run: npm test -- --runInBand
+      - name: Commit changes
+        shell: bash
+        run: |
+          rm -f .github/workflows/apply-antidote-live-feedback.yml .github/antidote-feedback-trigger.txt
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git commit -m "Rival Antídot: alertes i comentaris pedagògics en viu"
+          git push origin HEAD:codex/antidote-live-comments-alerts
