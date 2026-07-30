@@ -12751,6 +12751,7 @@ function practiceOpeningFromHistory(idx, color) {
         renderOpeningStatsScreen();
         renderPersonalRepertoire();
         renderPersonalOpeningSection();
+        renderOpeningHieroglyphicBanner();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
         $('#history-screen').hide();
@@ -15360,6 +15361,9 @@ function setOpeningScreenMode(mode = 'overview') {
         // El bàner «La teva obertura» encapçala la pantalla: segueix els
         // mateixos blocs, i desapareix quan es resol un exercici concret.
         personal: $('#personal-opening-banner'),
+        // …i, just a sota, el dels jeroglífics d'obertura: les dues portes
+        // d'entrada destacades de la secció van sempre juntes.
+        hieroBanner: $('#opening-hieroglyphic-banner'),
         lessons: $('#opening-lessons-section'),
         practice: $('#opening-practice-section'),
         stats: $('#opening-stats-section'),
@@ -15371,6 +15375,7 @@ function setOpeningScreenMode(mode = 'overview') {
         sections.practice.show();
     } else if (mode === 'error-practice') {
         sections.personal.hide();
+        sections.hieroBanner.hide();
         sections.lessons.hide();
         sections.stats.hide();
         sections.repertoire.hide();
@@ -15378,6 +15383,7 @@ function setOpeningScreenMode(mode = 'overview') {
         sections.practice.show();
     } else if (isHieroglyphicMode) {
         sections.personal.hide();
+        sections.hieroBanner.hide();
         sections.lessons.hide();
         sections.stats.hide();
         sections.repertoire.hide();
@@ -20072,6 +20078,32 @@ function getOpeningHieroglyphicHelpers() {
     return openingHieroglyphicHelpers;
 }
 
+// Bàner destacat de la secció: quants exercicis hi ha i d'on surten. El
+// recompte es calcula un sol cop (construir-los tots costa una passada per
+// tot el repertori) i es guarda mentre duri la sessió.
+let openingHieroglyphicCandidateCount = null;
+
+function countOpeningHieroglyphicExercises() {
+    if (openingHieroglyphicCandidateCount !== null) return openingHieroglyphicCandidateCount;
+    const helpers = getOpeningHieroglyphicHelpers();
+    try {
+        openingHieroglyphicCandidateCount = helpers ? helpers.openingHieroglyphicCandidates(CURATED_OPENINGS).length : 0;
+    } catch (e) {
+        openingHieroglyphicCandidateCount = 0;
+    }
+    return openingHieroglyphicCandidateCount;
+}
+
+function renderOpeningHieroglyphicBanner() {
+    const statusEl = document.getElementById('opening-hiero-banner-status');
+    if (!statusEl) return;
+    const total = countOpeningHieroglyphicExercises();
+    const openings = Array.isArray(CURATED_OPENINGS) ? CURATED_OPENINGS.length : 0;
+    statusEl.textContent = total
+        ? `${total} exercicis de les ${openings} obertures del repertori, a partir del tercer o quart moviment.`
+        : 'Desxifra la pista i troba la jugada teòrica d’una obertura del repertori.';
+}
+
 function loadOpeningHieroglyphicRecent() {
     const list = readJsonStorage(OPENING_HIERO_RECENT_KEY, []);
     return Array.isArray(list) ? list : [];
@@ -21342,6 +21374,7 @@ function setupEvents() {
         renderOpeningStatsScreen();
         renderPersonalRepertoire();
         renderPersonalOpeningSection();
+        renderOpeningHieroglyphicBanner();
         renderOpeningLessonButtons();
         initOpeningBundleBoard();
         startOpeningPracticeAsColor(openingPracticeUserColor);
@@ -21371,6 +21404,11 @@ function setupEvents() {
     // El jeroglífic de la secció d'Obertures és d'obertures: surt del repertori
     // catalogat i comença al tercer o quart moviment de la línia.
     $('#btn-hieroglyphic-exercise').click(() => {
+        initOpeningBundleBoard();
+        startOpeningTheoryHieroglyphic();
+    });
+    // Bàner destacat de dalt de tot: entra directament a l'exercici.
+    $('#btn-opening-hiero-banner').click(() => {
         initOpeningBundleBoard();
         startOpeningTheoryHieroglyphic();
     });
@@ -22793,6 +22831,7 @@ function executeGrowthTask(task) {
                 navPush('opening-screen');
                 renderOpeningStatsScreen();
                 renderPersonalRepertoire();
+                renderOpeningHieroglyphicBanner();
                 setOpeningScreenMode('overview');
                 return;
             }

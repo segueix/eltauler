@@ -1901,6 +1901,19 @@
             text-align: left;
         }
         .opening-banner-body { padding: 12px 14px 14px; }
+        /* Bàner dels jeroglífics d'obertura: mateixa forma que el de «La teva
+           obertura» amb la paleta lila de l'exercici, perquè les dues portes
+           d'entrada de la secció es vegin com una parella. */
+        .opening-banner-hiero {
+            border-color: rgba(180, 140, 220, 0.42);
+            box-shadow: 0 6px 18px rgba(58, 29, 92, 0.32);
+        }
+        .opening-banner-hiero .opening-banner-head {
+            background: linear-gradient(135deg, #5b3a7a 0%, #7a4aa8 48%, #2f3f80 100%);
+        }
+        .opening-banner-hiero .opening-banner-head:hover { background: linear-gradient(135deg, #6a458d 0%, #8b56bd 48%, #3a4c95 100%); }
+        .opening-banner-hiero .opening-banner-head:active { background: linear-gradient(135deg, #4c3067 0%, #663d8e 48%, #27336a 100%); }
+        .opening-banner-hiero .opening-banner-ic { stroke: #e8d8f6; }
         body.day-mode .opening-banner { box-shadow: 0 2px 8px rgba(120, 95, 40, 0.14); }
         body.day-mode .opening-banner-cta { background: rgba(120, 95, 40, 0.12); }
         body.epaper-mode .opening-banner {
@@ -6122,6 +6135,22 @@
                     <div id="personal-opening-result"></div>
                 </div>
             </div>
+            <!-- Segon bàner destacat: l'exercici de teoria d'obertures. Comparteix
+                 l'estructura del de «La teva obertura», amb paleta pròpia, i en
+                 comptes d'obrir un panell engega directament el jeroglífic. -->
+            <div class="opening-banner opening-banner-hiero" id="opening-hieroglyphic-banner">
+                <button type="button" class="opening-banner-head" id="btn-opening-hiero-banner">
+                    <svg class="opening-banner-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>
+                    <span class="opening-banner-headings">
+                        <span class="opening-banner-title">Jeroglífics d'obertura</span>
+                        <span class="opening-banner-status" id="opening-hiero-banner-status">Desxifra la pista i troba la jugada teòrica d'una obertura del repertori.</span>
+                    </span>
+                    <span class="opening-banner-cta">
+                        <span>Comença</span>
+                        <span class="opening-banner-chevron" aria-hidden="true">›</span>
+                    </span>
+                </button>
+            </div>
             <div class="opening-section" id="opening-lessons-section">
                 <div class="opening-section-title">
                     <svg class="obs-ic" aria-hidden="true"><use href="#ic-book"/></svg>
@@ -6975,7 +7004,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.63"></script>
+    <script src="app.js?v=1.0.64"></script>
 
     <!-- Service Worker Registration -->
     <script>
