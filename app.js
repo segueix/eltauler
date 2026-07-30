@@ -21507,6 +21507,9 @@ function setupEvents() {
     $('#antidote-notices-toggle').off('change').on('change', function () {
         saveAntidoteNoticesPreference(this.checked);
     });
+    $('#antidote-scan-toggle').off('change').on('change', function () {
+        saveAntidoteScanPreference(this.checked);
+    });
 
     onModalAction('#btn-besso', () => openBessoChallenge());
     onModalAction('#btn-besso-now', () => { $('#besso-modal').hide(); startBessoGame('now'); });
@@ -24778,6 +24781,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     antidotePlayPending = null;
     antidoteState = null;
     antidoteSearchToken++;   // invalida qualsevol cerca Antídot encara viva
+    antidoteResultHolding = false;
     if (!antidoteRequest) {
         releaseAntidoteEngine();
         hideAntidoteLivePanel();
@@ -25047,9 +25051,12 @@ blunderMode = isBundle;
         ensureAntidoteEngine();
         $('#engine-elo').text('Antídot · Stockfish');
         $('#game-mode-title').text('🧬 Rival Antídot');
-        setTimeout(() => setAntidoteLiveComment('info', '🧬 Entrenament personal actiu',
-            'Durant la partida t’avisaré quan Stockfish porti la posició cap a un error que ja has comès altres vegades.',
-            'L’alerta indicarà què convé observar, però no et donarà la jugada correcta abans de moure.'), 0);
+        setTimeout(() => setAntidoteLiveComment({
+            kind: 'info',
+            title: '🧬 Entrenament personal actiu',
+            text: 'Stockfish portarà la partida cap a les situacions que ja t’han costat altres vegades, sempre amb jugades fortes.',
+            guide: 'Durant la partida no et diré què s’examina —trobar-ho és l’exercici—; t’ho explicaré després de cada resposta.'
+        }), 0);
         // El worker COMPARTIT es queda com sempre (el fallback l'ha de trobar
         // al nivell del jugador si mai cal fer-lo servir).
         if (engineReady) applyEngineEloStrength(currentElo);
@@ -25351,6 +25358,7 @@ function showIllegalMoveFeedback(square) {
 const DEBUG_ANTIDOTE = false;
 const ANTIDOTE_PROGRESS_KEY = 'chess_antidoteProgress';
 const ANTIDOTE_NOTICES_KEY = 'eltauler_antidote_notices';
+const ANTIDOTE_SCAN_KEY = 'eltauler_antidote_scan';
 
 let antidotePlayPending = null;   // petició d'inici (es consumeix a startGame)
 let antidoteState = null;         // estat de la partida Antídot en curs
@@ -25358,7 +25366,12 @@ let antidoteEngine = null;        // worker dedicat (força màxima + MultiPV)
 let antidoteDetectors = null;     // detectors de core.js lligats a chess.js
 let antidoteProgress = null;      // progrés acumulat entre partides
 let antidoteSearchToken = 0;      // invalida cerques d'una partida anterior
-let antidoteNoticesEnabled = true;
+let antidoteNoticesEnabled = true;   // explicació DESPRÉS de respondre
+let antidoteScanEnabled = true;      // consigna d'escaneig durant el torn
+// L'explicació d'una resposta reté el panell fins que torna a ser el teu torn.
+// Sense això, makeEngineMove() la sobreescriu amb «el rival tria la jugada» al
+// mateix tick i no s'arriba a pintar mai.
+let antidoteResultHolding = false;
 
 function isAntidoteMode() {
     return currentGameMode === 'antidote' && !!antidoteState;
@@ -25392,27 +25405,48 @@ function releaseAntidoteEngine() {
     antidoteEngine = null;
 }
 
-// ── Preferència d'avisos immediats (Configuració) ───────────────────────────
+// ── Preferències del comentari en viu (Configuració) ────────────────────────
+// Són DUES perquè fan coses ben diferents: la consigna d'escaneig acompanya el
+// torn i l'explicació arriba després de moure. Qui vol la segona no ha de
+// renunciar per força a la primera (ni a l'inrevés).
 function loadAntidoteNoticesPreference() {
     try {
         const raw = localStorage.getItem(ANTIDOTE_NOTICES_KEY);
         antidoteNoticesEnabled = raw === null ? true : raw === '1';
     } catch (e) { antidoteNoticesEnabled = true; }
+    try {
+        const raw = localStorage.getItem(ANTIDOTE_SCAN_KEY);
+        antidoteScanEnabled = raw === null ? true : raw === '1';
+    } catch (e) { antidoteScanEnabled = true; }
     const toggle = document.getElementById('antidote-notices-toggle');
     if (toggle) toggle.checked = antidoteNoticesEnabled;
+    const scanToggle = document.getElementById('antidote-scan-toggle');
+    if (scanToggle) scanToggle.checked = antidoteScanEnabled;
     return antidoteNoticesEnabled;
 }
 
 function saveAntidoteNoticesPreference(enabled) {
     antidoteNoticesEnabled = !!enabled;
     try { localStorage.setItem(ANTIDOTE_NOTICES_KEY, antidoteNoticesEnabled ? '1' : '0'); } catch (e) {}
-    if (!antidoteNoticesEnabled) hideAntidoteLivePanel();
+    if (!antidoteNoticesEnabled && !antidoteScanEnabled) hideAntidoteLivePanel();
+}
+
+function saveAntidoteScanPreference(enabled) {
+    antidoteScanEnabled = !!enabled;
+    try { localStorage.setItem(ANTIDOTE_SCAN_KEY, antidoteScanEnabled ? '1' : '0'); } catch (e) {}
+    if (!antidoteScanEnabled && !antidoteNoticesEnabled) hideAntidoteLivePanel();
+    else if (!antidoteScanEnabled) hideAntidoteLivePanel();
 }
 
 // ANTIDOTE_LIVE_FEEDBACK_V1
-// Comentari en viu del Rival Antídot. Avisa que s'està treballant un patró
-// personal i explica què convé observar, però no revela mai la jugada correcta
-// abans que l'usuari decideixi.
+// Comentari en viu del Rival Antídot. La redacció dels missatges és PURA i viu
+// a core.js (antidoteTurnPrompt / antidoteThinkingPrompt / antidoteResultFeedback);
+// aquí només hi ha el panell i quan es pinta cadascun.
+//
+// La regla, explicada a core.js: abans de moure el panell diu SEMPRE el mateix
+// —no anomena mai el tema ni el subtema, perquè detectar el problema tu sol és
+// la meitat de l'exercici i perquè el resultat de la prova alimenta el perfil—,
+// i tot el que és específic (tema, millor resposta, pauta) arriba després.
 function ensureAntidoteLivePanel() {
     let panel = document.getElementById('antidote-live-coach');
     if (panel) return panel;
@@ -25438,12 +25472,12 @@ function ensureAntidoteLivePanel() {
             #antidote-live-coach .antidote-live-title{font-size:.88rem;letter-spacing:.2px}
             #antidote-live-coach .antidote-live-text{font-size:.86rem;color:var(--text-primary)}
             #antidote-live-coach .antidote-live-guide{font-size:.78rem;color:var(--text-secondary);margin-top:5px}
-            #antidote-live-coach.antidote-live-alert{border-left-color:#f0a02f;background:linear-gradient(135deg,rgba(138,83,20,.32),rgba(56,35,29,.58));animation:antidoteAlertPulse 1.2s ease-out 1}
+            #antidote-live-coach.antidote-live-scan{border-left-color:#7b68b8}
+            #antidote-live-coach.antidote-live-scan .antidote-live-guide{font-weight:600;letter-spacing:.2px}
             #antidote-live-coach.antidote-live-success{border-left-color:#4c9a5a;background:linear-gradient(135deg,rgba(40,105,57,.3),rgba(27,55,38,.5))}
             #antidote-live-coach.antidote-live-partial{border-left-color:#c9a227}
             #antidote-live-coach.antidote-live-failed{border-left-color:#c0504d;background:linear-gradient(135deg,rgba(126,50,48,.3),rgba(58,29,29,.54))}
             #antidote-live-coach.antidote-live-thinking{opacity:.86}
-            @keyframes antidoteAlertPulse{0%{transform:scale(.985);box-shadow:0 0 0 0 rgba(240,160,47,.48)}55%{transform:scale(1);box-shadow:0 0 0 8px rgba(240,160,47,0)}100%{box-shadow:0 4px 14px rgba(0,0,0,.16)}}
             body.epaper-mode #antidote-live-coach{background:#f2f2f2;border-color:#aaa;color:#222;box-shadow:none;animation:none}
             @media(max-width:420px){#antidote-live-coach{padding:9px 10px;margin:8px 0 10px}#antidote-live-coach .antidote-live-text{font-size:.82rem}}
         `;
@@ -25457,11 +25491,13 @@ function hideAntidoteLivePanel() {
     if (panel) panel.style.display = 'none';
 }
 
-function setAntidoteLiveComment(kind, title, text, guide) {
-    if (!antidoteNoticesEnabled || !isAntidoteMode()) {
+// `message` és el que retorna core.js: { kind, title, text, guide }.
+function setAntidoteLiveComment(message) {
+    if (!isAntidoteMode() || !message) {
         hideAntidoteLivePanel();
         return;
     }
+    const { kind, title, text, guide } = message;
     const panel = ensureAntidoteLivePanel();
     if (!panel) return;
     panel.className = 'antidote-live-' + (kind || 'info');
@@ -25477,68 +25513,25 @@ function setAntidoteLiveComment(kind, title, text, guide) {
     panel.style.display = 'block';
 }
 
-function antidoteGuidanceForTheme(theme) {
-    const guides = {
-        missed_win: 'Busca primer escacs, captures i amenaces; pot haver-hi una continuació que decideixi la partida.',
-        lost_advantage: 'Abans de simplificar o accelerar, comprova què manté la iniciativa i quines peces necessiten millorar.',
-        turned_losing: 'Atura’t i revisa amenaces immediates, peces sense defensa i canvis irreversibles.',
-        missed_tactic: 'Fes l’escaneig tàctic: escacs, captures, amenaces, peces clavades i dobles atacs.',
-        lost_material: 'Comprova totes les peces atacades i defensades, especialment les que només tenen un defensor.',
-        king_safety: 'Mira línies obertes, peces que apunten al rei, caselles d’escapada i possibles canvis de dames.',
-        endgame_turning_point: 'Valora activitat del rei, peons passats, oposició i si el canvi de peces t’afavoreix.',
-        strategic_error: 'Pregunta’t quina és la teva pitjor peça, quin pla prepara el rival i quina jugada millora la posició.'
-    };
-    return guides[theme] || 'Mira què ha canviat amb l’última jugada, què amenaça el rival i quines respostes candidates tens.';
-}
-
+// Missatge mentre el motor tria la jugada. No diu res de la posició. Cedeix el
+// pas a l'explicació de la resposta anterior: mentre el rival pensa és
+// justament quan hi ha temps de llegir-la.
 function showAntidoteThinkingComment() {
-    setAntidoteLiveComment('thinking', '🧬 El rival prepara la prova',
-        'Stockfish compara diverses jugades fortes i busca quina et farà treballar millor.',
-        'La jugada continuarà sent objectivament bona: la diferència és el valor d’entrenament per al teu perfil.');
+    if (!antidoteScanEnabled || antidoteResultHolding) return;
+    setAntidoteLiveComment(ElTaulerCore.antidoteThinkingPrompt());
 }
 
-function showAntidoteTurnAlert(test) {
-    if (!isAntidoteMode() || !antidoteNoticesEnabled) return;
-    if (!test || !test.theme) {
-        setAntidoteLiveComment('info', '🧬 Jugada d’entrenament',
-            'El rival ha fet una jugada forta, però aquesta vegada no activa cap prova personal prou clara.',
-            'Juga amb normalitat: revisa amenaces, captures i el teu pla abans de decidir.');
-        return;
-    }
-    const themeLabel = ElTaulerCore.antidoteWeaknessLabel(test.theme) || 'patró personal';
-    const subthemeLabel = test.subtheme ? ElTaulerCore.antidoteThemeLabel(test.subtheme) : '';
-    const focus = subthemeLabel && subthemeLabel !== themeLabel ? themeLabel + ' · ' + subthemeLabel : themeLabel;
-    setAntidoteLiveComment('alert', '⚠️ Alerta Antídot · ' + focus,
-        'Aquesta posició practica un patró que ja t’ha costat en partides anteriors.',
-        antidoteGuidanceForTheme(test.theme));
-    showToast('Alerta Antídot: estàs practicant ' + themeLabel.toLowerCase(), 'warn');
-}
-
-function antidoteResultComment(test) {
-    const themeLabel = ElTaulerCore.antidoteWeaknessLabel(test.theme) || 'aquest patró';
-    const best = test.bestResponseSan || test.bestResponse || null;
-    const loss = typeof test.responseCpLoss === 'number' ? Math.round(test.responseCpLoss) : null;
-    if (test.result === 'passed') {
-        return { kind:'success', title:'✅ Prova superada · ' + themeLabel,
-            text:'Has reconegut bé el problema i la teva resposta ha mantingut la posició sota control.',
-            guide:(loss !== null && loss > 0 ? 'La resposta ha cedit només ' + loss + ' centpeons.' : 'Aquesta resolució farà baixar gradualment el pes d’aquest error al teu perfil.'),
-            toast:'Prova superada: ' + themeLabel, toastKind:'success' };
-    }
-    if (test.result === 'partial') {
-        return { kind:'partial', title:'🟡 Prova parcial · ' + themeLabel,
-            text:'Has vist una part del problema, però la posició encara permetia una resposta més precisa.',
-            guide:(best ? 'La resposta més precisa era ' + best + '. ' : '') + 'Aquest patró continuarà apareixent amb menys insistència.',
-            toast:'Prova parcial: ' + themeLabel, toastKind:'info' };
-    }
-    if (test.result === 'failed') {
-        return { kind:'failed', title:'🔴 Error practicat · ' + themeLabel,
-            text:'Ha reaparegut un patró que ja t’havia costat. No és només una errada aïllada: era la situació que el Rival Antídot volia entrenar.',
-            guide:(best ? 'La resposta recomanada era ' + best + '. ' : '') + 'La posició quedarà disponible al repàs de les teves fallades.',
-            toast:'Alerta confirmada: aquest patró tornarà al teu entrenament', toastKind:'warn' };
-    }
-    return { kind:'info', title:'🧬 Prova sense conclusió · ' + themeLabel,
-        text:'La posició no permet mesurar amb prou seguretat si el patró s’ha resolt.',
-        guide:'No comptarà ni com a encert ni com a fallada.', toast:'Prova sense conclusió', toastKind:'info' };
+// Consigna del torn del jugador. És EXACTAMENT LA MATEIXA cada torn, hi hagi
+// prova o no: si variés amb el tema seria una pista, i si només aparegués quan
+// hi ha prova delataria quins torns compten. No porta avís emergent —una
+// finestreta a cada jugada tapa la capçalera i acaba sent soroll.
+function showAntidoteTurnPrompt() {
+    if (!isAntidoteMode()) return;
+    // Comença un torn nou: l'explicació de la resposta anterior ja s'ha pogut
+    // llegir mentre el rival pensava i deixa de retenir el panell.
+    antidoteResultHolding = false;
+    if (!antidoteScanEnabled) { hideAntidoteLivePanel(); return; }
+    setAntidoteLiveComment(ElTaulerCore.antidoteTurnPrompt());
 }
 
 // ── Progrés acumulat entre partides ─────────────────────────────────────────
@@ -25883,13 +25876,18 @@ function antidoteResolvePendingTest(context) {
     showAntidoteMoveNotice(resolved);
 }
 
-// Comentari immediat després de la resposta. Manté el missatge visible al
-// panell perquè es pugui llegir amb calma i deixa el toast com a resum curt.
+// Comentari immediat DESPRÉS de la resposta: aquí sí que es diu el tema, la
+// millor jugada i la pauta d'observació, perquè la decisió ja s'ha pres i és
+// el moment en què això ensenya alguna cosa. El panell el manté llegible i el
+// toast només n'és el resum curt.
 function showAntidoteMoveNotice(test) {
     if (!antidoteNoticesEnabled || !test) return;
-    const comment = antidoteResultComment(test);
-    setAntidoteLiveComment(comment.kind, comment.title, comment.text, comment.guide);
-    showToast(comment.toast, comment.toastKind);
+    const comment = ElTaulerCore.antidoteResultFeedback(test);
+    setAntidoteLiveComment(comment);
+    // Reté el panell: la crida a makeEngineMove() ve tot seguit i, sense això,
+    // el missatge de «el rival pensa» l'esborrava abans de pintar-se.
+    antidoteResultHolding = true;
+    if (comment.toast) showToast(comment.toast, comment.toastKind);
 }
 
 // ── Persistència ────────────────────────────────────────────────────────────
@@ -26913,7 +26911,7 @@ function scheduleEngineMoveApply(fromSq, toSq, promotion, replyDelayMs) {
         // En el Rival Antídot, aquest és el moment exacte en què comença el
         // torn del jugador: l'avís apareix després de veure la jugada rival i
         // abans d'una possible premove.
-        if (isAntidoteMode()) showAntidoteTurnAlert(antidoteState ? antidoteState.pendingTest : null);
+        if (isAntidoteMode()) showAntidoteTurnPrompt();
         // La premove, si encara és legal després de la resposta, es
         // juga al primer torn de l'esdeveniment i gairebé no gasta rellotge.
         playPremoveIfQueued();
