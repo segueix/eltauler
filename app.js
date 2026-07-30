@@ -15228,18 +15228,27 @@ function buildOpeningMoveStats() {
 }
 
 function setOpeningScreenMode(mode = 'overview') {
-    const isHieroglyphicMode = mode === 'hieroglyphic';
+    // Dos jeroglífics diferents comparteixen el tauler d'obertures: el personal
+    // (tàctica de les teves partides) i el d'obertura (teoria del repertori
+    // catalogat). Tots dos amaguen la resta de blocs; el text els distingeix.
+    const isOpeningHiero = mode === 'hieroglyphic-opening';
+    const isHieroglyphicMode = mode === 'hieroglyphic' || isOpeningHiero;
     document.body.classList.toggle('opening-mode-hieroglyphic', isHieroglyphicMode);
     const header = document.querySelector('#opening-screen .stats-header h1');
     const logo = document.querySelector('#opening-screen .stats-header .app-logo');
-    if (header) header.textContent = isHieroglyphicMode ? 'Jeroglífics' : 'Obertures';
+    if (header) header.textContent = isOpeningHiero ? 'Jeroglífic d’obertura' : (isHieroglyphicMode ? 'Jeroglífics' : 'Obertures');
     if (logo) logo.innerHTML = isHieroglyphicMode ? HG_ICON_SVG : '📖';
     // El nom del bloc viu en un span propi: el mode jeroglífic el reescriu sense
     // endur-se la icona ni el xip del número, que s'amaga perquè aquí no hi som
     // per fer el Bloc 2.
-    $('#opening-practice-section .opening-section-title .obs-name').text(isHieroglyphicMode ? 'Jeroglífic personal' : 'Pràctica de línia');
+    $('#opening-practice-section .opening-section-title .obs-name').text(isOpeningHiero ? 'Jeroglífic d’obertura' : (isHieroglyphicMode ? 'Jeroglífic personal' : 'Pràctica de línia'));
     $('#opening-practice-section .opening-section-title .obs-num').toggle(!isHieroglyphicMode);
-    $('#opening-practice-section .opening-section-desc').text(isHieroglyphicMode ? 'Desxifra una seqüència tàctica validada amb Stockfish a partir d’un moment clau de les teves partides.' : 'Practica obertures amb un màxim de 10 moviments per bàndol. La base teòrica detectada només identifica línies; el repertori recomanat és la guia pedagògica principal.');
+    const practiceDesc = isOpeningHiero
+        ? 'Desxifra la pista i troba la jugada teòrica d’una obertura del repertori, a partir del tercer o quart moviment.'
+        : (isHieroglyphicMode
+            ? 'Desxifra una seqüència tàctica validada amb Stockfish a partir d’un moment clau de les teves partides.'
+            : 'Practica obertures amb un màxim de 10 moviments per bàndol. La base teòrica detectada només identifica línies; el repertori recomanat és la guia pedagògica principal.');
+    $('#opening-practice-section .opening-section-desc').text(practiceDesc);
     $('#opening-practice-section .opening-mode-row').toggle(!isHieroglyphicMode);
     $('#opening-precision-panel').toggle(!isHieroglyphicMode);
     const sections = {
@@ -15262,19 +15271,19 @@ function setOpeningScreenMode(mode = 'overview') {
         sections.repertoire.hide();
         sections.hieroglyphic.hide();
         sections.practice.show();
-    } else if (mode === 'hieroglyphic') {
+    } else if (isHieroglyphicMode) {
         sections.personal.hide();
         sections.lessons.hide();
         sections.stats.hide();
         sections.repertoire.hide();
         sections.practice.show();
         // No mostrem el bloc d'entrada "Jeroglífics d'obertura" sota el tauler:
-        // el mode actual ja és el jeroglífic personal.
+        // el mode actual ja és el jeroglífic.
         sections.hieroglyphic.hide();
     }
     // L'opció de rendir-se NO ha d'aparèixer quan es resol un error o un jeroglífic
     // (només té sentit a les partides i a la pràctica d'obertures).
-    const hideResign = (mode === 'error-practice' || mode === 'hieroglyphic');
+    const hideResign = (mode === 'error-practice' || isHieroglyphicMode);
     $('#btn-opening-bundle-resign').toggle(!hideResign);
     updateOpeningMaximButton();
 }
@@ -19939,6 +19948,392 @@ async function startHieroglyphicExercise() {
     await startPersonalHieroglyphicFromLastGame(null);
 }
 
+/* ============ JEROGLÍFICS D'OBERTURA (repertori catalogat) ============
+   Dins la secció d'Obertures, el jeroglífic ha de parlar d'obertures: no surt
+   de cap partida ni de cap motor, sinó de les línies que l'app ja té
+   catalogades a CURATED_OPENINGS. Es juga la línia fins al TERCER o QUART
+   moviment i, a partir d'allà, l'exercici demana les jugades teòriques
+   següents (fins a tres) amb les respostes del rival de la mateixa línia.
+   La construcció és pura i viu a core.js; aquí hi ha el tauler i les pistes. */
+
+const OPENING_HIERO_RECENT_KEY = 'eltauler_opening_hieroglyphic_recent';
+const OPENING_HIERO_RECENT_MAX = 6;
+let currentOpeningHieroglyphic = null;
+let openingHieroglyphicHelpers = null;
+
+function getOpeningHieroglyphicHelpers() {
+    if (!openingHieroglyphicHelpers && typeof Chess !== 'undefined' && typeof ElTaulerCore !== 'undefined') {
+        try { openingHieroglyphicHelpers = ElTaulerCore.createOpeningHieroglyphicHelpers(Chess); } catch (e) { openingHieroglyphicHelpers = null; }
+    }
+    return openingHieroglyphicHelpers;
+}
+
+function loadOpeningHieroglyphicRecent() {
+    const list = readJsonStorage(OPENING_HIERO_RECENT_KEY, []);
+    return Array.isArray(list) ? list : [];
+}
+
+function rememberOpeningHieroglyphic(key) {
+    if (!key) return;
+    const list = loadOpeningHieroglyphicRecent().filter(k => k !== key);
+    list.unshift(key);
+    writeJsonStorage(OPENING_HIERO_RECENT_KEY, list.slice(0, OPENING_HIERO_RECENT_MAX));
+}
+
+// Banc de pistes per IDEA d'obertura. Cada motiu descriu la FUNCIÓ de la jugada
+// teòrica sense anomenar-la mai: la pista ha de fer pensar en el pla, no
+// recordar una notació.
+const OPENING_HIERO_MOTIFS = {
+    castle: {
+        label: 'seguretat del rei',
+        plain: 'posa el rei a recer i connecta les torres abans d’obrir res',
+        clues: [
+            'La casa encara no té porta. Abans que el centre cremi, dona-li sostre al qui no pot córrer.',
+            'Qui mana no ha de viure al mig del carrer: el signe demana un refugi i, de retruc, dues torres que es donen la mà.',
+            'No busquis pressa: busca calma. La jugada que guanya temps aquí és la que treu el rei del camí obert.'
+        ]
+    },
+    capture: {
+        label: 'tensió resolta',
+        plain: 'resol la tensió al centre en el moment just',
+        clues: [
+            'Dues fustes es toquen i una ha de cedir. El signe diu qui decideix quan.',
+            'La tensió és una pregunta oberta: aquí la teoria la tanca ella mateixa, sense esperar el rival.',
+            'On dos peons es miren de fit a fit, la línia principal no dubta: hi ha una recollida que no es pot ajornar.'
+        ]
+    },
+    check: {
+        label: 'escac de desenvolupament',
+        plain: 'desenvolupa amb un escac que obliga el rival a definir-se',
+        clues: [
+            'Una veu que obliga a respondre val més que una que demana permís: el signe parla i el rival ha d’escoltar.',
+            'La jugada surt de casa i, de passada, pica a la porta del rei contrari. Guanya temps qui pregunta primer.',
+            'Desenvolupa i imposa alhora: el rival haurà de definir la seva estructura abans d’hora.'
+        ]
+    },
+    fianchetto: {
+        label: 'alfil a la diagonal llarga',
+        plain: 'posa l’alfil a la diagonal llarga, que mira el centre des de lluny',
+        clues: [
+            'El vigilant no mira el centre des del centre: el mira des del racó, per la diagonal més llarga del tauler.',
+            'S’ha obert una finestra al flanc i ara algú s’hi ha d’asseure a vigilar tot el país en línia recta.',
+            'El signe és una mirada llarga: una peça que, des de casa seva, arriba a l’altra punta.'
+        ]
+    },
+    fianchetto_prep: {
+        label: 'preparació del fianchetto',
+        plain: 'obre la casa de l’alfil per posar-lo a la diagonal llarga',
+        clues: [
+            'Abans que el vigilant s’assegui, algú ha d’obrir-li la finestra. Un pas petit al flanc val una mirada llarga.',
+            'El segell d’aquesta línia no és una peça: és el peó modest que li prepara el mirador.',
+            'Un moviment humil al costat del rei anuncia tot el pla: la diagonal llarga s’està preparant.'
+        ]
+    },
+    pin: {
+        label: 'clavada',
+        plain: 'clava una peça rival perquè deixi de defensar el centre',
+        clues: [
+            'Hi ha un defensor que aviat no podrà moure’s: el signe li posa una corda invisible a l’esquena.',
+            'No ataquis el centre; ataca qui el sosté i deixa’l cosit a la seva pròpia gent.',
+            'Una diagonal pot fer de cadena: la peça que hi cau deixa de tenir voluntat pròpia.'
+        ]
+    },
+    bishop_diagonal: {
+        label: 'diagonal activa',
+        plain: 'porta l’alfil a la diagonal on mira més lluny i pressiona el punt feble',
+        clues: [
+            'Hi ha un punt del camp rival que només el guarda el rei: el signe hi apunta des de lluny.',
+            'La peça de les diagonals no vol una casa qualsevol; vol la finestra que mira cap al punt més tendre.',
+            'Desenvolupa mirant, no empenyent: la diagonal correcta ja és mitja amenaça.'
+        ]
+    },
+    center_pawn: {
+        label: 'centre de peons',
+        plain: 'ocupa el centre amb el peó i guanya espai',
+        clues: [
+            'Qui ocupa la plaça mana al mercat: el signe planta bandera al mig del tauler.',
+            'L’espai no es demana, es pren. Un pas endavant al cor del tauler i el rival respira menys.',
+            'Abans de treure cap peça més, la teoria vol la plaça central ocupada.'
+        ]
+    },
+    pawn_lever: {
+        label: 'palanca lateral',
+        plain: 'ataca el centre des del flanc amb la palanca de peó',
+        clues: [
+            'El centre no sempre es discuteix des del centre: hi ha una palanca lateral que el fa tremolar.',
+            'Un cop de costat pot obrir el que un cop de front no obre. El signe ve de fora cap a dins.',
+            'La tensió que decideix aquesta línia neix a la vora, no al mig.'
+        ]
+    },
+    pawn_support: {
+        label: 'peó de suport',
+        plain: 'reforça el centre amb un peó modest que sosté tota l’estructura',
+        clues: [
+            'La jugada més petita és la que aguanta la casa: un maó discret sota la columna mestra.',
+            'No cerquis la peça brillant; cerca el peó humil que fa que res no caigui.',
+            'El signe no fa soroll: prepara el terreny perquè les peces puguin sortir sense por.'
+        ]
+    },
+    knight_post: {
+        label: 'cavall al seu lloc',
+        plain: 'porta el cavall a la casella natural, on toca més centre',
+        clues: [
+            'El saltador vol el seu balcó de sempre: des d’allà toca més caselles que des de cap altre lloc.',
+            'Hi ha una peça que encara dorm a la vora i que, al centre, val el doble.',
+            'Primer surten els qui caminen de tort; el signe treu el que salta cap al lloc natural.'
+        ]
+    },
+    queen_move: {
+        label: 'dama en joc',
+        plain: 'col·loca la dama a la casella que sosté el pla, sense exposar-la',
+        clues: [
+            'La reina no ha de córrer, però tampoc quedar-se sola al fons: el signe li busca la casa útil.',
+            'Hi ha una columna o una diagonal que demana la peça més pesada, sense que se li llancin a sobre.',
+            'La dama entra en joc discretament: sosté el pla, no el protagonitza.'
+        ]
+    },
+    rook_file: {
+        label: 'torre a la columna',
+        plain: 'porta la torre a la columna on es decidirà la partida',
+        clues: [
+            'La torre no vol el racó: vol el passadís on demà es lluitarà.',
+            'Qui controla la línia controla el temps: el signe posa la peça recta on s’obrirà el camí.',
+            'La darrera peça de casa reclama el seu carrer.'
+        ]
+    },
+    development: {
+        label: 'desenvolupament',
+        plain: 'desenvolupa amb ordre i guanya temps',
+        clues: [
+            'La teoria no busca fum: busca una peça més fora de casa, al lloc on mira més lluny.',
+            'Encara hi ha algú al claustre. El signe li obre la porta abans que comenci la tempesta.',
+            'Res d’aventures: la jugada correcta és la que posa ordre i guanya temps.'
+        ]
+    }
+};
+
+function openingHieroglyphicMotifPack(motif) {
+    return OPENING_HIERO_MOTIFS[motif] || OPENING_HIERO_MOTIFS.development;
+}
+
+// A l'obertura la zona útil és la columna (ala de dama, centre, ala de rei):
+// la fila encara diu poca cosa perquè gairebé tot passa a prop de casa.
+function openingHieroglyphicZoneLabel(square) {
+    const file = String(square || '')[0];
+    if (file >= 'a' && file <= 'c') return 'l’ala de dama';
+    if (file === 'd' || file === 'e') return 'la franja central';
+    return 'l’ala del rei';
+}
+
+// Article correcte per al nom de la peça (l'alfil, la torre, el cavall…).
+const OPENING_HIERO_PIECE_LABELS = { p: 'un peó', n: 'el cavall', b: 'l’alfil', r: 'la torre', q: 'la dama', k: 'el rei' };
+function openingHieroglyphicPieceLabel(piece) {
+    return OPENING_HIERO_PIECE_LABELS[piece] || 'una peça';
+}
+
+// Enigma de base del pas actual (es manté estable mentre no es canvia de pas).
+let openingHieroglyphicBaseClue = { key: null, text: '' };
+
+// Pista d'un pas concret de l'exercici. Nivell 1: enigma pur. Nivell 2: afegeix
+// la família de peça i la zona. Nivell 3: hi suma el pla en text pla i, si
+// l'obertura en té, la frase pedagògica de la línia (sempre sense notació).
+function buildOpeningHieroglyphicClue(puzzle, stepIndex, level) {
+    const step = puzzle && Array.isArray(puzzle.steps) ? puzzle.steps[stepIndex] : null;
+    if (!step) return 'Troba la jugada que segueix la teoria d’aquesta obertura.';
+    const pack = openingHieroglyphicMotifPack(step.motif);
+    const lvl = Math.min(3, Math.max(1, level || 1));
+    const scrub = (text) => sanitizeHieroglyphicText(text, {
+        bestMove: step.uci,
+        bestMoveSan: step.san,
+        from: step.from,
+        to: step.to,
+        movingPiece: step.piece
+    }, { hidePiece: lvl === 1 });
+    // L'enigma de base no canvia mentre no canviï el pas: pujar de pista hi
+    // afegeix informació, no una metàfora nova.
+    const baseKey = `${puzzle.key}:${stepIndex}`;
+    if (openingHieroglyphicBaseClue.key !== baseKey) {
+        openingHieroglyphicBaseClue = { key: baseKey, text: pickFreshPlanLine(pack.clues, `openinghiero:${step.motif}`) };
+    }
+    let text = openingHieroglyphicBaseClue.text;
+    if (lvl >= 2) {
+        text += ` La idea viu a ${openingHieroglyphicZoneLabel(step.to)} i la porta ${openingHieroglyphicPieceLabel(step.piece)}.`;
+    }
+    if (lvl >= 3) {
+        // Si la línia porta la seva pròpia frase pedagògica, val més que el
+        // motiu genèric. La frase comença amb la notació ("3.g3 és…"), que aquí
+        // encara no es pot dir: se'n treu la jugada i es deixa l'explicació.
+        const phrase = step.phrase
+            ? step.phrase.replace(/^\s*(\d+\.(\.\.)?|\.\.\.)\s*\S+\s+/, '').replace(/\b[a-h][1-8]\b/g, 'una casella')
+            : '';
+        text += phrase
+            ? ` ${phrase.charAt(0).toUpperCase()}${phrase.slice(1)}`
+            : ` Motiu: ${pack.plain}.`;
+    }
+    return scrub(text);
+}
+
+// Context per a les estadístiques i el text de recompensa. El jeroglífic
+// d'obertura no té swing de motor: el tema és el motiu de la jugada teòrica.
+function buildOpeningHieroglyphicContext(puzzle, stepIndex) {
+    const step = puzzle.steps[stepIndex] || puzzle.steps[0];
+    let context = null;
+    try {
+        context = buildHieroglyphicContext(step.fen, step.uci, {
+            source: 'opening',
+            opening: { name: puzzle.name, eco: puzzle.eco, idea: puzzle.idea },
+            pv: [step.uci],
+            alternatives: [],
+            swing: 0
+        });
+    } catch (e) { context = null; }
+    if (context) context.openingMotif = step.motif;
+    return context;
+}
+
+function openingHieroglyphicStepLabel() {
+    const total = Math.max(1, hieroglyphicSolutionUci.length || 1);
+    return `Pas ${Math.min(total, (hieroglyphicStep || 0) + 1)}/${total}`;
+}
+
+function renderOpeningHieroglyphicNote(statusText = '') {
+    const noteEl = document.getElementById('opening-practice-note');
+    if (!noteEl) return;
+    const puzzle = currentOpeningHieroglyphic;
+    if (!puzzle) return;
+    const recentVoiceId = loadHieroglyphicRecent()[0]?.voice;
+    const voice = HIEROS.voices.find(v => v.id === recentVoiceId) || pickHieroglyphicVoice();
+    const level = Math.min(3, Math.max(hieroglyphicHintLevel || 1, (hieroglyphicAttempts || 0) + 1));
+    const colorTxt = puzzle.userColor === 'w' ? 'blanques' : 'negres';
+    const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${escapeHtml(statusText)}</div>` : '';
+    noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
+        <div class="maxim-title">${HG_ICON_SVG} ${escapeHtml(puzzle.name)}${puzzle.eco ? ` (${escapeHtml(puzzle.eco)})` : ''}</div>
+        <div class="maxim-voice">${escapeHtml(voice.name)}, ${escapeHtml(voice.work)} · moviment ${puzzle.startMoveNumber} amb ${colorTxt}</div>
+        <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
+        <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · ${openingHieroglyphicStepLabel()} · Troba la jugada de la teoria. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
+        ${extra}
+    </div>`;
+}
+
+// Prepara el pas actual (context, pista i nota). S'usa en començar i entre pas i pas.
+function refreshOpeningHieroglyphicStep(statusText = '') {
+    if (!currentOpeningHieroglyphic) return;
+    hieroglyphicContext = buildOpeningHieroglyphicContext(currentOpeningHieroglyphic, hieroglyphicStep || 0);
+    hieroglyphicClue = buildOpeningHieroglyphicClue(currentOpeningHieroglyphic, hieroglyphicStep || 0, hieroglyphicHintLevel || 1);
+    renderOpeningHieroglyphicNote(statusText);
+}
+
+function isOpeningHieroglyphicActive() {
+    return !!(hieroglyphicExerciseActive && hieroglyphicSource === 'opening' && currentOpeningHieroglyphic);
+}
+
+// Pista explícita del botó 💡: puja de nivell i, al tercer, marca la casella.
+function requestOpeningHieroglyphicHintLevel() {
+    hieroglyphicHintLevel = Math.min(3, (hieroglyphicHintLevel || 1) + 1);
+    clearOpeningHintHighlight();
+    if (hieroglyphicHintLevel >= 3 && hieroglyphicExpectedUci) {
+        const to = hieroglyphicExpectedUci.slice(2, 4);
+        $(`#opening-board .square-55d63[data-square='${to}']`).addClass('highlight-hint');
+        refreshOpeningHieroglyphicStep('Pista 3/3: la casella marcada és el destí.');
+    } else {
+        refreshOpeningHieroglyphicStep(`Pista ${hieroglyphicHintLevel}/3.`);
+    }
+    return true;
+}
+
+function startOpeningTheoryHieroglyphic() {
+    const helpers = getOpeningHieroglyphicHelpers();
+    const puzzle = helpers ? helpers.pickOpeningHieroglyphic(CURATED_OPENINGS, { recentKeys: loadOpeningHieroglyphicRecent() }) : null;
+    if (!puzzle) {
+        showToast('Ara mateix no es pot preparar cap jeroglífic d’obertura.', 'warn');
+        return;
+    }
+    rememberOpeningHieroglyphic(puzzle.key);
+
+    if (!openingBundleBoard) initOpeningBundleBoard();
+
+    // Atura qualsevol altre mode del tauler d'obertures: aquí només hi ha
+    // l'exercici (cap rival, cap motor, cap comptador de precisió).
+    openingLessonActive = false;
+    openingLessonCustom = null;
+    openingErrorPracticeActive = false;
+    openingPracticeEngineThinking = false;
+    openingPracticeHintPending = false;
+    openingMaximPending = false;
+    openingMaximRequestCounter++;
+    openingPracticeBestMove = null;
+    resetOpeningEngineMoveCandidates();
+    clearOpeningHintHighlight();
+    clearOpeningMoveVisualFeedback();
+    clearOpeningTapSelection();
+    hideOpeningRestartOverlay();
+
+    openingPracticeUserColor = puzzle.userColor;
+    const colorSelect = document.getElementById('opening-practice-color-select');
+    if (colorSelect) colorSelect.value = openingPracticeUserColor;
+
+    // Un sol tauler lògic: la partida de pràctica i la de l'exercici són el
+    // MATEIX objecte, de manera que el mode tocar i el mode arrossegar llegeixen
+    // sempre la posició real de l'exercici.
+    hieroglyphicGame = new Chess(puzzle.fen);
+    openingPracticeGame = hieroglyphicGame;
+    openingPracticeMoveCount = puzzle.startPly;
+    openingPracticeHistory = [];
+    openingPracticeGoodMoves = 0;
+    openingPracticeTotalMoves = 0;
+    openingCurrentSequence = puzzle.setupSan.slice();
+
+    currentOpeningHieroglyphic = puzzle;
+    hieroglyphicSource = 'opening';
+    hieroglyphicOpening = { name: puzzle.name, eco: puzzle.eco, idea: puzzle.idea };
+    hieroglyphicSolutionUci = puzzle.solutionMoves.slice();
+    hieroglyphicReplyUci = puzzle.replyMoves.slice();
+    hieroglyphicStep = 0;
+    hieroglyphicExpectedUci = hieroglyphicSolutionUci[0] || null;
+    hieroglyphicExpectedMove = hieroglyphicExpectedUci;
+    hieroglyphicAttempts = 0;
+    hieroglyphicHintLevel = 1;
+    hieroglyphicExerciseActive = true;
+
+    if (openingBundleBoard) {
+        openingBundleBoard.orientation(puzzle.userColor === 'w' ? 'white' : 'black');
+        openingBundleBoard.position(puzzle.fen);
+        if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
+    }
+    setOpeningScreenMode('hieroglyphic-opening');
+    updateOpeningMaximButton();
+    refreshOpeningHieroglyphicStep();
+    const boardEl = document.getElementById('opening-board');
+    if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+}
+
+// Exercici resolt: es queda a la secció d'Obertures i ensenya la línia sencera.
+function completeOpeningTheoryHieroglyphic() {
+    const puzzle = currentOpeningHieroglyphic;
+    registerHieroglyphicSolved();
+    hieroglyphicExerciseActive = false;
+    updateOpeningMaximButton();
+    if (openingBundleBoard && hieroglyphicGame) openingBundleBoard.position(hieroglyphicGame.fen());
+    clearOpeningHintHighlight();
+    const noteEl = document.getElementById('opening-practice-note');
+    if (noteEl && puzzle) {
+        const line = puzzle.solutionSan.map((san, i) => {
+            const reply = puzzle.replySan[i];
+            return `<strong>${escapeHtml(san)}</strong>${reply ? ` ${escapeHtml(reply)}` : ''}`;
+        }).join(' · ');
+        const idea = puzzle.idea ? `<div class="maxim-text" style="opacity:0.9; margin-top:6px;">${escapeHtml(puzzle.idea)}</div>` : '';
+        noteEl.innerHTML = `<div class="opening-maxim-box">
+            <div class="maxim-title">✅ ${escapeHtml(puzzle.name)}${puzzle.eco ? ` (${escapeHtml(puzzle.eco)})` : ''}</div>
+            <div class="maxim-text">Has desxifrat el signe: la teoria segueix ${line}.</div>
+            ${idea}
+            <div class="maxim-text" style="opacity:0.78; margin-top:6px;">Motiu: ${escapeHtml(openingHieroglyphicMotifPack(puzzle.motif).label)} · Jeroglífics resolts: ${hieroglyphicStats.solved}</div>
+            <button class="btn btn-primary" onclick="startOpeningTheoryHieroglyphic()" style="margin-top:10px;">Un altre jeroglífic d’obertura</button>
+        </div>`;
+    }
+    showToast('Jeroglífic d’obertura resolt ✅', 'success');
+}
+if (typeof window !== 'undefined') window.startOpeningTheoryHieroglyphic = startOpeningTheoryHieroglyphic;
+
 
 function hasOpeningHieroglyphicCandidate() {
     return hasPersonalHieroglyphicCandidate() || ((typeof hgNewCount === 'function') && hgNewCount() > 0);
@@ -19946,6 +20341,9 @@ function hasOpeningHieroglyphicCandidate() {
 
 function getHieroglyphicNextButtonHtml() {
     const queueReady = (typeof hgNewCount === 'function') && hgNewCount() > 0;
+    if (hieroglyphicSource === 'opening') {
+        return '<button class="btn btn-primary" onclick="startOpeningTheoryHieroglyphic()" style="margin-top:10px;">Un altre jeroglífic d’obertura</button>';
+    }
     if (hieroglyphicSource === 'personal') {
         return (queueReady || hasPersonalHieroglyphicCandidate())
             ? '<button class="btn btn-primary" onclick="startPersonalHieroglyphicFromLastGame()" style="margin-top:10px;">Desxifra un altre error</button>'
@@ -19959,6 +20357,9 @@ function getHieroglyphicNextButtonHtml() {
 
 function requestHieroglyphicHintLevel() {
     if (!hieroglyphicExerciseActive || !hieroglyphicExpectedUci) return false;
+    // El jeroglífic d'obertura té les seves pistes (idea de l'obertura), i només
+    // ensenya la casella al tercer nivell.
+    if (isOpeningHieroglyphicActive()) return requestOpeningHieroglyphicHintLevel();
     hieroglyphicHintLevel = Math.min(3, (hieroglyphicHintLevel || 1) + 1);
     clearOpeningHintHighlight();
     const to = hieroglyphicExpectedUci.slice(2, 4);
@@ -19989,6 +20390,7 @@ function showHieroglyphicSuccessOverlay() {
 }
 function refreshHieroglyphicStepContext(statusText = '') {
     if (!hieroglyphicGame || !hieroglyphicExpectedUci) return;
+    if (isOpeningHieroglyphicActive()) { refreshOpeningHieroglyphicStep(statusText); return; }
     const remainingPv = hieroglyphicExpectedUci ? [hieroglyphicExpectedUci] : [];
     hieroglyphicContext = buildHieroglyphicContext(hieroglyphicGame.fen(), hieroglyphicExpectedUci, {
         source: hieroglyphicSource || 'personal',
@@ -20049,6 +20451,9 @@ function handleHieroglyphicMove(source, target) {
             }
             return;
         }
+        // El jeroglífic d'obertura es queda a la seva secció: ni overlay de
+        // partida ni salt de pantalla, només la línia teòrica explicada.
+        if (isOpeningHieroglyphicActive()) { completeOpeningTheoryHieroglyphic(); return; }
         registerHieroglyphicSolved();
         hieroglyphicExerciseActive = false;
         updateOpeningMaximButton();
@@ -20079,6 +20484,11 @@ function handleHieroglyphicMove(source, target) {
         // No revelem ni apliquem la solució: el jeroglífic continua actiu fins
         // que l'usuari el resolgui. Només fem la pista més explícita.
         if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+        if (isOpeningHieroglyphicActive()) {
+            hieroglyphicHintLevel = 3;
+            refreshOpeningHieroglyphicStep('Pista màxima activada.');
+            return 'snapback';
+        }
         if (hieroglyphicContext) {
             hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, 3);
             renderHieroglyphicExerciseNote(false, 'Pista màxima activada.');
@@ -20087,6 +20497,11 @@ function handleHieroglyphicMove(source, target) {
     }
 
     if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
+    if (isOpeningHieroglyphicActive()) {
+        hieroglyphicHintLevel = Math.max(hieroglyphicHintLevel || 1, Math.min(3, hieroglyphicAttempts + 1));
+        refreshOpeningHieroglyphicStep(`Incorrecte. ${3 - hieroglyphicAttempts} intents restants.`);
+        return 'snapback';
+    }
     if (hieroglyphicContext) {
         const nextLevel = Math.min(3, hieroglyphicAttempts + 1);
         hieroglyphicClue = generateHieroglyphicHint(hieroglyphicContext, nextLevel);
@@ -20806,9 +21221,11 @@ function setupEvents() {
         trainPersonalOpeningLine(color, idx);
     });
     $('#opening-restart-overlay').click(() => restartCompletedOpeningLesson());
+    // El jeroglífic de la secció d'Obertures és d'obertures: surt del repertori
+    // catalogat i comença al tercer o quart moviment de la línia.
     $('#btn-hieroglyphic-exercise').click(() => {
         initOpeningBundleBoard();
-        void startPersonalHieroglyphicFromLastGame(null);
+        startOpeningTheoryHieroglyphic();
     });
     const exitOpeningScreenToMenu = () => {
         $('#opening-screen').hide();
@@ -27925,6 +28342,7 @@ function lintLocalBanks() {
             .forEach(f => checkPool(HUMAN_PLAN_BANK[t][f], `HUMAN_PLAN_BANK.${t}.${f}`, ALLOWED_HUMAN)));
         Object.keys(COACH_DEBRIEF_TEMPLATES).forEach(c => checkPool(COACH_DEBRIEF_TEMPLATES[c], `COACH_DEBRIEF_TEMPLATES.${c}`, ALLOWED_DEBRIEF));
         Object.keys(OFFLINE_MAXIMS).forEach(k => checkPool(OFFLINE_MAXIMS[k], `OFFLINE_MAXIMS.${k}`, null));
+        Object.keys(OPENING_HIERO_MOTIFS).forEach(k => checkPool(OPENING_HIERO_MOTIFS[k].clues, `OPENING_HIERO_MOTIFS.${k}.clues`, null));
         Object.keys(COACH_LEVEL_TIPS).forEach(k => checkPool(COACH_LEVEL_TIPS[k], `COACH_LEVEL_TIPS.${k}`, null));
         COACH_VOICES.forEach(v => { checkPool(v.openers, `voice.${v.id}.openers`, null); checkPool(v.signoffs, `voice.${v.id}.signoffs`, null); });
         // Bancs de la veu de l'entrenador (l'equilibrada reutilitza els d'aquí sobre).

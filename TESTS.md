@@ -173,6 +173,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   repertori deixaria de ser el teu i passaria a ser el del motor; i que una
   mesura que no correspon a la jugada demanada **no es dona per bona**.
 
+- **`openinghiero.test.js`** — jeroglífics d'OBERTURA
+  (`createOpeningHieroglyphicHelpers`), els de la secció d'Obertures: que
+  l'exercici surti sempre d'una obertura ja catalogada al repertori i comenci al
+  **tercer o quart moviment** (el ply correcte per a cada color), que la solució
+  siguin les jugades teòriques següents de la línia (fins a tres) amb les
+  respostes del rival de la mateixa línia i sense rèplica sobrera a l'últim pas,
+  que una línia massa curta no doni exercici, la classificació del motiu de cada
+  jugada teòrica (enroc, clavada, fianchetto, palanca…) i la tria sense
+  repetir-se. La prova de fons recorre el repertori REAL (`CURATED_OPENINGS`):
+  cada obertura ha de donar almenys un exercici i tota la línia ha de ser legal
+  des de la FEN de partida.
+
 ## Integració contínua
 
 `.github/workflows/tests.yml` executa `npm ci` + `npm test` a cada push i pull

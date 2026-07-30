@@ -417,6 +417,189 @@
     }
 
     // ----------------------------------------------------------------------
+    // Jeroglífics d'OBERTURA (exercicis del repertori ja catalogat)
+    // ----------------------------------------------------------------------
+    // El jeroglífic de la secció d'Obertures no surt de cap partida ni de cap
+    // motor: surt de les línies que l'app ja té catalogades al repertori. Es
+    // juga la línia fins al TERCER o QUART moviment de l'usuari i, a partir
+    // d'allà, l'exercici demana les jugades teòriques següents (fins a tres),
+    // amb les respostes del rival preses de la mateixa línia. Així el jeroglífic
+    // d'obertures parla d'obertures, i mai d'una tàctica de mitja partida.
+
+    const OPENING_HIERO_CONFIG = {
+        startMoveNumbers: [3, 4], // moviment (no ply) on comença l'exercici
+        maxSteps: 3,              // jugades de l'usuari com a màxim
+        preferredMinSteps: 2      // si es pot, l'exercici té més d'un pas
+    };
+
+    // Ply (0-based dins la llista de jugades) del moviment `moveNumber` del
+    // bàndol `color`: 3r moviment de les blanques = ply 4; de les negres = ply 5.
+    function openingHieroglyphicStartPly(moveNumber, color) {
+        return (Math.max(1, moveNumber) - 1) * 2 + (color === 'b' ? 1 : 0);
+    }
+
+    // Identificador estable d'un exercici (per no repetir-lo tot seguit).
+    function openingHieroglyphicKey(opening, startMoveNumber) {
+        if (!opening) return '';
+        return `${opening.eco || '?'}|${opening.name || '?'}|${startMoveNumber}`;
+    }
+
+    // Quina IDEA d'obertura encarna una jugada teòrica. No mira el motor: mira
+    // la geometria de la jugada, que a l'obertura ja explica la seva funció.
+    // Retorna una clau de motiu; app.js hi posa les paraules.
+    function classifyOpeningTheoryMove(move) {
+        if (!move) return 'development';
+        const to = String(move.to || '');
+        const file = to[0];
+        const rank = Number(to[1]);
+        const san = String(move.san || '');
+        const flags = String(move.flags || '');
+        if (flags.includes('k') || flags.includes('q')) return 'castle';
+        if (san.includes('#') || san.includes('+')) return 'check';
+        if (move.captured) return 'capture';
+        if (move.piece === 'b' && (to === 'b2' || to === 'g2' || to === 'b7' || to === 'g7')) return 'fianchetto';
+        if (move.piece === 'p' && (to === 'b3' || to === 'g3' || to === 'b6' || to === 'g6')) return 'fianchetto_prep';
+        if (move.piece === 'b' && (to === 'b5' || to === 'g5' || to === 'b4' || to === 'g4')) return 'pin';
+        if (move.piece === 'b' && (to === 'c4' || to === 'c5')) return 'bishop_diagonal';
+        if (move.piece === 'p' && (file === 'd' || file === 'e') && (rank === 4 || rank === 5)) return 'center_pawn';
+        if (move.piece === 'p' && (file === 'c' || file === 'f') && (rank === 4 || rank === 5)) return 'pawn_lever';
+        if (move.piece === 'p') return 'pawn_support';
+        if (move.piece === 'n') return 'knight_post';
+        if (move.piece === 'b') return 'bishop_diagonal';
+        if (move.piece === 'q') return 'queen_move';
+        if (move.piece === 'r') return 'rook_file';
+        return 'development';
+    }
+
+    function createOpeningHieroglyphicHelpers(ChessCtor) {
+        // Converteix una entrada del repertori ({name, eco, idea, moves:[SAN],
+        // userColor, movePhrases}) en un exercici que arrenca al moviment
+        // `startMoveNumber`. Retorna null si la línia no hi arriba o si alguna
+        // jugada no és legal (dada mal escrita: millor descartar-la que jugar-la).
+        function buildOpeningHieroglyphic(opening, options) {
+            const opts = options || {};
+            if (!opening || !Array.isArray(opening.moves) || !opening.moves.length) return null;
+            const userColor = opening.userColor === 'b' ? 'b' : 'w';
+            const startMoveNumber = opts.startMoveNumber || OPENING_HIERO_CONFIG.startMoveNumbers[0];
+            const maxSteps = opts.maxSteps || OPENING_HIERO_CONFIG.maxSteps;
+            const startPly = openingHieroglyphicStartPly(startMoveNumber, userColor);
+            const line = opening.moves;
+            if (startPly >= line.length) return null;
+
+            let chess;
+            try { chess = new ChessCtor(); } catch (e) { return null; }
+
+            // 1) Es juga la línia fins a la posició de partida de l'exercici.
+            const setupSan = [];
+            for (let i = 0; i < startPly; i++) {
+                let mv = null;
+                try { mv = chess.move(line[i], { sloppy: true }); } catch (e) { mv = null; }
+                if (!mv) return null;
+                setupSan.push(mv.san);
+            }
+            if (chess.turn() !== userColor) return null;
+            const fen = chess.fen();
+
+            // 2) A partir d'aquí, les jugades de l'usuari són la solució i les
+            //    del rival, la rèplica. Un pas sense rèplica tanca l'exercici.
+            const steps = [];
+            const solutionSan = [];
+            const solutionMoves = [];
+            const replySan = [];
+            const replyMoves = [];
+            for (let step = 0; step < maxSteps; step++) {
+                const ply = startPly + step * 2;
+                if (ply >= line.length) break;
+                const fenBefore = chess.fen();
+                let mv = null;
+                try { mv = chess.move(line[ply], { sloppy: true }); } catch (e) { mv = null; }
+                if (!mv) break;
+                const uci = `${mv.from}${mv.to}${mv.promotion || ''}`;
+                solutionSan.push(mv.san);
+                solutionMoves.push(uci);
+                steps.push({
+                    ply,
+                    fen: fenBefore,
+                    san: mv.san,
+                    uci,
+                    piece: mv.piece,
+                    from: mv.from,
+                    to: mv.to,
+                    motif: classifyOpeningTheoryMove(mv),
+                    phrase: Array.isArray(opening.movePhrases) ? (opening.movePhrases[ply] || null) : null
+                });
+                if (step === maxSteps - 1) break;
+                const replyPly = ply + 1;
+                if (replyPly >= line.length) break;
+                let reply = null;
+                try { reply = chess.move(line[replyPly], { sloppy: true }); } catch (e) { reply = null; }
+                if (!reply) break; // sense resposta no hi pot haver pas següent
+                replySan.push(reply.san);
+                replyMoves.push(`${reply.from}${reply.to}${reply.promotion || ''}`);
+            }
+            if (!solutionMoves.length) return null;
+            // Les rèpliques sobreres (l'última jugada de la solució no en necessita).
+            const usableReplies = Math.max(0, solutionMoves.length - 1);
+
+            return {
+                key: openingHieroglyphicKey(opening, startMoveNumber),
+                eco: opening.eco || null,
+                name: opening.name || 'Obertura',
+                idea: opening.idea || null,
+                userColor,
+                startMoveNumber,
+                startPly,
+                fen,
+                setupSan,
+                solutionSan,
+                solutionMoves,
+                replySan: replySan.slice(0, usableReplies),
+                replyMoves: replyMoves.slice(0, usableReplies),
+                bestMove: solutionMoves[0],
+                bestMoveSan: solutionSan[0],
+                motif: steps[0] ? steps[0].motif : 'development',
+                steps,
+                lineSan: line.slice()
+            };
+        }
+
+        // Tots els exercicis possibles del repertori (una obertura pot donar-ne
+        // un pel 3r moviment i un altre pel 4t).
+        function openingHieroglyphicCandidates(openings, options) {
+            const opts = options || {};
+            const starts = opts.startMoveNumbers || OPENING_HIERO_CONFIG.startMoveNumbers;
+            const out = [];
+            (openings || []).forEach(op => {
+                if (opts.userColor && (op.userColor === 'b' ? 'b' : 'w') !== opts.userColor) return;
+                starts.forEach(startMoveNumber => {
+                    const puzzle = buildOpeningHieroglyphic(op, { startMoveNumber, maxSteps: opts.maxSteps });
+                    if (puzzle) out.push(puzzle);
+                });
+            });
+            return out;
+        }
+
+        // Tria un exercici: evita els últims jugats i, si pot, en dona un de més
+        // d'un pas (un jeroglífic d'una sola jugada és massa curt).
+        function pickOpeningHieroglyphic(openings, options) {
+            const opts = options || {};
+            const rng = typeof opts.rng === 'function' ? opts.rng : Math.random;
+            const recent = new Set(opts.recentKeys || []);
+            const all = openingHieroglyphicCandidates(openings, opts);
+            if (!all.length) return null;
+            const fresh = all.filter(p => !recent.has(p.key));
+            const pool = fresh.length ? fresh : all;
+            const minSteps = opts.preferredMinSteps || OPENING_HIERO_CONFIG.preferredMinSteps;
+            const rich = pool.filter(p => p.solutionMoves.length >= minSteps);
+            const finalPool = rich.length ? rich : pool;
+            const idx = Math.floor(rng() * finalPool.length) % finalPool.length;
+            return finalPool[Math.max(0, idx)] || finalPool[0];
+        }
+
+        return { buildOpeningHieroglyphic, openingHieroglyphicCandidates, pickOpeningHieroglyphic };
+    }
+
+    // ----------------------------------------------------------------------
     // Ajust continu d'ELO (joc lliure) i fites
     // ----------------------------------------------------------------------
 
@@ -4078,6 +4261,11 @@
         analyzeGameOpeningByPositions,
         findCuratedOpeningByPosition,
         matchUserRepertoireOpening,
+        OPENING_HIERO_CONFIG,
+        openingHieroglyphicStartPly,
+        openingHieroglyphicKey,
+        classifyOpeningTheoryMove,
+        createOpeningHieroglyphicHelpers,
         buildPvPositions,
         pvDisplayTokens,
         pvMoveAriaLabel,
