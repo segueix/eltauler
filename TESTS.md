@@ -218,6 +218,71 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   desplegats: els més recents fins a completar el pressupost de partides
   visibles, amb el que ha triat l'usuari manant sempre per damunt.
 
+- **`antidote.test.js`** — modalitat 🧬 **Rival Antídot**: Stockfish diu quines
+  jugades són bones i El Tauler tria quina de les bones posa més a prova el
+  jugador. Es cobreixen les quatre peces del sistema.
+  **Perfil** (`buildAntidoteProfile`, `antidoteWeaknessWeight`,
+  `antidoteConfidence`): que un perfil buit no inventi cap debilitat, que una
+  sola mostra doni «indici inicial» i la confiança creixi de manera monòtona
+  sense arribar mai a ser categòrica, que una errada d'ahir pesi més que una de
+  fa quatre mesos i una errada greu més que una imprecisió, que les jugades
+  bones no generin debilitats, que superar proves rebaixi el pes de manera
+  progressiva **però que una sola prova superada no esborri una debilitat
+  consolidada de 25 errades** (hi ha un terra), que fallar-les la reforci, i que
+  dades corruptes (partides nul·les, categories inventades, `moveReviews` que és
+  una cadena) no trenquin res. També que el **resum lleuger** desat a l'índex de
+  l'historial (`antidoteStats`, el mateix patró que el `phaseStats` del bessó)
+  doni exactament el mateix perfil que rellegir les revisions senceres.
+  **Avaluacions** (`antidoteScoreValue`, `antidoteCpLoss`): que el mat i els
+  centpeons **no es barregin mai aritmèticament** —abandonar un mat forçat és
+  pèrdua infinita, un mat dues semijugades més llarg costa un símbol, un mat
+  molt més llarg no s'accepta, rebre mat mai és admissible i, en una posició
+  perduda per mat, allargar-lo és millor defensa—, i que els valors invàlids
+  donin `null` i no zero.
+  **Candidates** (`antidoteCandidateGuard`, `scoreAntidoteCandidate`,
+  `chooseAntidoteCandidate`): que mai s'esculli una jugada fora del marge
+  pedagògic del nivell (80/50/30 cp), que amb el perfil buit es jugui la millor
+  jugada del motor, que entre dues jugades equivalents guanyi la que coincideix
+  amb la debilitat però que **una diferència objectiva gran domini la
+  coincidència pedagògica**, que no es converteixi una posició guanyada en
+  igualada ni una igualada en perdedora, que no es penji material sense
+  compensació (i que un sacrifici que el motor valora igual sí que s'accepti),
+  que es conservi un mat forçat, que la repetició temàtica es penalitzi —menys
+  si la categoria encara es falla— i que l'`rng` injectable doni resultats
+  **deterministes** amb la mateixa llavor.
+  **Detectors** (`createAntidoteDetectors`, amb `chess.js` real): forquilla de
+  cavall de debò i **falsa forquilla** quan la peça penja, clavada creada per la
+  jugada i cap clavada quan hi ha un peó pel mig, final de torres, mat,
+  promoció, canvi de dames a la línia principal, millora tranquil·la com a
+  recurs quan no hi ha res destacable, pèrdua de material immediata (la dama que
+  es planta on un peó se la menja val 9) i jugades il·legals que no classifiquen
+  res. També el model d'atacs propi (veu les **defenses** de peces pròpies, que
+  la generació de jugades de chess.js no dona) i els peons passats i aïllats.
+  **Proves pedagògiques** (`antidoteCreateTest`, `evaluateAntidoteResponse`,
+  `updateAntidoteProgress`): que només neixi una prova amb un tema prou clar,
+  que la PV desada quedi retallada, i la graella de resultats —bona → `passed`,
+  acceptable → `partial`, error clar → `failed` i **ambigua → `inconclusive`**
+  (sense mesura de pèrdua, o en una posició ja decidida abans de respondre, no
+  es penalitza ningú)—, i que el progrés no compti dues vegades la mateixa
+  prova.
+  **Persistència**: serialització i restauració amb les línies de motor
+  acotades i el nombre de proves limitat, estadístiques per tema, i sobretot
+  **retrocompatibilitat**: una entrada d'historial sense cap camp Antídot (o amb
+  el bloc corrupte) segueix funcionant i no aporta res al perfil.
+
+## Verificació al navegador
+
+A més de la suite de Jest, la modalitat Rival Antídot s'ha comprovat conduint
+l'app REAL amb Playwright + Chromium (vegeu `.claude/skills/verify`): botó i
+introducció a la pàgina principal, debilitats amb el seu grau de confiança,
+partida completa amb el motor responent jugada rere jugada, **el worker
+compartit sense MultiPV contaminat en acabar**, resum final amb les proves,
+enviament d'una fallada al repàs d'errades existent, historial amb
+`mode: "antidote"` que sobreviu a la recàrrega, ELO principal i ELO per ritme
+intactes, amplada mòbil, perfil buit, funcionament sense Firebase, els dos
+camins de fallback (cerca que peta i worker que no arrenca) i cap regressió a
+Nova partida, Partida assistida, Joc vista, Lliga, Bessó ni jeroglífics.
+
 ## Integració contínua
 
 `.github/workflows/tests.yml` executa `npm ci` + `npm test` a cada push i pull

@@ -6504,6 +6504,8 @@ function reloadAppStateFromStorage() {
         loadStorage();
         // La veu de l'entrenador pot haver canviat en un altre dispositiu.
         applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true });
+        // El progrés del Rival Antídot també viatja amb el compte.
+        loadAntidoteProgress();
         if (typeof isCalibrationActive === 'function' && !isCalibrationActive()) {
             syncEngineEloFromUser();
         }
@@ -7118,6 +7120,12 @@ function updateAdaptiveEngineEloLabel() {
         $('#engine-elo').text('Calibratge');
         return;
     }
+    // Rival Antídot: el motor juga a força màxima triant jugades fortes, així
+    // que cap ROC ni ELO adaptatiu no descriu el rival. L'etiqueta ho diu tal com és.
+    if (currentGameMode === 'antidote' && !blunderMode) {
+        $('#engine-elo').text('Antídot · Stockfish');
+        return;
+    }
     const elo = Math.round(currentElo);
     // Per sobre del terra del motor el número és un UCI_Elo real de Stockfish ("ELO");
     // per sota és l'escala pròpia adaptativa ("ROC"), que el motor no reprodueix exactament.
@@ -7251,6 +7259,7 @@ function updateStatsDisplay() {
     const masteredThemes = Object.keys(hieroglyphicStats.themes || {}).filter(t => (hieroglyphicStats.themes[t] || 0) >= 2).length;
     $('#stats-hiero-themes').text(masteredThemes || '—');
     updateOpenAISettingsUI();
+    renderAntidoteStats();
     updateEloChart();
     updateReviewChart();
     renderWeaknesses();
@@ -15288,6 +15297,15 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
     // perfil del bessó pugui mirar totes les partides guardades encara que les
     // seves revisions ja no siguin a la memòria.
     try { entry.phaseStats = ElTaulerCore.bessoPhaseStatsFromGame(entry); } catch (e) { entry.phaseStats = null; }
+    // Resum de debilitats de la partida: mateix criteri (índex lleuger), perquè
+    // el perfil del Rival Antídot es pugui recalcular sense carregar revisions.
+    try { entry.antidoteStats = ElTaulerCore.antidoteWeaknessStatsFromGame(entry); } catch (e) { entry.antidoteStats = null; }
+    // Proves del Rival Antídot: compactes (PV retallades) i a l'índex, de manera
+    // que viatgen amb les còpies de seguretat i la sincronització del compte.
+    if (currentGameMode === 'antidote') {
+        const antidoteData = antidoteGameDataForHistory();
+        if (antidoteData) entry.antidote = antidoteData;
+    }
     gameHistory.push(entry);
     // La jornada de lliga que acabava de guardar el resultat ja pot apuntar a
     // la seva partida: així s'hi arriba des de la classificació.
@@ -21481,6 +21499,15 @@ function setupEvents() {
     });
 
     // Repte del bessó: obre el selector de període (jo d'ara / jo del passat).
+    // 🧬 Rival Antídot: introducció (debilitats + confiança + color + rellotge)
+    // i, des d'allà, la partida.
+    $('#btn-antidote-game').off('click').on('click', () => openAntidoteIntro());
+    onModalAction('#btn-antidote-start', () => startAntidoteGame());
+    onModalAction('#btn-antidote-cancel', () => { $('#antidote-modal').hide(); antidotePlayPending = null; });
+    $('#antidote-notices-toggle').off('change').on('change', function () {
+        saveAntidoteNoticesPreference(this.checked);
+    });
+
     onModalAction('#btn-besso', () => openBessoChallenge());
     onModalAction('#btn-besso-now', () => { $('#besso-modal').hide(); startBessoGame('now'); });
     onModalAction('#btn-besso-past', () => { $('#besso-modal').hide(); startBessoGame('past'); });
@@ -22091,6 +22118,7 @@ function setupEvents() {
             isCalibrating = true; calibrationGames = []; calibrationProfile = null; calibratgeComplet = false;
             currentLeague = null; leagueActiveMatch = null;
             reviewHistory = []; currentReview = []; gameHistory = []; importedGameHistory = []; adaptationReport = [];
+            antidoteProgress = null; antidoteState = null; antidotePlayPending = null; releaseAntidoteEngine(); loadAntidoteProgress();
             // localStorage.clear() no toca IndexedDB: els cossos de les partides
             // s'han d'esborrar a part perquè «esborrar-ho tot» ho sigui de debò.
             historyBodyFingerprints.clear();
@@ -24744,6 +24772,13 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // perquè no quedi penjada i afecti cap partida posterior.
     const bessoPlayRequest = bessoPlayPending;
     bessoPlayPending = null;
+    // Rival Antídot: mateix criteri. Consumir la petició aquí impedeix que una
+    // partida normal posterior hereti el mode per accident.
+    const antidoteRequest = antidotePlayPending;
+    antidotePlayPending = null;
+    antidoteState = null;
+    antidoteSearchToken++;   // invalida qualsevol cerca Antídot encara viva
+    if (!antidoteRequest) releaseAntidoteEngine();
     currentReview = [];
     lastReviewSnapshot = null;
     postGameQuickExit = false;
@@ -24787,7 +24822,7 @@ blunderMode = isBundle;
     // El botó de rendir-se només té sentit a les PARTIDES, no als exercicis
     // (tàctiques, revisió d'errors, mats…).
     $('#btn-resign').toggle(!isBundle);
-    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending && !explorerPlayRequest && !bessoPlayRequest;
+    isCalibrationGame = isCalibrationActive() && !isBundle && !phaseReplayPending && !explorerPlayRequest && !bessoPlayRequest && !antidoteRequest;
     if (!isCalibrationGame) calibrationStartOpponentRoc = null;
     currentBundleFen = fen;
     
@@ -24888,6 +24923,10 @@ blunderMode = isBundle;
         // jugues amb el contrari i t'enfrontes a les teves pròpies obertures.
         playerColor = bessoPlayRequest.color === 'w' ? 'b' : 'w';
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (antidoteRequest) {
+        // El color s'ha triat (i s'ha ensenyat) a la introducció de la modalitat.
+        playerColor = antidoteRequest.color === 'b' ? 'b' : 'w';
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else {
         const isWhite = Math.random() < 0.5;
         playerColor = isWhite ? 'w' : 'b';
@@ -24949,6 +24988,7 @@ blunderMode = isBundle;
         if (currentBundleSource === 'opening_drill') bundleTitle = "📖 Rectifica l'obertura";
         else if (currentBundleSource === 'mate_drill') bundleTitle = '🏁 Mat en 3 jugades';
         else if (currentBundleSource === 'srs') bundleTitle = '🧠 Repàs intel·ligent';
+        else if (currentBundleSource === 'antidote') bundleTitle = '🧬 Prova del Rival Antídot';
         else if (currentBundleSource === 'bestline') bundleTitle = `${HG_ICON_SVG} Jeroglífic`;
         $('#game-mode-title').html(bundleTitle).css('font-size', '');
     } else if (phaseReplayPending) {
@@ -24993,6 +25033,19 @@ blunderMode = isBundle;
         window._startAssistedGame = false;
         updateAdaptiveEngineEloLabel();
         $('#game-mode-title').text('🧭 Partida assistida');
+        if (engineReady) applyEngineEloStrength(currentElo);
+    } else if (antidoteRequest) {
+        // Rival Antídot: Stockfish juga jugades FORTES (força màxima al seu
+        // worker propi) triades per posar a prova les debilitats del jugador.
+        // No puntua ELO ni ajusta la dificultat; sí que entra a l'historial.
+        currentGameMode = 'antidote';
+        currentOpponent = null;
+        antidoteState = createAntidoteGameState(antidoteRequest.profile);
+        ensureAntidoteEngine();
+        $('#engine-elo').text('Antídot · Stockfish');
+        $('#game-mode-title').text('🧬 Rival Antídot');
+        // El worker COMPARTIT es queda com sempre (el fallback l'ha de trobar
+        // al nivell del jugador si mai cal fer-lo servir).
         if (engineReady) applyEngineEloStrength(currentElo);
     } else if (bessoPlayRequest && bessoState) {
         // Repte del bessó: rival que juga com tu. La força surt del perfil per
@@ -25049,6 +25102,8 @@ blunderMode = isBundle;
     // l'ELO del ritme, i són partides que no han de puntuar res.
     // El Joc posicional es juga sempre sense rellotge: és per pensar el present
     // amb calma (i sense rellotge tampoc no interfereix amb els ELO per ritme).
+    // El Rival Antídot SÍ que respecta el rellotge triat (adapta el pressupost
+    // de cerca al ritme), però no puntua cap ELO de ritme: vegeu handleGameOver.
     initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer' && currentGameMode !== 'positional' && currentGameMode !== 'besso');
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
@@ -25273,13 +25328,694 @@ function showIllegalMoveFeedback(square) {
     }
 }
 
-function makeEngineMove() {
+// ═══════════════════════════════════════════════════════════════════════════
+//  🧬 RIVAL ANTÍDOT — coordinació del mode
+// ═══════════════════════════════════════════════════════════════════════════
+// Stockfish diu quines jugades són BONES; El Tauler tria quina de les bones
+// posa més a prova una debilitat REAL del jugador. Tota la lògica de decisió
+// (perfil, filtres objectius, puntuació, proves) viu a core.js; aquí només hi
+// ha la coordinació: worker, torn, persistència i interfície.
+//
+// El motor de l'Antídot és un worker PROPI, a força màxima i amb MultiPV. És el
+// mateix patró que fa servir la construcció de l'obertura personal
+// (ensurePersonalOpeningEngine): dues cerques sobre el worker compartit es
+// roben les respostes, i així cap opció temporal (especialment MultiPV) no pot
+// contaminar les partides normals, els jeroglífics ni el Bessó.
+
+const DEBUG_ANTIDOTE = false;
+const ANTIDOTE_PROGRESS_KEY = 'chess_antidoteProgress';
+const ANTIDOTE_NOTICES_KEY = 'eltauler_antidote_notices';
+
+let antidotePlayPending = null;   // petició d'inici (es consumeix a startGame)
+let antidoteState = null;         // estat de la partida Antídot en curs
+let antidoteEngine = null;        // worker dedicat (força màxima + MultiPV)
+let antidoteDetectors = null;     // detectors de core.js lligats a chess.js
+let antidoteProgress = null;      // progrés acumulat entre partides
+let antidoteSearchToken = 0;      // invalida cerques d'una partida anterior
+let antidoteNoticesEnabled = true;
+
+function isAntidoteMode() {
+    return currentGameMode === 'antidote' && !!antidoteState;
+}
+
+function getAntidoteDetectors() {
+    if (!antidoteDetectors && typeof Chess !== 'undefined') {
+        try { antidoteDetectors = ElTaulerCore.createAntidoteDetectors(Chess); } catch (e) { antidoteDetectors = null; }
+    }
+    return antidoteDetectors;
+}
+
+function ensureAntidoteEngine() {
+    if (antidoteEngine) return antidoteEngine;
+    const worker = createStockfishWorker();
+    if (!worker) return null;
+    antidoteEngine = worker;
+    try {
+        worker.postMessage('uci');
+        // El rival Antídot juga jugades FORTES: cap límit d'ELO al seu motor.
+        worker.postMessage('setoption name UCI_LimitStrength value false');
+        worker.postMessage('ucinewgame');
+    } catch (e) {}
+    return antidoteEngine;
+}
+
+function releaseAntidoteEngine() {
+    if (!antidoteEngine) return;
+    try { antidoteEngine.postMessage('stop'); } catch (e) {}
+    try { antidoteEngine.terminate(); } catch (e) {}
+    antidoteEngine = null;
+}
+
+// ── Preferència d'avisos immediats (Configuració) ───────────────────────────
+function loadAntidoteNoticesPreference() {
+    try {
+        const raw = localStorage.getItem(ANTIDOTE_NOTICES_KEY);
+        antidoteNoticesEnabled = raw === null ? true : raw === '1';
+    } catch (e) { antidoteNoticesEnabled = true; }
+    const toggle = document.getElementById('antidote-notices-toggle');
+    if (toggle) toggle.checked = antidoteNoticesEnabled;
+    return antidoteNoticesEnabled;
+}
+
+function saveAntidoteNoticesPreference(enabled) {
+    antidoteNoticesEnabled = !!enabled;
+    try { localStorage.setItem(ANTIDOTE_NOTICES_KEY, antidoteNoticesEnabled ? '1' : '0'); } catch (e) {}
+}
+
+// ── Progrés acumulat entre partides ─────────────────────────────────────────
+function loadAntidoteProgress() {
+    try {
+        const raw = localStorage.getItem(ANTIDOTE_PROGRESS_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        antidoteProgress = (parsed && typeof parsed === 'object') ? parsed : null;
+    } catch (e) { antidoteProgress = null; }
+    if (!antidoteProgress) antidoteProgress = ElTaulerCore.updateAntidoteProgress(null, []);
+    return antidoteProgress;
+}
+
+function getAntidoteProgress() {
+    if (!antidoteProgress) loadAntidoteProgress();
+    return antidoteProgress;
+}
+
+function saveAntidoteProgress() {
+    if (!antidoteProgress) return;
+    try { localStorage.setItem(ANTIDOTE_PROGRESS_KEY, JSON.stringify(antidoteProgress)); } catch (e) {}
+}
+
+// ── Perfil de debilitats ────────────────────────────────────────────────────
+// Es construeix del que JA existeix: els resums lleugers de l'historial (com fa
+// el Bessó), la biblioteca d'errades desades i les proves Antídot anteriors.
+// No carrega centenars de revisions completes.
+function buildCurrentAntidoteProfile() {
+    let games = [];
+    let errors = [];
+    let tests = [];
+    try { games = Array.isArray(gameHistory) ? gameHistory.slice(-60) : []; } catch (e) { games = []; }
+    try { errors = Array.isArray(savedErrors) ? savedErrors.slice(-80) : []; } catch (e) { errors = []; }
+    try { tests = ElTaulerCore.antidoteTestsFromHistory(games); } catch (e) { tests = []; }
+    try {
+        return ElTaulerCore.buildAntidoteProfile({
+            games: games,
+            savedErrors: errors,
+            tests: tests,
+            now: Date.now()
+        });
+    } catch (e) {
+        console.warn('[Antídot] no s\'ha pogut construir el perfil', e);
+        return ElTaulerCore.antidoteEmptyProfile();
+    }
+}
+
+// ── Pressupost de cerca ─────────────────────────────────────────────────────
+function antidoteTimeControlKind(tcId) {
+    if (!tcId || tcId === 'none') return 'none';
+    if (tcId === '30s' || tcId === '1+0') return 'bullet';
+    if (tcId === '3+2' || tcId === '5+0') return 'blitz';
+    if (tcId === '10+0') return 'rapid';
+    return 'classic';
+}
+
+function antidoteDeviceOptions() {
+    const cores = (navigator && navigator.hardwareConcurrency) || 4;
+    const device = document.body.dataset.device || 'desktop';
+    return {
+        mobile: device === 'mobile' || device === 'tablet',
+        lowPower: cores <= 2,
+        timeControlKind: antidoteTimeControlKind(gameClock.enabled ? getActiveTimeControlId() : 'none')
+    };
+}
+
+// ── Inici de la modalitat ───────────────────────────────────────────────────
+function openAntidoteIntro() {
+    if (!guardCalibrationAccess()) return;
+    const profile = buildCurrentAntidoteProfile();
+    const thin = ElTaulerCore.antidoteProfileIsThin(profile);
+    const top = ElTaulerCore.antidoteTopWeaknesses(profile, 3);
+    antidotePlayPending = null;
+
+    const modal = $('#antidote-modal');
+    if (!modal.length) { startAntidoteGame(profile); return; }
+
+    $('#antidote-intro-text').text(thin
+        ? 'Encara estic coneixent el teu joc. Aquesta partida començarà amb proves generals i s\'adaptarà amb cada decisió.'
+        : 'He detectat quines situacions et costen més. El rival intentarà portar-hi la partida sense deixar de jugar jugades fortes.');
+
+    const list = $('#antidote-weaknesses').empty();
+    if (thin || !top.length) {
+        list.append('<li class="antidote-weakness antidote-weakness-empty">Encara estic coneixent el teu joc. Començaré amb proves generals i adaptaré el rival a mesura que juguis.</li>');
+    } else {
+        top.forEach(w => {
+            const pct = Math.round(w.weight * 100);
+            list.append(
+                '<li class="antidote-weakness">'
+                + '<span class="antidote-weakness-name">' + escapeHtml(w.label) + '</span>'
+                + '<span class="antidote-weakness-bar"><span style="width:' + Math.max(6, pct) + '%"></span></span>'
+                + '<span class="antidote-weakness-conf">' + escapeHtml(ElTaulerCore.antidoteConfidenceLabel(w.confidence)) + '</span>'
+                + '</li>');
+        });
+    }
+
+    // Color i rellotge escollits (els mateixos que qualsevol partida nova).
+    const tcId = getActiveTimeControlId();
+    const willBeWhite = Math.random() < 0.5;
+    antidotePlayPending = { color: willBeWhite ? 'w' : 'b', profile: profile };
+    $('#antidote-color').text(willBeWhite ? 'Jugues amb blanques' : 'Jugues amb negres');
+    $('#antidote-clock').text(tcId && tcId !== 'none'
+        ? 'Rellotge: ' + getTimeControlLabel(tcId)
+        : 'Sense rellotge');
+    modal.css('display', 'flex');
+}
+
+function startAntidoteGame(profileOverride) {
+    const pending = antidotePlayPending || {};
+    const profile = profileOverride || pending.profile || buildCurrentAntidoteProfile();
+    antidotePlayPending = {
+        color: pending.color === 'b' ? 'b' : (pending.color === 'w' ? 'w' : (Math.random() < 0.5 ? 'w' : 'b')),
+        profile: profile
+    };
+    $('#antidote-modal').hide();
+    isRandomBundleSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    if (leagueActiveMatch) { leagueActiveMatch = null; saveStorage(); }
+    currentGameMode = 'antidote';
+    currentOpponent = null;
+    startGame(false);
+}
+
+// Estat d'una partida Antídot nova.
+function createAntidoteGameState(profile) {
+    return {
+        profile: profile || ElTaulerCore.antidoteEmptyProfile(),
+        profileAtStart: profile || ElTaulerCore.antidoteEmptyProfile(),
+        tests: [],
+        pendingTest: null,
+        searching: false,
+        fallbacks: 0,
+        searches: 0,
+        thin: ElTaulerCore.antidoteProfileIsThin(profile)
+    };
+}
+
+// ── Torn del Rival Antídot ──────────────────────────────────────────────────
+// Retorna true si aquest mode s'ha fet càrrec del torn. Davant de QUALSEVOL
+// problema (motor caigut, temps excedit, dades insuficients) retorna false i la
+// partida segueix amb la cerca normal: mai es queda bloquejada esperant.
+function makeAntidoteEngineMove() {
+    if (!isAntidoteMode()) return false;
+    if (antidoteState.searching) return true;   // ja s'hi està
+    const detectors = getAntidoteDetectors();
+    const engine = ensureAntidoteEngine();
+    if (!detectors || !engine) return false;
+
+    const fen = game.fen();
+    const generation = gameGeneration;
+    const token = ++antidoteSearchToken;
+    antidoteState.searching = true;
+    antidoteState.searches += 1;
+    isEngineThinking = true;
+    $('#status').text("L'adversari pensa...");
+    if (engineReplyStartTs === null) engineReplyStartTs = nowMs();
+
+    const deviceOpts = antidoteDeviceOptions();
+    const multiPv = ElTaulerCore.antidoteMultiPv(deviceOpts);
+    const budget = ElTaulerCore.antidoteSearchBudget(deviceOpts.timeControlKind);
+    const searchStartedAt = nowMs();
+
+    const bail = (reason) => {
+        antidoteState.searching = false;
+        antidoteState.fallbacks += 1;
+        if (generation !== gameGeneration || token !== antidoteSearchToken) return;
+        if (DEBUG_ANTIDOTE) console.warn('[Antídot] fallback:', reason);
+        isEngineThinking = false;
+        // Cerca normal amb el worker compartit: la partida no s'atura mai.
+        makeEngineMove(true);
+    };
+
+    let settled = false;
+    const watchdog = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        try { engine.postMessage('stop'); } catch (e) {}
+        bail('watchdog');
+    }, budget.moveTimeMs + 7000);
+
+    analyzePositionEnrichedTimed(engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000)
+        .then(analysis => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(watchdog);
+            antidoteState.searching = false;
+            // Partida nova (o canvi de pantalla) mentre el motor pensava: la
+            // cerca ja no val per a res i startGame ja ha netejat l'estat.
+            if (generation !== gameGeneration || token !== antidoteSearchToken) return;
+            // La posició ha canviat mentre el motor pensava (rendició, bandera,
+            // final de partida): no s'hi juga res, però el senyal de «pensant»
+            // s'ha d'apagar perquè la partida no quedi mai encallada.
+            if (!game || game.game_over() || game.turn() === playerColor || game.fen() !== fen) {
+                isEngineThinking = false;
+                return;
+            }
+            const applied = applyAntidoteAnalysis(analysis, fen, searchStartedAt, deviceOpts);
+            if (!applied) bail('no-candidate');
+        })
+        .catch(err => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(watchdog);
+            bail(err && err.message ? err.message : 'error');
+        });
+    return true;
+}
+
+// Converteix el MultiPV cru en candidates classificades, tria la millor
+// pedagògicament i l'aplica. Retorna false si no s'ha pogut decidir res.
+function applyAntidoteAnalysis(analysis, fen, searchStartedAt, deviceOpts) {
+    const detectors = getAntidoteDetectors();
+    if (!detectors || !analysis) return false;
+    const alternatives = (analysis.alternatives || []).filter(a => a && a.move);
+    if (!alternatives.length) return false;
+
+    // La millor jugada del motor sempre és la primera línia del MultiPV.
+    const best = alternatives[0];
+    const bestValue = ElTaulerCore.antidoteScoreValue(best);
+    if (bestValue === null) return false;
+
+    const candidates = [];
+    alternatives.forEach(alt => {
+        const scoreValue = ElTaulerCore.antidoteScoreValue(alt);
+        if (scoreValue === null) return;
+        let info = null;
+        try { info = detectors.classifyAntidoteCandidate(fen, alt.move, alt.pv || []); } catch (e) { info = null; }
+        if (!info || !info.san) return;   // jugada il·legal per a aquest FEN
+        candidates.push({
+            move: alt.move,
+            san: info.san,
+            eval: alt.eval,
+            evalType: alt.evalType,
+            scoreValue: scoreValue,
+            depth: alt.depth || null,
+            pv: Array.isArray(alt.pv) ? alt.pv : [],
+            themes: info.themes,
+            complexity: info.complexity,
+            materialLoss: info.materialLoss
+        });
+    });
+    if (!candidates.length) return false;
+
+    const phase = ElTaulerCore.phaseFromFen(fen);
+    const playerElo = Math.round(userELO || currentElo || 800);
+    // Varietat DINS de la mateixa partida: les proves que ja s'han plantejat
+    // aquí s'afegeixen a les recents del perfil, de manera que la penalització
+    // per repetició també actua jugada a jugada i el rival no insisteix sempre
+    // en la mateixa debilitat.
+    const recent = (antidoteState.profile.recentTests || [])
+        .concat(antidoteState.tests.map(t => ({ theme: t.theme, result: t.result })))
+        .slice(-ElTaulerCore.ANTIDOTE_CONFIG.recentWindow);
+    const scoringProfile = Object.assign({}, antidoteState.profile, { recentTests: recent });
+    const selection = ElTaulerCore.chooseAntidoteCandidate(candidates, scoringProfile, {
+        playerElo: playerElo,
+        phase: phase,
+        best: candidates[0],
+        bestValue: candidates[0].scoreValue
+    });
+    if (!selection || !selection.move) return false;
+
+    // La jugada ha de ser legal ARA: la posició no pot haver canviat.
+    const fromSq = selection.move.substring(0, 2);
+    const toSq = selection.move.substring(2, 4);
+    const promotion = selection.move.length > 4 ? selection.move[4] : 'q';
+    let legal = false;
+    try {
+        const probe = new Chess(fen);
+        legal = !!probe.move({ from: fromSq, to: toSq, promotion: promotion });
+    } catch (e) { legal = false; }
+    if (!legal) return false;
+
+    // Prova pedagògica: es crea ABANS d'aplicar la jugada i no es revela mai
+    // durant el torn del jugador (seria una pista).
+    const ply = game.history().length;
+    const test = ElTaulerCore.antidoteCreateTest(selection, {
+        id: 'at_' + Date.now().toString(36) + '_' + ply,
+        fen: fen,
+        ply: ply,
+        moveNumber: parseInt(fen.split(' ')[5], 10) || null,
+        phase: phase,
+        now: Date.now()
+    });
+    antidoteState.pendingTest = test;
+    if (test) antidoteState.tests.push(test);
+
+    if (DEBUG_ANTIDOTE) {
+        console.log('[Antídot]', selection.source, selection.san, 'cpLoss', selection.cpLoss,
+            'tema', selection.themeId, 'score', selection.finalScore, selection.components);
+    }
+
+    // Precisió del rival: la mateixa mesura que la resta de modes, amb les
+    // candidates d'aquesta cerca en el format que espera el comptador.
+    registerEngineMovePrecision(selection.move, candidates.map((c, idx) => ({
+        multipv: idx + 1,
+        move: c.move,
+        score: ElTaulerCore.antidoteIsMateValue(c.scoreValue) ? (c.scoreValue > 0 ? 10000 : -10000) : c.scoreValue
+    })));
+
+    // Temps de resposta: es descompta el que ja ha trigat la cerca, de manera
+    // que el rellotge es comporta com a la resta de modes.
+    const elapsed = Math.max(0, nowMs() - searchStartedAt);
+    let replyDelayMs = Math.max(0, computeHumanReplyDelayMs() - elapsed);
+    if (gameClock.enabled && replyDelayMs > 150) {
+        try {
+            const probe = new Chess(game.fen());
+            const probeMove = probe.move({ from: fromSq, to: toSq, promotion: promotion });
+            if (probeMove && probe.game_over()) replyDelayMs = 150;
+        } catch (e) {}
+    }
+    scheduleEngineMoveApply(fromSq, toSq, promotion, replyDelayMs);
+    return true;
+}
+
+// ── Resposta del jugador ────────────────────────────────────────────────────
+// S'enganxa a l'anàlisi de jugada que JA fa l'app (registerMoveReview): no s'hi
+// afegeix cap cerca nova.
+function antidoteResolvePendingTest(context) {
+    if (!isAntidoteMode()) return;
+    const test = antidoteState.pendingTest;
+    if (!test) return;
+    antidoteState.pendingTest = null;
+    let resolved;
+    try {
+        resolved = ElTaulerCore.evaluateAntidoteResponse(test, {
+            playerMove: context.playerMove || null,
+            playerMoveSan: context.playerMoveSan || null,
+            bestMove: context.bestMove || null,
+            bestMoveSan: context.bestMoveSan || null,
+            cpLoss: context.cpLoss,
+            evalBefore: context.evalBefore
+        });
+    } catch (e) { return; }
+    const idx = antidoteState.tests.indexOf(test);
+    if (idx >= 0) antidoteState.tests[idx] = resolved;
+    else antidoteState.tests.push(resolved);
+    showAntidoteMoveNotice(resolved);
+}
+
+// Avís breu i no intrusiu (mai una finestra modal). Es pot desactivar des de
+// Configuració. No diu MAI quina categoria s'estava examinant.
+function showAntidoteMoveNotice(test) {
+    if (!antidoteNoticesEnabled || !test) return;
+    if (test.result === 'passed') showToast('Prova superada', 'success');
+    else if (test.result === 'partial') showToast('Ho has defensat parcialment', 'info');
+    else if (test.result === 'failed') showToast('Aquest patró tornarà al teu entrenament', 'warn');
+}
+
+// ── Persistència ────────────────────────────────────────────────────────────
+function antidoteGameDataForHistory() {
+    if (!antidoteState) return null;
+    try {
+        return ElTaulerCore.antidoteSerializeGame(antidoteState.tests, {
+            thinProfile: !!antidoteState.thin,
+            fallbacks: antidoteState.fallbacks,
+            searches: antidoteState.searches
+        });
+    } catch (e) { return null; }
+}
+
+// Acumula el progrés d'aquesta partida (sense duplicar registres) i el desa.
+function commitAntidoteProgress() {
+    if (!antidoteState) return;
+    try {
+        const progress = ElTaulerCore.updateAntidoteProgress(getAntidoteProgress(), antidoteState.tests);
+        progress.games = Math.max(0, (getAntidoteProgress().games || 0)) + 1;
+        antidoteProgress = progress;
+        saveAntidoteProgress();
+    } catch (e) { console.warn('[Antídot] no s\'ha pogut desar el progrés', e); }
+}
+
+// ── Resolució de final de partida ───────────────────────────────────────────
+function showAntidoteSummary(resultLabel, finalPrecision, entry) {
+    const modal = $('#antidote-summary-modal');
+    if (!modal.length || !antidoteState) return false;
+    const tests = antidoteState.tests || [];
+    let summary;
+    let evolution;
+    const profileAfter = buildCurrentAntidoteProfile();
+    try { summary = ElTaulerCore.antidoteGameSummary(tests); } catch (e) { summary = null; }
+    try {
+        evolution = ElTaulerCore.antidoteEvolutionReport(antidoteState.profileAtStart, profileAfter, tests);
+    } catch (e) { evolution = null; }
+    if (!summary) return false;
+
+    $('#antidote-summary-result').text(resultLabel || '—');
+    $('#antidote-summary-precision').text(finalPrecision ? finalPrecision + '%' : '—');
+    $('#antidote-summary-total').text(String(summary.total));
+    $('#antidote-summary-passed').text(String(summary.passed));
+    $('#antidote-summary-partial').text(String(summary.partial));
+    $('#antidote-summary-failed').text(String(summary.failed));
+
+    const detail = $('#antidote-summary-tests').empty();
+    const judged = tests.filter(t => t && t.theme && t.result !== 'pending');
+    if (!judged.length) {
+        detail.append('<div class="antidote-test-empty">Aquesta partida no ha arribat a plantejar cap prova clara. Torna-hi i el rival buscarà situacions més marcades.</div>');
+    } else {
+        judged.forEach((t, idx) => {
+            const resultClass = 'antidote-result-' + (t.result || 'inconclusive');
+            const label = t.result === 'passed' ? 'Superada'
+                : (t.result === 'partial' ? 'Parcial'
+                    : (t.result === 'failed' ? 'Fallada' : 'Sense conclusió'));
+            const moment = t.moveNumber ? ('Jugada ' + t.moveNumber) : ('Semijugada ' + (t.createdAtPly || 0));
+            const themeText = ElTaulerCore.antidoteWeaknessLabel(t.theme);
+            const subtheme = t.subtheme ? ElTaulerCore.antidoteThemeLabel(t.subtheme) : null;
+            const played = t.playerResponseSan || t.playerResponse || '—';
+            const bestReply = t.bestResponseSan || t.bestResponse || null;
+            const lossText = (typeof t.responseCpLoss === 'number')
+                ? ('pèrdua de ' + Math.round(t.responseCpLoss) + ' centpeons')
+                : 'sense mesura fiable';
+            detail.append(
+                '<div class="antidote-test ' + resultClass + '" data-test-idx="' + idx + '">'
+                + '<div class="antidote-test-head"><span class="antidote-test-badge">' + escapeHtml(label) + '</span>'
+                + '<span class="antidote-test-moment">' + escapeHtml(moment) + '</span></div>'
+                + '<div class="antidote-test-theme">' + escapeHtml(themeText)
+                + (subtheme ? ' · ' + escapeHtml(subtheme) : '') + '</div>'
+                + '<div class="antidote-test-moves">El rival va jugar <strong>' + escapeHtml(t.engineMoveSan || t.engineMove || '—')
+                + '</strong> i tu vas respondre <strong>' + escapeHtml(played) + '</strong>'
+                + (bestReply ? '. La millor resposta era <strong>' + escapeHtml(bestReply) + '</strong>' : '')
+                + ' (' + escapeHtml(lossText) + ').</div>'
+                + (t.sourceFen ? '<button type="button" class="btn btn-secondary antidote-test-open">Obre la posició</button>' : '')
+                + '</div>');
+        });
+    }
+    detail.find('.antidote-test-open').off('click').on('click', function () {
+        const idx = Number($(this).closest('.antidote-test').data('test-idx'));
+        const t = judged[idx];
+        if (t && t.sourceFen) openAntidoteTestPosition(t);
+    });
+
+    const evoBox = $('#antidote-summary-evolution').empty();
+    if (evolution) {
+        evoBox.append('<p class="antidote-evolution-text">' + escapeHtml(evolution.text) + '</p>');
+        if (evolution.improved.length) {
+            evoBox.append('<div class="antidote-evolution-line"><strong>Millorant:</strong> '
+                + escapeHtml(evolution.improved.slice(0, 3).map(w => w.label).join(', ')) + '</div>');
+        }
+        if (evolution.active.length) {
+            evoBox.append('<div class="antidote-evolution-line"><strong>Encara actiu:</strong> '
+                + escapeHtml(evolution.active.slice(0, 3).map(w =>
+                    w.label + ' (' + ElTaulerCore.antidoteConfidenceLabel(w.confidence) + ')').join(', ')) + '</div>');
+        }
+    }
+
+    const failed = judged.filter(t => t.result === 'failed' || t.result === 'partial');
+    $('#btn-antidote-practice').toggle(failed.length > 0).off('click').on('click', () => {
+        modal.hide();
+        practiceAntidoteFailures(failed);
+    });
+    $('#btn-antidote-review').toggle(!!(entry && entry.id)).off('click').on('click', () => {
+        modal.hide();
+        openAntidoteGameInHistory(entry);
+    });
+    $('#btn-antidote-again').off('click').on('click', () => {
+        modal.hide();
+        antidotePlayPending = null;
+        openAntidoteIntro();
+    });
+    $('#btn-antidote-home').off('click').on('click', () => {
+        modal.hide();
+        goToHomeScreen();
+    });
+
+    modal.css('display', 'flex');
+    return true;
+}
+
+// Obre al tauler d'anàlisi la posició que el jugador tenia davant en aquella
+// prova (reutilitza l'explorador que ja existeix).
+function openAntidoteTestPosition(test) {
+    if (!test || !test.sourceFen) return;
+    const fen = antidoteResponseFen(test) || test.sourceFen;
+    $('#antidote-summary-modal').hide();
+    stopGameClock();
+    $('#game-screen').removeClass('active').hide();
+    openExplorer(fen, { importNote: 'Posició d\'una prova del Rival Antídot.' });
+}
+
+// Porta la partida Antídot acabada a l'historial, oberta i llesta per revisar.
+function openAntidoteGameInHistory(entry) {
+    stopGameClock();
+    $('#game-screen').removeClass('active').hide();
+    $('#start-screen').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide();
+    $('#history-screen').show();
+    initHistoryBoard();
+    renderGameHistory();
+    const target = (entry && entry.id)
+        ? gameHistory.find(e => e && e.id === entry.id)
+        : gameHistory[gameHistory.length - 1];
+    if (target) openHistoryEntry(target);
+    navStack = [];
+    navPush('history-screen');
+    setTimeout(() => resizeHistoryBoardToViewport(), 0);
+}
+
+// «Practica les fallades»: alimenta el sistema d'errades desades i el repàs
+// intel·ligent que JA existeixen. No es crea cap biblioteca paral·lela.
+function practiceAntidoteFailures(failedTests) {
+    const usable = (failedTests || []).filter(t => t && t.sourceFen && t.bestResponse);
+    if (!usable.length) {
+        showToast('No hi ha cap posició de prova prou clara per practicar-la', 'info');
+        return;
+    }
+    usable.forEach(t => {
+        // La posició d'entrenament és la que el jugador tenia DAVANT (després de
+        // la jugada del rival): allà és on calia trobar la resposta.
+        const fen = antidoteResponseFen(t);
+        if (!fen) return;
+        if (savedErrors.some(e => e.fen === fen)) return;
+        savedErrors.push({
+            fen: fen,
+            date: new Date().toLocaleDateString(),
+            severity: t.result === 'failed' ? 'med' : 'low',
+            elo: userELO,
+            bestMove: t.bestResponse,
+            playerMove: t.playerResponse || null,
+            bestMovePv: Array.isArray(t.expectedPv) ? t.expectedPv.slice(0, 4) : [],
+            antidoteCategory: t.theme,
+            srsReps: 0,
+            srsInterval: 0,
+            srsDue: Date.now()
+        });
+    });
+    saveStorage();
+    try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+    const first = usable[0];
+    startAntidotePracticeFromTest(first);
+}
+
+// FEN que tenia el jugador davant quan havia de respondre la prova.
+function antidoteResponseFen(test) {
+    if (!test || !test.sourceFen || !test.engineMove) return null;
+    try {
+        const chess = new Chess(test.sourceFen);
+        const move = chess.move({
+            from: test.engineMove.substring(0, 2),
+            to: test.engineMove.substring(2, 4),
+            promotion: test.engineMove.length > 4 ? test.engineMove[4] : 'q'
+        });
+        return move ? chess.fen() : null;
+    } catch (e) { return null; }
+}
+
+function startAntidotePracticeFromTest(test) {
+    const fen = antidoteResponseFen(test);
+    if (!fen) return;
+    // Es cedeix el motor abans d'entrar a l'exercici: la preparació de la
+    // seqüència fa servir el worker COMPARTIT i no ha de competir amb una
+    // cerca Antídot encara viva ni heretar-ne l'estat de «pensant».
+    antidoteSearchToken++;
+    if (antidoteState) antidoteState.searching = false;
+    releaseAntidoteEngine();
+    isEngineThinking = false;
+    try { if (stockfish) stockfish.postMessage('stop'); } catch (e) {}
+    isRandomBundleSession = false;
+    isSrsReviewSession = false;
+    isDailyPuzzleSession = false;
+    isMatchErrorReviewSession = false;
+    matchErrorQueue = [];
+    currentMatchError = null;
+    currentBundleSource = 'antidote';
+    currentBundleSeverity = test.result === 'failed' ? 'med' : 'low';
+    currentGameMode = 'bundle';
+    currentOpponent = null;
+    showToast('Torna a la posició de la prova: troba la millor resposta', 'success');
+    startGame(true, fen);
+}
+
+// ── Estadístiques ───────────────────────────────────────────────────────────
+function renderAntidoteStats() {
+    const box = $('#antidote-stats');
+    if (!box.length) return;
+    let stats;
+    try {
+        stats = ElTaulerCore.antidoteStatsFromHistory(
+            (Array.isArray(gameHistory) ? gameHistory : []).concat(
+                Array.isArray(importedGameHistory) ? importedGameHistory : []));
+    } catch (e) { stats = null; }
+    if (!stats || !stats.games) {
+        box.html('<div class="antidote-stats-empty">Encara no has jugat cap partida contra el Rival Antídot.</div>');
+        return;
+    }
+    const themeRows = stats.themes.slice(0, 5).map(t =>
+        '<div class="antidote-stat-theme"><span>' + escapeHtml(t.label) + '</span>'
+        + '<span class="antidote-stat-theme-bar"><span style="width:' + Math.max(4, t.successRate) + '%"></span></span>'
+        + '<span class="antidote-stat-theme-pct">' + t.successRate + '%</span></div>').join('');
+    box.html(
+        '<div class="stats-grid antidote-stats-grid">'
+        + '<div class="stat-card"><div class="stat-card-value">' + stats.games + '</div><div class="stat-card-label">Partides jugades</div></div>'
+        + '<div class="stat-card"><div class="stat-card-value">' + stats.passed + '</div><div class="stat-card-label">Proves superades</div></div>'
+        + '<div class="stat-card"><div class="stat-card-value">' + (stats.successRate === null ? '—' : stats.successRate + '%') + '</div><div class="stat-card-label">Percentatge d\'èxit</div></div>'
+        + '<div class="stat-card"><div class="stat-card-value">' + stats.tests + '</div><div class="stat-card-label">Proves generades</div></div>'
+        + '</div>'
+        + (themeRows ? '<div class="antidote-stat-themes">' + themeRows + '</div>' : '')
+        + '<div class="antidote-stat-note">'
+        + (stats.mostWorked ? 'Debilitat més treballada: <strong>' + escapeHtml(stats.mostWorked.label) + '</strong>. ' : '')
+        + (stats.mostImproved ? 'Amb més millora: <strong>' + escapeHtml(stats.mostImproved.label) + '</strong>.' : '')
+        + '</div>');
+}
+
+function makeEngineMove(skipAntidote) {
     // Repte «Rejugar +5%» acabat: el motor ja no respon (la finestra de resultat
     // és oberta i la posició queda tal com estava en assolir el final de la fase).
     if (phaseReplayInputLocked()) return;
     // El teu bessó juga primer del TEU llibre d'obertures personal; només passa
     // al motor quan la partida surt de les línies que jugues habitualment.
     if (currentGameMode === 'besso' && bessoState && tryBessoBookMove()) return;
+    // Rival Antídot: cerca MultiPV al seu worker propi i tria la jugada forta
+    // que millor posa a prova el jugador. Si no se'n surt (motor caigut, temps
+    // excedit, dades insuficients) torna aquí amb skipAntidote i la partida
+    // segueix amb la cerca normal: mai es queda esperant l'anàlisi Antídot.
+    if (!skipAntidote && isAntidoteMode() && makeAntidoteEngineMove()) return;
     if (!stockfish && !ensureStockfish()) return;
 
     isEngineThinking = true;
@@ -25881,6 +26617,20 @@ function handleEngineMessage(rawMsg) {
                 afterFen: pendingAfterFen
             });
             resolvePendingMoveEvaluation(moveQuality);
+            // Rival Antídot: la MATEIXA anàlisi que acaba de puntuar la jugada
+            // resol la prova pendent (no s'hi afegeix cap cerca nova).
+            if (isAntidoteMode()) {
+                antidoteResolvePendingTest({
+                    playerMove: lastHumanMoveUci,
+                    playerMoveSan: pendingAnalysisFen && lastHumanMoveUci
+                        ? uciToSanForFen(pendingAnalysisFen, lastHumanMoveUci) : null,
+                    bestMove: pendingBestMove,
+                    bestMoveSan: pendingAnalysisFen && pendingBestMove
+                        ? uciToSanForFen(pendingAnalysisFen, pendingBestMove) : null,
+                    cpLoss: swing,
+                    evalBefore: pendingEvalBefore
+                });
+            }
             // Joc posicional: la mateixa anàlisi dona l'índex Stockfish de la
             // jugada i decideix el flux — la verda avança (l'enginy respon),
             // la resta es tira enrere sola. Si ho gestiona, aquí no s'ha de
@@ -25980,56 +26730,64 @@ function handleEngineMessage(rawMsg) {
             registerEngineMovePrecision(moveStr, engineMoveCandidates);
             resetEngineMoveCandidates();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
-            engineMoveApplyPending = true;
-            engineMoveApplyTimeout = setTimeout(() => {
-                engineMoveApplyTimeout = null;
-                isEngineThinking = false;
-                engineMoveApplyPending = false;
-                engineReplyStartTs = null;
-                // Mai es juga pel color de l'usuari: un "bestmove" duplicat o
-                // antic no s'ha d'aplicar com si fos una jugada de l'enginy.
-                if (game.game_over() || game.turn() === playerColor) return;
-                const applied = game.move({ from: fromSq, to: toSq, promotion: promotion });
-                if (!applied) {
-                    // Jugada il·legal a la posició actual (resposta antiga):
-                    // no es repinta ni es marca res i es demana una jugada fresca,
-                    // perquè la marca sempre correspongui a una jugada feta.
-                    makeEngineMove();
-                    return;
-                }
-                lastEngineMoveAppliedTs = nowMs();
-                clockOnMove();
-                updateStatus();
-                if (isViewingGameHistory() && !game.game_over()) {
-                    // L'usuari repassa jugades amb les fletxes: la jugada queda
-                    // aplicada a l'estat real però no se li roba la vista ni es
-                    // marca sobre una posició antiga; la fletxa endavant la
-                    // mostrarà i la marcarà quan hi arribi.
-                    updateGameMoveNavButtons();
-                    return;
-                }
-                resetGameMoveNav();
-                board.position(game.fen());
-                // La premove, si encara és legal després de la resposta, es
-                // juga al primer torn de l'esdeveniment i gairebé no gasta rellotge.
-                playPremoveIfQueued();
-                highlightEngineMove(fromSq, toSq);
-                // El primer moviment de l'enginy pot coincidir amb un resize
-                // pendent del tauler. Reapliquem la marca després del pintat
-                // perquè from/to i posició visible quedin sincronitzats.
-                setTimeout(reapplyEngineMoveHighlight, 0);
-                // El moviment ja s'ha aplicat al tauler; es difereix el final de
-                // partida perquè el navegador pinti el moviment (inclòs el mat)
-                // a l'instant en lloc d'esperar al processament pesat.
-                if (game.game_over()) {
-                    // Resultat a l'instant (qui guanya o taules) abans del
-                    // processament pesat: important en partides amb rellotge.
-                    showImmediateGameResult();
-                    scheduleGameOverAfterPaint(() => handleGameOver());
-                }
-            }, replyDelayMs);
+            scheduleEngineMoveApply(fromSq, toSq, promotion, replyDelayMs);
         }
     }
+}
+
+// Aplicació de la jugada del rival al tauler, diferida el temps de reflexió
+// simulat. La comparteixen la cerca normal (worker compartit) i el Rival
+// Antídot (worker propi), de manera que rellotge, marques, premove i final de
+// partida es comporten EXACTAMENT igual en tots dos casos.
+function scheduleEngineMoveApply(fromSq, toSq, promotion, replyDelayMs) {
+    engineMoveApplyPending = true;
+    engineMoveApplyTimeout = setTimeout(() => {
+        engineMoveApplyTimeout = null;
+        isEngineThinking = false;
+        engineMoveApplyPending = false;
+        engineReplyStartTs = null;
+        // Mai es juga pel color de l'usuari: un "bestmove" duplicat o
+        // antic no s'ha d'aplicar com si fos una jugada de l'enginy.
+        if (game.game_over() || game.turn() === playerColor) return;
+        const applied = game.move({ from: fromSq, to: toSq, promotion: promotion });
+        if (!applied) {
+            // Jugada il·legal a la posició actual (resposta antiga):
+            // no es repinta ni es marca res i es demana una jugada fresca,
+            // perquè la marca sempre correspongui a una jugada feta.
+            makeEngineMove();
+            return;
+        }
+        lastEngineMoveAppliedTs = nowMs();
+        clockOnMove();
+        updateStatus();
+        if (isViewingGameHistory() && !game.game_over()) {
+            // L'usuari repassa jugades amb les fletxes: la jugada queda
+            // aplicada a l'estat real però no se li roba la vista ni es
+            // marca sobre una posició antiga; la fletxa endavant la
+            // mostrarà i la marcarà quan hi arribi.
+            updateGameMoveNavButtons();
+            return;
+        }
+        resetGameMoveNav();
+        board.position(game.fen());
+        // La premove, si encara és legal després de la resposta, es
+        // juga al primer torn de l'esdeveniment i gairebé no gasta rellotge.
+        playPremoveIfQueued();
+        highlightEngineMove(fromSq, toSq);
+        // El primer moviment de l'enginy pot coincidir amb un resize
+        // pendent del tauler. Reapliquem la marca després del pintat
+        // perquè from/to i posició visible quedin sincronitzats.
+        setTimeout(reapplyEngineMoveHighlight, 0);
+        // El moviment ja s'ha aplicat al tauler; es difereix el final de
+        // partida perquè el navegador pinti el moviment (inclòs el mat)
+        // a l'instant en lloc d'esperar el processament pesat.
+        if (game.game_over()) {
+            // Resultat a l'instant (qui guanya o taules) abans del
+            // processament pesat: important en partides amb rellotge.
+            showImmediateGameResult();
+            scheduleGameOverAfterPaint(() => handleGameOver());
+        }
+    }, replyDelayMs);
 }
 
 function selectBundlePvLineForMove(bundleData, playedMove) {
@@ -26667,8 +27425,13 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 
 function returnToMainMenuImmediate() {
     stopGameClock();
-    $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#calibration-result-screen').hide(); $('#start-screen').show(); navStack = [];
+    $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#calibration-result-screen').hide(); $('#antidote-summary-modal').hide(); $('#start-screen').show(); navStack = [];
     if (stockfish) stockfish.postMessage('stop');
+    // El motor propi del Rival Antídot es tanca en sortir de la partida: cap
+    // cerca no ha de seguir viva en segon pla ni consumir memòria al menú.
+    antidoteSearchToken++;
+    if (antidoteState) antidoteState.searching = false;
+    releaseAntidoteEngine();
     clearTapSelection();
     // El repte «Rejugar +5%» mor en sortir de la partida.
     phaseReplayState = null;
@@ -27931,11 +28694,17 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // ELO ni ajusta la dificultat ni entra a l'historial (com el tauler d'anàlisi).
     // Així, guanyar (o perdre) contra tu mateix no infla ni desinfla el teu nivell.
     const isBessoMode = currentGameMode === 'besso';
+    // Rival Antídot: es juga i es revisa com una partida normal i entra a
+    // l'historial, però en aquesta primera versió NO puntua l'ELO principal ni
+    // el dels ritmes (el rival és Stockfish a força màxima triant jugades
+    // pedagògiques: el resultat no mesura la força del jugador). Sí que compta
+    // com a activitat d'entrenament, ratxes i missions.
+    const isAntidoteGameMode = currentGameMode === 'antidote';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
     // Partida amb rellotge (lliure/assistida): puntua a l'ELO del seu ritme i
     // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
     const isTimedRatedGame = !blunderMode && !calibrationGameWasActive && !isLeagueMode
-        && currentGameTimeControlId !== 'none';
+        && !isAntidoteGameMode && currentGameTimeControlId !== 'none';
     const adaptationPlayerEloBefore = userELO;
     const adaptationCurrentEloBefore = currentElo;
     const adaptationAdjustmentLogStart = adjustmentLog.length;
@@ -27999,13 +28768,15 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
         }
         timedCalibrationTcId = null;
-    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
+    } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode && !isAntidoteGameMode) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
     } else if (isPositionalGameMode) {
         msg += ' · Joc vista (sense ELO)';
     } else if (isBessoMode) {
         msg += ` · ${bessoState ? bessoState.label : 'El teu bessó'} (sense ELO)`;
+    } else if (isAntidoteGameMode) {
+        msg += ' · Rival Antídot (sense ELO)';
     }
 
     if (blunderMode && playerWon && currentBundleFen) {
@@ -28015,7 +28786,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         return;
     }
 
-    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
+    if (!isTimedRatedGame && !calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode && !isAntidoteGameMode) {
         userELO = Math.max(50, userELO + change);
         updateEloHistory(userELO);
         syncEngineEloFromUser();
@@ -28033,7 +28804,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
 
     // Les partides amb rellotge NO passen per l'ajust adaptatiu (continu ni
     // inicial): el seu nivell viu a l'ELO del ritme i s'ha actualitzat a dalt.
-    if (!blunderMode && !calibrationGameWasActive && !isTimedRatedGame) {
+    if (!blunderMode && !calibrationGameWasActive && !isTimedRatedGame && !isAntidoteGameMode) {
         if (shouldContinuousAdjust) {
             const adjustResult = registerFreeGameAdjustment(resultScore, finalPrecision, {
                 avgCpLoss: avgCpLoss,
@@ -28044,7 +28815,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             if (adjustResult && adjustResult.feedback) {
                 msg += ` · ${adjustResult.feedback}`;
             }
-        } else if (!isLeagueMode && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
+        } else if (!isLeagueMode && !isExplorerMode && !isPositionalGameMode && !isBessoMode && !isAntidoteGameMode) {
             adjustAIDifficulty(playerWon, finalPrecision, resultScore);
         }
     }
@@ -28053,7 +28824,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         applyLeagueAfterGame(leagueOutcome);
     }
     const reviewCounts = summarizeReview(currentReview);
-    if (!blunderMode && !isExplorerMode && !isPositionalGameMode && !isBessoMode) {
+    if (!blunderMode && !isExplorerMode && !isPositionalGameMode && !isBessoMode && !isAntidoteGameMode) {
         const adjustmentSummary = getLastAdjustmentSummary(adaptationAdjustmentLogStart);
         let appliedDelta = adjustmentSummary.appliedDelta;
         if (!appliedDelta) {
@@ -28104,6 +28875,9 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // El repte del bessó tampoc no s'hi desa: evita el bucle de retroalimentació
     // (el bessó aprèn de les teves partides REALS, no de les que hi jugues en contra).
     if (!isExplorerMode && !isBessoMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
+    // Rival Antídot: el progrés acumulat s'actualitza un cop desada la partida
+    // (les proves ja viatgen dins de l'entrada de l'historial).
+    if (isAntidoteGameMode) commitAntidoteProgress();
     severeErrors.forEach(err => {
         const theme = getTaskTheme(err.fen, err.bestMove || '', err.theme || 'general');
         updateThemeMastery(theme, 'real_game_error', { severity: err.severity || err.quality, source: 'last_game' });
@@ -28209,7 +28983,21 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             }
         });
     };
+    // Rival Antídot: resolució pròpia de la modalitat (proves superades,
+    // parcials i fallades + evolució del perfil) en comptes de la revisió
+    // estàndard. Si per qualsevol motiu no es pot pintar, cau a la revisió
+    // normal de sempre.
+    const antidoteEntry = isAntidoteGameMode ? gameHistory[gameHistory.length - 1] : null;
     const showFullReview = () => {
+        if (isAntidoteGameMode) {
+            hidePostGameStatusChip();
+            let shown = false;
+            try { shown = showAntidoteSummary(reviewHeader, finalPrecision, antidoteEntry); } catch (e) { shown = false; }
+            if (shown) {
+                persistPostGameAfterPaint('antidote-summary');
+                return;
+            }
+        }
         showPostGameReview(reviewHeader, finalPrecision, reviewCounts, onClose, {
             showCheckmate: showCheckmate,
             quickReveal: quickResolve,
@@ -31537,6 +32325,8 @@ $(document).ready(() => {
     applyPieceTheme(loadPieceTheme(), { skipSave: true });
     applyLuckyMode(loadLuckyMode(), { skipSave: true, skipRoll: true });
     applyReviewVoiceStyle(loadReviewVoiceStyle(), { skipSave: true });
+    loadAntidoteProgress();
+    loadAntidoteNoticesPreference();
     bundleAcceptMode = loadBundleAcceptMode();
     const bSel = document.getElementById('bundle-accept-select');
     if (bSel) bSel.value = bundleAcceptMode;
