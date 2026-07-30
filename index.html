@@ -387,11 +387,23 @@
         }
         .highlight-played,
         .highlight-played-to,
+        .square-55d63.square-error-played,
         .square-55d63.move-incorrect {
             border-radius: 10px;
             box-shadow: inset 0 0 0 4px #ff1744 !important;       /* marc vermell intens */
             background-color: rgba(110, 15, 15, 0.82) !important; /* fons vermell fosc */
         }
+        /* Jugada ACCEPTABLE però no la millor: mateixa forma, marc ambre. */
+        .square-55d63.move-good {
+            border-radius: 10px;
+            box-shadow: inset 0 0 0 4px #ffc107 !important;        /* marc ambre */
+            background-color: rgba(94, 68, 6, 0.82) !important;     /* fons ambre fosc */
+        }
+        /* La icona de resultat s'ancora a la casella marcada. */
+        .square-55d63.move-correct,
+        .square-55d63.move-good,
+        .square-55d63.move-incorrect,
+        .square-55d63.square-error-played { position: relative; }
         /* Casella compartida per la jugada errònia i la bona: mig i mig. */
         .highlight-overlap {
             border-radius: 10px;
@@ -659,20 +671,9 @@
         }
         body.epaper-mode .error-context-text strong { color: #222; }
 
-        /* Caselles de la jugada errònia marcades al tauler */
-        #myBoard .square-55d63.square-error-played {
-            box-shadow: inset 0 0 0 4px rgba(198, 40, 40, 0.75) !important;
-            background-color: rgba(198, 40, 40, 0.22) !important;
-        }
-        body.epaper-mode #myBoard .square-55d63.square-error-played {
-            box-shadow: inset 0 0 0 3px #5c5c5c !important;
-            background-color: #cfcfcf !important;
-        }
-        .error-move-cross {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            font-size: 1.7rem; font-weight: bold; color: #e53935;
-            text-shadow: 0 1px 3px rgba(0,0,0,0.6); z-index: 90; pointer-events: none;
-        }
+        /* La jugada errònia del repàs d'errades es marca com qualsevol altra
+           jugada errònia de l'app (bloc «MARCATGE UNIFICAT», més avall), amb la
+           icona ✗ compartida: .error-move-cross només serveix per treure-la. */
 
         /* TEMA TÀCTIC de l'exercici (tàctiques, repte diari) */
         #tactic-theme-banner {
@@ -2491,10 +2492,6 @@
         /* Feedback visual de moviments: move-correct/move-incorrect segueixen el
            MARCATGE UNIFICAT (bloc de dalt de tot) a tots els taulers. Aquí només
            queden les categories pròpies de les obertures: */
-        #opening-board .square-55d63.move-good {
-            box-shadow: inset 0 0 0 4px rgba(255, 193, 7, 0.8) !important;
-            background-color: rgba(255, 193, 7, 0.2) !important;
-        }
         #opening-board .square-55d63.move-rival {
             box-shadow: inset 0 0 0 4px rgba(33, 150, 243, 0.85) !important;
             background-color: rgba(33, 150, 243, 0.28) !important;
@@ -2519,7 +2516,9 @@
         body.epaper-mode #history-moves .hist-move.hist-move-active { background: #ddd; color: #111; box-shadow: 0 0 0 1px #666; }
 
         /* Icones de feedback sobre caselles */
-        .opening-move-icon {
+        /* Icona de resultat de la jugada (✓ / ~ / ✗). És la MATEIXA a tots els
+           taulers i modes: la posa showMoveFeedback() sobre la casella de destí. */
+        .move-icon {
             position: absolute;
             top: 50%;
             left: 50%;
@@ -2532,13 +2531,13 @@
             transition: transform 0.2s ease-out, opacity 0.3s;
             opacity: 0;
         }
-        .opening-move-icon.show {
+        .move-icon.show {
             transform: translate(-50%, -50%) scale(1);
             opacity: 1;
         }
-        .opening-move-icon-correct { color: #4CAF50; }
-        .opening-move-icon-good { color: #FFC107; }
-        .opening-move-icon-incorrect { color: #F44336; }
+        .move-icon-correct { color: #4CAF50; }
+        .move-icon-good { color: #FFC107; }
+        .move-icon-incorrect { color: #F44336; }
 
         /* Animació d'entrada per feedback */
         @keyframes move-feedback-pop {
@@ -2546,7 +2545,7 @@
             50% { transform: translate(-50%, -50%) scale(1.3); }
             100% { transform: translate(-50%, -50%) scale(1); }
         }
-        .opening-move-icon.show {
+        .move-icon.show {
             animation: move-feedback-pop 0.3s ease-out forwards;
         }
 
@@ -4302,15 +4301,18 @@
         body.control-drag #myBoard { touch-action: none; }
         #myBoard, #myBoard * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
 
-        /* Tap-to-move feedback */
+        /* ============================================================
+           TAP-TO-MOVE — MARCATGE ÚNIC PER A TOTA L'APP
+           La peça seleccionada duu el contorn daurat i cada destinació legal,
+           un cercle buit. Les regles NO van per tauler ni per mode: qualsevol
+           tauler que marqui .tap-selected/.tap-move (partida, obertures,
+           jeroglífics, explorador, TV i partides col·lectives) es veu
+           exactament igual.
+           ============================================================ */
         .board-container { width: 100%; }
         .square-55d63.tap-selected { outline: 3px solid rgba(201, 162, 39, 0.95); outline-offset: -3px; }
-        #myBoard .square-55d63.tap-move,
-        #opening-board .square-55d63.tap-move,
-        #explorer-board .square-55d63.tap-move { position: relative; }
-        #myBoard .square-55d63.tap-move::after,
-        #opening-board .square-55d63.tap-move::after,
-        #explorer-board .square-55d63.tap-move::after {
+        .square-55d63.tap-move { position: relative; }
+        .square-55d63.tap-move::after {
             content: '';
             position: absolute;
             top: 50%;
@@ -4321,16 +4323,11 @@
             border-radius: 50%;
             transform: translate(-50%, -50%);
             pointer-events: none;
+            background: transparent;
             z-index: 3;
         }
-        #myBoard .square-55d63.black-3c85d.tap-move::after,
-        #opening-board .square-55d63.black-3c85d.tap-move::after,
-        #explorer-board .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
-        body.opening-mode-hieroglyphic #opening-board .square-55d63.tap-move::after { border-color: rgba(139, 95, 199, 0.95); background: rgba(139, 95, 199, 0.14); }
-        body.opening-mode-hieroglyphic #opening-board .square-55d63.black-3c85d.tap-move::after { border-color: rgba(244, 228, 188, 0.95); background: rgba(139, 95, 199, 0.22); }
-        body.epaper-mode #myBoard .square-55d63.black-3c85d.tap-move::after,
-        body.epaper-mode #opening-board .square-55d63.black-3c85d.tap-move::after,
-        body.epaper-mode #explorer-board .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
+        .square-55d63.black-3c85d.tap-move::after { border-color: #f0d9b5; }
+        body.epaper-mode .square-55d63.black-3c85d.tap-move::after { border-color: #f2f2f2; }
         /* Requadre de jugada (el mateix que marca els moviments de l'enginy en una
            partida): també per a la jugada revisada a les partides col·lectives
            (vots i transcripció) i als reproductors dels historials. */
@@ -6485,17 +6482,10 @@
             #catalans-phase { font-weight:700; }
             #catalans-countdown { font-size:0.85rem; color: var(--text-secondary); }
             #catalans-board { max-width: 440px; margin: 8px auto; width: 100%; }
-            /* Visualització de moviments idèntica a les partides generals: peça
-               seleccionada amb contorn daurat i cercles buits a les destinacions. */
-            #catalans-board .square-55d63.cat-selected { outline: 3px solid rgba(201,162,39,0.95); outline-offset: -3px; }
-            #catalans-board .square-55d63.cat-target::after {
-                content:''; position:absolute; top:50%; left:50%; width:36%; height:36%;
-                border:5px solid #111; border-radius:50%; transform:translate(-50%,-50%);
-                pointer-events:none; z-index:3; background:transparent;
-            }
-            #catalans-board .square-55d63.black-3c85d.cat-target::after { border-color:#f0d9b5; }
-            body.epaper-mode #catalans-board .square-55d63.cat-target::after { border-color:#111; }
-            body.epaper-mode #catalans-board .square-55d63.black-3c85d.cat-target::after { border-color:#f2f2f2; }
+            /* La selecció i les destinacions es marquen amb les classes
+               compartides (.tap-selected/.tap-move) del bloc principal: aquí no
+               cal cap estil propi, i així no es pot desincronitzar mai de la
+               resta de taulers. */
             #catalans-board .square-55d63.cat-myvote { box-shadow: inset 0 0 0 4px rgba(46,160,67,0.85); }
             /* .cat-preview-from/.cat-preview-to: requadre compartit amb .engine-move
                (definit al bloc d'estils principal, perquè es vegi IGUAL que la marca
@@ -6996,7 +6986,7 @@
     <script src="core.js?v=1.0.17"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
-    <script src="catalans.js?v=1.2.5"></script>
+    <script src="catalans.js?v=1.2.6"></script>
     <script>
         window.APP_VERSION = '1.0.31';
         (function () {
@@ -7004,7 +6994,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.64"></script>
+    <script src="app.js?v=1.0.65"></script>
 
     <!-- Service Worker Registration -->
     <script>

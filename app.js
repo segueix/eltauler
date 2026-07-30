@@ -2619,6 +2619,9 @@ function highlightTvTapSelection(square) {
     if (!square) return;
     const sel = $(`#tv-board .square-55d63[data-square='${square}']`);
     sel.addClass('tap-selected');
+    // Cercles a les destinacions legals, com a la resta de taulers de l'app.
+    const moves = (tvReplay && tvReplay.game) ? tvReplay.game.moves({ square: square, verbose: true }) : [];
+    moves.forEach(mv => $(`#tv-board .square-55d63[data-square='${mv.to}']`).addClass('tap-move'));
 }
 
 /* Selector de peça per a la promoció de peons de l'usuari */
@@ -3345,7 +3348,7 @@ function showOpeningLessonCorrectMark(square, fromSquare) {
     squareEl.addClass('move-correct');
     // També l'origen de la jugada, amb el mateix marcatge unificat.
     if (fromSquare) $(`#opening-board .square-55d63[data-square='${fromSquare}']`).addClass('move-correct');
-    const iconEl = $('<div class="opening-move-icon opening-move-icon-correct">✓</div>');
+    const iconEl = $('<div class="move-icon move-icon-correct">✓</div>');
     squareEl.append(iconEl);
     setTimeout(() => iconEl.addClass('show'), 10);
 }
@@ -3708,60 +3711,52 @@ function handleOpeningUserMove(movePlayed, from, to, needsOpponentMove) {
     }
 }
 
-// Mostra feedback visual sobre el tauler. Es marquen LES DUES caselles de la
-// jugada (origen i destinació) amb el marcatge unificat; la icona va al destí.
-function showOpeningMoveVisualFeedback(from, to, quality) {
-    // Netejar feedback anterior
-    clearOpeningMoveVisualFeedback();
+// ── Jugada CORRECTA / ERÒNIA: marcatge Únic per a tota l'app ───────────
+// Mateixes classes, mateixa icona i mateixa durada a TOTS els taulers i modes
+// (partida, exercicis i jeroglífics del tauler principal, obertures, jeroglífics
+// d'obertura i jeroglífics de la TV): es marquen les DUES caselles de la jugada
+// —origen i destinació— i una icona breu al destí.
+const MOVE_FEEDBACK_MS = 1600;
+const MOVE_FEEDBACK_CLASSES = { correct: 'move-correct', good: 'move-good', incorrect: 'move-incorrect' };
+const MOVE_FEEDBACK_ICONS = { correct: '✓', good: '~', incorrect: '✗' };
 
-    const toSquare = $(`#opening-board .square-55d63[data-square='${to}']`);
-    if (!toSquare.length) return;
-    const fromSquare = $(`#opening-board .square-55d63[data-square='${from}']`);
-    const both = toSquare.add(fromSquare);
-
-    // Afegir classe segons qualitat
-    if (quality === 'correct') {
-        both.addClass('move-correct');
-        showOpeningMoveIcon(to, '✓', 'correct');
-    } else if (quality === 'good') {
-        both.addClass('move-good');
-        showOpeningMoveIcon(to, '~', 'good');
-    } else if (quality === 'incorrect') {
-        both.addClass('move-incorrect');
-        showOpeningMoveIcon(to, '✗', 'incorrect');
-    }
-
-    // Eliminar feedback després d'un temps
-    setTimeout(() => {
-        both.removeClass('move-correct move-good move-incorrect');
-    }, 2000);
+// Casella per classe lògica (.square-e4): no depèn de l'orientació del tauler.
+function feedbackSquare(boardId, square) {
+    return square ? $(`#${boardId} .square-${square}`) : $();
 }
 
-// Mostra una icona sobre la casella
-function showOpeningMoveIcon(square, icon, type) {
-    // Eliminar icones anteriors
-    $('.opening-move-icon').remove();
+function clearMoveFeedback(boardId) {
+    $(`#${boardId} .square-55d63`).removeClass('move-correct move-good move-incorrect');
+    $(`#${boardId} .move-icon`).remove();
+}
 
-    const squareEl = $(`#opening-board .square-55d63[data-square='${square}']`);
-    if (!squareEl.length) return;
-
-    const iconEl = $(`<div class="opening-move-icon opening-move-icon-${type}">${icon}</div>`);
-    squareEl.append(iconEl);
-
-    // Animació d'entrada
+function showMoveFeedback(boardId, from, to, quality) {
+    clearMoveFeedback(boardId);
+    const cls = MOVE_FEEDBACK_CLASSES[quality];
+    if (!cls) return;
+    const toSquare = feedbackSquare(boardId, to);
+    if (!toSquare.length) return;
+    const both = toSquare.add(feedbackSquare(boardId, from));
+    both.addClass(cls);
+    const iconEl = $(`<div class="move-icon move-icon-${quality}">${MOVE_FEEDBACK_ICONS[quality]}</div>`);
+    toSquare.append(iconEl);
     setTimeout(() => iconEl.addClass('show'), 10);
-
-    // Eliminar després d'un temps
     setTimeout(() => {
+        both.removeClass(cls);
         iconEl.removeClass('show');
         setTimeout(() => iconEl.remove(), 300);
-    }, 1500);
+    }, MOVE_FEEDBACK_MS);
+}
+
+// Embolcalls per tauler (els mateixos noms de sempre, un sol comportament).
+function showOpeningMoveVisualFeedback(from, to, quality) {
+    showMoveFeedback('opening-board', from, to, quality);
 }
 
 // Neteja el feedback visual
 function clearOpeningMoveVisualFeedback() {
-    $('#opening-board .square-55d63').removeClass('move-correct move-good move-incorrect move-rival');
-    $('.opening-move-icon').remove();
+    clearMoveFeedback('opening-board');
+    $('#opening-board .square-55d63').removeClass('move-rival');
 }
 
 // Marca la jugada de resposta del rival (enginy) perquè es vegi clarament
@@ -3810,25 +3805,12 @@ function reapplyOpeningEngineMoveHighlight() {
     [h.from, h.to].forEach(sq => getOpeningBoardSquare(sq).addClass('engine-move'));
 }
 
-// Marca LES DUES caselles de la jugada (origen i destinació) amb el marcatge
-// unificat de correcta/errònia.
 function showMainMoveVisualFeedback(to, quality, from) {
-    clearMainMoveVisualFeedback();
-    const toSquare = $(`#myBoard .square-55d63[data-square='${to}']`);
-    if (!toSquare.length) return;
-    const both = toSquare.add(from ? $(`#myBoard .square-55d63[data-square='${from}']`) : $());
-    if (quality === 'correct') {
-        both.addClass('move-correct');
-    } else if (quality === 'incorrect') {
-        both.addClass('move-incorrect');
-    }
-    setTimeout(() => {
-        both.removeClass('move-correct move-incorrect');
-    }, 1200);
+    showMoveFeedback('myBoard', from, to, quality);
 }
 
 function clearMainMoveVisualFeedback() {
-    $('#myBoard .square-55d63').removeClass('move-correct move-incorrect');
+    clearMoveFeedback('myBoard');
 }
 
 function analyzeOpeningMoveQuality(fenBefore, movePlayed, fenAfter) {
@@ -14323,6 +14305,7 @@ function tvOnDrop(source, target) {
     const ok = accepted.length > 0 && accepted.some(candidate => (
         candidate === uci || candidate === uciBase || candidate.startsWith(uciBase)
     ));
+    showMoveFeedback('tv-board', move.from, move.to, ok ? 'correct' : 'incorrect');
     if (ok) {
         setTvStatus('Correcte! Pots continuar la partida.');
         tvJeroglyphicsSolved = true;
@@ -30971,7 +30954,10 @@ function highlightErrorMove() {
     const toSquare = $(`#myBoard .square-${currentErrorContext.to}`);
     toSquare.addClass('square-error-played');
     if (toSquare.length && !toSquare.find('.error-move-cross').length) {
-        toSquare.css('position', 'relative').append('<div class="error-move-cross">✗</div>');
+        // Mateixa icona ✗ que la resta de jugades errònies de l'app.
+        const cross = $('<div class="move-icon move-icon-incorrect error-move-cross">✗</div>');
+        toSquare.append(cross);
+        setTimeout(() => cross.addClass('show'), 10);
     }
 }
 
