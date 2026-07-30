@@ -15251,6 +15251,15 @@ function setOpeningScreenMode(mode = 'overview') {
     $('#opening-practice-section .opening-section-desc').text(practiceDesc);
     $('#opening-practice-section .opening-mode-row').toggle(!isHieroglyphicMode);
     $('#opening-precision-panel').toggle(!isHieroglyphicMode);
+    // Al jeroglífic d'obertura hi havia dos botons de casa (el petit d'aquesta
+    // fila i el gran del final de la secció): el petit passa a ser el botó de
+    // fer-ne un altre, que és el que es vol allà.
+    $('#btn-opening-hiero-next').toggle(isOpeningHiero);
+    $('#btn-opening-bundle-menu').toggle(!isOpeningHiero);
+    // La pista només desapareix amb l'exercici resolt; qualsevol canvi de mode
+    // la torna a deixar disponible.
+    $('#btn-opening-bundle-hint').show();
+    document.body.classList.remove('opening-hiero-solved');
     const sections = {
         // El bàner «La teva obertura» encapçala la pantalla: segueix els
         // mateixos blocs, i desapareix quan es resol un exercici concret.
@@ -20133,6 +20142,9 @@ function openingHieroglyphicPieceLabel(piece) {
 
 // Enigma de base del pas actual (es manté estable mentre no es canvia de pas).
 let openingHieroglyphicBaseClue = { key: null, text: '' };
+// Hi ha la targeta d'un jeroglífic d'obertura resolt a la nota? Mentre hi sigui,
+// la pràctica normal no l'ha de sobreescriure.
+let openingHieroglyphicSolvedCard = false;
 
 // Pista d'un pas concret de l'exercici. Nivell 1: enigma pur. Nivell 2: afegeix
 // la família de peça i la zona. Nivell 3: hi suma el pla en text pla i, si
@@ -20284,6 +20296,7 @@ function startOpeningTheoryHieroglyphic() {
     openingCurrentSequence = puzzle.setupSan.slice();
 
     currentOpeningHieroglyphic = puzzle;
+    openingHieroglyphicSolvedCard = false;
     hieroglyphicSource = 'opening';
     hieroglyphicOpening = { name: puzzle.name, eco: puzzle.eco, idea: puzzle.idea };
     hieroglyphicSolutionUci = puzzle.solutionMoves.slice();
@@ -20315,6 +20328,11 @@ function completeOpeningTheoryHieroglyphic() {
     updateOpeningMaximButton();
     if (openingBundleBoard && hieroglyphicGame) openingBundleBoard.position(hieroglyphicGame.fen());
     clearOpeningHintHighlight();
+    // Resolt: la pista ja no té sentit i el que queda a mà és fer-ne un altre,
+    // tant a la fila d'accions com al peu de la targeta.
+    $('#btn-opening-bundle-hint').hide();
+    $('#btn-opening-hiero-next').show();
+    document.body.classList.add('opening-hiero-solved');
     const noteEl = document.getElementById('opening-practice-note');
     if (noteEl && puzzle) {
         const line = puzzle.solutionSan.map((san, i) => {
@@ -20330,6 +20348,7 @@ function completeOpeningTheoryHieroglyphic() {
             <button class="btn btn-primary" onclick="startOpeningTheoryHieroglyphic()" style="margin-top:10px;">Un altre jeroglífic d’obertura</button>
         </div>`;
     }
+    openingHieroglyphicSolvedCard = true;
     showToast('Jeroglífic d’obertura resolt ✅', 'success');
 }
 if (typeof window !== 'undefined') window.startOpeningTheoryHieroglyphic = startOpeningTheoryHieroglyphic;
@@ -20612,8 +20631,11 @@ function initOpeningBundleBoard() {
 function updateOpeningPracticeStatus() {
     const noteEl = document.getElementById('opening-practice-note');
     if (!noteEl) return;
-    // Aquests modes gestionen la nota pel seu compte
+    // Aquests modes gestionen la nota pel seu compte. El jeroglífic d'obertura
+    // també quan ja està resolt: la targeta amb la línia i el botó de fer-ne un
+    // altre no s'ha de perdre mentre es queda a la vista.
     if (openingLessonActive || hieroglyphicExerciseActive || openingErrorPracticeActive) return;
+    if (openingHieroglyphicSolvedCard) return;
     const remaining = Math.max(OPENING_PRACTICE_MAX_PLIES - openingPracticeMoveCount, 0);
     if (!openingPracticeGame) {
         noteEl.textContent = '—';
@@ -20890,6 +20912,7 @@ function resetOpeningPracticeBoard() {
     openingPracticeMoveCount = 0;
     openingPracticeEngineThinking = false;
     hieroglyphicExerciseActive = false;
+    openingHieroglyphicSolvedCard = false;
     openingMaximPending = false;
     openingMaximRequestCounter++;
     updateOpeningMaximButton();
@@ -21227,6 +21250,8 @@ function setupEvents() {
         initOpeningBundleBoard();
         startOpeningTheoryHieroglyphic();
     });
+    // Botó de la fila d'accions: en fa un altre sense sortir de l'exercici.
+    $('#btn-opening-hiero-next').click(() => startOpeningTheoryHieroglyphic());
     const exitOpeningScreenToMenu = () => {
         $('#opening-screen').hide();
         $('#start-screen').show();

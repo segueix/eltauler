@@ -1558,6 +1558,9 @@
             border: 1px solid rgba(180, 140, 220, 0.25);
         }
         .btn-hieroglyphic:hover { opacity: 0.9; }
+        /* Jeroglífic d'obertura resolt: la pista desapareix i el botó de fer-ne
+           un altre es queda sol a la fila, així que ocupa tota l'amplada. */
+        body.opening-hiero-solved #btn-opening-hiero-next { grid-column: 1 / -1; }
         .hieroglyphic-clue {
             border-left: 3px solid #8b5fc7;
         }
@@ -6161,6 +6164,9 @@
                         <span>Màxima</span>
                     </button>
                     <button class="btn btn-primary" id="btn-opening-bundle-resign">Rendir-se</button>
+                    <!-- Al jeroglífic d'obertura, aquest botó substitueix el de casa
+                         petit: allà baix ja hi ha el botó-casa de la secció. -->
+                    <button class="btn btn-hieroglyphic" id="btn-opening-hiero-next" style="display:none;" title="Fes un altre jeroglífic d'obertura"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Un altre jeroglífic</button>
                     <button class="btn btn-nav-home" id="btn-opening-bundle-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
@@ -6952,7 +6958,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.60"></script>
+    <script src="app.js?v=1.0.61"></script>
 
     <!-- Service Worker Registration -->
     <script>
