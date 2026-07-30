@@ -185,6 +185,27 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   cada obertura ha de donar almenys un exercici i tota la línia ha de ser legal
   des de la FEN de partida.
 
+- **`openingbranches.test.js`** — les BRANQUES de cada obertura
+  (`openingBranchAnchorPlies`, `buildOpeningBranchIndex`,
+  `pickOpeningBranchSlot`, `buildOpeningHieroglyphicFromSlot`). El repertori
+  catalogat té una sola línia per obertura i dona un centenar d'exercicis;
+  enganxant-hi les línies de la base ECO que l'app ja carrega (`obertures.js`)
+  se'n passa de 98 a 892. Es prova l'**àncora** —el prefix més curt que
+  distingeix una obertura de les altres del repertori, perquè una línia italiana
+  no acabi comptant com a branca de l'espanyola encara que comparteixin les dues
+  primeres jugades—, que la regla **una posició, una resposta** es respecti (si
+  la teoria hi ofereix més d'una jugada mana la que avalen més línies: l'exercici
+  només en pot acceptar una), que les frases pedagògiques del repertori no
+  viatgin a una branca a partir del punt on ja no la segueix, i que el nom de
+  variant que es mostra sigui el de la **posició de partida** i no el del final
+  de la línia (dir «Exchange Variation» abans de temps és delatar que la solució
+  és una captura). Sense base ECO, l'índex encara dona les línies catalogades.
+  Les proves de fons van contra les dades REALS (49 obertures × 3.626 línies
+  ECO): cap obertura sense branques, cap posició de partida repetida, muntar
+  l'índex ha de ser feina de text (per sota d'un segle de mil·lisegons, no els
+  minuts que costaria construir tots els exercicis amb chess.js) i una mostra
+  ampla de branques ha de donar exercicis legals de cap a peus.
+
 - **`historygroups.test.js`** — grups desplegables de l'historial
   (`historyAgeGroup`, `groupHistoryEntriesByAge`, `historyGroupsOpenState`): que
   els grups es comptin per dies de **calendari** i no per finestres de 24 hores

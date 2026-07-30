@@ -438,9 +438,12 @@
         return (Math.max(1, moveNumber) - 1) * 2 + (color === 'b' ? 1 : 0);
     }
 
-    // Identificador estable d'un exercici (per no repetir-lo tot seguit).
+    // Identificador estable d'un exercici (per no repetir-lo tot seguit). Les
+    // branques porten el seu propi identificador: dues branques de la mateixa
+    // obertura comparteixen ECO i nom, i només la línia les distingeix.
     function openingHieroglyphicKey(opening, startMoveNumber) {
         if (!opening) return '';
+        if (opening.lineKey) return opening.lineKey;
         return `${opening.eco || '?'}|${opening.name || '?'}|${startMoveNumber}`;
     }
 
@@ -469,6 +472,218 @@
         if (move.piece === 'q') return 'queen_move';
         if (move.piece === 'r') return 'rook_file';
         return 'development';
+    }
+
+    // ----------------------------------------------------------------------
+    // BRANQUES: molts més jeroglífics amb el mateix repertori
+    // ----------------------------------------------------------------------
+    // El repertori catalogat té UNA línia per obertura, i d'aquí en surten un
+    // parell d'exercicis escassos. Però l'app ja carrega la base ECO sencera
+    // (obertures.js), que és precisament el mapa de les BRANQUES de cada
+    // obertura: les rèpliques alternatives del rival i les continuacions més
+    // enllà d'on arriba la línia catalogada. Enganxant-les al repertori, cada
+    // obertura passa de dos exercicis a desenes, sense escriure cap dada nova.
+    //
+    // Tot això treballa amb TEXT (SAN), mai amb chess.js: construir tots els
+    // exercicis amb el tauler costa un minut llarg, i muntar l'índex de text en
+    // costa mil·lisegons. Només l'exercici TRIAT es construeix de debò.
+
+    const OPENING_BRANCH_CONFIG = {
+        minAnchorPlies: 4,                     // mínim per identificar l'obertura
+        startMoveNumbers: [3, 4, 5, 6, 7, 8],  // moviments on pot arrencar l'exercici
+        minSteps: 2                            // un exercici d'una sola jugada és massa prim
+    };
+
+    // L'ÀNCORA d'una obertura: el prefix més curt que la distingeix de la resta
+    // del repertori. L'Espanyola i la Italiana comparteixen 1.e4 e5 2.Nf3 Nc6, i
+    // fins al cinquè o sisè ply no se sap de quina obertura es parla; una branca
+    // només és seva si repeteix aquest prefix.
+    function openingBranchAnchorPlies(opening, allOpenings, minPlies) {
+        const moves = (opening && Array.isArray(opening.moves)) ? opening.moves : [];
+        if (!moves.length) return 0;
+        const min = Math.max(1, minPlies || OPENING_BRANCH_CONFIG.minAnchorPlies);
+        const others = (allOpenings || []).filter(o => o && o !== opening && Array.isArray(o.moves));
+        for (let k = Math.min(min, moves.length); k <= moves.length; k++) {
+            const prefix = moves.slice(0, k).join(' ');
+            if (!others.some(o => o.moves.slice(0, k).join(' ') === prefix)) return k;
+        }
+        return moves.length;
+    }
+
+    // Índex de branques: per cada obertura del repertori, totes les línies ECO
+    // que en pengen, retallades a exercicis. `ecoLines` accepta tant
+    // {eco, name, moves:[SAN]} com {eco, name, pgn}.
+    //
+    // Regla de fons: UNA POSICIÓ, UNA RESPOSTA. L'exercici demana una jugada
+    // concreta, i si dues branques discrepen sobre què s'hi juga, mana la que
+    // avalen més línies ECO (la principal). Sense això, l'usuari podria trobar
+    // una jugada de la teoria i que li digués que no.
+    function buildOpeningBranchIndex(curatedOpenings, ecoLines, options) {
+        const opts = options || {};
+        const curated = (Array.isArray(curatedOpenings) ? curatedOpenings : [])
+            .filter(o => o && Array.isArray(o.moves) && o.moves.length);
+        const byKey = new Map();
+        if (!curated.length) return { slots: [], byKey };
+
+        const parse = typeof opts.parsePgn === 'function' ? opts.parsePgn : parsePgnToMoves;
+        const lines = (Array.isArray(ecoLines) ? ecoLines : [])
+            .map(l => ({
+                eco: l && l.eco ? l.eco : null,
+                name: l && l.name ? l.name : null,
+                moves: (l && Array.isArray(l.moves)) ? l.moves : parse(l && l.pgn)
+            }))
+            .filter(l => l.moves.length);
+
+        // Nom de cada posició teòrica: la línia ECO que hi arriba exactament.
+        // Serveix per titular l'exercici amb la variant real (no amb el nom
+        // genèric de l'obertura mare).
+        const nameByLine = new Map();
+        lines.forEach(l => {
+            const k = l.moves.join(' ');
+            if (!nameByLine.has(k)) nameByLine.set(k, l);
+        });
+
+        const starts = opts.startMoveNumbers || OPENING_BRANCH_CONFIG.startMoveNumbers;
+        const maxSteps = opts.maxSteps || OPENING_HIERO_CONFIG.maxSteps;
+        const minSteps = opts.minSteps || OPENING_BRANCH_CONFIG.minSteps;
+
+        curated.forEach((op, parentIndex) => {
+            const anchor = openingBranchAnchorPlies(op, curated, opts.minAnchorPlies);
+            const prefix = op.moves.slice(0, anchor).join(' ');
+            const userColor = op.userColor === 'b' ? 'b' : 'w';
+            // La línia del repertori és una branca més: la principal.
+            const pool = lines.filter(l => l.moves.slice(0, anchor).join(' ') === prefix);
+            pool.push({ eco: op.eco || null, name: op.name || null, moves: op.moves, main: true });
+
+            starts.forEach(startMoveNumber => {
+                const startPly = openingHieroglyphicStartPly(startMoveNumber, userColor);
+                // Per fer `minSteps` passos calen les jugades de l'usuari i les
+                // rèpliques que hi van entremig.
+                const needed = startPly + (minSteps - 1) * 2 + 1;
+                const groups = new Map();
+                pool.forEach(l => {
+                    if (l.moves.length < needed) return;
+                    const setup = l.moves.slice(0, startPly).join(' ');
+                    const g = groups.get(setup);
+                    if (g) g.push(l); else groups.set(setup, [l]);
+                });
+
+                groups.forEach((group, setup) => {
+                    const key = `br|${setup}`;
+                    // La mateixa posició per transposició des d'una altra
+                    // obertura: ja té exercici, i un de sol n'hi ha prou.
+                    if (byKey.has(key)) return;
+
+                    const support = new Map();
+                    group.forEach(l => {
+                        const mv = l.moves[startPly];
+                        support.set(mv, (support.get(mv) || 0) + 1);
+                    });
+                    let bestMove = null;
+                    let bestSupport = 0;
+                    support.forEach((n, mv) => { if (n > bestSupport) { bestSupport = n; bestMove = mv; } });
+
+                    // Entre les línies que juguen la jugada principal, la més
+                    // llarga dona l'exercici més ric; la del repertori mana en
+                    // cas d'empat (és la que porta les frases pedagògiques).
+                    const withBest = group.filter(l => l.moves[startPly] === bestMove);
+                    withBest.sort((a, b) => (b.main ? 1 : 0) - (a.main ? 1 : 0) || b.moves.length - a.moves.length);
+                    const chosen = withBest[0];
+                    const moves = chosen.moves.slice(0, Math.min(chosen.moves.length, startPly + maxSteps * 2 - 1));
+
+                    // Variant concreta: «Catalana» és el gènere, «Catalan
+                    // Opening: Closed» és de què va AQUEST exercici. La que es
+                    // pot ensenyar és la de la posició de partida, i mai una
+                    // d'abans de l'àncora: allà la posició encara no ha
+                    // declarat de quina obertura és, i dir-ne «Indian Defense»
+                    // sota el títol «Obertura Catalana» només confondria.
+                    let named = null;
+                    for (let n = startPly; n >= anchor; n--) {
+                        const hit = nameByLine.get(moves.slice(0, n).join(' '));
+                        if (hit) { named = hit; break; }
+                    }
+                    // La del final de la línia sovint porta el nom de la jugada
+                    // que s'ha de trobar («Exchange Variation» ja diu que la
+                    // solució és una captura): es guarda per revelar-la NOMÉS
+                    // quan l'exercici estigui resolt.
+                    let solvedName = null;
+                    for (let n = moves.length; n > Math.max(startPly, anchor - 1); n--) {
+                        const hit = nameByLine.get(moves.slice(0, n).join(' '));
+                        if (hit) { solvedName = hit; break; }
+                    }
+
+                    // Les frases del repertori estan lligades al ply de la seva
+                    // línia: només valen mentre la branca hi coincideixi.
+                    let movePhrases = null;
+                    if (Array.isArray(op.movePhrases)) {
+                        let common = 0;
+                        while (common < moves.length && moves[common] === op.moves[common]) common++;
+                        movePhrases = op.movePhrases.slice(0, common);
+                    }
+
+                    byKey.set(key, {
+                        key,
+                        parentIndex,
+                        parentName: op.name || null,
+                        parentEco: op.eco || null,
+                        eco: (named && named.eco) || op.eco || chosen.eco || null,
+                        name: op.name || (named && named.name) || 'Obertura',
+                        variation: (named && named.name && named.name !== op.name) ? named.name : null,
+                        solvedVariation: (solvedName && solvedName.name && solvedName.name !== (named && named.name)) ? solvedName.name : null,
+                        solvedEco: (solvedName && solvedName.eco) || null,
+                        idea: op.idea || null,
+                        userColor,
+                        startMoveNumber,
+                        moves,
+                        movePhrases,
+                        support: bestSupport,
+                        alternatives: support.size,
+                        main: !!chosen.main
+                    });
+                });
+            });
+        });
+
+        return { slots: Array.from(byKey.values()), byKey };
+    }
+
+    // Tria una branca de l'índex: evita les últimes vistes i, si pot, canvia
+    // d'obertura respecte de l'exercici anterior (dues branques seguides de la
+    // mateixa obertura fan sensació de no avançar).
+    function pickOpeningBranchSlot(index, options) {
+        const opts = options || {};
+        const slots = (index && Array.isArray(index.slots)) ? index.slots : [];
+        if (!slots.length) return null;
+        const rng = typeof opts.rng === 'function' ? opts.rng : Math.random;
+
+        let pool = slots;
+        if (opts.userColor) {
+            const byColor = pool.filter(s => s.userColor === opts.userColor);
+            if (byColor.length) pool = byColor;
+        }
+        if (Array.isArray(opts.startMoveNumbers) && opts.startMoveNumbers.length) {
+            const allow = new Set(opts.startMoveNumbers);
+            const narrowed = pool.filter(s => allow.has(s.startMoveNumber));
+            if (narrowed.length) pool = narrowed;
+        }
+
+        const recentKeys = opts.recentKeys || [];
+        const recent = new Set(recentKeys);
+        const fresh = pool.filter(s => !recent.has(s.key));
+        let finalPool = fresh.length ? fresh : pool;
+
+        const recentParents = new Set();
+        recentKeys.forEach(k => {
+            const s = (index && index.byKey) ? index.byKey.get(k) : null;
+            if (s) recentParents.add(s.parentIndex);
+        });
+        if (recentParents.size) {
+            const varied = finalPool.filter(s => !recentParents.has(s.parentIndex));
+            if (varied.length) finalPool = varied;
+        }
+
+        const idx = Math.floor(rng() * finalPool.length) % finalPool.length;
+        return finalPool[Math.max(0, idx)] || finalPool[0];
     }
 
     function createOpeningHieroglyphicHelpers(ChessCtor) {
@@ -601,7 +816,57 @@
             return finalPool[Math.max(0, idx)] || finalPool[0];
         }
 
-        return { buildOpeningHieroglyphic, openingHieroglyphicCandidates, pickOpeningHieroglyphic };
+        // Converteix una branca de l'índex en exercici de debò. Retorna null si
+        // la línia no és legal o si queda massa curta: qui truca ha de poder
+        // provar-ne una altra en comptes de deixar l'usuari sense exercici.
+        function buildOpeningHieroglyphicFromSlot(slot, options) {
+            if (!slot || !Array.isArray(slot.moves) || !slot.moves.length) return null;
+            const opts = options || {};
+            const puzzle = buildOpeningHieroglyphic({
+                eco: slot.eco,
+                name: slot.name,
+                idea: slot.idea,
+                userColor: slot.userColor,
+                moves: slot.moves,
+                movePhrases: slot.movePhrases,
+                lineKey: slot.key
+            }, { startMoveNumber: slot.startMoveNumber, maxSteps: opts.maxSteps });
+            if (!puzzle) return null;
+            const minSteps = opts.minSteps || OPENING_BRANCH_CONFIG.minSteps;
+            if (puzzle.solutionMoves.length < minSteps) return null;
+            puzzle.variation = slot.variation || null;
+            puzzle.solvedVariation = slot.solvedVariation || null;
+            puzzle.solvedEco = slot.solvedEco || null;
+            puzzle.parentName = slot.parentName || null;
+            puzzle.isBranch = !slot.main;
+            puzzle.support = slot.support || 0;
+            return puzzle;
+        }
+
+        // Tria una branca i la construeix. Si la línia triada resultés il·legal
+        // (dada dolenta a la base ECO), en prova una altra.
+        function pickOpeningBranchHieroglyphic(index, options) {
+            const opts = options || {};
+            const recentKeys = (opts.recentKeys || []).slice();
+            const tried = [];
+            for (let attempt = 0; attempt < 8; attempt++) {
+                const pickOpts = Object.assign({}, opts, { recentKeys: recentKeys.concat(tried) });
+                const slot = pickOpeningBranchSlot(index, pickOpts);
+                if (!slot || tried.indexOf(slot.key) !== -1) break;
+                tried.push(slot.key);
+                const puzzle = buildOpeningHieroglyphicFromSlot(slot, opts);
+                if (puzzle) return puzzle;
+            }
+            return null;
+        }
+
+        return {
+            buildOpeningHieroglyphic,
+            openingHieroglyphicCandidates,
+            pickOpeningHieroglyphic,
+            buildOpeningHieroglyphicFromSlot,
+            pickOpeningBranchHieroglyphic
+        };
     }
 
     // ----------------------------------------------------------------------
@@ -4402,6 +4667,10 @@
         openingHieroglyphicKey,
         classifyOpeningTheoryMove,
         createOpeningHieroglyphicHelpers,
+        OPENING_BRANCH_CONFIG,
+        openingBranchAnchorPlies,
+        buildOpeningBranchIndex,
+        pickOpeningBranchSlot,
         buildPvPositions,
         pvDisplayTokens,
         pvMoveAriaLabel,
