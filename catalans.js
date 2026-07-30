@@ -1129,6 +1129,47 @@
     }
   }
 
+  // Un resize() de chessboard.js reconstrueix les caselles i esborra els
+  // ressaltats: aquí es tornen a pintar els que toquen segons què s'estigui
+  // mirant (una jugada en revisió, el vot propi, la peça seleccionada).
+  function reapplyBoardMarks() {
+    if (previewActive) {
+      const uci = previewUci ||
+        ((previewPly != null && state && state.movesUci) ? state.movesUci[previewPly - 1] : null);
+      $('#catalans-board .square-55d63').removeClass('cat-preview-from cat-preview-to');
+      if (uci && uci.length >= 4) {
+        squareEl(uci.slice(0, 2)).addClass('cat-preview-from');
+        squareEl(uci.slice(2, 4)).addClass('cat-preview-to');
+      }
+      return;
+    }
+    highlightMyVote();
+    if (selectedSquare && state) highlightSelection(selectedSquare);
+  }
+
+  // Mida dels taulers. A l'escriptori la fixa el CSS (#catalans-board i
+  // #catalans-replay-board), amb la mateixa regla que el tauler dels jeroglífics
+  // d'obertura: un percentatge de l'alçada de la finestra, entre un mínim i un
+  // màxim. Ara bé, chessboard.js calcula la mida de les caselles EN PÍXELS quan
+  // dibuixa el tauler, així que perquè creixi de debò cal demanar-li un resize()
+  // cada cop que aquesta mida pot haver canviat (en obrir la pantalla, en obrir
+  // el reproductor i en redimensionar la finestra).
+  function resizeBoards() {
+    const scr = document.getElementById('catalans-screen');
+    if (!scr || scr.style.display === 'none') return;
+    if (board && typeof board.resize === 'function') {
+      board.resize();
+      setTimeout(reapplyBoardMarks, 30);
+    }
+    const replayEl = document.getElementById('catalans-replay');
+    if (replayBoard && typeof replayBoard.resize === 'function' &&
+        replayEl && replayEl.style.display !== 'none') {
+      replayBoard.resize();
+      // Torna a posar la posició i la marca de l'última jugada reproduïda.
+      replayRender();
+    }
+  }
+
   // ---------------------------------------------------------------------------
   //  Render
   // ---------------------------------------------------------------------------
@@ -1430,7 +1471,7 @@
     }
     renderReplayMoves();
     replayRender();
-    setTimeout(function () { if (replayBoard && replayBoard.resize) replayBoard.resize(); replayRender(); }, 60);
+    setTimeout(resizeBoards, 60);
     $('#catalans-replay')[0].scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 
@@ -1740,7 +1781,7 @@
       if (myToken !== openToken) return;   // una obertura posterior ja mana
       subscribe();
       // Ajusta la mida del tauler quan ja és visible.
-      setTimeout(function () { if (board && typeof board.resize === 'function') board.resize(); }, 60);
+      setTimeout(resizeBoards, 60);
     });
   }
 
@@ -2283,14 +2324,15 @@
     try { customsRef().update(reg).catch(function () {}); } catch (e) {}
   }
 
-  // Re-ajusta el tauler en canviar la mida de la finestra mentre és visible.
+  // Re-ajusta els taulers en canviar la mida de la finestra mentre són visibles:
+  // a l'escriptori la seva mida depèn de l'alçada de la finestra, i el tauler del
+  // reproductor també s'hi ha d'apuntar. S'espera un moment (com fa app.js amb la
+  // resta de taulers) per no recalcular a cada píxel mentre s'arrossega la vora.
+  let resizeBoardsTimer = null;
   window.addEventListener('resize', function () {
-    const scr = document.getElementById('catalans-screen');
-    if (scr && scr.style.display !== 'none' && board && typeof board.resize === 'function') {
-      board.resize();
-      setTimeout(highlightMyVote, 30);
-    }
-  });
+    if (resizeBoardsTimer) clearTimeout(resizeBoardsTimer);
+    resizeBoardsTimer = setTimeout(resizeBoards, 60);
+  }, { passive: true });
 
   // ---------------------------------------------------------------------------
   //  API pública

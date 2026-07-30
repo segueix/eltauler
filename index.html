@@ -6482,6 +6482,25 @@
             #catalans-phase { font-weight:700; }
             #catalans-countdown { font-size:0.85rem; color: var(--text-secondary); }
             #catalans-board { max-width: 440px; margin: 8px auto; width: 100%; }
+            /* Escriptori: els taulers de les partides col·lectives creixen amb la
+               pantalla seguint la MATEIXA regla que el tauler dels jeroglífics
+               d'obertura (veg. resizeOpeningBoardToViewport() a app.js): un
+               percentatge de l'alçada de la finestra, amb un mínim i un màxim, i
+               sempre dins l'amplada disponible. Clavats a 440 px (partida) i
+               380 px (reproductor), en un ordinador quedaven minúsculs enmig d'un
+               contenidor de 1100 px.
+               El compte enrere gran i la transcripció del reproductor s'amiden amb
+               el seu tauler perquè el bloc es llegeixi com una peça sencera.
+               chessboard.js dibuixa les caselles en píxels: catalans.js li demana
+               un resize() cada cop que aquesta mida pot haver canviat. */
+            body.device-desktop #catalans-screen {
+                --cat-board-size: clamp(320px, 62vh, 680px);
+                --cat-replay-board-size: clamp(320px, 48vh, 520px);
+            }
+            body.device-desktop #catalans-board,
+            body.device-desktop #catalans-next-banner { max-width: var(--cat-board-size); }
+            body.device-desktop #catalans-replay-board,
+            body.device-desktop #catalans-replay-moves { max-width: var(--cat-replay-board-size); }
             /* La selecció i les destinacions es marquen amb les classes
                compartides (.tap-selected/.tap-move) del bloc principal: aquí no
                cal cap estil propi, i així no es pot desincronitzar mai de la
@@ -6986,7 +7005,7 @@
     <script src="core.js?v=1.0.17"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
-    <script src="catalans.js?v=1.2.6"></script>
+    <script src="catalans.js?v=1.2.7"></script>
     <script>
         window.APP_VERSION = '1.0.31';
         (function () {
