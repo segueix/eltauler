@@ -4564,6 +4564,1859 @@
         return null;
     }
 
+    // ======================================================================
+    // RIVAL ANTÍDOT — perfil de debilitats i selecció pedagògica de jugades
+    // ======================================================================
+    // La idea: Stockfish diu quines jugades són BONES; El Tauler decideix quina
+    // de les bones és més ÚTIL per a aquest jugador. Tot el que hi ha aquí és
+    // pur (sense DOM, worker ni estat global): app.js hi porta les candidates
+    // que retorna el MultiPV del motor i el perfil que surt de l'historial.
+    //
+    // Cap funció d'aquest bloc no pot triar una jugada dolenta: primer passen
+    // els filtres objectius (marge en centpeons, mat forçat, canvi de cubell
+    // d'avantatge, material net) i NOMÉS entre les supervivents es puntua la
+    // utilitat pedagògica. Si no en queda cap, es juga la millor del motor.
+
+    const ANTIDOTE_CONFIG = {
+        version: 1,
+
+        // Ponderació del pes d'una debilitat (secció 3 de l'especificació).
+        weights: {
+            frequency: 0.35,
+            severity: 0.30,
+            recency: 0.20,
+            confidence: 0.15
+        },
+
+        // Confiança estadística: amb 1-2 mostres ha de ser baixa i créixer a poc
+        // a poc. confidence = n / (n + halfSample), normalitzada a fullSamples.
+        confidence: {
+            halfSample: 8,      // amb 8 mostres la confiança crua és 0,5
+            fullSamples: 40,    // a partir d'aquí es considera confiança plena
+            minOccurrences: 1   // menys d'això no genera cap registre
+        },
+
+        // Recència: una errada perd la meitat del pes cada halfLifeDays.
+        recencyHalfLifeDays: 21,
+        recencyMaxDays: 240,
+
+        // Marge pedagògic màxim respecte de la millor jugada, per nivell.
+        cpMargin: { beginner: 80, intermediate: 50, advanced: 30 },
+        eloBands: { beginner: 1000, intermediate: 1600 },
+
+        // Línies candidates que es demanen al motor segons el dispositiu.
+        multiPv: { desktop: 6, mobile: 4, lowPower: 3 },
+
+        // Pressupost de cerca per ritme de rellotge (ms de movetime i profunditat).
+        budget: {
+            none:     { depth: 16, moveTimeMs: 2600, multiPvCap: 6 },
+            classic:  { depth: 15, moveTimeMs: 2000, multiPvCap: 6 },
+            rapid:    { depth: 14, moveTimeMs: 1500, multiPvCap: 5 },
+            blitz:    { depth: 12, moveTimeMs: 700,  multiPvCap: 4 },
+            bullet:   { depth: 10, moveTimeMs: 260,  multiPvCap: 3 }
+        },
+
+        // Fórmula de selecció final (secció 7).
+        score: {
+            safety: 100,
+            weakness: 60,
+            phase: 20,
+            difficulty: 15,
+            novelty: 12,
+            repetition: 20
+        },
+        tieBandScore: 6,          // candidates «pràcticament empatades»
+
+        // Mat: quantes semijugades de més s'accepten conservant el mat forçat.
+        mateExtraPlies: 2,
+        mateStepCp: 5,            // cost simbòlic de cada semijugada de més
+
+        // Sacrifici: material net perdut només s'accepta si el motor diu que la
+        // jugada val pràcticament el mateix que la millor (compensació real).
+        sacrificeCpTolerance: 15,
+
+        // Semijugades de la línia principal que s'exploren per classificar.
+        pvScanPlies: 6,
+        // Semijugades que es PERSISTEIXEN d'una prova (prou per reconstruir-la).
+        storedPvPlies: 6,
+        maxStoredTests: 24,
+
+        // Avaluació de la resposta del jugador.
+        response: {
+            passCpLoss: 40,
+            partialCpLoss: 120,
+            // Per sota d'aquest pes temàtic la candidata no genera cap prova.
+            minThemeStrength: 0.35,
+            // Posicions ja decidides: una pèrdua allà no és un fracàs net.
+            decidedCp: 600
+        },
+
+        // Varietat: finestra de proves recents que penalitza repetir tema.
+        recentWindow: 6,
+        // Una prova superada rebaixa el pes de la debilitat; una de fallada el puja.
+        progress: { passDamp: 0.12, failBoost: 0.10, partialDamp: 0.04, minWeightFloor: 0.15 },
+
+        // Perfil «prim»: encara no hi ha prou dades per treure conclusions.
+        thinProfile: { minGames: 4, minSamples: 12 }
+    };
+
+    // Categories de debilitat. Són les MATEIXES que ja fa servir el sistema de
+    // moments clau (keyMomentReasonCode) més king_safety, que la revisió ja
+    // detecta: no s'inventa cap classificació nova.
+    const ANTIDOTE_WEAKNESS_IDS = [
+        'missed_win',
+        'lost_advantage',
+        'turned_losing',
+        'missed_tactic',
+        'lost_material',
+        'king_safety',
+        'endgame_turning_point',
+        'strategic_error'
+    ];
+
+    const ANTIDOTE_WEAKNESS_LABELS = {
+        missed_win: 'Rematar les posicions guanyades',
+        lost_advantage: 'Mantenir un avantatge',
+        turned_losing: 'No perdre el fil en posicions igualades',
+        missed_tactic: 'Veure les tàctiques',
+        lost_material: 'No deixar material',
+        king_safety: 'Defensar el teu rei',
+        endgame_turning_point: 'Decidir bé als finals',
+        strategic_error: 'Triar el pla correcte'
+    };
+
+    // Subtemes que sap detectar l'app sobre una candidata concreta, i a quina
+    // categoria de debilitat pertany cadascun. Els identificadors coincideixen
+    // amb els que ja fan servir els jeroglífics sempre que existeixen.
+    const ANTIDOTE_THEME_FAMILY = {
+        // Tàctica
+        fork: 'missed_tactic',
+        pin: 'missed_tactic',
+        skewer: 'missed_tactic',
+        discovered_attack: 'missed_tactic',
+        double_attack: 'missed_tactic',
+        deflection: 'missed_tactic',
+        overload: 'missed_tactic',
+        hanging_piece: 'lost_material',
+        material_win: 'lost_material',
+        promotion: 'endgame_turning_point',
+        mate_threat: 'king_safety',
+        // Rei
+        king_attack: 'king_safety',
+        pawn_shield_loss: 'king_safety',
+        king_in_center: 'king_safety',
+        castling_lost: 'king_safety',
+        only_defense: 'king_safety',
+        // Finals
+        queen_trade: 'endgame_turning_point',
+        rook_endgame: 'endgame_turning_point',
+        minor_endgame: 'endgame_turning_point',
+        pawn_endgame: 'endgame_turning_point',
+        passed_pawn: 'endgame_turning_point',
+        king_activity: 'endgame_turning_point',
+        simplification: 'endgame_turning_point',
+        // Estratègia
+        open_file: 'strategic_error',
+        weak_square: 'strategic_error',
+        isolated_pawn: 'strategic_error',
+        pawn_break: 'strategic_error',
+        piece_activity: 'strategic_error',
+        prophylaxis: 'strategic_error',
+        defensive_move: 'strategic_error',
+        quiet_improvement: 'strategic_error'
+    };
+
+    const ANTIDOTE_THEME_LABELS = {
+        fork: 'forquilla',
+        pin: 'clavada',
+        skewer: 'enfilada',
+        discovered_attack: 'atac descobert',
+        double_attack: 'doble atac',
+        deflection: 'desviació',
+        overload: 'sobrecàrrega',
+        hanging_piece: 'peça indefensa',
+        material_win: 'guany de material',
+        promotion: 'promoció',
+        mate_threat: 'amenaça de mat',
+        king_attack: 'atac al rei',
+        pawn_shield_loss: 'pèrdua de cobertura de peons',
+        king_in_center: 'rei al centre',
+        castling_lost: 'enroc perdut',
+        only_defense: 'defensa única',
+        queen_trade: 'canvi de dames',
+        rook_endgame: 'final de torres',
+        minor_endgame: 'final de peces menors',
+        pawn_endgame: 'final de peons',
+        passed_pawn: 'peó passat',
+        king_activity: 'activitat del rei',
+        simplification: 'simplificació',
+        open_file: 'columna oberta',
+        weak_square: 'casella feble',
+        isolated_pawn: 'peó aïllat',
+        pawn_break: 'ruptura de peons',
+        piece_activity: 'activitat de peces',
+        prophylaxis: 'profilaxi',
+        defensive_move: 'defensa',
+        quiet_improvement: 'millora tranquil·la'
+    };
+
+    // Els temes que posen a prova la CONVERSIÓ d'un avantatge o el manteniment
+    // de l'equilibri no són situacions del tauler, sinó com de viva queda la
+    // posició. Per això les categories «de resultat» es puntuen per complexitat.
+    const ANTIDOTE_COMPLEXITY_FAMILIES = ['missed_win', 'lost_advantage', 'turned_losing'];
+
+    const ANTIDOTE_PHASES = ['opening', 'middlegame', 'endgame'];
+
+    function antidoteNum(v, fallback) {
+        return (typeof v === 'number' && isFinite(v)) ? v : (fallback === undefined ? 0 : fallback);
+    }
+
+    function antidoteClamp01(v) {
+        const n = antidoteNum(v, 0);
+        return n < 0 ? 0 : (n > 1 ? 1 : n);
+    }
+
+    function antidoteThemeLabel(id) {
+        return ANTIDOTE_THEME_LABELS[id] || ANTIDOTE_WEAKNESS_LABELS[id] || String(id || '');
+    }
+
+    function antidoteWeaknessLabel(id) {
+        return ANTIDOTE_WEAKNESS_LABELS[id] || 'Aspecte general';
+    }
+
+    // Categoria de debilitat a què pertany un identificador. Accepta tant un
+    // subtema de candidata (`fork`, `king_attack`…) com una categoria ja
+    // resolta (`missed_tactic`…), perquè les proves desades hi guarden la
+    // categoria i les candidates hi porten el subtema.
+    function antidoteThemeFamily(id) {
+        if (ANTIDOTE_WEAKNESS_IDS.indexOf(id) !== -1) return id;
+        return ANTIDOTE_THEME_FAMILY[id] || 'strategic_error';
+    }
+
+    // ----------------------------------------------------------------------
+    //  Avaluacions: normalització i comparació amb mat
+    // ----------------------------------------------------------------------
+    // Conveni ÚNIC: tota puntuació es mira des del bàndol que MOU (el que fa
+    // servir el motor a les línies MultiPV). El mat es converteix a una escala
+    // pròpia, molt per sobre de qualsevol centpeó, de manera que mai no es
+    // barregen aritmèticament centpeons i distàncies de mat.
+    const ANTIDOTE_MATE_BASE = 100000;
+    const ANTIDOTE_MATE_FLOOR = ANTIDOTE_MATE_BASE - 2000;  // mat en ≤200 jugades
+
+    // {eval, evalType} (format d'EnrichedAnalysis) → valor comparable, o null.
+    function antidoteScoreValue(entry) {
+        if (entry === null || typeof entry === 'undefined') return null;
+        if (typeof entry === 'number') return isFinite(entry) ? entry : null;
+        const raw = entry.eval !== undefined ? entry.eval
+            : (entry.score !== undefined ? entry.score : entry.cp);
+        if (typeof raw !== 'number' || !isFinite(raw)) return null;
+        const type = entry.evalType || entry.scoreType || 'cp';
+        if (type !== 'mate') return raw;
+        if (raw === 0) return null;                 // «mat en 0»: dada no fiable
+        const plies = Math.min(200, Math.abs(raw));
+        return raw > 0 ? (ANTIDOTE_MATE_BASE - plies * 10) : -(ANTIDOTE_MATE_BASE - plies * 10);
+    }
+
+    function antidoteIsMateValue(v) {
+        return typeof v === 'number' && Math.abs(v) >= ANTIDOTE_MATE_FLOOR;
+    }
+
+    // Jugades fins al mat que representa un valor de mat (positiu = a favor).
+    function antidoteMateDistance(v) {
+        if (!antidoteIsMateValue(v)) return null;
+        return Math.round((ANTIDOTE_MATE_BASE - Math.abs(v)) / 10);
+    }
+
+    // Pèrdua d'una candidata respecte de la millor jugada, en centpeons
+    // comparables. Retorna Infinity quan la candidata és inacceptable per
+    // definició (abandona un mat forçat, o es deixa matar).
+    function antidoteCpLoss(bestValue, candidateValue, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        if (typeof bestValue !== 'number' || typeof candidateValue !== 'number') return null;
+        const bestMate = antidoteIsMateValue(bestValue);
+        const candMate = antidoteIsMateValue(candidateValue);
+        // La candidata rep mat: mai.
+        if (candMate && candidateValue < 0 && !(bestMate && bestValue < 0)) return Infinity;
+        if (bestMate && bestValue > 0) {
+            // Hi ha mat forçat a favor: només s'accepten candidates que també matin.
+            if (!candMate || candidateValue < 0) return Infinity;
+            const bestPlies = antidoteMateDistance(bestValue);
+            const candPlies = antidoteMateDistance(candidateValue);
+            if (candPlies > bestPlies + cfg.mateExtraPlies) return Infinity;
+            return Math.max(0, (candPlies - bestPlies) * cfg.mateStepCp);
+        }
+        if (bestMate && bestValue < 0) {
+            // Estem perduts per mat: com més lluny el mat, millor defensa.
+            if (!candMate) return 0;
+            const bestPlies = antidoteMateDistance(bestValue);
+            const candPlies = antidoteMateDistance(candidateValue);
+            return Math.max(0, (bestPlies - candPlies) * 20);
+        }
+        // La candidata dona mat i la millor no ho deia: mai és una pèrdua.
+        if (candMate && candidateValue > 0) return 0;
+        return Math.max(0, bestValue - candidateValue);
+    }
+
+    // Cubell d'avantatge del bàndol que mou (reutilitza els llindars dels
+    // moments clau: la mateixa escala que ja fa servir tota la revisió).
+    function antidoteBucket(value) {
+        if (typeof value !== 'number') return 0;
+        if (antidoteIsMateValue(value)) return value > 0 ? 2 : -2;
+        return keyMomentBucket(value);
+    }
+
+    // Marge pedagògic segons el nivell del jugador.
+    function antidoteCpMargin(elo, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const e = antidoteNum(elo, 0);
+        if (e < cfg.eloBands.beginner) return cfg.cpMargin.beginner;
+        if (e < cfg.eloBands.intermediate) return cfg.cpMargin.intermediate;
+        return cfg.cpMargin.advanced;
+    }
+
+    // Nombre de línies candidates a demanar segons dispositiu i rellotge.
+    function antidoteMultiPv(options, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const opts = options || {};
+        let base = cfg.multiPv.desktop;
+        if (opts.lowPower) base = cfg.multiPv.lowPower;
+        else if (opts.mobile) base = cfg.multiPv.mobile;
+        const budget = antidoteSearchBudget(opts.timeControlKind, config);
+        return Math.max(2, Math.min(base, budget.multiPvCap));
+    }
+
+    // Pressupost de cerca segons el tipus de ritme.
+    function antidoteSearchBudget(kind, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const key = String(kind || 'none');
+        return cfg.budget[key] || cfg.budget.none;
+    }
+
+    // ----------------------------------------------------------------------
+    //  Perfil de debilitats
+    // ----------------------------------------------------------------------
+
+    function antidoteEmptyWeakness() {
+        return { weight: 0, confidence: 0, occurrences: 0, severity: 0, lastSeen: null };
+    }
+
+    function antidoteEmptyProfile() {
+        const weaknesses = {};
+        ANTIDOTE_WEAKNESS_IDS.forEach(id => { weaknesses[id] = antidoteEmptyWeakness(); });
+        return {
+            version: ANTIDOTE_CONFIG.version,
+            sampleGames: 0,
+            sampleMoves: 0,
+            weaknesses: weaknesses,
+            phaseWeaknesses: { opening: 0, middlegame: 0, endgame: 0 },
+            recentTests: []
+        };
+    }
+
+    // Fase d'una jugada revisada. Reutilitza el criteri del bessó (número de
+    // jugada per a l'obertura, material per al final).
+    function antidoteReviewPhase(review, playerColor) {
+        const moveNumber = antidoteNum(review && review.moveNumber, 0);
+        const ply = Math.max(0, (moveNumber - 1) * 2 + (playerColor === 'b' ? 1 : 0));
+        if (review && review.fen) return bessoPhaseOfPosition(review.fen, ply);
+        return moveNumber <= 10 ? 'opening' : 'middlegame';
+    }
+
+    // Categoria d'una jugada dolenta concreta. Fa servir EXACTAMENT el mateix
+    // classificador que els moments clau, de manera que el perfil i la ressenya
+    // parlen el mateix idioma.
+    function antidoteReviewCategory(review, playerColor) {
+        if (!review) return null;
+        const swing = antidoteNum(review.swing, 0);
+        const quality = review.quality || null;
+        // Només compten les decisions realment fallades.
+        if (quality === 'excel' || quality === 'good') return null;
+        if (swing < 50 && quality !== 'blunder' && quality !== 'mistake') return null;
+        return keyMomentReasonCode({
+            evalBefore: (typeof review.evalBefore === 'number') ? review.evalBefore : null,
+            evalAfter: (typeof review.evalAfter === 'number') ? review.evalAfter : null,
+            cpLoss: swing,
+            phase: antidoteReviewPhase(review, playerColor),
+            forcingInfo: review.forcingInfo || null
+        });
+    }
+
+    // Gravetat normalitzada [0,1] d'una errada, a partir de la pèrdua en cp.
+    function antidoteSeverityFromSwing(swing) {
+        return antidoteClamp01(antidoteNum(swing, 0) / 400);
+    }
+
+    // Resum ANTÍDOT d'UNA partida: comptes per categoria i per fase. Es calcula
+    // un sol cop, en acabar la partida, i es desa a l'índex lleuger de
+    // l'historial (com phaseStats del bessó): així el perfil pot mirar
+    // centenars de partides sense carregar-ne cap revisió.
+    function antidoteWeaknessStatsFromGame(entry) {
+        const stats = { moves: 0, categories: {}, phases: { opening: 0, middlegame: 0, endgame: 0 }, phaseMoves: { opening: 0, middlegame: 0, endgame: 0 } };
+        if (!entry) return stats;
+        const color = entry.playerColor;
+        const reviews = Array.isArray(entry.moveReviews) ? entry.moveReviews : [];
+        reviews.forEach(r => {
+            if (!r || (color && r.color !== color)) return;
+            stats.moves += 1;
+            const phase = antidoteReviewPhase(r, color);
+            const swing = Math.max(0, Math.min(900, antidoteNum(r.swing, 0)));
+            stats.phaseMoves[phase] = (stats.phaseMoves[phase] || 0) + 1;
+            stats.phases[phase] = (stats.phases[phase] || 0) + swing;
+            const category = antidoteReviewCategory(r, color);
+            if (!category) return;
+            const acc = stats.categories[category] || { n: 0, severity: 0 };
+            acc.n += 1;
+            acc.severity += antidoteSeverityFromSwing(swing);
+            stats.categories[category] = acc;
+        });
+        return stats;
+    }
+
+    // Resum ANTÍDOT d'una partida: el desat si n'hi ha, o calculat al vol.
+    function antidoteGameStats(entry) {
+        const stored = entry && entry.antidoteStats;
+        if (stored && typeof stored === 'object' && stored.categories && typeof stored.categories === 'object') {
+            return {
+                moves: Math.max(0, antidoteNum(stored.moves, 0)),
+                categories: stored.categories,
+                phases: Object.assign({ opening: 0, middlegame: 0, endgame: 0 }, stored.phases || {}),
+                phaseMoves: Object.assign({ opening: 0, middlegame: 0, endgame: 0 }, stored.phaseMoves || {})
+            };
+        }
+        return antidoteWeaknessStatsFromGame(entry);
+    }
+
+    // Factor de recència [0,1]: 1 avui, 0,5 al cap de recencyHalfLifeDays.
+    function antidoteRecencyFactor(lastSeen, now, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const then = typeof lastSeen === 'number' ? lastSeen : Date.parse(lastSeen);
+        if (!then || !isFinite(then)) return 0.35;   // sense data: mitjana prudent
+        const ref = antidoteNum(now, Date.now()) || Date.now();
+        const days = Math.max(0, (ref - then) / 86400000);
+        if (days > cfg.recencyMaxDays) return 0;
+        return Math.pow(0.5, days / Math.max(1, cfg.recencyHalfLifeDays));
+    }
+
+    // Confiança estadística per volum de mostres: baixa amb 1-2 mostres i
+    // creixent, mai categòrica.
+    function antidoteConfidence(occurrences, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const n = Math.max(0, antidoteNum(occurrences, 0));
+        if (n <= 0) return 0;
+        const raw = n / (n + cfg.confidence.halfSample);
+        const full = cfg.confidence.fullSamples / (cfg.confidence.fullSamples + cfg.confidence.halfSample);
+        return antidoteClamp01(raw / full);
+    }
+
+    // Pes d'una debilitat: freqüència 35% + gravetat 30% + recència 20% +
+    // confiança 15%. Totes les constants viuen a ANTIDOTE_CONFIG.
+    function antidoteWeaknessWeight(record, context, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const rec = record || {};
+        const ctx = context || {};
+        const occurrences = Math.max(0, antidoteNum(rec.occurrences, 0));
+        if (occurrences <= 0) return 0;
+        const totalErrors = Math.max(1, antidoteNum(ctx.totalOccurrences, occurrences));
+        const frequency = antidoteClamp01(occurrences / totalErrors);
+        const severity = antidoteClamp01(antidoteNum(rec.severity, 0));
+        const recency = antidoteClamp01(antidoteRecencyFactor(rec.lastSeen, ctx.now, cfg));
+        const confidence = antidoteClamp01(
+            typeof rec.confidence === 'number' ? rec.confidence : antidoteConfidence(occurrences, cfg));
+        const w = cfg.weights;
+        const weight = frequency * w.frequency
+            + severity * w.severity
+            + recency * w.recency
+            + confidence * w.confidence;
+        return antidoteClamp01(weight);
+    }
+
+    // Aplica el rendiment de les proves ANTÍDOT anteriors sobre el pes cru:
+    // superar-les l'abaixa progressivament, fallar-les el puja. Una sola prova
+    // superada no esborra mai una debilitat consolidada (hi ha un terra).
+    function antidoteApplyTestFeedback(weight, record, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const rec = record || {};
+        const passed = Math.max(0, antidoteNum(rec.testsPassed, 0));
+        const failed = Math.max(0, antidoteNum(rec.testsFailed, 0));
+        const partial = Math.max(0, antidoteNum(rec.testsPartial, 0));
+        const p = cfg.progress;
+        // Rendiments decreixents: la 1a prova superada compta molt més que la 6a.
+        const damp = (1 - Math.exp(-passed * p.passDamp)) + (1 - Math.exp(-partial * p.partialDamp));
+        const boost = (1 - Math.exp(-failed * p.failBoost));
+        const adjusted = weight * (1 - Math.min(0.6, damp)) * (1 + boost);
+        // Terra: una debilitat consolidada (moltes mostres) no desapareix per
+        // una ratxa curta de proves superades.
+        const floor = weight * p.minWeightFloor;
+        return antidoteClamp01(Math.max(failed > passed ? weight : floor, adjusted));
+    }
+
+    // Construeix el perfil de debilitats. Fonts (totes ja existents):
+    //   · games        — historial (revisions o el resum lleuger antidoteStats)
+    //   · savedErrors  — biblioteca d'errades desades
+    //   · tests        — proves ANTÍDOT anteriors (de partides mode antidote)
+    // Mai llança: davant de dades corruptes, retorna el que hagi pogut llegir.
+    function buildAntidoteProfile(input, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const profile = antidoteEmptyProfile();
+        const source = input || {};
+        const now = antidoteNum(source.now, Date.now()) || Date.now();
+        const games = Array.isArray(source.games) ? source.games : [];
+        const savedErrors = Array.isArray(source.savedErrors) ? source.savedErrors : [];
+        const tests = Array.isArray(source.tests) ? source.tests : [];
+
+        const raw = {};
+        ANTIDOTE_WEAKNESS_IDS.forEach(id => {
+            raw[id] = { occurrences: 0, severitySum: 0, lastSeen: null, testsPassed: 0, testsPartial: 0, testsFailed: 0 };
+        });
+        const phaseLoss = { opening: 0, middlegame: 0, endgame: 0 };
+        const phaseMoves = { opening: 0, middlegame: 0, endgame: 0 };
+
+        games.forEach(entry => {
+            if (!entry || typeof entry !== 'object') return;
+            let stats;
+            try { stats = antidoteGameStats(entry); } catch (e) { return; }
+            if (!stats || !stats.categories) return;
+            const played = Date.parse(entry.date || entry.createdAt || '') || null;
+            profile.sampleGames += 1;
+            profile.sampleMoves += Math.max(0, antidoteNum(stats.moves, 0));
+            ANTIDOTE_PHASES.forEach(p => {
+                phaseLoss[p] += Math.max(0, antidoteNum(stats.phases && stats.phases[p], 0));
+                phaseMoves[p] += Math.max(0, antidoteNum(stats.phaseMoves && stats.phaseMoves[p], 0));
+            });
+            Object.keys(stats.categories).forEach(id => {
+                if (!raw[id]) return;
+                const acc = stats.categories[id];
+                if (!acc || typeof acc !== 'object') return;
+                const n = Math.max(0, antidoteNum(acc.n, 0));
+                if (!n) return;
+                raw[id].occurrences += n;
+                raw[id].severitySum += Math.max(0, antidoteNum(acc.severity, 0));
+                if (played && (!raw[id].lastSeen || played > raw[id].lastSeen)) raw[id].lastSeen = played;
+            });
+        });
+
+        // Errades desades: reforcen les categories tàctiques i de material amb
+        // la seva pròpia gravetat i data (és la biblioteca de repàs de l'app).
+        savedErrors.forEach(err => {
+            if (!err || typeof err !== 'object') return;
+            const id = err.antidoteCategory && raw[err.antidoteCategory]
+                ? err.antidoteCategory
+                : (err.severity === 'high' ? 'lost_material' : 'missed_tactic');
+            if (!raw[id]) return;
+            raw[id].occurrences += 1;
+            raw[id].severitySum += err.severity === 'high' ? 0.85 : 0.5;
+            const when = Date.parse(err.date || '') || null;
+            if (when && (!raw[id].lastSeen || when > raw[id].lastSeen)) raw[id].lastSeen = when;
+        });
+
+        // Proves ANTÍDOT anteriors: rendiment per categoria.
+        tests.forEach(t => {
+            if (!t || typeof t !== 'object') return;
+            const id = raw[t.theme] ? t.theme : antidoteThemeFamily(t.theme);
+            if (!raw[id]) return;
+            if (t.result === 'passed') raw[id].testsPassed += 1;
+            else if (t.result === 'partial') raw[id].testsPartial += 1;
+            else if (t.result === 'failed') {
+                raw[id].testsFailed += 1;
+                raw[id].occurrences += 1;
+                raw[id].severitySum += antidoteClamp01(antidoteNum(t.severity, 0.6));
+                const when = antidoteNum(t.at, 0) || null;
+                if (when && (!raw[id].lastSeen || when > raw[id].lastSeen)) raw[id].lastSeen = when;
+            }
+        });
+
+        const totalOccurrences = ANTIDOTE_WEAKNESS_IDS
+            .reduce((sum, id) => sum + raw[id].occurrences, 0);
+
+        ANTIDOTE_WEAKNESS_IDS.forEach(id => {
+            const r = raw[id];
+            const record = profile.weaknesses[id];
+            record.occurrences = r.occurrences;
+            record.severity = r.occurrences ? antidoteClamp01(r.severitySum / r.occurrences) : 0;
+            record.lastSeen = r.lastSeen ? new Date(r.lastSeen).toISOString() : null;
+            record.confidence = antidoteConfidence(r.occurrences, cfg);
+            record.testsPassed = r.testsPassed;
+            record.testsPartial = r.testsPartial;
+            record.testsFailed = r.testsFailed;
+            const base = antidoteWeaknessWeight(record, { totalOccurrences: totalOccurrences, now: now }, cfg);
+            record.weight = antidoteApplyTestFeedback(base, record, cfg);
+        });
+
+        // Debilitat per fase: pèrdua mitjana de la fase comparada amb la global.
+        const totalMoves = ANTIDOTE_PHASES.reduce((s, p) => s + phaseMoves[p], 0);
+        const totalLoss = ANTIDOTE_PHASES.reduce((s, p) => s + phaseLoss[p], 0);
+        const globalAvg = totalMoves ? totalLoss / totalMoves : 0;
+        ANTIDOTE_PHASES.forEach(p => {
+            if (!phaseMoves[p] || !globalAvg) { profile.phaseWeaknesses[p] = 0; return; }
+            const avg = phaseLoss[p] / phaseMoves[p];
+            // 0 = com la mitjana o millor; 1 = el doble de pèrdua que la mitjana.
+            profile.phaseWeaknesses[p] = antidoteClamp01((avg - globalAvg) / Math.max(1, globalAvg));
+        });
+
+        profile.recentTests = tests
+            .slice(-cfg.recentWindow)
+            .map(t => ({ theme: t && t.theme ? t.theme : null, result: t && t.result ? t.result : 'inconclusive' }))
+            .filter(t => t.theme);
+        profile.totalOccurrences = totalOccurrences;
+        return profile;
+    }
+
+    // ¿El perfil encara és prim (poques dades)? La modalitat ha de poder
+    // començar igualment, però el text d'introducció ha de ser un altre.
+    function antidoteProfileIsThin(profile, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        if (!profile) return true;
+        const games = antidoteNum(profile.sampleGames, 0);
+        const moves = antidoteNum(profile.sampleMoves, 0);
+        const occ = antidoteNum(profile.totalOccurrences, 0);
+        return games < cfg.thinProfile.minGames || moves < cfg.thinProfile.minSamples || occ <= 0;
+    }
+
+    // Les N debilitats principals, ordenades per pes. Cada element porta el pes
+    // i la confiança, perquè la introducció mai presenti conclusions
+    // categòriques amb poques partides.
+    function antidoteTopWeaknesses(profile, count) {
+        const n = Math.max(1, antidoteNum(count, 3));
+        const weaknesses = (profile && profile.weaknesses) || {};
+        return ANTIDOTE_WEAKNESS_IDS
+            .map(id => {
+                const r = weaknesses[id] || antidoteEmptyWeakness();
+                return {
+                    id: id,
+                    label: antidoteWeaknessLabel(id),
+                    weight: antidoteClamp01(antidoteNum(r.weight, 0)),
+                    confidence: antidoteClamp01(antidoteNum(r.confidence, 0)),
+                    occurrences: Math.max(0, antidoteNum(r.occurrences, 0)),
+                    severity: antidoteClamp01(antidoteNum(r.severity, 0))
+                };
+            })
+            .filter(w => w.occurrences > 0 && w.weight > 0)
+            .sort((a, b) => (b.weight - a.weight) || (b.occurrences - a.occurrences) || a.id.localeCompare(b.id))
+            .slice(0, n);
+    }
+
+    // Etiqueta de confiança en català natural (mai categòrica amb poques dades).
+    function antidoteConfidenceLabel(confidence) {
+        const c = antidoteClamp01(confidence);
+        if (c < 0.25) return 'indici inicial';
+        if (c < 0.5) return 'tendència';
+        if (c < 0.75) return 'patró clar';
+        return 'patró molt marcat';
+    }
+
+    // ----------------------------------------------------------------------
+    //  Filtres objectius i puntuació de candidates
+    // ----------------------------------------------------------------------
+
+    // Comprova si una candidata és acceptable per QUALITAT (res pedagògic aquí).
+    // Retorna { allowed, reason, cpLoss, objectiveSafety }.
+    function antidoteCandidateGuard(candidate, context, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const ctx = context || {};
+        const cand = candidate || {};
+        const bestValue = typeof ctx.bestValue === 'number' ? ctx.bestValue : antidoteScoreValue(ctx.best);
+        const candValue = typeof cand.scoreValue === 'number' ? cand.scoreValue : antidoteScoreValue(cand);
+        if (bestValue === null || candValue === null) {
+            return { allowed: false, reason: 'no_eval', cpLoss: null, objectiveSafety: 0 };
+        }
+        const margin = antidoteNum(ctx.margin, antidoteCpMargin(ctx.playerElo, cfg));
+        const cpLoss = antidoteCpLoss(bestValue, candValue, cfg);
+        if (cpLoss === null || !isFinite(cpLoss)) {
+            return { allowed: false, reason: 'mate_or_illegal', cpLoss: cpLoss, objectiveSafety: 0 };
+        }
+        if (cpLoss > margin) {
+            return { allowed: false, reason: 'over_margin', cpLoss: cpLoss, objectiveSafety: 0 };
+        }
+        // Canvis de cubell: guanyada → igualada, o igualada → perduda, mai.
+        const bestBucket = antidoteBucket(bestValue);
+        const candBucket = antidoteBucket(candValue);
+        if (bestBucket >= 1 && candBucket <= 0) {
+            return { allowed: false, reason: 'drops_win', cpLoss: cpLoss, objectiveSafety: 0 };
+        }
+        if (bestBucket >= 0 && candBucket <= -1) {
+            return { allowed: false, reason: 'drops_to_losing', cpLoss: cpLoss, objectiveSafety: 0 };
+        }
+        // Material net perdut sense compensació reconeguda pel motor.
+        const materialLoss = antidoteNum(cand.materialLoss, 0);
+        if (materialLoss >= 1 && cpLoss > cfg.sacrificeCpTolerance) {
+            return { allowed: false, reason: 'hangs_material', cpLoss: cpLoss, objectiveSafety: 0 };
+        }
+        // Només una jugada evita una derrota clara: es juga aquella.
+        if (ctx.onlySavingMove && cand.move !== ctx.onlySavingMove) {
+            return { allowed: false, reason: 'only_saving_move', cpLoss: cpLoss, objectiveSafety: 0 };
+        }
+        const objectiveSafety = antidoteClamp01(1 - (cpLoss / Math.max(1, margin)));
+        return { allowed: true, reason: null, cpLoss: cpLoss, objectiveSafety: objectiveSafety };
+    }
+
+    // Complexitat objectiu segons el ROC: als nivells baixos, proves més clares;
+    // als alts, posicions més denses.
+    function antidoteTargetComplexity(elo) {
+        const e = antidoteNum(elo, 1200);
+        if (e < 800) return 0.35;
+        if (e < 1200) return 0.5;
+        if (e < 1600) return 0.62;
+        if (e < 2000) return 0.72;
+        return 0.8;
+    }
+
+    // Coincidència amb el perfil: quant posa a prova aquesta candidata alguna
+    // debilitat REAL del jugador. Retorna { match, themeId, family }.
+    function antidoteWeaknessMatch(candidate, profile, config) {
+        const cand = candidate || {};
+        const themes = Array.isArray(cand.themes) ? cand.themes : [];
+        const weaknesses = (profile && profile.weaknesses) || {};
+        let best = { match: 0, themeId: null, family: null };
+        themes.forEach(t => {
+            if (!t || !t.id) return;
+            const family = antidoteThemeFamily(t.id);
+            const record = weaknesses[family];
+            const weight = antidoteClamp01(antidoteNum(record && record.weight, 0));
+            const strength = antidoteClamp01(antidoteNum(t.strength, 0));
+            const match = strength * weight;
+            if (match > best.match) best = { match: match, themeId: t.id, family: family };
+        });
+        // Categories «de resultat» (rematar, mantenir, no perdre el fil): no són
+        // situacions del tauler sinó posicions vives, i es mesuren per complexitat.
+        const complexity = antidoteClamp01(antidoteNum(cand.complexity, 0));
+        ANTIDOTE_COMPLEXITY_FAMILIES.forEach(family => {
+            const record = weaknesses[family];
+            const weight = antidoteClamp01(antidoteNum(record && record.weight, 0));
+            const match = complexity * weight;
+            if (match > best.match) {
+                best = { match: match, themeId: (cand.themes && cand.themes[0] && cand.themes[0].id) || 'quiet_improvement', family: family };
+            }
+        });
+        return best;
+    }
+
+    // Varietat: penalitza repetir una categoria treballada fa poc, tret que
+    // s'hi continuï fallant clarament.
+    function antidoteRepetitionPenalty(family, profile, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        if (!family) return 0;
+        const recent = (profile && Array.isArray(profile.recentTests)) ? profile.recentTests : [];
+        if (!recent.length) return 0;
+        const window = recent.slice(-cfg.recentWindow);
+        const sameFamily = window.filter(t => antidoteThemeFamily(t.theme) === family);
+        if (!sameFamily.length) return 0;
+        const stillFailing = sameFamily.some(t => t.result === 'failed');
+        const share = sameFamily.length / window.length;
+        return stillFailing ? share * 0.25 : share;
+    }
+
+    // Puntuació final d'una candidata. Documentada i centralitzada: la qualitat
+    // objectiva pesa prou perquè cap coincidència pedagògica no compensi una
+    // jugada dolenta.
+    function scoreAntidoteCandidate(candidate, profile, context, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const ctx = context || {};
+        const cand = candidate || {};
+        const guard = cand.guard || antidoteCandidateGuard(cand, ctx, cfg);
+        if (!guard.allowed) {
+            return {
+                move: cand.move || null,
+                allowed: false,
+                reason: guard.reason,
+                cpLoss: guard.cpLoss,
+                finalScore: -Infinity,
+                components: null
+            };
+        }
+        const weaknessMatch = antidoteWeaknessMatch(cand, profile, cfg);
+        const phase = ctx.phase || 'middlegame';
+        const phaseMatch = antidoteClamp01(antidoteNum(profile && profile.phaseWeaknesses && profile.phaseWeaknesses[phase], 0));
+        const target = antidoteTargetComplexity(ctx.playerElo);
+        const complexity = antidoteClamp01(antidoteNum(cand.complexity, 0));
+        const difficultyFit = antidoteClamp01(1 - Math.abs(complexity - target));
+        const repetition = antidoteRepetitionPenalty(weaknessMatch.family, profile, cfg);
+        const novelty = antidoteClamp01(antidoteNum(cand.novelty, 1 - repetition));
+        const s = cfg.score;
+        const components = {
+            objectiveSafety: guard.objectiveSafety,
+            weaknessMatch: weaknessMatch.match,
+            phaseMatch: phaseMatch,
+            difficultyFit: difficultyFit,
+            novelty: novelty,
+            repetitionPenalty: repetition
+        };
+        const finalScore =
+            components.objectiveSafety * s.safety
+            + components.weaknessMatch * s.weakness
+            + components.phaseMatch * s.phase
+            + components.difficultyFit * s.difficulty
+            + components.novelty * s.novelty
+            - components.repetitionPenalty * s.repetition;
+        return {
+            move: cand.move || null,
+            san: cand.san || null,
+            allowed: true,
+            reason: null,
+            cpLoss: guard.cpLoss,
+            themeId: weaknessMatch.themeId,
+            family: weaknessMatch.family,
+            themeStrength: antidoteThemeStrength(cand, weaknessMatch.themeId),
+            finalScore: Math.round(finalScore * 1000) / 1000,
+            components: components
+        };
+    }
+
+    function antidoteThemeStrength(candidate, themeId) {
+        const themes = (candidate && Array.isArray(candidate.themes)) ? candidate.themes : [];
+        const found = themes.find(t => t && t.id === themeId);
+        return found ? antidoteClamp01(antidoteNum(found.strength, 0)) : 0;
+    }
+
+    // Tria ponderada determinista amb `rng` injectable (per defecte Math.random).
+    function antidotePickWeighted(items, weightOf, rng) {
+        if (!items || !items.length) return null;
+        const weights = items.map((it, idx) => Math.max(0.0001, antidoteNum(weightOf(it, idx), 0)));
+        const total = weights.reduce((a, b) => a + b, 0);
+        const roll = (typeof rng === 'function' ? rng() : Math.random()) * total;
+        let acc = 0;
+        for (let i = 0; i < items.length; i++) {
+            acc += weights[i];
+            if (roll < acc) return items[i];
+        }
+        return items[items.length - 1];
+    }
+
+    // Selecció final. `candidates[0]` ha de ser la millor jugada del motor
+    // (multipv 1). Retorna sempre una jugada jugable: si cap candidata
+    // pedagògica supera els filtres, la millor del motor.
+    function chooseAntidoteCandidate(candidates, profile, context, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const ctx = context || {};
+        const list = (Array.isArray(candidates) ? candidates : []).filter(c => c && c.move);
+        if (!list.length) return null;
+        const best = list[0];
+        const bestValue = typeof ctx.bestValue === 'number' ? ctx.bestValue : antidoteScoreValue(best);
+        const baseCtx = Object.assign({}, ctx, { best: best, bestValue: bestValue });
+        const fallback = {
+            move: best.move,
+            san: best.san || null,
+            source: 'engine_best',
+            test: null,
+            cpLoss: 0,
+            themeId: null,
+            family: null,
+            finalScore: null,
+            components: null
+        };
+        if (bestValue === null) return fallback;
+
+        const scored = list
+            .map(c => ({ candidate: c, score: scoreAntidoteCandidate(c, profile, baseCtx, cfg) }))
+            .filter(item => item.score.allowed);
+        if (!scored.length) return fallback;
+
+        // TOTES les candidates que passen els filtres competeixen amb la mateixa
+        // fórmula, la millor jugada del motor inclosa: així una coincidència
+        // pedagògica només guanya si la jugada també és objectivament bona.
+        const maxScore = scored.reduce((m, item) => Math.max(m, item.score.finalScore), -Infinity);
+        const tied = scored.filter(item => (maxScore - item.score.finalScore) <= cfg.tieBandScore);
+        const chosen = tied.length > 1
+            ? antidotePickWeighted(tied, item => (item.score.finalScore - maxScore) + cfg.tieBandScore + 1, ctx.rng)
+            : tied[0];
+        if (!chosen) return fallback;
+
+        const isBest = chosen.candidate.move === best.move;
+        // Només hi ha PROVA si la jugada escollida posa a prova de debò alguna
+        // debilitat real: si no, és una jugada forta i prou (no s'avalua res).
+        const hasTest = !!(chosen.score.themeId
+            && chosen.score.themeStrength >= cfg.response.minThemeStrength
+            && chosen.score.components.weaknessMatch > 0);
+        return {
+            move: chosen.candidate.move,
+            san: chosen.candidate.san || null,
+            source: hasTest ? 'antidote' : (isBest ? 'engine_best' : 'engine_alternative'),
+            cpLoss: chosen.score.cpLoss,
+            themeId: hasTest ? chosen.score.themeId : null,
+            family: hasTest ? chosen.score.family : null,
+            themeStrength: chosen.score.themeStrength,
+            finalScore: chosen.score.finalScore,
+            components: chosen.score.components,
+            pv: Array.isArray(chosen.candidate.pv) ? chosen.candidate.pv : [],
+            test: hasTest
+        };
+    }
+
+    // ----------------------------------------------------------------------
+    //  Proves pedagògiques
+    // ----------------------------------------------------------------------
+
+    // Crea la prova interna associada a una jugada escollida per raó pedagògica.
+    // Retorna null si la selecció no en generava cap (llavors no hi ha res a
+    // avaluar i la partida segueix igual).
+    function antidoteCreateTest(selection, context, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const sel = selection || {};
+        const ctx = context || {};
+        if (!sel.test || !sel.themeId) return null;
+        return {
+            id: String(ctx.id || ('at_' + (ctx.ply || 0) + '_' + (sel.move || ''))),
+            theme: sel.family || antidoteThemeFamily(sel.themeId),
+            subtheme: sel.themeId,
+            sourceFen: ctx.fen || null,
+            engineMove: sel.move || null,
+            engineMoveSan: sel.san || null,
+            expectedPv: (Array.isArray(sel.pv) ? sel.pv : []).slice(0, cfg.storedPvPlies),
+            createdAtPly: antidoteNum(ctx.ply, 0),
+            moveNumber: antidoteNum(ctx.moveNumber, 0) || null,
+            phase: ctx.phase || null,
+            playerResponse: null,
+            playerResponseSan: null,
+            bestResponse: null,
+            bestResponseSan: null,
+            responseCpLoss: null,
+            result: 'pending',
+            severity: antidoteClamp01(antidoteNum(sel.themeStrength, 0.5)),
+            at: antidoteNum(ctx.now, Date.now()) || Date.now()
+        };
+    }
+
+    // Avalua com ha respost el jugador a una prova. Mai marca «failed» una
+    // situació ambigua: en aquest cas és `inconclusive`.
+    function evaluateAntidoteResponse(test, response, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const t = test || {};
+        const r = response || {};
+        const out = Object.assign({}, t);
+        out.playerResponse = r.playerMove || null;
+        out.playerResponseSan = r.playerMoveSan || null;
+        out.bestResponse = r.bestMove || null;
+        out.bestResponseSan = r.bestMoveSan || null;
+
+        const cpLoss = (typeof r.cpLoss === 'number' && isFinite(r.cpLoss)) ? Math.max(0, r.cpLoss) : null;
+        out.responseCpLoss = cpLoss;
+
+        // Sense tema prou clar: la candidata no ha generat una prova de veritat.
+        if (!t.theme || antidoteNum(t.severity, 0) < cfg.response.minThemeStrength) {
+            out.result = 'inconclusive';
+            return out;
+        }
+        // Sense dades d'anàlisi: no es jutja.
+        if (cpLoss === null) {
+            out.result = 'inconclusive';
+            return out;
+        }
+        // Posició ja decidida abans de respondre: el que passi allà no mesura res.
+        const evalBefore = (typeof r.evalBefore === 'number') ? r.evalBefore : null;
+        if (evalBefore !== null && Math.abs(evalBefore) >= cfg.response.decidedCp && cpLoss > cfg.response.passCpLoss) {
+            out.result = 'inconclusive';
+            return out;
+        }
+        if (r.playerMove && r.bestMove && r.playerMove === r.bestMove) {
+            out.result = 'passed';
+            return out;
+        }
+        if (cpLoss <= cfg.response.passCpLoss) { out.result = 'passed'; return out; }
+        if (cpLoss <= cfg.response.partialCpLoss) { out.result = 'partial'; return out; }
+        out.result = 'failed';
+        return out;
+    }
+
+    // Resum d'una partida ANTÍDOT.
+    function antidoteGameSummary(tests) {
+        const list = Array.isArray(tests) ? tests : [];
+        const summary = { total: 0, passed: 0, partial: 0, failed: 0, inconclusive: 0, themes: {} };
+        list.forEach(t => {
+            if (!t || !t.theme) return;
+            summary.total += 1;
+            const result = t.result === 'passed' || t.result === 'partial' || t.result === 'failed'
+                ? t.result : 'inconclusive';
+            summary[result] += 1;
+            const acc = summary.themes[t.theme] || { total: 0, passed: 0, partial: 0, failed: 0, inconclusive: 0 };
+            acc.total += 1;
+            acc[result] += 1;
+            summary.themes[t.theme] = acc;
+        });
+        summary.successRate = summary.total
+            ? Math.round(((summary.passed + summary.partial * 0.5) / summary.total) * 100)
+            : null;
+        return summary;
+    }
+
+    // Actualitza el progrés per tema sense duplicar registres: cada prova es
+    // comptabilitza una sola vegada (per `id`).
+    function updateAntidoteProgress(progress, tests) {
+        const base = (progress && typeof progress === 'object') ? progress : {};
+        const out = {
+            version: ANTIDOTE_CONFIG.version,
+            themes: Object.assign({}, base.themes || {}),
+            seenTestIds: Array.isArray(base.seenTestIds) ? base.seenTestIds.slice() : [],
+            games: Math.max(0, antidoteNum(base.games, 0)),
+            passed: Math.max(0, antidoteNum(base.passed, 0)),
+            partial: Math.max(0, antidoteNum(base.partial, 0)),
+            failed: Math.max(0, antidoteNum(base.failed, 0)),
+            total: Math.max(0, antidoteNum(base.total, 0))
+        };
+        const seen = new Set(out.seenTestIds.map(String));
+        (Array.isArray(tests) ? tests : []).forEach(t => {
+            if (!t || !t.theme || !t.id) return;
+            const key = String(t.id);
+            if (seen.has(key)) return;
+            const result = (t.result === 'passed' || t.result === 'partial' || t.result === 'failed')
+                ? t.result : null;
+            if (!result) return;                 // les inconclusives no compten
+            seen.add(key);
+            out.seenTestIds.push(key);
+            const acc = out.themes[t.theme] || { total: 0, passed: 0, partial: 0, failed: 0 };
+            acc.total += 1;
+            acc[result] += 1;
+            out.themes[t.theme] = acc;
+            out.total += 1;
+            out[result] += 1;
+        });
+        // La llista d'identificadors vistos no pot créixer sense límit.
+        if (out.seenTestIds.length > 400) out.seenTestIds = out.seenTestIds.slice(-400);
+        return out;
+    }
+
+    // Evolució entre el perfil d'abans i el d'ara, en català natural i sense
+    // presentar les debilitats com un defecte: són habilitats en procés.
+    function antidoteEvolutionReport(profileBefore, profileAfter, tests) {
+        const summary = antidoteGameSummary(tests);
+        const before = (profileBefore && profileBefore.weaknesses) || {};
+        const after = (profileAfter && profileAfter.weaknesses) || {};
+        const improved = [];
+        const active = [];
+        ANTIDOTE_WEAKNESS_IDS.forEach(id => {
+            const b = antidoteNum(before[id] && before[id].weight, 0);
+            const a = antidoteNum(after[id] && after[id].weight, 0);
+            const themeResults = summary.themes[id];
+            if (!themeResults && b <= 0) return;
+            const entry = {
+                id: id,
+                label: antidoteWeaknessLabel(id),
+                weightBefore: b,
+                weightAfter: a,
+                delta: Math.round((a - b) * 1000) / 1000,
+                confidence: antidoteClamp01(antidoteNum(after[id] && after[id].confidence, 0)),
+                passed: themeResults ? themeResults.passed : 0,
+                failed: themeResults ? themeResults.failed : 0
+            };
+            if (a < b - 0.005 || (themeResults && themeResults.passed > themeResults.failed)) improved.push(entry);
+            else if (a > 0) active.push(entry);
+        });
+        improved.sort((x, y) => x.delta - y.delta);
+        active.sort((x, y) => y.weightAfter - x.weightAfter);
+        const next = active.length ? active[0] : (improved.length ? improved[0] : null);
+        return {
+            summary: summary,
+            improved: improved,
+            active: active,
+            nextTheme: next ? next.id : null,
+            nextLabel: next ? next.label : null,
+            text: antidoteEvolutionText(improved, active, next)
+        };
+    }
+
+    function antidoteEvolutionText(improved, active, next) {
+        const parts = [];
+        if (improved.length) {
+            parts.push(`Has respost bé quan la partida t'ha posat a prova en ${improved[0].label.toLowerCase()}`);
+        }
+        if (active.length) {
+            const tail = `encara et costa ${active[0].label.toLowerCase()}`;
+            parts.push(parts.length ? tail : `De moment, ${tail}`);
+        }
+        if (!parts.length) return 'Encara no hi ha prou proves per dir com evoluciona el teu joc. Torna-hi i el perfil s\'anirà afinant.';
+        let text = parts.join(', però ') + '.';
+        if (next) {
+            text += ` El pròxim Rival Antídot insistirà més en ${next.label.toLowerCase()}.`;
+        }
+        return text;
+    }
+
+    // ----------------------------------------------------------------------
+    //  Persistència
+    // ----------------------------------------------------------------------
+
+    // Forma COMPACTA d'una prova per desar a l'historial: sense línies de motor
+    // llargues (només les semijugades necessàries per reconstruir-la).
+    function antidoteSerializeTest(test, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        if (!test || !test.theme) return null;
+        return {
+            id: String(test.id || ''),
+            theme: test.theme,
+            subtheme: test.subtheme || null,
+            sourceFen: test.sourceFen || null,
+            engineMove: test.engineMove || null,
+            engineMoveSan: test.engineMoveSan || null,
+            expectedPv: (Array.isArray(test.expectedPv) ? test.expectedPv : []).slice(0, cfg.storedPvPlies),
+            createdAtPly: antidoteNum(test.createdAtPly, 0),
+            moveNumber: test.moveNumber || null,
+            phase: test.phase || null,
+            playerResponse: test.playerResponse || null,
+            playerResponseSan: test.playerResponseSan || null,
+            bestResponse: test.bestResponse || null,
+            bestResponseSan: test.bestResponseSan || null,
+            responseCpLoss: (typeof test.responseCpLoss === 'number') ? Math.round(test.responseCpLoss) : null,
+            result: test.result || 'inconclusive',
+            severity: Math.round(antidoteClamp01(antidoteNum(test.severity, 0)) * 100) / 100
+        };
+    }
+
+    // Bloc `antidote` d'una entrada de l'historial.
+    function antidoteSerializeGame(tests, extra, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+        const list = (Array.isArray(tests) ? tests : [])
+            .map(t => antidoteSerializeTest(t, cfg))
+            .filter(Boolean)
+            .slice(0, cfg.maxStoredTests);
+        const summary = antidoteGameSummary(list);
+        const targeted = [];
+        list.forEach(t => { if (t.theme && targeted.indexOf(t.theme) === -1) targeted.push(t.theme); });
+        return Object.assign({
+            profileVersion: cfg.version,
+            tests: list,
+            targetedThemes: targeted,
+            passed: summary.passed,
+            partial: summary.partial,
+            failed: summary.failed
+        }, extra || {});
+    }
+
+    // Llegeix el bloc `antidote` d'una entrada, tolerant amb dades antigues
+    // (partides sense el camp) i amb dades corruptes.
+    function antidoteRestoreGame(entry) {
+        const raw = entry && entry.antidote;
+        if (!raw || typeof raw !== 'object') return null;
+        const tests = Array.isArray(raw.tests) ? raw.tests.filter(t => t && typeof t === 'object' && t.theme) : [];
+        const summary = antidoteGameSummary(tests);
+        return {
+            profileVersion: antidoteNum(raw.profileVersion, 1),
+            tests: tests,
+            targetedThemes: Array.isArray(raw.targetedThemes) ? raw.targetedThemes.filter(t => typeof t === 'string') : [],
+            passed: antidoteNum(raw.passed, summary.passed),
+            partial: antidoteNum(raw.partial, summary.partial),
+            failed: antidoteNum(raw.failed, summary.failed),
+            summary: summary
+        };
+    }
+
+    // Totes les proves de l'historial (per reconstruir el perfil i les
+    // estadístiques). Les partides antigues sense `antidote` s'ignoren sense
+    // trencar res.
+    function antidoteTestsFromHistory(entries) {
+        const out = [];
+        (Array.isArray(entries) ? entries : []).forEach(entry => {
+            const data = antidoteRestoreGame(entry);
+            if (!data) return;
+            const at = Date.parse(entry.date || entry.createdAt || '') || null;
+            data.tests.forEach(t => {
+                out.push(Object.assign({}, t, { at: at, gameId: entry.id || null }));
+            });
+        });
+        return out;
+    }
+
+    // Estadístiques ANTÍDOT per a la pantalla d'Estadístiques.
+    function antidoteStatsFromHistory(entries) {
+        const games = (Array.isArray(entries) ? entries : []).filter(e => e && e.mode === 'antidote');
+        const tests = antidoteTestsFromHistory(games);
+        const summary = antidoteGameSummary(tests);
+        const themes = Object.keys(summary.themes).map(id => {
+            const t = summary.themes[id];
+            const rate = t.total ? (t.passed + t.partial * 0.5) / t.total : 0;
+            return {
+                id: id,
+                label: antidoteWeaknessLabel(id),
+                total: t.total,
+                passed: t.passed,
+                partial: t.partial,
+                failed: t.failed,
+                successRate: Math.round(rate * 100)
+            };
+        }).sort((a, b) => b.total - a.total);
+        const mostWorked = themes.length ? themes[0] : null;
+        const mostImproved = themes.length
+            ? themes.slice().sort((a, b) => (b.successRate - a.successRate) || (b.total - a.total))[0]
+            : null;
+        return {
+            games: games.length,
+            tests: summary.total,
+            passed: summary.passed,
+            partial: summary.partial,
+            failed: summary.failed,
+            successRate: summary.successRate,
+            themes: themes,
+            mostWorked: mostWorked,
+            mostImproved: (mostImproved && mostImproved.total > 0) ? mostImproved : null
+        };
+    }
+
+    // ----------------------------------------------------------------------
+    //  Detectors: què posa a prova cada candidata
+    // ----------------------------------------------------------------------
+    // Model de tauler propi (matriu 8×8 des del FEN) per als atacs i les
+    // defenses: chess.js 0.10 no exposa «qui ataca aquesta casella», i fer-ho
+    // amb generació de jugades no veu les defenses de peces pròpies. La lògica
+    // de jugades legals (i la línia principal) segueix sent de chess.js.
+
+    const ANTIDOTE_PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 100 };
+    const ANTIDOTE_KNIGHT_DELTAS = [[1, 2], [2, 1], [2, -1], [1, -2], [-1, -2], [-2, -1], [-2, 1], [-1, 2]];
+    const ANTIDOTE_KING_DELTAS = [[0, 1], [1, 1], [1, 0], [1, -1], [0, -1], [-1, -1], [-1, 0], [-1, 1]];
+    const ANTIDOTE_ROOK_DIRS = [[0, 1], [1, 0], [0, -1], [-1, 0]];
+    const ANTIDOTE_BISHOP_DIRS = [[1, 1], [1, -1], [-1, -1], [-1, 1]];
+
+    function antidoteSquareName(file, rank) {
+        return String.fromCharCode(97 + file) + String(rank + 1);
+    }
+
+    function antidoteSquareIndex(square) {
+        const s = String(square || '');
+        if (s.length < 2) return null;
+        const file = s.charCodeAt(0) - 97;
+        const rank = parseInt(s[1], 10) - 1;
+        if (file < 0 || file > 7 || !(rank >= 0 && rank <= 7)) return null;
+        return { file: file, rank: rank };
+    }
+
+    // FEN → { grid[rank][file] = {t,c}|null, turn, castling, ep, pieces }
+    function antidoteParseBoard(fen) {
+        const parts = String(fen || '').trim().split(/\s+/);
+        const grid = [];
+        for (let r = 0; r < 8; r++) grid.push([null, null, null, null, null, null, null, null]);
+        const rows = String(parts[0] || '').split('/');
+        let pieces = 0;
+        for (let i = 0; i < rows.length && i < 8; i++) {
+            const rank = 7 - i;
+            let file = 0;
+            const row = rows[i];
+            for (let j = 0; j < row.length && file < 8; j++) {
+                const ch = row[j];
+                if (ch >= '1' && ch <= '8') { file += (ch.charCodeAt(0) - 48); continue; }
+                const lower = ch.toLowerCase();
+                if (!ANTIDOTE_PIECE_VALUE[lower]) { file++; continue; }
+                grid[rank][file] = { t: lower, c: (ch === ch.toUpperCase() ? 'w' : 'b') };
+                pieces++;
+                file++;
+            }
+        }
+        return {
+            grid: grid,
+            turn: parts[1] === 'b' ? 'b' : 'w',
+            castling: parts[2] || '-',
+            ep: parts[3] || '-',
+            fullmove: parseInt(parts[5] || '1', 10) || 1,
+            pieces: pieces
+        };
+    }
+
+    function antidoteAt(grid, file, rank) {
+        if (file < 0 || file > 7 || rank < 0 || rank > 7) return null;
+        return grid[rank][file];
+    }
+
+    // Peces de `color` que ataquen la casella (file, rank). Compta també la
+    // defensa de peces pròpies (per això no serveix la generació de jugades).
+    function antidoteAttackersOf(grid, file, rank, color) {
+        const out = [];
+        // Peons
+        const dir = color === 'w' ? -1 : 1;   // d'on ve el peó que hi ataca
+        [-1, 1].forEach(df => {
+            const p = antidoteAt(grid, file + df, rank + dir);
+            if (p && p.c === color && p.t === 'p') out.push({ file: file + df, rank: rank + dir, t: 'p' });
+        });
+        // Cavalls
+        ANTIDOTE_KNIGHT_DELTAS.forEach(d => {
+            const p = antidoteAt(grid, file + d[0], rank + d[1]);
+            if (p && p.c === color && p.t === 'n') out.push({ file: file + d[0], rank: rank + d[1], t: 'n' });
+        });
+        // Rei
+        ANTIDOTE_KING_DELTAS.forEach(d => {
+            const p = antidoteAt(grid, file + d[0], rank + d[1]);
+            if (p && p.c === color && p.t === 'k') out.push({ file: file + d[0], rank: rank + d[1], t: 'k' });
+        });
+        // Lliscants
+        const scan = (dirs, types) => {
+            dirs.forEach(d => {
+                let f = file + d[0];
+                let r = rank + d[1];
+                while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
+                    const p = grid[r][f];
+                    if (p) {
+                        if (p.c === color && types.indexOf(p.t) !== -1) out.push({ file: f, rank: r, t: p.t });
+                        break;
+                    }
+                    f += d[0];
+                    r += d[1];
+                }
+            });
+        };
+        scan(ANTIDOTE_ROOK_DIRS, ['r', 'q']);
+        scan(ANTIDOTE_BISHOP_DIRS, ['b', 'q']);
+        return out;
+    }
+
+    function antidoteIsAttacked(grid, file, rank, color) {
+        return antidoteAttackersOf(grid, file, rank, color).length > 0;
+    }
+
+    // Caselles que ataca la peça de (file, rank), segons el seu tipus.
+    function antidoteTargetsOf(grid, file, rank) {
+        const piece = antidoteAt(grid, file, rank);
+        if (!piece) return [];
+        const out = [];
+        const push = (f, r) => { if (f >= 0 && f <= 7 && r >= 0 && r <= 7) out.push({ file: f, rank: r }); };
+        if (piece.t === 'p') {
+            const dir = piece.c === 'w' ? 1 : -1;
+            push(file - 1, rank + dir);
+            push(file + 1, rank + dir);
+            return out;
+        }
+        if (piece.t === 'n') { ANTIDOTE_KNIGHT_DELTAS.forEach(d => push(file + d[0], rank + d[1])); return out; }
+        if (piece.t === 'k') { ANTIDOTE_KING_DELTAS.forEach(d => push(file + d[0], rank + d[1])); return out; }
+        const dirs = piece.t === 'r' ? ANTIDOTE_ROOK_DIRS
+            : (piece.t === 'b' ? ANTIDOTE_BISHOP_DIRS : ANTIDOTE_ROOK_DIRS.concat(ANTIDOTE_BISHOP_DIRS));
+        dirs.forEach(d => {
+            let f = file + d[0];
+            let r = rank + d[1];
+            while (f >= 0 && f <= 7 && r >= 0 && r <= 7) {
+                out.push({ file: f, rank: r });
+                if (grid[r][f]) break;
+                f += d[0];
+                r += d[1];
+            }
+        });
+        return out;
+    }
+
+    function antidoteFindKing(grid, color) {
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (p && p.c === color && p.t === 'k') return { file: f, rank: r };
+            }
+        }
+        return null;
+    }
+
+    function antidoteCountPieces(grid, color, types) {
+        let n = 0;
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (!p) continue;
+                if (color && p.c !== color) continue;
+                if (types && types.indexOf(p.t) === -1) continue;
+                n++;
+            }
+        }
+        return n;
+    }
+
+    // Parells «lliscant nostre → peça enemiga atacada», per detectar descoberts.
+    function antidoteSliderAttackPairs(grid, color) {
+        const pairs = new Set();
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (!p || p.c !== color || ['b', 'r', 'q'].indexOf(p.t) === -1) continue;
+                antidoteTargetsOf(grid, f, r).forEach(t => {
+                    const target = grid[t.rank][t.file];
+                    if (target && target.c !== color) {
+                        pairs.add(antidoteSquareName(f, r) + '>' + antidoteSquareName(t.file, t.rank));
+                    }
+                });
+            }
+        }
+        return pairs;
+    }
+
+    // Clavades i enfilades de `color` sobre l'enemic. Cada element:
+    // { kind: 'pin'|'skewer', from, front, back }.
+    function antidotePinsAndSkewers(grid, color) {
+        const out = [];
+        const enemy = color === 'w' ? 'b' : 'w';
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (!p || p.c !== color || ['b', 'r', 'q'].indexOf(p.t) === -1) continue;
+                const dirs = p.t === 'r' ? ANTIDOTE_ROOK_DIRS
+                    : (p.t === 'b' ? ANTIDOTE_BISHOP_DIRS : ANTIDOTE_ROOK_DIRS.concat(ANTIDOTE_BISHOP_DIRS));
+                dirs.forEach(d => {
+                    let cf = f + d[0];
+                    let cr = r + d[1];
+                    let front = null;
+                    while (cf >= 0 && cf <= 7 && cr >= 0 && cr <= 7) {
+                        const q = grid[cr][cf];
+                        if (q) {
+                            if (!front) {
+                                if (q.c !== enemy) break;         // topem amb una peça pròpia
+                                front = { file: cf, rank: cr, t: q.t };
+                            } else {
+                                if (q.c !== enemy) break;         // darrere hi ha una peça nostra
+                                const vFront = ANTIDOTE_PIECE_VALUE[front.t] || 0;
+                                const vBack = ANTIDOTE_PIECE_VALUE[q.t] || 0;
+                                if (vBack >= vFront) {
+                                    out.push({
+                                        kind: 'pin', from: antidoteSquareName(f, r),
+                                        front: antidoteSquareName(front.file, front.rank),
+                                        back: antidoteSquareName(cf, cr),
+                                        value: vBack
+                                    });
+                                } else if (vFront > vBack && vFront >= 5) {
+                                    out.push({
+                                        kind: 'skewer', from: antidoteSquareName(f, r),
+                                        front: antidoteSquareName(front.file, front.rank),
+                                        back: antidoteSquareName(cf, cr),
+                                        value: vFront
+                                    });
+                                }
+                                break;
+                            }
+                        }
+                        cf += d[0];
+                        cr += d[1];
+                    }
+                });
+            }
+        }
+        return out;
+    }
+
+    // Peces de `victimColor` atacades i no prou defensades.
+    function antidoteHangingPieces(grid, victimColor) {
+        const attacker = victimColor === 'w' ? 'b' : 'w';
+        const out = [];
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (!p || p.c !== victimColor || p.t === 'k') continue;
+                const attackers = antidoteAttackersOf(grid, f, r, attacker);
+                if (!attackers.length) continue;
+                const defenders = antidoteAttackersOf(grid, f, r, victimColor);
+                const value = ANTIDOTE_PIECE_VALUE[p.t] || 0;
+                const cheapest = attackers.reduce((min, a) =>
+                    Math.min(min, ANTIDOTE_PIECE_VALUE[a.t] || 0), 99);
+                // Indefensa, o atacada per una peça més barata que ella.
+                if (!defenders.length || cheapest < value) {
+                    out.push({ square: antidoteSquareName(f, r), type: p.t, value: value, defended: defenders.length > 0 });
+                }
+            }
+        }
+        return out;
+    }
+
+    // Peons passats d'un color.
+    function antidotePassedPawns(grid, color) {
+        const enemy = color === 'w' ? 'b' : 'w';
+        const dir = color === 'w' ? 1 : -1;
+        const out = [];
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (!p || p.c !== color || p.t !== 'p') continue;
+                let blocked = false;
+                for (let df = -1; df <= 1 && !blocked; df++) {
+                    const nf = f + df;
+                    if (nf < 0 || nf > 7) continue;
+                    for (let nr = r + dir; nr >= 0 && nr <= 7; nr += dir) {
+                        const q = grid[nr][nf];
+                        if (q && q.c === enemy && q.t === 'p') { blocked = true; break; }
+                    }
+                }
+                if (!blocked) out.push({ square: antidoteSquareName(f, r), rank: r });
+            }
+        }
+        return out;
+    }
+
+    // Peons aïllats d'un color.
+    function antidoteIsolatedPawns(grid, color) {
+        const files = [0, 0, 0, 0, 0, 0, 0, 0];
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (p && p.c === color && p.t === 'p') files[f]++;
+            }
+        }
+        const out = [];
+        for (let f = 0; f < 8; f++) {
+            if (!files[f]) continue;
+            const left = f > 0 ? files[f - 1] : 0;
+            const right = f < 7 ? files[f + 1] : 0;
+            if (!left && !right) out.push(f);
+        }
+        return out;
+    }
+
+    // Columnes sense cap peó (obertes) i sense peons propis (semiobertes).
+    function antidoteFileState(grid, file) {
+        let own = { w: 0, b: 0 };
+        for (let r = 0; r < 8; r++) {
+            const p = grid[r][file];
+            if (p && p.t === 'p') own[p.c]++;
+        }
+        return own;
+    }
+
+    // Pressió sobre el rei enemic: atacants a la seva zona (rei + 8 veïnes).
+    function antidoteKingZonePressure(grid, defenderColor) {
+        const king = antidoteFindKing(grid, defenderColor);
+        if (!king) return { attackers: 0, shieldPawns: 0, zone: [] };
+        const attackerColor = defenderColor === 'w' ? 'b' : 'w';
+        const zone = [{ file: king.file, rank: king.rank }];
+        ANTIDOTE_KING_DELTAS.forEach(d => {
+            const f = king.file + d[0];
+            const r = king.rank + d[1];
+            if (f >= 0 && f <= 7 && r >= 0 && r <= 7) zone.push({ file: f, rank: r });
+        });
+        const seen = new Set();
+        zone.forEach(sq => {
+            antidoteAttackersOf(grid, sq.file, sq.rank, attackerColor).forEach(a => {
+                seen.add(antidoteSquareName(a.file, a.rank));
+            });
+        });
+        // Coberta de peons: peons propis a les tres columnes del rei, davant seu.
+        const dir = defenderColor === 'w' ? 1 : -1;
+        let shieldPawns = 0;
+        for (let df = -1; df <= 1; df++) {
+            const f = king.file + df;
+            if (f < 0 || f > 7) continue;
+            for (let step = 1; step <= 2; step++) {
+                const r = king.rank + dir * step;
+                if (r < 0 || r > 7) break;
+                const p = grid[r][f];
+                if (p && p.c === defenderColor && p.t === 'p') { shieldPawns++; break; }
+            }
+        }
+        return { attackers: seen.size, shieldPawns: shieldPawns, king: king, zone: zone };
+    }
+
+    // Detectors que necessiten jugar la línia: es construeixen amb chess.js.
+    function createAntidoteDetectors(ChessCtor, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
+
+        function safeChess(fen) {
+            try { return fen ? new ChessCtor(fen) : new ChessCtor(); } catch (e) { return null; }
+        }
+
+        function applyUci(chess, uci) {
+            if (!chess || !uci || uci.length < 4) return null;
+            try {
+                return chess.move({
+                    from: uci.substring(0, 2),
+                    to: uci.substring(2, 4),
+                    promotion: uci.length > 4 ? uci[4] : 'q'
+                });
+            } catch (e) { return null; }
+        }
+
+        function uciToSan(fen, uci) {
+            const chess = safeChess(fen);
+            const move = applyUci(chess, uci);
+            return move ? move.san : null;
+        }
+
+        // Pèrdua de material immediata (SEE simplificat a una recaptura), en
+        // peons. Serveix per no triar mai una jugada que penja material net.
+        function immediateMaterialLoss(fen, uci) {
+            const chess = safeChess(fen);
+            if (!chess || !applyUci(chess, uci)) return 0;
+            let worst = 0;
+            let replies;
+            try { replies = chess.moves({ verbose: true }); } catch (e) { return 0; }
+            for (const r of replies) {
+                if (!r.captured) continue;
+                const gain = ANTIDOTE_PIECE_VALUE[r.captured] || 0;
+                let recapture = 0;
+                let opp = null;
+                try { opp = chess.move({ from: r.from, to: r.to, promotion: 'q' }); } catch (e) { opp = null; }
+                if (opp) {
+                    let canRecapture = false;
+                    try {
+                        canRecapture = chess.moves({ verbose: true }).some(m => m.to === r.to && m.captured);
+                    } catch (e) { canRecapture = false; }
+                    if (canRecapture) recapture = ANTIDOTE_PIECE_VALUE[opp.piece] || 0;
+                    try { chess.undo(); } catch (e) {}
+                }
+                const net = gain - recapture;
+                if (net > worst) worst = net;
+            }
+            return worst;
+        }
+
+        // Complexitat de la posició que hereta el jugador: quantes decisions
+        // reals té i com de tallant és la posició.
+        function positionComplexity(fen) {
+            const chess = safeChess(fen);
+            if (!chess) return 0.5;
+            let moves;
+            try { moves = chess.moves({ verbose: true }); } catch (e) { return 0.5; }
+            if (!moves.length) return 0;
+            const board = antidoteParseBoard(fen);
+            const captures = moves.filter(m => m.captured).length;
+            const checks = moves.filter(m => m.san.indexOf('+') !== -1 || m.san.indexOf('#') !== -1).length;
+            const inCheck = chess.in_check();
+            const mobility = antidoteClamp01((moves.length - 8) / 30);
+            const tension = antidoteClamp01(captures / 8);
+            const sharpness = antidoteClamp01(checks / 4);
+            const density = antidoteClamp01((board.pieces - 8) / 24);
+            let complexity = mobility * 0.34 + tension * 0.24 + sharpness * 0.2 + density * 0.22;
+            // En escac hi ha poques jugades però la decisió és crítica.
+            if (inCheck) complexity = Math.max(complexity, 0.55);
+            return antidoteClamp01(complexity);
+        }
+
+        // Classifica QUÈ posa a prova una candidata. Mira la posició resultant
+        // i recorre unes quantes semijugades de la línia principal.
+        function classifyAntidoteCandidate(fen, uci, pv, options) {
+            const opts = options || {};
+            const result = {
+                move: uci || null,
+                san: null,
+                themes: [],
+                complexity: 0,
+                materialLoss: 0,
+                afterFen: null
+            };
+            const chess = safeChess(fen);
+            if (!chess) return result;
+            const before = antidoteParseBoard(fen);
+            const moverColor = before.turn;
+            const opponentColor = moverColor === 'w' ? 'b' : 'w';
+            const played = applyUci(chess, uci);
+            if (!played) return result;
+            result.san = played.san;
+            const afterFen = chess.fen();
+            result.afterFen = afterFen;
+            const after = antidoteParseBoard(afterFen);
+
+            const themes = [];
+            const add = (id, strength, triggerPly) => {
+                const s = antidoteClamp01(strength);
+                if (s <= 0) return;
+                const existing = themes.find(t => t.id === id);
+                if (existing) {
+                    if (s > existing.strength) { existing.strength = s; existing.triggerPly = triggerPly; }
+                    return;
+                }
+                themes.push({ id: id, strength: s, triggerPly: triggerPly });
+            };
+
+            const to = antidoteSquareIndex(played.to);
+            const isQuiet = !played.captured && played.san.indexOf('+') === -1;
+
+            // ── Tàctica ────────────────────────────────────────────────────
+            if (to) {
+                const targets = antidoteTargetsOf(after.grid, to.file, to.rank);
+                const forked = [];
+                const movedValue = ANTIDOTE_PIECE_VALUE[played.piece] || 0;
+                targets.forEach(t => {
+                    const victim = after.grid[t.rank][t.file];
+                    if (!victim || victim.c !== opponentColor) return;
+                    const value = ANTIDOTE_PIECE_VALUE[victim.t] || 0;
+                    if (victim.t === 'k' || value >= movedValue) forked.push({ value: value, type: victim.t });
+                });
+                if (forked.length >= 2) {
+                    const attackedBack = antidoteIsAttacked(after.grid, to.file, to.rank, opponentColor);
+                    const defended = antidoteIsAttacked(after.grid, to.file, to.rank, moverColor);
+                    // Una «forquilla» amb la peça penjada no és una forquilla.
+                    if (!attackedBack || defended) {
+                        const total = forked.reduce((s, x) => s + Math.min(9, x.value), 0);
+                        add('fork', 0.55 + antidoteClamp01(total / 20) * 0.4, 1);
+                        add('double_attack', 0.5, 1);
+                    }
+                }
+            }
+
+            const pinsBefore = antidotePinsAndSkewers(before.grid, moverColor)
+                .map(p => p.kind + ':' + p.from + '>' + p.front + '>' + p.back);
+            antidotePinsAndSkewers(after.grid, moverColor).forEach(p => {
+                const key = p.kind + ':' + p.from + '>' + p.front + '>' + p.back;
+                if (pinsBefore.indexOf(key) !== -1) return;
+                add(p.kind === 'pin' ? 'pin' : 'skewer', 0.5 + antidoteClamp01(p.value / 18) * 0.4, 1);
+            });
+
+            const pairsBefore = antidoteSliderAttackPairs(before.grid, moverColor);
+            const pairsAfter = antidoteSliderAttackPairs(after.grid, moverColor);
+            let discovered = false;
+            pairsAfter.forEach(pair => {
+                if (pairsBefore.has(pair)) return;
+                if (pair.indexOf(played.to + '>') === 0) return;   // la mateixa peça que ha mogut
+                discovered = true;
+            });
+            if (discovered) add('discovered_attack', 0.68, 1);
+
+            const hanging = antidoteHangingPieces(after.grid, opponentColor)
+                .filter(h => h.value >= 3 || !h.defended);
+            if (hanging.length) {
+                const worst = hanging.reduce((m, h) => Math.max(m, h.value), 0);
+                add('hanging_piece', 0.42 + antidoteClamp01(worst / 12) * 0.45, 1);
+                if (worst >= 3) add('material_win', 0.45 + antidoteClamp01(worst / 12) * 0.4, 1);
+                if (hanging.length >= 2) add('overload', 0.5, 1);
+            }
+
+            // Defensor sobrecarregat: una peça enemiga que defensa dues coses.
+            const overloaded = antidoteFindOverloaded(after.grid, opponentColor, moverColor);
+            if (overloaded) { add('overload', 0.55, 1); add('deflection', 0.5, 1); }
+
+            // ── Rei ────────────────────────────────────────────────────────
+            const pressure = antidoteKingZonePressure(after.grid, opponentColor);
+            if (pressure.attackers >= 2) {
+                add('king_attack', 0.4 + antidoteClamp01(pressure.attackers / 5) * 0.5, 1);
+            }
+            const pressureBefore = antidoteKingZonePressure(before.grid, opponentColor);
+            if (pressure.shieldPawns < pressureBefore.shieldPawns && pressure.attackers >= 1) {
+                add('pawn_shield_loss', 0.55 + (pressureBefore.shieldPawns - pressure.shieldPawns) * 0.15, 1);
+            }
+            const opponentCastled = after.castling.indexOf(opponentColor === 'w' ? 'K' : 'k') === -1
+                && after.castling.indexOf(opponentColor === 'w' ? 'Q' : 'q') === -1;
+            if (pressure.king && after.pieces > 14) {
+                const centralFile = pressure.king.file >= 2 && pressure.king.file <= 5;
+                if (centralFile && opponentCastled) {
+                    add('king_in_center', 0.5 + (pressure.attackers >= 1 ? 0.25 : 0), 1);
+                } else if (centralFile && !opponentCastled && pressure.attackers >= 1) {
+                    add('castling_lost', 0.45, 1);
+                }
+            }
+
+            let replyCount = 0;
+            let inCheck = false;
+            try {
+                replyCount = chess.moves().length;
+                inCheck = chess.in_check();
+            } catch (e) {}
+            if (inCheck && replyCount > 0 && replyCount <= 2) add('only_defense', 0.75, 1);
+            else if (replyCount > 0 && replyCount <= 4) add('only_defense', 0.5, 1);
+
+            // ── Línia principal: finals, promocions, simplificació ─────────
+            const line = (Array.isArray(pv) ? pv : []).slice(0, cfg.pvScanPlies);
+            const walker = safeChess(afterFen);
+            let mateInLine = false;
+            let captures = 0;
+            let queenGone = false;
+            let promotionInLine = false;
+            let kingMoves = 0;
+            let ply = 1;
+            const queensAtStart = antidoteCountPieces(before.grid, null, ['q']);
+            if (walker) {
+                for (let i = 0; i < line.length; i++) {
+                    const mv = applyUci(walker, line[i]);
+                    if (!mv) break;
+                    ply++;
+                    if (mv.captured) captures++;
+                    if (mv.captured === 'q') queenGone = true;
+                    if (mv.promotion) promotionInLine = true;
+                    if (mv.piece === 'k' && !(mv.flags && (mv.flags.indexOf('k') !== -1 || mv.flags.indexOf('q') !== -1))) kingMoves++;
+                    if (mv.san.indexOf('#') !== -1) { mateInLine = true; break; }
+                }
+            }
+            if (mateInLine) add('mate_threat', 0.85, ply);
+            if (played.san.indexOf('#') !== -1) add('mate_threat', 1, 1);
+
+            const endFen = walker ? walker.fen() : afterFen;
+            const end = antidoteParseBoard(endFen);
+            const queensAfter = antidoteCountPieces(end.grid, null, ['q']);
+            if (queenGone || played.captured === 'q' || (queensAtStart > 0 && queensAfter < queensAtStart)) {
+                add('queen_trade', 0.6, ply);
+            }
+            if (end.pieces <= 14) {
+                const rooks = antidoteCountPieces(end.grid, null, ['r']);
+                const minors = antidoteCountPieces(end.grid, null, ['n', 'b']);
+                const pawns = antidoteCountPieces(end.grid, null, ['p']);
+                if (!queensAfter && !rooks && !minors && pawns) add('pawn_endgame', 0.8, ply);
+                else if (!queensAfter && rooks && !minors) add('rook_endgame', 0.7, ply);
+                else if (!queensAfter && !rooks && minors) add('minor_endgame', 0.65, ply);
+                if (kingMoves > 0) add('king_activity', 0.5, ply);
+            }
+            if (captures >= 2 || (after.pieces - end.pieces) >= 2) add('simplification', 0.55, ply);
+            if (promotionInLine || played.promotion) add('promotion', 0.8, ply);
+
+            const passedMine = antidotePassedPawns(end.grid, moverColor);
+            const passedTheirs = antidotePassedPawns(end.grid, opponentColor);
+            if (passedMine.length || passedTheirs.length) {
+                const advanced = passedMine.concat(passedTheirs).reduce((m, p) =>
+                    Math.max(m, moverColor === 'w' ? p.rank : 7 - p.rank), 0);
+                add('passed_pawn', 0.4 + antidoteClamp01(advanced / 7) * 0.4, ply);
+            }
+
+            // ── Estratègia ─────────────────────────────────────────────────
+            if (to) {
+                const state = antidoteFileState(after.grid, to.file);
+                const movedPiece = after.grid[to.rank] && after.grid[to.rank][to.file];
+                if (movedPiece && (movedPiece.t === 'r' || movedPiece.t === 'q')
+                    && !state.w && !state.b) {
+                    add('open_file', 0.55, 1);
+                } else if (movedPiece && (movedPiece.t === 'r' || movedPiece.t === 'q')
+                    && !state[moverColor]) {
+                    add('open_file', 0.42, 1);
+                }
+                if (played.piece === 'n' && to) {
+                    const advanced = moverColor === 'w' ? to.rank >= 4 : to.rank <= 3;
+                    const pawnDefenders = antidoteAttackersOf(after.grid, to.file, to.rank, moverColor)
+                        .filter(a => a.t === 'p').length;
+                    const pawnAttackers = antidoteAttackersOf(after.grid, to.file, to.rank, opponentColor)
+                        .filter(a => a.t === 'p').length;
+                    if (advanced && pawnDefenders > 0 && !pawnAttackers) add('weak_square', 0.55, 1);
+                }
+                if (played.piece === 'p') {
+                    const contacts = antidoteTargetsOf(after.grid, to.file, to.rank)
+                        .filter(t => {
+                            const q = after.grid[t.rank][t.file];
+                            return q && q.c === opponentColor && q.t === 'p';
+                        }).length;
+                    if (contacts > 0) add('pawn_break', 0.5, 1);
+                }
+            }
+            const isolated = antidoteIsolatedPawns(after.grid, opponentColor);
+            if (isolated.length) add('isolated_pawn', 0.35 + antidoteClamp01(isolated.length / 3) * 0.3, 1);
+
+            if (to) {
+                const mobilityAfter = antidoteTargetsOf(after.grid, to.file, to.rank).length;
+                const fromSq = antidoteSquareIndex(played.from);
+                const mobilityBefore = fromSq ? antidoteTargetsOf(before.grid, fromSq.file, fromSq.rank).length : 0;
+                if (mobilityAfter - mobilityBefore >= 4) add('piece_activity', 0.45, 1);
+            }
+
+            // Profilaxi: jugada tranquil·la que desactiva una amenaça que hi havia.
+            const threatsBefore = antidoteHangingPieces(before.grid, moverColor).length;
+            const threatsAfter = antidoteHangingPieces(after.grid, moverColor).length;
+            if (isQuiet && threatsBefore > threatsAfter) add('prophylaxis', 0.45, 1);
+
+            // Defensa: la jugada crea una amenaça concreta que el jugador ha de parar.
+            if (hanging.length || mateInLine || pressure.attackers >= 2) add('defensive_move', 0.4, 1);
+
+            if (!themes.length) add('quiet_improvement', 0.4, 1);
+
+            result.themes = themes.sort((a, b) => b.strength - a.strength).slice(0, 6);
+            result.complexity = positionComplexity(afterFen);
+            result.materialLoss = immediateMaterialLoss(fen, uci);
+            return result;
+        }
+
+        return {
+            classifyAntidoteCandidate: classifyAntidoteCandidate,
+            positionComplexity: positionComplexity,
+            immediateMaterialLoss: immediateMaterialLoss,
+            uciToSan: uciToSan
+        };
+    }
+
+    // Defensor enemic que sosté dues coses alhora (sobrecàrrega / desviació).
+    function antidoteFindOverloaded(grid, defenderColor, attackerColor) {
+        for (let r = 0; r < 8; r++) {
+            for (let f = 0; f < 8; f++) {
+                const p = grid[r][f];
+                if (!p || p.c !== defenderColor || p.t === 'k') continue;
+                let duties = 0;
+                antidoteTargetsOf(grid, f, r).forEach(t => {
+                    const q = grid[t.rank][t.file];
+                    if (!q || q.c !== defenderColor) return;
+                    // Defensa una peça pròpia que està atacada per l'enemic.
+                    if (antidoteAttackersOf(grid, t.file, t.rank, attackerColor).length) duties++;
+                });
+                if (duties >= 2) return { square: antidoteSquareName(f, r), duties: duties };
+            }
+        }
+        return null;
+    }
+
     return {
         splitPgnGames,
         parsePgnHeaders,
@@ -4571,6 +6424,60 @@
         pgnResultToLabel,
         pgnPlayersLabel,
         guessPlayerColorFromPgnHeaders,
+        ANTIDOTE_CONFIG,
+        ANTIDOTE_WEAKNESS_IDS,
+        ANTIDOTE_WEAKNESS_LABELS,
+        ANTIDOTE_THEME_FAMILY,
+        ANTIDOTE_THEME_LABELS,
+        antidoteThemeLabel,
+        antidoteWeaknessLabel,
+        antidoteThemeFamily,
+        antidoteScoreValue,
+        antidoteIsMateValue,
+        antidoteMateDistance,
+        antidoteCpLoss,
+        antidoteBucket,
+        antidoteCpMargin,
+        antidoteMultiPv,
+        antidoteSearchBudget,
+        antidoteEmptyProfile,
+        antidoteReviewPhase,
+        antidoteReviewCategory,
+        antidoteWeaknessStatsFromGame,
+        antidoteGameStats,
+        antidoteRecencyFactor,
+        antidoteConfidence,
+        antidoteWeaknessWeight,
+        buildAntidoteProfile,
+        antidoteProfileIsThin,
+        antidoteTopWeaknesses,
+        antidoteConfidenceLabel,
+        antidoteCandidateGuard,
+        antidoteTargetComplexity,
+        antidoteWeaknessMatch,
+        antidoteRepetitionPenalty,
+        scoreAntidoteCandidate,
+        chooseAntidoteCandidate,
+        antidoteCreateTest,
+        evaluateAntidoteResponse,
+        antidoteGameSummary,
+        updateAntidoteProgress,
+        antidoteEvolutionReport,
+        antidoteSerializeTest,
+        antidoteSerializeGame,
+        antidoteRestoreGame,
+        antidoteTestsFromHistory,
+        antidoteStatsFromHistory,
+        antidoteParseBoard,
+        antidoteAttackersOf,
+        antidoteIsAttacked,
+        antidoteTargetsOf,
+        antidotePinsAndSkewers,
+        antidoteHangingPieces,
+        antidotePassedPawns,
+        antidoteIsolatedPawns,
+        antidoteKingZonePressure,
+        createAntidoteDetectors,
         clampElo,
         bestLineEvalScore,
         bestLineGapCp,

@@ -1200,6 +1200,7 @@
 
         /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
         .btn-league   { background: linear-gradient(135deg, #8d6e63 0%, #5d4037 100%); color: #f4e4bc; }
+        .btn-antidote { background: linear-gradient(135deg, #4a3d72 0%, #2b2246 100%); color: #e9e2ff; }
         .btn-bundle   { background: linear-gradient(135deg, #6e6359 0%, #4f463e 100%); color: #f4e4bc; }
         .btn-srs      { background: linear-gradient(135deg, #5a6d7a 0%, #3a4750 100%); color: #eaf2f7; }
         .btn-daily    { background: linear-gradient(135deg, #7a6a3a 0%, #4f4322 100%); color: #f4e9cf; }
@@ -1315,30 +1316,40 @@
             box-shadow: 0 3px 10px rgba(201,162,39,0.35);
         }
         .play-clock-chip.active .pcc-kind { opacity: 0.9; }
-        /* Els quatre modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
-           l'amplada, Assistida + Joc posicional a sota en dues columnes i la
-           Lliga a tota l'amplada just abans del seu bàner. */
+        /* Els cinc modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
+           l'amplada, Assistida + Joc posicional a sota en dues columnes, el
+           Rival Antídot i la Lliga a tota l'amplada just abans del seu bàner. */
         .play-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .play-modes .btn { margin-top: 0; }
         .play-modes #btn-new-game { grid-column: 1 / -1; }
+        .play-modes #btn-antidote-game { grid-column: 1 / -1; }
         .play-modes #btn-league { grid-column: 1 / -1; }
-        .play-modes .btn-assisted, .play-modes .btn-positional, .play-modes .btn-league {
+        .play-modes .btn-assisted, .play-modes .btn-positional, .play-modes .btn-league, .play-modes .btn-antidote {
             flex-direction: column; gap: 4px; padding: 12px 10px;
             font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
         }
         .play-modes .btn-assisted .btn-ic, .play-modes .btn-positional .btn-ic, .play-modes .btn-league .btn-ic { width: 1.7em; height: 1.7em; }
+        .play-modes .btn-antidote .btn-emoji { font-size: 1.5em; line-height: 1; }
         @media (max-width: 360px) { .play-modes { grid-template-columns: 1fr; } }
-        /* En escriptori, els QUATRE botons són rectangles grans i iguals que
+        /* Tauleta: els cinc botons en tres columnes, sense saturar el bloc. */
+        body.device-tablet .play-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+        body.device-tablet .play-modes #btn-new-game { grid-column: 1 / -1; }
+        body.device-tablet .play-modes #btn-antidote-game { grid-column: auto; }
+        body.device-tablet .play-modes #btn-league { grid-column: auto; }
+        /* En escriptori, els CINC botons són rectangles grans i iguals que
            omplen junts tota l'amplada del bloc, sota les fitxes del rellotge. */
-        body.device-desktop .play-modes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+        body.device-desktop .play-modes { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
         body.device-desktop .play-modes #btn-new-game { grid-column: auto; }
+        body.device-desktop .play-modes #btn-antidote-game { grid-column: auto; }
         body.device-desktop .play-modes #btn-league { grid-column: auto; }
         body.device-desktop .play-modes .btn {
             flex-direction: column; justify-content: center; gap: 8px;
-            min-height: 104px; padding: 18px 14px; font-size: 1.05rem;
+            min-height: 104px; padding: 18px 14px; font-size: 1.02rem;
             border-radius: 14px;
         }
         body.device-desktop .play-modes .btn .btn-ic { width: 1.9em; height: 1.9em; }
+        body.device-desktop .play-modes .btn-antidote .btn-emoji { font-size: 1.7em; }
+        .play-antidote-hint { margin-top: 4px; }
         .play-clock-hint {
             font-size: 0.72rem; color: var(--text-secondary); opacity: 0.8;
             text-align: center; margin-top: -2px;
@@ -4899,9 +4910,11 @@
                             <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
                             <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
                             <button class="btn btn-positional" id="btn-positional-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-scope"/></svg>Joc vista</button>
+                            <button class="btn btn-antidote" id="btn-antidote-game"><span class="btn-emoji" aria-hidden="true">🧬</span>Rival Antídot</button>
                             <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                         </div>
-                        <div class="play-clock-hint">El rellotge triat val per a la partida nova i l'assistida; el joc vista es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
+                        <div class="play-clock-hint">El rellotge triat val per a la partida nova, l'assistida i el Rival Antídot; el joc vista es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
+                        <div class="play-clock-hint play-antidote-hint">🧬 <strong>Rival Antídot:</strong> Stockfish buscarà jugades fortes que posin a prova els teus punts febles.</div>
                     </div>
 
                     <!-- Repte del bessó: juga contra una versió de tu mateix -->
@@ -5238,6 +5251,14 @@
                     </label>
                 </div>
                 <div class="setting-help">Cada partida o problema estrena un tauler i unes peces escollits a l'atzar.</div>
+                <div class="setting-row">
+                    <div class="setting-label">🧬 Avisos del Rival Antídot</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="antidote-notices-toggle" checked>
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Mostra un avís breu després de respondre una prova durant la partida. El resum final sempre es veu.</div>
             </div>
 
             <div class="settings-panel">
@@ -5494,6 +5515,11 @@
                     <div class="stat-card-value" id="stats-hiero-themes">—</div>
                     <div class="stat-card-label">Temes Dominats</div>
                 </div>
+            </div>
+
+            <div class="chart-container">
+                <div class="chart-title">🧬 Rival Antídot</div>
+                <div id="antidote-stats"></div>
             </div>
 
             <div class="chart-container">
@@ -5963,6 +5989,49 @@
             </div>
         </div>
 
+        <!-- 🧬 Rival Antídot: introducció abans de començar la prova -->
+        <div class="modal-overlay" id="antidote-modal">
+            <div class="modal-content">
+                <div class="modal-title">🧬 Rival Antídot</div>
+                <p class="promotion-hint" id="antidote-intro-text">Stockfish buscarà jugades fortes que posin a prova els teus punts febles.</p>
+                <div class="antidote-section-title">On et costa més ara mateix</div>
+                <ul class="antidote-weaknesses" id="antidote-weaknesses"></ul>
+                <div class="antidote-setup">
+                    <span id="antidote-color">—</span>
+                    <span id="antidote-clock">—</span>
+                </div>
+                <button class="btn btn-primary" id="btn-antidote-start">Comença la prova</button>
+                <button class="close-modal" id="btn-antidote-cancel">Cancel·la</button>
+            </div>
+        </div>
+
+        <!-- 🧬 Rival Antídot: resolució de la partida (proves i evolució) -->
+        <div class="modal-overlay" id="antidote-summary-modal">
+            <div class="modal-content">
+                <div class="modal-title">🧬 Rival Antídot</div>
+                <div class="review-modal-result" id="antidote-summary-result">—</div>
+                <div class="review-precision">Precisió final: <strong id="antidote-summary-precision">—</strong></div>
+                <div class="review-legend antidote-summary-counts">
+                    <div class="review-chip">Proves: <strong id="antidote-summary-total">0</strong></div>
+                    <div class="review-chip excel">Superades: <strong id="antidote-summary-passed">0</strong></div>
+                    <div class="review-chip inaccuracy">Parcials: <strong id="antidote-summary-partial">0</strong></div>
+                    <div class="review-chip blunder">Fallades: <strong id="antidote-summary-failed">0</strong></div>
+                </div>
+                <div class="antidote-section-title">Què t'ha posat a prova</div>
+                <div class="antidote-tests" id="antidote-summary-tests"></div>
+                <div class="antidote-section-title">Com evoluciona el teu perfil</div>
+                <div class="antidote-evolution" id="antidote-summary-evolution"></div>
+                <div class="review-actions">
+                    <button class="btn btn-secondary" id="btn-antidote-review">Revisa les proves</button>
+                    <button class="btn btn-secondary" id="btn-antidote-practice">Practica les fallades</button>
+                    <button class="btn btn-primary" id="btn-antidote-again">Torna-hi</button>
+                </div>
+                <div class="nav-trio">
+                    <button class="btn btn-nav-home" id="btn-antidote-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg>Inici</button>
+                </div>
+            </div>
+        </div>
+
         <!-- Repte del bessó: tria de període (jo d'ara / jo del passat) -->
         <div class="modal-overlay" id="besso-modal">
             <div class="modal-content">
@@ -6362,6 +6431,82 @@
             .besso-banner::after { background: radial-gradient(circle, rgba(120,200,220,0.24), transparent 70%); }
             .besso-banner .catalans-banner-cta { color:#bfe9f2; }
             /* Opcions de període del repte del bessó (dins del modal). */
+            /* ── 🧬 Rival Antídot ──────────────────────────────────────── */
+            .antidote-section-title {
+                font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0.6px;
+                color: var(--text-secondary); margin: 14px 0 6px; text-align: left;
+            }
+            .antidote-weaknesses { list-style:none; padding:0; margin:0; display:flex; flex-direction:column; gap:8px; }
+            .antidote-weakness {
+                display:grid; grid-template-columns: 1fr auto; gap:2px 10px; align-items:center;
+                background: rgba(255,255,255,0.05); border:1px solid rgba(150,130,220,0.25);
+                border-radius:10px; padding:8px 10px; text-align:left;
+            }
+            .antidote-weakness-empty { display:block; font-size:0.86rem; color:var(--text-secondary); }
+            .antidote-weakness-name { font-weight:700; font-size:0.92rem; }
+            .antidote-weakness-conf { font-size:0.72rem; opacity:0.8; text-align:right; }
+            .antidote-weakness-bar {
+                grid-column: 1 / -1; height:5px; border-radius:3px;
+                background: rgba(255,255,255,0.12); overflow:hidden;
+            }
+            .antidote-weakness-bar > span {
+                display:block; height:100%; border-radius:3px;
+                background: linear-gradient(90deg, #7b68b8, #b9a6ff);
+            }
+            .antidote-setup {
+                display:flex; flex-wrap:wrap; gap:8px; justify-content:center;
+                margin:14px 0 4px; font-size:0.82rem; color:var(--text-secondary);
+            }
+            .antidote-setup > span {
+                background: rgba(255,255,255,0.06); border-radius:8px; padding:5px 10px;
+            }
+            /* Etiqueta discreta durant la partida: cap dada del que s'examina. */
+            .antidote-summary-counts { flex-wrap:wrap; }
+            /* El resum porta el detall de diverses proves: necessita més amplada
+               que un modal normal (i segueix baixant a una columna a mòbil). */
+            #antidote-summary-modal .modal-content { max-width: 520px; }
+            .antidote-tests { display:flex; flex-direction:column; gap:10px; text-align:left; }
+            .antidote-test {
+                border:1px solid rgba(255,255,255,0.12); border-left-width:4px;
+                border-radius:10px; padding:10px 12px; background: rgba(255,255,255,0.04);
+            }
+            .antidote-test-empty { font-size:0.86rem; color:var(--text-secondary); text-align:center; padding:8px; }
+            .antidote-result-passed { border-left-color:#4c9a5a; }
+            .antidote-result-partial { border-left-color:#c9a227; }
+            .antidote-result-failed { border-left-color:#c0504d; }
+            .antidote-result-inconclusive { border-left-color:#6d7b87; }
+            .antidote-test-head { display:flex; justify-content:space-between; gap:8px; align-items:center; margin-bottom:4px; }
+            .antidote-test-badge { font-weight:800; font-size:0.76rem; text-transform:uppercase; letter-spacing:0.5px; }
+            .antidote-test-moment { font-size:0.74rem; color:var(--text-secondary); }
+            .antidote-test-theme { font-size:0.86rem; font-weight:700; margin-bottom:4px; }
+            .antidote-test-moves { font-size:0.84rem; color:var(--text-secondary); line-height:1.45; }
+            .antidote-test-open { margin-top:8px; padding:6px 12px; font-size:0.78rem; }
+            .antidote-evolution { text-align:left; font-size:0.87rem; line-height:1.5; }
+            .antidote-evolution-text { margin:0 0 8px; }
+            .antidote-evolution-line { font-size:0.82rem; color:var(--text-secondary); margin-bottom:4px; }
+            .antidote-stats-empty { font-size:0.86rem; color:var(--text-secondary); }
+            .antidote-stat-themes { display:flex; flex-direction:column; gap:6px; margin-top:12px; }
+            .antidote-stat-theme { display:grid; grid-template-columns: minmax(0,1fr) 90px 46px; gap:8px; align-items:center; font-size:0.82rem; }
+            .antidote-stat-theme-bar { height:6px; border-radius:3px; background:rgba(255,255,255,0.12); overflow:hidden; }
+            .antidote-stat-theme-bar > span { display:block; height:100%; background:linear-gradient(90deg,#7b68b8,#b9a6ff); }
+            .antidote-stat-theme-pct { text-align:right; font-weight:700; }
+            .antidote-stat-note { margin-top:10px; font-size:0.8rem; color:var(--text-secondary); }
+            @media (max-width: 420px) {
+                .antidote-stat-theme { grid-template-columns: minmax(0,1fr) 60px 44px; }
+            }
+            /* Mode paper electrònic: sense degradats ni colors saturats. */
+            body.epaper-mode .btn-antidote { background:#e4e4e4; color:#222; border:1px solid #bdbdbd; }
+            body.epaper-mode .antidote-weakness,
+            body.epaper-mode .antidote-test,
+            body.epaper-mode .antidote-setup > span { background:#f2f2f2; border-color:#cfcfcf; color:#222; }
+            body.epaper-mode .antidote-weakness-bar,
+            body.epaper-mode .antidote-stat-theme-bar { background:#dcdcdc; }
+            body.epaper-mode .antidote-weakness-bar > span,
+            body.epaper-mode .antidote-stat-theme-bar > span { background:#666; }
+            body.epaper-mode .antidote-result-passed { border-left-color:#444; }
+            body.epaper-mode .antidote-result-partial { border-left-color:#777; }
+            body.epaper-mode .antidote-result-failed { border-left-color:#222; }
+
             .besso-options { display:flex; flex-direction:column; gap:10px; margin:14px 0 6px; }
             .besso-opt {
                 display:flex; flex-direction:column; align-items:flex-start; gap:2px;
@@ -7059,7 +7204,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.19"></script>
+    <script src="core.js?v=1.0.20"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.7"></script>
@@ -7070,7 +7215,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.67"></script>
+    <script src="app.js?v=1.0.68"></script>
 
     <!-- Service Worker Registration -->
     <script>
