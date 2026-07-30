@@ -3715,6 +3715,38 @@ function showOpeningRivalMove(from, to) {
     }, 2000);
 }
 
+// Requadre de l'última jugada de l'enginy al tauler d'obertures: la MATEIXA
+// marca (.engine-move) que als exercicis de la resta de l'app, a la casella
+// d'origen i a la de destinació, i que es queda fins a la jugada següent seva.
+// Es fa servir la classe lògica .square-<casella> i no el data-square: amb el
+// tauler orientat de negres, el data-square segueix la posició visual i marcaria
+// la casella equivocada.
+let openingEngineMoveHighlight = null;
+
+function getOpeningBoardSquare(sq) {
+    return sq ? $(`#opening-board .square-${sq}`) : $();
+}
+
+function clearOpeningEngineMoveHighlight() {
+    openingEngineMoveHighlight = null;
+    $('#opening-board .square-55d63').removeClass('engine-move');
+}
+
+function highlightOpeningEngineMove(from, to) {
+    openingEngineMoveHighlight = { from: from || null, to: to || null };
+    $('#opening-board .square-55d63').removeClass('engine-move');
+    [from, to].forEach(sq => getOpeningBoardSquare(sq).addClass('engine-move'));
+}
+
+// resize() reconstrueix les caselles i s'emporta les classes: la marca es torna
+// a posar a partir de la desada.
+function reapplyOpeningEngineMoveHighlight() {
+    const h = openingEngineMoveHighlight;
+    if (!h) return;
+    $('#opening-board .square-55d63').removeClass('engine-move');
+    [h.from, h.to].forEach(sq => getOpeningBoardSquare(sq).addClass('engine-move'));
+}
+
 // Marca LES DUES caselles de la jugada (origen i destinació) amb el marcatge
 // unificat de correcta/errònia.
 function showMainMoveVisualFeedback(to, quality, from) {
@@ -20313,11 +20345,18 @@ function startOpeningTheoryHieroglyphic() {
         openingBundleBoard.position(puzzle.fen);
         if (typeof openingBundleBoard.resize === 'function') openingBundleBoard.resize();
     }
+    // La posició arriba just després d'una jugada del rival: es marca com a
+    // última jugada seva, igual que faria l'enginy a qualsevol altre exercici.
+    if (puzzle.lastSetupMove) highlightOpeningEngineMove(puzzle.lastSetupMove.from, puzzle.lastSetupMove.to);
+    else clearOpeningEngineMoveHighlight();
     setOpeningScreenMode('hieroglyphic-opening');
     updateOpeningMaximButton();
     refreshOpeningHieroglyphicStep();
     const boardEl = document.getElementById('opening-board');
     if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+    // El tauler encara es pot redimensionar mentre el layout s'estabilitza:
+    // llavors les caselles es refan i cal tornar-hi a posar la marca.
+    setTimeout(() => reapplyOpeningEngineMoveHighlight(), 300);
 }
 
 // Exercici resolt: es queda a la secció d'Obertures i ensenya la línia sencera.
@@ -20455,14 +20494,20 @@ function handleHieroglyphicMove(source, target) {
             if (reply) {
                 const replyFrom = reply.slice(0, 2);
                 const replyTo = reply.slice(2, 4);
+                const isOpeningHiero = isOpeningHieroglyphicActive();
                 openingPracticeEngineThinking = true;
-                renderHieroglyphicExerciseNote(false, 'Resposta del rival…');
+                if (isOpeningHiero) renderOpeningHieroglyphicNote('Resposta del rival…');
+                else renderHieroglyphicExerciseNote(false, 'Resposta del rival…');
                 setTimeout(() => {
                     openingPracticeEngineThinking = false;
                     if (!hieroglyphicExerciseActive) return;
                     hieroglyphicGame.move({ from: replyFrom, to: replyTo, promotion: reply.length > 4 ? reply[4] : undefined });
                     if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
-                    showOpeningRivalMove(replyFrom, replyTo);
+                    // Al jeroglífic d'obertura, la jugada del rival queda marcada
+                    // amb el requadre d'última jugada de l'enginy (origen i destí)
+                    // fins que en faci una altra, com a la resta d'exercicis.
+                    if (isOpeningHiero) highlightOpeningEngineMove(replyFrom, replyTo);
+                    else showOpeningRivalMove(replyFrom, replyTo);
                     advanceToNextStep();
                 }, 650);
             } else {
@@ -20913,6 +20958,7 @@ function resetOpeningPracticeBoard() {
     openingPracticeEngineThinking = false;
     hieroglyphicExerciseActive = false;
     openingHieroglyphicSolvedCard = false;
+    clearOpeningEngineMoveHighlight();
     openingMaximPending = false;
     openingMaximRequestCounter++;
     updateOpeningMaximButton();

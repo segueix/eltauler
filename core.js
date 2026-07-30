@@ -489,13 +489,17 @@
             let chess;
             try { chess = new ChessCtor(); } catch (e) { return null; }
 
-            // 1) Es juga la línia fins a la posició de partida de l'exercici.
+            // 1) Es juga la línia fins a la posició de partida de l'exercici. La
+            //    darrera jugada d'aquesta seqüència és sempre del rival: es
+            //    guarda per poder-la marcar al tauler com a última jugada seva.
             const setupSan = [];
+            let lastSetupMove = null;
             for (let i = 0; i < startPly; i++) {
                 let mv = null;
                 try { mv = chess.move(line[i], { sloppy: true }); } catch (e) { mv = null; }
                 if (!mv) return null;
                 setupSan.push(mv.san);
+                lastSetupMove = { from: mv.from, to: mv.to, san: mv.san, color: mv.color };
             }
             if (chess.turn() !== userColor) return null;
             const fen = chess.fen();
@@ -551,6 +555,7 @@
                 startPly,
                 fen,
                 setupSan,
+                lastSetupMove,
                 solutionSan,
                 solutionMoves,
                 replySan: replySan.slice(0, usableReplies),

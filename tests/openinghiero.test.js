@@ -86,6 +86,17 @@ describe('buildOpeningHieroglyphic', () => {
         expect(p.replyMoves.length).toBe(p.solutionMoves.length - 1);
     });
 
+    test('la darrera jugada de preparació és la del rival (per marcar-la al tauler)', () => {
+        const blanques = helpers.buildOpeningHieroglyphic(CATALANA, { startMoveNumber: 3 });
+        expect(blanques.lastSetupMove).toEqual({ from: 'e7', to: 'e6', san: 'e6', color: 'b' });
+        const negres = helpers.buildOpeningHieroglyphic(NAJDORF, { startMoveNumber: 3 });
+        expect(negres.lastSetupMove).toEqual({ from: 'd2', to: 'd4', san: 'd4', color: 'w' });
+        // Sempre del bàndol contrari al de qui resol l'exercici.
+        helpers.openingHieroglyphicCandidates([CATALANA, NAJDORF]).forEach(p => {
+            expect(p.lastSetupMove.color).not.toBe(p.userColor);
+        });
+    });
+
     test('cada pas porta la frase pedagògica del seu ply', () => {
         const p = helpers.buildOpeningHieroglyphic(CATALANA, { startMoveNumber: 3 });
         expect(p.steps[0].phrase).toBe('3.g3 és el segell català');
