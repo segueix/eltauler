@@ -281,7 +281,7 @@ enviament d'una fallada al repàs d'errades existent, historial amb
 `mode: "antidote"` que sobreviu a la recàrrega, ELO principal i ELO per ritme
 intactes, amplada mòbil, perfil buit, funcionament sense Firebase, els dos
 camins de fallback (cerca que peta i worker que no arrenca) i cap regressió a
-Nova partida, Partida assistida, Joc vista, Lliga, Bessó ni jeroglífics.
+Nova partida, Joc vista, Lliga ni jeroglífics.
 
 ## Integració contínua
 

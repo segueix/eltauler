@@ -1316,31 +1316,28 @@
             box-shadow: 0 3px 10px rgba(201,162,39,0.35);
         }
         .play-clock-chip.active .pcc-kind { opacity: 0.9; }
-        /* Els cinc modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
-           l'amplada, Assistida + Joc posicional a sota en dues columnes, el
-           Rival Antídot i la Lliga a tota l'amplada just abans del seu bàner. */
+        /* Els quatre modes de joc. En mòbil: Nova partida (heroi) a dalt a tota
+           l'amplada, Joc vista + Rival Antídot a sota en dues columnes, i la
+           Lliga a tota l'amplada just abans del seu bàner. */
         .play-modes { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
         .play-modes .btn { margin-top: 0; }
         .play-modes #btn-new-game { grid-column: 1 / -1; }
-        .play-modes #btn-antidote-game { grid-column: 1 / -1; }
         .play-modes #btn-league { grid-column: 1 / -1; }
-        .play-modes .btn-assisted, .play-modes .btn-positional, .play-modes .btn-league, .play-modes .btn-antidote {
+        .play-modes .btn-positional, .play-modes .btn-league, .play-modes .btn-antidote {
             flex-direction: column; gap: 4px; padding: 12px 10px;
             font-size: 0.9rem; letter-spacing: 0.5px; min-height: 64px;
         }
-        .play-modes .btn-assisted .btn-ic, .play-modes .btn-positional .btn-ic, .play-modes .btn-league .btn-ic { width: 1.7em; height: 1.7em; }
+        .play-modes .btn-positional .btn-ic, .play-modes .btn-league .btn-ic { width: 1.7em; height: 1.7em; }
         .play-modes .btn-antidote .btn-emoji { font-size: 1.5em; line-height: 1; }
         @media (max-width: 360px) { .play-modes { grid-template-columns: 1fr; } }
-        /* Tauleta: els cinc botons en tres columnes, sense saturar el bloc. */
+        /* Tauleta: els quatre botons en tres columnes, sense saturar el bloc. */
         body.device-tablet .play-modes { grid-template-columns: repeat(3, minmax(0, 1fr)); }
         body.device-tablet .play-modes #btn-new-game { grid-column: 1 / -1; }
-        body.device-tablet .play-modes #btn-antidote-game { grid-column: auto; }
         body.device-tablet .play-modes #btn-league { grid-column: auto; }
-        /* En escriptori, els CINC botons són rectangles grans i iguals que
+        /* En escriptori, els QUATRE botons són rectangles grans i iguals que
            omplen junts tota l'amplada del bloc, sota les fitxes del rellotge. */
-        body.device-desktop .play-modes { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 12px; }
+        body.device-desktop .play-modes { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
         body.device-desktop .play-modes #btn-new-game { grid-column: auto; }
-        body.device-desktop .play-modes #btn-antidote-game { grid-column: auto; }
         body.device-desktop .play-modes #btn-league { grid-column: auto; }
         body.device-desktop .play-modes .btn {
             flex-direction: column; justify-content: center; gap: 8px;
@@ -1637,12 +1634,6 @@
             background: linear-gradient(135deg, #d6b24a 0%, #b48a22 100%);
             color: #2b2118;
             box-shadow: 0 4px 12px rgba(201, 162, 39, 0.35);
-        }
-        .btn-assisted {
-            background: linear-gradient(135deg, #3a6b8c 0%, #1e3f54 100%);
-            color: #e8f0f6;
-            box-shadow: 0 4px 12px rgba(58, 107, 140, 0.35);
-            border: 1px solid rgba(255,255,255,0.12);
         }
         .btn-positional {
             background: linear-gradient(135deg, #2e7d5b 0%, #174d36 100%);
@@ -2257,12 +2248,6 @@
             height: 20px;
             filter: drop-shadow(0 1px 1px rgba(0,0,0,0.35));
         }
-        .btn-analyze {
-            background: linear-gradient(135deg, #607d8b 0%, #455a64 100%);
-            color: #eef3f5;
-            border: 1px solid rgba(255,255,255,0.14);
-        }
-
         .btn-danger {
             background: linear-gradient(135deg, #c62828, #8b0000);
             color: white;
@@ -3082,8 +3067,6 @@
         .controls .game-buttons #btn-norma { order: 2; }
         .controls .game-buttons #btn-undo-move { order: 2; }
         .controls .game-buttons #btn-brain-hint { order: 2; }
-        .controls .game-buttons #btn-assisted-hint { order: 2; }
-        .controls .game-buttons #btn-analyze { order: 2; }
         .controls .game-buttons #btn-resign { order: 3; }
         .controls .game-buttons #btn-back { order: 4; }
         body.device-mobile .controls .game-buttons {
@@ -4470,24 +4453,6 @@
             color: var(--text-secondary);
             margin-bottom: 10px;
         }
-        .review-performance {
-            background: rgba(201,162,39,0.10);
-            border: 1px solid rgba(201,162,39,0.28);
-            border-radius: 10px;
-            margin: 0 0 12px;
-            padding: 10px 12px;
-            color: var(--text-secondary);
-        }
-        .review-performance strong {
-            color: var(--accent-gold);
-            font-size: 1.1rem;
-        }
-        .review-performance-note {
-            display: block;
-            margin-top: 4px;
-            font-size: 0.74rem;
-            line-height: 1.35;
-        }
         .review-opening-note {
             background: rgba(201,162,39,0.12);
             border: 1px solid rgba(201,162,39,0.25);
@@ -4877,7 +4842,7 @@
                 <div class="menu-section-title">Juga</div>
                 <div class="menu-buttons">
                     <!-- Un sol bloc de joc: tria de rellotge ben visible i els
-                         tres modes contra el motor (nova, assistida i lliga) -->
+                         modes contra el motor (nova, joc vista, antídot i lliga) -->
                     <div class="play-card">
                         <div class="play-clock" role="group" aria-label="Rellotge de la partida">
                             <div class="play-clock-head">
@@ -4908,17 +4873,20 @@
                         </div>
                         <div class="play-modes">
                             <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
-                            <button class="btn btn-assisted" id="btn-assisted-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-compass"/></svg>Partida assistida</button>
                             <button class="btn btn-positional" id="btn-positional-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-scope"/></svg>Joc vista</button>
                             <button class="btn btn-antidote" id="btn-antidote-game"><span class="btn-emoji" aria-hidden="true">🧬</span>Rival Antídot</button>
                             <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                         </div>
-                        <div class="play-clock-hint">El rellotge triat val per a la partida nova, l'assistida i el Rival Antídot; el joc vista es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
+                        <div class="play-clock-hint">El rellotge triat val per a la partida nova i el Rival Antídot; el joc vista es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
                         <div class="play-clock-hint play-antidote-hint">🧬 <strong>Rival Antídot:</strong> Stockfish buscarà jugades fortes que posin a prova els teus punts febles.</div>
                     </div>
 
-                    <!-- Repte del bessó: juga contra una versió de tu mateix -->
-                    <button class="catalans-banner besso-banner" id="btn-besso" aria-label="Repte del bessó">
+                    <!-- Repte del bessó: juga contra una versió de tu mateix.
+                         DESACTIVAT de moment: el bàner arrenca amagat i només
+                         es mostra si BESSO_ENABLED (app.js) torna a ser true.
+                         El marcatge i el modal es conserven sencers per poder
+                         reprendre la modalitat sense refer-la. -->
+                    <button class="catalans-banner besso-banner" id="btn-besso" aria-label="Repte del bessó" style="display:none;">
                         <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swap"/></svg>
                         <span class="catalans-banner-text">
                             <span class="catalans-banner-title">Repte del bessó</span>
@@ -5463,7 +5431,7 @@
 
             <div class="chart-container">
                 <div class="chart-title">ELO per ritme de joc</div>
-                <div class="tc-elo-note">Cada rellotge guarda la seva pròpia puntuació: les partides amb rellotge no toquen l'ELO principal. La primera partida d'un ritme sense ELO (des d'aquí amb «Calibra» o triant el rellotge a Nova partida / Partida assistida) es juga sempre com a calibratge adaptatiu per fer-ne la primera estimació.</div>
+                <div class="tc-elo-note">Cada rellotge guarda la seva pròpia puntuació: les partides amb rellotge no toquen l'ELO principal. La primera partida d'un ritme sense ELO (des d'aquí amb «Calibra» o triant el rellotge a Nova partida) es juga sempre com a calibratge adaptatiu per fer-ne la primera estimació.</div>
                 <div class="stats-grid tc-elo-grid" id="stats-tc-elos"></div>
             </div>
 
@@ -5602,7 +5570,6 @@
                     <select id="history-filter-mode" class="select-control" aria-label="Filtra per mode">
                         <option value="all">Tots els modes</option>
                         <option value="free">Amistoses</option>
-                        <option value="assisted">Assistides</option>
                         <option value="league">Lliga</option>
                     </select>
                     <select id="history-filter-prec" class="select-control" aria-label="Filtra per precisió">
@@ -6156,10 +6123,6 @@
                 <img src="checkmate.svg" alt="Escac i mat" id="checkmate-image" class="checkmate-image">
                 <div class="review-modal-result" id="review-result-text">—</div>
                 <div class="review-precision">Precisió final: <strong id="review-precision-value">—</strong></div>
-                <div class="review-performance" id="review-performance" style="display:none;">
-                    Rendiment assistit estimat: <strong id="review-performance-value">—</strong>
-                    <small class="review-performance-note" id="review-performance-note"></small>
-                </div>
                 <div class="review-highlight">Com han estat les teves jugades?</div>
                 <div class="review-legend" id="review-breakdown"></div>
                 <div class="review-opening-note" id="review-opening-note" style="display:none;"></div>
@@ -6956,6 +6919,10 @@
                         <option value="4">4 jugades vista</option>
                         <option value="5">5 jugades vista</option>
                         <option value="6">6 jugades vista</option>
+                        <option value="7">7 jugades vista</option>
+                        <option value="8">8 jugades vista</option>
+                        <option value="9">9 jugades vista</option>
+                        <option value="10">10 jugades vista</option>
                     </select>
                 </div>
                 <div class="precision-stat" id="move-precision-stat" style="display:none;">
@@ -7088,11 +7055,6 @@
                         <img src="brain.svg" alt="Cervell">
                         <span>Màxima</span>
                     </button>
-                    <button class="btn btn-brain-hint" id="btn-assisted-hint" title="Consell estratègic" style="display:none;">
-                        <img src="brain.svg" alt="Cervell">
-                        <span>Consell</span>
-                    </button>
-                    <button class="btn btn-analyze" id="btn-analyze" title="Analitza la posició actual" style="display:none;">🔬 Analitza</button>
                     <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
                     <button class="btn btn-nav-home" id="btn-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>

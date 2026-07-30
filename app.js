@@ -501,7 +501,7 @@ const TIME_CONTROLS = [
     { id: '15+10', label: 'Clàssic 15+10', base: 900, inc: 10 }
 ];
 const TIME_CONTROL_KEY = 'chess_timeControl';
-// Ritme escollit per a la propera partida lliure/assistida. Comença sempre "sense rellotge";
+// Ritme escollit per a la propera partida lliure. Comença sempre "sense rellotge";
 // es tria a la pantalla de joc abans de cada nova partida. Una lliga NOVA es genera amb
 // aquest ritme (i amb l'ELO que el jugador hi té), però un cop creada té el seu propi ritme
 // fixat (currentLeague.timeControl) i ja no mira aquest.
@@ -518,7 +518,7 @@ let currentGameTimeControlId = 'none';
 // Calibratge d'un ritme de rellotge: partida única ADAPTATIVA (el rival
 // s'ajusta a la precisió del jugador durant la partida) per fer la primera
 // estimació d'ELO d'aquell ritme. S'activa AUTOMÀTICAMENT a startGame quan la
-// partida (nova o assistida) es juga amb un rellotge que encara no té ELO.
+// partida nova es juga amb un rellotge que encara no té ELO.
 // Guarda l'id del ritme en curs o null.
 let timedCalibrationTcId = null;
 let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
@@ -549,6 +549,14 @@ let isTacticsSession = false;
 
 // El teu bessó: un rival que juga com tu (llibre d'obertures personal + força
 // per fase treta de les teves partides). Es construeix a l'inici de cada repte.
+//
+// MODALITAT DESACTIVADA: amb BESSO_ENABLED a false el bàner de la pàgina
+// principal queda amagat i cap punt d'entrada (bàner, modal o les funcions
+// globals window.startBessoGame / window.openBessoChallenge) no arrenca cap
+// partida. Tot el codi, el modal i els tests es conserven intactes: per
+// reprendre la modalitat només cal tornar a posar aquesta constant a true.
+const BESSO_ENABLED = false;
+
 let bessoState = null;        // { baseElo, label, profile, book, color, period }
 let bessoPlayPending = null;  // petició d'inici { color } (consumida a startGame)
 let bessoHelpers = null;      // helpers del nucli amb chess.js injectat (llibre)
@@ -5753,35 +5761,6 @@ function applyTimeControlCalibrationEstimate(tcId, resultScore, precision, avgCp
     return estimate;
 }
 
-const ASSISTED_PERFORMANCE_MIN_MOVES = 5;
-
-// Estima el rendiment d'una partida assistida sense modificar el ROC/ELO real.
-// Reutilitza la qualitat del calibratge: precisió, pèrdua mitjana i blunders.
-function estimateAssistedGamePerformance(resultScore, precision, avgCpLoss, blunders, opponentRating, playerMoves) {
-    const moveCount = Math.max(0, Number(playerMoves) || 0);
-    if (moveCount < ASSISTED_PERFORMANCE_MIN_MOVES) {
-        return {
-            rating: null,
-            unit: null,
-            moveCount,
-            minMoves: ASSISTED_PERFORMANCE_MIN_MOVES
-        };
-    }
-
-    const quality = ElTaulerCore.getCalibrationGameQuality({ avgCpLoss, precision, blunders });
-    const rating = clampEngineElo(
-        ElTaulerCore.estimateGamePerformanceRating(opponentRating, resultScore, quality)
-    );
-    return {
-        rating,
-        unit: rating >= engineEloMin ? 'ELO' : 'ROC',
-        opponentRating: Math.round(opponentRating),
-        quality: Math.round(quality * 100) / 100,
-        moveCount,
-        minMoves: ASSISTED_PERFORMANCE_MIN_MOVES
-    };
-}
-
 // Sincronitza les fitxes del rellotge de la pàgina principal amb el desplegable
 // (amagat) #new-game-tc-select, que segueix sent la FONT DE LA VERITAT del ritme
 // triat: les fitxes només el pinten (activa) i n'ensenyen l'etiqueta completa.
@@ -6994,27 +6973,19 @@ function updateOpenAISettingsUI() {
 
 function updateBundleHintButtons() {
     const brainBtn = document.getElementById('btn-brain-hint');
-    const assistedBtn = document.getElementById('btn-assisted-hint');
     const hintBtn = document.getElementById('btn-hint');
     if (!hintBtn) return;
 
-    const isAssisted = currentGameMode === 'assisted';
     const bundleVisible = blunderMode && bundleSequenceStep <= 3;
 
-    // Botó de pista Stockfish: sempre visible en bundle i partida assistida; ocult en free/league
-    hintBtn.style.display = (bundleVisible || isAssisted) ? 'inline-flex' : 'inline-flex';
+    // Botó de pista Stockfish: visible a tots els modes de joc.
+    hintBtn.style.display = 'inline-flex';
     hintBtn.disabled = !stockfish || isAnalyzingHint;
 
     // Botó OpenAI per bundles (funciona també offline amb el banc de màximes)
     if (brainBtn) {
         brainBtn.style.display = bundleVisible ? 'inline-flex' : 'none';
         brainBtn.disabled = !bundleVisible || bundleOpenAIHintPending;
-    }
-
-    // Botó de consell estratègic per mode assistit (offline o amb OpenAI)
-    if (assistedBtn) {
-        assistedBtn.style.display = isAssisted ? 'inline-flex' : 'none';
-        assistedBtn.disabled = !isAssisted || assistedHintPending;
     }
 }
 
@@ -7138,7 +7109,7 @@ function updateAdaptiveEngineEloLabel() {
         $('#engine-elo').text(`${levelUnit} ~${level.roc} · ${positionalVisionText(level)}`);
         return;
     }
-    if ((currentGameMode === 'free' || currentGameMode === 'assisted') && !blunderMode) {
+    if (currentGameMode === 'free' && !blunderMode) {
         $('#engine-elo').text(`${eloLevelLabel(elo)} · ${unit} ${elo} (adaptatiu)`);
         return;
     }
@@ -7158,10 +7129,10 @@ function applyEngineEloStrength(eloValue) {
 }
 
 // Força MÀXIMA del motor: es desactiva el límit d'ELO (UCI_LimitStrength) i
-// Stockfish juga i analitza al 100%. És la força del Joc posicional: allà la
-// única debilitat del rival és l'horitzó de 2 semijugades, no la qualitat.
-// (Els altres modes tornen a limitar la força amb applyEngineEloStrength, que
-// tots re-afirmen abans de cada cerca.)
+// Stockfish analitza al 100%. Al Joc posicional és la força amb què es calcula
+// l'ÍNDEX de cada jugada i la pista, no la del rival: el rival hi juga a l'ELO
+// equivalent de les jugades vista triades (makeEngineMove torna a limitar la
+// força amb applyEngineEloStrength just abans de cada resposta seva).
 function applyEngineMaxStrength() {
     if (!stockfish) return;
     try {
@@ -9179,7 +9150,6 @@ function updateReviewChart() {
 function formatHistoryMode(mode) {
     if (mode === 'league') return 'Lliga';
     if (mode === 'free') return 'Amistosa';
-    if (mode === 'assisted') return 'Assistida';
     if (mode === 'positional') return 'Joc vista';
     if (mode === 'imported') return 'Importada';
     return 'Partida';
@@ -13853,199 +13823,6 @@ async function requestOpenAIBundleHint() {
     }
 }
 
-function buildAssistedHintPrompt(fen, bestMove, evaluation) {
-    const voice = getStrategicVoice();
-    const evalInfo = typeof evaluation === 'number' ? `Avaluació actual: ${evaluation > 0 ? '+' : ''}${evaluation} centipeons.` : '';
-    return `Ets ${voice.name}, mestre estratega, i guies un alumne durant una partida d'escacs.
-
-POSICIÓ ACTUAL (FEN): ${fen}
-MILLOR JUGADA SEGONS EL MOTOR: ${bestMove}
-${evalInfo}
-
-TASCA: Escriu UNA màxima xifrada en català, estil "${voice.work}", que orienti l'alumne cap a la idea correcta SENSE dir la jugada directament.
-
-INSTRUCCIONS:
-- Usa al·lusions estratègiques: "el camí del centre", "la diagonal oculta", "el flanc desprotegit", "la torre que domina la columna", "el cavall que salta a la fortalesa", "la dama que travessa el camp"
-- La màxima ha de ser específica a aquesta posició, no genèrica
-- Ha de contenir prou informació per orientar un jugador atent, però no revelar la jugada
-- To ${voice.style}
-- Acaba amb un punt final
-
-REGLES:
-- Una sola frase, entre 30 i 150 caràcters
-- Sense emojis, sense cometes, sense numeració
-- En català
-- NO mencionar la notació de la jugada (${bestMove})
-
-Escriu la màxima:`;
-}
-
-let assistedHintPending = false;
-
-function showAssistedMaxim(text) {
-    const redactor = getRedactor();
-    const corregit = redactor ? redactor.corregirCatala(text) : text;
-    const cleanText = corregit.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
-    let html = '<div class="opening-maxim-box">';
-    html += '<div class="maxim-title">Consell estratègic</div>';
-    html += `<div class="maxim-text">${cleanText}</div>`;
-    html += '</div>';
-    $('#status').html(html);
-}
-
-async function requestAssistedHint() {
-    if (!game || game.game_over()) return;
-    if (currentGameMode !== 'assisted') return;
-    if (assistedHintPending) return;
-    // Mateixa protecció que la pista normal: no interrompre la cerca de
-    // l'enginy ni donar consell sobre una posició que no és la que es veu.
-    if (isEngineThinking || waitingForBlunderAnalysis || isViewingGameHistory()) return;
-
-    assistedHintPending = true;
-    $('#btn-assisted-hint').prop('disabled', true);
-    $('#status').html('<div style="padding:8px; background:rgba(100,100,255,0.15); border-radius:8px;">Consultant el mestre estratega...</div>');
-
-    try {
-        const fen = game.fen();
-        const bestMove = await getStockfishBestMove(fen, 12);
-
-        // Sense clau OpenAI: màxima local rica (subtema + generador jeroglífic).
-        if (!openaiApiKey) {
-            showAssistedMaxim(buildLocalAssistedMaxim(fen, bestMove));
-            return;
-        }
-
-        // Cau per FEN: evita repetir crides per la mateixa posició.
-        const cacheKey = `assisted:${fen}`;
-        const cached = getCachedOpenAI(cacheKey);
-        if (cached) { showAssistedMaxim(cached); return; }
-
-        if (!bestMove) throw new Error('No s\'ha pogut obtenir la millor jugada');
-        const prompt = buildAssistedHintPrompt(fen, bestMove, null);
-        const result = await callOpenAI(prompt, { generationConfig: { maxOutputTokens: 500 } });
-        if (!result.ok || !result.text) throw new Error(result.errorMessage || `OpenAI error ${result.status}`);
-        const text = result.text;
-
-        const cleanText = text.replace(/\*\*/g, '').replace(/^[-•]\s*/gm, '').replace(/["«»]/g, '').trim();
-        setCachedOpenAI(cacheKey, cleanText);
-        showAssistedMaxim(cleanText);
-    } catch (err) {
-        console.error('[AssistedHint]', err);
-        // Fallback offline davant qualsevol error de xarxa/API
-        showAssistedMaxim(buildLocalAssistedMaxim(game.fen(), null));
-    } finally {
-        assistedHintPending = false;
-        $('#btn-assisted-hint').prop('disabled', false);
-    }
-}
-
-function getStockfishBestMove(fen, depth) {
-    return new Promise((resolve) => {
-        if (!stockfish && !ensureStockfish()) { resolve(null); return; }
-        const prevRequestor = stockfishRequestor;
-        stockfishRequestor = 'assisted-hint';
-        const handler = function(event) {
-            const msg = typeof event === 'string' ? event : event.data;
-            if (typeof msg !== 'string') return;
-            if (msg.indexOf('bestmove') === 0 && stockfishRequestor === 'assisted-hint') {
-                stockfish.removeEventListener('message', handler);
-                stockfishRequestor = prevRequestor;
-                const m = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
-                resolve(m ? m[1] + m[2] + (m[3] || '') : null);
-            }
-        };
-        stockfish.addEventListener('message', handler);
-        try {
-            stockfish.postMessage('setoption name MultiPV value 1');
-            stockfish.postMessage(`position fen ${fen}`);
-            stockfish.postMessage(`go depth ${depth}`);
-        } catch (e) { resolve(null); }
-        setTimeout(() => { resolve(null); }, 10000);
-    });
-}
-
-// Analitza la posició actual i retorna { scoreCp, mate, bestMove } des de la perspectiva del color a moure
-function analyzePositionForUser(fen, depth = 14) {
-    return new Promise((resolve) => {
-        if (!stockfish && !ensureStockfish()) { resolve(null); return; }
-        const prevRequestor = stockfishRequestor;
-        stockfishRequestor = 'user-analysis';
-        let lastScoreCp = null, lastMate = null;
-        let resolved = false;
-        const finish = (val) => {
-            if (resolved) return; resolved = true;
-            stockfish.removeEventListener('message', handler);
-            stockfishRequestor = prevRequestor;
-            resolve(val);
-        };
-        const handler = function(event) {
-            const msg = typeof event === 'string' ? event : event.data;
-            if (typeof msg !== 'string' || stockfishRequestor !== 'user-analysis') return;
-            if (msg.indexOf('info') === 0) {
-                const cpM = msg.match(/score cp (-?\d+)/);
-                const mateM = msg.match(/score mate (-?\d+)/);
-                if (cpM) { lastScoreCp = parseInt(cpM[1], 10); lastMate = null; }
-                else if (mateM) { lastMate = parseInt(mateM[1], 10); lastScoreCp = null; }
-            } else if (msg.indexOf('bestmove') === 0) {
-                const m = msg.match(/bestmove\s([a-h][1-8])([a-h][1-8])([qrbn])?/);
-                finish({ scoreCp: lastScoreCp, mate: lastMate, bestMove: m ? m[1] + m[2] + (m[3] || '') : null });
-            }
-        };
-        stockfish.addEventListener('message', handler);
-        try {
-            stockfish.postMessage('setoption name MultiPV value 1');
-            stockfish.postMessage(`position fen ${fen}`);
-            stockfish.postMessage(`go depth ${depth}`);
-        } catch (e) { finish(null); }
-        setTimeout(() => finish(null), 12000);
-    });
-}
-
-let userAnalysisPending = false;
-async function requestPositionAnalysis() {
-    if (!game || game.game_over() || userAnalysisPending) return;
-    if (isEngineThinking) { showToast('Espera que el rival faci la seva jugada', 'info'); return; }
-    userAnalysisPending = true;
-    const btn = $('#btn-analyze');
-    btn.prop('disabled', true);
-    const prevStatus = $('#status').html();
-    $('#status').html('<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">Analitzant la posició…</div>');
-    try {
-        const turn = game.turn();
-        const res = await analyzePositionForUser(game.fen(), 14);
-        if (!res) { $('#status').html(prevStatus); showToast('No s\'ha pogut analitzar ara mateix', 'warn'); return; }
-        // Converteix a la perspectiva del jugador
-        let evalText;
-        if (res.mate != null) {
-            const mateForPlayer = (turn === playerColor) ? res.mate : -res.mate;
-            evalText = mateForPlayer > 0 ? `Mat en ${Math.abs(mateForPlayer)} a favor teu` : `Mat en ${Math.abs(mateForPlayer)} en contra`;
-        } else if (res.scoreCp != null) {
-            const cpForPlayer = (turn === playerColor) ? res.scoreCp : -res.scoreCp;
-            const pawns = (cpForPlayer / 100).toFixed(1);
-            const sign = cpForPlayer > 0 ? '+' : '';
-            const who = cpForPlayer > 50 ? ' (avantatge teu)' : (cpForPlayer < -50 ? ' (avantatge del rival)' : ' (igualada)');
-            evalText = `Avaluació: ${sign}${pawns}${who}`;
-        } else {
-            evalText = 'Avaluació no disponible';
-        }
-        let bestText = '';
-        if (res.bestMove && turn === playerColor) {
-            // Tradueix l'UCI a SAN sense alterar la partida
-            try {
-                const tmp = new Chess(game.fen());
-                const mv = tmp.move({ from: res.bestMove.slice(0,2), to: res.bestMove.slice(2,4), promotion: res.bestMove[4] || 'q' });
-                if (mv) bestText = ` · El Tauler recomana <strong>${mv.san}</strong>`;
-            } catch (e) {}
-        }
-        $('#status').html(`<div style="padding:8px; background:rgba(96,125,139,0.18); border-radius:8px;">🔬 ${evalText}${bestText}</div>`);
-    } catch (e) {
-        $('#status').html(prevStatus);
-        showToast('Error analitzant la posició', 'warn');
-    } finally {
-        userAnalysisPending = false;
-        btn.prop('disabled', false);
-    }
-}
 
 function buildOpenAIReviewPrompt(entry, severeErrors) {
     const summary = entry.counts || {};
@@ -15285,7 +15062,6 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         roc: currentElo,
         level: aiDifficulty,
         accuracy: finalPrecision,
-        assistedPerformance: options.assistedPerformance || null,
         mistakes: counts?.mistake || 0,
         createdAt: now.toISOString(),
         updatedAt: now.toISOString()
@@ -16435,7 +16211,6 @@ function continueOpeningErrorFenGame() {
     $('#engine-elo').text(`ELO ${ELO_MAX}`);
     $('#game-mode-title').text('♟ Continua contra ELO màxim');
     $('#btn-resign').show().prop('disabled', false);
-    $('#btn-analyze').toggle(false);
     clearEngineMoveHighlights();
     resetGameMoveNav();
     updatePrecisionDisplay();
@@ -21511,6 +21286,9 @@ function setupEvents() {
         saveAntidoteScanPreference(this.checked);
     });
 
+    // Repte del bessó: el bàner només apareix si la modalitat està activada
+    // (vegeu BESSO_ENABLED). Amagat, els seus botons no arriben a ser clicables.
+    if (BESSO_ENABLED) $('#btn-besso').show();
     onModalAction('#btn-besso', () => openBessoChallenge());
     onModalAction('#btn-besso-now', () => { $('#besso-modal').hide(); startBessoGame('now'); });
     onModalAction('#btn-besso-past', () => { $('#besso-modal').hide(); startBessoGame('past'); });
@@ -22000,7 +21778,7 @@ function setupEvents() {
             lastReviewSnapshot.finalPrecision,
             lastReviewSnapshot.counts,
             null,
-            { showCheckmate: lastReviewSnapshot.showCheckmate, assistedPerformance: lastReviewSnapshot.assistedPerformance }
+            { showCheckmate: lastReviewSnapshot.showCheckmate }
         );
     });
 
@@ -22028,7 +21806,7 @@ function setupEvents() {
         renderCoachDiagnosis();
     });
 
-    // Rellotge de la nova partida (lliure/assistida): es tria abans de cada partida i
+    // Rellotge de la nova partida: es tria abans de cada partida i
     // comença sempre a "sense rellotge".
     $('#new-game-tc-select').off('change').on('change', function() {
         pendingFreeTimeControl = $(this).val() || 'none';
@@ -22051,7 +21829,6 @@ function setupEvents() {
     });
 
     // Analitza la posició actual
-    $('#btn-analyze').off('click').on('click', requestPositionAnalysis);
 
     // --- Sincronització al núvol ---
     // No hi ha botó de tancar sessió: el compte queda vinculat a l'app i el nom
@@ -22176,16 +21953,6 @@ function setupEvents() {
         void requestOpenAIBundleHint();
     });
 
-    $('#btn-assisted-hint').click(() => {
-        void requestAssistedHint();
-    });
-
-    $('#btn-assisted-game').click(() => {
-        if (!guardCalibrationAccess()) return;
-        window._startAssistedGame = true;
-        startGame(false);
-    });
-
     $('#btn-positional-game').click(() => {
         if (!guardCalibrationAccess()) return;
         window._startPositionalGame = true;
@@ -22259,7 +22026,7 @@ function setupEvents() {
     $(document).on('click', '.eng-cta', function() {
         const action = $(this).attr('data-eng-action');
         if (action === 'srs') startSrsReview();
-        else { if (!guardCalibrationAccess()) return; window._startAssistedGame = false; startGame(false); }
+        else { if (!guardCalibrationAccess()) return; startGame(false); }
     });
 
     $('#btn-smart-share').click(async () => {
@@ -22351,7 +22118,7 @@ function setupEvents() {
                     lastReviewSnapshot.finalPrecision,
                     lastReviewSnapshot.counts,
                     null,
-                    { showCheckmate: lastReviewSnapshot.showCheckmate, assistedPerformance: lastReviewSnapshot.assistedPerformance }
+                    { showCheckmate: lastReviewSnapshot.showCheckmate }
                 );
             }
             $('#blunder-alert').hide();
@@ -23064,7 +22831,7 @@ function renderGrowthRecommendation(task, onClose) {
     box.find('#btn-growth-task-skip').off('click').on('click', () => {
         modal.hide();
         if (typeof onClose === 'function') onClose();
-        if ((modeAtRender === 'free' || modeAtRender === 'assisted') && typeof novaPartida === 'function') novaPartida();
+        if (modeAtRender === 'free' && typeof novaPartida === 'function') novaPartida();
     });
     box.show();
 }
@@ -23306,6 +23073,7 @@ function tryBessoBookMove() {
 // Prepara el bessó a partir de l'historial i llança el repte. `period`: 'now'
 // (jo actual) o 'past' (jo d'una data anterior, si n'hi ha prou historial).
 function startBessoGame(period = 'now') {
+    if (!BESSO_ENABLED) return;
     if (!guardCalibrationAccess()) return;
     const games = ElTaulerCore.bessoEligibleGames(gameHistory);
     if (games.length < ElTaulerCore.BESSO_CONFIG.minGames) {
@@ -23351,6 +23119,7 @@ function startBessoGame(period = 'now') {
 // Obre el selector de període del bessó (jo d'ara / jo del passat). Si no hi ha
 // instantània prou antiga, engega directament contra el jo d'ara.
 function openBessoChallenge() {
+    if (!BESSO_ENABLED) return;
     if (!guardCalibrationAccess()) return;
     const games = ElTaulerCore.bessoEligibleGames(gameHistory);
     if (games.length < ElTaulerCore.BESSO_CONFIG.minGames) {
@@ -23487,7 +23256,7 @@ function showHieroglyphicBundleOverlay() {
 /* ===================== BANNER D'INCENTIU ===================== */
 const PLAY_IDEAS = [
     "Domina el centre des de la primera jugada: cada peça hi guanya força.",
-    "Prova una Partida assistida: el mestre estratega et planteja el millor pla.",
+    "Prova el Joc vista: entrena el càlcul amb l'horitzó que tu triïs.",
     "Aprèn una obertura nova avui; la victòria es prepara abans de la batalla.",
     "Repassa un error antic: qui no repassa, repeteix.",
     "Desenvolupa totes les peces abans d'atacar; un exèrcit a mitges perd.",
@@ -24068,7 +23837,7 @@ function getOfflineMaximThemeKey(theme) {
 
 function pickOfflineMaxim(theme) {
     const key = getOfflineMaximThemeKey(theme);
-    return pickFreshPlanLine(OFFLINE_MAXIMS[key] || OFFLINE_MAXIMS.general, 'assistedmaxim:' + key);
+    return pickFreshPlanLine(OFFLINE_MAXIMS[key] || OFFLINE_MAXIMS.general, 'offlinemaxim:' + key);
 }
 
 function getOfflineMaximCandidates(theme, count = 3) {
@@ -24077,7 +23846,7 @@ function getOfflineMaximCandidates(theme, count = 3) {
     const out = [];
     const limit = Math.max(1, Math.min(count, pool.length));
     for (let i = 0; i < limit; i++) {
-        const line = pickFreshPlanLine(pool, 'assistedmaxim:candidate:' + key + ':' + i);
+        const line = pickFreshPlanLine(pool, 'offlinemaxim:candidate:' + key + ':' + i);
         if (line && !out.includes(line)) out.push(line);
     }
     return out;
@@ -24253,21 +24022,6 @@ function buildLocalCoachText(context = {}) {
         explanation,
         combined: [maxim || pickOfflineMaxim(theme), hint].filter(Boolean).join(' ')
     };
-}
-
-// Màxima estratègica local rica: reaprofita el generador de pistes jeroglífiques
-// (temàtic, variat i anti-repetitiu) perquè la partida assistida no depengui de cap clau.
-function buildLocalAssistedMaxim(fen, bestMove) {
-    const theme = classifyPositionTheme(fen, bestMove || '');
-    try {
-        if (bestMove) {
-            const ctx = buildHieroglyphicContext(fen, bestMove, {});
-            const clue = generateDynamicHieroglyphicClue(ctx, { level: 1 });
-            if (clue && clue.length > 12) return clue;
-        }
-    } catch (e) {}
-    const coachText = buildLocalCoachText({ theme, mode: 'assisted' });
-    return coachText.combined || coachText.maxim;
 }
 
 function getCachedOpenAI(key) {
@@ -24461,7 +24215,7 @@ function reopenPostGameReviewFromErrorPractice(snapshot) {
         snapshot.finalPrecision,
         snapshot.counts,
         null,
-        { showCheckmate: snapshot.showCheckmate, assistedPerformance: snapshot.assistedPerformance }
+        { showCheckmate: snapshot.showCheckmate }
     );
 }
 
@@ -25038,13 +24792,6 @@ blunderMode = isBundle;
         $('#engine-elo').text(label);
         $('#game-mode-title').text(`🏆 Lliga · Jornada ${leagueActiveMatch.round}/9`);
         if (engineReady) applyEngineEloStrength(opponentRoc);
-    } else if (window._startAssistedGame) {
-        currentGameMode = 'assisted';
-        currentOpponent = null;
-        window._startAssistedGame = false;
-        updateAdaptiveEngineEloLabel();
-        $('#game-mode-title').text('🧭 Partida assistida');
-        if (engineReady) applyEngineEloStrength(currentElo);
     } else if (antidoteRequest) {
         // Rival Antídot: Stockfish juga jugades FORTES (força màxima al seu
         // worker propi) triades per posar a prova les debilitats del jugador.
@@ -25097,9 +24844,6 @@ blunderMode = isBundle;
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
     if (currentGameMode === 'positional' && !isCalibrationGame) currentGameEngineDepth = getPositionalVisionLevel().depth;
 
-    // Botó "Analitza" només en partides amistoses i assistides (no calibratge/lliga/bundle)
-    $('#btn-analyze').toggle(currentGameMode === 'assisted' && !isCalibrationGame);
-
     // Controls i panells propis del Joc posicional (nets a cada partida nova)
     resetPositionalState();
 
@@ -25125,13 +24869,13 @@ blunderMode = isBundle;
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
-    // Calibratge de ritme AUTOMÀTIC: tota primera partida (nova o assistida)
+    // Calibratge de ritme AUTOMÀTIC: tota primera partida nova
     // d'un ritme que encara no té ELO es juga en mode adaptatiu de calibratge,
     // tant si es tria el rellotge aquí com si s'engega des del botó «Calibra»
     // d'Estadístiques. Qualsevol altra partida (exercici, lliga, ritme amb ELO
     // ja fixat...) descarta el calibratge.
     const eligibleTimedGame = !isBundle && currentGameTimeControlId !== 'none'
-        && (currentGameMode === 'free' || currentGameMode === 'assisted');
+        && currentGameMode === 'free';
     timedCalibrationTcId = (eligibleTimedGame && getTimeControlRating(currentGameTimeControlId) === null)
         ? currentGameTimeControlId
         : null;
@@ -26898,7 +26642,7 @@ function handleEngineMessage(rawMsg) {
             const afterAnalysis = extractEnrichedAnalysis();
             pendingRefutationPv = Array.isArray(afterAnalysis.bestMovePv) ? afterAnalysis.bestMovePv : [];
             let swing = pendingEvalAfter + (pendingEvalBefore || 0);
-            if (!isCalibrationGame && !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted')) {
+            if (!isCalibrationGame && !blunderMode && currentGameMode === 'free') {
                 const delta = swing;
                 const isError = delta > TH_ERR;
                 recentErrors.push(isError);
@@ -27413,10 +27157,10 @@ function hidePostGameHomeButton() {
 }
 
 // La ressenya automàtica post-xip només s'aplica a partides normals
-// (lliure/assistida): no a lliga, calibratge, explorador, joc posicional,
+// (lliures): no a lliga, calibratge, explorador, joc posicional,
 // bessó, repte de fase ni mode blunder, que tenen el seu propi tancament.
 function postGameChipQuickExitAllowed() {
-    return !blunderMode && (currentGameMode === 'free' || currentGameMode === 'assisted');
+    return !blunderMode && currentGameMode === 'free';
 }
 
 // Pany de sortida heretat: ja no hi ha cap botó de sortida ràpida durant
@@ -27490,41 +27234,10 @@ function deepReviewTargets(entry) {
     return entry.moveReviews.filter(r => r && r.fen && DEEP_REVIEW_KEYS.includes(r.quality)).slice(0, 8);
 }
 
-function assistedPerformanceDisplay(performance) {
-    if (!performance) return null;
-    if (typeof performance.rating !== 'number' || !isFinite(performance.rating)) {
-        const minMoves = performance.minMoves || ASSISTED_PERFORMANCE_MIN_MOVES;
-        return {
-            value: 'No disponible',
-            note: `Partida massa curta: calen almenys ${minMoves} jugades teves per fer una estimació fiable.`
-        };
-    }
-    const unit = performance.unit === 'ELO' ? 'ELO' : 'ROC';
-    return {
-        value: `${unit} ${Math.round(performance.rating)}`,
-        note: 'Estimació orientativa segons la força del rival, el resultat i la qualitat de les jugades.'
-    };
-}
-
-function renderAssistedPerformance(performance) {
-    const box = $('#review-performance');
-    if (!box.length) return;
-    const display = assistedPerformanceDisplay(performance);
-    if (!display) {
-        box.hide();
-        return;
-    }
-    $('#review-performance-value').text(display.value);
-    $('#review-performance-note').text(display.note);
-    box.show();
-}
-
 function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) {
     const modal = $('#review-modal');
     if (!modal.length) {
-        const performance = assistedPerformanceDisplay(options.assistedPerformance);
-        const performanceLine = performance ? `\nRendiment assistit estimat: ${performance.value}` : '';
-        alert(msg + (finalPrecision ? `\nPrecisió: ${finalPrecision}%` : '') + performanceLine);
+        alert(msg + (finalPrecision ? `\nPrecisió: ${finalPrecision}%` : ''));
         if (typeof options.onOpened === 'function') options.onOpened('fallback-alert');
         if (typeof onClose === 'function') onClose();
         return;
@@ -27544,7 +27257,6 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     
         $('#review-result-text').text(msg);
         $('#review-precision-value').text(finalPrecision ? `${finalPrecision}%` : '—');
-        renderAssistedPerformance(options.assistedPerformance);
         renderReviewBreakdown(counts || summarizeReview(currentReview));
         renderGameDebrief(options.entry);
         modal.css('display', 'flex');
@@ -27627,20 +27339,18 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
         }
     }
 
-    // Botó "Tornar a jugar" per a modes lliure/assistit (punt 6)
+    // Botó "Tornar a jugar" per al mode lliure (punt 6)
     const againBtn = $('#btn-review-again');
     if (againBtn.length) {
-        const replayable = (currentGameMode === 'free' || currentGameMode === 'assisted');
+        const replayable = (currentGameMode === 'free');
         againBtn.toggle(replayable);
         if (replayable) {
-            const wasAssisted = (currentGameMode === 'assisted');
             againBtn.off('click').on('click', () => {
                 if (reviewAutoCloseTimer) { clearTimeout(reviewAutoCloseTimer); reviewAutoCloseTimer = null; }
                 if (reviewOpenDelayTimer) { clearTimeout(reviewOpenDelayTimer); reviewOpenDelayTimer = null; }
                 checkmateOverlay.hide();
                 modal.hide();
-                if (wasAssisted) { window._startAssistedGame = true; startGame(false); }
-                else { novaPartida(); }
+                novaPartida();
             });
         }
     }
@@ -27839,7 +27549,6 @@ function continueSolvedFenGame() {
     $('#engine-elo').text(`ELO ${ELO_MAX}`);
     $('#game-mode-title').text('♟ Continua contra ELO màxim');
     $('#btn-resign').show().prop('disabled', false);
-    $('#btn-analyze').toggle(false);
     updateStatus();
     updateBundleHintButtons();
     resetGameMoveNav();
@@ -28062,6 +27771,13 @@ function returnToBundleMenu() {
 // l'ELO/ROC EQUIVALENT amb què juga el rival: la força s'adapta al que
 // equivaldria un jugador humà amb aquesta visió. L'opció base (0) és prou
 // baixa perquè l'usuari tingui opcions de guanyar partides.
+//
+// Els nivells 7-10 són el tram d'ALT RENDIMENT: sense ells el sostre de la
+// modalitat es quedava a ROC 1950, per sota d'un jugador fort, que així no
+// tenia cap opció que li fes ombra. La profunditat hi va més enllà de la del
+// motor de les partides normals (que satura a 16) perquè aquí la profunditat
+// no és un dial de força sinó l'exercici mateix: és l'horitzó que es demana
+// veure. La força hi puja de 150 en 150 fins a ROC 2550.
 const POSITIONAL_VISION_LEVELS = [
     { vision: 0, depth: 2, roc: 750 },
     { vision: 1, depth: 4, roc: 1000 },
@@ -28069,11 +27785,15 @@ const POSITIONAL_VISION_LEVELS = [
     { vision: 3, depth: 8, roc: 1450 },
     { vision: 4, depth: 10, roc: 1650 },
     { vision: 5, depth: 12, roc: 1800 },
-    { vision: 6, depth: 14, roc: 1950 }
+    { vision: 6, depth: 14, roc: 1950 },
+    { vision: 7, depth: 16, roc: 2100 },
+    { vision: 8, depth: 18, roc: 2250 },
+    { vision: 9, depth: 20, roc: 2400 },
+    { vision: 10, depth: 22, roc: 2550 }
 ];
 const POSITIONAL_VISION_KEY = 'chess_positionalVision';
 
-// Visió triada (0-6), persistida entre sessions.
+// Visió triada (0-10), persistida entre sessions.
 let positionalVision = 0;
 try {
     const storedVision = parseInt(localStorage.getItem(POSITIONAL_VISION_KEY), 10);
@@ -28991,7 +28711,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     const tacticalPatterns = identifyTacticalPatterns(currentReview, avgCpLoss, blundersOver200);
     const calibrationGameWasActive = isCalibrationGame;
     let calibrationJustCompleted = false;
-    const isFreeMode = currentGameMode === 'free' || currentGameMode === 'assisted';
+    const isFreeMode = currentGameMode === 'free';
     const isLeagueMode = currentGameMode === 'league';
     // Partida des del tauler d'anàlisi: es juga i es revisa com una partida
     // normal, però NO puntua ELO, ni ajusta la dificultat, ni entra a
@@ -29012,7 +28732,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // com a activitat d'entrenament, ratxes i missions.
     const isAntidoteGameMode = currentGameMode === 'antidote';
     const shouldContinuousAdjust = isFreeMode && calibratgeComplet && !calibrationGameWasActive && !blunderMode;
-    // Partida amb rellotge (lliure/assistida): puntua a l'ELO del seu ritme i
+    // Partida amb rellotge (lliure): puntua a l'ELO del seu ritme i
     // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
     const isTimedRatedGame = !blunderMode && !calibrationGameWasActive && !isLeagueMode
         && !isAntidoteGameMode && currentGameTimeControlId !== 'none';
@@ -29044,21 +28764,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         } else { msg = "Derrota"; resultScore = 0; leagueOutcome = 'loss'; }
     } else { msg = "Taules"; resultScore = 0.5; leagueOutcome = 'draw'; }
 
-    const assistedPerformance = currentGameMode === 'assisted'
-        ? estimateAssistedGamePerformance(
-            resultScore,
-            finalPrecision,
-            avgCpLoss,
-            blundersOver200,
-            adaptationActiveStrengthElo,
-            totalPlayerMoves
-        )
-        : null;
-        
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
     if (currentGameMode === 'league') sessionStats.leagueGamesPlayed++;
-    else if (currentGameMode === 'free' || currentGameMode === 'assisted') sessionStats.freeGamesPlayed++;
+    else if (currentGameMode === 'free') sessionStats.freeGamesPlayed++;
 
     if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
     if (finalPrecision >= 85) sessionStats.perfectGames++;
@@ -29185,7 +28894,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // que alimenten la biblioteca d'errors (són jugades reals de l'usuari).
     // El repte del bessó tampoc no s'hi desa: evita el bucle de retroalimentació
     // (el bessó aprèn de les teves partides REALS, no de les que hi jugues en contra).
-    if (!isExplorerMode && !isBessoMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors, assistedPerformance });
+    if (!isExplorerMode && !isBessoMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors });
     // Rival Antídot: el progrés acumulat s'actualitza un cop desada la partida
     // (les proves ja viatgen dins de l'entrada de l'historial).
     if (isAntidoteGameMode) commitAntidoteProgress();
@@ -29218,7 +28927,6 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         finalPrecision: finalPrecision,
         counts: reviewCounts,
         showCheckmate: showCheckmate,
-        assistedPerformance: assistedPerformance
     };
     
     let onClose = () => {
@@ -29315,7 +29023,6 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             growthTask: growthTask,
             disableGrowth: calibrationGameWasActive,
             deferGrowth: !calibrationGameWasActive,
-            assistedPerformance,
             onOpened: persistPostGameAfterPaint
         });
         if (calibrationJustCompleted) {
@@ -29330,7 +29037,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         hidePostGameStatusChip();
         persistPostGameAfterPaint('quick-exit');
     } else if (postGameChipQuickExitAllowed()) {
-        // Partida normal (lliure/assistida): mentre l'última anàlisi acaba, el xip
+        // Partida normal (lliure): mentre l'última anàlisi acaba, el xip
         // només informa. Quan handleGameOver() ja ha registrat la partida, obrim
         // la ressenya automàticament amb els botons de navegació normals. Això
         // evita el botó de sortida ràpida que podia no rebre tocs i, sobretot,
