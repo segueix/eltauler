@@ -25405,8 +25405,8 @@ function loadAntidoteNoticesPreference() {
 
 function saveAntidoteNoticesPreference(enabled) {
     antidoteNoticesEnabled = !!enabled;
-    try { localStorage.setItem(ANTIDOTE_NOTICES_KEY, antidoteNoticesEnabled ? '1' : '0'); } catch (e) {    if (!antidoteNoticesEnabled) hideAntidoteLivePanel();
-}
+    try { localStorage.setItem(ANTIDOTE_NOTICES_KEY, antidoteNoticesEnabled ? '1' : '0'); } catch (e) {}
+    if (!antidoteNoticesEnabled) hideAntidoteLivePanel();
 }
 
 // ANTIDOTE_LIVE_FEEDBACK_V1
