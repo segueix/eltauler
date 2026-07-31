@@ -15049,6 +15049,10 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
             playerMoveSan: review.playerMoveSan || null,
             bestMovePv: review.bestMovePv || [],
             alternatives: review.alternatives || [],
+            // Les tres línies crues del motor: és el que fa possible el test de
+            // Tres camins sobre partides velles. `alternatives` sol bastar per
+            // reconstruir-les, però hi perd els mats (queden com a ±10000 cp).
+            multipvBefore: review.multipvBefore || null,
             evalBefore: review.evalBefore ?? null,
             evalAfter: review.evalAfter ?? null,
             refutationPv: review.refutationPv || [],
@@ -23264,19 +23268,24 @@ function refreshTriaBanner() {
     const banner = $('#btn-tria-banner');
     if (!banner.length) return;
     const meta = $('#tria-banner-meta');
-    const available = ElTaulerCore.triaEligibleMoves(collectTriaPool(), {}).length;
+    const pool = collectTriaPool();
+    const available = ElTaulerCore.triaEligibleMoves(pool, {}).length;
+    // Preguntes REALS que pot donar el fons: el màxim per partida en deixa
+    // moltes elegibles fora, i el bàner no ha de prometre el que no pot servir.
+    const questions = ElTaulerCore.triaPlannedQuestionCount(pool, {});
     const min = ElTaulerCore.TRIA_CONFIG.minTestSize;
     const size = ElTaulerCore.TRIA_CONFIG.testSize;
     const history = loadTriaHistory();
-    if (available < min) {
+    if (questions < min) {
         banner.addClass('is-locked');
-        meta.text(`Calen unes quantes partides revisades més (${available}/${min} jugades disponibles)`);
+        meta.text(`Juga alguna partida més: en calen ${min} preguntes i ara n'hi ha ${questions}`);
         return;
     }
     banner.removeClass('is-locked');
     const last = history.length ? history[history.length - 1] : null;
-    const questions = Math.min(size, available);
-    meta.text(`${questions} preguntes a punt · ${available} jugades teves al fons`
+    meta.text(`${questions} ${questions === 1 ? 'pregunta' : 'preguntes'} a punt`
+        + (questions < size ? ` (de ${size}: surten de partides diferents)` : '')
+        + ` · ${available} jugades teves al fons`
         + (last ? ` · últim test: ${last.accuracy}%` : ''));
 }
 
@@ -27795,8 +27804,8 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     // d'aquesta partida ja compten al fons, com les de totes les altres.
     const triaBtn = $('#btn-review-tria');
     if (triaBtn.length) {
-        const available = ElTaulerCore.triaEligibleMoves(collectTriaPool(), {}).length;
-        triaBtn.toggle(available >= ElTaulerCore.TRIA_CONFIG.minTestSize);
+        const planned = ElTaulerCore.triaPlannedQuestionCount(collectTriaPool(), {});
+        triaBtn.toggle(planned >= ElTaulerCore.TRIA_CONFIG.minTestSize);
         triaBtn.off('click').on('click', () => {
             modal.hide();
             openTriaTest();

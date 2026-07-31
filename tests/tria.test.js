@@ -62,6 +62,50 @@ describe('triaEligibleMoves (qualsevol jugada no 100% correcta)', () => {
     });
 });
 
+describe('les dues formes en què arriben les tres línies', () => {
+    // A l'historial NO s'hi desa `multipvBefore`: hi viatgen `bestMove` +
+    // `evalBefore` (línia 1) i `alternatives` (línies 2 i 3). Si el test només
+    // sabés llegir la primera forma, el fons es reduiria a la partida en curs.
+    function storedShape(extra = {}) {
+        return Object.assign({
+            fen: FEN, moveNumber: 4, quality: 'mistake', swing: 120, cpLoss: 120,
+            playerMove: 'f3e5', playerMoveSan: 'Nxe5',
+            bestMove: 'd2d3', bestMoveSan: 'd3', evalBefore: 40,
+            alternatives: [{ move: 'b1c3', eval: 22, pv: [] }, { move: 'e1g1', eval: -5, pv: [] }]
+        }, extra);
+    }
+
+    test('una jugada desada a l\'historial és elegible igual', () => {
+        expect(Core.triaEligibleMoves([storedShape()], {})).toHaveLength(1);
+    });
+
+    test('i en surt la mateixa pregunta que amb el MultiPV cru', () => {
+        const fromStored = T.buildQuestion(storedShape(), {});
+        const fromRaw = T.buildQuestion(review(), {});
+        expect(fromStored).toBeTruthy();
+        expect(fromStored.options.map(o => o.san).sort()).toEqual(fromRaw.options.map(o => o.san).sort());
+        expect(fromStored.options[fromStored.answerIndex].san).toBe('d3');
+    });
+
+    test('el MultiPV cru mana quan hi és (no hi perd els mats)', () => {
+        const both = storedShape({
+            multipvBefore: [mpv('d2d3', 40), mpv('b1c3', 22), mpv('e1g1', -5)]
+        });
+        const cands = Core.triaCandidatesFromReview(both);
+        expect(cands).toHaveLength(3);
+        expect(cands[0].evalType).toBe('cp');
+    });
+
+    test('sense alternatives desades no es pot reconstruir res', () => {
+        expect(Core.triaEligibleMoves([storedShape({ alternatives: [] })], {})).toHaveLength(0);
+    });
+
+    test('una alternativa que repeteix la millor no compta com a segona línia', () => {
+        const dup = storedShape({ alternatives: [{ move: 'd2d3', eval: 40, pv: [] }] });
+        expect(Core.triaEligibleMoves([dup], {})).toHaveLength(0);
+    });
+});
+
 describe('buildQuestion (les tres millors i l\'original)', () => {
     test('les tres opcions són les tres millors del motor, etiquetades A/B/C', () => {
         const q = T.buildQuestion(review(), {});
@@ -274,6 +318,22 @@ describe('buildTest (el test de 20)', () => {
         const test = T.buildTest(pool(60), { elo: 1600 });
         const games = new Set(test.map(q => q.gameId));
         expect(games.size).toBeGreaterThan(3);
+    });
+
+    test('el compte anunciat coincideix amb el test que es pot fer de debò', () => {
+        [1, 2, 4, 8].forEach(games => {
+            const p = pool(games * 6).map((r, i) => Object.assign({}, r, { gameId: 'g' + Math.floor(i / 6) }));
+            const planned = Core.triaPlannedQuestionCount(p, {});
+            const real = T.buildTest(p, { elo: 1600 }).length;
+            expect(planned).toBeGreaterThanOrEqual(real);
+            expect(planned - real).toBeLessThanOrEqual(2);
+        });
+    });
+
+    test('una sola partida no pot anunciar un test sencer (mana el màxim per partida)', () => {
+        const oneGame = pool(30).map(r => Object.assign({}, r, { gameId: 'unica' }));
+        expect(Core.triaPlannedQuestionCount(oneGame, {}))
+            .toBeLessThanOrEqual(CFG.eligibility.maxPerGame);
     });
 
     test('sense jugades elegibles no hi ha test', () => {
