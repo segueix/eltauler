@@ -6609,6 +6609,21 @@
         // vint fos tot repesca, deixaries de veure decisions noves.
         repetition: {
             maxPendingShare: 0.5
+        },
+
+        // Obertures. El fons n'és desbordant —totes les partides en tenen, i
+        // sovint la MATEIXA— i, sense filtre, un test se n'ompliria de
+        // variacions de les mateixes quatre jugades. Se'n deixa passar UNA per
+        // posició i, en total, una quarta part del test.
+        //
+        // L'excepció són els errors RECURRENTS: una decisió d'obertura que has
+        // fallat en partides diferents no és soroll, és un forat del repertori,
+        // i aquestes passen sempre. El buit que deixi el tall s'omple amb
+        // migjoc, que és on hi ha més material de veritat.
+        openings: {
+            onePerPosition: true,
+            maxShare: 0.25,
+            recurringMinGames: 2
         }
     };
 
@@ -6750,9 +6765,25 @@
             const loss = antidoteNum(r.cpLoss != null ? r.cpLoss : r.swing, 0);
             if (loss < cfg.minLossCp) return;
             const key = reviewErrorKey(r);
-            if (seen[key]) return;
-            seen[key] = true;
-            out.push(r);
+            // La MATEIXA decisió repetida (mateixa posició, mateixa jugada
+            // dolenta) no genera dues preguntes, però es compta: repetir-la en
+            // partides diferents és el que la converteix en un error RECURRENT,
+            // i això és el que li dona dret a passar el filtre d'obertures.
+            if (seen[key]) {
+                seen[key].occurrences++;
+                if (r.gameId) seen[key].games[String(r.gameId)] = true;
+                return;
+            }
+            const kept = Object.assign({}, r, { occurrences: 1, games: {} });
+            if (r.gameId) kept.games[String(r.gameId)] = true;
+            seen[key] = kept;
+            out.push(kept);
+        });
+        // Recurrent = fallada en més d'una partida (no dues vegades a la
+        // mateixa, que sovint és la mateixa línia repetida en un dia dolent).
+        out.forEach(r => {
+            r.repeatedGames = Object.keys(r.games || {}).length;
+            delete r.games;
         });
         return out;
     }
@@ -6929,6 +6960,50 @@
         return out;
     }
 
+    // Filtre d'obertures: una per posició i un sostre del total, tret dels
+    // errors recurrents, que hi passen sempre. Les altres fases no es toquen.
+    function triaFilterOpenings(questions, options) {
+        const o = options || {};
+        const cfg = TRIA_CONFIG.openings;
+        const size = Math.max(1, antidoteNum(o.testSize, TRIA_CONFIG.testSize));
+        const cap = Math.max(1, Math.round(size * clampNum(
+            (typeof o.maxOpeningShare === 'number') ? o.maxOpeningShare : cfg.maxShare, 0, 1)));
+        const minGames = Math.max(1, antidoteNum(o.recurringMinGames, cfg.recurringMinGames));
+
+        const openings = [];
+        const others = [];
+        (Array.isArray(questions) ? questions : []).forEach(q => {
+            if (q && q.phase === 'opening') openings.push(q);
+            else if (q) others.push(q);
+        });
+        if (!openings.length) return { questions: others, overflow: [] };
+
+        // Una per POSICIÓ: dues partides que arriben a la mateixa posició
+        // d'obertura són la mateixa pregunta, encara que hi juguessis coses
+        // diferents. Mana la que s'ha repetit més.
+        const byPosition = new Map();
+        openings.forEach(q => {
+            const posKey = String(q.fen || '').split(' ')[0];
+            const prev = byPosition.get(posKey);
+            if (!prev || (q.repeatedGames || 1) > (prev.repeatedGames || 1)) byPosition.set(posKey, q);
+        });
+        const unique = cfg.onePerPosition ? Array.from(byPosition.values()) : openings;
+
+        const recurring = [];
+        const single = [];
+        unique.forEach(q => {
+            if ((q.repeatedGames || 1) >= minGames) recurring.push(q);
+            else single.push(q);
+        });
+        // Les recurrents primer i senceres; les altres, fins al sostre. Les que
+        // sobren no es llencen: tornen com a `overflow` per si el fons no dona
+        // per omplir el test amb altres fases (un jugador que només tingui
+        // partides curtes no ha de rebre un test de cinc preguntes).
+        const room = Math.max(0, cap - recurring.length);
+        const kept = recurring.concat(single.slice(0, room));
+        return { questions: kept.concat(others), overflow: single.slice(room) };
+    }
+
     // Quantes preguntes hi ha de cada fase (per al resum del test).
     function triaPhaseCounts(questions) {
         const counts = { opening: 0, middlegame: 0, endgame: 0 };
@@ -7038,7 +7113,9 @@
                 answerIndex: answerIndex,
                 original: original,
                 difficulty: triaQuestionDifficulty(multi),
-                phase: phaseFromFen(fen)
+                phase: phaseFromFen(fen),
+                // En quantes partides diferents has fallat aquesta decisió.
+                repeatedGames: Math.max(1, antidoteNum(r.repeatedGames, 1))
             };
         }
 
@@ -7078,10 +7155,24 @@
                 else rest.push(q);
             });
             rest.sort((a, b) => Math.abs(a.difficulty - target) - Math.abs(b.difficulty - target));
+            // Obertures: una per posició i amb sostre, tret de les recurrents.
+            // El que es talla aquí l'acaba omplint el migjoc, perquè el
+            // repartiment per fases pren el que queda de cada bossa.
+            const filtered = triaFilterOpenings(inBand.concat(rest), {
+                testSize: size,
+                maxOpeningShare: o.maxOpeningShare,
+                recurringMinGames: o.recurringMinGames
+            });
             // Barreja de fases: el fons real és molt més ric en obertures i
             // migjocs que en finals, i sense repartir-lo un test de vint no
             // arribaria mai a una posició de final.
-            const orderedFresh = triaInterleaveByPhase(inBand.concat(rest));
+            let orderedFresh = triaInterleaveByPhase(filtered.questions);
+            // Si amb el sostre d'obertures no s'omple el test, es recuperen les
+            // que havien sobrat: val més un test sencer d'obertures variades
+            // que un de cinc preguntes.
+            if (orderedFresh.length + pendingQs.length < size && filtered.overflow.length) {
+                orderedFresh = orderedFresh.concat(filtered.overflow);
+            }
             const orderedPending = triaInterleaveByPhase(pendingQs);
             return triaMixPendingAndFresh(orderedPending, orderedFresh, size, {
                 maxPendingShare: o.maxPendingShare
@@ -7408,6 +7499,7 @@
         triaPartitionByProgress,
         triaMixPendingAndFresh,
         triaInterleaveByPhase,
+        triaFilterOpenings,
         triaPhaseCounts,
         triaSpreadAcrossGames,
         createTriaHelpers,

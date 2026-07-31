@@ -342,6 +342,19 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   un jugador de 2400 rep de mitjana preguntes més difícils que un de 900, que un
   test no buida mai una sola partida i que les preguntes es reparteixen entre
   partides diferents.
+  De les **obertures**: el fons n'és desbordant —totes les partides en tenen, i
+  sovint la MATEIXA, perquè cadascú juga el seu repertori— i sense filtre un
+  test s'ompliria de variacions de les mateixes quatre jugades. Se'n deixa
+  passar **una per posició** (dues partides que arriben a la mateixa posició
+  són la mateixa pregunta, encara que hi juguessis coses diferents) i, en total,
+  una quarta part del test. L'excepció són els **errors recurrents**: una
+  decisió que has fallat en partides DIFERENTS no és soroll sinó un forat del
+  repertori, i aquestes hi passen sempre i primer. Es comprova també que fallar
+  dues vegades a la mateixa partida NO faci recurrent (sovint és la mateixa
+  línia repetida un mal dia), que les altres fases no les toqui el filtre, i
+  —la prova que evita el mal pitjor— que el sostre sigui una preferència i no
+  una gana: amb un fons de només obertures variades, el test s'omple igualment
+  en comptes de servir-ne cinc.
   De la **barreja de fases**: el test combina obertures, migjocs i finals. El
   repartiment fa torns rodons entre les tres (`triaInterleaveByPhase`), de
   manera que agafant-ne les primeres vint el test toca les tres encara que el

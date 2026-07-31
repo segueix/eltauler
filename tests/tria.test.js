@@ -500,6 +500,145 @@ describe('el test respecta la memòria', () => {
     });
 });
 
+describe('obertures: una per posició, tret dels errors recurrents', () => {
+    // Partides que comencen igual: les posicions d'obertura es repeteixen tal
+    // com passa de debò (tothom juga el seu repertori), i sense filtre un test
+    // s'ompliria de variacions de les mateixes quatre jugades.
+    function openingPool(games, opts = {}) {
+        const out = [];
+        const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+        for (let g = 0; g < games; g++) {
+            const b = new Chess();
+            for (let k = 0; k < 4; k++) {
+                const legal = b.moves({ verbose: true });
+                const p = legal.slice(0, 4);
+                out.push(review({
+                    fen: b.fen(), moveNumber: k + 1, gameId: 'g' + g,
+                    // Per defecte cada partida falla una jugada DIFERENT, així
+                    // que són decisions distintes sobre posicions iguals.
+                    playerMove: uci(p[3 - (opts.sameMistake ? 0 : (g % 2))]),
+                    bestMove: uci(p[0]),
+                    multipvBefore: [mpv(uci(p[0]), 40), mpv(uci(p[1]), 15), mpv(uci(p[2]), -10)]
+                }));
+                b.move(legal[0]); // mateixa línia a totes: posicions compartides
+            }
+        }
+        return out;
+    }
+
+    function questionsOf(pool) {
+        return Core.triaEligibleMoves(pool, {})
+            .map(r => T.buildQuestion(r, {}))
+            .filter(Boolean)
+            .map((q, i) => Object.assign(q, { repeatedGames: Core.triaEligibleMoves(pool, {})[i].repeatedGames }));
+    }
+
+    test('la mateixa decisió repetida en partides diferents es compta com a recurrent', () => {
+        const pool = openingPool(3, { sameMistake: true });
+        const elig = Core.triaEligibleMoves(pool, {});
+        // Totes les partides fallen el mateix a les mateixes posicions.
+        expect(elig.length).toBe(4);
+        elig.forEach(r => expect(r.repeatedGames).toBe(3));
+    });
+
+    test('fallar-la dues vegades a la MATEIXA partida no la fa recurrent', () => {
+        const one = openingPool(1, { sameMistake: true });
+        const twice = one.concat(one.map(r => Object.assign({}, r)));
+        Core.triaEligibleMoves(twice, {}).forEach(r => expect(r.repeatedGames).toBe(1));
+    });
+
+    test('d\'una mateixa posició d\'obertura només en surt una pregunta', () => {
+        const pool = openingPool(6);
+        const qs = questionsOf(pool);
+        const openings = qs.filter(q => q.phase === 'opening');
+        expect(openings.length).toBeGreaterThan(1);
+        const kept = Core.triaFilterOpenings(qs, { testSize: 20 })
+            .questions.filter(q => q.phase === 'opening');
+        const positions = kept.map(q => q.fen.split(' ')[0]);
+        expect(new Set(positions).size).toBe(positions.length);
+    });
+
+    test('un error recurrent d\'obertura hi passa encara que se superi el sostre', () => {
+        // Una recurrent (fallada a tres partides) i moltes de soltes.
+        const recurrent = Object.assign(review({ moveNumber: 1 }), { phase: 'opening' });
+        const singles = [];
+        for (let i = 0; i < 30; i++) {
+            singles.push({ phase: 'opening', fen: `pos${i}/8/8/8/8/8/8/8 w - - 0 1`, repeatedGames: 1, id: 's' + i });
+        }
+        const rec = { phase: 'opening', fen: 'REC/8/8/8/8/8/8/8 w - - 0 1', repeatedGames: 3, id: 'rec' };
+        const kept = Core.triaFilterOpenings(singles.concat([rec]), { testSize: 20 });
+        expect(kept.questions.some(q => q.id === 'rec')).toBe(true);
+    });
+
+    test('les obertures no recurrents queden limitades a una part del test', () => {
+        const singles = [];
+        for (let i = 0; i < 40; i++) {
+            singles.push({ phase: 'opening', fen: `p${i}/8/8/8/8/8/8/8 w - - 0 1`, repeatedGames: 1 });
+        }
+        const kept = Core.triaFilterOpenings(singles, { testSize: 20 });
+        expect(kept.questions.length).toBe(Math.round(20 * CFG.openings.maxShare));
+        // Les que sobren no es llencen: queden per si calgués omplir el test.
+        expect(kept.overflow.length).toBe(40 - Math.round(20 * CFG.openings.maxShare));
+    });
+
+    test('les altres fases no les toca el filtre', () => {
+        const mixed = [
+            { phase: 'middlegame', fen: 'a/8/8/8/8/8/8/8 w - - 0 1' },
+            { phase: 'endgame', fen: 'b/8/8/8/8/8/8/8 w - - 0 1' },
+            { phase: 'middlegame', fen: 'c/8/8/8/8/8/8/8 w - - 0 1' }
+        ];
+        expect(Core.triaFilterOpenings(mixed, { testSize: 20 }).questions).toHaveLength(3);
+    });
+
+    test('sense obertures el filtre no fa res', () => {
+        const only = [{ phase: 'endgame', fen: 'x/8/8/8/8/8/8/8 w - - 0 1' }];
+        expect(Core.triaFilterOpenings(only, { testSize: 20 }).questions).toHaveLength(1);
+        expect(Core.triaFilterOpenings(null, { testSize: 20 }).questions).toEqual([]);
+    });
+
+    test('el que es talla d\'obertura ho omple el migjoc', () => {
+        const qs = [];
+        for (let i = 0; i < 40; i++) qs.push({ phase: 'opening', fen: `o${i}/8/8/8/8/8/8/8 w - - 0 1`, repeatedGames: 1 });
+        for (let i = 0; i < 40; i++) qs.push({ phase: 'middlegame', fen: `m${i}/8/8/8/8/8/8/8 w - - 0 1` });
+        const filtered = Core.triaFilterOpenings(qs, { testSize: 20 }).questions;
+        const test20 = Core.triaInterleaveByPhase(filtered).slice(0, 20);
+        const counts = Core.triaPhaseCounts(test20);
+        expect(counts.opening).toBeLessThanOrEqual(Math.round(20 * CFG.openings.maxShare));
+        expect(counts.middlegame).toBeGreaterThan(counts.opening);
+        expect(counts.opening + counts.middlegame).toBe(20);
+    });
+
+    test('si NOMÉS hi ha obertures VARIADES, el test s\'omple igualment', () => {
+        // El sostre és una preferència, no una gana: qui només tingui partides
+        // curtes —però de línies diferents— no ha de rebre un test de cinc.
+        const pool = [];
+        const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+        let seed = 808;
+        const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        for (let g = 0; g < 30; g++) {
+            const b = new Chess();
+            for (let k = 0; k < 4; k++) {
+                const legal = b.moves({ verbose: true });
+                const p = legal.slice(0, 4);
+                pool.push(review({
+                    fen: b.fen(), moveNumber: k + 1, gameId: 'v' + g,
+                    playerMove: uci(p[3]), bestMove: uci(p[0]),
+                    multipvBefore: [mpv(uci(p[0]), 40), mpv(uci(p[1]), 15), mpv(uci(p[2]), -10)]
+                }));
+                b.move(legal[Math.floor(rnd() * legal.length)]);
+            }
+        }
+        const openings = Core.triaEligibleMoves(pool, {})
+            .map(r => T.buildQuestion(r, {})).filter(Boolean)
+            .filter(q => q.phase === 'opening');
+        const distinctPositions = new Set(openings.map(q => q.fen.split(' ')[0])).size;
+        expect(distinctPositions).toBeGreaterThan(CFG.testSize);
+
+        const test = T.buildTest(pool, { elo: 1600 });
+        expect(test.length).toBeGreaterThan(Math.round(CFG.testSize * CFG.openings.maxShare));
+    });
+});
+
 describe('barreja de fases (obertura, migjoc i final)', () => {
     test('el repartiment alterna fases en comptes de servir-les en blocs', () => {
         const qs = [

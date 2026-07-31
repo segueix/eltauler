@@ -23455,6 +23455,11 @@ function renderTriaQuestion() {
     const phaseLabel = { opening: 'obertura', middlegame: 'migjoc', endgame: 'final' }[q.phase] || 'migjoc';
     const bits = [];
     if (q.pending) bits.push('↻ repesca');
+    // Una decisió fallada a diverses partides no és soroll: és un forat que
+    // vas repetint, i val la pena que ho sàpigues.
+    if ((q.repeatedGames || 1) >= ElTaulerCore.TRIA_CONFIG.openings.recurringMinGames) {
+        bits.push(`⚠ fallada a ${q.repeatedGames} partides`);
+    }
     bits.push(phaseLabel);
     if (q.moveNumber) bits.push(`jugada ${q.moveNumber}`);
     if (q.gameLabel) bits.push(q.gameLabel);
