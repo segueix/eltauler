@@ -3826,6 +3826,53 @@
         }
         @media (max-width: 380px) { .tria-card { flex-basis: 86%; } }
 
+        /* Mòbil (i finestres estretes): la pregunta ha de caber d'una tirada.
+           Dues coses ho aconsegueixen: retallar tot el que sobra de la
+           capçalera i, sobretot, ENGANXAR a baix el bloc de votar + continuar.
+           Així el dit sempre té a sota A/B/C i «Següent», tant si el resultat
+           és curt com si ocupa quatre línies. */
+        @media (max-width: 899px) {
+            #tria-screen .stats-header { margin-bottom: 8px; }
+            #tria-screen .stats-header .app-logo { display: none; }
+            #tria-screen .stats-header h1 { font-size: 1.15rem; margin: 0 0 2px; }
+            .tria-bar { margin-bottom: 8px; }
+            .tria-prompt { font-size: 0.98rem; margin-bottom: 2px; }
+            .tria-context { font-size: 0.72rem; line-height: 1.3; margin-bottom: 8px; }
+            .tria-card { padding: 8px; gap: 6px; }
+            /* En pantalles baixes el tauler es limita per ALÇADA: així la
+               targeta sencera (amb el botó i el veredicte) cap per damunt del
+               peu enganxat. En pantalles normals el límit no arriba a actuar. */
+            .tria-card-board { max-width: min(100%, 42vh); margin: 0 auto; }
+            .tria-card-head { gap: 6px; }
+            .tria-card-letter { width: 26px; height: 26px; font-size: 0.92rem; }
+            .tria-card-san { font-size: 0.98rem; }
+            .tria-card-pick { padding: 7px 10px; font-size: 0.8rem; }
+            .tria-cards { padding-bottom: 6px; }
+            .tria-dots { margin-bottom: 8px; }
+            .tria-result { font-size: 0.8rem; line-height: 1.35; padding: 9px 11px; margin-bottom: 8px; }
+            .tria-result .tria-result-title { font-size: 0.95rem; margin-bottom: 4px; }
+            .tria-result .tria-line { margin-top: 4px; }
+
+            .tria-dock {
+                position: sticky; bottom: 0; z-index: 20;
+                padding: 8px 0 calc(6px + env(safe-area-inset-bottom, 0px));
+                background: linear-gradient(to top, var(--bg-dark) 68%, rgba(26, 20, 16, 0));
+            }
+            .tria-dock .tria-vote { margin-bottom: 8px; }
+            .tria-vote-label { margin-bottom: 4px; font-size: 0.74rem; }
+            .tria-vote-btn { padding: 10px 0; }
+            /* Els botons, en fila: «Següent» ample i la casa al costat, perquè
+               el peu no es mengi mitja pantalla. */
+            .tria-dock .tria-actions {
+                display: flex; flex-direction: row; align-items: stretch;
+                justify-content: center; gap: 8px; margin-top: 0;
+            }
+            .tria-dock .tria-actions .btn { margin-top: 0; }
+            .tria-dock #btn-tria-next, .tria-dock #btn-tria-restart { flex: 1 1 auto; }
+            .tria-dock .btn-nav-home { width: auto; flex: 0 0 auto; padding: 12px 16px; }
+        }
+        body.epaper-mode .tria-dock { background: linear-gradient(to top, var(--bg-dark) 68%, rgba(242, 242, 242, 0)); }
+
         /* Historial de tests, sota el test. */
         .tria-history { max-width: min(720px, 100%); margin: 18px auto 0; }
         .tria-history-title {
@@ -7157,17 +7204,22 @@
             <div class="tria-cards" id="tria-cards"></div>
             <div class="tria-dots" id="tria-dots" aria-hidden="true"></div>
 
-            <div class="tria-vote" id="tria-vote">
-                <span class="tria-vote-label">La millor és:</span>
-                <div class="tria-vote-row" id="tria-vote-row"></div>
-            </div>
-
             <div class="tria-result" id="tria-result" style="display:none;"></div>
 
-            <div class="menu-buttons tria-actions">
-                <button class="btn btn-primary" id="btn-tria-next" style="display:none;">Següent ›</button>
-                <button class="btn btn-secondary" id="btn-tria-restart" style="display:none;">↻ Un altre test</button>
-                <button class="btn btn-nav-home" id="btn-tria-exit" aria-label="Sortir del test" title="Sortir del test"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+            <!-- Votar i passar a la pregunta següent van junts al peu: en mòbil
+                 aquest bloc queda ENGANXAT a baix de la pantalla, de manera que
+                 ni per triar ni per continuar no cal fer scroll. -->
+            <div class="tria-dock" id="tria-dock">
+                <div class="tria-vote" id="tria-vote">
+                    <span class="tria-vote-label">La millor és:</span>
+                    <div class="tria-vote-row" id="tria-vote-row"></div>
+                </div>
+
+                <div class="menu-buttons tria-actions">
+                    <button class="btn btn-primary" id="btn-tria-next" style="display:none;">Següent ›</button>
+                    <button class="btn btn-secondary" id="btn-tria-restart" style="display:none;">↻ Un altre test</button>
+                    <button class="btn btn-nav-home" id="btn-tria-exit" aria-label="Sortir del test" title="Sortir del test"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                </div>
             </div>
 
             <!-- Historial de tests, a sota. Cada línia: data, encert en verd,
@@ -7498,7 +7550,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.71"></script>
+    <script src="app.js?v=1.0.72"></script>
 
     <!-- Service Worker Registration -->
     <script>
