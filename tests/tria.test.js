@@ -4,18 +4,19 @@ const { Chess } = require('chess.js');
 const T = Core.createTriaHelpers(Chess);
 const CFG = Core.TRIA_CONFIG;
 
-// Posició real després de 1.e4 e5 2.Nf3 Nc6 3.Bc4 Nf6 (obertura italiana,
-// juguen blanques). Serveix per a totes les proves que necessiten jugades
-// legals de veritat.
+// Posició real després de 1.e4 e5 2.Cf3 Cc6 3.Ac4 Cf6 (italiana, juguen
+// blanques): totes les jugades de les proves hi són legals.
 const FEN = 'r1bqkb1r/pppp1ppp/2n2n2/4p3/2B1P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4';
+// Posició d'una jugada de negres, per comprovar el torn.
+const FEN_B = 'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R b KQkq - 4 5';
 
-function mpv(move, evalCp, extra = {}) {
-    return Object.assign({ move, moveSan: null, eval: evalCp, evalType: 'cp', pv: [] }, extra);
+function mpv(move, evalCp) {
+    return { move, eval: evalCp, evalType: 'cp', pv: [] };
 }
 
-// Errada tipus: la millor era d2d3 (+40); vas jugar f3e5 (perdent 260 cp) i el
-// MultiPV desat porta una tercera línia jugable.
-function errorRecord(extra = {}) {
+// Jugada revisada tipus: manava d3; vas jugar Cxe5 i vas perdre 260 cp. Les
+// tres línies del motor són les que desa l'anàlisi en viu (MultiPV 3).
+function review(extra = {}) {
     return Object.assign({
         fen: FEN,
         moveNumber: 4,
@@ -26,345 +27,361 @@ function errorRecord(extra = {}) {
         playerMoveSan: 'Nxe5',
         bestMove: 'd2d3',
         bestMoveSan: 'd3',
-        multipvBefore: [
-            mpv('d2d3', 40),
-            mpv('f3g5', -110),   // distractor natural i dolent (cavall a g5)
-            mpv('f3e5', -220)    // la teva jugada
-        ]
+        multipvBefore: [mpv('d2d3', 40), mpv('b1c3', 22), mpv('e1g1', -5)]
     }, extra);
 }
 
-describe('triaTimeBudgetMs (temps per ELO i dificultat)', () => {
-    test('una posició difícil dona més temps que una de fàcil, al mateix ELO', () => {
-        const easy = Core.triaTimeBudgetMs({ elo: 2000, complexity: 0.1, phase: 'middlegame' });
-        const hard = Core.triaTimeBudgetMs({ elo: 2000, complexity: 0.9, phase: 'middlegame' });
-        expect(hard).toBeGreaterThan(easy * 1.8);
+describe('triaEligibleMoves (qualsevol jugada no 100% correcta)', () => {
+    test('una jugada fallada hi entra encara que no sigui una errada greu', () => {
+        const soft = review({ quality: 'inaccuracy', swing: 60, cpLoss: 60 });
+        expect(Core.triaEligibleMoves([soft], {})).toHaveLength(1);
     });
 
-    test('és determinista: la mateixa entrada dona sempre el mateix pressupost', () => {
-        const a = Core.triaTimeBudgetMs({ elo: 1750, complexity: 0.42, phase: 'endgame' });
-        const b = Core.triaTimeBudgetMs({ elo: 1750, complexity: 0.42, phase: 'endgame' });
-        expect(a).toBe(b);
+    test('la jugada que vas encertar queda fora', () => {
+        const perfect = review({ playerMove: 'd2d3', playerMoveSan: 'd3', quality: 'excel', swing: 0, cpLoss: 0 });
+        expect(Core.triaEligibleMoves([perfect], {})).toHaveLength(0);
     });
 
-    test('conserva la forma humana: com més fort, més contrast entre fàcil i difícil', () => {
-        const spread = elo => Core.triaTimeBudgetMs({ elo, complexity: 0.9, phase: 'middlegame' })
-            / Core.triaTimeBudgetMs({ elo, complexity: 0.1, phase: 'middlegame' });
-        expect(spread(2400)).toBeGreaterThan(spread(1200));
+    test('una pèrdua insignificant no compta com a fallada', () => {
+        const noise = review({ swing: 2, cpLoss: 2 });
+        expect(Core.triaEligibleMoves([noise], {})).toHaveLength(0);
     });
 
-    test('respecta el terra i el sostre', () => {
-        const floor = Core.triaTimeBudgetMs({ elo: 2800, complexity: 0, phase: 'opening' });
-        expect(floor).toBe(CFG.time.floorMs);
-        const capped = Core.triaTimeBudgetMs({ elo: 2800, complexity: 1, phase: 'endgame' });
-        expect(capped).toBeLessThanOrEqual(CFG.time.capMs);
+    test('sense tres línies de motor la jugada no es pot fer servir', () => {
+        const thin = review({ multipvBefore: [mpv('d2d3', 40), mpv('b1c3', 22)] });
+        expect(Core.triaEligibleMoves([thin], {})).toHaveLength(0);
     });
 
-    test('cada preview afegeix el seu plus, i el nombre de plusos té sostre', () => {
-        const base = Core.triaTimeBudgetMs({ elo: 1800, complexity: 0.5, phase: 'middlegame' });
-        const one = Core.triaTimeBudgetMs({ elo: 1800, complexity: 0.5, phase: 'middlegame', previews: 1 });
-        expect(one - base).toBe(CFG.time.previewBonusMs);
-        const many = Core.triaTimeBudgetMs({ elo: 1800, complexity: 0.5, phase: 'middlegame', previews: 9 });
-        expect(many - base).toBe(CFG.time.maxPreviewBonuses * CFG.time.previewBonusMs);
-    });
-
-    test('sense dades cau a una incertesa neutra en comptes de petar', () => {
-        expect(Core.triaTimeBudgetMs({})).toBeGreaterThan(0);
-        expect(Core.triaTimeBudgetMs()).toBeGreaterThan(0);
-    });
-});
-
-describe('triaEligibleErrors (quines errades entren)', () => {
-    const blunder = { fen: FEN, quality: 'blunder', swing: 300, playerMove: 'f3e5', moveNumber: 4 };
-    const mistake = { fen: FEN, quality: 'mistake', swing: 150, playerMove: 'c4f7', moveNumber: 6 };
-    const inaccuracy = {
-        fen: FEN, quality: 'inaccuracy', swing: 80, playerMove: 'b1c3', moveNumber: 8,
-        evalBefore: 120, evalAfter: 40
-    };
-
-    test('les errades greus i els errors hi entren sempre', () => {
-        const out = Core.triaEligibleErrors([blunder, mistake], {});
-        expect(out).toHaveLength(2);
-    });
-
-    test('una imprecisió es queda fora si no repeteix cap tema que ja falles', () => {
-        const out = Core.triaEligibleErrors([inaccuracy], { failingThemes: [] });
-        expect(out).toHaveLength(0);
-    });
-
-    test('la mateixa imprecisió hi entra si el seu tema ja és una debilitat teva', () => {
-        const theme = Core.antidoteReviewCategory(inaccuracy, 'w');
-        expect(theme).toBeTruthy();
-        const out = Core.triaEligibleErrors([inaccuracy], { failingThemes: [theme] });
-        expect(out).toHaveLength(1);
-    });
-
-    test('no repeteix dues vegades la mateixa decisió (dedup per clau d\'errada)', () => {
-        const out = Core.triaEligibleErrors([blunder, Object.assign({}, blunder)], {});
-        expect(out).toHaveLength(1);
-    });
-
-    test('una partida no pot omplir el repàs sencer: hi ha un màxim', () => {
-        const many = [];
-        for (let i = 0; i < 20; i++) {
-            many.push({ fen: FEN, quality: 'blunder', swing: 300, playerMove: 'f3e5', moveNumber: i + 1 });
-        }
-        const out = Core.triaEligibleErrors(many, { maxPerGame: 4 });
-        expect(out.length).toBeLessThanOrEqual(4);
-    });
-
-    test('una pèrdua massa petita no mereix pregunta', () => {
-        const tiny = { fen: FEN, quality: 'mistake', swing: 10, playerMove: 'f3e5', moveNumber: 4 };
-        expect(Core.triaEligibleErrors([tiny], {})).toHaveLength(0);
+    test('no es repeteix dues vegades la mateixa decisió', () => {
+        expect(Core.triaEligibleMoves([review(), review()], {})).toHaveLength(1);
     });
 
     test('entrades corruptes no rebenten res', () => {
-        expect(Core.triaEligibleErrors(null, {})).toEqual([]);
-        expect(Core.triaEligibleErrors([null, {}, { quality: 'blunder' }], {})).toEqual([]);
+        expect(Core.triaEligibleMoves(null, {})).toEqual([]);
+        expect(Core.triaEligibleMoves([null, {}, { fen: FEN }], {})).toEqual([]);
     });
 });
 
-describe('pickDistractor (la tercera opció és tot l\'exercici)', () => {
-    test('tria una jugada de la franja: dolenta però temptadora', () => {
-        const err = errorRecord();
-        const picked = T.pickDistractor(err, mpv('d2d3', 40), mpv('f3e5', -220));
-        expect(picked).toBeTruthy();
-        expect(picked.candidate.move).toBe('f3g5');
-        expect(picked.loss).toBeGreaterThanOrEqual(CFG.distractor.minLossCp);
-        expect(picked.loss).toBeLessThanOrEqual(CFG.distractor.maxLossCp);
-    });
-
-    test('mai proposa una segona jugada bona: la pregunta ha de tenir UNA resposta', () => {
-        const err = errorRecord({
-            multipvBefore: [mpv('d2d3', 40), mpv('b1c3', 35), mpv('f3e5', -220)]
-        });
-        // b1c3 perd només 5 cp: seria tan bona com la millor i no pot ser opció.
-        expect(T.pickDistractor(err, mpv('d2d3', 40), mpv('f3e5', -220))).toBeNull();
-    });
-
-    test('mai proposa una jugada pitjor del compte: no temptaria ningú', () => {
-        const err = errorRecord({
-            multipvBefore: [mpv('d2d3', 40), mpv('h1g1', -1200), mpv('f3e5', -220)]
-        });
-        expect(T.pickDistractor(err, mpv('d2d3', 40), mpv('f3e5', -220))).toBeNull();
-    });
-
-    test('mai proposa una jugada que perdi el mateix que la teva (empat trampa)', () => {
-        const err = errorRecord({
-            multipvBefore: [mpv('d2d3', 40), mpv('f3g5', -215), mpv('f3e5', -220)]
-        });
-        expect(T.pickDistractor(err, mpv('d2d3', 40), mpv('f3e5', -220))).toBeNull();
-    });
-
-    test('entre dos distractors vàlids mana el més natural (la captura)', () => {
-        const err = errorRecord({
-            multipvBefore: [
-                mpv('d2d3', 40),
-                mpv('a2a3', -80),      // jugada de peó lateral: gens temptadora
-                mpv('c4f7', -95),      // captura: el que jugaria una persona
-                mpv('f3e5', -220)
-            ]
-        });
-        const picked = T.pickDistractor(err, mpv('d2d3', 40), mpv('f3e5', -220));
-        expect(picked.candidate.move).toBe('c4f7');
-    });
-
-    test('una jugada il·legal a la posició no pot ser opció', () => {
-        const err = errorRecord({
-            multipvBefore: [mpv('d2d3', 40), mpv('h8h1', -120), mpv('f3e5', -220)]
-        });
-        expect(T.pickDistractor(err, mpv('d2d3', 40), mpv('f3e5', -220))).toBeNull();
-    });
-
-    test('sense MultiPV desat no hi ha distractor possible', () => {
-        const err = errorRecord({ multipvBefore: [] });
-        expect(T.pickDistractor(err, mpv('d2d3', 40), mpv('f3e5', -220))).toBeNull();
-    });
-});
-
-describe('buildQuestion (la pregunta, o cap)', () => {
-    test('les tres opcions són la millor, la teva i el distractor, i totes són legals', () => {
-        const q = T.buildQuestion(errorRecord(), { elo: 1800 });
+describe('buildQuestion (les tres millors i l\'original)', () => {
+    test('les tres opcions són les tres millors del motor, etiquetades A/B/C', () => {
+        const q = T.buildQuestion(review(), {});
         expect(q).toBeTruthy();
         expect(q.options).toHaveLength(3);
-        const roles = q.options.map(o => o.role).sort();
-        expect(roles).toEqual(['best', 'distractor', 'played']);
-        const board = new Chess(q.fen);
+        expect(q.options.map(o => o.letter)).toEqual(['A', 'B', 'C']);
+        expect(q.options.map(o => o.san).sort()).toEqual(['Nc3', 'O-O', 'd3']);
+    });
+
+    test('la resposta correcta és la primera línia del motor', () => {
+        const q = T.buildQuestion(review(), {});
+        expect(q.options[q.answerIndex].san).toBe('d3');
+        expect(q.options[q.answerIndex].isBest).toBe(true);
+    });
+
+    test('cada opció porta la posició resultant, per pintar el seu tauler', () => {
+        const q = T.buildQuestion(review(), {});
         q.options.forEach(op => {
-            const legal = board.moves({ verbose: true })
-                .some(m => `${m.from}${m.to}${m.promotion || ''}`.startsWith(op.move.slice(0, 4)));
-            expect(legal).toBe(true);
+            expect(typeof op.fen).toBe('string');
+            const after = new Chess(op.fen);
+            expect(after.turn()).toBe('b'); // només avança la jugada triada
+            expect(op.from).toMatch(/^[a-h][1-8]$/);
+            expect(op.to).toMatch(/^[a-h][1-8]$/);
         });
     });
 
-    test('la resposta correcta és la millor jugada i les opcions van barrejades', () => {
-        const q = T.buildQuestion(errorRecord(), { elo: 1800 });
-        expect(q.options[q.answerIndex].role).toBe('best');
-        expect(q.answerRole).toBe('best');
+    test('cap opció avança la resposta del rival', () => {
+        const q = T.buildQuestion(review(), {});
+        const before = new Chess(q.fen);
+        q.options.forEach(op => {
+            const after = new Chess(op.fen);
+            expect(after.turn()).not.toBe(before.turn());
+        });
     });
 
-    test('l\'ordre és estable: la mateixa errada dona sempre la mateixa pregunta', () => {
-        const a = T.buildQuestion(errorRecord(), { elo: 1800 });
-        const b = T.buildQuestion(errorRecord(), { elo: 1800 });
-        expect(a.options.map(o => o.move)).toEqual(b.options.map(o => o.move));
+    test('l\'original és la jugada que vas fer de veritat, amb la seva posició', () => {
+        const q = T.buildQuestion(review(), {});
+        expect(q.original.san).toBe('Nxe5');
+        expect(q.original.lossCp).toBe(260);
+        expect(typeof q.original.fen).toBe('string');
+    });
+
+    test('si la teva jugada és una de les tres, l\'original ho diu', () => {
+        const q = T.buildQuestion(review({ playerMove: 'b1c3', playerMoveSan: 'Nc3', cpLoss: 18, swing: 18 }), {});
+        expect(q.original.matchesOptionLetter).toBeTruthy();
+        const letter = q.original.matchesOptionLetter;
+        expect(q.options.find(o => o.letter === letter).san).toBe('Nc3');
+    });
+
+    test('l\'ordre A/B/C és estable per a la mateixa jugada', () => {
+        const a = T.buildQuestion(review(), {});
+        const b = T.buildQuestion(review(), {});
+        expect(a.options.map(o => o.san)).toEqual(b.options.map(o => o.san));
         expect(a.answerIndex).toBe(b.answerIndex);
     });
 
-    test('la SAN de cada opció es recalcula sobre la posició real', () => {
-        const q = T.buildQuestion(errorRecord(), { elo: 1800 });
-        const best = q.options.find(o => o.role === 'best');
-        expect(best.san).toBe('d3');
-        const played = q.options.find(o => o.role === 'played');
-        expect(played.san).toBe('Nxe5');
+    test('la millor no cau sempre a la mateixa lletra', () => {
+        // Decisions DIFERENTS (la barreja depèn de la posició i de la jugada
+        // feta): sobre posicions reals distintes, la bona ha de rotar.
+        const letters = new Set();
+        const board = new Chess();
+        for (let i = 0; i < 14; i++) {
+            const legal = board.moves({ verbose: true });
+            if (legal.length < 4) break;
+            const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+            const p = legal.slice(0, 4);
+            const q = T.buildQuestion(review({
+                fen: board.fen(),
+                playerMove: uci(p[3]),
+                bestMove: uci(p[0]),
+                multipvBefore: [mpv(uci(p[0]), 40), mpv(uci(p[1]), 20), mpv(uci(p[2]), 0)]
+            }), {});
+            if (q) letters.add(q.options[q.answerIndex].letter);
+            board.move(legal[0]);
+        }
+        expect(letters.size).toBeGreaterThan(1);
     });
 
-    test('sense tercera opció digna NO es construeix cap pregunta', () => {
-        const err = errorRecord({ multipvBefore: [mpv('d2d3', 40), mpv('f3e5', -220)] });
-        expect(T.buildQuestion(err, { elo: 1800 })).toBeNull();
+    test('el torn de la posició viatja amb la pregunta', () => {
+        const q = T.buildQuestion(review(), {});
+        expect(q.turn).toBe('w');
+        const qb = T.buildQuestion(review({
+            fen: FEN_B, playerMove: 'c6d4', playerMoveSan: 'Nd4', bestMove: 'e8g8',
+            multipvBefore: [mpv('e8g8', -20), mpv('d7d6', -60), mpv('d8e7', -95)]
+        }), {});
+        expect(qb.turn).toBe('b');
     });
 
-    test('si la teva jugada i la millor són la mateixa, no hi ha res a preguntar', () => {
-        const err = errorRecord({ playerMove: 'd2d3', playerMoveSan: 'd3' });
-        expect(T.buildQuestion(err, { elo: 1800 })).toBeNull();
+    test('amb menys de tres línies no hi ha pregunta', () => {
+        expect(T.buildQuestion(review({ multipvBefore: [mpv('d2d3', 40), mpv('b1c3', 22)] }), {})).toBeNull();
     });
 
-    test('una errada amb jugades il·legals a la seva FEN no genera pregunta', () => {
-        const err = errorRecord({ playerMove: 'a1a8' });
-        expect(T.buildQuestion(err, { elo: 1800 })).toBeNull();
+    test('una línia il·legal a la posició invalida la pregunta', () => {
+        expect(T.buildQuestion(review({
+            multipvBefore: [mpv('d2d3', 40), mpv('h8h1', 22), mpv('e1g1', -5)]
+        }), {})).toBeNull();
     });
 
-    test('el pressupost de temps viatja amb la pregunta', () => {
-        const q = T.buildQuestion(errorRecord(), { elo: 1800 });
-        expect(q.budgetMs).toBe(Core.triaTimeBudgetMs({
-            elo: 1800, complexity: q.complexity, phase: q.phase
-        }));
-    });
-
-    test('de tant en tant la pregunta es capgira i demana la que PERD', () => {
-        const normal = T.buildQuestion(errorRecord(), { elo: 1800, index: 0 });
-        expect(normal.mode).toBe('best');
-        const inverted = T.buildQuestion(errorRecord(), {
-            elo: 1800, index: CFG.invertedEveryNth - 1
-        });
-        expect(inverted.mode).toBe('worst');
-        // A la capgirada la resposta és la que perd més: aquí, la teva jugada.
-        expect(inverted.options[inverted.answerIndex].role).toBe('played');
-    });
-});
-
-describe('previewFen (veure l\'opció sense que et regalin la refutació)', () => {
-    test('ensenya la teva candidata jugada sobre el tauler', () => {
-        const q = T.buildQuestion(errorRecord(), { elo: 1800 });
-        const best = q.options.find(o => o.role === 'best');
-        const prev = T.previewFen(q.fen, best.move);
-        expect(prev).toBeTruthy();
-        expect(prev.san).toBe('d3');
-        expect(prev.from).toBe('d2');
-        expect(prev.to).toBe('d3');
-    });
-
-    test('NO avança la resposta del rival: el torn passa a l\'altre color i prou', () => {
-        const q = T.buildQuestion(errorRecord(), { elo: 1800 });
-        const before = new Chess(q.fen);
-        const prev = T.previewFen(q.fen, q.options[0].move);
-        const after = new Chess(prev.fen);
-        expect(after.turn()).not.toBe(before.turn());
-        // Una sola semijugada de diferència respecte de la posició de partida.
-        expect(after.history()).toHaveLength(0); // la FEN no arrossega historial
-        const plyBefore = before.history({ verbose: true }).length;
-        expect(plyBefore).toBe(0);
-    });
-
-    test('una jugada impossible no dona cap preview', () => {
-        expect(T.previewFen(FEN, 'a1a8')).toBeNull();
-        expect(T.previewFen(FEN, '')).toBeNull();
+    test('dues línies repetides invaliden la pregunta', () => {
+        expect(T.buildQuestion(review({
+            multipvBefore: [mpv('d2d3', 40), mpv('d2d3', 22), mpv('e1g1', -5)]
+        }), {})).toBeNull();
     });
 });
 
-describe('triaGradeAnswer (el resultat compta els previews, no els castiga)', () => {
-    const q = T.buildQuestion(errorRecord(), { elo: 1800 });
-    const bestIdx = q.options.findIndex(o => o.role === 'best');
-    const playedIdx = q.options.findIndex(o => o.role === 'played');
+describe('dificultat i ajust a l\'ELO/ROC', () => {
+    test('molta distància entre la 1a i la 2a és una pregunta fàcil', () => {
+        const easy = Core.triaQuestionDifficulty([mpv('d2d3', 300), mpv('b1c3', 20), mpv('e1g1', 0)]);
+        expect(easy).toBeLessThan(0.2);
+    });
 
-    test('encertar sense mirar cap opció és un encert net', () => {
-        const r = Core.triaGradeAnswer(q, bestIdx, { previews: 0, elapsedMs: 4000 });
+    test('poca distància és una pregunta difícil', () => {
+        const hard = Core.triaQuestionDifficulty([mpv('d2d3', 40), mpv('b1c3', 35), mpv('e1g1', 30)]);
+        expect(hard).toBeGreaterThan(0.8);
+    });
+
+    test('com més fort és el jugador, més subtils se li demanen', () => {
+        expect(Core.triaTargetDifficulty(2400)).toBeGreaterThan(Core.triaTargetDifficulty(1600));
+        expect(Core.triaTargetDifficulty(1600)).toBeGreaterThan(Core.triaTargetDifficulty(1000));
+    });
+
+    test('l\'objectiu no s\'extrapola fora de la taula', () => {
+        expect(Core.triaTargetDifficulty(200)).toBe(Core.triaTargetDifficulty(800));
+        expect(Core.triaTargetDifficulty(4000)).toBe(Core.triaTargetDifficulty(2800));
+    });
+
+    test('sense ELO cau a un valor central en comptes de petar', () => {
+        const mid = Core.triaTargetDifficulty(undefined);
+        expect(mid).toBeGreaterThan(0);
+        expect(mid).toBeLessThan(1);
+    });
+});
+
+describe('buildTest (el test de 20)', () => {
+    // Fons ample amb POSICIONS REALS I DIFERENTS: es juga una partida amb
+    // chess.js i de cada posició se'n treuen tres jugades legals com a
+    // candidates del motor i una quarta com la que va jugar el jugador. Cal
+    // que siguin posicions diferents perquè la dedup per decisió no les
+    // col·lapsi, que és exactament el que passa en una partida de veritat.
+    function pool(count, opts = {}) {
+        const out = [];
+        let seed = 12345;
+        const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+        let board = new Chess();
+        let gameNo = 0;
+        let plies = 0;
+        while (out.length < count) {
+            const legal = board.moves({ verbose: true });
+            // Cada partida aporta un grapat de decisions i es passa a la
+            // següent, que és com arriba el fons de veritat: moltes partides
+            // amb poques jugades revisables cadascuna.
+            if (legal.length < 4 || plies >= 6) {
+                board = new Chess();
+                plies = 0;
+                gameNo++;
+                if (gameNo > 60) break;
+                continue;
+            }
+            const i = out.length;
+            const picks = legal.slice(0, 4);
+            const gap = opts.gap != null ? opts.gap : (10 + (i % 10) * 30);
+            out.push(review({
+                fen: board.fen(),
+                moveNumber: Math.ceil((plies + 1) / 2),
+                gameId: 'g' + gameNo,
+                playerMove: uci(picks[3]),
+                playerMoveSan: picks[3].san,
+                bestMove: uci(picks[0]),
+                bestMoveSan: picks[0].san,
+                multipvBefore: [
+                    mpv(uci(picks[0]), 40),
+                    mpv(uci(picks[1]), 40 - gap),
+                    mpv(uci(picks[2]), 40 - gap - 30)
+                ]
+            }));
+            board.move(legal[Math.floor(rnd() * legal.length)]);
+            plies++;
+        }
+        return out;
+    }
+
+    test('un test té com a màxim la mida configurada', () => {
+        const test = T.buildTest(pool(60), { elo: 1800 });
+        expect(test.length).toBeLessThanOrEqual(CFG.testSize);
+        expect(test.length).toBe(CFG.testSize);
+    });
+
+    test('amb poques jugades el test és més curt, però existeix', () => {
+        const test = T.buildTest(pool(4), { elo: 1800 });
+        expect(test.length).toBeGreaterThan(0);
+        expect(test.length).toBeLessThanOrEqual(4);
+    });
+
+    test('un jugador fort rep preguntes més subtils que un de fluix', () => {
+        const wide = pool(60);
+        const strong = T.buildTest(wide, { elo: 2400 });
+        const weak = T.buildTest(wide, { elo: 900 });
+        const avg = list => list.reduce((s, q) => s + q.difficulty, 0) / list.length;
+        expect(avg(strong)).toBeGreaterThan(avg(weak));
+    });
+
+    test('no es buida una sola partida: hi ha un màxim per partida', () => {
+        const sameGame = pool(30).map(r => Object.assign({}, r, { gameId: 'unica' }));
+        const test = T.buildTest(sameGame, { elo: 1600 });
+        expect(test.length).toBeLessThanOrEqual(CFG.eligibility.maxPerGame);
+    });
+
+    test('les preguntes es reparteixen entre partides diferents', () => {
+        const test = T.buildTest(pool(60), { elo: 1600 });
+        const games = new Set(test.map(q => q.gameId));
+        expect(games.size).toBeGreaterThan(3);
+    });
+
+    test('sense jugades elegibles no hi ha test', () => {
+        expect(T.buildTest([], { elo: 1600 })).toEqual([]);
+        expect(T.buildTest(null, { elo: 1600 })).toEqual([]);
+    });
+});
+
+describe('triaGradeAnswer (verd o vermell a l\'instant)', () => {
+    const q = T.buildQuestion(review(), {});
+    const bestIdx = q.answerIndex;
+    const wrongIdx = (bestIdx + 1) % 3;
+
+    test('encertar la millor és correcte', () => {
+        const r = Core.triaGradeAnswer(q, bestIdx);
         expect(r.correct).toBe(true);
-        expect(r.clean).toBe(true);
-        expect(r.previews).toBe(0);
+        expect(r.chosenLetter).toBe(q.options[bestIdx].letter);
+        expect(r.answerLetter).toBe(q.options[bestIdx].letter);
     });
 
-    test('encertar havent mirat les opcions segueix sent encert, però no net', () => {
-        const r = Core.triaGradeAnswer(q, bestIdx, { previews: 3, elapsedMs: 12000 });
-        expect(r.correct).toBe(true);
-        expect(r.clean).toBe(false);
-        expect(r.previews).toBe(3);
-    });
-
-    test('tornar a triar la teva pròpia jugada queda marcat com a tal', () => {
-        const r = Core.triaGradeAnswer(q, playedIdx, { previews: 0 });
+    test('una altra opció és incorrecta i diu quants cp costava', () => {
+        const r = Core.triaGradeAnswer(q, wrongIdx);
         expect(r.correct).toBe(false);
-        expect(r.repeatedOwnMistake).toBe(true);
-        expect(r.chosenRole).toBe('played');
+        expect(r.lostCp).toBe(q.options[wrongIdx].lossCp);
     });
 
-    test('quedar-se sense temps no és un encert encara que hi hagi tria', () => {
-        const r = Core.triaGradeAnswer(q, bestIdx, { timedOut: true, elapsedMs: 99000 });
-        expect(r.correct).toBe(false);
-        expect(r.timedOut).toBe(true);
+    test('triar la jugada que ja vas fer a la partida queda marcat', () => {
+        const q2 = T.buildQuestion(review({ playerMove: 'b1c3', playerMoveSan: 'Nc3', cpLoss: 18, swing: 18 }), {});
+        const idx = q2.options.findIndex(o => o.san === 'Nc3');
+        const r = Core.triaGradeAnswer(q2, idx);
+        expect(r.repeatedOwnMove).toBe(true);
     });
 
-    test('no respondre res es registra sense petar', () => {
-        const r = Core.triaGradeAnswer(q, -1, { timedOut: true });
+    test('no respondre no és mai un encert', () => {
+        const r = Core.triaGradeAnswer(q, -1);
         expect(r.answered).toBe(false);
         expect(r.correct).toBe(false);
     });
 });
 
-describe('triaSessionSummary (resum de la tanda)', () => {
-    test('compta encerts, encerts nets, temps esgotat i errades repetides', () => {
-        const s = Core.triaSessionSummary([
-            { correct: true, clean: true, previews: 0 },
-            { correct: true, clean: false, previews: 2 },
-            { correct: false, timedOut: true, previews: 1 },
-            { correct: false, repeatedOwnMistake: true, previews: 0 }
-        ]);
+describe('triaTestSummary (resultats del test)', () => {
+    test('compta encerts, errades i el cost en centipeons', () => {
+        const s = Core.triaTestSummary([
+            { correct: true, difficulty: 0.5, lostCp: 0 },
+            { correct: false, difficulty: 0.7, lostCp: 80 },
+            { correct: false, difficulty: 0.3, lostCp: 40, repeatedOwnMove: true },
+            { correct: true, difficulty: 0.5, lostCp: 0 }
+        ], { elo: 1900 });
         expect(s.total).toBe(4);
         expect(s.correct).toBe(2);
-        expect(s.clean).toBe(1);
-        expect(s.timedOut).toBe(1);
-        expect(s.repeatedOwnMistake).toBe(1);
-        expect(s.previews).toBe(3);
+        expect(s.wrong).toBe(2);
         expect(s.accuracy).toBe(50);
+        expect(s.lostCp).toBe(120);
+        expect(s.repeatedOwnMove).toBe(1);
+        expect(s.avgDifficulty).toBe(0.5);
+        expect(s.elo).toBe(1900);
     });
 
-    test('una tanda buida no divideix per zero', () => {
-        expect(Core.triaSessionSummary([]).accuracy).toBe(0);
-        expect(Core.triaSessionSummary(null).total).toBe(0);
+    test('un test buit no divideix per zero', () => {
+        expect(Core.triaTestSummary([]).accuracy).toBe(0);
+        expect(Core.triaTestSummary(null).total).toBe(0);
     });
 });
 
-describe('buildQuestionSet (la tanda sencera d\'una partida)', () => {
-    test('salta les errades de les quals no en surt cap pregunta honesta', () => {
-        const good = errorRecord({ moveNumber: 4 });
-        const bad = errorRecord({ moveNumber: 10, multipvBefore: [mpv('d2d3', 40)] });
-        const set = T.buildQuestionSet([good, bad], { elo: 1800 });
-        expect(set).toHaveLength(1);
-        expect(set[0].moveNumber).toBe(4);
+describe('historial i gràfica d\'evolució', () => {
+    test('cada test acabat s\'afegeix a l\'historial', () => {
+        const h1 = Core.triaAppendResult([], { total: 20, correct: 14, accuracy: 70, avgDifficulty: 0.6, elo: 1800 }, { now: 1000 });
+        expect(h1).toHaveLength(1);
+        const h2 = Core.triaAppendResult(h1, { total: 20, correct: 16, accuracy: 80, avgDifficulty: 0.6, elo: 1810 }, { now: 2000 });
+        expect(h2).toHaveLength(2);
+        expect(h2[1].accuracy).toBe(80);
     });
 
-    test('les preguntes van indexades, de manera que la capgirada apareix al seu torn', () => {
-        const errors = [];
-        for (let i = 0; i < CFG.invertedEveryNth; i++) {
-            errors.push(errorRecord({ moveNumber: 4 + i * 2, playerMove: 'f3e5' }));
+    test('un test sense preguntes no embruta l\'historial', () => {
+        expect(Core.triaAppendResult([], { total: 0, correct: 0, accuracy: 0 }, {})).toHaveLength(0);
+    });
+
+    test('l\'historial queda ordenat i limitat', () => {
+        let h = [];
+        for (let i = 0; i < 80; i++) {
+            h = Core.triaAppendResult(h, { total: 20, correct: i % 21, accuracy: (i % 21) * 5 }, { now: 1000 + i });
         }
-        // Totes tenen la mateixa FEN i jugada: la dedup n'ha de deixar passar una.
-        const set = T.buildQuestionSet(errors, { elo: 1800 });
-        expect(set.length).toBeGreaterThanOrEqual(1);
-        expect(set.every(q => q.options.length === 3)).toBe(true);
+        expect(h.length).toBeLessThanOrEqual(60);
+        for (let i = 1; i < h.length; i++) expect(h[i].at).toBeGreaterThan(h[i - 1].at);
     });
 
-    test('sense errades no hi ha tanda', () => {
-        expect(T.buildQuestionSet([], { elo: 1800 })).toEqual([]);
-        expect(T.buildQuestionSet(null, { elo: 1800 })).toEqual([]);
+    test('la sèrie de la gràfica porta el percentatge i la tendència', () => {
+        const h = [
+            { at: 1, accuracy: 40, total: 20, correct: 8 },
+            { at: 2, accuracy: 60, total: 20, correct: 12 },
+            { at: 3, accuracy: 80, total: 20, correct: 16 }
+        ];
+        const series = Core.triaChartSeries(h);
+        expect(series).toHaveLength(3);
+        expect(series.map(p => p.accuracy)).toEqual([40, 60, 80]);
+        // La tendència és la mitjana mòbil: puja més suau que el resultat cru.
+        expect(series[2].trend).toBe(60);
+    });
+
+    test('la sèrie ordena per data encara que l\'historial vingui desordenat', () => {
+        const series = Core.triaChartSeries([
+            { at: 3, accuracy: 80 }, { at: 1, accuracy: 40 }, { at: 2, accuracy: 60 }
+        ]);
+        expect(series.map(p => p.accuracy)).toEqual([40, 60, 80]);
+    });
+
+    test('sense historial la gràfica no té sèrie, i no peta', () => {
+        expect(Core.triaChartSeries([])).toEqual([]);
+        expect(Core.triaChartSeries(null)).toEqual([]);
     });
 });

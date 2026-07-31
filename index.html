@@ -3659,91 +3659,155 @@
             margin: 0 auto;
         }
 
-        /* ---- TRES CAMINS (repàs d'errades amb tres opcions) ---- */
+        /* ---- TRES CAMINS (test d'opció múltiple sobre les teves jugades) ---- */
+        /* Bàner: reutilitza l'estructura del col·lectiu amb paleta pròpia. */
+        .tria-banner { background: linear-gradient(135deg, #4a3a6b 0%, #2e2447 55%, #1d1730 100%); border-color: rgba(170,150,230,0.4); }
+        .tria-banner .catalans-banner-ic { font-size: 1.7em; line-height: 1; }
+        .tria-banner::after { background: radial-gradient(circle, rgba(170,150,230,0.24), transparent 70%); }
+        .tria-banner .catalans-banner-cta { color: #cfc2f2; }
+        .tria-banner-meta { display: block; font-size: 0.72rem; opacity: 0.85; margin-top: 3px; }
+        .tria-banner.is-locked { filter: grayscale(0.5); opacity: 0.75; }
+
         .tria-progress { font-size: 0.82rem; color: var(--text-secondary); margin-top: 4px; }
-        .tria-board-wrap { margin: 0 auto 12px; max-width: min(360px, 100%); }
-        #tria-board { width: 100%; max-width: min(360px, 100%); min-width: 0; margin: 0 auto; }
-        .tria-preview-note {
-            margin-top: 8px; font-size: 0.8rem; text-align: center;
-            color: var(--accent-blue, #6ab7ff); line-height: 1.35;
-        }
-        .tria-clock { margin: 0 auto 12px; max-width: min(360px, 100%); }
-        .tria-clock-bar {
-            height: 8px; border-radius: 999px; overflow: hidden;
-            background: rgba(255,255,255,0.10);
+        .tria-bar {
+            height: 6px; border-radius: 999px; overflow: hidden; margin: 0 auto 14px;
+            max-width: min(720px, 100%); background: rgba(255,255,255,0.10);
             border: 1px solid rgba(255,255,255,0.10);
         }
-        .tria-clock-fill {
-            height: 100%; width: 100%; border-radius: 999px;
+        .tria-bar-fill {
+            height: 100%; width: 0%; border-radius: 999px;
             background: linear-gradient(90deg, #2ecc71, #c9a227);
-            transition: width 0.2s linear;
+            transition: width 0.25s ease;
         }
-        .tria-clock.is-low .tria-clock-fill { background: linear-gradient(90deg, #e67e22, #c62828); }
-        .tria-clock-text {
-            margin-top: 5px; text-align: center; font-size: 0.78rem;
-            color: var(--text-secondary); font-variant-numeric: tabular-nums;
-        }
-        .tria-clock.is-low .tria-clock-text { color: #e67e22; font-weight: 600; }
         .tria-prompt {
-            text-align: center; font-size: 1rem; font-weight: 600;
-            margin: 0 0 10px; color: var(--text-primary);
+            text-align: center; font-size: 1.05rem; font-weight: 700;
+            margin: 0 0 4px; color: var(--text-primary);
         }
-        .tria-options {
-            display: grid; gap: 8px; max-width: min(420px, 100%);
-            margin: 0 auto 14px;
+        .tria-context {
+            text-align: center; font-size: 0.78rem; color: var(--text-secondary);
+            margin: 0 0 12px; opacity: 0.9;
         }
-        .tria-opt {
-            display: flex; align-items: center; gap: 10px;
+
+        /* Mòbil: carrusel horitzontal amb ancoratge. Cada targeta ocupa gairebé
+           tota l'amplada i en deixa entreveure la següent, de manera que es veu
+           que n'hi ha més sense haver-ho d'explicar. */
+        .tria-cards {
+            display: flex; gap: 10px; overflow-x: auto; overflow-y: hidden;
+            scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+            padding: 2px 2px 8px; margin: 0 auto 4px; max-width: 100%;
+            scrollbar-width: thin;
+        }
+        .tria-card {
+            flex: 0 0 78%; scroll-snap-align: center; min-width: 0;
+            background: var(--bg-card); border-radius: 14px; padding: 10px;
+            border: 2px solid rgba(201, 162, 39, 0.22);
+            display: flex; flex-direction: column; gap: 8px;
+        }
+        .tria-card-head {
+            display: flex; align-items: center; justify-content: space-between; gap: 8px;
+        }
+        .tria-card-letter {
+            display: inline-flex; align-items: center; justify-content: center;
+            width: 30px; height: 30px; border-radius: 9px; flex: 0 0 auto;
+            font-weight: 800; font-size: 1rem;
+            background: linear-gradient(135deg, #c9a227, #8a6f1a); color: #2b2118;
+        }
+        .tria-card-san { font-weight: 700; font-size: 1.05rem; color: var(--text-primary); }
+        .tria-card-board { width: 100%; min-width: 0; }
+        .tria-card-pick {
+            border: none; border-radius: 10px; padding: 9px 12px; cursor: pointer;
+            font-size: 0.85rem; font-weight: 700;
+            background: linear-gradient(135deg, #c9a227, #8a6f1a); color: #2b2118;
+        }
+        .tria-card-pick:disabled { opacity: 0.4; cursor: default; }
+        /* Original: la jugada que vas fer. No es vota, només es compara. */
+        .tria-card.is-original { border-color: rgba(255,255,255,0.16); }
+        .tria-card.is-original .tria-card-letter {
+            background: rgba(255,255,255,0.12); color: var(--text-secondary);
+            width: auto; padding: 0 10px; font-size: 0.72rem; letter-spacing: 0.5px;
+        }
+        .tria-card-note { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.35; }
+        /* Verd o vermell a l'instant. */
+        .tria-card.is-correct { border-color: #2ecc71; background: rgba(46, 204, 113, 0.10); }
+        .tria-card.is-incorrect { border-color: #c62828; background: rgba(198, 40, 40, 0.10); }
+        .tria-card-verdict { font-size: 0.8rem; font-weight: 700; }
+        .tria-card.is-correct .tria-card-verdict { color: #2ecc71; }
+        .tria-card.is-incorrect .tria-card-verdict { color: #e07a7a; }
+
+        .tria-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 12px; }
+        .tria-dot {
+            width: 7px; height: 7px; border-radius: 50%;
+            background: rgba(255,255,255,0.22); transition: background 0.2s, width 0.2s;
+        }
+        .tria-dot.is-active { background: var(--accent-gold, #c9a227); width: 18px; border-radius: 999px; }
+
+        /* Fila de vot fixa: es pot votar sense tornar a lliscar les targetes. */
+        .tria-vote {
+            max-width: min(720px, 100%); margin: 0 auto 14px; text-align: center;
+        }
+        .tria-vote-label { display: block; font-size: 0.78rem; color: var(--text-secondary); margin-bottom: 6px; }
+        .tria-vote-row { display: flex; gap: 8px; justify-content: center; }
+        .tria-vote-btn {
+            flex: 1 1 0; max-width: 120px; border: 1px solid rgba(201,162,39,0.35);
+            border-radius: 12px; padding: 12px 0; cursor: pointer;
+            font-size: 1.1rem; font-weight: 800; color: var(--text-primary);
             background: var(--bg-card);
-            border: 1px solid rgba(201, 162, 39, 0.22);
-            border-radius: 12px; padding: 10px 12px;
         }
-        .tria-opt-san {
-            flex: 1 1 auto; text-align: left; background: none; border: none;
-            color: var(--text-primary); font-size: 1.05rem; font-weight: 700;
-            letter-spacing: 0.4px; cursor: pointer; padding: 4px 2px;
-            display: flex; align-items: center; gap: 8px;
-        }
-        .tria-opt-san .tria-eye { opacity: 0.55; font-size: 0.9rem; font-weight: 400; }
-        .tria-opt-san:hover .tria-eye { opacity: 1; }
-        .tria-opt.is-previewed { border-color: rgba(106, 183, 255, 0.55); }
-        .tria-opt.is-previewed .tria-eye { opacity: 1; color: var(--accent-blue, #6ab7ff); }
-        .tria-opt-pick {
-            flex: 0 0 auto; border-radius: 10px; padding: 8px 14px;
-            font-size: 0.85rem; font-weight: 700; cursor: pointer;
-            background: linear-gradient(135deg, #c9a227, #8a6f1a);
-            color: #2b2118; border: none;
-        }
-        .tria-opt-pick:disabled { opacity: 0.45; cursor: default; }
-        .tria-opt.is-answer { border-color: rgba(46, 204, 113, 0.65); background: rgba(46, 204, 113, 0.10); }
-        .tria-opt.is-wrong { border-color: rgba(198, 40, 40, 0.65); background: rgba(198, 40, 40, 0.10); }
-        .tria-opt-tag {
-            flex: 0 0 auto; font-size: 0.7rem; padding: 3px 8px; border-radius: 999px;
-            border: 1px solid rgba(255,255,255,0.16); color: var(--text-secondary);
-        }
+        .tria-vote-btn:hover:not(:disabled) { border-color: var(--accent-gold, #c9a227); }
+        .tria-vote-btn:disabled { opacity: 0.4; cursor: default; }
+        .tria-vote-btn.is-correct { background: rgba(46,204,113,0.18); border-color: #2ecc71; color: #2ecc71; }
+        .tria-vote-btn.is-incorrect { background: rgba(198,40,40,0.18); border-color: #c62828; color: #e07a7a; }
+
         .tria-result {
-            max-width: min(420px, 100%); margin: 0 auto 14px;
+            max-width: min(720px, 100%); margin: 0 auto 14px;
             background: var(--bg-card); border-radius: 12px; padding: 12px 14px;
             border: 1px solid rgba(201, 162, 39, 0.22);
             font-size: 0.86rem; line-height: 1.45; color: var(--text-secondary);
         }
-        .tria-result .tria-result-title { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+        .tria-result .tria-result-title { font-size: 1.05rem; font-weight: 700; margin-bottom: 6px; }
         .tria-result.is-ok .tria-result-title { color: #2ecc71; }
         .tria-result.is-ko .tria-result-title { color: #e07a7a; }
         .tria-result strong { color: var(--text-primary); }
         .tria-result .tria-line { margin-top: 6px; }
-        .tria-actions { max-width: min(420px, 100%); margin: 0 auto; }
+        .tria-score { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; margin: 10px 0 4px; }
+        .tria-score-cell { text-align: center; min-width: 76px; }
+        .tria-score-value { font-size: 1.5rem; font-weight: 800; color: var(--accent-gold, #c9a227); }
+        .tria-score-label { font-size: 0.7rem; color: var(--text-secondary); }
+        .tria-actions { max-width: min(720px, 100%); margin: 0 auto; }
         .tria-note {
-            max-width: min(420px, 100%); margin: 14px auto 0;
-            font-size: 0.74rem; line-height: 1.4; text-align: center;
+            max-width: min(720px, 100%); margin: 14px auto 0;
+            font-size: 0.74rem; line-height: 1.45; text-align: center;
             color: var(--text-secondary); opacity: 0.85;
         }
-        body.day-mode .tria-opt, body.day-mode .tria-result { background: rgba(255,255,255,0.55); }
-        body.epaper-mode .tria-opt, body.epaper-mode .tria-result {
+
+        /* La commutació va per AMPLADA DISPONIBLE, no per tipus de dispositiu:
+           una finestra d'escriptori estreta ha de rebre el carrusel igual que
+           un mòbil, o les quatre columnes hi quedarien esclafades. */
+        @media (min-width: 900px) {
+            .tria-cards {
+                display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
+                overflow: visible; gap: 12px; max-width: min(1100px, 100%);
+            }
+            .tria-card { flex: initial; }
+            .tria-dots { display: none; }
+            /* Amb les quatre a la vista, la fila de vot ja no cal per arribar-hi,
+               però es conserva perquè hi ha qui prefereix votar per lletra. */
+            .tria-vote-row { max-width: 420px; margin: 0 auto; }
+        }
+        @media (max-width: 380px) { .tria-card { flex-basis: 86%; } }
+
+        body.day-mode .tria-card, body.day-mode .tria-result, body.day-mode .tria-vote-btn {
+            background: rgba(255,255,255,0.55);
+        }
+        body.epaper-mode .tria-card, body.epaper-mode .tria-result, body.epaper-mode .tria-vote-btn {
             background: #ededed !important; border-color: #bbb !important; color: #222;
         }
-        body.epaper-mode .tria-opt-pick { background: #222 !important; color: #fff !important; }
-        body.epaper-mode .tria-clock-fill { background: #444 !important; }
+        body.epaper-mode .tria-card-letter, body.epaper-mode .tria-card-pick {
+            background: #222 !important; color: #fff !important;
+        }
+        body.epaper-mode .tria-bar-fill { background: #444 !important; }
+        body.epaper-mode .tria-card.is-correct { border-color: #222 !important; }
+        body.epaper-mode .tria-card.is-incorrect { border-color: #888 !important; }
         .history-review {
             background: var(--bg-card);
             border-radius: 10px;
@@ -5027,6 +5091,19 @@
             <div class="menu-section">
                 <div class="menu-section-title">Entrena</div>
                 <div class="menu-buttons">
+                    <!-- Tres camins: test d'opció múltiple amb jugades TEVES
+                         que no vas fer del tot bé. Es desactiva sol mentre no
+                         hi hagi prou partides revisades. -->
+                    <button class="catalans-banner tria-banner" id="btn-tria-banner" aria-label="Tres camins">
+                        <span class="catalans-banner-ic" aria-hidden="true">🔀</span>
+                        <span class="catalans-banner-text">
+                            <span class="catalans-banner-title">Tres camins</span>
+                            <span class="catalans-banner-sub">Test de 20: les tres millors jugades de les teves posicions. Tria la bona.</span>
+                            <span class="tria-banner-meta" id="tria-banner-meta">Preparant el fons…</span>
+                        </span>
+                        <span class="catalans-banner-cta">Fer el test ›</span>
+                    </button>
+
                     <div class="hieroglyphic-banner" id="hieroglyphic-banner">
                         <button class="hg-banner-main" id="btn-hieroglyphic-banner" type="button">
                             <span class="hg-banner-icon" aria-hidden="true"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg></span>
@@ -5530,6 +5607,16 @@
                 <div class="tc-elo-note" id="elo-chart-hint"></div>
                 <canvas id="elo-chart"></canvas>
             </div>
+            <!-- Evolució dels tests de Tres camins. Amagat mentre no se n'hagi
+                 acabat cap: una gràfica buida no diu res. -->
+            <div class="chart-container" id="tria-chart-container" style="display:none;">
+                <div class="chart-title">🔀 Tres camins · evolució</div>
+                <div class="tc-elo-note" id="tria-chart-hint"></div>
+                <div style="height:240px;">
+                    <canvas id="tria-chart"></canvas>
+                </div>
+            </div>
+
             <div class="chart-container">
                 <div class="chart-title">Qualitat de jugades</div>
                 <div class="review-legend">
@@ -6971,29 +7058,35 @@
                 <div class="tria-progress" id="tria-progress">—</div>
             </div>
 
-            <div class="tria-clock" id="tria-clock">
-                <div class="tria-clock-bar"><div class="tria-clock-fill" id="tria-clock-fill"></div></div>
-                <div class="tria-clock-text" id="tria-clock-text">—</div>
-            </div>
+            <div class="tria-bar"><div class="tria-bar-fill" id="tria-bar-fill"></div></div>
 
-            <div class="tria-board-wrap">
-                <div id="tria-board"></div>
-                <div class="tria-preview-note" id="tria-preview-note" style="display:none;"></div>
-            </div>
+            <div class="tria-prompt" id="tria-prompt">Quina de les tres mana?</div>
+            <div class="tria-context" id="tria-context"></div>
 
-            <div class="tria-prompt" id="tria-prompt">—</div>
-            <div class="tria-options" id="tria-options"></div>
+            <!-- Les tres opcions i la jugada original. En escriptori es veuen
+                 les quatre juntes; en mòbil es passen de costat amb el dit
+                 (scroll-snap) i es vota des de la fila fixa de sota, que no
+                 obliga a tornar enrere. -->
+            <div class="tria-cards" id="tria-cards"></div>
+            <div class="tria-dots" id="tria-dots" aria-hidden="true"></div>
+
+            <div class="tria-vote" id="tria-vote">
+                <span class="tria-vote-label">La millor és:</span>
+                <div class="tria-vote-row" id="tria-vote-row"></div>
+            </div>
 
             <div class="tria-result" id="tria-result" style="display:none;"></div>
 
             <div class="menu-buttons tria-actions">
                 <button class="btn btn-primary" id="btn-tria-next" style="display:none;">Següent ›</button>
-                <button class="btn btn-nav-home" id="btn-tria-exit" aria-label="Sortir del repàs" title="Sortir del repàs"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                <button class="btn btn-secondary" id="btn-tria-restart" style="display:none;">↻ Un altre test</button>
+                <button class="btn btn-nav-home" id="btn-tria-exit" aria-label="Sortir del test" title="Sortir del test"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
 
-            <div class="tria-note">
-                Obrir una opció al tauler no et resta: es <strong>compta</strong>. Un encert
-                sense mirar-ne cap i un encert mirant-les totes tres no són el mateix resultat.
+            <div class="tria-note" id="tria-note">
+                Les tres opcions són les <strong>tres millors jugades</strong> de la posició
+                segons el motor. L'<strong>Original</strong> és el que vas jugar tu a la partida.
+                Sense rellotge: aquí es mesura el criteri, no la velocitat.
             </div>
         </div>
 

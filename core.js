@@ -6544,81 +6544,68 @@
     }
 
     // ----------------------------------------------------------------------
-    // TRES CAMINS — repàs d'errades amb tres opcions
+    // TRES CAMINS — test d'opció múltiple sobre les teves pròpies jugades
     // ----------------------------------------------------------------------
-    // Repàs ràpid de les errades pròpies: sobre la posició on vas decidir
-    // malament s'ofereixen TRES jugades i has de dir quina mana. Una de les
-    // tres és sempre la que vas jugar de veritat: és el distractor que cap banc
-    // de puzles no et pot fabricar, perquè és teu. La tercera l'ha de posar el
-    // MultiPV que ja es desa a cada errada (`multipvBefore`), i ha de ser
-    // temptadora sense ser bona; si no se'n troba cap que ho sigui, la pregunta
-    // NO es construeix (com els jeroglífics d'obertura amb una línia curta).
+    // Test de 20 preguntes construït amb jugades TEVES que no vas fer del tot
+    // bé. A cada pregunta s'ensenyen les TRES MILLORS jugades de la posició
+    // (A, B i C, barrejades) i la que vas jugar de veritat com a «Original»,
+    // per comparar. Has de dir quina de les tres mana.
     //
-    // El temps concedit surt del model humà de la casa (el mateix que fa que
-    // el rival sembli una persona), però aquí és DETERMINISTA: en un repàs
-    // mires la posició en fred i el temps ha de ser el mateix per a tothom que
-    // el mereixi igual, sense el soroll log-normal de la partida.
+    // No hi ha rellotge: el que es mesura és el criteri, no la velocitat.
     //
-    // Veure una opció al tauler no es penalitza, es COMPTA: encertar sense
-    // mirar-ne cap i encertar mirant-les totes tres no són el mateix resultat.
+    // Les tres opcions surten del MultiPV que ja es desa a cada jugada
+    // revisada (`multipvBefore`, tres línies), de manera que no cal cap anàlisi
+    // nova ni cap distractor inventat: són sempre jugades que el motor avala
+    // com a candidates, i la bona és la primera.
+    //
+    // La tria de les 20 preguntes s'ajusta a l'ELO/ROC del jugador per
+    // DIFICULTAT: com més petita és la distància entre la millor i la segona,
+    // més subtil és la decisió. Un jugador fort rep preguntes ajustades; un de
+    // principiant, posicions on la bona destaca.
     const TRIA_CONFIG = {
-        version: 1,
+        version: 2,
         optionCount: 3,
+        testSize: 20,
+        // Mínim de preguntes per poder fer un test (amb menys, no val la pena).
+        minTestSize: 5,
 
-        // Franja del distractor respecte de la millor jugada. Per sota del
-        // mínim seria una segona jugada bona (la pregunta no tindria resposta
-        // única); per sobre del màxim seria òbviament dolenta i no temptaria.
-        distractor: {
-            minLossCp: 70,
-            maxLossCp: 320,
-            // Un distractor que perd MENYS que la jugada que vas fer convertiria
-            // l'exercici en una trampa: se n'exigeix una separació mínima.
-            minGapToPlayedCp: 40
+        // Dificultat a partir de la distància entre la 1a i la 2a jugada:
+        // molta distància = la bona destaca; poca = decisió subtil.
+        difficulty: {
+            easyGapCp: 200,   // gap ≥ això → dificultat 0 (fàcil)
+            hardGapCp: 20     // gap ≤ això → dificultat 1 (difícil)
         },
 
-        // Naturalitat: entre dos distractors vàlids mana el que més s'assembla
-        // al que una persona jugaria sense pensar.
-        natural: { capture: 3, check: 2, promotion: 2, developing: 1 },
+        // Dificultat que es busca segons l'ELO/ROC. S'interpola entre fites.
+        eloTargets: [
+            { elo: 800, target: 0.15 },
+            { elo: 1200, target: 0.32 },
+            { elo: 1600, target: 0.50 },
+            { elo: 2000, target: 0.66 },
+            { elo: 2400, target: 0.80 },
+            { elo: 2800, target: 0.90 }
+        ],
+        // Amplada de la forquilla al voltant de l'objectiu: sense una mica de
+        // marge, un test de 20 seria monòton (totes les preguntes igual de
+        // difícils) i s'exhauriria el fons de jugades disponibles.
+        targetSpread: 0.22,
 
-        // Temps concedit. Els multiplicadors humans (ELO × complexitat, fase)
-        // són RELATIUS i es mouen en una franja estreta —en una partida real
-        // el temps absolut el posa el rellotge—, així que aquí porten la FORMA
-        // calibrada (els forts reparteixen més temps a les posicions difícils i
-        // menys a les fàcils) i el tram absolut el posa complexitySpan.
-        time: {
-            baseMs: 13000,
-            // Complexitat 0 → 0,55×; complexitat 1 → 1,80×.
-            complexitySpanMin: 0.55,
-            complexitySpanRange: 1.25,
-            // Terra generós a posta: encara que la posició sigui trivial, abans
-            // de decidir has de llegir una posició que véns de no mirar i tres
-            // jugades en notació. Per sota d'això no mesuraries el criteri,
-            // mesuraries la velocitat de lectura.
-            floorMs: 8000,
-            capMs: 45000,
-            // Repàs en fred: més just que una jugada de partida real.
-            reviewTightening: 0.85,
-            // Cada opció que obres al tauler paga el seu petit plus.
-            previewBonusMs: 3000,
-            maxPreviewBonuses: 3
-        },
-
-        // Quines errades entren al repàs.
+        // Perquè una jugada entri al test cal que la partida la tingui
+        // revisada amb almenys tres línies de motor i que NO l'hagis encertada.
         eligibility: {
-            alwaysQualities: ['blunder', 'mistake'],
-            // Les imprecisions només si repeteixen un tema que ja falles.
-            themedQualities: ['inaccuracy'],
-            minSwingCp: 50,
-            maxPerGame: 6
-        },
-
-        // De tant en tant es capgira la pregunta: si el format és sempre el
-        // mateix, s'acaba responent el format i no la posició.
-        invertedEveryNth: 4
+            minOptions: 3,
+            // Una jugada compta com a «no 100% correcta» si no coincideix amb
+            // la millor del motor. La pèrdua mínima evita colar-hi jugades
+            // equivalents que el motor ordena diferent per atzar de cerca.
+            minLossCp: 10,
+            // D'una mateixa partida no es prenen totes les jugades: un test ha
+            // de recórrer partides diferents.
+            maxPerGame: 5
+        }
     };
 
     // Pèrdua en centipeons d'una candidata respecte de la millor, reaprofitant
-    // l'escala de mat de l'Antídot (una línia que perd el mat no val 0 cp).
+    // l'escala de mat de l'Antídot (perdre un mat forçat no val 0 cp).
     function triaCandidateLossCp(bestEntry, candidateEntry) {
         const bestValue = antidoteScoreValue(bestEntry);
         const candValue = antidoteScoreValue(candidateEntry);
@@ -6626,32 +6613,55 @@
         return antidoteCpLoss(bestValue, candValue, ANTIDOTE_CONFIG);
     }
 
-    // Normalitza una línia de MultiPV a { move, moveSan, eval, evalType, pv }.
     function triaNormalizeCandidate(raw) {
         if (!raw || !raw.move) return null;
         return {
             move: String(raw.move),
-            moveSan: raw.moveSan || null,
+            moveSan: raw.moveSan || raw.san || null,
             eval: (typeof raw.eval === 'number') ? raw.eval : null,
             evalType: raw.evalType || 'cp',
             pv: Array.isArray(raw.pv) ? raw.pv : []
         };
     }
 
-    // Dues jugades són la mateixa si coincideix l'UCI (sense coronació) o la SAN.
     function triaSameMove(a, b) {
         if (!a || !b) return false;
-        const ua = String(a.move || '').slice(0, 4).toLowerCase();
-        const ub = String(b.move || '').slice(0, 4).toLowerCase();
-        if (ua && ub && ua === ub) return true;
-        const sa = normalizeMoveForKey(a.moveSan);
-        const sb = normalizeMoveForKey(b.moveSan);
-        return !!(sa && sb && sa === sb);
+        const ua = String(a.move || a || '').slice(0, 4).toLowerCase();
+        const ub = String(b.move || b || '').slice(0, 4).toLowerCase();
+        return !!(ua && ub && ua === ub);
     }
 
-    // Barreja determinista: la mateixa errada ha de donar sempre el mateix
-    // ordre d'opcions (si no, tornar-hi canviaria la resposta i els tests no
-    // podrien comprovar res). La llavor surt de la clau de l'errada.
+    // Dificultat [0,1] d'una pregunta: com més a prop van la millor i la
+    // segona, més difícil és destriar-les.
+    function triaQuestionDifficulty(candidates) {
+        const list = (Array.isArray(candidates) ? candidates : [])
+            .map(triaNormalizeCandidate)
+            .filter(Boolean);
+        if (list.length < 2) return 0.5;
+        const gap = triaCandidateLossCp(list[0], list[1]);
+        if (gap === null) return 0.5;
+        const cfg = TRIA_CONFIG.difficulty;
+        if (gap >= cfg.easyGapCp) return 0;
+        if (gap <= cfg.hardGapCp) return 1;
+        const span = cfg.easyGapCp - cfg.hardGapCp;
+        return clampNum(1 - (gap - cfg.hardGapCp) / span, 0, 1);
+    }
+
+    // Dificultat que busca un jugador d'aquest ELO/ROC.
+    function triaTargetDifficulty(elo) {
+        const rows = TRIA_CONFIG.eloTargets;
+        const e = clampNum(isNaN(elo) ? 1400 : elo, rows[0].elo, rows[rows.length - 1].elo);
+        for (let i = 0; i < rows.length - 1; i++) {
+            if (e <= rows[i + 1].elo) {
+                const t = (e - rows[i].elo) / (rows[i + 1].elo - rows[i].elo);
+                return rows[i].target + (rows[i + 1].target - rows[i].target) * t;
+            }
+        }
+        return rows[rows.length - 1].target;
+    }
+
+    // Barreja determinista a partir d'una clau: la mateixa jugada ha de donar
+    // sempre el mateix ordre d'opcions.
     function triaSeedFromKey(key) {
         let h = 2166136261;
         const s = String(key || '');
@@ -6675,82 +6685,61 @@
         return out;
     }
 
-    // Temps concedit (ms) per a una pregunta. Determinista: mateixa entrada,
-    // mateix pressupost. `previews` hi afegeix el plus per opció oberta.
-    function triaTimeBudgetMs(params) {
-        const p = params || {};
-        const cfg = TRIA_CONFIG.time;
-        const elo = (typeof p.elo === 'number' && isFinite(p.elo)) ? p.elo : 1400;
-        const complexity = clampNum(
-            (typeof p.complexity === 'number' && isFinite(p.complexity)) ? p.complexity : 0.5, 0, 1);
-        const phase = (p.phase === 'opening' || p.phase === 'endgame') ? p.phase : 'middlegame';
-        const span = cfg.complexitySpanMin + cfg.complexitySpanRange * complexity;
-        const base = cfg.baseMs
-            * span
-            * eloComplexityTimeMultiplier(elo, complexity)
-            * phaseTimeMultiplier(elo, phase)
-            * cfg.reviewTightening;
-        const previews = Math.max(0, Math.min(cfg.maxPreviewBonuses, Math.round(p.previews || 0)));
-        const budget = clampNum(base, cfg.floorMs, cfg.capMs) + previews * cfg.previewBonusMs;
-        return Math.round(budget);
-    }
-
-    // Complexitat d'una errada quan no se n'ha desat cap: es dedueix del
-    // MultiPV guardat (escletxa i candidates quasi equivalents), que és el que
-    // estimateMoveComplexity ja sap llegir. Sense MultiPV, incertesa neutra.
-    function triaComplexityFromError(err) {
-        const e = err || {};
-        if (typeof e.complexity === 'number' && isFinite(e.complexity)) {
-            return clampNum(e.complexity, 0, 1);
-        }
-        const multi = Array.isArray(e.multipvBefore) ? e.multipvBefore : [];
-        const candidates = multi
-            .map(c => {
-                const value = antidoteScoreValue(c);
-                return (value === null) ? null : { move: c.move, score: value };
-            })
-            .filter(Boolean);
-        if (candidates.length < 2) return 0.5;
-        const tacticalFlag = (e.isCheck || e.isCapture) ? 0.5 : 0;
-        return estimateMoveComplexity({ candidates: candidates, tacticalFlag: tacticalFlag }).score;
-    }
-
-    // Errades que mereixen entrar al repàs, ja desduplicades i limitades.
-    // `failingThemes` és la llista de categories que el jugador ja falla
-    // (perfil de l'Antídot): és el que deixa passar una imprecisió.
-    function triaEligibleErrors(errors, options) {
+    // Jugades que poden entrar al test: revisades, amb tres línies de motor i
+    // NO encertades (no vas jugar la millor). Es desdupliquen per posició.
+    function triaEligibleMoves(reviews, options) {
         const opts = options || {};
         const cfg = TRIA_CONFIG.eligibility;
-        const failing = {};
-        (Array.isArray(opts.failingThemes) ? opts.failingThemes : []).forEach(t => {
-            const id = (t && t.id) ? t.id : t;
-            if (id) failing[String(id)] = true;
-        });
-        const maxPerGame = Math.max(1, antidoteNum(opts.maxPerGame, cfg.maxPerGame));
         const seen = {};
         const out = [];
-        (Array.isArray(errors) ? errors : []).forEach(err => {
-            if (!err || !err.fen) return;
-            if (out.length >= maxPerGame) return;
-            const quality = err.quality || null;
-            const swing = antidoteNum(err.swing != null ? err.swing : err.cpLoss, 0);
-            const always = cfg.alwaysQualities.indexOf(quality) !== -1;
-            const themed = cfg.themedQualities.indexOf(quality) !== -1;
-            if (!always && !themed) return;
-            if (swing < cfg.minSwingCp) return;
-            if (themed) {
-                const category = antidoteReviewCategory(err, opts.playerColor);
-                if (!category || !failing[category]) return;
-            }
-            const key = reviewErrorKey(err);
+        (Array.isArray(reviews) ? reviews : []).forEach(r => {
+            if (!r) return;
+            const fen = r.fen || r.beforeFen;
+            if (!fen) return;
+            const multi = (Array.isArray(r.multipvBefore) ? r.multipvBefore : [])
+                .map(triaNormalizeCandidate)
+                .filter(Boolean);
+            if (multi.length < cfg.minOptions) return;
+            const played = r.playerMove || r.playedMoveUci;
+            const best = r.bestMove || r.bestMoveUci || multi[0].move;
+            if (!played || !best) return;
+            // Jugada 100% correcta: fora del test.
+            if (triaSameMove({ move: played }, { move: best })) return;
+            const loss = antidoteNum(r.cpLoss != null ? r.cpLoss : r.swing, 0);
+            if (loss < cfg.minLossCp) return;
+            const key = reviewErrorKey(r);
             if (seen[key]) return;
             seen[key] = true;
-            out.push(err);
+            out.push(r);
         });
         return out;
     }
 
-    // Helpers que necessiten tauler (chess.js injectat, com la resta del nucli).
+    // Reparteix el fons de jugades per partida, respectant el màxim per partida
+    // i alternant-les perquè el test no es quedi encallat en una sola.
+    function triaSpreadAcrossGames(pool, maxPerGame) {
+        const max = Math.max(1, antidoteNum(maxPerGame, TRIA_CONFIG.eligibility.maxPerGame));
+        const byGame = new Map();
+        pool.forEach(item => {
+            const id = String((item && item.gameId) || 'sense-partida');
+            if (!byGame.has(id)) byGame.set(id, []);
+            const list = byGame.get(id);
+            if (list.length < max) list.push(item);
+        });
+        const lists = Array.from(byGame.values());
+        const out = [];
+        let added = true;
+        let round = 0;
+        while (added) {
+            added = false;
+            lists.forEach(list => {
+                if (round < list.length) { out.push(list[round]); added = true; }
+            });
+            round++;
+        }
+        return out;
+    }
+
     function createTriaHelpers(ChessCtor, config) {
         const cfg = config || TRIA_CONFIG;
 
@@ -6758,261 +6747,229 @@
             try { return fen ? new ChessCtor(fen) : new ChessCtor(); } catch (e) { return null; }
         }
 
-        function moveFromUci(fen, uci) {
-            if (!uci || String(uci).length < 4) return null;
-            const chess = safeChess(fen);
-            if (!chess) return null;
-            const s = String(uci);
-            try {
-                return chess.move({
-                    from: s.substring(0, 2),
-                    to: s.substring(2, 4),
-                    promotion: s.length > 4 ? s[4] : 'q'
-                });
-            } catch (e) { return null; }
-        }
-
-        // Una jugada és legal a la posició? (l'exercici no pot oferir una
-        // opció impossible: seria regalar-la per descart).
-        function isLegalMove(fen, uci) {
-            return !!moveFromUci(fen, uci);
-        }
-
-        // Com de "natural" és una jugada: el que una persona jugaria sense
-        // pensar-hi gaire. És el que fa temptador un distractor.
-        function naturalness(fen, uci) {
-            const mv = moveFromUci(fen, uci);
-            if (!mv) return -1;
-            const w = cfg.natural;
-            let score = 0;
-            if (mv.captured) score += w.capture;
-            if (mv.san && mv.san.indexOf('+') !== -1) score += w.check;
-            if (mv.promotion) score += w.promotion;
-            // Sortida de peça menor cap al centre: el desenvolupament d'escola.
-            if ((mv.piece === 'n' || mv.piece === 'b') && !mv.captured) score += w.developing;
-            return score;
-        }
-
-        // Tercera opció: temptadora però dolenta. Retorna null si el MultiPV
-        // desat no en dona cap que compleixi la franja — i llavors la pregunta
-        // no es construeix.
-        function pickDistractor(err, bestCandidate, playedCandidate) {
-            const e = err || {};
-            const fen = e.fen || e.beforeFen;
-            const multi = (Array.isArray(e.multipvBefore) ? e.multipvBefore : [])
-                .map(triaNormalizeCandidate)
-                .filter(Boolean);
-            if (!fen || !bestCandidate || multi.length < 2) return null;
-
-            const playedLoss = playedCandidate
-                ? triaCandidateLossCp(bestCandidate, playedCandidate)
-                : null;
-
-            const viable = multi
-                .filter(c => !triaSameMove(c, bestCandidate) && !triaSameMove(c, playedCandidate))
-                .map(c => {
-                    const loss = triaCandidateLossCp(bestCandidate, c);
-                    return (loss === null) ? null : { candidate: c, loss: loss };
-                })
-                .filter(Boolean)
-                .filter(x => x.loss >= cfg.distractor.minLossCp && x.loss <= cfg.distractor.maxLossCp)
-                // Mai un distractor que sigui MILLOR que la teva jugada: la
-                // pregunta ha de tenir una resposta i una sola.
-                .filter(x => playedLoss === null
-                    || x.loss >= playedLoss + cfg.distractor.minGapToPlayedCp
-                    || x.loss <= playedLoss - cfg.distractor.minGapToPlayedCp)
-                .filter(x => isLegalMove(fen, x.candidate.move));
-
-            if (!viable.length) return null;
-
-            // Mana el més natural; a igualtat, el que perd menys (més temptador).
-            viable.sort((a, b) => {
-                const na = naturalness(fen, a.candidate.move);
-                const nb = naturalness(fen, b.candidate.move);
-                if (nb !== na) return nb - na;
-                return a.loss - b.loss;
-            });
-            return viable[0];
-        }
-
-        // Construeix la pregunta d'una errada, o null si no es pot fer honesta.
-        // `index` decideix si la pregunta va capgirada ("quina perd").
-        function buildQuestion(err, options) {
-            const o = options || {};
-            const e = err || {};
-            const fen = e.fen || e.beforeFen;
-            if (!fen) return null;
-
-            const bestUci = e.bestMove || e.bestMoveUci;
-            const playedUci = e.playerMove || e.playedMoveUci;
-            if (!bestUci || !playedUci) return null;
-            if (!isLegalMove(fen, bestUci) || !isLegalMove(fen, playedUci)) return null;
-
-            const multi = (Array.isArray(e.multipvBefore) ? e.multipvBefore : [])
-                .map(triaNormalizeCandidate)
-                .filter(Boolean);
-            const bestCandidate = multi.find(c => String(c.move).slice(0, 4) === String(bestUci).slice(0, 4))
-                || { move: bestUci, moveSan: e.bestMoveSan || null, eval: null, evalType: 'cp', pv: e.bestPv || [] };
-            const playedCandidate = multi.find(c => String(c.move).slice(0, 4) === String(playedUci).slice(0, 4))
-                || { move: playedUci, moveSan: e.playedMoveSan || e.playerMoveSan || null, eval: null, evalType: 'cp', pv: [] };
-            if (triaSameMove(bestCandidate, playedCandidate)) return null;
-
-            const distractor = pickDistractor(e, bestCandidate, playedCandidate);
-            if (!distractor) return null;
-
-            const sanOf = (cand, fallback) => cand.moveSan
-                || (moveFromUci(fen, cand.move) || {}).san
-                || fallback
-                || cand.move;
-
-            const options3 = [
-                { role: 'best', move: bestCandidate.move, san: sanOf(bestCandidate, e.bestMoveSan), lossCp: 0 },
-                {
-                    role: 'played',
-                    move: playedCandidate.move,
-                    san: sanOf(playedCandidate, e.playedMoveSan || e.playerMoveSan),
-                    lossCp: antidoteNum(e.cpLoss != null ? e.cpLoss : e.swing, null)
-                },
-                {
-                    role: 'distractor',
-                    move: distractor.candidate.move,
-                    san: sanOf(distractor.candidate, null),
-                    lossCp: Math.round(distractor.loss)
-                }
-            ];
-
-            const key = reviewErrorKey(e);
-            const shuffled = triaShuffle(options3, triaSeedFromKey(key));
-            const nth = antidoteNum(o.index, 0);
-            const inverted = cfg.invertedEveryNth > 0
-                && nth > 0
-                && (nth + 1) % cfg.invertedEveryNth === 0;
-
-            // A la pregunta capgirada la resposta és la que perd MÉS: pot ser la
-            // teva jugada o el distractor, segons quina caigui més avall.
-            let answerRole = 'best';
-            if (inverted) {
-                const worst = options3.slice().sort((a, b) => {
-                    const la = (a.lossCp == null) ? -1 : a.lossCp;
-                    const lb = (b.lossCp == null) ? -1 : b.lossCp;
-                    return lb - la;
-                })[0];
-                answerRole = worst.role;
-            }
-            const answerIndex = shuffled.findIndex(op => op.role === answerRole);
-            if (answerIndex < 0) return null;
-
-            const complexity = triaComplexityFromError(e);
-            const phase = phaseFromFen(fen);
-            return {
-                key: key,
-                fen: fen,
-                moveNumber: e.moveNumber || null,
-                quality: e.quality || null,
-                mode: inverted ? 'worst' : 'best',
-                prompt: inverted ? 'Quina de les tres perd?' : 'Quina de les tres mana?',
-                options: shuffled,
-                answerIndex: answerIndex,
-                answerRole: answerRole,
-                complexity: complexity,
-                phase: phase,
-                budgetMs: triaTimeBudgetMs({ elo: o.elo, complexity: complexity, phase: phase }),
-                bestPv: Array.isArray(e.bestPv) ? e.bestPv : (e.bestMovePv || []),
-                refutationPv: Array.isArray(e.refutationPv) ? e.refutationPv : (e.playedPv || [])
-            };
-        }
-
-        // Posició que resulta d'una opció: el preview ensenya la teva candidata
-        // JUGADA, mai la resposta del rival — si no, regalaria la refutació,
-        // que és justament el que has de veure tu.
-        function previewFen(fen, uci) {
+        function applyUci(fen, uci) {
             const chess = safeChess(fen);
             if (!chess) return null;
             const s = String(uci || '');
             if (s.length < 4) return null;
-            let mv = null;
             try {
-                mv = chess.move({
+                const mv = chess.move({
                     from: s.substring(0, 2),
                     to: s.substring(2, 4),
                     promotion: s.length > 4 ? s[4] : 'q'
                 });
-            } catch (e) { mv = null; }
-            if (!mv) return null;
-            return { fen: chess.fen(), san: mv.san, from: mv.from, to: mv.to };
+                if (!mv) return null;
+                return { move: mv, fen: chess.fen() };
+            } catch (e) { return null; }
         }
 
-        // Construeix la tanda sencera d'una partida, saltant-se les errades de
-        // les quals no en surt cap pregunta honesta.
-        function buildQuestionSet(errors, options) {
+        // Posició resultant d'una jugada: és el que ensenya cada tauler petit.
+        // Només avança la jugada triada, mai la resposta del rival.
+        function optionPosition(fen, uci) {
+            const applied = applyUci(fen, uci);
+            if (!applied) return null;
+            return {
+                fen: applied.fen,
+                san: applied.move.san,
+                from: applied.move.from,
+                to: applied.move.to
+            };
+        }
+
+        // Construeix la pregunta d'una jugada revisada, o null si no es pot.
+        function buildQuestion(review, options) {
             const o = options || {};
-            const eligible = triaEligibleErrors(errors, o);
-            const out = [];
-            eligible.forEach(err => {
-                const q = buildQuestion(err, { elo: o.elo, index: out.length });
-                if (q) out.push(q);
-            });
-            return out;
+            const r = review || {};
+            const fen = r.fen || r.beforeFen;
+            if (!fen) return null;
+
+            const multi = (Array.isArray(r.multipvBefore) ? r.multipvBefore : [])
+                .map(triaNormalizeCandidate)
+                .filter(Boolean);
+            if (multi.length < cfg.optionCount) return null;
+
+            const top = multi.slice(0, cfg.optionCount);
+            // Les tres han de ser legals i diferents entre elles.
+            const positions = top.map(c => optionPosition(fen, c.move));
+            if (positions.some(p => !p)) return null;
+            const uniq = new Set(top.map(c => String(c.move).slice(0, 4)));
+            if (uniq.size !== top.length) return null;
+
+            const bestCandidate = top[0];
+            const built = top.map((c, i) => ({
+                move: c.move,
+                san: positions[i].san,
+                fen: positions[i].fen,
+                from: positions[i].from,
+                to: positions[i].to,
+                lossCp: (i === 0) ? 0 : (triaCandidateLossCp(bestCandidate, c) ?? null),
+                isBest: i === 0
+            }));
+
+            const key = reviewErrorKey(r);
+            const shuffled = triaShuffle(built, triaSeedFromKey(key));
+            const answerIndex = shuffled.findIndex(op => op.isBest);
+            if (answerIndex < 0) return null;
+            // Etiqueta A/B/C segons l'ordre ja barrejat.
+            const letters = ['A', 'B', 'C', 'D', 'E'];
+            shuffled.forEach((op, i) => { op.letter = letters[i] || String(i + 1); });
+
+            // La jugada que vas fer de veritat: quart tauler, per comparar. No
+            // es pot votar; només hi és per veure què vas triar tu.
+            const playedUci = r.playerMove || r.playedMoveUci;
+            const playedPos = playedUci ? optionPosition(fen, playedUci) : null;
+            const original = playedPos ? {
+                move: playedUci,
+                san: playedPos.san,
+                fen: playedPos.fen,
+                from: playedPos.from,
+                to: playedPos.to,
+                lossCp: antidoteNum(r.cpLoss != null ? r.cpLoss : r.swing, null),
+                // Si la teva jugada és una de les tres, val la pena dir-ho.
+                matchesOptionLetter: (shuffled.find(op => triaSameMove(op, { move: playedUci })) || {}).letter || null
+            } : null;
+
+            return {
+                key: key,
+                fen: fen,
+                turn: String(fen).split(' ')[1] === 'b' ? 'b' : 'w',
+                moveNumber: r.moveNumber || null,
+                gameId: r.gameId || null,
+                gameLabel: r.gameLabel || null,
+                quality: r.quality || null,
+                options: shuffled,
+                answerIndex: answerIndex,
+                original: original,
+                difficulty: triaQuestionDifficulty(multi),
+                phase: phaseFromFen(fen)
+            };
         }
 
-        return {
-            isLegalMove,
-            naturalness,
-            pickDistractor,
-            buildQuestion,
-            buildQuestionSet,
-            previewFen
-        };
+        // Munta el test sencer: agafa les jugades elegibles, en fa preguntes i
+        // en tria `testSize` ajustades a l'ELO del jugador.
+        function buildTest(reviews, options) {
+            const o = options || {};
+            const size = Math.max(1, antidoteNum(o.testSize, cfg.testSize));
+            const elo = antidoteNum(o.elo, 1400);
+            const target = triaTargetDifficulty(elo);
+
+            const eligible = triaEligibleMoves(reviews, o);
+            const spread = triaSpreadAcrossGames(eligible, o.maxPerGame);
+
+            const questions = [];
+            spread.forEach(r => {
+                const q = buildQuestion(r, o);
+                if (q) questions.push(q);
+            });
+            if (!questions.length) return [];
+
+            // Primer les que cauen dins la forquilla de dificultat del jugador
+            // (conservant l'ordre repartit entre partides); si no n'hi ha prou,
+            // s'omple amb les més properes a l'objectiu.
+            const inBand = [];
+            const rest = [];
+            questions.forEach(q => {
+                if (Math.abs(q.difficulty - target) <= cfg.targetSpread) inBand.push(q);
+                else rest.push(q);
+            });
+            rest.sort((a, b) => Math.abs(a.difficulty - target) - Math.abs(b.difficulty - target));
+            return inBand.concat(rest).slice(0, size);
+        }
+
+        return { optionPosition, buildQuestion, buildTest };
     }
 
-    // Resultat d'una resposta. Els previews no resten: es COMPTEN, perquè
-    // encertar sense mirar cap opció i encertar mirant-les totes no és el
-    // mateix. `clean` és l'encert sense cap ajuda ni pròrroga.
-    function triaGradeAnswer(question, chosenIndex, options) {
-        const o = options || {};
+    // Resultat d'una resposta: verd o vermell a l'instant.
+    function triaGradeAnswer(question, chosenIndex) {
         const q = question || {};
-        const previews = Math.max(0, Math.round(o.previews || 0));
-        const timedOut = !!o.timedOut;
         const answered = (typeof chosenIndex === 'number' && chosenIndex >= 0);
-        const correct = !timedOut && answered && chosenIndex === q.answerIndex;
+        const correct = answered && chosenIndex === q.answerIndex;
         const chosen = (answered && Array.isArray(q.options)) ? q.options[chosenIndex] : null;
+        const answer = Array.isArray(q.options) ? q.options[q.answerIndex] : null;
         return {
             key: q.key || null,
             correct: correct,
-            timedOut: timedOut,
             answered: answered,
-            previews: previews,
-            clean: correct && previews === 0,
-            elapsedMs: Math.max(0, Math.round(o.elapsedMs || 0)),
-            budgetMs: Math.max(0, Math.round(q.budgetMs || 0)),
-            chosenRole: chosen ? chosen.role : null,
-            answerRole: q.answerRole || null,
-            mode: q.mode || 'best',
-            // Repetir la teva pròpia errada és el senyal més valuós del repàs:
-            // no és no saber-la, és no haver-la desaprès.
-            repeatedOwnMistake: !!(chosen && chosen.role === 'played' && q.mode === 'best')
+            chosenIndex: answered ? chosenIndex : -1,
+            chosenLetter: chosen ? chosen.letter : null,
+            answerLetter: answer ? answer.letter : null,
+            // Triar la mateixa jugada que vas fer a la partida: hi has tornat.
+            repeatedOwnMove: !!(chosen && q.original && triaSameMove(chosen, q.original)),
+            difficulty: (typeof q.difficulty === 'number') ? q.difficulty : null,
+            lostCp: chosen ? (chosen.lossCp ?? null) : null
         };
     }
 
-    // Resum d'una tanda. `precipitation` són els encerts que no van arribar a
-    // temps en posicions difícils: el senyal de precipitació del Rellotge Intern.
-    function triaSessionSummary(results) {
+    // Resum del test.
+    function triaTestSummary(results, options) {
+        const o = options || {};
         const list = (Array.isArray(results) ? results : []).filter(Boolean);
         const total = list.length;
         const correct = list.filter(r => r.correct).length;
-        const clean = list.filter(r => r.clean).length;
-        const timedOut = list.filter(r => r.timedOut).length;
-        const repeated = list.filter(r => r.repeatedOwnMistake).length;
-        const previews = list.reduce((sum, r) => sum + (r.previews || 0), 0);
+        const repeated = list.filter(r => r.repeatedOwnMove).length;
+        const difficulties = list.map(r => r.difficulty).filter(d => typeof d === 'number');
+        const avgDifficulty = difficulties.length
+            ? difficulties.reduce((s, d) => s + d, 0) / difficulties.length
+            : null;
+        // Centipeons regalats per les respostes errades: el cost real de
+        // triar malament, en la moneda del tauler.
+        const lostCp = list.reduce((s, r) => s + (r.correct ? 0 : (r.lostCp || 0)), 0);
         return {
             total: total,
             correct: correct,
-            clean: clean,
-            timedOut: timedOut,
-            repeatedOwnMistake: repeated,
-            previews: previews,
-            accuracy: total ? Math.round((correct / total) * 100) : 0
+            wrong: total - correct,
+            accuracy: total ? Math.round((correct / total) * 100) : 0,
+            repeatedOwnMove: repeated,
+            avgDifficulty: (avgDifficulty === null) ? null : Math.round(avgDifficulty * 100) / 100,
+            lostCp: Math.round(lostCp),
+            elo: antidoteNum(o.elo, null)
         };
+    }
+
+    // Historial de tests: llista curta i ordenada, prou per a la gràfica.
+    const TRIA_HISTORY_MAX = 60;
+
+    function triaAppendResult(history, summary, options) {
+        const o = options || {};
+        const list = (Array.isArray(history) ? history : []).slice();
+        if (!summary || !summary.total) return list;
+        list.push({
+            at: o.now || Date.now(),
+            total: summary.total,
+            correct: summary.correct,
+            accuracy: summary.accuracy,
+            avgDifficulty: summary.avgDifficulty,
+            repeatedOwnMove: summary.repeatedOwnMove || 0,
+            lostCp: summary.lostCp || 0,
+            elo: summary.elo == null ? null : Math.round(summary.elo)
+        });
+        list.sort((a, b) => (a.at || 0) - (b.at || 0));
+        return list.slice(-TRIA_HISTORY_MAX);
+    }
+
+    // Sèrie per a la gràfica d'estadístiques: encerts (%) al llarg del temps,
+    // amb la mitjana mòbil de les últimes cinc per veure la tendència.
+    function triaChartSeries(history, options) {
+        const o = options || {};
+        const window = Math.max(2, antidoteNum(o.window, 5));
+        const list = (Array.isArray(history) ? history : [])
+            .filter(r => r && typeof r.accuracy === 'number')
+            .slice()
+            .sort((a, b) => (a.at || 0) - (b.at || 0));
+        return list.map((r, i) => {
+            const from = Math.max(0, i - window + 1);
+            const slice = list.slice(from, i + 1);
+            const trend = slice.reduce((s, x) => s + x.accuracy, 0) / slice.length;
+            return {
+                at: r.at || null,
+                accuracy: r.accuracy,
+                trend: Math.round(trend),
+                total: r.total || 0,
+                correct: r.correct || 0,
+                avgDifficulty: (typeof r.avgDifficulty === 'number') ? r.avgDifficulty : null,
+                elo: (typeof r.elo === 'number') ? r.elo : null
+            };
+        });
     }
 
     return {
@@ -7226,12 +7183,14 @@
         premoveMatchesLegalMove,
         TRIA_CONFIG,
         triaCandidateLossCp,
-        triaComplexityFromError,
-        triaTimeBudgetMs,
-        triaEligibleErrors,
+        triaQuestionDifficulty,
+        triaTargetDifficulty,
+        triaEligibleMoves,
         createTriaHelpers,
         triaGradeAnswer,
-        triaSessionSummary,
+        triaTestSummary,
+        triaAppendResult,
+        triaChartSeries,
         START_POSITION_KEY
     };
 });

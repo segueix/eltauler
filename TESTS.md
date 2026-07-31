@@ -321,33 +321,31 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   superada, que `retried`/`firstResult` viatgin amb la prova desada i que les
   proves antigues sense aquests camps segueixin valent.
 
-- **`tria.test.js`** — modalitat 🔀 **Tres camins**: repàs de les errades
-  pròpies amb tres opcions, on una de les tres és sempre la jugada que vas fer
-  de veritat. El pes de la prova va a la **tercera opció**, que és tot
-  l'exercici: es comprova que surti de la franja «dolenta però temptadora»
-  (`multipvBefore` + l'escala de mat de l'Antídot), que mai s'hi coli una segona
-  jugada bona —la pregunta ha de tenir UNA resposta—, ni una de pèssima que no
-  temptaria ningú, ni una que perdi pràcticament el mateix que la teva (empat
-  trampa), ni una il·legal a la posició; i que entre dues de vàlides mani la més
-  natural, la que una persona jugaria sense pensar (la captura per davant del
-  peó lateral). Si el MultiPV desat no en dona cap de digna, **no es construeix
-  cap pregunta**: el mateix reflex que ja tenen els jeroglífics d'obertura amb
-  una línia curta i l'obertura personal amb una pèrdua no mesurada.
-  El **temps concedit** es prova com a model: una posició difícil dona clarament
-  més temps que una de fàcil, és determinista (mateixa entrada, mateix
-  pressupost), conserva la forma humana calibrada —com més fort ets, més
-  contrast entre fàcil i difícil— i respecta terra i sostre. El terra és
-  generós a posta: per sota, no mesuraries criteri sinó velocitat de lectura.
-  Cada opció oberta al tauler afegeix el seu plus, amb un màxim.
-  De la **porta d'entrada**: errades greus i errors hi entren sempre, una
-  imprecisió només si repeteix un tema que el perfil de l'Antídot ja marca com
-  a debilitat, res es repeteix dues vegades (dedup per `reviewErrorKey`) i una
-  sola partida no pot omplir el repàs sencer.
-  Del **preview**: ensenya la teva candidata jugada i prou —el torn passa a
-  l'altre color i la resposta del rival no s'avança—, perquè trobar la
-  refutació és justament l'exercici.
-  I de la **puntuació**: obrir opcions no resta, es compta (un encert net i un
-  encert mirant-les totes tres són resultats diferents), quedar-se sense temps
-  no és mai un encert, i tornar a triar la teva pròpia jugada queda marcat a
-  part (`repeatedOwnMistake`): no és no saber-la, és no haver-la desaprès.
-
+- **`tria.test.js`** — modalitat 🔀 **Tres camins**: test de 20 preguntes fet
+  amb jugades TEVES que no vas fer del tot bé. A cada pregunta s'ensenyen les
+  **tres millors jugades** de la posició (A, B i C, amb el seu tauler) i la que
+  vas jugar de veritat com a «Original», per comparar.
+  De la **porta d'entrada**: qualsevol jugada no encertada hi pot entrar (no cal
+  que sigui una errada greu), la que vas encertar en queda fora, una pèrdua
+  insignificant no compta com a fallada, i sense tres línies de motor desades la
+  jugada no es pot fer servir. Res es repeteix dues vegades.
+  De la **pregunta**: les tres opcions són les tres primeres línies del MultiPV,
+  la correcta és sempre la primera, cadascuna porta la posició resultant per
+  pintar el seu tauler i **cap no avança la resposta del rival** (el torn passa
+  a l'altre color i prou). L'ordre A/B/C és estable per a una mateixa decisió
+  però la bona no cau sempre a la mateixa lletra. Una línia il·legal o dues de
+  repetides invaliden la pregunta en comptes de colar-la.
+  De l'**ajust a l'ELO/ROC**: molta distància entre la 1a i la 2a és una
+  pregunta fàcil i poca distància és difícil; com més fort és el jugador, més
+  subtils se li demanen; l'objectiu no s'extrapola fora de la taula mesurada. La
+  prova de fons comprova que, sobre un mateix fons ample de posicions REALS,
+  un jugador de 2400 rep de mitjana preguntes més difícils que un de 900, que un
+  test no buida mai una sola partida i que les preguntes es reparteixen entre
+  partides diferents.
+  De la **puntuació i l'historial**: encertar la millor és correcte, qualsevol
+  altra diu quants centipeons costava, triar la mateixa jugada que ja vas fer a
+  la partida queda marcat a part (`repeatedOwnMove`), i el resum compta encerts,
+  errades i el cost total en centipeons. Cada test acabat s'afegeix a un
+  historial ordenat i limitat, i la sèrie de la gràfica d'evolució en surt amb
+  el percentatge d'encert i la mitjana mòbil de tendència, ordenada per data
+  encara que l'historial vingui desordenat.
