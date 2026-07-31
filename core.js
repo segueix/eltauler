@@ -3702,62 +3702,40 @@
     }
 
     // ----------------------------------------------------------------------
-    // ELO col·lectiu (partides col·lectives: Catalans vs Stockfish)
+    // Nivell de les partides col·lectives (Catalans vs Stockfish)
     // ----------------------------------------------------------------------
-    // Un exèrcit que vota les jugades no té ELO conegut: s'ha d'ESBRINAR jugant.
-    // El bucle és de calibratge: Stockfish juga sempre a la força que ara mateix
-    // estimem per a l'exèrcit, el resultat corregeix l'estimació, i la partida
-    // següent es juga a la força corregida. Com que el rival persegueix
-    // l'estimació, els resultats tendeixen al 50 % —que és on una partida dona
-    // més informació— i l'estimació s'autoregula al voltant de la força real.
+    // L'exèrcit NO té cap ELO ni ROC assignat: és molta gent votant, i cadascú
+    // té el seu. Qui porta el nivell és l'ELO/ROC d'STOCKFISH, que s'adapta
+    // després de cada partida SEGONS EL RESULTAT: si l'exèrcit guanya, el rival
+    // puja; si perd, baixa; si empaten, es queda on és (ja estan igualats).
+    // El pas es va escurçant a mesura que s'acumulen partides, de manera que el
+    // nivell s'assenta on la cosa està igualada en comptes d'anar rebotant; un
+    // pas MÍNIM el manté viu, perquè l'exèrcit canvia de gent amb el temps.
 
-    // Rendiment d'UNA partida col·lectiva, en punts d'ELO/ROC.
-    //  · El resultat contra un rival de força coneguda mana: guanyar val
-    //    +spread/2 sobre el rival, perdre -spread/2, taules el mateix nivell.
-    //  · La qualitat de joc mesurada (ROC deduït de la pèrdua mitjana i els
-    //    blunders) és una segona opinió que hi pesa un terç. Només s'aplica
-    //    quan és informativa: aquest estimador està topat pel terra del motor,
-    //    de manera que per damunt d'aquest sostre només diu «almenys tant» i
-    //    faria baixar injustament un exèrcit fort.
-    function collectiveGamePerformance(opponentStrength, resultScore, qualityRating, opts) {
+    // Pas d'ajust per a la partida número `gamesPlayed + 1` de la sèrie.
+    function collectiveLadderStep(gamesPlayed, opts) {
         const o = opts || {};
-        const spread = (typeof o.spread === 'number' && !isNaN(o.spread)) ? o.spread : 400;
-        const qualityWeight = (typeof o.qualityWeight === 'number' && !isNaN(o.qualityWeight)) ? o.qualityWeight : (1 / 3);
-        const opponent = (typeof opponentStrength === 'number' && !isNaN(opponentStrength)) ? opponentStrength : 1350;
-        const s = (typeof resultScore === 'number' && !isNaN(resultScore)) ? Math.max(0, Math.min(1, resultScore)) : 0.5;
-        const perf = opponent + (s - 0.5) * spread;
-        const cap = (typeof o.qualityCap === 'number' && !isNaN(o.qualityCap)) ? o.qualityCap : null;
-        const q = (typeof qualityRating === 'number' && !isNaN(qualityRating)) ? qualityRating : null;
-        if (q === null || (cap !== null && q >= cap)) return Math.round(perf);
-        return Math.round(perf * (1 - qualityWeight) + q * qualityWeight);
+        const startStep = (typeof o.startStep === 'number' && !isNaN(o.startStep)) ? o.startStep : 200;
+        const minStep = (typeof o.minStep === 'number' && !isNaN(o.minStep)) ? o.minStep : 40;
+        const halfLife = (typeof o.stepHalfLife === 'number' && o.stepHalfLife > 0) ? o.stepHalfLife : 2;
+        const n = (typeof gamesPlayed === 'number' && gamesPlayed > 0) ? gamesPlayed : 0;
+        return Math.max(minStep, Math.round(startStep / (1 + n / halfLife)));
     }
 
-    // Nova estimació de l'ELO/ROC col·lectiu després d'una partida: mitjana
-    // incremental dels rendiments, amb el pes de la partida nova decreixent
-    // (1/1, 1/2, 1/3…) fins a un SÒL. El pes decreixent fa convergir
-    // l'estimació; el sòl evita que es quedi congelada, perquè un exèrcit
-    // obert canvia de gent i de força amb el temps.
-    function updatedCollectiveRating(prevRating, prevGames, performance, opts) {
+    // Nova força del rival després d'una partida, segons el resultat de l'equip
+    // humà (1 victòria, 0,5 taules, 0 derrota). Retorna la força limitada al
+    // rang del motor, el pas aplicat i la diferència real (que pot quedar
+    // escapçada pels límits).
+    function adaptedRivalStrength(prevStrength, resultScore, gamesPlayed, opts) {
         const o = opts || {};
-        const minWeight = (typeof o.minWeight === 'number' && !isNaN(o.minWeight)) ? o.minWeight : 0.2;
         const min = (typeof o.min === 'number' && !isNaN(o.min)) ? o.min : 200;
         const max = (typeof o.max === 'number' && !isNaN(o.max)) ? o.max : 2850;
-        const perf = (typeof performance === 'number' && !isNaN(performance)) ? performance : null;
-        const games = (typeof prevGames === 'number' && prevGames > 0) ? Math.round(prevGames) : 0;
-        const prev = (typeof prevRating === 'number' && !isNaN(prevRating)) ? prevRating : null;
-        if (perf === null) {
-            return { rating: prev === null ? null : Math.round(Math.max(min, Math.min(max, prev))), games: games, weight: 0 };
-        }
-        if (prev === null || games <= 0) {
-            return { rating: Math.round(Math.max(min, Math.min(max, perf))), games: 1, weight: 1 };
-        }
-        const weight = Math.max(minWeight, 1 / (games + 1));
-        const rating = prev * (1 - weight) + perf * weight;
-        return {
-            rating: Math.round(Math.max(min, Math.min(max, rating))),
-            games: games + 1,
-            weight: weight
-        };
+        const prev = (typeof prevStrength === 'number' && !isNaN(prevStrength)) ? prevStrength : 1350;
+        const s = (typeof resultScore === 'number' && !isNaN(resultScore)) ? Math.max(0, Math.min(1, resultScore)) : 0.5;
+        const step = collectiveLadderStep(gamesPlayed, o);
+        const raw = prev + (s - 0.5) * 2 * step;
+        const strength = Math.round(Math.max(min, Math.min(max, raw)));
+        return { strength: strength, step: step, delta: strength - Math.round(prev) };
     }
 
     // ----------------------------------------------------------------------
@@ -7528,8 +7506,8 @@
         initialCalibrationOpponentRoc,
         estimateTimedCalibrationElo,
         estimateGamePerformanceRating,
-        collectiveGamePerformance,
-        updatedCollectiveRating,
+        collectiveLadderStep,
+        adaptedRivalStrength,
         leagueBaseRating,
         rebasedLeagueRatings,
         leagueRoundGameLinks,

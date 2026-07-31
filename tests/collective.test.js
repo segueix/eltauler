@@ -1,125 +1,93 @@
 const Core = require('../core.js');
 
-// Constants reals de catalans.js (bucle de les partides col·lectives).
-const SPREAD = 400;
-const FLOOR = 1350;      // terra del motor: per sota, mode ROC
-const MIN = 200;
-const MAX = 2850;
-const MIN_W = 0.2;
+// Constants reals de catalans.js (nivell de les partides col·lectives).
+const OPTS = { startStep: 200, minStep: 40, stepHalfLife: 2, min: 200, max: 2850 };
 
-const OPTS_PERF = { spread: SPREAD, qualityCap: FLOOR };
-const OPTS_RATING = { minWeight: MIN_W, min: MIN, max: MAX };
+const step = (n) => Core.collectiveLadderStep(n, OPTS);
+const next = (sf, score, n) => Core.adaptedRivalStrength(sf, score, n, OPTS);
 
-const perf = (opp, s, q) => Core.collectiveGamePerformance(opp, s, q, OPTS_PERF);
-const rate = (prev, games, p) => Core.updatedCollectiveRating(prev, games, p, OPTS_RATING);
-
-describe('collectiveGamePerformance', () => {
-    test('sense senyal de qualitat, el resultat mou mig marge amunt o avall', () => {
-        expect(perf(1350, 1, null)).toBe(1550);
-        expect(perf(1350, 0, null)).toBe(1150);
-        expect(perf(1350, 0.5, null)).toBe(1350);
+describe('collectiveLadderStep', () => {
+    test('l\'ajust és gros al principi i s\'escurça amb les partides', () => {
+        expect(step(0)).toBe(200);
+        expect(step(2)).toBe(100);
+        expect(step(4)).toBe(67);
+        expect(step(8)).toBe(40);
     });
 
-    test('la qualitat de joc mesurada hi pesa un terç quan és informativa', () => {
-        // Guanya a 1000 (rendiment 1200) però jugant com un ROC 600.
-        expect(perf(1000, 1, 600)).toBe(Math.round(1200 * (2 / 3) + 600 / 3));
+    test('mai no baixa del mínim: el nivell no es congela', () => {
+        expect(step(50)).toBe(40);
+        expect(step(5000)).toBe(40);
     });
 
-    test('una qualitat topada al terra del motor no compta', () => {
-        // Per sobre del terra l'estimador de qualitat només diu «almenys 1350»:
-        // no ha de fer baixar un exèrcit que ha guanyat a un rival fort.
-        expect(perf(1800, 1, FLOOR)).toBe(2000);
-        expect(perf(1800, 1, 2000)).toBe(2000);
-    });
-
-    test('valors absents o dolents no trenquen el càlcul', () => {
-        expect(perf(undefined, undefined, undefined)).toBe(1350);
-        expect(perf(1500, 2, null)).toBe(1700);   // el resultat es limita a [0, 1]
-        expect(perf(1500, -1, null)).toBe(1300);
+    test('valors absents o negatius compten com a cap partida jugada', () => {
+        expect(step(undefined)).toBe(200);
+        expect(step(-3)).toBe(200);
     });
 });
 
-describe('updatedCollectiveRating', () => {
-    test('la primera partida fixa l\'estimació al rendiment', () => {
-        expect(rate(null, 0, 1150)).toEqual({ rating: 1150, games: 1, weight: 1 });
+describe('adaptedRivalStrength', () => {
+    test('l\'ELO de Stockfish puja si guanya l\'exèrcit i baixa si perd', () => {
+        expect(next(1350, 1, 0).strength).toBe(1550);
+        expect(next(1350, 0, 0).strength).toBe(1150);
     });
 
-    test('el pes de cada partida nova decreix (1/2, 1/3, 1/4…)', () => {
-        expect(rate(1000, 1, 1400).rating).toBe(1200);   // pes 1/2
-        expect(rate(1200, 2, 1500).rating).toBe(1300);   // pes 1/3
-        expect(rate(1000, 3, 1400).rating).toBe(1100);   // pes 1/4
+    test('en taules es queda on és (ja estan igualats)', () => {
+        const r = next(1350, 0.5, 0);
+        expect(r.strength).toBe(1350);
+        expect(r.delta).toBe(0);
     });
 
-    test('el pes no baixa mai del sòl: l\'estimació segueix un equip que canvia', () => {
-        const r = rate(1000, 99, 2000);
-        expect(r.weight).toBe(MIN_W);
-        expect(r.rating).toBe(1200);
-        expect(r.games).toBe(100);
+    test('el moviment és el pas de la partida que toca', () => {
+        expect(next(1000, 1, 4).delta).toBe(67);
+        expect(next(1000, 0, 4).delta).toBe(-67);
+        expect(next(1000, 1, 20).delta).toBe(40);
     });
 
-    test('l\'estimació es manté dins dels límits del motor', () => {
-        expect(rate(null, 0, 50).rating).toBe(MIN);
-        expect(rate(null, 0, 9000).rating).toBe(MAX);
-        expect(rate(250, 1, -500).rating).toBe(MIN);
+    test('es manté dins del rang del motor i ho reflecteix al delta', () => {
+        expect(next(250, 0, 0).strength).toBe(200);
+        expect(next(250, 0, 0).delta).toBe(-50);
+        expect(next(2800, 1, 0).strength).toBe(2850);
+        expect(next(2800, 1, 0).delta).toBe(50);
     });
 
-    test('sense rendiment (partida sense dades) no es toca l\'estimació', () => {
-        expect(rate(1200, 5, null)).toEqual({ rating: 1200, games: 5, weight: 0 });
-        expect(rate(null, 0, null).rating).toBeNull();
+    test('entrades dolentes no trenquen el càlcul', () => {
+        expect(next(undefined, undefined, undefined).strength).toBe(1350);
+        expect(next(1350, 5, 0).strength).toBe(1550);   // el resultat es limita a [0, 1]
+        expect(next(1350, -5, 0).strength).toBe(1150);
     });
 });
 
-describe('bucle autoregulat: Stockfish juga a l\'estimació i l\'estimació persegueix la força real', () => {
-    // Simula la sèrie de partides. L'exèrcit té una força REAL desconeguda; la
-    // probabilitat de guanyar surt de la fórmula d'Elo contra la força a què juga
-    // Stockfish, que sempre és l'estimació vigent.
-    function runLoop(trueStrength, games, seed, opts) {
-        const o = opts || {};
-        let rating = null, n = 0, rnd = seed;
-        // Generador determinista (els tests no poden dependre de Math.random).
-        const next = () => {
-            rnd = (rnd * 1103515245 + 12345) % 2147483648;
-            return rnd / 2147483648;
-        };
-        let opponent = o.start || 1350;
+describe('bucle autoregulat: el nivell de Stockfish busca l\'exèrcit', () => {
+    // Simula la sèrie: Stockfish arrenca a 1350 i s'adapta pel resultat. L'exèrcit
+    // té una força REAL desconeguda i la probabilitat de guanyar surt de la
+    // fórmula d'Elo contra el nivell a què juga Stockfish.
+    function runSeries(trueStrength, games, seed) {
+        let sf = 1350, rnd = seed;
+        const rand = () => { rnd = (rnd * 1103515245 + 12345) % 2147483648; return rnd / 2147483648; };
         for (let i = 0; i < games; i++) {
-            const expected = 1 / (1 + Math.pow(10, (opponent - trueStrength) / 400));
-            const r = next();
+            const expected = 1 / (1 + Math.pow(10, (sf - trueStrength) / 400));
+            const r = rand();
             const score = r < expected * 0.9 ? 1 : (r < expected * 0.9 + 0.2 ? 0.5 : 0);
-            // Qualitat de joc coherent amb la força real (topada pel terra del motor).
-            const quality = Math.min(FLOOR, trueStrength);
-            const p = perf(opponent, score, quality);
-            const upd = rate(rating, n, p);
-            rating = upd.rating; n = upd.games;
-            opponent = rating;
+            sf = next(sf, score, i).strength;
         }
-        return { rating: rating, games: n, opponent: opponent };
+        return sf;
     }
 
-    test('convergeix prop d\'un exèrcit feble (ROC) partint de 1350', () => {
-        const out = runLoop(600, 40, 7);
-        expect(Math.abs(out.rating - 600)).toBeLessThan(250);
-        expect(out.games).toBe(40);
+    test('baixa fins a trobar un exèrcit feble (mode ROC)', () => {
+        expect(Math.abs(runSeries(600, 60, 7) - 600)).toBeLessThan(300);
     });
 
-    test('convergeix prop d\'un exèrcit fort partint de 1350', () => {
-        const out = runLoop(2000, 40, 11);
-        expect(Math.abs(out.rating - 2000)).toBeLessThan(250);
+    test('puja fins a trobar un exèrcit fort', () => {
+        expect(Math.abs(runSeries(2000, 60, 11) - 2000)).toBeLessThan(300);
     });
 
-    test('el rival sempre juga a l\'estimació vigent', () => {
-        const out = runLoop(1100, 15, 3);
-        expect(out.opponent).toBe(out.rating);
+    test('davant d\'un exèrcit igualat, el nivell es queda on és', () => {
+        expect(Math.abs(runSeries(1350, 60, 3) - 1350)).toBeLessThan(250);
     });
 
-    test('si l\'equip canvia de força, l\'estimació el segueix (sòl del pes)', () => {
-        // 30 partides a 800 i després l'equip es reforça a 1600.
-        let rating = runLoop(800, 30, 5).rating;
-        let n = 30;
-        for (let i = 0; i < 25; i++) {
-            const upd = rate(rating, n, perf(rating, 1, FLOOR));  // ara guanya sempre
-            rating = upd.rating; n = upd.games;
-        }
-        expect(rating).toBeGreaterThan(1500);
+    test('si l\'exèrcit es reforça, el nivell el segueix amunt (pas mínim)', () => {
+        let sf = runSeries(800, 40, 5);
+        for (let i = 40; i < 80; i++) sf = next(sf, 1, i).strength;   // ara guanyen sempre
+        expect(sf).toBeGreaterThan(2000);
     });
 });

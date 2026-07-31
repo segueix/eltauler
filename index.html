@@ -6880,9 +6880,6 @@
             .catalans-elo-val { font-size:1.6rem; font-weight:700; }
             .catalans-elo-box.cat .catalans-elo-val { color: var(--accent-gold); }
             .catalans-elo-box.sf .catalans-elo-val { color: var(--accent-purple); }
-            /* ELO/ROC col·lectiu estimat de l'exèrcit (el que el bucle va esbrinant) */
-            .catalans-elo-box.army .catalans-elo-val { color: var(--accent-gold); }
-            .catalans-elo-games { font-size:0.7rem; color: var(--text-secondary); margin-top:2px; }
             /* Botó discret per editar l'Elo/ROC (icona, al costat de «Comparteix») */
             .cat-edit-icon { display:inline-flex; align-items:center; justify-content:center; vertical-align:middle;
                 width:1.9rem; height:1.9rem; margin-left:8px; padding:0; border:none; border-radius:50%;
@@ -6997,8 +6994,8 @@
             .catalans-hist-main { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
             .catalans-hist-res { font-size:1.05rem; }
             .catalans-hist-elo { font-weight:700; color: var(--accent-gold); }
-            .catalans-hist-cat { font-weight:700; color: #7fd1a0; }
-            .catalans-hist-army { font-weight:700; color: #e0a020; }
+            /* Nivell a què queda Stockfish després d'aquella partida */
+            .catalans-hist-next { font-weight:700; color: #7fd1a0; }
             .catalans-hist-date { color: var(--text-secondary); font-size:0.8rem; }
             .catalans-hist-side { display:flex; align-items:center; gap:10px; }
             .catalans-hist-moves { color: var(--text-secondary); font-size:0.8rem; }
@@ -7035,12 +7032,6 @@
                 <div class="catalans-elo-box sf">
                     <div class="catalans-elo-label" id="catalans-sf-label">ELO Stockfish</div>
                     <div class="catalans-elo-val" id="catalans-sf-elo">1350</div>
-                </div>
-                <!-- ELO/ROC col·lectiu estimat: apareix quan hi ha alguna partida acabada -->
-                <div class="catalans-elo-box army" id="catalans-army-box" style="display:none;">
-                    <div class="catalans-elo-label" id="catalans-army-label">ELO col·lectiu</div>
-                    <div class="catalans-elo-val" id="catalans-army-elo">—</div>
-                    <div class="catalans-elo-games" id="catalans-army-games"></div>
                 </div>
                 <button class="cat-edit-icon" id="catalans-edit-strength" type="button" title="Edita l'Elo/ROC" aria-label="Edita l'Elo/ROC" style="display:none;">✏️</button>
             </div>
@@ -7116,17 +7107,20 @@
                 l'<strong>historial</strong> d'aquí sota (s'hi pot reproduir jugada a jugada) i
                 en <strong>comença una de nova</strong> a l'instant: no hi ha espera.
                 <br><br>
-                Cada partida serveix per <strong>esbrinar l'ELO col·lectiu</strong> de l'exèrcit,
-                que no es coneix d'entrada. Stockfish comença a <strong>1350</strong> i, a partir
-                d'aquí, juga sempre a la <strong>força que ara mateix estimem per a l'equip</strong>
-                (per sota de 1350 hi juga en mode ROC: tria entre diverses jugades candidates amb
-                profunditat reduïda). En acabar, el <strong>resultat</strong> —afinat amb la
-                <strong>qualitat de joc</strong> (pèrdua mitjana i blunders)— corregeix
-                l'estimació: guanyar la puja, perdre la baixa, i cada partida nova hi pesa una
-                mica menys que l'anterior. Com que el rival persegueix l'estimació, els resultats
-                ronden el <strong>50 %</strong> i l'<strong>ELO col·lectiu</strong> de la
-                capçalera es va <strong>autoregulant</strong> fins a quedar-se al voltant de la
-                força real de l'exèrcit.
+                L'exèrcit <strong>no té cap ELO ni ROC propi</strong>: sou molta gent votant i
+                cadascú té el seu (el que surt al costat del seu vot). Qui marca el nivell és
+                l'<strong>ELO/ROC de Stockfish</strong>, i és el que s'adapta
+                <strong>segons el resultat</strong> de cada partida: si guanya l'exèrcit,
+                <strong>puja</strong>; si perd, <strong>baixa</strong>; si empateu,
+                <strong>es queda</strong> on és. Comença a <strong>1350</strong> i per sota
+                d'aquest valor hi juga en mode ROC (tria entre diverses jugades candidates amb
+                profunditat reduïda).
+                <br><br>
+                L'ajust és gros a les primeres partides (±200) i es va escurçant a mesura que la
+                sèrie avança, sense baixar mai de ±40: així el nivell
+                <strong>s'autoregula</strong> i s'acaba assentant allà on la cosa està
+                igualada. A cada partida de l'historial hi consta a quin nivell es va jugar i a
+                quin va quedar Stockfish després.
                 <br><br>
                 <em>Inspirat en «Kaspàrov contra el Món» (1999), on Garri Kaspàrov es va
                 enfrontar a la resta del món, que decidia cada jugada per votació majoritària
@@ -7493,10 +7487,10 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.23"></script>
+    <script src="core.js?v=1.0.24"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
-    <script src="catalans.js?v=1.2.8"></script>
+    <script src="catalans.js?v=1.2.9"></script>
     <script>
         window.APP_VERSION = '1.0.31';
         (function () {
