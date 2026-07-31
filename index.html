@@ -3714,6 +3714,18 @@
         }
         .tria-card-san { font-weight: 700; font-size: 1.05rem; color: var(--text-primary); }
         .tria-card-board { width: 100%; min-width: 0; }
+        /* Peça moguda: requadre blau a l'origen i a la destinació, igual a les
+           quatre targetes (les tres opcions i la jugada real). Chessboard.js
+           conserva els divs de casella entre posicions, així que la marca
+           s'esborra i es torna a posar a cada pregunta. */
+        .tria-card-board .square-55d63.tria-sq-move {
+            box-shadow: inset 0 0 0 3px #3d8bfd !important;
+            border-radius: 4px;
+            outline: none !important;
+        }
+        body.epaper-mode .tria-card-board .square-55d63.tria-sq-move {
+            box-shadow: inset 0 0 0 3px #333 !important;
+        }
         .tria-card-pick {
             border: none; border-radius: 10px; padding: 9px 12px; cursor: pointer;
             font-size: 0.85rem; font-weight: 700;

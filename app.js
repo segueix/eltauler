@@ -23326,7 +23326,17 @@ function buildTriaCards() {
     const wrap = $('#tria-cards');
     if (!wrap.length) return;
     const letters = ['A', 'B', 'C'];
-    let html = letters.map((letter, i) =>
+    // La jugada REAL va primera (a l'esquerra): és la referència contra la qual
+    // es comparen les tres opcions, i en mòbil és la primera que es veu.
+    let html = `<div class="tria-card is-original" data-tria-card="orig">
+            <div class="tria-card-head">
+                <span class="tria-card-letter">ORIGINAL</span>
+                <span class="tria-card-san" id="tria-original-san">—</span>
+            </div>
+            <div class="tria-card-board" id="tria-board-orig"></div>
+            <div class="tria-card-note" id="tria-original-note"></div>
+        </div>`;
+    html += letters.map((letter, i) =>
         `<div class="tria-card" data-tria-card="${i}">
             <div class="tria-card-head">
                 <span class="tria-card-letter" data-tria-letter="${i}">${letter}</span>
@@ -23337,21 +23347,13 @@ function buildTriaCards() {
             <div class="tria-card-verdict" data-tria-verdict="${i}"></div>
         </div>`
     ).join('');
-    html += `<div class="tria-card is-original" data-tria-card="orig">
-            <div class="tria-card-head">
-                <span class="tria-card-letter">ORIGINAL</span>
-                <span class="tria-card-san" id="tria-original-san">—</span>
-            </div>
-            <div class="tria-card-board" id="tria-board-orig"></div>
-            <div class="tria-card-note" id="tria-original-note"></div>
-        </div>`;
     wrap.html(html);
 
     $('#tria-vote-row').html(letters.map((letter, i) =>
         `<button type="button" class="tria-vote-btn" data-tria-pick="${i}">${letter}</button>`
     ).join(''));
 
-    $('#tria-dots').html(['A', 'B', 'C', 'O'].map((_, i) =>
+    $('#tria-dots').html(['O', 'A', 'B', 'C'].map((_, i) =>
         `<span class="tria-dot${i === 0 ? ' is-active' : ''}"></span>`
     ).join(''));
 
@@ -23384,6 +23386,17 @@ function bindTriaCarousel() {
         });
         $('#tria-dots .tria-dot').each(function (i) { $(this).toggleClass('is-active', i === active); });
     }, { passive: true });
+}
+
+// Requadre blau a l'origen i la destinació de la jugada d'un tauler. Cal
+// esborrar la marca anterior: chessboard.js reaprofita els divs de casella
+// entre posicions i, si no, s'hi acumularien les de la pregunta d'abans.
+function markTriaMove(boardId, from, to) {
+    const $squares = $(`#${boardId} .square-55d63`);
+    $squares.removeClass('tria-sq-move');
+    if (!from || !to) return;
+    $squares.filter(`[data-square='${from}']`).addClass('tria-sq-move');
+    $squares.filter(`[data-square='${to}']`).addClass('tria-sq-move');
 }
 
 function currentTriaQuestion() {
@@ -23419,6 +23432,7 @@ function renderTriaQuestion() {
         if (board) {
             try { board.orientation(orientation); } catch (e) {}
             board.position(op.fen, false);
+            markTriaMove(`tria-board-${i}`, op.from, op.to);
         }
     });
     $('.tria-card-pick').prop('disabled', false);
@@ -23434,6 +23448,7 @@ function renderTriaQuestion() {
         if (triaOriginalBoard) {
             try { triaOriginalBoard.orientation(orientation); } catch (e) {}
             triaOriginalBoard.position(q.original.fen, false);
+            markTriaMove('tria-board-orig', q.original.from, q.original.to);
         }
     } else {
         origCard.hide();
