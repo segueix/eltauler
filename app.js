@@ -23520,13 +23520,15 @@ function answerTriaQuestion(index) {
     // altra, en vermell.
     const answerIdx = q.answerIndex;
     $(`[data-tria-card="${answerIdx}"]`).addClass('is-correct');
-    $(`[data-tria-verdict="${answerIdx}"]`).text('✅ La millor');
+    $(`[data-tria-verdict="${answerIdx}"]`).text('✅ Correcte · la millor');
     $(`.tria-vote-btn[data-tria-pick="${answerIdx}"]`).addClass('is-correct');
     if (index >= 0 && index !== answerIdx) {
         $(`[data-tria-card="${index}"]`).addClass('is-incorrect');
         const lost = q.options[index].lossCp;
         $(`[data-tria-verdict="${index}"]`).text(
-            (typeof lost === 'number' && lost > 0) ? `✗ Perd ${Math.round(lost)} cp` : '✗ No era');
+            (typeof lost === 'number' && lost > 0)
+                ? `✗ Incorrecte · perd ${Math.round(lost)} cp`
+                : '✗ Incorrecte');
         $(`.tria-vote-btn[data-tria-pick="${index}"]`).addClass('is-incorrect');
     }
     q.options.forEach((op, i) => {
@@ -23547,7 +23549,7 @@ function renderTriaAnswerResult(q, result, chosenIndex) {
     const box = $('#tria-result');
     const answer = q.options[q.answerIndex];
     const chosen = (chosenIndex >= 0) ? q.options[chosenIndex] : null;
-    let html = `<div class="tria-result-title">${result.correct ? '✅ Correcte' : '✗ No hi era'}</div>`;
+    let html = `<div class="tria-result-title">${result.correct ? '✅ Correcte' : '✗ Incorrecte'}</div>`;
     html += `<div>Manava <strong>${escapeHtml(answer.letter)} · ${escapeHtml(answer.san)}</strong>.</div>`;
     if (!result.correct && chosen) {
         const lost = (typeof chosen.lossCp === 'number') ? Math.round(chosen.lossCp) : null;
