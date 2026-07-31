@@ -6624,6 +6624,42 @@
         };
     }
 
+    // Les tres candidates d'una jugada revisada. Hi ha dues formes possibles i
+    // totes dues han de valer:
+    //   1. `multipvBefore` sencer (tres línies crues) — el que hi ha a la
+    //      partida en curs, acabada d'analitzar;
+    //   2. `bestMove` + `evalBefore` (la línia 1) i `alternatives` (línies 2 i
+    //      3) — el que es DESA a l'historial, on multipvBefore no viatja.
+    // Sense la segona forma, el fons es limitaria a la partida del moment i el
+    // test no es podria fer amb l'historial, que és d'on ha de sortir.
+    function triaCandidatesFromReview(review) {
+        const r = review || {};
+        const raw = (Array.isArray(r.multipvBefore) ? r.multipvBefore : [])
+            .map(triaNormalizeCandidate)
+            .filter(Boolean);
+        if (raw.length >= TRIA_CONFIG.optionCount) return raw;
+
+        const best = r.bestMove || r.bestMoveUci;
+        if (!best) return raw;
+        const alts = (Array.isArray(r.alternatives) ? r.alternatives : [])
+            .map(triaNormalizeCandidate)
+            .filter(Boolean)
+            .filter(c => String(c.move).slice(0, 4) !== String(best).slice(0, 4));
+        if (!alts.length) return raw;
+
+        const rebuilt = [{
+            move: String(best),
+            moveSan: r.bestMoveSan || null,
+            // L'avaluació de la posició de decisió és, amb MultiPV, la de la
+            // millor línia. Si no hi és, s'infereix de la primera alternativa
+            // perquè la comparació segueixi tenint sentit.
+            eval: (typeof r.evalBefore === 'number') ? r.evalBefore : (alts[0].eval),
+            evalType: 'cp',
+            pv: Array.isArray(r.bestMovePv) ? r.bestMovePv : []
+        }].concat(alts);
+        return rebuilt.length >= raw.length ? rebuilt : raw;
+    }
+
     function triaSameMove(a, b) {
         if (!a || !b) return false;
         const ua = String(a.move || a || '').slice(0, 4).toLowerCase();
@@ -6696,9 +6732,7 @@
             if (!r) return;
             const fen = r.fen || r.beforeFen;
             if (!fen) return;
-            const multi = (Array.isArray(r.multipvBefore) ? r.multipvBefore : [])
-                .map(triaNormalizeCandidate)
-                .filter(Boolean);
+            const multi = triaCandidatesFromReview(r);
             if (multi.length < cfg.minOptions) return;
             const played = r.playerMove || r.playedMoveUci;
             const best = r.bestMove || r.bestMoveUci || multi[0].move;
@@ -6738,6 +6772,18 @@
             round++;
         }
         return out;
+    }
+
+    // Quantes preguntes pot donar de debò un fons, SENSE construir-les (no cal
+    // chess.js): és el que ha d'anunciar el bàner. Comptar només les jugades
+    // elegibles enganyaria, perquè el màxim per partida en deixa moltes fora
+    // —una sola partida amb trenta decigudes fallades no fa un test de vint.
+    function triaPlannedQuestionCount(reviews, options) {
+        const o = options || {};
+        const eligible = triaEligibleMoves(reviews, o);
+        const spread = triaSpreadAcrossGames(eligible, o.maxPerGame);
+        const size = Math.max(1, antidoteNum(o.testSize, TRIA_CONFIG.testSize));
+        return Math.min(size, spread.length);
     }
 
     function createTriaHelpers(ChessCtor, config) {
@@ -6783,9 +6829,7 @@
             const fen = r.fen || r.beforeFen;
             if (!fen) return null;
 
-            const multi = (Array.isArray(r.multipvBefore) ? r.multipvBefore : [])
-                .map(triaNormalizeCandidate)
-                .filter(Boolean);
+            const multi = triaCandidatesFromReview(r);
             if (multi.length < cfg.optionCount) return null;
 
             const top = multi.slice(0, cfg.optionCount);
@@ -7183,9 +7227,11 @@
         premoveMatchesLegalMove,
         TRIA_CONFIG,
         triaCandidateLossCp,
+        triaCandidatesFromReview,
         triaQuestionDifficulty,
         triaTargetDifficulty,
         triaEligibleMoves,
+        triaPlannedQuestionCount,
         createTriaHelpers,
         triaGradeAnswer,
         triaTestSummary,
