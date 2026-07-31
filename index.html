@@ -3662,7 +3662,7 @@
         /* ---- TRES CAMINS (test d'opció múltiple sobre les teves jugades) ---- */
         /* Bàner: reutilitza l'estructura del col·lectiu amb paleta pròpia. */
         .tria-banner { background: linear-gradient(135deg, #4a3a6b 0%, #2e2447 55%, #1d1730 100%); border-color: rgba(170,150,230,0.4); }
-        .tria-banner .catalans-banner-ic { font-size: 1.7em; line-height: 1; }
+        .tria-banner .catalans-banner-ic { stroke: #b9a6ee; }
         .tria-banner::after { background: radial-gradient(circle, rgba(170,150,230,0.24), transparent 70%); }
         .tria-banner .catalans-banner-cta { color: #cfc2f2; }
         .tria-banner-meta { display: block; font-size: 0.72rem; opacity: 0.85; margin-top: 3px; }
@@ -4888,6 +4888,13 @@
             <path d="M20 16.5H5"/>
             <polyline points="8.5 13 5 16.5 8.5 20"/>
         </symbol>
+        <symbol id="ic-shuffle" viewBox="0 0 24 24">
+            <polyline points="16 3 21 3 21 8"/>
+            <path d="M4 20 21 3"/>
+            <polyline points="21 16 21 21 16 21"/>
+            <path d="M15 15l6 6"/>
+            <path d="M4 4l5 5"/>
+        </symbol>
         <symbol id="ic-pencil" viewBox="0 0 24 24">
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
         </symbol>
@@ -5138,7 +5145,7 @@
                          que no vas fer del tot bé. Es desactiva sol mentre no
                          hi hagi prou partides revisades. -->
                     <button class="catalans-banner tria-banner" id="btn-tria-banner" aria-label="Tres camins">
-                        <span class="catalans-banner-ic" aria-hidden="true">🔀</span>
+                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-shuffle"/></svg>
                         <span class="catalans-banner-text">
                             <span class="catalans-banner-title">Tres camins</span>
                             <span class="catalans-banner-sub">Test de 20: les tres millors jugades de les teves posicions. Tria la bona.</span>
@@ -5653,7 +5660,7 @@
             <!-- Evolució dels tests de Tres camins. Amagat mentre no se n'hagi
                  acabat cap: una gràfica buida no diu res. -->
             <div class="chart-container" id="tria-chart-container" style="display:none;">
-                <div class="chart-title">🔀 Tres camins · evolució</div>
+                <div class="chart-title">Tres camins · evolució</div>
                 <div class="tc-elo-note" id="tria-chart-hint"></div>
                 <div style="height:240px;">
                     <canvas id="tria-chart"></canvas>
@@ -6346,7 +6353,7 @@
                 <div id="review-debrief" style="display:none;"></div>
                 <div class="review-actions">
                     <button class="btn btn-primary" id="btn-review-again" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Tornar a jugar</button>
-                    <button class="btn btn-secondary" id="btn-review-tria" style="display:none;">🔀 Tres camins</button>
+                    <button class="btn btn-secondary" id="btn-review-tria" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-shuffle"/></svg>Tres camins</button>
                     <button class="btn btn-secondary" id="btn-review-errors"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisar errors</button>
                     <button class="btn btn-secondary" id="btn-review-hieroglyphic"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Desxifra el teu error</button>
                     <button class="btn btn-secondary" id="btn-review-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Veure evolució</button>
