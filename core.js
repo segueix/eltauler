@@ -3702,6 +3702,43 @@
     }
 
     // ----------------------------------------------------------------------
+    // Nivell de les partides col·lectives (Catalans vs Stockfish)
+    // ----------------------------------------------------------------------
+    // L'exèrcit NO té cap ELO ni ROC assignat: és molta gent votant, i cadascú
+    // té el seu. Qui porta el nivell és l'ELO/ROC d'STOCKFISH, que s'adapta
+    // després de cada partida SEGONS EL RESULTAT: si l'exèrcit guanya, el rival
+    // puja; si perd, baixa; si empaten, es queda on és (ja estan igualats).
+    // El pas es va escurçant a mesura que s'acumulen partides, de manera que el
+    // nivell s'assenta on la cosa està igualada en comptes d'anar rebotant; un
+    // pas MÍNIM el manté viu, perquè l'exèrcit canvia de gent amb el temps.
+
+    // Pas d'ajust per a la partida número `gamesPlayed + 1` de la sèrie.
+    function collectiveLadderStep(gamesPlayed, opts) {
+        const o = opts || {};
+        const startStep = (typeof o.startStep === 'number' && !isNaN(o.startStep)) ? o.startStep : 200;
+        const minStep = (typeof o.minStep === 'number' && !isNaN(o.minStep)) ? o.minStep : 40;
+        const halfLife = (typeof o.stepHalfLife === 'number' && o.stepHalfLife > 0) ? o.stepHalfLife : 2;
+        const n = (typeof gamesPlayed === 'number' && gamesPlayed > 0) ? gamesPlayed : 0;
+        return Math.max(minStep, Math.round(startStep / (1 + n / halfLife)));
+    }
+
+    // Nova força del rival després d'una partida, segons el resultat de l'equip
+    // humà (1 victòria, 0,5 taules, 0 derrota). Retorna la força limitada al
+    // rang del motor, el pas aplicat i la diferència real (que pot quedar
+    // escapçada pels límits).
+    function adaptedRivalStrength(prevStrength, resultScore, gamesPlayed, opts) {
+        const o = opts || {};
+        const min = (typeof o.min === 'number' && !isNaN(o.min)) ? o.min : 200;
+        const max = (typeof o.max === 'number' && !isNaN(o.max)) ? o.max : 2850;
+        const prev = (typeof prevStrength === 'number' && !isNaN(prevStrength)) ? prevStrength : 1350;
+        const s = (typeof resultScore === 'number' && !isNaN(resultScore)) ? Math.max(0, Math.min(1, resultScore)) : 0.5;
+        const step = collectiveLadderStep(gamesPlayed, o);
+        const raw = prev + (s - 0.5) * 2 * step;
+        const strength = Math.round(Math.max(min, Math.min(max, raw)));
+        return { strength: strength, step: step, delta: strength - Math.round(prev) };
+    }
+
+    // ----------------------------------------------------------------------
     // Lliga
     // ----------------------------------------------------------------------
 
@@ -7469,6 +7506,8 @@
         initialCalibrationOpponentRoc,
         estimateTimedCalibrationElo,
         estimateGamePerformanceRating,
+        collectiveLadderStep,
+        adaptedRivalStrength,
         leagueBaseRating,
         rebasedLeagueRatings,
         leagueRoundGameLinks,

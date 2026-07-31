@@ -73,6 +73,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   anterior amb el mateix rival no s'hi coli, que les partides lliures i les
   importades en quedin fora, i que una jornada abandonada o amb la partida
   esborrada no deixi cap enllaç mort.
+- **`collective.test.js`** — nivell de les **partides col·lectives** (Catalans vs
+  Stockfish). L'exèrcit no té cap puntuació pròpia: el nivell el marca l'ELO/ROC
+  de **Stockfish**, que s'adapta segons el resultat. `collectiveLadderStep`
+  cobreix l'ajust, gros al principi i escurçat amb les partides però mai per sota
+  del mínim, i `adaptedRivalStrength` que pugi en victòria de l'equip, baixi en
+  derrota, es quedi en taules i no surti del rang del motor. La simulació de la
+  sèrie sencera comprova que el nivell baixi fins a un exèrcit feble (mode ROC),
+  pugi fins a un de fort, es quedi quiet quan ja està igualat i segueixi l'equip
+  si aquest es reforça.
 - **`redactor.test.js`** — corrector normatiu del català de l'entrenador
   (subjuntiu per indicatiu, participi per imperatiu, castellanismes,
   terminologia, concordances), auditoria de fiabilitat (xifres inventades,
