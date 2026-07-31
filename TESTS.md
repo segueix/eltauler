@@ -342,6 +342,14 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   un jugador de 2400 rep de mitjana preguntes més difícils que un de 900, que un
   test no buida mai una sola partida i que les preguntes es reparteixen entre
   partides diferents.
+  De la **memòria entre tests**: una decisió encertada queda tancada i no torna
+  MAI més; una de fallada queda pendent i va tornant fins que s'encerta (i
+  llavors es tanca igual, encara que hagi costat diversos intents). Les pendents
+  tenen prioritat però no poden omplir un test senceres —si ho fessin, deixaries
+  de veure decisions noves—, tret que no hi hagi material nou, on val més
+  repescar que servir un test escuat. El compte que anuncia el bàner descompta
+  les ja encertades i NO descompta les fallades, que segueixen disponibles. Una
+  memòria buida o corrupta no rebenta res.
   De la **puntuació i l'historial**: encertar la millor és correcte, qualsevol
   altra diu quants centipeons costava, triar la mateixa jugada que ja vas fer a
   la partida queda marcat a part (`repeatedOwnMove`), i el resum compta encerts,

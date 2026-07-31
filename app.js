@@ -1351,7 +1351,8 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         tacticsStats: tacticsStats,
         hieroglyphicStats: hieroglyphicStats,
         preparedExerciseHistory: typeof preparedExerciseHistory !== 'undefined' ? preparedExerciseHistory : [],
-        triaHistory: typeof loadTriaHistory === 'function' ? loadTriaHistory() : []
+        triaHistory: typeof loadTriaHistory === 'function' ? loadTriaHistory() : [],
+        triaProgress: typeof loadTriaProgress === 'function' ? loadTriaProgress() : null
     };
     if (includeGameHistory) {
         base.gameHistory = gameHistory;
@@ -2214,6 +2215,11 @@ function importBackupData(data) {
     if (Array.isArray(data.triaHistory)) {
         triaHistory = data.triaHistory;
         try { localStorage.setItem(TRIA_HISTORY_KEY, JSON.stringify(triaHistory)); } catch (e) {}
+    }
+    // Memòria de decisions ja resoltes i pendents de repescar.
+    if (data.triaProgress && typeof data.triaProgress === 'object' && data.triaProgress.entries) {
+        triaProgress = data.triaProgress;
+        try { localStorage.setItem(TRIA_PROGRESS_KEY, JSON.stringify(triaProgress)); } catch (e) {}
     }
        isCalibrating = typeof data.isCalibrating === 'boolean' ? data.isCalibrating : isCalibrating;
     calibrationGames = Array.isArray(data.calibrationGames) ? data.calibrationGames : calibrationGames;
@@ -23181,6 +23187,9 @@ if (typeof window !== 'undefined') {
 // viu a core.js; aquí hi ha pantalla, taulers i esdeveniments.
 
 const TRIA_HISTORY_KEY = 'chess_triaHistory';
+// Memòria entre tests: quines decisions ja has encertat (no tornen) i quines
+// vas fallar (tornen fins que les encertis).
+const TRIA_PROGRESS_KEY = 'chess_triaProgress';
 // Partides de les quals es mira de treure preguntes. Passar-se costaria
 // hidratar cossos que ja no són a la memòria sense guanyar-hi gaire.
 const TRIA_POOL_GAMES = 40;
@@ -23190,6 +23199,7 @@ let triaSession = null;
 let triaBoards = [];        // taulers de les opcions A/B/C
 let triaOriginalBoard = null;
 let triaHistory = null;
+let triaProgress = null;
 let triaChart = null;
 let triaCardsBuilt = false;
 
@@ -23214,6 +23224,23 @@ function loadTriaHistory() {
 
 function saveTriaHistory() {
     try { localStorage.setItem(TRIA_HISTORY_KEY, JSON.stringify(loadTriaHistory())); } catch (e) {}
+    try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+}
+
+function loadTriaProgress() {
+    if (triaProgress) return triaProgress;
+    try {
+        const raw = localStorage.getItem(TRIA_PROGRESS_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        triaProgress = (parsed && typeof parsed === 'object' && parsed.entries)
+            ? parsed
+            : ElTaulerCore.triaEmptyProgress();
+    } catch (e) { triaProgress = ElTaulerCore.triaEmptyProgress(); }
+    return triaProgress;
+}
+
+function saveTriaProgress() {
+    try { localStorage.setItem(TRIA_PROGRESS_KEY, JSON.stringify(loadTriaProgress())); } catch (e) {}
     try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
 }
 
@@ -23258,7 +23285,10 @@ function buildTriaTest(pool) {
     const helpers = getTriaHelpers();
     if (!helpers) return [];
     try {
-        return helpers.buildTest(pool, { elo: clampEngineElo(userELO) });
+        return helpers.buildTest(pool, {
+            elo: clampEngineElo(userELO),
+            progress: loadTriaProgress()
+        });
     } catch (e) { return []; }
 }
 
@@ -23272,21 +23302,28 @@ function refreshTriaBanner() {
     const available = ElTaulerCore.triaEligibleMoves(pool, {}).length;
     // Preguntes REALS que pot donar el fons: el màxim per partida en deixa
     // moltes elegibles fora, i el bàner no ha de prometre el que no pot servir.
-    const questions = ElTaulerCore.triaPlannedQuestionCount(pool, {});
+    const progress = loadTriaProgress();
+    const questions = ElTaulerCore.triaPlannedQuestionCount(pool, { progress: progress });
+    const counts = ElTaulerCore.triaProgressCounts(progress);
     const min = ElTaulerCore.TRIA_CONFIG.minTestSize;
     const size = ElTaulerCore.TRIA_CONFIG.testSize;
     const history = loadTriaHistory();
     if (questions < min) {
         banner.addClass('is-locked');
-        meta.text(`Juga alguna partida més: en calen ${min} preguntes i ara n'hi ha ${questions}`);
+        meta.text(counts.mastered > 0
+            ? `Ja has encertat ${counts.mastered} ${counts.mastered === 1 ? 'decisió' : 'decisions'} i no tornen. Juga alguna partida més per tenir-ne de noves.`
+            : `Juga alguna partida més: en calen ${min} preguntes i ara n'hi ha ${questions}`);
         return;
     }
     banner.removeClass('is-locked');
     const last = history.length ? history[history.length - 1] : null;
-    meta.text(`${questions} ${questions === 1 ? 'pregunta' : 'preguntes'} a punt`
-        + (questions < size ? ` (de ${size}: surten de partides diferents)` : '')
-        + ` · ${available} jugades teves al fons`
-        + (last ? ` · últim test: ${last.accuracy}%` : ''));
+    const bits = [`${questions} ${questions === 1 ? 'pregunta' : 'preguntes'} a punt`
+        + (questions < size ? ` (de ${size})` : '')];
+    if (counts.pending > 0) bits.push(`${counts.pending} per repescar`);
+    if (counts.mastered > 0) bits.push(`${counts.mastered} ja resoltes`);
+    bits.push(`${available} jugades al fons`);
+    if (last) bits.push(`últim test: ${last.accuracy}%`);
+    meta.text(bits.join(' · '));
 }
 
 /* ---- Sessió ---- */
@@ -23414,6 +23451,7 @@ function renderTriaQuestion() {
     $('#tria-bar-fill').css('width', `${Math.round((triaSession.index / total) * 100)}%`);
     $('#tria-prompt').text('Quina de les tres mana?');
     const bits = [];
+    if (q.pending) bits.push('↻ repesca');
     if (q.moveNumber) bits.push(`jugada ${q.moveNumber}`);
     if (q.gameLabel) bits.push(q.gameLabel);
     bits.push(q.turn === 'w' ? 'jugaves amb blanques' : 'jugaves amb negres');
@@ -23533,6 +23571,11 @@ function finishTriaTest() {
     triaSession.finished = true;
     const summary = ElTaulerCore.triaTestSummary(triaSession.results, { elo: clampEngineElo(userELO) });
 
+    // Memòria: les encertades es tanquen i no tornen; les fallades queden
+    // pendents per als tests següents.
+    triaProgress = ElTaulerCore.triaApplyResults(loadTriaProgress(), triaSession.results, { now: Date.now() });
+    saveTriaProgress();
+
     triaHistory = ElTaulerCore.triaAppendResult(loadTriaHistory(), summary, { now: Date.now() });
     saveTriaHistory();
     try { renderTriaChart(); } catch (e) {}
@@ -23567,6 +23610,16 @@ function finishTriaTest() {
         const delta = summary.accuracy - prev.accuracy;
         html += `<div class="tria-line">Test anterior: ${prev.accuracy}% · ara ${summary.accuracy}% `
             + (delta === 0 ? '(igual).' : `(${delta > 0 ? '+' : ''}${delta} punts).`) + '</div>';
+    }
+    const counts = ElTaulerCore.triaProgressCounts(triaProgress);
+    const wrong = summary.total - summary.correct;
+    if (wrong > 0) {
+        html += `<div class="tria-line">Les <strong>${wrong}</strong> que has fallat tornaran als propers tests fins que les encertis. Les ${summary.correct} encertades ja no tornen.</div>`;
+    } else if (summary.total > 0) {
+        html += `<div class="tria-line">Totes encertades: cap d'aquestes decisions no et tornarà a sortir.</div>`;
+    }
+    if (counts.pending > 0 || counts.mastered > 0) {
+        html += `<div class="tria-line">En total portes <strong>${counts.mastered}</strong> ${counts.mastered === 1 ? 'decisió resolta' : 'decisions resoltes'} i <strong>${counts.pending}</strong> per repescar.</div>`;
     }
     html += `<div class="tria-line">L'evolució de tots els teus tests és a Estadístiques.</div>`;
     $('#tria-result').removeClass('is-ko').addClass('is-ok').html(html).show();
@@ -27819,7 +27872,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     // d'aquesta partida ja compten al fons, com les de totes les altres.
     const triaBtn = $('#btn-review-tria');
     if (triaBtn.length) {
-        const planned = ElTaulerCore.triaPlannedQuestionCount(collectTriaPool(), {});
+        const planned = ElTaulerCore.triaPlannedQuestionCount(collectTriaPool(), { progress: loadTriaProgress() });
         triaBtn.toggle(planned >= ElTaulerCore.TRIA_CONFIG.minTestSize);
         triaBtn.off('click').on('click', () => {
             modal.hide();

@@ -6601,6 +6601,14 @@
             // D'una mateixa partida no es prenen totes les jugades: un test ha
             // de recórrer partides diferents.
             maxPerGame: 5
+        },
+
+        // Memòria entre tests. Una pregunta encertada no torna MAI; una de
+        // fallada queda pendent i va tornant fins que s'encerta. Les pendents
+        // tenen prioritat, però no poden omplir el test senceres: si un test de
+        // vint fos tot repesca, deixaries de veure decisions noves.
+        repetition: {
+            maxPendingShare: 0.5
         }
     };
 
@@ -6774,6 +6782,100 @@
         return out;
     }
 
+    // ------------------------------------------------------------------
+    // Memòria entre tests
+    // ------------------------------------------------------------------
+    // Cada decisió té un estat: `mastered` (l'has encertada, no torna mai més)
+    // o `pending` (l'has fallada i tornarà fins que l'encertis). El que no hi
+    // consta encara no s'ha preguntat mai.
+    function triaEmptyProgress() {
+        return { version: TRIA_CONFIG.version, entries: {} };
+    }
+
+    function triaNormalizeProgress(progress) {
+        const p = (progress && typeof progress === 'object') ? progress : null;
+        const entries = (p && p.entries && typeof p.entries === 'object') ? p.entries : {};
+        return { version: TRIA_CONFIG.version, entries: entries };
+    }
+
+    function triaProgressStatus(progress, key) {
+        if (!key) return null;
+        const entry = triaNormalizeProgress(progress).entries[key];
+        if (!entry) return null;
+        return entry.status === 'mastered' ? 'mastered' : 'pending';
+    }
+
+    // Aplica els resultats d'un test acabat. Encertar tanca la pregunta encara
+    // que abans l'haguessis fallada: l'objectiu és haver-la après, no el
+    // rècord d'intents.
+    function triaApplyResults(progress, results, options) {
+        const o = options || {};
+        const now = o.now || Date.now();
+        const next = triaNormalizeProgress(progress);
+        const entries = Object.assign({}, next.entries);
+        (Array.isArray(results) ? results : []).forEach(r => {
+            if (!r || !r.key) return;
+            const prev = entries[r.key] || { attempts: 0, wrong: 0, firstAt: now };
+            entries[r.key] = {
+                status: r.correct ? 'mastered' : 'pending',
+                attempts: (prev.attempts || 0) + 1,
+                wrong: (prev.wrong || 0) + (r.correct ? 0 : 1),
+                firstAt: prev.firstAt || now,
+                lastAt: now,
+                masteredAt: r.correct ? now : (prev.masteredAt || null)
+            };
+        });
+        return { version: TRIA_CONFIG.version, entries: entries };
+    }
+
+    function triaProgressCounts(progress) {
+        const entries = triaNormalizeProgress(progress).entries;
+        let pending = 0;
+        let mastered = 0;
+        Object.keys(entries).forEach(k => {
+            if (entries[k] && entries[k].status === 'mastered') mastered++;
+            else pending++;
+        });
+        return { pending: pending, mastered: mastered, total: pending + mastered };
+    }
+
+    // Separa un fons de jugades segons la memòria. Les encertades queden fora
+    // del test; les fallades primer, i les que no s'han vist mai després.
+    function triaPartitionByProgress(items, progress, keyOf) {
+        const getKey = (typeof keyOf === 'function') ? keyOf : (x => x && x.key);
+        const pending = [];
+        const fresh = [];
+        const mastered = [];
+        (Array.isArray(items) ? items : []).forEach(item => {
+            const status = triaProgressStatus(progress, getKey(item));
+            if (status === 'mastered') mastered.push(item);
+            else if (status === 'pending') pending.push(item);
+            else fresh.push(item);
+        });
+        return { pending: pending, fresh: fresh, mastered: mastered };
+    }
+
+    // Barreja pendents i noves respectant el sostre de repesca. Les pendents
+    // van primer; la resta del test l'omplen les noves i, si no n'hi ha prou,
+    // més pendents.
+    function triaMixPendingAndFresh(pending, fresh, size, options) {
+        const o = options || {};
+        const share = (typeof o.maxPendingShare === 'number')
+            ? o.maxPendingShare : TRIA_CONFIG.repetition.maxPendingShare;
+        const cap = Math.max(1, Math.round(size * clampNum(share, 0, 1)));
+        const takenPending = pending.slice(0, Math.min(cap, pending.length));
+        const room = size - takenPending.length;
+        const takenFresh = fresh.slice(0, Math.max(0, room));
+        const out = takenPending.concat(takenFresh);
+        if (out.length < size) {
+            // Sense material nou, la repesca pot passar del sostre: val més
+            // repetir una pendent que servir un test escuat.
+            const extra = pending.slice(takenPending.length, takenPending.length + (size - out.length));
+            return out.concat(extra);
+        }
+        return out;
+    }
+
     // Quantes preguntes pot donar de debò un fons, SENSE construir-les (no cal
     // chess.js): és el que ha d'anunciar el bàner. Comptar només les jugades
     // elegibles enganyaria, perquè el màxim per partida en deixa moltes fora
@@ -6781,7 +6883,9 @@
     function triaPlannedQuestionCount(reviews, options) {
         const o = options || {};
         const eligible = triaEligibleMoves(reviews, o);
-        const spread = triaSpreadAcrossGames(eligible, o.maxPerGame);
+        // Les ja encertades no tornen: no s'han de comptar com a disponibles.
+        const usable = triaPartitionByProgress(eligible, o.progress, r => reviewErrorKey(r));
+        const spread = triaSpreadAcrossGames(usable.pending.concat(usable.fresh), o.maxPerGame);
         const size = Math.max(1, antidoteNum(o.testSize, TRIA_CONFIG.testSize));
         return Math.min(size, spread.length);
     }
@@ -6898,26 +7002,36 @@
             const target = triaTargetDifficulty(elo);
 
             const eligible = triaEligibleMoves(reviews, o);
-            const spread = triaSpreadAcrossGames(eligible, o.maxPerGame);
+            // Memòria entre tests: les encertades queden fora, les fallades
+            // tenen prioritat i les noves omplen la resta.
+            const split = triaPartitionByProgress(eligible, o.progress, r => reviewErrorKey(r));
+            const spreadPending = triaSpreadAcrossGames(split.pending, o.maxPerGame);
+            const spreadFresh = triaSpreadAcrossGames(split.fresh, o.maxPerGame);
 
-            const questions = [];
-            spread.forEach(r => {
-                const q = buildQuestion(r, o);
-                if (q) questions.push(q);
-            });
-            if (!questions.length) return [];
+            const toQuestions = list => {
+                const out = [];
+                list.forEach(r => {
+                    const q = buildQuestion(r, o);
+                    if (q) out.push(q);
+                });
+                return out;
+            };
+            const pendingQs = toQuestions(spreadPending).map(q => Object.assign(q, { pending: true }));
+            const freshQs = toQuestions(spreadFresh);
+            if (!pendingQs.length && !freshQs.length) return [];
 
-            // Primer les que cauen dins la forquilla de dificultat del jugador
-            // (conservant l'ordre repartit entre partides); si no n'hi ha prou,
-            // s'omple amb les més properes a l'objectiu.
+            // Les noves s'ordenen per dificultat segons l'ELO; les pendents no
+            // s'hi filtren: es deuen, vinguin de la franja que vinguin.
             const inBand = [];
             const rest = [];
-            questions.forEach(q => {
+            freshQs.forEach(q => {
                 if (Math.abs(q.difficulty - target) <= cfg.targetSpread) inBand.push(q);
                 else rest.push(q);
             });
             rest.sort((a, b) => Math.abs(a.difficulty - target) - Math.abs(b.difficulty - target));
-            return inBand.concat(rest).slice(0, size);
+            return triaMixPendingAndFresh(pendingQs, inBand.concat(rest), size, {
+                maxPendingShare: o.maxPendingShare
+            });
         }
 
         return { optionPosition, buildQuestion, buildTest };
@@ -7232,6 +7346,12 @@
         triaTargetDifficulty,
         triaEligibleMoves,
         triaPlannedQuestionCount,
+        triaEmptyProgress,
+        triaProgressStatus,
+        triaApplyResults,
+        triaProgressCounts,
+        triaPartitionByProgress,
+        triaMixPendingAndFresh,
         createTriaHelpers,
         triaGradeAnswer,
         triaTestSummary,

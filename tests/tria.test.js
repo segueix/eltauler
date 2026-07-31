@@ -342,6 +342,164 @@ describe('buildTest (el test de 20)', () => {
     });
 });
 
+describe('memòria entre tests (no repetir, repescar les fallades)', () => {
+    test('una pregunta encertada queda tancada; una de fallada, pendent', () => {
+        let p = Core.triaEmptyProgress();
+        p = Core.triaApplyResults(p, [{ key: 'k1', correct: true }, { key: 'k2', correct: false }], { now: 1000 });
+        expect(Core.triaProgressStatus(p, 'k1')).toBe('mastered');
+        expect(Core.triaProgressStatus(p, 'k2')).toBe('pending');
+        expect(Core.triaProgressStatus(p, 'mai-vista')).toBeNull();
+    });
+
+    test('encertar una pendent la tanca, i es recorda que havia fallat', () => {
+        let p = Core.triaApplyResults(Core.triaEmptyProgress(), [{ key: 'k', correct: false }], { now: 1000 });
+        p = Core.triaApplyResults(p, [{ key: 'k', correct: true }], { now: 2000 });
+        expect(Core.triaProgressStatus(p, 'k')).toBe('mastered');
+        expect(p.entries.k.attempts).toBe(2);
+        expect(p.entries.k.wrong).toBe(1);
+    });
+
+    test('fallar-la diverses vegades la manté pendent', () => {
+        let p = Core.triaEmptyProgress();
+        for (let i = 0; i < 3; i++) p = Core.triaApplyResults(p, [{ key: 'k', correct: false }], { now: 1000 + i });
+        expect(Core.triaProgressStatus(p, 'k')).toBe('pending');
+        expect(p.entries.k.wrong).toBe(3);
+    });
+
+    test('el recompte separa resoltes i pendents', () => {
+        const p = Core.triaApplyResults(Core.triaEmptyProgress(), [
+            { key: 'a', correct: true }, { key: 'b', correct: true }, { key: 'c', correct: false }
+        ], { now: 1 });
+        expect(Core.triaProgressCounts(p)).toMatchObject({ mastered: 2, pending: 1, total: 3 });
+    });
+
+    test('una memòria buida o corrupta no rebenta res', () => {
+        expect(Core.triaProgressStatus(null, 'k')).toBeNull();
+        expect(Core.triaProgressStatus({}, 'k')).toBeNull();
+        expect(Core.triaProgressCounts(null).total).toBe(0);
+        expect(Core.triaApplyResults(null, null, {}).entries).toEqual({});
+    });
+
+    test('la partició deixa les encertades fora i separa pendents de noves', () => {
+        const p = Core.triaApplyResults(Core.triaEmptyProgress(), [
+            { key: 'vista-ok', correct: true }, { key: 'vista-ko', correct: false }
+        ], { now: 1 });
+        const split = Core.triaPartitionByProgress(
+            [{ key: 'vista-ok' }, { key: 'vista-ko' }, { key: 'nova' }], p);
+        expect(split.mastered.map(x => x.key)).toEqual(['vista-ok']);
+        expect(split.pending.map(x => x.key)).toEqual(['vista-ko']);
+        expect(split.fresh.map(x => x.key)).toEqual(['nova']);
+    });
+
+    test('les pendents no poden omplir un test sencer si hi ha material nou', () => {
+        const pending = Array.from({ length: 20 }, (_, i) => 'p' + i);
+        const fresh = Array.from({ length: 20 }, (_, i) => 'f' + i);
+        const mix = Core.triaMixPendingAndFresh(pending, fresh, 20, {});
+        const pendingCount = mix.filter(x => String(x).startsWith('p')).length;
+        expect(mix).toHaveLength(20);
+        expect(pendingCount).toBe(Math.round(20 * CFG.repetition.maxPendingShare));
+    });
+
+    test('sense material nou, la repesca sí que omple el test', () => {
+        const pending = Array.from({ length: 20 }, (_, i) => 'p' + i);
+        const mix = Core.triaMixPendingAndFresh(pending, [], 20, {});
+        expect(mix).toHaveLength(20);
+    });
+
+    test('sense pendents, el test és tot de noves', () => {
+        const fresh = Array.from({ length: 20 }, (_, i) => 'f' + i);
+        expect(Core.triaMixPendingAndFresh([], fresh, 20, {})).toHaveLength(20);
+    });
+});
+
+describe('el test respecta la memòria', () => {
+    function poolWithGames(n) {
+        const out = [];
+        let seed = 555;
+        const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+        for (let g = 0; g < n; g++) {
+            const b = new Chess();
+            for (let k = 0; k < 5; k++) {
+                const legal = b.moves({ verbose: true });
+                if (legal.length < 4) break;
+                const p = legal.slice(0, 4);
+                out.push(review({
+                    fen: b.fen(), moveNumber: k + 1, gameId: 'g' + g,
+                    playerMove: uci(p[3]), bestMove: uci(p[0]),
+                    multipvBefore: [mpv(uci(p[0]), 40), mpv(uci(p[1]), 15), mpv(uci(p[2]), -10)]
+                }));
+                b.move(legal[Math.floor(rnd() * legal.length)]);
+            }
+        }
+        return out;
+    }
+
+    test('una pregunta encertada no torna a sortir mai', () => {
+        const pool = poolWithGames(8);
+        const first = T.buildTest(pool, { elo: 1600 });
+        expect(first.length).toBeGreaterThan(0);
+        // S'encerten totes les del primer test.
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: true })), { now: 1 });
+        const second = T.buildTest(pool, { elo: 1600, progress: progress });
+        const repeated = second.filter(q => first.some(f => f.key === q.key));
+        expect(repeated).toHaveLength(0);
+    });
+
+    test('una pregunta fallada torna al test següent', () => {
+        const pool = poolWithGames(8);
+        const first = T.buildTest(pool, { elo: 1600 });
+        const failed = first.slice(0, 3).map(q => q.key);
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: !failed.includes(q.key) })), { now: 1 });
+        const second = T.buildTest(pool, { elo: 1600, progress: progress });
+        failed.forEach(key => expect(second.some(q => q.key === key)).toBe(true));
+    });
+
+    test('les repescades vénen marcades com a tals', () => {
+        const pool = poolWithGames(8);
+        const first = T.buildTest(pool, { elo: 1600 });
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            [{ key: first[0].key, correct: false }], { now: 1 });
+        const second = T.buildTest(pool, { elo: 1600, progress: progress });
+        const again = second.find(q => q.key === first[0].key);
+        expect(again).toBeTruthy();
+        expect(again.pending).toBe(true);
+    });
+
+    test('el compte anunciat baixa a mesura que se n\'encerten', () => {
+        const pool = poolWithGames(8);
+        const before = Core.triaPlannedQuestionCount(pool, {});
+        expect(before).toBeGreaterThan(0);
+        // S'encerten les preguntes del primer test.
+        const first = T.buildTest(pool, { elo: 1600 });
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: true })), { now: 1 });
+        const after = Core.triaPlannedQuestionCount(pool, { progress: progress });
+        expect(after).toBeLessThan(before);
+    });
+
+    test('fallar-les no en redueix el compte: segueixen disponibles', () => {
+        const pool = poolWithGames(8);
+        const before = Core.triaPlannedQuestionCount(pool, {});
+        const first = T.buildTest(pool, { elo: 1600 });
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: false })), { now: 1 });
+        expect(Core.triaPlannedQuestionCount(pool, { progress: progress })).toBe(before);
+    });
+
+    test('quan tot està encertat, no queda cap pregunta', () => {
+        const pool = poolWithGames(4);
+        const eligible = Core.triaEligibleMoves(pool, {});
+        const keys = eligible.map(r => T.buildQuestion(r, {})).filter(Boolean).map(q => q.key);
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            keys.map(k => ({ key: k, correct: true })), { now: 1 });
+        expect(T.buildTest(pool, { elo: 1600, progress: progress })).toHaveLength(0);
+        expect(Core.triaPlannedQuestionCount(pool, { progress: progress })).toBe(0);
+    });
+});
+
 describe('triaGradeAnswer (verd o vermell a l\'instant)', () => {
     const q = T.buildQuestion(review(), {});
     const bestIdx = q.answerIndex;
