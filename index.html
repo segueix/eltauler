@@ -3696,6 +3696,15 @@
             text-align: center; font-size: 0.78rem; color: var(--text-secondary);
             margin: 0 0 12px; opacity: 0.9;
         }
+        /* Només en pantalla estreta: allà la targeta sencera és el botó. */
+        .tria-tap-hint {
+            display: none; text-align: center; font-size: 0.74rem;
+            color: var(--accent-gold, #c9a227); margin: 0 0 6px; opacity: 0.95;
+        }
+        /* Un cop respost ja no hi ha res a tocar: la pista se'n va (amb classe,
+           no amb .hide(): un display en línia guanyaria a la consulta de mitjans
+           i la faria sortir també en pantalla ampla). */
+        .tria-tap-hint.is-off { display: none !important; }
 
         /* Mòbil: carrusel horitzontal amb ancoratge. Cada targeta ocupa gairebé
            tota l'amplada i en deixa entreveure la següent, de manera que es veu
@@ -3824,7 +3833,7 @@
                però es conserva perquè hi ha qui prefereix votar per lletra. */
             .tria-vote-row { max-width: 420px; margin: 0 auto; }
         }
-        @media (max-width: 380px) { .tria-card { flex-basis: 86%; } }
+        @media (max-width: 380px) { .tria-card { flex-basis: 92%; } }
 
         /* Mòbil (i finestres estretes): la pregunta ha de caber d'una tirada.
            Dues coses ho aconsegueixen: retallar tot el que sobra de la
@@ -3838,15 +3847,23 @@
             .tria-bar { margin-bottom: 8px; }
             .tria-prompt { font-size: 0.98rem; margin-bottom: 2px; }
             .tria-context { font-size: 0.72rem; line-height: 1.3; margin-bottom: 8px; }
-            .tria-card { padding: 8px; gap: 6px; }
-            /* En pantalles baixes el tauler es limita per ALÇADA: així la
-               targeta sencera (amb el botó i el veredicte) cap per damunt del
-               peu enganxat. En pantalles normals el límit no arriba a actuar. */
-            .tria-card-board { max-width: min(100%, 42vh); margin: 0 auto; }
+            /* Aquí es tria TOCANT EL TAULER: fora la fila A/B/C i fora el botó
+               de dins la targeta. Tot el que estalvien se'n va al tauler, que és
+               l'única cosa que cal mirar de prop. */
+            #tria-vote { display: none; }
+            .tria-card-pick { display: none; }
+            .tria-card { padding: 8px; gap: 5px; flex-basis: 88%; cursor: pointer; }
+            .tria-card.is-original { cursor: default; }
+            .tria-card:active:not(.is-original) { transform: scale(0.985); }
+            .tria-cards.is-answered .tria-card { cursor: default; }
+            .tria-cards.is-answered .tria-card:active { transform: none; }
+            /* En pantalles baixes el tauler es limita per ALÇADA, perquè la
+               targeta sencera càpiga per damunt del peu enganxat. */
+            .tria-card-board { max-width: min(100%, 48vh); margin: 0 auto; }
             .tria-card-head { gap: 6px; }
             .tria-card-letter { width: 26px; height: 26px; font-size: 0.92rem; }
             .tria-card-san { font-size: 0.98rem; }
-            .tria-card-pick { padding: 7px 10px; font-size: 0.8rem; }
+            .tria-tap-hint { display: block; }
             .tria-cards { padding-bottom: 6px; }
             .tria-dots { margin-bottom: 8px; }
             .tria-result { font-size: 0.8rem; line-height: 1.35; padding: 9px 11px; margin-bottom: 8px; }
@@ -7195,6 +7212,8 @@
             <div class="tria-bar"><div class="tria-bar-fill" id="tria-bar-fill"></div></div>
 
             <div class="tria-prompt" id="tria-prompt">Quina de les tres mana?</div>
+            <!-- En pantalla estreta no hi ha fila A/B/C: es tria tocant el tauler. -->
+            <div class="tria-tap-hint" id="tria-tap-hint">Toca el tauler que triïs</div>
             <div class="tria-context" id="tria-context"></div>
 
             <!-- Les tres opcions i la jugada original. En escriptori es veuen
@@ -7550,7 +7569,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.72"></script>
+    <script src="app.js?v=1.0.73"></script>
 
     <!-- Service Worker Registration -->
     <script>

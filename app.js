@@ -21326,6 +21326,16 @@ function setupEvents() {
     $(document).on('click', '[data-tria-pick]', function () {
         answerTriaQuestion(Number(this.dataset.triaPick));
     });
+    // En mòbil es tria TOCANT EL TAULER: la targeta sencera és el botó (no hi ha
+    // fila A/B/C ni botó dins la targeta, que és espai que se'n va del tauler).
+    $(document).on('click', '#tria-cards .tria-card', function (e) {
+        if (e.target.closest('[data-tria-pick]')) return;   // el botó ja ho fa
+        // Només on la targeta ÉS el botó (pantalla estreta). En pantalla ampla hi
+        // ha el «Trio aquesta» de sempre i un clic despistat no ha de respondre.
+        if (window.matchMedia && !window.matchMedia('(max-width: 899px)').matches) return;
+        const idx = Number(this.dataset.triaCard);
+        if (!isNaN(idx)) answerTriaQuestion(idx);
+    });
     $('#btn-tria-next').off('click').on('click', () => nextTriaQuestion());
     $('#btn-tria-restart').off('click').on('click', () => { closeTriaScreen(); openTriaTest(); });
     $(document).on('click', '[data-tria-replay]', function () {
@@ -23495,6 +23505,8 @@ function renderTriaQuestion() {
     bits.push(q.turn === 'w' ? 'jugaves amb blanques' : 'jugaves amb negres');
     $('#tria-context').text(bits.join(' · '));
     $('#tria-result').hide().empty().removeClass('is-ok is-ko');
+    $('#tria-tap-hint').removeClass('is-off');
+    $('#tria-cards').removeClass('is-answered');
     $('#btn-tria-next').hide();
     $('#btn-tria-restart').hide();
 
@@ -23548,6 +23560,8 @@ function answerTriaQuestion(index) {
 
     $('.tria-card-pick').prop('disabled', true);
     $('.tria-vote-btn').prop('disabled', true);
+    $('#tria-tap-hint').addClass('is-off');
+    $('#tria-cards').addClass('is-answered');
 
     // Verd o vermell a l'instant: la bona sempre en verd; la triada, si era una
     // altra, en vermell.
@@ -23644,8 +23658,9 @@ function finishTriaTest() {
     $('#tria-bar-fill').css('width', '100%');
     $('#tria-prompt').text('Resultats del test');
     $('#tria-context').text('');
-    $('#tria-cards').empty();
+    $('#tria-cards').empty().removeClass('is-answered');
     $('#tria-dots').empty();
+    $('#tria-tap-hint').addClass('is-off');
     $('#tria-vote').hide();
     triaCardsBuilt = false;
     triaBoards = [];
@@ -23759,7 +23774,10 @@ function closeTriaScreen() {
     triaBoards = [];
     triaOriginalBoard = null;
     $('#tria-screen').hide();
-    $('#tria-vote').show();
+    // Es treu l'estil EN LÍNIA, no es força «block»: en pantalla estreta la
+    // fila A/B/C no hi ha de ser (allà es tria tocant el tauler) i un display
+    // en línia guanyaria a la consulta de mitjans.
+    $('#tria-vote').css('display', '');
     $('#start-screen').show();
     try { refreshTriaBanner(); } catch (e) {}
 }
