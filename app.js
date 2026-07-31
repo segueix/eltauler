@@ -2580,6 +2580,8 @@ function resizeTriaBoardsToViewport() {
     try { if (triaOriginalBoard && triaOriginalBoard.resize) triaOriginalBoard.resize(); } catch (e) {}
     // Les marques es perden en redibuixar el tauler: es tornen a posar.
     try { reapplyTriaMoveMarks(); } catch (e) {}
+    // Les targetes han canviat d'amplada: torna a deixar centrada la que toca.
+    try { centerNearestTriaCard(false); } catch (e) {}
 }
 
 window.addEventListener('resize', () => { updateDeviceType(); scheduleBoardResize(); }, { passive: true });
@@ -23391,11 +23393,19 @@ function buildTriaCards() {
     const wrap = $('#tria-cards');
     if (!wrap.length) return;
     const letters = ['A', 'B', 'C'];
-    // Primer les TRES OPCIONS: en mòbil el carrusel s'obre directament a la A i
-    // es pot votar sense lliscar res. La POSICIÓ de la decisió va al final (en
-    // pantalla ampla ni surt): és el punt de partida per comparar, però cada
-    // opció ja en porta el requadre blau d'origen i destinació.
-    let html = letters.map((letter, i) =>
+    // A l'ESQUERRA, la POSICIÓ de la decisió: el punt de partida contra el qual
+    // es comparen les tres opcions, que van a continuació. No s'hi revela què
+    // vas jugar tu —seria dir-te quina descartar—: és el tauler tal com el vas
+    // tenir davant abans de moure. En pantalla ampla no es mostra.
+    let html = `<div class="tria-card is-original" data-tria-card="orig">
+            <div class="tria-card-head">
+                <span class="tria-card-letter">POSICIÓ</span>
+                <span class="tria-card-san" id="tria-original-san">—</span>
+            </div>
+            <div class="tria-card-board" id="tria-board-orig"></div>
+            <div class="tria-card-note" id="tria-original-note"></div>
+        </div>`;
+    html += letters.map((letter, i) =>
         `<div class="tria-card" data-tria-card="${i}">
             <div class="tria-card-head">
                 <span class="tria-card-letter" data-tria-letter="${i}">${letter}</span>
@@ -23406,23 +23416,13 @@ function buildTriaCards() {
             <div class="tria-card-verdict" data-tria-verdict="${i}"></div>
         </div>`
     ).join('');
-    // No s'hi revela què vas jugar tu —seria dir-te quina descartar—: és el
-    // tauler tal com el vas tenir davant abans de moure.
-    html += `<div class="tria-card is-original" data-tria-card="orig">
-            <div class="tria-card-head">
-                <span class="tria-card-letter">POSICIÓ</span>
-                <span class="tria-card-san" id="tria-original-san">—</span>
-            </div>
-            <div class="tria-card-board" id="tria-board-orig"></div>
-            <div class="tria-card-note" id="tria-original-note"></div>
-        </div>`;
     wrap.html(html);
 
     $('#tria-vote-row').html(letters.map((letter, i) =>
         `<button type="button" class="tria-vote-btn" data-tria-pick="${i}">${letter}</button>`
     ).join(''));
 
-    $('#tria-dots').html(['A', 'B', 'C', 'O'].map((_, i) =>
+    $('#tria-dots').html(['O', 'A', 'B', 'C'].map((_, i) =>
         `<span class="tria-dot${i === 0 ? ' is-active' : ''}"></span>`
     ).join(''));
 
@@ -23440,20 +23440,66 @@ function buildTriaCards() {
     bindTriaCarousel();
 }
 
-// Punts del carrusel: només serveixen per saber on ets en mòbil.
+// Carrusel: punts de posició i AUTOCENTRAT. El scroll-snap del full ja hi és,
+// però no tots els navegadors hi arriben igual (i amb el ratolí, en finestra
+// estreta, no hi entra): quan el dit s'atura, la targeta més a prop del mig
+// s'acaba de col·locar centrada, sempre igual.
+let triaCenterTimer = null;   // espera que el scroll s'aturi
+let triaCentering = false;    // som nosaltres els que estem fent scroll
+
+// Posició del centre de cada targeta dins del carrusel (independent de quin
+// element sigui l'offsetParent).
+function triaCardCenters(wrap) {
+    const base = wrap.getBoundingClientRect().left - wrap.scrollLeft;
+    return [...wrap.querySelectorAll('.tria-card')].map(card => {
+        const r = card.getBoundingClientRect();
+        return { card: card, center: r.left - base + r.width / 2 };
+    });
+}
+
+function updateTriaDots(wrap) {
+    const items = triaCardCenters(wrap);
+    if (!items.length) return;
+    const mid = wrap.scrollLeft + wrap.clientWidth / 2;
+    let active = 0, best = Infinity;
+    items.forEach((it, i) => {
+        const d = Math.abs(it.center - mid);
+        if (d < best) { best = d; active = i; }
+    });
+    $('#tria-dots .tria-dot').each(function (i) { $(this).toggleClass('is-active', i === active); });
+}
+
+// Centra la targeta que ha quedat més a prop del mig. Les dels extrems no poden
+// arribar al centre (no hi ha recorregut): s'hi acosten tant com poden.
+function centerNearestTriaCard(smooth) {
+    const wrap = document.getElementById('tria-cards');
+    if (!wrap || !wrap.clientWidth) return;
+    const items = triaCardCenters(wrap);
+    if (!items.length) return;
+    const mid = wrap.scrollLeft + wrap.clientWidth / 2;
+    let target = items[0], best = Infinity;
+    items.forEach(it => {
+        const d = Math.abs(it.center - mid);
+        if (d < best) { best = d; target = it; }
+    });
+    const max = Math.max(0, wrap.scrollWidth - wrap.clientWidth);
+    const left = Math.max(0, Math.min(max, target.center - wrap.clientWidth / 2));
+    if (Math.abs(left - wrap.scrollLeft) < 3) return;
+    triaCentering = true;
+    try { wrap.scrollTo({ left: left, behavior: smooth === false ? 'auto' : 'smooth' }); }
+    catch (e) { wrap.scrollLeft = left; }
+    setTimeout(() => { triaCentering = false; }, 420);
+}
+
 function bindTriaCarousel() {
     const wrap = document.getElementById('tria-cards');
     if (!wrap || wrap.dataset.triaBound === '1') return;
     wrap.dataset.triaBound = '1';
     wrap.addEventListener('scroll', () => {
-        const cards = wrap.querySelectorAll('.tria-card');
-        if (!cards.length) return;
-        const mid = wrap.scrollLeft + wrap.clientWidth / 2;
-        let active = 0;
-        cards.forEach((card, i) => {
-            if (card.offsetLeft <= mid && card.offsetLeft + card.offsetWidth > mid) active = i;
-        });
-        $('#tria-dots .tria-dot').each(function (i) { $(this).toggleClass('is-active', i === active); });
+        updateTriaDots(wrap);
+        if (triaCentering) return;      // el moviment és nostre: no t'hi encaparris
+        if (triaCenterTimer) clearTimeout(triaCenterTimer);
+        triaCenterTimer = setTimeout(() => { triaCenterTimer = null; centerNearestTriaCard(true); }, 130);
     }, { passive: true });
 }
 
@@ -23534,6 +23580,9 @@ function renderTriaQuestion() {
     // trencaria el `display:flex` de la targeta). Qui la mostra o l'amaga és
     // el CSS, segons l'amplada.
     $('#tria-original-san').text(q.turn === 'w' ? 'Juguen blanques' : 'Juguen negres');
+    // El «llisca cap a la dreta» va a la pista de sobre, no aquí: les targetes
+    // del carrusel s'estiren totes a l'alçada de la més alta i una nota de dues
+    // línies retallaria els taulers.
     $('#tria-original-note').text('La posició on havies de decidir.');
     if (triaOriginalBoard) {
         try { triaOriginalBoard.orientation(orientation); } catch (e) {}
@@ -23541,7 +23590,11 @@ function renderTriaQuestion() {
         markTriaMove('tria-board-orig', null, null);
     }
 
-    // El carrusel torna al principi a cada pregunta.
+    // El carrusel torna al principi a cada pregunta (a l'esquerra hi ha la
+    // posició de la decisió), sense que hi quedi cap autocentrat pendent de
+    // la pregunta anterior.
+    if (triaCenterTimer) { clearTimeout(triaCenterTimer); triaCenterTimer = null; }
+    triaCentering = false;
     const wrap = document.getElementById('tria-cards');
     if (wrap) wrap.scrollLeft = 0;
     // I la pàgina també: si venies de llegir el resultat de l'anterior (a baix
