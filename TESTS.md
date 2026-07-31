@@ -73,6 +73,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   anterior amb el mateix rival no s'hi coli, que les partides lliures i les
   importades en quedin fora, i que una jornada abandonada o amb la partida
   esborrada no deixi cap enllaç mort.
+- **`collective.test.js`** — bucle autoregulat de les **partides col·lectives**
+  (Catalans vs Stockfish), que serveix per esbrinar l'**ELO col·lectiu** d'un
+  exèrcit que no en té. `collectiveGamePerformance` calcula el rendiment d'una
+  partida (resultat contra un rival de força coneguda, afinat amb la qualitat de
+  joc mesurada, que només compta quan no està topada pel terra del motor) i
+  `updatedCollectiveRating` actualitza l'estimació amb pes decreixent i un sòl,
+  dins dels límits del motor. La simulació del bucle sencer —Stockfish juga
+  sempre a l'estimació vigent— cobreix que convergeixi tant amb un exèrcit feble
+  (ROC) com amb un de fort partint de 1350, i que segueixi l'equip quan aquest
+  canvia de força.
 - **`redactor.test.js`** — corrector normatiu del català de l'entrenador
   (subjuntiu per indicatiu, participi per imperatiu, castellanismes,
   terminologia, concordances), auditoria de fiabilitat (xifres inventades,
