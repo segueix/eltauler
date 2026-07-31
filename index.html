@@ -1220,6 +1220,15 @@
             padding: 11px 8px; font-size: 0.82rem; letter-spacing: 0.4px;
         }
         .nav-trio .btn-nav-home { flex: 0 0 56px; min-width: 56px; }
+        /* Els 56 px són per al botó d'inici quan va NOMÉS amb la icona i amb
+           dos botons més al costat (la filera de tres). Quan hi va sol i amb
+           text —el resum del Rival Antídot— aquella amplada el deixava com un
+           quadrat estret amb «Inici» partit lletra per lletra. Sol, es
+           comporta com qualsevol altre botó de la filera. */
+        .nav-trio .btn-nav-home:only-child {
+            flex: 1 1 auto; min-width: 108px;
+            white-space: nowrap; gap: 8px;
+        }
         .btn-nav-home { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
         .btn-nav-home .btn-ic { width: 1.5em; height: 1.5em; }
         .btn-nav-board { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: #fff; }
