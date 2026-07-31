@@ -810,6 +810,57 @@ describe('historial i gràfica d\'evolució', () => {
         expect(series.map(p => p.accuracy)).toEqual([40, 60, 80]);
     });
 
+    test('el nivell mitjà del test surt de la dificultat, i és l\'invers exacte', () => {
+        [800, 1200, 1600, 2000, 2400].forEach(elo => {
+            const d = Core.triaTargetDifficulty(elo);
+            expect(Core.triaDifficultyToElo(d)).toBe(elo);
+        });
+    });
+
+    test('el nivell no s\'extrapola fora de la taula', () => {
+        expect(Core.triaDifficultyToElo(0)).toBe(800);
+        expect(Core.triaDifficultyToElo(1)).toBe(2800);
+        expect(Core.triaDifficultyToElo(undefined)).toBeGreaterThan(0);
+    });
+
+    test('cada test desa les decisions que hi han sortit, per poder-lo rejugar', () => {
+        const summary = Core.triaTestSummary(
+            [{ correct: true, key: 'k1' }, { correct: false, key: 'k2' }], { elo: 1800 });
+        expect(summary.keys).toEqual(['k1', 'k2']);
+        const h = Core.triaAppendResult([], summary, { now: 1000 });
+        expect(h[0].keys).toEqual(['k1', 'k2']);
+    });
+
+    test('les files de l\'historial porten data, encert, nivell i si es pot rejugar', () => {
+        const h = [
+            { at: 1000, total: 20, correct: 15, accuracy: 75, avgDifficulty: 0.66, elo: 2000, keys: ['a', 'b'] },
+            { at: 2000, total: 20, correct: 10, accuracy: 50, avgDifficulty: 0.32, elo: 1200, keys: [] }
+        ];
+        const rows = Core.triaHistoryRows(h);
+        // Del més nou al més vell.
+        expect(rows.map(r => r.at)).toEqual([2000, 1000]);
+        expect(rows[1].accuracy).toBe(75);
+        expect(rows[1].questionElo).toBe(2000);
+        expect(rows[1].replayable).toBe(true);
+        // Un test antic sense claus desades no es pot rejugar.
+        expect(rows[0].replayable).toBe(false);
+    });
+
+    test('un test antic sense nivell desat el dedueix de la dificultat', () => {
+        const rows = Core.triaHistoryRows([{ at: 1, accuracy: 60, avgDifficulty: 0.5 }]);
+        expect(rows[0].questionElo).toBe(1600);
+    });
+
+    test('un test sense dificultat ni nivell no s\'inventa cap número', () => {
+        const rows = Core.triaHistoryRows([{ at: 1, accuracy: 60 }]);
+        expect(rows[0].questionElo).toBeNull();
+    });
+
+    test('un historial buit o corrupte no dona cap fila', () => {
+        expect(Core.triaHistoryRows(null)).toEqual([]);
+        expect(Core.triaHistoryRows([null, undefined])).toEqual([]);
+    });
+
     test('sense historial la gràfica no té sèrie, i no peta', () => {
         expect(Core.triaChartSeries([])).toEqual([]);
         expect(Core.triaChartSeries(null)).toEqual([]);

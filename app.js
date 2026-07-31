@@ -21314,6 +21314,9 @@ function setupEvents() {
     });
     $('#btn-tria-next').off('click').on('click', () => nextTriaQuestion());
     $('#btn-tria-restart').off('click').on('click', () => { closeTriaScreen(); openTriaTest(); });
+    $(document).on('click', '[data-tria-replay]', function () {
+        replayTriaTest(Number(this.dataset.triaReplay));
+    });
     $('#btn-tria-exit').off('click').on('click', () => { closeTriaScreen(); navStack.pop(); });
     try { refreshTriaBanner(); } catch (e) {}
 
@@ -23354,6 +23357,7 @@ function startTriaSession(questions) {
     }
     buildTriaCards();
     renderTriaQuestion();
+    renderTriaHistoryList();
 }
 
 // Les quatre targetes es construeixen UNA vegada per sessió; després només se'n
@@ -23583,6 +23587,7 @@ function finishTriaTest() {
     saveTriaHistory();
     try { renderTriaChart(); } catch (e) {}
     try { refreshTriaBanner(); } catch (e) {}
+    try { renderTriaHistoryList(); } catch (e) {}
 
     $('#tria-progress').text('Test acabat');
     $('#tria-bar-fill').css('width', '100%');
@@ -23636,6 +23641,65 @@ function finishTriaTest() {
     $('#tria-result').removeClass('is-ko').addClass('is-ok').html(html).show();
     $('#btn-tria-next').hide();
     $('#btn-tria-restart').show();
+}
+
+/* ---- Historial de tests (llista de sota) ---- */
+
+function triaHistoryDateLabel(at) {
+    if (!at) return '—';
+    const d = new Date(at);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}/${mm}/${String(d.getFullYear()).slice(-2)}`;
+}
+
+function renderTriaHistoryList() {
+    const box = $('#tria-history');
+    const list = $('#tria-history-list');
+    if (!box.length || !list.length) return;
+    const rows = ElTaulerCore.triaHistoryRows(loadTriaHistory());
+    if (!rows.length) { box.hide(); list.empty(); return; }
+    box.show();
+    list.html(rows.map(r => {
+        const elo = (r.questionElo !== null) ? `ELO ~${r.questionElo}` : '—';
+        return `<div class="tria-history-row">
+            <span class="tria-history-date">${escapeHtml(triaHistoryDateLabel(r.at))}</span>
+            <span class="tria-history-acc">${r.accuracy}% <span class="tria-history-frac">(${r.correct}/${r.total})</span></span>
+            <span class="tria-history-elo">${escapeHtml(elo)}</span>
+            <button type="button" class="tria-history-replay" data-tria-replay="${r.index}"${r.replayable ? '' : ' disabled title="Aquest test és anterior al desat de les preguntes"'}>↻ Rejugar</button>
+        </div>`;
+    }).join(''));
+}
+
+// Rejuga un test de l'historial amb les MATEIXES decisions. Es reconstrueixen
+// a partir del fons actual: si alguna partida ja no hi és, aquella pregunta no
+// es pot refer i el test surt més curt (es diu, no es dissimula).
+function replayTriaTest(index) {
+    const rows = ElTaulerCore.triaHistoryRows(loadTriaHistory());
+    const row = rows[index];
+    if (!row || !row.replayable) return;
+    const helpers = getTriaHelpers();
+    if (!helpers) { showToast('No s\'ha pogut preparar el test (motor d\'escacs no carregat).', 'error'); return; }
+    showToast('Reconstruint el test…', 'info', 1500);
+    ensureTriaPool().then(pool => {
+        const wanted = {};
+        row.keys.forEach(k => { wanted[k] = true; });
+        const byKey = {};
+        ElTaulerCore.triaEligibleMoves(pool, {}).forEach(r => {
+            const q = helpers.buildQuestion(r, {});
+            if (q && wanted[q.key]) byKey[q.key] = q;
+        });
+        // Es respecta l'ordre original del test.
+        const questions = row.keys.map(k => byKey[k]).filter(Boolean);
+        if (!questions.length) {
+            showToast('Les partides d\'aquest test ja no són a l\'historial: no es pot rejugar.', 'warn', 5000);
+            return;
+        }
+        if (questions.length < row.keys.length) {
+            showToast(`Se n'han pogut refer ${questions.length} de ${row.keys.length}: la resta ja no són a l'historial.`, 'info', 4500);
+        }
+        startTriaSession(questions);
+    });
 }
 
 function closeTriaScreen() {

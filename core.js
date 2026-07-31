@@ -6719,6 +6719,25 @@
         return rows[rows.length - 1].target;
     }
 
+    // Invers de triaTargetDifficulty: quin ELO/ROC correspon a una dificultat.
+    // És el que permet dir a quin nivell estaven les preguntes d'un test, que
+    // és una mitjana de veritat (cada pregunta té la seva dificultat).
+    function triaDifficultyToElo(difficulty) {
+        const rows = TRIA_CONFIG.eloTargets;
+        const d = clampNum(isNaN(difficulty) ? 0.5 : difficulty,
+            rows[0].target, rows[rows.length - 1].target);
+        for (let i = 0; i < rows.length - 1; i++) {
+            const lo = rows[i];
+            const hi = rows[i + 1];
+            if (d <= hi.target) {
+                const span = hi.target - lo.target;
+                const t = span === 0 ? 0 : (d - lo.target) / span;
+                return Math.round(lo.elo + (hi.elo - lo.elo) * t);
+            }
+        }
+        return rows[rows.length - 1].elo;
+    }
+
     // Barreja determinista a partir d'una clau: la mateixa jugada ha de donar
     // sempre el mateix ordre d'opcions.
     function triaSeedFromKey(key) {
@@ -7226,7 +7245,10 @@
             repeatedOwnMove: repeated,
             avgDifficulty: (avgDifficulty === null) ? null : Math.round(avgDifficulty * 100) / 100,
             lostCp: Math.round(lostCp),
-            elo: antidoteNum(o.elo, null)
+            elo: antidoteNum(o.elo, null),
+            // Quines decisions han sortit: és el que permet rejugar el test
+            // exactament igual des de l'historial.
+            keys: list.map(r => r.key).filter(Boolean)
         };
     }
 
@@ -7243,12 +7265,40 @@
             correct: summary.correct,
             accuracy: summary.accuracy,
             avgDifficulty: summary.avgDifficulty,
+            // Nivell mitjà de les preguntes del test (de la dificultat a
+            // ELO/ROC). És el que diu com d'exigent era el test.
+            questionElo: (typeof summary.avgDifficulty === 'number')
+                ? triaDifficultyToElo(summary.avgDifficulty) : null,
             repeatedOwnMove: summary.repeatedOwnMove || 0,
             lostCp: summary.lostCp || 0,
-            elo: summary.elo == null ? null : Math.round(summary.elo)
+            elo: summary.elo == null ? null : Math.round(summary.elo),
+            keys: Array.isArray(summary.keys) ? summary.keys.slice(0, 60) : []
         });
         list.sort((a, b) => (a.at || 0) - (b.at || 0));
         return list.slice(-TRIA_HISTORY_MAX);
+    }
+
+    // Files de l'historial per a la llista de sota del test: data, encert,
+    // nivell mitjà de les preguntes i si es pot rejugar (cal tenir-ne les
+    // claus desades; els tests antics no en tenen).
+    function triaHistoryRows(history) {
+        return (Array.isArray(history) ? history : [])
+            .filter(Boolean)
+            .slice()
+            .sort((a, b) => (b.at || 0) - (a.at || 0))
+            .map((r, i) => ({
+                index: i,
+                at: r.at || null,
+                total: r.total || 0,
+                correct: r.correct || 0,
+                accuracy: (typeof r.accuracy === 'number') ? r.accuracy : 0,
+                questionElo: (typeof r.questionElo === 'number')
+                    ? r.questionElo
+                    : ((typeof r.avgDifficulty === 'number') ? triaDifficultyToElo(r.avgDifficulty) : null),
+                playerElo: (typeof r.elo === 'number') ? r.elo : null,
+                keys: Array.isArray(r.keys) ? r.keys : [],
+                replayable: Array.isArray(r.keys) && r.keys.length > 0
+            }));
     }
 
     // Sèrie per a la gràfica d'estadístiques: encerts (%) al llarg del temps,
@@ -7507,6 +7557,8 @@
         triaTestSummary,
         triaAppendResult,
         triaChartSeries,
+        triaDifficultyToElo,
+        triaHistoryRows,
         START_POSITION_KEY
     };
 });

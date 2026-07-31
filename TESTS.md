@@ -379,3 +379,11 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   historial ordenat i limitat, i la sèrie de la gràfica d'evolució en surt amb
   el percentatge d'encert i la mitjana mòbil de tendència, ordenada per data
   encara que l'historial vingui desordenat.
+  De la **llista de tests anteriors** (sota el test): cada test desa les claus
+  de les decisions que hi van sortir, que és el que permet **rejugar-lo** amb
+  les mateixes; les files van del més nou al més vell amb data, encert i el
+  **nivell mitjà de les preguntes**, que surt d'invertir la corba
+  dificultat↔ELO (`triaDifficultyToElo`, comprovat com a invers exacte de
+  `triaTargetDifficulty` a totes les fites). Un test antic sense claus desades
+  es marca com a no rejugable en comptes de fallar en silenci, i un sense
+  dificultat desada no s'inventa cap nivell: el deixa buit.
