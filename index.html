@@ -3662,7 +3662,7 @@
         /* ---- TRES CAMINS (test d'opció múltiple sobre les teves jugades) ---- */
         /* Bàner: reutilitza l'estructura del col·lectiu amb paleta pròpia. */
         .tria-banner { background: linear-gradient(135deg, #4a3a6b 0%, #2e2447 55%, #1d1730 100%); border-color: rgba(170,150,230,0.4); }
-        .tria-banner .catalans-banner-ic { font-size: 1.7em; line-height: 1; }
+        .tria-banner .catalans-banner-ic { stroke: #b9a6ee; }
         .tria-banner::after { background: radial-gradient(circle, rgba(170,150,230,0.24), transparent 70%); }
         .tria-banner .catalans-banner-cta { color: #cfc2f2; }
         .tria-banner-meta { display: block; font-size: 0.72rem; opacity: 0.85; margin-top: 3px; }
@@ -3807,6 +3807,37 @@
             .tria-vote-row { max-width: 420px; margin: 0 auto; }
         }
         @media (max-width: 380px) { .tria-card { flex-basis: 86%; } }
+
+        /* Historial de tests, sota el test. */
+        .tria-history { max-width: min(720px, 100%); margin: 18px auto 0; }
+        .tria-history-title {
+            font-size: 0.8rem; letter-spacing: 1px; text-transform: uppercase;
+            color: var(--text-secondary); margin-bottom: 8px; text-align: center;
+        }
+        .tria-history-list { display: flex; flex-direction: column; gap: 6px; }
+        .tria-history-row {
+            display: grid; grid-template-columns: auto 1fr auto auto; gap: 10px;
+            align-items: center; background: var(--bg-card);
+            border: 1px solid rgba(201,162,39,0.18); border-radius: 10px;
+            padding: 8px 12px; font-size: 0.84rem;
+        }
+        .tria-history-date { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .tria-history-acc { font-weight: 800; color: #2ecc71; font-variant-numeric: tabular-nums; }
+        .tria-history-acc .tria-history-frac { font-weight: 400; font-size: 0.78rem; opacity: 0.8; }
+        .tria-history-elo { color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+        .tria-history-replay {
+            border: 1px solid rgba(201,162,39,0.35); border-radius: 8px;
+            background: transparent; color: var(--accent-gold, #c9a227);
+            font-size: 0.78rem; font-weight: 700; padding: 5px 10px; cursor: pointer;
+        }
+        .tria-history-replay:hover { background: rgba(201,162,39,0.12); }
+        .tria-history-replay:disabled { opacity: 0.35; cursor: default; }
+        @media (max-width: 420px) {
+            .tria-history-row { grid-template-columns: auto 1fr auto; row-gap: 4px; }
+            .tria-history-elo { grid-column: 2; justify-self: end; }
+        }
+        body.epaper-mode .tria-history-row { background: #ededed !important; border-color: #bbb !important; color: #222; }
+        body.epaper-mode .tria-history-acc { color: #222 !important; }
 
         body.day-mode .tria-card, body.day-mode .tria-result, body.day-mode .tria-vote-btn {
             background: rgba(255,255,255,0.55);
@@ -4857,6 +4888,13 @@
             <path d="M20 16.5H5"/>
             <polyline points="8.5 13 5 16.5 8.5 20"/>
         </symbol>
+        <symbol id="ic-shuffle" viewBox="0 0 24 24">
+            <polyline points="16 3 21 3 21 8"/>
+            <path d="M4 20 21 3"/>
+            <polyline points="21 16 21 21 16 21"/>
+            <path d="M15 15l6 6"/>
+            <path d="M4 4l5 5"/>
+        </symbol>
         <symbol id="ic-pencil" viewBox="0 0 24 24">
             <path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/>
         </symbol>
@@ -5107,7 +5145,7 @@
                          que no vas fer del tot bé. Es desactiva sol mentre no
                          hi hagi prou partides revisades. -->
                     <button class="catalans-banner tria-banner" id="btn-tria-banner" aria-label="Tres camins">
-                        <span class="catalans-banner-ic" aria-hidden="true">🔀</span>
+                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-shuffle"/></svg>
                         <span class="catalans-banner-text">
                             <span class="catalans-banner-title">Tres camins</span>
                             <span class="catalans-banner-sub">Test de 20: les tres millors jugades de les teves posicions. Tria la bona.</span>
@@ -5622,7 +5660,7 @@
             <!-- Evolució dels tests de Tres camins. Amagat mentre no se n'hagi
                  acabat cap: una gràfica buida no diu res. -->
             <div class="chart-container" id="tria-chart-container" style="display:none;">
-                <div class="chart-title">🔀 Tres camins · evolució</div>
+                <div class="chart-title">Tres camins · evolució</div>
                 <div class="tc-elo-note" id="tria-chart-hint"></div>
                 <div style="height:240px;">
                     <canvas id="tria-chart"></canvas>
@@ -6315,7 +6353,7 @@
                 <div id="review-debrief" style="display:none;"></div>
                 <div class="review-actions">
                     <button class="btn btn-primary" id="btn-review-again" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>Tornar a jugar</button>
-                    <button class="btn btn-secondary" id="btn-review-tria" style="display:none;">🔀 Tres camins</button>
+                    <button class="btn btn-secondary" id="btn-review-tria" style="display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-shuffle"/></svg>Tres camins</button>
                     <button class="btn btn-secondary" id="btn-review-errors"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisar errors</button>
                     <button class="btn btn-secondary" id="btn-review-hieroglyphic"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Desxifra el teu error</button>
                     <button class="btn btn-secondary" id="btn-review-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Veure evolució</button>
@@ -7095,10 +7133,18 @@
                 <button class="btn btn-nav-home" id="btn-tria-exit" aria-label="Sortir del test" title="Sortir del test"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
             </div>
 
+            <!-- Historial de tests, a sota. Cada línia: data, encert en verd,
+                 nivell mitjà de les preguntes i el botó de rejugar-lo. -->
+            <div class="tria-history" id="tria-history" style="display:none;">
+                <div class="tria-history-title">Tests anteriors</div>
+                <div class="tria-history-list" id="tria-history-list"></div>
+            </div>
+
             <div class="tria-note" id="tria-note">
-                Les tres opcions són les <strong>tres millors jugades</strong> de la posició
-                segons el motor. L'<strong>Original</strong> és el que vas jugar tu a la partida.
-                Sense rellotge: aquí es mesura el criteri, no la velocitat.
+                A l'esquerra, la <strong>posició</strong> tal com la vas tenir davant. Les tres
+                opcions són les <strong>tres millors jugades</strong> que hi havia segons el motor,
+                ja jugades. El test combina obertures, migjocs i finals. Sense rellotge: aquí es
+                mesura el criteri, no la velocitat.
             </div>
         </div>
 

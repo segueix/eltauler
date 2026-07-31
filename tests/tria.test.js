@@ -342,6 +342,376 @@ describe('buildTest (el test de 20)', () => {
     });
 });
 
+describe('memòria entre tests (no repetir, repescar les fallades)', () => {
+    test('una pregunta encertada queda tancada; una de fallada, pendent', () => {
+        let p = Core.triaEmptyProgress();
+        p = Core.triaApplyResults(p, [{ key: 'k1', correct: true }, { key: 'k2', correct: false }], { now: 1000 });
+        expect(Core.triaProgressStatus(p, 'k1')).toBe('mastered');
+        expect(Core.triaProgressStatus(p, 'k2')).toBe('pending');
+        expect(Core.triaProgressStatus(p, 'mai-vista')).toBeNull();
+    });
+
+    test('encertar una pendent la tanca, i es recorda que havia fallat', () => {
+        let p = Core.triaApplyResults(Core.triaEmptyProgress(), [{ key: 'k', correct: false }], { now: 1000 });
+        p = Core.triaApplyResults(p, [{ key: 'k', correct: true }], { now: 2000 });
+        expect(Core.triaProgressStatus(p, 'k')).toBe('mastered');
+        expect(p.entries.k.attempts).toBe(2);
+        expect(p.entries.k.wrong).toBe(1);
+    });
+
+    test('fallar-la diverses vegades la manté pendent', () => {
+        let p = Core.triaEmptyProgress();
+        for (let i = 0; i < 3; i++) p = Core.triaApplyResults(p, [{ key: 'k', correct: false }], { now: 1000 + i });
+        expect(Core.triaProgressStatus(p, 'k')).toBe('pending');
+        expect(p.entries.k.wrong).toBe(3);
+    });
+
+    test('el recompte separa resoltes i pendents', () => {
+        const p = Core.triaApplyResults(Core.triaEmptyProgress(), [
+            { key: 'a', correct: true }, { key: 'b', correct: true }, { key: 'c', correct: false }
+        ], { now: 1 });
+        expect(Core.triaProgressCounts(p)).toMatchObject({ mastered: 2, pending: 1, total: 3 });
+    });
+
+    test('una memòria buida o corrupta no rebenta res', () => {
+        expect(Core.triaProgressStatus(null, 'k')).toBeNull();
+        expect(Core.triaProgressStatus({}, 'k')).toBeNull();
+        expect(Core.triaProgressCounts(null).total).toBe(0);
+        expect(Core.triaApplyResults(null, null, {}).entries).toEqual({});
+    });
+
+    test('la partició deixa les encertades fora i separa pendents de noves', () => {
+        const p = Core.triaApplyResults(Core.triaEmptyProgress(), [
+            { key: 'vista-ok', correct: true }, { key: 'vista-ko', correct: false }
+        ], { now: 1 });
+        const split = Core.triaPartitionByProgress(
+            [{ key: 'vista-ok' }, { key: 'vista-ko' }, { key: 'nova' }], p);
+        expect(split.mastered.map(x => x.key)).toEqual(['vista-ok']);
+        expect(split.pending.map(x => x.key)).toEqual(['vista-ko']);
+        expect(split.fresh.map(x => x.key)).toEqual(['nova']);
+    });
+
+    test('les pendents no poden omplir un test sencer si hi ha material nou', () => {
+        const pending = Array.from({ length: 20 }, (_, i) => 'p' + i);
+        const fresh = Array.from({ length: 20 }, (_, i) => 'f' + i);
+        const mix = Core.triaMixPendingAndFresh(pending, fresh, 20, {});
+        const pendingCount = mix.filter(x => String(x).startsWith('p')).length;
+        expect(mix).toHaveLength(20);
+        expect(pendingCount).toBe(Math.round(20 * CFG.repetition.maxPendingShare));
+    });
+
+    test('sense material nou, la repesca sí que omple el test', () => {
+        const pending = Array.from({ length: 20 }, (_, i) => 'p' + i);
+        const mix = Core.triaMixPendingAndFresh(pending, [], 20, {});
+        expect(mix).toHaveLength(20);
+    });
+
+    test('sense pendents, el test és tot de noves', () => {
+        const fresh = Array.from({ length: 20 }, (_, i) => 'f' + i);
+        expect(Core.triaMixPendingAndFresh([], fresh, 20, {})).toHaveLength(20);
+    });
+});
+
+describe('el test respecta la memòria', () => {
+    function poolWithGames(n) {
+        const out = [];
+        let seed = 555;
+        const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+        for (let g = 0; g < n; g++) {
+            const b = new Chess();
+            for (let k = 0; k < 5; k++) {
+                const legal = b.moves({ verbose: true });
+                if (legal.length < 4) break;
+                const p = legal.slice(0, 4);
+                out.push(review({
+                    fen: b.fen(), moveNumber: k + 1, gameId: 'g' + g,
+                    playerMove: uci(p[3]), bestMove: uci(p[0]),
+                    multipvBefore: [mpv(uci(p[0]), 40), mpv(uci(p[1]), 15), mpv(uci(p[2]), -10)]
+                }));
+                b.move(legal[Math.floor(rnd() * legal.length)]);
+            }
+        }
+        return out;
+    }
+
+    test('una pregunta encertada no torna a sortir mai', () => {
+        const pool = poolWithGames(8);
+        const first = T.buildTest(pool, { elo: 1600 });
+        expect(first.length).toBeGreaterThan(0);
+        // S'encerten totes les del primer test.
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: true })), { now: 1 });
+        const second = T.buildTest(pool, { elo: 1600, progress: progress });
+        const repeated = second.filter(q => first.some(f => f.key === q.key));
+        expect(repeated).toHaveLength(0);
+    });
+
+    test('una pregunta fallada torna al test següent', () => {
+        const pool = poolWithGames(8);
+        const first = T.buildTest(pool, { elo: 1600 });
+        const failed = first.slice(0, 3).map(q => q.key);
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: !failed.includes(q.key) })), { now: 1 });
+        const second = T.buildTest(pool, { elo: 1600, progress: progress });
+        failed.forEach(key => expect(second.some(q => q.key === key)).toBe(true));
+    });
+
+    test('les repescades vénen marcades com a tals', () => {
+        const pool = poolWithGames(8);
+        const first = T.buildTest(pool, { elo: 1600 });
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            [{ key: first[0].key, correct: false }], { now: 1 });
+        const second = T.buildTest(pool, { elo: 1600, progress: progress });
+        const again = second.find(q => q.key === first[0].key);
+        expect(again).toBeTruthy();
+        expect(again.pending).toBe(true);
+    });
+
+    test('el compte anunciat baixa a mesura que se n\'encerten', () => {
+        const pool = poolWithGames(8);
+        const before = Core.triaPlannedQuestionCount(pool, {});
+        expect(before).toBeGreaterThan(0);
+        // S'encerten les preguntes del primer test.
+        const first = T.buildTest(pool, { elo: 1600 });
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: true })), { now: 1 });
+        const after = Core.triaPlannedQuestionCount(pool, { progress: progress });
+        expect(after).toBeLessThan(before);
+    });
+
+    test('fallar-les no en redueix el compte: segueixen disponibles', () => {
+        const pool = poolWithGames(8);
+        const before = Core.triaPlannedQuestionCount(pool, {});
+        const first = T.buildTest(pool, { elo: 1600 });
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            first.map(q => ({ key: q.key, correct: false })), { now: 1 });
+        expect(Core.triaPlannedQuestionCount(pool, { progress: progress })).toBe(before);
+    });
+
+    test('quan tot està encertat, no queda cap pregunta', () => {
+        const pool = poolWithGames(4);
+        const eligible = Core.triaEligibleMoves(pool, {});
+        const keys = eligible.map(r => T.buildQuestion(r, {})).filter(Boolean).map(q => q.key);
+        const progress = Core.triaApplyResults(Core.triaEmptyProgress(),
+            keys.map(k => ({ key: k, correct: true })), { now: 1 });
+        expect(T.buildTest(pool, { elo: 1600, progress: progress })).toHaveLength(0);
+        expect(Core.triaPlannedQuestionCount(pool, { progress: progress })).toBe(0);
+    });
+});
+
+describe('obertures: una per posició, tret dels errors recurrents', () => {
+    // Partides que comencen igual: les posicions d'obertura es repeteixen tal
+    // com passa de debò (tothom juga el seu repertori), i sense filtre un test
+    // s'ompliria de variacions de les mateixes quatre jugades.
+    function openingPool(games, opts = {}) {
+        const out = [];
+        const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+        for (let g = 0; g < games; g++) {
+            const b = new Chess();
+            for (let k = 0; k < 4; k++) {
+                const legal = b.moves({ verbose: true });
+                const p = legal.slice(0, 4);
+                out.push(review({
+                    fen: b.fen(), moveNumber: k + 1, gameId: 'g' + g,
+                    // Per defecte cada partida falla una jugada DIFERENT, així
+                    // que són decisions distintes sobre posicions iguals.
+                    playerMove: uci(p[3 - (opts.sameMistake ? 0 : (g % 2))]),
+                    bestMove: uci(p[0]),
+                    multipvBefore: [mpv(uci(p[0]), 40), mpv(uci(p[1]), 15), mpv(uci(p[2]), -10)]
+                }));
+                b.move(legal[0]); // mateixa línia a totes: posicions compartides
+            }
+        }
+        return out;
+    }
+
+    function questionsOf(pool) {
+        return Core.triaEligibleMoves(pool, {})
+            .map(r => T.buildQuestion(r, {}))
+            .filter(Boolean)
+            .map((q, i) => Object.assign(q, { repeatedGames: Core.triaEligibleMoves(pool, {})[i].repeatedGames }));
+    }
+
+    test('la mateixa decisió repetida en partides diferents es compta com a recurrent', () => {
+        const pool = openingPool(3, { sameMistake: true });
+        const elig = Core.triaEligibleMoves(pool, {});
+        // Totes les partides fallen el mateix a les mateixes posicions.
+        expect(elig.length).toBe(4);
+        elig.forEach(r => expect(r.repeatedGames).toBe(3));
+    });
+
+    test('fallar-la dues vegades a la MATEIXA partida no la fa recurrent', () => {
+        const one = openingPool(1, { sameMistake: true });
+        const twice = one.concat(one.map(r => Object.assign({}, r)));
+        Core.triaEligibleMoves(twice, {}).forEach(r => expect(r.repeatedGames).toBe(1));
+    });
+
+    test('d\'una mateixa posició d\'obertura només en surt una pregunta', () => {
+        const pool = openingPool(6);
+        const qs = questionsOf(pool);
+        const openings = qs.filter(q => q.phase === 'opening');
+        expect(openings.length).toBeGreaterThan(1);
+        const kept = Core.triaFilterOpenings(qs, { testSize: 20 })
+            .questions.filter(q => q.phase === 'opening');
+        const positions = kept.map(q => q.fen.split(' ')[0]);
+        expect(new Set(positions).size).toBe(positions.length);
+    });
+
+    test('un error recurrent d\'obertura hi passa encara que se superi el sostre', () => {
+        // Una recurrent (fallada a tres partides) i moltes de soltes.
+        const recurrent = Object.assign(review({ moveNumber: 1 }), { phase: 'opening' });
+        const singles = [];
+        for (let i = 0; i < 30; i++) {
+            singles.push({ phase: 'opening', fen: `pos${i}/8/8/8/8/8/8/8 w - - 0 1`, repeatedGames: 1, id: 's' + i });
+        }
+        const rec = { phase: 'opening', fen: 'REC/8/8/8/8/8/8/8 w - - 0 1', repeatedGames: 3, id: 'rec' };
+        const kept = Core.triaFilterOpenings(singles.concat([rec]), { testSize: 20 });
+        expect(kept.questions.some(q => q.id === 'rec')).toBe(true);
+    });
+
+    test('les obertures no recurrents queden limitades a una part del test', () => {
+        const singles = [];
+        for (let i = 0; i < 40; i++) {
+            singles.push({ phase: 'opening', fen: `p${i}/8/8/8/8/8/8/8 w - - 0 1`, repeatedGames: 1 });
+        }
+        const kept = Core.triaFilterOpenings(singles, { testSize: 20 });
+        expect(kept.questions.length).toBe(Math.round(20 * CFG.openings.maxShare));
+        // Les que sobren no es llencen: queden per si calgués omplir el test.
+        expect(kept.overflow.length).toBe(40 - Math.round(20 * CFG.openings.maxShare));
+    });
+
+    test('les altres fases no les toca el filtre', () => {
+        const mixed = [
+            { phase: 'middlegame', fen: 'a/8/8/8/8/8/8/8 w - - 0 1' },
+            { phase: 'endgame', fen: 'b/8/8/8/8/8/8/8 w - - 0 1' },
+            { phase: 'middlegame', fen: 'c/8/8/8/8/8/8/8 w - - 0 1' }
+        ];
+        expect(Core.triaFilterOpenings(mixed, { testSize: 20 }).questions).toHaveLength(3);
+    });
+
+    test('sense obertures el filtre no fa res', () => {
+        const only = [{ phase: 'endgame', fen: 'x/8/8/8/8/8/8/8 w - - 0 1' }];
+        expect(Core.triaFilterOpenings(only, { testSize: 20 }).questions).toHaveLength(1);
+        expect(Core.triaFilterOpenings(null, { testSize: 20 }).questions).toEqual([]);
+    });
+
+    test('el que es talla d\'obertura ho omple el migjoc', () => {
+        const qs = [];
+        for (let i = 0; i < 40; i++) qs.push({ phase: 'opening', fen: `o${i}/8/8/8/8/8/8/8 w - - 0 1`, repeatedGames: 1 });
+        for (let i = 0; i < 40; i++) qs.push({ phase: 'middlegame', fen: `m${i}/8/8/8/8/8/8/8 w - - 0 1` });
+        const filtered = Core.triaFilterOpenings(qs, { testSize: 20 }).questions;
+        const test20 = Core.triaInterleaveByPhase(filtered).slice(0, 20);
+        const counts = Core.triaPhaseCounts(test20);
+        expect(counts.opening).toBeLessThanOrEqual(Math.round(20 * CFG.openings.maxShare));
+        expect(counts.middlegame).toBeGreaterThan(counts.opening);
+        expect(counts.opening + counts.middlegame).toBe(20);
+    });
+
+    test('si NOMÉS hi ha obertures VARIADES, el test s\'omple igualment', () => {
+        // El sostre és una preferència, no una gana: qui només tingui partides
+        // curtes —però de línies diferents— no ha de rebre un test de cinc.
+        const pool = [];
+        const uci = m => `${m.from}${m.to}${m.promotion || ''}`;
+        let seed = 808;
+        const rnd = () => { seed = (seed * 1664525 + 1013904223) >>> 0; return seed / 4294967296; };
+        for (let g = 0; g < 30; g++) {
+            const b = new Chess();
+            for (let k = 0; k < 4; k++) {
+                const legal = b.moves({ verbose: true });
+                const p = legal.slice(0, 4);
+                pool.push(review({
+                    fen: b.fen(), moveNumber: k + 1, gameId: 'v' + g,
+                    playerMove: uci(p[3]), bestMove: uci(p[0]),
+                    multipvBefore: [mpv(uci(p[0]), 40), mpv(uci(p[1]), 15), mpv(uci(p[2]), -10)]
+                }));
+                b.move(legal[Math.floor(rnd() * legal.length)]);
+            }
+        }
+        const openings = Core.triaEligibleMoves(pool, {})
+            .map(r => T.buildQuestion(r, {})).filter(Boolean)
+            .filter(q => q.phase === 'opening');
+        const distinctPositions = new Set(openings.map(q => q.fen.split(' ')[0])).size;
+        expect(distinctPositions).toBeGreaterThan(CFG.testSize);
+
+        const test = T.buildTest(pool, { elo: 1600 });
+        expect(test.length).toBeGreaterThan(Math.round(CFG.testSize * CFG.openings.maxShare));
+    });
+});
+
+describe('barreja de fases (obertura, migjoc i final)', () => {
+    test('el repartiment alterna fases en comptes de servir-les en blocs', () => {
+        const qs = [
+            { phase: 'middlegame', id: 'm1' }, { phase: 'middlegame', id: 'm2' },
+            { phase: 'middlegame', id: 'm3' }, { phase: 'opening', id: 'o1' },
+            { phase: 'opening', id: 'o2' }, { phase: 'endgame', id: 'e1' }
+        ];
+        const mixed = Core.triaInterleaveByPhase(qs);
+        expect(mixed).toHaveLength(6);
+        // Les tres primeres han de cobrir les tres fases.
+        expect(new Set(mixed.slice(0, 3).map(q => q.phase)).size).toBe(3);
+    });
+
+    test('agafant-ne les primeres, el test toca les tres fases encara que el fons sigui desigual', () => {
+        const qs = [];
+        for (let i = 0; i < 40; i++) qs.push({ phase: 'middlegame', id: 'm' + i });
+        for (let i = 0; i < 6; i++) qs.push({ phase: 'opening', id: 'o' + i });
+        for (let i = 0; i < 3; i++) qs.push({ phase: 'endgame', id: 'e' + i });
+        const first20 = Core.triaInterleaveByPhase(qs).slice(0, 20);
+        const counts = Core.triaPhaseCounts(first20);
+        expect(counts.opening).toBeGreaterThan(0);
+        expect(counts.middlegame).toBeGreaterThan(0);
+        expect(counts.endgame).toBeGreaterThan(0);
+        // Sense repartiment, les vint primeres serien totes de migjoc.
+        expect(counts.middlegame).toBeLessThan(20);
+    });
+
+    test('el màxim per partida es reparteix al llarg de la partida, no pel cap', () => {
+        // Les revisions vénen en ordre de joc. Si el màxim es cobrís amb les
+        // primeres, un test no arribaria mai al migjoc ni al final d'aquella
+        // partida: totes les preguntes serien obertures.
+        const long = [];
+        for (let i = 0; i < 40; i++) long.push({ gameId: 'unica', moveNumber: i + 1 });
+        const spread = Core.triaSpreadAcrossGames(long, 5);
+        expect(spread).toHaveLength(5);
+        const numbers = spread.map(x => x.moveNumber);
+        // La tria ha de cobrir tota la partida, no els cinc primers moviments.
+        expect(Math.max(...numbers)).toBeGreaterThan(30);
+        expect(numbers).not.toEqual([1, 2, 3, 4, 5]);
+    });
+
+    test('una partida amb menys jugades que el màxim es conserva sencera', () => {
+        const short = [{ gameId: 'g', moveNumber: 1 }, { gameId: 'g', moveNumber: 2 }];
+        expect(Core.triaSpreadAcrossGames(short, 5)).toHaveLength(2);
+    });
+
+    test('dins de cada fase es conserva l\'ordre que venia (la dificultat mana a dins)', () => {
+        const qs = [
+            { phase: 'opening', id: 'o1' }, { phase: 'opening', id: 'o2' },
+            { phase: 'opening', id: 'o3' }
+        ];
+        expect(Core.triaInterleaveByPhase(qs).map(q => q.id)).toEqual(['o1', 'o2', 'o3']);
+    });
+
+    test('una fase desconeguda o absent es compta com a migjoc', () => {
+        const counts = Core.triaPhaseCounts([{ phase: 'inventada' }, {}, { phase: 'endgame' }]);
+        expect(counts.middlegame).toBe(2);
+        expect(counts.endgame).toBe(1);
+    });
+
+    test('llistes buides o corruptes no rebenten res', () => {
+        expect(Core.triaInterleaveByPhase(null)).toEqual([]);
+        expect(Core.triaPhaseCounts(null)).toEqual({ opening: 0, middlegame: 0, endgame: 0 });
+    });
+
+    test('el resum del test diu de quina fase era cada pregunta', () => {
+        const s = Core.triaTestSummary(
+            [{ correct: true }, { correct: false }, { correct: true }],
+            { questions: [{ phase: 'opening' }, { phase: 'middlegame' }, { phase: 'endgame' }] });
+        expect(s.phases).toEqual({ opening: 1, middlegame: 1, endgame: 1 });
+    });
+});
+
 describe('triaGradeAnswer (verd o vermell a l\'instant)', () => {
     const q = T.buildQuestion(review(), {});
     const bestIdx = q.answerIndex;
@@ -438,6 +808,57 @@ describe('historial i gràfica d\'evolució', () => {
             { at: 3, accuracy: 80 }, { at: 1, accuracy: 40 }, { at: 2, accuracy: 60 }
         ]);
         expect(series.map(p => p.accuracy)).toEqual([40, 60, 80]);
+    });
+
+    test('el nivell mitjà del test surt de la dificultat, i és l\'invers exacte', () => {
+        [800, 1200, 1600, 2000, 2400].forEach(elo => {
+            const d = Core.triaTargetDifficulty(elo);
+            expect(Core.triaDifficultyToElo(d)).toBe(elo);
+        });
+    });
+
+    test('el nivell no s\'extrapola fora de la taula', () => {
+        expect(Core.triaDifficultyToElo(0)).toBe(800);
+        expect(Core.triaDifficultyToElo(1)).toBe(2800);
+        expect(Core.triaDifficultyToElo(undefined)).toBeGreaterThan(0);
+    });
+
+    test('cada test desa les decisions que hi han sortit, per poder-lo rejugar', () => {
+        const summary = Core.triaTestSummary(
+            [{ correct: true, key: 'k1' }, { correct: false, key: 'k2' }], { elo: 1800 });
+        expect(summary.keys).toEqual(['k1', 'k2']);
+        const h = Core.triaAppendResult([], summary, { now: 1000 });
+        expect(h[0].keys).toEqual(['k1', 'k2']);
+    });
+
+    test('les files de l\'historial porten data, encert, nivell i si es pot rejugar', () => {
+        const h = [
+            { at: 1000, total: 20, correct: 15, accuracy: 75, avgDifficulty: 0.66, elo: 2000, keys: ['a', 'b'] },
+            { at: 2000, total: 20, correct: 10, accuracy: 50, avgDifficulty: 0.32, elo: 1200, keys: [] }
+        ];
+        const rows = Core.triaHistoryRows(h);
+        // Del més nou al més vell.
+        expect(rows.map(r => r.at)).toEqual([2000, 1000]);
+        expect(rows[1].accuracy).toBe(75);
+        expect(rows[1].questionElo).toBe(2000);
+        expect(rows[1].replayable).toBe(true);
+        // Un test antic sense claus desades no es pot rejugar.
+        expect(rows[0].replayable).toBe(false);
+    });
+
+    test('un test antic sense nivell desat el dedueix de la dificultat', () => {
+        const rows = Core.triaHistoryRows([{ at: 1, accuracy: 60, avgDifficulty: 0.5 }]);
+        expect(rows[0].questionElo).toBe(1600);
+    });
+
+    test('un test sense dificultat ni nivell no s\'inventa cap número', () => {
+        const rows = Core.triaHistoryRows([{ at: 1, accuracy: 60 }]);
+        expect(rows[0].questionElo).toBeNull();
+    });
+
+    test('un historial buit o corrupte no dona cap fila', () => {
+        expect(Core.triaHistoryRows(null)).toEqual([]);
+        expect(Core.triaHistoryRows([null, undefined])).toEqual([]);
     });
 
     test('sense historial la gràfica no té sèrie, i no peta', () => {

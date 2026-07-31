@@ -1351,7 +1351,8 @@ function buildBackupData({ includeGameHistory = false } = {}) {
         tacticsStats: tacticsStats,
         hieroglyphicStats: hieroglyphicStats,
         preparedExerciseHistory: typeof preparedExerciseHistory !== 'undefined' ? preparedExerciseHistory : [],
-        triaHistory: typeof loadTriaHistory === 'function' ? loadTriaHistory() : []
+        triaHistory: typeof loadTriaHistory === 'function' ? loadTriaHistory() : [],
+        triaProgress: typeof loadTriaProgress === 'function' ? loadTriaProgress() : null
     };
     if (includeGameHistory) {
         base.gameHistory = gameHistory;
@@ -2214,6 +2215,11 @@ function importBackupData(data) {
     if (Array.isArray(data.triaHistory)) {
         triaHistory = data.triaHistory;
         try { localStorage.setItem(TRIA_HISTORY_KEY, JSON.stringify(triaHistory)); } catch (e) {}
+    }
+    // Memòria de decisions ja resoltes i pendents de repescar.
+    if (data.triaProgress && typeof data.triaProgress === 'object' && data.triaProgress.entries) {
+        triaProgress = data.triaProgress;
+        try { localStorage.setItem(TRIA_PROGRESS_KEY, JSON.stringify(triaProgress)); } catch (e) {}
     }
        isCalibrating = typeof data.isCalibrating === 'boolean' ? data.isCalibrating : isCalibrating;
     calibrationGames = Array.isArray(data.calibrationGames) ? data.calibrationGames : calibrationGames;
@@ -21308,6 +21314,9 @@ function setupEvents() {
     });
     $('#btn-tria-next').off('click').on('click', () => nextTriaQuestion());
     $('#btn-tria-restart').off('click').on('click', () => { closeTriaScreen(); openTriaTest(); });
+    $(document).on('click', '[data-tria-replay]', function () {
+        replayTriaTest(Number(this.dataset.triaReplay));
+    });
     $('#btn-tria-exit').off('click').on('click', () => { closeTriaScreen(); navStack.pop(); });
     try { refreshTriaBanner(); } catch (e) {}
 
@@ -23181,6 +23190,9 @@ if (typeof window !== 'undefined') {
 // viu a core.js; aquí hi ha pantalla, taulers i esdeveniments.
 
 const TRIA_HISTORY_KEY = 'chess_triaHistory';
+// Memòria entre tests: quines decisions ja has encertat (no tornen) i quines
+// vas fallar (tornen fins que les encertis).
+const TRIA_PROGRESS_KEY = 'chess_triaProgress';
 // Partides de les quals es mira de treure preguntes. Passar-se costaria
 // hidratar cossos que ja no són a la memòria sense guanyar-hi gaire.
 const TRIA_POOL_GAMES = 40;
@@ -23190,6 +23202,7 @@ let triaSession = null;
 let triaBoards = [];        // taulers de les opcions A/B/C
 let triaOriginalBoard = null;
 let triaHistory = null;
+let triaProgress = null;
 let triaChart = null;
 let triaCardsBuilt = false;
 
@@ -23214,6 +23227,23 @@ function loadTriaHistory() {
 
 function saveTriaHistory() {
     try { localStorage.setItem(TRIA_HISTORY_KEY, JSON.stringify(loadTriaHistory())); } catch (e) {}
+    try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
+}
+
+function loadTriaProgress() {
+    if (triaProgress) return triaProgress;
+    try {
+        const raw = localStorage.getItem(TRIA_PROGRESS_KEY);
+        const parsed = raw ? JSON.parse(raw) : null;
+        triaProgress = (parsed && typeof parsed === 'object' && parsed.entries)
+            ? parsed
+            : ElTaulerCore.triaEmptyProgress();
+    } catch (e) { triaProgress = ElTaulerCore.triaEmptyProgress(); }
+    return triaProgress;
+}
+
+function saveTriaProgress() {
+    try { localStorage.setItem(TRIA_PROGRESS_KEY, JSON.stringify(loadTriaProgress())); } catch (e) {}
     try { if (window.CloudSync && window.CloudSync.flushSoon) window.CloudSync.flushSoon(); } catch (e) {}
 }
 
@@ -23258,7 +23288,10 @@ function buildTriaTest(pool) {
     const helpers = getTriaHelpers();
     if (!helpers) return [];
     try {
-        return helpers.buildTest(pool, { elo: clampEngineElo(userELO) });
+        return helpers.buildTest(pool, {
+            elo: clampEngineElo(userELO),
+            progress: loadTriaProgress()
+        });
     } catch (e) { return []; }
 }
 
@@ -23272,21 +23305,28 @@ function refreshTriaBanner() {
     const available = ElTaulerCore.triaEligibleMoves(pool, {}).length;
     // Preguntes REALS que pot donar el fons: el màxim per partida en deixa
     // moltes elegibles fora, i el bàner no ha de prometre el que no pot servir.
-    const questions = ElTaulerCore.triaPlannedQuestionCount(pool, {});
+    const progress = loadTriaProgress();
+    const questions = ElTaulerCore.triaPlannedQuestionCount(pool, { progress: progress });
+    const counts = ElTaulerCore.triaProgressCounts(progress);
     const min = ElTaulerCore.TRIA_CONFIG.minTestSize;
     const size = ElTaulerCore.TRIA_CONFIG.testSize;
     const history = loadTriaHistory();
     if (questions < min) {
         banner.addClass('is-locked');
-        meta.text(`Juga alguna partida més: en calen ${min} preguntes i ara n'hi ha ${questions}`);
+        meta.text(counts.mastered > 0
+            ? `Ja has encertat ${counts.mastered} ${counts.mastered === 1 ? 'decisió' : 'decisions'} i no tornen. Juga alguna partida més per tenir-ne de noves.`
+            : `Juga alguna partida més: en calen ${min} preguntes i ara n'hi ha ${questions}`);
         return;
     }
     banner.removeClass('is-locked');
     const last = history.length ? history[history.length - 1] : null;
-    meta.text(`${questions} ${questions === 1 ? 'pregunta' : 'preguntes'} a punt`
-        + (questions < size ? ` (de ${size}: surten de partides diferents)` : '')
-        + ` · ${available} jugades teves al fons`
-        + (last ? ` · últim test: ${last.accuracy}%` : ''));
+    const bits = [`${questions} ${questions === 1 ? 'pregunta' : 'preguntes'} a punt`
+        + (questions < size ? ` (de ${size})` : '')];
+    if (counts.pending > 0) bits.push(`${counts.pending} per repescar`);
+    if (counts.mastered > 0) bits.push(`${counts.mastered} ja resoltes`);
+    bits.push(`${available} jugades al fons`);
+    if (last) bits.push(`últim test: ${last.accuracy}%`);
+    meta.text(bits.join(' · '));
 }
 
 /* ---- Sessió ---- */
@@ -23317,6 +23357,7 @@ function startTriaSession(questions) {
     }
     buildTriaCards();
     renderTriaQuestion();
+    renderTriaHistoryList();
 }
 
 // Les quatre targetes es construeixen UNA vegada per sessió; després només se'n
@@ -23326,11 +23367,13 @@ function buildTriaCards() {
     const wrap = $('#tria-cards');
     if (!wrap.length) return;
     const letters = ['A', 'B', 'C'];
-    // La jugada REAL va primera (a l'esquerra): és la referència contra la qual
-    // es comparen les tres opcions, i en mòbil és la primera que es veu.
+    // A l'esquerra, la POSICIÓ de la decisió: el punt de partida contra el qual
+    // es comparen les tres opcions. No hi ha marca ni s'hi revela què vas
+    // jugar tu —seria dir-te quina descartar—; és el tauler tal com el vas
+    // tenir davant abans de moure.
     let html = `<div class="tria-card is-original" data-tria-card="orig">
             <div class="tria-card-head">
-                <span class="tria-card-letter">ORIGINAL</span>
+                <span class="tria-card-letter">POSICIÓ</span>
                 <span class="tria-card-san" id="tria-original-san">—</span>
             </div>
             <div class="tria-card-board" id="tria-board-orig"></div>
@@ -23413,7 +23456,15 @@ function renderTriaQuestion() {
     $('#tria-progress').text(`Pregunta ${triaSession.index + 1} de ${total}`);
     $('#tria-bar-fill').css('width', `${Math.round((triaSession.index / total) * 100)}%`);
     $('#tria-prompt').text('Quina de les tres mana?');
+    const phaseLabel = { opening: 'obertura', middlegame: 'migjoc', endgame: 'final' }[q.phase] || 'migjoc';
     const bits = [];
+    if (q.pending) bits.push('↻ repesca');
+    // Una decisió fallada a diverses partides no és soroll: és un forat que
+    // vas repetint, i val la pena que ho sàpigues.
+    if ((q.repeatedGames || 1) >= ElTaulerCore.TRIA_CONFIG.openings.recurringMinGames) {
+        bits.push(`⚠ fallada a ${q.repeatedGames} partides`);
+    }
+    bits.push(phaseLabel);
     if (q.moveNumber) bits.push(`jugada ${q.moveNumber}`);
     if (q.gameLabel) bits.push(q.gameLabel);
     bits.push(q.turn === 'w' ? 'jugaves amb blanques' : 'jugaves amb negres');
@@ -23438,20 +23489,15 @@ function renderTriaQuestion() {
     $('.tria-card-pick').prop('disabled', false);
     $('.tria-vote-btn').prop('disabled', false).removeClass('is-correct is-incorrect');
 
-    // Original: el que vas jugar. Abans de respondre NO es diu si coincideix
-    // amb cap opció (seria regalar un descart); després sí.
-    const origCard = $('[data-tria-card="orig"]');
-    if (q.original) {
-        origCard.show();
-        $('#tria-original-san').text(q.original.san);
-        $('#tria-original-note').text('El que vas jugar a la partida.');
-        if (triaOriginalBoard) {
-            try { triaOriginalBoard.orientation(orientation); } catch (e) {}
-            triaOriginalBoard.position(q.original.fen, false);
-            markTriaMove('tria-board-orig', q.original.from, q.original.to);
-        }
-    } else {
-        origCard.hide();
+    // Posició de la decisió: el tauler tal com el vas tenir davant. Sense marca
+    // (no s'hi ha mogut res encara) i sense dir què hi vas jugar.
+    $('[data-tria-card="orig"]').show();
+    $('#tria-original-san').text(q.turn === 'w' ? 'Juguen blanques' : 'Juguen negres');
+    $('#tria-original-note').text('La posició on havies de decidir.');
+    if (triaOriginalBoard) {
+        try { triaOriginalBoard.orientation(orientation); } catch (e) {}
+        triaOriginalBoard.position(q.fen, false);
+        markTriaMove('tria-board-orig', null, null);
     }
 
     // El carrusel torna al principi a cada pregunta.
@@ -23491,10 +23537,6 @@ function answerTriaQuestion(index) {
         }
     });
 
-    if (q.original && q.original.matchesOptionLetter) {
-        $('#tria-original-note').text(`El que vas jugar: és l'opció ${q.original.matchesOptionLetter}.`);
-    }
-
     renderTriaAnswerResult(q, result, index);
     $('#btn-tria-next').show().text(
         triaSession.index + 1 < triaSession.questions.length ? 'Següent ›' : 'Veure els resultats ›'
@@ -23531,12 +23573,21 @@ function nextTriaQuestion() {
 function finishTriaTest() {
     if (!triaSession || triaSession.finished) return;
     triaSession.finished = true;
-    const summary = ElTaulerCore.triaTestSummary(triaSession.results, { elo: clampEngineElo(userELO) });
+    const summary = ElTaulerCore.triaTestSummary(triaSession.results, {
+        elo: clampEngineElo(userELO),
+        questions: triaSession.questions.slice(0, triaSession.results.length)
+    });
+
+    // Memòria: les encertades es tanquen i no tornen; les fallades queden
+    // pendents per als tests següents.
+    triaProgress = ElTaulerCore.triaApplyResults(loadTriaProgress(), triaSession.results, { now: Date.now() });
+    saveTriaProgress();
 
     triaHistory = ElTaulerCore.triaAppendResult(loadTriaHistory(), summary, { now: Date.now() });
     saveTriaHistory();
     try { renderTriaChart(); } catch (e) {}
     try { refreshTriaBanner(); } catch (e) {}
+    try { renderTriaHistoryList(); } catch (e) {}
 
     $('#tria-progress').text('Test acabat');
     $('#tria-bar-fill').css('width', '100%');
@@ -23554,6 +23605,14 @@ function finishTriaTest() {
         <div class="tria-score-cell"><div class="tria-score-value">${summary.accuracy}%</div><div class="tria-score-label">Encert</div></div>
         <div class="tria-score-cell"><div class="tria-score-value">${summary.lostCp}</div><div class="tria-score-label">cp regalats</div></div>
     </div>`;
+    const ph = summary.phases || {};
+    const phaseBits = [];
+    if (ph.opening) phaseBits.push(`${ph.opening} d'obertura`);
+    if (ph.middlegame) phaseBits.push(`${ph.middlegame} de migjoc`);
+    if (ph.endgame) phaseBits.push(`${ph.endgame} de final`);
+    if (phaseBits.length > 1) {
+        html += `<div class="tria-line">Fases del test: ${phaseBits.join(', ')}.</div>`;
+    }
     if (summary.avgDifficulty !== null) {
         const pct = Math.round(summary.avgDifficulty * 100);
         html += `<div class="tria-line">Dificultat mitjana de les preguntes: <strong>${pct}%</strong>, ajustada al teu nivell (ELO ${clampEngineElo(userELO)}).</div>`;
@@ -23568,10 +23627,79 @@ function finishTriaTest() {
         html += `<div class="tria-line">Test anterior: ${prev.accuracy}% · ara ${summary.accuracy}% `
             + (delta === 0 ? '(igual).' : `(${delta > 0 ? '+' : ''}${delta} punts).`) + '</div>';
     }
+    const counts = ElTaulerCore.triaProgressCounts(triaProgress);
+    const wrong = summary.total - summary.correct;
+    if (wrong > 0) {
+        html += `<div class="tria-line">Les <strong>${wrong}</strong> que has fallat tornaran als propers tests fins que les encertis. Les ${summary.correct} encertades ja no tornen.</div>`;
+    } else if (summary.total > 0) {
+        html += `<div class="tria-line">Totes encertades: cap d'aquestes decisions no et tornarà a sortir.</div>`;
+    }
+    if (counts.pending > 0 || counts.mastered > 0) {
+        html += `<div class="tria-line">En total portes <strong>${counts.mastered}</strong> ${counts.mastered === 1 ? 'decisió resolta' : 'decisions resoltes'} i <strong>${counts.pending}</strong> per repescar.</div>`;
+    }
     html += `<div class="tria-line">L'evolució de tots els teus tests és a Estadístiques.</div>`;
     $('#tria-result').removeClass('is-ko').addClass('is-ok').html(html).show();
     $('#btn-tria-next').hide();
     $('#btn-tria-restart').show();
+}
+
+/* ---- Historial de tests (llista de sota) ---- */
+
+function triaHistoryDateLabel(at) {
+    if (!at) return '—';
+    const d = new Date(at);
+    const dd = String(d.getDate()).padStart(2, '0');
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    return `${dd}/${mm}/${String(d.getFullYear()).slice(-2)}`;
+}
+
+function renderTriaHistoryList() {
+    const box = $('#tria-history');
+    const list = $('#tria-history-list');
+    if (!box.length || !list.length) return;
+    const rows = ElTaulerCore.triaHistoryRows(loadTriaHistory());
+    if (!rows.length) { box.hide(); list.empty(); return; }
+    box.show();
+    list.html(rows.map(r => {
+        const elo = (r.questionElo !== null) ? `ELO ~${r.questionElo}` : '—';
+        return `<div class="tria-history-row">
+            <span class="tria-history-date">${escapeHtml(triaHistoryDateLabel(r.at))}</span>
+            <span class="tria-history-acc">${r.accuracy}% <span class="tria-history-frac">(${r.correct}/${r.total})</span></span>
+            <span class="tria-history-elo">${escapeHtml(elo)}</span>
+            <button type="button" class="tria-history-replay" data-tria-replay="${r.index}"${r.replayable ? '' : ' disabled title="Aquest test és anterior al desat de les preguntes"'}>↻ Rejugar</button>
+        </div>`;
+    }).join(''));
+}
+
+// Rejuga un test de l'historial amb les MATEIXES decisions. Es reconstrueixen
+// a partir del fons actual: si alguna partida ja no hi és, aquella pregunta no
+// es pot refer i el test surt més curt (es diu, no es dissimula).
+function replayTriaTest(index) {
+    const rows = ElTaulerCore.triaHistoryRows(loadTriaHistory());
+    const row = rows[index];
+    if (!row || !row.replayable) return;
+    const helpers = getTriaHelpers();
+    if (!helpers) { showToast('No s\'ha pogut preparar el test (motor d\'escacs no carregat).', 'error'); return; }
+    showToast('Reconstruint el test…', 'info', 1500);
+    ensureTriaPool().then(pool => {
+        const wanted = {};
+        row.keys.forEach(k => { wanted[k] = true; });
+        const byKey = {};
+        ElTaulerCore.triaEligibleMoves(pool, {}).forEach(r => {
+            const q = helpers.buildQuestion(r, {});
+            if (q && wanted[q.key]) byKey[q.key] = q;
+        });
+        // Es respecta l'ordre original del test.
+        const questions = row.keys.map(k => byKey[k]).filter(Boolean);
+        if (!questions.length) {
+            showToast('Les partides d\'aquest test ja no són a l\'historial: no es pot rejugar.', 'warn', 5000);
+            return;
+        }
+        if (questions.length < row.keys.length) {
+            showToast(`Se n'han pogut refer ${questions.length} de ${row.keys.length}: la resta ja no són a l'historial.`, 'info', 4500);
+        }
+        startTriaSession(questions);
+    });
 }
 
 function closeTriaScreen() {
@@ -27819,7 +27947,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
     // d'aquesta partida ja compten al fons, com les de totes les altres.
     const triaBtn = $('#btn-review-tria');
     if (triaBtn.length) {
-        const planned = ElTaulerCore.triaPlannedQuestionCount(collectTriaPool(), {});
+        const planned = ElTaulerCore.triaPlannedQuestionCount(collectTriaPool(), { progress: loadTriaProgress() });
         triaBtn.toggle(planned >= ElTaulerCore.TRIA_CONFIG.minTestSize);
         triaBtn.off('click').on('click', () => {
             modal.hide();

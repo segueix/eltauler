@@ -342,6 +342,36 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   un jugador de 2400 rep de mitjana preguntes més difícils que un de 900, que un
   test no buida mai una sola partida i que les preguntes es reparteixen entre
   partides diferents.
+  De les **obertures**: el fons n'és desbordant —totes les partides en tenen, i
+  sovint la MATEIXA, perquè cadascú juga el seu repertori— i sense filtre un
+  test s'ompliria de variacions de les mateixes quatre jugades. Se'n deixa
+  passar **una per posició** (dues partides que arriben a la mateixa posició
+  són la mateixa pregunta, encara que hi juguessis coses diferents) i, en total,
+  una quarta part del test. L'excepció són els **errors recurrents**: una
+  decisió que has fallat en partides DIFERENTS no és soroll sinó un forat del
+  repertori, i aquestes hi passen sempre i primer. Es comprova també que fallar
+  dues vegades a la mateixa partida NO faci recurrent (sovint és la mateixa
+  línia repetida un mal dia), que les altres fases no les toqui el filtre, i
+  —la prova que evita el mal pitjor— que el sostre sigui una preferència i no
+  una gana: amb un fons de només obertures variades, el test s'omple igualment
+  en comptes de servir-ne cinc.
+  De la **barreja de fases**: el test combina obertures, migjocs i finals. El
+  repartiment fa torns rodons entre les tres (`triaInterleaveByPhase`), de
+  manera que agafant-ne les primeres vint el test toca les tres encara que el
+  fons sigui molt desigual —i el fons real ho és: moltes obertures, força
+  migjocs i pocs finals. Hi ha també la prova que va destapar el problema de
+  fons: el màxim per partida s'ha de repartir **al llarg** de la partida i no
+  cobrir-se amb les primeres jugades, perquè les revisions vénen en ordre de
+  joc i quedar-se amb el cap de la llista voldria dir servir sempre obertures
+  i no arribar mai al migjoc d'aquella partida.
+  De la **memòria entre tests**: una decisió encertada queda tancada i no torna
+  MAI més; una de fallada queda pendent i va tornant fins que s'encerta (i
+  llavors es tanca igual, encara que hagi costat diversos intents). Les pendents
+  tenen prioritat però no poden omplir un test senceres —si ho fessin, deixaries
+  de veure decisions noves—, tret que no hi hagi material nou, on val més
+  repescar que servir un test escuat. El compte que anuncia el bàner descompta
+  les ja encertades i NO descompta les fallades, que segueixen disponibles. Una
+  memòria buida o corrupta no rebenta res.
   De la **puntuació i l'historial**: encertar la millor és correcte, qualsevol
   altra diu quants centipeons costava, triar la mateixa jugada que ja vas fer a
   la partida queda marcat a part (`repeatedOwnMove`), i el resum compta encerts,
@@ -349,3 +379,11 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   historial ordenat i limitat, i la sèrie de la gràfica d'evolució en surt amb
   el percentatge d'encert i la mitjana mòbil de tendència, ordenada per data
   encara que l'historial vingui desordenat.
+  De la **llista de tests anteriors** (sota el test): cada test desa les claus
+  de les decisions que hi van sortir, que és el que permet **rejugar-lo** amb
+  les mateixes; les files van del més nou al més vell amb data, encert i el
+  **nivell mitjà de les preguntes**, que surt d'invertir la corba
+  dificultat↔ELO (`triaDifficultyToElo`, comprovat com a invers exacte de
+  `triaTargetDifficulty` a totes les fites). Un test antic sense claus desades
+  es marca com a no rejugable en comptes de fallar en silenci, i un sense
+  dificultat desada no s'inventa cap nivell: el deixa buit.

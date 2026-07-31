@@ -6601,6 +6601,29 @@
             // D'una mateixa partida no es prenen totes les jugades: un test ha
             // de recórrer partides diferents.
             maxPerGame: 5
+        },
+
+        // Memòria entre tests. Una pregunta encertada no torna MAI; una de
+        // fallada queda pendent i va tornant fins que s'encerta. Les pendents
+        // tenen prioritat, però no poden omplir el test senceres: si un test de
+        // vint fos tot repesca, deixaries de veure decisions noves.
+        repetition: {
+            maxPendingShare: 0.5
+        },
+
+        // Obertures. El fons n'és desbordant —totes les partides en tenen, i
+        // sovint la MATEIXA— i, sense filtre, un test se n'ompliria de
+        // variacions de les mateixes quatre jugades. Se'n deixa passar UNA per
+        // posició i, en total, una quarta part del test.
+        //
+        // L'excepció són els errors RECURRENTS: una decisió d'obertura que has
+        // fallat en partides diferents no és soroll, és un forat del repertori,
+        // i aquestes passen sempre. El buit que deixi el tall s'omple amb
+        // migjoc, que és on hi ha més material de veritat.
+        openings: {
+            onePerPosition: true,
+            maxShare: 0.25,
+            recurringMinGames: 2
         }
     };
 
@@ -6696,6 +6719,25 @@
         return rows[rows.length - 1].target;
     }
 
+    // Invers de triaTargetDifficulty: quin ELO/ROC correspon a una dificultat.
+    // És el que permet dir a quin nivell estaven les preguntes d'un test, que
+    // és una mitjana de veritat (cada pregunta té la seva dificultat).
+    function triaDifficultyToElo(difficulty) {
+        const rows = TRIA_CONFIG.eloTargets;
+        const d = clampNum(isNaN(difficulty) ? 0.5 : difficulty,
+            rows[0].target, rows[rows.length - 1].target);
+        for (let i = 0; i < rows.length - 1; i++) {
+            const lo = rows[i];
+            const hi = rows[i + 1];
+            if (d <= hi.target) {
+                const span = hi.target - lo.target;
+                const t = span === 0 ? 0 : (d - lo.target) / span;
+                return Math.round(lo.elo + (hi.elo - lo.elo) * t);
+            }
+        }
+        return rows[rows.length - 1].elo;
+    }
+
     // Barreja determinista a partir d'una clau: la mateixa jugada ha de donar
     // sempre el mateix ordre d'opcions.
     function triaSeedFromKey(key) {
@@ -6742,25 +6784,53 @@
             const loss = antidoteNum(r.cpLoss != null ? r.cpLoss : r.swing, 0);
             if (loss < cfg.minLossCp) return;
             const key = reviewErrorKey(r);
-            if (seen[key]) return;
-            seen[key] = true;
-            out.push(r);
+            // La MATEIXA decisió repetida (mateixa posició, mateixa jugada
+            // dolenta) no genera dues preguntes, però es compta: repetir-la en
+            // partides diferents és el que la converteix en un error RECURRENT,
+            // i això és el que li dona dret a passar el filtre d'obertures.
+            if (seen[key]) {
+                seen[key].occurrences++;
+                if (r.gameId) seen[key].games[String(r.gameId)] = true;
+                return;
+            }
+            const kept = Object.assign({}, r, { occurrences: 1, games: {} });
+            if (r.gameId) kept.games[String(r.gameId)] = true;
+            seen[key] = kept;
+            out.push(kept);
+        });
+        // Recurrent = fallada en més d'una partida (no dues vegades a la
+        // mateixa, que sovint és la mateixa línia repetida en un dia dolent).
+        out.forEach(r => {
+            r.repeatedGames = Object.keys(r.games || {}).length;
+            delete r.games;
         });
         return out;
     }
 
     // Reparteix el fons de jugades per partida, respectant el màxim per partida
     // i alternant-les perquè el test no es quedi encallat en una sola.
+    //
+    // El màxim per partida es reparteix al LLARG de la partida, no agafant-ne
+    // les primeres jugades: les revisions vénen en ordre de joc, i quedar-se
+    // amb el cap de la llista voldria dir servir sempre obertures i no arribar
+    // mai al migjoc ni al final d'aquella partida.
     function triaSpreadAcrossGames(pool, maxPerGame) {
         const max = Math.max(1, antidoteNum(maxPerGame, TRIA_CONFIG.eligibility.maxPerGame));
         const byGame = new Map();
-        pool.forEach(item => {
+        (Array.isArray(pool) ? pool : []).forEach(item => {
             const id = String((item && item.gameId) || 'sense-partida');
             if (!byGame.has(id)) byGame.set(id, []);
-            const list = byGame.get(id);
-            if (list.length < max) list.push(item);
+            byGame.get(id).push(item);
         });
-        const lists = Array.from(byGame.values());
+        const lists = Array.from(byGame.values()).map(list => {
+            if (list.length <= max) return list;
+            const picked = [];
+            const step = list.length / max;
+            for (let i = 0; i < max; i++) {
+                picked.push(list[Math.min(list.length - 1, Math.floor(i * step))]);
+            }
+            return picked;
+        });
         const out = [];
         let added = true;
         let round = 0;
@@ -6774,6 +6844,100 @@
         return out;
     }
 
+    // ------------------------------------------------------------------
+    // Memòria entre tests
+    // ------------------------------------------------------------------
+    // Cada decisió té un estat: `mastered` (l'has encertada, no torna mai més)
+    // o `pending` (l'has fallada i tornarà fins que l'encertis). El que no hi
+    // consta encara no s'ha preguntat mai.
+    function triaEmptyProgress() {
+        return { version: TRIA_CONFIG.version, entries: {} };
+    }
+
+    function triaNormalizeProgress(progress) {
+        const p = (progress && typeof progress === 'object') ? progress : null;
+        const entries = (p && p.entries && typeof p.entries === 'object') ? p.entries : {};
+        return { version: TRIA_CONFIG.version, entries: entries };
+    }
+
+    function triaProgressStatus(progress, key) {
+        if (!key) return null;
+        const entry = triaNormalizeProgress(progress).entries[key];
+        if (!entry) return null;
+        return entry.status === 'mastered' ? 'mastered' : 'pending';
+    }
+
+    // Aplica els resultats d'un test acabat. Encertar tanca la pregunta encara
+    // que abans l'haguessis fallada: l'objectiu és haver-la après, no el
+    // rècord d'intents.
+    function triaApplyResults(progress, results, options) {
+        const o = options || {};
+        const now = o.now || Date.now();
+        const next = triaNormalizeProgress(progress);
+        const entries = Object.assign({}, next.entries);
+        (Array.isArray(results) ? results : []).forEach(r => {
+            if (!r || !r.key) return;
+            const prev = entries[r.key] || { attempts: 0, wrong: 0, firstAt: now };
+            entries[r.key] = {
+                status: r.correct ? 'mastered' : 'pending',
+                attempts: (prev.attempts || 0) + 1,
+                wrong: (prev.wrong || 0) + (r.correct ? 0 : 1),
+                firstAt: prev.firstAt || now,
+                lastAt: now,
+                masteredAt: r.correct ? now : (prev.masteredAt || null)
+            };
+        });
+        return { version: TRIA_CONFIG.version, entries: entries };
+    }
+
+    function triaProgressCounts(progress) {
+        const entries = triaNormalizeProgress(progress).entries;
+        let pending = 0;
+        let mastered = 0;
+        Object.keys(entries).forEach(k => {
+            if (entries[k] && entries[k].status === 'mastered') mastered++;
+            else pending++;
+        });
+        return { pending: pending, mastered: mastered, total: pending + mastered };
+    }
+
+    // Separa un fons de jugades segons la memòria. Les encertades queden fora
+    // del test; les fallades primer, i les que no s'han vist mai després.
+    function triaPartitionByProgress(items, progress, keyOf) {
+        const getKey = (typeof keyOf === 'function') ? keyOf : (x => x && x.key);
+        const pending = [];
+        const fresh = [];
+        const mastered = [];
+        (Array.isArray(items) ? items : []).forEach(item => {
+            const status = triaProgressStatus(progress, getKey(item));
+            if (status === 'mastered') mastered.push(item);
+            else if (status === 'pending') pending.push(item);
+            else fresh.push(item);
+        });
+        return { pending: pending, fresh: fresh, mastered: mastered };
+    }
+
+    // Barreja pendents i noves respectant el sostre de repesca. Les pendents
+    // van primer; la resta del test l'omplen les noves i, si no n'hi ha prou,
+    // més pendents.
+    function triaMixPendingAndFresh(pending, fresh, size, options) {
+        const o = options || {};
+        const share = (typeof o.maxPendingShare === 'number')
+            ? o.maxPendingShare : TRIA_CONFIG.repetition.maxPendingShare;
+        const cap = Math.max(1, Math.round(size * clampNum(share, 0, 1)));
+        const takenPending = pending.slice(0, Math.min(cap, pending.length));
+        const room = size - takenPending.length;
+        const takenFresh = fresh.slice(0, Math.max(0, room));
+        const out = takenPending.concat(takenFresh);
+        if (out.length < size) {
+            // Sense material nou, la repesca pot passar del sostre: val més
+            // repetir una pendent que servir un test escuat.
+            const extra = pending.slice(takenPending.length, takenPending.length + (size - out.length));
+            return out.concat(extra);
+        }
+        return out;
+    }
+
     // Quantes preguntes pot donar de debò un fons, SENSE construir-les (no cal
     // chess.js): és el que ha d'anunciar el bàner. Comptar només les jugades
     // elegibles enganyaria, perquè el màxim per partida en deixa moltes fora
@@ -6781,9 +6945,92 @@
     function triaPlannedQuestionCount(reviews, options) {
         const o = options || {};
         const eligible = triaEligibleMoves(reviews, o);
-        const spread = triaSpreadAcrossGames(eligible, o.maxPerGame);
+        // Les ja encertades no tornen: no s'han de comptar com a disponibles.
+        const usable = triaPartitionByProgress(eligible, o.progress, r => reviewErrorKey(r));
+        const spread = triaSpreadAcrossGames(usable.pending.concat(usable.fresh), o.maxPerGame);
         const size = Math.max(1, antidoteNum(o.testSize, TRIA_CONFIG.testSize));
         return Math.min(size, spread.length);
+    }
+
+    // Reparteix una llista de preguntes entre OBERTURA, MIGJOC i FINAL fent
+    // torns rodons: agafant-ne les primeres N, el test surt barrejat de fases
+    // en comptes de quedar-se encallat a la que domini el fons (que sol ser el
+    // migjoc). Dins de cada fase es conserva l'ordre que venia, de manera que
+    // l'ajust de dificultat per ELO segueix manant a dins.
+    const TRIA_PHASES = ['opening', 'middlegame', 'endgame'];
+
+    function triaInterleaveByPhase(questions) {
+        const buckets = { opening: [], middlegame: [], endgame: [] };
+        (Array.isArray(questions) ? questions : []).forEach(q => {
+            const phase = (q && buckets[q.phase]) ? q.phase : 'middlegame';
+            buckets[phase].push(q);
+        });
+        const out = [];
+        let round = 0;
+        let added = true;
+        while (added) {
+            added = false;
+            TRIA_PHASES.forEach(phase => {
+                const list = buckets[phase];
+                if (round < list.length) { out.push(list[round]); added = true; }
+            });
+            round++;
+        }
+        return out;
+    }
+
+    // Filtre d'obertures: una per posició i un sostre del total, tret dels
+    // errors recurrents, que hi passen sempre. Les altres fases no es toquen.
+    function triaFilterOpenings(questions, options) {
+        const o = options || {};
+        const cfg = TRIA_CONFIG.openings;
+        const size = Math.max(1, antidoteNum(o.testSize, TRIA_CONFIG.testSize));
+        const cap = Math.max(1, Math.round(size * clampNum(
+            (typeof o.maxOpeningShare === 'number') ? o.maxOpeningShare : cfg.maxShare, 0, 1)));
+        const minGames = Math.max(1, antidoteNum(o.recurringMinGames, cfg.recurringMinGames));
+
+        const openings = [];
+        const others = [];
+        (Array.isArray(questions) ? questions : []).forEach(q => {
+            if (q && q.phase === 'opening') openings.push(q);
+            else if (q) others.push(q);
+        });
+        if (!openings.length) return { questions: others, overflow: [] };
+
+        // Una per POSICIÓ: dues partides que arriben a la mateixa posició
+        // d'obertura són la mateixa pregunta, encara que hi juguessis coses
+        // diferents. Mana la que s'ha repetit més.
+        const byPosition = new Map();
+        openings.forEach(q => {
+            const posKey = String(q.fen || '').split(' ')[0];
+            const prev = byPosition.get(posKey);
+            if (!prev || (q.repeatedGames || 1) > (prev.repeatedGames || 1)) byPosition.set(posKey, q);
+        });
+        const unique = cfg.onePerPosition ? Array.from(byPosition.values()) : openings;
+
+        const recurring = [];
+        const single = [];
+        unique.forEach(q => {
+            if ((q.repeatedGames || 1) >= minGames) recurring.push(q);
+            else single.push(q);
+        });
+        // Les recurrents primer i senceres; les altres, fins al sostre. Les que
+        // sobren no es llencen: tornen com a `overflow` per si el fons no dona
+        // per omplir el test amb altres fases (un jugador que només tingui
+        // partides curtes no ha de rebre un test de cinc preguntes).
+        const room = Math.max(0, cap - recurring.length);
+        const kept = recurring.concat(single.slice(0, room));
+        return { questions: kept.concat(others), overflow: single.slice(room) };
+    }
+
+    // Quantes preguntes hi ha de cada fase (per al resum del test).
+    function triaPhaseCounts(questions) {
+        const counts = { opening: 0, middlegame: 0, endgame: 0 };
+        (Array.isArray(questions) ? questions : []).forEach(q => {
+            const phase = (q && counts[q.phase] !== undefined) ? q.phase : 'middlegame';
+            counts[phase]++;
+        });
+        return counts;
     }
 
     function createTriaHelpers(ChessCtor, config) {
@@ -6885,7 +7132,9 @@
                 answerIndex: answerIndex,
                 original: original,
                 difficulty: triaQuestionDifficulty(multi),
-                phase: phaseFromFen(fen)
+                phase: phaseFromFen(fen),
+                // En quantes partides diferents has fallat aquesta decisió.
+                repeatedGames: Math.max(1, antidoteNum(r.repeatedGames, 1))
             };
         }
 
@@ -6898,26 +7147,55 @@
             const target = triaTargetDifficulty(elo);
 
             const eligible = triaEligibleMoves(reviews, o);
-            const spread = triaSpreadAcrossGames(eligible, o.maxPerGame);
+            // Memòria entre tests: les encertades queden fora, les fallades
+            // tenen prioritat i les noves omplen la resta.
+            const split = triaPartitionByProgress(eligible, o.progress, r => reviewErrorKey(r));
+            const spreadPending = triaSpreadAcrossGames(split.pending, o.maxPerGame);
+            const spreadFresh = triaSpreadAcrossGames(split.fresh, o.maxPerGame);
 
-            const questions = [];
-            spread.forEach(r => {
-                const q = buildQuestion(r, o);
-                if (q) questions.push(q);
-            });
-            if (!questions.length) return [];
+            const toQuestions = list => {
+                const out = [];
+                list.forEach(r => {
+                    const q = buildQuestion(r, o);
+                    if (q) out.push(q);
+                });
+                return out;
+            };
+            const pendingQs = toQuestions(spreadPending).map(q => Object.assign(q, { pending: true }));
+            const freshQs = toQuestions(spreadFresh);
+            if (!pendingQs.length && !freshQs.length) return [];
 
-            // Primer les que cauen dins la forquilla de dificultat del jugador
-            // (conservant l'ordre repartit entre partides); si no n'hi ha prou,
-            // s'omple amb les més properes a l'objectiu.
+            // Les noves s'ordenen per dificultat segons l'ELO; les pendents no
+            // s'hi filtren: es deuen, vinguin de la franja que vinguin.
             const inBand = [];
             const rest = [];
-            questions.forEach(q => {
+            freshQs.forEach(q => {
                 if (Math.abs(q.difficulty - target) <= cfg.targetSpread) inBand.push(q);
                 else rest.push(q);
             });
             rest.sort((a, b) => Math.abs(a.difficulty - target) - Math.abs(b.difficulty - target));
-            return inBand.concat(rest).slice(0, size);
+            // Obertures: una per posició i amb sostre, tret de les recurrents.
+            // El que es talla aquí l'acaba omplint el migjoc, perquè el
+            // repartiment per fases pren el que queda de cada bossa.
+            const filtered = triaFilterOpenings(inBand.concat(rest), {
+                testSize: size,
+                maxOpeningShare: o.maxOpeningShare,
+                recurringMinGames: o.recurringMinGames
+            });
+            // Barreja de fases: el fons real és molt més ric en obertures i
+            // migjocs que en finals, i sense repartir-lo un test de vint no
+            // arribaria mai a una posició de final.
+            let orderedFresh = triaInterleaveByPhase(filtered.questions);
+            // Si amb el sostre d'obertures no s'omple el test, es recuperen les
+            // que havien sobrat: val més un test sencer d'obertures variades
+            // que un de cinc preguntes.
+            if (orderedFresh.length + pendingQs.length < size && filtered.overflow.length) {
+                orderedFresh = orderedFresh.concat(filtered.overflow);
+            }
+            const orderedPending = triaInterleaveByPhase(pendingQs);
+            return triaMixPendingAndFresh(orderedPending, orderedFresh, size, {
+                maxPendingShare: o.maxPendingShare
+            });
         }
 
         return { optionPosition, buildQuestion, buildTest };
@@ -6963,10 +7241,14 @@
             correct: correct,
             wrong: total - correct,
             accuracy: total ? Math.round((correct / total) * 100) : 0,
+            phases: triaPhaseCounts(o.questions),
             repeatedOwnMove: repeated,
             avgDifficulty: (avgDifficulty === null) ? null : Math.round(avgDifficulty * 100) / 100,
             lostCp: Math.round(lostCp),
-            elo: antidoteNum(o.elo, null)
+            elo: antidoteNum(o.elo, null),
+            // Quines decisions han sortit: és el que permet rejugar el test
+            // exactament igual des de l'historial.
+            keys: list.map(r => r.key).filter(Boolean)
         };
     }
 
@@ -6983,12 +7265,40 @@
             correct: summary.correct,
             accuracy: summary.accuracy,
             avgDifficulty: summary.avgDifficulty,
+            // Nivell mitjà de les preguntes del test (de la dificultat a
+            // ELO/ROC). És el que diu com d'exigent era el test.
+            questionElo: (typeof summary.avgDifficulty === 'number')
+                ? triaDifficultyToElo(summary.avgDifficulty) : null,
             repeatedOwnMove: summary.repeatedOwnMove || 0,
             lostCp: summary.lostCp || 0,
-            elo: summary.elo == null ? null : Math.round(summary.elo)
+            elo: summary.elo == null ? null : Math.round(summary.elo),
+            keys: Array.isArray(summary.keys) ? summary.keys.slice(0, 60) : []
         });
         list.sort((a, b) => (a.at || 0) - (b.at || 0));
         return list.slice(-TRIA_HISTORY_MAX);
+    }
+
+    // Files de l'historial per a la llista de sota del test: data, encert,
+    // nivell mitjà de les preguntes i si es pot rejugar (cal tenir-ne les
+    // claus desades; els tests antics no en tenen).
+    function triaHistoryRows(history) {
+        return (Array.isArray(history) ? history : [])
+            .filter(Boolean)
+            .slice()
+            .sort((a, b) => (b.at || 0) - (a.at || 0))
+            .map((r, i) => ({
+                index: i,
+                at: r.at || null,
+                total: r.total || 0,
+                correct: r.correct || 0,
+                accuracy: (typeof r.accuracy === 'number') ? r.accuracy : 0,
+                questionElo: (typeof r.questionElo === 'number')
+                    ? r.questionElo
+                    : ((typeof r.avgDifficulty === 'number') ? triaDifficultyToElo(r.avgDifficulty) : null),
+                playerElo: (typeof r.elo === 'number') ? r.elo : null,
+                keys: Array.isArray(r.keys) ? r.keys : [],
+                replayable: Array.isArray(r.keys) && r.keys.length > 0
+            }));
     }
 
     // Sèrie per a la gràfica d'estadístiques: encerts (%) al llarg del temps,
@@ -7232,11 +7542,23 @@
         triaTargetDifficulty,
         triaEligibleMoves,
         triaPlannedQuestionCount,
+        triaEmptyProgress,
+        triaProgressStatus,
+        triaApplyResults,
+        triaProgressCounts,
+        triaPartitionByProgress,
+        triaMixPendingAndFresh,
+        triaInterleaveByPhase,
+        triaFilterOpenings,
+        triaPhaseCounts,
+        triaSpreadAcrossGames,
         createTriaHelpers,
         triaGradeAnswer,
         triaTestSummary,
         triaAppendResult,
         triaChartSeries,
+        triaDifficultyToElo,
+        triaHistoryRows,
         START_POSITION_KEY
     };
 });
