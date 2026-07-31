@@ -342,6 +342,15 @@ funció d'`app.js` hi delegui, i afegeix el cas a `tests/`.
   un jugador de 2400 rep de mitjana preguntes més difícils que un de 900, que un
   test no buida mai una sola partida i que les preguntes es reparteixen entre
   partides diferents.
+  De la **barreja de fases**: el test combina obertures, migjocs i finals. El
+  repartiment fa torns rodons entre les tres (`triaInterleaveByPhase`), de
+  manera que agafant-ne les primeres vint el test toca les tres encara que el
+  fons sigui molt desigual —i el fons real ho és: moltes obertures, força
+  migjocs i pocs finals. Hi ha també la prova que va destapar el problema de
+  fons: el màxim per partida s'ha de repartir **al llarg** de la partida i no
+  cobrir-se amb les primeres jugades, perquè les revisions vénen en ordre de
+  joc i quedar-se amb el cap de la llista voldria dir servir sempre obertures
+  i no arribar mai al migjoc d'aquella partida.
   De la **memòria entre tests**: una decisió encertada queda tancada i no torna
   MAI més; una de fallada queda pendent i va tornant fins que s'encerta (i
   llavors es tanca igual, encara que hagi costat diversos intents). Les pendents

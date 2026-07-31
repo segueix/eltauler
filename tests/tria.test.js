@@ -500,6 +500,79 @@ describe('el test respecta la memòria', () => {
     });
 });
 
+describe('barreja de fases (obertura, migjoc i final)', () => {
+    test('el repartiment alterna fases en comptes de servir-les en blocs', () => {
+        const qs = [
+            { phase: 'middlegame', id: 'm1' }, { phase: 'middlegame', id: 'm2' },
+            { phase: 'middlegame', id: 'm3' }, { phase: 'opening', id: 'o1' },
+            { phase: 'opening', id: 'o2' }, { phase: 'endgame', id: 'e1' }
+        ];
+        const mixed = Core.triaInterleaveByPhase(qs);
+        expect(mixed).toHaveLength(6);
+        // Les tres primeres han de cobrir les tres fases.
+        expect(new Set(mixed.slice(0, 3).map(q => q.phase)).size).toBe(3);
+    });
+
+    test('agafant-ne les primeres, el test toca les tres fases encara que el fons sigui desigual', () => {
+        const qs = [];
+        for (let i = 0; i < 40; i++) qs.push({ phase: 'middlegame', id: 'm' + i });
+        for (let i = 0; i < 6; i++) qs.push({ phase: 'opening', id: 'o' + i });
+        for (let i = 0; i < 3; i++) qs.push({ phase: 'endgame', id: 'e' + i });
+        const first20 = Core.triaInterleaveByPhase(qs).slice(0, 20);
+        const counts = Core.triaPhaseCounts(first20);
+        expect(counts.opening).toBeGreaterThan(0);
+        expect(counts.middlegame).toBeGreaterThan(0);
+        expect(counts.endgame).toBeGreaterThan(0);
+        // Sense repartiment, les vint primeres serien totes de migjoc.
+        expect(counts.middlegame).toBeLessThan(20);
+    });
+
+    test('el màxim per partida es reparteix al llarg de la partida, no pel cap', () => {
+        // Les revisions vénen en ordre de joc. Si el màxim es cobrís amb les
+        // primeres, un test no arribaria mai al migjoc ni al final d'aquella
+        // partida: totes les preguntes serien obertures.
+        const long = [];
+        for (let i = 0; i < 40; i++) long.push({ gameId: 'unica', moveNumber: i + 1 });
+        const spread = Core.triaSpreadAcrossGames(long, 5);
+        expect(spread).toHaveLength(5);
+        const numbers = spread.map(x => x.moveNumber);
+        // La tria ha de cobrir tota la partida, no els cinc primers moviments.
+        expect(Math.max(...numbers)).toBeGreaterThan(30);
+        expect(numbers).not.toEqual([1, 2, 3, 4, 5]);
+    });
+
+    test('una partida amb menys jugades que el màxim es conserva sencera', () => {
+        const short = [{ gameId: 'g', moveNumber: 1 }, { gameId: 'g', moveNumber: 2 }];
+        expect(Core.triaSpreadAcrossGames(short, 5)).toHaveLength(2);
+    });
+
+    test('dins de cada fase es conserva l\'ordre que venia (la dificultat mana a dins)', () => {
+        const qs = [
+            { phase: 'opening', id: 'o1' }, { phase: 'opening', id: 'o2' },
+            { phase: 'opening', id: 'o3' }
+        ];
+        expect(Core.triaInterleaveByPhase(qs).map(q => q.id)).toEqual(['o1', 'o2', 'o3']);
+    });
+
+    test('una fase desconeguda o absent es compta com a migjoc', () => {
+        const counts = Core.triaPhaseCounts([{ phase: 'inventada' }, {}, { phase: 'endgame' }]);
+        expect(counts.middlegame).toBe(2);
+        expect(counts.endgame).toBe(1);
+    });
+
+    test('llistes buides o corruptes no rebenten res', () => {
+        expect(Core.triaInterleaveByPhase(null)).toEqual([]);
+        expect(Core.triaPhaseCounts(null)).toEqual({ opening: 0, middlegame: 0, endgame: 0 });
+    });
+
+    test('el resum del test diu de quina fase era cada pregunta', () => {
+        const s = Core.triaTestSummary(
+            [{ correct: true }, { correct: false }, { correct: true }],
+            { questions: [{ phase: 'opening' }, { phase: 'middlegame' }, { phase: 'endgame' }] });
+        expect(s.phases).toEqual({ opening: 1, middlegame: 1, endgame: 1 });
+    });
+});
+
 describe('triaGradeAnswer (verd o vermell a l\'instant)', () => {
     const q = T.buildQuestion(review(), {});
     const bestIdx = q.answerIndex;

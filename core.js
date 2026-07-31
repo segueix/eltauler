@@ -6759,16 +6759,28 @@
 
     // Reparteix el fons de jugades per partida, respectant el màxim per partida
     // i alternant-les perquè el test no es quedi encallat en una sola.
+    //
+    // El màxim per partida es reparteix al LLARG de la partida, no agafant-ne
+    // les primeres jugades: les revisions vénen en ordre de joc, i quedar-se
+    // amb el cap de la llista voldria dir servir sempre obertures i no arribar
+    // mai al migjoc ni al final d'aquella partida.
     function triaSpreadAcrossGames(pool, maxPerGame) {
         const max = Math.max(1, antidoteNum(maxPerGame, TRIA_CONFIG.eligibility.maxPerGame));
         const byGame = new Map();
-        pool.forEach(item => {
+        (Array.isArray(pool) ? pool : []).forEach(item => {
             const id = String((item && item.gameId) || 'sense-partida');
             if (!byGame.has(id)) byGame.set(id, []);
-            const list = byGame.get(id);
-            if (list.length < max) list.push(item);
+            byGame.get(id).push(item);
         });
-        const lists = Array.from(byGame.values());
+        const lists = Array.from(byGame.values()).map(list => {
+            if (list.length <= max) return list;
+            const picked = [];
+            const step = list.length / max;
+            for (let i = 0; i < max; i++) {
+                picked.push(list[Math.min(list.length - 1, Math.floor(i * step))]);
+            }
+            return picked;
+        });
         const out = [];
         let added = true;
         let round = 0;
@@ -6888,6 +6900,43 @@
         const spread = triaSpreadAcrossGames(usable.pending.concat(usable.fresh), o.maxPerGame);
         const size = Math.max(1, antidoteNum(o.testSize, TRIA_CONFIG.testSize));
         return Math.min(size, spread.length);
+    }
+
+    // Reparteix una llista de preguntes entre OBERTURA, MIGJOC i FINAL fent
+    // torns rodons: agafant-ne les primeres N, el test surt barrejat de fases
+    // en comptes de quedar-se encallat a la que domini el fons (que sol ser el
+    // migjoc). Dins de cada fase es conserva l'ordre que venia, de manera que
+    // l'ajust de dificultat per ELO segueix manant a dins.
+    const TRIA_PHASES = ['opening', 'middlegame', 'endgame'];
+
+    function triaInterleaveByPhase(questions) {
+        const buckets = { opening: [], middlegame: [], endgame: [] };
+        (Array.isArray(questions) ? questions : []).forEach(q => {
+            const phase = (q && buckets[q.phase]) ? q.phase : 'middlegame';
+            buckets[phase].push(q);
+        });
+        const out = [];
+        let round = 0;
+        let added = true;
+        while (added) {
+            added = false;
+            TRIA_PHASES.forEach(phase => {
+                const list = buckets[phase];
+                if (round < list.length) { out.push(list[round]); added = true; }
+            });
+            round++;
+        }
+        return out;
+    }
+
+    // Quantes preguntes hi ha de cada fase (per al resum del test).
+    function triaPhaseCounts(questions) {
+        const counts = { opening: 0, middlegame: 0, endgame: 0 };
+        (Array.isArray(questions) ? questions : []).forEach(q => {
+            const phase = (q && counts[q.phase] !== undefined) ? q.phase : 'middlegame';
+            counts[phase]++;
+        });
+        return counts;
     }
 
     function createTriaHelpers(ChessCtor, config) {
@@ -7029,7 +7078,12 @@
                 else rest.push(q);
             });
             rest.sort((a, b) => Math.abs(a.difficulty - target) - Math.abs(b.difficulty - target));
-            return triaMixPendingAndFresh(pendingQs, inBand.concat(rest), size, {
+            // Barreja de fases: el fons real és molt més ric en obertures i
+            // migjocs que en finals, i sense repartir-lo un test de vint no
+            // arribaria mai a una posició de final.
+            const orderedFresh = triaInterleaveByPhase(inBand.concat(rest));
+            const orderedPending = triaInterleaveByPhase(pendingQs);
+            return triaMixPendingAndFresh(orderedPending, orderedFresh, size, {
                 maxPendingShare: o.maxPendingShare
             });
         }
@@ -7077,6 +7131,7 @@
             correct: correct,
             wrong: total - correct,
             accuracy: total ? Math.round((correct / total) * 100) : 0,
+            phases: triaPhaseCounts(o.questions),
             repeatedOwnMove: repeated,
             avgDifficulty: (avgDifficulty === null) ? null : Math.round(avgDifficulty * 100) / 100,
             lostCp: Math.round(lostCp),
@@ -7352,6 +7407,9 @@
         triaProgressCounts,
         triaPartitionByProgress,
         triaMixPendingAndFresh,
+        triaInterleaveByPhase,
+        triaPhaseCounts,
+        triaSpreadAcrossGames,
         createTriaHelpers,
         triaGradeAnswer,
         triaTestSummary,

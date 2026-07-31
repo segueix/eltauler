@@ -23363,11 +23363,13 @@ function buildTriaCards() {
     const wrap = $('#tria-cards');
     if (!wrap.length) return;
     const letters = ['A', 'B', 'C'];
-    // La jugada REAL va primera (a l'esquerra): és la referència contra la qual
-    // es comparen les tres opcions, i en mòbil és la primera que es veu.
+    // A l'esquerra, la POSICIÓ de la decisió: el punt de partida contra el qual
+    // es comparen les tres opcions. No hi ha marca ni s'hi revela què vas
+    // jugar tu —seria dir-te quina descartar—; és el tauler tal com el vas
+    // tenir davant abans de moure.
     let html = `<div class="tria-card is-original" data-tria-card="orig">
             <div class="tria-card-head">
-                <span class="tria-card-letter">ORIGINAL</span>
+                <span class="tria-card-letter">POSICIÓ</span>
                 <span class="tria-card-san" id="tria-original-san">—</span>
             </div>
             <div class="tria-card-board" id="tria-board-orig"></div>
@@ -23450,8 +23452,10 @@ function renderTriaQuestion() {
     $('#tria-progress').text(`Pregunta ${triaSession.index + 1} de ${total}`);
     $('#tria-bar-fill').css('width', `${Math.round((triaSession.index / total) * 100)}%`);
     $('#tria-prompt').text('Quina de les tres mana?');
+    const phaseLabel = { opening: 'obertura', middlegame: 'migjoc', endgame: 'final' }[q.phase] || 'migjoc';
     const bits = [];
     if (q.pending) bits.push('↻ repesca');
+    bits.push(phaseLabel);
     if (q.moveNumber) bits.push(`jugada ${q.moveNumber}`);
     if (q.gameLabel) bits.push(q.gameLabel);
     bits.push(q.turn === 'w' ? 'jugaves amb blanques' : 'jugaves amb negres');
@@ -23476,20 +23480,15 @@ function renderTriaQuestion() {
     $('.tria-card-pick').prop('disabled', false);
     $('.tria-vote-btn').prop('disabled', false).removeClass('is-correct is-incorrect');
 
-    // Original: el que vas jugar. Abans de respondre NO es diu si coincideix
-    // amb cap opció (seria regalar un descart); després sí.
-    const origCard = $('[data-tria-card="orig"]');
-    if (q.original) {
-        origCard.show();
-        $('#tria-original-san').text(q.original.san);
-        $('#tria-original-note').text('El que vas jugar a la partida.');
-        if (triaOriginalBoard) {
-            try { triaOriginalBoard.orientation(orientation); } catch (e) {}
-            triaOriginalBoard.position(q.original.fen, false);
-            markTriaMove('tria-board-orig', q.original.from, q.original.to);
-        }
-    } else {
-        origCard.hide();
+    // Posició de la decisió: el tauler tal com el vas tenir davant. Sense marca
+    // (no s'hi ha mogut res encara) i sense dir què hi vas jugar.
+    $('[data-tria-card="orig"]').show();
+    $('#tria-original-san').text(q.turn === 'w' ? 'Juguen blanques' : 'Juguen negres');
+    $('#tria-original-note').text('La posició on havies de decidir.');
+    if (triaOriginalBoard) {
+        try { triaOriginalBoard.orientation(orientation); } catch (e) {}
+        triaOriginalBoard.position(q.fen, false);
+        markTriaMove('tria-board-orig', null, null);
     }
 
     // El carrusel torna al principi a cada pregunta.
@@ -23529,10 +23528,6 @@ function answerTriaQuestion(index) {
         }
     });
 
-    if (q.original && q.original.matchesOptionLetter) {
-        $('#tria-original-note').text(`El que vas jugar: és l'opció ${q.original.matchesOptionLetter}.`);
-    }
-
     renderTriaAnswerResult(q, result, index);
     $('#btn-tria-next').show().text(
         triaSession.index + 1 < triaSession.questions.length ? 'Següent ›' : 'Veure els resultats ›'
@@ -23569,7 +23564,10 @@ function nextTriaQuestion() {
 function finishTriaTest() {
     if (!triaSession || triaSession.finished) return;
     triaSession.finished = true;
-    const summary = ElTaulerCore.triaTestSummary(triaSession.results, { elo: clampEngineElo(userELO) });
+    const summary = ElTaulerCore.triaTestSummary(triaSession.results, {
+        elo: clampEngineElo(userELO),
+        questions: triaSession.questions.slice(0, triaSession.results.length)
+    });
 
     // Memòria: les encertades es tanquen i no tornen; les fallades queden
     // pendents per als tests següents.
@@ -23597,6 +23595,14 @@ function finishTriaTest() {
         <div class="tria-score-cell"><div class="tria-score-value">${summary.accuracy}%</div><div class="tria-score-label">Encert</div></div>
         <div class="tria-score-cell"><div class="tria-score-value">${summary.lostCp}</div><div class="tria-score-label">cp regalats</div></div>
     </div>`;
+    const ph = summary.phases || {};
+    const phaseBits = [];
+    if (ph.opening) phaseBits.push(`${ph.opening} d'obertura`);
+    if (ph.middlegame) phaseBits.push(`${ph.middlegame} de migjoc`);
+    if (ph.endgame) phaseBits.push(`${ph.endgame} de final`);
+    if (phaseBits.length > 1) {
+        html += `<div class="tria-line">Fases del test: ${phaseBits.join(', ')}.</div>`;
+    }
     if (summary.avgDifficulty !== null) {
         const pct = Math.round(summary.avgDifficulty * 100);
         html += `<div class="tria-line">Dificultat mitjana de les preguntes: <strong>${pct}%</strong>, ajustada al teu nivell (ELO ${clampEngineElo(userELO)}).</div>`;
