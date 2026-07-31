@@ -6286,7 +6286,7 @@
             <div class="modal-content">
                 <div class="modal-title">📝 Explica el teu moviment</div>
                 <p class="catalans-msg-move" id="catalans-msg-move"></p>
-                <p class="promotion-hint">Ets el primer a proposar aquest moviment. Pots explicar (opcionalment) per què l'has triat. El missatge quedarà a sota la teva votació.</p>
+                <p class="promotion-hint" id="catalans-msg-hint">Ets el primer a proposar aquest moviment. Pots explicar (opcionalment) per què l'has triat. El missatge quedarà a sota la teva votació.</p>
                 <textarea id="catalans-msg-text" maxlength="180" rows="3" placeholder="Per què aquest moviment? (opcional, fins a 180 caràcters)"></textarea>
                 <div class="catalans-msg-count"><span id="catalans-msg-count">0</span>/180</div>
                 <div class="catalans-msg-actions">
@@ -6958,8 +6958,15 @@
             .catalans-vote-n { min-width:24px; text-align:right; color: var(--text-secondary); }
             .catalans-vote-empty { color: var(--text-secondary); font-size:0.85rem; }
             /* Autoria del vot (qui ha proposat primer el moviment) i la seva explicació */
+            .catalans-vote-by { display:flex; align-items:center; gap:6px; flex-wrap:wrap; }
             .catalans-vote-author { font-size:0.76rem; color: var(--text-secondary); margin-left:2px; }
             .catalans-vote-author .catalans-vote-rating { color: var(--accent-gold); }
+            /* Llapis per explicar el propi moviment quan encara no s'ha comentat */
+            .catalans-vote-edit { background: rgba(201,162,39,0.12); border:1px solid rgba(201,162,39,0.38);
+                color: var(--text-primary); border-radius:8px; padding:1px 7px; font-size:0.8rem; line-height:1.5;
+                cursor:pointer; margin:0; }
+            .catalans-vote-edit:hover { background: rgba(201,162,39,0.26); border-color: var(--accent-gold); }
+            body.epaper-mode .catalans-vote-edit { background:#e4e4e4; border-color:#888; color:#222; }
             .catalans-vote-msg { font-size:0.82rem; color: var(--text-primary); font-style:italic; margin:1px 2px 0;
                 padding:5px 9px; background: rgba(201,162,39,0.08); border-left:3px solid rgba(201,162,39,0.5); border-radius:6px; word-break:break-word; }
             body.epaper-mode .catalans-vote-msg { background:#ececec; border-left-color:#999; color:#222; }

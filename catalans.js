@@ -874,6 +874,7 @@
   // ---------------------------------------------------------------------------
   const MSG_MAX = 180;          // límit de caràcters del missatge d'explicació
   let pendingProposal = null;   // { uci, san } mentre la finestra de missatge és oberta
+  let msgModalEditing = false;  // la finestra s'ha obert per afegir el comentari a un vot ja fet
 
   // ELO/ROC actual del jugador (mateix valor que mostra l'app a #current-elo).
   function userElo() {
@@ -914,9 +915,15 @@
     }
   }
 
-  function openMessageModal(uci, san) {
+  function openMessageModal(uci, san, editing) {
     pendingProposal = { uci: uci, san: san };
+    msgModalEditing = !!editing;
     $('#catalans-msg-move').text('Moviment proposat: ' + san);
+    // Quan s'obre des del llapis, el vot ja està fet: només s'hi afegeix l'explicació.
+    $('#catalans-msg-hint').text(msgModalEditing
+      ? 'Ets el primer a proposar aquest moviment i encara no l\'has explicat. Escriu (opcionalment) per què l\'has triat: el missatge quedarà a sota la teva votació.'
+      : 'Ets el primer a proposar aquest moviment. Pots explicar (opcionalment) per què l\'has triat. El missatge quedarà a sota la teva votació.');
+    $('#catalans-msg-confirm').text(msgModalEditing ? 'Desa el comentari' : 'Confirma el vot');
     const ta = $('#catalans-msg-text');
     ta.val('');
     $('#catalans-msg-count').text('0');
@@ -926,6 +933,7 @@
 
   function closeMessageModal() {
     pendingProposal = null;
+    msgModalEditing = false;
     $('#catalans-msg-modal').hide();
   }
 
@@ -934,8 +942,31 @@
     if (!pendingProposal) { closeMessageModal(); return; }
     const msg = String($('#catalans-msg-text').val() || '').trim().slice(0, MSG_MAX);
     const p = pendingProposal;
+    const editing = msgModalEditing;
     closeMessageModal();
+    // Comentari a posteriori sense text: no cal reescriure el vot (estalvia quota).
+    if (editing && !msg) return;
     castVote(p.uci, p.san, msg);
+  }
+
+  // El SAN d'un moviment ja votat en aquest torn (per obrir la finestra des de la llista).
+  function sanForUci(uci) {
+    const votes = (state && state.votes) || {};
+    const keys = Object.keys(votes);
+    for (let i = 0; i < keys.length; i++) {
+      const v = votes[keys[i]];
+      if (v && v.ply === state.ply && v.uci === uci && v.san) return v.san;
+    }
+    return uci;
+  }
+
+  // Obre la finestra d'explicació per a un vot propi que encara no té missatge.
+  function editVoteMessage(uci) {
+    const u = currentUser();
+    if (!u || !state || state.phase !== 'catalans' || !uci) return;
+    const mine = state.votes && state.votes[u.uid];
+    if (!mine || mine.ply !== state.ply || mine.uci !== uci) return;
+    openMessageModal(uci, sanForUci(uci), true);
   }
 
   function castVote(uci, san, msg) {
@@ -1373,7 +1404,7 @@
       // El PRIMER proposant (vot més antic) és l'autor del moviment i del missatge.
       const at = (typeof v.at === 'number') ? v.at : Infinity;
       if (!g.author || at < g.author.at) {
-        g.author = { name: v.name || '', elo: v.elo, at: at };
+        g.author = { name: v.name || '', elo: v.elo, at: at, uid: uid };
         g.msg = (typeof v.msg === 'string') ? v.msg : '';
       }
     });
@@ -1391,12 +1422,24 @@
       container.html('<div class="catalans-vote-empty">Encara no hi ha vots. Fes el primer moviment!</div>');
       return;
     }
+    const meUid = (currentUser() || {}).uid || null;
     list.forEach(function (item) {
       const pct = total > 0 ? Math.round(item.n / total * 100) : 0;
       const mine = item.uci === myVoteUci ? ' catalans-vote-mine' : '';
       const prev = (previewActive && item.uci === previewUci) ? ' catalans-vote-preview' : '';
       const authorHtml = voteAuthorHtml(item.author);
       const msgHtml = item.msg ? ('<div class="catalans-vote-msg">' + escapeSan(item.msg) + '</div>') : '';
+      // Llapis: sóc el primer proposant d'aquest moviment i encara no hi ha
+      // cap missatge al meu vot → puc afegir l'explicació quan vulgui.
+      const canEdit = !!meUid && !item.msg && item.author && item.author.uid === meUid;
+      const editHtml = canEdit
+        ? '<button type="button" class="catalans-vote-edit" data-uci="' + item.uci +
+          '" title="Explica per què has proposat aquest moviment" ' +
+          'aria-label="Afegeix un comentari al teu vot">✏️</button>'
+        : '';
+      const byHtml = (authorHtml || editHtml)
+        ? ('<div class="catalans-vote-by">' + authorHtml + editHtml + '</div>')
+        : '';
       const row = $(
         '<div class="catalans-vote-row' + mine + prev + '" data-uci="' + item.uci + '" title="Toca per veure aquesta jugada al tauler">' +
         '<div class="catalans-vote-main">' +
@@ -1404,7 +1447,7 @@
         '<span class="catalans-vote-bar"><span style="width:' + pct + '%"></span></span>' +
         '<span class="catalans-vote-n">' + item.n + '</span>' +
         '</div>' +
-        authorHtml +
+        byHtml +
         msgHtml +
         '</div>'
       );
@@ -2397,6 +2440,11 @@
     $('#catalans-moves').on('click', '.cat-move', function () {
       const ply = parseInt($(this).attr('data-ply'), 10);
       if (!isNaN(ply)) previewMoveAtPly(ply);
+    });
+    // Llapis: afegir el comentari a un vot propi que encara no en té (no obre la revisió).
+    $('#catalans-vote-list').on('click', '.catalans-vote-edit', function (e) {
+      e.stopPropagation();
+      editVoteMessage($(this).attr('data-uci'));
     });
     // Revisió de propostes: clic a un moviment ja votat per veure'l al tauler.
     $('#catalans-vote-list').on('click', '.catalans-vote-row', function () {
