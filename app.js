@@ -2565,7 +2565,21 @@ function scheduleBoardResize() {
         resizeTvBoardToViewport();
         resizeHistoryBoardToViewport();
         resizeOpeningBoardToViewport();
+        resizeTriaBoardsToViewport();
     }, 60);
+}
+
+// Tres camins: en canviar d'amplada, la graella passa de tres columnes
+// (ordinador, sense la targeta de la posició) a carrusel de quatre (mòbil).
+// chessboard.js no se n'assabenta sol i cal dir-li que es torni a mesurar; si
+// no, un tauler que estava amagat es dibuixaria amb amplada zero.
+function resizeTriaBoardsToViewport() {
+    const screen = document.getElementById('tria-screen');
+    if (!screen || screen.offsetParent === null) return;
+    triaBoards.forEach(b => { try { if (b && b.resize) b.resize(); } catch (e) {} });
+    try { if (triaOriginalBoard && triaOriginalBoard.resize) triaOriginalBoard.resize(); } catch (e) {}
+    // Les marques es perden en redibuixar el tauler: es tornen a posar.
+    try { reapplyTriaMoveMarks(); } catch (e) {}
 }
 
 window.addEventListener('resize', () => { updateDeviceType(); scheduleBoardResize(); }, { passive: true });
@@ -23442,6 +23456,15 @@ function markTriaMove(boardId, from, to) {
     $squares.filter(`[data-square='${to}']`).addClass('tria-sq-move');
 }
 
+// Torna a posar els requadres blaus de la pregunta en curs (després d'un
+// redimensionat, que fa que chessboard.js redibuixi les caselles).
+function reapplyTriaMoveMarks() {
+    const q = currentTriaQuestion();
+    if (!q) return;
+    q.options.forEach((op, i) => markTriaMove(`tria-board-${i}`, op.from, op.to));
+    markTriaMove('tria-board-orig', null, null);
+}
+
 function currentTriaQuestion() {
     if (!triaSession) return null;
     return triaSession.questions[triaSession.index] || null;
@@ -23491,7 +23514,11 @@ function renderTriaQuestion() {
 
     // Posició de la decisió: el tauler tal com el vas tenir davant. Sense marca
     // (no s'hi ha mogut res encara) i sense dir què hi vas jugar.
-    $('[data-tria-card="orig"]').show();
+    //
+    // NO s'hi fa .show(): jQuery hi posaria un `display` EN LÍNIA que guanyaria
+    // a la consulta de mitjans que l'amaga en pantalla ampla (i, de passada,
+    // trencaria el `display:flex` de la targeta). Qui la mostra o l'amaga és
+    // el CSS, segons l'amplada.
     $('#tria-original-san').text(q.turn === 'w' ? 'Juguen blanques' : 'Juguen negres');
     $('#tria-original-note').text('La posició on havies de decidir.');
     if (triaOriginalBoard) {
