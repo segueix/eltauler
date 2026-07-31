@@ -23381,19 +23381,11 @@ function buildTriaCards() {
     const wrap = $('#tria-cards');
     if (!wrap.length) return;
     const letters = ['A', 'B', 'C'];
-    // A l'esquerra, la POSICIÓ de la decisió: el punt de partida contra el qual
-    // es comparen les tres opcions. No hi ha marca ni s'hi revela què vas
-    // jugar tu —seria dir-te quina descartar—; és el tauler tal com el vas
-    // tenir davant abans de moure.
-    let html = `<div class="tria-card is-original" data-tria-card="orig">
-            <div class="tria-card-head">
-                <span class="tria-card-letter">POSICIÓ</span>
-                <span class="tria-card-san" id="tria-original-san">—</span>
-            </div>
-            <div class="tria-card-board" id="tria-board-orig"></div>
-            <div class="tria-card-note" id="tria-original-note"></div>
-        </div>`;
-    html += letters.map((letter, i) =>
+    // Primer les TRES OPCIONS: en mòbil el carrusel s'obre directament a la A i
+    // es pot votar sense lliscar res. La POSICIÓ de la decisió va al final (en
+    // pantalla ampla ni surt): és el punt de partida per comparar, però cada
+    // opció ja en porta el requadre blau d'origen i destinació.
+    let html = letters.map((letter, i) =>
         `<div class="tria-card" data-tria-card="${i}">
             <div class="tria-card-head">
                 <span class="tria-card-letter" data-tria-letter="${i}">${letter}</span>
@@ -23404,13 +23396,23 @@ function buildTriaCards() {
             <div class="tria-card-verdict" data-tria-verdict="${i}"></div>
         </div>`
     ).join('');
+    // No s'hi revela què vas jugar tu —seria dir-te quina descartar—: és el
+    // tauler tal com el vas tenir davant abans de moure.
+    html += `<div class="tria-card is-original" data-tria-card="orig">
+            <div class="tria-card-head">
+                <span class="tria-card-letter">POSICIÓ</span>
+                <span class="tria-card-san" id="tria-original-san">—</span>
+            </div>
+            <div class="tria-card-board" id="tria-board-orig"></div>
+            <div class="tria-card-note" id="tria-original-note"></div>
+        </div>`;
     wrap.html(html);
 
     $('#tria-vote-row').html(letters.map((letter, i) =>
         `<button type="button" class="tria-vote-btn" data-tria-pick="${i}">${letter}</button>`
     ).join(''));
 
-    $('#tria-dots').html(['O', 'A', 'B', 'C'].map((_, i) =>
+    $('#tria-dots').html(['A', 'B', 'C', 'O'].map((_, i) =>
         `<span class="tria-dot${i === 0 ? ' is-active' : ''}"></span>`
     ).join(''));
 
@@ -23530,6 +23532,10 @@ function renderTriaQuestion() {
     // El carrusel torna al principi a cada pregunta.
     const wrap = document.getElementById('tria-cards');
     if (wrap) wrap.scrollLeft = 0;
+    // I la pàgina també: si venies de llegir el resultat de l'anterior (a baix
+    // de tot), la pregunta nova ha de començar per dalt, no a mitges.
+    if (window.scrollY > 0) window.scrollTo({ top: 0, behavior: 'auto' });
+    $('#tria-dots .tria-dot').each(function (i) { $(this).toggleClass('is-active', i === 0); });
 }
 
 function answerTriaQuestion(index) {
@@ -23570,6 +23576,22 @@ function answerTriaQuestion(index) {
     $('#btn-tria-next').show().text(
         triaSession.index + 1 < triaSession.questions.length ? 'Següent ›' : 'Veure els resultats ›'
     );
+    revealTriaResult();
+}
+
+// El peu (votar + continuar) va enganxat a baix en mòbil, així que el resultat
+// pot néixer mig tapat. Aquí s'acosta just per damunt del peu: prou per llegir
+// el veredicte sense tocar res, i sense moure el botó de continuar.
+function revealTriaResult() {
+    const box = document.getElementById('tria-result');
+    const dock = document.getElementById('tria-dock');
+    if (!box || !dock) return;
+    if (!window.matchMedia || !window.matchMedia('(max-width: 899px)').matches) return;
+    const hidden = box.getBoundingClientRect().bottom - dock.getBoundingClientRect().top + 8;
+    if (hidden <= 0) return;
+    const room = document.documentElement.scrollHeight - window.innerHeight - window.scrollY;
+    const by = Math.min(hidden, Math.max(0, room));
+    if (by > 4) window.scrollBy({ top: by, behavior: 'smooth' });
 }
 
 function renderTriaAnswerResult(q, result, chosenIndex) {
