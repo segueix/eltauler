@@ -3796,13 +3796,22 @@
            una finestra d'escriptori estreta ha de rebre el carrusel igual que
            un mòbil, o les quatre columnes hi quedarien esclafades. */
         @media (min-width: 900px) {
+            /* En pantalla ampla es veuen les TRES OPCIONS soles, i per tant
+               més grans. La targeta de la posició s'hi amaga: cada opció ja
+               porta el requadre blau a l'origen i a la destinació, així que la
+               posició de partida es llegeix des de qualsevol de les tres (la
+               casella d'origen hi és buida). Amb quatre columnes dins dels
+               1100 px del contenidor, cada tauler es quedava en uns 260 px;
+               amb tres passa de 350. En mòbil es conserven les quatre, perquè
+               allà es passen d'una en una i el punt de partida sí que ajuda. */
             .tria-cards {
-                display: grid; grid-template-columns: repeat(4, minmax(0, 1fr));
-                overflow: visible; gap: 12px; max-width: min(1100px, 100%);
+                display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
+                overflow: visible; gap: 14px; max-width: min(1100px, 100%);
             }
             .tria-card { flex: initial; }
+            .tria-card.is-original { display: none; }
             .tria-dots { display: none; }
-            /* Amb les quatre a la vista, la fila de vot ja no cal per arribar-hi,
+            /* Amb les tres a la vista, la fila de vot ja no cal per arribar-hi,
                però es conserva perquè hi ha qui prefereix votar per lletra. */
             .tria-vote-row { max-width: 420px; margin: 0 auto; }
         }
@@ -7141,10 +7150,10 @@
             </div>
 
             <div class="tria-note" id="tria-note">
-                A l'esquerra, la <strong>posició</strong> tal com la vas tenir davant. Les tres
-                opcions són les <strong>tres millors jugades</strong> que hi havia segons el motor,
-                ja jugades. El test combina obertures, migjocs i finals. Sense rellotge: aquí es
-                mesura el criteri, no la velocitat.
+                Les tres opcions són les <strong>tres millors jugades</strong> que hi havia segons
+                el motor, ja jugades: el <strong>requadre blau</strong> marca d'on ve i on va la
+                peça. El test combina obertures, migjocs i finals. Sense rellotge: aquí es mesura
+                el criteri, no la velocitat.
             </div>
         </div>
 
