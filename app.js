@@ -559,6 +559,9 @@ const BESSO_ENABLED = false;
 
 let bessoState = null;        // { baseElo, label, profile, book, color, period }
 let bessoPlayPending = null;  // petició d'inici { color } (consumida a startGame)
+// Color demanat per a la propera partida lliure ('w' | 'b' | null): el fixen les
+// missions que demanen un bàndol concret. També es consumeix a startGame.
+let freeGameColorPending = null;
 let bessoHelpers = null;      // helpers del nucli amb chess.js injectat (llibre)
 
 // Entrenador invisible: domini temàtic, recomanacions i estadístiques de creixement
@@ -4449,10 +4452,10 @@ function triaTestAvailableNow() {
    - icon i tone: identitat visual de la fila a la pàgina principal. */
 const MISSION_TEMPLATES = [
     { id: 'play1', text: 'Juga 1 partida', stars: 1, target: 1, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 1 },
-    { id: 'playLeague', text: 'Juga 1 partida de lliga', stars: 1, target: 1, metric: 'leagueGamesPlayed', action: 'league', icon: '🏅', tone: 'league', check: () => sessionStats.leagueGamesPlayed >= 1 },
+    { id: 'playLeague', text: 'Juga 1 partida de lliga', stars: 1, target: 1, metric: 'leagueGamesPlayed', action: 'league', icon: '🏅', tone: 'league', available: () => isLeagueUnlocked(), check: () => sessionStats.leagueGamesPlayed >= 1 },
     { id: 'playFree', text: 'Juga 1 partida lliure', stars: 1, target: 1, metric: 'freeGamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.freeGamesPlayed >= 1 },
-    { id: 'bundle1', text: 'Resol 1 errada', stars: 1, target: 1, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolved >= 1 },
-    { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, target: 1, metric: 'bundlesSolvedLow', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolvedLow >= 1 },
+    { id: 'bundle1', text: 'Resol 1 errada', stars: 1, target: 1, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity(null).length >= 1, check: () => sessionStats.bundlesSolved >= 1 },
+    { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, target: 1, metric: 'bundlesSolvedLow', action: 'bundle', severity: 'low', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('low').length >= 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
     { id: 'precisionSolid', stars: 1, dynamic: 'precision_solid', metric: 'bestPrecision', action: 'play', icon: '🎯', tone: 'game', check: (m) => (sessionStats.bestPrecision || 0) >= (m.target || 70) },
     { id: 'hiero1', text: 'Resol 1 jeroglífic', stars: 1, target: 1, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(), check: () => sessionStats.hieroSolved >= 1 },
     { id: 'timed1', text: 'Juga 1 partida amb rellotge', stars: 1, target: 1, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', available: () => !isCalibrationRequired(), check: () => sessionStats.timedGamesPlayed >= 1 },
@@ -4461,8 +4464,8 @@ const MISSION_TEMPLATES = [
 
     { id: 'play3', text: 'Juga 3 partides', stars: 2, target: 3, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 3 },
     { id: 'win2', text: 'Guanya 2 partides', stars: 2, target: 2, metric: 'gamesWon', action: 'play', icon: '🏆', tone: 'game', check: () => sessionStats.gamesWon >= 2 },
-    { id: 'bundle3', text: 'Resol 3 errades', stars: 2, target: 3, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolved >= 3 },
-    { id: 'bundleMed', text: 'Resol 1 errada mitjana', stars: 2, target: 1, metric: 'bundlesSolvedMed', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolvedMed >= 1 },
+    { id: 'bundle3', text: 'Resol 3 errades', stars: 2, target: 3, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity(null).length >= 3, check: () => sessionStats.bundlesSolved >= 3 },
+    { id: 'bundleMed', text: 'Resol 1 errada mitjana', stars: 2, target: 1, metric: 'bundlesSolvedMed', action: 'bundle', severity: 'med', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('med').length >= 1, check: () => sessionStats.bundlesSolvedMed >= 1 },
     { id: 'precisionTop', stars: 2, dynamic: 'precision_top', metric: 'bestPrecision', action: 'play', icon: '🎯', tone: 'game', check: (m) => (sessionStats.bestPrecision || 0) >= (m.target || 85) },
     { id: 'tria1', text: 'Fes 1 test de Tres camins', stars: 2, target: 1, metric: 'triaTests', action: 'tria', icon: '🔀', tone: 'tria', available: () => triaTestAvailableNow(), check: () => sessionStats.triaTests >= 1 },
     { id: 'hiero3', text: 'Resol 3 jeroglífics', stars: 2, target: 3, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(3), check: () => sessionStats.hieroSolved >= 3 },
@@ -4472,8 +4475,8 @@ const MISSION_TEMPLATES = [
 
     { id: 'play5', text: 'Juga 5 partides', stars: 3, target: 5, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 5 },
     { id: 'win4', text: 'Guanya 4 partides', stars: 3, target: 4, metric: 'gamesWon', action: 'play', icon: '🏆', tone: 'game', check: () => sessionStats.gamesWon >= 4 },
-    { id: 'bundleHigh', text: 'Resol 1 errada greu', stars: 3, target: 1, metric: 'bundlesSolvedHigh', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolvedHigh >= 1 },
-    { id: 'blackwin', text: 'Guanya amb negres', stars: 3, target: 1, metric: 'blackWins', action: 'play', icon: '♞', tone: 'game', check: () => sessionStats.blackWins >= 1 },
+    { id: 'bundleHigh', text: 'Resol 1 errada greu', stars: 3, target: 1, metric: 'bundlesSolvedHigh', action: 'bundle', severity: 'high', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('high').length >= 1, check: () => sessionStats.bundlesSolvedHigh >= 1 },
+    { id: 'blackwin', text: 'Guanya amb negres', stars: 3, target: 1, metric: 'blackWins', action: 'playBlack', icon: '♞', tone: 'game', check: () => sessionStats.blackWins >= 1 },
     { id: 'timedWin', text: 'Guanya 1 partida amb rellotge', stars: 3, target: 1, metric: 'timedGamesWon', action: 'timed', icon: '⏱️', tone: 'clock', available: () => !isCalibrationRequired(), check: () => sessionStats.timedGamesWon >= 1 },
     { id: 'antidoteWin', text: 'Guanya el Rival Antídot', stars: 3, target: 1, metric: 'antidoteGamesWon', action: 'antidote', icon: '🧬', tone: 'antidote', available: () => !isCalibrationRequired(), check: () => sessionStats.antidoteGamesWon >= 1 },
     { id: 'hiero5', text: 'Resol 5 jeroglífics', stars: 3, target: 5, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(5), check: () => sessionStats.hieroSolved >= 5 }
@@ -5154,15 +5157,18 @@ function mulberry32(a) {
     }
 }
 
-// On porta cada missió quan s'hi clica. La missió deixa de ser un rètol: és
-// l'accés directe a l'exercici que la completa.
+/* On porta cada missió quan s'hi clica. No obre el menú d'on es tria l'exercici:
+   obre L'EXERCICI. Una missió d'errada greu serveix una errada greu, la de lliga
+   arrenca el partit que toca, i les de partida s'obren amb el rellotge que hi
+   hagi triat a la pàgina principal. */
 const MISSION_ACTIONS = {
     play: () => novaPartida(),
+    playBlack: () => startFreeGameAsColor('b'),
     timed: () => startTimedGameFromPlan(),
     antidote: () => openAntidoteIntro(),
     positional: () => startPositionalGameFromPlan(),
-    league: () => $('#btn-league').click(),
-    bundle: () => $('#btn-bundle-menu').click(),
+    league: () => startLeagueMatchFromMission(),
+    bundle: (mission) => startBundleFromMission(mission && mission.severity),
     tria: () => openTriaTest(),
     hieroglyphic: () => { void openHieroglyphicsFromBanner(); },
     opening_hieroglyphic: () => openOpeningHieroglyphicFromHome()
@@ -5172,10 +5178,58 @@ function launchMissionAction(missionId) {
     const template = MISSION_TEMPLATES.find(t => t.id === missionId);
     const fn = template && MISSION_ACTIONS[template.action];
     if (!fn) return;
-    try { fn(); } catch (e) {
+    try { fn(template); } catch (e) {
         console.warn('No s\'ha pogut obrir la missió', e);
         showToast('No he pogut obrir aquesta missió ara mateix.', 'warn');
     }
+}
+
+// Errades guardades d'una severitat (null = totes). La severitat es normalitza
+// perquè les errades antigues porten l'etiqueta del motor ('blunder', 'mistake').
+function savedErrorsBySeverity(severity) {
+    const wanted = normalizeSeverity(severity);
+    if (!wanted) return savedErrors.slice();
+    return savedErrors.filter(e => normalizeSeverity(e.severity || e.quality) === wanted);
+}
+
+// Missió d'errades: obre directament una posició on vas fallar, de la gravetat
+// que demana la missió. Si d'aquella gravetat no en queda cap (les has resolt
+// totes), en serveix una altra en comptes de deixar-te a la pantalla buida.
+const BUNDLE_SEVERITY_LABELS = { high: 'greu', med: 'mitjana', low: 'lleu' };
+function startBundleFromMission(severity) {
+    if (!guardCalibrationAccess()) return;
+    if (!savedErrors.length) {
+        showToast('Encara no tens cap errada guardada: juga una partida i te\'n desaré les fallades.', 'warn', 4000);
+        return;
+    }
+    const wanted = normalizeSeverity(severity);
+    let pool = savedErrorsBySeverity(wanted);
+    let served = wanted;
+    if (!pool.length) {
+        pool = savedErrors;
+        served = null;
+        showToast(`Ara mateix no et queda cap errada ${BUNDLE_SEVERITY_LABELS[wanted] || ''}: va una altra.`.replace('  ', ' '), 'info', 3500);
+    }
+    const choice = pickPreferPrepared(pool, e => e.fen);
+    if (!choice || !choice.fen) return;
+    startBundleGame(choice.fen, served || normalizeSeverity(choice.severity || choice.quality));
+}
+
+// Missió de lliga: el partit que toca de la temporada, no la taula de posicions.
+function startLeagueMatchFromMission() {
+    if (!guardCalibrationAccess()) return;
+    if (!isLeagueUnlocked()) {
+        showToast(`La lliga es desbloqueja amb el calibratge i ${LEAGUE_UNLOCK_MIN_GAMES} partides jugades.`, 'warn', 4000);
+        return;
+    }
+    startLeagueRound();
+}
+
+// Partida lliure amb un color demanat (missió «Guanya amb negres»): si no,
+// el color es sorteja i la meitat dels dies la missió ni es podria intentar.
+function startFreeGameAsColor(color) {
+    freeGameColorPending = color === 'b' ? 'b' : 'w';
+    novaPartida();
 }
 
 // Les missions de precisió es llegeixen en percentatge («62% de 70%»), no com
@@ -25557,6 +25611,11 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // partida normal posterior hereti el mode per accident.
     const antidoteRequest = antidotePlayPending;
     antidotePlayPending = null;
+    // Color demanat per a una partida lliure (missió «Guanya amb negres»).
+    // Es consumeix aquí, com la resta de peticions, perquè no s'arrossegui a
+    // la partida següent.
+    const freeGameColorRequest = freeGameColorPending;
+    freeGameColorPending = null;
     antidoteState = null;
     antidoteSearchToken++;   // invalida qualsevol cerca Antídot encara viva
     antidoteLiveSticky = false;
@@ -25712,6 +25771,9 @@ blunderMode = isBundle;
     } else if (antidoteRequest) {
         // El color s'ha triat (i s'ha ensenyat) a la introducció de la modalitat.
         playerColor = antidoteRequest.color === 'b' ? 'b' : 'w';
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (freeGameColorRequest) {
+        playerColor = freeGameColorRequest === 'b' ? 'b' : 'w';
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else {
         const isWhite = Math.random() < 0.5;
