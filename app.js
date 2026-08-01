@@ -521,7 +521,7 @@ let currentGameTimeControlId = 'none';
 // partida nova es juga amb un rellotge que encara no té ELO.
 // Guarda l'id del ritme en curs o null.
 let timedCalibrationTcId = null;
-let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, lastTs: 0 };
+let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, tickMs: 0, lastTs: 0 };
 // Tarannà de rellotge del rival en la partida en curs: multiplicador del seu
 // ritme, tirat una sola vegada en començar (core.js: rollClockTemperament).
 // Hi ha partides que el motor juga còmode i partides que se li crema el
@@ -25177,15 +25177,46 @@ function computeHumanReplyDelayMs() {
     }
     return delay;
 }
+// Darrers segons: el rellotge passa a dècimes i centèsimes.
+const CLOCK_CENTIS_MS = 10000;
+// Cadència del rellotge. Amb centèsimes a la vista, 200 ms deixarien la xifra
+// congelada mig segon; 50 ms la fan córrer sense refrescar el DOM cada frame.
+const CLOCK_TICK_MS = 200;
+const CLOCK_TICK_FAST_MS = 50;
 function formatClock(ms) {
     if (ms < 0) ms = 0;
-    const total = Math.ceil(ms / 1000);
-    const m = Math.floor(total / 60);
-    const s = total % 60;
-    if (m >= 1) return `${m}:${s.toString().padStart(2, '0')}`;
-    // Sota el minut, mostra dècimes per tensió
+    // D'un minut en amunt, només minuts i segons, arrodonits cap amunt (0:01
+    // vol dir «encara queda alguna cosa», com a qualsevol rellotge d'escacs).
+    if (ms >= 60000) {
+        const total = Math.ceil(ms / 1000);
+        return `${Math.floor(total / 60)}:${(total % 60).toString().padStart(2, '0')}`;
+    }
+    // Sota el minut es veuen decimals, i llavors els segons han d'anar cap
+    // avall: amb 9,4 s reals, «0:10.4» seria mentida per dalt.
+    const s = Math.floor(ms / 1000);
+    if (ms < CLOCK_CENTIS_MS) {
+        const cs = Math.floor((ms % 1000) / 10);
+        return `0:0${s}.${cs.toString().padStart(2, '0')}`;
+    }
     const tenths = Math.floor((ms % 1000) / 100);
     return `0:${s.toString().padStart(2, '0')}.${tenths}`;
+}
+// Quant ha de trigar el pròxim tic segons el temps que li queda a qui juga.
+function currentClockTickMs() {
+    if (!gameClock.enabled || !gameClock.active) return CLOCK_TICK_MS;
+    const activeMs = gameClock.active === 'w' ? gameClock.white : gameClock.black;
+    return activeMs < CLOCK_CENTIS_MS ? CLOCK_TICK_FAST_MS : CLOCK_TICK_MS;
+}
+function startClockTicks() {
+    if (gameClock.interval) clearInterval(gameClock.interval);
+    gameClock.tickMs = currentClockTickMs();
+    gameClock.interval = setInterval(clockTick, gameClock.tickMs);
+}
+// En creuar el llindar dels 10 s (o en canviar de torn) cal recol·locar el
+// temporitzador: el que hi havia va a la cadència de l'altre tram.
+function syncClockTickRate() {
+    if (!gameClock.enabled || !gameClock.interval) return;
+    if (currentClockTickMs() !== gameClock.tickMs) startClockTicks();
 }
 function stopGameClock() {
     if (gameClock.interval) { clearInterval(gameClock.interval); gameClock.interval = null; }
@@ -25203,7 +25234,7 @@ function resumeGameClock() {
     if (gameClock.enabled && gameClock.paused && gameClock.active && !gameClock.interval) {
         gameClock.paused = false;
         gameClock.lastTs = Date.now();
-        gameClock.interval = setInterval(clockTick, 200);
+        startClockTicks();
     }
 }
 function initGameClock(applies) {
@@ -25224,6 +25255,7 @@ function initGameClock(applies) {
         lowMs: enabled ? Math.min(20000, Math.max(5000, baseMs * 0.2)) : 20000,
         active: null,
         interval: null,
+        tickMs: 0,
         lastTs: 0,
         paused: false
     };
@@ -25234,7 +25266,7 @@ function initGameClock(applies) {
     // Comença a córrer pel costat que té el torn
     gameClock.active = game.turn();
     gameClock.lastTs = Date.now();
-    gameClock.interval = setInterval(clockTick, 200);
+    startClockTicks();
     renderClock();
 }
 function clockTick() {
@@ -25245,6 +25277,7 @@ function clockTick() {
     if (gameClock.active === 'w') gameClock.white -= delta;
     else gameClock.black -= delta;
     renderClock();
+    syncClockTickRate();
     if (gameClock.white <= 0 || gameClock.black <= 0) {
         const flagged = gameClock.white <= 0 ? 'w' : 'b';
         stopGameClock();
@@ -25271,6 +25304,7 @@ function clockOnMove() {
     gameClock.active = game.turn();
     gameClock.lastTs = Date.now();
     renderClock();
+    syncClockTickRate();
 }
 function renderClock() {
     if (!gameClock.enabled) return;
