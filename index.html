@@ -7430,9 +7430,10 @@
                         <div class="calibration-progress-fill" id="calibration-progress-fill"></div>
                     </div>
                 </div>
+                <!-- El teu rellotge, a l'esquerra: és el que es mira a cada jugada. -->
                 <div class="game-clocks" id="game-clocks" style="display:none;">
-                    <div class="clock-pill"><span class="clock-tag">IA</span><span class="clock-time" id="clock-opp">5:00</span></div>
                     <div class="clock-pill"><span class="clock-tag">Tu</span><span class="clock-time" id="clock-you">5:00</span></div>
+                    <div class="clock-pill"><span class="clock-tag">IA</span><span class="clock-time" id="clock-opp">5:00</span></div>
                 </div>
             </div>
             
@@ -7728,7 +7729,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.78"></script>
+    <script src="app.js?v=1.0.79"></script>
 
     <!-- Service Worker Registration -->
     <script>
