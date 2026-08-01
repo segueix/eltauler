@@ -587,6 +587,9 @@ let growthStats = {
     weaknessSessionsCompleted: 0,
     openingDrillsCompleted: 0,
     mateDrillsCompleted: 0,
+    triaTestsCompleted: 0,
+    openingHieroCompleted: 0,
+    timedGamesPlayed: 0,
     lastRecommendedAt: null
 };
 let currentGrowthTask = null;
@@ -2183,12 +2186,7 @@ function importBackupData(data) {
     currentStreak = data.streak || 0; lastPracticeDate = data.lastPracticeDate || null;
     totalStars = data.totalStars || 0; unlockedBadges = data.unlockedBadges || [];
     todayMissions = restoreMissions(data.todayMissions || []); missionsDate = data.missionsDate || null;
-    sessionStats = data.sessionStats || { 
-        gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
-        bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
-        highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
-        leagueGamesPlayed: 0, freeGamesPlayed: 0
-    };
+    sessionStats = Object.assign(defaultSessionStats(), data.sessionStats || {});
     eloHistory = data.eloHistory || []; totalGamesPlayed = data.totalGamesPlayed || 0; totalWins = data.totalWins || 0; maxStreak = data.maxStreak || 0;
        const importedElo = (typeof data.currentElo === 'number') ? data.currentElo
         : (typeof data.adaptiveLevel === 'number') ? data.adaptiveLevel
@@ -4274,19 +4272,30 @@ let todayMissions = [];
 let missionsDate = null;
 let unlockedBadges = [];
 
-let sessionStats = { 
-    gamesPlayed: 0, 
-    gamesWon: 0, 
-    bundlesSolved: 0,
-    bundlesSolvedLow: 0,
-    bundlesSolvedMed: 0,
-    bundlesSolvedHigh: 0,
-    highPrecisionGames: 0, 
-    perfectGames: 0, 
-    blackWins: 0,
-    leagueGamesPlayed: 0,
-    freeGamesPlayed: 0
-};
+// Comptadors del dia que alimenten les missions. Tot en un sol lloc: les
+// missions noves (tres camins, jeroglífics, partides amb rellotge) hi afegeixen
+// camps i qualsevol estat desat d'ahir es fusiona sobre aquests valors.
+function defaultSessionStats() {
+    return {
+        gamesPlayed: 0,
+        gamesWon: 0,
+        bundlesSolved: 0,
+        bundlesSolvedLow: 0,
+        bundlesSolvedMed: 0,
+        bundlesSolvedHigh: 0,
+        highPrecisionGames: 0,
+        perfectGames: 0,
+        blackWins: 0,
+        leagueGamesPlayed: 0,
+        freeGamesPlayed: 0,
+        timedGamesPlayed: 0,
+        timedGamesWon: 0,
+        triaTests: 0,
+        hieroSolved: 0,
+        openingHieroSolved: 0
+    };
+}
+let sessionStats = defaultSessionStats();
 
 let isAnalyzingHint = false;
 let waitingForBlunderAnalysis = false;
@@ -4381,24 +4390,56 @@ function clearEngineMoveTimers() {
     engineMoveApplyPending = false;
 }
 
+/* Disponibilitat de les modalitats que poden sortir com a missió o com a repte
+   del pla. Es consulta abans d'assignar-les, i també la fa servir el pla. */
+function hieroglyphicsAvailableNow(needed = 1) {
+    try {
+        const queued = (typeof hgNewCount === 'function') ? hgNewCount() : 0;
+        return queued >= needed;
+    } catch (e) { return false; }
+}
+function openingHieroglyphicsAvailableNow() {
+    try { return (typeof countOpeningHieroglyphicExercises === 'function') && countOpeningHieroglyphicExercises() > 0; }
+    catch (e) { return false; }
+}
+function triaTestAvailableNow() {
+    try {
+        const questions = ElTaulerCore.triaPlannedQuestionCount(collectTriaPool(), { progress: loadTriaProgress() });
+        return questions >= ElTaulerCore.TRIA_CONFIG.minTestSize;
+    } catch (e) { return false; }
+}
+
+/* Missions del dia. Cada plantilla porta:
+   - target: quantes vegades cal fer-ho (el progrés en surt de sessionStats),
+   - action: on porta el clic a la missió (vegeu MISSION_ACTIONS),
+   - icon i tone: identitat visual de la fila a la pàgina principal. */
 const MISSION_TEMPLATES = [
-    { id: 'play1', text: 'Juga 1 partida', stars: 1, check: () => sessionStats.gamesPlayed >= 1 },
-    { id: 'playLeague', text: 'Juga 1 partida de lliga', stars: 1, check: () => sessionStats.leagueGamesPlayed >= 1 },
-    { id: 'playFree', text: 'Juga 1 partida lliure', stars: 1, check: () => sessionStats.freeGamesPlayed >= 1 },
-    { id: 'bundle1', text: 'Resol 1 errada', stars: 1, check: () => sessionStats.bundlesSolved >= 1 },
-    { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
-    { id: 'precision70', text: 'Precisió +70%', stars: 1, check: () => sessionStats.highPrecisionGames >= 1 },
-    
-    { id: 'play3', text: 'Juga 3 partides', stars: 2, check: () => sessionStats.gamesPlayed >= 3 },
-    { id: 'win2', text: 'Guanya 2 partides', stars: 2, check: () => sessionStats.gamesWon >= 2 },
-    { id: 'bundle3', text: 'Resol 3 errades', stars: 2, check: () => sessionStats.bundlesSolved >= 3 },
-    { id: 'bundleMed', text: 'Resol 1 errada mitjana', stars: 2, check: () => sessionStats.bundlesSolvedMed >= 1 },
-    { id: 'precision85', text: 'Precisió +85%', stars: 2, check: () => sessionStats.perfectGames >= 1 },
-    
-    { id: 'play5', text: 'Juga 5 partides', stars: 3, check: () => sessionStats.gamesPlayed >= 5 },
-    { id: 'win4', text: 'Guanya 4 partides', stars: 3, check: () => sessionStats.gamesWon >= 4 },
-    { id: 'bundleHigh', text: 'Resol 1 errada greu', stars: 3, check: () => sessionStats.bundlesSolvedHigh >= 1 },
-    { id: 'blackwin', text: 'Guanya amb negres', stars: 3, check: () => sessionStats.blackWins >= 1 }
+    { id: 'play1', text: 'Juga 1 partida', stars: 1, target: 1, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 1 },
+    { id: 'playLeague', text: 'Juga 1 partida de lliga', stars: 1, target: 1, metric: 'leagueGamesPlayed', action: 'league', icon: '🏅', tone: 'league', check: () => sessionStats.leagueGamesPlayed >= 1 },
+    { id: 'playFree', text: 'Juga 1 partida lliure', stars: 1, target: 1, metric: 'freeGamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.freeGamesPlayed >= 1 },
+    { id: 'bundle1', text: 'Resol 1 errada', stars: 1, target: 1, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolved >= 1 },
+    { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, target: 1, metric: 'bundlesSolvedLow', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolvedLow >= 1 },
+    { id: 'precision70', text: 'Precisió +70%', stars: 1, target: 1, metric: 'highPrecisionGames', action: 'play', icon: '🎯', tone: 'game', check: () => sessionStats.highPrecisionGames >= 1 },
+    { id: 'hiero1', text: 'Resol 1 jeroglífic', stars: 1, target: 1, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(), check: () => sessionStats.hieroSolved >= 1 },
+    { id: 'timed1', text: 'Juga 1 partida amb rellotge', stars: 1, target: 1, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', check: () => sessionStats.timedGamesPlayed >= 1 },
+    { id: 'openingHiero1', text: "Resol 1 jeroglífic d'obertura", stars: 1, target: 1, metric: 'openingHieroSolved', action: 'opening_hieroglyphic', icon: '📜', tone: 'opening', available: () => openingHieroglyphicsAvailableNow(), check: () => sessionStats.openingHieroSolved >= 1 },
+
+    { id: 'play3', text: 'Juga 3 partides', stars: 2, target: 3, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 3 },
+    { id: 'win2', text: 'Guanya 2 partides', stars: 2, target: 2, metric: 'gamesWon', action: 'play', icon: '🏆', tone: 'game', check: () => sessionStats.gamesWon >= 2 },
+    { id: 'bundle3', text: 'Resol 3 errades', stars: 2, target: 3, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolved >= 3 },
+    { id: 'bundleMed', text: 'Resol 1 errada mitjana', stars: 2, target: 1, metric: 'bundlesSolvedMed', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolvedMed >= 1 },
+    { id: 'precision85', text: 'Precisió +85%', stars: 2, target: 1, metric: 'perfectGames', action: 'play', icon: '🎯', tone: 'game', check: () => sessionStats.perfectGames >= 1 },
+    { id: 'tria1', text: 'Fes 1 test de Tres camins', stars: 2, target: 1, metric: 'triaTests', action: 'tria', icon: '🔀', tone: 'tria', available: () => triaTestAvailableNow(), check: () => sessionStats.triaTests >= 1 },
+    { id: 'hiero3', text: 'Resol 3 jeroglífics', stars: 2, target: 3, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(3), check: () => sessionStats.hieroSolved >= 3 },
+    { id: 'timed2', text: 'Juga 2 partides amb rellotge', stars: 2, target: 2, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', check: () => sessionStats.timedGamesPlayed >= 2 },
+    { id: 'openingHiero2', text: "Resol 2 jeroglífics d'obertura", stars: 2, target: 2, metric: 'openingHieroSolved', action: 'opening_hieroglyphic', icon: '📜', tone: 'opening', available: () => openingHieroglyphicsAvailableNow(), check: () => sessionStats.openingHieroSolved >= 2 },
+
+    { id: 'play5', text: 'Juga 5 partides', stars: 3, target: 5, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 5 },
+    { id: 'win4', text: 'Guanya 4 partides', stars: 3, target: 4, metric: 'gamesWon', action: 'play', icon: '🏆', tone: 'game', check: () => sessionStats.gamesWon >= 4 },
+    { id: 'bundleHigh', text: 'Resol 1 errada greu', stars: 3, target: 1, metric: 'bundlesSolvedHigh', action: 'bundle', icon: '🔍', tone: 'error', check: () => sessionStats.bundlesSolvedHigh >= 1 },
+    { id: 'blackwin', text: 'Guanya amb negres', stars: 3, target: 1, metric: 'blackWins', action: 'play', icon: '♞', tone: 'game', check: () => sessionStats.blackWins >= 1 },
+    { id: 'timedWin', text: 'Guanya 1 partida amb rellotge', stars: 3, target: 1, metric: 'timedGamesWon', action: 'timed', icon: '⏱️', tone: 'clock', check: () => sessionStats.timedGamesWon >= 1 },
+    { id: 'hiero5', text: 'Resol 5 jeroglífics', stars: 3, target: 5, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(5), check: () => sessionStats.hieroSolved >= 5 }
 ];
 
 const BADGES = [
@@ -5022,9 +5063,20 @@ function generateDailyMissions() {
     // Per fer-ho senzill i que variï sempre si regenerem, fem servir un random pur si regenerem intra-dia
     const rng = timePassed ? Math.random : mulberry32(parseInt(today.split('-').join('')));
 
-    const easy = MISSION_TEMPLATES.filter(m => m.stars === 1);
-    const medium = MISSION_TEMPLATES.filter(m => m.stars === 2);
-    const hard = MISSION_TEMPLATES.filter(m => m.stars === 3);
+    // Només s'assignen missions que avui es poden completar: demanar un test de
+    // Tres camins sense prou jugades revisades, o un jeroglífic sense cap a la
+    // cua, seria una missió impossible que trencaria el dia.
+    const tier = (stars) => {
+        const all = MISSION_TEMPLATES.filter(m => m.stars === stars);
+        const doable = all.filter(m => {
+            if (typeof m.available !== 'function') return true;
+            try { return !!m.available(); } catch (e) { return false; }
+        });
+        return doable.length ? doable : all;
+    };
+    const easy = tier(1);
+    const medium = tier(2);
+    const hard = tier(3);
     
     // Funció auxiliar per triar random
     const pick = (arr) => arr[Math.floor((timePassed ? Math.random() : rng()) * arr.length)];
@@ -5036,12 +5088,7 @@ function generateDailyMissions() {
     ];
 
     // Reiniciem estadístiques parcials de sessió per a les noves missions
-    sessionStats = { 
-        gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
-        bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
-        highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
-        leagueGamesPlayed: 0, freeGamesPlayed: 0
-    };
+    sessionStats = defaultSessionStats();
     
     saveStorage();
     updateMissionsDisplay();
@@ -5054,49 +5101,69 @@ function mulberry32(a) {
     }
 }
 
+// On porta cada missió quan s'hi clica. La missió deixa de ser un rètol: és
+// l'accés directe a l'exercici que la completa.
+const MISSION_ACTIONS = {
+    play: () => novaPartida(),
+    timed: () => startTimedGameFromPlan(),
+    league: () => $('#btn-league').click(),
+    bundle: () => $('#btn-bundle-menu').click(),
+    tria: () => openTriaTest(),
+    hieroglyphic: () => { void openHieroglyphicsFromBanner(); },
+    opening_hieroglyphic: () => openOpeningHieroglyphicFromHome()
+};
+
+function launchMissionAction(missionId) {
+    const template = MISSION_TEMPLATES.find(t => t.id === missionId);
+    const fn = template && MISSION_ACTIONS[template.action];
+    if (!fn) return;
+    try { fn(); } catch (e) {
+        console.warn('No s\'ha pogut obrir la missió', e);
+        showToast('No he pogut obrir aquesta missió ara mateix.', 'warn');
+    }
+}
+
+function missionProgressValue(mission) {
+    const metric = mission && mission.metric;
+    const val = metric ? sessionStats[metric] : 0;
+    return typeof val === 'number' ? val : 0;
+}
+
 function updateMissionsDisplay() {
     const container = $('#missions-list'); container.empty();
-    const targets = { 
-        play1: 1, play3: 3, play5: 5, win2: 2, win4: 4, 
-        bundle1: 1, bundle3: 3, precision70: 1, precision85: 1, blackwin: 1,
-        playLeague: 1, playFree: 1, bundleLow: 1, bundleMed: 1, bundleHigh: 1
-    };
-    const getValue = (id) => {
-        if (id === 'playLeague') return sessionStats.leagueGamesPlayed;
-        if (id === 'playFree') return sessionStats.freeGamesPlayed;
-        if (id === 'bundleLow') return sessionStats.bundlesSolvedLow;
-        if (id === 'bundleMed') return sessionStats.bundlesSolvedMed;
-        if (id === 'bundleHigh') return sessionStats.bundlesSolvedHigh;
-        
-        if (id.startsWith('play')) return sessionStats.gamesPlayed;
-        if (id.startsWith('win')) return sessionStats.gamesWon;
-        if (id.startsWith('bundle')) return sessionStats.bundlesSolved;
-        if (id === 'precision70') return sessionStats.highPrecisionGames;
-        if (id === 'precision85') return sessionStats.perfectGames;
-        if (id === 'blackwin') return sessionStats.blackWins;
-        return 0;
-    };
+    let doneCount = 0;
     todayMissions.forEach((mission) => {
         const stars = '★'.repeat(mission.stars);
-        const completedClass = mission.completed ? 'completed' : '';
-        const target = targets[mission.id] || 1;
-        const val = getValue(mission.id);
-        const stepsDone = Math.min(val, target);
+        const target = mission.target || 1;
+        const stepsDone = Math.min(missionProgressValue(mission), target);
+        const pct = Math.round((stepsDone / target) * 100);
+        if (mission.completed) doneCount++;
         const trophies = '🏆'.repeat(stepsDone);
-        const trophiesClass = stepsDone === 0 ? 'empty' : '';
-        const progressText = mission.completed ? 'Fet' : `${stepsDone}/${target}`;
-        container.append(
-            `<div class="mission-item ${completedClass}">
-                <div class="mission-stars">${stars}</div>
+        const row = $(
+            `<div class="mission-item tone-${mission.tone || 'game'} tier-${mission.stars}${mission.completed ? ' completed' : ''}"
+                  role="button" tabindex="0" data-mission="${mission.id}"
+                  title="Ves-hi: ${escapeHtml(mission.text)}">
+                <div class="mission-icon" aria-hidden="true">${mission.icon || '⭐'}</div>
                 <div class="mission-text">
-                    <div class="mission-label">${mission.text}</div>
-                    <div class="mission-progress">${progressText}</div>
+                    <div class="mission-label"></div>
+                    <div class="mission-bar"><div class="mission-fill" style="width:${pct}%"></div></div>
+                    <div class="mission-progress">${mission.completed ? 'Fet' : `${stepsDone}/${target}`} · <span class="mission-stars">${stars}</span></div>
                 </div>
                 <div class="mission-check">★</div>
-                <div class="mission-trophies ${trophiesClass}">${trophies}</div>
+                <div class="mission-trophies ${stepsDone === 0 ? 'empty' : ''}">${trophies}</div>
+                <div class="mission-go" aria-hidden="true">›</div>
             </div>`
         );
+        row.find('.mission-label').text(mission.text);
+        const go = () => launchMissionAction(mission.id);
+        row.on('click', go);
+        row.on('keydown', (e) => {
+            if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+        });
+        container.append(row);
     });
+    const countEl = document.getElementById('missions-count');
+    if (countEl) countEl.textContent = `${doneCount}/${todayMissions.length}`;
 }
 
 function checkMissions() {
@@ -5806,6 +5873,42 @@ function refreshPlayClockChips() {
     if (label) label.textContent = tc.label;
 }
 
+// Fixa el ritme de la propera partida (font de la veritat: el desplegable
+// amagat) i deixa les fitxes de la pàgina principal pintades igual.
+function applyPendingTimeControl(tcId) {
+    if (!TIME_CONTROLS.some(t => t.id === tcId)) return false;
+    pendingFreeTimeControl = tcId;
+    const sel = document.getElementById('new-game-tc-select');
+    if (sel) sel.value = tcId;
+    refreshPlayClockChips();
+    return true;
+}
+
+// Partida amb rellotge llançada des del pla o d'una missió: si el ritme demanat
+// no arriba, es respecta el que el jugador ja tingués triat i, si era «sense
+// rellotge», es cau al ritme per defecte del pla.
+const PLAN_DEFAULT_TIME_CONTROL = '3+2';
+function startTimedGameFromPlan(tcId) {
+    if (!guardCalibrationAccess()) return;
+    let target = TIME_CONTROLS.some(t => t.id === tcId && t.id !== 'none') ? tcId : null;
+    if (!target) {
+        target = (pendingFreeTimeControl && pendingFreeTimeControl !== 'none')
+            ? pendingFreeTimeControl
+            : PLAN_DEFAULT_TIME_CONTROL;
+    }
+    applyPendingTimeControl(target);
+    novaPartida();
+}
+
+// Jeroglífic d'obertura des de la pàgina principal: obre la secció d'Obertures
+// (el mateix camí que el botó del menú) i hi arrenca l'exercici.
+function openOpeningHieroglyphicFromHome() {
+    if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
+    $('#btn-opening').click();
+    initOpeningBundleBoard();
+    startOpeningTheoryHieroglyphic();
+}
+
 // Engega la partida de calibratge d'un ritme des d'Estadístiques: fixa el
 // rellotge del ritme i obre una partida nova; startGame detecta que el ritme
 // no té ELO i activa el mode de calibratge adaptatiu automàticament.
@@ -5818,10 +5921,7 @@ function startTimeControlCalibration(tcId) {
     // Durant el calibratge inicial les partides noves són de calibratge
     // general (sense rellotge), així que el de ritme encara no pot començar.
     if (!guardCalibrationAccess()) return;
-    pendingFreeTimeControl = tcId;
-    const sel = document.getElementById('new-game-tc-select');
-    if (sel) sel.value = tcId;
-    refreshPlayClockChips();
+    applyPendingTimeControl(tcId);
     novaPartida();
 }
 
@@ -6222,7 +6322,9 @@ function loadStorage() {
     loadThemeMastery();
     loadGrowthStats();
     const stats = localStorage.getItem('chess_sessionStats'); const statsDate = localStorage.getItem('chess_sessionStatsDate');
-    if (stats && statsDate === getToday()) sessionStats = JSON.parse(stats);
+    if (stats && statsDate === getToday()) {
+        try { sessionStats = Object.assign(defaultSessionStats(), JSON.parse(stats) || {}); } catch (e) {}
+    }
     
     const history = localStorage.getItem('chess_eloHistory'); if (history) eloHistory = JSON.parse(history);
     const tGames = localStorage.getItem('chess_totalGamesPlayed'); if (tGames) totalGamesPlayed = parseInt(tGames);
@@ -18356,6 +18458,8 @@ function registerHieroglyphicSolved() {
     hieroglyphicStats.bestStreak = Math.max(hieroglyphicStats.bestStreak || 0, hieroglyphicStats.currentStreak);
     const theme = hieroglyphicContext?.theme || 'unknown';
     hieroglyphicStats.themes[theme] = (hieroglyphicStats.themes[theme] || 0) + 1;
+    // Comptador del dia per a les missions de jeroglífics.
+    sessionStats.hieroSolved = (sessionStats.hieroSolved || 0) + 1;
     if (hieroglyphicSource === 'personal') {
         hieroglyphicStats.personalSolved++;
         totalStars += 1;
@@ -18367,6 +18471,7 @@ function registerHieroglyphicSolved() {
     }
     saveHieroglyphicStats();
     saveStorage();
+    checkMissions();
     updateDisplay();
 }
 function registerHieroglyphicFailed() {
@@ -20427,6 +20532,15 @@ function exitOpeningHieroglyphicToOpenings() {
 function completeOpeningTheoryHieroglyphic() {
     const puzzle = currentOpeningHieroglyphic;
     registerHieroglyphicSolved();
+    // Els d'obertura tenen comptador propi: hi ha missions i un pas del pla que
+    // demanen justament aquests i no els jeroglífics de partida.
+    sessionStats.openingHieroSolved = (sessionStats.openingHieroSolved || 0) + 1;
+    loadGrowthStats();
+    growthStats.openingHieroCompleted = (growthStats.openingHieroCompleted || 0) + 1;
+    saveGrowthStats();
+    saveStorage();
+    checkMissions();
+    renderWeeklyPlan();
     hieroglyphicExerciseActive = false;
     updateOpeningMaximButton();
     if (openingBundleBoard && hieroglyphicGame) openingBundleBoard.position(hieroglyphicGame.fen());
@@ -21946,12 +22060,7 @@ function setupEvents() {
             applyControlMode(getDefaultControlMode(), { save: true, rebuild: false });
             userELO = 50; savedErrors = []; currentStreak = 0; lastPracticeDate = null;
             todayCompleted = false; totalStars = 0; todayMissions = []; missionsDate = null; unlockedBadges = [];
-            sessionStats = { 
-                gamesPlayed: 0, gamesWon: 0, bundlesSolved: 0, 
-                bundlesSolvedLow: 0, bundlesSolvedMed: 0, bundlesSolvedHigh: 0,
-                highPrecisionGames: 0, perfectGames: 0, blackWins: 0,
-                leagueGamesPlayed: 0, freeGamesPlayed: 0
-            };
+            sessionStats = defaultSessionStats();
             eloHistory = []; totalGamesPlayed = 0; totalWins = 0; maxStreak = 0;
             currentElo = clampEngineElo(userELO);
             aiDifficulty = levelToDifficulty(currentElo); recentGames = []; consecutiveWins = 0; consecutiveLosses = 0;
@@ -22359,6 +22468,9 @@ function loadGrowthStats() {
         weaknessSessionsCompleted: 0,
         openingDrillsCompleted: 0,
         mateDrillsCompleted: 0,
+        triaTestsCompleted: 0,
+        openingHieroCompleted: 0,
+        timedGamesPlayed: 0,
         lastRecommendedAt: null
     }, stored && typeof stored === 'object' ? stored : {});
     return growthStats;
@@ -23691,6 +23803,15 @@ function nextTriaQuestion() {
 function finishTriaTest() {
     if (!triaSession || triaSession.finished) return;
     triaSession.finished = true;
+    // Un test acabat compta per a la missió i per al pas del pla de Tres camins.
+    sessionStats.triaTests = (sessionStats.triaTests || 0) + 1;
+    loadGrowthStats();
+    growthStats.triaTestsCompleted = (growthStats.triaTestsCompleted || 0) + 1;
+    saveGrowthStats();
+    saveStorage();
+    checkMissions();
+    updateMissionsDisplay();
+    renderWeeklyPlan();
     const summary = ElTaulerCore.triaTestSummary(triaSession.results, {
         elo: clampEngineElo(userELO),
         questions: triaSession.questions.slice(0, triaSession.results.length)
@@ -29595,6 +29716,16 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     if (currentGameMode === 'league') sessionStats.leagueGamesPlayed++;
     else if (currentGameMode === 'free') sessionStats.freeGamesPlayed++;
 
+    // Partides amb rellotge: compten per a les missions del dia i per al pas del
+    // pla que demana jugar contrarellotge (qualsevol ritme, també el de lliga).
+    if (currentGameTimeControlId && currentGameTimeControlId !== 'none') {
+        sessionStats.timedGamesPlayed = (sessionStats.timedGamesPlayed || 0) + 1;
+        if (playerWon) sessionStats.timedGamesWon = (sessionStats.timedGamesWon || 0) + 1;
+        loadGrowthStats();
+        growthStats.timedGamesPlayed = (growthStats.timedGamesPlayed || 0) + 1;
+        saveGrowthStats();
+    }
+
     if (finalPrecision >= 70) sessionStats.highPrecisionGames++;
     if (finalPrecision >= 85) sessionStats.perfectGames++;
     
@@ -29935,7 +30066,7 @@ function updateStatus() {
    a partir dels mateixos fets (mai analitza la partida ell sol). */
 
 const WEEKLY_PLAN_KEY = 'chess_weeklyPlan';
-const WEEKLY_PLAN_VERSION = 5; // 5: ruta guiada per passos ordenats (escalfament → repàs → focus → partida)
+const WEEKLY_PLAN_VERSION = 6; // 6: s'hi afegeix el repte del dia (tres camins, jeroglífics, jeroglífic d'obertura) i la partida amb rellotge
 // Quan puja, el resum desat del pla d'avui es descarta i es regenera (text local
 // i, si hi ha clau OpenAI, nova polida), sense reconstruir les tasques ni perdre'n el progrés.
 const PLAN_SUMMARY_REFRESH_VERSION = 3;
@@ -31912,10 +32043,53 @@ function currentPlanStreak(day) {
     return 0;
 }
 
+/* Reptes que el pla pot proposar com a pas extra. Només s'ofereix el que l'app
+   pot servir ara mateix: prometre un test de Tres camins sense prou preguntes,
+   o un jeroglífic sense cap a la cua, seria un pas impossible de completar. */
+function availablePlanChallenges() {
+    const out = [];
+    if (triaTestAvailableNow()) {
+        out.push({
+            type: 'tria_test', theme: null, metric: 'tria',
+            title: 'Fes un test de Tres camins',
+            why: 'Tria entre les tres millors jugades de posicions teves: és on es veu si reconeixes la bona sense poder moure peces.',
+            target: 1, baseline: growthStats.triaTestsCompleted || 0
+        });
+    }
+    if (hieroglyphicsAvailableNow()) {
+        out.push({
+            type: 'hieroglyphic', theme: null, metric: 'hiero',
+            title: 'Resol 1 jeroglífic',
+            why: 'Tres moviments seguits sense veure el rival: obliga a calcular fins al final en comptes de provar sort.',
+            target: 1, baseline: (typeof hieroglyphicStats === 'object' && hieroglyphicStats ? hieroglyphicStats.solved : 0) || 0
+        });
+    }
+    if (openingHieroglyphicsAvailableNow()) {
+        out.push({
+            type: 'opening_hieroglyphic', theme: 'opening', metric: 'opening_hiero',
+            title: "Resol 1 jeroglífic d'obertura",
+            why: 'Desxifrar la jugada teòrica del repertori fixa les obertures molt millor que llegir-ne la línia.',
+            target: 1, baseline: growthStats.openingHieroCompleted || 0
+        });
+    }
+    return out;
+}
+
+// Ritme de la partida amb rellotge del pla: el que el jugador ja tingui triat si
+// n'hi ha cap, i si no, un dels ritmes mitjans (ni hyperbullet ni clàssic).
+function pickPlanTimeControlId(rng) {
+    if (pendingFreeTimeControl && pendingFreeTimeControl !== 'none') return pendingFreeTimeControl;
+    const options = ['3+2', '5+0', '10+0'];
+    return options[Math.floor((rng ? rng() : Math.random()) * options.length)] || PLAN_DEFAULT_TIME_CONTROL;
+}
+
 /* Ruta guiada del dia: passos ordenats de menys a més exigència, cadascun amb el
    seu perquè. L'estructura pedagògica és fixa (escalfament → repàs → focus →
-   posar-ho en pràctica) i el contingut s'adapta a les dades del jugador:
+   repte del dia → posar-ho en pràctica) i el contingut s'adapta a les dades del
+   jugador:
    - el focus és el tema més fluix amb errors recents,
+   - el repte del dia rota entre les modalitats disponibles (tres camins,
+     jeroglífics, jeroglífics d'obertura),
    - el volum creix amb la ratxa de dies completant el pla (progressió),
    - els objectius es mesuren amb comptadors que ja existeixen (baseline al crear el pla). */
 function buildWeeklyPlan() {
@@ -31985,15 +32159,35 @@ function buildWeeklyPlan() {
         });
     }
 
-    // Pas final — Posa-ho en pràctica: transferir l'entrenament a una partida real.
-    items.push({
-        id: 'apply', kind: 'Posa-ho en pràctica', type: 'free_game', theme: null, metric: 'games',
-        title: 'Juga 1 partida sencera',
-        why: "L'entrenament només compta quan surt a la partida: juga amb calma i busca-hi el que has treballat avui.",
-        target: 1, baseline: totalGamesPlayed || 0
-    });
+    // Pas 4 — Repte del dia: una modalitat diferent cada dia, de les que l'app
+    // té a punt en aquest moment (si no n'hi ha cap de disponible, se salta).
+    const challenges = availablePlanChallenges();
+    if (challenges.length) {
+        const challenge = challenges[Math.floor(rng() * challenges.length)];
+        items.push(Object.assign({ id: 'challenge', kind: 'Repte del dia' }, challenge));
+    }
 
-    const finalItems = items.slice(0, 4);
+    // Pas final — Posa-ho en pràctica: transferir l'entrenament a una partida
+    // real. Un dia de cada tres la partida és amb rellotge: pensar bé amb temps
+    // limitat és una destresa que no s'entrena resolent exercicis.
+    const timedDay = rng() < 0.34;
+    const tcId = timedDay ? pickPlanTimeControlId(rng) : null;
+    items.push(timedDay
+        ? {
+            id: 'apply', kind: 'Posa-ho en pràctica', type: 'timed_game', theme: null, metric: 'timed_games',
+            timeControlId: tcId,
+            title: `Juga 1 partida amb rellotge (${getTimeControlLabel(tcId)})`,
+            why: "Amb el rellotge en marxa les decisions es prenen d'una altra manera: aquí es veu de debò què tens automatitzat.",
+            target: 1, baseline: growthStats.timedGamesPlayed || 0
+        }
+        : {
+            id: 'apply', kind: 'Posa-ho en pràctica', type: 'free_game', theme: null, metric: 'games',
+            title: 'Juga 1 partida sencera',
+            why: "L'entrenament només compta quan surt a la partida: juga amb calma i busca-hi el que has treballat avui.",
+            target: 1, baseline: totalGamesPlayed || 0
+        });
+
+    const finalItems = items.slice(0, 5);
     finalItems.forEach((item, i) => { item.step = i + 1; });
 
     return {
@@ -32019,6 +32213,10 @@ function weeklyPlanItemProgress(item) {
     else if (item.metric === 'games') current = (totalGamesPlayed || 0) - item.baseline;
     else if (item.metric === 'opening_drill') current = (growthStats.openingDrillsCompleted || 0) - item.baseline;
     else if (item.metric === 'mate_drill') current = (growthStats.mateDrillsCompleted || 0) - item.baseline;
+    else if (item.metric === 'tria') current = (growthStats.triaTestsCompleted || 0) - item.baseline;
+    else if (item.metric === 'opening_hiero') current = (growthStats.openingHieroCompleted || 0) - item.baseline;
+    else if (item.metric === 'timed_games') current = (growthStats.timedGamesPlayed || 0) - item.baseline;
+    else if (item.metric === 'hiero') current = ((typeof hieroglyphicStats === 'object' && hieroglyphicStats ? hieroglyphicStats.solved : 0) || 0) - item.baseline;
     return Math.max(0, Math.min(item.target, current));
 }
 
@@ -32164,10 +32362,29 @@ function updatePlanSummaryToggle() {
     renderPlanSummaryText();
 }
 
+// Identitat visual de cada pas del pla: color, icona i etiqueta curta. La clau
+// és el `type` de la tasca, de manera que un pas nou només ha d'aparèixer aquí.
+const PLAN_ITEM_LOOKS = {
+    tactics: { tone: 'tactics', icon: '⚡' },
+    srs_review: { tone: 'srs', icon: '🔁' },
+    opening_drill: { tone: 'opening', icon: '📖' },
+    mate_drill: { tone: 'mate', icon: '♚' },
+    weakness_training: { tone: 'focus', icon: '🎯' },
+    tria_test: { tone: 'tria', icon: '🔀' },
+    hieroglyphic: { tone: 'hiero', icon: '🧩' },
+    opening_hieroglyphic: { tone: 'opening', icon: '📜' },
+    timed_game: { tone: 'clock', icon: '⏱️' },
+    free_game: { tone: 'game', icon: '♟️' }
+};
+
 function launchWeeklyPlanItem(item) {
     try {
         if (item.type === 'opening_drill') return startOpeningErrorDrill();
         if (item.type === 'mate_drill') return void startMateDrill();
+        if (item.type === 'tria_test') return openTriaTest();
+        if (item.type === 'hieroglyphic') return void openHieroglyphicsFromBanner();
+        if (item.type === 'opening_hieroglyphic') return openOpeningHieroglyphicFromHome();
+        if (item.type === 'timed_game') return startTimedGameFromPlan(item.timeControlId);
         if (item.type === 'free_game') {
             if (typeof novaPartida === 'function') return novaPartida();
         }
@@ -32228,11 +32445,14 @@ function renderWeeklyPlan() {
         const done = progress >= item.target;
         const locked = !done && idx > firstPending;
         const pct = Math.round((progress / item.target) * 100);
+        const look = PLAN_ITEM_LOOKS[item.type] || { tone: 'focus', icon: '•' };
+        const actionable = !done && !locked;
         const row = $(`
-            <div class="coach-item${done ? ' done' : ''}${locked ? ' locked' : ''}">
+            <div class="coach-item tone-${look.tone}${done ? ' done' : ''}${locked ? ' locked' : ''}${actionable ? ' is-actionable' : ''}"
+                 ${actionable ? 'role="button" tabindex="0"' : ''}>
                 <div class="coach-step-badge">${done ? '✓' : locked ? '🔒' : item.step || idx + 1}</div>
                 <div class="coach-item-main">
-                    <div class="coach-item-kind"></div>
+                    <div class="coach-item-kind"><span class="coach-item-ic" aria-hidden="true">${look.icon}</span><span class="coach-item-kind-text"></span></div>
                     <div class="coach-item-title"></div>
                     <div class="coach-item-why"></div>
                     <div class="coach-item-progress">
@@ -32240,18 +32460,25 @@ function renderWeeklyPlan() {
                         <span class="coach-item-count">${progress}/${item.target}</span>
                     </div>
                 </div>
-                <button class="btn coach-item-go">${done ? '✓ Fet' : locked ? 'Bloquejat' : 'Comença'}</button>
+                <button class="btn coach-item-go">${done ? '✓ Fet' : locked ? 'Bloquejat' : 'Comença ›'}</button>
             </div>`);
-        row.find('.coach-item-kind').text(item.kind || '');
+        row.find('.coach-item-kind-text').text(item.kind || '');
         row.find('.coach-item-title').text(item.title);
         const whyEl = row.find('.coach-item-why');
         if (item.why && !done) whyEl.text(item.why); else whyEl.hide();
         const goBtn = row.find('.coach-item-go');
-        if (done || locked) {
+        if (!actionable) {
             goBtn.prop('disabled', true);
             if (locked) goBtn.attr('title', 'Completa primer el pas anterior');
         } else {
-            goBtn.on('click', () => launchWeeklyPlanItem(item));
+            // Tota la fila hi porta, no només el botó.
+            const go = () => launchWeeklyPlanItem(item);
+            row.attr('title', `Ves-hi: ${item.title}`);
+            row.on('click', go);
+            row.on('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); }
+            });
+            goBtn.on('click', (e) => { e.stopPropagation(); go(); });
         }
         list.append(row);
     });
