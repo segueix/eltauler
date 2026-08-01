@@ -32531,6 +32531,10 @@ function launchWeeklyPlanItem(item) {
     }
 }
 
+// Fins on s'ha desplegat la ruta la darrera vegada que es va pintar, per animar
+// només el pas que acaba d'aparèixer.
+let planRevealState = { day: null, index: -1 };
+
 function renderWeeklyPlan() {
     const panel = $('#weekly-plan-panel');
     if (!panel.length || !weeklyPlan) return;
@@ -32570,21 +32574,29 @@ function renderWeeklyPlan() {
     if (globalFill) globalFill.style.width = `${Math.round((doneCount / items.length) * 100)}%`;
     if (globalLabel) globalLabel.textContent = `${doneCount}/${items.length} passos`;
 
-    // Els passos es desbloquegen en ordre: només el primer pendent és accionable.
+    // La ruta es va desplegant: es veuen els passos fets i el que toca ara, i el
+    // següent apareix quan aquest queda enllestit. Així la pantalla ensenya una
+    // sola cosa a fer en comptes de cinc, i el pla creix a mesura que avança.
     const firstPending = items.findIndex(item => progressById[item.id] < item.target);
+    const revealIndex = firstPending === -1 ? items.length - 1 : firstPending;
+    // Un pas «acabat d'aparèixer» s'anima; en tornar a pintar la mateixa
+    // pantalla, no (si no, l'animació saltaria a cada refresc del rellotge).
+    const justRevealed = planRevealState.day === weeklyPlan.day
+        && planRevealState.index >= 0 && planRevealState.index < revealIndex;
+    planRevealState = { day: weeklyPlan.day, index: revealIndex };
 
     const list = $('#weekly-plan-list').empty();
     items.forEach((item, idx) => {
+        if (idx > revealIndex) return;   // encara no toca: apareixerà al seu torn
         const progress = progressById[item.id];
         const done = progress >= item.target;
-        const locked = !done && idx > firstPending;
         const pct = Math.round((progress / item.target) * 100);
         const look = PLAN_ITEM_LOOKS[item.type] || { tone: 'focus', icon: '•' };
-        const actionable = !done && !locked;
+        const actionable = !done;
         const row = $(`
-            <div class="coach-item tone-${look.tone}${done ? ' done' : ''}${locked ? ' locked' : ''}${actionable ? ' is-actionable' : ''}"
+            <div class="coach-item tone-${look.tone}${done ? ' done' : ''}${actionable ? ' is-actionable' : ''}${(actionable && justRevealed) ? ' is-revealing' : ''}"
                  ${actionable ? 'role="button" tabindex="0"' : ''}>
-                <div class="coach-step-badge">${done ? '✓' : locked ? '🔒' : item.step || idx + 1}</div>
+                <div class="coach-step-badge">${done ? '✓' : item.step || idx + 1}</div>
                 <div class="coach-item-main">
                     <div class="coach-item-kind"><span class="coach-item-ic" aria-hidden="true">${look.icon}</span><span class="coach-item-kind-text"></span></div>
                     <div class="coach-item-title"></div>
@@ -32594,7 +32606,7 @@ function renderWeeklyPlan() {
                         <span class="coach-item-count">${progress}/${item.target}</span>
                     </div>
                 </div>
-                <button class="btn coach-item-go">${done ? '✓ Fet' : locked ? 'Bloquejat' : 'Comença ›'}</button>
+                <button class="btn coach-item-go">${done ? '✓ Fet' : 'Comença ›'}</button>
             </div>`);
         row.find('.coach-item-kind-text').text(item.kind || '');
         row.find('.coach-item-title').text(item.title);
@@ -32603,7 +32615,6 @@ function renderWeeklyPlan() {
         const goBtn = row.find('.coach-item-go');
         if (!actionable) {
             goBtn.prop('disabled', true);
-            if (locked) goBtn.attr('title', 'Completa primer el pas anterior');
         } else {
             // Tota la fila hi porta, no només el botó.
             const go = () => launchWeeklyPlanItem(item);
@@ -32616,6 +32627,15 @@ function renderWeeklyPlan() {
         }
         list.append(row);
     });
+
+    // Els passos que encara no toquen no es pinten: només se'n diu quants en
+    // queden, perquè se sàpiga que la ruta continua.
+    const pending = items.length - (revealIndex + 1);
+    if (pending > 0) {
+        list.append($('<div class="coach-plan-next"></div>').text(pending === 1
+            ? "Encara queda 1 pas més: apareixerà quan acabis aquest."
+            : `Encara queden ${pending} passos més: cadascun apareix quan acabes l'anterior.`));
+    }
 
     const doneBanner = document.getElementById('weekly-plan-done');
     if (doneBanner) {

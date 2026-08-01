@@ -631,9 +631,6 @@
             background: rgba(201,162,39,0.12); border: 1px solid rgba(201,162,39,0.4);
         }
         .coach-item.done .coach-step-badge { color: var(--text-positive); background: rgba(74,124,89,0.25); border-color: var(--accent-green); }
-        .coach-item.locked { opacity: 0.55; border-left-color: rgba(255,255,255,0.2); }
-        .coach-item.locked .coach-step-badge { font-size: 0.72rem; background: rgba(0,0,0,0.25); border-color: rgba(255,255,255,0.2); }
-        .coach-item.locked .btn.coach-item-go { background: rgba(0,0,0,0.3); color: var(--text-secondary); cursor: default; }
         .coach-item-kind { font-size: 0.66rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--accent-gold); font-weight: 700; }
         .coach-item.done .coach-item-kind { color: var(--text-positive); }
         .coach-item-why { font-size: 0.76rem; color: var(--text-secondary); line-height: 1.4; margin-top: 2px; }
@@ -696,7 +693,26 @@
         .coach-item.is-actionable:focus-visible { border: 1px solid var(--tone); border-left-width: 3px; }
         .coach-item .btn.coach-item-go { background: linear-gradient(135deg, var(--tone, var(--accent-gold)) 0%, rgba(0,0,0,0.45) 160%); color: #12100d; font-weight: 700; }
         .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--text-positive); }
-        .coach-item.locked .btn.coach-item-go { background: rgba(0,0,0,0.3); color: var(--text-secondary); }
+
+        /* La ruta es desplega: els passos fets es repleguen a una línia i el pas
+           que toca ara es queda sencer, amb el seu perquè i la seva barra. */
+        .coach-item.done { padding: 6px 8px; }
+        .coach-item.done .coach-item-progress { display: none; }
+        .coach-item.done .coach-item-title { font-size: 0.8rem; }
+        .coach-item.done .coach-item-kind { font-size: 0.6rem; }
+        .coach-item.is-revealing { animation: coachStepIn 0.45s ease-out; }
+        @keyframes coachStepIn {
+            from { opacity: 0; transform: translateY(-8px); }
+            to { opacity: 1; transform: none; }
+        }
+        .coach-plan-next {
+            margin-top: 8px; padding: 7px 10px; border-radius: 8px;
+            font-size: 0.74rem; color: var(--text-secondary); text-align: center;
+            background: rgba(0,0,0,0.18); border: 1px dashed rgba(201,162,39,0.28);
+        }
+        @media (prefers-reduced-motion: reduce) {
+            .coach-item.is-revealing { animation: none; }
+        }
 
         /* ── Missions: fila clicable, amb icona, to i barra de progrés ─────── */
         .missions-title { display: flex; align-items: center; gap: 8px; }
@@ -746,6 +762,7 @@
         body.epaper-mode .mission-item,
         body.epaper-mode .coach-item { box-shadow: none !important; }
         body.epaper-mode .mission-go { color: #222; }
+        body.epaper-mode .coach-plan-next { background: #e6e6e6 !important; border-color: #cfcfcf !important; color: #444; }
         body.epaper-mode .coach-item .btn.coach-item-go { background: #dcdcdc !important; color: #222 !important; }
 
         /* CONTEXT DE L'ERRADA en exercicis (bundles, SRS, debilitats) */
@@ -3789,13 +3806,28 @@
         }
 
         /* ---- TRES CAMINS (test d'opció múltiple sobre les teves jugades) ---- */
-        /* Bàner: reutilitza l'estructura del col·lectiu amb paleta pròpia. */
-        .tria-banner { background: linear-gradient(135deg, #4a3a6b 0%, #2e2447 55%, #1d1730 100%); border-color: rgba(170,150,230,0.4); }
-        .tria-banner .catalans-banner-ic { stroke: #b9a6ee; }
-        .tria-banner::after { background: radial-gradient(circle, rgba(170,150,230,0.24), transparent 70%); }
-        .tria-banner .catalans-banner-cta { color: #cfc2f2; }
-        .tria-banner-meta { display: block; font-size: 0.72rem; opacity: 0.85; margin-top: 3px; }
-        .tria-banner.is-locked { filter: grayscale(0.5); opacity: 0.75; }
+        /* Bàner: reutilitza l'estructura del col·lectiu amb paleta pròpia. Va
+           amb doble classe (.catalans-banner.tria-banner) perquè el bloc del
+           bàner col·lectiu es declara MÉS AVALL en aquest mateix document i, a
+           igualtat d'especificitat, li guanyaria: sense això el test sortiria
+           vermell com els Catalans.
+           El to és el turquesa de Tres camins, el mateix que fa servir la
+           modalitat al pla i a les missions, i és lluminós sempre: encara que
+           no hi hagi prou jugades al fons, el bàner no s'apaga. */
+        .catalans-banner.tria-banner {
+            background: linear-gradient(135deg, #17b39b 0%, #0e8a80 52%, #0a5f60 100%);
+            border-color: rgba(140, 245, 220, 0.55);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.35), 0 0 22px -6px rgba(35,200,170,0.65), inset 0 0 0 1px rgba(255,255,255,0.08);
+        }
+        .catalans-banner.tria-banner:hover {
+            box-shadow: 0 10px 26px rgba(0,0,0,0.45), 0 0 30px -4px rgba(35,200,170,0.85), inset 0 0 0 1px rgba(255,255,255,0.12);
+        }
+        .catalans-banner.tria-banner::after { background: radial-gradient(circle, rgba(160,255,235,0.32), transparent 70%); }
+        .tria-banner .catalans-banner-ic { stroke: #d8fff5; }
+        .tria-banner .catalans-banner-cta { color: #0b3f3c; background: rgba(190,255,242,0.92); }
+        .tria-banner-meta { display: block; font-size: 0.72rem; opacity: 0.9; margin-top: 3px; }
+        /* Sense prou material només canvia el text del comptador, no la llum. */
+        .catalans-banner.tria-banner.is-locked { filter: none; opacity: 1; }
 
         .tria-progress { font-size: 0.82rem; color: var(--text-secondary); margin-top: 4px; }
         .tria-bar {
@@ -5239,50 +5271,10 @@
                 <button class="btn eng-cta" data-eng-action="play"></button>
             </div>
 
-            <!-- EL TEU ENTRENADOR: diagnòstic, pla del dia i missions.
-                 Va a dalt de tot: és el que diu QUÈ toca fer avui; la resta de
-                 seccions són el catàleg on anar a parar. -->
+            <!-- LES TEVES MISSIONS: el marcador del dia, a dalt de tot.
+                 La veu de l'entrenador (diagnòstic i pla) va més avall,
+                 sota les partides col·lectives. -->
             <div class="menu-section menu-section-coach">
-                <div class="menu-section-title coach-section-title">El teu entrenador</div>
-
-                <div class="coach-banner" id="home-coach-banner" style="display:none;">
-                    <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
-                        <span class="coach-banner-ic" aria-hidden="true">🧠</span>
-                        <span class="coach-banner-text">
-                            <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
-                            <span class="coach-banner-sub" id="home-coach-text">—</span>
-                        </span>
-                        <span class="coach-banner-cta">Veure ›</span>
-                    </button>
-                    <div class="coach-banner-foot">
-                        <label for="home-coach-style">Estil</label>
-                        <select id="home-coach-style" class="select-control">
-                            <option value="casual">Casual</option>
-                            <option value="balanced">Equilibrada</option>
-                            <option value="technical">Tècnica</option>
-                        </select>
-                        <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
-                    </div>
-                </div>
-
-                <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
-                    <div class="coach-kicker">
-                        <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
-                        <span class="coach-kicker-right">
-                            <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
-                            <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                        </span>
-                    </div>
-                    <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                    <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
-                    <div class="coach-plan-progress" id="weekly-plan-progress">
-                        <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
-                        <span class="coach-plan-progress-label">0/0 passos</span>
-                    </div>
-                    <div id="weekly-plan-list"></div>
-                    <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
-                </div>
-
                 <div class="missions-panel">
                     <div class="missions-header">
                         <div class="missions-title">🎖️ Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
@@ -5391,6 +5383,50 @@
                         </span>
                     </button>
                 </div>
+            </div>
+
+            <!-- EL TEU ENTRENADOR: diagnòstic del dia i ruta d'entrenament,
+                 just sota les partides col·lectives. -->
+            <div class="menu-section menu-section-coach">
+                <div class="menu-section-title coach-section-title">El teu entrenador</div>
+                <div class="coach-banner" id="home-coach-banner" style="display:none;">
+                    <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
+                        <span class="coach-banner-ic" aria-hidden="true">🧠</span>
+                        <span class="coach-banner-text">
+                            <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
+                            <span class="coach-banner-sub" id="home-coach-text">—</span>
+                        </span>
+                        <span class="coach-banner-cta">Veure ›</span>
+                    </button>
+                    <div class="coach-banner-foot">
+                        <label for="home-coach-style">Estil</label>
+                        <select id="home-coach-style" class="select-control">
+                            <option value="casual">Casual</option>
+                            <option value="balanced">Equilibrada</option>
+                            <option value="technical">Tècnica</option>
+                        </select>
+                        <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                    </div>
+                </div>
+
+                <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                    <div class="coach-kicker">
+                        <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
+                        <span class="coach-kicker-right">
+                            <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
+                            <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                        </span>
+                    </div>
+                    <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                    <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                    <div class="coach-plan-progress" id="weekly-plan-progress">
+                        <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                        <span class="coach-plan-progress-label">0/0 passos</span>
+                    </div>
+                    <div id="weekly-plan-list"></div>
+                    <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
+                </div>
+
             </div>
 
             <!-- ENTRENA: exercicis per millorar, amb els jeroglífics al capdavant -->
@@ -7692,7 +7728,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.77"></script>
+    <script src="app.js?v=1.0.78"></script>
 
     <!-- Service Worker Registration -->
     <script>
