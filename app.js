@@ -4403,20 +4403,16 @@ function clearEngineMoveTimers() {
     engineMoveApplyPending = false;
 }
 
-/* Precisió que se li pot demanar avui: la mitjana de les seves últimes partides
-   MÉS 5 punts, i la mitjana és la del ritme amb què es jugarà la missió. No es
-   juga igual de precís a un minut que sense rellotge, de manera que barrejar-ho
-   tot donaria un llistó regalat al bullet i impossible a les partides llargues.
-   Sense partides en aquell ritme es parteix de la mitjana general, i sense cap
-   partida mesurada, d'una mitjana modesta: mai d'un llistó fix que un
-   principiant no pot tocar. */
-const PRECISION_MISSION_SAMPLE = 12;
+/* Precisió que se li pot demanar avui: la mitjana de les DARRERES 10 PARTIDES
+   d'aquell ritme, més 5 punts. No es juga igual de precís a un minut que sense
+   rellotge, de manera que barrejar ritmes donaria un llistó regalat al bullet i
+   impossible a les partides llargues. I amb menys de 10 partides d'aquell ritme
+   la mitjana encara no vol dir res: llavors no s'ofereix la missió. */
+const PRECISION_MISSION_SAMPLE = 10;
 const PRECISION_MISSION_STEP = 5;
-// Mitjana de sortida per a qui encara no té cap partida mesurada.
-const PRECISION_MISSION_BASE_AVG = 55;
 // Puja quan canvia la regla del llistó: les missions del dia amb un llistó
 // calculat amb la regla antiga es refan en comptes d'arrossegar-la fins demà.
-const PRECISION_RULE_VERSION = 3;
+const PRECISION_RULE_VERSION = 4;
 
 // Ritme amb què es va jugar una partida de l'historial ('none' si sense rellotge).
 function historyTimeControlId(entry) {
@@ -4424,32 +4420,40 @@ function historyTimeControlId(entry) {
     return TIME_CONTROLS.some(t => t.id === id) ? id : 'none';
 }
 
-// Precisions mesurades, opcionalment d'un sol ritme (null = tots).
+// Les darreres 10 precisions mesurades d'un ritme.
 function precisionSample(tcId) {
     return (Array.isArray(gameHistory) ? gameHistory : [])
         .filter(g => typeof g.precision === 'number' && g.precision > 0
-            && (tcId === null || historyTimeControlId(g) === tcId))
+            && historyTimeControlId(g) === tcId)
         .slice(-PRECISION_MISSION_SAMPLE)
         .map(g => g.precision);
 }
 
+// Ritme del qual ha de sortir el llistó: el triat a la pàgina principal, i
+// «sense rellotge» durant el calibratge inicial (les partides de calibratge es
+// juguen sempre sense, encara que hi hagi un ritme marcat).
+function precisionMissionTimeControlId() {
+    if (isCalibrationRequired()) return 'none';
+    return TIME_CONTROLS.some(t => t.id === pendingFreeTimeControl) ? pendingFreeTimeControl : 'none';
+}
+
 function personalPrecisionTargets(tcId) {
-    const wanted = TIME_CONTROLS.some(t => t.id === tcId)
-        ? tcId
-        : (TIME_CONTROLS.some(t => t.id === pendingFreeTimeControl) ? pendingFreeTimeControl : 'none');
-    let sample = precisionSample(wanted);
-    let source = 'rhythm';
-    if (!sample.length) {
-        sample = precisionSample(null);
-        source = sample.length ? 'all' : 'base';
+    const wanted = TIME_CONTROLS.some(t => t.id === tcId) ? tcId : precisionMissionTimeControlId();
+    const sample = precisionSample(wanted);
+    if (sample.length < PRECISION_MISSION_SAMPLE) {
+        return { available: false, timeControlId: wanted, games: sample.length };
     }
-    const average = sample.length
-        ? sample.reduce((s, p) => s + p, 0) / sample.length
-        : PRECISION_MISSION_BASE_AVG;
+    const average = sample.reduce((s, p) => s + p, 0) / sample.length;
     // Sostre al 98%: demanar el 100% seria demanar una partida sense ni una
     // imprecisió, i el llistó ha de continuar sent una partida jugable.
     const target = Math.max(40, Math.min(98, Math.round(average + PRECISION_MISSION_STEP)));
-    return { target, timeControlId: wanted, source, average: Math.round(average), games: sample.length };
+    return { available: true, target, timeControlId: wanted, average: Math.round(average), games: sample.length };
+}
+
+// Es pot demanar avui una missió de precisió? Només amb 10 partides mesurades
+// del ritme que hi ha triat.
+function precisionMissionAvailable() {
+    return personalPrecisionTargets().available;
 }
 
 /* Disponibilitat de les modalitats que poden sortir com a missió o com a repte
@@ -4481,7 +4485,7 @@ const MISSION_TEMPLATES = [
     { id: 'playFree', text: 'Juga 1 partida lliure', stars: 1, target: 1, metric: 'freeGamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.freeGamesPlayed >= 1 },
     { id: 'bundle1', text: 'Resol 1 errada', stars: 1, target: 1, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity(null).length >= 1, check: () => sessionStats.bundlesSolved >= 1 },
     { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, target: 1, metric: 'bundlesSolvedLow', action: 'bundle', severity: 'low', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('low').length >= 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
-    { id: 'precisionSolid', stars: 1, dynamic: 'precision', metric: 'bestPrecisionTc', action: 'precision', icon: '🎯', tone: 'game', check: (m) => bestPrecisionForTimeControl(m.timeControlId) >= (m.target || 70) },
+    { id: 'precisionSolid', stars: 1, dynamic: 'precision', metric: 'bestPrecisionTc', action: 'precision', icon: '🎯', tone: 'game', available: () => precisionMissionAvailable(), check: (m) => bestPrecisionForTimeControl(m.timeControlId) >= (m.target || 70) },
     { id: 'hiero1', text: 'Resol 1 jeroglífic', stars: 1, target: 1, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(), check: () => sessionStats.hieroSolved >= 1 },
     { id: 'timed1', text: 'Juga 1 partida amb rellotge', stars: 1, target: 1, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', check: () => sessionStats.timedGamesPlayed >= 1 },
     { id: 'positional1', text: 'Juga 1 partida de Joc vista', stars: 1, target: 1, metric: 'positionalGamesPlayed', action: 'positional', icon: '🔭', tone: 'positional', check: () => sessionStats.positionalGamesPlayed >= 1 },
@@ -4512,9 +4516,10 @@ const MISSION_TEMPLATES = [
 function materializeMission(template) {
     const mission = { ...template, completed: false };
     if (mission.dynamic === 'precision') {
-        // Durant el calibratge inicial les partides es juguen sense rellotge
-        // encara que n'hi hagi un de triat: el llistó ha de ser el d'aquestes.
-        const targets = personalPrecisionTargets(isCalibrationRequired() ? 'none' : undefined);
+        const targets = personalPrecisionTargets();
+        // Sense 10 partides d'aquell ritme la mitjana no vol dir res i la missió
+        // no s'ofereix: qui la demani rebrà null i n'oferirà una altra.
+        if (!targets.available) return null;
         const tc = targets.timeControlId;
         const rhythm = tc === 'none' ? 'sense rellotge' : `a ${getTimeControlLabel(tc)}`;
         mission.target = targets.target;
@@ -4523,15 +4528,10 @@ function materializeMission(template) {
         mission.unit = '%';
         mission.rule = PRECISION_RULE_VERSION;
         const over = mission.target - targets.average;
-        const partides = `${targets.games} ${targets.games === 1 ? 'partida' : 'partides'}`;
         const mes = over > 0
             ? `la missió en demana ${over} ${over === 1 ? 'punt' : 'punts'} més.`
             : 'aquesta ha de ser de les teves millors partides.';
-        mission.note = targets.source === 'rhythm'
-            ? `La teva mitjana ${rhythm} és del ${targets.average}% (${partides}): ${mes}`
-            : targets.source === 'all'
-                ? `Encara no tens partides mesurades ${rhythm}: el llistó surt de la teva mitjana general del ${targets.average}%.`
-                : `Encara no tens cap partida mesurada: partim d'una mitjana del ${targets.average}%.`;
+        mission.note = `La teva mitjana ${rhythm} de les últimes ${targets.games} partides és del ${targets.average}%: ${mes}`;
     }
     return mission;
 }
@@ -5157,14 +5157,13 @@ function generateDailyMissions() {
     // Per fer-ho senzill i que variï sempre si regenerem, fem servir un random pur si regenerem intra-dia
     const rng = timePassed ? Math.random : mulberry32(parseInt(today.split('-').join('')));
 
-    const easy = missionTierPool(1);
-    const medium = missionTierPool(2);
-    const hard = missionTierPool(3);
-    
-    // Funció auxiliar per triar random
-    const pick = (arr) => arr[Math.floor((timePassed ? Math.random() : rng()) * arr.length)];
-
-    todayMissions = [materializeMission(pick(easy)), materializeMission(pick(medium)), materializeMission(pick(hard))];
+    const rand = timePassed ? Math.random : rng;
+    const picked = [];
+    [1, 2, 3].forEach(stars => {
+        const mission = pickTierMission(stars, rand, picked.map(m => m.id));
+        if (mission) picked.push(mission);
+    });
+    todayMissions = picked;
 
     // Reiniciem estadístiques parcials de sessió per a les noves missions
     sessionStats = defaultSessionStats();
@@ -5187,6 +5186,20 @@ function missionIsAvailable(template) {
     if (MISSION_ACTIONS_ALWAYS_OPEN.indexOf(template.action) === -1 && isCalibrationRequired()) return false;
     if (typeof template.available !== 'function') return true;
     try { return !!template.available(); } catch (e) { return false; }
+}
+
+/* Una missió d'aquella exigència, ja preparada per al dia. Es prova a partir
+   d'una posició a l'atzar i s'avança fins que una es pugui oferir: una missió
+   dinàmica (la de precisió) pot dir que avui no, i llavors n'entra una altra. */
+function pickTierMission(stars, rand, excludeIds = []) {
+    const pool = missionTierPool(stars).filter(t => excludeIds.indexOf(t.id) === -1);
+    if (!pool.length) return null;
+    const start = Math.floor((rand ? rand() : Math.random()) * pool.length);
+    for (let i = 0; i < pool.length; i++) {
+        const mission = materializeMission(pool[(start + i) % pool.length]);
+        if (mission) return mission;
+    }
+    return null;
 }
 
 // Plantilles d'una exigència que avui es poden completar.
@@ -5500,6 +5513,7 @@ function restoreMissions(savedList) {
             const restored = keepTarget
                 ? { ...template, target: saved.target, text: saved.text || template.text, note: saved.note || null, rule: saved.rule, unit: '%', timeControlId: saved.timeControlId || 'none' }
                 : materializeMission(template);
+            if (!restored) return null;   // avui ja no es pot oferir
             restored.completed = !!saved.completed;
             return restored;
         })
@@ -5524,9 +5538,8 @@ function fillMissingMissions(list) {
     [1, 2, 3].forEach(stars => {
         if (out.length >= 3) return;
         if (out.some(m => m.stars === stars)) return;
-        const pool = missionTierPool(stars).filter(t => !out.some(m => m.id === t.id));
-        if (!pool.length) return;
-        out.push(materializeMission(pool[Math.floor(Math.random() * pool.length)]));
+        const mission = pickTierMission(stars, Math.random, out.map(m => m.id));
+        if (mission) out.push(mission);
     });
     return out.sort((a, b) => a.stars - b.stars);
 }
