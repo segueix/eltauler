@@ -4397,28 +4397,31 @@ function clearEngineMoveTimers() {
 }
 
 /* Precisió que se li pot demanar avui. Un llistó fix (70% i 85%) és impossible
-   per a qui es mou pel 50% i regalat per a qui ja va pel 90%: aquí surt de les
-   seves últimes partides. La xifra «sòlida» és la seva mediana (la que aconsegueix
-   la meitat dels dies) i la «alta» queda entre la mediana i el seu millor
-   resultat. Sense prou partides mesurades es manté el llistó clàssic. */
+   per a qui es mou pel 50% i regalat per a qui ja va pel 90%: aquí surt de la
+   MITJANA de les seves últimes partides mesurades. La missió d'una estrella en
+   demana 5 punts més (una partida una mica millor del que li surt de normal) i
+   la de dues, 10. Sense prou partides mesurades es manté el llistó clàssic. */
 const PRECISION_MISSION_MIN_GAMES = 4;
 const PRECISION_MISSION_SAMPLE = 12;
+const PRECISION_MISSION_STEP = 5;
 function personalPrecisionTargets() {
     const recent = (Array.isArray(gameHistory) ? gameHistory : [])
         .filter(g => typeof g.precision === 'number' && g.precision > 0)
         .slice(-PRECISION_MISSION_SAMPLE)
-        .map(g => g.precision)
-        .sort((a, b) => a - b);
+        .map(g => g.precision);
     if (recent.length < PRECISION_MISSION_MIN_GAMES) {
-        return { solid: 70, top: 85, measured: false, median: null, best: null };
+        return { solid: 70, top: 85, measured: false, average: null };
     }
-    const median = recent[Math.floor(recent.length / 2)];
-    const best = recent[recent.length - 1];
-    const round5 = v => Math.round(v / 5) * 5;
-    const clamp = v => Math.max(40, Math.min(95, v));
-    const solid = clamp(round5(median));
-    const top = clamp(round5(Math.max(median + 7, (median + best) / 2)));
-    return { solid, top: Math.min(95, Math.max(top, solid + 5)), measured: true, median: Math.round(median), best: Math.round(best) };
+    const average = recent.reduce((s, p) => s + p, 0) / recent.length;
+    // Sostre al 98%: demanar el 100% seria demanar una partida sense ni una
+    // imprecisió, i el llistó ha de continuar sent una partida jugable.
+    const clamp = v => Math.max(40, Math.min(98, Math.round(v)));
+    return {
+        solid: clamp(average + PRECISION_MISSION_STEP),
+        top: clamp(average + PRECISION_MISSION_STEP * 2),
+        measured: true,
+        average: Math.round(average)
+    };
 }
 
 /* Disponibilitat de les modalitats que poden sortir com a missió o com a repte
@@ -4486,9 +4489,12 @@ function materializeMission(template) {
         mission.target = mission.dynamic === 'precision_solid' ? targets.solid : targets.top;
         mission.text = `Arriba al ${mission.target}% de precisió`;
         mission.unit = '%';
-        mission.note = targets.measured
-            ? `El teu llistó d'avui: mitjana recent del ${targets.median}% i millor partida del ${targets.best}%.`
-            : 'Encara no tens prou partides mesurades: de moment val el llistó general.';
+        const over = mission.target - targets.average;
+        mission.note = !targets.measured
+            ? 'Encara no tens prou partides mesurades: de moment val el llistó general.'
+            : over > 0
+                ? `La teva mitjana recent és del ${targets.average}%: la missió en demana ${over} ${over === 1 ? 'punt' : 'punts'} més.`
+                : `La teva mitjana recent és del ${targets.average}%: aquesta ha de ser de les teves millors partides.`;
     }
     return mission;
 }
