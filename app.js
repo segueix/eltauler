@@ -2190,7 +2190,7 @@ function importBackupData(data) {
     userELO = data.elo || 50; savedErrors = data.bundles || [];
     currentStreak = data.streak || 0; lastPracticeDate = data.lastPracticeDate || null;
     totalStars = data.totalStars || 0; unlockedBadges = data.unlockedBadges || [];
-    todayMissions = restoreMissions(data.todayMissions || []); missionsDate = data.missionsDate || null;
+    missionsDate = data.missionsDate || null;
     sessionStats = Object.assign(defaultSessionStats(), data.sessionStats || {});
     eloHistory = data.eloHistory || []; totalGamesPlayed = data.totalGamesPlayed || 0; totalWins = data.totalWins || 0; maxStreak = data.maxStreak || 0;
        const importedElo = (typeof data.currentElo === 'number') ? data.currentElo
@@ -2209,6 +2209,9 @@ function importBackupData(data) {
     // reparteixen entre l'índex i IndexedDB com les que arriben del localStorage.
     gameHistory = adoptHistoryEntries(gameHistory);
     importedGameHistory = adoptHistoryEntries(importedGameHistory, { max: IMPORTED_HISTORY_MAX });
+    // Les missions es restauren amb l'historial ja al lloc: un llistó de precisió
+    // que s'hagi de recalcular necessita les partides mesurades de la còpia.
+    todayMissions = restoreMissions(data.todayMissions || []);
     shedColdHistoryBodies();
     pruneHistoryBodies();
     if (Array.isArray(data.completedOpenings)) completedOpenings = data.completedOpenings;
@@ -4399,32 +4402,31 @@ function clearEngineMoveTimers() {
     engineMoveApplyPending = false;
 }
 
-/* Precisió que se li pot demanar avui. Un llistó fix (70% i 85%) és impossible
-   per a qui es mou pel 50% i regalat per a qui ja va pel 90%: aquí surt de la
-   MITJANA de les seves últimes partides mesurades. La missió d'una estrella en
-   demana 5 punts més (una partida una mica millor del que li surt de normal) i
-   la de dues, 10. Sense prou partides mesurades es manté el llistó clàssic. */
-const PRECISION_MISSION_MIN_GAMES = 4;
+/* Precisió que se li pot demanar avui: SEMPRE la mitjana de les seves últimes
+   partides mesurades més 5 punts. Un llistó fix seria impossible per a qui es
+   mou pel 50% i regalat per a qui ja va pel 90%. Amb una sola partida mesurada
+   ja s'hi compta; mentre no n'hi hagi cap es parteix d'una mitjana modesta, mai
+   d'un 85% que un principiant no pot tocar. */
 const PRECISION_MISSION_SAMPLE = 12;
 const PRECISION_MISSION_STEP = 5;
+// Mitjana de sortida per a qui encara no té cap partida mesurada.
+const PRECISION_MISSION_BASE_AVG = 55;
+// Puja quan canvia la regla del llistó: les missions del dia amb un llistó
+// calculat amb la regla antiga es refan en comptes d'arrossegar-la fins demà.
+const PRECISION_RULE_VERSION = 2;
 function personalPrecisionTargets() {
     const recent = (Array.isArray(gameHistory) ? gameHistory : [])
         .filter(g => typeof g.precision === 'number' && g.precision > 0)
         .slice(-PRECISION_MISSION_SAMPLE)
         .map(g => g.precision);
-    if (recent.length < PRECISION_MISSION_MIN_GAMES) {
-        return { solid: 70, top: 85, measured: false, average: null };
-    }
-    const average = recent.reduce((s, p) => s + p, 0) / recent.length;
+    const measured = recent.length > 0;
+    const average = measured
+        ? recent.reduce((s, p) => s + p, 0) / recent.length
+        : PRECISION_MISSION_BASE_AVG;
     // Sostre al 98%: demanar el 100% seria demanar una partida sense ni una
     // imprecisió, i el llistó ha de continuar sent una partida jugable.
-    const clamp = v => Math.max(40, Math.min(98, Math.round(v)));
-    return {
-        solid: clamp(average + PRECISION_MISSION_STEP),
-        top: clamp(average + PRECISION_MISSION_STEP * 2),
-        measured: true,
-        average: Math.round(average)
-    };
+    const target = Math.max(40, Math.min(98, Math.round(average + PRECISION_MISSION_STEP)));
+    return { target, measured, average: Math.round(average), games: recent.length };
 }
 
 /* Disponibilitat de les modalitats que poden sortir com a missió o com a repte
@@ -4456,7 +4458,7 @@ const MISSION_TEMPLATES = [
     { id: 'playFree', text: 'Juga 1 partida lliure', stars: 1, target: 1, metric: 'freeGamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.freeGamesPlayed >= 1 },
     { id: 'bundle1', text: 'Resol 1 errada', stars: 1, target: 1, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity(null).length >= 1, check: () => sessionStats.bundlesSolved >= 1 },
     { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, target: 1, metric: 'bundlesSolvedLow', action: 'bundle', severity: 'low', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('low').length >= 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
-    { id: 'precisionSolid', stars: 1, dynamic: 'precision_solid', metric: 'bestPrecision', action: 'play', icon: '🎯', tone: 'game', check: (m) => (sessionStats.bestPrecision || 0) >= (m.target || 70) },
+    { id: 'precisionSolid', stars: 1, dynamic: 'precision', metric: 'bestPrecision', action: 'play', icon: '🎯', tone: 'game', check: (m) => (sessionStats.bestPrecision || 0) >= (m.target || 70) },
     { id: 'hiero1', text: 'Resol 1 jeroglífic', stars: 1, target: 1, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(), check: () => sessionStats.hieroSolved >= 1 },
     { id: 'timed1', text: 'Juga 1 partida amb rellotge', stars: 1, target: 1, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', available: () => !isCalibrationRequired(), check: () => sessionStats.timedGamesPlayed >= 1 },
     { id: 'positional1', text: 'Juga 1 partida de Joc vista', stars: 1, target: 1, metric: 'positionalGamesPlayed', action: 'positional', icon: '🔭', tone: 'positional', available: () => !isCalibrationRequired(), check: () => sessionStats.positionalGamesPlayed >= 1 },
@@ -4466,7 +4468,6 @@ const MISSION_TEMPLATES = [
     { id: 'win2', text: 'Guanya 2 partides', stars: 2, target: 2, metric: 'gamesWon', action: 'play', icon: '🏆', tone: 'game', check: () => sessionStats.gamesWon >= 2 },
     { id: 'bundle3', text: 'Resol 3 errades', stars: 2, target: 3, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity(null).length >= 3, check: () => sessionStats.bundlesSolved >= 3 },
     { id: 'bundleMed', text: 'Resol 1 errada mitjana', stars: 2, target: 1, metric: 'bundlesSolvedMed', action: 'bundle', severity: 'med', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('med').length >= 1, check: () => sessionStats.bundlesSolvedMed >= 1 },
-    { id: 'precisionTop', stars: 2, dynamic: 'precision_top', metric: 'bestPrecision', action: 'play', icon: '🎯', tone: 'game', check: (m) => (sessionStats.bestPrecision || 0) >= (m.target || 85) },
     { id: 'tria1', text: 'Fes 1 test de Tres camins', stars: 2, target: 1, metric: 'triaTests', action: 'tria', icon: '🔀', tone: 'tria', available: () => triaTestAvailableNow(), check: () => sessionStats.triaTests >= 1 },
     { id: 'hiero3', text: 'Resol 3 jeroglífics', stars: 2, target: 3, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(3), check: () => sessionStats.hieroSolved >= 3 },
     { id: 'timed2', text: 'Juga 2 partides amb rellotge', stars: 2, target: 2, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', available: () => !isCalibrationRequired(), check: () => sessionStats.timedGamesPlayed >= 2 },
@@ -4487,16 +4488,17 @@ const MISSION_TEMPLATES = [
 // jugades: un cop fixat, ja no es mou en tot el dia.
 function materializeMission(template) {
     const mission = { ...template, completed: false };
-    if (mission.dynamic === 'precision_solid' || mission.dynamic === 'precision_top') {
+    if (mission.dynamic === 'precision') {
         const targets = personalPrecisionTargets();
-        mission.target = mission.dynamic === 'precision_solid' ? targets.solid : targets.top;
+        mission.target = targets.target;
         mission.text = `Arriba al ${mission.target}% de precisió`;
         mission.unit = '%';
+        mission.rule = PRECISION_RULE_VERSION;
         const over = mission.target - targets.average;
         mission.note = !targets.measured
-            ? 'Encara no tens prou partides mesurades: de moment val el llistó general.'
+            ? `Encara no tens cap partida mesurada: partim d'una mitjana del ${targets.average}%.`
             : over > 0
-                ? `La teva mitjana recent és del ${targets.average}%: la missió en demana ${over} ${over === 1 ? 'punt' : 'punts'} més.`
+                ? `La teva mitjana de les últimes ${targets.games} ${targets.games === 1 ? 'partida' : 'partides'} és del ${targets.average}%: la missió en demana ${over} ${over === 1 ? 'punt' : 'punts'} més.`
                 : `La teva mitjana recent és del ${targets.average}%: aquesta ha de ser de les teves millors partides.`;
     }
     return mission;
@@ -5123,20 +5125,9 @@ function generateDailyMissions() {
     // Per fer-ho senzill i que variï sempre si regenerem, fem servir un random pur si regenerem intra-dia
     const rng = timePassed ? Math.random : mulberry32(parseInt(today.split('-').join('')));
 
-    // Només s'assignen missions que avui es poden completar: demanar un test de
-    // Tres camins sense prou jugades revisades, o un jeroglífic sense cap a la
-    // cua, seria una missió impossible que trencaria el dia.
-    const tier = (stars) => {
-        const all = MISSION_TEMPLATES.filter(m => m.stars === stars);
-        const doable = all.filter(m => {
-            if (typeof m.available !== 'function') return true;
-            try { return !!m.available(); } catch (e) { return false; }
-        });
-        return doable.length ? doable : all;
-    };
-    const easy = tier(1);
-    const medium = tier(2);
-    const hard = tier(3);
+    const easy = missionTierPool(1);
+    const medium = missionTierPool(2);
+    const hard = missionTierPool(3);
     
     // Funció auxiliar per triar random
     const pick = (arr) => arr[Math.floor((timePassed ? Math.random() : rng()) * arr.length)];
@@ -5148,6 +5139,18 @@ function generateDailyMissions() {
     
     saveStorage();
     updateMissionsDisplay();
+}
+
+/* Plantilles d'una exigència que avui es poden completar: demanar un test de
+   Tres camins sense prou jugades revisades, o un jeroglífic sense cap a la cua,
+   seria una missió impossible que trencaria el dia. */
+function missionTierPool(stars) {
+    const all = MISSION_TEMPLATES.filter(m => m.stars === stars);
+    const doable = all.filter(m => {
+        if (typeof m.available !== 'function') return true;
+        try { return !!m.available(); } catch (e) { return false; }
+    });
+    return doable.length ? doable : all;
 }
 
 function mulberry32(a) {
@@ -5410,24 +5413,53 @@ function updateStreakDisplay() {
 
 // Missions de dies anteriors amb el llistó de precisió fix: es reobren com les
 // noves, que el treuen del nivell del jugador.
-const MISSION_ID_ALIASES = { precision70: 'precisionSolid', precision85: 'precisionTop' };
+const MISSION_ID_ALIASES = { precision70: 'precisionSolid', precision85: 'precisionSolid', precisionTop: 'precisionSolid' };
 
 function restoreMissions(savedList) {
     if (!Array.isArray(savedList)) return [];
-    return savedList
+    const restored = savedList
         .map(saved => {
             const id = MISSION_ID_ALIASES[saved.id] || saved.id;
             const template = MISSION_TEMPLATES.find(t => t.id === id);
             if (!template) return null;
             // El llistó d'una missió dinàmica es va fixar en generar-la: es manté
             // tal com estava perquè el progrés del dia no li canviï sota els peus.
-            const restored = template.dynamic && typeof saved.target === 'number'
-                ? { ...template, target: saved.target, text: saved.text || template.text, note: saved.note || null }
+            // Ara bé, si es va calcular amb una regla antiga (p. ex. el 85% fix),
+            // es refà: val més un llistó correcte que un de vell però estable.
+            const keepTarget = template.dynamic && typeof saved.target === 'number'
+                && saved.rule === PRECISION_RULE_VERSION;
+            const restored = keepTarget
+                ? { ...template, target: saved.target, text: saved.text || template.text, note: saved.note || null, rule: saved.rule, unit: '%' }
                 : materializeMission(template);
             restored.completed = !!saved.completed;
             return restored;
         })
-        .filter(Boolean);
+        .filter(Boolean)
+        // Dues plantilles antigues poden apuntar ara a la MATEIXA missió (les
+        // dues de precisió): sense això el dia sortiria amb la mateixa fila
+        // repetida. Es queda una, amb el progrés de la que estigués feta.
+        .reduce((out, mission) => {
+            const twin = out.find(m => m.id === mission.id);
+            if (twin) { twin.completed = twin.completed || mission.completed; return out; }
+            out.push(mission);
+            return out;
+        }, []);
+    // I si el dia s'ha quedat curt per aquesta fusió, s'hi torna a posar una
+    // missió de la mateixa exigència que la que ha desaparegut.
+    return fillMissingMissions(restored);
+}
+
+// Completa el dia fins a tres missions quan la restauració n'ha fusionat dues.
+function fillMissingMissions(list) {
+    const out = Array.isArray(list) ? list.slice() : [];
+    [1, 2, 3].forEach(stars => {
+        if (out.length >= 3) return;
+        if (out.some(m => m.stars === stars)) return;
+        const pool = missionTierPool(stars).filter(t => !out.some(m => m.id === t.id));
+        if (!pool.length) return;
+        out.push(materializeMission(pool[Math.floor(Math.random() * pool.length)]));
+    });
+    return out.sort((a, b) => a.stars - b.stars);
 }
 
 function clampEngineElo(elo) {
@@ -6444,9 +6476,10 @@ function loadStorage() {
     const lastDate = localStorage.getItem('chess_lastPracticeDate'); if (lastDate) lastPracticeDate = lastDate;
     const stars = localStorage.getItem('chess_totalStars'); if (stars) totalStars = parseInt(stars);
     
-    // Càrrega de Missions i Temps
+    // Càrrega de Missions i Temps. Es guarden en brut i es restauren MÉS AVALL,
+    // un cop llegit l'historial de partides: una missió de precisió que s'hagi de
+    // recalcular necessita les partides mesurades per treure'n la mitjana.
     const missions = localStorage.getItem('chess_todayMissions'); const mDate = localStorage.getItem('chess_missionsDate');
-    if (missions && mDate) { todayMissions = restoreMissions(JSON.parse(missions)); missionsDate = mDate; }
     
     // --- LÍNIA AFEGIDA PER AL CRONÒMETRE DE MISSIONS ---
     const mTime = localStorage.getItem('chess_missionsCompletionTime'); 
@@ -6527,6 +6560,12 @@ function loadStorage() {
     const lMatch = localStorage.getItem('chess_leagueActiveMatch'); if (lMatch) leagueActiveMatch = JSON.parse(lMatch);
     const reviews = localStorage.getItem('chess_reviewHistory'); if (reviews) reviewHistory = JSON.parse(reviews);
     const gameHistoryStored = localStorage.getItem('chess_gameHistory'); if (gameHistoryStored) gameHistory = JSON.parse(gameHistoryStored);
+    // Ara sí: amb l'historial carregat, les missions del dia es poden restaurar
+    // (i, si el llistó de precisió venia d'una regla antiga, recalcular-lo).
+    if (missions && mDate) {
+        try { todayMissions = restoreMissions(JSON.parse(missions)); } catch (e) { todayMissions = []; }
+        missionsDate = mDate;
+    }
     const importedHistoryStored = localStorage.getItem('chess_importedGameHistory');
     importedGameHistory = importedHistoryStored ? JSON.parse(importedHistoryStored) : [];
     migrateImportedHistoryEntries();
