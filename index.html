@@ -672,6 +672,8 @@
         .tone-srs { --tone: #9b7fd4; }
         .tone-focus { --tone: #e8a33d; }
         .tone-mate { --tone: #a07cd8; }
+        .tone-antidote { --tone: #4fc3a1; }
+        .tone-positional { --tone: #7f9ad8; }
 
         /* Les regles .coach-item.done / .locked de més amunt guanyen per
            especificitat, així que el pas fet o bloquejat conserva el seu color. */
@@ -721,6 +723,8 @@
             background: rgba(0,0,0,0.28); border: 1px solid var(--tone, rgba(255,255,255,0.15));
         }
         .mission-label { line-height: 1.3; }
+        /* D'on surt el llistó d'una missió de precisió: la seva mitjana recent. */
+        .mission-note { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.35; margin-top: 2px; }
         .mission-bar { height: 5px; border-radius: 4px; background: rgba(0,0,0,0.3); overflow: hidden; margin: 5px 0 3px; }
         .mission-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; background: linear-gradient(90deg, var(--tone, var(--accent-green)), var(--accent-gold)); }
         .mission-item .mission-stars { display: inline; width: auto; color: var(--star-gold); }
@@ -7688,7 +7692,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.76"></script>
+    <script src="app.js?v=1.0.77"></script>
 
     <!-- Service Worker Registration -->
     <script>
