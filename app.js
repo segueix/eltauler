@@ -4302,9 +4302,10 @@ function defaultSessionStats() {
         triaTests: 0,
         hieroSolved: 0,
         openingHieroSolved: 0,
-        // Millor precisió del dia: les missions de precisió demanen una xifra
-        // treta del seu nivell real, així que el que compta és el sostre d'avui.
-        bestPrecision: 0
+        // Millor precisió del dia PER RITME ({ '5+0': 72, none: 65 }): el llistó
+        // de la missió surt de la mitjana d'aquell ritme, així que el que hi
+        // compta és el sostre d'avui en aquell mateix ritme.
+        bestPrecisionByTc: {}
     };
 }
 let sessionStats = defaultSessionStats();
@@ -4402,31 +4403,53 @@ function clearEngineMoveTimers() {
     engineMoveApplyPending = false;
 }
 
-/* Precisió que se li pot demanar avui: SEMPRE la mitjana de les seves últimes
-   partides mesurades més 5 punts. Un llistó fix seria impossible per a qui es
-   mou pel 50% i regalat per a qui ja va pel 90%. Amb una sola partida mesurada
-   ja s'hi compta; mentre no n'hi hagi cap es parteix d'una mitjana modesta, mai
-   d'un 85% que un principiant no pot tocar. */
+/* Precisió que se li pot demanar avui: la mitjana de les seves últimes partides
+   MÉS 5 punts, i la mitjana és la del ritme amb què es jugarà la missió. No es
+   juga igual de precís a un minut que sense rellotge, de manera que barrejar-ho
+   tot donaria un llistó regalat al bullet i impossible a les partides llargues.
+   Sense partides en aquell ritme es parteix de la mitjana general, i sense cap
+   partida mesurada, d'una mitjana modesta: mai d'un llistó fix que un
+   principiant no pot tocar. */
 const PRECISION_MISSION_SAMPLE = 12;
 const PRECISION_MISSION_STEP = 5;
 // Mitjana de sortida per a qui encara no té cap partida mesurada.
 const PRECISION_MISSION_BASE_AVG = 55;
 // Puja quan canvia la regla del llistó: les missions del dia amb un llistó
 // calculat amb la regla antiga es refan en comptes d'arrossegar-la fins demà.
-const PRECISION_RULE_VERSION = 2;
-function personalPrecisionTargets() {
-    const recent = (Array.isArray(gameHistory) ? gameHistory : [])
-        .filter(g => typeof g.precision === 'number' && g.precision > 0)
+const PRECISION_RULE_VERSION = 3;
+
+// Ritme amb què es va jugar una partida de l'historial ('none' si sense rellotge).
+function historyTimeControlId(entry) {
+    const id = entry && entry.timeControl;
+    return TIME_CONTROLS.some(t => t.id === id) ? id : 'none';
+}
+
+// Precisions mesurades, opcionalment d'un sol ritme (null = tots).
+function precisionSample(tcId) {
+    return (Array.isArray(gameHistory) ? gameHistory : [])
+        .filter(g => typeof g.precision === 'number' && g.precision > 0
+            && (tcId === null || historyTimeControlId(g) === tcId))
         .slice(-PRECISION_MISSION_SAMPLE)
         .map(g => g.precision);
-    const measured = recent.length > 0;
-    const average = measured
-        ? recent.reduce((s, p) => s + p, 0) / recent.length
+}
+
+function personalPrecisionTargets(tcId) {
+    const wanted = TIME_CONTROLS.some(t => t.id === tcId)
+        ? tcId
+        : (TIME_CONTROLS.some(t => t.id === pendingFreeTimeControl) ? pendingFreeTimeControl : 'none');
+    let sample = precisionSample(wanted);
+    let source = 'rhythm';
+    if (!sample.length) {
+        sample = precisionSample(null);
+        source = sample.length ? 'all' : 'base';
+    }
+    const average = sample.length
+        ? sample.reduce((s, p) => s + p, 0) / sample.length
         : PRECISION_MISSION_BASE_AVG;
     // Sostre al 98%: demanar el 100% seria demanar una partida sense ni una
     // imprecisió, i el llistó ha de continuar sent una partida jugable.
     const target = Math.max(40, Math.min(98, Math.round(average + PRECISION_MISSION_STEP)));
-    return { target, measured, average: Math.round(average), games: recent.length };
+    return { target, timeControlId: wanted, source, average: Math.round(average), games: sample.length };
 }
 
 /* Disponibilitat de les modalitats que poden sortir com a missió o com a repte
@@ -4458,10 +4481,10 @@ const MISSION_TEMPLATES = [
     { id: 'playFree', text: 'Juga 1 partida lliure', stars: 1, target: 1, metric: 'freeGamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.freeGamesPlayed >= 1 },
     { id: 'bundle1', text: 'Resol 1 errada', stars: 1, target: 1, metric: 'bundlesSolved', action: 'bundle', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity(null).length >= 1, check: () => sessionStats.bundlesSolved >= 1 },
     { id: 'bundleLow', text: 'Resol 1 errada lleu', stars: 1, target: 1, metric: 'bundlesSolvedLow', action: 'bundle', severity: 'low', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('low').length >= 1, check: () => sessionStats.bundlesSolvedLow >= 1 },
-    { id: 'precisionSolid', stars: 1, dynamic: 'precision', metric: 'bestPrecision', action: 'play', icon: '🎯', tone: 'game', check: (m) => (sessionStats.bestPrecision || 0) >= (m.target || 70) },
+    { id: 'precisionSolid', stars: 1, dynamic: 'precision', metric: 'bestPrecisionTc', action: 'precision', icon: '🎯', tone: 'game', check: (m) => bestPrecisionForTimeControl(m.timeControlId) >= (m.target || 70) },
     { id: 'hiero1', text: 'Resol 1 jeroglífic', stars: 1, target: 1, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(), check: () => sessionStats.hieroSolved >= 1 },
-    { id: 'timed1', text: 'Juga 1 partida amb rellotge', stars: 1, target: 1, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', available: () => !isCalibrationRequired(), check: () => sessionStats.timedGamesPlayed >= 1 },
-    { id: 'positional1', text: 'Juga 1 partida de Joc vista', stars: 1, target: 1, metric: 'positionalGamesPlayed', action: 'positional', icon: '🔭', tone: 'positional', available: () => !isCalibrationRequired(), check: () => sessionStats.positionalGamesPlayed >= 1 },
+    { id: 'timed1', text: 'Juga 1 partida amb rellotge', stars: 1, target: 1, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', check: () => sessionStats.timedGamesPlayed >= 1 },
+    { id: 'positional1', text: 'Juga 1 partida de Joc vista', stars: 1, target: 1, metric: 'positionalGamesPlayed', action: 'positional', icon: '🔭', tone: 'positional', check: () => sessionStats.positionalGamesPlayed >= 1 },
     { id: 'openingHiero1', text: "Resol 1 jeroglífic d'obertura", stars: 1, target: 1, metric: 'openingHieroSolved', action: 'opening_hieroglyphic', icon: '📜', tone: 'opening', available: () => openingHieroglyphicsAvailableNow(), check: () => sessionStats.openingHieroSolved >= 1 },
 
     { id: 'play3', text: 'Juga 3 partides', stars: 2, target: 3, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 3 },
@@ -4470,16 +4493,16 @@ const MISSION_TEMPLATES = [
     { id: 'bundleMed', text: 'Resol 1 errada mitjana', stars: 2, target: 1, metric: 'bundlesSolvedMed', action: 'bundle', severity: 'med', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('med').length >= 1, check: () => sessionStats.bundlesSolvedMed >= 1 },
     { id: 'tria1', text: 'Fes 1 test de Tres camins', stars: 2, target: 1, metric: 'triaTests', action: 'tria', icon: '🔀', tone: 'tria', available: () => triaTestAvailableNow(), check: () => sessionStats.triaTests >= 1 },
     { id: 'hiero3', text: 'Resol 3 jeroglífics', stars: 2, target: 3, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(3), check: () => sessionStats.hieroSolved >= 3 },
-    { id: 'timed2', text: 'Juga 2 partides amb rellotge', stars: 2, target: 2, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', available: () => !isCalibrationRequired(), check: () => sessionStats.timedGamesPlayed >= 2 },
-    { id: 'antidote1', text: 'Juga 1 partida contra el Rival Antídot', stars: 2, target: 1, metric: 'antidoteGamesPlayed', action: 'antidote', icon: '🧬', tone: 'antidote', available: () => !isCalibrationRequired(), check: () => sessionStats.antidoteGamesPlayed >= 1 },
+    { id: 'timed2', text: 'Juga 2 partides amb rellotge', stars: 2, target: 2, metric: 'timedGamesPlayed', action: 'timed', icon: '⏱️', tone: 'clock', check: () => sessionStats.timedGamesPlayed >= 2 },
+    { id: 'antidote1', text: 'Juga 1 partida contra el Rival Antídot', stars: 2, target: 1, metric: 'antidoteGamesPlayed', action: 'antidote', icon: '🧬', tone: 'antidote', check: () => sessionStats.antidoteGamesPlayed >= 1 },
     { id: 'openingHiero2', text: "Resol 2 jeroglífics d'obertura", stars: 2, target: 2, metric: 'openingHieroSolved', action: 'opening_hieroglyphic', icon: '📜', tone: 'opening', available: () => openingHieroglyphicsAvailableNow(), check: () => sessionStats.openingHieroSolved >= 2 },
 
     { id: 'play5', text: 'Juga 5 partides', stars: 3, target: 5, metric: 'gamesPlayed', action: 'play', icon: '♟️', tone: 'game', check: () => sessionStats.gamesPlayed >= 5 },
     { id: 'win4', text: 'Guanya 4 partides', stars: 3, target: 4, metric: 'gamesWon', action: 'play', icon: '🏆', tone: 'game', check: () => sessionStats.gamesWon >= 4 },
     { id: 'bundleHigh', text: 'Resol 1 errada greu', stars: 3, target: 1, metric: 'bundlesSolvedHigh', action: 'bundle', severity: 'high', icon: '🔍', tone: 'error', available: () => savedErrorsBySeverity('high').length >= 1, check: () => sessionStats.bundlesSolvedHigh >= 1 },
     { id: 'blackwin', text: 'Guanya amb negres', stars: 3, target: 1, metric: 'blackWins', action: 'playBlack', icon: '♞', tone: 'game', check: () => sessionStats.blackWins >= 1 },
-    { id: 'timedWin', text: 'Guanya 1 partida amb rellotge', stars: 3, target: 1, metric: 'timedGamesWon', action: 'timed', icon: '⏱️', tone: 'clock', available: () => !isCalibrationRequired(), check: () => sessionStats.timedGamesWon >= 1 },
-    { id: 'antidoteWin', text: 'Guanya el Rival Antídot', stars: 3, target: 1, metric: 'antidoteGamesWon', action: 'antidote', icon: '🧬', tone: 'antidote', available: () => !isCalibrationRequired(), check: () => sessionStats.antidoteGamesWon >= 1 },
+    { id: 'timedWin', text: 'Guanya 1 partida amb rellotge', stars: 3, target: 1, metric: 'timedGamesWon', action: 'timed', icon: '⏱️', tone: 'clock', check: () => sessionStats.timedGamesWon >= 1 },
+    { id: 'antidoteWin', text: 'Guanya el Rival Antídot', stars: 3, target: 1, metric: 'antidoteGamesWon', action: 'antidote', icon: '🧬', tone: 'antidote', check: () => sessionStats.antidoteGamesWon >= 1 },
     { id: 'hiero5', text: 'Resol 5 jeroglífics', stars: 3, target: 5, metric: 'hieroSolved', action: 'hieroglyphic', icon: '🧩', tone: 'hiero', available: () => hieroglyphicsAvailableNow(5), check: () => sessionStats.hieroSolved >= 5 }
 ];
 
@@ -4489,17 +4512,26 @@ const MISSION_TEMPLATES = [
 function materializeMission(template) {
     const mission = { ...template, completed: false };
     if (mission.dynamic === 'precision') {
-        const targets = personalPrecisionTargets();
+        // Durant el calibratge inicial les partides es juguen sense rellotge
+        // encara que n'hi hagi un de triat: el llistó ha de ser el d'aquestes.
+        const targets = personalPrecisionTargets(isCalibrationRequired() ? 'none' : undefined);
+        const tc = targets.timeControlId;
+        const rhythm = tc === 'none' ? 'sense rellotge' : `a ${getTimeControlLabel(tc)}`;
         mission.target = targets.target;
-        mission.text = `Arriba al ${mission.target}% de precisió`;
+        mission.timeControlId = tc;
+        mission.text = `Arriba al ${mission.target}% de precisió ${rhythm}`;
         mission.unit = '%';
         mission.rule = PRECISION_RULE_VERSION;
         const over = mission.target - targets.average;
-        mission.note = !targets.measured
-            ? `Encara no tens cap partida mesurada: partim d'una mitjana del ${targets.average}%.`
-            : over > 0
-                ? `La teva mitjana de les últimes ${targets.games} ${targets.games === 1 ? 'partida' : 'partides'} és del ${targets.average}%: la missió en demana ${over} ${over === 1 ? 'punt' : 'punts'} més.`
-                : `La teva mitjana recent és del ${targets.average}%: aquesta ha de ser de les teves millors partides.`;
+        const partides = `${targets.games} ${targets.games === 1 ? 'partida' : 'partides'}`;
+        const mes = over > 0
+            ? `la missió en demana ${over} ${over === 1 ? 'punt' : 'punts'} més.`
+            : 'aquesta ha de ser de les teves millors partides.';
+        mission.note = targets.source === 'rhythm'
+            ? `La teva mitjana ${rhythm} és del ${targets.average}% (${partides}): ${mes}`
+            : targets.source === 'all'
+                ? `Encara no tens partides mesurades ${rhythm}: el llistó surt de la teva mitjana general del ${targets.average}%.`
+                : `Encara no tens cap partida mesurada: partim d'una mitjana del ${targets.average}%.`;
     }
     return mission;
 }
@@ -5141,16 +5173,31 @@ function generateDailyMissions() {
     updateMissionsDisplay();
 }
 
-/* Plantilles d'una exigència que avui es poden completar: demanar un test de
-   Tres camins sense prou jugades revisades, o un jeroglífic sense cap a la cua,
-   seria una missió impossible que trencaria el dia. */
+/* Accions que funcionen des del primer dia: jugar una partida (de qualsevol
+   mena) és l'única cosa que no depèn de res. Tota la resta —errades, lliga,
+   jeroglífics, Tres camins, rellotge, antídot, joc vista— viu darrere del
+   calibratge inicial i no s'ha de demanar mentre estigui bloquejada. */
+const MISSION_ACTIONS_ALWAYS_OPEN = ['play', 'playBlack', 'precision'];
+
+// Es pot demanar aquesta missió avui? Ha d'estar desbloquejada i, a més, tenir
+// material: un test de Tres camins sense prou jugades revisades o un jeroglífic
+// sense cap a la cua seria una missió impossible que trencaria el dia.
+function missionIsAvailable(template) {
+    if (!template) return false;
+    if (MISSION_ACTIONS_ALWAYS_OPEN.indexOf(template.action) === -1 && isCalibrationRequired()) return false;
+    if (typeof template.available !== 'function') return true;
+    try { return !!template.available(); } catch (e) { return false; }
+}
+
+// Plantilles d'una exigència que avui es poden completar.
 function missionTierPool(stars) {
     const all = MISSION_TEMPLATES.filter(m => m.stars === stars);
-    const doable = all.filter(m => {
-        if (typeof m.available !== 'function') return true;
-        try { return !!m.available(); } catch (e) { return false; }
-    });
-    return doable.length ? doable : all;
+    const doable = all.filter(missionIsAvailable);
+    // Si d'aquella exigència no n'hi ha cap de disponible, es cau a les que
+    // sempre ho estan (jugar una partida) abans que a una de bloquejada.
+    if (doable.length) return doable;
+    const open = all.filter(m => MISSION_ACTIONS_ALWAYS_OPEN.indexOf(m.action) !== -1);
+    return open.length ? open : all;
 }
 
 function mulberry32(a) {
@@ -5167,6 +5214,7 @@ function mulberry32(a) {
 const MISSION_ACTIONS = {
     play: () => novaPartida(),
     playBlack: () => startFreeGameAsColor('b'),
+    precision: (mission) => startPrecisionMissionGame(mission),
     timed: () => startTimedGameFromPlan(),
     antidote: () => openAntidoteIntro(),
     positional: () => startPositionalGameFromPlan(),
@@ -5178,10 +5226,13 @@ const MISSION_ACTIONS = {
 };
 
 function launchMissionAction(missionId) {
-    const template = MISSION_TEMPLATES.find(t => t.id === missionId);
-    const fn = template && MISSION_ACTIONS[template.action];
+    // La missió del dia, no la plantilla: hi ha valors que es fixen en generar-la
+    // (el ritme del llistó de precisió) i que la plantilla no porta.
+    const mission = todayMissions.find(m => m.id === missionId)
+        || MISSION_TEMPLATES.find(t => t.id === missionId);
+    const fn = mission && MISSION_ACTIONS[mission.action];
     if (!fn) return;
-    try { fn(template); } catch (e) {
+    try { fn(mission); } catch (e) {
         console.warn('No s\'ha pogut obrir la missió', e);
         showToast('No he pogut obrir aquesta missió ara mateix.', 'warn');
     }
@@ -5228,6 +5279,15 @@ function startLeagueMatchFromMission() {
     startLeagueRound();
 }
 
+// Missió de precisió: la partida s'obre amb el ritme de la missió, que és el
+// mateix amb què s'ha calculat el llistó (i l'únic que hi compta).
+function startPrecisionMissionGame(mission) {
+    const tcId = mission && mission.timeControlId;
+    if (tcId && tcId !== 'none') return startTimedGameFromPlan(tcId);
+    applyPendingTimeControl('none');
+    novaPartida();
+}
+
 // Partida lliure amb un color demanat (missió «Guanya amb negres»): si no,
 // el color es sorteja i la meitat dels dies la missió ni es podria intentar.
 function startFreeGameAsColor(color) {
@@ -5241,8 +5301,17 @@ function missionProgressText(mission, done, target) {
     return mission.unit === '%' ? `${done}% de ${target}%` : `${done}/${target}`;
 }
 
+// Millor precisió d'avui en un ritme concret.
+function bestPrecisionForTimeControl(tcId) {
+    const map = sessionStats.bestPrecisionByTc;
+    if (!map || typeof map !== 'object') return 0;
+    const val = map[tcId || 'none'];
+    return typeof val === 'number' ? val : 0;
+}
+
 function missionProgressValue(mission) {
     const metric = mission && mission.metric;
+    if (metric === 'bestPrecisionTc') return bestPrecisionForTimeControl(mission.timeControlId);
     const val = metric ? sessionStats[metric] : 0;
     return typeof val === 'number' ? val : 0;
 }
@@ -5429,7 +5498,7 @@ function restoreMissions(savedList) {
             const keepTarget = template.dynamic && typeof saved.target === 'number'
                 && saved.rule === PRECISION_RULE_VERSION;
             const restored = keepTarget
-                ? { ...template, target: saved.target, text: saved.text || template.text, note: saved.note || null, rule: saved.rule, unit: '%' }
+                ? { ...template, target: saved.target, text: saved.text || template.text, note: saved.note || null, rule: saved.rule, unit: '%', timeControlId: saved.timeControlId || 'none' }
                 : materializeMission(template);
             restored.completed = !!saved.completed;
             return restored;
@@ -29927,10 +29996,13 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         saveGrowthStats();
     }
 
-    // Sostre de precisió del dia: el llistó de la missió surt del nivell real
-    // del jugador, així que el que compta és la millor partida d'avui.
+    // Sostre de precisió del dia en aquest ritme: el llistó de la missió surt de
+    // la mitjana del mateix ritme, així que s'hi compara amb la millor partida
+    // d'avui jugada amb aquell rellotge.
     if (totalPlayerMoves > 0) {
-        sessionStats.bestPrecision = Math.max(sessionStats.bestPrecision || 0, finalPrecision);
+        const tcKey = currentGameTimeControlId || 'none';
+        if (!sessionStats.bestPrecisionByTc || typeof sessionStats.bestPrecisionByTc !== 'object') sessionStats.bestPrecisionByTc = {};
+        sessionStats.bestPrecisionByTc[tcKey] = Math.max(sessionStats.bestPrecisionByTc[tcKey] || 0, finalPrecision);
     }
     
     if (isTimedRatedGame) {
