@@ -224,6 +224,22 @@
         body.day-mode .text-input {
             background: #fffdf7;
         }
+        /* Pla i missions: en clar, la caixa de l'entrenador i el color per
+           activitat s'han de mantenir (la regla general de dalt els aplanaria
+           totes les vores al mateix marró). */
+        body.day-mode .menu-section-coach {
+            background: rgba(201, 162, 39, 0.10);
+            border-color: rgba(120, 95, 40, 0.3);
+            box-shadow: 0 2px 8px rgba(120, 95, 40, 0.12);
+        }
+        body.day-mode .mission-icon,
+        body.day-mode .missions-count {
+            background: rgba(120, 95, 40, 0.08);
+        }
+        body.day-mode .mission-item,
+        body.day-mode .coach-item { border-left-color: var(--tone, rgba(120,95,40,0.5)); }
+        body.day-mode .mission-item.completed,
+        body.day-mode .coach-item.done { border-left-color: var(--accent-green); }
         /* Botons daurats: daurat brillant + text fosc (no daurat fosc + text fosc) */
         body.day-mode .btn-primary,
         body.day-mode .engagement-banner .eng-cta,
@@ -641,6 +657,96 @@
         }
         body.epaper-mode .coach-item-kind { color: #222; }
         body.epaper-mode .coach-plan-progress-bar { background: #dcdcdc; }
+
+        /* ── Color per activitat ─────────────────────────────────────────────
+           Cada modalitat té el seu to i el fan servir igual les files del pla i
+           les missions: el color diu de què va la tasca abans de llegir-la. */
+        .tone-game { --tone: #5fa06f; }
+        .tone-clock { --tone: #e05a4a; }
+        .tone-tria { --tone: #23b39a; }
+        .tone-hiero { --tone: #b452c9; }
+        .tone-opening { --tone: #d4af37; }
+        .tone-error { --tone: #e08a3c; }
+        .tone-league { --tone: #3d8fd8; }
+        .tone-tactics { --tone: #4fb3e8; }
+        .tone-srs { --tone: #9b7fd4; }
+        .tone-focus { --tone: #e8a33d; }
+        .tone-mate { --tone: #a07cd8; }
+        .tone-antidote { --tone: #4fc3a1; }
+        .tone-positional { --tone: #7f9ad8; }
+
+        /* Les regles .coach-item.done / .locked de més amunt guanyen per
+           especificitat, així que el pas fet o bloquejat conserva el seu color. */
+        .coach-item {
+            border-left-color: var(--tone, var(--accent-gold));
+            background: linear-gradient(100deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.18) 60%);
+            box-shadow: inset 3px 0 12px -6px var(--tone, transparent);
+        }
+        .coach-item .coach-item-fill { background: linear-gradient(90deg, var(--tone, var(--accent-green)), var(--accent-gold)); }
+        .coach-item-kind { display: flex; align-items: center; gap: 6px; color: var(--tone, var(--accent-gold)); }
+        .coach-item-ic { font-size: 0.95rem; line-height: 1; }
+        .coach-item .coach-step-badge { color: var(--tone, var(--accent-gold)); border-color: var(--tone, var(--accent-gold)); }
+        .coach-item.is-actionable { cursor: pointer; transition: transform 0.15s ease, box-shadow 0.15s ease; }
+        .coach-item.is-actionable:hover,
+        .coach-item.is-actionable:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 3px 0 14px -6px var(--tone);
+            outline: none;
+        }
+        .coach-item.is-actionable:focus-visible { border: 1px solid var(--tone); border-left-width: 3px; }
+        .coach-item .btn.coach-item-go { background: linear-gradient(135deg, var(--tone, var(--accent-gold)) 0%, rgba(0,0,0,0.45) 160%); color: #12100d; font-weight: 700; }
+        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--text-positive); }
+        .coach-item.locked .btn.coach-item-go { background: rgba(0,0,0,0.3); color: var(--text-secondary); }
+
+        /* ── Missions: fila clicable, amb icona, to i barra de progrés ─────── */
+        .missions-title { display: flex; align-items: center; gap: 8px; }
+        .missions-count {
+            font-family: 'Inter', sans-serif; font-size: 0.72rem; color: var(--text-secondary);
+            background: rgba(0,0,0,0.25); border: 1px solid rgba(201,162,39,0.3);
+            border-radius: 10px; padding: 1px 7px; font-variant-numeric: tabular-nums;
+        }
+        .missions-hint { font-size: 0.72rem; color: var(--text-secondary); margin: -4px 0 8px; opacity: 0.85; }
+        .mission-item {
+            cursor: pointer; border-left-color: var(--tone, var(--text-secondary));
+            box-shadow: inset 3px 0 12px -6px var(--tone, transparent);
+            transition: transform 0.15s ease, box-shadow 0.15s ease;
+        }
+        .mission-item:hover, .mission-item:focus-visible {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35), inset 3px 0 14px -6px var(--tone, transparent);
+            outline: none;
+        }
+        .mission-item:focus-visible { border: 1px solid var(--tone, var(--accent-gold)); border-left-width: 3px; }
+        .mission-icon {
+            flex: 0 0 auto; width: 30px; height: 30px; border-radius: 9px;
+            display: flex; align-items: center; justify-content: center; font-size: 1rem;
+            background: rgba(0,0,0,0.28); border: 1px solid var(--tone, rgba(255,255,255,0.15));
+        }
+        .mission-label { line-height: 1.3; }
+        /* D'on surt el llistó d'una missió de precisió: la seva mitjana recent. */
+        .mission-note { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.35; margin-top: 2px; }
+        .mission-bar { height: 5px; border-radius: 4px; background: rgba(0,0,0,0.3); overflow: hidden; margin: 5px 0 3px; }
+        .mission-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; background: linear-gradient(90deg, var(--tone, var(--accent-green)), var(--accent-gold)); }
+        .mission-item .mission-stars { display: inline; width: auto; color: var(--star-gold); }
+        .mission-go { flex: 0 0 auto; color: var(--tone, var(--accent-gold)); font-size: 1.2rem; opacity: 0.8; }
+        .mission-item.completed { border-left-color: var(--accent-green); }
+        .mission-item.completed .mission-go { color: var(--accent-green); }
+        @media (max-width: 480px) {
+            .mission-trophies { display: none; }
+        }
+
+        body.epaper-mode .menu-section-coach {
+            background: #ededed !important; border-color: #cfcfcf !important; box-shadow: none !important;
+        }
+        body.epaper-mode .coach-section-title,
+        body.epaper-mode .missions-count,
+        body.epaper-mode .missions-hint { color: #222; }
+        body.epaper-mode .mission-icon,
+        body.epaper-mode .missions-count { background: #e6e6e6 !important; border-color: #cfcfcf !important; }
+        body.epaper-mode .mission-item,
+        body.epaper-mode .coach-item { box-shadow: none !important; }
+        body.epaper-mode .mission-go { color: #222; }
+        body.epaper-mode .coach-item .btn.coach-item-go { background: #dcdcdc !important; color: #222 !important; }
 
         /* CONTEXT DE L'ERRADA en exercicis (bundles, SRS, debilitats) */
         #error-context-banner {
@@ -1274,6 +1380,20 @@
         }
         .menu-section-title::after { content: ''; flex: 1; height: 1px; background: rgba(201,162,39,0.18); }
         .menu-section .menu-buttons { margin-top: 0; gap: 10px; }
+
+        /* La secció de l'entrenador obre la pàgina: caixa pròpia amb marc daurat
+           perquè el pla i les missions es vegin abans que res, no al peu. */
+        .menu-section-coach {
+            background: linear-gradient(160deg, rgba(201,162,39,0.14) 0%, rgba(156,39,176,0.08) 55%, rgba(0,0,0,0.18) 100%);
+            border: 1px solid rgba(201,162,39,0.38);
+            border-radius: 16px;
+            padding: 12px 12px 4px;
+            box-shadow: 0 6px 20px rgba(0,0,0,0.28);
+        }
+        .coach-section-title {
+            color: var(--accent-gold); opacity: 1; font-size: 0.86rem;
+        }
+        .coach-section-title::after { background: rgba(201,162,39,0.35); }
         /* Acció principal destacada */
         .btn-hero {
             font-size: 1.15rem; padding: 18px 18px; border-radius: 14px;
@@ -5119,6 +5239,60 @@
                 <button class="btn eng-cta" data-eng-action="play"></button>
             </div>
 
+            <!-- EL TEU ENTRENADOR: diagnòstic, pla del dia i missions.
+                 Va a dalt de tot: és el que diu QUÈ toca fer avui; la resta de
+                 seccions són el catàleg on anar a parar. -->
+            <div class="menu-section menu-section-coach">
+                <div class="menu-section-title coach-section-title">El teu entrenador</div>
+
+                <div class="coach-banner" id="home-coach-banner" style="display:none;">
+                    <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
+                        <span class="coach-banner-ic" aria-hidden="true">🧠</span>
+                        <span class="coach-banner-text">
+                            <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
+                            <span class="coach-banner-sub" id="home-coach-text">—</span>
+                        </span>
+                        <span class="coach-banner-cta">Veure ›</span>
+                    </button>
+                    <div class="coach-banner-foot">
+                        <label for="home-coach-style">Estil</label>
+                        <select id="home-coach-style" class="select-control">
+                            <option value="casual">Casual</option>
+                            <option value="balanced">Equilibrada</option>
+                            <option value="technical">Tècnica</option>
+                        </select>
+                        <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                    </div>
+                </div>
+
+                <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                    <div class="coach-kicker">
+                        <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
+                        <span class="coach-kicker-right">
+                            <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
+                            <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                        </span>
+                    </div>
+                    <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                    <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                    <div class="coach-plan-progress" id="weekly-plan-progress">
+                        <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                        <span class="coach-plan-progress-label">0/0 passos</span>
+                    </div>
+                    <div id="weekly-plan-list"></div>
+                    <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
+                </div>
+
+                <div class="missions-panel">
+                    <div class="missions-header">
+                        <div class="missions-title">🎖️ Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
+                        <button class="badges-btn" id="btn-badges">🏆 Trofeus</button>
+                    </div>
+                    <div class="missions-hint">Toca una missió i t'hi porta directament.</div>
+                    <div id="missions-list"></div>
+                </div>
+            </div>
+
             <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
             <div class="menu-section">
                 <div class="menu-section-title">Juga</div>
@@ -5300,57 +5474,6 @@
                             <span class="training-desc" id="srs-info">Cua SRS</span>
                         </button>
                     </div>
-                </div>
-            </div>
-
-            <!-- EL TEU ENTRENADOR: diagnòstic, pla del dia i missions -->
-            <div class="menu-section">
-                <div class="menu-section-title">El teu entrenador</div>
-
-                <div class="coach-banner" id="home-coach-banner" style="display:none;">
-                    <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
-                        <span class="coach-banner-ic" aria-hidden="true">🧠</span>
-                        <span class="coach-banner-text">
-                            <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
-                            <span class="coach-banner-sub" id="home-coach-text">—</span>
-                        </span>
-                        <span class="coach-banner-cta">Veure ›</span>
-                    </button>
-                    <div class="coach-banner-foot">
-                        <label for="home-coach-style">Estil</label>
-                        <select id="home-coach-style" class="select-control">
-                            <option value="casual">Casual</option>
-                            <option value="balanced">Equilibrada</option>
-                            <option value="technical">Tècnica</option>
-                        </select>
-                        <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
-                    </div>
-                </div>
-
-                <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
-                    <div class="coach-kicker">
-                        <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
-                        <span class="coach-kicker-right">
-                            <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
-                            <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                        </span>
-                    </div>
-                    <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                    <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
-                    <div class="coach-plan-progress" id="weekly-plan-progress">
-                        <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
-                        <span class="coach-plan-progress-label">0/0 passos</span>
-                    </div>
-                    <div id="weekly-plan-list"></div>
-                    <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
-                </div>
-
-                <div class="missions-panel">
-                    <div class="missions-header">
-                        <div class="missions-title">Missions Diàries</div>
-                        <button class="badges-btn" id="btn-badges">Trofeus</button>
-                    </div>
-                    <div id="missions-list"></div>
                 </div>
             </div>
 
@@ -7569,7 +7692,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.75"></script>
+    <script src="app.js?v=1.0.77"></script>
 
     <!-- Service Worker Registration -->
     <script>
