@@ -8439,6 +8439,34 @@ function evaluateKingSafety(board, whiteKing, blackKing, castling) {
     return safety;
 }
 
+// Construeix la seqüència d'un exercici a partir d'una línia JA verificada, sense
+// tocar el motor: la part de tauler la fa ElTaulerCore i aquí només s'hi afegeix
+// el context posicional i les amenaces (càlcul local). S'usa quan la línia ja es
+// coneix (mat en 1, rebost estàtic del banc, PV desada d'una errada pròpia).
+function buildBundleSequenceFromLine(fen, line, opts = {}) {
+    if (typeof Chess !== 'function') return null;
+    const helpers = ElTaulerCore.createBundleSequenceHelpers(Chess);
+    if (!helpers) return null;
+    const seq = helpers.buildSequenceFromLine(fen, line, {
+        stepMeta: opts.stepMeta || [],
+        replyMeta: opts.replyMeta || [],
+        maxPlayerMoves: opts.maxPlayerMoves || 3
+    });
+    if (!seq) return null;
+    // Context posicional i amenaces de cada pas (el fen de cada pas el fixa el core).
+    for (let i = 1; i <= seq.totalSteps; i++) {
+        const step = seq['step' + i];
+        if (!step) continue;
+        const pv = (step.playerMovePv && step.playerMovePv.length) ? step.playerMovePv : [step.playerMove];
+        if (!step.position) { try { step.position = parseFenPosition(step.fen); } catch (e) { step.position = null; } }
+        if (!step.threats) {
+            try { step.threats = analyzePvThreats(step.fen, pv); }
+            catch (e) { step.threats = { threats: [], themes: [], immediateThreats: [] }; }
+        }
+    }
+    return seq;
+}
+
 async function prepareBundleSequence(fen, opts = {}) {
     // silent: no mostra alertes (preparació en segon pla)
     // shouldAbort: permet interrompre la preparació entre anàlisis
@@ -8515,9 +8543,24 @@ async function prepareBundleSequence(fen, opts = {}) {
         
         const afterPlayerFen = tempGame1.fen();
         console.log('[Bundle] Després jugada 1, FEN:', afterPlayerFen);
-        
+
+        // La millor jugada ja acaba la partida (mat en 1, ofegat…): no hi ha cap
+        // resposta del rival a calcular i l'exercici és d'UN sol pas. Sense això
+        // les posicions de mat en 1 del banc no es podien preparar mai i la
+        // secció es quedava sense exercici.
+        if (tempGame1.game_over()) {
+            console.log('[Bundle] La millor jugada acaba la partida: exercici d\'un sol pas');
+            return buildBundleSequenceFromLine(fen, [playerMove1], {
+                stepMeta: [{
+                    playerMovePv: playerMove1Pv,
+                    evalBefore: playerMove1Eval,
+                    alternatives: step1Analysis.alternatives || []
+                }]
+            });
+        }
+
         if (!fast) await new Promise(resolve => setTimeout(resolve, 400));
-        
+
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 2'); return null; }
         // 3. Calcular millor resposta de l'oponent
         console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
@@ -8552,9 +8595,21 @@ async function prepareBundleSequence(fen, opts = {}) {
         
         const afterOpponentFen = tempGame2.fen();
         console.log('[Bundle] Després resposta oponent, FEN:', afterOpponentFen);
-        
+
+        // La rèplica del rival acaba la partida: tampoc no hi ha segon pas.
+        if (tempGame2.game_over()) {
+            console.log('[Bundle] La resposta del rival acaba la partida: exercici d\'un sol pas');
+            return buildBundleSequenceFromLine(fen, [playerMove1], {
+                stepMeta: [{
+                    playerMovePv: playerMove1Pv,
+                    evalBefore: playerMove1Eval,
+                    alternatives: step1Analysis.alternatives || []
+                }]
+            });
+        }
+
         if (!fast) await new Promise(resolve => setTimeout(resolve, 400));
-        
+
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 3'); return null; }
         // 5. Calcular millor segona jugada del jugador (Pas 3)
         console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
@@ -24322,13 +24377,339 @@ const TACTICS_BANK = [
     '2kr3r/ppp2ppp/2n1b3/2b1p1q1/4P3/2NP1N2/PPP1QPPP/R1B2RK1 b - - 0 11',
     '6k1/pp3ppp/8/8/8/1P3Q2/P4qPP/5RK1 w - - 0 1',
     'r4rk1/1pp2ppp/p1np1q2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 9',
-    'rnb1kbnr/pppp1ppp/8/4p3/5PPq/8/PPPPP2P/RNBQKBNR w KQkq - 1 3'
+    // Mat del boig: negres juguen i fan mat (abans hi havia la posició JA matada,
+    // sense cap jugada legal, i l'exercici no es podia preparar mai).
+    'rnbqkbnr/pppp1ppp/8/4p3/5PP1/8/PPPPP2P/RNBQKBNR b KQkq g3 0 2'
 ];
+
+// Rebost estàtic del banc: la línia de cada posició ja ve resolta amb el MATEIX
+// Stockfish que porta l'app, calculada fora de línia a més profunditat que la
+// preparació en viu (i amb la segona millor jugada per al mode "top 2").
+// Serveix per a dues coses:
+//   1) arrencar l'exercici a l'instant, sense cap espera ni pantalla en blanc;
+//   2) garantir que la secció de tàctiques funciona encara que el motor no
+//      arrenqui (mòbil lent, worker caigut, sense memòria...).
+// Es regenera amb `node scripts/gen-tactics-solutions.js` (vegeu TESTS.md): no
+// s'edita a mà.
+// >>> TACTICS_BANK_SOLUTIONS (generat) >>>
+const TACTICS_BANK_SOLUTIONS = {
+    'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4': {
+        totalSteps: 1,
+        sanLine: ['Qxf7#'],
+        steps: [
+            {
+                move: 'f3f7', eval: 1, evalType: 'mate',
+                pv: ['f3f7'],
+                alternatives: [{ move: 'f3f7', eval: 1, evalType: 'mate' }, { move: 'c4f7', eval: 277, evalType: 'cp' }]
+            }
+        ],
+        replies: []
+    },
+    '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1': {
+        totalSteps: 1,
+        sanLine: ['Rd8#'],
+        steps: [
+            {
+                move: 'd1d8', eval: 1, evalType: 'mate',
+                pv: ['d1d8'],
+                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'g1f1', eval: 769, evalType: 'cp' }]
+            }
+        ],
+        replies: []
+    },
+    'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5': {
+        totalSteps: 2,
+        sanLine: ['c3', 'O-O', 'O-O'],
+        steps: [
+            {
+                move: 'c2c3', eval: 69, evalType: 'cp',
+                pv: ['c2c3', 'e8g8', 'e1g1', 'd7d6', 'f1e1', 'a7a5', 'a2a4', 'c5b6'],
+                alternatives: [{ move: 'c2c3', eval: 69, evalType: 'cp' }, { move: 'e1g1', eval: 69, evalType: 'cp' }]
+            },
+            {
+                move: 'e1g1', eval: 71, evalType: 'cp',
+                pv: ['e1g1', 'c5b6', 'f1e1', 'd7d5', 'e4d5', 'f6d5', 'b2b4', 'c8e6'],
+                alternatives: [{ move: 'e1g1', eval: 71, evalType: 'cp' }, { move: 'a2a4', eval: 64, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e8g8', eval: -3, evalType: 'cp' }]
+    },
+    '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11': {
+        totalSteps: 2,
+        sanLine: ['Kb1', 'a6', 'g4'],
+        steps: [
+            {
+                move: 'c1b1', eval: 578, evalType: 'cp',
+                pv: ['c1b1', 'h7h5', 'f1e2', 'a7a6', 'e3g5', 'f8e8', 'a2a3', 'd8a5'],
+                alternatives: [{ move: 'c1b1', eval: 578, evalType: 'cp' }, { move: 'f1e2', eval: 569, evalType: 'cp' }]
+            },
+            {
+                move: 'g2g4', eval: 633, evalType: 'cp',
+                pv: ['g2g4', 'b7b5', 'a2a3', 'f8e8', 'h1g1', 'c8b8', 'h2h4', 'h7h5'],
+                alternatives: [{ move: 'g2g4', eval: 633, evalType: 'cp' }, { move: 'a2a3', eval: 618, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a7a6', eval: -572, evalType: 'cp' }]
+    },
+    'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9': {
+        totalSteps: 2,
+        sanLine: ['Nxd5', 'Bxd5', 'c4'],
+        steps: [
+            {
+                move: 'c3d5', eval: 1072, evalType: 'cp',
+                pv: ['c3d5', 'e6d5', 'c2c4', 'd5e6', 'a2a3', 'c5b6', 'b2b4', 'e5e4'],
+                alternatives: [{ move: 'c3d5', eval: 1072, evalType: 'cp' }, { move: 'b2b4', eval: 628, evalType: 'cp' }]
+            },
+            {
+                move: 'c2c4', eval: 1067, evalType: 'cp',
+                pv: ['c2c4', 'd5f3', 'g2f3', 'e8c8', 'f3c6', 'b7c6', 'd1a4', 'c8b7'],
+                alternatives: [{ move: 'c2c4', eval: 1067, evalType: 'cp' }, { move: 'c2c3', eval: 1041, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e6d5', eval: -1049, evalType: 'cp' }]
+    },
+    'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4': {
+        totalSteps: 2,
+        sanLine: ['Bd3', 'h6', 'c4'],
+        steps: [
+            {
+                move: 'f1d3', eval: 132, evalType: 'cp',
+                pv: ['f1d3', 'b8d7', 'g1f3', 'g7g6', 'e1g1', 'f8g7', 'c2c4', 'e8g8'],
+                alternatives: [{ move: 'f1d3', eval: 132, evalType: 'cp' }, { move: 'b1c3', eval: 107, evalType: 'cp' }]
+            },
+            {
+                move: 'c2c4', eval: 152, evalType: 'cp',
+                pv: ['c2c4', 'b8d7', 'b1c3', 'g7g5', 'h2h4', 'g5g4', 'g1e2', 'f8g7'],
+                alternatives: [{ move: 'c2c4', eval: 152, evalType: 'cp' }, { move: 'g1e2', eval: 136, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h7h6', eval: -98, evalType: 'cp' }]
+    },
+    'r2qkb1r/pp2nppp/3p4/2pNN1B1/2BnP3/3P4/PPP2PPP/R2bK2R w KQkq - 1 11': {
+        totalSteps: 2,
+        sanLine: ['Nf6+', 'gxf6', 'Bxf7#'],
+        steps: [
+            {
+                move: 'd5f6', eval: 2, evalType: 'mate',
+                pv: ['d5f6', 'g7f6', 'c4f7'],
+                alternatives: [{ move: 'd5f6', eval: 2, evalType: 'mate' }, { move: 'e5f7', eval: -1030, evalType: 'cp' }]
+            },
+            {
+                move: 'c4f7', eval: 1, evalType: 'mate',
+                pv: ['c4f7'],
+                alternatives: [{ move: 'c4f7', eval: 1, evalType: 'mate' }, { move: 'e5f7', eval: -1273, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7f6', eval: -1, evalType: 'mate' }]
+    },
+    'r4rk1/pp1n1ppp/2pb1q2/3p4/3P4/2NBPN2/PP3PPP/R2Q1RK1 w - - 0 12': {
+        totalSteps: 2,
+        sanLine: ['e4', 'dxe4', 'Nxe4'],
+        steps: [
+            {
+                move: 'e3e4', eval: 561, evalType: 'cp',
+                pv: ['e3e4', 'd5e4', 'c3e4', 'f6h6', 'f1e1', 'a8b8', 'e4d6', 'h6d6'],
+                alternatives: [{ move: 'e3e4', eval: 561, evalType: 'cp' }, { move: 'd1b3', eval: 561, evalType: 'cp' }]
+            },
+            {
+                move: 'c3e4', eval: 582, evalType: 'cp',
+                pv: ['c3e4', 'f6e7', 'd1b3', 'd7f6', 'a1e1', 'f6e4', 'e1e4', 'e7c7'],
+                alternatives: [{ move: 'c3e4', eval: 582, evalType: 'cp' }, { move: 'd3e4', eval: 511, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd5e4', eval: -533, evalType: 'cp' }]
+    },
+    '3r1rk1/pp3ppp/2p5/2bq4/4nP2/2N1P3/PPQ3PP/R1B2RK1 b - - 0 16': {
+        totalSteps: 2,
+        sanLine: ['Nxc3', 'Qxc3', 'Rfe8'],
+        steps: [
+            {
+                move: 'e4c3', eval: 208, evalType: 'cp',
+                pv: ['e4c3', 'c2c3', 'a7a5', 'a2a3', 'f8e8', 'b2b4', 'c5b6', 'a3a4'],
+                alternatives: [{ move: 'e4c3', eval: 208, evalType: 'cp' }, { move: 'c5e3', eval: -352, evalType: 'cp' }]
+            },
+            {
+                move: 'f8e8', eval: 213, evalType: 'cp',
+                pv: ['f8e8', 'b2b4', 'c5e7', 'a1b1', 'd5a2', 'b1a1', 'e7b4', 'a1a2'],
+                alternatives: [{ move: 'f8e8', eval: 213, evalType: 'cp' }, { move: 'a7a5', eval: 213, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c2c3', eval: -165, evalType: 'cp' }]
+    },
+    'r1b1k2r/ppppnppp/2n5/2b5/2B1P3/2P2N2/PP1q1PPP/RNBQ1RK1 w kq - 0 8': {
+        totalSteps: 2,
+        sanLine: ['Nbxd2', 'Bb6', 'Be2'],
+        steps: [
+            {
+                move: 'b1d2', eval: 1388, evalType: 'cp',
+                pv: ['b1d2', 'e8g8', 'b2b4', 'c5b6', 'c4b3', 'a7a6', 'd2c4', 'b6a7'],
+                alternatives: [{ move: 'b1d2', eval: 1388, evalType: 'cp' }, { move: 'c1d2', eval: 1362, evalType: 'cp' }]
+            },
+            {
+                move: 'c4e2', eval: 1384, evalType: 'cp',
+                pv: ['c4e2', 'a7a6', 'd2c4', 'b6a7', 'b2b4', 'd7d6', 'a2a4', 'c6d8'],
+                alternatives: [{ move: 'c4e2', eval: 1384, evalType: 'cp' }, { move: 'c4b3', eval: 1380, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5b6', eval: -1346, evalType: 'cp' }]
+    },
+    '2kr3r/ppp2ppp/2n1b3/2b1p1q1/4P3/2NP1N2/PPP1QPPP/R1B2RK1 b - - 0 11': {
+        totalSteps: 2,
+        sanLine: ['Qg6', 'Bd2', 'Kb8'],
+        steps: [
+            {
+                move: 'g5g6', eval: 0, evalType: 'cp',
+                pv: ['g5g6', 'f3h4', 'g6f6', 'h4f3'],
+                alternatives: [{ move: 'g5g6', eval: 0, evalType: 'cp' }, { move: 'g5e7', eval: -67, evalType: 'cp' }]
+            },
+            {
+                move: 'c8b8', eval: 9, evalType: 'cp',
+                pv: ['c8b8', 'g1h1', 'c5e7', 'd2e3', 'h7h6', 'a1d1', 'g6f6', 'f3d2'],
+                alternatives: [{ move: 'c8b8', eval: 9, evalType: 'cp' }, { move: 'c5e7', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c1d2', eval: 37, evalType: 'cp' }]
+    },
+    '6k1/pp3ppp/8/8/8/1P3Q2/P4qPP/5RK1 w - - 0 1': {
+        totalSteps: 2,
+        sanLine: ['Rxf2', 'f6', 'Qd5+'],
+        steps: [
+            {
+                move: 'f1f2', eval: 5, evalType: 'mate',
+                pv: ['f1f2', 'f7f6', 'f3d5', 'g8f8', 'f2c2', 'h7h6', 'c2c7', 'g7g6'],
+                alternatives: [{ move: 'f1f2', eval: 5, evalType: 'mate' }, { move: 'g1f2', eval: 8, evalType: 'mate' }]
+            },
+            {
+                move: 'f3d5', eval: 4, evalType: 'mate',
+                pv: ['f3d5', 'g8f8', 'f2c2', 'h7h6', 'c2c7', 'g7g6', 'd5f7'],
+                alternatives: [{ move: 'f3d5', eval: 4, evalType: 'mate' }, { move: 'f2d2', eval: 5, evalType: 'mate' }]
+            }
+        ],
+        replies: [{ move: 'f7f6', eval: -4, evalType: 'mate' }]
+    },
+    'r4rk1/1pp2ppp/p1np1q2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 9': {
+        totalSteps: 2,
+        sanLine: ['Nd5', 'Qd8', 'c3'],
+        steps: [
+            {
+                move: 'c3d5', eval: 540, evalType: 'cp',
+                pv: ['c3d5', 'f6d8', 'h2h3', 'g4f3', 'd1f3', 'b7b5', 'c4b3', 'c6d4'],
+                alternatives: [{ move: 'c3d5', eval: 540, evalType: 'cp' }, { move: 'c1e3', eval: 429, evalType: 'cp' }]
+            },
+            {
+                move: 'c2c3', eval: 562, evalType: 'cp',
+                pv: ['c2c3', 'c6a5', 'b2b4', 'a5c4', 'b4c5', 'c7c6', 'd3c4', 'c6d5'],
+                alternatives: [{ move: 'c2c3', eval: 562, evalType: 'cp' }, { move: 'h2h3', eval: 548, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f6d8', eval: -505, evalType: 'cp' }]
+    },
+    'rnbqkbnr/pppp1ppp/8/4p3/5PP1/8/PPPPP2P/RNBQKBNR b KQkq g3 0 2': {
+        totalSteps: 1,
+        sanLine: ['Qh4#'],
+        steps: [
+            {
+                move: 'd8h4', eval: 1, evalType: 'mate',
+                pv: ['d8h4'],
+                alternatives: [{ move: 'd8h4', eval: 1, evalType: 'mate' }, { move: 'd7d5', eval: 329, evalType: 'cp' }]
+            }
+        ],
+        replies: []
+    },
+    '8/8/8/4k3/8/4K3/4P3/8 w - - 0 1': {
+        totalSteps: 2,
+        sanLine: ['Kf3', 'Kf5', 'e3'],
+        steps: [
+            {
+                move: 'e3f3', eval: 9, evalType: 'cp',
+                pv: ['e3f3', 'e5f5', 'e2e4', 'f5e5', 'f3e3', 'e5d6', 'e3d4', 'd6e6'],
+                alternatives: [{ move: 'e3f3', eval: 9, evalType: 'cp' }, { move: 'e3d2', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'e2e3', eval: 0, evalType: 'cp',
+                pv: ['e2e3', 'f5e5', 'e3e4', 'e5d6', 'f3f4', 'd6e6', 'e4e5', 'e6d7'],
+                alternatives: [{ move: 'e2e3', eval: 0, evalType: 'cp' }, { move: 'e2e4', eval: 0, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5f5', eval: 0, evalType: 'cp' }]
+    }
+};
+// <<< TACTICS_BANK_SOLUTIONS <<<
+
+// Reconstrueix la seqüència d'una posició del banc a partir del rebost estàtic.
+function buildBankBundleSequence(fen) {
+    const sol = fen ? TACTICS_BANK_SOLUTIONS[fen] : null;
+    if (!sol || !Array.isArray(sol.steps) || !sol.steps.length) return null;
+    const line = [];
+    sol.steps.forEach((step, i) => {
+        line.push(step.move);
+        const reply = (sol.replies || [])[i];
+        if (reply) line.push(reply.move);
+    });
+    return buildBundleSequenceFromLine(fen, line, {
+        stepMeta: sol.steps.map(step => ({
+            playerMovePv: step.pv || [],
+            evalBefore: step.eval,
+            evalType: step.evalType,
+            alternatives: step.alternatives || []
+        })),
+        replyMeta: (sol.replies || []).map(reply => ({ eval: reply.eval, evalType: reply.evalType }))
+    });
+}
+
+// Últim recurs quan el motor no respon i la posició NO és del banc: reaprofita
+// l'anàlisi que ja es va desar en detectar l'errada (millor jugada + línia). No
+// és tan bona com una anàlisi fresca, però evita que la secció es quedi morta.
+function buildEmergencyBundleSequence(fen) {
+    if (!fen) return null;
+    const err = Array.isArray(savedErrors) ? savedErrors.find(e => e && e.fen === fen) : null;
+    if (!err) return null;
+    const pv = Array.isArray(err.bestMovePv) ? err.bestMovePv.filter(Boolean) : [];
+    const line = pv.length ? pv : (err.bestMove ? [err.bestMove] : []);
+    if (!line.length) return null;
+    return buildBundleSequenceFromLine(fen, line, {
+        stepMeta: [{ playerMovePv: pv, alternatives: [] }]
+    });
+}
+
+// Una posició només és exercici si encara s'hi pot jugar: si el FEN és il·legible
+// o ja està acabat (mat o taules) no hi ha cap millor jugada a trobar i la
+// preparació es quedaria penjada esperant una resposta que el motor no pot donar.
+const playableFenCache = new Map();
+function isPlayableExerciseFen(fen) {
+    if (!fen || typeof Chess !== 'function') return false;
+    if (playableFenCache.has(fen)) return playableFenCache.get(fen);
+    let ok = false;
+    try {
+        const g = new Chess(fen);
+        ok = !!(g && typeof g.moves === 'function' && g.moves().length > 0 && !g.game_over());
+    } catch (e) { ok = false; }
+    playableFenCache.set(fen, ok);
+    return ok;
+}
+
+// Posicions del banc amb la línia ja resolta al rebost estàtic: arrenquen a
+// l'instant i no depenen del motor.
+function offlineReadyTacticsFens() {
+    return TACTICS_BANK.filter(f => TACTICS_BANK_SOLUTIONS[f] && isPlayableExerciseFen(f));
+}
+
+// Tria una posició del banc amb línia preparada (per canviar-hi quan la que s'ha
+// demanat no es pot preparar). Respecta la rotació del cicle sempre que pugui.
+function pickOfflineTacticsFen(excludeFen = null) {
+    const inCycle = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens)
+        .filter(f => f !== excludeFen && TACTICS_BANK_SOLUTIONS[f] && isPlayableExerciseFen(f));
+    const pool = inCycle.length ? inCycle : offlineReadyTacticsFens().filter(f => f !== excludeFen);
+    return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
 
 function pickTacticsFen() {
     // Rotació: les posicions ja resoltes no es repeteixen fins completar el banc.
-    const pool = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens);
-    // Prefereix una posició amb la seqüència ja preparada en segon pla (inici instantani)
+    const pool = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens)
+        .filter(isPlayableExerciseFen);
+    if (!pool.length) return pickOfflineTacticsFen() || TACTICS_BANK[0];
+    // Prefereix una posició que arrenqui a l'instant (rebost estàtic o preparada
+    // en segon pla); si cap no ho està, qualsevol del cicle.
     return pickPreferPrepared(pool) || pool[Math.floor(Math.random() * pool.length)];
 }
 
@@ -25709,6 +26090,31 @@ function renderClock() {
     }
 }
 
+// Ensenya el tauler amb les peces de la posició MENTRE l'exercici es prepara.
+// És només visual: encara no hi ha partida ni seqüència, per això no s'hi pot
+// jugar (ni arrossegant ni tocant). Abans, tota l'estona de preparació la
+// pantalla del joc es veia buida i semblava que l'app s'havia penjat.
+function showPreparingBoard(fen) {
+    if (!fen || typeof Chessboard !== 'function') return;
+    try {
+        const orientation = ((fen.split(' ')[1] || 'w') === 'b') ? 'black' : 'white';
+        if (board) board.destroy();
+        disableTapToMove();
+        detachDragGuards();
+        clearTapSelection();
+        board = Chessboard('myBoard', {
+            orientation,
+            draggable: false,
+            position: fen,
+            pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+        });
+        resizeBoardToViewport();
+        setTimeout(() => { resizeBoardToViewport(); }, 0);
+    } catch (e) {
+        console.warn('[Bundle] No s\'ha pogut mostrar el tauler mentre es prepara:', e);
+    }
+}
+
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
     clearEngineMoveTimers();
@@ -25803,8 +26209,16 @@ blunderMode = isBundle;
             // Primer mira el rebost d'exercicis pre-generats en segon pla
             bundleFixedSequence = takePreparedSequence(fen);
         }
+        // Rebost ESTÀTIC del banc de tàctiques: la línia ja ve verificada amb el
+        // motor (fora de línia, a més profunditat que la preparació en viu). No
+        // demana res a Stockfish, així que l'exercici surt a l'instant i no depèn
+        // que el motor arrenqui.
+        if (!bundleFixedSequence) bundleFixedSequence = buildBankBundleSequence(fen);
         if (!bundleFixedSequence) {
             $('#status').text("Preparant exercici...").css('color', 'var(--accent-cream)');
+            // Mentre es prepara, el tauler ja es veu amb les peces de la posició
+            // (abans quedava un espai buit fins que acabava l'anàlisi).
+            showPreparingBoard(fen);
             // Espera que acabi la preparació en segon pla en curs (s'ha demanat
             // aturar-la o és justament aquest FEN) per no barrejar anàlisis. Si és
             // un altre FEN i el worker no cedeix ràpid, no bloquegem indefinidament
@@ -25812,22 +26226,45 @@ blunderMode = isBundle;
             if (backgroundPrepPromise) {
                 const wantedIsBeingPrepared = backgroundPrepCurrentFen === fen;
                 try {
-                    if (wantedIsBeingPrepared) await backgroundPrepPromise;
-                    else await waitForBackgroundPrepToYield(1500);
+                    // Fins i tot quan és el nostre FEN, l'espera va acotada: si el
+                    // motor es queda penjat no volem bloquejar la pantalla.
+                    await waitForBackgroundPrepToYield(wantedIsBeingPrepared ? 12000 : 1500);
                 } catch (e) {}
             }
-            bundleFixedSequence = takePreparedSequence(fen) || await prepareBundleSequence(fen);
+            bundleFixedSequence = takePreparedSequence(fen) || await prepareBundleSequence(fen, { silent: true });
+            const engineMadeSequence = !!bundleFixedSequence;
 
+            // Motor caigut o sense resposta: línia d'emergència amb l'anàlisi que
+            // ja es va desar quan es va detectar l'errada.
+            if (!bundleFixedSequence) bundleFixedSequence = buildEmergencyBundleSequence(fen);
+
+            if (!bundleFixedSequence && isTacticsSession) {
+                // Últim recurs abans de rendir-se: en una sessió de tàctiques,
+                // canvia a una posició del banc que sí que tingui línia preparada.
+                // Així la secció mai no es queda sense exercici.
+                const fallbackFen = pickOfflineTacticsFen(fen);
+                const fallbackSeq = fallbackFen ? buildBankBundleSequence(fallbackFen) : null;
+                if (fallbackSeq) {
+                    console.warn('[Bundle] Sense seqüència per', fen, '→ es canvia a una posició preparada del banc');
+                    fen = fallbackFen;
+                    currentBundleFen = fen;
+                    bundleFixedSequence = fallbackSeq;
+                }
+            }
             if (!bundleFixedSequence) {
-                alert("No s'ha pogut preparar l'exercici. Es retornarà al menú.");
+                showToast("No s'ha pogut preparar l'exercici. Torna-ho a provar d'aquí a un moment.", 'warn');
                 returnToMainMenuImmediate();
                 return;
             }
-            cachePreparedSequence(fen, bundleFixedSequence, 'ondemand_' + getPreparedExerciseSource(fen));
+            // Al rebost només hi van les seqüències que ha costat calcular; les
+            // línies offline ja són permanents i no cal desar-les.
+            if (engineMadeSequence) {
+                cachePreparedSequence(fen, bundleFixedSequence, 'ondemand_' + getPreparedExerciseSource(fen));
+            }
         }
 
     }
-    
+
     lastHumanMoveUci = null;
     isBundleStrictAnalysis = false;
     bundleBestMove = null;
@@ -27353,6 +27790,16 @@ function analyzeMove() {
     if (pendingGameOverAfterMoveAnalysis && game && game.game_over()) {
         resolvePendingMoveEvaluation(game.in_checkmate() ? 'excel' : 'good');
         finalizeGameOver();
+        return;
+    }
+
+    // Exercici amb seqüència FIXA: la solució de cada pas ja està decidida, així
+    // que saber si la jugada és bona no demana res al motor. Abans es feia una
+    // cerca a profunditat 12 el resultat de la qual s'acabava ignorant: costava
+    // una espera a cada jugada i, si el motor no responia, l'exercici es quedava
+    // encallat sense poder-lo continuar ni acabar.
+    if (blunderMode && bundleFixedSequence) {
+        evaluateBundleAttempt({ mode: bundleAcceptMode, bestMove: null, pvMoves: {}, pvLine: bundleStrictPvLine });
         return;
     }
 
@@ -33490,9 +33937,16 @@ function loadPreparedSequences() {
         Object.keys(parsed).forEach(fen => {
             const entry = parsed[fen];
             const seq = entry && entry.seq;
-            if (seq && seq.initialFen === fen && seq.step1 && seq.step2
-                && Array.isArray(seq.fullSequence) && seq.fullSequence.length >= 3
-                && now - (entry.ts || 0) <= PREPARED_SEQ_TTL_MS) {
+            // Un exercici d'un sol pas (la millor jugada ja fa mat) és tan vàlid
+            // com el de dos: el que cal és que hi hagi tants passos com la
+            // seqüència diu i la rèplica fixa del rival entre pas i pas.
+            const totalSteps = (seq && seq.totalSteps) || 2;
+            const wellFormed = !!(seq && seq.initialFen === fen && seq.step1
+                && Array.isArray(seq.fullSequence)
+                && seq.fullSequence.length >= (2 * totalSteps - 1)
+                && (totalSteps < 2 || (seq.step2 && seq.opponentMove))
+                && (totalSteps < 3 || (seq.step3 && seq.opponentMove2)));
+            if (wellFormed && now - (entry.ts || 0) <= PREPARED_SEQ_TTL_MS) {
                 preparedSequences[fen] = entry;
             }
         });
@@ -33578,10 +34032,16 @@ function takePreparedSequence(fen) {
     return clonePreparedSequence(entry.seq);
 }
 
-// Tria aleatòria que prefereix elements amb la seqüència ja preparada.
+// Un exercici arrenca a l'instant si té la seqüència al rebost (preparada en
+// segon pla) o si la línia ja ve resolta de fàbrica al banc de tàctiques.
+function exerciseStartsInstantly(fen) {
+    return !!(fen && (preparedSequences[fen] || TACTICS_BANK_SOLUTIONS[fen]));
+}
+
+// Tria aleatòria que prefereix elements que arrenquin a l'instant.
 function pickPreferPrepared(items, fenOf = (x) => x) {
     if (!items || !items.length) return null;
-    const ready = items.filter(it => preparedSequences[fenOf(it)]);
+    const ready = items.filter(it => exerciseStartsInstantly(fenOf(it)));
     const pool = ready.length ? ready : items;
     return pool[Math.floor(Math.random() * pool.length)];
 }
@@ -33599,11 +34059,18 @@ function samplePreferPrepared(fens, count) {
     return prepared.concat(rest).slice(0, count);
 }
 
-// FENs que volem tenir sempre a punt, per ordre de prioritat.
+// FENs que volem tenir sempre a punt, per ordre de prioritat. Les posicions que
+// ja tenen línia de fàbrica al banc no hi entren mai: arrencar-les no costa res i
+// el motor en segon pla queda lliure per als exercicis que sí que el necessiten
+// (les errades pròpies i el repàs intel·ligent).
 function getBackgroundPrepCandidates() {
     const out = [];
     const seen = {};
-    const add = (fen) => { if (fen && !seen[fen]) { seen[fen] = true; out.push(fen); } };
+    const add = (fen) => {
+        if (!fen || seen[fen] || TACTICS_BANK_SOLUTIONS[fen]) return;
+        seen[fen] = true;
+        out.push(fen);
+    };
     try { ensureDailyPuzzle(); } catch (e) {}
     if (dailyPuzzle && dailyPuzzle.fen && !dailyPuzzle.solved) add(dailyPuzzle.fen);
     // Només posicions del cicle actual: les resoltes no es tornaran a servir.

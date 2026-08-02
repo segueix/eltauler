@@ -114,6 +114,24 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   mateixes dades i tres redaccions, i narració de la PV amb la mateixa
   prudència en tots els registres (cap veu no diu «forçada» sense demostració
   i cap text no queda tallat).
+- **`tactics.test.js`** — secció ⚡ **Tàctiques**. D'una banda la rotació del
+  banc (una posició resolta no torna fins que s'ha completat el cicle, i les
+  dades corruptes mai deixen el cicle buit). De l'altra, la construcció d'un
+  exercici a partir d'una línia JA verificada, sense motor
+  (`createBundleSequenceHelpers`): línies de 3 i de 5 mitges jugades, exercicis
+  d'**un sol pas** quan la millor jugada ja fa mat, tall de la línia quan la
+  posició s'acaba o quan una jugada és il·legal, i metadades del motor per pas.
+  Finalment, una comprovació sobre les dades REALS d'`app.js`: cap posició del
+  banc no pot estar ja acabada (mat o taules) i **totes** han de tenir línia
+  preparada de fàbrica a `TACTICS_BANK_SOLUTIONS`, legal i jugable fins al final.
+
+  Aquest rebost estàtic es regenera amb el mateix Stockfish que porta l'app:
+
+  ```bash
+  node scripts/gen-tactics-solutions.js          # reescriu el bloc dins d'app.js
+  node scripts/gen-tactics-solutions.js --dry    # només l'imprimeix
+  ```
+
 - **`puzzles.test.js`** — jeroglífics tàctics: validació pas a pas de la solució
   de 3 jugades (`puzzleSubmitMove`), criteris d'acceptació, dedup per FEN,
   dificultat/explicació i, sobretot, el **classificador de final tàctic**

@@ -1129,6 +1129,106 @@
     }
 
     // ----------------------------------------------------------------------
+    // Seqüència d'exercici a partir d'una línia ja verificada (sense motor).
+    // ----------------------------------------------------------------------
+    // El reproductor d'exercicis (bundle) consumeix sempre la mateixa forma:
+    // step1/step2/step3 per a les jugades del jugador, opponentMove/opponentMove2
+    // per a les rèpliques fixes del rival, i la línia sencera en UCI i SAN.
+    // Aquí es construeix aquesta forma només amb chess.js, a partir d'una línia
+    // que ja s'ha calculat abans (rebost estàtic del banc de tàctiques, PV desada
+    // d'una errada pròpia...). Així un exercici es pot servir a l'instant encara
+    // que el motor no arrenqui o no respongui.
+    //
+    // La línia s'espera alternada: [jugador, rival, jugador, rival, jugador].
+    // Es talla sola quan la posició s'acaba (mat o taules), de manera que una
+    // línia d'un sol moviment dona un exercici d'un sol pas — el cas dels mats
+    // en 1 del banc, que amb tres passos obligatoris no es podien preparar mai.
+    function createBundleSequenceHelpers(ChessCtor) {
+        if (typeof ChessCtor !== 'function') return null;
+
+        function applyUci(game, uci) {
+            const raw = String(uci || '').trim().toLowerCase();
+            if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(raw)) return null;
+            try {
+                return game.move({
+                    from: raw.slice(0, 2),
+                    to: raw.slice(2, 4),
+                    promotion: raw.length > 4 ? raw[4] : undefined
+                }) || null;
+            } catch (e) { return null; }
+        }
+
+        function buildSequenceFromLine(fen, line, opts) {
+            const options = opts || {};
+            const maxPlayerMoves = Math.min(3, Math.max(1, options.maxPlayerMoves || 3));
+            const stepMeta = Array.isArray(options.stepMeta) ? options.stepMeta : [];
+            const replyMeta = Array.isArray(options.replyMeta) ? options.replyMeta : [];
+            const moves = Array.isArray(line) ? line.filter(Boolean) : [];
+            if (!fen || !moves.length) return null;
+
+            let game;
+            try { game = new ChessCtor(fen); } catch (e) { return null; }
+            if (!game || typeof game.moves !== 'function') return null;
+
+            const steps = [];
+            const replies = [];
+            const fullSequence = [];
+            const fullSequenceSan = [];
+
+            for (let i = 0; i < moves.length; i++) {
+                const isPlayerMove = (i % 2 === 0);
+                if (isPlayerMove && steps.length >= maxPlayerMoves) break;
+                const before = game.fen();
+                const mv = applyUci(game, moves[i]);
+                if (!mv) break;
+                fullSequence.push(moves[i]);
+                fullSequenceSan.push(mv.san);
+                if (isPlayerMove) steps.push({ fen: before, uci: moves[i], san: mv.san });
+                else replies.push({ fen: before, uci: moves[i], san: mv.san });
+                if (game.game_over()) break;
+            }
+
+            if (!steps.length) return null;
+            // Cada pas del jugador (llevat de l'últim) necessita la rèplica fixa del
+            // rival: sense ella el reproductor no pot avançar de pas.
+            const totalSteps = Math.min(steps.length, replies.length + 1);
+            steps.length = totalSteps;
+            replies.length = Math.max(0, totalSteps - 1);
+            const plies = totalSteps + replies.length;
+            fullSequence.length = Math.min(fullSequence.length, plies);
+            fullSequenceSan.length = Math.min(fullSequenceSan.length, plies);
+
+            const seq = {
+                initialFen: fen,
+                totalSteps,
+                fullSequence,
+                fullSequenceSan
+            };
+            steps.forEach((s, idx) => {
+                seq['step' + (idx + 1)] = Object.assign({
+                    fen: s.fen,
+                    playerMove: s.uci,
+                    playerMoveSan: s.san,
+                    playerMovePv: [],
+                    alternatives: []
+                }, stepMeta[idx] || {});
+            });
+            replies.forEach((r, idx) => {
+                const key = idx === 0 ? 'opponentMove' : 'opponentMove' + (idx + 1);
+                seq[key] = Object.assign({
+                    fen: r.fen,
+                    move: r.uci,
+                    moveSan: r.san,
+                    eval: 0
+                }, replyMeta[idx] || {});
+            });
+            return seq;
+        }
+
+        return { buildSequenceFromLine };
+    }
+
+    // ----------------------------------------------------------------------
     // EL TEU BESSÓ — un rival que juga com tu (lògica PURA i testable).
     // El perfil surt de les partides pròpies: obertures reals (llibre personal
     // indexat per posició), qualitat per fase (obertura / mig joc / final) i,
@@ -7459,6 +7559,7 @@
         puzzleSubmitMove,
         tacticsPickPool,
         tacticsRecordSolved,
+        createBundleSequenceHelpers,
         BESSO_CONFIG,
         bessoPieceCountFromFen,
         bessoPhaseOfPosition,
