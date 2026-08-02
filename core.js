@@ -1128,6 +1128,27 @@
         return covered ? [fen] : recent;
     }
 
+    // La generació tàctica fa diverses cerques de motor. Si un intent no troba
+    // res, repetir-lo immediatament pot deixar un mòbil al 100% de CPU de manera
+    // indefinida. Aquest retard exponencial és pur per poder-lo provar sense
+    // navegador; es limita a 30 minuts i un encert el reinicia a zero.
+    function tacticsGenerationBackoffMs(consecutiveFailures, hasQueuedPuzzle) {
+        const failures = Math.max(0, Math.floor(Number(consecutiveFailures) || 0));
+        if (!failures) return hasQueuedPuzzle ? 5000 : 1500;
+        const base = hasQueuedPuzzle ? 120000 : 60000;
+        return Math.min(30 * 60 * 1000, base * Math.pow(2, Math.min(failures - 1, 5)));
+    }
+
+    // Pressupost tancat d'un sol intent. En segon pla no recorrem desenes de
+    // posicions ni fabriquem partides aleatòries: això queda per a una petició
+    // manual, on l'usuari veu el progrés i pot cancel·lar.
+    function tacticsGenerationBudget(options) {
+        const opts = options || {};
+        if (opts.manual) return { deadlineMs: 45000, realCandidates: 5, recentGames: 3, fensPerGame: 5, selfPlaySeeds: 2 };
+        if (opts.lowEnd) return { deadlineMs: 10000, realCandidates: 1, recentGames: 1, fensPerGame: 1, selfPlaySeeds: 0 };
+        return { deadlineMs: 18000, realCandidates: 2, recentGames: 1, fensPerGame: 2, selfPlaySeeds: 0 };
+    }
+
     // ----------------------------------------------------------------------
     // EL TEU BESSÓ — un rival que juga com tu (lògica PURA i testable).
     // El perfil surt de les partides pròpies: obertures reals (llibre personal
@@ -7459,6 +7480,8 @@
         puzzleSubmitMove,
         tacticsPickPool,
         tacticsRecordSolved,
+        tacticsGenerationBackoffMs,
+        tacticsGenerationBudget,
         BESSO_CONFIG,
         bessoPieceCountFromFen,
         bessoPhaseOfPosition,

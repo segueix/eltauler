@@ -75,3 +75,27 @@ describe('robustesa davant dades inconsistents', () => {
         expect(Core.tacticsRecordSolved(BANK, ['fenA'], null)).toEqual(['fenA']);
     });
 });
+
+describe('protecció de recursos durant la generació', () => {
+    test('els intents fallits apliquen backoff exponencial amb un límit', () => {
+        expect(Core.tacticsGenerationBackoffMs(0, false)).toBe(1500);
+        expect(Core.tacticsGenerationBackoffMs(1, false)).toBe(60000);
+        expect(Core.tacticsGenerationBackoffMs(3, false)).toBe(240000);
+        expect(Core.tacticsGenerationBackoffMs(99, false)).toBe(1800000);
+    });
+
+    test('el segon pla modest té un pressupost mínim i no fa auto-joc', () => {
+        expect(Core.tacticsGenerationBudget({ lowEnd: true })).toEqual({
+            deadlineMs: 10000, realCandidates: 1, recentGames: 1,
+            fensPerGame: 1, selfPlaySeeds: 0
+        });
+    });
+
+    test('la generació manual conserva més marge però continua acotada', () => {
+        const manual = Core.tacticsGenerationBudget({ manual: true });
+        const background = Core.tacticsGenerationBudget({});
+        expect(manual.deadlineMs).toBeGreaterThan(background.deadlineMs);
+        expect(manual.selfPlaySeeds).toBe(2);
+        expect(manual.realCandidates).toBeLessThanOrEqual(5);
+    });
+});

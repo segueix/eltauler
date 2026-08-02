@@ -19625,7 +19625,7 @@ function hgDefaultState() {
             desktopTargetQueueSize: 6,
             finalPreference: 'any'
         },
-        generation: { active: false, lastAttemptAt: 0, lastSuccessAt: 0, lastDurationMs: 0, lastError: null, generatedThisSession: 0 },
+        generation: { active: false, lastAttemptAt: 0, lastSuccessAt: 0, lastDurationMs: 0, lastError: null, consecutiveFailures: 0, generatedThisSession: 0 },
         generationLock: { deviceId: null, startedAt: 0, expiresAt: 0 }
     };
 }
@@ -19777,10 +19777,9 @@ function hgRandomSeedFen() {
     if (pieces < 8) return null;
     return g.fen();
 }
-async function hgGenerateFromSelfPlaySeed(shouldAbort) {
+async function hgGenerateFromSelfPlaySeed(shouldAbort, maxSeeds = 2) {
     if (typeof Chess === 'undefined') return null;
     try { if (typeof ensureStockfish === 'function') ensureStockfish(); } catch (e) {}
-    const maxSeeds = 4;
     for (let attempt = 0; attempt < maxSeeds; attempt++) {
         if (shouldAbort && shouldAbort()) return null;
         const fen = hgRandomSeedFen();
@@ -19827,6 +19826,10 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
     };
     hgLastGenDiag = diag;
     const started = Date.now();
+    const budget = ElTaulerCore.tacticsGenerationBudget({ manual: !!opts.manual, lowEnd: !!hgLightMode });
+    const deadline = started + budget.deadlineMs;
+    const outOfBudget = () => Date.now() >= deadline;
+    const mustAbort = () => outOfBudget() || !!(shouldAbort && shouldAbort());
     try {
         const excludeFens = hgAllKnownFens();
         const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
@@ -19837,24 +19840,28 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
             const candidates = collectPersonalHieroglyphicCandidates(null);
             diag.candidates = candidates.length;
             diag.gameRealFresh = candidates.filter(c => c && c.source === 'gameHistory.tactic' && !excludeFens.has(norm(c.fen))).length;
-            cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, { excludeFens, shouldAbort });
+            cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, {
+                excludeFens, shouldAbort: mustAbort, maxCandidates: budget.realCandidates
+            });
         } catch (e) { diag.error = String((e && e.message) || e); }
         // PRIORITAT 2 — game_variant: una variant legal amagada d'una FEN real.
-        if (!cand && !(shouldAbort && shouldAbort())) {
-            const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-6).reverse() : [];
+        if (!cand && !mustAbort()) {
+            const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-budget.recentGames).reverse() : [];
             for (const entry of recentGames) {
                 diag.variantsTried++;
-                try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, { excludeFens, shouldAbort }); } catch (e) {}
+                try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, {
+                    excludeFens, shouldAbort: mustAbort, maxCandidates: budget.fensPerGame
+                }); } catch (e) {}
                 if (cand) break;
                 if (shouldAbort && shouldAbort()) break;
             }
         }
         // PRIORITAT 3 — auto-joc del motor (només si les partides no donen res).
-        if (!cand && opts.allowSelfPlay !== false && !(shouldAbort && shouldAbort())) {
+        if (!cand && opts.allowSelfPlay !== false && budget.selfPlaySeeds > 0 && !mustAbort()) {
             diag.selfPlayTried = true;
-            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
+            try { cand = await hgGenerateFromSelfPlaySeed(mustAbort, budget.selfPlaySeeds); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
         }
-        if (shouldAbort && shouldAbort()) diag.aborted = true;
+        if (mustAbort()) diag.aborted = true;
         if (cand && excludeFens.has(norm(cand.fen))) { cand = null; diag.reason = 'duplicate'; }
         // Classifica el motiu quan no hi ha candidat, de la causa més específica a
         // la més general.
@@ -19998,7 +20005,11 @@ async function hgTick(shouldAbortOuter) {
         // Mode lleuger: només ajuda quan la cua global és 0 o 1.
         if (hgLightMode && newCount > 1) { renderHieroglyphicBanner(); return; }
         const now = Date.now();
-        const cooldown = newCount === 0 ? 1500 : 5000;   // prioritari si no n'hi ha cap
+        // Després d'un intent buit fem backoff exponencial. Abans es reintentava
+        // cada 1,5 s i una biblioteca sense cap tàctica vàlida podia mantenir
+        // Stockfish treballant indefinidament fins a fer caure la pestanya.
+        const cooldown = ElTaulerCore.tacticsGenerationBackoffMs(
+            hgState.generation.consecutiveFailures || 0, newCount > 0);
         if (now - (hgState.generation.lastAttemptAt || 0) < cooldown) return;
         if (hgLockHeldByOther()) { renderHieroglyphicBanner(); return; }
         if (!hgAcquireLock()) return;
@@ -20015,9 +20026,11 @@ async function hgTick(shouldAbortOuter) {
             hgState.generation.lastSuccessAt = Date.now();
             hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
             hgState.generation.lastError = null;
+            hgState.generation.consecutiveFailures = 0;
             hgPruneQueue();
         } else {
             hgState.generation.lastError = cand ? 'duplicate' : 'empty';
+            hgState.generation.consecutiveFailures = (hgState.generation.consecutiveFailures || 0) + 1;
         }
         hgState.generation.active = false;
         hgState.generation.lastDurationMs = hgRuntime.lastDurationMs || 0;
@@ -20180,7 +20193,7 @@ async function hgManualGenerateBurst() {
                 await new Promise(r => setTimeout(r, 400));
             } else {
                 let cand = null;
-                try { cand = await hgGenerateOne(() => hgManualBurstAbort, { allowSelfPlay: true }); }
+                try { cand = await hgGenerateOne(() => hgManualBurstAbort, { allowSelfPlay: true, manual: true }); }
                 catch (e) { cand = null; }
                 if (hgManualBurstAbort) break;
                 if (cand && !hgAllKnownFens().has(norm(cand.fen))) {
