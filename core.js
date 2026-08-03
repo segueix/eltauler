@@ -3808,11 +3808,11 @@
     // té el seu. Qui porta el nivell és l'ELO/ROC d'STOCKFISH, que s'adapta
     // després de cada partida SEGONS EL RESULTAT: si l'exèrcit guanya, el rival
     // puja; si perd, baixa; si empaten, es queda on és (ja estan igualats).
-    // El pas es va escurçant a mesura que s'acumulen partides, de manera que el
-    // nivell s'assenta on la cosa està igualada en comptes d'anar rebotant; un
-    // pas MÍNIM el manté viu, perquè l'exèrcit canvia de gent amb el temps.
+    // L'ajust usa la mateixa fórmula Elo (K=24 i mínim de ±8) que les partides
+    // generals. Com que el nivell del rival és també l'estimació del nivell de
+    // l'exèrcit, la puntuació esperada abans de cada partida és 0,5.
 
-    // Pas d'ajust per a la partida número `gamesPlayed + 1` de la sèrie.
+    // Helper històric conservat per compatibilitat; el nou ajust Elo no l'usa.
     function collectiveLadderStep(gamesPlayed, opts) {
         const o = opts || {};
         const startStep = (typeof o.startStep === 'number' && !isNaN(o.startStep)) ? o.startStep : 200;
@@ -3832,10 +3832,11 @@
         const max = (typeof o.max === 'number' && !isNaN(o.max)) ? o.max : 2850;
         const prev = (typeof prevStrength === 'number' && !isNaN(prevStrength)) ? prevStrength : 1350;
         const s = (typeof resultScore === 'number' && !isNaN(resultScore)) ? Math.max(0, Math.min(1, resultScore)) : 0.5;
-        const step = collectiveLadderStep(gamesPlayed, o);
-        const raw = prev + (s - 0.5) * 2 * step;
+        const k = (typeof o.kFactor === 'number' && o.kFactor > 0) ? o.kFactor : 24;
+        const delta = ratedEloDelta(prev, prev, s, k);
+        const raw = prev + delta;
         const strength = Math.round(Math.max(min, Math.min(max, raw)));
-        return { strength: strength, step: step, delta: strength - Math.round(prev) };
+        return { strength: strength, step: Math.abs(delta), delta: strength - Math.round(prev) };
     }
 
     // ----------------------------------------------------------------------
