@@ -56,13 +56,9 @@
   const ENGINE_FLOOR = 1350;             // mínim ELO real del motor; per sota → mode ROC
   const STRENGTH_MIN = 200;              // ROC mínim (mode feble) per a després d'una derrota
   const STRENGTH_MAX = 2850;             // UCI_Elo màxim del binari
-  // Bucle autoregulat del NIVELL: l'ELO/ROC de Stockfish s'adapta segons el
-  // resultat de cada partida (victòria de l'exèrcit → puja; derrota → baixa;
-  // taules → es queda). El pas s'escurça amb les partides jugades, amb un mínim
-  // perquè el nivell pugui seguir un exèrcit que canvia de gent.
-  const LADDER_START_STEP = 200;         // ajust de les primeres partides
-  const LADDER_MIN_STEP = 40;            // ajust mínim (el nivell mai no es congela)
-  const LADDER_HALF_LIFE = 2;            // partides per reduir el pas a la meitat
+  // Mateixa regulació que a les partides generals: fórmula Elo amb K=24 i un
+  // mínim de ±8 quan hi ha victòria o derrota.
+  const ELO_K_FACTOR = 24;
   const ENGINE_MOVETIME_MS = 1500;       // temps de càlcul de la jugada de Stockfish
   const TIEBREAK_DEPTH = 12;             // profunditat per triar el millor entre empatats
   const ANALYSIS_DEPTH = 12;             // profunditat per mesurar la qualitat de joc dels Catalans
@@ -120,6 +116,13 @@
     // editable en viu). No s'hi aplica el «sempre 1350 a la primera partida».
     if (s.custom) return clampStrength(s.sfElo || s.startElo || START_SF_ELO);
     if ((s.gameNumber || 1) <= 1) return START_SF_ELO;
+    // Corregeix també la partida #2 que ja s'hagués creat amb l'antic model de
+    // calibratge (que podia saltar directament de 1350 a ROC 200).
+    const lg = s.lastGame;
+    if (lg && !lg.ratingSystem && (s.gameNumber || 1) === (lg.gameNumber || 0) + 1) {
+      const score = lg.result === 'catalans' ? 1 : (lg.result === 'stockfish' ? 0 : 0.5);
+      return nextStockfishStrength(clampStrength(lg.sfElo || START_SF_ELO), score, 0).strength;
+    }
     return clampStrength(s.sfElo || START_SF_ELO);
   }
 
@@ -457,11 +460,11 @@
 
   // Nova força de Stockfish per a la propera partida, SEGONS EL RESULTAT
   // (delega al nucli, que és testejable): l'exèrcit guanya → el rival puja un
-  // pas; perd → baixa un pas; taules → es queda. El pas s'escurça amb les
-  // partides jugades i no baixa mai del mínim.
+  // pas Elo; perd → baixa un pas Elo; taules → es queda. És exactament el K=24
+  // de les partides generals, no una recalibració que pugui saltar al ROC mínim.
   function ladderOpts() {
     return {
-      startStep: LADDER_START_STEP, minStep: LADDER_MIN_STEP, stepHalfLife: LADDER_HALF_LIFE,
+      kFactor: ELO_K_FACTOR,
       min: STRENGTH_MIN, max: STRENGTH_MAX
     };
   }
@@ -470,10 +473,12 @@
     if (typeof window !== 'undefined' && window.ElTaulerCore && ElTaulerCore.adaptedRivalStrength) {
       return ElTaulerCore.adaptedRivalStrength(prevStrength, resultScore, gamesPlayed, opts);
     }
-    const step = Math.max(LADDER_MIN_STEP,
-      Math.round(LADDER_START_STEP / (1 + Math.max(0, gamesPlayed || 0) / LADDER_HALF_LIFE)));
-    const strength = clampStrength(prevStrength + (resultScore - 0.5) * 2 * step);
-    return { strength: strength, step: step, delta: strength - Math.round(prevStrength) };
+    const score = Math.max(0, Math.min(1, Number(resultScore)));
+    let delta = Math.round(ELO_K_FACTOR * (isNaN(score) ? 0 : score - 0.5));
+    if (score === 0) delta = Math.min(-8, delta);
+    if (score === 1) delta = Math.max(8, delta);
+    const strength = clampStrength(prevStrength + delta);
+    return { strength: strength, step: Math.abs(delta), delta: strength - Math.round(prevStrength) };
   }
 
   // ---------------------------------------------------------------------------
@@ -821,8 +826,7 @@
       const prevStrength = clampStrength(effectiveSfElo(d));
       const avgCpLoss = teamStats.moves ? Math.round(teamStats.totalCpLoss / teamStats.moves) : null;
       // El nivell el marca l'ELO/ROC de Stockfish i s'adapta SEGONS EL RESULTAT:
-      // partides ja jugades = número d'aquesta partida - 1 (fa el pas més curt a
-      // mesura que la sèrie avança).
+      // K=24 sobre una expectativa de 0,5, igual que a les partides generals.
       const gamesPlayed = Math.max(0, (d.gameNumber || 1) - 1);
       const ladder = nextStockfishStrength(prevStrength, S, gamesPlayed);
       const nextStrength = clampStrength(ladder.strength);
@@ -835,6 +839,7 @@
         nextStrength: nextStrength,  // força de Stockfish la propera partida
         nextRocMode: isRocMode(nextStrength),
         eloDelta: ladder.delta,      // quant s'ha mogut el nivell amb aquest resultat
+        ratingSystem: 'elo-k24',     // permet distingir i migrar resums del model antic
         avgCpLoss: avgCpLoss,        // qualitat de joc de l'exèrcit (informativa)
         blunders: teamStats.blunders || 0,
         teamMoves: teamStats.moves || 0,

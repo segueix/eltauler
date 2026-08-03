@@ -1,7 +1,7 @@
 const Core = require('../core.js');
 
 // Constants reals de catalans.js (nivell de les partides col·lectives).
-const OPTS = { startStep: 200, minStep: 40, stepHalfLife: 2, min: 200, max: 2850 };
+const OPTS = { kFactor: 24, min: 200, max: 2850 };
 
 const step = (n) => Core.collectiveLadderStep(n, OPTS);
 const next = (sf, score, n) => Core.adaptedRivalStrength(sf, score, n, OPTS);
@@ -26,9 +26,9 @@ describe('collectiveLadderStep', () => {
 });
 
 describe('adaptedRivalStrength', () => {
-    test('l\'ELO de Stockfish puja si guanya l\'exèrcit i baixa si perd', () => {
-        expect(next(1350, 1, 0).strength).toBe(1550);
-        expect(next(1350, 0, 0).strength).toBe(1150);
+    test('aplica el mateix K=24 que les partides generals', () => {
+        expect(next(1350, 1, 0).strength).toBe(1362);
+        expect(next(1350, 0, 0).strength).toBe(1338);
     });
 
     test('en taules es queda on és (ja estan igualats)', () => {
@@ -37,23 +37,23 @@ describe('adaptedRivalStrength', () => {
         expect(r.delta).toBe(0);
     });
 
-    test('el moviment és el pas de la partida que toca', () => {
-        expect(next(1000, 1, 4).delta).toBe(67);
-        expect(next(1000, 0, 4).delta).toBe(-67);
-        expect(next(1000, 1, 20).delta).toBe(40);
+    test('el nombre de partides no altera la fórmula Elo', () => {
+        expect(next(1000, 1, 4).delta).toBe(12);
+        expect(next(1000, 0, 4).delta).toBe(-12);
+        expect(next(1000, 1, 20).delta).toBe(12);
     });
 
     test('es manté dins del rang del motor i ho reflecteix al delta', () => {
-        expect(next(250, 0, 0).strength).toBe(200);
-        expect(next(250, 0, 0).delta).toBe(-50);
-        expect(next(2800, 1, 0).strength).toBe(2850);
-        expect(next(2800, 1, 0).delta).toBe(50);
+        expect(next(205, 0, 0).strength).toBe(200);
+        expect(next(205, 0, 0).delta).toBe(-5);
+        expect(next(2845, 1, 0).strength).toBe(2850);
+        expect(next(2845, 1, 0).delta).toBe(5);
     });
 
     test('entrades dolentes no trenquen el càlcul', () => {
         expect(next(undefined, undefined, undefined).strength).toBe(1350);
-        expect(next(1350, 5, 0).strength).toBe(1550);   // el resultat es limita a [0, 1]
-        expect(next(1350, -5, 0).strength).toBe(1150);
+        expect(next(1350, 5, 0).strength).toBe(1362);   // el resultat es limita a [0, 1]
+        expect(next(1350, -5, 0).strength).toBe(1338);
     });
 });
 
@@ -85,9 +85,10 @@ describe('bucle autoregulat: el nivell de Stockfish busca l\'exèrcit', () => {
         expect(Math.abs(runSeries(1350, 60, 3) - 1350)).toBeLessThan(250);
     });
 
-    test('si l\'exèrcit es reforça, el nivell el segueix amunt (pas mínim)', () => {
+    test('si l\'exèrcit es reforça, el nivell el segueix amunt amb increments Elo', () => {
         let sf = runSeries(800, 40, 5);
+        const before = sf;
         for (let i = 40; i < 80; i++) sf = next(sf, 1, i).strength;   // ara guanyen sempre
-        expect(sf).toBeGreaterThan(2000);
+        expect(sf).toBe(before + 40 * 12);
     });
 });
