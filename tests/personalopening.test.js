@@ -307,6 +307,68 @@ describe('construcció completa', () => {
     });
 });
 
+// La fondària es demana en jugades TEVES —les que has de memoritzar—, no en
+// semijugades: cinc de teves cauen dins de les 10 primeres semijugades de la
+// partida amb blanques i de les 11 amb negres, perquè amb negres el rival hi
+// afegeix la que obre.
+describe('profunditat: les teves 5 primeres jugades', () => {
+    const ownMovesIn = line => line.moves.filter(step => step.mine).length;
+    const RUY = ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O', 'Be7', 'Re1', 'b5'];
+    const SICILIANA = ['e4', 'c5', 'Nf3', 'd6', 'd4', 'cxd4', 'Nxd4', 'Nf6', 'Nc3', 'a6', 'Be2', 'e5'];
+
+    test('el color desplaça les semijugades, però les teves jugades són les mateixes', () => {
+        expect(CFG.maxOwnMoves).toBe(5);
+        expect(Core.personalOpeningPlies('w')).toBe(10);   // 1,3,5,7,9 teves + la rèplica
+        expect(Core.personalOpeningPlies('b')).toBe(11);   // obre el rival: 2,4,6,8,10 teves
+        expect(Core.personalOpeningPlies('w', { maxOwnMoves: 3 })).toBe(6);
+        expect(Core.personalOpeningPlies('b', { maxOwnMoves: 3 })).toBe(7);
+    });
+
+    test('una profunditat fixa demanada a mà continua manant', () => {
+        expect(Core.personalOpeningPlies('w', { maxPlies: 4 })).toBe(4);
+        expect(Core.personalOpeningPlies('b', { maxPlies: 4 })).toBe(4);
+    });
+
+    test('amb blanques: 5 jugades teves dins de 10 semijugades', () => {
+        const entries = [];
+        for (let i = 0; i < 9; i++) entries.push(game(RUY, 'w', 'Victòria', 75));
+        const { result } = runBuild(entries, 'w', { maxPositions: 200 });
+        expect(result.config.maxOwnMoves).toBe(5);
+        expect(result.config.maxPlies).toBe(10);
+        expect(result.summary.maxDepth).toBeLessThanOrEqual(10);
+        const lines = Core.personalOpeningLines(result.root);
+        lines.forEach(line => {
+            expect(line.moves.length).toBeLessThanOrEqual(10);
+            expect(ownMovesIn(line)).toBeLessThanOrEqual(5);
+        });
+        // I la línia principal hi arriba de debò: no es queda curta.
+        expect(ownMovesIn(lines[0])).toBe(5);
+    });
+
+    test('amb negres: les mateixes 5 jugades teves, dins d\'11 semijugades', () => {
+        const entries = [];
+        for (let i = 0; i < 9; i++) entries.push(game(SICILIANA, 'b', 'Victòria', 70));
+        const { result } = runBuild(entries, 'b', { maxPositions: 200 });
+        expect(result.config.maxPlies).toBe(11);
+        expect(result.summary.maxDepth).toBeLessThanOrEqual(11);
+        const lines = Core.personalOpeningLines(result.root);
+        lines.forEach(line => {
+            expect(line.moves.length).toBeLessThanOrEqual(11);
+            expect(ownMovesIn(line)).toBeLessThanOrEqual(5);
+        });
+        expect(ownMovesIn(lines[0])).toBe(5);
+    });
+
+    test('l\'historial es llegeix fins a la profunditat que es construeix', () => {
+        // Les jugades de la partida que queden fora de la profunditat no entren
+        // als llibres de posició: no poden influir en cap tria.
+        const books = B.buildPositionBooks([game(RUY, 'w', 'Victòria', 75)], 'w', Core.personalOpeningPlies('w'));
+        const flat = Object.keys(books.mine).map(key => Object.keys(books.mine[key])[0]);
+        expect(flat).toContain('O-O');     // la teva 5a jugada hi és
+        expect(flat).not.toContain('Re1'); // la 6a ja no
+    });
+});
+
 describe('línies llegibles', () => {
     test('s\'aplanen de la més probable a la menys', () => {
         const entries = [];
