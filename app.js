@@ -15760,23 +15760,34 @@ function buildPersonalRepertoireData() {
     }
 }
 
+// Una línia es parteix en trossos «4.d3 Nf6» que no es trenquen mai per dins.
+// Així la línia sencera pot passar de línia a la pantalla en comptes d'amagar
+// les últimes jugades darrere d'un desplaçament lateral: una línia que no es
+// veu fins al final no diu què jugar, que és per al que serveix.
+function movePairsHtml(moves, moveHtml) {
+    const groups = [];
+    (moves || []).forEach(step => {
+        const num = Math.floor(step.ply / 2);
+        const last = groups.length ? groups[groups.length - 1] : null;
+        let group = last && last.num === num ? last : null;
+        if (!group) { group = { num: num, html: '' }; groups.push(group); }
+        // El número va al davant del tros; si el tros comença amb les negres
+        // (línia que arrenca a mitja jugada), es diu com toca: «4...Nf6».
+        if (!group.html) group.html += `<span class="rep-num">${num + 1}.${step.ply % 2 === 0 ? '' : '..'}</span>`;
+        group.html += moveHtml(step);
+    });
+    return groups.map(g => `<span class="rep-pair">${g.html}</span>`).join(' ');
+}
+
 // Línia en notació llegible («1.e4 e5 2.Nf3») amb la jugada que surt del
 // llibre marcada. La SAN es mostra crua, com a la transcripció de l'historial.
 function repertoireLineHtml(line, offBookPly) {
-    const parts = [];
-    (line || []).forEach(step => {
-        const moveNumber = Math.floor(step.ply / 2) + 1;
-        const isWhiteMove = step.ply % 2 === 0;
-        let text = '';
-        if (isWhiteMove) text += `<span class="rep-num">${moveNumber}.</span>`;
-        const san = escapeHtml(step.san);
+    return movePairsHtml(line, step => {
         const cls = ['rep-move'];
         if (step.mine) cls.push('rep-mine');
         if (offBookPly !== null && step.ply === offBookPly) cls.push('rep-offbook');
-        text += `<span class="${cls.join(' ')}">${san}</span>`;
-        parts.push(text);
+        return `<span class="${cls.join(' ')}">${escapeHtml(step.san)}</span>`;
     });
-    return parts.join(' ');
 }
 
 function repertoireScoreClass(score) {
@@ -15885,16 +15896,34 @@ const PERSONAL_OPENING_TIMEOUT_MS = 8000;
 
 let personalOpenings = { w: null, b: null };
 let personalOpeningBuild = null;   // { color, cancelled, done, total, note }
+let personalOpeningsOutdated = false;   // n'hi havia de fetes amb regles velles
+
+// Una obertura desada només val si l'ha feta el constructor d'ara: les d'abans
+// es van fer amb una altra fondària i una altra forma d'arbre, i ensenyar-les
+// seria prometre una cosa i donar-ne una altra.
+function personalOpeningIsCurrent(opening) {
+    return !!opening && opening.build === ElTaulerCore.PERSONAL_OPENING_BUILD;
+}
 
 function loadPersonalOpenings() {
+    let parsed = null;
     try {
         const raw = localStorage.getItem(PERSONAL_OPENING_KEY);
-        const parsed = raw ? JSON.parse(raw) : null;
-        personalOpenings = {
-            w: (parsed && parsed.w) || null,
-            b: (parsed && parsed.b) || null
-        };
-    } catch (e) { personalOpenings = { w: null, b: null }; }
+        parsed = raw ? JSON.parse(raw) : null;
+    } catch (e) { parsed = null; }
+    const kept = { w: null, b: null };
+    let outdated = false;
+    ['w', 'b'].forEach(color => {
+        const stored = parsed && parsed[color];
+        if (!stored) return;
+        if (personalOpeningIsCurrent(stored)) kept[color] = stored;
+        else outdated = true;
+    });
+    personalOpenings = kept;
+    personalOpeningsOutdated = outdated;
+    // Les velles s'esborren del desat, no només de la memòria: si no, cada
+    // arrencada tornaria a trobar-les i a dir el mateix.
+    if (outdated) savePersonalOpenings();
     return personalOpenings;
 }
 
@@ -16071,6 +16100,7 @@ async function buildPersonalOpening(color, options = {}) {
     result.historyGames = gameHistory.length;
     if (!build.cancelled) {
         personalOpenings[color] = result;
+        personalOpeningsOutdated = false;
         savePersonalOpenings();
     }
     personalOpeningBuild = null;
@@ -16092,20 +16122,32 @@ function personalOpeningColorLabel(color) {
     return color === 'b' ? 'negres' : 'blanques';
 }
 
+// Probabilitat d'arribar al final d'una línia. Ara que les línies arriben fins
+// a la teva 5a jugada, aquest número és petit de debò: la partida ha de repetir
+// deu semijugades seguides. Arrodonir-lo a «0%» faria semblar que la línia no
+// serveix de res, quan el que diu és que el rival hi té moltes tries.
+function personalOpeningProbBadge(prob) {
+    const pct = (typeof prob === 'number' ? prob : 0) * 100;
+    return pct > 0 && pct < 1 ? '&lt;1%' : `${Math.round(pct)}%`;
+}
+
+function personalOpeningProbPhrase(prob) {
+    const pct = (typeof prob === 'number' ? prob : 0) * 100;
+    return pct > 0 && pct < 1 ? 'menys de l\'1%' : `un ${Math.round(pct)}%`;
+}
+
 // Línia en notació llegible, amb les jugades pròpies en negreta i marca a les
 // que canvien respecte del que jugues.
 function personalOpeningLineHtml(moves) {
-    return moves.map(step => {
-        const moveNumber = Math.floor(step.ply / 2) + 1;
-        const prefix = step.ply % 2 === 0 ? `<span class="rep-num">${moveNumber}.</span>` : '';
+    return movePairsHtml(moves, step => {
         const cls = ['rep-move'];
         if (step.mine) cls.push('rep-mine');
         if (step.mine && step.source === 'engine') cls.push('rep-changed');
         const title = step.mine
             ? `${PERSONAL_OPENING_REASONS[step.reason] || ''}${typeof step.cpLoss === 'number' ? ` · ${step.cpLoss} cp` : ''}`
             : (step.source === 'engine' ? 'rèplica del motor (aquí no hi tens partides)' : `te l'han jugat ${step.games} ${step.games === 1 ? 'vegada' : 'vegades'}`);
-        return `${prefix}<span class="${cls.join(' ')}" title="${escapeHtml(title)}">${escapeHtml(step.san)}</span>`;
-    }).join(' ');
+        return `<span class="${cls.join(' ')}" title="${escapeHtml(title)}">${escapeHtml(step.san)}</span>`;
+    });
 }
 
 // Decisions on l'obertura proposada s'aparta del que jugues: és el que
@@ -16149,7 +16191,7 @@ function renderPersonalOpeningResult(color) {
         lines.forEach((line, idx) => {
             html += `<div class="rep-built-line">
                 <div class="rep-built-line-head">
-                    <span class="rep-built-prob">${Math.round(line.prob * 100)}%</span>
+                    <span class="rep-built-prob">${personalOpeningProbBadge(line.prob)}</span>
                     <button class="btn btn-secondary rep-train-btn" data-color="${color}" data-line="${idx}">Entrena-la</button>
                 </div>
                 <div class="rep-line">${personalOpeningLineHtml(line.moves)}</div>
@@ -16250,8 +16292,14 @@ function updatePersonalOpeningBannerStatus(missing, parts, totalMissing) {
         el.textContent = `Construïda amb ${labels}${missingSide} · ${lines} ${lines === 1 ? 'línia' : 'línies'}.`;
         return;
     }
-    el.textContent = missing.length
-        ? `${totalMissing === 1 ? 'Et falta' : 'Et falten'} ${parts.join(' i ')}.`
+    if (missing.length) {
+        el.textContent = `${totalMissing === 1 ? 'Et falta' : 'Et falten'} ${parts.join(' i ')}.`;
+        return;
+    }
+    // Si se n'ha llençat una de vella, es diu: fer desaparèixer el que algú
+    // tenia construït sense explicar-ho seria un error, no una millora.
+    el.textContent = personalOpeningsOutdated
+        ? 'La que tenies es va fer amb regles antigues i s\'ha esborrat: refés-la.'
         : 'Encara no la tens construïda.';
 }
 
@@ -16300,7 +16348,7 @@ function trainPersonalOpeningLine(color, lineIndex) {
         name: named ? `La teva obertura · ${named.name}` : 'La teva obertura',
         userColor: color,
         cat: color === 'w' ? 'white' : 'black',
-        idea: `Línia del teu repertori: hi arribes en un ${Math.round(line.prob * 100)}% de les partides amb ${personalOpeningColorLabel(color)}.`,
+        idea: `Línia del teu repertori: hi arribes en ${personalOpeningProbPhrase(line.prob)} de les partides amb ${personalOpeningColorLabel(color)}.`,
         moves: line.moves.map(step => step.san),
         movePhrases: line.moves.map(step => {
             if (!step.mine) {

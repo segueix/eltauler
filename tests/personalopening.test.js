@@ -219,9 +219,15 @@ describe('construcció completa', () => {
         expect(result.summary.maxDepth).toBeLessThanOrEqual(4);
     });
 
-    test('respecta el pressupost d\'avaluacions', () => {
-        const { result } = runBuild(entries, 'w', { maxPositions: 8 });
-        expect(result.evaluated).toBeLessThanOrEqual(8);
+    test('el pressupost diu quantes línies s\'obren, no on s\'acaben', () => {
+        const tight = runBuild(entries, 'w', { maxPositions: 8 }).result;
+        const loose = runBuild(entries, 'w', { maxPositions: 60 }).result;
+        // Amb menys pressupost surten menys línies, no línies més curtes.
+        expect(Core.personalOpeningLines(tight.root).length)
+            .toBeLessThan(Core.personalOpeningLines(loose.root).length);
+        // El sobrecost té sostre: només el que queda d'UNA línia, i sense
+        // mesures a part (aquestes sí que paren en sec amb el pressupost).
+        expect(tight.evaluated).toBeLessThanOrEqual(8 + tight.config.maxPlies);
     });
 
     test('mesura a part la jugada pròpia que el MultiPV no ensenya', () => {
@@ -329,6 +335,33 @@ describe('profunditat: les teves 5 primeres jugades', () => {
         expect(Core.personalOpeningPlies('b', { maxPlies: 4 })).toBe(4);
     });
 
+    test('i al revés: les mateixes semijugades no donen les mateixes jugades teves', () => {
+        expect(Core.personalOpeningOwnMoves('w', 10)).toBe(5);
+        expect(Core.personalOpeningOwnMoves('b', 11)).toBe(5);
+        expect(Core.personalOpeningOwnMoves('b', 10)).toBe(5);   // la 10a és teva
+        expect(Core.personalOpeningOwnMoves('w', 9)).toBe(5);    // la 9a és teva
+        expect(Core.personalOpeningOwnMoves('w', 4)).toBe(2);
+        expect(Core.personalOpeningOwnMoves('b', 4)).toBe(2);
+    });
+
+    test('una línia que acaba amb la teva jugada ja està acabada', () => {
+        // El rival no hi té rèplica (el motor no en dona cap): la línia porta
+        // les 5 jugades teves i s'ha de quedar, no podar-se.
+        const entries = [];
+        for (let i = 0; i < 9; i++) entries.push(game(RUY, 'w', 'Victòria', 75));
+        const { result } = runBuild(entries, 'w', { maxPositions: 200 }, job => {
+            if (job.kind === 'candidate') return fakeCandidate(job.fen, job.san);
+            // A la novena semijugada (rèplica a la teva 5a) el motor calla.
+            return job.ply >= 9 && !job.mine ? null : fakeEngine(job.fen, 3);
+        });
+        const lines = Core.personalOpeningLines(result.root);
+        expect(lines.length).toBeGreaterThan(0);
+        lines.forEach(line => {
+            expect(ownMovesIn(line)).toBe(5);
+            expect(line.moves[line.moves.length - 1].mine).toBe(true);
+        });
+    });
+
     test('amb blanques: 5 jugades teves dins de 10 semijugades', () => {
         const entries = [];
         for (let i = 0; i < 9; i++) entries.push(game(RUY, 'w', 'Victòria', 75));
@@ -357,6 +390,38 @@ describe('profunditat: les teves 5 primeres jugades', () => {
             expect(ownMovesIn(line)).toBeLessThanOrEqual(5);
         });
         expect(ownMovesIn(lines[0])).toBe(5);
+    });
+
+    test('cap línia no es queda a mitges: o arriba, o no hi és', () => {
+        // Amb un pressupost curt, la construcció ha d'ensenyar menys línies,
+        // però totes senceres. Una línia que calla a la jugada 3 no diu què
+        // jugar a la 4a, que és justament per al que serveix el repertori.
+        const entries = [];
+        for (let i = 0; i < 9; i++) entries.push(game(RUY, 'w', 'Victòria', 75));
+        for (let i = 0; i < 4; i++) entries.push(game(SICILIANA, 'w', 'Derrota', 60));
+        [6, 12, 30].forEach(budget => {
+            const { result } = runBuild(entries, 'w', { maxPositions: budget });
+            const lines = Core.personalOpeningLines(result.root);
+            lines.forEach(line => expect(ownMovesIn(line)).toBe(5));
+        });
+    });
+
+    test('el sostre de probabilitat retalla l\'amplada, no la fondària', () => {
+        // Rèpliques molt repartides: la probabilitat d'arribar al final de cada
+        // línia cau per sota del sostre, i tot i així la línia hi ha d'arribar.
+        const entries = [];
+        [['e5', 'Nc6', 'Bc5'], ['c5', 'd6', 'a6'], ['e6', 'd5', 'Be7'], ['c6', 'd5', 'Nf6']]
+            .forEach(replies => {
+                const moves = ['e4', replies[0], 'Nf3', replies[1], 'Bc4', replies[2]];
+                for (let i = 0; i < 2; i++) entries.push(game(moves, 'w', 'Victòria', 70));
+            });
+        const { result } = runBuild(entries, 'w', { maxPositions: 200 });
+        const lines = Core.personalOpeningLines(result.root);
+        expect(lines.length).toBeGreaterThan(0);
+        lines.forEach(line => {
+            expect(ownMovesIn(line)).toBe(5);
+            expect(line.prob).toBeLessThan(CFG.minBranchProb);   // cap no hi arribaria pel sostre
+        });
     });
 
     test('l\'historial es llegeix fins a la profunditat que es construeix', () => {

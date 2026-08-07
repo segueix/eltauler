@@ -203,6 +203,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   desplaça —10 semijugades amb blanques i 11 amb negres, que hi obre el rival—,
   cap línia passa d'aquest límit, la principal hi arriba de debò, un `maxPlies`
   explícit continua manant i l'historial només es llegeix fins on es construeix.
+  I sobretot, que cap línia no es queda a mitges: el sostre de probabilitat
+  retalla l'AMPLADA i no la fondària (amb rèpliques molt repartides, on cap
+  línia no arribaria al final pel sostre, totes hi arriben igualment) i el
+  pressupost decideix quantes línies s'obren, no on s'acaben —amb pressupostos
+  curts surten menys línies, però totes amb les teves 5 jugades.
 
 - **`openinghiero.test.js`** — jeroglífics d'OBERTURA
   (`createOpeningHieroglyphicHelpers`), els de la secció d'Obertures: que
