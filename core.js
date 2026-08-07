@@ -1807,12 +1807,17 @@
     //     una probabilitat acumulada, no totes les rèpliques possibles: això és
     //     el que manté el repertori memoritzable.
     //
+    // La FONDÀRIA es compta amb les TEVES jugades —les que has de memoritzar—,
+    // no amb semijugades: cinc de teves, amb la rèplica del rival a cadascuna.
+    // Segons el color això cau en les 10 o 11 primeres semijugades de la
+    // partida (amb negres el rival hi afegeix la que obre).
+    //
     // La cerca s'expandeix per PROBABILITAT D'ARRIBAR-HI, de manera que el
     // pressupost de motor es gasta a les línies que et trobaràs de debò.
     // Aquest bloc és pur: rep les avaluacions ja fetes i decideix. El bucle que
     // parla amb Stockfish viu a app.js.
     const PERSONAL_OPENING_CONFIG = {
-        maxPlies: 12,            // profunditat del repertori (6 jugades per bàndol)
+        maxOwnMoves: 5,          // profunditat: jugades TEVES que ha de tenir el repertori
         maxCpLoss: 40,           // porta de solidesa d'una jugada pròpia (centpeons)
         preferOwnCpLoss: 25,     // per sota d'això, la teva habitual guanya sempre
         coverage: 0.85,          // probabilitat de rèpliques que es cobreix
@@ -1828,6 +1833,26 @@
         maxCandidateChecks: 2,   // jugades pròpies que es mesuren a part per posició
         minCandidateGames: 1     // vegades mínimes jugada per merèixer la mesura
     };
+
+    // Profunditat en SEMIJUGADES a partir de les jugades pròpies demanades. Es
+    // compta amb les teves perquè és el que has de memoritzar de debò; les del
+    // rival hi van a remolc, i per això el número surt diferent segons el color:
+    //
+    //   · Amb blanques obres tu: les teves 5 jugades són les semijugades
+    //     1, 3, 5, 7 i 9, i la rèplica a l'última tanca la línia → 10.
+    //   · Amb negres obre el rival: les mateixes 5 cauen a 2, 4, 6, 8 i 10, i
+    //     la rèplica final fa 11.
+    //
+    // Un `maxPlies` explícit a les opcions mana per sobre de tot: hi ha crides
+    // (i proves) que volen una profunditat fixa, sense mirar de qui és el torn.
+    function personalOpeningPlies(color, options) {
+        const cfg = Object.assign({}, PERSONAL_OPENING_CONFIG, options || {});
+        if (typeof cfg.maxPlies === 'number') return Math.max(0, Math.floor(cfg.maxPlies));
+        const own = typeof cfg.maxOwnMoves === 'number' && cfg.maxOwnMoves > 0
+            ? Math.floor(cfg.maxOwnMoves)
+            : PERSONAL_OPENING_CONFIG.maxOwnMoves;
+        return own * 2 + (color === 'b' ? 1 : 0);
+    }
 
     // Distribució de rèpliques del rival en una posició, a partir del que t'han
     // jugat de debò. Retorna [{san, games}] ordenat de més a menys.
@@ -2117,6 +2142,9 @@
         // Estat inicial de la construcció.
         function start(entries, color, options) {
             const cfg = Object.assign({}, PERSONAL_OPENING_CONFIG, options || {});
+            // La profunditat depèn del color i es fixa aquí una sola vegada: la
+            // resta del constructor ja només ha de mirar cfg.maxPlies.
+            cfg.maxPlies = personalOpeningPlies(color, cfg);
             const games = repertoireEligibleGames(entries, color);
             const books = buildPositionBooks(entries, color, cfg.maxPlies);
             let startFen = null;
@@ -2372,6 +2400,7 @@
                 skipped: state.skipped,
                 complete: state.done && !state.pending,
                 config: {
+                    maxOwnMoves: state.config.maxOwnMoves,
                     maxPlies: state.config.maxPlies,
                     maxCpLoss: state.config.maxCpLoss,
                     coverage: state.config.coverage,
@@ -7583,6 +7612,7 @@
         repertoireEligibleGames,
         createRepertoireHelpers,
         PERSONAL_OPENING_CONFIG,
+        personalOpeningPlies,
         opponentReplyCounts,
         coverOpponentReplies,
         moveCpLoss,

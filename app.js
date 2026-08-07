@@ -15871,7 +15871,11 @@ function renderPersonalRepertoire() {
 
    El motor es demana posició a posició, per ordre de probabilitat d'arribar-hi,
    amb un pressupost tancat: així el temps es gasta a les línies que et trobaràs
-   de debò i la construcció acaba sempre. */
+   de debò i la construcció acaba sempre.
+
+   Es construeix fins a les teves 5 primeres jugades (PERSONAL_OPENING_CONFIG.
+   maxOwnMoves), que són les 10 o 11 primeres semijugades de la partida segons
+   el color: amb negres el rival hi afegeix la que obre. */
 
 const PERSONAL_OPENING_KEY = 'chess_personalOpening';
 const PERSONAL_OPENING_DEPTH = 16;
@@ -16211,9 +16215,13 @@ function renderPersonalOpeningSection() {
         : `${m.n} amb ${m.label}`);
     const hintEl = document.getElementById('personal-opening-hint');
     if (hintEl) {
+        // La fondària es diu en jugades TEVES (és el que has de memoritzar) i
+        // surt de la configuració, no d'un número escrit aquí: si algun dia
+        // canvia, la frase canvia sola.
+        const own = ElTaulerCore.PERSONAL_OPENING_CONFIG.maxOwnMoves;
         hintEl.textContent = missing.length
             ? `${total === 1 ? 'Et falta' : 'Et falten'} ${parts.join(' i ')} perquè les teves dades diguin prou.`
-            : 'Analitza les posicions amb Stockfish. Triga una estona i pots aturar-ho quan vulguis.';
+            : `Analitza amb Stockfish les teves ${own} primeres jugades. Triga una estona i pots aturar-ho quan vulguis.`;
     }
     updatePersonalOpeningBannerStatus(missing, parts, total);
 }

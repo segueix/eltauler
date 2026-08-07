@@ -198,7 +198,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   avaluació de fulla). Hi ha dues proves clau del disseny: que la jugada pròpia
   que el MultiPV no ensenya es **mesura a part** i que, sense aquesta mesura, el
   repertori deixaria de ser el teu i passaria a ser el del motor; i que una
-  mesura que no correspon a la jugada demanada **no es dona per bona**.
+  mesura que no correspon a la jugada demanada **no es dona per bona**. La
+  **profunditat** té bloc propi: es demana en jugades TEVES (5) i el color la
+  desplaça —10 semijugades amb blanques i 11 amb negres, que hi obre el rival—,
+  cap línia passa d'aquest límit, la principal hi arriba de debò, un `maxPlies`
+  explícit continua manant i l'historial només es llegeix fins on es construeix.
 
 - **`openinghiero.test.js`** — jeroglífics d'OBERTURA
   (`createOpeningHieroglyphicHelpers`), els de la secció d'Obertures: que
