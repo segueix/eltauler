@@ -1927,11 +1927,16 @@
             margin-top: 6px;
             font-size: 0.95rem;
             line-height: 1.7;
-            overflow-x: auto;
-            white-space: nowrap;
+            /* La línia passa de línia per PARELLS de jugades. En una sola fila
+               al mòbil no hi caben deu semijugades: les últimes quedaven fora
+               de la pantalla, darrere d'un desplaçament lateral que ningú no
+               fa, i el repertori semblava acabar-se a la tercera jugada. */
+            white-space: normal;
+            overflow-wrap: break-word;
         }
+        .rep-pair { display: inline-block; white-space: nowrap; margin-right: 6px; }
         .rep-num { color: var(--text-secondary); margin-right: 2px; }
-        .rep-move { margin-right: 8px; }
+        .rep-move { margin-right: 6px; }
         .rep-mine { font-weight: 600; }
         .rep-offbook {
             border-bottom: 2px solid var(--severity-med, #c9a227);
@@ -7718,7 +7723,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.25"></script>
+    <script src="core.js?v=1.0.26"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -7729,7 +7734,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.86"></script>
+    <script src="app.js?v=1.0.87"></script>
 
     <!-- Service Worker Registration -->
     <script>

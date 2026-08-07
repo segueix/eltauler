@@ -1834,6 +1834,15 @@
         minCandidateGames: 1     // vegades mínimes jugada per merèixer la mesura
     };
 
+    // Versió del constructor. Una obertura desada amb una versió anterior no es
+    // pot ensenyar com si res: es va fer amb unes altres regles —fondària, o
+    // forma de l'arbre— i el que en surt ja no és el que l'app promet ara. Qui
+    // les desa (app.js) llença les que no porten aquesta versió, i es refan.
+    //
+    //   1 · fondària fixa de 12 semijugades, sostre de probabilitat absolut
+    //   2 · fondària en jugades teves (5) i línies senceres fins al final
+    const PERSONAL_OPENING_BUILD = 2;
+
     // Profunditat en SEMIJUGADES a partir de les jugades pròpies demanades. Es
     // compta amb les teves perquè és el que has de memoritzar de debò; les del
     // rival hi van a remolc, i per això el número surt diferent segons el color:
@@ -1852,6 +1861,15 @@
             ? Math.floor(cfg.maxOwnMoves)
             : PERSONAL_OPENING_CONFIG.maxOwnMoves;
         return own * 2 + (color === 'b' ? 1 : 0);
+    }
+
+    // I al revés: quantes jugades teves caben en una fondària donada. Amb
+    // blanques mous a les semijugades senars i amb negres a les parelles, així
+    // que el mateix número de semijugades no dona les mateixes jugades teves.
+    // Això és el que diu si una línia està acabada: les teves, no les del rival.
+    function personalOpeningOwnMoves(color, maxPlies) {
+        const plies = Math.max(0, Math.floor(maxPlies || 0));
+        return color === 'b' ? Math.floor(plies / 2) : Math.ceil(plies / 2);
     }
 
     // Distribució de rèpliques del rival en una posició, a partir del que t'han
@@ -2153,34 +2171,55 @@
             return {
                 color: color,
                 config: cfg,
+                // Jugades teves que ha de tenir una línia per estar acabada.
+                lineOwnMoves: personalOpeningOwnMoves(color, cfg.maxPlies),
                 graph: (options && options.graph) || null,
                 books: books,
                 games: games.length,
                 enough: games.length >= cfg.minColorGames,
                 root: root,
-                queue: startFen ? [{ node: root, ply: 0, mine: color === 'w', reachProb: 1, fen: startFen }] : [],
+                queue: startFen ? [{ node: root, parent: null, ply: 0, mine: color === 'w', reachProb: 1, fen: startFen }] : [],
                 pending: null,
+                // Node que s'està expandint: marca la línia que s'està baixant.
+                diving: null,
+                onLine: false,
                 evaluated: 0,
                 skipped: 0,
                 done: !startFen
             };
         }
 
-        // Quantes posicions queden com a molt per avaluar (per al progrés).
+        // Quantes posicions queden com a molt per avaluar (per al progrés). Amb
+        // el pressupost just passat —s'acaba sempre la línia oberta— el que
+        // queda de debò és la feina en curs, no zero.
         function remaining(state) {
-            return Math.max(0, Math.min(
-                state.config.maxPositions - state.evaluated,
-                state.queue.length + (state.pending ? 1 : 0)
-            ));
+            const open = state.pending ? 1 : 0;
+            const budget = Math.max(0, state.config.maxPositions - state.evaluated);
+            return Math.max(open, Math.min(state.queue.length + open, budget));
         }
 
+        // Següent posició a expandir. Primer, la continuació de la línia que
+        // s'està baixant: una línia a mitges no serveix de res —no diu què jugar
+        // a la jugada següent—, així que el pressupost es gasta a ACABAR-LA i
+        // només després a obrir-ne una altra. Quan la línia s'acaba, la següent
+        // és la branca més probable que quedi, de manera que les línies es
+        // completen per ordre de probabilitat: si el pressupost s'exhaureix,
+        // el que falta són les línies rares, no el final de totes.
         function takeNext(state) {
             if (!state.queue.length) return null;
-            let bestIdx = 0;
-            for (let i = 1; i < state.queue.length; i++) {
-                if (state.queue[i].reachProb > state.queue[bestIdx].reachProb) bestIdx = i;
+            const moreLikely = (i, best) => best < 0 || state.queue[i].reachProb > state.queue[best].reachProb;
+            let bestIdx = -1;
+            for (let i = 0; i < state.queue.length; i++) {
+                if (state.queue[i].parent !== state.diving) continue;
+                if (moreLikely(i, bestIdx)) bestIdx = i;
             }
-            return state.queue.splice(bestIdx, 1)[0];
+            state.onLine = bestIdx >= 0;
+            if (bestIdx < 0) {
+                for (let i = 0; i < state.queue.length; i++) if (moreLikely(i, bestIdx)) bestIdx = i;
+            }
+            const item = state.queue.splice(bestIdx, 1)[0];
+            state.diving = item.node;
+            return item;
         }
 
         // Jugades pròpies que el MultiPV no ha cobert i que val la pena mesurar
@@ -2228,7 +2267,7 @@
             if (pick.replaces) child.replaces = pick.replaces;
             annotateFromGraph(child, state.graph, key);
             item.node.children.push(child);
-            state.queue.push({ node: child, ply: item.ply + 1, mine: false, reachProb: item.reachProb, fen: child.fen });
+            state.queue.push({ node: child, parent: item.node, ply: item.ply + 1, mine: false, reachProb: item.reachProb, fen: child.fen });
         }
 
         function expandOpponent(state, item, evaluation) {
@@ -2237,9 +2276,16 @@
             const counts = opponentReplyCounts(state.books.theirs[key]);
             const engineMoves = evaluation && Array.isArray(evaluation.moves) ? evaluation.moves : [];
             const replies = coverOpponentReplies(counts, engineMoves, cfg);
-            replies.forEach(reply => {
+            replies.forEach((reply, idx) => {
                 const reach = item.reachProb * reply.prob;
-                if (reach < cfg.minBranchProb) { state.skipped += 1; return; }
+                // El sostre de probabilitat retalla l'AMPLADA, mai la FONDÀRIA.
+                // La probabilitat d'una línia es divideix a cada rèplica, així
+                // que un sostre absolut acaba tallant totes les línies a mitja
+                // obertura —justament el que no es vol—. Per això la rèplica
+                // principal continua sempre la línia fins a les teves jugades
+                // demanades, i el sostre només decideix si val la pena OBRIR-NE
+                // una altra al costat.
+                if (idx > 0 && reach < cfg.minBranchProb) { state.skipped += 1; return; }
                 let chess;
                 try { chess = new ChessCtor(item.fen); } catch (e) { return; }
                 let move = null;
@@ -2251,7 +2297,7 @@
                 child.source = reply.source;
                 annotateFromGraph(child, state.graph, key);
                 item.node.children.push(child);
-                state.queue.push({ node: child, ply: item.ply + 1, mine: true, reachProb: reach, fen: child.fen });
+                state.queue.push({ node: child, parent: item.node, ply: item.ply + 1, mine: true, reachProb: reach, fen: child.fen });
             });
         }
 
@@ -2260,12 +2306,12 @@
             else expandOpponent(state, item, evaluation);
         }
 
-        // ¿S'ha d'aturar aquesta branca abans d'expandir-la?
+        // ¿S'ha d'aturar aquesta branca abans d'expandir-la? Només la fondària
+        // atura una línia: la probabilitat ja ha dit la seva quan s'ha decidit
+        // obrir la branca (expandOpponent), i tornar-la a mirar aquí voldria dir
+        // deixar a mitges línies que s'han obert expressament.
         function shouldStop(state, item) {
-            const cfg = state.config;
-            if (item.ply >= cfg.maxPlies) return true;
-            if (item.reachProb < cfg.minBranchProb) return true;
-            return false;
+            return item.ply >= state.config.maxPlies;
         }
 
         // Següent posició que necessita el motor. Les que no el necessiten
@@ -2310,6 +2356,14 @@
             return state.evaluated < state.config.maxPositions;
         }
 
+        // El pressupost decideix si s'OBRE una línia més, no si s'acaba la que
+        // ja s'ha començat: quedar-se a mitges deixaria una línia que no diu què
+        // jugar al final, que és el contrari del que serveix un repertori. El
+        // sobrecost té sostre —el que queda d'UNA línia— i es paga una vegada.
+        function canEvaluate(state) {
+            return budgetLeft(state) || state.onLine;
+        }
+
         // Següent posició que necessita el motor. Les que no el necessiten
         // s'expandeixen aquí mateix, de manera que qui crida només s'ha
         // d'ocupar d'avaluar el que se li demana.
@@ -2330,8 +2384,9 @@
                 const needsEngine = item.mine
                     ? true    // la porta de solidesa és tot el sentit de la tria
                     : repliesNeedEngine(opponentReplyCounts(state.books.theirs[positionKeyFromFen(item.fen)]), state.config);
-                if (needsEngine && !budgetLeft(state)) {
-                    // Pressupost exhaurit: la branca es queda on és, no s'endevina.
+                if (needsEngine && !canEvaluate(state)) {
+                    // Pressupost exhaurit: no s'obren més línies, i les que
+                    // queden a la cua es queden on són (no s'endevinen).
                     state.skipped += 1;
                     continue;
                 }
@@ -2390,9 +2445,46 @@
             return true;
         }
 
+        // ¿La partida s'acaba aquí? Una línia que acaba en mat (o ofegat) està
+        // acabada de debò, encara que sigui abans de la fondària demanada.
+        function positionIsOver(fen) {
+            let chess;
+            try { chess = new ChessCtor(fen); } catch (e) { return false; }
+            try {
+                if (typeof chess.game_over === 'function') return chess.game_over();
+                if (typeof chess.isGameOver === 'function') return chess.isGameOver();
+                return !chess.moves().length;
+            } catch (e) { return false; }
+        }
+
+        // Poda de les línies que s'han quedat a mitges. Una branca es crea de
+        // seguida (perquè se sap que existeix) però només es baixa quan li toca:
+        // si el pressupost s'acaba abans, o si el motor no ha pogut dir res, es
+        // queda com una fulla enmig de l'obertura. Ensenyar-la seria oferir un
+        // repertori que calla justament quan toca jugar, i és el que fa que
+        // surtin línies de tres jugades. Es poden: val més una línia menys que
+        // una línia que no arriba.
+        //
+        // El que compta són les JUGADES TEVES: una línia que acaba amb la teva
+        // cinquena ja està acabada encara que el rival no hi tingui rèplica
+        // (l'última la tries tu). I una que acaba en mat també, és clar.
+        function pruneUnfinished(node, ownSoFar, needOwn) {
+            const kids = Array.isArray(node.children) ? node.children : [];
+            node.children = kids.filter(child => {
+                const own = ownSoFar + (child.mine ? 1 : 0);
+                pruneUnfinished(child, own, needOwn);
+                if (child.children.length) return true;
+                if (own >= needOwn) return true;
+                return positionIsOver(child.fen);
+            });
+            return node;
+        }
+
         function result(state) {
+            pruneUnfinished(state.root, 0, state.lineOwnMoves);
             return {
                 color: state.color,
+                build: PERSONAL_OPENING_BUILD,
                 builtAt: null,               // el posa qui ho desa
                 games: state.games,
                 enough: state.enough,
@@ -2400,7 +2492,7 @@
                 skipped: state.skipped,
                 complete: state.done && !state.pending,
                 config: {
-                    maxOwnMoves: state.config.maxOwnMoves,
+                    maxOwnMoves: state.lineOwnMoves,
                     maxPlies: state.config.maxPlies,
                     maxCpLoss: state.config.maxCpLoss,
                     coverage: state.config.coverage,
@@ -7612,7 +7704,9 @@
         repertoireEligibleGames,
         createRepertoireHelpers,
         PERSONAL_OPENING_CONFIG,
+        PERSONAL_OPENING_BUILD,
         personalOpeningPlies,
+        personalOpeningOwnMoves,
         opponentReplyCounts,
         coverOpponentReplies,
         moveCpLoss,
