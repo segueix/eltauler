@@ -7682,10 +7682,14 @@
                 <h3>Condicions i privadesa</h3>
                 <p>El Tauler desa les teves dades de joc al <strong>teu propi dispositiu</strong>
                    (emmagatzematge local del navegador) per fer-lo funcionar.</p>
-                <p>Si inicies sessió amb Google, les teves dades es <strong>sincronitzen al teu
-                   Firebase de Google</strong>. Aquesta informació sincronitzada viu al teu compte
-                   de Firebase i <strong>El Tauler no hi té accés</strong>; només tu hi pots accedir
-                   amb el teu compte.</p>
+                <p>Si inicies sessió amb Google, les dades de joc es sincronitzen amb
+                   <strong>Cloud Firestore, dins d'un projecte de Firebase administrat per El
+                   Tauler</strong>. Les regles del servei separen les dades de cada compte: des de
+                   l'app, cada persona només pot llegir i modificar les seves. Tanmateix, la
+                   persona responsable d'El Tauler <strong>té accés tècnic a les dades
+                   sincronitzades</strong> des de la consola d'administració de Firebase. Google
+                   també les tracta com a proveïdor del servei. L'inici de sessió el gestiona
+                   Google; El Tauler no rep la teva contrasenya de Google.</p>
                 <p>Continuant, acceptes l'ús d'aquest emmagatzematge local i de la sincronització
                    (quan hi inicies sessió).</p>
                 <p>Contacte i peticions:
@@ -7698,9 +7702,10 @@
     <div id="cookie-consent" class="cookie-consent" style="display:none;">
         <div class="cookie-inner">
             <p class="cookie-text">
-                El Tauler desa dades al teu dispositiu i, si inicies sessió, les sincronitza al teu
-                <strong>Firebase de Google</strong>: aquesta informació viu al teu compte i
-                <strong>El Tauler no hi té accés</strong>.
+                El Tauler desa dades al teu dispositiu i, si inicies sessió, les sincronitza amb
+                <strong>un projecte de Firebase administrat per El Tauler</strong>. Cada compte
+                només accedeix a les seves dades des de l'app, però la persona responsable d'El
+                Tauler hi té accés tècnic des de la consola de Firebase.
                 <a href="#" id="cookie-more">Més informació i condicions</a> ·
                 <a href="https://t.me/segueix" target="_blank" rel="noopener noreferrer">Contacte @segueix</a>
             </p>
