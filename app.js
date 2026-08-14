@@ -6161,15 +6161,11 @@ function openOpeningHieroglyphicFromHome() {
     startOpeningTheoryHieroglyphic();
 }
 
-// Engega la partida de calibratge d'un ritme des d'Estadístiques: fixa el
-// rellotge del ritme i obre una partida nova; startGame detecta que el ritme
-// no té ELO i activa el mode de calibratge adaptatiu automàticament.
-function startTimeControlCalibration(tcId) {
+// Engega una partida d'un ritme des d'Estadístiques: fixa el rellotge triat i
+// obre una partida nova. Si encara no té ELO, startGame activa automàticament
+// el calibratge adaptatiu; si ja té ROC/ELO, comença una partida puntuada.
+function startTimeControlGameFromStats(tcId) {
     if (!TIME_CONTROLS.some(t => t.id === tcId && t.id !== 'none')) return;
-    if (getTimeControlRating(tcId) !== null) {
-        showToast('Aquest ritme ja té ELO propi', 'warn');
-        return;
-    }
     // Durant el calibratge inicial les partides noves són de calibratge
     // general (sense rellotge), així que el de ritme encara no pot començar.
     if (!guardCalibrationAccess()) return;
@@ -7597,15 +7593,18 @@ function renderTimeControlEloStats() {
         const hasElo = entry && typeof entry.elo === 'number';
         const games = (entry && entry.games) || 0;
         const record = `${(entry && entry.wins) || 0}V · ${(entry && entry.draws) || 0}T · ${(entry && entry.losses) || 0}D`;
-        // Sense ELO al ritme: s'ofereix una partida de calibratge adaptativa
-        // (amb el rellotge del ritme) per fer-ne la primera estimació.
-        const footer = hasElo
+        // Tots els ritmes es poden jugar directament des d'aquí. Sense ELO, el
+        // botó deixa clar que la partida servirà per calibrar-ne el primer valor.
+        const gamesSummary = hasElo
             ? `<div class="tc-elo-games">${games} ${games === 1 ? 'partida' : 'partides'} · ${record}</div>`
-            : `<button type="button" class="btn btn-secondary tc-elo-calibrate" data-tc="${t.id}">⚖️ Calibra</button>`;
+            : '';
+        const actionLabel = hasElo ? 'Jugar' : 'Calibrar';
+        const actionIcon = hasElo ? '♟️' : '⚖️';
         html += `<div class="stat-card">
             <div class="stat-card-value">${hasElo ? Math.round(entry.elo) : '—'}</div>
             <div class="stat-card-label">${t.label}</div>
-            ${footer}
+            ${gamesSummary}
+            <button type="button" class="btn btn-secondary tc-elo-action" data-tc="${t.id}">${actionIcon} ${actionLabel}</button>
         </div>`;
     });
     container.innerHTML = html;
@@ -21672,9 +21671,9 @@ function setupEvents() {
 
 
     $('#btn-stats').click(() => { $('#start-screen').hide(); $('#stats-screen').show(); updateStatsDisplay(); navPush('stats-screen'); });
-    // Calibratge d'un ritme sense ELO des de la graella «ELO per ritme de joc».
-    $('#stats-tc-elos').off('click', '.tc-elo-calibrate').on('click', '.tc-elo-calibrate', function () {
-        startTimeControlCalibration($(this).data('tc'));
+    // Partida (o calibratge si encara no hi ha ELO) des de la graella per ritme.
+    $('#stats-tc-elos').off('click', '.tc-elo-action').on('click', '.tc-elo-action', function () {
+        startTimeControlGameFromStats($(this).data('tc'));
     });
     // Modalitat de la gràfica de progressió de l'ELO (principal o un ritme).
     $('#elo-chart-tc-select').off('change').on('change', function () {
