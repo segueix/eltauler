@@ -4549,6 +4549,66 @@
         return Math.round(Math.max(0, tau));
     }
 
+    // Temps mínim de cerca: per curt que sigui el pressupost, el motor ha de
+    // poder tornar una jugada (i les seves candidates MultiPV, que són les que
+    // fan la tria humana). Mesurat amb el binari inclòs, 120 ms ja donen les
+    // cinc línies a profunditat 8-9.
+    const ENGINE_SEARCH_MIN_MS = 120;
+
+    // Generador determinista per al pressupost: soroll a la mediana (gauss = 0)
+    // i mai cap pensada llarga (el darrer valor, 1, no dispara deepThinkRate).
+    function medianNoiseRandom() {
+        const seq = [0.5, 0.25];
+        let i = 0;
+        return () => (i < seq.length ? seq[i++] : 1);
+    }
+
+    // Pressupost de CERCA del motor (ms de `movetime`), que no és el mateix que
+    // el temps de reflexió. El temps de reflexió és escena: quan la cerca acaba
+    // abans, la jugada s'aplica amb un retard. La cerca, en canvi, és temps de
+    // rellotge REAL que ja no es recupera: mentre Stockfish pensa, el rellotge
+    // del rival corre.
+    //
+    // Sense sostre, la cerca és l'únic tros de la resposta que no mira el
+    // rellotge, i com més alt és el ROC més gran és el problema: la profunditat
+    // creix amb el nivell (eloToSearchDepth: 12..16) i, amb MultiPV, una jugada
+    // de migjoc pot costar segons —a ROC 2000 s'han mesurat 8-21 s en aquest
+    // binari— quan a 1+0 el model només en vol gastar 1,5. El resultat és el que
+    // es veu jugant: com més roc, més s'entrabanca el rival amb el rellotge.
+    //
+    // El sostre és el temps que el model humà dedicaria a la jugada MÉS DIFÍCIL
+    // d'aquesta posició del rellotge (complexitat 1, soroll a la mediana i sense
+    // pensada llarga, que és espera i no cerca), menys el que ja s'ha consumit
+    // des que l'usuari ha mogut (l'anàlisi de la seva jugada corre pel rellotge
+    // del rival). Així el sostre no mossega mai quan el model vol pensar-hi:
+    // només talla la cerca que gastaria més del que el nivell es pot permetre.
+    //
+    // Retorna null quan la partida no té rellotge: allà no hi ha res a protegir
+    // i la cerca es deixa completar tal com estava.
+    function engineSearchBudgetMs(params) {
+        const p = params || {};
+        if (typeof p.remainingMs !== 'number') return null;
+        const profile = HUMAN_TIME_PROFILES[p.timeControlId] || HUMAN_TIME_PROFILES.none;
+        const elapsedMs = Math.max(0, Number(p.elapsedMs) || 0);
+        const hardestThinkMs = humanThinkTimeMs({
+            timeControlId: p.timeControlId,
+            remainingMs: p.remainingMs,
+            incMs: p.incMs,
+            elo: p.elo,
+            complexity: 1,
+            phase: p.phase,
+            moveNumber: p.moveNumber,
+            clockTemperament: p.clockTemperament,
+            deepThinkRate: 0,
+            random: medianNoiseRandom()
+        });
+        // I mai més enllà de la bandera: quan el rellotge s'acaba abans que la
+        // cerca, allargar-la no aporta res (la partida s'acaba allà) i només fa
+        // que la jugada arribi tard a una posició que ja no existeix.
+        const budget = Math.min(hardestThinkMs - elapsedMs, Math.max(0, p.remainingMs));
+        return Math.round(clampNum(budget, ENGINE_SEARCH_MIN_MS, profile.maxMs));
+    }
+
 
     // ----------------------------------------------------------------------
     // Premoves (jugada anticipada de les partides amb rellotge)
@@ -7797,6 +7857,8 @@
         phaseFromFen,
         humanThinkTimeMs,
         visibleHumanReplyDelayMs,
+        engineSearchBudgetMs,
+        ENGINE_SEARCH_MIN_MS,
         premoveTargets,
         isPremoveTarget,
         premoveMatchesLegalMove,

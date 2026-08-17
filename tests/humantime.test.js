@@ -489,3 +489,80 @@ describe('visibleHumanReplyDelayMs', () => {
         expect(Core.visibleHumanReplyDelayMs(target, 0)).toBeLessThanOrEqual(remainingMs + 250);
     });
 });
+
+describe('engineSearchBudgetMs (sostre de temps real de la cerca)', () => {
+    const base = {
+        incMs: 0,
+        phase: 'middlegame',
+        moveNumber: 20,
+        elo: 2000,
+        elapsedMs: 0
+    };
+
+    test('sense rellotge no hi ha sostre: la cerca es deixa completar', () => {
+        expect(Core.engineSearchBudgetMs({ ...base, timeControlId: 'none', remainingMs: null })).toBeNull();
+        expect(Core.engineSearchBudgetMs({ ...base, timeControlId: '1+0' })).toBeNull();
+    });
+
+    test('és determinista: el mateix rellotge dona el mateix pressupost', () => {
+        const params = { ...base, timeControlId: '3+2', remainingMs: 150000, incMs: 2000 };
+        expect(Core.engineSearchBudgetMs(params)).toBe(Core.engineSearchBudgetMs(params));
+    });
+
+    test('a bullet el pressupost és de menys de 4 s (la cerca a ROC alt en gastava 8-21)', () => {
+        const bullet = Core.engineSearchBudgetMs({ ...base, timeControlId: '1+0', remainingMs: 60000 });
+        expect(bullet).toBeGreaterThan(Core.ENGINE_SEARCH_MIN_MS);
+        expect(bullet).toBeLessThan(4000);
+    });
+
+    test('com més ràpid el ritme, menys temps de cerca', () => {
+        const hyper = Core.engineSearchBudgetMs({ ...base, timeControlId: '30s', remainingMs: 30000 });
+        const bullet = Core.engineSearchBudgetMs({ ...base, timeControlId: '1+0', remainingMs: 60000 });
+        const classic = Core.engineSearchBudgetMs({ ...base, timeControlId: '15+10', remainingMs: 900000, incMs: 10000 });
+        expect(hyper).toBeLessThan(bullet);
+        expect(bullet).toBeLessThan(classic);
+    });
+
+    test('no mossega el model: el sostre cobreix el temps que es vol pensar en una jugada normal', () => {
+        // Amb complexitat mitjana i sense pensada llarga, el que el model vol
+        // gastar ha de cabre dins del pressupost de cerca: el sostre només
+        // retalla la cerca que gastaria MÉS del que el nivell es pot permetre.
+        [['30s', 30000], ['1+0', 60000], ['3+2', 150000], ['15+10', 800000]].forEach(([tcId, remainingMs]) => {
+            const incMs = tcId === '3+2' ? 2000 : (tcId === '15+10' ? 10000 : 0);
+            const think = Core.humanThinkTimeMs({
+                ...base, timeControlId: tcId, remainingMs, incMs,
+                complexity: 0.5, random: () => 0.25   // soroll per damunt de la mediana
+            });
+            expect(Core.engineSearchBudgetMs({ ...base, timeControlId: tcId, remainingMs, incMs }))
+                .toBeGreaterThanOrEqual(think);
+        });
+    });
+
+    test('descompta el temps ja consumit des que l\'usuari ha mogut', () => {
+        const fresh = Core.engineSearchBudgetMs({ ...base, timeControlId: '5+0', remainingMs: 300000 });
+        const afterAnalysis = Core.engineSearchBudgetMs({ ...base, timeControlId: '5+0', remainingMs: 300000, elapsedMs: 1500 });
+        expect(afterAnalysis).toBe(fresh - 1500);
+    });
+
+    test('no es cerca més enllà de la bandera', () => {
+        const remainingMs = 400;
+        const drained = Core.engineSearchBudgetMs({ ...base, timeControlId: '1+0', remainingMs, moveNumber: 40 });
+        expect(drained).toBeLessThanOrEqual(remainingMs);
+        expect(drained).toBeGreaterThanOrEqual(Core.ENGINE_SEARCH_MIN_MS);
+    });
+
+    test('amb el pressupost ja gastat queda el mínim per trobar una jugada', () => {
+        const overspent = Core.engineSearchBudgetMs({ ...base, timeControlId: '10+0', remainingMs: 600000, elapsedMs: 999999 });
+        expect(overspent).toBe(Core.ENGINE_SEARCH_MIN_MS);
+    });
+
+    test('mai passa del sostre escènic del ritme', () => {
+        Object.keys(Core.HUMAN_CLOCK_STATS).forEach(tcId => {
+            const budget = Core.engineSearchBudgetMs({
+                ...base, timeControlId: tcId, remainingMs: 900000, incMs: 10000, moveNumber: 22, elo: 2400
+            });
+            expect(budget).toBeLessThanOrEqual(Core.HUMAN_TIME_PROFILES[tcId].maxMs);
+            expect(budget).toBeGreaterThanOrEqual(Core.ENGINE_SEARCH_MIN_MS);
+        });
+    });
+});

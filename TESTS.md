@@ -44,7 +44,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   una simulació amb el codi REAL reprodueixi la corba de consum del rellotge i
   el risc de bandera observats. Inclou la comprovació de fons: a 1+0 i ROC baix
   el motor pot caure de bandera —perquè és el que fa una persona d'aquell
-  nivell— i als ritmes lents gairebé mai.
+  nivell— i als ritmes lents gairebé mai. També cobreix el sostre de temps REAL
+  de la cerca (`engineSearchBudgetMs`): sense rellotge no n'hi ha, mai passa del
+  sostre del ritme ni de la bandera, descompta el temps ja consumit des que
+  l'usuari ha mogut i no mossega el temps que el model vol dedicar a una jugada
+  normal.
 - **`premove.test.js`** — jugada anticipada de les partides amb rellotge.
   `premoveTargets` genera els destins marcables d'una peça quan el torn ENCARA
   és del rival (chess.js no en dóna cap, i per això calia un generador propi):
