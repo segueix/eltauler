@@ -250,7 +250,9 @@ nivell, no més.
 Aquestes comprovacions no són d'un sol dia: viuen com a proves a
 `tests/humantime.test.js` i tornen a executar-se a cada canvi.
 
-## 10. Una errada que s'ha trobat pel camí
+## 10. Dues errades trobades conduint l'app
+
+### 10.1. El temps de l'anàlisi es cobrava dues vegades
 
 Conduint l'app real per verificar el model va sortir una cosa que no tenia res a
 veure amb el model però que hi pesava molt: `makeEngineMove()` reiniciava sempre
@@ -270,3 +272,44 @@ corrent al rellotge del rival. Mentre l'objectiu de reflexió sigui més gran qu
 l'anàlisi no es nota (el temps ja hi és inclòs), però quan el rival va molt just
 de temps no pot moure més ràpid del que triga l'anàlisi, i cau de bandera una
 mica abans del que diu el model. En un dispositiu ràpid l'efecte és petit.
+
+### 10.2. La cerca no mirava el rellotge (i pitjor com més alt el ROC)
+
+El model decideix quant s'hi pensa, però qui gasta el rellotge de debò és la
+**cerca** de Stockfish: mentre cerca, el rellotge del rival corre. I la cerca era
+l'únic tros de la resposta que no mirava el rellotge —`makeEngineMove()` enviava
+`go depth D` sense cap límit de temps—, de manera que el sostre real el posava el
+binari, no el model.
+
+Com que la profunditat creix amb el nivell (`eloToSearchDepth`: 12 a 16 per sobre
+del terra del motor) i les jugades del rival es cerquen amb MultiPV, el cost puja
+molt de pressa amb el ROC. Mesurat amb el binari inclòs (Chromium, tres posicions
+d'obertura i migjoc, MultiPV 5):
+
+| nivell | profunditat | temps de cerca |
+|---|---|---|
+| ROC 800 | 8 | 0,12-0,13 s |
+| ROC 1400 | 12 | 1,5-2,4 s |
+| ROC 1700 | 13 | 3,4-4,4 s |
+| ROC 2000 | 15 | 7,9-13,5 s |
+| ROC 2000 | 16 | 10,3-20,8 s |
+
+A 1+0 el model vol gastar 1,2 s per jugada a ROC 2000. Conduint l'app real (1+0,
+ROC 2000, jugant a l'instant) el rival gastava **7,2 s, 15,0 s, 26,3 s** i queia
+de bandera a la **quarta** jugada, sense haver jugat malament ni una sola vegada:
+el rellotge se n'anava a la cerca. És exactament el que es veia jugant —com més
+roc, més s'entrabancava el rival amb el rellotge— i per això no passava als
+nivells baixos, on la cerca val una dècima de segon.
+
+Ara la cerca porta sostre de temps real (`go depth D movetime B`), amb `B` calculat
+a `engineSearchBudgetMs` (core.js) a partir del MATEIX model: el temps que
+dedicaria a la jugada més difícil d'aquesta posició de rellotge, menys el que ja
+s'ha consumit des que l'usuari ha mogut, i mai més enllà de la bandera. Així el
+sostre no mossega quan el model vol pensar-hi (als ritmes lents no canvia res) i
+només retalla la cerca que gastaria més del que el nivell es pot permetre. Sense
+rellotge no hi ha sostre: la cerca es deixa completar com sempre.
+
+La mateixa partida, després: **2,1 s de mitjana** per jugada (1,0-2,2 s de rutina
+i una pensada llarga de 6,0 s), dotze jugades i 34,5 s encara al rellotge. A 10+0
+i ROC 2000, on el sostre no arriba a mossegar, el rival segueix gastant 3-6 s per
+jugada amb pensades llargues de 15 s, com abans.

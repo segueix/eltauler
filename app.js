@@ -25954,41 +25954,54 @@ function estimateEngineMoveComplexity() {
     });
 }
 
+// Context de rellotge de la resposta que el rival està a punt de donar: ritme,
+// temps que li queda, jugada i fase. El comparteixen el pressupost de CERCA
+// (abans de cercar) i el temps de reflexió VISIBLE (després de cercar), perquè
+// tots dos mirin exactament la mateixa posició i el mateix rellotge.
+function engineClockContext() {
+    const engineColor = playerColor === 'w' ? 'b' : 'w';
+    const fen = game.fen();
+    return {
+        timeControlId: gameClock.enabled ? getActiveTimeControlId() : 'none',
+        remainingMs: gameClock.enabled
+            ? (engineColor === 'w' ? gameClock.white : gameClock.black)
+            : null,
+        incMs: gameClock.enabled ? gameClock.inc : 0,
+        elo: getActiveStrengthElo(),
+        phase: ElTaulerCore.phaseFromFen(fen),
+        moveNumber: parseInt(fen.split(' ')[5], 10) || 1,
+        clockTemperament: currentGameClockTemperament
+    };
+}
+
+// Temps que ja s'ha consumit del rellotge del rival des que l'usuari ha mogut
+// (l'anàlisi de la seva jugada hi corre a sobre), abans que la cerca comenci.
+function engineReplyElapsedMs() {
+    return engineReplyStartTs ? Math.max(0, nowMs() - engineReplyStartTs) : 0;
+}
+
 // Retard (ms) amb què s'aplicarà la jugada ja decidida per l'enginy. Del temps
 // "pensat" es descompta el que la cerca real ja ha trigat; la protecció
 // antibandera queda centralitzada a humanThinkTimeMs (core.js) per no duplicar
 // descomptes ni afegir cap segona capa agressiva.
 function computeHumanReplyDelayMs() {
-    const rhythmId = gameClock.enabled ? getActiveTimeControlId() : 'none';
-    const engineColor = playerColor === 'w' ? 'b' : 'w';
-    const remainingMs = gameClock.enabled
-        ? (engineColor === 'w' ? gameClock.white : gameClock.black)
-        : null;
-    const fen = game.fen();
-    const moveNumber = parseInt(fen.split(' ')[5], 10) || 1;
+    const ctx = engineClockContext();
     const complexity = estimateEngineMoveComplexity();
-    const engineElo = getActiveStrengthElo();
-    const phase = ElTaulerCore.phaseFromFen(fen);
     const thinkMs = ElTaulerCore.humanThinkTimeMs({
-        timeControlId: rhythmId,
-        remainingMs,
-        incMs: gameClock.enabled ? gameClock.inc : 0,
-        elo: engineElo,
+        ...ctx,
         complexity: complexity.score,
-        phase,
-        moveNumber,
-        clockTemperament: currentGameClockTemperament,
         humanPaceMs,
         paceSamples: humanPaceSamples
     });
-    const elapsedMs = engineReplyStartTs ? Math.max(0, nowMs() - engineReplyStartTs) : 0;
+    const elapsedMs = engineReplyElapsedMs();
     const delay = ElTaulerCore.visibleHumanReplyDelayMs
         ? ElTaulerCore.visibleHumanReplyDelayMs(thinkMs, elapsedMs)
         : Math.max(0, Math.round(thinkMs - elapsedMs));
     if (DEBUG_ENGINE_TIMING) {
         console.log('[engine timing]', {
-            rhythmId, engineElo, remainingMs, incMs: gameClock.enabled ? gameClock.inc : 0,
-            complexity: complexity.score, complexityLevel: complexity.level, phase, moveNumber,
+            rhythmId: ctx.timeControlId, engineElo: ctx.elo, remainingMs: ctx.remainingMs, incMs: ctx.incMs,
+            complexity: complexity.score, complexityLevel: complexity.level, phase: ctx.phase,
+            moveNumber: ctx.moveNumber,
             humanPaceMs, paceSamples: humanPaceSamples, targetThinkMs: thinkMs, elapsed: elapsedMs,
             visibleDelay: delay, apply: delay <= 0 ? 'immediate' : 'delayed'
         });
@@ -27795,8 +27808,25 @@ function makeEngineMove(skipAntidote) {
     applyEngineEloStrength(getActiveStrengthElo());
     const multiPvValue = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
-    stockfish.postMessage(`position fen ${game.fen()}`); 
-    stockfish.postMessage(`go depth ${depth}`);
+    // Sostre de temps REAL de la cerca (només amb rellotge). Mentre Stockfish
+    // cerca, el rellotge del rival corre: la cerca és l'únic tros de la resposta
+    // que no el mirava. I com més alt és el ROC pitjor, perquè la profunditat hi
+    // creix (12..16) i amb MultiPV una jugada de migjoc pot costar segons —a ROC
+    // 2000 s'hi han mesurat de 8 a 21 s— quan a 1+0 el model només en vol gastar
+    // 1,5: el rival s'entrabancava amb el rellotge justament als nivells alts.
+    // El pressupost surt del mateix model humà (core.js) i ja descompta el que
+    // s'ha trigat des que l'usuari ha mogut.
+    const searchBudgetMs = ElTaulerCore.engineSearchBudgetMs({
+        ...engineClockContext(),
+        elapsedMs: engineReplyElapsedMs()
+    });
+    if (DEBUG_ENGINE_TIMING) {
+        console.log('[engine search]', { depth, multiPvValue, searchBudgetMs, elapsed: engineReplyElapsedMs() });
+    }
+    stockfish.postMessage(`position fen ${game.fen()}`);
+    stockfish.postMessage(searchBudgetMs === null
+        ? `go depth ${depth}`
+        : `go depth ${depth} movetime ${searchBudgetMs}`);
 }
 
 function chooseFallbackMove(fallbackMove, chessInstance = game) {
