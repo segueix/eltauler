@@ -4611,11 +4611,68 @@
 
 
     // ----------------------------------------------------------------------
+    // Comptabilitat del rellotge de partida
+    // ----------------------------------------------------------------------
+    // El rellotge d'una partida només es pot moure per dos camins legítims:
+    // cap AVALL pel temps realment transcorregut del bàndol que té el torn, i
+    // cap AMUNT per l'increment del ritme quan una jugada es completa. Tota
+    // altra via amunt és un error de comptabilitat que regala temps: un delta
+    // negatiu (rellotge de sistema que recula) restat al marcador hi SUMA, una
+    // jugada acabada entre dos tics que no paga el tram final surt gratis, i
+    // una compensació de latència sense sostre pot descomptar més temps del
+    // que s'ha gastat. Aquestes dues funcions són l'única aritmètica permesa
+    // i tanquen els tres forats.
+
+    // Cost mínim d'una jugada anticipada: la premove s'executa sola en
+    // mil·lisegons de màquina, però mai no és gratis. Paga una dècima de
+    // segon, el conveni dels servidors d'escacs ràpids: sense aquest sòl, una
+    // ràfega de premoves jugaria tota la partida amb el rellotge aturat.
+    const CLOCK_PREMOVE_SPEND_MS = 100;
+    // Sostre estricte de la compensació de latència per jugada. El joc és
+    // local (el rival és Stockfish al mateix dispositiu), així que l'app no
+    // n'aplica cap; si mai n'hi ha (joc en línia), ni el sostre sencer no pot
+    // superar el temps transcorregut real (vegeu clockMoveSpendMs).
+    const CLOCK_LAG_COMP_MAX_MS = 200;
+
+    // Delta d'un tic de rellotge: el temps passat des de l'últim apunt, MAI
+    // negatiu. Amb un cronòmetre monotònic (performance.now) no hauria de
+    // poder recular, però si el valor arriba d'un rellotge de paret
+    // (Date.now) un ajust NTP o un canvi d'hora el fa negatiu, i restar-lo
+    // regalaria temps al bàndol actiu.
+    function clockTickDeltaMs(nowTs, lastTs) {
+        const delta = Number(nowTs) - Number(lastTs);
+        return isFinite(delta) && delta > 0 ? delta : 0;
+    }
+
+    // Temps de rellotge que paga la jugada que acaba el torn.
+    //   elapsedMs      temps real del torn (cronòmetre monotònic)
+    //   opts.premove   la jugada surt de la cua de jugades anticipades
+    //   opts.lagCompMs descompte de latència sol·licitat (0 en joc local)
+    // Invariants: el resultat mai no és negatiu; la compensació queda topada
+    // pel sostre CLOCK_LAG_COMP_MAX_MS i pel temps transcorregut (no es pot
+    // «tornar» més temps del que s'ha gastat); i una premove paga sempre el
+    // mínim fix. Per tant una jugada mai no pot APUJAR el rellotge de qui la
+    // fa: en un ritme sense increment, el rellotge només baixa.
+    function clockMoveSpendMs(elapsedMs, opts) {
+        const o = opts || {};
+        let elapsed = Number(elapsedMs);
+        if (!isFinite(elapsed) || elapsed < 0) elapsed = 0;
+        let comp = Number(o.lagCompMs);
+        if (!isFinite(comp) || comp < 0) comp = 0;
+        comp = Math.min(comp, CLOCK_LAG_COMP_MAX_MS, elapsed);
+        let spend = elapsed - comp;
+        if (o.premove) spend = Math.max(spend, CLOCK_PREMOVE_SPEND_MS);
+        return Math.round(spend);
+    }
+
+
+    // ----------------------------------------------------------------------
     // Premoves (jugada anticipada de les partides amb rellotge)
     // ----------------------------------------------------------------------
     // A les partides amb rellotge, l'usuari pot marcar la SEVA jugada mentre el
     // rival encara pensa: quan li torna el torn s'executa sola i el rellotge
-    // gairebé no es mou. Per fer-ho cal saber quines caselles pot marcar una
+    // només paga el mínim fix (CLOCK_PREMOVE_SPEND_MS, com als servidors
+    // ràpids). Per fer-ho cal saber quines caselles pot marcar una
     // peça en una posició on ENCARA no li toca moure, i chess.js només genera
     // jugades del bàndol que té el torn (per a la resta retorna una llista
     // buida). D'aquí aquest generador propi, que llegeix el tauler de la FEN.
@@ -7859,6 +7916,10 @@
         visibleHumanReplyDelayMs,
         engineSearchBudgetMs,
         ENGINE_SEARCH_MIN_MS,
+        CLOCK_PREMOVE_SPEND_MS,
+        CLOCK_LAG_COMP_MAX_MS,
+        clockTickDeltaMs,
+        clockMoveSpendMs,
         premoveTargets,
         isPremoveTarget,
         premoveMatchesLegalMove,

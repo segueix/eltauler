@@ -57,6 +57,23 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   amb el dret a la FEN i entrades corruptes que no rebenten. Amb chess.js real
   es comprova el desenllaç: `premoveMatchesLegalMove` deixa jugar la recaptura
   quan el rival menja de debò i anul·la la premove quan no.
+- **`clock.test.js`** — comptabilitat del rellotge de partida i la seva
+  invariant central: **sense increment, el rellotge d'un jugador no pot pujar
+  mai**. `clockTickDeltaMs` retalla a zero els deltes negatius (un rellotge de
+  sistema que recula no regala temps) i els valors corruptes;
+  `clockMoveSpendMs` fa pagar a cada jugada el temps real del torn, posa el
+  sòl fix de 0,1 s a la premove (mai no és gratis) i topa qualsevol
+  compensació de latència pel sostre per jugada I pel temps transcorregut, de
+  manera que el cost mai no és negatiu. Una rèplica fidel de la comptabilitat
+  d'app.js (tics + pagament en acabar el torn) hi fa jugar una **ràfega de
+  premoves consecutives** al bullet: cada premove costa exactament el mínim,
+  el marcador del jugador no puja mai, el rival paga el residu entre l'últim
+  tic i la seva jugada (el tram que abans es perdonava), una ràfega amb el
+  rellotge al límit acaba en bandera pròpia, i als ritmes amb increment el
+  rellotge només puja per l'increment —que la bandera anul·la si la jugada
+  arriba tard. És la xarxa de seguretat contra l'errada 10.3
+  d'`ANALISI_RELLOTGE.md`: les jugades més ràpides que el tic (200 ms) sortien
+  gratis i les premoves jugaven mig bullet amb el rellotge aturat.
 - **`calibration.test.js`** — terra flexible de l'ELO d'usuari, ajust fi per
   resultat, fites d'ELO, i la cerca adaptativa del calibratge inicial (ROC del
   rival, qualitat i rendiment de les partides de calibratge).
