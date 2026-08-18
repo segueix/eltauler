@@ -476,6 +476,9 @@ let engineMoveCandidates = [];
 let engineMoveSearchTrace = [];
 let engineMoveApplyTimeout = null;
 const DEBUG_ENGINE_TIMING = false;
+// Traça de la comptabilitat del rellotge de partida (tics, pagament de cada
+// jugada, torns): activar-la per auditar els deltes exactes d'una premove.
+const DEBUG_CLOCK_TIMING = false;
 let humanPaceMs = null;
 let humanPaceSamples = 0;
 let lastEngineMoveAppliedTs = null;
@@ -521,7 +524,7 @@ let currentGameTimeControlId = 'none';
 // partida nova es juga amb un rellotge que encara no té ELO.
 // Guarda l'id del ritme en curs o null.
 let timedCalibrationTcId = null;
-let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, tickMs: 0, lastTs: 0 };
+let gameClock = { enabled: false, white: 0, black: 0, inc: 0, active: null, interval: null, tickMs: 0, lastTs: 0, turnSpentMs: 0 };
 // Tarannà de rellotge del rival en la partida en curs: multiplicador del seu
 // ritme, tirat una sola vegada en començar (core.js: rollClockTemperament).
 // Hi ha partides que el motor juga còmode i partides que se li crema el
@@ -2699,7 +2702,9 @@ function resolvePromotionPicker(piece) {
     if (callback && piece) callback(piece);
 }
 
-function commitHumanMove(from, to, promotionPiece) {
+// viaPremove: la jugada surt de la cua de jugades anticipades i el rellotge
+// li cobra el mínim fix (una premove mai no és gratis).
+function commitHumanMove(from, to, promotionPiece, viaPremove) {
     if (phaseReplayInputLocked()) return false;
     $('#blunder-alert').hide();
     clearEngineMoveTimers();
@@ -2717,7 +2722,7 @@ function commitHumanMove(from, to, promotionPiece) {
     clearQueuedPremove();
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
-    clockOnMove();
+    clockOnMove(viaPremove);
     engineReplyStartTs = nowMs();
     if (lastEngineMoveAppliedTs !== null) {
         const sample = Math.max(0, engineReplyStartTs - lastEngineMoveAppliedTs);
@@ -2807,6 +2812,7 @@ function queueUserPremove(from, to, promotionPiece) {
     // Sempre dama: obrir el selector de coronació mentre el rival pensa aturaria
     // justament el temps que la premove vol estalviar (com als servidors ràpids).
     queuedPremove = { from, to, promotion: promotionPiece || 'q' };
+    clockTimingLog('premove-queued', { from: from, to: to });
     clearTapSelection();
     highlightQueuedPremove();
     return true;
@@ -2823,7 +2829,7 @@ function playQueuedPremove() {
     const legal = ElTaulerCore.premoveMatchesLegalMove(
         game.moves({ square: premove.from, verbose: true }), premove);
     if (!legal) { showIllegalMoveFeedback(premove.from); return false; }
-    return commitHumanMove(premove.from, premove.to, premove.promotion);
+    return commitHumanMove(premove.from, premove.to, premove.promotion, true);
 }
 
 // Torna el torn a l'usuari: la jugada marcada s'executa sola i sense esperes.
@@ -26064,7 +26070,7 @@ function pauseGameClock() {
 function resumeGameClock() {
     if (gameClock.enabled && gameClock.paused && gameClock.active && !gameClock.interval) {
         gameClock.paused = false;
-        gameClock.lastTs = Date.now();
+        gameClock.lastTs = nowMs();
         startClockTicks();
     }
 }
@@ -26088,25 +26094,51 @@ function initGameClock(applies) {
         interval: null,
         tickMs: 0,
         lastTs: 0,
+        turnSpentMs: 0,
         paused: false
     };
     const wrap = document.getElementById('game-clocks');
     if (wrap) wrap.style.display = enabled ? 'flex' : 'none';
     if (!enabled) return;
     renderClock();
-    // Comença a córrer pel costat que té el torn
+    // Comença a córrer pel costat que té el torn. El cronòmetre és MONOTÒNIC
+    // (nowMs → performance.now): un rellotge de paret (Date.now) pot recular
+    // amb un ajust NTP o un canvi d'hora, i un delta negatiu regalaria temps.
     gameClock.active = game.turn();
-    gameClock.lastTs = Date.now();
+    gameClock.lastTs = nowMs();
     startClockTicks();
     renderClock();
 }
-function clockTick() {
-    if (!gameClock.enabled || !gameClock.active) return;
-    const now = Date.now();
-    const delta = now - gameClock.lastTs;
-    gameClock.lastTs = now;
+// Traça de la comptabilitat del rellotge: cada apunt surt per consola i deixa
+// una performance.mark («clock:…», visible al panell Performance). Serveix per
+// capturar els deltes exactes d'una premove: buscar el parell turn-start →
+// move-paid i la mesura «clock:premove-turn» que els uneix.
+function clockTimingLog(event, data) {
+    if (!DEBUG_CLOCK_TIMING) return;
+    try {
+        if (typeof performance !== 'undefined' && typeof performance.mark === 'function') {
+            performance.mark('clock:' + event);
+        }
+        console.log('[clock timing]', event, data);
+    } catch (e) {}
+}
+// Cobra al bàndol actiu el temps passat des de l'últim apunt i mou el punter.
+// És l'ÚNIC lloc on el rellotge baixa: hi passen els tics periòdics i el tram
+// final del torn quan arriba la jugada. El delta queda sanejat al nucli
+// (clockTickDeltaMs): mai negatiu, perquè restar un delta negatiu SUMA temps.
+function clockChargeActive(now) {
+    const delta = ElTaulerCore.clockTickDeltaMs(now, gameClock.lastTs);
+    // El punter només avança: si el temps rebut reculés (no pot passar amb
+    // el cronòmetre monotònic), moure'l enrere faria recobrar el mateix tram.
+    gameClock.lastTs = Math.max(gameClock.lastTs, now);
     if (gameClock.active === 'w') gameClock.white -= delta;
     else gameClock.black -= delta;
+    gameClock.turnSpentMs += delta;
+    return delta;
+}
+function clockTick() {
+    if (!gameClock.enabled || !gameClock.active) return;
+    clockChargeActive(nowMs());
     renderClock();
     syncClockTickRate();
     if (gameClock.white <= 0 || gameClock.black <= 0) {
@@ -26124,18 +26156,65 @@ function clockTick() {
         scheduleGameOverAfterPaint(() => handleGameOver(false, flagged));
     }
 }
-// Quan algú acaba de moure: afegeix l'increment a qui ha mogut i passa el torn
-function clockOnMove() {
+// Quan algú acaba de moure: la jugada PAGA el temps del torn, s'afegeix
+// l'increment a qui ha mogut i passa el torn. viaPremove marca les jugades
+// que surten de la cua de jugades anticipades, que paguen el mínim fix.
+function clockOnMove(viaPremove) {
     if (!gameClock.enabled) return;
     const justMoved = (game.turn() === 'w') ? 'b' : 'w';
-    if (gameClock.inc > 0) {
+    const now = nowMs();
+    if (gameClock.active === justMoved) {
+        // El tram entre l'últim tic i la jugada també es paga. Abans es
+        // descartava en reiniciar lastTs: qualsevol jugada més ràpida que el
+        // tic (200 ms) sortia GRATIS, i una ràfega de jugades instantànies o
+        // de premoves jugava mig bullet amb el rellotge aturat.
+        clockChargeActive(now);
+        // Una premove s'executa en mil·lisegons de màquina però mai no és
+        // gratis: paga el mínim fix del nucli (0,1 s, conveni dels servidors
+        // ràpids). El sanejament del nucli garanteix, de pas, que cap
+        // compensació no pugui fer el cost negatiu: sense increment, el
+        // rellotge només pot baixar.
+        const elapsedMs = gameClock.turnSpentMs;
+        const owedMs = ElTaulerCore.clockMoveSpendMs(elapsedMs, { premove: !!viaPremove });
+        const shortfallMs = owedMs - elapsedMs;
+        if (shortfallMs > 0) {
+            if (justMoved === 'w') gameClock.white -= shortfallMs;
+            else gameClock.black -= shortfallMs;
+            gameClock.turnSpentMs += shortfallMs;
+        }
+        clockTimingLog('move-paid', {
+            mover: justMoved, premove: !!viaPremove,
+            elapsedMs: Math.round(elapsedMs), owedMs: owedMs,
+            whiteMs: Math.round(gameClock.white), blackMs: Math.round(gameClock.black)
+        });
+        if (DEBUG_CLOCK_TIMING && viaPremove) {
+            try { performance.measure('clock:premove-turn', 'clock:turn-start', 'clock:move-paid'); } catch (e) {}
+        }
+    }
+    // La bandera mana sobre l'increment: si pagar la jugada ha esgotat el
+    // rellotge, la jugada ha arribat tard i l'increment ja no es cobra.
+    const moverMs = justMoved === 'w' ? gameClock.white : gameClock.black;
+    if (gameClock.inc > 0 && moverMs > 0) {
         if (justMoved === 'w') gameClock.white += gameClock.inc;
         else gameClock.black += gameClock.inc;
     }
     gameClock.active = game.turn();
-    gameClock.lastTs = Date.now();
+    gameClock.lastTs = Math.max(gameClock.lastTs, now);
+    gameClock.turnSpentMs = 0;
     renderClock();
     syncClockTickRate();
+    clockTimingLog('turn-start', {
+        active: gameClock.active,
+        whiteMs: Math.round(gameClock.white), blackMs: Math.round(gameClock.black)
+    });
+    // Si pagar la jugada ha deixat algú a zero, la bandera es detecta pel
+    // mateix camí de sempre (clockTick), però FORA d'aquesta pila de crides:
+    // qui ens crida encara ha d'acabar d'aplicar la jugada. Si la mateixa
+    // jugada ha acabat la partida al tauler (mat/ofegat), el resultat del
+    // tauler mana i no s'hi programa cap bandera.
+    if ((gameClock.white <= 0 || gameClock.black <= 0) && !game.game_over()) {
+        setTimeout(() => { if (!game.game_over()) clockTick(); }, 0);
+    }
 }
 function renderClock() {
     if (!gameClock.enabled) return;
@@ -28562,7 +28641,8 @@ function scheduleEngineMoveApply(fromSq, toSq, promotion, replyDelayMs) {
         // abans d'una possible premove.
         if (isAntidoteMode()) showAntidoteTurnPrompt();
         // La premove, si encara és legal després de la resposta, es
-        // juga al primer torn de l'esdeveniment i gairebé no gasta rellotge.
+        // juga al primer torn de l'esdeveniment i paga el mínim fix
+        // (0,1 s): el rellotge mai no la deixa passar de franc.
         playPremoveIfQueued();
         highlightEngineMove(fromSq, toSq);
         // El primer moviment de l'enginy pot coincidir amb un resize

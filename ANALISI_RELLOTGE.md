@@ -313,3 +313,58 @@ La mateixa partida, després: **2,1 s de mitjana** per jugada (1,0-2,2 s de ruti
 i una pensada llarga de 6,0 s), dotze jugades i 34,5 s encara al rellotge. A 10+0
 i ROC 2000, on el sostre no arriba a mossegar, el rival segueix gastant 3-6 s per
 jugada amb pensades llargues de 15 s, com abans.
+
+### 10.3. Les jugades més ràpides que el tic sortien gratis (i la premove, sempre)
+
+La tercera errada era del rellotge de l'USUARI, no del model del rival, i va
+sortir per un símptoma invers al de la 10.2: al bullet, un jugador que
+encadenés jugades instantànies i premoves **guanyava contínuament per temps**,
+perquè el seu rellotge amb prou feines es movia.
+
+La causa era de comptabilitat pura. El rellotge només cobrava el bàndol actiu
+als **tics periòdics** (cada 200 ms; 50 ms sota els 10 s), i la jugada que
+acabava el torn es limitava a reiniciar la marca de temps (`lastTs`) sense
+cobrar el tram corregut des de l'últim tic. Conseqüències, de menor a major:
+
+1. **Tota jugada perdonava fins a un tic sencer** (~100 ms de mitjana). Això
+   afectava els dos bàndols per igual i quedava dissimulat.
+2. **Una jugada més ràpida que el tic no pagava RES**: si el torn sencer cabia
+   entre dos tics, cap tic no hi queia a dins i el reinici de la marca
+   s'empassava tot el temps. Un jugador ràpid al bullet (150-250 ms per
+   jugada) jugava la partida quasi sencera amb el rellotge aturat, mentre el
+   rival pagava religiosament les seves reflexions d'1-2 s.
+3. **La premove era el cas extrem**: s'executa sola en 0-4 ms de màquina, així
+   que mai no coincidia amb cap tic i sortia exactament gratis, jugada rere
+   jugada.
+
+No hi havia cap compensació de latència que «regalés» temps (el joc és local i
+no en cal cap), ni cap resta negativa: el temps no s'AFEGIA, simplement no es
+cobrava. El resultat pràctic era el mateix: la bandera pròpia no podia caure
+mai jugant ràpid, i totes les partides llargues s'acabaven amb la bandera del
+rival.
+
+L'arranjament, tot a `app.js` amb l'aritmètica a `core.js`
+(`clockTickDeltaMs`, `clockMoveSpendMs`) i provat a `tests/clock.test.js`:
+
+- **La jugada que acaba el torn paga el residu** des de l'últim tic abans de
+  passar el torn: cap tram no queda mai sense cobrar, ni amb el fil principal
+  entrebancat (el tram es cobra igualment quan arriba la jugada).
+- **La premove paga un mínim fix de 0,1 s** (el conveni dels servidors
+  ràpids): mai no és gratis, i una ràfega de premoves amb el rellotge al
+  límit també pot acabar en bandera pròpia.
+- **Cronòmetre monotònic** (`performance.now` en lloc de `Date.now`): un
+  ajust NTP o un canvi d'hora no pot generar deltes negatius. I encara que un
+  delta arribés negatiu, el nucli el retalla a zero: **restar un delta
+  negatiu sumaria temps**, i en un ritme sense increment el rellotge no pot
+  pujar per cap camí que no sigui l'increment mateix.
+- **Sostre estricte de compensació**: si mai s'aplica una compensació de
+  latència (joc en línia), queda topada per jugada (200 ms) i pel temps
+  realment transcorregut, de manera que no pot fer el cost negatiu.
+- **La bandera mana sobre l'increment**: si pagar la jugada esgota el
+  rellotge, l'increment ja no es cobra.
+
+Amb el mateix guió d'abans (premoves de ~2 ms contra un rival que pensa
+1,15 s), el jugador passa de pagar **0 ms per tota la partida** a pagar
+0,1 s per premove i el temps real de la resta de jugades: el desenllaç per
+temps torna a ser possible per als DOS bàndols, que és el que diuen les dades
+de la secció 4.
