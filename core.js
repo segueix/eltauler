@@ -4609,6 +4609,58 @@
         return Math.round(clampNum(budget, ENGINE_SEARCH_MIN_MS, profile.maxMs));
     }
 
+    // Les dues cerques que puntuen la jugada humana també corren pel rellotge
+    // de l'adversari. Sense sostre, una cerca MultiPV a profunditat 12 podia
+    // gastar segons ABANS que comencés la jugada del rival, i la protecció de
+    // engineSearchBudgetMs arribava massa tard. La revisió només pot consumir
+    // una fracció petita del mateix pressupost humà; la resta es reserva a la
+    // cerca que realment decideix la resposta i n'adapta la força al ROC.
+    const ENGINE_REVIEW_MIN_MS = 25;
+    const ENGINE_REVIEW_MAX_TOTAL_MS = {
+        '30s': 150,
+        '1+0': 210,
+        '3+2': 300,
+        '5+0': 360,
+        '10+0': 430,
+        '15+10': 560
+    };
+    const ENGINE_REVIEW_OPENING_MAX_TOTAL_MS = 140;
+
+    function moveReviewSearchBudgetMs(params) {
+        const p = params || {};
+        if (typeof p.remainingMs !== 'number' || !HUMAN_CLOCK_STATS[p.timeControlId]) return null;
+
+        const searchBudget = engineSearchBudgetMs({ ...p, elapsedMs: 0 });
+        const reserve = Math.min(searchBudget, ENGINE_SEARCH_MIN_MS);
+        const available = Math.max(0, Math.min(searchBudget - reserve, p.remainingMs - reserve));
+        // Amb el rellotge al límit es conserva el flux de precisió, però les
+        // dues passades són testimonials: la prioritat és tornar una jugada.
+        if (available < 2) return 1;
+
+        const elo = clampNum(Number(p.elo) || 1400, 200, 2600);
+        const level = clampNum((elo - 600) / 1800, 0, 1);
+        // Un jugador fort admet una mica més de detall, però mai una espera
+        // creixent sense control: el ritme, el rellotge i la reserva manen.
+        const reviewShare = 0.16 + level * 0.06;
+        const minimumTotal = Math.min(ENGINE_REVIEW_MIN_MS * 2, available);
+        const nominalTotal = Math.max(minimumTotal, Math.round(searchBudget * reviewShare));
+        const profileCap = ENGINE_REVIEW_MAX_TOTAL_MS[p.timeControlId];
+        const openingCap = (Number(p.moveNumber) || 1) <= 2
+            ? Math.min(profileCap, ENGINE_REVIEW_OPENING_MAX_TOTAL_MS)
+            : profileCap;
+        const clockCap = Math.max(1, Math.round(Math.max(0, p.remainingMs) * 0.04));
+        const totalBudget = Math.max(1, Math.min(available, nominalTotal, openingCap, clockCap));
+        const stage = Number(p.stage) === 2 ? 2 : 1;
+        const firstStage = Math.round(totalBudget * 0.60);
+        const plannedStage = stage === 1 ? firstStage : totalBudget - firstStage;
+        const elapsedMs = Math.max(0, Number(p.elapsedMs) || 0);
+        const remainingReview = Math.max(1, totalBudget - elapsedMs);
+        const reserveSecondStage = stage === 1
+            ? Math.min(ENGINE_REVIEW_MIN_MS, Math.max(0, remainingReview - 1))
+            : 0;
+        return Math.max(1, Math.min(plannedStage || 1, remainingReview - reserveSecondStage));
+    }
+
 
     // ----------------------------------------------------------------------
     // Comptabilitat del rellotge de partida
@@ -7916,6 +7968,10 @@
         visibleHumanReplyDelayMs,
         engineSearchBudgetMs,
         ENGINE_SEARCH_MIN_MS,
+        moveReviewSearchBudgetMs,
+        ENGINE_REVIEW_MIN_MS,
+        ENGINE_REVIEW_MAX_TOTAL_MS,
+        ENGINE_REVIEW_OPENING_MAX_TOTAL_MS,
         CLOCK_PREMOVE_SPEND_MS,
         CLOCK_LAG_COMP_MAX_MS,
         clockTickDeltaMs,
