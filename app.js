@@ -28920,42 +28920,11 @@ function ensurePostGameSpinnerKeyframes() {
     document.head.appendChild(st);
 }
 
-// Mostra a l'instant, en petit i sobre el tauler, el resultat + "Generant
-// anàlisi…". Així es veu com acaba l'últim moviment i l'usuari sap què passa
-// mentre es prepara la ressenya, en comptes de quedar un temps mort.
-function showPostGameStatusChip(resultLabel) {
-    try {
-        const boardEl = document.getElementById('myBoard');
-        if (!boardEl) return;
-        ensurePostGameSpinnerKeyframes();
-        let chip = document.getElementById('postgame-board-status');
-        if (!chip) {
-            chip = document.createElement('div');
-            chip.id = 'postgame-board-status';
-            // z-index molt alt: per sobre de toasts (11000) i bàners perquè res no
-            // pugui tapar el botó ni robar-li els tocs.
-            chip.style.cssText = 'position:fixed;z-index:12000;transform:translateX(-50%);' +
-                'background:rgba(20,18,15,0.94);color:#f2e9d8;padding:14px 22px;border-radius:15px;' +
-                'font-size:13px;text-align:center;box-shadow:0 8px 22px rgba(0,0,0,0.5);' +
-                'pointer-events:none;line-height:1.4;min-width:210px;max-width:88vw;';
-            document.body.appendChild(chip);
-        }
-        const rect = boardEl.getBoundingClientRect();
-        chip.style.left = (rect.left + rect.width / 2) + 'px';
-        chip.style.top = (rect.top + 12) + 'px';
-        // El xip només informa (qui ha guanyat + "Generant anàlisi…"): mai rep tocs,
-        // així no pot interferir amb el botó d'inici, que és un element a part.
-        chip.innerHTML = `<div style="font-weight:800;font-size:26px;line-height:1.2;">${escapeHtml(resultLabel)}</div>` +
-            '<div style="font-weight:500;opacity:0.85;display:flex;align-items:center;gap:6px;justify-content:center;margin-top:6px;">' +
-            '<span style="width:11px;height:11px;border:2px solid rgba(242,233,216,0.35);border-top-color:#f2e9d8;border-radius:50%;display:inline-block;animation:postgameSpin 0.8s linear infinite;"></span>' +
-            'Generant anàlisi…</div>';
-        chip.style.pointerEvents = 'none';
-        chip.style.display = 'block';
-        // Mentre l'anàlisi de l'última jugada continua, el xip és només informatiu.
-        // No hi afegim cap botó de sortida ràpida: forçar el tancament de partida
-        // abans que acabi Stockfish barrejava feina pesada (historial, ELO, IA) amb
-        // el motor actiu i en dispositius modestos podia col·lapsar la memòria.
-    } catch (e) {}
+// L'indicador flotant de resultat i d'anàlisi es manté amagat. La revisió
+// i el resultat de la partida continuen funcionant pels canals habituals.
+function showPostGameStatusChip() {
+    const chip = document.getElementById('postgame-board-status');
+    if (chip) chip.style.display = 'none';
 }
 
 // L'antic botó flotant/inline de sortida ràpida queda desactivat. La sortida
@@ -30895,8 +30864,8 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         hidePostGameStatusChip();
         persistPostGameAfterPaint('quick-exit');
     } else if (postGameChipQuickExitAllowed()) {
-        // Partida normal (lliure): mentre l'última anàlisi acaba, el xip
-        // només informa. Quan handleGameOver() ja ha registrat la partida, obrim
+        // Partida normal (lliure): l'última anàlisi acaba sense cap avís
+        // flotant. Quan handleGameOver() ja ha registrat la partida, obrim
         // la ressenya automàticament amb els botons de navegació normals. Això
         // evita el botó de sortida ràpida que podia no rebre tocs i, sobretot,
         // evita forçar finalització + motor + generació de ressenya alhora.
@@ -30906,12 +30875,11 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             showFullReview();
         }, quickResolve ? 350 : 1400);
     } else {
-        // Sempre mostra el resultat sobre el tauler ("Has guanyat/perdut/taules" +
-        // "Generant anàlisi…") perquè es vegi l'últim moviment i no quedi temps mort.
+        // El resultat i l'anàlisi continuen sense mostrar cap avís flotant.
         showPostGameStatusChip(postGameResultLabel(leagueOutcome));
         if (showCheckmate) {
             // L'escac i mat té el seu propi retard dins showPostGameReview (2 s, o
-            // 0,5 s amb rellotge); el xip es veu mentrestant i s'amaga en obrir-se.
+            // 0,5 s amb rellotge); el tauler es manté sense avisos flotants.
             showFullReview();
         } else {
             postGameJumpTimer = setTimeout(() => {
