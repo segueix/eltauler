@@ -566,3 +566,99 @@ describe('engineSearchBudgetMs (sostre de temps real de la cerca)', () => {
         });
     });
 });
+
+describe('moveReviewSearchBudgetMs (revisió acotada abans de la resposta)', () => {
+    const base = {
+        timeControlId: '1+0',
+        remainingMs: 60000,
+        incMs: 0,
+        phase: 'middlegame',
+        moveNumber: 20,
+        elo: 2000
+    };
+
+    function reviewTotal(params) {
+        const first = Core.moveReviewSearchBudgetMs({ ...params, stage: 1, elapsedMs: 0 });
+        const second = Core.moveReviewSearchBudgetMs({ ...params, stage: 2, elapsedMs: first });
+        return first + second;
+    }
+
+    test('sense rellotge es conserva la revisió completa, sense movetime', () => {
+        expect(Core.moveReviewSearchBudgetMs({ ...base, timeControlId: 'none', remainingMs: null })).toBeNull();
+        expect(Core.moveReviewSearchBudgetMs({ ...base, timeControlId: '7+7' })).toBeNull();
+    });
+
+    test('és determinista i reserva més detall a la primera passada MultiPV', () => {
+        const first = Core.moveReviewSearchBudgetMs({ ...base, stage: 1, elapsedMs: 0 });
+        const second = Core.moveReviewSearchBudgetMs({ ...base, stage: 2, elapsedMs: first });
+        expect(first).toBe(Core.moveReviewSearchBudgetMs({ ...base, stage: 1, elapsedMs: 0 }));
+        expect(first).toBeGreaterThan(second);
+    });
+
+    test('cada ritme té un sostre conjunt curt i proporcional al rellotge', () => {
+        const clocks = {
+            '30s': 30000,
+            '1+0': 60000,
+            '3+2': 180000,
+            '5+0': 300000,
+            '10+0': 600000,
+            '15+10': 900000
+        };
+        for (const timeControlId of Object.keys(clocks)) {
+            const params = {
+                ...base,
+                timeControlId,
+                remainingMs: clocks[timeControlId],
+                incMs: timeControlId === '3+2' ? 2000 : (timeControlId === '15+10' ? 10000 : 0)
+            };
+            expect(reviewTotal(params)).toBeLessThanOrEqual(Core.ENGINE_REVIEW_MAX_TOTAL_MS[timeControlId]);
+        }
+        expect(reviewTotal({ ...base, timeControlId: '30s', remainingMs: 30000 }))
+            .toBeLessThan(reviewTotal({ ...base, timeControlId: '5+0', remainingMs: 300000 }));
+    });
+
+    test('les primeres jugades mai gasten més de 140 ms en revisió', () => {
+        const opening = {
+            ...base,
+            timeControlId: '15+10',
+            remainingMs: 900000,
+            incMs: 10000,
+            phase: 'opening',
+            moveNumber: 1,
+            elo: 2400
+        };
+        expect(reviewTotal(opening)).toBeLessThanOrEqual(Core.ENGINE_REVIEW_OPENING_MAX_TOTAL_MS);
+        expect(reviewTotal(opening)).toBeLessThan(reviewTotal({ ...opening, phase: 'middlegame', moveNumber: 20 }));
+    });
+
+    test('un ROC més alt no converteix la primera resposta ràpida en una espera llarga', () => {
+        const opening = { ...base, phase: 'opening', moveNumber: 1 };
+        const beginner = reviewTotal({ ...opening, elo: 400 });
+        const advanced = reviewTotal({ ...opening, elo: 2400 });
+        expect(advanced).toBeLessThanOrEqual(beginner);
+        expect(advanced).toBeLessThanOrEqual(Core.ENGINE_REVIEW_OPENING_MAX_TOTAL_MS);
+    });
+
+    test('la major part del pressupost queda per a la jugada adaptada al jugador', () => {
+        for (const elo of [400, 1200, 2000, 2500]) {
+            const params = { ...base, elo };
+            const total = reviewTotal(params);
+            const search = Core.engineSearchBudgetMs(params);
+            expect(total).toBeLessThan(search / 2);
+            expect(search - total).toBeGreaterThanOrEqual(Core.ENGINE_SEARCH_MIN_MS);
+        }
+    });
+
+    test('la segona passada es retalla si la primera ja ha consumit més temps', () => {
+        const first = Core.moveReviewSearchBudgetMs({ ...base, stage: 1, elapsedMs: 0 });
+        const normal = Core.moveReviewSearchBudgetMs({ ...base, stage: 2, elapsedMs: first });
+        const delayed = Core.moveReviewSearchBudgetMs({ ...base, stage: 2, elapsedMs: first + 60 });
+        expect(delayed).toBeLessThan(normal);
+    });
+
+    test('amb el rellotge gairebé esgotat la revisió cedeix el pas a la resposta', () => {
+        const drained = { ...base, remainingMs: Core.ENGINE_SEARCH_MIN_MS, moveNumber: 45 };
+        expect(Core.moveReviewSearchBudgetMs({ ...drained, stage: 1, elapsedMs: 0 })).toBe(1);
+        expect(Core.moveReviewSearchBudgetMs({ ...drained, stage: 2, elapsedMs: 1 })).toBe(1);
+    });
+});

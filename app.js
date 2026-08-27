@@ -29,6 +29,8 @@ let game = null;
 let board = null;
 let stockfish = null;
 let stockfishReady = false;
+let stockfishWarmupPromise = null;
+let timedGameEnginePending = false;
 let pendingEngineFirstMove = false;
 let userELO = 50; 
 let engineELO = 50;
@@ -2705,6 +2707,7 @@ function resolvePromotionPicker(piece) {
 // viaPremove: la jugada surt de la cua de jugades anticipades i el rellotge
 // li cobra el mínim fix (una premove mai no és gratis).
 function commitHumanMove(from, to, promotionPiece, viaPremove) {
+    if (timedGameEnginePending) return false;
     if (phaseReplayInputLocked()) return false;
     $('#blunder-alert').hide();
     clearEngineMoveTimers();
@@ -8032,10 +8035,29 @@ function waitForEngineReady(timeoutMs = 4000) {
     });
 }
 
+// Escalfa el worker mentre es tria el rellotge o es pinta el menú. Una sola
+// promesa comparteix l'arrencada entre aquestes entrades i la partida nova;
+// així la descàrrega i el handshake UCI no es cobren a la primera jugada.
+function prewarmStockfish(timeoutMs = 12000) {
+    if (stockfish && stockfishReady) return Promise.resolve(true);
+    if (stockfishWarmupPromise) return stockfishWarmupPromise;
+    if (!ensureStockfish()) return Promise.resolve(false);
+
+    const worker = stockfish;
+    const warmup = waitForEngineReady(timeoutMs)
+        .then(ready => ready && stockfish === worker)
+        .finally(() => {
+            if (stockfishWarmupPromise === warmup) stockfishWarmupPromise = null;
+        });
+    stockfishWarmupPromise = warmup;
+    return warmup;
+}
+
 function restartStockfishWorker() {
     try { if (stockfish && stockfish.terminate) stockfish.terminate(); } catch (e) {}
     stockfish = null;
     stockfishReady = false;
+    stockfishWarmupPromise = null;
     return ensureStockfish();
 }
 
@@ -22360,6 +22382,7 @@ function setupEvents() {
     $('#new-game-tc-select').off('change').on('change', function() {
         pendingFreeTimeControl = $(this).val() || 'none';
         refreshPlayClockChips();
+        if (pendingFreeTimeControl !== 'none') void prewarmStockfish();
     });
     // Fitxes visuals del rellotge: escriuen el desplegable amagat i disparen el
     // seu change, de manera que tota la lògica existent continua igual.
@@ -22373,7 +22396,10 @@ function setupEvents() {
         if (!currentLeague || isLeagueTimeControlLocked()) { renderLeagueTimeControl(); return; }
         // Canviar el ritme abans de començar rebaixa o apuja tota la graella al
         // nivell que el jugador té en aquell rellotge, així que cal repintar-la.
-        if (setLeagueTimeControl($(this).val() || 'none')) renderLeague();
+        if (setLeagueTimeControl($(this).val() || 'none')) {
+            if (getLeagueTimeControlId() !== 'none') void prewarmStockfish();
+            renderLeague();
+        }
         else renderLeagueTimeControl();
     });
 
@@ -25986,6 +26012,23 @@ function engineReplyElapsedMs() {
     return engineReplyStartTs ? Math.max(0, nowMs() - engineReplyStartTs) : 0;
 }
 
+// Revisió ràpida de la jugada humana: sense rellotge manté la profunditat
+// completa; amb rellotge, cada passada té un límit segons ritme, nivell i
+// temps ja consumit, perquè no bloquegi la resposta real de l'adversari.
+function postClockAwareReviewSearch(depth, stage) {
+    const budgetMs = ElTaulerCore.moveReviewSearchBudgetMs({
+        ...engineClockContext(),
+        stage,
+        elapsedMs: engineReplyElapsedMs()
+    });
+    if (DEBUG_ENGINE_TIMING) {
+        console.log('[move review search]', { depth, stage, budgetMs, elapsed: engineReplyElapsedMs() });
+    }
+    stockfish.postMessage(budgetMs === null
+        ? `go depth ${depth}`
+        : `go depth ${depth} movetime ${budgetMs}`);
+}
+
 // Retard (ms) amb què s'aplicarà la jugada ja decidida per l'enginy. Del temps
 // "pensat" es descompta el que la cerca real ja ha trigat; la protecció
 // antibandera queda centralitzada a humanThinkTimeMs (core.js) per no duplicar
@@ -26266,6 +26309,8 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
     clearEngineMoveTimers();
     isEngineThinking = false;
+    timedGameEnginePending = false;
+    pendingEngineFirstMove = false;
     engineReplyStartTs = null;
     clearQueuedPremove();
     lastEngineMoveAppliedTs = null;
@@ -26653,7 +26698,23 @@ blunderMode = isBundle;
     // amb calma (i sense rellotge tampoc no interfereix amb els ELO per ritme).
     // El Rival Antídot SÍ que respecta el rellotge triat (adapta el pressupost
     // de cerca al ritme), però no puntua cap ELO de ritme: vegeu handleGameOver.
-    initGameClock(!isBundle && !isCalibrationGame && currentGameMode !== 'explorer' && currentGameMode !== 'positional' && currentGameMode !== 'besso');
+    const clockApplies = !isBundle && !isCalibrationGame && currentGameMode !== 'explorer'
+        && currentGameMode !== 'positional' && currentGameMode !== 'besso';
+    if (clockApplies && getActiveTimeControlId() !== 'none' && !stockfishReady) {
+        const startGeneration = gameGeneration;
+        timedGameEnginePending = true;
+        $('#status').text("Preparant l'adversari...");
+        const ready = await prewarmStockfish();
+        if (startGeneration !== gameGeneration || !$('#game-screen').hasClass('active')) return;
+        if (!ready) {
+            $('#status').text("No s'ha pogut preparar l'adversari.").css('color', '#c62828');
+            showToast("Stockfish no està a punt; el rellotge no s'ha iniciat.", 'warn');
+            return;
+        }
+        timedGameEnginePending = false;
+        updateStatus();
+    }
+    initGameClock(clockApplies);
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -26708,7 +26769,7 @@ blunderMode = isBundle;
         pendingEngineFirstMove = true;
         if (stockfishReady) {
             pendingEngineFirstMove = false;
-            setTimeout(makeEngineMove, 500);
+            setTimeout(makeEngineMove, gameClock.enabled ? 0 : 500);
         }
     } else {
         pendingEngineFirstMove = false;
@@ -26716,6 +26777,7 @@ blunderMode = isBundle;
 }
 
 function onDragStart(source, piece, position, orientation) {
+    if (timedGameEnginePending) return false;
     if (isViewingGameHistory()) return false;
     if (phaseReplayInputLocked()) return false;
     if (game.game_over()) return false;
@@ -26732,6 +26794,7 @@ function onDragStart(source, piece, position, orientation) {
 }
 
 function onDrop(source, target) {
+    if (timedGameEnginePending) return 'snapback';
     // La peça torna al seu lloc: el tauler ha de seguir mostrant la posició
     // real mentre el rival pensa. La jugada queda marcada (premove) i
     // s'executarà sola quan torni el torn.
@@ -28011,6 +28074,9 @@ function analyzeMove() {
     pendingEvalBefore = null;
     pendingEvalAfter = null;
     pendingAnalysisFen = lastPosition;
+    if (gameClock.enabled && game.turn() !== playerColor) {
+        $('#status').text("L'adversari pensa...");
+    }
 
     // CANVI: Demanar 3 variants per capturar alternatives
     if (DEBUG_ENRICHED_ANALYSIS) {
@@ -28023,7 +28089,7 @@ function analyzeMove() {
     }
     try { stockfish.postMessage('setoption name MultiPV value 3'); } catch (e) {}
     stockfish.postMessage(`position fen ${lastPosition}`);
-    stockfish.postMessage('go depth 12');
+    postClockAwareReviewSearch(12, 1);
 }
 
 function resolvePendingMoveEvaluation(moveQuality) {
@@ -28140,9 +28206,9 @@ function handleEngineMessage(rawMsg) {
     }
     if (msg === 'readyok') {
         stockfishReady = true;
-        if (pendingEngineFirstMove && playerColor !== game.turn()) {
+        if (pendingEngineFirstMove && !timedGameEnginePending && game && playerColor !== game.turn()) {
             pendingEngineFirstMove = false;
-            setTimeout(makeEngineMove, 200);
+            setTimeout(makeEngineMove, gameClock.enabled ? 0 : 200);
         }
         return;
     }
@@ -28448,7 +28514,7 @@ function handleEngineMessage(rawMsg) {
             pendingAfterFen = game.fen();
             pendingRefutationPv = [];
             stockfish.postMessage(`position fen ${pendingAfterFen}`);
-            stockfish.postMessage('go depth 10');
+            postClockAwareReviewSearch(10, 2);
         }
         else if (analysisStep === 2) {
             pendingEvalAfter = tempAnalysisScore;
@@ -29243,6 +29309,8 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 
 function returnToMainMenuImmediate() {
     stopGameClock();
+    timedGameEnginePending = false;
+    pendingEngineFirstMove = false;
     $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#calibration-result-screen').hide(); $('#antidote-summary-modal').hide(); $('#start-screen').show(); navStack = [];
     if (stockfish) stockfish.postMessage('stop');
     // El motor propi del Rival Antídot es tanca en sortir de la partida: cap
@@ -34356,6 +34424,11 @@ $(document).ready(() => {
     refreshPlayClockChips();
     generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
     enablePremoveCancelGesture();
+    // L'arrencada es fa després del primer pintat: quan s'obre una partida
+    // amb rellotge, el worker sol estar llest abans de la primera jugada.
+    setTimeout(() => {
+        if (document.visibilityState !== 'hidden') void prewarmStockfish();
+    }, 0);
     if (__customId) {
         setTimeout(function () { openCustomGameScreen(__customId, false); }, 0);
     } else if (__deepCatalans) {
