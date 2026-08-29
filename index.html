@@ -1492,11 +1492,6 @@
         }
         body.device-desktop .play-modes .btn .btn-ic { width: 1.9em; height: 1.9em; }
         body.device-desktop .play-modes .btn-antidote .btn-emoji { font-size: 1.7em; }
-        .play-antidote-hint { margin-top: 4px; }
-        .play-clock-hint {
-            font-size: 0.72rem; color: var(--text-secondary); opacity: 0.8;
-            text-align: center; margin-top: -2px;
-        }
         /* En pantalles estretes, dues files de fitxes (4+3) perquè es puguin tocar bé */
         @media (max-width: 420px) { .play-clock-chips { grid-template-columns: repeat(4, 1fr); } }
         body.day-mode .play-card { background: rgba(255,255,255,0.55); }
@@ -5436,9 +5431,6 @@
                             <button class="btn btn-antidote" id="btn-antidote-game"><span class="btn-emoji" aria-hidden="true">🧬</span>Rival Antídot</button>
                             <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                         </div>
-                        <div class="play-clock-hint">El rellotge triat val per a la partida nova i el Rival Antídot; el joc vista es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
-                        <div class="play-clock-hint play-daily-hint" id="play-daily-hint" style="display:none;">🕐 <strong>Diària 24h:</strong> «Nova partida» obre una partida per correspondència: tens 24 hores per cada jugada i el rival respon al cap de 3 hores. Pots tenir-ne diverses alhora (es veuen aquí sota en miniatura); si no mous a temps, la partida es perd i baixa el teu ELO diari. El joc vista i el Rival Antídot no fan servir aquest ritme.</div>
-                        <div class="play-clock-hint play-antidote-hint">🧬 <strong>Rival Antídot:</strong> Stockfish buscarà jugades fortes que posin a prova els teus punts febles.</div>
                     </div>
 
                     <!-- Partides diàries (ritme «24h» del rellotge de dalt) en curs:
@@ -7886,7 +7878,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.91"></script>
+    <script src="app.js?v=1.0.92"></script>
 
     <!-- Service Worker Registration -->
     <script>
