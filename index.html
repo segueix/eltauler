@@ -1506,38 +1506,19 @@
         }
         body.epaper-mode .play-clock-chip.active { background: #222; color: #fff; box-shadow: none; }
 
-        /* ── Partides diàries (24 h per jugada): panell i miniatures ── */
-        .daily-panel {
-            background: rgba(255,255,255,0.04);
-            border: 1px solid rgba(201,162,39,0.25);
-            border-radius: 16px;
-            padding: 12px;
-            display: flex; flex-direction: column; gap: 10px;
-            text-align: left;
-        }
-        .daily-head {
-            display: flex; align-items: center; justify-content: space-between;
-            gap: 8px; flex-wrap: wrap;
-        }
-        .daily-title {
-            display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
-            text-transform: uppercase; color: var(--text-secondary);
-        }
-        .daily-tc-tag {
-            font-family: 'Inter', sans-serif; font-size: 0.62rem; letter-spacing: 0.4px;
-            border: 1px solid rgba(201,162,39,0.4); border-radius: 999px;
-            padding: 2px 8px; color: var(--accent-gold);
-        }
-        .daily-elo-badge { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); }
-        .daily-hint { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.85; }
-        .daily-new-btn { width: 100%; }
-        /* Miniatures de costat: tantes com hi capiguen, sempre quadrades */
+        /* ── Partides diàries (ritme «24h»): miniatures a la pàgina principal ── */
+        /* Miniatures de costat: tantes com hi capiguen, sempre quadrades. A
+           l'escriptori es veuen EL DOBLE de grans (mínim 300px per targeta) i
+           la graella ocupa tota la fila del bloc «Juga». */
         .daily-grid {
             display: grid; gap: 10px;
             grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
         }
         .daily-grid:empty { display: none; }
+        body.device-desktop .daily-grid {
+            grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
+            gap: 14px;
+        }
         .daily-card {
             background: rgba(0,0,0,0.22);
             border: 1px solid rgba(201,162,39,0.25);
@@ -1549,8 +1530,12 @@
         .daily-card.daily-card-turn { border-color: rgba(201,162,39,0.7); box-shadow: 0 0 10px rgba(201,162,39,0.18); }
         .daily-card.daily-card-lost { border-color: rgba(192,57,43,0.65); box-shadow: 0 0 10px rgba(192,57,43,0.16); }
         .daily-card.daily-card-won { border-color: rgba(74,124,89,0.7); }
-        /* Tauler en miniatura: graella 8×8 pura (sense chessboard.js) amb peces
-           de text. Lleuger, funciona fora de línia i es repinta amb innerHTML. */
+        /* Tauler en miniatura: graella 8×8 pura (sense chessboard.js). Les
+           caselles duen les MATEIXES classes de color que chessboard.js
+           (white-1e1d7/black-3c85d) i les peces són les mateixes imatges amb
+           la classe piece-417db: així els temes de tauler i de peces que el
+           jugador té triats (body.board-theme-* / body.piece-theme-*) s'hi
+           apliquen exactament igual que al tauler gran. */
         .daily-mini {
             display: grid; grid-template-columns: repeat(8, 1fr);
             aspect-ratio: 1 / 1; width: 100%;
@@ -1559,15 +1544,11 @@
             user-select: none;
         }
         .daily-mini .dm-sq { position: relative; aspect-ratio: 1 / 1; }
-        .daily-mini .dm-sq.dm-light { background: #e8d3a8; }
-        .daily-mini .dm-sq.dm-dark { background: #a97c50; }
-        .daily-mini .dm-sq span {
-            position: absolute; inset: 0;
-            display: flex; align-items: center; justify-content: center;
-            font-size: clamp(9px, 2.6vw, 15px); line-height: 1;
+        .daily-mini .dm-sq img {
+            position: absolute; inset: 4%;
+            width: 92%; height: 92%;
+            pointer-events: none;
         }
-        .daily-mini .dm-w { color: #fdfdf6; text-shadow: 0 0 1.5px #3b2a17, 0 1px 1px rgba(0,0,0,0.55); }
-        .daily-mini .dm-b { color: #211710; text-shadow: 0 0 1.5px rgba(255,255,255,0.35); }
         .daily-card-state { font-size: 0.78rem; font-weight: 700; color: var(--text-primary); }
         .daily-card-state.state-turn { color: var(--accent-gold); }
         .daily-card-state.state-lost { color: var(--text-negative); }
@@ -1575,9 +1556,8 @@
         .daily-card-clock { font-size: 0.72rem; color: var(--text-secondary); }
         .daily-card-clock.clock-urgent { color: var(--severity-high); font-weight: 700; }
         .daily-card .btn { margin-top: 0; padding: 9px 8px; font-size: 0.85rem; }
-        body.day-mode .daily-panel { background: rgba(255,255,255,0.55); }
         body.day-mode .daily-card { background: rgba(120,95,40,0.08); }
-        body.epaper-mode .daily-panel, body.epaper-mode .daily-card {
+        body.epaper-mode .daily-card {
             background: #f4f4f4; border-color: #888; box-shadow: none;
         }
 
@@ -2428,6 +2408,7 @@
         body.device-desktop .menu-buttons > .btn-opening,
         body.device-desktop .menu-buttons > .btn-explorer-menu,
         body.device-desktop .menu-buttons > .btn-settings,
+        body.device-desktop .menu-buttons > .daily-grid,
         body.device-desktop .menu-buttons > #btn-league {
             grid-column: 1 / -1;
         }
@@ -5407,6 +5388,7 @@
                                 <button type="button" class="play-clock-chip" data-tc="5+0" title="Blitz 5 minuts"><span class="pcc-time">5+0</span><span class="pcc-kind">Blitz</span></button>
                                 <button type="button" class="play-clock-chip" data-tc="10+0" title="Ràpid 10 minuts"><span class="pcc-time">10+0</span><span class="pcc-kind">Ràpid</span></button>
                                 <button type="button" class="play-clock-chip" data-tc="15+10" title="Clàssic 15 minuts + 10 segons per jugada"><span class="pcc-time">15+10</span><span class="pcc-kind">Clàssic</span></button>
+                                <button type="button" class="play-clock-chip" data-tc="24h" title="Diària: un dia (24 hores) per jugada; el rival respon al cap de 3 hores"><span class="pcc-time">24h</span><span class="pcc-kind">Diària</span></button>
                             </div>
                             <!-- El desplegable original queda amagat com a FONT DE LA VERITAT:
                                  tota la lògica existent hi segueix llegint i escrivint; les
@@ -5419,6 +5401,7 @@
                                 <option value="5+0">Blitz 5+0</option>
                                 <option value="10+0">Ràpid 10+0</option>
                                 <option value="15+10">Clàssic 15+10</option>
+                                <option value="24h">Diària 24h</option>
                             </select>
                         </div>
                         <div class="play-modes">
@@ -5428,23 +5411,16 @@
                             <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
                         </div>
                         <div class="play-clock-hint">El rellotge triat val per a la partida nova i el Rival Antídot; el joc vista es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
+                        <div class="play-clock-hint play-daily-hint" id="play-daily-hint" style="display:none;">🕐 <strong>Diària 24h:</strong> «Nova partida» obre una partida per correspondència: tens 24 hores per cada jugada i el rival respon al cap de 3 hores. Pots tenir-ne diverses alhora (es veuen aquí sota en miniatura); si no mous a temps, la partida es perd i baixa el teu ELO diari. El joc vista i el Rival Antídot no fan servir aquest ritme.</div>
                         <div class="play-clock-hint play-antidote-hint">🧬 <strong>Rival Antídot:</strong> Stockfish buscarà jugades fortes que posin a prova els teus punts febles.</div>
                     </div>
 
-                    <!-- Partides diàries (24 h per jugada): correspondència contra el
-                         motor. Les partides en curs es mostren en miniatura, de costat,
-                         amb l'estat del tauler, el temps que queda i el botó de jugar;
-                         una partida perduda per temps queda entre les miniatures amb la
-                         derrota i el botó de tancar. Tot es pinta des d'app.js. -->
-                    <div class="daily-panel" id="daily-panel">
-                        <div class="daily-head">
-                            <span class="daily-title"><svg class="btn-ic" aria-hidden="true"><use href="#ic-clock"/></svg>Partides diàries <span class="daily-tc-tag">24 h per jugada</span></span>
-                            <span class="daily-elo-badge" id="daily-elo-badge" style="display:none;">ELO —</span>
-                        </div>
-                        <div class="daily-hint">Tens un dia per fer cada jugada i el rival respon al cap de 3 hores. Pots tenir diverses partides obertes alhora; si se t'acaba el temps, la partida es perd i baixa el teu ELO diari.</div>
-                        <div class="daily-grid" id="daily-grid"></div>
-                        <button class="btn btn-secondary daily-new-btn" id="btn-daily-new">＋ Nova partida diària</button>
-                    </div>
+                    <!-- Partides diàries (ritme «24h» del rellotge de dalt) en curs:
+                         miniatures de costat amb l'estat del tauler, el temps que
+                         queda i el botó de jugar; una partida perduda per temps queda
+                         entre les miniatures amb la derrota i el botó de tancar. Es
+                         pinta des d'app.js i, buida, no ocupa lloc. -->
+                    <div class="daily-grid" id="daily-grid"></div>
 
                     <!-- Repte del bessó: juga contra una versió de tu mateix.
                          DESACTIVAT de moment: el bàner arrenca amagat i només
@@ -7880,7 +7856,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.89"></script>
+    <script src="app.js?v=1.0.90"></script>
 
     <!-- Service Worker Registration -->
     <script>

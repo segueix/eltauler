@@ -6128,15 +6128,25 @@ function refreshPlayClockChips() {
     document.querySelectorAll('#play-clock-chips .play-clock-chip').forEach(chip => {
         chip.classList.toggle('active', chip.getAttribute('data-tc') === current);
     });
+    // El ritme «24h» (partides diàries) no és a TIME_CONTROLS: és correspondència,
+    // no un rellotge en viu, i cap camí de partida en directe no l'ha de veure.
+    const isDaily = current === DAILY_TC_ID;
     const tc = TIME_CONTROLS.find(t => t.id === current) || TIME_CONTROLS[0];
     const label = document.getElementById('play-clock-current');
-    if (label) label.textContent = tc.label;
+    if (label) label.textContent = isDaily ? DAILY_TC_LABEL : tc.label;
+    // Amb el ritme diari triat s'explica què farà «Nova partida».
+    const dailyHint = document.getElementById('play-daily-hint');
+    if (dailyHint) dailyHint.style.display = isDaily ? '' : 'none';
 }
 
 // Fixa el ritme de la propera partida (font de la veritat: el desplegable
-// amagat) i deixa les fitxes de la pàgina principal pintades igual.
+// amagat) i deixa les fitxes de la pàgina principal pintades igual. El ritme
+// diari («24h») també s'hi pot fixar: novaPartida el desvia a una partida per
+// correspondència, i per a la resta de camins (joc vista, antídot, lliga...)
+// getActiveTimeControlId el tracta com a «sense rellotge» perquè no és a
+// TIME_CONTROLS.
 function applyPendingTimeControl(tcId) {
-    if (!TIME_CONTROLS.some(t => t.id === tcId)) return false;
+    if (!TIME_CONTROLS.some(t => t.id === tcId) && tcId !== DAILY_TC_ID) return false;
     pendingFreeTimeControl = tcId;
     const sel = document.getElementById('new-game-tc-select');
     if (sel) sel.value = tcId;
@@ -6152,7 +6162,9 @@ function startTimedGameFromPlan(tcId) {
     if (!guardCalibrationAccess()) return;
     let target = TIME_CONTROLS.some(t => t.id === tcId && t.id !== 'none') ? tcId : null;
     if (!target) {
-        target = (pendingFreeTimeControl && pendingFreeTimeControl !== 'none')
+        // El ritme diari («24h») tampoc no serveix aquí: el pla demana una
+        // partida contrarellotge en directe, no una de correspondència.
+        target = (pendingFreeTimeControl && pendingFreeTimeControl !== 'none' && pendingFreeTimeControl !== DAILY_TC_ID)
             ? pendingFreeTimeControl
             : PLAN_DEFAULT_TIME_CONTROL;
     }
@@ -6580,10 +6592,14 @@ function applyDailyEngineMove(entry, moveUci, officialAt) {
 }
 
 // ---- Miniatures de la pàgina principal ----
-const DAILY_PIECE_GLYPHS = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
 
-// Tauler en miniatura: graella 8×8 pura amb peces de text (sense chessboard.js
-// ni imatges: lleuger, funciona fora de línia i se'n pinten quantes calguin).
+// Tauler en miniatura: graella 8×8 pura (sense chessboard.js). Les caselles
+// duen les MATEIXES classes de color que chessboard.js (white-1e1d7 /
+// black-3c85d) i les peces són les mateixes imatges amb la classe piece-417db,
+// de manera que els temes de tauler i de peces que el jugador té triats
+// (body.board-theme-* i body.piece-theme-*, aplicats per CSS) es veuen a les
+// miniatures exactament igual que al tauler gran. Les imatges són les que el
+// service worker ja precachega, així que també funcionen fora de línia.
 function dailyMiniBoardHtml(fen, playerColor) {
     const parsed = ElTaulerCore.antidoteParseBoard(fen);
     const flipped = playerColor === 'b';
@@ -6594,8 +6610,8 @@ function dailyMiniBoardHtml(fen, playerColor) {
             const file = flipped ? 7 - col : col;
             const piece = parsed.grid[rank] ? parsed.grid[rank][file] : null;
             const light = (rank + file) % 2 === 1;
-            html += `<div class="dm-sq ${light ? 'dm-light' : 'dm-dark'}">`
-                + (piece ? `<span class="${piece.c === 'w' ? 'dm-w' : 'dm-b'}">${DAILY_PIECE_GLYPHS[piece.t] || ''}</span>` : '')
+            html += `<div class="dm-sq ${light ? 'white-1e1d7' : 'black-3c85d'}">`
+                + (piece ? `<img class="piece-417db" alt="" draggable="false" src="https://chessboardjs.com/img/chesspieces/wikipedia/${piece.c}${piece.t.toUpperCase()}.png">` : '')
                 + '</div>';
         }
     }
@@ -6656,12 +6672,6 @@ function renderDailyGamesPanel() {
         }
     });
     grid.innerHTML = html;
-    const badge = document.getElementById('daily-elo-badge');
-    if (badge) {
-        const rating = getDailyRating();
-        badge.style.display = rating !== null ? '' : 'none';
-        if (rating !== null) badge.textContent = `ELO ${Math.round(rating)}`;
-    }
 }
 
 // «Tancar» d'una targeta acabada: la partida ja és a l'historial i l'ELO ja
@@ -6868,7 +6878,6 @@ function renderDailyScreenState() {
 
 // ---- Arrencada i esdeveniments del mode diari ----
 function initDailyGames() {
-    $('#btn-daily-new').off('click').on('click', startNewDailyGame);
     $('#daily-grid').off('click').on('click', '.daily-card-play', function () {
         const id = $(this).closest('.daily-card').attr('data-daily-id');
         if (id) openDailyGame(id);
@@ -22387,6 +22396,13 @@ function guardCalibrationAccess() {
 }
 
 function novaPartida() {
+    // Ritme «24h» triat a les fitxes del rellotge: la partida nova és una
+    // partida DIÀRIA per correspondència, no una partida en directe. El ritme
+    // queda seleccionat, així que «Nova partida» en pot obrir més d'una.
+    if (pendingFreeTimeControl === DAILY_TC_ID) {
+        startNewDailyGame();
+        return;
+    }
     currentGameMode = 'free';
     currentOpponent = null;
     if (leagueActiveMatch) { leagueActiveMatch = null; saveStorage(); }
@@ -23096,7 +23112,9 @@ function setupEvents() {
     $('#new-game-tc-select').off('change').on('change', function() {
         pendingFreeTimeControl = $(this).val() || 'none';
         refreshPlayClockChips();
-        if (pendingFreeTimeControl !== 'none') void prewarmStockfish();
+        // El ritme diari no necessita el motor a l'instant: la resposta del
+        // rival es cerca en segon pla (worker propi) quan vencen les 3 hores.
+        if (pendingFreeTimeControl !== 'none' && pendingFreeTimeControl !== DAILY_TC_ID) void prewarmStockfish();
     });
     // Fitxes visuals del rellotge: escriuen el desplegable amagat i disparen el
     // seu change, de manera que tota la lògica existent continua igual.
