@@ -1506,6 +1506,98 @@
         }
         body.epaper-mode .play-clock-chip.active { background: #222; color: #fff; box-shadow: none; }
 
+        /* ── Partides diàries (24 h per jugada): panell i miniatures ── */
+        .daily-panel {
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 16px;
+            padding: 12px;
+            display: flex; flex-direction: column; gap: 10px;
+            text-align: left;
+        }
+        .daily-head {
+            display: flex; align-items: center; justify-content: space-between;
+            gap: 8px; flex-wrap: wrap;
+        }
+        .daily-title {
+            display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
+            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--text-secondary);
+        }
+        .daily-tc-tag {
+            font-family: 'Inter', sans-serif; font-size: 0.62rem; letter-spacing: 0.4px;
+            border: 1px solid rgba(201,162,39,0.4); border-radius: 999px;
+            padding: 2px 8px; color: var(--accent-gold);
+        }
+        .daily-elo-badge { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); }
+        .daily-hint { font-size: 0.72rem; color: var(--text-secondary); opacity: 0.85; }
+        .daily-new-btn { width: 100%; }
+        /* Miniatures de costat: tantes com hi capiguen, sempre quadrades */
+        .daily-grid {
+            display: grid; gap: 10px;
+            grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
+        }
+        .daily-grid:empty { display: none; }
+        .daily-card {
+            background: rgba(0,0,0,0.22);
+            border: 1px solid rgba(201,162,39,0.25);
+            border-radius: 12px;
+            padding: 8px;
+            display: flex; flex-direction: column; gap: 7px;
+            text-align: center;
+        }
+        .daily-card.daily-card-turn { border-color: rgba(201,162,39,0.7); box-shadow: 0 0 10px rgba(201,162,39,0.18); }
+        .daily-card.daily-card-lost { border-color: rgba(192,57,43,0.65); box-shadow: 0 0 10px rgba(192,57,43,0.16); }
+        .daily-card.daily-card-won { border-color: rgba(74,124,89,0.7); }
+        /* Tauler en miniatura: graella 8×8 pura (sense chessboard.js) amb peces
+           de text. Lleuger, funciona fora de línia i es repinta amb innerHTML. */
+        .daily-mini {
+            display: grid; grid-template-columns: repeat(8, 1fr);
+            aspect-ratio: 1 / 1; width: 100%;
+            border-radius: 6px; overflow: hidden;
+            border: 1px solid rgba(0,0,0,0.35);
+            user-select: none;
+        }
+        .daily-mini .dm-sq { position: relative; aspect-ratio: 1 / 1; }
+        .daily-mini .dm-sq.dm-light { background: #e8d3a8; }
+        .daily-mini .dm-sq.dm-dark { background: #a97c50; }
+        .daily-mini .dm-sq span {
+            position: absolute; inset: 0;
+            display: flex; align-items: center; justify-content: center;
+            font-size: clamp(9px, 2.6vw, 15px); line-height: 1;
+        }
+        .daily-mini .dm-w { color: #fdfdf6; text-shadow: 0 0 1.5px #3b2a17, 0 1px 1px rgba(0,0,0,0.55); }
+        .daily-mini .dm-b { color: #211710; text-shadow: 0 0 1.5px rgba(255,255,255,0.35); }
+        .daily-card-state { font-size: 0.78rem; font-weight: 700; color: var(--text-primary); }
+        .daily-card-state.state-turn { color: var(--accent-gold); }
+        .daily-card-state.state-lost { color: var(--text-negative); }
+        .daily-card-state.state-won { color: var(--text-positive); }
+        .daily-card-clock { font-size: 0.72rem; color: var(--text-secondary); }
+        .daily-card-clock.clock-urgent { color: var(--severity-high); font-weight: 700; }
+        .daily-card .btn { margin-top: 0; padding: 9px 8px; font-size: 0.85rem; }
+        body.day-mode .daily-panel { background: rgba(255,255,255,0.55); }
+        body.day-mode .daily-card { background: rgba(120,95,40,0.08); }
+        body.epaper-mode .daily-panel, body.epaper-mode .daily-card {
+            background: #f4f4f4; border-color: #888; box-shadow: none;
+        }
+
+        /* Pantalla de partida diària */
+        #daily-screen {
+            background: var(--bg-card);
+            border-radius: 16px;
+            padding: 15px;
+            border: 1px solid rgba(201, 162, 39, 0.2);
+        }
+        .daily-screen-clock { color: var(--accent-gold); font-weight: 700; }
+        .daily-screen-clock.clock-urgent { color: var(--severity-high); }
+        .daily-screen-note {
+            margin-top: 10px; padding: 10px 12px;
+            background: rgba(255,255,255,0.04);
+            border: 1px solid rgba(201,162,39,0.2); border-radius: 10px;
+            font-size: 0.78rem; color: var(--text-secondary); text-align: left;
+        }
+        body.epaper-mode #daily-screen { background: var(--bg-card); border: 1px solid #cfcfcf; }
+
         /* Icones de menú unificades: line-icons monocromes que hereten el color
            del text (currentColor) i s'adapten als 3 temes (fosc, dia, e-paper).
            Mida en em perquè quedin sempre al mateix nivell que el text. */
@@ -4781,6 +4873,11 @@
         body.control-tap #myBoard { touch-action: manipulation; }
         body.control-drag #myBoard { touch-action: none; }
         #myBoard, #myBoard * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        /* El tauler de la partida diària segueix el mateix mode de control */
+        body.control-tap #daily-board { touch-action: manipulation; }
+        body.control-drag #daily-board { touch-action: none; }
+        #daily-board, #daily-board * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        #daily-board { margin: 0 auto; max-width: min(100%, 74vh); }
 
         /* ============================================================
            TAP-TO-MOVE — MARCATGE ÚNIC PER A TOTA L'APP
@@ -5332,6 +5429,21 @@
                         </div>
                         <div class="play-clock-hint">El rellotge triat val per a la partida nova i el Rival Antídot; el joc vista es juga sempre sense rellotge i la lliga amb el ritme propi de la temporada.</div>
                         <div class="play-clock-hint play-antidote-hint">🧬 <strong>Rival Antídot:</strong> Stockfish buscarà jugades fortes que posin a prova els teus punts febles.</div>
+                    </div>
+
+                    <!-- Partides diàries (24 h per jugada): correspondència contra el
+                         motor. Les partides en curs es mostren en miniatura, de costat,
+                         amb l'estat del tauler, el temps que queda i el botó de jugar;
+                         una partida perduda per temps queda entre les miniatures amb la
+                         derrota i el botó de tancar. Tot es pinta des d'app.js. -->
+                    <div class="daily-panel" id="daily-panel">
+                        <div class="daily-head">
+                            <span class="daily-title"><svg class="btn-ic" aria-hidden="true"><use href="#ic-clock"/></svg>Partides diàries <span class="daily-tc-tag">24 h per jugada</span></span>
+                            <span class="daily-elo-badge" id="daily-elo-badge" style="display:none;">ELO —</span>
+                        </div>
+                        <div class="daily-hint">Tens un dia per fer cada jugada i el rival respon al cap de 3 hores. Pots tenir diverses partides obertes alhora; si se t'acaba el temps, la partida es perd i baixa el teu ELO diari.</div>
+                        <div class="daily-grid" id="daily-grid"></div>
+                        <button class="btn btn-secondary daily-new-btn" id="btn-daily-new">＋ Nova partida diària</button>
                     </div>
 
                     <!-- Repte del bessó: juga contra una versió de tu mateix.
@@ -7615,7 +7727,36 @@
                 <strong>índex Stockfish</strong>: les verdes avancen, i les altres es desfan perquè en
                 puguis provar una de millor. La <strong>Norma</strong> resumeix el principi que cal aplicar.
             </div>
-   
+
+        </div>
+
+        <!-- Pantalla d'una partida diària (24 h per jugada). Tauler i controls
+             PROPIS, separats del #game-screen: aquí no hi ha rellotge en viu ni
+             resposta immediata del motor (respon al cap de 3 hores, encara que
+             l'app estigui tancada), així que cap peça del flux de partida en
+             directe no s'hi ha de barrejar. -->
+        <div id="daily-screen" class="screen-anim" style="display:none;">
+            <div class="header">
+                <div class="header-title" id="daily-screen-title">🕐 Partida diària</div>
+                <div class="game-info">
+                    <div>Tu: <span id="daily-my-elo" style="color:var(--accent-gold); font-weight:bold;">—</span></div>
+                    <div title="Stockfish">SF: <span id="daily-opp-elo" style="color:var(--accent-purple); font-weight:bold;">—</span></div>
+                    <div class="daily-screen-clock" id="daily-screen-clock">⏳ —</div>
+                </div>
+            </div>
+            <div class="board-container">
+                <div id="daily-board"></div>
+            </div>
+            <div class="controls">
+                <div class="status-message" id="daily-status">Preparat…</div>
+                <div class="game-buttons">
+                    <button class="btn btn-primary" id="btn-daily-resign">Rendir-se</button>
+                    <button class="btn btn-nav-home" id="btn-daily-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                </div>
+            </div>
+            <div class="daily-screen-note">🕐 <strong>Partida diària:</strong> quan facis la teva jugada ja pots
+                tancar l'app. El rival respondrà al cap de <strong>3 hores</strong> i tindràs
+                <strong>24 hores</strong> per contestar; si no mous a temps, la partida es perd.</div>
         </div>
     </div>
 
@@ -7728,7 +7869,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.27"></script>
+    <script src="core.js?v=1.0.28"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -7739,7 +7880,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.88"></script>
+    <script src="app.js?v=1.0.89"></script>
 
     <!-- Service Worker Registration -->
     <script>

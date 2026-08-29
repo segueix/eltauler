@@ -7899,6 +7899,96 @@
         });
     }
 
+    // ----------------------------------------------------------------------
+    // Partides diàries (correspondència contra el motor)
+    // ----------------------------------------------------------------------
+    // Ritme lent asíncron: el jugador té 24 hores per fer cada jugada i el
+    // motor respon EXACTAMENT 3 hores després de la jugada del jugador (mai
+    // abans). Com que l'app és estàtica (sense servidor), la jugada del motor
+    // es calcula quan l'app torna a ser oberta un cop passat el termini, però
+    // amb la MARCA DE TEMPS OFICIAL del venciment: el rellotge del jugador
+    // corre des d'aquell moment encara que l'app estigués tancada, com en un
+    // servidor de correspondència de debò.
+    //
+    // Forma d'una partida diària (la persistència viu a app.js):
+    //   { playerColor: 'w'|'b', movesSan: [...], turnStartedAt: ms,
+    //     status: 'active'|'finished' }
+    // turnStartedAt és el moment en què el bàndol a qui toca moure va rebre el
+    // torn: si toca al jugador, marca l'inici de les seves 24 h; si toca al
+    // motor, l'instant des del qual es compten les 3 h de resposta.
+    const DAILY_CONFIG = {
+        MOVE_MS: 24 * 60 * 60 * 1000,        // 24 h per jugada del jugador
+        ENGINE_REPLY_MS: 3 * 60 * 60 * 1000, // el motor respon al cap de 3 h
+        MAX_ACTIVE: 10                        // partides diàries vives alhora
+    };
+
+    // Bàndol a qui toca moure després de `movesCount` jugades des de la
+    // posició inicial (les partides diàries comencen sempre de zero).
+    function dailySideToMove(movesCount) {
+        const n = (typeof movesCount === 'number' && movesCount > 0) ? Math.floor(movesCount) : 0;
+        return (n % 2 === 0) ? 'w' : 'b';
+    }
+
+    function dailyMovesCount(entry) {
+        return (entry && Array.isArray(entry.movesSan)) ? entry.movesSan.length : 0;
+    }
+
+    function dailyIsPlayerTurn(entry) {
+        if (!entry) return false;
+        return dailySideToMove(dailyMovesCount(entry)) === (entry.playerColor === 'b' ? 'b' : 'w');
+    }
+
+    // Venciment del jugador (si li toca moure): té MOVE_MS des que va rebre el
+    // torn. Retorna null quan no li toca o la partida ja és acabada.
+    function dailyPlayerDeadlineMs(entry) {
+        if (!entry || entry.status !== 'active' || !dailyIsPlayerTurn(entry)) return null;
+        const start = Number(entry.turnStartedAt);
+        if (isNaN(start)) return null;
+        return start + DAILY_CONFIG.MOVE_MS;
+    }
+
+    // Moment oficial de la resposta del motor (si li toca moure): 3 h després
+    // de la jugada del jugador. La PRIMERA jugada de la partida (motor amb
+    // blanques) no és cap resposta i es fa a l'instant de crear la partida.
+    function dailyEngineDueMs(entry) {
+        if (!entry || entry.status !== 'active' || dailyIsPlayerTurn(entry)) return null;
+        const start = Number(entry.turnStartedAt);
+        if (isNaN(start)) return null;
+        if (dailyMovesCount(entry) === 0) return start;
+        return start + DAILY_CONFIG.ENGINE_REPLY_MS;
+    }
+
+    // Què li toca fer al mantenidor de partides diàries amb aquesta partida,
+    // ara mateix:
+    //   { kind: 'none' }                        res a fer (acabada, o encara en termini)
+    //   { kind: 'player_timeout', at: ms }      el jugador ha esgotat les 24 h → derrota
+    //   { kind: 'engine_move', at: ms }         toca aplicar la jugada del motor,
+    //                                           amb `at` com a marca de temps oficial
+    function dailyNextAction(entry, nowMs) {
+        const now = (typeof nowMs === 'number' && !isNaN(nowMs)) ? nowMs : 0;
+        if (!entry || entry.status !== 'active') return { kind: 'none' };
+        const deadline = dailyPlayerDeadlineMs(entry);
+        if (deadline !== null) {
+            return (now > deadline) ? { kind: 'player_timeout', at: deadline } : { kind: 'none' };
+        }
+        const due = dailyEngineDueMs(entry);
+        if (due !== null && now >= due) return { kind: 'engine_move', at: due };
+        return { kind: 'none' };
+    }
+
+    // Compte enrere llegible d'un termini diari. Amb hores per davant, els
+    // minuts hi són de més; per sota de l'hora es passa a minuts.
+    function dailyCountdownLabel(remainingMs) {
+        const ms = (typeof remainingMs === 'number' && !isNaN(remainingMs)) ? remainingMs : 0;
+        if (ms <= 0) return 'temps esgotat';
+        const totalMinutes = Math.ceil(ms / 60000);
+        if (totalMinutes < 1) return 'menys d’1 min';
+        if (totalMinutes < 60) return totalMinutes + ' min';
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+        return minutes > 0 ? (hours + ' h ' + minutes + ' min') : (hours + ' h');
+    }
+
     return {
         splitPgnGames,
         parsePgnHeaders,
@@ -8156,6 +8246,13 @@
         triaChartSeries,
         triaDifficultyToElo,
         triaHistoryRows,
-        START_POSITION_KEY
+        START_POSITION_KEY,
+        DAILY_CONFIG,
+        dailySideToMove,
+        dailyIsPlayerTurn,
+        dailyPlayerDeadlineMs,
+        dailyEngineDueMs,
+        dailyNextAction,
+        dailyCountdownLabel
     };
 });

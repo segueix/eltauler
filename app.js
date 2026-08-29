@@ -711,6 +711,7 @@ function applyFontSize(pct) {
 // Navigation history management for mobile back gesture
 const NAVIGATION_SCREEN_IDS = [
     'game-screen',
+    'daily-screen',
     'stats-screen',
     'history-screen',
     'league-screen',
@@ -865,6 +866,8 @@ function navGoBack() {
         $('#start-screen').show();
     } else if (current === 'tria-screen') {
         if (typeof closeTriaScreen === 'function') closeTriaScreen();
+    } else if (current === 'daily-screen') {
+        if (typeof closeDailyScreen === 'function') closeDailyScreen();
     }
     navStack.pop();
 }
@@ -5596,6 +5599,10 @@ function getAdaptiveNormalized() {
 
 // Força efectiva real de l'enginy en aquesta partida (mateix model per calibratge i joc lliure).
 function getActiveStrengthElo() {
+    // Tria de jugada d'una partida DIÀRIA en segon pla: la força és la del
+    // rival d'aquella partida, no la del mode que hi hagi obert a pantalla.
+    // L'override es fixa (i es retira) de manera síncrona a computeDailyEngineMove.
+    if (typeof strengthEloOverride === 'number') return clampEngineElo(strengthEloOverride);
     if (currentGameMode === 'fen_max') return ELO_MAX;
     // El teu bessó: la força varia per FASE segons com jugues tu cada fase
     // (obertura / mig joc / final), sobre l'ELO base del període triat.
@@ -6203,6 +6210,686 @@ function applyTimeControlEloDelta(tcId, resultScore, opponentElo) {
     return delta;
 }
 
+/* ===================== PARTIDES DIÀRIES (24 h per jugada) =====================
+   Correspondència contra el motor: el jugador té 24 hores per fer cada jugada
+   i el rival respon EXACTAMENT 3 hores després (mai abans). Es poden tenir
+   diverses partides obertes alhora; a la pàgina principal es veuen de costat
+   en miniatura amb l'estat del tauler, el temps que queda i el botó de jugar.
+   Si el temps s'esgota, la partida es perd i baixa l'ELO de la variant diària
+   (independent, com el de cada ritme de rellotge: timeControlElos['24h']).
+
+   Com que l'app és estàtica, els venciments es resolen quan l'app és oberta,
+   però amb la MARCA DE TEMPS OFICIAL (core.js: dailyNextAction): la resposta
+   del motor queda datada al venciment de les 3 h i les 24 h del jugador corren
+   des d'allà, encara que l'app hagi estat tancada, com en un servidor de
+   correspondència de debò. La lògica temporal pura viu a core.js i es prova a
+   tests/daily.test.js; aquí hi ha l'estat, la persistència i la interfície. */
+
+const DAILY_TC_ID = '24h';
+const DAILY_TC_LABEL = 'Diària 24h';
+const DAILY_GAMES_KEY = 'chess_dailyGames';
+let dailyGames = [];
+let dailyScreenGameId = null;   // partida oberta a la pantalla diària (o null)
+let dailyBoard = null;          // instància chessboard.js de #daily-board
+let dailyChess = null;          // chess.js amb la posició de la partida oberta
+let dailyTapSquare = null;      // casella seleccionada en mode toc
+let dailyTicker = null;         // interval de manteniment i comptes enrere
+let dailyEngineWorker = null;   // worker Stockfish PROPI per a respostes en segon pla
+let dailyEngineBusyId = null;   // id de la partida que s'està calculant ara
+let dailyEngineQueue = [];      // ids pendents de resposta del motor
+// ELO forçat mentre es tria la jugada humanitzada d'una partida diària en segon
+// pla (getActiveStrengthElo el consulta primer). `var` a propòsit: s'hissa
+// inicialitzat i getActiveStrengthElo pot executar-se abans d'aquesta línia.
+var strengthEloOverride = null;
+
+function loadDailyGames() {
+    try {
+        const raw = localStorage.getItem(DAILY_GAMES_KEY);
+        const parsed = raw ? JSON.parse(raw) : [];
+        dailyGames = Array.isArray(parsed) ? parsed.filter(g => g && g.id) : [];
+    } catch (e) { dailyGames = []; }
+}
+
+function saveDailyGames() {
+    try { localStorage.setItem(DAILY_GAMES_KEY, JSON.stringify(dailyGames)); } catch (e) {}
+    // La clau viatja amb la sincronització del compte (prefix chess_): avisa
+    // que hi ha canvis locals, com fa saveStorage.
+    if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
+        try { window.CloudSync.onLocalSave(); } catch (e) {}
+    }
+}
+
+function getDailyGame(id) { return dailyGames.find(g => g && g.id === id) || null; }
+function activeDailyGames() { return dailyGames.filter(g => g && g.status === 'active'); }
+function currentDailyEntry() { return dailyScreenGameId ? getDailyGame(dailyScreenGameId) : null; }
+function getDailyRating() { return getTimeControlRating(DAILY_TC_ID); }
+
+// Reconstrueix la posició d'una partida diària des de les seves jugades SAN.
+function dailyChessFor(entry) {
+    const chess = new Chess();
+    ((entry && entry.movesSan) || []).forEach(san => { try { chess.move(san, { sloppy: true }); } catch (e) {} });
+    return chess;
+}
+
+function dailyEntryFen(entry) {
+    if (entry && typeof entry.fen === 'string' && entry.fen) return entry.fen;
+    return dailyChessFor(entry).fen();
+}
+
+// El jugador pot moure ARA en aquesta partida? (activa, li toca i dins de termini)
+function canDailyPlayNow(entry) {
+    if (!entry || entry.status !== 'active' || !ElTaulerCore.dailyIsPlayerTurn(entry)) return false;
+    const deadline = ElTaulerCore.dailyPlayerDeadlineMs(entry);
+    return deadline === null || Date.now() <= deadline;
+}
+
+// ---- Creació ----
+function startNewDailyGame() {
+    if (!guardCalibrationAccess()) return;
+    const maxActive = ElTaulerCore.DAILY_CONFIG.MAX_ACTIVE;
+    if (activeDailyGames().length >= maxActive) {
+        showToast(`Ja tens ${maxActive} partides diàries en marxa; acaba'n alguna abans d'obrir-ne una de nova.`, 'warn');
+        return;
+    }
+    // El rival juga al nivell de l'ELO diari (com cada ritme té el seu); la
+    // primera partida arrenca de l'ELO principal, com applyTimeControlEloDelta.
+    const rating = getDailyRating();
+    const opponentElo = clampEngineElo(rating !== null ? rating : Math.max(50, Math.round(userELO)));
+    const now = Date.now();
+    const entry = {
+        id: 'daily_' + now + '_' + Math.random().toString(36).slice(2, 7),
+        createdAt: now,
+        playerColor: Math.random() < 0.5 ? 'w' : 'b',
+        opponentElo: opponentElo,
+        movesSan: [],
+        fen: new Chess().fen(),
+        turnStartedAt: now,
+        status: 'active',
+        result: null,
+        resultReason: null,
+        finishedAt: null,
+        ratingDelta: null
+    };
+    dailyGames.push(entry);
+    saveDailyGames();
+    renderDailyGamesPanel();
+    openDailyGame(entry.id);
+    // Si el motor obre (jugador amb negres), la seva PRIMERA jugada no és cap
+    // resposta i es fa a l'instant (core.js la marca vençuda de seguida).
+    processDailyGames();
+}
+
+// ---- Manteniment: venciments i respostes del motor pendents ----
+// S'executa en obrir l'app, cada mig minut i en tornar a primer pla. És qui
+// converteix el pas del temps en fets: la derrota per temps del jugador i la
+// jugada del motor quan les seves 3 h ja han vençut.
+function processDailyGames() {
+    const now = Date.now();
+    dailyGames.forEach(entry => {
+        const action = ElTaulerCore.dailyNextAction(entry, now);
+        if (action.kind === 'player_timeout') {
+            finishDailyGame(entry, 'loss', 'timeout', action.at);
+        } else if (action.kind === 'engine_move') {
+            queueDailyEngineMove(entry.id);
+        }
+    });
+    renderDailyGamesPanel();
+    renderDailyScreenState();
+}
+
+// ---- Final de partida (ELO de la variant + historial + targeta) ----
+function finishDailyGame(entry, result, reason, atMs) {
+    if (!entry || entry.status !== 'active') return;
+    entry.status = 'finished';
+    entry.result = result;
+    entry.resultReason = reason;
+    entry.finishedAt = atMs || Date.now();
+    const score = result === 'win' ? 1 : (result === 'draw' ? 0.5 : 0);
+    // Puntua NOMÉS a l'ELO de la variant diària (mai al principal), amb la
+    // mateixa fórmula que la resta de ritmes de rellotge.
+    entry.ratingDelta = applyTimeControlEloDelta(DAILY_TC_ID, score, entry.opponentElo);
+    recordDailyGameHistory(entry);
+    saveDailyGames();
+    renderDailyGamesPanel();
+    renderDailyScreenState();
+}
+
+// Tanca una partida diària que ha arribat a una posició FINAL al tauler
+// (escac i mat, ofegat, material insuficient, repetició...).
+function finishDailyGameFromPosition(entry, chess, atMs) {
+    let result = 'draw';
+    let reason = 'draw';
+    if (chess.in_checkmate()) {
+        result = (chess.turn() === entry.playerColor) ? 'loss' : 'win';
+        reason = 'checkmate';
+    } else if (chess.in_stalemate()) {
+        reason = 'stalemate';
+    }
+    finishDailyGame(entry, result, reason, atMs);
+}
+
+function dailyResultText(entry) {
+    if (!entry || entry.status !== 'finished') return '';
+    if (entry.result === 'win') return 'Victòria!';
+    if (entry.result === 'draw') return 'Taules';
+    if (entry.resultReason === 'timeout') return 'Derrota per temps';
+    if (entry.resultReason === 'resign') return 'Derrota (rendició)';
+    return 'Derrota';
+}
+
+// Entrada MÍNIMA a l'historial (sense revisió jugada a jugada: la partida s'ha
+// jugat al llarg de dies i pot haver-se acabat amb l'app tancada). Prou perquè
+// consti el resultat, es pugui reproduir i compti a les estadístiques.
+function recordDailyGameHistory(entry) {
+    try {
+        const chess = dailyChessFor(entry);
+        const now = new Date(entry.finishedAt || Date.now());
+        let resultLabel = dailyResultText(entry);
+        if (entry.result === 'win' && entry.resultReason === 'checkmate') resultLabel = 'Victòria per escac i mat!';
+        const label = `${resultLabel} (${formatEloChange(entry.ratingDelta || 0)} · ${DAILY_TC_LABEL})`;
+        gameHistory.push({
+            id: `game_${Date.now()}_${entry.id}`,
+            label: now.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short' }) + ' ' + now.toLocaleTimeString('ca-ES', { hour: '2-digit', minute: '2-digit' }),
+            date: now.toISOString(),
+            mode: 'daily',
+            result: label,
+            precision: null,
+            counts: {},
+            moves: (entry.movesSan || []).slice(),
+            errors: [],
+            moveReviews: [],
+            review: [],
+            severeErrors: [],
+            aiReview: null,
+            playerColor: entry.playerColor,
+            timeControl: DAILY_TC_ID,
+            opponent: null,
+            fen: chess.fen(),
+            pgn: chess.pgn(),
+            roc: entry.opponentElo,
+            level: null,
+            accuracy: null,
+            mistakes: 0,
+            createdAt: new Date(entry.createdAt || Date.now()).toISOString(),
+            updatedAt: now.toISOString()
+        });
+        if (gameHistory.length > HISTORY_MAX) gameHistory = gameHistory.slice(-HISTORY_MAX);
+        saveStorage();
+    } catch (e) { console.warn("[Daily] no s'ha pogut desar la partida a l'historial", e); }
+}
+
+// ---- Resposta del motor en segon pla (worker propi, d'una en una) ----
+function queueDailyEngineMove(id) {
+    const entry = getDailyGame(id);
+    if (!entry || entry.status !== 'active') return;
+    if (dailyEngineBusyId === id || dailyEngineQueue.indexOf(id) !== -1) return;
+    dailyEngineQueue.push(id);
+    pumpDailyEngineQueue();
+}
+
+function ensureDailyEngineWorker() {
+    if (dailyEngineWorker) return dailyEngineWorker;
+    const worker = createStockfishWorker();
+    if (!worker) return null;
+    dailyEngineWorker = worker;
+    try {
+        worker.postMessage('uci');
+        worker.postMessage('ucinewgame');
+    } catch (e) {}
+    return dailyEngineWorker;
+}
+
+function releaseDailyEngineWorker() {
+    if (!dailyEngineWorker) return;
+    try { dailyEngineWorker.postMessage('stop'); } catch (e) {}
+    try { dailyEngineWorker.terminate(); } catch (e) {}
+    dailyEngineWorker = null;
+}
+
+function pumpDailyEngineQueue() {
+    if (dailyEngineBusyId !== null) return;
+    const id = dailyEngineQueue.shift();
+    if (!id) { releaseDailyEngineWorker(); return; }
+    const entry = getDailyGame(id);
+    const action = entry ? ElTaulerCore.dailyNextAction(entry, Date.now()) : { kind: 'none' };
+    if (action.kind !== 'engine_move') { pumpDailyEngineQueue(); return; }
+    dailyEngineBusyId = id;
+    computeDailyEngineMove(entry)
+        .then(moveUci => { applyDailyEngineMove(entry, moveUci, action.at); })
+        .catch(err => {
+            // Motor caigut o sense resposta: es deixa la partida tal com està i
+            // el pròxim tic de manteniment la tornarà a encuar.
+            console.warn('[Daily] cerca del rival fallida', err);
+            releaseDailyEngineWorker();
+        })
+        .then(() => {
+            dailyEngineBusyId = null;
+            setTimeout(pumpDailyEngineQueue, 50);
+        });
+}
+
+// Cerca la jugada del rival d'una partida diària al seu nivell, amb el worker
+// propi i la MATEIXA humanització que les partides en directe (MultiPV +
+// chooseHumanLikeMove), forçant l'ELO del rival d'aquesta partida via
+// strengthEloOverride perquè no depengui del que hi hagi obert a pantalla.
+function computeDailyEngineMove(entry) {
+    return new Promise((resolve, reject) => {
+        const chess = dailyChessFor(entry);
+        if (chess.game_over()) { resolve(null); return; }
+        const worker = ensureDailyEngineWorker();
+        if (!worker) { reject(new Error('Stockfish no disponible')); return; }
+        const roc = clampEngineElo(entry.opponentElo);
+        const candidates = [];
+        let settled = false;
+        const watchdog = setTimeout(() => {
+            if (settled) return;
+            settled = true;
+            worker.onmessage = null;
+            releaseDailyEngineWorker();
+            reject(new Error('temps de cerca esgotat'));
+        }, 20000);
+        worker.onmessage = (e) => {
+            const msg = String((e && e.data) || '');
+            if (msg.indexOf('multipv') !== -1 && msg.indexOf(' pv ') !== -1) {
+                const pvMatch = msg.match(/multipv\s+(\d+).*?\spv\s+([a-h][1-8][a-h][1-8][qrbn]?)/);
+                if (pvMatch) {
+                    let score = 0;
+                    const cpMatch = msg.match(/score cp (-?\d+)/);
+                    if (cpMatch) score = parseInt(cpMatch[1]);
+                    const mateMatch = msg.match(/score mate (-?\d+)/);
+                    if (mateMatch) score = parseInt(mateMatch[1]) > 0 ? 10000 : -10000;
+                    const candidate = { multipv: parseInt(pvMatch[1]), move: pvMatch[2], score };
+                    const existing = candidates.findIndex(c => c.multipv === candidate.multipv);
+                    if (existing >= 0) candidates[existing] = candidate; else candidates.push(candidate);
+                }
+                return;
+            }
+            if (msg.indexOf('bestmove') !== -1 && !settled) {
+                settled = true;
+                clearTimeout(watchdog);
+                worker.onmessage = null;
+                const match = msg.match(/bestmove\s([a-h][1-8][a-h][1-8][qrbn]?)/);
+                const fallback = match ? match[1] : null;
+                let moveUci = fallback;
+                strengthEloOverride = roc;
+                try {
+                    const chosen = candidates.length ? chooseHumanLikeMove(candidates, chess) : null;
+                    if (chosen && chosen.move) moveUci = chosen.move;
+                    else if (fallback) moveUci = chooseFallbackMove(fallback, chess);
+                } catch (e) {
+                } finally {
+                    strengthEloOverride = null;
+                }
+                resolve(moveUci || null);
+            }
+        };
+        try {
+            worker.postMessage('setoption name UCI_LimitStrength value true');
+            worker.postMessage(`setoption name UCI_Elo value ${rocToEngineElo(roc)}`);
+            worker.postMessage(`setoption name MultiPV value ${getEngineMoveMultiPvValue(roc, 5)}`);
+            worker.postMessage(`position fen ${chess.fen()}`);
+            // Sostre de temps real: la cerca és en segon pla i no ha de penjar
+            // l'app en un dispositiu lent; el rival "pensa" 3 hores de calendari,
+            // no de CPU.
+            worker.postMessage(`go depth ${eloToSearchDepth(roc)} movetime 4000`);
+        } catch (err) {
+            if (!settled) {
+                settled = true;
+                clearTimeout(watchdog);
+                worker.onmessage = null;
+                reject(err);
+            }
+        }
+    });
+}
+
+// Aplica la jugada del motor amb la marca de temps OFICIAL del venciment de
+// les 3 h: les 24 h del jugador corren des d'allà, no des que l'app l'ha vist.
+function applyDailyEngineMove(entry, moveUci, officialAt) {
+    if (!entry || entry.status !== 'active') return;
+    if (ElTaulerCore.dailyIsPlayerTurn(entry)) return; // resposta antiga o duplicada
+    const chess = dailyChessFor(entry);
+    let applied = null;
+    if (moveUci && moveUci.length >= 4) {
+        applied = chess.move({
+            from: moveUci.slice(0, 2),
+            to: moveUci.slice(2, 4),
+            promotion: moveUci.length > 4 ? moveUci[4] : 'q'
+        });
+    }
+    if (!applied) {
+        // Cap jugada legal: si la posició ja és final (l'última jugada del
+        // jugador va acabar la partida sense que quedés tancada), tanca-la.
+        if (chess.game_over()) finishDailyGameFromPosition(entry, chess, officialAt || Date.now());
+        return;
+    }
+    entry.movesSan.push(applied.san);
+    entry.fen = chess.fen();
+    entry.turnStartedAt = officialAt || Date.now();
+    if (chess.game_over()) {
+        finishDailyGameFromPosition(entry, chess, Date.now());
+    } else {
+        saveDailyGames();
+        // Mentre l'app era tancada poden haver vençut TAMBÉ les 24 h del
+        // jugador (la resposta del motor queda datada al venciment de les 3 h).
+        const action = ElTaulerCore.dailyNextAction(entry, Date.now());
+        if (action.kind === 'player_timeout') finishDailyGame(entry, 'loss', 'timeout', action.at);
+    }
+    renderDailyGamesPanel();
+    refreshDailyScreenIf(entry.id);
+}
+
+// ---- Miniatures de la pàgina principal ----
+const DAILY_PIECE_GLYPHS = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+
+// Tauler en miniatura: graella 8×8 pura amb peces de text (sense chessboard.js
+// ni imatges: lleuger, funciona fora de línia i se'n pinten quantes calguin).
+function dailyMiniBoardHtml(fen, playerColor) {
+    const parsed = ElTaulerCore.antidoteParseBoard(fen);
+    const flipped = playerColor === 'b';
+    let html = '<div class="daily-mini" aria-hidden="true">';
+    for (let row = 0; row < 8; row++) {
+        for (let col = 0; col < 8; col++) {
+            const rank = flipped ? row : 7 - row;
+            const file = flipped ? 7 - col : col;
+            const piece = parsed.grid[rank] ? parsed.grid[rank][file] : null;
+            const light = (rank + file) % 2 === 1;
+            html += `<div class="dm-sq ${light ? 'dm-light' : 'dm-dark'}">`
+                + (piece ? `<span class="${piece.c === 'w' ? 'dm-w' : 'dm-b'}">${DAILY_PIECE_GLYPHS[piece.t] || ''}</span>` : '')
+                + '</div>';
+        }
+    }
+    return html + '</div>';
+}
+
+// Les targetes s'ordenen per urgència: primer on et toca moure (venciment més
+// pròxim abans), després on penses el rival (resposta més pròxima abans) i al
+// final els resultats pendents de tancar.
+function dailyCardSortKey(entry, now) {
+    if (entry.status === 'finished') return 2e15 + (entry.finishedAt || 0);
+    if (ElTaulerCore.dailyIsPlayerTurn(entry)) return ElTaulerCore.dailyPlayerDeadlineMs(entry) || now;
+    return 1e15 + (ElTaulerCore.dailyEngineDueMs(entry) || now);
+}
+
+function renderDailyGamesPanel() {
+    const grid = document.getElementById('daily-grid');
+    if (!grid) return;
+    const now = Date.now();
+    const cards = dailyGames.slice().sort((a, b) => dailyCardSortKey(a, now) - dailyCardSortKey(b, now));
+    let html = '';
+    cards.forEach(entry => {
+        const mini = dailyMiniBoardHtml(dailyEntryFen(entry), entry.playerColor);
+        if (entry.status === 'finished') {
+            const isWin = entry.result === 'win';
+            const isDraw = entry.result === 'draw';
+            const cardClass = isWin ? 'daily-card-won' : (isDraw ? '' : 'daily-card-lost');
+            const stateClass = isWin ? 'state-won' : (isDraw ? '' : 'state-lost');
+            html += `<div class="daily-card ${cardClass}" data-daily-id="${entry.id}">
+                ${mini}
+                <div class="daily-card-state ${stateClass}">${dailyResultText(entry)}</div>
+                <div class="daily-card-clock">ELO diari ${formatEloChange(entry.ratingDelta || 0)}</div>
+                <button class="btn btn-secondary daily-card-close" type="button">Tancar</button>
+            </div>`;
+            return;
+        }
+        if (ElTaulerCore.dailyIsPlayerTurn(entry)) {
+            const remaining = (ElTaulerCore.dailyPlayerDeadlineMs(entry) || now) - now;
+            const urgent = remaining <= 3 * 60 * 60 * 1000;
+            html += `<div class="daily-card daily-card-turn" data-daily-id="${entry.id}">
+                ${mini}
+                <div class="daily-card-state state-turn">Et toca moure</div>
+                <div class="daily-card-clock ${urgent ? 'clock-urgent' : ''}">⏳ Et queden ${ElTaulerCore.dailyCountdownLabel(remaining)}</div>
+                <button class="btn btn-primary daily-card-play" type="button">Jugar</button>
+            </div>`;
+        } else {
+            const due = ElTaulerCore.dailyEngineDueMs(entry) || now;
+            const waiting = due - now;
+            const clockText = waiting > 0
+                ? `🕐 El rival mou d'aquí a ${ElTaulerCore.dailyCountdownLabel(waiting)}`
+                : '🕐 El rival està movent…';
+            html += `<div class="daily-card" data-daily-id="${entry.id}">
+                ${mini}
+                <div class="daily-card-state">Torn del rival</div>
+                <div class="daily-card-clock">${clockText}</div>
+                <button class="btn btn-secondary daily-card-play" type="button">Jugar</button>
+            </div>`;
+        }
+    });
+    grid.innerHTML = html;
+    const badge = document.getElementById('daily-elo-badge');
+    if (badge) {
+        const rating = getDailyRating();
+        badge.style.display = rating !== null ? '' : 'none';
+        if (rating !== null) badge.textContent = `ELO ${Math.round(rating)}`;
+    }
+}
+
+// «Tancar» d'una targeta acabada: la partida ja és a l'historial i l'ELO ja
+// s'ha aplicat; la targeta desapareix de la pàgina principal.
+function closeDailyCard(id) {
+    const entry = getDailyGame(id);
+    if (!entry || entry.status !== 'finished') return;
+    dailyGames = dailyGames.filter(g => g.id !== id);
+    saveDailyGames();
+    if (dailyScreenGameId === id) { dailyScreenGameId = null; }
+    renderDailyGamesPanel();
+}
+
+// ---- Pantalla d'una partida diària ----
+function openDailyGame(id) {
+    const entry = getDailyGame(id);
+    if (!entry) return;
+    dailyScreenGameId = id;
+    dailyChess = dailyChessFor(entry);
+    dailyTapSquare = null;
+    $('#start-screen').hide();
+    $('#stats-screen').hide();
+    $('#settings-screen').hide();
+    $('#league-screen').hide();
+    $('#history-screen').hide();
+    $('#calibration-result-screen').hide();
+    $('#daily-screen').show();
+    navPush('daily-screen');
+    buildDailyBoard(entry);
+    renderDailyScreenState();
+}
+
+function closeDailyScreen() {
+    dailyScreenGameId = null;
+    dailyChess = null;
+    dailyTapSquare = null;
+    if (dailyBoard) { try { dailyBoard.destroy(); } catch (e) {} dailyBoard = null; }
+    $('#daily-screen').hide();
+    $('#start-screen').show();
+    renderDailyGamesPanel();
+}
+
+function buildDailyBoard(entry) {
+    if (dailyBoard) { try { dailyBoard.destroy(); } catch (e) {} dailyBoard = null; }
+    dailyBoard = Chessboard('daily-board', {
+        position: dailyChess.fen(),
+        orientation: entry.playerColor === 'b' ? 'black' : 'white',
+        draggable: (controlMode === 'drag'),
+        onDragStart: onDailyDragStart,
+        onDrop: onDailyDrop,
+        onSnapEnd: () => { if (dailyBoard && dailyChess) dailyBoard.position(dailyChess.fen()); },
+        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+    });
+    // Mode toc: mateixes marques que la resta de taulers (.tap-selected/.tap-move).
+    $('#daily-board').off('click', '.square-55d63').on('click', '.square-55d63', function () {
+        const sq = $(this).attr('data-square');
+        if (sq) onDailySquareTap(sq);
+    });
+    setTimeout(resizeDailyBoard, 0);
+}
+
+function resizeDailyBoard() {
+    const screen = document.getElementById('daily-screen');
+    if (!dailyBoard || !screen || screen.style.display === 'none') return;
+    try { dailyBoard.resize(); } catch (e) {}
+    // El resize reconstrueix les caselles i s'emporta les marques del mode toc.
+    dailyTapSquare = null;
+    $('#daily-board .square-55d63').removeClass('tap-selected tap-move');
+}
+
+function onDailyDragStart(source, piece) {
+    const entry = currentDailyEntry();
+    if (!entry || !canDailyPlayNow(entry) || !dailyChess) return false;
+    const ownPrefix = entry.playerColor === 'w' ? /^w/ : /^b/;
+    return piece.search(ownPrefix) !== -1;
+}
+
+function onDailyDrop(source, target) {
+    const entry = currentDailyEntry();
+    if (!entry || !canDailyPlayNow(entry) || !dailyChess) return 'snapback';
+    if (isUserPromotionMove(dailyChess, source, target)) {
+        showPromotionPicker(dailyChess.turn(), (piece) => commitDailyMove(source, target, piece));
+        return 'snapback';
+    }
+    if (!commitDailyMove(source, target, 'q')) return 'snapback';
+}
+
+function dailyClearTapMarks() {
+    dailyTapSquare = null;
+    $('#daily-board .square-55d63').removeClass('tap-selected tap-move');
+}
+
+function onDailySquareTap(square) {
+    const entry = currentDailyEntry();
+    if (!entry || !canDailyPlayNow(entry) || !dailyChess) return;
+    if (dailyTapSquare) {
+        if (square === dailyTapSquare) { dailyClearTapMarks(); return; }
+        const targetMove = dailyChess.moves({ square: dailyTapSquare, verbose: true }).find(m => m.to === square);
+        if (targetMove) {
+            const fromSq = dailyTapSquare;
+            dailyClearTapMarks();
+            if (targetMove.promotion) showPromotionPicker(dailyChess.turn(), (piece) => commitDailyMove(fromSq, square, piece));
+            else commitDailyMove(fromSq, square, 'q');
+            return;
+        }
+    }
+    const piece = dailyChess.get(square);
+    if (piece && piece.color === entry.playerColor && dailyChess.moves({ square, verbose: true }).length > 0) {
+        dailyClearTapMarks();
+        dailyTapSquare = square;
+        $(`#daily-board .square-55d63[data-square='${square}']`).addClass('tap-selected');
+        dailyChess.moves({ square, verbose: true }).forEach(m => {
+            $(`#daily-board .square-55d63[data-square='${m.to}']`).addClass('tap-move');
+        });
+    } else {
+        dailyClearTapMarks();
+    }
+}
+
+// La jugada del jugador: es desa amb la seva marca de temps i comencen les 3 h
+// del motor. Aquí NO es demana res a Stockfish: la resposta arribarà quan toqui
+// (processDailyGames), encara que sigui d'aquí a tres hores o en una altra sessió.
+function commitDailyMove(from, to, promotion) {
+    const entry = currentDailyEntry();
+    if (!entry || !canDailyPlayNow(entry) || !dailyChess) return false;
+    const applied = dailyChess.move({ from, to, promotion: promotion || 'q' });
+    if (!applied) return false;
+    dailyClearTapMarks();
+    const now = Date.now();
+    entry.movesSan.push(applied.san);
+    entry.fen = dailyChess.fen();
+    entry.turnStartedAt = now;
+    if (dailyChess.game_over()) {
+        finishDailyGameFromPosition(entry, dailyChess, now);
+    } else {
+        saveDailyGames();
+    }
+    if (dailyBoard) dailyBoard.position(dailyChess.fen());
+    renderDailyScreenState();
+    renderDailyGamesPanel();
+    return true;
+}
+
+function confirmDailyResign() {
+    const entry = currentDailyEntry();
+    if (!entry || entry.status !== 'active') return;
+    showAppConfirm('Rendir-te en aquesta partida diària? Compta com a derrota i baixa el teu ELO diari.', () => {
+        finishDailyGame(entry, 'loss', 'resign', Date.now());
+        refreshDailyScreenIf(entry.id);
+    });
+}
+
+// Refresca la pantalla si la partida oberta ha canviat per sota (resposta del
+// motor aplicada en segon pla, sincronització des d'un altre dispositiu...).
+function refreshDailyScreenIf(id) {
+    if (!dailyScreenGameId || dailyScreenGameId !== id) return;
+    const entry = getDailyGame(id);
+    if (!entry) { closeDailyScreen(); return; }
+    if (!dailyChess || dailyChess.history().length !== (entry.movesSan || []).length) {
+        dailyChess = dailyChessFor(entry);
+        if (dailyBoard) dailyBoard.position(dailyChess.fen());
+        dailyClearTapMarks();
+    }
+    renderDailyScreenState();
+}
+
+function renderDailyScreenState() {
+    const entry = currentDailyEntry();
+    const screen = document.getElementById('daily-screen');
+    if (!entry || !screen || screen.style.display === 'none') return;
+    const rating = getDailyRating();
+    $('#daily-my-elo').text(rating !== null ? Math.round(rating) : getDisplayedElo(userELO));
+    $('#daily-opp-elo').text(`ROC ${entry.opponentElo}`);
+    const clockEl = $('#daily-screen-clock');
+    const statusEl = $('#daily-status');
+    const now = Date.now();
+    clockEl.removeClass('clock-urgent');
+    if (entry.status === 'finished') {
+        const delta = formatEloChange(entry.ratingDelta || 0);
+        statusEl.text(`${dailyResultText(entry)} (${delta} · ELO diari)`);
+        clockEl.text('🏁 Partida acabada');
+        $('#btn-daily-resign').hide();
+        return;
+    }
+    $('#btn-daily-resign').show();
+    if (ElTaulerCore.dailyIsPlayerTurn(entry)) {
+        const remaining = (ElTaulerCore.dailyPlayerDeadlineMs(entry) || now) - now;
+        const check = dailyChess && dailyChess.in_check() ? ' — Escac!' : '';
+        statusEl.text(`Et toca moure${check}`);
+        clockEl.text(`⏳ ${ElTaulerCore.dailyCountdownLabel(remaining)}`);
+        if (remaining <= 3 * 60 * 60 * 1000) clockEl.addClass('clock-urgent');
+    } else {
+        const due = ElTaulerCore.dailyEngineDueMs(entry) || now;
+        const waiting = due - now;
+        if (waiting > 0) {
+            statusEl.text('Jugada feta! Ja pots tancar: el rival respondrà quan passin les 3 hores.');
+            clockEl.text(`🕐 Resposta ${ElTaulerCore.dailyCountdownLabel(waiting) === 'temps esgotat' ? 'imminent' : "d'aquí a " + ElTaulerCore.dailyCountdownLabel(waiting)}`);
+        } else {
+            statusEl.text('El rival està movent…');
+            clockEl.text('🕐 Resposta imminent');
+        }
+    }
+}
+
+// ---- Arrencada i esdeveniments del mode diari ----
+function initDailyGames() {
+    $('#btn-daily-new').off('click').on('click', startNewDailyGame);
+    $('#daily-grid').off('click').on('click', '.daily-card-play', function () {
+        const id = $(this).closest('.daily-card').attr('data-daily-id');
+        if (id) openDailyGame(id);
+    }).on('click', '.daily-card-close', function () {
+        const id = $(this).closest('.daily-card').attr('data-daily-id');
+        if (id) closeDailyCard(id);
+    });
+    $('#btn-daily-home').off('click').on('click', () => closeDailyScreen());
+    $('#btn-daily-resign').off('click').on('click', () => confirmDailyResign());
+    window.addEventListener('resize', resizeDailyBoard);
+    document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'visible') setTimeout(processDailyGames, 200);
+    });
+    if (dailyTicker) clearInterval(dailyTicker);
+    // Mig minut: prou fi per als comptes enrere (la unitat mínima mostrada és
+    // el minut) i per detectar el venciment de les 3 h sense recarregar l'app.
+    dailyTicker = setInterval(processDailyGames, 30000);
+    processDailyGames();
+}
+/* =================== FI PARTIDES DIÀRIES (24 h per jugada) =================== */
+
 function resetEngineMoveCandidates() {
     engineMoveCandidates = [];
 }
@@ -6557,6 +7244,7 @@ function loadStorage() {
     const elo = localStorage.getItem('chess_userELO'); if (elo) userELO = parseInt(elo);
     const tcElos = localStorage.getItem(TIME_CONTROL_ELOS_KEY);
     if (tcElos) { try { const parsed = JSON.parse(tcElos); if (parsed && typeof parsed === 'object') timeControlElos = parsed; } catch (e) {} }
+    loadDailyGames();
     const errors = localStorage.getItem('chess_savedErrors'); if (errors) savedErrors = JSON.parse(errors);
     try { const pz = localStorage.getItem('chess_puzzles'); if (pz) puzzles = JSON.parse(pz) || []; } catch (e) { puzzles = []; }
     const streak = localStorage.getItem('chess_streak'); if (streak) currentStreak = parseInt(streak);
@@ -6790,6 +7478,7 @@ function saveStorageNow() {
     try {
     localStorage.setItem('chess_userELO', userELO);
     localStorage.setItem(TIME_CONTROL_ELOS_KEY, JSON.stringify(timeControlElos));
+    localStorage.setItem(DAILY_GAMES_KEY, JSON.stringify(dailyGames));
     localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
     try { localStorage.setItem('chess_puzzles', JSON.stringify(puzzles)); } catch (e) {}
     localStorage.setItem('chess_streak', currentStreak);
@@ -7578,6 +8267,7 @@ function updateDisplay() {
     $('#tactics-info').text(tacticsStats.solved > 0 ? `${tacticsStats.solved} resoltes · tàctica general` : 'Combinacions noves');
     updateStreakDisplay(); updateMissionsDisplay(); updateLeagueAccessUI();
     updateEngagementBanner();
+    try { renderDailyGamesPanel(); } catch (e) {}
     renderWeeklyPlan();
     // Resum del diagnòstic de l'entrenador al bàner de la home (es regenera sol
     // cada dia; aquí només el pinta amb el text vigent).
@@ -7616,6 +8306,23 @@ function renderTimeControlEloStats() {
             <button type="button" class="btn btn-secondary tc-elo-action" data-tc="${t.id}">${actionIcon} ${actionLabel}</button>
         </div>`;
     });
+    // Variant diària (24 h per jugada): mateix format que els ritmes, però el
+    // botó obre una partida diària nova (no passa pel rellotge en viu).
+    {
+        const entry = timeControlElos[DAILY_TC_ID];
+        const hasElo = entry && typeof entry.elo === 'number';
+        const games = (entry && entry.games) || 0;
+        const record = `${(entry && entry.wins) || 0}V · ${(entry && entry.draws) || 0}T · ${(entry && entry.losses) || 0}D`;
+        const gamesSummary = hasElo
+            ? `<div class="tc-elo-games">${games} ${games === 1 ? 'partida' : 'partides'} · ${record}</div>`
+            : '<div class="tc-elo-games">24 h per jugada</div>';
+        html += `<div class="stat-card">
+            <div class="stat-card-value">${hasElo ? Math.round(entry.elo) : '—'}</div>
+            <div class="stat-card-label">${DAILY_TC_LABEL}</div>
+            ${gamesSummary}
+            <button type="button" class="btn btn-secondary tc-elo-daily-action">🕐 Jugar</button>
+        </div>`;
+    }
     container.innerHTML = html;
 }
 
@@ -7702,7 +8409,9 @@ function populateEloChartTcSelect() {
         TIME_CONTROLS
             .filter(t => t.id !== 'none' && getTimeControlRating(t.id) !== null)
             .map(t => ({ id: t.id, label: t.label }))
-    );
+    ).concat(getTimeControlRating(DAILY_TC_ID) !== null
+        ? [{ id: DAILY_TC_ID, label: DAILY_TC_LABEL }]
+        : []);
     if (!options.some(o => o.id === eloChartTcId)) eloChartTcId = 'main';
     sel.innerHTML = options
         .map(o => `<option value="${o.id}"${o.id === eloChartTcId ? ' selected' : ''}>${escapeHtml(o.label)}</option>`)
@@ -9628,6 +10337,7 @@ function formatHistoryMode(mode) {
     if (mode === 'free') return 'Amistosa';
     if (mode === 'positional') return 'Joc vista';
     if (mode === 'imported') return 'Importada';
+    if (mode === 'daily') return 'Partida diària';
     return 'Partida';
 }
 
@@ -21702,6 +22412,10 @@ function setupEvents() {
     // Partida (o calibratge si encara no hi ha ELO) des de la graella per ritme.
     $('#stats-tc-elos').off('click', '.tc-elo-action').on('click', '.tc-elo-action', function () {
         startTimeControlGameFromStats($(this).data('tc'));
+    });
+    // Variant diària des d'Estadístiques: obre una partida diària nova.
+    $('#stats-tc-elos').off('click', '.tc-elo-daily-action').on('click', '.tc-elo-daily-action', function () {
+        startNewDailyGame();
     });
     // Modalitat de la gràfica de progressió de l'ELO (principal o un ritme).
     $('#elo-chart-tc-select').off('change').on('change', function () {
@@ -34423,6 +35137,9 @@ $(document).ready(() => {
     if (tcSel) tcSel.value = pendingFreeTimeControl;
     refreshPlayClockChips();
     generateDailyMissions(); checkStreak(); initCoachVoice(); ensureWeeklyPlan(); updateDisplay(); setupEvents();
+    // Partides diàries: pinta les miniatures i resol el que hagi vençut mentre
+    // l'app era tancada (derrotes per temps i respostes del motor pendents).
+    try { initDailyGames(); } catch (e) { console.warn('[Daily] init', e); }
     enablePremoveCancelGesture();
     // L'arrencada es fa després del primer pintat: quan s'obre una partida
     // amb rellotge, el worker sol estar llest abans de la primera jugada.
