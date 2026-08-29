@@ -6668,6 +6668,9 @@ function renderDailyGamesPanel() {
         }
     });
     grid.innerHTML = html;
+    // El títol només encapçala si hi ha alguna partida a sota.
+    const title = document.getElementById('daily-section-title');
+    if (title) title.style.display = cards.length ? '' : 'none';
     applyDailyCarousel(cards.length);
 }
 

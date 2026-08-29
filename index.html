@@ -1510,6 +1510,13 @@
             grid-template-columns: repeat(auto-fill, minmax(min(150px, 100%), 1fr));
         }
         .daily-grid:empty { display: none; }
+        .daily-section-title {
+            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            text-transform: uppercase; color: var(--text-secondary);
+            text-align: left; margin: 2px 0 -2px 2px; opacity: 0.85;
+            display: flex; align-items: center; gap: 8px;
+        }
+        .daily-section-title::after { content: ''; flex: 1; height: 1px; background: rgba(201,162,39,0.18); }
         body.device-desktop .daily-grid {
             grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
             gap: 14px;
@@ -2430,6 +2437,8 @@
         body.device-desktop .menu-buttons > .btn-explorer-menu,
         body.device-desktop .menu-buttons > .btn-settings,
         body.device-desktop .menu-buttons > .daily-grid,
+        body.device-desktop .menu-buttons > .daily-section-title,
+        body.device-desktop .menu-buttons > .daily-dots,
         body.device-desktop .menu-buttons > #btn-league {
             grid-column: 1 / -1;
         }
@@ -5438,6 +5447,9 @@
                          queda i el botó de jugar; una partida perduda per temps queda
                          entre les miniatures amb la derrota i el botó de tancar. Es
                          pinta des d'app.js i, buida, no ocupa lloc. -->
+                    <!-- Títol de les partides diàries en curs. S'amaga sol quan
+                         no n'hi ha cap (no ha d'encapçalar el buit). -->
+                    <div class="daily-section-title" id="daily-section-title" style="display:none;">Partides 24 h</div>
                     <div class="daily-grid" id="daily-grid"></div>
                     <!-- Punts del carrusel (només al mòbil amb més de dues
                          partides): diuen quantes n'hi ha i on ets, i tocant-ne
@@ -7878,7 +7890,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.92"></script>
+    <script src="app.js?v=1.0.93"></script>
 
     <!-- Service Worker Registration -->
     <script>
