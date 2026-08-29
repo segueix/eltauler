@@ -180,11 +180,19 @@ Tot viu a `core.js` i es prova a `tests/humantime.test.js`.
   és la que permet que una partida que s'allarga acabi en bandera.
 - **`rollClockTemperament`**: multiplicador de ritme tirat **una vegada per
   partida**. Hi ha partides que el rival juga còmode i partides que se li crema
-  el rellotge.
+  el rellotge. Té **mitjana 1 exacta** (la log-normal es normalitza pel biaix
+  que hi introdueixen els talls a 0,4 i 3,2), de manera que la seva dispersió
+  —`paceSigma`, que és amb què es calibra el risc de bandera— decideix QUINES
+  partides es cremen el rellotge sense tocar els segons per jugada.
 - **Pensada llarga**: amb una probabilitat petita per jugada, el rival s'encalla
-  i hi deixa un tros gran del rellotge, fins i tot tot. És el mecanisme que fa
-  caure banderes als ritmes amb increment, on cap ritme mitjà no esgotaria mai
-  el temps.
+  i hi deixa un tros gran del rellotge. És el mecanisme que fa caure banderes
+  als ritmes amb increment, on cap ritme mitjà no esgotaria mai el temps. Té
+  **sostre propi de cada ritme** (`HUMAN_DEEP_THINK_CEILING_MS`: de 5 s a 30s
+  fins a 100 s a 15+10) i s'hi arriba de manera **asimptòtica**, de manera que
+  cap dues pensades llargues no duren igual. I com que `spendMs` ja les porta a
+  dins, el ritme de creuer les descompta amb el que costen DE DEBÒ en aquell
+  ritme un cop el sostre les ha retallades (`HUMAN_DEEP_THINK_EFFECTIVE`),
+  perquè no es comptin dues vegades: vegeu la secció 11.
 - **Sòl físic per jugada**: un terç llarg del ritme mitjà d'aquell nivell (amb
   sostre d'un segon). Quan al rellotge ja no li queda ni per al sòl, **el motor
   cau de bandera**, com hi cau una persona.
@@ -221,6 +229,11 @@ exemple a 1+0, franja més fluixa (percentatge del rellotge inicial):
 L'única cel·la que no encaixa és **30s a la franja <1000**, on el model cau de
 bandera abans que les persones (risc 180% contra 117%): és, justament, la
 cel·la amb 374 costats de mostra i rivals descompensats.
+
+> Les xifres d'aquesta secció són les del model **abans** de la revisió de la
+> secció 11, que va corregir el descompte de les pensades llargues. Allà hi ha
+> el «abans i després» del risc de bandera i dels segons per jugada, mesurats
+> tots dos amb el mateix simulador.
 
 ### Una comprovació que no s'ha ajustat a res
 
@@ -368,3 +381,169 @@ Amb el mateix guió d'abans (premoves de ~2 ms contra un rival que pensa
 0,1 s per premove i el temps real de la resta de jugades: el desenllaç per
 temps torna a ser possible per als DOS bàndols, que és el que diuen les dades
 de la secció 4.
+
+## 11. El rival s'anava espaiant a mitja partida
+
+Jugant, l'obertura anava bé i cap a la meitat de la partida el rival començava a
+allargar-se: jugades cada vegada més separades i, de tant en tant, una pausa
+llarguíssima. No era una impressió. Són dos defectes que se sumaven, i tots dos
+cauen justament sobre el **pic** de la corba de la secció 5 —el punt de la
+partida on el model ja preveu la jugada més lenta—, que és per això que no es
+notava a l'obertura.
+
+### 11.1. El descompte de les pensades llargues estava topat justament on cal
+
+`spendMs` és el temps mitjà per jugada **mesurat**, i inclou les pensades
+llargues. El ritme de creuer, doncs, ha de ser més baix: `cruiseMs = spendMs /
+guany`, on el guany és el que les pensades llargues inflen la mitjana. Amb el
+guany massa baix, el motor gasta creuer complet **i** pensades llargues a sobre.
+
+El guany estava calculat com `1 + freqüència × 3,6` però **topat a 1,30**. I el
+topall no mossegava mai on no calia: a 1+0, on la freqüència mesurada de
+pensades llargues és del 3,6%, el guany real ja era 1,13 i el topall no hi
+arribava. Mossegava a **10+0 i 15+10**, on la freqüència puja al 23% i al 35% i
+on —això és el que ho fa pitjor— el rellotge **no** retalla les pensades, perquè
+en aquests ritmes amb prou feines es gasta el 40% del temps. Resultat, mesurat
+simulant el codi real al llarg de partides senceres:
+
+| ritme | segons/jugada del model ÷ mesurat (abans) | (ara) |
+|---|---|---|
+| 30s | 0,92–1,05 | 0,92–0,98 |
+| 1+0 | 0,93–0,98 | 0,95–0,97 |
+| 3+2 | 0,99–1,08 | 0,86–0,98 |
+| 5+0 | 0,96–1,10 | 0,89–1,02 |
+| **10+0** | **1,10–1,37** | 0,87–1,06 |
+| **15+10** | **1,01–1,59** | 0,81–1,10 |
+
+A 15+10 i franja fluixa el rival gastava **23,4 s per jugada quan la persona que
+imitava en gasta 14,7**. Un 59% de més, a cada jugada de cada partida.
+
+La correcció és descomptar el que una pensada llarga costa **de debò** en aquell
+ritme un cop tots els sostres l'han retallada (`HUMAN_DEEP_THINK_EFFECTIVE`: de
+2,78 a 1+0 fins a 3,72 a 10+0, contra el 4,6 nominal de la distribució i contra
+l'1,30 del topall). No és una xifra de gust: es deriva simulant el model mateix,
+i el test «humantime» la torna a derivar a cada execució, de manera que no pot
+quedar desfasada si algú toca els sostres o la corba.
+
+**Per què no ho havia enxampat cap prova.** N'hi havia dues que miren el
+consum, però totes dues miren el **rellotge que queda** amb una tolerància de 12
+punts, i cap no mirava els **segons per jugada**. Un error del 59% repartit al
+llarg d'una partida de 15 minuts no arriba a moure 12 punts de rellotge fins molt
+tard. Ara hi ha una prova per ritme que compara directament amb `spendMs`.
+
+### 11.2. Una sola jugada podia parar la partida dos minuts
+
+La pensada llarga s'aplica **després** del sostre escènic del ritme
+(`profile.maxMs`) i el multiplica per fins a 7, de manera que aquell sostre no la
+tocava mai: l'únic que la limitava era un valor fix de **dos minuts, igual per a
+tots els ritmes**. Dos minuts és una jugada llarga però normal a 15+10, on el
+jugador també té un quart d'hora. A 3+2 són **dos terços del rellotge sencer**.
+
+Ara cada ritme té el seu sostre, i s'hi arriba de manera **asimptòtica** en lloc
+de topar-hi: amb un sostre dur, totes les pensades que el superaven duraven
+exactament el mateix i el rival repetia la mateixa pausa màxima una jugada sí i
+l'altra també, cosa que no fa cap persona.
+
+Pausa més llarga observada simulant 3.000 partides per ritme (el sostre de dos
+minuts només s'arribava a tocar on hi ha rellotge per pagar-lo: als ritmes
+ràpids el retallava abans el temps que quedava):
+
+| ritme | pausa màxima (abans) | (ara) | jugades de més de 20 s |
+|---|---|---|---|
+| 30s | 14,9 s | 5,0 s | — |
+| 1+0 | 32,9 s | 8,0 s | 0,0% (era 0,0%) |
+| 3+2 | 80,7 s | 24,9 s | 2,0% (era 3,5%) |
+| 5+0 | 88,9 s | 29,9 s | 3,0% (era 4,0%) |
+| 10+0 | 120,0 s | 58,7 s | 7,5% (era 11,7%) |
+| 15+10 | 120,0 s | 97,2 s | 23,4% (era 28,8%) |
+
+Els sostres no són arbitraris: cada un és **el més curt que encara reprodueix el
+risc de bandera** d'aquell ritme. Per sota, el rival deixa de poder perdre per
+temps —i als ritmes lents la pensada llarga n'és l'únic mecanisme possible: cap
+ritme mitjà no crema mai un rellotge de deu o quinze minuts—. Guanyar per temps
+és una via de victòria que el jugador ha de tenir oberta, i ara hi ha una prova
+per ritme que ho comprova (era fàcil tancar-la sense adonar-se'n, perquè als
+ritmes lents passa poc).
+
+### 11.3. On surten ara les banderes dels ritmes lents
+
+Corregir 11.1 té una conseqüència que val la pena dir clarament: **el model
+antic comprava el risc de bandera dels ritmes lents amb el mateix error de
+pacing**. Gastant un 37% de més a 10+0 i un 59% a 15+10, el rellotge s'acabava.
+Amb els segons per jugada correctes ja no s'acaba, i posar-hi el sostre de dos
+minuts un altre cop tampoc no ho arregla (recupera només el 21% del risc a 10+0
+i el 18% a 15+10): el forat no era el sostre, era el creuer.
+
+La bandera havia de venir, doncs, del mecanisme que la provoca a les partides de
+debò: **no una pensada monstruosa, sinó una partida sencera jugada a poc a poc**.
+Això és `paceSigma`, el tarannà de la partida —i és, precisament, el paràmetre
+que la secció 8 ja documentava com a ajustat contra el risc de bandera—. Fins ara
+valia 0,42 a totes les files; ara és per ritme:
+
+| ritme | 30s | 1+0 | 3+2 | 5+0 | 10+0 | 15+10 |
+|---|---|---|---|---|---|---|
+| paceSigma | 0,42 | 0,42 | 0,70 | 0,55 | 0,70 | 0,85 |
+
+Que creixi amb la lentitud del ritme té sentit de mecanisme: a 30s i 1+0 el
+rellotge s'esgota tot sol amb el ritme mitjà i no cal cap dispersió per fer caure
+banderes; a 10+0 i 15+10 el ritme mitjà no l'esgotaria mai, i les banderes només
+poden sortir de les partides que se'n surten.
+
+Perquè aquesta dispersió es pogués moure sense arrossegar els segons per jugada
+hi va caldre un arranjament previ: el tarannà es retalla a [0,4 · 3,2] i **el
+retall li menjava la mitjana** (una log-normal amb mu = −σ²/2 té mitjana 1, però
+retallada ja no), tant més com més ampla la dispersió. Ara es normalitza pel
+biaix exacte del retall, de manera que la mitjana és 1 per construcció: pujar la
+dispersió canvia **quines** partides es cremen el rellotge, no **quant** es gasta
+de mitjana. Són dues coses que s'han de poder calibrar per separat.
+
+Risc de bandera acumulat sobre les 40 primeres jugades (mateix simulador per a
+les tres columnes, de manera que són comparables entre elles):
+
+| ritme | ELO | model antic | model nou | mesurat |
+|---|---|---|---|---|
+| 1+0 | 880 | 103% | **118%** | 127% |
+| 1+0 | 1310 | 47% | **58%** | 74% |
+| 1+0 | 1700 | 30% | **32%** | 43% |
+| 1+0 | 2400 | 11,0% | 6,9% | 14% |
+| 3+2 | 890 | 20,9% | 19,2% | 22% |
+| 10+0 | 850 | 9,5% | 7,2% | 9,2% |
+| 15+10 | 830 | 7,3% | 4,8% | 7,0% |
+
+A 1+0 el model nou s'acosta més a les dades que l'antic; als ritmes lents es
+queda una mica curt, sempre pel costat prudent (el rival cau de bandera una mica
+menys sovint que una persona del seu nivell, no més). I la corba de rellotge que
+queda continua seguint la mesurada:
+
+| 1+0, ELO 880 | j5 | j10 | j15 | j20 | j25 |
+|---|---|---|---|---|---|
+| mesurat | 89 | 68 | 46 | 29 | 20 |
+| model | 89 | 69 | 46 | 30 | 19 |
+
+### 11.4. El ritme de la partida arriba també a les pensades llargues
+
+Queda el cas que trenca una partida encara que totes les mitjanes quadrin: el
+jugador encadenant jugades de dos segons i el rival plantant-se, sense cap motiu
+visible, a pensar-ne quaranta. La sincronització amb el ritme del jugador ja hi
+era, però només tocava el temps de creuer.
+
+Ara toca també la **freqüència** de les pensades llargues, amb el mateix marge
+(±20-25%) i la mateixa idea: davant d'algú que va a la seva, un s'hi acaba
+adaptant. Amb la partida anant de pressa les pensades llargues s'espaien; amb el
+jugador rumiant-s'hi, el rival se sent més lliure de fer-ne. Mesurat a 10+0 amb
+un jugador que mou cada 2 s: el rival passa de 8,0 s a 6,5 s de mitjana i les
+jugades de més de 15 s baixen del 14,6% al 10,9%.
+
+### 11.5. Comprovat conduint l'app
+
+Les xifres d'aquesta secció surten de simular el codi real de `core.js` al llarg
+de centenars de partides, que és l'única manera de veure una diferència
+distribucional. Conduint l'app de debò (Chromium, 10+0, ROC 1500) el que es
+comprova és que el model hi arriba sencer: en una partida de 25 jugades, el
+rellotge que perd el rival a cada jugada coincideix amb l'espera real fins a
+tres dècimes —les de la cerca i l'anàlisi—, de manera que la correcció de la
+secció 10.1 continua dempeus i el rellotge no cobra res dues vegades. Les
+jugades de rutina van de 1,3 s a 6 s, i les quatre pensades llargues de la
+partida van costar 16,9 s, 34,5 s, 30,4 s i 29,7 s: totes per sota del sostre de
+60 s del ritme, quan abans qualsevol d'elles hauria pogut arribar als dos
+minuts.
