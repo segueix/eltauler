@@ -4120,12 +4120,26 @@
     //   spendMs  temps mitjà per jugada = (rellotge consumit) / (jugades)
     //   flagRate proporció de partides perdudes per temps en aquesta franja
     //   n        costats de jugador de la mostra (mida de la mostra)
-    //   paceSigma  ÚNIC paràmetre no mesurat sinó AJUSTAT: dispersió del ritme
-    //              entre partides. Es va calibrar cercant, per a cada fila, el
-    //              valor que fa que el model reprodueixi el risc de bandera
-    //              mesurat (probabilitat de caure a la jugada k havent arribat
-    //              viu a k-1, acumulada sobre les 40 primeres jugades). El
-    //              test «humantime» torna a comprovar aquest ajust.
+    //   paceSigma  Paràmetre no mesurat sinó AJUSTAT: dispersió del ritme entre
+    //              partides (hi ha partides que el rival juga còmode i partides
+    //              que se li crema el rellotge). Es calibra cercant el valor que
+    //              fa que el model reprodueixi el risc de bandera mesurat
+    //              (probabilitat de caure a la jugada k havent arribat viu a
+    //              k-1, acumulada sobre les 40 primeres jugades).
+    //              És més alt als ritmes lents que als ràpids, i el motiu és
+    //              de mecanisme: a 30s i 1+0 el rellotge s'esgota tot sol amb
+    //              el ritme mitjà, i no cal cap dispersió per fer caure
+    //              banderes; a 10+0 i 15+10 el ritme mitjà no esgotaria mai el
+    //              temps, i les banderes només poden venir de les partides que
+    //              se surten del ritme. Abans hi havia un 0,42 per a tothom i
+    //              el forat el tapaven unes pensades llargues de fins a dos
+    //              minuts —una manera molt cara, per a qui espera, de comprar
+    //              el mateix desenllaç.
+    //              El tarannà que se'n sorteja té mitjana 1 exacta
+    //              (rollClockTemperament el normalitza), de manera que pujar
+    //              aquesta dispersió NO toca els segons per jugada: decideix
+    //              quines partides es cremen el rellotge, no quant es gasta de
+    //              mitjana. Les dues coses es poden calibrar per separat.
     // L'ELO de referència de cada fila és l'ELO mitjà real de la franja. Per
     // sota de la primera àncora no hi ha dades públiques (Lichess amb prou
     // feines té partides sota ~600), així que el perfil es manté: és el
@@ -4144,28 +4158,28 @@
             { elo: 2400, moves: 38.0, movesSd: 14.4, spendMs: 1204, flagRate: 0.208, paceSigma: 0.42, deepThinkRate: 0.210, n: 19937 }
         ],
         '3+2': [
-            { elo: 890,  moves: 28.2, movesSd: 15.9, spendMs: 5397, flagRate: 0.122, paceSigma: 0.42, deepThinkRate: 0.143, n: 5785 },
-            { elo: 1305, moves: 31.2, movesSd: 15.5, spendMs: 5118, flagRate: 0.100, paceSigma: 0.42, deepThinkRate: 0.150, n: 16991 },
-            { elo: 1700, moves: 33.9, movesSd: 15.7, spendMs: 5057, flagRate: 0.104, paceSigma: 0.42, deepThinkRate: 0.184, n: 23788 },
-            { elo: 2325, moves: 38.6, movesSd: 17.2, spendMs: 5218, flagRate: 0.104, paceSigma: 0.42, deepThinkRate: 0.225, n: 6194 }
+            { elo: 890,  moves: 28.2, movesSd: 15.9, spendMs: 5397, flagRate: 0.122, paceSigma: 0.70, deepThinkRate: 0.143, n: 5785 },
+            { elo: 1305, moves: 31.2, movesSd: 15.5, spendMs: 5118, flagRate: 0.100, paceSigma: 0.70, deepThinkRate: 0.150, n: 16991 },
+            { elo: 1700, moves: 33.9, movesSd: 15.7, spendMs: 5057, flagRate: 0.104, paceSigma: 0.70, deepThinkRate: 0.184, n: 23788 },
+            { elo: 2325, moves: 38.6, movesSd: 17.2, spendMs: 5218, flagRate: 0.104, paceSigma: 0.70, deepThinkRate: 0.225, n: 6194 }
         ],
         '5+0': [
-            { elo: 870,  moves: 28.7, movesSd: 14.8, spendMs: 5743, flagRate: 0.125, paceSigma: 0.42, deepThinkRate: 0.131, n: 9221 },
-            { elo: 1305, moves: 33.1, movesSd: 15.5, spendMs: 5136, flagRate: 0.103, paceSigma: 0.42, deepThinkRate: 0.150, n: 19370 },
-            { elo: 1700, moves: 36.0, movesSd: 15.6, spendMs: 4931, flagRate: 0.103, paceSigma: 0.42, deepThinkRate: 0.171, n: 24386 },
-            { elo: 2280, moves: 39.1, movesSd: 15.7, spendMs: 5246, flagRate: 0.102, paceSigma: 0.42, deepThinkRate: 0.154, n: 1368 }
+            { elo: 870,  moves: 28.7, movesSd: 14.8, spendMs: 5743, flagRate: 0.125, paceSigma: 0.55, deepThinkRate: 0.131, n: 9221 },
+            { elo: 1305, moves: 33.1, movesSd: 15.5, spendMs: 5136, flagRate: 0.103, paceSigma: 0.55, deepThinkRate: 0.150, n: 19370 },
+            { elo: 1700, moves: 36.0, movesSd: 15.6, spendMs: 4931, flagRate: 0.103, paceSigma: 0.55, deepThinkRate: 0.171, n: 24386 },
+            { elo: 2280, moves: 39.1, movesSd: 15.7, spendMs: 5246, flagRate: 0.102, paceSigma: 0.55, deepThinkRate: 0.154, n: 1368 }
         ],
         '10+0': [
-            { elo: 850,  moves: 27.4, movesSd: 16.6, spendMs: 8268, flagRate: 0.065, paceSigma: 0.42, deepThinkRate: 0.230, n: 12467 },
-            { elo: 1305, moves: 31.3, movesSd: 16.4, spendMs: 7884, flagRate: 0.054, paceSigma: 0.42, deepThinkRate: 0.240, n: 19874 },
-            { elo: 1700, moves: 34.3, movesSd: 16.4, spendMs: 7810, flagRate: 0.051, paceSigma: 0.42, deepThinkRate: 0.246, n: 22929 },
-            { elo: 2295, moves: 39.1, movesSd: 17.3, spendMs: 8800, flagRate: 0.057, paceSigma: 0.42, deepThinkRate: 0.218, n: 1399 }
+            { elo: 850,  moves: 27.4, movesSd: 16.6, spendMs: 8268, flagRate: 0.065, paceSigma: 0.70, deepThinkRate: 0.230, n: 12467 },
+            { elo: 1305, moves: 31.3, movesSd: 16.4, spendMs: 7884, flagRate: 0.054, paceSigma: 0.70, deepThinkRate: 0.240, n: 19874 },
+            { elo: 1700, moves: 34.3, movesSd: 16.4, spendMs: 7810, flagRate: 0.051, paceSigma: 0.70, deepThinkRate: 0.246, n: 22929 },
+            { elo: 2295, moves: 39.1, movesSd: 17.3, spendMs: 8800, flagRate: 0.057, paceSigma: 0.70, deepThinkRate: 0.218, n: 1399 }
         ],
         '15+10': [
-            { elo: 830,  moves: 27.1, movesSd: 16.7, spendMs: 14247, flagRate: 0.048, paceSigma: 0.42, deepThinkRate: 0.347, n: 12139 },
-            { elo: 1300, moves: 31.2, movesSd: 16.7, spendMs: 17482, flagRate: 0.040, paceSigma: 0.42, deepThinkRate: 0.239, n: 12002 },
-            { elo: 1695, moves: 34.0, movesSd: 16.9, spendMs: 19950, flagRate: 0.050, paceSigma: 0.42, deepThinkRate: 0.232, n: 8799 },
-            { elo: 2305, moves: 40.1, movesSd: 17.0, spendMs: 22360, flagRate: 0.027, paceSigma: 0.42, deepThinkRate: 0.200, n: 451 }
+            { elo: 830,  moves: 27.1, movesSd: 16.7, spendMs: 14247, flagRate: 0.048, paceSigma: 0.85, deepThinkRate: 0.347, n: 12139 },
+            { elo: 1300, moves: 31.2, movesSd: 16.7, spendMs: 17482, flagRate: 0.040, paceSigma: 0.85, deepThinkRate: 0.239, n: 12002 },
+            { elo: 1695, moves: 34.0, movesSd: 16.9, spendMs: 19950, flagRate: 0.050, paceSigma: 0.85, deepThinkRate: 0.232, n: 8799 },
+            { elo: 2305, moves: 40.1, movesSd: 17.0, spendMs: 22360, flagRate: 0.027, paceSigma: 0.85, deepThinkRate: 0.200, n: 451 }
         ]
     };
 
@@ -4225,13 +4239,12 @@
         const spendMs = mix(lo.spendMs, hi.spendMs);
         const deepThinkRate = mix(lo.deepThinkRate, hi.deepThinkRate);
         // spendMs és el temps mitjà per jugada MESURAT, i inclou les pensades
-        // llargues. El ritme de creuer, doncs, és una mica més baix: si no se'n
-        // descomptessin, el motor gastaria més del que gasta una persona. El
-        // descompte està acotat perquè bona part d'aquestes pensades llargues
-        // ja queden retallades pel rellotge que queda (i no s'han de descomptar
-        // dues vegades).
-        const deepGain = clampNum(
-            1 + deepThinkRate * ((HUMAN_DEEP_THINK_MIN + HUMAN_DEEP_THINK_MAX) / 2 - 1), 1, 1.30);
+        // llargues. El ritme de creuer, doncs, ha de ser més baix: si no se'n
+        // descomptessin, el motor gastaria més del que gasta una persona.
+        // Quant més baix el diu HUMAN_DEEP_THINK_EFFECTIVE, que és el que una
+        // pensada llarga acaba costant DE DEBÒ en aquest ritme un cop els
+        // sostres l'han retallada (vegeu-hi la nota).
+        const deepGain = 1 + deepThinkRate * (humanDeepThinkEffectiveMult(tcId) - 1);
         return {
             moves,
             movesSd: mix(lo.movesSd, hi.movesSd),
@@ -4308,18 +4321,129 @@
     // temps) i el que precipita el final als ritmes ràpids. La freqüència
     // (deepThinkRate de HUMAN_CLOCK_STATS) és l'altre paràmetre ajustat, no
     // mesurat: es calibra perquè el model reprodueixi el risc de bandera real.
-    // El sostre absolut (dos minuts) no és cap regla d'escacs: és per no deixar
-    // l'usuari mirant la pantalla més estona de la que ningú espera un rival.
     const HUMAN_DEEP_THINK_MIN = 2.2;
     const HUMAN_DEEP_THINK_MAX = 7.0;
     const HUMAN_DEEP_THINK_CAP_FRAC = 1.15;
+
+    // Fins on el ritme de la partida pot espaiar (o atansar) les pensades
+    // llargues. El marge és el mateix que el del temps de creuer: la
+    // sincronització amb el jugador ha de ser un gest, no una altra manera de
+    // decidir el temps.
+    const HUMAN_DEEP_THINK_PACE_MIN = 0.75;
+    const HUMAN_DEEP_THINK_PACE_MAX = 1.2;
+
+    // Sostre d'UNA pensada llarga, per ritme. Abans era un sol valor de dos
+    // minuts per a TOTS els ritmes, i era el forat pel qual s'escapava la resta
+    // del model: la pensada llarga s'aplica DESPRÉS del sostre escènic del
+    // ritme (profile.maxMs) i el multiplica per fins a 7, de manera que aquell
+    // sostre no la tocava. Dos minuts és una jugada llarga però normal a 15+10,
+    // on el jugador també té un quart d'hora; a 3+2 són DOS TERÇOS del rellotge
+    // sencer, i a la pràctica una sola jugada de migjoc podia deixar l'usuari
+    // mirant un tauler aturat més estona que tota la resta de la partida junta.
+    //
+    // Cada valor és el MÍNIM que encara reprodueix el risc de bandera d'aquell
+    // ritme (vegeu la nota de paceSigma a HUMAN_CLOCK_STATS): per sota, el
+    // rival deixa de poder perdre per temps, que és el desenllaç normal dels
+    // ritmes ràpids i una via de victòria que el jugador ha de tenir oberta. No
+    // són, doncs, xifres de gust: són l'espera més curta compatible amb un
+    // rival que encara pot caure de bandera.
     const HUMAN_DEEP_THINK_MAX_MS = 120000;
+    const HUMAN_DEEP_THINK_CEILING_MS = {
+        '30s': 5000, '1+0': 8000, '3+2': 25000,
+        '5+0': 30000, '10+0': 60000, '15+10': 100000
+    };
+    function humanDeepThinkCeilingMs(tcId, profile) {
+        const ceiling = HUMAN_DEEP_THINK_CEILING_MS[tcId];
+        if (typeof ceiling === 'number') return ceiling;
+        const maxMs = profile && profile.maxMs ? profile.maxMs : HUMAN_TIME_PROFILES.none.maxMs;
+        return Math.min(maxMs * 2, HUMAN_DEEP_THINK_MAX_MS);
+    }
+
+    // ...i s'hi arriba de manera asimptòtica, no topant-hi. Un sostre dur fa
+    // que TOTES les pensades que el superin durin exactament el mateix, i el
+    // rival acaba repetint la mateixa pausa màxima una jugada sí i l'altra
+    // també —cosa que no fa cap persona—. A partir de mig sostre la pensada es
+    // va comprimint, de manera que les pensades llargues continuen sent totes
+    // diferents entre elles i cap no arriba mai al sostre.
+    function humanSoftCapMs(value, capMs) {
+        const knee = capMs / 2;
+        if (!(value > knee)) return value;
+        return knee + (capMs - knee) * (1 - Math.exp(-(value - knee) / (capMs - knee)));
+    }
+
+    // Quant costa DE DEBÒ una pensada llarga, per ritme.
+    //
+    // El multiplicador que es tira és uniforme entre 2,2 i 7,0 (mitjana 4,6),
+    // però el que s'acaba pagant sempre és menys: la pensada topa amb el sostre
+    // del ritme, amb el rellotge que queda (HUMAN_DEEP_THINK_CAP_FRAC) i, al
+    // final de la partida, amb la bandera mateixa. Aquest és el multiplicador
+    // EFECTIU un cop tots aquests sostres han retallat, mesurat simulant el
+    // model real d'aquest fitxer al llarg de partides senceres.
+    //
+    // Importa perquè cruiseMs = spendMs / (1 + rate × (efectiu − 1)): és el que
+    // impedeix comptar dues vegades unes pensades llargues que spendMs —el
+    // temps mitjà per jugada MESURAT— ja porta a dins. Fins ara aquest factor
+    // estava topat a 1,30, i el topall només arribava a mossegar justament on
+    // les pensades llargues són més freqüents i el rellotge NO les retalla (a
+    // 10+0 i 15+10 amb prou feines es gasta el 40% del temps): allà el motor
+    // gastava un 37% i un 59% més per jugada que la persona que havia de
+    // imitar, i tot aquest excés queia damunt del pic de la corba, és a dir, a
+    // mitja partida. Era el que es veia jugant: una obertura normal i un migjoc
+    // en què el rival es plantava a pensar cada dues per tres.
+    //
+    // El test «humantime» torna a derivar aquesta taula simulant, de manera que
+    // no pot quedar desfasada si es toquen els sostres o la corba.
+    const HUMAN_DEEP_THINK_EFFECTIVE = {
+        '30s': 3.00, '1+0': 2.78, '3+2': 2.94,
+        '5+0': 3.32, '10+0': 3.72, '15+10': 3.48
+    };
+    function humanDeepThinkEffectiveMult(tcId) {
+        const eff = HUMAN_DEEP_THINK_EFFECTIVE[tcId];
+        return typeof eff === 'number'
+            ? eff
+            : (HUMAN_DEEP_THINK_MIN + HUMAN_DEEP_THINK_MAX) / 2;
+    }
 
     // Tarannà de rellotge d'AQUESTA partida: multiplicador log-normal de
     // mitjana ~1 que fa que unes partides es juguin més de pressa i altres es
     // cremin el rellotge. Es tira una vegada per partida (app.js) i es passa a
     // humanThinkTimeMs. Sense ell, el motor jugaria sempre la partida mitjana i
     // no cauria mai de bandera; amb ell, hi cau amb la freqüència mesurada.
+    const HUMAN_TEMPERAMENT_MIN = 0.4;
+    const HUMAN_TEMPERAMENT_MAX = 3.2;
+
+    // Φ(x): normal acumulada, amb l'aproximació d'Abramowitz i Stegun 7.1.26
+    // per a l'error. N'hi ha prou i de sobres: només serveix per normalitzar un
+    // multiplicador de ritme.
+    function standardNormalCdf(x) {
+        const t = 1 / (1 + 0.2316419 * Math.abs(x));
+        const d = 0.3989422804014327 * Math.exp(-x * x / 2);
+        const poly = t * (0.319381530 + t * (-0.356563782 + t * (1.781477937
+            + t * (-1.821255978 + t * 1.330274429))));
+        const upper = d * poly;
+        return x >= 0 ? 1 - upper : upper;
+    }
+
+    // Mitjana REAL del tarannà un cop retallat a [0,4 · 3,2]. Sense retallar,
+    // una log-normal amb mu = −σ²/2 té mitjana exactament 1; amb els talls, no:
+    // com més ampla és la dispersió, més cua alta se'n va (i el tall de baix no
+    // ho compensa), de manera que el tarannà mitjà baixa i el motor acaba
+    // gastant menys rellotge per jugada del que diuen les dades. Com que
+    // paceSigma és el paràmetre amb què es calibra el risc de bandera, aquest
+    // biaix lligava dues coses que han de poder moure's per separat: pujar la
+    // dispersió entre partides NO ha de tocar els segons per jugada.
+    //   E[clamp(X, a, b)] = a·Φ(α) + [Φ(β−σ) − Φ(α−σ)] + b·(1−Φ(β))
+    // amb α = (ln a − mu)/σ, β = (ln b − mu)/σ i mu = −σ²/2.
+    function clampedLogNormalMean(sigma, minValue, maxValue) {
+        if (!(sigma > 0)) return 1;
+        const mu = -sigma * sigma / 2;
+        const alpha = (Math.log(minValue) - mu) / sigma;
+        const beta = (Math.log(maxValue) - mu) / sigma;
+        return minValue * standardNormalCdf(alpha)
+            + (standardNormalCdf(beta - sigma) - standardNormalCdf(alpha - sigma))
+            + maxValue * (1 - standardNormalCdf(beta));
+    }
+
     function rollClockTemperament(tcId, elo, random) {
         const rnd = typeof random === 'function' ? random : Math.random;
         const clock = humanClockProfile(tcId, elo);
@@ -4327,7 +4451,14 @@
         const u1 = Math.max(1e-9, rnd());
         const u2 = rnd();
         const gauss = Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
-        return clampNum(Math.exp(-sigma * sigma / 2 + sigma * gauss), 0.4, 3.2);
+        const raw = clampNum(Math.exp(-sigma * sigma / 2 + sigma * gauss),
+            HUMAN_TEMPERAMENT_MIN, HUMAN_TEMPERAMENT_MAX);
+        // Es reparteix el biaix del retall perquè la mitjana torni a ser 1: el
+        // tarannà decideix QUINES partides es cremen el rellotge, no quant es
+        // gasta de mitjana.
+        const norm = clampedLogNormalMean(sigma, HUMAN_TEMPERAMENT_MIN, HUMAN_TEMPERAMENT_MAX);
+        return clampNum(raw / (norm > 0 ? norm : 1),
+            HUMAN_TEMPERAMENT_MIN, HUMAN_TEMPERAMENT_MAX);
     }
 
     // Matriu ELO–complexitat: els nivells baixos sobreinverteixen en posicions
@@ -4505,12 +4636,13 @@
         // suau i queda sotmès igualment als límits del perfil i del rellotge.
         const humanPaceMs = typeof p.humanPaceMs === 'number' ? p.humanPaceMs : null;
         const paceSamples = Math.max(0, p.paceSamples || 0);
+        let paceMultiplier = 1;
         if (humanPaceMs !== null && paceSamples > 0) {
             const paceRefMs = useClock ? clock.spendMs : 5000;
             const paceRatio = clampNum(humanPaceMs / Math.max(1, paceRefMs), 0.35, 2.5);
             const confidence = clampNum(paceSamples / 6, 0, 1);
-            const paceMultiplier = 1 + (paceRatio - 1) * 0.22 * confidence;
-            tau *= clampNum(paceMultiplier, 0.75, 1.2);
+            paceMultiplier = clampNum(1 + (paceRatio - 1) * 0.22 * confidence, 0.75, 1.2);
+            tau *= paceMultiplier;
         }
 
         tau = Math.min(tau, profile.maxMs);
@@ -4518,14 +4650,27 @@
         let floorMs = profile.minMs;
         if (useClock) {
             floorMs = humanMoveFloorMs(clock.spendMs, profile.minMs);
-            const deepRate = typeof p.deepThinkRate === 'number' ? p.deepThinkRate : clock.deepThinkRate;
+            // El ritme de la partida també val per a les pensades llargues, i
+            // aquí és on més es nota. Sincronitzar només el temps de creuer
+            // deixava el cas que fa que una partida es trenqui: el jugador
+            // encadenant jugades de dos segons i el rival plantant-se, sense
+            // cap motiu visible, a pensar-ne quaranta. Ningú no juga així:
+            // davant d'algú que va a la seva, un s'hi acaba adaptant. Amb la
+            // partida anant de pressa les pensades llargues s'espaien; amb el
+            // jugador pensant-s'hi, el rival se sent més lliure de fer-ne.
+            const deepRate = (typeof p.deepThinkRate === 'number' ? p.deepThinkRate : clock.deepThinkRate)
+                * clampNum(paceMultiplier, HUMAN_DEEP_THINK_PACE_MIN, HUMAN_DEEP_THINK_PACE_MAX);
             if (random() < deepRate) {
                 // Pensada llarga: rara, però és la que decideix moltes partides.
                 // Es menja el que calgui —fins i tot tot el rellotge— i per això
                 // també es pot caure de bandera en els ritmes amb increment, on
                 // cap ritme mitjà no esgotaria mai el temps.
                 tau *= HUMAN_DEEP_THINK_MIN + (HUMAN_DEEP_THINK_MAX - HUMAN_DEEP_THINK_MIN) * random();
-                tau = Math.min(tau, remainingMs * HUMAN_DEEP_THINK_CAP_FRAC, HUMAN_DEEP_THINK_MAX_MS);
+                // El sostre de paciència és tou (mai dues pensades iguals); el
+                // del rellotge que queda és dur, que no és cap conveni: no es
+                // pot gastar el que no es té.
+                tau = Math.min(humanSoftCapMs(tau, humanDeepThinkCeilingMs(p.timeControlId, profile)),
+                    remainingMs * HUMAN_DEEP_THINK_CAP_FRAC);
             } else if (remainingMs <= skill.panicMoves * clock.spendMs) {
                 // Emergència: quan li queden poques jugades de marge, es mou a
                 // l'acte. Els nivells baixos se n'adonen molt més tard
@@ -7958,7 +8103,15 @@
         humanMoveFloorMs,
         HUMAN_FLOOR_CAP_MS,
         HUMAN_DEEP_THINK_MAX_MS,
+        HUMAN_DEEP_THINK_MIN,
+        HUMAN_DEEP_THINK_MAX,
+        HUMAN_DEEP_THINK_EFFECTIVE,
+        HUMAN_DEEP_THINK_CEILING_MS,
+        humanDeepThinkCeilingMs,
+        humanSoftCapMs,
+        humanDeepThinkEffectiveMult,
         rollClockTemperament,
+        clampedLogNormalMean,
         estimateMoveComplexity,
         eloComplexityTimeMultiplier,
         phaseTimeMultiplier,

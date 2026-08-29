@@ -177,10 +177,15 @@ describe('humanClockProfile (interpolació del perfil per ELO)', () => {
             const n = Math.round(p.moves);
             for (let k = 1; k <= n; k++) total += Core.humanPlannedSpendMs(p, k);
             expect(total / n).toBeCloseTo(p.cruiseMs, 0);
-            // El ritme de creuer és el mesurat menys el que se'n van les
-            // pensades llargues, i no se n'allunya gaire.
+            // El ritme de creuer és el temps mitjà MESURAT menys exactament el
+            // que se'n van les pensades llargues en aquest ritme. La identitat
+            // ha de ser exacta: si el descompte no és el que costen de debò,
+            // el motor gasta més (o menys) rellotge per jugada que la persona
+            // que imita, i l'excés cau damunt del pic de la corba, a mitja
+            // partida.
+            const gain = 1 + p.deepThinkRate * (Core.humanDeepThinkEffectiveMult(tc) - 1);
+            expect(p.cruiseMs).toBeCloseTo(p.spendMs / gain, 6);
             expect(p.cruiseMs).toBeLessThanOrEqual(p.spendMs);
-            expect(p.cruiseMs).toBeGreaterThan(p.spendMs * 0.7);
         }
     });
 
@@ -364,7 +369,84 @@ describe('humanThinkTimeMs', () => {
         const deep = Core.humanThinkTimeMs({ ...params, random: () => 0.01 });
         const normal = Core.humanThinkTimeMs({ ...params, random: () => 0.99 });
         expect(deep).toBeGreaterThan(normal * 2);
-        expect(deep).toBeLessThanOrEqual(Core.HUMAN_DEEP_THINK_MAX_MS);
+        expect(deep).toBeLessThanOrEqual(Core.humanDeepThinkCeilingMs('3+2'));
+    });
+
+    // Abans la pensada llarga s'aplicava DESPRÉS del sostre del ritme i el
+    // multiplicava per fins a 7 amb un únic sostre de dos minuts per a tots els
+    // ritmes: una sola jugada podia deixar l'usuari dos minuts davant d'un
+    // tauler aturat, i a 10+0 passava a una jugada de cada vuit.
+    test('cap jugada no deixa l\'usuari esperant més del que dura el seu ritme', () => {
+        for (const [tc, cap] of Object.entries(Core.HUMAN_DEEP_THINK_CEILING_MS)) {
+            const baseMs = Core.humanClockProfile(tc, 1400).baseMs;
+            const rnd = lcg(4242);
+            let worst = 0;
+            for (let i = 0; i < 4000; i++) {
+                // El pitjor cas possible: pic de la corba, posició màximament
+                // difícil, tarannà de partida cremada i tot el rellotge intacte.
+                worst = Math.max(worst, Core.humanThinkTimeMs({
+                    timeControlId: tc, remainingMs: baseMs, incMs: 0, elo: 1400,
+                    complexity: 1, phase: 'middlegame', moveNumber: 16,
+                    clockTemperament: 3.2, random: rnd
+                }));
+            }
+            expect(worst).toBeLessThanOrEqual(cap);
+            // ...i el sostre segueix deixant lloc a una pensada llarga de debò:
+            // sense això, el rival no tindria mai el gest humà d'encallar-se.
+            expect(worst).toBeGreaterThan(cap * 0.5);
+        }
+    });
+
+    test('amb el jugador anant de pressa, el rival no es planta a pensar', () => {
+        // El cas que trenca una partida: el jugador encadenant jugades de dos
+        // segons i el rival aturant-se, sense cap motiu visible, a pensar-ne
+        // quaranta. El ritme de la partida ha d'arribar també a les pensades
+        // llargues, no només al temps de creuer.
+        const compta = humanPaceMs => {
+            const rnd = lcg(2024);
+            let llargues = 0;
+            let total = 0;
+            for (let i = 0; i < 3000; i++) {
+                const tau = Core.humanThinkTimeMs({
+                    timeControlId: '10+0', remainingMs: 420000, incMs: 0, elo: 1500,
+                    complexity: 0.55, phase: 'middlegame', moveNumber: 16,
+                    clockTemperament: 1, humanPaceMs, paceSamples: 10, random: rnd
+                });
+                total++;
+                if (tau > 15000) llargues++;
+            }
+            return llargues / total;
+        };
+        const rapid = compta(2000);      // el jugador mou cada 2 s
+        const pausat = compta(20000);    // el jugador s'hi rumia 20 s
+        expect(rapid).toBeLessThan(pausat);
+        // ...però continua sent el mateix rival: la sincronització és un gest,
+        // no una altra manera de decidir el temps.
+        expect(rapid).toBeGreaterThan(pausat * 0.5);
+    });
+
+    test('el sostre és tou: dues pensades llargues mai no duren igual', () => {
+        // Amb un sostre dur, totes les pensades que hi topaven duraven
+        // EXACTAMENT el mateix i el rival repetia la mateixa pausa màxima una
+        // jugada sí i l'altra també.
+        const sostre = Core.humanDeepThinkCeilingMs('10+0');
+        const rnd = lcg(99);
+        const repeticions = new Map();
+        let maxim = 0;
+        for (let i = 0; i < 600; i++) {
+            // deepThinkRate 1: totes les jugades són pensada llarga, i totes
+            // amb el multiplicador prou gran per topar amb el sostre.
+            const tau = Core.humanThinkTimeMs({
+                timeControlId: '10+0', remainingMs: 600000, incMs: 0, elo: 1400,
+                complexity: 1, phase: 'middlegame', moveNumber: 16,
+                clockTemperament: 3.2, deepThinkRate: 1, random: rnd
+            });
+            repeticions.set(tau, (repeticions.get(tau) || 0) + 1);
+            maxim = Math.max(maxim, tau);
+        }
+        // Amb un sostre dur, desenes de pensades valdrien exactament el sostre.
+        expect(maxim).toBeLessThan(sostre);
+        expect(Math.max(...repeticions.values())).toBeLessThanOrEqual(5);
     });
 });
 
@@ -383,23 +465,29 @@ describe('el model reprodueix el consum de rellotge mesurat', () => {
     // número de jugada, la mitjana de rellotge que queda (fracció del temps
     // inicial) entre les partides que encara hi són, i la proporció que ha
     // caigut de bandera.
-    function simulate(tcId, elo, { games = 600, maxMoves = 30, seed = 12345 } = {}) {
+    function simulate(tcId, elo, { games = 600, maxMoves = 30, seed = 12345, deepThinkRate } = {}) {
         const rnd = lcg(seed);
         const baseMs = Core.humanClockProfile(tcId, elo).baseMs;
         const incMs = INC[tcId];
         const leftSum = new Array(maxMoves + 1).fill(0);
         const alive = new Array(maxMoves + 1).fill(0);
         let flagged = 0;
+        let tauSum = 0;
+        let tauCount = 0;
         for (let g = 0; g < games; g++) {
             const temperament = Core.rollClockTemperament(tcId, elo, rnd);
             let remaining = baseMs;
             for (let k = 1; k <= maxMoves; k++) {
-                const tau = Core.humanThinkTimeMs({
+                const args = {
                     timeControlId: tcId, remainingMs: remaining, incMs, elo,
                     complexity: 0.45, phase: k <= 10 ? 'opening' : 'middlegame',
                     moveNumber: k, clockTemperament: temperament, random: rnd
-                });
+                };
+                if (deepThinkRate !== undefined) args.deepThinkRate = deepThinkRate;
+                const tau = Core.humanThinkTimeMs(args);
                 if (tau >= remaining) { flagged++; break; }
+                tauSum += tau;
+                tauCount++;
                 remaining = remaining - tau + incMs;
                 alive[k]++;
                 leftSum[k] += remaining / baseMs;
@@ -407,6 +495,7 @@ describe('el model reprodueix el consum de rellotge mesurat', () => {
         }
         return {
             flagRate: flagged / games,
+            meanTau: () => (tauCount ? tauSum / tauCount : 0),
             left: k => (alive[k] ? leftSum[k] / alive[k] : null)
         };
     }
@@ -446,10 +535,69 @@ describe('el model reprodueix el consum de rellotge mesurat', () => {
         expect(classic.flagRate).toBeLessThan(0.25);
     });
 
+    // Rara, però no impossible: als ritmes lents és fàcil deixar el rival sense
+    // aquest desenllaç sense adonar-se'n, perquè hi passa poc. Retallar les
+    // pensades llargues per no fer esperar l'usuari ho fa de seguida —són
+    // l'únic mecanisme que pot cremar un rellotge de deu o quinze minuts—, i
+    // llavors guanyar per temps deixa de ser possible a la meitat dels ritmes
+    // de l'app. Aquesta prova és el terra que ho impedeix.
+    test.each([
+        ['3+2', 890], ['5+0', 870], ['10+0', 850], ['15+10', 830]
+    ])('a %s el rival encara pot perdre per temps', (tc, elo) => {
+        const sim = simulate(tc, elo, { games: 1500, maxMoves: 40 });
+        expect(sim.flagRate).toBeGreaterThan(0.01);
+    });
+
     test('un ROC baix consumeix el rellotge molt més de pressa que un d\'alt', () => {
         const weak = simulate('1+0', 200, { maxMoves: 20 });
         const strong = simulate('1+0', 2400, { maxMoves: 20 });
         expect(weak.left(20)).toBeLessThan(strong.left(20) * 0.7);
+    });
+
+    const RITMES = ['30s', '1+0', '3+2', '5+0', '10+0', '15+10'];
+
+    // HUMAN_DEEP_THINK_EFFECTIVE diu què costa DE DEBÒ una pensada llarga en
+    // cada ritme un cop els sostres l'han retallada, i d'aquí surt el descompte
+    // que impedeix comptar-la dues vegades. Com que és una xifra derivada del
+    // model mateix, aquí es torna a derivar simulant: si algú toca els sostres,
+    // la corba o el multiplicador, la taula deixa de quadrar i salta.
+    test.each(RITMES)('%s: el cost efectiu d\'una pensada llarga és el de la taula', tc => {
+        const efectius = [];
+        for (const elo of [900, 1400, 1800, 2200]) {
+            const p = Core.humanClockProfile(tc, elo);
+            if (p.deepThinkRate < 0.02) continue; // sense pensades no informa
+            const moves = Math.round(p.moves);
+            const amb = simulate(tc, elo, { games: 300, maxMoves: moves });
+            const sense = simulate(tc, elo, { games: 300, maxMoves: moves, deepThinkRate: 0 });
+            const guany = amb.meanTau() / sense.meanTau();
+            efectius.push(1 + (guany - 1) / p.deepThinkRate);
+        }
+        const mitjana = efectius.reduce((a, b) => a + b, 0) / efectius.length;
+        expect(mitjana).toBeCloseTo(Core.humanDeepThinkEffectiveMult(tc), 0);
+    });
+    // La prova que faltava. Les de més amunt miren el rellotge que QUEDA amb una
+    // tolerància de 12 punts, i això deixava passar un error gros: el motor
+    // gastava fins a un 59% més de segons per jugada que la persona mesurada
+    // (a 15+10) sense que saltés res. És el defecte que es notava jugant —a
+    // mitja partida el rival es plantava a pensar—, perquè tot l'excés queia
+    // damunt del pic de la corba. Aquí es compara directament el que es volia
+    // reproduir: els segons per jugada de la taula HUMAN_CLOCK_STATS.
+    test.each(RITMES)('%s: els segons per jugada són els mesurats a cada nivell', tc => {
+        for (const elo of [900, 1400, 1800, 2200]) {
+            const p = Core.humanClockProfile(tc, elo);
+            const sim = simulate(tc, elo, { games: 400, maxMoves: Math.round(p.moves) });
+            const ratio = sim.meanTau() / p.spendMs;
+            // La banda és de ±22%. El que hi queda de marge és la dispersió
+            // per ELO del cost efectiu d'una pensada llarga
+            // (HUMAN_DEEP_THINK_EFFECTIVE n'és la mitjana del ritme): al nivell
+            // més alt de 15+10 el rival gasta un 21% menys del mesurat, i al
+            // més fluix un 10% més. El defecte que aquesta prova guarda era de
+            // signe únic i molt més gros —entre +33% i +59% de MÉS temps per
+            // jugada, sempre concentrat al pic de la corba— i qualsevol
+            // reaparició seva surt d'aquesta banda.
+            expect(ratio).toBeGreaterThan(0.78);
+            expect(ratio).toBeLessThan(1.22);
+        }
     });
 });
 
