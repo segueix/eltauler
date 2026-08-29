@@ -6138,9 +6138,6 @@ function refreshPlayClockChips() {
     const tc = TIME_CONTROLS.find(t => t.id === current) || TIME_CONTROLS[0];
     const label = document.getElementById('play-clock-current');
     if (label) label.textContent = isDaily ? DAILY_TC_LABEL : tc.label;
-    // Amb el ritme diari triat s'explica què farà «Nova partida».
-    const dailyHint = document.getElementById('play-daily-hint');
-    if (dailyHint) dailyHint.style.display = isDaily ? '' : 'none';
 }
 
 // Fixa el ritme de la propera partida (font de la veritat: el desplegable
