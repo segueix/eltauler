@@ -1519,6 +1519,32 @@
             grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr));
             gap: 14px;
         }
+        /* Mòbil amb MÉS DE DUES partides: carrusel horitzontal amb ancoratge,
+           el mateix idioma que el carrusel de Tres camins. Cada miniatura ocupa
+           gairebé tota l'amplada i en deixa entreveure la següent, de manera que
+           es veu que n'hi ha més sense haver-ho d'explicar. Amb una o dues
+           partides es queda en graella: hi caben totes a la vista. */
+        .daily-grid.daily-carousel {
+            display: flex; overflow-x: auto; overflow-y: hidden;
+            scroll-snap-type: x mandatory; -webkit-overflow-scrolling: touch;
+            padding-bottom: 4px; scrollbar-width: none;
+        }
+        .daily-grid.daily-carousel::-webkit-scrollbar { display: none; }
+        .daily-grid.daily-carousel .daily-card {
+            flex: 0 0 78%; scroll-snap-align: center; min-width: 0;
+        }
+        @media (max-width: 380px) {
+            .daily-grid.daily-carousel .daily-card { flex-basis: 86%; }
+        }
+        .daily-dots { display: flex; justify-content: center; gap: 6px; margin-top: 2px; }
+        .daily-dot {
+            width: 7px; height: 7px; border-radius: 50%; cursor: pointer;
+            background: rgba(255,255,255,0.22); transition: background 0.2s, width 0.2s;
+        }
+        .daily-dot.is-active { background: var(--accent-gold); width: 18px; border-radius: 999px; }
+        body.day-mode .daily-dot { background: rgba(120,95,40,0.28); }
+        body.epaper-mode .daily-dot { background: #bbb; transition: none; }
+        body.epaper-mode .daily-dot.is-active { background: #222; }
         .daily-card {
             background: rgba(0,0,0,0.22);
             border: 1px solid rgba(201,162,39,0.25);
@@ -5421,6 +5447,10 @@
                          entre les miniatures amb la derrota i el botó de tancar. Es
                          pinta des d'app.js i, buida, no ocupa lloc. -->
                     <div class="daily-grid" id="daily-grid"></div>
+                    <!-- Punts del carrusel (només al mòbil amb més de dues
+                         partides): diuen quantes n'hi ha i on ets, i tocant-ne
+                         un es porta la seva miniatura al centre. -->
+                    <div class="daily-dots" id="daily-dots" style="display:none;"></div>
 
                     <!-- Repte del bessó: juga contra una versió de tu mateix.
                          DESACTIVAT de moment: el bàner arrenca amagat i només
@@ -7845,7 +7875,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.28"></script>
+    <script src="core.js?v=1.0.29"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -7856,7 +7886,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.90"></script>
+    <script src="app.js?v=1.0.91"></script>
 
     <!-- Service Worker Registration -->
     <script>

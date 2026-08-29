@@ -140,3 +140,78 @@ describe('dailyCountdownLabel', () => {
         expect(Core.dailyCountdownLabel(-5)).toBe('temps esgotat');
     });
 });
+
+describe('ordre de les miniatures a la pàgina principal', () => {
+    // Tres partides on et toca moure (venciments diferents), dues esperant el
+    // rival i una d'acabada: l'ordre ha de ser el de la urgència.
+    function board(overrides) { return entry(overrides); }
+
+    test('primer les teves jugades (la que venç abans), després les que esperen menys', () => {
+        const games = [
+            // Espera el rival: respon d'aquí a 3 h (turnStartedAt = ara).
+            board({ id: 'espera-llarga', playerColor: 'w', movesSan: ['e4'], turnStartedAt: T0, createdAt: 1 }),
+            // Et toca moure i et queden 20 h (va rebre el torn fa 4 h).
+            board({ id: 'meu-20h', playerColor: 'w', movesSan: [], turnStartedAt: T0 - 4 * H, createdAt: 2 }),
+            // Espera el rival: respon d'aquí a 1 h.
+            board({ id: 'espera-curta', playerColor: 'w', movesSan: ['d4'], turnStartedAt: T0 - 2 * H, createdAt: 3 }),
+            // Et toca moure i només et queden 2 h: la més urgent de totes.
+            board({ id: 'meu-2h', playerColor: 'w', movesSan: [], turnStartedAt: T0 - 22 * H, createdAt: 4 })
+        ];
+        const order = Core.dailyOrderedGames(games, T0).map(g => g.id);
+        expect(order).toEqual(['meu-2h', 'meu-20h', 'espera-curta', 'espera-llarga']);
+    });
+
+    test('les acabades queden al final, per ordre d\'acabament', () => {
+        const games = [
+            board({ id: 'acabada-vella', status: 'finished', finishedAt: T0 - 5 * H, createdAt: 1 }),
+            board({ id: 'meva', playerColor: 'w', movesSan: [], turnStartedAt: T0, createdAt: 2 }),
+            board({ id: 'acabada-nova', status: 'finished', finishedAt: T0 - 1 * H, createdAt: 3 })
+        ];
+        const order = Core.dailyOrderedGames(games, T0).map(g => g.id);
+        expect(order).toEqual(['meva', 'acabada-vella', 'acabada-nova']);
+    });
+
+    test('amb el mateix venciment mana l\'ordre de creació (no ballen de lloc)', () => {
+        const games = [
+            board({ id: 'segona', playerColor: 'w', movesSan: [], turnStartedAt: T0, createdAt: 200 }),
+            board({ id: 'primera', playerColor: 'w', movesSan: [], turnStartedAt: T0, createdAt: 100 })
+        ];
+        expect(Core.dailyOrderedGames(games, T0).map(g => g.id)).toEqual(['primera', 'segona']);
+        // I repetir l'ordenació no canvia res.
+        const once = Core.dailyOrderedGames(games, T0);
+        expect(Core.dailyOrderedGames(once, T0).map(g => g.id)).toEqual(['primera', 'segona']);
+    });
+
+    test('no toca la llista original i tolera entrades buides', () => {
+        const games = [null, board({ id: 'a', createdAt: 1 })];
+        const copy = games.slice();
+        expect(Core.dailyOrderedGames(games, T0).map(g => g.id)).toEqual(['a']);
+        expect(games).toEqual(copy);
+        expect(Core.dailyOrderedGames(undefined, T0)).toEqual([]);
+    });
+
+    test('el grup de cada partida', () => {
+        expect(Core.dailyCardGroup(board({ playerColor: 'w', movesSan: [] }))).toBe(Core.DAILY_CARD_GROUP.PLAYER);
+        expect(Core.dailyCardGroup(board({ playerColor: 'w', movesSan: ['e4'] }))).toBe(Core.DAILY_CARD_GROUP.ENGINE);
+        expect(Core.dailyCardGroup(board({ status: 'finished' }))).toBe(Core.DAILY_CARD_GROUP.FINISHED);
+    });
+});
+
+describe('carrusel de les miniatures', () => {
+    test('només al mòbil i només amb MÉS de dues partides', () => {
+        expect(Core.dailyUsesCarousel(1, 'mobile')).toBe(false);
+        expect(Core.dailyUsesCarousel(2, 'mobile')).toBe(false);
+        expect(Core.dailyUsesCarousel(3, 'mobile')).toBe(true);
+        expect(Core.dailyUsesCarousel(7, 'mobile')).toBe(true);
+    });
+
+    test('mai a la tauleta ni a l\'ordinador, per moltes que n\'hi hagi', () => {
+        expect(Core.dailyUsesCarousel(5, 'tablet')).toBe(false);
+        expect(Core.dailyUsesCarousel(5, 'desktop')).toBe(false);
+        expect(Core.dailyUsesCarousel(5, undefined)).toBe(false);
+    });
+
+    test('el llindar és el documentat', () => {
+        expect(Core.DAILY_CAROUSEL_MIN_CARDS).toBe(3);
+    });
+});

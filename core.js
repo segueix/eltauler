@@ -7989,6 +7989,58 @@
         return minutes > 0 ? (hours + ' h ' + minutes + ' min') : (hours + ' h');
     }
 
+    // Ordre en què es veuen les partides diàries a la pàgina principal. Va per
+    // urgència, que és l'ordre en què cal atendre-les:
+    //   0) les que esperen la TEVA jugada, la que venç abans primer (és la que
+    //      pots perdre abans),
+    //   1) les que esperen el rival, la que respon abans primer (menys espera),
+    //   2) les acabades, pendents de tancar, per ordre d'acabament.
+    const DAILY_CARD_GROUP = { PLAYER: 0, ENGINE: 1, FINISHED: 2 };
+
+    function dailyCardGroup(entry) {
+        if (!entry || entry.status !== 'active') return DAILY_CARD_GROUP.FINISHED;
+        return dailyIsPlayerTurn(entry) ? DAILY_CARD_GROUP.PLAYER : DAILY_CARD_GROUP.ENGINE;
+    }
+
+    // Instant pel qual s'ordena dins del grup: el venciment propi, el de la
+    // resposta del rival o el moment en què es va acabar la partida.
+    function dailyCardAt(entry, nowMs) {
+        const now = (typeof nowMs === 'number' && !isNaN(nowMs)) ? nowMs : 0;
+        const group = dailyCardGroup(entry);
+        if (group === DAILY_CARD_GROUP.PLAYER) return dailyPlayerDeadlineMs(entry) || now;
+        if (group === DAILY_CARD_GROUP.ENGINE) return dailyEngineDueMs(entry) || now;
+        return Number(entry && entry.finishedAt) || now;
+    }
+
+    // Còpia ordenada de les partides diàries. Els empats es desfan per ordre de
+    // creació, de manera que dues partides amb el mateix venciment no ballen de
+    // lloc entre repintades.
+    function dailyOrderedGames(games, nowMs) {
+        const now = (typeof nowMs === 'number' && !isNaN(nowMs)) ? nowMs : 0;
+        return (Array.isArray(games) ? games : [])
+            .filter(Boolean)
+            .map((entry, index) => ({ entry: entry, index: index }))
+            .sort((a, b) => {
+                const groupDelta = dailyCardGroup(a.entry) - dailyCardGroup(b.entry);
+                if (groupDelta !== 0) return groupDelta;
+                const atDelta = dailyCardAt(a.entry, now) - dailyCardAt(b.entry, now);
+                if (atDelta !== 0) return atDelta;
+                const createdDelta = (Number(a.entry.createdAt) || 0) - (Number(b.entry.createdAt) || 0);
+                return createdDelta !== 0 ? createdDelta : (a.index - b.index);
+            })
+            .map(item => item.entry);
+    }
+
+    // El carrusel de les miniatures és NOMÉS del mòbil i només quan n'hi ha més
+    // de dues: amb una o dues hi caben totes a la vista i passar-les seria pitjor
+    // que veure-les. A la tauleta i a l'ordinador sempre és graella.
+    const DAILY_CAROUSEL_MIN_CARDS = 3;
+
+    function dailyUsesCarousel(cardCount, deviceType) {
+        const count = (typeof cardCount === 'number' && !isNaN(cardCount)) ? cardCount : 0;
+        return deviceType === 'mobile' && count >= DAILY_CAROUSEL_MIN_CARDS;
+    }
+
     return {
         splitPgnGames,
         parsePgnHeaders,
@@ -8253,6 +8305,12 @@
         dailyPlayerDeadlineMs,
         dailyEngineDueMs,
         dailyNextAction,
-        dailyCountdownLabel
+        dailyCountdownLabel,
+        DAILY_CARD_GROUP,
+        DAILY_CAROUSEL_MIN_CARDS,
+        dailyCardGroup,
+        dailyCardAt,
+        dailyOrderedGames,
+        dailyUsesCarousel
     };
 });

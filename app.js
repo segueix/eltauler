@@ -670,7 +670,11 @@ function updateDeviceType() {
     if (detected !== deviceType) {
         applyDeviceType(detected);
         resizeBoardToViewport();
-        updateTvBoardInteractivity();        
+        updateTvBoardInteractivity();
+        // El carrusel de les partides diàries és només del mòbil: en girar el
+        // dispositiu o canviar de mida, les miniatures s'han de repintar en el
+        // mode que toca (carrusel o graella).
+        try { if (typeof renderDailyGamesPanel === 'function') renderDailyGamesPanel(); } catch (e) {}
     } else if (!document.body.classList.contains(`device-${detected}`)) {
         applyDeviceType(detected);
         updateTvBoardInteractivity();
@@ -6249,6 +6253,7 @@ let dailyTicker = null;         // interval de manteniment i comptes enrere
 let dailyEngineWorker = null;   // worker Stockfish PROPI per a respostes en segon pla
 let dailyEngineBusyId = null;   // id de la partida que s'està calculant ara
 let dailyEngineQueue = [];      // ids pendents de resposta del motor
+let dailyDotsFrame = null;      // rAF pendent per refrescar el punt del carrusel
 // ELO forçat mentre es tria la jugada humanitzada d'una partida diària en segon
 // pla (getActiveStrengthElo el consulta primer). `var` a propòsit: s'hissa
 // inicialitzat i getActiveStrengthElo pot executar-se abans d'aquesta línia.
@@ -6618,20 +6623,14 @@ function dailyMiniBoardHtml(fen, playerColor) {
     return html + '</div>';
 }
 
-// Les targetes s'ordenen per urgència: primer on et toca moure (venciment més
-// pròxim abans), després on penses el rival (resposta més pròxima abans) i al
-// final els resultats pendents de tancar.
-function dailyCardSortKey(entry, now) {
-    if (entry.status === 'finished') return 2e15 + (entry.finishedAt || 0);
-    if (ElTaulerCore.dailyIsPlayerTurn(entry)) return ElTaulerCore.dailyPlayerDeadlineMs(entry) || now;
-    return 1e15 + (ElTaulerCore.dailyEngineDueMs(entry) || now);
-}
-
 function renderDailyGamesPanel() {
     const grid = document.getElementById('daily-grid');
     if (!grid) return;
     const now = Date.now();
-    const cards = dailyGames.slice().sort((a, b) => dailyCardSortKey(a, now) - dailyCardSortKey(b, now));
+    // L'ordre (primer les que esperen la teva jugada, la que venç abans; després
+    // les que esperen menys el rival; al final les acabades) el decideix el
+    // nucli: ElTaulerCore.dailyOrderedGames, provat a tests/daily.test.js.
+    const cards = ElTaulerCore.dailyOrderedGames(dailyGames, now);
     let html = '';
     cards.forEach(entry => {
         const mini = dailyMiniBoardHtml(dailyEntryFen(entry), entry.playerColor);
@@ -6672,6 +6671,57 @@ function renderDailyGamesPanel() {
         }
     });
     grid.innerHTML = html;
+    applyDailyCarousel(cards.length);
+}
+
+// Carrusel de miniatures: NOMÉS al mòbil i només amb més de dues partides
+// (ElTaulerCore.dailyUsesCarousel). Amb una o dues hi caben totes a la vista i
+// passar-les seria pitjor que veure-les; a la tauleta i a l'ordinador sempre és
+// graella. Mateix idioma que el carrusel de Tres camins: lliscar amb ancoratge
+// i una filera de punts que diu quantes n'hi ha i on ets.
+function applyDailyCarousel(cardCount) {
+    const grid = document.getElementById('daily-grid');
+    const dots = document.getElementById('daily-dots');
+    if (!grid) return;
+    const carousel = ElTaulerCore.dailyUsesCarousel(cardCount, deviceType);
+    grid.classList.toggle('daily-carousel', carousel);
+    if (!dots) return;
+    if (!carousel) { dots.innerHTML = ''; dots.style.display = 'none'; return; }
+    dots.style.display = '';
+    dots.innerHTML = Array.from({ length: cardCount }, (_, i) =>
+        `<span class="daily-dot${i === 0 ? ' is-active' : ''}" data-daily-index="${i}"></span>`).join('');
+    updateDailyDots();
+}
+
+// Punt actiu: el de la targeta que ha quedat més a prop del mig del carrusel
+// (les dels extrems no hi poden arribar mai, així que no es pot fer per índex).
+function updateDailyDots() {
+    const grid = document.getElementById('daily-grid');
+    if (!grid || !grid.classList.contains('daily-carousel')) return;
+    const cards = grid.querySelectorAll('.daily-card');
+    if (!cards.length) return;
+    const base = grid.getBoundingClientRect().left - grid.scrollLeft;
+    const mid = grid.scrollLeft + grid.clientWidth / 2;
+    let active = 0;
+    let best = Infinity;
+    cards.forEach((card, i) => {
+        const r = card.getBoundingClientRect();
+        const distance = Math.abs((r.left - base + r.width / 2) - mid);
+        if (distance < best) { best = distance; active = i; }
+    });
+    document.querySelectorAll('#daily-dots .daily-dot').forEach((dot, i) => {
+        dot.classList.toggle('is-active', i === active);
+    });
+}
+
+// Porta al centre la targeta d'un punt tocat.
+function scrollDailyCardIntoView(index) {
+    const grid = document.getElementById('daily-grid');
+    if (!grid) return;
+    const card = grid.querySelectorAll('.daily-card')[index];
+    if (!card) return;
+    const target = card.offsetLeft - (grid.clientWidth - card.offsetWidth) / 2;
+    grid.scrollTo({ left: Math.max(0, target), behavior: 'smooth' });
 }
 
 // «Tancar» d'una targeta acabada: la partida ja és a l'historial i l'ELO ja
@@ -6887,6 +6937,16 @@ function initDailyGames() {
     });
     $('#btn-daily-home').off('click').on('click', () => closeDailyScreen());
     $('#btn-daily-resign').off('click').on('click', () => confirmDailyResign());
+    // Carrusel del mòbil: el punt actiu segueix el dit, i tocar un punt porta
+    // la seva targeta al centre.
+    const grid = document.getElementById('daily-grid');
+    if (grid) grid.addEventListener('scroll', () => {
+        if (dailyDotsFrame !== null) return;
+        dailyDotsFrame = requestAnimationFrame(() => { dailyDotsFrame = null; updateDailyDots(); });
+    }, { passive: true });
+    $('#daily-dots').off('click').on('click', '.daily-dot', function () {
+        scrollDailyCardIntoView(parseInt(this.getAttribute('data-daily-index'), 10) || 0);
+    });
     window.addEventListener('resize', resizeDailyBoard);
     document.addEventListener('visibilitychange', () => {
         if (document.visibilityState === 'visible') setTimeout(processDailyGames, 200);
