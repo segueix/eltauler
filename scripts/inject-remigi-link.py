@@ -18,7 +18,7 @@ def inject_remigi_link(index_path: str) -> None:
         html = html.replace(topbar, remigi_link, 1)
 
     css = '''
-        /* Accés a Remigi: logo gran a l'esquerra; usuari i contacte a la dreta */
+        /* Accés a Remigi: logo a l'esquerra; usuari i contacte a la dreta */
         #start-screen .home-topbar {
             position: relative !important;
             display: flex !important;
@@ -26,8 +26,8 @@ def inject_remigi_link(index_path: str) -> None:
             justify-content: flex-end !important;
             gap: 8px !important;
             width: 100%;
-            min-height: 126px;
-            padding-left: 138px;
+            min-height: 104px;
+            padding-left: 116px;
         }
         #start-screen .home-user-chip,
         #start-screen .home-at-btn {
@@ -37,16 +37,16 @@ def inject_remigi_link(index_path: str) -> None:
             position: absolute;
             left: 0;
             top: 0;
-            width: 126px;
-            height: 126px;
+            width: 104px;
+            height: 104px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 18px;
+            border-radius: 17px;
             overflow: hidden;
             border: 1px solid rgba(201, 162, 39, 0.42);
             background: rgba(0,0,0,0.18);
-            box-shadow: 0 6px 18px rgba(0,0,0,0.30);
+            box-shadow: 0 5px 16px rgba(0,0,0,0.30);
             cursor: pointer;
             z-index: 2;
             transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
@@ -61,8 +61,15 @@ def inject_remigi_link(index_path: str) -> None:
         .remigi-home-link:focus-visible {
             transform: scale(1.035);
             border-color: var(--accent-gold);
-            box-shadow: 0 8px 22px rgba(0,0,0,0.38);
+            box-shadow: 0 7px 20px rgba(0,0,0,0.38);
             outline: none;
+        }
+        /* Corona principal d'El Tauler: més gran per equilibrar-la amb Remigi. */
+        #start-screen > .app-logo {
+            font-size: 4.4rem;
+            line-height: 1;
+            margin-top: 2px;
+            margin-bottom: 7px;
         }
         body.epaper-mode .remigi-home-link {
             border-color: #999;
@@ -70,14 +77,17 @@ def inject_remigi_link(index_path: str) -> None:
         }
         @media (max-width: 420px) {
             #start-screen .home-topbar {
-                min-height: 114px;
-                padding-left: 124px;
+                min-height: 94px;
+                padding-left: 104px;
                 gap: 6px !important;
             }
             .remigi-home-link {
-                width: 114px;
-                height: 114px;
-                border-radius: 16px;
+                width: 94px;
+                height: 94px;
+                border-radius: 15px;
+            }
+            #start-screen > .app-logo {
+                font-size: 3.9rem;
             }
         }
 '''
