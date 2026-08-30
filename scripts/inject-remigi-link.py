@@ -10,6 +10,7 @@ def inject_remigi_link(index_path: str) -> None:
     remigi_link = '''<div class="home-topbar">
                 <a class="remigi-home-link" href="/remigi/" target="_self" aria-label="Obre Remigi" title="Remigi">
                     <img src="/remigi/icona-192.png" alt="Remigi">
+                    <span class="remigi-home-label">Remigi</span>
                 </a>'''
 
     if 'class="remigi-home-link"' not in html:
@@ -18,7 +19,7 @@ def inject_remigi_link(index_path: str) -> None:
         html = html.replace(topbar, remigi_link, 1)
 
     css = '''
-        /* Accés a Remigi: logo a l'esquerra; usuari i contacte a la dreta */
+        /* Accés a Remigi: logo i nom a l'esquerra; usuari i contacte a la dreta */
         #start-screen .home-topbar {
             position: relative !important;
             display: flex !important;
@@ -26,7 +27,7 @@ def inject_remigi_link(index_path: str) -> None:
             justify-content: flex-end !important;
             gap: 8px !important;
             width: 100%;
-            min-height: 104px;
+            min-height: 126px;
             padding-left: 116px;
         }
         #start-screen .home-user-chip,
@@ -38,31 +39,45 @@ def inject_remigi_link(index_path: str) -> None:
             left: 0;
             top: 0;
             width: 104px;
-            height: 104px;
             display: flex;
+            flex-direction: column;
             align-items: center;
-            justify-content: center;
+            justify-content: flex-start;
+            color: inherit;
+            text-decoration: none;
+            cursor: pointer;
+            z-index: 2;
+            outline: none;
+        }
+        .remigi-home-link img {
+            width: 104px;
+            height: 104px;
+            display: block;
+            object-fit: cover;
             border-radius: 17px;
             overflow: hidden;
             border: 1px solid rgba(201, 162, 39, 0.42);
             background: rgba(0,0,0,0.18);
             box-shadow: 0 5px 16px rgba(0,0,0,0.30);
-            cursor: pointer;
-            z-index: 2;
             transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
         }
-        .remigi-home-link img {
-            width: 100%;
-            height: 100%;
+        .remigi-home-label {
             display: block;
-            object-fit: cover;
+            width: 100%;
+            margin-top: 5px;
+            text-align: center;
+            font-size: 0.82rem;
+            font-weight: 600;
+            line-height: 1.1;
+            letter-spacing: 0.03em;
+            color: color-mix(in srgb, var(--bg-dark) 65%, var(--text-secondary));
+            text-shadow: 0 1px 1px rgba(0,0,0,0.18);
         }
-        .remigi-home-link:hover,
-        .remigi-home-link:focus-visible {
+        .remigi-home-link:hover img,
+        .remigi-home-link:focus-visible img {
             transform: scale(1.035);
             border-color: var(--accent-gold);
             box-shadow: 0 7px 20px rgba(0,0,0,0.38);
-            outline: none;
         }
         /* Corona principal d'El Tauler: més gran per equilibrar-la amb Remigi. */
         #start-screen > .app-logo {
@@ -71,20 +86,31 @@ def inject_remigi_link(index_path: str) -> None:
             margin-top: 2px;
             margin-bottom: 7px;
         }
-        body.epaper-mode .remigi-home-link {
+        body.epaper-mode .remigi-home-link img {
             border-color: #999;
             box-shadow: none;
         }
+        body.epaper-mode .remigi-home-label {
+            color: #777;
+            text-shadow: none;
+        }
         @media (max-width: 420px) {
             #start-screen .home-topbar {
-                min-height: 94px;
+                min-height: 114px;
                 padding-left: 104px;
                 gap: 6px !important;
             }
             .remigi-home-link {
                 width: 94px;
+            }
+            .remigi-home-link img {
+                width: 94px;
                 height: 94px;
                 border-radius: 15px;
+            }
+            .remigi-home-label {
+                margin-top: 4px;
+                font-size: 0.76rem;
             }
             #start-screen > .app-logo {
                 font-size: 3.9rem;
