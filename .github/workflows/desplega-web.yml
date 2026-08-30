@@ -42,6 +42,9 @@ jobs:
         working-directory: remigi-src
         run: npm ci
 
+      - name: Afegeix l'accés a El Tauler dins Remigi
+        run: python site/scripts/inject-tauler-link-remigi.py remigi-src/apps/web/src/screens/GameScreen.tsx
+
       - name: Compila Remigi per eltauler.cat/remigi
         working-directory: remigi-src
         env:
