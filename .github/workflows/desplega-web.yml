@@ -25,6 +25,7 @@ jobs:
         with:
           path: site
 
+      # Sempre incorpora l'última versió de main de Remigi al domini eltauler.cat/remigi/.
       - name: Baixa Remigi
         uses: actions/checkout@v4
         with:
