@@ -18,27 +18,35 @@ def inject_remigi_link(index_path: str) -> None:
         html = html.replace(topbar, remigi_link, 1)
 
     css = '''
-        /* Accés a Remigi, a dalt a l'esquerra de la portada */
+        /* Accés a Remigi: logo gran a l'esquerra; usuari i contacte a la dreta */
         #start-screen .home-topbar {
             position: relative !important;
-            padding-left: 52px;
-            min-height: 42px;
+            display: flex !important;
+            align-items: flex-start !important;
+            justify-content: flex-end !important;
+            gap: 8px !important;
+            width: 100%;
+            min-height: 126px;
+            padding-left: 138px;
+        }
+        #start-screen .home-user-chip,
+        #start-screen .home-at-btn {
+            flex: 0 0 auto;
         }
         .remigi-home-link {
             position: absolute;
             left: 0;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 42px;
-            height: 42px;
+            top: 0;
+            width: 126px;
+            height: 126px;
             display: flex;
             align-items: center;
             justify-content: center;
-            border-radius: 11px;
+            border-radius: 18px;
             overflow: hidden;
             border: 1px solid rgba(201, 162, 39, 0.42);
             background: rgba(0,0,0,0.18);
-            box-shadow: 0 3px 10px rgba(0,0,0,0.25);
+            box-shadow: 0 6px 18px rgba(0,0,0,0.30);
             cursor: pointer;
             z-index: 2;
             transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
@@ -51,9 +59,9 @@ def inject_remigi_link(index_path: str) -> None:
         }
         .remigi-home-link:hover,
         .remigi-home-link:focus-visible {
-            transform: translateY(-50%) scale(1.06);
+            transform: scale(1.035);
             border-color: var(--accent-gold);
-            box-shadow: 0 5px 14px rgba(0,0,0,0.35);
+            box-shadow: 0 8px 22px rgba(0,0,0,0.38);
             outline: none;
         }
         body.epaper-mode .remigi-home-link {
@@ -61,8 +69,16 @@ def inject_remigi_link(index_path: str) -> None:
             box-shadow: none;
         }
         @media (max-width: 420px) {
-            #start-screen .home-topbar { padding-left: 46px; min-height: 38px; }
-            .remigi-home-link { width: 38px; height: 38px; border-radius: 10px; }
+            #start-screen .home-topbar {
+                min-height: 114px;
+                padding-left: 124px;
+                gap: 6px !important;
+            }
+            .remigi-home-link {
+                width: 114px;
+                height: 114px;
+                border-radius: 16px;
+            }
         }
 '''
 
