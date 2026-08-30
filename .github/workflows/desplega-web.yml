@@ -45,6 +45,19 @@ jobs:
       - name: Afegeix l'accés a El Tauler dins Remigi
         run: python site/scripts/inject-tauler-link-remigi.py remigi-src/apps/web/src/screens/GameScreen.tsx
 
+      - name: Aclareix el títol de com es juga al Remigi
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          path = Path('remigi-src/apps/web/src/components/ComEsJuga.tsx')
+          text = path.read_text(encoding='utf-8')
+          old = '<summary>Com es juga (i com s’obre)</summary>'
+          new = '<summary>Com es juga al Remigi (i com s’obre)</summary>'
+          if old not in text:
+              raise SystemExit('No s’ha trobat el títol de Com es juga')
+          path.write_text(text.replace(old, new, 1), encoding='utf-8')
+          PY
+
       - name: Compila Remigi per eltauler.cat/remigi
         working-directory: remigi-src
         env:
