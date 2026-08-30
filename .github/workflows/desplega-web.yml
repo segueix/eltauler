@@ -60,6 +60,9 @@ jobs:
       - name: Afegeix l'accés a Remigi a la portada
         run: python site/scripts/inject-remigi-link.py site/index.html
 
+      - name: Optimitza la portada per jugar a escacs
+        run: python site/scripts/inject-seo.py site/index.html
+
       - name: Configura GitHub Pages
         uses: actions/configure-pages@v5
 
