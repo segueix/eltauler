@@ -1598,6 +1598,11 @@
         }
         .daily-screen-clock { color: var(--accent-gold); font-weight: 700; }
         .daily-screen-clock.clock-urgent { color: var(--severity-high); }
+        .btn-daily-save { font-weight: 800; letter-spacing: 0.5px; }
+        /* Amb una jugada pendent, el tauler queda a l'espera: marc ambre que
+           recorda que allò encara no s'ha jugat. */
+        #daily-board.daily-board-pending { box-shadow: 0 0 0 3px rgba(255, 152, 0, 0.55); border-radius: 4px; }
+        .daily-status-pending { color: var(--severity-med); font-weight: 700; }
         .daily-screen-note {
             margin-top: 10px; padding: 10px 12px;
             background: rgba(255,255,255,0.04);
@@ -2675,8 +2680,10 @@
         .clock-pill.clock-active .clock-time { color: var(--accent-gold); }
         .clock-pill.clock-low .clock-time { color: var(--severity-high); }
         .clock-pill.clock-active.clock-low { border-color: var(--severity-high); box-shadow: 0 0 12px rgba(192,57,43,0.35); }
-        #myBoard .square-55d63.premove-from { box-shadow: inset 0 0 0 5px rgba(255, 193, 7, 0.72); }
-        #myBoard .square-55d63.premove-to { box-shadow: inset 0 0 0 5px rgba(255, 152, 0, 0.88); }
+        #myBoard .square-55d63.premove-from,
+        #daily-board .square-55d63.premove-from { box-shadow: inset 0 0 0 5px rgba(255, 193, 7, 0.72); }
+        #myBoard .square-55d63.premove-to,
+        #daily-board .square-55d63.premove-to { box-shadow: inset 0 0 0 5px rgba(255, 152, 0, 0.88); }
         body.epaper-mode .clock-pill { background: #ededed; border-color: #cfcfcf; }
         body.epaper-mode .clock-pill.clock-active { border-color: #444; background: #e0e0e0; box-shadow: none; }
 
@@ -7760,13 +7767,18 @@
             <div class="controls">
                 <div class="status-message" id="daily-status">Preparat…</div>
                 <div class="game-buttons">
+                    <!-- Jugada triada però encara NO desada: fins que no es desa,
+                         la partida no avança i el rival no comença a comptar. -->
+                    <button class="btn btn-primary btn-daily-save" id="btn-daily-save" style="display:none;">Desa la jugada</button>
+                    <button class="btn btn-secondary" id="btn-daily-undo" style="display:none;">↶ Desfés</button>
                     <button class="btn btn-primary" id="btn-daily-resign">Rendir-se</button>
                     <button class="btn btn-nav-home" id="btn-daily-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
                 </div>
             </div>
-            <div class="daily-screen-note">🕐 <strong>Partida diària:</strong> quan facis la teva jugada ja pots
-                tancar l'app. El rival respondrà al cap de <strong>3 hores</strong> i tindràs
-                <strong>24 hores</strong> per contestar; si no mous a temps, la partida es perd.</div>
+            <div class="daily-screen-note">🕐 <strong>Partida diària:</strong> mou al tauler i prem
+                <strong>Desa la jugada</strong> per confirmar-la; fins llavors pots desfer-la i provar-ne una altra.
+                Un cop desada, es guarda al teu compte i ja pots tancar l'app: el rival respondrà al cap de
+                <strong>3 hores</strong> i tindràs <strong>24 hores</strong> per contestar.</div>
         </div>
     </div>
 
@@ -7890,7 +7902,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.93"></script>
+    <script src="app.js?v=1.0.94"></script>
 
     <!-- Service Worker Registration -->
     <script>

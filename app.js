@@ -6251,6 +6251,10 @@ let dailyEngineWorker = null;   // worker Stockfish PROPI per a respostes en seg
 let dailyEngineBusyId = null;   // id de la partida que s'està calculant ara
 let dailyEngineQueue = [];      // ids pendents de resposta del motor
 let dailyDotsFrame = null;      // rAF pendent per refrescar el punt del carrusel
+// Jugada TRIADA al tauler però encara NO desada: { from, to, promotion, san, fen }.
+// Mentre hi és, la partida no ha avançat —al magatzem no hi ha res i el rival no
+// ha començat a comptar—: només es veu al tauler de qui la té a la pantalla.
+let dailyPendingMove = null;
 // ELO forçat mentre es tria la jugada humanitzada d'una partida diària en segon
 // pla (getActiveStrengthElo el consulta primer). `var` a propòsit: s'hissa
 // inicialitzat i getActiveStrengthElo pot executar-se abans d'aquesta línia.
@@ -6270,6 +6274,14 @@ function saveDailyGames() {
     // que hi ha canvis locals, com fa saveStorage.
     if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
         try { window.CloudSync.onLocalSave(); } catch (e) {}
+    }
+    // …i, a més, es puja SENSE esperar el debounce llarg (20-60 s). Una partida
+    // per correspondència es juga des d'on siguis: la jugada que acabes de desar
+    // ha de ser al compte de seguida perquè el mòbil i l'ordinador tinguin
+    // sempre els mateixos moviments. flushSoon coalesca una ràfega en una sola
+    // escriptura, de manera que no costa una pujada per clic.
+    if (window.CloudSync && typeof window.CloudSync.flushSoon === 'function') {
+        try { window.CloudSync.flushSoon(); } catch (e) {}
     }
 }
 
@@ -6354,6 +6366,9 @@ function processDailyGames() {
 // ---- Final de partida (ELO de la variant + historial + targeta) ----
 function finishDailyGame(entry, result, reason, atMs) {
     if (!entry || entry.status !== 'active') return;
+    // Si la partida que s'acaba és la que hi ha oberta (p. ex. el termini ha
+    // vençut amb una jugada triada a la pantalla), la jugada ja no té on anar.
+    if (dailyPendingMove && dailyScreenGameId === entry.id) discardDailyPendingMove({ silent: true });
     entry.status = 'finished';
     entry.result = result;
     entry.resultReason = reason;
@@ -6742,6 +6757,7 @@ function openDailyGame(id) {
     dailyScreenGameId = id;
     dailyChess = dailyChessFor(entry);
     dailyTapSquare = null;
+    dailyPendingMove = null;
     $('#start-screen').hide();
     $('#stats-screen').hide();
     $('#settings-screen').hide();
@@ -6754,7 +6770,33 @@ function openDailyGame(id) {
     renderDailyScreenState();
 }
 
+// Sortida pel botó de la casa: si hi ha una jugada triada, es pregunta què se'n
+// fa abans de marxar. Desar-la aquí és el mateix que prémer «Desa la jugada»:
+// la partida avança i queda al compte, i sortir després no té cap altre efecte
+// (sortir NO és abandonar: la partida es queda esperant la teva jugada fins que
+// venci el termini de 24 h).
+function requestCloseDailyScreen() {
+    if (!dailyPendingMove) { closeDailyScreen(); return; }
+    showAppConfirm(
+        `Tens la jugada ${dailyPendingMove.san} triada i encara sense desar. Si surts sense desar-la, la partida es queda com estava.`,
+        () => { saveDailyPendingMove(); closeDailyScreen(); },
+        {
+            title: 'Jugada sense desar',
+            confirmText: 'Desa i surt',
+            cancelText: 'Surt sense desar',
+            onCancel: () => { discardDailyPendingMove({ silent: true }); closeDailyScreen(); }
+        }
+    );
+}
+
 function closeDailyScreen() {
+    // Qualsevol altra sortida (gest d'enrere del navegador) descarta la jugada
+    // triada, però mai en silenci: el que no s'ha desat, no s'ha jugat.
+    if (dailyPendingMove) {
+        const san = dailyPendingMove.san;
+        discardDailyPendingMove({ silent: true });
+        showToast(`La jugada ${san} no s'ha desat: la partida es queda com estava.`, 'warn');
+    }
     dailyScreenGameId = null;
     dailyChess = null;
     dailyTapSquare = null;
@@ -6783,6 +6825,10 @@ function buildDailyBoard(entry) {
     setTimeout(resizeDailyBoard, 0);
 }
 
+// El resize de chessboard.js reconstrueix les caselles i se n'emporta les
+// marques: si hi ha una jugada triada, s'hi tornen a posar.
+
+
 function resizeDailyBoard() {
     const screen = document.getElementById('daily-screen');
     if (!dailyBoard || !screen || screen.style.display === 'none') return;
@@ -6790,23 +6836,36 @@ function resizeDailyBoard() {
     // El resize reconstrueix les caselles i s'emporta les marques del mode toc.
     dailyTapSquare = null;
     $('#daily-board .square-55d63').removeClass('tap-selected tap-move');
+    markDailyPendingMove();
+}
+
+// El tauler accepta jugades quan et toca, ets dins de termini i no hi ha cap
+// jugada pendent de desar: mentre n'hi ha una, el tauler ensenya la POSICIÓ
+// PREVISTA, i acceptar-hi una altra jugada la llegiria d'una posició que encara
+// no s'ha jugat. Per canviar de jugada, primer «Desfés».
+function dailyBoardAcceptsInput() {
+    const entry = currentDailyEntry();
+    return !!(entry && canDailyPlayNow(entry) && dailyChess && !dailyPendingMove);
 }
 
 function onDailyDragStart(source, piece) {
     const entry = currentDailyEntry();
-    if (!entry || !canDailyPlayNow(entry) || !dailyChess) return false;
+    if (!dailyBoardAcceptsInput()) return false;
     const ownPrefix = entry.playerColor === 'w' ? /^w/ : /^b/;
     return piece.search(ownPrefix) !== -1;
 }
 
 function onDailyDrop(source, target) {
-    const entry = currentDailyEntry();
-    if (!entry || !canDailyPlayNow(entry) || !dailyChess) return 'snapback';
+    if (!dailyBoardAcceptsInput()) return 'snapback';
     if (isUserPromotionMove(dailyChess, source, target)) {
-        showPromotionPicker(dailyChess.turn(), (piece) => commitDailyMove(source, target, piece));
+        showPromotionPicker(dailyChess.turn(), (piece) => stageDailyMove(source, target, piece));
         return 'snapback';
     }
-    if (!commitDailyMove(source, target, 'q')) return 'snapback';
+    // La jugada queda TRIADA, no jugada: el tauler ensenya com quedaria i
+    // s'espera el botó de desar. Per això sempre es fa «snapback» i és
+    // stageDailyMove qui repinta la posició prevista.
+    stageDailyMove(source, target, 'q');
+    return 'snapback';
 }
 
 function dailyClearTapMarks() {
@@ -6816,6 +6875,11 @@ function dailyClearTapMarks() {
 
 function onDailySquareTap(square) {
     const entry = currentDailyEntry();
+    if (dailyPendingMove) {
+        // Tocar el tauler amb una jugada triada no fa res: cal dir què se'n fa.
+        showToast('Tens una jugada triada: prem «Desa la jugada» o «Desfés».', 'warn');
+        return;
+    }
     if (!entry || !canDailyPlayNow(entry) || !dailyChess) return;
     if (dailyTapSquare) {
         if (square === dailyTapSquare) { dailyClearTapMarks(); return; }
@@ -6823,8 +6887,8 @@ function onDailySquareTap(square) {
         if (targetMove) {
             const fromSq = dailyTapSquare;
             dailyClearTapMarks();
-            if (targetMove.promotion) showPromotionPicker(dailyChess.turn(), (piece) => commitDailyMove(fromSq, square, piece));
-            else commitDailyMove(fromSq, square, 'q');
+            if (targetMove.promotion) showPromotionPicker(dailyChess.turn(), (piece) => stageDailyMove(fromSq, square, piece));
+            else stageDailyMove(fromSq, square, 'q');
             return;
         }
     }
@@ -6841,15 +6905,81 @@ function onDailySquareTap(square) {
     }
 }
 
-// La jugada del jugador: es desa amb la seva marca de temps i comencen les 3 h
-// del motor. Aquí NO es demana res a Stockfish: la resposta arribarà quan toqui
-// (processDailyGames), encara que sigui d'aquí a tres hores o en una altra sessió.
-function commitDailyMove(from, to, promotion) {
+/* ---- Triar, desfer i desar la jugada ----
+   A les partides diàries la jugada NO es juga en deixar anar la peça: es TRIA.
+   Queda a la pantalla (posició prevista, marcada com una premove) i no toca res
+   del magatzem fins que es prem «Desa la jugada». Fins llavors, la partida no ha
+   avançat: el rival no ha començat a comptar les seves 3 hores i el teu termini
+   segueix igual, de manera que provar una jugada i pensar-s'hi no costa res.
+   És el conveni de la correspondència: es confirma el que s'envia. */
+
+// Deixa la jugada TRIADA a la pantalla, sense tocar la partida.
+function stageDailyMove(from, to, promotion) {
     const entry = currentDailyEntry();
     if (!entry || !canDailyPlayNow(entry) || !dailyChess) return false;
-    const applied = dailyChess.move({ from, to, promotion: promotion || 'q' });
+    // Es prova sobre una còpia: la posició real no es mou fins que es desa.
+    const probe = new Chess(dailyChess.fen());
+    const applied = probe.move({ from, to, promotion: promotion || 'q' });
     if (!applied) return false;
     dailyClearTapMarks();
+    dailyPendingMove = {
+        from: from,
+        to: to,
+        promotion: promotion || 'q',
+        san: applied.san,
+        fen: probe.fen()
+    };
+    if (dailyBoard) dailyBoard.position(probe.fen());
+    markDailyPendingMove();
+    renderDailyScreenState();
+    return true;
+}
+
+// Marques de la jugada triada: les mateixes que la premove de les partides amb
+// rellotge, que és exactament el que és —una jugada decidida i no jugada encara.
+function markDailyPendingMove() {
+    const board = document.getElementById('daily-board');
+    $('#daily-board .square-55d63').removeClass('premove-from premove-to');
+    if (!dailyPendingMove) {
+        if (board) board.classList.remove('daily-board-pending');
+        return;
+    }
+    if (board) board.classList.add('daily-board-pending');
+    $(`#daily-board .square-55d63[data-square='${dailyPendingMove.from}']`).addClass('premove-from');
+    $(`#daily-board .square-55d63[data-square='${dailyPendingMove.to}']`).addClass('premove-to');
+}
+
+// Descarta la jugada triada i torna el tauler a la posició de debò.
+function discardDailyPendingMove(options = {}) {
+    if (!dailyPendingMove) return false;
+    dailyPendingMove = null;
+    dailyClearTapMarks();
+    markDailyPendingMove();
+    if (dailyBoard && dailyChess) dailyBoard.position(dailyChess.fen());
+    if (!options.silent) renderDailyScreenState();
+    return true;
+}
+
+// Desa la jugada triada: ARA sí que avança la partida. Es guarda amb la seva
+// marca de temps —comencen les 3 h del rival— i puja al compte de seguida
+// (saveDailyGames), de manera que qualsevol altre dispositiu la té. Aquí no es
+// demana res a Stockfish: la resposta arribarà quan toqui (processDailyGames),
+// encara que sigui d'aquí a tres hores o en una altra sessió.
+function saveDailyPendingMove() {
+    const entry = currentDailyEntry();
+    if (!dailyPendingMove || !entry || !dailyChess) return false;
+    if (!canDailyPlayNow(entry)) {
+        // El termini ha vençut mentre la jugada era a la pantalla.
+        discardDailyPendingMove();
+        showToast('El termini d\'aquesta partida ja ha passat.', 'warn');
+        return false;
+    }
+    const move = dailyPendingMove;
+    const applied = dailyChess.move({ from: move.from, to: move.to, promotion: move.promotion });
+    if (!applied) { discardDailyPendingMove(); return false; }
+    dailyPendingMove = null;
+    dailyClearTapMarks();
+    markDailyPendingMove();
     const now = Date.now();
     entry.movesSan.push(applied.san);
     entry.fen = dailyChess.fen();
@@ -6862,6 +6992,7 @@ function commitDailyMove(from, to, promotion) {
     if (dailyBoard) dailyBoard.position(dailyChess.fen());
     renderDailyScreenState();
     renderDailyGamesPanel();
+    showToast(`Jugada ${applied.san} desada al teu compte.`, 'success');
     return true;
 }
 
@@ -6881,11 +7012,26 @@ function refreshDailyScreenIf(id) {
     const entry = getDailyGame(id);
     if (!entry) { closeDailyScreen(); return; }
     if (!dailyChess || dailyChess.history().length !== (entry.movesSan || []).length) {
+        // La partida ha avançat per sota (resposta del rival, o una jugada desada
+        // en un altre dispositiu): una jugada triada aquí ja no val, perquè
+        // sortia d'una posició que ja no és la d'ara.
+        if (dailyPendingMove) {
+            const san = dailyPendingMove.san;
+            discardDailyPendingMove({ silent: true });
+            showToast(`La partida ha avançat: la jugada ${san} que tenies triada s'ha descartat.`, 'warn');
+        }
         dailyChess = dailyChessFor(entry);
         if (dailyBoard) dailyBoard.position(dailyChess.fen());
         dailyClearTapMarks();
     }
     renderDailyScreenState();
+}
+
+// Torna a llegir la partida oberta després d'una baixada del núvol: si un altre
+// dispositiu hi ha jugat, la pantalla ho ha de reflectir sense haver de sortir.
+function refreshOpenDailyScreenFromStorage() {
+    if (!dailyScreenGameId) return;
+    refreshDailyScreenIf(dailyScreenGameId);
 }
 
 function renderDailyScreenState() {
@@ -6899,18 +7045,32 @@ function renderDailyScreenState() {
     const statusEl = $('#daily-status');
     const now = Date.now();
     clockEl.removeClass('clock-urgent');
+    statusEl.removeClass('daily-status-pending');
     if (entry.status === 'finished') {
         const delta = formatEloChange(entry.ratingDelta || 0);
         statusEl.text(`${dailyResultText(entry)} (${delta} · ELO diari)`);
         clockEl.text('🏁 Partida acabada');
-        $('#btn-daily-resign').hide();
+        $('#btn-daily-resign, #btn-daily-save, #btn-daily-undo').hide();
         return;
     }
+    // Amb una jugada triada, els botons de la partida deixen pas als de
+    // confirmar-la: no hi ha res més a fer fins que se'n decideix el destí.
+    if (dailyPendingMove) {
+        $('#btn-daily-resign').hide();
+        $('#btn-daily-save, #btn-daily-undo').show();
+        statusEl.addClass('daily-status-pending')
+            .text(`Jugada triada: ${dailyPendingMove.san} — encara no s'ha desat`);
+        const remaining = (ElTaulerCore.dailyPlayerDeadlineMs(entry) || now) - now;
+        clockEl.text(`⏳ ${ElTaulerCore.dailyCountdownLabel(remaining)}`);
+        if (remaining <= 3 * 60 * 60 * 1000) clockEl.addClass('clock-urgent');
+        return;
+    }
+    $('#btn-daily-save, #btn-daily-undo').hide();
     $('#btn-daily-resign').show();
     if (ElTaulerCore.dailyIsPlayerTurn(entry)) {
         const remaining = (ElTaulerCore.dailyPlayerDeadlineMs(entry) || now) - now;
         const check = dailyChess && dailyChess.in_check() ? ' — Escac!' : '';
-        statusEl.text(`Et toca moure${check}`);
+        statusEl.text(`Et toca moure${check} · mou i prem «Desa la jugada»`);
         clockEl.text(`⏳ ${ElTaulerCore.dailyCountdownLabel(remaining)}`);
         if (remaining <= 3 * 60 * 60 * 1000) clockEl.addClass('clock-urgent');
     } else {
@@ -6935,8 +7095,10 @@ function initDailyGames() {
         const id = $(this).closest('.daily-card').attr('data-daily-id');
         if (id) closeDailyCard(id);
     });
-    $('#btn-daily-home').off('click').on('click', () => closeDailyScreen());
+    $('#btn-daily-home').off('click').on('click', () => requestCloseDailyScreen());
     $('#btn-daily-resign').off('click').on('click', () => confirmDailyResign());
+    $('#btn-daily-save').off('click').on('click', () => saveDailyPendingMove());
+    $('#btn-daily-undo').off('click').on('click', () => discardDailyPendingMove());
     // Carrusel del mòbil: el punt actiu segueix el dit, i tocar un punt porta
     // la seva targeta al centre.
     const grid = document.getElementById('daily-grid');
@@ -7647,6 +7809,9 @@ function reloadAppStateFromStorage() {
         if (typeof updateStatsDisplay === 'function') updateStatsDisplay();
         if (typeof updateMissionsDisplay === 'function') updateMissionsDisplay();
         if (typeof renderGameHistory === 'function') renderGameHistory();
+        // Partides diàries: si n'hi ha una d'oberta, ha de mostrar el que
+        // acaba d'arribar de l'altre dispositiu.
+        if (typeof refreshOpenDailyScreenFromStorage === 'function') refreshOpenDailyScreenFromStorage();
         if (typeof updateReviewChart === 'function') updateReviewChart();
         // Refresca també pantalles de lliga, obertures i tàctiques si existeixen.
         if (typeof renderLeagueScreen === 'function') renderLeagueScreen();
