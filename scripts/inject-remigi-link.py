@@ -54,10 +54,10 @@ def inject_remigi_link(index_path: str) -> None:
             height: 104px;
             display: block;
             object-fit: cover;
-            border-radius: 17px;
-            overflow: hidden;
-            border: 1px solid rgba(201, 162, 39, 0.42);
-            background: rgba(0,0,0,0.18);
+            object-position: center;
+            border-radius: 4px;
+            border: 1px solid rgba(201, 162, 39, 0.52);
+            background: #16867d;
             box-shadow: 0 5px 16px rgba(0,0,0,0.30);
             transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
         }
@@ -106,7 +106,7 @@ def inject_remigi_link(index_path: str) -> None:
             .remigi-home-link img {
                 width: 94px;
                 height: 94px;
-                border-radius: 15px;
+                border-radius: 4px;
             }
             .remigi-home-label {
                 margin-top: 4px;
