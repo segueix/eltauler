@@ -116,6 +116,19 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
 - **Conflictes:** «última escriptura guanya» per marca de temps. En temps real,
   si un altre dispositiu puja una versió més nova, s'aplica automàticament (mai
   enmig d'una partida; espera que acabis).
+- **Barrera de conciliació:** amb la sessió iniciada, cap pujada ni cap fet
+  irreversible guiat pel rellotge (derrota per temps d'una partida diària,
+  ratxa a zero) no es resol fins que la sessió ha contrastat l'estat amb el
+  SERVIDOR (no val la memòria cau). Així un aparell obert al cap de dies, amb
+  dades endarrerides, no pot «fabricar» derrotes per temps ni escombrar la
+  ratxa i pujar-ho per sobre de l'estat bo d'un altre aparell. En conciliar,
+  el que hagi vençut de debò es resol llavors, amb la marca de temps oficial.
+- **Fusió de l'estat viu:** en aplicar una instantània del núvol (i abans de
+  pujar la local quan guanya), les partides diàries es fusionen partida a
+  partida (guanya la versió amb més jugades) i la ratxa viatja com un parell
+  {ratxa, última data de pràctica} (guanya la data més recent). La fusió és
+  convergent: tots els aparells acaben amb el mateix resultat
+  (`mergeSyncSnapshots` a `core.js`, provada a `tests/cloudmerge.test.js`).
 - **Quan es puja:** per estalviar quota, els desats menors s'agrupen (debounce) i
   es pugen en amagar/tancar l'app; els esdeveniments valuosos (final de partida,
   error nou, exercici resolt) es pugen de seguida. En tornar a un dispositiu es

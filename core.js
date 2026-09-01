@@ -8041,6 +8041,144 @@
         return deviceType === 'mobile' && count >= DAILY_CAROUSEL_MIN_CARDS;
     }
 
+    // ----------------------------------------------------------------------
+    // Fusió de sincronització (cloudsync.js)
+    // ----------------------------------------------------------------------
+    // La sincronització del compte fa mirall del núvol amb «última escriptura
+    // guanya». Per a la majoria de claus va bé, però per a l'estat VIU guiat
+    // pel rellotge és destructiu: un aparell amb dades endarrerides pot haver
+    // tancat «per temps» una partida diària en què l'usuari havia jugat fa
+    // poques hores des d'un altre aparell, o haver posat la ratxa a zero, i el
+    // mirall escamparia aquest retrocés a tot arreu. Aquestes funcions fusionen
+    // els dos costats de manera CONVERGENT (tots els aparells acaben igual,
+    // s'apliqui on s'apliqui) conservant sempre la versió més avançada.
+
+    // Tria la millor versió d'una MATEIXA partida diària (mateix id):
+    //   1) guanya la que té més jugades (estat estrictament més avançat);
+    //   2) amb les mateixes jugades, una resolució (finished) mana sobre una
+    //      partida activa: amb jugades iguals el torn va començar al mateix
+    //      instant oficial a tot arreu, així que el venciment o la rendició
+    //      són legítims i el resultat ja està aplicat;
+    //   3) amb tot igual i actives, la marca de torn més tardana (mai no
+    //      escurça un termini);
+    //   4) si no hi ha res a triar, la del núvol (determinisme convergent).
+    function dailyPickVersion(localEntry, cloudEntry) {
+        if (!localEntry) return cloudEntry;
+        if (!cloudEntry) return localEntry;
+        const movesL = dailyMovesCount(localEntry);
+        const movesC = dailyMovesCount(cloudEntry);
+        if (movesL !== movesC) return movesL > movesC ? localEntry : cloudEntry;
+        const finishedL = localEntry.status === 'finished';
+        const finishedC = cloudEntry.status === 'finished';
+        if (finishedL !== finishedC) return finishedL ? localEntry : cloudEntry;
+        if (!finishedL) {
+            const startL = Number(localEntry.turnStartedAt) || 0;
+            const startC = Number(cloudEntry.turnStartedAt) || 0;
+            if (startL !== startC) return startL > startC ? localEntry : cloudEntry;
+        }
+        return cloudEntry;
+    }
+
+    // Fusiona les llistes de partides diàries local i del núvol, partida a
+    // partida per id. Les que només són al núvol s'agafen; les que només són
+    // locals es conserven NOMÉS si són actives (creades o avançades aquí i
+    // encara no pujades): una acabada que ja no és al núvol és que s'ha
+    // descartat de la prestatgeria des d'un altre aparell.
+    function dailyMergeGames(localGames, cloudGames) {
+        const locals = Array.isArray(localGames) ? localGames.filter(g => g && g.id) : [];
+        const clouds = Array.isArray(cloudGames) ? cloudGames.filter(g => g && g.id) : [];
+        const localById = {};
+        locals.forEach(g => { localById[g.id] = g; });
+        const inCloud = {};
+        const merged = clouds.map(c => {
+            inCloud[c.id] = true;
+            return dailyPickVersion(localById[c.id], c);
+        });
+        locals.forEach(l => {
+            if (!inCloud[l.id] && l.status === 'active') merged.push(l);
+        });
+        return merged;
+    }
+
+    // Data de pràctica vàlida ('YYYY-MM-DD') o null. localStorage només desa
+    // textos: hi poden viure "null", "undefined" o buits, que aquí no compten.
+    function practiceDateOrNull(value) {
+        return (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)) ? value : null;
+    }
+
+    function nonNegativeInt(value) {
+        const n = parseInt(value, 10);
+        return (isNaN(n) || n < 0) ? 0 : n;
+    }
+
+    // ¿next és exactament l'endemà de prev? (dates 'YYYY-MM-DD')
+    function isNextDay(prev, next) {
+        if (!prev || !next) return false;
+        const p = Date.parse(prev + 'T00:00:00Z');
+        const n = Date.parse(next + 'T00:00:00Z');
+        return !isNaN(p) && !isNaN(n) && (n - p === 24 * 60 * 60 * 1000);
+    }
+
+    // Fusiona la instantània local amb la del núvol just abans d'aplicar-la.
+    // Parteix del mirall del núvol (el comportament de sempre) i corregeix
+    // només les claus amb estat viu:
+    //   - chess_dailyGames: fusió partida a partida (dailyMergeGames);
+    //   - ratxa: guanya el PARELL {chess_streak, chess_lastPracticeDate} amb
+    //     la data de pràctica més recent (la ratxa només té sentit amb la seva
+    //     data); a data igual, la ratxa més alta;
+    //   - chess_maxStreak: el màxim de tots dos costats i de la ratxa triada.
+    // Les dues instantànies són mapes clau→text (com viuen a localStorage) i
+    // el resultat també: qualsevol valor illegible es deixa com el del núvol.
+    function mergeSyncSnapshots(localData, cloudData) {
+        const local = (localData && typeof localData === 'object') ? localData : {};
+        const cloud = (cloudData && typeof cloudData === 'object') ? cloudData : {};
+        const merged = Object.assign({}, cloud);
+
+        // Partides diàries
+        try {
+            const parse = s => { const v = JSON.parse(s); return Array.isArray(v) ? v : null; };
+            let localGames = null; let cloudGames = null;
+            try { localGames = parse(local['chess_dailyGames']); } catch (e) {}
+            try { cloudGames = parse(cloud['chess_dailyGames']); } catch (e) {}
+            if (localGames) {
+                const mergedGames = dailyMergeGames(localGames, cloudGames || []);
+                if (cloudGames || mergedGames.length) {
+                    merged['chess_dailyGames'] = JSON.stringify(mergedGames);
+                }
+            }
+        } catch (e) {}
+
+        // Ratxa de pràctica
+        try {
+            const dateL = practiceDateOrNull(local['chess_lastPracticeDate']);
+            const dateC = practiceDateOrNull(cloud['chess_lastPracticeDate']);
+            const streakL = nonNegativeInt(local['chess_streak']);
+            const streakC = nonNegativeInt(cloud['chess_streak']);
+            let date = dateC;
+            let streak = streakC;
+            if (dateL && (!dateC || dateL > dateC)) {
+                date = dateL; streak = streakL;
+                // Dies CONSECUTIUS en aparells diferents (ahir allà, avui aquí):
+                // la ratxa real és la continuació de la de l'altre costat.
+                if (isNextDay(dateC, dateL)) streak = Math.max(streakL, streakC + 1);
+            } else if (dateL && dateC && dateL === dateC) {
+                streak = Math.max(streakL, streakC);
+            } else if (dateL && dateC && isNextDay(dateL, dateC)) {
+                streak = Math.max(streakC, streakL + 1);
+            }
+            if (date) {
+                merged['chess_lastPracticeDate'] = date;
+                merged['chess_streak'] = String(streak);
+            }
+            const maxStreak = Math.max(nonNegativeInt(local['chess_maxStreak']),
+                                       nonNegativeInt(cloud['chess_maxStreak']),
+                                       streak);
+            if (maxStreak > 0) merged['chess_maxStreak'] = String(maxStreak);
+        } catch (e) {}
+
+        return merged;
+    }
+
     return {
         splitPgnGames,
         parsePgnHeaders,
@@ -8311,6 +8449,9 @@
         dailyCardGroup,
         dailyCardAt,
         dailyOrderedGames,
-        dailyUsesCarousel
+        dailyUsesCarousel,
+        dailyPickVersion,
+        dailyMergeGames,
+        mergeSyncSnapshots
     };
 });
