@@ -100,6 +100,14 @@
   let lastFocusPullAt = 0;           // última baixada en recuperar el focus (throttle)
   let pendingCloudData = null;       // dades del núvol esperant a aplicar-se
   let deferApplyTimer = null;
+  // Conciliació amb el SERVIDOR: fins que aquesta sessió no ha contrastat
+  // l'estat amb Firestore (no val la memòria cau), no es puja cap instantània
+  // ni l'app pot convertir venciments «per temps» en fets. Un aparell obert al
+  // cap de dies porta dades endarrerides: si abans de conciliar declarés
+  // derrotes per temps o ratxa zero i ho pugés, trepitjaria l'estat bo que un
+  // altre aparell ha deixat al núvol fa poques hores.
+  let reconciled = false;            // aquesta sessió ja ha contrastat amb el servidor
+  let pushAfterReconcile = false;    // pujades retingudes mentre es conciliava
   let syncWatchdog = null;           // detecta sincronitzacions inicials encallades
   const SYNC_WATCHDOG_MS = 15000;
   let pushWatchdog = null;           // detecta pujades encallades (ref.set() que no resol)
@@ -185,22 +193,45 @@
     return false;
   }
 
-  // Aplica una instantània del núvol al localStorage local (mirall complet).
+  // Aplica una instantània del núvol al localStorage local (mirall complet,
+  // amb una FUSIÓ prèvia per a les claus amb estat viu). Retorna true si la
+  // fusió ha conservat estat local més avançat que el del núvol (i per tant
+  // cal re-pujar el resultat perquè la resta d'aparells el rebin).
   function applySnapshot(data) {
-    if (!data || typeof data !== 'object') return;
+    if (!data || typeof data !== 'object') return false;
+    // 0. Fusió (core.js): el mirall cec faria retrocedir partides diàries o la
+    //    ratxa quan aquest aparell en té una versió més avançada —l'única
+    //    direcció en què el mirall destrueix—. La fusió és convergent: tots
+    //    els aparells acaben amb el mateix resultat.
+    let effective = data;
+    let mergedChanged = false;
+    try {
+      const core = window.ElTaulerCore;
+      if (core && typeof core.mergeSyncSnapshots === 'function') {
+        const merged = core.mergeSyncSnapshots(collectSnapshot(), data);
+        if (merged && typeof merged === 'object') {
+          mergedChanged = snapshotHash(merged) !== snapshotHash(data);
+          effective = merged;
+        }
+      }
+    } catch (e) {
+      effective = data;
+      mergedChanged = false;
+    }
     // 1. Esborra les claus sincronitzables locals que ja no existeixen al núvol
     //    (així es propaguen també les eliminacions, p. ex. esborrar un error).
     const toRemove = [];
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (isSyncableKey(k) && !(k in data)) toRemove.push(k);
+      if (isSyncableKey(k) && !(k in effective)) toRemove.push(k);
     }
     toRemove.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
     // 2. Escriu totes les claus del núvol.
-    Object.keys(data).forEach(function (k) {
+    Object.keys(effective).forEach(function (k) {
       if (!isSyncableKey(k)) return;
-      try { localStorage.setItem(k, data[k]); } catch (e) {}
+      try { localStorage.setItem(k, effective[k]); } catch (e) {}
     });
+    return mergedChanged;
   }
 
   // Demana a l'app que recarregui el seu estat des del localStorage i refresqui
@@ -228,6 +259,35 @@
     }
   }
 
+  // La sessió ja ha contrastat l'estat amb el servidor (i, si el núvol era més
+  // nou, l'ha incorporat). A partir d'aquí les pujades tornen a estar permeses
+  // i l'app pot resoldre venciments per temps amb dades al dia.
+  function setReconciled() {
+    if (reconciled) return;
+    reconciled = true;
+    // Primer l'app: pot convertir venciments reals en fets (i desar-los), de
+    // manera que la pujada retinguda de sota ja s'endugui l'estat definitiu.
+    if (typeof window.onCloudSyncSettled === 'function') {
+      try { window.onCloudSyncSettled(); } catch (e) {}
+    }
+    if (pushAfterReconcile) {
+      pushAfterReconcile = false;
+      pushSnapshot();
+    }
+  }
+
+  // ¿Pot l'app fiar-se de l'estat local per resoldre fets guiats pel rellotge
+  // (derrota per temps d'una diària, ratxa a zero)? Sense núvol (no
+  // configurat, sense Firebase o sense sessió), el dispositiu és l'única font
+  // de veritat; amb sessió, només després de conciliar amb el servidor.
+  function isSettled() {
+    if (!isConfigured() || !firebaseLoaded()) return true;
+    if (currentUser) return reconciled;
+    // Sense usuari: definitiu quan sabem del cert que no hi ha sessió; mentre
+    // l'autenticació inicial encara es resol ('init'), val més esperar.
+    return status.state !== 'init' && status.state !== 'syncing';
+  }
+
   // ---------------------------------------------------------------------------
   //  Firestore: push i pull
   // ---------------------------------------------------------------------------
@@ -239,6 +299,20 @@
   function pushSnapshot(force) {
     const ref = docRef();
     if (!ref) return Promise.resolve();
+    if (!reconciled) {
+      // Encara no hem contrastat l'estat amb el servidor: retén la pujada.
+      // Pujar ara podria substituir dades bones del núvol per dades locals
+      // endarrerides (p. ex. d'un aparell dies sense obrir). En conciliar,
+      // setReconciled() la deixa anar.
+      pushAfterReconcile = true;
+      return Promise.resolve();
+    }
+    if (pendingCloudData) {
+      // Hi ha dades MÉS NOVES del núvol esperant que sigui segur aplicar-les:
+      // no les trepitgem amb l'estat local vell; en aplicar-se ja es pujarà
+      // el que calgui (fusió inclosa).
+      return Promise.resolve();
+    }
     if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
     const data = collectSnapshot();
     const hash = snapshotHash(data);
@@ -353,12 +427,16 @@
     const ref = docRef();
     if (!ref) return;
     ref.get({ source: 'server' }).then(function (snap) {
-      if (!snap.exists) return;
+      // Lectura del SERVIDOR reeixida: contrastació real, concilia la sessió.
+      if (!snap.exists) { setReconciled(); return; }
       const d = snap.data();
-      if (!d || !d.data) return;
-      if (d.deviceId === getDeviceId()) return;          // canvi originat per nosaltres
+      if (!d || !d.data || d.deviceId === getDeviceId()) { setReconciled(); return; }
       const localChangeAt = getLocalChangeAt() || 0;
-      if ((d.updatedAt || 0) > localChangeAt) applyCloudData(d.data, d.updatedAt || Date.now());
+      if ((d.updatedAt || 0) > localChangeAt) {
+        applyCloudData(d.data, d.updatedAt || Date.now());  // concilia en aplicar-se
+      } else {
+        setReconciled();
+      }
     }).catch(function (e) {
       // Sense connexió o servidor no disponible: el listener ja ho recuperarà.
       console.warn('[CloudSync] focus pull', e && e.code ? e.code : e);
@@ -382,13 +460,49 @@
       }
       return;
     }
-    applySnapshot(data);
+    const mergedChanged = applySnapshot(data);
     // Evita re-pujar immediatament el que acabem de baixar: fixa el hash actual.
     try { lastPushedHash = snapshotHash(collectSnapshot()); } catch (e) {}
     setLocalChangeAt(updatedAt);
     setLastSyncedAt(updatedAt);
     reloadApp();
     setStatus({ state: 'synced', error: null });
+    // Amb l'estat del núvol ja incorporat (i l'app recarregada), la sessió
+    // queda conciliada: l'app pot resoldre venciments i les pujades flueixen.
+    setReconciled();
+    if (mergedChanged) {
+      // La fusió ha conservat estat local més avançat que el del núvol (p. ex.
+      // una partida diària amb la jugada que el núvol encara no tenia): puja'l
+      // de seguida perquè la resta d'aparells desfacin el retrocés.
+      lastPushedHash = null;
+      flushSoon();
+    }
+  }
+
+  // Incorpora al LOCAL la part més avançada del núvol (partides diàries,
+  // ratxa) abans que guanyi la instantània local per «última escriptura
+  // guanya»: que el local mani no pot fer retrocedir l'estat viu que el núvol
+  // tingui més avançat (p. ex. una diària jugada des d'un altre aparell des de
+  // l'última vegada que aquest es va sincronitzar). Retorna true si ha canviat
+  // alguna clau local.
+  function mergeCloudIntoLocal(cloudData) {
+    try {
+      const core = window.ElTaulerCore;
+      if (!core || typeof core.mergeSyncSnapshots !== 'function') return false;
+      if (!cloudData || typeof cloudData !== 'object') return false;
+      const localData = collectSnapshot();
+      // Mateixa fusió que en aplicar el núvol, amb els papers invertits: la
+      // base és la instantània LOCAL i s'hi incorpora el més avançat del núvol.
+      const merged = core.mergeSyncSnapshots(cloudData, localData);
+      let changed = false;
+      Object.keys(merged).forEach(function (k) {
+        if (!isSyncableKey(k)) return;
+        if (localData[k] !== merged[k]) {
+          try { localStorage.setItem(k, merged[k]); changed = true; } catch (e) {}
+        }
+      });
+      return changed;
+    } catch (e) { return false; }
   }
 
   // Decideix què fer la primera vegada que ens connectem amb aquest compte.
@@ -397,6 +511,7 @@
 
     if (!cloudDoc) {
       // No hi ha res al núvol → aquest dispositiu és la font: puja-ho tot.
+      setReconciled();
       return pushSnapshot();
     }
 
@@ -407,10 +522,13 @@
       if (cloudAt > localChangeAt) {
         applyCloudData(cloudDoc.data, cloudAt);
       } else if (localChangeAt > cloudAt) {
+        if (mergeCloudIntoLocal(cloudDoc.data)) reloadApp();
+        setReconciled();
         pushSnapshot();
       } else {
         setLastSyncedAt(cloudAt);
         setStatus({ state: 'synced' });
+        setReconciled();
       }
       return Promise.resolve();
     }
@@ -435,6 +553,8 @@
     if (useCloud) {
       applyCloudData(cloudDoc.data, cloudAt);
     } else {
+      // L'usuari ha triat conservar les dades d'AQUEST dispositiu tal qual.
+      setReconciled();
       pushSnapshot();
     }
     return Promise.resolve();
@@ -447,15 +567,24 @@
     if (!ref) return;
     if (docUnsub) { docUnsub(); docUnsub = null; }
     docUnsub = ref.onSnapshot(function (snap) {
-      if (!snap.exists) return;
-      if (snap.metadata && snap.metadata.hasPendingWrites) return; // és la nostra pròpia escriptura
-      const d = snap.data();
-      if (!d || !d.data) return;
-      if (d.deviceId === getDeviceId()) return;       // canvi originat per nosaltres
-      const localChangeAt = getLocalChangeAt() || 0;
-      if ((d.updatedAt || 0) > localChangeAt) {
-        applyCloudData(d.data, d.updatedAt || Date.now());
+      // fromCache=false → instantània CONFIRMADA pel servidor. Si la
+      // conciliació inicial no s'havia pogut fer (arrencada offline, get()
+      // caigut a la memòria cau), aquesta és la primera contrastació real i
+      // és la que desencalla la sessió (setReconciled).
+      const fromServer = !(snap.metadata && snap.metadata.fromCache);
+      let applied = false;
+      if (snap.exists && !(snap.metadata && snap.metadata.hasPendingWrites)) {
+        const d = snap.data();
+        if (d && d.data && d.deviceId !== getDeviceId()) {
+          const localChangeAt = getLocalChangeAt() || 0;
+          if ((d.updatedAt || 0) > localChangeAt) {
+            // applyCloudData ja concilia quan les dades s'apliquen de debò.
+            applyCloudData(d.data, d.updatedAt || Date.now());
+            applied = true;
+          }
+        }
       }
+      if (fromServer && !applied) setReconciled();
     }, function (err) {
       console.warn('[CloudSync] onSnapshot error', err);
     });
@@ -470,6 +599,10 @@
 
   function handleSignedIn(user) {
     currentUser = user;
+    // Cada inici de sessió (o canvi de compte) exigeix conciliar de nou amb el
+    // servidor abans de pujar res o de resoldre venciments per temps.
+    reconciled = false;
+    pushAfterReconcile = false;
     // Sessió iniciada correctament: neteja la marca de redirecció i avisa l'app
     // (perquè mostri un missatge clar i, si cal, torni a la pantalla on era).
     try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
@@ -503,6 +636,13 @@
     // encara que el get() inicial trigui, l'estat es pot recuperar sol quan arribi
     // el primer snapshot del document.
     ref.get().then(function (snap) {
+      if (snap && snap.metadata && snap.metadata.fromCache) {
+        // Resposta de la MEMÒRIA CAU (el servidor no era a l'abast): no val
+        // per conciliar, pot anar tan endarrerida com aquest mateix aparell.
+        // La subscripció en temps real farà la primera contrastació de debò
+        // quan arribi un snapshot del servidor; fins llavors no es puja res.
+        return null;
+      }
       const cloudDoc = snap.exists ? snap.data() : null;
       return reconcileInitial(cloudDoc);
     }).then(function () {
@@ -529,7 +669,14 @@
     if (docUnsub) { docUnsub(); docUnsub = null; }
     clearPushTimers();
     lastPushedHash = null;
+    reconciled = false;
+    pushAfterReconcile = false;
     setStatus({ state: 'signedout', email: null });
+    // Sense sessió, el dispositiu torna a ser l'única font de veritat: avisa
+    // l'app perquè reprengui la resolució local de venciments i ratxes.
+    if (typeof window.onCloudSyncSettled === 'function') {
+      try { window.onCloudSyncSettled(); } catch (e) {}
+    }
   }
 
   function buildProvider() {
@@ -712,6 +859,9 @@
     // resolt) perquè es pugi de seguida, sense esperar el debounce llarg.
     flushSoon: function () { flushSoon(); },
     isConfigured: isConfigured,
+    // ¿Pot l'app fiar-se de l'estat local per resoldre fets guiats pel
+    // rellotge (venciments de diàries, ratxa a zero)? Vegeu isSettled().
+    isSettled: isSettled,
     isSignedIn: function () { return !!currentUser; },
     getEmail: function () { return currentUser ? (currentUser.email || currentUser.displayName || null) : null; },
     getStatus: function () { return Object.assign({}, status, { configured: isConfigured() }); }

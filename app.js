@@ -5485,7 +5485,12 @@ function checkStreak() {
     if (lastPracticeDate === today) todayCompleted = true;
     else if (lastPracticeDate === yesterday) todayCompleted = false;
     else if (lastPracticeDate && lastPracticeDate !== today) {
-        currentStreak = 0; todayCompleted = false;
+        // La ratxa només es posa a zero amb l'estat contrastat amb el núvol:
+        // un aparell endarrerit encara no sap la pràctica feta ahir en un
+        // altre dispositiu, i el zero es desaria i es pujaria al compte
+        // (vegeu cloudStateSettled). En conciliar, es torna a passar per aquí.
+        if (cloudStateSettled()) currentStreak = 0;
+        todayCompleted = false;
     }
     updateStreakDisplay();
 }
@@ -6345,14 +6350,34 @@ function startNewDailyGame() {
     processDailyGames();
 }
 
+// Amb el compte de Google connectat, els fets IRREVERSIBLES guiats pel
+// rellotge (derrota per temps d'una diària, jugada del motor, ratxa a zero)
+// només es resolen quan la sessió ja ha contrastat l'estat amb el núvol
+// (CloudSync.isSettled): les dades locals d'un aparell obert al cap de dies
+// van hores o dies endarrerides respecte de l'últim aparell usat, i resoldre-hi
+// venciments fabricaria derrotes per temps que després es pujarien per sobre
+// de l'estat bo. Sense compte (o sense Firebase), el dispositiu és l'única
+// font de veritat i es resol a l'instant, com sempre. Quan la sincronització
+// concilia, crida window.onCloudSyncSettled i tot el que hagi vençut de debò
+// es resol llavors, amb la marca de temps oficial del venciment.
+function cloudStateSettled() {
+    const cs = window.CloudSync;
+    if (!cs || typeof cs.isSettled !== 'function') return true;
+    try { return cs.isSettled(); } catch (e) { return true; }
+}
+
 // ---- Manteniment: venciments i respostes del motor pendents ----
 // S'executa en obrir l'app, cada mig minut i en tornar a primer pla. És qui
 // converteix el pas del temps en fets: la derrota per temps del jugador i la
 // jugada del motor quan les seves 3 h ja han vençut.
 function processDailyGames() {
     const now = Date.now();
+    // Sense l'estat contrastat amb el núvol, aquí només es repinten els
+    // comptes enrere: cap venciment no es converteix encara en fet.
+    const settled = cloudStateSettled();
     dailyGames.forEach(entry => {
         const action = ElTaulerCore.dailyNextAction(entry, now);
+        if (!settled) return;
         if (action.kind === 'player_timeout') {
             finishDailyGame(entry, 'loss', 'timeout', action.at);
         } else if (action.kind === 'engine_move') {
@@ -7479,7 +7504,11 @@ function loadStorage() {
     const errors = localStorage.getItem('chess_savedErrors'); if (errors) savedErrors = JSON.parse(errors);
     try { const pz = localStorage.getItem('chess_puzzles'); if (pz) puzzles = JSON.parse(pz) || []; } catch (e) { puzzles = []; }
     const streak = localStorage.getItem('chess_streak'); if (streak) currentStreak = parseInt(streak);
-    const lastDate = localStorage.getItem('chess_lastPracticeDate'); if (lastDate) lastPracticeDate = lastDate;
+    // Només dates reals 'YYYY-MM-DD': els textos "null"/"undefined" desats per
+    // versions antigues farien que checkStreak escombrés la ratxa.
+    const lastDate = localStorage.getItem('chess_lastPracticeDate');
+    if (lastDate && /^\d{4}-\d{2}-\d{2}$/.test(lastDate)) lastPracticeDate = lastDate;
+    else lastPracticeDate = null;
     const stars = localStorage.getItem('chess_totalStars'); if (stars) totalStars = parseInt(stars);
     
     // Càrrega de Missions i Temps. Es guarden en brut i es restauren MÉS AVALL,
@@ -7713,7 +7742,10 @@ function saveStorageNow() {
     localStorage.setItem('chess_savedErrors', JSON.stringify(savedErrors));
     try { localStorage.setItem('chess_puzzles', JSON.stringify(puzzles)); } catch (e) {}
     localStorage.setItem('chess_streak', currentStreak);
-    localStorage.setItem('chess_lastPracticeDate', lastPracticeDate);
+    // Mai no s'hi desa el text "null": el carregador i checkStreak el
+    // prendrien per una data real (ni avui ni ahir) i escombrarien la ratxa.
+    if (lastPracticeDate) localStorage.setItem('chess_lastPracticeDate', lastPracticeDate);
+    else localStorage.removeItem('chess_lastPracticeDate');
     localStorage.setItem('chess_totalStars', totalStars);
     localStorage.setItem('chess_todayMissions', JSON.stringify(todayMissions));
     localStorage.setItem('chess_missionsDate', missionsDate);
@@ -7812,6 +7844,11 @@ function reloadAppStateFromStorage() {
         // Partides diàries: si n'hi ha una d'oberta, ha de mostrar el que
         // acaba d'arribar de l'altre dispositiu.
         if (typeof refreshOpenDailyScreenFromStorage === 'function') refreshOpenDailyScreenFromStorage();
+        // Amb les dades acabades d'arribar del núvol, recalcula la ratxa i
+        // resol només els venciments que ho siguin DE DEBÒ (l'estat ja és al
+        // dia; si la conciliació encara és en curs, aquí només es repinta).
+        checkStreak();
+        processDailyGames();
         if (typeof updateReviewChart === 'function') updateReviewChart();
         // Refresca també pantalles de lliga, obertures i tàctiques si existeixen.
         if (typeof renderLeagueScreen === 'function') renderLeagueScreen();
@@ -7841,6 +7878,15 @@ function reloadAppStateFromStorage() {
     }
 }
 window.reloadAppStateFromStorage = reloadAppStateFromStorage;
+
+// La sincronització acaba de conciliar amb el servidor (o ha quedat clar que
+// no hi ha sessió i mana el dispositiu): ara sí, la ratxa i els venciments de
+// les partides diàries es resolen amb dades al dia. Si les dades del núvol
+// eren més noves, reloadAppStateFromStorage ja les ha carregades abans.
+window.onCloudSyncSettled = function () {
+    try { checkStreak(); } catch (e) {}
+    try { processDailyGames(); } catch (e) {}
+};
 
 // Refresca la secció "Sincronització al núvol" de Configuració segons l'estat.
 function updateCloudSyncUI(st) {
