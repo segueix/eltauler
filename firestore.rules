@@ -15,12 +15,43 @@ service cloud.firestore {
       allow write: if request.auth != null;
     }
 
-    // Rànquing global (un sol document compartit amb el mapa de jugadors).
-    // Lectura PÚBLICA; escriptura només per a usuaris autenticats (cadascú hi
-    // desa les seves estadístiques).
+    // Rànquing global: un sol document compartit (eltauler_ranking/leaderboard)
+    // amb el mapa players.{uid} → { name, elo, stars, games, hiero, at }.
+    // Lectura PÚBLICA. Escriptura només per a usuaris autenticats i NOMÉS de la
+    // seva pròpia entrada: cadascú pot crear, modificar o esborrar
+    // players.<el seu uid> (i tocar updatedAt), però no pot alterar l'ELO ni les
+    // estadístiques de ningú més ni afegir-hi camps que l'app no coneix.
     match /eltauler_ranking/{docId} {
       allow read: if true;
-      allow write: if request.auth != null;
+      allow create: if request.auth != null
+        && docId == 'leaderboard'
+        && request.resource.data.keys().hasOnly(['players', 'updatedAt'])
+        && request.resource.data.get('updatedAt', 0) is number
+        && request.resource.data.get('players', {}).keys().hasOnly([request.auth.uid])
+        && rankingPlayersValid(request.resource.data.get('players', {}), request.auth.uid);
+      allow update: if request.auth != null
+        && docId == 'leaderboard'
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'updatedAt'])
+        && request.resource.data.get('updatedAt', 0) is number
+        && request.resource.data.get('players', {}).diff(resource.data.get('players', {})).affectedKeys().hasOnly([request.auth.uid])
+        && rankingPlayersValid(request.resource.data.get('players', {}), request.auth.uid);
+      allow delete: if false;
+    }
+
+    // L'entrada del rànquing de l'usuari (si hi és) ha de tenir la forma que
+    // escriu l'app: nom curt i xifres numèriques, sense camps de més.
+    function rankingPlayersValid(players, uid) {
+      return !(uid in players) || rankingEntryValid(players[uid]);
+    }
+    function rankingEntryValid(entry) {
+      return entry is map
+        && entry.keys().hasOnly(['name', 'elo', 'stars', 'games', 'hiero', 'at'])
+        && entry.name is string && entry.name.size() <= 24
+        && entry.elo is number && entry.elo >= 0 && entry.elo <= 4000
+        && entry.stars is number && entry.stars >= 0
+        && entry.games is number && entry.games >= 0
+        && entry.hiero is number && entry.hiero >= 0
+        && entry.at is number;
     }
 
   }

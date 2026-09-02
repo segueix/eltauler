@@ -2436,6 +2436,7 @@
         body.device-desktop .menu-buttons > #custom-banners,
         body.device-desktop .menu-buttons > .custom-create-banner,
         body.device-desktop .menu-buttons > .league-banner,
+        body.device-desktop .menu-buttons > .live-game-banner,
         body.device-desktop .menu-buttons > .hieroglyphic-banner,
         body.device-desktop .menu-buttons > .menu-grid,
         body.device-desktop .menu-buttons > .btn-opening,
@@ -2455,7 +2456,8 @@
         .menu-buttons > .catalans-banner,
         .menu-buttons > .custom-create-banner,
         .menu-buttons > .hieroglyphic-banner,
-        .menu-buttons > .league-banner { margin: 0; }
+        .menu-buttons > .league-banner,
+        .menu-buttons > .live-game-banner { margin: 0; }
         .menu-buttons > #custom-banners:empty { display: none; }
         
         .btn-hint {
@@ -3074,6 +3076,25 @@
         .league-banner-ranks { display: flex; gap: 8px; flex-wrap: wrap; font-size: 0.9rem; color: var(--text-secondary); }
         .league-banner-actions { margin-top: 10px; display: flex; justify-content: flex-end; }
         .league-banner-actions .btn { width: 100%; max-width: 220px; }
+
+        /* ── Bàner de partida en viu interrompuda (sota la targeta de joc) ── */
+        .live-game-banner {
+            margin: 12px 0 0;
+            padding: 14px 16px;
+            background: linear-gradient(135deg, rgba(201, 162, 39, 0.18), rgba(74, 124, 89, 0.14));
+            border: 1px solid rgba(201, 162, 39, 0.5);
+            border-radius: 14px;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06);
+            color: var(--text-primary);
+        }
+        .live-game-banner-header {
+            display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
+            font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1rem; letter-spacing: 1px;
+        }
+        .live-game-banner-detail { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 10px; }
+        .live-game-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+        .live-game-banner-actions .btn { flex: 1; min-width: 150px; }
+        body.epaper-mode .live-game-banner { background: #fff; border-color: #000; box-shadow: none; }
 
         /* ── Bàner de Jeroglífics (sota la lliga) ─────────────────────────── */
         .hieroglyphic-banner {
@@ -5449,6 +5470,21 @@
                         </div>
                     </div>
 
+                    <!-- Partida en viu interrompuda (pestanya morta, app tancada o
+                         actualitzada a mitja partida): es pot reprendre o descartar.
+                         La pinta app.js (renderLiveGameBanner) i, sense res a
+                         reprendre, no ocupa lloc. -->
+                    <div class="live-game-banner" id="live-game-banner" style="display:none;" role="region" aria-label="Partida a mig fer">
+                        <div class="live-game-banner-header">
+                            <span class="live-game-banner-title" id="live-game-banner-title">Tens una partida a mig fer</span>
+                        </div>
+                        <div class="live-game-banner-detail" id="live-game-banner-detail"></div>
+                        <div class="live-game-banner-actions">
+                            <button type="button" class="btn btn-primary" id="btn-live-game-resume">▶ Continua la partida</button>
+                            <button type="button" class="btn btn-secondary" id="btn-live-game-discard">Descarta-la</button>
+                        </div>
+                    </div>
+
                     <!-- Partides diàries (ritme «24h» del rellotge de dalt) en curs:
                          miniatures de costat amb l'estat del tauler, el temps que
                          queda i el botó de jugar; una partida perduda per temps queda
@@ -5909,6 +5945,30 @@
                     </select>
                 </div>
                 <div class="setting-help">Al mòbil sol anar millor "Tocar". Si vols més estil chess.com, prova "Arrossegar". Es desa per dispositiu (no se sincronitza al núvol): el mòbil i l'ordinador poden tenir opcions diferents.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Sons de la partida</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="sound-toggle" checked>
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help">Toc de peça, captura, enroc, escac, coronació, resultat i avís de poc temps al rellotge. Es desa per dispositiu.</div>
+                <div class="setting-row" id="vibration-setting-row">
+                    <div class="setting-label">Vibració</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="vibration-toggle" checked>
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help" id="vibration-setting-help">Un toc suau a cada jugada i més marcat als escacs, al poc temps i al final de la partida. Es desa per dispositiu.</div>
+                <div class="setting-row">
+                    <div class="setting-label">Avisos de les partides diàries</div>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="daily-notify-toggle">
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help" id="daily-notify-hint">T'avisa quan el rival respon, quan queden menys de 2 hores per moure i si perds per temps. Es desa per dispositiu.</div>
                 <div class="setting-row">
                     <div class="setting-label">Revisió d'errors (Blunder)</div>
                     <select id="bundle-accept-select" class="select-control">
@@ -7891,7 +7951,8 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.30"></script>
+    <script src="core.js?v=1.0.31"></script>
+    <script src="sons.js?v=1.0.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -7902,7 +7963,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.95"></script>
+    <script src="app.js?v=1.0.96"></script>
 
     <!-- Service Worker Registration -->
     <script>

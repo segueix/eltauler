@@ -26,6 +26,20 @@ Conduir amb Playwright + Chromium preinstal·lat
    Crear el context amb `serviceWorkers: 'block'`.
 4. Les imatges de peces (chessboardjs.com) es poden avortar: el tauler es veu
    amb imatges trencades però tota la lògica funciona.
+5. **Mode «tocar»**: els dos tocs d'una jugada han d'anar separats ≥ 200 ms
+   (`enableTapToMove` ignora tocs a menys de 180 ms); amb dos `click` seguits
+   el segon es perd i la peça no es mou.
+6. **Interruptors de Configuració** (`.epaper-toggle`): l'`<input>` és
+   invisible, així que `page.check()` es queda esperant. Clicar l'etiqueta que
+   l'embolcalla (`locator('#id').locator('xpath=..').click()`).
+7. **Partida en viu**: la instantània per reprendre viu a
+   `eltauler_cloud_liveGame` (local, no se sincronitza); recarregar la pàgina a
+   mitja partida fa aparèixer `#live-game-banner` a l'inici i
+   `#btn-live-game-resume` la reprèn. Sortir amb `#btn-back` l'esborra.
+8. **Notificacions**: context amb `permissions: ['notifications']`. Sense SW
+   (`serviceWorkers: 'block'`), `navigator.serviceWorker.ready` no es resol
+   mai: per provar `fireDailyNotification` cal estubar `navigator.serviceWorker`
+   a `undefined` i `window.Notification`, i simular `document.hidden`.
 
 ## Fluxos útils
 

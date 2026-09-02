@@ -327,6 +327,33 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   **retrocompatibilitat**: una entrada d'historial sense cap camp Antídot (o amb
   el bloc corrupte) segueix funcionant i no aporta res al perfil.
 
+- **`sounds.test.js`** — sons de la partida. La síntesi viu a `sons.js`
+  (Web Audio, sense fitxers d'àudio) i la classificació de QUÈ ha de sonar a
+  `core.js`: `soundKindForMove` amb jugades REALS de chess.js (jugada normal,
+  captura i captura al pas, enroc curt i llarg, coronació amb i sense captura,
+  l'escac que mana sobre la captura, i la jugada que acaba la partida que no
+  sona perquè sona el resultat), `resultSoundKind` i `clockWarningLevel` (l'avís
+  de temps baix: nivell 1 en entrar a la zona baixa del rellotge, nivell 2 als
+  últims segons —la meitat de la zona, mai més de 5 s—, cap avís amb el rellotge
+  a zero ni amb dades corruptes, i monotonia quan el temps baixa).
+- **`livegame.test.js`** — partida en viu interrompuda. `app.js` desa una
+  instantània de la partida en curs a cada jugada (i en amagar l'app); si la
+  pestanya mor, l'app es tanca o s'actualitza a mitja partida, la pàgina d'inici
+  ofereix reprendre-la. Es prova la validació de la instantània
+  (`liveGameSnapshotIsValid`: versió, modes admesos —lliure, Joc vista, lliga—,
+  color, jugades, rellotge coherent i mai a zero), la rejugada amb chess.js REAL
+  (`liveGameReplay`: SAN «sloppy», i una jugada il·legal que invalida tota la
+  instantània), què s'ofereix reprendre (`liveGameResumeInfo`: torn del jugador
+  segons el seu color, caducitat als 7 dies, cap oferta sense jugades ni amb la
+  partida ja acabada al tauler, rellotge conservat, instantània no mutada) i el
+  text del bàner (`liveGameAgeLabel`, `liveGameBannerText`).
+- **`dailynotify.test.js`** — avisos de les partides diàries:
+  `dailyDeadlineWarningDue` (només dins de les 2 últimes hores del termini del
+  jugador, una sola vegada per torn —el torn s'identifica per la marca d'inici—,
+  mai un cop vençut ni quan toca moure al motor) i `dailyNotificationText`
+  (resposta del rival, termini a punt de vèncer, derrota per temps i finals de
+  partida, sense cap `undefined`).
+
 ## Verificació al navegador
 
 A més de la suite de Jest, la modalitat Rival Antídot s'ha comprovat conduint
@@ -339,6 +366,20 @@ enviament d'una fallada al repàs d'errades existent, historial amb
 intactes, amplada mòbil, perfil buit, funcionament sense Firebase, els dos
 camins de fallback (cerca que peta i worker que no arrenca) i cap regressió a
 Nova partida, Joc vista, Lliga ni jeroglífics.
+
+Els sons, la represa de partida i els avisos diaris també s'han comprovat amb
+Playwright + Chromium sobre l'app REAL: partida lliure i partida 3+2 amb la
+pestanya recarregada a mitja partida (bàner a l'inici, represa amb les mateixes
+jugades, color, mode i rellotges, instantània esborrada en sortir), sons
+registrats a la jugada humana i a la del motor, interruptors de Configuració
+desats per dispositiu i conservats en recarregar, avís de termini de partida
+diària (un per torn), notificació en segon pla amb enllaç profund i obertura
+de la partida des d'aquell enllaç. Les regles de Firestore del rànquing s'han
+provat amb l'emulador de Firestore (`@firebase/rules-unit-testing`): cada
+usuari només pot crear, modificar o esborrar la seva entrada, i es deneguen les
+escriptures sobre entrades d'altres, el reemplaçament del document sencer, els
+camps desconeguts, els noms massa llargs, els ELO no numèrics o absurds i
+qualsevol altre document de la col·lecció.
 
 ## Integració contínua
 
