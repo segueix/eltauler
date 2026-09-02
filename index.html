@@ -2437,6 +2437,7 @@
         body.device-desktop .menu-buttons > .custom-create-banner,
         body.device-desktop .menu-buttons > .league-banner,
         body.device-desktop .menu-buttons > .live-game-banner,
+        body.device-desktop .menu-buttons > .learn-hint,
         body.device-desktop .menu-buttons > .hieroglyphic-banner,
         body.device-desktop .menu-buttons > .menu-grid,
         body.device-desktop .menu-buttons > .btn-opening,
@@ -3095,6 +3096,81 @@
         .live-game-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
         .live-game-banner-actions .btn { flex: 1; min-width: 150px; }
         body.epaper-mode .live-game-banner { background: #fff; border-color: #000; box-shadow: none; }
+
+        /* ── Aprèn: bàners del tutorial i de la guia, tutorial i guia ───────── */
+        .catalans-banner.tutorial-banner {
+            background: linear-gradient(135deg, #1f6fb2 0%, #174f86 55%, #113a63 100%);
+            border-color: rgba(140, 200, 255, 0.5);
+        }
+        .catalans-banner.tutorial-banner::after { background: radial-gradient(circle, rgba(160,210,255,0.3), transparent 70%); }
+        .tutorial-banner .catalans-banner-ic { stroke: #cfe6ff; }
+        .tutorial-banner .catalans-banner-cta { color: #0f2f4f; background: rgba(205,230,255,0.92); }
+        .catalans-banner.guide-banner {
+            background: linear-gradient(135deg, #5a4a8a 0%, #40336a 55%, #2c2349 100%);
+            border-color: rgba(190, 170, 255, 0.45);
+        }
+        .catalans-banner.guide-banner::after { background: radial-gradient(circle, rgba(200,180,255,0.28), transparent 70%); }
+        .guide-banner .catalans-banner-ic { stroke: #ded3ff; }
+        .guide-banner .catalans-banner-cta { color: #2a1f4d; background: rgba(222,211,255,0.92); }
+        .learn-hint { font-size: 0.82rem; color: var(--text-secondary); text-align: center; margin: 0; }
+        .learn-hint a { color: var(--accent-gold); text-decoration: none; font-weight: 700; }
+        .learn-hint a:hover { text-decoration: underline; }
+        .tutorial-sub { color: var(--text-secondary); font-size: 0.9rem; margin-top: 4px; }
+        .tutorial-index { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 16px; }
+        .tutorial-lesson-row {
+            display: flex; align-items: center; gap: 12px; width: 100%; text-align: left;
+            padding: 12px 14px; border-radius: 12px; cursor: pointer; color: var(--text-primary);
+            background: rgba(255,255,255,0.04); border: 1px solid rgba(201,162,39,0.22); font: inherit;
+        }
+        .tutorial-lesson-row:hover { background: rgba(255,255,255,0.07); }
+        .tutorial-lesson-row.is-next { border-color: rgba(201,162,39,0.7); box-shadow: inset 0 0 0 1px rgba(201,162,39,0.35); }
+        .tutorial-lesson-row.is-done { opacity: 0.85; }
+        .tutorial-lesson-num {
+            flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+            font-family: 'Cinzel', serif; font-weight: 700; background: rgba(201,162,39,0.18); color: var(--accent-gold);
+        }
+        .tutorial-lesson-row.is-done .tutorial-lesson-num { background: rgba(74,124,89,0.35); color: #b8f0c6; }
+        .tutorial-lesson-body { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+        .tutorial-lesson-title { font-weight: 700; }
+        .tutorial-lesson-summary { font-size: 0.8rem; color: var(--text-secondary); }
+        .tutorial-lesson-go { flex: 0 0 auto; font-size: 0.85rem; color: var(--accent-gold); white-space: nowrap; }
+        .tutorial-lesson-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+        .tutorial-lesson-title-main { font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1rem; flex: 1 1 auto; text-align: left; }
+        .tutorial-step-count { font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
+        .tutorial-text {
+            background: rgba(0,0,0,0.2); border: 1px solid rgba(201,162,39,0.2); border-radius: 12px;
+            padding: 12px 14px; margin: 0 0 12px; text-align: left; line-height: 1.45; font-size: 0.95rem;
+        }
+        .tutorial-step-title { font-family: 'Cinzel', serif; color: var(--accent-gold); margin-bottom: 6px; }
+        #tutorial-board { margin: 0 auto; max-width: min(100%, 62vh); }
+        body.control-tap #tutorial-board { touch-action: manipulation; }
+        body.control-drag #tutorial-board { touch-action: none; }
+        #tutorial-board, #tutorial-board * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
+        #tutorial-board .square-55d63.tut-mark { box-shadow: inset 0 0 0 5px rgba(201, 162, 39, 0.75); }
+        #tutorial-board .square-55d63.tut-ok { box-shadow: inset 0 0 0 5px rgba(76, 175, 80, 0.8); }
+        #tutorial-board .square-55d63.tut-ko { box-shadow: inset 0 0 0 5px rgba(198, 40, 40, 0.8); }
+        .tutorial-feedback { min-height: 1.4em; }
+        .tutorial-feedback.is-ok { color: #8fd19e; }
+        .tutorial-feedback.is-ko { color: #ef9a9a; }
+        .tutorial-cta { margin: 0 0 10px; }
+        .tutorial-cta .btn { width: 100%; }
+        .guide-chips { display: flex; flex-wrap: wrap; gap: 6px; justify-content: center; margin: 0 0 6px; }
+        .guide-chip {
+            font: inherit; font-size: 0.78rem; padding: 6px 10px; border-radius: 999px; cursor: pointer;
+            background: rgba(255,255,255,0.06); border: 1px solid rgba(201,162,39,0.3); color: var(--text-primary);
+        }
+        .guide-chip:hover { background: rgba(201,162,39,0.18); }
+        .guide-item { padding: 10px 0; border-top: 1px solid rgba(255,255,255,0.07); }
+        .guide-item:first-of-type { border-top: none; padding-top: 0; }
+        .guide-item-head { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
+        .guide-item-ic { width: 1.6rem; height: 1.6rem; flex: 0 0 auto; fill: none; stroke: var(--accent-gold); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+        .guide-item-emoji { font-size: 1.3rem; width: 1.6rem; text-align: center; flex: 0 0 auto; }
+        .guide-item-title { font-weight: 700; font-size: 0.98rem; }
+        .guide-item-text { font-size: 0.88rem; line-height: 1.45; color: var(--text-primary); }
+        .guide-item-actions { margin-top: 8px; display: flex; justify-content: flex-end; }
+        .guide-item-actions .btn { min-width: 150px; }
+        body.epaper-mode .tutorial-lesson-row, body.epaper-mode .tutorial-text { background: #fff; border-color: #000; }
+        body.epaper-mode .catalans-banner.tutorial-banner, body.epaper-mode .catalans-banner.guide-banner { background: #fff; color: #000; border-color: #000; }
 
         /* ── Bàner de Jeroglífics (sota la lliga) ─────────────────────────── */
         .hieroglyphic-banner {
@@ -5470,6 +5546,10 @@
                         </div>
                     </div>
 
+                    <!-- Per a qui encara ha de fer la partida de calibratge: si no sap
+                         jugar, que aprengui primer. El mostra tutorial.js. -->
+                    <div class="learn-hint" id="learn-hint" style="display:none;">Nou als escacs? <a href="#" id="learn-hint-link">Aprèn a jugar abans de la partida de calibratge ›</a></div>
+
                     <!-- Partida en viu interrompuda (pestanya morta, app tancada o
                          actualitzada a mitja partida): es pot reprendre o descartar.
                          La pinta app.js (renderLiveGameBanner) i, sense res a
@@ -5709,10 +5789,76 @@
                 </div>
             </div>
 
+            <!-- APRÈN: tutorial d'escacs i guia de l'app (tutorial.js) -->
+            <div class="menu-section">
+                <div class="menu-section-title">Aprèn</div>
+                <button class="catalans-banner tutorial-banner" id="btn-tutorial-banner" aria-label="Aprèn a jugar a escacs">
+                    <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-book"/></svg>
+                    <span class="catalans-banner-text">
+                        <span class="catalans-banner-title">Aprèn a jugar</span>
+                        <span class="catalans-banner-sub">Les regles dels escacs pas a pas, amb tauler interactiu i exercicis.</span>
+                        <span class="tria-banner-meta" id="tutorial-banner-meta">13 lliçons curtes amb tauler interactiu</span>
+                    </span>
+                    <span class="catalans-banner-cta" id="tutorial-banner-cta">Comença ›</span>
+                </button>
+                <button class="catalans-banner guide-banner" id="btn-guide-banner" aria-label="Guia d'El Tauler">
+                    <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-compass"/></svg>
+                    <span class="catalans-banner-text">
+                        <span class="catalans-banner-title">Guia d'El Tauler</span>
+                        <span class="catalans-banner-sub">Què és cada modalitat i cada funció de l'app, i com treure'n profit.</span>
+                    </span>
+                    <span class="catalans-banner-cta">Obre ›</span>
+                </button>
+            </div>
+
             <div class="sync-container">
                 <button class="btn btn-share" id="btn-cloud-recover" style="display:none;background:linear-gradient(135deg,#3a6ea5 0%,#2a4d73 100%);color:#eaf2fb;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-cloud"/></svg>Recupera dades del núvol</button>
             </div>
             <div class="app-version-tag" id="app-version-tag"></div>
+        </div>
+
+        <!-- APRÈN A JUGAR: lliçons d'escacs amb tauler interactiu (tutorial.js) -->
+        <div id="tutorial-screen" class="screen-anim" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">📘</div>
+                <h1>Aprèn a jugar</h1>
+                <div class="tutorial-sub" id="tutorial-progress-text">Les regles dels escacs, pas a pas.</div>
+            </div>
+            <div id="tutorial-index" class="tutorial-index"></div>
+            <div id="tutorial-lesson" style="display:none;">
+                <div class="tutorial-lesson-head">
+                    <button type="button" class="btn btn-secondary" id="btn-tutorial-index">‹ Lliçons</button>
+                    <div class="tutorial-lesson-title-main" id="tutorial-lesson-title"></div>
+                    <div class="tutorial-step-count" id="tutorial-step-count"></div>
+                </div>
+                <div class="tutorial-text" id="tutorial-step-text"></div>
+                <div class="board-container"><div id="tutorial-board"></div></div>
+                <div class="controls">
+                    <div class="status-message tutorial-feedback" id="tutorial-feedback"></div>
+                    <div class="tutorial-cta" id="tutorial-cta" style="display:none;"></div>
+                    <div class="game-buttons">
+                        <button type="button" class="btn btn-secondary" id="btn-tutorial-prev">‹ Anterior</button>
+                        <button type="button" class="btn btn-secondary" id="btn-tutorial-retry" style="display:none;">↻ Torna-ho a provar</button>
+                        <button type="button" class="btn btn-primary" id="btn-tutorial-next">Següent ›</button>
+                    </div>
+                </div>
+            </div>
+            <div class="game-buttons" style="margin-top:14px;">
+                <button class="btn btn-nav-home" id="btn-back-tutorial" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+            </div>
+        </div>
+
+        <!-- GUIA D'EL TAULER: modalitats i funcions, amb accés directe (tutorial.js) -->
+        <div id="guide-screen" class="screen-anim" style="display:none;">
+            <div class="stats-header">
+                <div class="app-logo">🧭</div>
+                <h1>Guia d'El Tauler</h1>
+                <div class="tutorial-sub">Què és cada modalitat i cada funció, i com treure'n profit.</div>
+            </div>
+            <div id="guide-content"></div>
+            <div class="game-buttons">
+                <button class="btn btn-nav-home" id="btn-back-guide" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+            </div>
         </div>
 
         <div id="calibration-result-screen" class="screen-anim" style="display:none;">
@@ -7953,6 +8099,7 @@
     <script src="obertures.js?v=1.0.3"></script>
     <script src="core.js?v=1.0.31"></script>
     <script src="sons.js?v=1.0.0"></script>
+    <script src="tutorial.js?v=1.0.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -7963,7 +8110,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.96"></script>
+    <script src="app.js?v=1.0.97"></script>
 
     <!-- Service Worker Registration -->
     <script>

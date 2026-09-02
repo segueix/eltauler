@@ -41,6 +41,16 @@ Conduir amb Playwright + Chromium preinstal·lat
    mai: per provar `fireDailyNotification` cal estubar `navigator.serviceWorker`
    a `undefined` i `window.Notification`, i simular `document.hidden`.
 
+9. **Tutorials** (`tutorial.js`): `#btn-tutorial-banner` obre «Aprèn a jugar»
+   (índex `.tutorial-lesson-row[data-lesson=<id>]`, tauler `#tutorial-board`,
+   botons `#btn-tutorial-next/-prev/-retry`, home `#btn-back-tutorial`);
+   `#btn-guide-banner` obre la guia (`.guide-item-go[data-action=<acció>]`).
+   Un pas d'exercici deixa «Següent» desactivat fins que es resol; les jugades
+   equivocades restableixen la posició al cap d'1,4 s. Les peces s'animen
+   (~0,3 s) abans d'aparèixer a la casella de destinació. Progrés a
+   `chess_tutorialProgress`; `?mode=tutorial` i `?mode=guide` són enllaços
+   directes.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →

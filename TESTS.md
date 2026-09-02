@@ -354,6 +354,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   (resposta del rival, termini a punt de vèncer, derrota per temps i finals de
   partida, sense cap `undefined`).
 
+- **`tutorial.test.js`** — els dos tutorials de `tutorial.js`. «Aprèn a
+  jugar»: totes les posicions de les lliçons carreguen a chess.js REAL tal com
+  estan escrites, cap exploració ni exercici parteix d'una partida acabada, cada
+  exercici té almenys una solució legal i les jugades anunciades hi són, i quan
+  la solució és una jugada concreta la resta de jugades legals es rebutgen.
+  Casos concrets: jugada il·legal, equivocada i bona; el mat de dama que NO ha
+  d'ofegar (l'ofegat es detecta amb missatge propi); mat del passadís; enroc
+  curt i llarg, captura al pas i coronació amb qualsevol peça; sortir de
+  l'escac; la forquilla de cavall. També el progrés (normalització, resum,
+  etiqueta del bàner) i la «Guia d'El Tauler»: ids únics, text a cada targeta,
+  accions dins del conjunt conegut i cobertura de totes les modalitats.
+
 ## Verificació al navegador
 
 A més de la suite de Jest, la modalitat Rival Antídot s'ha comprovat conduint
