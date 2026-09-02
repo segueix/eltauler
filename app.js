@@ -2727,6 +2727,7 @@ function commitHumanMove(from, to, promotionPiece, viaPremove) {
     const prevFen = game.fen();
     const move = game.move({ from: from, to: to, promotion: promotionPiece || 'q' });
     if (move === null) { showIllegalMoveFeedback(from); return false; }
+    playMoveSound(move);
     // Una jugada real consumeix qualsevol premove pendent: si en quedés una
     // d'armada, es dispararia sobre la resposta següent del rival.
     clearQueuedPremove();
@@ -2748,6 +2749,7 @@ function commitHumanMove(from, to, promotionPiece, viaPremove) {
     board.position(game.fen());
     updateStatus();
     updateGameMoveNavButtons();
+    liveGameAfterMove();
 
     if (game.game_over()) {
         if (blunderMode) {
@@ -6384,6 +6386,8 @@ function processDailyGames() {
             queueDailyEngineMove(entry.id);
         }
     });
+    // Terminis a punt de vèncer: un avís per torn, dins de les 2 últimes hores.
+    if (settled) { try { checkDailyDeadlineWarnings(now); } catch (e) {} }
     renderDailyGamesPanel();
     renderDailyScreenState();
 }
@@ -6402,6 +6406,8 @@ function finishDailyGame(entry, result, reason, atMs) {
     // Puntua NOMÉS a l'ELO de la variant diària (mai al principal), amb la
     // mateixa fórmula que la resta de ritmes de rellotge.
     entry.ratingDelta = applyTimeControlEloDelta(DAILY_TC_ID, score, entry.opponentElo);
+    if (isViewingDailyGame(entry.id)) playResultSound(result);
+    if (reason === 'timeout') notifyDailyEvent(entry, 'timeout', { at: atMs });
     recordDailyGameHistory(entry);
     saveDailyGames();
     renderDailyGamesPanel();
@@ -6620,14 +6626,17 @@ function applyDailyEngineMove(entry, moveUci, officialAt) {
     entry.movesSan.push(applied.san);
     entry.fen = chess.fen();
     entry.turnStartedAt = officialAt || Date.now();
+    if (isViewingDailyGame(entry.id)) playMoveSound(applied, chess);
     if (chess.game_over()) {
         finishDailyGameFromPosition(entry, chess, Date.now());
+        notifyDailyEvent(entry, 'finished', { result: entry.result, at: officialAt || Date.now() });
     } else {
         saveDailyGames();
         // Mentre l'app era tancada poden haver vençut TAMBÉ les 24 h del
         // jugador (la resposta del motor queda datada al venciment de les 3 h).
         const action = ElTaulerCore.dailyNextAction(entry, Date.now());
         if (action.kind === 'player_timeout') finishDailyGame(entry, 'loss', 'timeout', action.at);
+        else notifyDailyEvent(entry, 'reply', { san: applied.san, at: officialAt || Date.now() });
     }
     renderDailyGamesPanel();
     refreshDailyScreenIf(entry.id);
@@ -6946,6 +6955,7 @@ function stageDailyMove(from, to, promotion) {
     const probe = new Chess(dailyChess.fen());
     const applied = probe.move({ from, to, promotion: promotion || 'q' });
     if (!applied) return false;
+    playMoveSound(applied, probe);
     dailyClearTapMarks();
     dailyPendingMove = {
         from: from,
@@ -7018,6 +7028,7 @@ function saveDailyPendingMove() {
     renderDailyScreenState();
     renderDailyGamesPanel();
     showToast(`Jugada ${applied.san} desada al teu compte.`, 'success');
+    maybeSuggestDailyNotify();
     return true;
 }
 
@@ -7144,6 +7155,185 @@ function initDailyGames() {
     dailyTicker = setInterval(processDailyGames, 30000);
     processDailyGames();
 }
+/* ---- Avisos de les partides diàries ----
+   Notificacions LOCALS del dispositiu, com les de torn de la partida
+   col·lectiva (catalans.js): la preferència duu el prefix eltauler_cloud_ i no
+   se sincronitza. Només poden saltar mentre l'app és oberta o en segon pla:
+   qui aplica la resposta del rival i qui veu vèncer els terminis és el
+   mantenidor (processDailyGames), que viu a la pàgina. Sense servidor no hi ha
+   notificacions «push». Amb l'app visible i la partida no oberta, l'avís es
+   mostra a la pantalla (toast). */
+const DAILY_NOTIFY_KEY = 'eltauler_cloud_notify_daily';
+const DAILY_WARNED_KEY = 'eltauler_cloud_dailyWarned';
+const DAILY_NOTIFY_HINT_KEY = 'eltauler_cloud_dailyNotifyHint';
+// Les novetats vençudes ABANS d'obrir l'app no s'anuncien: les targetes de la
+// pàgina d'inici ja les ensenyen, i avisar-ne deu de cop seria soroll.
+const dailySessionStartTs = Date.now();
+
+function dailyNotifySupported() { return typeof window !== 'undefined' && 'Notification' in window; }
+function isDailyNotifyEnabled() {
+    try { return localStorage.getItem(DAILY_NOTIFY_KEY) === '1'; } catch (e) { return false; }
+}
+function setDailyNotifyEnabled(on) {
+    try { if (on) localStorage.setItem(DAILY_NOTIFY_KEY, '1'); else localStorage.removeItem(DAILY_NOTIFY_KEY); } catch (e) {}
+}
+function dailyNotifyReady() {
+    return dailyNotifySupported() && isDailyNotifyEnabled() && Notification.permission === 'granted';
+}
+function dailyNotifyUnsupportedMsg() {
+    const ua = (navigator && navigator.userAgent) || '';
+    const ios = /iPad|iPhone|iPod/.test(ua) || (ua.indexOf('Macintosh') !== -1 && (navigator.maxTouchPoints || 0) > 1);
+    return ios
+        ? 'A l\'iPhone i l\'iPad les notificacions només funcionen amb l\'app instal·lada: obre eltauler.cat amb Safari, toca «Compartir» → «Afegir a pantalla d\'inici» i activa-les des de l\'app instal·lada.'
+        : 'Aquest navegador no admet notificacions. Prova-ho amb un navegador més recent o instal·la l\'app.';
+}
+// ¿L'usuari està mirant ARA aquesta partida? Llavors no cal avisar de res.
+function isViewingDailyGame(id) {
+    if (typeof document !== 'undefined' && document.hidden) return false;
+    const scr = document.getElementById('daily-screen');
+    const onScreen = scr && scr.style.display !== 'none' && scr.offsetParent !== null;
+    return !!onScreen && dailyScreenGameId === id;
+}
+function dailyGameUrl(id) {
+    return window.location.origin + window.location.pathname + '?mode=daily&daily=' + encodeURIComponent(id);
+}
+function dailyGameIdFromUrl() {
+    try { return new URLSearchParams(window.location.search).get('daily') || ''; } catch (e) { return ''; }
+}
+// Enllaç d'una notificació: obre la partida si encara hi és; si no, porta a les
+// targetes de partides diàries de la pàgina d'inici.
+function openDailyFromLink(id) {
+    if (id && getDailyGame(id)) { openDailyGame(id); return; }
+    const grid = document.getElementById('daily-grid');
+    if (grid && typeof grid.scrollIntoView === 'function') {
+        try { grid.scrollIntoView({ behavior: 'smooth', block: 'center' }); } catch (e) {}
+    }
+}
+// Notificació del sistema. Prefereix el service worker (a mòbil persisteix),
+// amb fallback a Notification directa. Retorna si s'ha pogut enviar.
+function fireDailyNotification(entry, kind, extra) {
+    if (!entry || !dailyNotifyReady()) return false;
+    const text = ElTaulerCore.dailyNotificationText(kind, entry, extra);
+    const opts = {
+        body: text.body,
+        tag: 'eltauler-daily-' + entry.id,
+        renotify: true,
+        icon: 'newicon-512.png',
+        badge: 'newicon-192.png',
+        data: { url: dailyGameUrl(entry.id), dailyId: entry.id }
+    };
+    try {
+        if (navigator.serviceWorker && navigator.serviceWorker.ready) {
+            navigator.serviceWorker.ready.then(reg => {
+                if (reg && reg.showNotification) reg.showNotification(text.title, opts);
+                else new Notification(text.title, opts);
+            }).catch(() => { try { new Notification(text.title, opts); } catch (e) {} });
+        } else {
+            new Notification(text.title, opts);
+        }
+        return true;
+    } catch (e) { return false; }
+}
+// Avisa d'una novetat d'una partida diària: notificació si l'app és en segon
+// pla; avís a la pantalla si és visible i l'usuari no té aquesta partida oberta.
+function notifyDailyEvent(entry, kind, extra) {
+    if (!entry || !isDailyNotifyEnabled()) return;
+    const ex = extra || {};
+    if (typeof ex.at === 'number' && ex.at < dailySessionStartTs) return;
+    if (isViewingDailyGame(entry.id)) return;
+    if (typeof document !== 'undefined' && document.hidden) {
+        fireDailyNotification(entry, kind, ex);
+        return;
+    }
+    const text = ElTaulerCore.dailyNotificationText(kind, entry, ex);
+    showToast('🕐 ' + text.body, kind === 'timeout' ? 'warn' : 'info', 6000);
+}
+function loadDailyWarned() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(DAILY_WARNED_KEY) || '{}');
+        return (parsed && typeof parsed === 'object') ? parsed : {};
+    } catch (e) { return {}; }
+}
+function saveDailyWarned(map) {
+    try { localStorage.setItem(DAILY_WARNED_KEY, JSON.stringify(map)); } catch (e) {}
+}
+// Terminis a punt de vèncer: un avís per torn (core.js decideix quan), i el
+// registre d'avisos es poda de les partides que ja no hi són.
+function checkDailyDeadlineWarnings(now) {
+    if (!isDailyNotifyEnabled()) return;
+    const warned = loadDailyWarned();
+    const alive = {};
+    let changed = false;
+    dailyGames.forEach(entry => {
+        if (!entry || !entry.id) return;
+        if (entry.status === 'active') alive[entry.id] = true;
+        if (!ElTaulerCore.dailyDeadlineWarningDue(entry, now, warned[entry.id])) return;
+        warned[entry.id] = entry.turnStartedAt;
+        changed = true;
+        const deadline = ElTaulerCore.dailyPlayerDeadlineMs(entry);
+        notifyDailyEvent(entry, 'deadline', { remainingMs: deadline - now, at: now });
+    });
+    Object.keys(warned).forEach(id => { if (!alive[id]) { delete warned[id]; changed = true; } });
+    if (changed) saveDailyWarned(warned);
+}
+// Configuració → Joc: interruptor dels avisos diaris.
+function refreshDailyNotifyToggle() {
+    const el = document.getElementById('daily-notify-toggle');
+    if (el) el.checked = isDailyNotifyEnabled();
+    const hint = document.getElementById('daily-notify-hint');
+    if (!hint) return;
+    const base = 'T\'avisa quan el rival respon, quan queden menys de 2 hores per moure i si perds per temps. Es desa per dispositiu.';
+    if (!dailyNotifySupported()) {
+        hint.textContent = base + ' Aquest navegador no admet notificacions: els avisos només es veuran dins de l\'app mentre sigui oberta.';
+    } else if (Notification.permission === 'denied') {
+        hint.textContent = base + ' Les notificacions estan bloquejades al navegador: els avisos només es veuran dins de l\'app.';
+    } else {
+        hint.textContent = base + ' Notificació si l\'app és en segon pla; avís a la pantalla si la tens oberta.';
+    }
+}
+function initDailyNotifySettingsUi() {
+    $('#daily-notify-toggle').off('change').on('change', function () {
+        if (!this.checked) {
+            setDailyNotifyEnabled(false);
+            refreshDailyNotifyToggle();
+            return;
+        }
+        setDailyNotifyEnabled(true);
+        if (!dailyNotifySupported()) {
+            showToast(dailyNotifyUnsupportedMsg() + ' Mentre l\'app sigui oberta veuràs els avisos a la pantalla.', 'warn', 9000);
+            refreshDailyNotifyToggle();
+            return;
+        }
+        if (Notification.permission === 'granted') {
+            showToast('Avisos de les partides diàries activats 🔔', 'success');
+            refreshDailyNotifyToggle();
+            return;
+        }
+        if (Notification.permission === 'denied') {
+            showToast('Les notificacions estan bloquejades per a eltauler.cat. Activa-les a la configuració del navegador (Configuració del lloc → Notificacions).', 'warn', 9000);
+            refreshDailyNotifyToggle();
+            return;
+        }
+        // La crida es fa DINS del gest de l'usuari: iOS ho exigeix perquè
+        // aparegui el diàleg de permís a l'app instal·lada.
+        Notification.requestPermission().then(perm => {
+            if (perm === 'granted') showToast('Avisos de les partides diàries activats 🔔', 'success');
+            else showToast('Permís de notificacions denegat: els avisos només es veuran dins de l\'app.', 'warn');
+            refreshDailyNotifyToggle();
+        }).catch(() => refreshDailyNotifyToggle());
+    });
+    refreshDailyNotifyToggle();
+}
+// Un sol cop, després de desar la primera jugada diària: suggereix els avisos.
+function maybeSuggestDailyNotify() {
+    if (isDailyNotifyEnabled()) return;
+    try {
+        if (localStorage.getItem(DAILY_NOTIFY_HINT_KEY) === '1') return;
+        localStorage.setItem(DAILY_NOTIFY_HINT_KEY, '1');
+    } catch (e) { return; }
+    showToast('Vols que t\'avisi quan el rival respongui? Activa els avisos de les partides diàries a Configuració → Joc.', 'info', 7000);
+}
+
 /* =================== FI PARTIDES DIÀRIES (24 h per jugada) =================== */
 
 function resetEngineMoveCandidates() {
@@ -8112,6 +8302,7 @@ function openSettingsFromHome() {
     $('#settings-screen').show();
     if (typeof navPush === 'function') navPush('settings-screen');
     if (typeof loadUsernameIntoSettings === 'function') loadUsernameIntoSettings();
+    if (typeof refreshDeviceSettingsUi === 'function') refreshDeviceSettingsUi();
 }
 
 // Peu de pàgina comú: s'afegeix com a últim fill del contenidor de l'app, de
@@ -8554,6 +8745,7 @@ function updateDisplay() {
     renderCoachDiagnosis();
     try { refreshTriaBanner(); } catch (e) {}
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
+    try { renderLiveGameBanner(); } catch (e) {}
 }
 
 // Targetes d'ELO per ritme a dalt de tot d'Estadístiques: primer l'ELO
@@ -22719,7 +22911,7 @@ function setupEvents() {
     $('#coach-tts-pause').off('click').on('click', () => { pauseReviewTts(); });
     $('#coach-tts-stop').off('click').on('click', () => { stopReviewTts(); });
     syncCoachStyleSelects();
-    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); refreshReviewTtsSettingsUi(); });
+    $('#btn-settings').click(() => { $('#start-screen').hide(); $('#settings-screen').show(); navPush('settings-screen'); loadUsernameIntoSettings(); refreshReviewTtsSettingsUi(); refreshDeviceSettingsUi(); });
     $('#btn-ranking').click(() => openRankingScreen());
     $('#btn-ranking-back').click(() => { $('#ranking-screen').hide(); $('#start-screen').show(); });
     $('#btn-ranking-refresh').click(() => loadRanking(true));
@@ -24639,6 +24831,7 @@ function tryBessoBookMove() {
         if (!applied) { makeEngineMove(); return; }
         lastEngineMoveAppliedTs = nowMs();
         updateStatus();
+        playMoveSound(applied);
         resetGameMoveNav();
         board.position(game.fen());
         highlightEngineMove(mv.from, mv.to);
@@ -27187,6 +27380,7 @@ function clockTick() {
     clockChargeActive(nowMs());
     renderClock();
     syncClockTickRate();
+    clockWarnIfLow();
     if (gameClock.white <= 0 || gameClock.black <= 0) {
         const flagged = gameClock.white <= 0 ? 'w' : 'b';
         stopGameClock();
@@ -27338,6 +27532,11 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     // la partida següent.
     const freeGameColorRequest = freeGameColorPending;
     freeGameColorPending = null;
+    // Represa d'una partida interrompuda (bàner de la pàgina d'inici): es
+    // consumeix aquí com la resta de peticions perquè no contamini cap altra.
+    const liveResume = liveGameResumePending;
+    liveGameResumePending = null;
+    liveGameActive = false;
     antidoteState = null;
     antidoteSearchToken++;   // invalida qualsevol cerca Antídot encara viva
     antidoteLiveSticky = false;
@@ -27487,6 +27686,7 @@ blunderMode = isBundle;
     currentGameStartTs = Date.now();
     currentGameEngineDepth = null;
     currentGameActiveStrengthElo = null;
+    if (liveResume) restoreLiveGameCounters(liveResume);
     
     updatePrecisionDisplay();
     updateAIPrecisionDisplay();
@@ -27496,6 +27696,12 @@ blunderMode = isBundle;
     
     game = new Chess(fen || undefined);
     resetGameMoveNav();
+    if (liveResume) {
+        // Partida represa: es rejuguen les jugades desades (validades a core.js).
+        const replayed = ElTaulerCore.liveGameReplay(Chess, liveResume.moves);
+        if (replayed) game = replayed;
+        resetGameMoveNav();
+    }
     // En començar una partida/posició nova, elimina qualsevol marca de la
     // partida anterior abans que el resize inicial pugui reaplicar-la sobre
     // el tauler acabat de crear. Això evitava que, si l'enginy juga primer
@@ -27505,7 +27711,11 @@ blunderMode = isBundle;
     let boardOrientation = 'white';
     
     // LÒGICA DE COLORS
-    if (isBundle) {
+    if (liveResume) {
+        // Partida represa: el color és el que era.
+        playerColor = liveResume.playerColor === 'b' ? 'b' : 'w';
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (isBundle) {
         playerColor = game.turn();
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else if (phaseReplayPending) {
@@ -27676,12 +27886,14 @@ blunderMode = isBundle;
         if (!isCalibrationGame) {
         currentCalibrationOpponentRoc = null;
     }
+    if (liveResume) restoreLiveGameMode(liveResume, engineReady);
     currentGameActiveStrengthElo = getActiveStrengthElo();
     currentGameEngineDepth = eloToSearchDepth(currentGameActiveStrengthElo);
     if (currentGameMode === 'positional' && !isCalibrationGame) currentGameEngineDepth = getPositionalVisionLevel().depth;
 
     // Controls i panells propis del Joc posicional (nets a cada partida nova)
     resetPositionalState();
+    if (liveResume) restoreLiveGamePositional(liveResume);
 
     $('.square-55d63').removeClass('highlight-hint');
     clearEngineMoveHighlights();
@@ -27717,7 +27929,9 @@ blunderMode = isBundle;
         timedGameEnginePending = false;
         updateStatus();
     }
-    initGameClock(clockApplies);
+    // Partida represa amb rellotge: els rellotges continuen on eren.
+    if (liveResume && liveResume.clock && clockApplies) restoreGameClock(liveResume.clock);
+    else initGameClock(clockApplies);
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -27731,7 +27945,7 @@ blunderMode = isBundle;
     timedCalibrationTcId = (eligibleTimedGame && getTimeControlRating(currentGameTimeControlId) === null)
         ? currentGameTimeControlId
         : null;
-    if (timedCalibrationTcId) {
+    if (timedCalibrationTcId && !liveResume) {
         showToast(`Calibratge ${getTimeControlLabel(timedCalibrationTcId)}: rival adaptatiu per estimar el teu ELO del ritme`, 'success');
     }
     maybeShowPremoveHint();
@@ -27741,9 +27955,11 @@ blunderMode = isBundle;
     // És el que fa que el rival no jugui sempre la partida mitjana; hi ha dies
     // que es crema el rellotge i cau de bandera, amb la freqüència que ho fa
     // una persona del seu nivell en aquest ritme (dades reals, vegeu core.js).
-    currentGameClockTemperament = gameClock.enabled
-        ? ElTaulerCore.rollClockTemperament(currentGameTimeControlId, currentGameActiveStrengthElo)
-        : 1;
+    currentGameClockTemperament = (liveResume && typeof liveResume.clockTemperament === 'number' && !isNaN(liveResume.clockTemperament))
+        ? liveResume.clockTemperament
+        : (gameClock.enabled
+            ? ElTaulerCore.rollClockTemperament(currentGameTimeControlId, currentGameActiveStrengthElo)
+            : 1);
     updateEloDisplay();
 
     // HUD del repte «Rejugar +5%» i objectiu del panell de precisió (75% per defecte)
@@ -27768,6 +27984,14 @@ blunderMode = isBundle;
         }
     }, 100);
     
+    // Partida en viu: des d'ara cada jugada deixa la instantània al dia per
+    // poder-la reprendre si l'app es tanca a mitja partida.
+    liveGameActive = liveGameIsPersistable();
+    if (liveGameActive) {
+        if (liveResume) liveGameShowResumed(liveResume);
+        saveLiveGame();
+    }
+
     if (playerColor !== game.turn()) {
         pendingEngineFirstMove = true;
         if (stockfishReady) {
@@ -27820,6 +28044,7 @@ function onDrop(source, target) {
     lastPosition = game.fen(); 
     var move = game.move({ from: source, to: target, promotion: 'q' });
     if (move === null) { showIllegalMoveFeedback(source); return 'snapback'; }
+    playMoveSound(move);
     clearQueuedPremove();
     clearEngineMoveHighlights();
     onErrorContextPlayerMoved();
@@ -27836,6 +28061,7 @@ function onDrop(source, target) {
     pendingMoveEvaluation = true;
     updateStatus();
     updateGameMoveNavButtons();
+    liveGameAfterMove();
 
     if (game.game_over()) {
         if (blunderMode) {
@@ -27854,6 +28080,329 @@ function onDrop(source, target) {
 }
 
 function onSnapEnd() { board.position(game.fen()); }
+
+/* ===================== SONS I VIBRACIÓ DE LA PARTIDA ===================== */
+// La síntesi viu a sons.js (window.ElTaulerSons) i la classificació de què ha
+// de sonar a core.js (soundKindForMove, clockWarningLevel). Aquí només s'hi
+// enllacen els punts de la partida, i cap crida no pot fer caure el joc si el
+// mòdul falta o el navegador no té àudio.
+function sons() {
+    return (typeof window !== 'undefined' && window.ElTaulerSons) ? window.ElTaulerSons : null;
+}
+function playSound(kind) {
+    const s = sons();
+    if (!s || !kind) return;
+    try { s.play(kind); } catch (e) {}
+}
+// So d'una jugada acabada d'aplicar a `chessInstance` (per defecte, la partida
+// principal). Cal la posició de DESPRÉS de la jugada: l'escac mana sobre la
+// captura, i la jugada que acaba la partida no sona (sona el resultat).
+function playMoveSound(move, chessInstance) {
+    const chess = chessInstance || game;
+    if (!move || !chess) return;
+    let kind = null;
+    try {
+        kind = ElTaulerCore.soundKindForMove(move, { inCheck: chess.in_check(), gameOver: chess.game_over() });
+    } catch (e) { kind = null; }
+    playSound(kind);
+}
+function playResultSound(outcome) {
+    try { playSound(ElTaulerCore.resultSoundKind(outcome)); } catch (e) {}
+}
+// Avís de temps baix del rellotge del JUGADOR (el del rival no cal sentir-lo),
+// només mentre li corre: és quan hi pot fer alguna cosa. Cada nivell sona una
+// sola vegada per tram; si l'increment torna a pujar el rellotge per sobre de
+// la zona baixa, l'avís es torna a armar.
+function clockWarnIfLow() {
+    if (!gameClock.enabled || gameClock.active !== playerColor) return;
+    const mine = playerColor === 'w' ? gameClock.white : gameClock.black;
+    const level = ElTaulerCore.clockWarningLevel(mine, gameClock.lowMs || 20000);
+    const warned = gameClock.warnedLevel || 0;
+    if (level === 0) { if (warned) gameClock.warnedLevel = 0; return; }
+    if (level > warned) {
+        gameClock.warnedLevel = level;
+        playSound(level === 2 ? 'lowtime2' : 'lowtime');
+    }
+}
+// Configuració → Joc: interruptors de so i vibració (preferència del dispositiu).
+function refreshSoundSettingsUi() {
+    const s = sons();
+    const soundEl = document.getElementById('sound-toggle');
+    if (soundEl) {
+        soundEl.checked = !!(s && s.isSoundEnabled());
+        soundEl.disabled = !s || !s.audioSupported();
+    }
+    const vibrationAvailable = !!(s && s.vibrationSupported());
+    ['vibration-setting-row', 'vibration-setting-help'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.style.display = vibrationAvailable ? '' : 'none';
+    });
+    const vibEl = document.getElementById('vibration-toggle');
+    if (vibEl) vibEl.checked = !!(s && s.isVibrationEnabled());
+}
+function initSoundSettingsUi() {
+    $('#sound-toggle').off('change').on('change', function () {
+        const s = sons();
+        if (!s) return;
+        s.setSoundEnabled(this.checked);
+        // Mostra de so dins del mateix gest: també desbloqueja l'àudio.
+        if (this.checked) { s.unlock(); s.play('check'); }
+    });
+    $('#vibration-toggle').off('change').on('change', function () {
+        const s = sons();
+        if (!s) return;
+        s.setVibrationEnabled(this.checked);
+        if (this.checked) s.vibrate('check');
+    });
+    refreshSoundSettingsUi();
+}
+function refreshDeviceSettingsUi() {
+    try { refreshSoundSettingsUi(); } catch (e) {}
+    try { refreshDailyNotifyToggle(); } catch (e) {}
+}
+
+/* ===================== PARTIDA EN VIU: DESAR I REPRENDRE ===================== */
+// Si la pestanya mor, l'app es tanca o s'actualitza a mitja partida, la partida
+// es perdia sencera (amb el rellotge). Ara, a cada jugada (i en amagar l'app)
+// es desa una instantània de la partida en curs: jugades, color, mode, ritme i
+// rellotges, comptadors de precisió i revisions jugada a jugada. La pàgina
+// d'inici ofereix reprendre-la o descartar-la.
+//
+// - Només les PARTIDES (lliure, calibratge, Joc vista, lliga). Els exercicis són
+//   curts i no cal; el Rival Antídot, el bessó, el tauler d'anàlisi i el repte
+//   de fase tenen estat propi que no es pot reconstruir i no es desen.
+// - La clau és LOCAL del dispositiu (prefix eltauler_cloud_, exclòs de la
+//   sincronització): el motor és local i una partida en viu no es pot compartir
+//   entre aparells.
+// - Sortir de la partida amb el botó de casa és abandonar-la, com sempre; la
+//   represa és per a les interrupcions, no per pausar.
+// - Amb rellotge, els rellotges continuen on eren en desar: el temps que la
+//   pestanya ha estat morta no es cobra a ningú.
+const LIVE_GAME_KEY = 'eltauler_cloud_liveGame';
+let liveGameResumePending = null;   // instantània que startGame ha de reprendre
+let liveGameActive = false;         // la partida en curs es va desant?
+
+function liveGameIsPersistable() {
+    if (!game || blunderMode) return false;
+    if (ElTaulerCore.LIVE_GAME_MODES.indexOf(currentGameMode) === -1) return false;
+    if (phaseReplayState) return false;
+    return true;
+}
+function loadLiveGameSnapshot() {
+    try {
+        const raw = localStorage.getItem(LIVE_GAME_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        return (parsed && typeof parsed === 'object') ? parsed : null;
+    } catch (e) { return null; }
+}
+function clearLiveGame() {
+    try { localStorage.removeItem(LIVE_GAME_KEY); } catch (e) {}
+}
+function buildLiveGameSnapshot() {
+    let moves;
+    try { moves = game.history(); } catch (e) { return null; }
+    // Una jugada encara sense avaluar no compta a la precisió: en reprendre no
+    // es pot recuperar l'anàlisi que quedava a mitges.
+    const unresolved = !!pendingMoveEvaluation;
+    return {
+        v: ElTaulerCore.LIVE_GAME_VERSION,
+        savedAt: Date.now(),
+        startedAt: currentGameStartTs || Date.now(),
+        mode: currentGameMode,
+        calibration: !!isCalibrationGame,
+        calibrationOpponentRoc: isCalibrationGame ? currentCalibrationOpponentRoc : null,
+        calibrationStartOpponentRoc: isCalibrationGame ? calibrationStartOpponentRoc : null,
+        playerColor,
+        moves,
+        timeControlId: currentGameTimeControlId || 'none',
+        clock: gameClock.enabled ? {
+            white: Math.round(gameClock.white),
+            black: Math.round(gameClock.black),
+            inc: gameClock.inc,
+            lowMs: gameClock.lowMs
+        } : null,
+        clockTemperament: currentGameClockTemperament,
+        counters: {
+            totalPlayerMoves: Math.max(0, totalPlayerMoves - (unresolved ? 1 : 0)),
+            goodMoves,
+            totalEngineMoves,
+            goodEngineMoves
+        },
+        review: Array.isArray(currentReview) ? currentReview : [],
+        engine: { elo: currentGameActiveStrengthElo, depth: currentGameEngineDepth },
+        pace: { humanPaceMs, humanPaceSamples },
+        positional: currentGameMode === 'positional' ? { moveHistory: positionalMoveHistory } : null,
+        league: (currentGameMode === 'league' && leagueActiveMatch)
+            ? { leagueId: leagueActiveMatch.leagueId, round: leagueActiveMatch.round }
+            : null
+    };
+}
+function saveLiveGame() {
+    if (!liveGameActive) return false;
+    if (!game || game.game_over()) return false;
+    if (!liveGameIsPersistable()) return false;
+    const snap = buildLiveGameSnapshot();
+    if (!snap) return false;
+    try {
+        localStorage.setItem(LIVE_GAME_KEY, JSON.stringify(snap));
+        return true;
+    } catch (e) {
+        // Sense espai: es desa sense les revisions. La partida es podrà
+        // reprendre igualment; la ressenya final serà més pobra.
+        try {
+            snap.review = [];
+            localStorage.setItem(LIVE_GAME_KEY, JSON.stringify(snap));
+            return true;
+        } catch (e2) { return false; }
+    }
+}
+// Després de CADA jugada aplicada a la partida principal.
+function liveGameAfterMove() {
+    if (!liveGameActive) return;
+    if (game && game.game_over()) { clearLiveGame(); return; }
+    saveLiveGame();
+}
+// La partida s'ha tancat (resultat) o s'ha abandonat: la instantània ja no serveix.
+function liveGameFinished() {
+    if (liveGameActive) clearLiveGame();
+    liveGameActive = false;
+}
+function currentLiveGameInfo() {
+    return ElTaulerCore.liveGameResumeInfo(loadLiveGameSnapshot(), Date.now(), Chess);
+}
+function renderLiveGameBanner() {
+    const banner = document.getElementById('live-game-banner');
+    if (!banner) return;
+    let info = null;
+    try { info = liveGameActive ? null : currentLiveGameInfo(); } catch (e) { info = null; }
+    if (!info) { banner.style.display = 'none'; return; }
+    const tc = TIME_CONTROLS.find(t => t.id === info.timeControlId);
+    const text = ElTaulerCore.liveGameBannerText(info, (tc && tc.id !== 'none') ? tc.label : null);
+    $('#live-game-banner-title').text(text.title);
+    $('#live-game-banner-detail').text(text.detail);
+    banner.style.display = '';
+}
+function resumeLiveGame() {
+    const snap = loadLiveGameSnapshot();
+    const info = ElTaulerCore.liveGameResumeInfo(snap, Date.now(), Chess);
+    if (!info) {
+        clearLiveGame();
+        renderLiveGameBanner();
+        showToast('Aquesta partida ja no es pot reprendre.', 'warn');
+        return;
+    }
+    if (snap.mode === 'league') {
+        // La jornada ha de ser la mateixa que quan es va desar (leagueActiveMatch
+        // viatja amb el compte; la instantània, no).
+        const ok = currentLeague && leagueActiveMatch && snap.league
+            && currentLeague.id === snap.league.leagueId
+            && leagueActiveMatch.leagueId === snap.league.leagueId
+            && leagueActiveMatch.round === snap.league.round;
+        if (!ok) {
+            clearLiveGame();
+            renderLiveGameBanner();
+            showToast('La jornada de lliga d\'aquesta partida ja no és vigent.', 'warn');
+            return;
+        }
+        currentGameMode = 'league';
+    } else {
+        if (leagueActiveMatch) { leagueActiveMatch = null; saveStorage(); }
+        currentGameMode = snap.mode === 'positional' ? 'positional' : 'free';
+        currentOpponent = null;
+        if (snap.mode === 'positional') window._startPositionalGame = true;
+        // El ritme es reprèn tal com era, i queda triat a les fitxes del rellotge.
+        const tcId = TIME_CONTROLS.some(t => t.id === info.timeControlId) ? info.timeControlId : 'none';
+        pendingFreeTimeControl = snap.clock ? tcId : 'none';
+        const tcSel = document.getElementById('new-game-tc-select');
+        if (tcSel) tcSel.value = pendingFreeTimeControl;
+        try { refreshPlayClockChips(); } catch (e) {}
+    }
+    liveGameResumePending = snap;
+    startGame(false);
+}
+function restoreLiveGameCounters(snap) {
+    const c = (snap && snap.counters) || {};
+    totalPlayerMoves = Math.max(0, parseInt(c.totalPlayerMoves, 10) || 0);
+    goodMoves = Math.min(totalPlayerMoves, Math.max(0, parseInt(c.goodMoves, 10) || 0));
+    totalEngineMoves = Math.max(0, parseInt(c.totalEngineMoves, 10) || 0);
+    goodEngineMoves = Math.min(totalEngineMoves, Math.max(0, parseInt(c.goodEngineMoves, 10) || 0));
+    currentReview = Array.isArray(snap.review) ? snap.review.filter(r => r && typeof r === 'object') : [];
+    if (typeof snap.startedAt === 'number' && !isNaN(snap.startedAt)) currentGameStartTs = snap.startedAt;
+    if (snap.pace && typeof snap.pace.humanPaceMs === 'number' && !isNaN(snap.pace.humanPaceMs)) {
+        humanPaceMs = snap.pace.humanPaceMs;
+        humanPaceSamples = Math.max(0, parseInt(snap.pace.humanPaceSamples, 10) || 0);
+    }
+}
+// Partida de calibratge represa: el rival continua al ROC on s'havia adaptat.
+function restoreLiveGameMode(snap, engineReady) {
+    if (!isCalibrationGame || !snap.calibration) return;
+    if (typeof snap.calibrationOpponentRoc !== 'number' || isNaN(snap.calibrationOpponentRoc)) return;
+    currentCalibrationOpponentRoc = clampCalibrationRoc(snap.calibrationOpponentRoc);
+    calibrationStartOpponentRoc = (typeof snap.calibrationStartOpponentRoc === 'number' && !isNaN(snap.calibrationStartOpponentRoc))
+        ? clampCalibrationRoc(snap.calibrationStartOpponentRoc)
+        : currentCalibrationOpponentRoc;
+    aiDifficulty = levelToDifficulty(currentCalibrationOpponentRoc);
+    if (engineReady) applyEngineEloStrength(currentCalibrationOpponentRoc);
+    $('#engine-elo').text(`ROC ${currentCalibrationOpponentRoc}`);
+}
+function restoreLiveGamePositional(snap) {
+    if (currentGameMode !== 'positional' || !snap.positional) return;
+    positionalMoveHistory = Array.isArray(snap.positional.moveHistory)
+        ? snap.positional.moveHistory.filter(m => m && typeof m === 'object')
+        : [];
+    try { updatePositionalMovePanel(); updatePositionalUI(); } catch (e) {}
+}
+// Rellotge d'una partida represa: mateixa estructura que initGameClock, amb els
+// temps desats. Torna a córrer pel bàndol que té el torn.
+function restoreGameClock(saved) {
+    stopGameClock();
+    const cfg = getTimeControlConfig();
+    const baseMs = cfg.id !== 'none' ? cfg.base * 1000 : 0;
+    gameClock = {
+        enabled: true,
+        white: Math.max(1, Math.round(saved.white)),
+        black: Math.max(1, Math.round(saved.black)),
+        inc: (typeof saved.inc === 'number' && !isNaN(saved.inc)) ? saved.inc : (cfg.inc || 0) * 1000,
+        lowMs: (typeof saved.lowMs === 'number' && !isNaN(saved.lowMs)) ? saved.lowMs : Math.min(20000, Math.max(5000, baseMs * 0.2)),
+        active: null,
+        interval: null,
+        tickMs: 0,
+        lastTs: 0,
+        turnSpentMs: 0,
+        paused: false
+    };
+    const wrap = document.getElementById('game-clocks');
+    if (wrap) wrap.style.display = 'flex';
+    renderClock();
+    gameClock.active = game.turn();
+    gameClock.lastTs = nowMs();
+    startClockTicks();
+    renderClock();
+}
+function liveGameShowResumed(snap) {
+    try {
+        const verbose = game.history({ verbose: true });
+        const last = verbose[verbose.length - 1];
+        if (last && last.color !== playerColor) setTimeout(() => highlightEngineMove(last.from, last.to), 0);
+    } catch (e) {}
+    showToast('Partida represa on l\'havies deixat.', 'success');
+}
+function initLiveGameUi() {
+    $(document).on('click', '#btn-live-game-resume', function () { resumeLiveGame(); });
+    $(document).on('click', '#btn-live-game-discard', function () {
+        showAppConfirm('Vols descartar la partida a mig fer? No es desarà a l\'historial.', () => {
+            clearLiveGame();
+            renderLiveGameBanner();
+        }, { title: 'Descartar la partida', confirmText: 'Descarta-la' });
+    });
+    // Última oportunitat de desar els rellotges: en amagar la pestanya (mòbil:
+    // canviar d'app) i en tancar-la.
+    const persistNow = () => { try { saveLiveGame(); } catch (e) {} };
+    document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') persistNow(); });
+    window.addEventListener('pagehide', persistNow);
+    renderLiveGameBanner();
+}
 
 /* ===== Navegació de jugades (fletxes sota el tauler, estil chess.com) =====
    Permet repassar les posicions anteriors de la partida sense tocar l'estat
@@ -29102,6 +29651,7 @@ function resolvePendingMoveEvaluation(moveQuality) {
     }
     pendingMoveEvaluation = false;
     updatePrecisionDisplay();
+    saveLiveGame();
     // Repte «Rejugar +5%»: cada jugada avaluada compta cap al final de la fase.
     notePhaseReplayMoveEvaluated();
 }
@@ -29695,6 +30245,8 @@ function scheduleEngineMoveApply(fromSq, toSq, promotion, replyDelayMs) {
         lastEngineMoveAppliedTs = nowMs();
         clockOnMove();
         updateStatus();
+        playMoveSound(applied);
+        liveGameAfterMove();
         if (isViewingGameHistory() && !game.game_over()) {
             // L'usuari repassa jugades amb les fletxes: la jugada queda
             // aplicada a l'estat real però no se li roba la vista ni es
@@ -29750,7 +30302,9 @@ function applyBundleAutoReply(moveUci) {
     const promotion = moveUci.length > 4 ? moveUci[4] : 'q';
     // Si la jugada no és legal a la posició actual (resposta antiga), no es
     // repinta ni es marca res: la marca sempre ha de correspondre a una jugada feta.
-    if (!game.move({ from: fromSq, to: toSq, promotion })) return;
+    const bundleReply = game.move({ from: fromSq, to: toSq, promotion });
+    if (!bundleReply) return;
+    playMoveSound(bundleReply);
     bundleStepStartFen = game.fen();
     lastHumanMoveUci = null;
     updateStatus();
@@ -29858,6 +30412,7 @@ function evaluateBundleAttempt(bundleData) {
             handleBundleSuccess();
         } else {
             if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect', playedFrom);
+            playSound('fail');
             if (currentBundleSource === 'bestline') currentHieroglyphicWrongMoves++;
             // Error - resetar al pas actual
             if (pendingMoveEvaluation) {
@@ -29917,6 +30472,7 @@ function evaluateBundleAttempt(bundleData) {
         handleBundleSuccess();
     } else {
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect', playedFrom);
+            playSound('fail');
         if (currentBundleSource === 'bestline') currentHieroglyphicWrongMoves++;
         if (pendingMoveEvaluation) {
             pendingMoveEvaluation = false;
@@ -30312,6 +30868,8 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 
 function returnToMainMenuImmediate() {
     stopGameClock();
+    // Sortir de la partida des del botó de casa és abandonar-la: cap instantània per reprendre.
+    liveGameFinished();
     timedGameEnginePending = false;
     pendingEngineFirstMove = false;
     $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#calibration-result-screen').hide(); $('#antidote-summary-modal').hide(); $('#start-screen').show(); navStack = [];
@@ -30438,6 +30996,7 @@ function wireContinueSolvedFenButton(overlay) {
 }
 
 function handleBundleSuccess() {
+    playSound('success');
     bundleSequenceStep = 1;
     bundleStepStartFen = null;
     $('#status').text("EXCEL·LENT! Problema resolt 🏆").css('color', '#4a7c59').css('font-weight', 'bold');
@@ -30951,6 +31510,7 @@ function positionalUndoMove(force = false) {
     updateGameMoveNavButtons();
     updatePositionalUI();
     $('#status').text("Jugada desfeta: prova'n una altra i veuràs el seu índex Stockfish").css('color', 'var(--accent-cream)');
+    saveLiveGame();
 }
 
 /* ---------- La Norma: principis que han de regir el moviment ---------- */
@@ -31549,6 +32109,8 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // sortida ràpida cap a una partida nova).
     if (gameOverHandledGen === gameGeneration) return;
     gameOverHandledGen = gameGeneration;
+    // La partida es tanca: la instantània per reprendre-la ja no serveix.
+    liveGameFinished();
     const postGamePerfStartedAt = nowMs();
     const postGamePerf = {
         gameGeneration,
@@ -31632,6 +32194,7 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         } else { msg = "Derrota"; resultScore = 0; leagueOutcome = 'loss'; }
     } else { msg = "Taules"; resultScore = 0.5; leagueOutcome = 'draw'; }
 
+    playResultSound(playerWon ? 'win' : (resultScore === 0.5 ? 'draw' : 'loss'));
     sessionStats.gamesPlayed++; totalGamesPlayed++;
     
     if (currentGameMode === 'league') sessionStats.leagueGamesPlayed++;
@@ -35402,6 +35965,8 @@ $(document).ready(() => {
     const __customId = customGameIdFromUrl();
     const __deepCatalans = isCatalansDeepLink();
     const __mode = (!__customId && !__deepCatalans) ? modeFromUrl() : '';
+    // Enllaç d'una notificació de partida diària: ?mode=daily&daily=<id>.
+    const __dailyId = (__mode === 'daily') ? dailyGameIdFromUrl() : '';
     history.replaceState(
         { screen: (__customId || __deepCatalans) ? 'catalans-screen' : 'start-screen', customId: __customId || null },
         '',
@@ -35429,6 +35994,9 @@ $(document).ready(() => {
     // Partides diàries: pinta les miniatures i resol el que hagi vençut mentre
     // l'app era tancada (derrotes per temps i respostes del motor pendents).
     try { initDailyGames(); } catch (e) { console.warn('[Daily] init', e); }
+    // Preferències del dispositiu (sons, vibració, avisos diaris) i partida en viu.
+    try { initLiveGameUi(); } catch (e) { console.warn('[LiveGame] init', e); }
+    try { initSoundSettingsUi(); initDailyNotifySettingsUi(); } catch (e) { console.warn('[Dispositiu] init', e); }
     enablePremoveCancelGesture();
     // L'arrencada es fa després del primer pintat: quan s'obre una partida
     // amb rellotge, el worker sol estar llest abans de la primera jugada.
@@ -35446,6 +36014,7 @@ $(document).ready(() => {
             if (__mode === 'game') $('#btn-new-game').click();
             else if (__mode === 'openings') $('#btn-opening').click();
             else if (__mode === 'league') $('#btn-league').click();
+            else if (__mode === 'daily') openDailyFromLink(__dailyId);
         }, 0);
     }
     if (!window.__boardResizeBound) {

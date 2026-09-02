@@ -8179,6 +8179,200 @@
         return merged;
     }
 
+
+    // ----------------------------------------------------------------------
+    // Sons de partida: QUÈ s'ha de sentir (classificació pura)
+    // ----------------------------------------------------------------------
+    // Un so per jugada. El resultat de la partida sona a part (resultSoundKind),
+    // de manera que la jugada que acaba la partida no en té cap de propi: el so
+    // de mat o de taules ja explica què ha passat.
+    const SOUND_KINDS = ['move', 'capture', 'castle', 'check', 'promote',
+        'gameover_win', 'gameover_loss', 'gameover_draw', 'lowtime', 'lowtime2',
+        'success', 'fail'];
+
+    // `move` és una jugada en format verbós de chess.js ({ san, flags, captured,
+    // promotion }); `state` diu com queda la posició DESPRÉS de la jugada.
+    // Prioritat: escac > coronació > enroc > captura > jugada normal.
+    function soundKindForMove(move, state) {
+        if (!move || typeof move !== 'object') return null;
+        const st = state || {};
+        if (st.gameOver) return null;
+        if (st.inCheck) return 'check';
+        const flags = typeof move.flags === 'string' ? move.flags : '';
+        if (move.promotion || flags.indexOf('p') !== -1) return 'promote';
+        if (flags.indexOf('k') !== -1 || flags.indexOf('q') !== -1) return 'castle';
+        if (move.captured || flags.indexOf('c') !== -1 || flags.indexOf('e') !== -1) return 'capture';
+        return 'move';
+    }
+
+    function resultSoundKind(outcome) {
+        if (outcome === 'win') return 'gameover_win';
+        if (outcome === 'loss') return 'gameover_loss';
+        return 'gameover_draw';
+    }
+
+    // Nivell d'avís de temps baix del rellotge: 0 cap avís, 1 en entrar a la
+    // zona baixa (lowMs, la mateixa que pinta el rellotge en vermell) i 2 als
+    // últims segons (la meitat de la zona, i com a màxim 5 s). Amb el rellotge
+    // a zero no s'avisa de res: la bandera ja mana.
+    function clockWarningLevel(remainingMs, lowMs) {
+        const ms = Number(remainingMs);
+        const low = Number(lowMs);
+        if (isNaN(ms) || isNaN(low) || low <= 0 || ms <= 0) return 0;
+        const critical = Math.min(5000, low / 2);
+        if (ms <= critical) return 2;
+        if (ms <= low) return 1;
+        return 0;
+    }
+
+    // ----------------------------------------------------------------------
+    // Partida en viu interrompuda: instantània local per poder-la reprendre
+    // ----------------------------------------------------------------------
+    // app.js desa una instantània de la partida en curs a cada jugada (i en
+    // amagar l'app). Si la pestanya mor, l'app es tanca o s'actualitza a mitja
+    // partida, la pàgina d'inici ofereix reprendre-la. Aquí hi ha la part pura:
+    // validar la instantània, rejugar-la i descriure-la.
+    const LIVE_GAME_VERSION = 1;
+    const LIVE_GAME_MODES = ['free', 'positional', 'league'];
+    const LIVE_GAME_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+    const LIVE_GAME_MODE_LABELS = { free: 'Nova partida', positional: 'Joc vista', league: 'Lliga' };
+
+    function liveGameSnapshotIsValid(snap) {
+        if (!snap || typeof snap !== 'object') return false;
+        if (snap.v !== LIVE_GAME_VERSION) return false;
+        if (LIVE_GAME_MODES.indexOf(snap.mode) === -1) return false;
+        if (snap.playerColor !== 'w' && snap.playerColor !== 'b') return false;
+        if (!Array.isArray(snap.moves)) return false;
+        if (!snap.moves.every(m => typeof m === 'string' && m.length > 0)) return false;
+        if (typeof snap.savedAt !== 'number' || isNaN(snap.savedAt)) return false;
+        if (snap.clock !== null && snap.clock !== undefined) {
+            const c = snap.clock;
+            if (!c || typeof c !== 'object') return false;
+            if (typeof c.white !== 'number' || typeof c.black !== 'number') return false;
+            if (isNaN(c.white) || isNaN(c.black)) return false;
+            // Un rellotge a zero és una partida acabada per bandera, no una
+            // partida a mig fer.
+            if (c.white <= 0 || c.black <= 0) return false;
+        }
+        return true;
+    }
+
+    // Rejuga les jugades desades sobre una instància nova de chess.js i retorna
+    // la posició en viu, o null si alguna jugada no és legal (instantània
+    // corrupta o d'una versió incompatible: no s'ha de reprendre res).
+    function liveGameReplay(ChessCtor, moves) {
+        if (typeof ChessCtor !== 'function' || !Array.isArray(moves)) return null;
+        let chess;
+        try { chess = new ChessCtor(); } catch (e) { return null; }
+        for (let i = 0; i < moves.length; i++) {
+            let applied = null;
+            try { applied = chess.move(moves[i], { sloppy: true }); } catch (e) { applied = null; }
+            if (!applied) return null;
+        }
+        return chess;
+    }
+
+    // Què hi ha per reprendre. Retorna null quan no val la pena oferir res:
+    // instantània invàlida, massa vella, sense cap jugada, il·legal o amb la
+    // partida ja acabada al tauler.
+    function liveGameResumeInfo(snap, nowMs, ChessCtor) {
+        if (!liveGameSnapshotIsValid(snap)) return null;
+        const now = (typeof nowMs === 'number' && !isNaN(nowMs)) ? nowMs : 0;
+        const ageMs = Math.max(0, now - snap.savedAt);
+        if (ageMs > LIVE_GAME_MAX_AGE_MS) return null;
+        if (snap.moves.length < 1) return null;
+        let fen = null;
+        let turn = (snap.moves.length % 2 === 0) ? 'w' : 'b';
+        if (typeof ChessCtor === 'function') {
+            const chess = liveGameReplay(ChessCtor, snap.moves);
+            if (!chess) return null;
+            if (chess.game_over()) return null;
+            fen = chess.fen();
+            turn = chess.turn();
+        }
+        return {
+            mode: snap.mode,
+            modeLabel: LIVE_GAME_MODE_LABELS[snap.mode],
+            calibration: !!snap.calibration,
+            playerColor: snap.playerColor,
+            moves: snap.moves.slice(),
+            movesCount: snap.moves.length,
+            fullMoves: Math.ceil(snap.moves.length / 2),
+            playerToMove: turn === snap.playerColor,
+            fen,
+            ageMs,
+            timeControlId: typeof snap.timeControlId === 'string' ? snap.timeControlId : 'none',
+            clock: snap.clock ? { white: snap.clock.white, black: snap.clock.black } : null
+        };
+    }
+
+    // «fa 3 min», «fa 2 h», «fa 1 dia»: edat llegible de la instantània.
+    function liveGameAgeLabel(ageMs) {
+        const ms = (typeof ageMs === 'number' && !isNaN(ageMs)) ? Math.max(0, ageMs) : 0;
+        const minutes = Math.floor(ms / 60000);
+        if (minutes < 1) return 'ara mateix';
+        if (minutes < 60) return 'fa ' + minutes + ' min';
+        const hours = Math.floor(minutes / 60);
+        if (hours < 24) return 'fa ' + hours + ' h';
+        const days = Math.floor(hours / 24);
+        return 'fa ' + days + (days === 1 ? ' dia' : ' dies');
+    }
+
+    // Text del bàner de la pàgina d'inici. `tcLabel` és l'etiqueta del ritme
+    // (la té app.js: TIME_CONTROLS); sense rellotge no s'esmenta.
+    function liveGameBannerText(info, tcLabel) {
+        if (!info) return null;
+        const title = info.calibration ? 'Partida de calibratge a mig fer' : 'Tens una partida a mig fer';
+        const parts = [];
+        parts.push(info.modeLabel || LIVE_GAME_MODE_LABELS.free);
+        parts.push(info.playerColor === 'b' ? 'amb negres' : 'amb blanques');
+        if (info.clock && tcLabel) parts.push(tcLabel);
+        parts.push(info.fullMoves + (info.fullMoves === 1 ? ' jugada' : ' jugades'));
+        parts.push(info.playerToMove ? 'et toca moure' : 'toca moure al rival');
+        parts.push(liveGameAgeLabel(info.ageMs));
+        return { title, detail: parts.join(' · ') };
+    }
+
+    // ----------------------------------------------------------------------
+    // Avisos de les partides diàries
+    // ----------------------------------------------------------------------
+    // Cal avisar que s'acaba el termini? Només quan li toca moure al jugador,
+    // queden menys de DAILY_WARN_BEFORE_MS i encara no s'ha avisat d'AQUEST torn
+    // (l'avís es recorda per la marca d'inici del torn: un torn nou, un avís nou).
+    const DAILY_WARN_BEFORE_MS = 2 * 60 * 60 * 1000;
+
+    function dailyDeadlineWarningDue(entry, nowMs, warnedTurnStartedAt) {
+        const deadline = dailyPlayerDeadlineMs(entry);
+        if (deadline === null) return false;
+        const now = (typeof nowMs === 'number' && !isNaN(nowMs)) ? nowMs : 0;
+        const remaining = deadline - now;
+        if (remaining <= 0 || remaining > DAILY_WARN_BEFORE_MS) return false;
+        return Number(warnedTurnStartedAt) !== Number(entry.turnStartedAt);
+    }
+
+    // Títol i cos de cada avís. `extra`: { san } a la resposta del rival,
+    // { remainingMs } a l'avís de termini, { result } al final de partida.
+    function dailyNotificationText(kind, entry, extra) {
+        const ex = extra || {};
+        const title = '🕐 Partida diària';
+        let body;
+        if (kind === 'reply') {
+            body = 'El rival ha respost' + (ex.san ? ' ' + ex.san : '') + '. Tens 24 hores per fer la teva jugada.';
+        } else if (kind === 'deadline') {
+            body = 'Et queda ' + dailyCountdownLabel(ex.remainingMs) + ' per fer la teva jugada.';
+        } else if (kind === 'timeout') {
+            body = 'Has perdut la partida per temps: no s\'ha jugat cap jugada en 24 hores.';
+        } else if (kind === 'finished') {
+            const result = ex.result || (entry && entry.result);
+            if (result === 'win') body = 'Has guanyat la partida diària!';
+            else if (result === 'loss') body = 'Has perdut la partida diària.';
+            else body = 'La partida diària ha acabat en taules.';
+        } else {
+            body = 'Hi ha novetats a la teva partida diària.';
+        }
+        return { title, body };
+    }
+
     return {
         splitPgnGames,
         parsePgnHeaders,
@@ -8380,6 +8574,21 @@
         humanClockProfile,
         humanPlannedSpendMs,
         humanExpectedRemainingMs,
+        SOUND_KINDS,
+        soundKindForMove,
+        resultSoundKind,
+        clockWarningLevel,
+        LIVE_GAME_VERSION,
+        LIVE_GAME_MODES,
+        LIVE_GAME_MAX_AGE_MS,
+        liveGameSnapshotIsValid,
+        liveGameReplay,
+        liveGameResumeInfo,
+        liveGameAgeLabel,
+        liveGameBannerText,
+        DAILY_WARN_BEFORE_MS,
+        dailyDeadlineWarningDue,
+        dailyNotificationText,
         humanMoveFloorMs,
         HUMAN_FLOOR_CAP_MS,
         HUMAN_DEEP_THINK_MAX_MS,

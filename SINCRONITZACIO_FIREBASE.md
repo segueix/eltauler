@@ -61,14 +61,56 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
          allow read: if true;
          allow write: if request.auth != null;
        }
+
+       // Rànquing global: un sol document (eltauler_ranking/leaderboard) amb el
+       // mapa players.{uid}. Lectura PÚBLICA; cada usuari només pot crear,
+       // modificar o esborrar la SEVA entrada (players.<el seu uid>) i tocar
+       // updatedAt: ningú no pot alterar l'ELO ni les estadístiques d'un altre.
+       match /eltauler_ranking/{docId} {
+         allow read: if true;
+         allow create: if request.auth != null
+           && docId == 'leaderboard'
+           && request.resource.data.keys().hasOnly(['players', 'updatedAt'])
+           && request.resource.data.get('updatedAt', 0) is number
+           && request.resource.data.get('players', {}).keys().hasOnly([request.auth.uid])
+           && rankingPlayersValid(request.resource.data.get('players', {}), request.auth.uid);
+         allow update: if request.auth != null
+           && docId == 'leaderboard'
+           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['players', 'updatedAt'])
+           && request.resource.data.get('updatedAt', 0) is number
+           && request.resource.data.get('players', {}).diff(resource.data.get('players', {})).affectedKeys().hasOnly([request.auth.uid])
+           && rankingPlayersValid(request.resource.data.get('players', {}), request.auth.uid);
+         allow delete: if false;
+       }
+
+       function rankingPlayersValid(players, uid) {
+         return !(uid in players) || rankingEntryValid(players[uid]);
+       }
+       function rankingEntryValid(entry) {
+         return entry is map
+           && entry.keys().hasOnly(['name', 'elo', 'stars', 'games', 'hiero', 'at'])
+           && entry.name is string && entry.name.size() <= 24
+           && entry.elo is number && entry.elo >= 0 && entry.elo <= 4000
+           && entry.stars is number && entry.stars >= 0
+           && entry.games is number && entry.games >= 0
+           && entry.hiero is number && entry.hiero >= 0
+           && entry.at is number;
+       }
      }
    }
    ```
 
    Així cada usuari només pot llegir i escriure les **seves pròpies** dades; la
    partida col·lectiva es pot **mirar** sense sessió, però per **votar** (i per
-   fer-la avançar) cal haver iniciat sessió amb Google.
+   fer-la avançar) cal haver iniciat sessió amb Google; i al rànquing global
+   cadascú només pot tocar la seva entrada.
    Clica **Publish**.
+
+   > ⚠️ Les regles del rànquing són **més estrictes** que les que hi havia fins
+   > ara (abans, qualsevol usuari amb sessió podia reescriure tot el document,
+   > ELO dels altres inclòs). El fitxer [`firestore.rules`](firestore.rules) del
+   > repositori és la còpia de referència: **no es publica sol**, cal
+   > enganxar-lo al panell **Rules** de la consola i clicar **Publish**.
 
    > ℹ️ Les **partides col·lectives pròpies** (cada equip contra Stockfish que es
    > crea des de la pantalla d'inici) viuen a la **mateixa** col·lecció
