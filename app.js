@@ -716,6 +716,8 @@ function applyFontSize(pct) {
 const NAVIGATION_SCREEN_IDS = [
     'game-screen',
     'daily-screen',
+    'tutorial-screen',
+    'guide-screen',
     'stats-screen',
     'history-screen',
     'league-screen',
@@ -872,6 +874,9 @@ function navGoBack() {
         if (typeof closeTriaScreen === 'function') closeTriaScreen();
     } else if (current === 'daily-screen') {
         if (typeof closeDailyScreen === 'function') closeDailyScreen();
+    } else if (current === 'tutorial-screen' || current === 'guide-screen') {
+        if (window.ElTaulerTutorial && typeof window.ElTaulerTutorial.closeScreens === 'function') window.ElTaulerTutorial.closeScreens();
+        $('#start-screen').show();
     }
     navStack.pop();
 }
@@ -8746,6 +8751,7 @@ function updateDisplay() {
     try { refreshTriaBanner(); } catch (e) {}
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
     try { renderLiveGameBanner(); } catch (e) {}
+    try { if (window.ElTaulerTutorial) window.ElTaulerTutorial.refreshBanner(); } catch (e) {}
 }
 
 // Targetes d'ELO per ritme a dalt de tot d'Estadístiques: primer l'ELO
@@ -35997,6 +36003,8 @@ $(document).ready(() => {
     // Preferències del dispositiu (sons, vibració, avisos diaris) i partida en viu.
     try { initLiveGameUi(); } catch (e) { console.warn('[LiveGame] init', e); }
     try { initSoundSettingsUi(); initDailyNotifySettingsUi(); } catch (e) { console.warn('[Dispositiu] init', e); }
+    // Tutorials: «Aprèn a jugar» i «Guia d'El Tauler» (tutorial.js).
+    try { if (window.ElTaulerTutorial) window.ElTaulerTutorial.init(); } catch (e) { console.warn('[Tutorial] init', e); }
     enablePremoveCancelGesture();
     // L'arrencada es fa després del primer pintat: quan s'obre una partida
     // amb rellotge, el worker sol estar llest abans de la primera jugada.
@@ -36015,6 +36023,8 @@ $(document).ready(() => {
             else if (__mode === 'openings') $('#btn-opening').click();
             else if (__mode === 'league') $('#btn-league').click();
             else if (__mode === 'daily') openDailyFromLink(__dailyId);
+            else if (__mode === 'tutorial' && window.ElTaulerTutorial) window.ElTaulerTutorial.open();
+            else if (__mode === 'guide' && window.ElTaulerTutorial) window.ElTaulerTutorial.openGuide();
         }, 0);
     }
     if (!window.__boardResizeBound) {
