@@ -8237,6 +8237,10 @@
     const LIVE_GAME_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
     const LIVE_GAME_MODE_LABELS = { free: 'Nova partida', positional: 'Joc vista', league: 'Lliga' };
 
+    function liveGameIsUntimed(snap) {
+        return !!snap && !snap.clock && (!snap.timeControlId || snap.timeControlId === 'none');
+    }
+
     function liveGameSnapshotIsValid(snap) {
         if (!snap || typeof snap !== 'object') return false;
         if (snap.v !== LIVE_GAME_VERSION) return false;
@@ -8273,14 +8277,16 @@
     }
 
     // Què hi ha per reprendre. Retorna null quan no val la pena oferir res:
-    // instantània invàlida, massa vella, sense cap jugada, il·legal o amb la
-    // partida ja acabada al tauler.
+    // instantània invàlida, il·legal o amb la partida ja acabada al tauler.
+    // Les partides sense rellotge no caduquen i es poden pausar fins i tot
+    // abans de la primera jugada. El límit antic només s'aplica amb rellotge.
     function liveGameResumeInfo(snap, nowMs, ChessCtor) {
         if (!liveGameSnapshotIsValid(snap)) return null;
         const now = (typeof nowMs === 'number' && !isNaN(nowMs)) ? nowMs : 0;
         const ageMs = Math.max(0, now - snap.savedAt);
-        if (ageMs > LIVE_GAME_MAX_AGE_MS) return null;
-        if (snap.moves.length < 1) return null;
+        const untimed = liveGameIsUntimed(snap);
+        if (!untimed && ageMs > LIVE_GAME_MAX_AGE_MS) return null;
+        if (!untimed && snap.moves.length < 1) return null;
         let fen = null;
         let turn = (snap.moves.length % 2 === 0) ? 'w' : 'b';
         if (typeof ChessCtor === 'function') {
@@ -8582,6 +8588,7 @@
         LIVE_GAME_MODES,
         LIVE_GAME_MAX_AGE_MS,
         liveGameSnapshotIsValid,
+        liveGameIsUntimed,
         liveGameReplay,
         liveGameResumeInfo,
         liveGameAgeLabel,

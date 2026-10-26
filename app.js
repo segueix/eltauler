@@ -838,8 +838,7 @@ function navGoBack() {
     const current = getCurrentScreen();
     if (current === 'start-screen') return;
     if (current === 'game-screen') {
-        $('#game-screen').removeClass('active').hide();
-        $('#start-screen').show();
+        if (returnToMainMenuImmediate() === false) return;
     } else if (current === 'stats-screen') {
         if (typeof stopReviewTts === 'function') stopReviewTts();
         $('#stats-screen').hide();
@@ -5033,6 +5032,13 @@ function startLeagueRound() {
     syncLeagueUserRoc();
     if (currentLeague.completed) return;
 
+    // Una jornada pausada es continua; no s'estrena una altra posició de la
+    // mateixa jornada ni es perd la partida en passar per altres modes.
+    const savedRound = loadUntimedGames().find(snap => snap.mode === 'league'
+        && snap.league && snap.league.leagueId === currentLeague.id
+        && snap.league.round === currentLeague.currentRound);
+    if (savedRound) { resumeLiveGame(savedRound.id); return; }
+
     const roundIdx = currentLeague.currentRound - 1;
     const oppId = getMyOpponentForRound(roundIdx);
     if (!oppId) { alert('No s\'ha pogut trobar rival'); return; }
@@ -8751,6 +8757,7 @@ function updateDisplay() {
     try { refreshTriaBanner(); } catch (e) {}
     if (typeof updateCloudRecoverButton === 'function') updateCloudRecoverButton();
     try { renderLiveGameBanner(); } catch (e) {}
+    try { renderUntimedGamesPanel(); } catch (e) {}
     try { if (window.ElTaulerTutorial) window.ElTaulerTutorial.refreshBanner(); } catch (e) {}
 }
 
@@ -23922,9 +23929,9 @@ function setupEvents() {
 
     $('#btn-back').click(() => {
         // El botó-casa porta SEMPRE directament a la pàgina principal, sense
-        // preguntar res. Si hi havia una partida de lliga en curs, abandonar-la
-        // s'aplica com a derrota a la classificació i s'avisa amb un toast.
-        if (leagueActiveMatch && currentGameMode === 'league' && game && !game.game_over()) {
+        // preguntar res. Sense rellotge, la partida queda pausada. Amb rellotge,
+        // sortir d'una partida de lliga continua comptant com a derrota.
+        if (!canPauseUntimedGame() && leagueActiveMatch && currentGameMode === 'league' && game && !game.game_over()) {
             applyLeagueAfterGame('loss');
             showToast('Has abandonat la partida de lliga: compta com a derrota.', 'warn');
         }
@@ -27543,6 +27550,8 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     const liveResume = liveGameResumePending;
     liveGameResumePending = null;
     liveGameActive = false;
+    liveGameId = liveResume && liveResume.id
+        ? liveResume.id : 'untimed_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
     antidoteState = null;
     antidoteSearchToken++;   // invalida qualsevol cerca Antídot encara viva
     antidoteLiveSticky = false;
@@ -28180,13 +28189,77 @@ function refreshDeviceSettingsUi() {
 // - La clau és LOCAL del dispositiu (prefix eltauler_cloud_, exclòs de la
 //   sincronització): el motor és local i una partida en viu no es pot compartir
 //   entre aparells.
-// - Sortir de la partida amb el botó de casa és abandonar-la, com sempre; la
-//   represa és per a les interrupcions, no per pausar.
+// - Sense rellotge, cada partida té un id i es conserva en una col·lecció
+//   local sense caducitat. Sortir amb el botó de casa la pausa i es pot
+//   continuar des de la graella, encara que s'hagin jugat altres partides.
 // - Amb rellotge, els rellotges continuen on eren en desar: el temps que la
 //   pestanya ha estat morta no es cobra a ningú.
 const LIVE_GAME_KEY = 'eltauler_cloud_liveGame';
+const UNTIMED_GAMES_KEY = 'eltauler_cloud_untimedGames';
 let liveGameResumePending = null;   // instantània que startGame ha de reprendre
 let liveGameActive = false;         // la partida en curs es va desant?
+let liveGameId = null;
+
+function loadUntimedGames() {
+    try {
+        const parsed = JSON.parse(localStorage.getItem(UNTIMED_GAMES_KEY) || '[]');
+        return Array.isArray(parsed) ? parsed.filter(snap => snap && typeof snap.id === 'string'
+            && ElTaulerCore.liveGameIsUntimed(snap) && ElTaulerCore.liveGameSnapshotIsValid(snap)) : [];
+    } catch (e) { return []; }
+}
+
+function saveUntimedSnapshot(snap) {
+    const games = loadUntimedGames().filter(entry => entry.id !== snap.id);
+    games.push(snap);
+    // Si no hi ha espai, el caller ho gestiona; mai es descarten partides
+    // antigues per fer lloc a la nova.
+    localStorage.setItem(UNTIMED_GAMES_KEY, JSON.stringify(games));
+}
+
+function removeUntimedGame(id) {
+    if (!id) return;
+    localStorage.setItem(UNTIMED_GAMES_KEY, JSON.stringify(loadUntimedGames().filter(snap => snap.id !== id)));
+}
+
+function migrateUntimedLiveGame() {
+    const snap = loadLiveGameSnapshot();
+    if (!ElTaulerCore.liveGameIsUntimed(snap) || !ElTaulerCore.liveGameResumeInfo(snap, Date.now(), Chess)) return;
+    // Id estable perquè la migració sigui idempotent, fins i tot si s'interromp.
+    snap.id = snap.id || 'untimed_legacy_' + (snap.startedAt || snap.savedAt);
+    const existing = loadUntimedGames().find(entry => entry.id === snap.id);
+    try {
+        if (!existing || existing.savedAt < snap.savedAt) saveUntimedSnapshot(snap);
+        clearLiveGame();
+    } catch (e) { /* La instantània antiga segueix recuperable al bàner. */ }
+}
+
+function canPauseUntimedGame() {
+    return liveGameActive && liveGameIsPersistable() && !game.game_over()
+        && !gameClock.enabled && currentGameTimeControlId === 'none';
+}
+
+function renderUntimedGamesPanel() {
+    const grid = document.getElementById('untimed-grid');
+    if (!grid) return;
+    const cards = loadUntimedGames().filter(snap => !liveGameActive || snap.id !== liveGameId)
+        .map(snap => ({ snap, info: ElTaulerCore.liveGameResumeInfo(snap, Date.now(), Chess) }))
+        .filter(card => card.info).sort((a, b) => b.snap.savedAt - a.snap.savedAt);
+    grid.innerHTML = cards.map(({ snap, info }) => {
+        const mode = info.calibration ? 'Calibratge' : info.modeLabel;
+        const color = info.playerColor === 'b' ? 'Negres' : 'Blanques';
+        const turn = info.playerToMove ? 'Et toca moure' : 'Torn del rival';
+        return `<div class="daily-card ${info.playerToMove ? 'daily-card-turn' : ''}" data-untimed-id="${escapeHtml(snap.id)}">
+            ${dailyMiniBoardHtml(info.fen, info.playerColor)}
+            <div class="daily-card-state ${info.playerToMove ? 'state-turn' : ''}">${turn}</div>
+            <div class="daily-card-clock">${escapeHtml(mode)} · ${color} · ${info.fullMoves} ${info.fullMoves === 1 ? 'jugada' : 'jugades'}</div>
+            <div class="daily-card-clock">∞ Sense límit de temps</div>
+            <button class="btn btn-primary untimed-card-play" type="button">Continua</button>
+            <button class="btn btn-secondary untimed-card-discard" type="button">Descarta</button>
+        </div>`;
+    }).join('');
+    const title = document.getElementById('untimed-section-title');
+    if (title) title.style.display = cards.length ? '' : 'none';
+}
 
 function liveGameIsPersistable() {
     if (!game || blunderMode) return false;
@@ -28213,6 +28286,7 @@ function buildLiveGameSnapshot() {
     const unresolved = !!pendingMoveEvaluation;
     return {
         v: ElTaulerCore.LIVE_GAME_VERSION,
+        id: liveGameId,
         savedAt: Date.now(),
         startedAt: currentGameStartTs || Date.now(),
         mode: currentGameMode,
@@ -28238,9 +28312,10 @@ function buildLiveGameSnapshot() {
         review: Array.isArray(currentReview) ? currentReview : [],
         engine: { elo: currentGameActiveStrengthElo, depth: currentGameEngineDepth },
         pace: { humanPaceMs, humanPaceSamples },
-        positional: currentGameMode === 'positional' ? { moveHistory: positionalMoveHistory } : null,
+        errors: Array.isArray(currentGameErrors) ? currentGameErrors : [],
+        positional: currentGameMode === 'positional' ? { moveHistory: positionalMoveHistory, vision: positionalVision } : null,
         league: (currentGameMode === 'league' && leagueActiveMatch)
-            ? { leagueId: leagueActiveMatch.leagueId, round: leagueActiveMatch.round }
+            ? Object.assign({}, leagueActiveMatch)
             : null
     };
 }
@@ -28250,15 +28325,26 @@ function saveLiveGame() {
     if (!liveGameIsPersistable()) return false;
     const snap = buildLiveGameSnapshot();
     if (!snap) return false;
+    const persist = () => {
+        if (ElTaulerCore.liveGameIsUntimed(snap)) {
+            saveUntimedSnapshot(snap);
+            // Només una represa antiga pot conservar també la clau única.
+            const legacy = loadLiveGameSnapshot();
+            if (legacy && (legacy.id === snap.id || (ElTaulerCore.liveGameIsUntimed(legacy)
+                && legacy.startedAt === snap.startedAt))) clearLiveGame();
+        } else {
+            localStorage.setItem(LIVE_GAME_KEY, JSON.stringify(snap));
+        }
+    };
     try {
-        localStorage.setItem(LIVE_GAME_KEY, JSON.stringify(snap));
+        persist();
         return true;
     } catch (e) {
         // Sense espai: es desa sense les revisions. La partida es podrà
         // reprendre igualment; la ressenya final serà més pobra.
         try {
             snap.review = [];
-            localStorage.setItem(LIVE_GAME_KEY, JSON.stringify(snap));
+            persist();
             return true;
         } catch (e2) { return false; }
     }
@@ -28266,13 +28352,18 @@ function saveLiveGame() {
 // Després de CADA jugada aplicada a la partida principal.
 function liveGameAfterMove() {
     if (!liveGameActive) return;
-    if (game && game.game_over()) { clearLiveGame(); return; }
+    if (game && game.game_over()) { liveGameFinished(); return; }
     saveLiveGame();
 }
 // La partida s'ha tancat (resultat) o s'ha abandonat: la instantània ja no serveix.
 function liveGameFinished() {
-    if (liveGameActive) clearLiveGame();
+    if (liveGameActive) {
+        try { removeUntimedGame(liveGameId); } catch (e) {}
+        const legacy = loadLiveGameSnapshot();
+        if (legacy && legacy.id === liveGameId) clearLiveGame();
+    }
     liveGameActive = false;
+    liveGameId = null;
 }
 function currentLiveGameInfo() {
     return ElTaulerCore.liveGameResumeInfo(loadLiveGameSnapshot(), Date.now(), Chess);
@@ -28289,25 +28380,42 @@ function renderLiveGameBanner() {
     $('#live-game-banner-detail').text(text.detail);
     banner.style.display = '';
 }
-function resumeLiveGame() {
-    const snap = loadLiveGameSnapshot();
+function resumeLiveGame(id) {
+    const snap = id ? loadUntimedGames().find(entry => entry.id === id) : loadLiveGameSnapshot();
     const info = ElTaulerCore.liveGameResumeInfo(snap, Date.now(), Chess);
     if (!info) {
-        clearLiveGame();
+        if (id) { try { removeUntimedGame(id); } catch (e) {} }
+        else clearLiveGame();
         renderLiveGameBanner();
+        renderUntimedGamesPanel();
         showToast('Aquesta partida ja no es pot reprendre.', 'warn');
         return;
     }
     if (snap.mode === 'league') {
         // La jornada ha de ser la mateixa que quan es va desar (leagueActiveMatch
         // viatja amb el compte; la instantània, no).
-        const ok = currentLeague && leagueActiveMatch && snap.league
+        const savedMatch = ElTaulerCore.liveGameIsUntimed(snap) && snap.league;
+        if (savedMatch && currentLeague && currentLeague.id === savedMatch.leagueId
+            && !currentLeague.completed && currentLeague.currentRound === savedMatch.round) {
+            const opponentId = savedMatch.opponentId || getMyOpponentForRound(savedMatch.round - 1);
+            const opponent = getLeaguePlayer(opponentId);
+            leagueActiveMatch = Object.assign({
+                opponentId,
+                opponentName: opponent ? opponent.name : 'Rival',
+                opponentRoc: opponent ? opponent.elo : currentElo
+            }, savedMatch);
+            saveStorage();
+        }
+        const ok = currentLeague && !currentLeague.completed && leagueActiveMatch && snap.league
             && currentLeague.id === snap.league.leagueId
+            && currentLeague.currentRound === snap.league.round
             && leagueActiveMatch.leagueId === snap.league.leagueId
             && leagueActiveMatch.round === snap.league.round;
         if (!ok) {
-            clearLiveGame();
+            if (id) { try { removeUntimedGame(id); } catch (e) {} }
+            else clearLiveGame();
             renderLiveGameBanner();
+            renderUntimedGamesPanel();
             showToast('La jornada de lliga d\'aquesta partida ja no és vigent.', 'warn');
             return;
         }
@@ -28316,7 +28424,13 @@ function resumeLiveGame() {
         if (leagueActiveMatch) { leagueActiveMatch = null; saveStorage(); }
         currentGameMode = snap.mode === 'positional' ? 'positional' : 'free';
         currentOpponent = null;
-        if (snap.mode === 'positional') window._startPositionalGame = true;
+        if (snap.mode === 'positional') {
+            window._startPositionalGame = true;
+            if (snap.positional && Number.isInteger(snap.positional.vision)) {
+                positionalVision = Math.max(0, Math.min(POSITIONAL_VISION_LEVELS.length - 1, snap.positional.vision));
+                $('#positional-vision-select').val(String(positionalVision));
+            }
+        }
         // El ritme es reprèn tal com era, i queda triat a les fitxes del rellotge.
         const tcId = TIME_CONTROLS.some(t => t.id === info.timeControlId) ? info.timeControlId : 'none';
         pendingFreeTimeControl = snap.clock ? tcId : 'none';
@@ -28334,6 +28448,7 @@ function restoreLiveGameCounters(snap) {
     totalEngineMoves = Math.max(0, parseInt(c.totalEngineMoves, 10) || 0);
     goodEngineMoves = Math.min(totalEngineMoves, Math.max(0, parseInt(c.goodEngineMoves, 10) || 0));
     currentReview = Array.isArray(snap.review) ? snap.review.filter(r => r && typeof r === 'object') : [];
+    currentGameErrors = Array.isArray(snap.errors) ? snap.errors.filter(e => e && typeof e === 'object') : [];
     if (typeof snap.startedAt === 'number' && !isNaN(snap.startedAt)) currentGameStartTs = snap.startedAt;
     if (snap.pace && typeof snap.pace.humanPaceMs === 'number' && !isNaN(snap.pace.humanPaceMs)) {
         humanPaceMs = snap.pace.humanPaceMs;
@@ -28395,6 +28510,18 @@ function liveGameShowResumed(snap) {
     showToast('Partida represa on l\'havies deixat.', 'success');
 }
 function initLiveGameUi() {
+    migrateUntimedLiveGame();
+    $(document).on('click', '.untimed-card-play', function () {
+        resumeLiveGame($(this).closest('[data-untimed-id]').attr('data-untimed-id'));
+    });
+    $(document).on('click', '.untimed-card-discard', function () {
+        const id = $(this).closest('[data-untimed-id]').attr('data-untimed-id');
+        showAppConfirm('Vols descartar aquesta partida desada?', () => {
+            try { removeUntimedGame(id); }
+            catch (e) { showToast('No s\'ha pogut descartar la partida.', 'warn'); }
+            renderUntimedGamesPanel();
+        }, { title: 'Descartar la partida', confirmText: 'Descarta-la' });
+    });
     $(document).on('click', '#btn-live-game-resume', function () { resumeLiveGame(); });
     $(document).on('click', '#btn-live-game-discard', function () {
         showAppConfirm('Vols descartar la partida a mig fer? No es desarà a l\'historial.', () => {
@@ -28407,7 +28534,11 @@ function initLiveGameUi() {
     const persistNow = () => { try { saveLiveGame(); } catch (e) {} };
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') persistNow(); });
     window.addEventListener('pagehide', persistNow);
+    window.addEventListener('storage', event => {
+        if (event.key === UNTIMED_GAMES_KEY) renderUntimedGamesPanel();
+    });
     renderLiveGameBanner();
+    renderUntimedGamesPanel();
 }
 
 /* ===== Navegació de jugades (fletxes sota el tauler, estil chess.com) =====
@@ -29464,6 +29595,8 @@ function renderAntidoteStats() {
 }
 
 function makeEngineMove(skipAntidote) {
+    // Cap resposta pendent no ha de moure una partida que s'ha deixat pausada.
+    if (!game || game.game_over() || game.turn() === playerColor || !$('#game-screen').hasClass('active')) return;
     // Repte «Rejugar +5%» acabat: el motor ja no respon (la finestra de resultat
     // és oberta i la posició queda tal com estava en assolir el final de la fase).
     if (phaseReplayInputLocked()) return;
@@ -30873,9 +31006,25 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 }
 
 function returnToMainMenuImmediate() {
+    if (canPauseUntimedGame()) {
+        if (!saveLiveGame()) {
+            showToast('No s\'ha pogut desar la partida. Allibera espai al navegador abans de sortir.', 'warn');
+            return false;
+        }
+        liveGameActive = false;
+        liveGameId = null;
+        gameGeneration++;
+        clearEngineMoveTimers();
+        clearPositionalRetryTimer();
+        clearQueuedPremove();
+        isEngineThinking = false;
+        waitingForBlunderAnalysis = false;
+        pendingMoveEvaluation = false;
+        engineReplyStartTs = null;
+    } else {
+        liveGameFinished();
+    }
     stopGameClock();
-    // Sortir de la partida des del botó de casa és abandonar-la: cap instantània per reprendre.
-    liveGameFinished();
     timedGameEnginePending = false;
     pendingEngineFirstMove = false;
     $('#game-screen').removeClass('active').hide(); $('#league-screen').hide(); $('#stats-screen').hide(); $('#settings-screen').hide(); $('#calibration-result-screen').hide(); $('#antidote-summary-modal').hide(); $('#start-screen').show(); navStack = [];

@@ -119,16 +119,30 @@ describe('liveGameResumeInfo', () => {
         expect(info.playerToMove).toBe(false);
     });
 
-    test('no ofereix res sense cap jugada', () => {
-        expect(Core.liveGameResumeInfo(snapshot({ moves: [] }), T0, Chess)).toBeNull();
+    test('es pot pausar una partida sense rellotge abans de la primera jugada', () => {
+        const info = Core.liveGameResumeInfo(snapshot({ moves: [] }), T0, Chess);
+        expect(info.fen).toBe(new Chess().fen());
+        expect(info.playerToMove).toBe(true);
+        expect(Core.liveGameResumeInfo(snapshot({ moves: [], timeControlId: '3+2',
+            clock: { white: 180000, black: 180000 } }), T0, Chess)).toBeNull();
     });
 
-    test('caduca al cap de 7 dies; un rellotge del sistema endarrerit no la mata', () => {
+    test('sense rellotge es pot reprendre al cap de dies o anys', () => {
         expect(Core.liveGameResumeInfo(snapshot(), T0 + 6 * DAY, Chess)).not.toBeNull();
-        expect(Core.liveGameResumeInfo(snapshot(), T0 + 8 * DAY, Chess)).toBeNull();
+        expect(Core.liveGameResumeInfo(snapshot(), T0 + 8 * DAY, Chess)).not.toBeNull();
+        expect(Core.liveGameResumeInfo(snapshot(), T0 + 10 * 365 * DAY, Chess)).not.toBeNull();
         const skewed = Core.liveGameResumeInfo(snapshot(), T0 - 2 * H, Chess);
         expect(skewed).not.toBeNull();
         expect(skewed.ageMs).toBe(0);
+    });
+
+    test('les partides amb rellotge conserven la caducitat de recuperació', () => {
+        const snap = snapshot({ timeControlId: '3+2', clock: { white: 180000, black: 180000 } });
+        expect(Core.liveGameResumeInfo(snap, T0 + 6 * DAY, Chess)).not.toBeNull();
+        expect(Core.liveGameResumeInfo(snap, T0 + 8 * DAY, Chess)).toBeNull();
+        expect(Core.liveGameIsUntimed(snap)).toBe(false);
+        expect(Core.liveGameIsUntimed(snapshot())).toBe(true);
+        expect(Core.liveGameIsUntimed(snapshot({ timeControlId: '24h' }))).toBe(false);
     });
 
     test('una partida ja acabada al tauler no es reprèn', () => {
