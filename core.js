@@ -8148,6 +8148,19 @@
             }
         } catch (e) {}
 
+        // Partides sense rellotge: unió per id i baixes persistents. Una còpia
+        // antiga d'un aparell no pot fer desaparèixer partides ni ressuscitar
+        // les que ja s'han acabat o descartat en un altre.
+        const untimedKey = 'chess_untimedGames';
+        const removedKey = 'chess_untimedGameRemovals';
+        if ([local, cloud].some(data => untimedKey in data || removedKey in data)) {
+            const parse = (value, fallback) => { try { return JSON.parse(value); } catch (e) { return fallback; } };
+            const removed = mergeUntimedGameRemovals(parse(local[removedKey], {}), parse(cloud[removedKey], {}));
+            merged[removedKey] = JSON.stringify(removed);
+            merged[untimedKey] = JSON.stringify(untimedMergeGames(
+                parse(local[untimedKey], []), parse(cloud[untimedKey], []), removed));
+        }
+
         // Ratxa de pràctica
         try {
             const dateL = practiceDateOrNull(local['chess_lastPracticeDate']);
@@ -8239,6 +8252,51 @@
 
     function liveGameIsUntimed(snap) {
         return !!snap && !snap.clock && (!snap.timeControlId || snap.timeControlId === 'none');
+    }
+
+    function untimedGameRevision(snap) {
+        return snap && Number.isSafeInteger(snap.revision) && snap.revision >= 0
+            ? snap.revision : ((snap && Array.isArray(snap.moves)) ? snap.moves.length : 0);
+    }
+
+    function mergeUntimedGameRemovals(a, b) {
+        const removed = new Map();
+        [a, b].forEach(map => {
+            if (!map || typeof map !== 'object' || Array.isArray(map)) return;
+            Object.keys(map).forEach(id => {
+                if (typeof map[id] === 'number' && Number.isFinite(map[id]) && map[id] >= 0) {
+                    removed.set(id, Math.max(removed.get(id) || 0, map[id]));
+                }
+            });
+        });
+        return Object.fromEntries(Array.from(removed.entries()).sort((a, b) => a[0].localeCompare(b[0])));
+    }
+
+    function untimedPickVersion(a, b) {
+        if (!a) return b;
+        if (!b) return a;
+        const revision = untimedGameRevision(a) - untimedGameRevision(b);
+        if (revision) return revision > 0 ? a : b;
+        const moves = a.moves.length - b.moves.length;
+        if (moves) return moves > 0 ? a : b;
+        if (a.savedAt !== b.savedAt) return a.savedAt > b.savedAt ? a : b;
+        // Desempat estable també quan els rellotges dels aparells coincideixen.
+        return JSON.stringify(a) >= JSON.stringify(b) ? a : b;
+    }
+
+    function untimedMergeGames(localGames, cloudGames, removals) {
+        const games = new Map();
+        const removed = mergeUntimedGameRemovals(removals, {});
+        [localGames, cloudGames].forEach(list => {
+            if (!Array.isArray(list)) return;
+            list.forEach(snap => {
+                if (!snap || typeof snap.id !== 'string' || !snap.id
+                    || Object.prototype.hasOwnProperty.call(removed, snap.id)
+                    || !liveGameIsUntimed(snap) || !liveGameSnapshotIsValid(snap)) return;
+                games.set(snap.id, untimedPickVersion(games.get(snap.id), snap));
+            });
+        });
+        return Array.from(games.values()).sort((a, b) => a.id.localeCompare(b.id));
     }
 
     function liveGameSnapshotIsValid(snap) {
@@ -8589,6 +8647,10 @@
         LIVE_GAME_MAX_AGE_MS,
         liveGameSnapshotIsValid,
         liveGameIsUntimed,
+        untimedGameRevision,
+        mergeUntimedGameRemovals,
+        untimedPickVersion,
+        untimedMergeGames,
         liveGameReplay,
         liveGameResumeInfo,
         liveGameAgeLabel,

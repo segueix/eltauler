@@ -6293,14 +6293,7 @@ function saveDailyGames() {
     if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') {
         try { window.CloudSync.onLocalSave(); } catch (e) {}
     }
-    // …i, a més, es puja SENSE esperar el debounce llarg (20-60 s). Una partida
-    // per correspondència es juga des d'on siguis: la jugada que acabes de desar
-    // ha de ser al compte de seguida perquè el mòbil i l'ordinador tinguin
-    // sempre els mateixos moviments. flushSoon coalesca una ràfega en una sola
-    // escriptura, de manera que no costa una pujada per clic.
-    if (window.CloudSync && typeof window.CloudSync.flushSoon === 'function') {
-        try { window.CloudSync.flushSoon(); } catch (e) {}
-    }
+    // La transferència al compte es fa quan l'usuari prem «Sincronitza ara».
 }
 
 function getDailyGame(id) { return dailyGames.find(g => g && g.id === id) || null; }
@@ -8113,7 +8106,19 @@ function updateCloudSyncUI(st) {
             break;
         case 'signedout':
             label = 'Sessió tancada'; color = 'inherit';
-            hint = 'Inicia sessió per activar la sincronització.';
+            hint = 'Inicia sessió i prem «Sincronitza ara» per compartir les dades entre aparells.';
+            break;
+        case 'connected':
+            label = 'Compte connectat'; color = 'inherit'; signedIn = true;
+            hint = 'Prem «Sincronitza ara» per pujar i recuperar les partides. No se sincronitza en obrir l’aplicació.';
+            break;
+        case 'pending':
+            label = 'Canvis pendents'; color = '#b08900'; signedIn = true;
+            hint = 'Les dades estan desades aquí. Prem «Sincronitza ara» en aquest aparell i després a l’altre.';
+            break;
+        case 'waiting':
+            label = 'Sincronització pendent d’aplicar'; color = '#b08900'; signedIn = true;
+            hint = 'Torna a la portada per incorporar les dades sense interrompre la partida.';
             break;
         case 'syncing':
             label = 'Sincronitzant…'; color = '#0a7'; signedIn = true; break;
@@ -8138,10 +8143,16 @@ function updateCloudSyncUI(st) {
         else accountEl.style.display = 'none';
     }
     if (hintEl) hintEl.textContent = hint;
+    const homeStatus = document.getElementById('cloud-sync-home-status');
+    if (homeStatus) {
+        homeStatus.textContent = label + (hint ? ' · ' + hint : '');
+        homeStatus.style.color = color;
+    }
 
     const canSignIn = st.configured && st.state !== 'unavailable';
     show(btnIn, !signedIn && canSignIn);
     show(btnNow, signedIn);
+    if (btnNow) btnNow.disabled = st.state === 'syncing' || st.state === 'waiting';
     updateCloudRecoverButton();
     // El nom d'usuari va enganxat al compte: l'estat de la sessió decideix si es
     // pot editar, així que la casella de Configuració es refresca amb cada canvi.
@@ -8522,17 +8533,21 @@ window.onCloudSignedIn = function (email) {
     } catch (e) {}
 };
 
-// Botó d'emergència a la pantalla inicial: permet iniciar sessió i recuperar
-// les dades del núvol ABANS de fer el calibratge (quan la resta d'opcions de
-// configuració poden estar bloquejades). Només es mostra si el sync està
-// configurat i encara no hi ha sessió iniciada.
+// Sincronització manual a la portada, també abans de fer el calibratge en un
+// aparell nou. Iniciar sessió no fa cap pujada ni baixada automàtica.
 function updateCloudRecoverButton() {
     const btn = document.getElementById('btn-cloud-recover');
     if (!btn) return;
     const available = !!(window.CloudSync &&
         typeof window.CloudSync.isConfigured === 'function' && window.CloudSync.isConfigured());
     const signedIn = available && typeof window.CloudSync.isSignedIn === 'function' && window.CloudSync.isSignedIn();
-    btn.style.display = (available && !signedIn) ? '' : 'none';
+    const st = available && window.CloudSync.getStatus ? window.CloudSync.getStatus() : {};
+    const busy = st.state === 'syncing' || st.state === 'waiting';
+    btn.style.display = available ? 'inline-flex' : 'none';
+    btn.disabled = busy;
+    btn.innerHTML = '<svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>'
+        + (busy ? 'Sincronitzant…' : (signedIn ? 'Sincronitza ara' : 'Inicia sessió per sincronitzar'));
+    btn.title = 'Prem-lo en cada aparell per compartir i recuperar les partides';
 }
 
 function updateOpenAISettingsUI() {
@@ -23622,9 +23637,9 @@ function setupEvents() {
     $('#btn-cloud-sync-now').off('click').on('click', () => {
         if (window.CloudSync) window.CloudSync.syncNow();
     });
-    // Botó d'emergència de la pantalla inicial (recupera dades abans del calibratge).
+    // Sincronització manual des de la portada, també abans del calibratge.
     $('#btn-cloud-recover').off('click').on('click', () => {
-        if (window.CloudSync && window.CloudSync.isConfigured()) window.CloudSync.signIn();
+        if (window.CloudSync && window.CloudSync.isConfigured()) window.CloudSync.syncNow();
     });
     updateCloudSyncUI();
     updateCloudRecoverButton();
@@ -28186,16 +28201,17 @@ function refreshDeviceSettingsUi() {
 // - Només les PARTIDES (lliure, calibratge, Joc vista, lliga). Els exercicis són
 //   curts i no cal; el Rival Antídot, el bessó, el tauler d'anàlisi i el repte
 //   de fase tenen estat propi que no es pot reconstruir i no es desen.
-// - La clau és LOCAL del dispositiu (prefix eltauler_cloud_, exclòs de la
-//   sincronització): el motor és local i una partida en viu no es pot compartir
-//   entre aparells.
+// - La recuperació amb rellotge és local. Les partides sense rellotge viatgen
+//   amb el compte quan es prem «Sincronitza ara», incloses les baixes.
 // - Sense rellotge, cada partida té un id i es conserva en una col·lecció
 //   local sense caducitat. Sortir amb el botó de casa la pausa i es pot
 //   continuar des de la graella, encara que s'hagin jugat altres partides.
 // - Amb rellotge, els rellotges continuen on eren en desar: el temps que la
 //   pestanya ha estat morta no es cobra a ningú.
 const LIVE_GAME_KEY = 'eltauler_cloud_liveGame';
-const UNTIMED_GAMES_KEY = 'eltauler_cloud_untimedGames';
+const UNTIMED_GAMES_KEY = 'chess_untimedGames';
+const UNTIMED_REMOVALS_KEY = 'chess_untimedGameRemovals';
+const LEGACY_UNTIMED_GAMES_KEY = 'eltauler_cloud_untimedGames';
 let liveGameResumePending = null;   // instantània que startGame ha de reprendre
 let liveGameActive = false;         // la partida en curs es va desant?
 let liveGameId = null;
@@ -28203,22 +28219,58 @@ let liveGameId = null;
 function loadUntimedGames() {
     try {
         const parsed = JSON.parse(localStorage.getItem(UNTIMED_GAMES_KEY) || '[]');
-        return Array.isArray(parsed) ? parsed.filter(snap => snap && typeof snap.id === 'string'
-            && ElTaulerCore.liveGameIsUntimed(snap) && ElTaulerCore.liveGameSnapshotIsValid(snap)) : [];
+        return ElTaulerCore.untimedMergeGames(parsed, [], loadUntimedRemovals());
     } catch (e) { return []; }
 }
 
+function loadUntimedRemovals() {
+    try { return ElTaulerCore.mergeUntimedGameRemovals(JSON.parse(localStorage.getItem(UNTIMED_REMOVALS_KEY) || '{}'), {}); }
+    catch (e) { return {}; }
+}
+
+function noteUntimedLocalChange() {
+    if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave();
+}
+
 function saveUntimedSnapshot(snap) {
-    const games = loadUntimedGames().filter(entry => entry.id !== snap.id);
+    if (Object.prototype.hasOwnProperty.call(loadUntimedRemovals(), snap.id)) {
+        throw new Error('Aquesta partida ja s’ha acabat o descartat.');
+    }
+    const previous = loadUntimedGames();
+    const old = previous.find(entry => entry.id === snap.id);
+    // Només canviar de posició incrementa la revisió. Obrir una còpia antiga
+    // o tornar-la a desar no la fa més nova que les jugades de l'altre aparell.
+    snap.revision = old ? ElTaulerCore.untimedGameRevision(old)
+        + (JSON.stringify(old.moves) === JSON.stringify(snap.moves) ? 0 : 1)
+        : ElTaulerCore.untimedGameRevision(snap);
+    const games = previous.filter(entry => entry.id !== snap.id);
     games.push(snap);
     // Si no hi ha espai, el caller ho gestiona; mai es descarten partides
     // antigues per fer lloc a la nova.
     localStorage.setItem(UNTIMED_GAMES_KEY, JSON.stringify(games));
+    noteUntimedLocalChange();
 }
 
 function removeUntimedGame(id) {
-    if (!id) return;
-    localStorage.setItem(UNTIMED_GAMES_KEY, JSON.stringify(loadUntimedGames().filter(snap => snap.id !== id)));
+    const games = loadUntimedGames();
+    if (!id || !games.some(snap => snap.id === id)) return;
+    const removed = Object.assign({}, loadUntimedRemovals(), { [id]: Date.now() });
+    // La baixa es desa primer: encara que s'interrompi l'escriptura següent,
+    // cap còpia antiga no podrà tornar a mostrar aquesta partida.
+    localStorage.setItem(UNTIMED_REMOVALS_KEY, JSON.stringify(removed));
+    localStorage.setItem(UNTIMED_GAMES_KEY, JSON.stringify(games.filter(snap => snap.id !== id)));
+    noteUntimedLocalChange();
+}
+
+function migrateUntimedCollection() {
+    const raw = localStorage.getItem(LEGACY_UNTIMED_GAMES_KEY);
+    if (!raw) return;
+    try {
+        const merged = ElTaulerCore.untimedMergeGames(loadUntimedGames(), JSON.parse(raw), loadUntimedRemovals());
+        localStorage.setItem(UNTIMED_GAMES_KEY, JSON.stringify(merged));
+        localStorage.removeItem(LEGACY_UNTIMED_GAMES_KEY);
+        noteUntimedLocalChange();
+    } catch (e) { /* Si falla el desat, conservem intacta la còpia local antiga. */ }
 }
 
 function migrateUntimedLiveGame() {
@@ -28226,6 +28278,7 @@ function migrateUntimedLiveGame() {
     if (!ElTaulerCore.liveGameIsUntimed(snap) || !ElTaulerCore.liveGameResumeInfo(snap, Date.now(), Chess)) return;
     // Id estable perquè la migració sigui idempotent, fins i tot si s'interromp.
     snap.id = snap.id || 'untimed_legacy_' + (snap.startedAt || snap.savedAt);
+    if (Object.prototype.hasOwnProperty.call(loadUntimedRemovals(), snap.id)) { clearLiveGame(); return; }
     const existing = loadUntimedGames().find(entry => entry.id === snap.id);
     try {
         if (!existing || existing.savedAt < snap.savedAt) saveUntimedSnapshot(snap);
@@ -28510,6 +28563,7 @@ function liveGameShowResumed(snap) {
     showToast('Partida represa on l\'havies deixat.', 'success');
 }
 function initLiveGameUi() {
+    migrateUntimedCollection();
     migrateUntimedLiveGame();
     $(document).on('click', '.untimed-card-play', function () {
         resumeLiveGame($(this).closest('[data-untimed-id]').attr('data-untimed-id'));
@@ -28535,11 +28589,21 @@ function initLiveGameUi() {
     document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') persistNow(); });
     window.addEventListener('pagehide', persistNow);
     window.addEventListener('storage', event => {
-        if (event.key === UNTIMED_GAMES_KEY) renderUntimedGamesPanel();
+        if (event.key === UNTIMED_GAMES_KEY || event.key === UNTIMED_REMOVALS_KEY) renderUntimedGamesPanel();
     });
     renderLiveGameBanner();
     renderUntimedGamesPanel();
 }
+
+// El clic manual inclou també les partides de versions antigues que encara
+// no s'hagin migrat (p. ex. una altra pestanya antiga oberta al mateix equip).
+window.prepareCloudSync = function () {
+    migrateUntimedCollection();
+    migrateUntimedLiveGame();
+    if (localStorage.getItem(LEGACY_UNTIMED_GAMES_KEY)) {
+        throw new Error('No s’han pogut preparar totes les partides per sincronitzar. Allibera espai en aquest navegador i torna-ho a provar.');
+    }
+};
 
 /* ===== Navegació de jugades (fletxes sota el tauler, estil chess.com) =====
    Permet repassar les posicions anteriors de la partida sense tocar l'estat

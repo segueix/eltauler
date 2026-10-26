@@ -5815,7 +5815,8 @@
             </div>
 
             <div class="sync-container">
-                <button class="btn btn-share" id="btn-cloud-recover" style="display:none;background:linear-gradient(135deg,#3a6ea5 0%,#2a4d73 100%);color:#eaf2fb;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-cloud"/></svg>Recupera dades del núvol</button>
+                <button class="btn btn-share" id="btn-cloud-recover" style="display:none;background:linear-gradient(135deg,#3a6ea5 0%,#2a4d73 100%);color:#eaf2fb;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>Sincronitza ara</button>
+                <div class="setting-help" id="cloud-sync-home-status" role="status" aria-live="polite" style="width:100%;"></div>
             </div>
             <div class="app-version-tag" id="app-version-tag"></div>
         </div>
@@ -5928,6 +5929,7 @@
                     <button class="btn btn-secondary" id="btn-cloud-sync-now" style="flex:1;min-width:120px;display:none;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-sync"/></svg>Sincronitza ara</button>
                 </div>
                 <div class="setting-help" id="cloud-sync-hint" style="margin-top:10px;"></div>
+                <div class="setting-help">Per canviar d’aparell, prem «Sincronitza ara» abans de marxar i després a l’altre aparell. Inclou les partides sense rellotge. La sincronització és manual.</div>
             </div>
 
             <div class="settings-panel">
@@ -8096,24 +8098,24 @@
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.12.5/firebase-firestore-compat.js"></script>
-    <script src="cloudsync.js?v=1.0.6"></script>
+    <script src="cloudsync.js?v=1.0.7"></script>
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.32"></script>
+    <script src="core.js?v=1.0.33"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
     <script>
-        window.APP_VERSION = '1.0.33';
+        window.APP_VERSION = '1.0.34';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.98"></script>
+    <script src="app.js?v=1.0.99"></script>
 
     <!-- Service Worker Registration -->
     <script>

@@ -140,13 +140,19 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
 
 ## Com s'utilitza
 
-1. Obre l'app → **Configuració → ☁️ Sincronització al núvol**.
-2. Clica **«Inicia sessió amb Google»**.
-3. La primera vegada en un dispositiu que ja té dades, l'app et preguntarà si vols
-   conservar les dades **del núvol** o **d'aquest dispositiu**.
-4. A partir d'aquí tot se sincronitza automàticament: cada cop que jugues o
-   resols un error, es puja al núvol; i si jugues en un altre dispositiu amb el
-   mateix compte, les dades es baixen soles.
+1. Inicia sessió amb el **mateix compte de Google** als dos aparells.
+2. Abans de canviar d'aparell, torna a la portada i prem **«Sincronitza ara»**.
+   El botó també és a **Configuració → ☁️ Sincronització al núvol**.
+3. A l'altre aparell, prem també **«Sincronitza ara»**. El botó llegeix el núvol,
+   combina les dades dels dos aparells i confirma que s'han desat.
+4. Les partides sense rellotge apareixen a la seva graella de la portada. Prem
+   **«Continua»** per reprendre-les sense límit de temps. Les partides acabades
+   o descartades desapareixen dels altres aparells quan se sincronitzen.
+
+**La sincronització és manual.** Obrir l'app, tornar-hi, desar una jugada o
+tancar-la no inicia cap sincronització de les dades personals. Sense connexió,
+les partides continuen desades al navegador; torna a prémer el botó quan tinguis
+xarxa. Un error no es mostra mai com una sincronització completada.
 
 ---
 
@@ -154,30 +160,35 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
 
 - **Estratègia:** instantània completa (snapshot) de tot el `localStorage` amb
   prefix `chess_` i `eltauler_`. No s'enumera clau a clau, així que qualsevol
-  dada nova del joc se sincronitza automàticament sense tocar codi.
-- **Conflictes:** «última escriptura guanya» per marca de temps. En temps real,
-  si un altre dispositiu puja una versió més nova, s'aplica automàticament (mai
-  enmig d'una partida; espera que acabis).
+  dada nova del joc s'inclou en la sincronització manual sense tocar codi.
+- **Conflictes:** cada clic fa una transacció contra el servidor; si un altre
+  aparell escriu alhora, Firestore la reintenta amb les dades actualitzades.
+  Un resum local per clau identifica què ha canviat des de l'últim sync: les
+  claus intactes aquí adopten el valor del núvol. Si es canvia una mateixa
+  preferència als dos aparells, preval la de l'últim que sincronitza.
+- **Partides sense rellotge:** unió per identificador estable, amb revisió de
+  la posició, jugades i data com a desempat. Desar una còpia antiga sense moure
+  no n'incrementa la revisió. Les baixes es conserven perquè un aparell antic no
+  faci reaparèixer una partida acabada o descartada. Les dades de versions
+  anteriors es migren de `eltauler_cloud_untimedGames` a `chess_untimedGames`.
 - **Barrera de conciliació:** amb la sessió iniciada, cap pujada ni cap fet
   irreversible guiat pel rellotge (derrota per temps d'una partida diària,
   ratxa a zero) no es resol fins que la sessió ha contrastat l'estat amb el
-  SERVIDOR (no val la memòria cau). Així un aparell obert al cap de dies, amb
+  SERVIDOR amb el botó manual (no val la memòria cau). Així un aparell obert al cap de dies, amb
   dades endarrerides, no pot «fabricar» derrotes per temps ni escombrar la
   ratxa i pujar-ho per sobre de l'estat bo d'un altre aparell. En conciliar,
   el que hagi vençut de debò es resol llavors, amb la marca de temps oficial.
-- **Fusió de l'estat viu:** en aplicar una instantània del núvol (i abans de
-  pujar la local quan guanya), les partides diàries es fusionen partida a
+- **Fusió de l'estat viu:** abans de confirmar la transacció manual, les
+  partides diàries es fusionen partida a
   partida (guanya la versió amb més jugades) i la ratxa viatja com un parell
   {ratxa, última data de pràctica} (guanya la data més recent). La fusió és
   convergent: tots els aparells acaben amb el mateix resultat
   (`mergeSyncSnapshots` a `core.js`, provada a `tests/cloudmerge.test.js`).
-- **Quan es puja:** per estalviar quota, els desats menors s'agrupen (debounce) i
-  es pugen en amagar/tancar l'app; els esdeveniments valuosos (final de partida,
-  error nou, exercici resolt) es pugen de seguida. En tornar a un dispositiu es
-  baixa l'última versió del servidor abans de continuar. Tot i així, **jugar alhora
-  en dos dispositius** sense deixar-los sincronitzar pot sobreescriure dades: deixa
-  que aparegui «Sincronitzat ✓» (o prem «Sincronitza ara») abans de canviar de
-  dispositiu. Vegeu [`OPTIMITZACIO_FIREBASE.md`](OPTIMITZACIO_FIREBASE.md).
+- **Quan es puja:** només en prémer «Sincronitza ara». No hi ha subscripció en
+  temps real ni pujades en obrir, enfocar o tancar l'app. Si s'obre una partida
+  mentre s'espera la resposta, el resultat s'aplica en tornar a la portada i
+  conserva qualsevol canvi local fet durant l'espera. Aquests nous canvis
+  queden pendents del següent clic. Vegeu [`OPTIMITZACIO_FIREBASE.md`](OPTIMITZACIO_FIREBASE.md).
 - **Privadesa:** les dades viuen al teu Firestore privat, accessible només amb el
   teu compte. La clau API d'OpenAI **no** es sincronitza per seguretat (pots
   canviar-ho amb `SYNC_OPENAI_KEY = true` a `cloudsync.js`).
@@ -185,7 +196,8 @@ projecte Firebase gratuït i enganxar-ne la configuració. Triga uns 5 minuts.
   tampoc **no** se sincronitza: cada aparell conserva la seva opció, perquè al
   mòbil sol anar millor «Tocar» i a l'ordinador «Arrossegar» (vegeu
   `EXCLUDE_KEYS` a `cloudsync.js`).
-- **Offline:** si no hi ha connexió, l'app funciona igual; els canvis es pugen
-  quan torna la xarxa (Firestore manté una cua local).
+- **Offline:** si no hi ha connexió, l'app funciona amb el desat local. Les
+  transaccions no deixen escriptures en cua per enviar-les en tornar a obrir;
+  l'usuari ha de tornar a prémer «Sincronitza ara».
 - **Límit:** un document de Firestore admet fins a 1 MB. L'historial de partides
   hauria de quedar molt per sota d'aquest límit en ús normal.

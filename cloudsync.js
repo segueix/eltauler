@@ -10,9 +10,10 @@
  * sincronitzar), agafem TOTES les claus amb prefix `chess_` i `eltauler_`.
  * Així mai no oblidem cap dada nova que s'afegeixi al joc en el futur.
  *
- * Resolució de conflictes: "última escriptura guanya" per marca de temps.
- * La primera vegada que un dispositiu ja amb dades es connecta i troba dades al
- * núvol, es pregunta a l'usuari quines vol conservar (per evitar pèrdues).
+ * Sincronització MANUAL: només «Sincronitza ara» llegeix i escriu les dades.
+ * Una transacció llegeix el servidor, fusiona el progrés i confirma la pujada
+ * abans de mostrar l'èxit. Obrir l'app, recuperar el focus o desar una jugada
+ * no inicia cap transferència. Les partides sense rellotge es fusionen per id.
  * ============================================================================
  */
 (function () {
@@ -48,20 +49,7 @@
   // ---------------------------------------------------------------------------
   const SYNC_PREFIXES = ['chess_', 'eltauler_'];
   const FIRESTORE_COLLECTION = 'eltauler_users';
-  // Debounce llarg: agrupa molts desats petits d'una sessió en poques pujades.
-  // El sostre garanteix que, encara que hi hagi desats continus (el debounce sol
-  // es reiniciaria indefinidament), es puja de tant en tant. A més es fa un
-  // «flush» en amagar/tancar la pestanya (vegeu init()). Amb el guard per hash,
-  // les pujades sense canvis reals no gasten cap escriptura.
-  const PUSH_DEBOUNCE_MS = 20000;
-  const PUSH_MAX_WAIT_MS = 60000;
-  // Pujada IMMINENT per a esdeveniments valuosos (final de partida, error resolt):
-  // no s'espera el debounce llarg, però es coalesca una ràfega en una sola pujada.
-  // Així la finestra de dades sense sincronitzar entre dispositius es manté petita.
-  const FLUSH_SOON_MS = 3000;
-  // Baixada en recuperar el focus: com a molt un cop cada X ms (evita gastar
-  // lectures en cada canvi de pestanya).
-  const FOCUS_PULL_THROTTLE_MS = 30000;
+  const SYNC_TIMEOUT_MS = 20000;
 
   // Claus locals (mai no es sincronitzen): metadades del propi sync.
   const LOCAL_META_PREFIX = 'eltauler_cloud_';
@@ -69,6 +57,7 @@
   const LAST_CHANGE_KEY = LOCAL_META_PREFIX + 'lastChangeAt';
   const LAST_SYNCED_KEY = LOCAL_META_PREFIX + 'lastSyncedAt';
   const REDIRECT_FLAG_KEY = LOCAL_META_PREFIX + 'redirectPending';
+  const BASELINE_KEY = LOCAL_META_PREFIX + 'syncBaseline';
 
   // Claus concretes que mai no volem pujar al núvol.
   const EXCLUDE_KEYS = new Set();
@@ -91,27 +80,12 @@
   let auth = null;
   let db = null;
   let currentUser = null;
-  let docUnsub = null;
-  let pushTimer = null;
-  let pushMaxTimer = null;           // garanteix una pujada com a molt cada PUSH_MAX_WAIT_MS
-  let pushSoonTimer = null;          // pujada imminent d'un esdeveniment valuós
-  let pushInFlight = false;
-  let lastPushedHash = null;         // hash de l'última instantània pujada (evita pujades redundants)
-  let lastFocusPullAt = 0;           // última baixada en recuperar el focus (throttle)
-  let pendingCloudData = null;       // dades del núvol esperant a aplicar-se
+  let reconciled = false;
+  let manualSyncPromise = null;
+  let syncEpoch = 0;
+  let pendingResult = null;
   let deferApplyTimer = null;
-  // Conciliació amb el SERVIDOR: fins que aquesta sessió no ha contrastat
-  // l'estat amb Firestore (no val la memòria cau), no es puja cap instantània
-  // ni l'app pot convertir venciments «per temps» en fets. Un aparell obert al
-  // cap de dies porta dades endarrerides: si abans de conciliar declarés
-  // derrotes per temps o ratxa zero i ho pugés, trepitjaria l'estat bo que un
-  // altre aparell ha deixat al núvol fa poques hores.
-  let reconciled = false;            // aquesta sessió ja ha contrastat amb el servidor
-  let pushAfterReconcile = false;    // pujades retingudes mentre es conciliava
-  let syncWatchdog = null;           // detecta sincronitzacions inicials encallades
-  const SYNC_WATCHDOG_MS = 15000;
-  let pushWatchdog = null;           // detecta pujades encallades (ref.set() que no resol)
-  const PUSH_WATCHDOG_MS = 15000;
+  let lastObservedHash = null;
   let status = { state: 'init', email: null, lastSyncedAt: 0, error: null };
 
   // ---------------------------------------------------------------------------
@@ -166,8 +140,8 @@
     return data;
   }
 
-  // Hash barat i estable d'una instantània (ordena les claus). Serveix per no
-  // tornar a pujar dades idèntiques a l'última pujada (estalvi d'escriptures).
+  // Hash barat i estable d'una instantània (ordena les claus). Distingeix els
+  // canvis locals pendents de l'estat que ja s'ha compartit amb el servidor.
   function snapshotHash(data) {
     const keys = Object.keys(data).sort();
     let h = 5381;
@@ -178,60 +152,71 @@
     return String(h >>> 0);
   }
 
-  // ¿El dispositiu té dades de joc reals (no només configuració buida)?
-  function hasMeaningfulLocalData() {
-    const elo = localStorage.getItem('chess_userELO');
-    const games = localStorage.getItem('chess_gameHistory');
-    const imported = localStorage.getItem('chess_importedGameHistory');
-    const errors = localStorage.getItem('chess_savedErrors');
-    if (elo && parseInt(elo, 10) > 50) return true;
-    try { if (games && JSON.parse(games).length > 0) return true; } catch (e) {}
-    try { if (imported && JSON.parse(imported).length > 0) return true; } catch (e) {}
-    try { if (errors && JSON.parse(errors).length > 0) return true; } catch (e) {}
-    if (localStorage.getItem('chess_totalGamesPlayed') &&
-        parseInt(localStorage.getItem('chess_totalGamesPlayed'), 10) > 0) return true;
-    return false;
+  // Un resum per clau de l'últim estat compartit permet distingir els canvis
+  // locals reals de les dades velles d'un aparell que feia dies que no s'obria.
+  function keyHashes(data) {
+    const hashes = {};
+    Object.keys(data).sort().forEach(function (k) { hashes[k] = snapshotHash({ value: data[k] }); });
+    return hashes;
   }
 
-  // Aplica una instantània del núvol al localStorage local (mirall complet,
-  // amb una FUSIÓ prèvia per a les claus amb estat viu). Retorna true si la
-  // fusió ha conservat estat local més avançat que el del núvol (i per tant
-  // cal re-pujar el resultat perquè la resta d'aparells el rebin).
-  function applySnapshot(data) {
-    if (!data || typeof data !== 'object') return false;
-    // 0. Fusió (core.js): el mirall cec faria retrocedir partides diàries o la
-    //    ratxa quan aquest aparell en té una versió més avançada —l'única
-    //    direcció en què el mirall destrueix—. La fusió és convergent: tots
-    //    els aparells acaben amb el mateix resultat.
-    let effective = data;
-    let mergedChanged = false;
+  function readBaseline() {
     try {
-      const core = window.ElTaulerCore;
-      if (core && typeof core.mergeSyncSnapshots === 'function') {
-        const merged = core.mergeSyncSnapshots(collectSnapshot(), data);
-        if (merged && typeof merged === 'object') {
-          mergedChanged = snapshotHash(merged) !== snapshotHash(data);
-          effective = merged;
-        }
-      }
-    } catch (e) {
-      effective = data;
-      mergedChanged = false;
+      const saved = JSON.parse(localStorage.getItem(BASELINE_KEY) || 'null');
+      return saved && currentUser && saved.uid === currentUser.uid ? saved.hashes : null;
+    } catch (e) { return null; }
+  }
+
+  function mergeForManualSync(local, cloudDoc) {
+    const cloud = cloudDoc && cloudDoc.data && typeof cloudDoc.data === 'object' ? cloudDoc.data : {};
+    const baseline = readBaseline();
+    let preferred = Object.assign({}, cloud);
+    if (!cloudDoc) {
+      preferred = Object.assign({}, local);
+    } else if (baseline) {
+      const hashes = keyHashes(local);
+      new Set(Object.keys(baseline).concat(Object.keys(local))).forEach(function (k) {
+        if (hashes[k] === baseline[k]) return; // intacte aquí: preval el servidor
+        if (Object.prototype.hasOwnProperty.call(local, k)) preferred[k] = local[k];
+        else delete preferred[k];
+      });
+    } else if ((getLocalChangeAt() || 0) > (cloudDoc.updatedAt || 0)) {
+      // Migració d'aparells sense resum de l'últim sync: manté la preferència
+      // temporal anterior, però no elimina claus que encara no coneixien.
+      preferred = Object.assign(preferred, local);
     }
-    // 1. Esborra les claus sincronitzables locals que ja no existeixen al núvol
-    //    (així es propaguen també les eliminacions, p. ex. esborrar un error).
-    const toRemove = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (isSyncableKey(k) && !(k in effective)) toRemove.push(k);
-    }
-    toRemove.forEach(function (k) { try { localStorage.removeItem(k); } catch (e) {} });
-    // 2. Escriu totes les claus del núvol.
-    Object.keys(effective).forEach(function (k) {
-      if (!isSyncableKey(k)) return;
-      try { localStorage.setItem(k, effective[k]); } catch (e) {}
+    const core = window.ElTaulerCore;
+    if (!core || typeof core.mergeSyncSnapshots !== 'function') throw new Error('Recarrega la pàgina abans de sincronitzar.');
+    return core.mergeSyncSnapshots(local, core.mergeSyncSnapshots(cloud, preferred));
+  }
+
+  // Conserva també qualsevol canvi fet DURANT la petició (p. ex. una partida
+  // nova). Queda pendent per al següent clic, mai desapareix en aplicar el resultat.
+  function includeChangesDuringSync(before, latest, shared) {
+    const next = Object.assign({}, shared);
+    new Set(Object.keys(before).concat(Object.keys(latest))).forEach(function (k) {
+      if (before[k] === latest[k]) return;
+      if (Object.prototype.hasOwnProperty.call(latest, k)) next[k] = latest[k];
+      else delete next[k];
     });
-    return mergedChanged;
+    return window.ElTaulerCore.mergeSyncSnapshots(latest,
+      window.ElTaulerCore.mergeSyncSnapshots(shared, next));
+  }
+
+  function applySnapshot(data) {
+    const before = collectSnapshot();
+    try {
+      Object.keys(data).forEach(function (k) { if (isSyncableKey(k)) localStorage.setItem(k, data[k]); });
+      Object.keys(before).forEach(function (k) { if (!(k in data)) localStorage.removeItem(k); });
+    } catch (e) {
+      // Si el navegador rebutja el desat, restaura la còpia local i no anuncia
+      // una sincronització completada a mitges.
+      Object.keys(data).forEach(function (k) {
+        if (isSyncableKey(k) && !(k in before)) { try { localStorage.removeItem(k); } catch (ignore) {} }
+      });
+      Object.keys(before).forEach(function (k) { try { localStorage.setItem(k, before[k]); } catch (ignore) {} });
+      throw new Error('No s’han pogut desar les dades en aquest navegador. Allibera espai i torna a sincronitzar.');
+    }
   }
 
   // Demana a l'app que recarregui el seu estat des del localStorage i refresqui
@@ -260,19 +245,14 @@
   }
 
   // La sessió ja ha contrastat l'estat amb el servidor (i, si el núvol era més
-  // nou, l'ha incorporat). A partir d'aquí les pujades tornen a estar permeses
-  // i l'app pot resoldre venciments per temps amb dades al dia.
+  // nou, l'ha incorporat). L'app pot resoldre venciments per temps amb dades
+  // al dia; aquests nous canvis queden pendents del següent clic manual.
   function setReconciled() {
     if (reconciled) return;
     reconciled = true;
-    // Primer l'app: pot convertir venciments reals en fets (i desar-los), de
-    // manera que la pujada retinguda de sota ja s'endugui l'estat definitiu.
+    // L'app pot convertir venciments reals en fets i desar-los localment.
     if (typeof window.onCloudSyncSettled === 'function') {
       try { window.onCloudSyncSettled(); } catch (e) {}
-    }
-    if (pushAfterReconcile) {
-      pushAfterReconcile = false;
-      pushSnapshot();
     }
   }
 
@@ -289,391 +269,83 @@
   }
 
   // ---------------------------------------------------------------------------
-  //  Firestore: push i pull
+  //  Firestore: sincronització explícita i bidireccional
   // ---------------------------------------------------------------------------
   function docRef() {
     if (!db || !currentUser) return null;
     return db.collection(FIRESTORE_COLLECTION).doc(currentUser.uid);
   }
 
-  function pushSnapshot(force) {
-    const ref = docRef();
-    if (!ref) return Promise.resolve();
-    if (!reconciled) {
-      // Encara no hem contrastat l'estat amb el servidor: retén la pujada.
-      // Pujar ara podria substituir dades bones del núvol per dades locals
-      // endarrerides (p. ex. d'un aparell dies sense obrir). En conciliar,
-      // setReconciled() la deixa anar.
-      pushAfterReconcile = true;
-      return Promise.resolve();
-    }
-    if (pendingCloudData) {
-      // Hi ha dades MÉS NOVES del núvol esperant que sigui segur aplicar-les:
-      // no les trepitgem amb l'estat local vell; en aplicar-se ja es pujarà
-      // el que calgui (fusió inclosa).
-      return Promise.resolve();
-    }
-    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
-    const data = collectSnapshot();
-    const hash = snapshotHash(data);
-    if (!force && hash === lastPushedHash) {
-      // Res nou des de l'última pujada: no gastis una escriptura.
-      setStatus({ state: 'synced', error: null });
-      return Promise.resolve();
-    }
-    const ts = Date.now();
-    const payload = {
-      data: data,
-      updatedAt: ts,
-      deviceId: getDeviceId(),
-      app: 'eltauler'
-    };
-    pushInFlight = true;
-    setStatus({ state: 'syncing' });
-    // Watchdog: amb persistència offline, ref.set() només resol quan el servidor
-    // confirma l'escriptura. Si la xarxa està bloquejada (algunes xarxes/extensions
-    // bloquegen Firestore), la promesa queda pendent indefinidament i la UI es
-    // quedaria eternament en "Sincronitzant…". No avortem l'escriptura (queda en
-    // cua i es reintenta sola), però treiem la UI d'aquest estat encallat.
-    clearPushWatchdog();
-    pushWatchdog = setTimeout(function () {
-      pushWatchdog = null;
-      if (status.state === 'syncing') {
-        console.warn('[CloudSync] pujada encallada (>' + PUSH_WATCHDOG_MS + ' ms); l\'escriptura queda en cua i es reintenta sola.');
-        setStatus({
-          state: 'error',
-          error: 'La pujada al núvol triga més del compte (xarxa lenta o Firestore ' +
-                 'bloquejat en aquesta xarxa/navegador). Les dades queden desades al ' +
-                 'dispositiu i es tornaran a sincronitzar soles quan es recuperi la connexió.'
-        });
-      }
-    }, PUSH_WATCHDOG_MS);
-    return ref.set(payload).then(function () {
-      clearPushWatchdog();
-      lastPushedHash = hash;
-      setLocalChangeAt(ts);
-      setLastSyncedAt(ts);
-      pushInFlight = false;
-      setStatus({ state: 'synced', error: null });
-    }).catch(function (e) {
-      clearPushWatchdog();
-      pushInFlight = false;
-      console.warn('[CloudSync] push error', e);
-      setStatus({ state: 'error', error: e && e.message ? e.message : 'Error de pujada' });
-    });
+  function cancelPendingApply() {
+    if (deferApplyTimer) clearInterval(deferApplyTimer);
+    deferApplyTimer = null;
+    pendingResult = null;
   }
-  function clearPushWatchdog() { if (pushWatchdog) { clearTimeout(pushWatchdog); pushWatchdog = null; } }
 
-  function schedulePush() {
-    if (!currentUser) return;
+  function noteLocalChange() {
+    const hash = snapshotHash(collectSnapshot());
+    if (hash === lastObservedHash) return;
+    lastObservedHash = hash;
     setLocalChangeAt(Date.now());
-    if (pushTimer) clearTimeout(pushTimer);
-    pushTimer = setTimeout(function () {
-      pushTimer = null;
-      pushSnapshot();
-    }, PUSH_DEBOUNCE_MS);
-    // Sostre: encara que hi hagi desats continus (el debounce es reiniciaria sol),
-    // puja com a molt cada PUSH_MAX_WAIT_MS.
-    if (!pushMaxTimer) {
-      pushMaxTimer = setTimeout(function () {
-        pushMaxTimer = null;
-        if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-        pushSnapshot();
-      }, PUSH_MAX_WAIT_MS);
-    }
+    if (currentUser && !manualSyncPromise && !pendingResult) setStatus({ state: 'pending', error: null });
   }
 
-  // Cancel·la tots els temporitzadors de pujada pendents.
-  function clearPushTimers() {
-    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }
-    if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
-    if (pushSoonTimer) { clearTimeout(pushSoonTimer); pushSoonTimer = null; }
-  }
-
-  // Puja de seguida el que estigui pendent (en amagar o tancar la pestanya): així
-  // no cal escriure durant el joc a cada moviment; una sessió es resol en poques
-  // pujades. Amb el guard per hash, si no hi ha canvis reals no escriu res.
-  function flushPendingPush() {
-    if (!currentUser) return;
-    clearPushTimers();
-    pushSnapshot();
-  }
-
-  // Pujada IMMINENT per a esdeveniments valuosos (final de partida, error resolt).
-  // No espera el debounce llarg, però coalesca una ràfega d'esdeveniments en una
-  // sola pujada. Manté petita la finestra de dades sense sincronitzar entre
-  // dispositius, sense renunciar a l'estalvi d'escriptures dels desats menors.
-  function flushSoon() {
-    if (!currentUser) return;
-    setLocalChangeAt(Date.now());
-    if (pushSoonTimer) return;   // ja n'hi ha una de programada imminent
-    if (pushTimer) { clearTimeout(pushTimer); pushTimer = null; }   // el push imminent mana
-    pushSoonTimer = setTimeout(function () {
-      pushSoonTimer = null;
-      if (pushMaxTimer) { clearTimeout(pushMaxTimer); pushMaxTimer = null; }
-      pushSnapshot();
-    }, FLUSH_SOON_MS);
-  }
-
-  // Baixada en recuperar el focus (a més del listener en temps real): en tornar a
-  // un dispositiu, garanteix que tens l'última versió abans de continuar jugant.
-  // Llegeix del SERVIDOR (no de la memòria cau) i es limita per no gastar lectures
-  // en cada canvi de pestanya.
-  function pullOnFocus() {
-    if (!currentUser) return;
-    const now = Date.now();
-    if (now - lastFocusPullAt < FOCUS_PULL_THROTTLE_MS) return;
-    lastFocusPullAt = now;
-    const ref = docRef();
-    if (!ref) return;
-    ref.get({ source: 'server' }).then(function (snap) {
-      // Lectura del SERVIDOR reeixida: contrastació real, concilia la sessió.
-      if (!snap.exists) { setReconciled(); return; }
-      const d = snap.data();
-      if (!d || !d.data || d.deviceId === getDeviceId()) { setReconciled(); return; }
-      const localChangeAt = getLocalChangeAt() || 0;
-      if ((d.updatedAt || 0) > localChangeAt) {
-        applyCloudData(d.data, d.updatedAt || Date.now());  // concilia en aplicar-se
-      } else {
-        setReconciled();
-      }
-    }).catch(function (e) {
-      // Sense connexió o servidor no disponible: el listener ja ho recuperarà.
-      console.warn('[CloudSync] focus pull', e && e.code ? e.code : e);
-    });
-  }
-
-  // Aplica dades del núvol (ara o quan sigui segur).
-  function applyCloudData(data, updatedAt) {
+  function applyManualResult(result, epoch) {
+    if (epoch !== syncEpoch || !currentUser) return false;
     if (!isSafeToApply()) {
-      pendingCloudData = { data: data, updatedAt: updatedAt };
+      pendingResult = { result: result, epoch: epoch };
+      setStatus({ state: 'waiting', error: null });
       if (!deferApplyTimer) {
         deferApplyTimer = setInterval(function () {
-          if (pendingCloudData && isSafeToApply()) {
-            const p = pendingCloudData;
-            pendingCloudData = null;
-            clearInterval(deferApplyTimer);
-            deferApplyTimer = null;
-            applyCloudData(p.data, p.updatedAt);
-          }
-        }, 4000);
+          if (!pendingResult || !isSafeToApply()) return;
+          const pending = pendingResult;
+          cancelPendingApply();
+          try { applyManualResult(pending.result, pending.epoch); }
+          catch (e) { setStatus({ state: 'error', error: e.message }); }
+        }, 400);
       }
-      return;
+      return false;
     }
-    const mergedChanged = applySnapshot(data);
-    // Evita re-pujar immediatament el que acabem de baixar: fixa el hash actual.
-    try { lastPushedHash = snapshotHash(collectSnapshot()); } catch (e) {}
-    setLocalChangeAt(updatedAt);
-    setLastSyncedAt(updatedAt);
+    const effective = includeChangesDuringSync(result.local, collectSnapshot(), result.data);
+    applySnapshot(effective);
+    localStorage.setItem(BASELINE_KEY, JSON.stringify({ uid: currentUser.uid, hashes: keyHashes(result.data) }));
+    lastObservedHash = snapshotHash(effective);
+    setLastSyncedAt(result.updatedAt);
+    setLocalChangeAt(result.updatedAt);
+    // La recàrrega de l'app encara no pot aplicar venciments sobre dades velles.
     reloadApp();
-    setStatus({ state: 'synced', error: null });
-    // Amb l'estat del núvol ja incorporat (i l'app recarregada), la sessió
-    // queda conciliada: l'app pot resoldre venciments i les pujades flueixen.
     setReconciled();
-    if (mergedChanged) {
-      // La fusió ha conservat estat local més avançat que el del núvol (p. ex.
-      // una partida diària amb la jugada que el núvol encara no tenia): puja'l
-      // de seguida perquè la resta d'aparells desfacin el retrocés.
-      lastPushedHash = null;
-      flushSoon();
+    const unchanged = snapshotHash(collectSnapshot()) === snapshotHash(result.data);
+    setStatus({ state: unchanged ? 'synced' : 'pending', error: null });
+    if (typeof window.onCloudSyncReady === 'function') {
+      try { window.onCloudSyncReady(currentUser.email || currentUser.displayName || ''); } catch (e) {}
     }
-  }
-
-  // Incorpora al LOCAL la part més avançada del núvol (partides diàries,
-  // ratxa) abans que guanyi la instantània local per «última escriptura
-  // guanya»: que el local mani no pot fer retrocedir l'estat viu que el núvol
-  // tingui més avançat (p. ex. una diària jugada des d'un altre aparell des de
-  // l'última vegada que aquest es va sincronitzar). Retorna true si ha canviat
-  // alguna clau local.
-  function mergeCloudIntoLocal(cloudData) {
-    try {
-      const core = window.ElTaulerCore;
-      if (!core || typeof core.mergeSyncSnapshots !== 'function') return false;
-      if (!cloudData || typeof cloudData !== 'object') return false;
-      const localData = collectSnapshot();
-      // Mateixa fusió que en aplicar el núvol, amb els papers invertits: la
-      // base és la instantània LOCAL i s'hi incorpora el més avançat del núvol.
-      const merged = core.mergeSyncSnapshots(cloudData, localData);
-      let changed = false;
-      Object.keys(merged).forEach(function (k) {
-        if (!isSyncableKey(k)) return;
-        if (localData[k] !== merged[k]) {
-          try { localStorage.setItem(k, merged[k]); changed = true; } catch (e) {}
-        }
-      });
-      return changed;
-    } catch (e) { return false; }
-  }
-
-  // Decideix què fer la primera vegada que ens connectem amb aquest compte.
-  function reconcileInitial(cloudDoc) {
-    const localChangeAt = getLocalChangeAt();
-
-    if (!cloudDoc) {
-      // No hi ha res al núvol → aquest dispositiu és la font: puja-ho tot.
-      setReconciled();
-      return pushSnapshot();
-    }
-
-    const cloudAt = cloudDoc.updatedAt || 0;
-
-    if (localChangeAt !== null) {
-      // Ja hem sincronitzat abans en aquest dispositiu → última escriptura guanya.
-      if (cloudAt > localChangeAt) {
-        applyCloudData(cloudDoc.data, cloudAt);
-      } else if (localChangeAt > cloudAt) {
-        if (mergeCloudIntoLocal(cloudDoc.data)) reloadApp();
-        setReconciled();
-        pushSnapshot();
-      } else {
-        setLastSyncedAt(cloudAt);
-        setStatus({ state: 'synced' });
-        setReconciled();
-      }
-      return Promise.resolve();
-    }
-
-    // Primer cop en aquest dispositiu.
-    if (!hasMeaningfulLocalData()) {
-      // No hi ha res a perdre localment → baixa del núvol.
-      applyCloudData(cloudDoc.data, cloudAt);
-      return Promise.resolve();
-    }
-
-    // Conflicte real: dades al núvol I dades en aquest dispositiu.
-    const useCloud = window.confirm(
-      'Sincronització al núvol\n\n' +
-      'Hem trobat una còpia de les teves dades al núvol i també dades en aquest ' +
-      'dispositiu.\n\n' +
-      '• Accepta (D\'acord) per CONSERVAR LES DADES DEL NÚVOL (es substituiran les ' +
-      'd\'aquest dispositiu).\n' +
-      '• Cancel·la per CONSERVAR LES DADES D\'AQUEST DISPOSITIU (es pujaran al núvol ' +
-      'i substituiran les del núvol).'
-    );
-    if (useCloud) {
-      applyCloudData(cloudDoc.data, cloudAt);
-    } else {
-      // L'usuari ha triat conservar les dades d'AQUEST dispositiu tal qual.
-      setReconciled();
-      pushSnapshot();
-    }
-    return Promise.resolve();
-  }
-
-  // Subscripció en temps real: si un altre dispositiu puja dades més noves,
-  // les apliquem automàticament.
-  function subscribeRealtime() {
-    const ref = docRef();
-    if (!ref) return;
-    if (docUnsub) { docUnsub(); docUnsub = null; }
-    docUnsub = ref.onSnapshot(function (snap) {
-      // fromCache=false → instantània CONFIRMADA pel servidor. Si la
-      // conciliació inicial no s'havia pogut fer (arrencada offline, get()
-      // caigut a la memòria cau), aquesta és la primera contrastació real i
-      // és la que desencalla la sessió (setReconciled).
-      const fromServer = !(snap.metadata && snap.metadata.fromCache);
-      let applied = false;
-      if (snap.exists && !(snap.metadata && snap.metadata.hasPendingWrites)) {
-        const d = snap.data();
-        if (d && d.data && d.deviceId !== getDeviceId()) {
-          const localChangeAt = getLocalChangeAt() || 0;
-          if ((d.updatedAt || 0) > localChangeAt) {
-            // applyCloudData ja concilia quan les dades s'apliquen de debò.
-            applyCloudData(d.data, d.updatedAt || Date.now());
-            applied = true;
-          }
-        }
-      }
-      if (fromServer && !applied) setReconciled();
-    }, function (err) {
-      console.warn('[CloudSync] onSnapshot error', err);
-    });
-  }
-
-  // ---------------------------------------------------------------------------
-  //  Autenticació
-  // ---------------------------------------------------------------------------
-  function clearSyncWatchdog() {
-    if (syncWatchdog) { clearTimeout(syncWatchdog); syncWatchdog = null; }
+    return true;
   }
 
   function handleSignedIn(user) {
     currentUser = user;
-    // Cada inici de sessió (o canvi de compte) exigeix conciliar de nou amb el
-    // servidor abans de pujar res o de resoldre venciments per temps.
+    syncEpoch++;
+    manualSyncPromise = null;
     reconciled = false;
-    pushAfterReconcile = false;
-    // Sessió iniciada correctament: neteja la marca de redirecció i avisa l'app
-    // (perquè mostri un missatge clar i, si cal, torni a la pantalla on era).
+    cancelPendingApply();
+    lastObservedHash = snapshotHash(collectSnapshot());
     try { localStorage.removeItem(REDIRECT_FLAG_KEY); } catch (e) {}
+    setStatus({ state: 'connected', email: user.email || user.displayName || 'Connectat', error: null,
+      lastSyncedAt: Number(localStorage.getItem(LAST_SYNCED_KEY)) || 0 });
     if (typeof window.onCloudSignedIn === 'function') {
       try { window.onCloudSignedIn(user.email || user.displayName || ''); } catch (e) {}
     }
-    setStatus({ state: 'syncing', email: user.email || user.displayName || 'Connectat' });
-
-    // Watchdog: si la sincronització inicial es queda penjada (típicament perquè
-    // la connexió amb Firestore està bloquejada en aquest navegador/xarxa), no
-    // deixem la UI eternament en "Sincronitzant…": informem l'usuari amb un avís
-    // accionable. No avortem la petició: la subscripció en temps real i el
-    // long-polling poden resoldre-la més tard i tornar a posar l'estat a 'synced'.
-    clearSyncWatchdog();
-    syncWatchdog = setTimeout(function () {
-      syncWatchdog = null;
-      if (status.state === 'syncing') {
-        console.warn('[CloudSync] sincronització inicial encallada (>' + SYNC_WATCHDOG_MS + ' ms).');
-        setStatus({
-          state: 'error',
-          error: 'La connexió amb el núvol triga massa. Comprova la xarxa (algunes ' +
-                 'xarxes o extensions bloquegen Firestore) i torna-ho a provar; si el ' +
-                 'problema continua, recarrega la pàgina.'
-        });
-      }
-    }, SYNC_WATCHDOG_MS);
-
-    const ref = docRef();
-    if (!ref) { clearSyncWatchdog(); return; }
-    // Subscrivim el temps real abans (i a part) de la conciliació inicial: així,
-    // encara que el get() inicial trigui, l'estat es pot recuperar sol quan arribi
-    // el primer snapshot del document.
-    ref.get().then(function (snap) {
-      if (snap && snap.metadata && snap.metadata.fromCache) {
-        // Resposta de la MEMÒRIA CAU (el servidor no era a l'abast): no val
-        // per conciliar, pot anar tan endarrerida com aquest mateix aparell.
-        // La subscripció en temps real farà la primera contrastació de debò
-        // quan arribi un snapshot del servidor; fins llavors no es puja res.
-        return null;
-      }
-      const cloudDoc = snap.exists ? snap.data() : null;
-      return reconcileInitial(cloudDoc);
-    }).then(function () {
-      clearSyncWatchdog();
-      subscribeRealtime();
-      // La conciliació inicial ha acabat: ja tenim (si n'hi havia) el nom d'usuari
-      // que viatja amb el compte al núvol. Avisem l'app perquè, si el compte encara
-      // no té nom, en demani un (cal per aparèixer al rànquing i a les col·lectives).
-      if (typeof window.onCloudSyncReady === 'function') {
-        try { window.onCloudSyncReady(currentUser ? (currentUser.email || currentUser.displayName || '') : ''); } catch (e) {}
-      }
-    }).catch(function (e) {
-      clearSyncWatchdog();
-      console.warn('[CloudSync] sign-in sync error', e);
-      setStatus({ state: 'error', error: e && e.message ? e.message : 'Error de sincronització' });
-      // Intentem la subscripció igualment: pot recuperar-se quan torni la connexió.
-      try { subscribeRealtime(); } catch (e2) {}
-    });
+    // Cap get(), subscripció, pujada ni sincronització en recuperar la sessió.
   }
 
   function handleSignedOut() {
     currentUser = null;
-    clearSyncWatchdog();
-    if (docUnsub) { docUnsub(); docUnsub = null; }
-    clearPushTimers();
-    lastPushedHash = null;
+    syncEpoch++;
+    manualSyncPromise = null;
     reconciled = false;
-    pushAfterReconcile = false;
-    setStatus({ state: 'signedout', email: null });
-    // Sense sessió, el dispositiu torna a ser l'única font de veritat: avisa
-    // l'app perquè reprengui la resolució local de venciments i ratxes.
+    cancelPendingApply();
+    setStatus({ state: 'signedout', email: null, error: null });
     if (typeof window.onCloudSyncSettled === 'function') {
       try { window.onCloudSyncSettled(); } catch (e) {}
     }
@@ -728,7 +400,7 @@
       const code = e && e.code ? e.code : '';
       if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request' || code === 'auth/user-cancelled') {
         // L'usuari ha tancat el selector; no és un error real.
-        setStatus({ state: currentUser ? 'synced' : 'signedout' });
+        setStatus({ state: currentUser ? 'connected' : 'signedout' });
         return;
       }
       if (code === 'auth/unauthorized-domain' || code === 'auth/operation-not-allowed') {
@@ -758,9 +430,59 @@
   }
 
   function syncNow() {
-    if (!currentUser) { signIn(); return; }
-    clearPushTimers();
-    pushSnapshot(true);   // «Sincronitza ara»: força la pujada encara que el hash coincideixi
+    if (!currentUser) { signIn(); return Promise.resolve(false); }
+    if (manualSyncPromise) return manualSyncPromise;
+    if (!isSafeToApply()) {
+      setStatus({ state: 'error', error: 'Torna a la portada per desar la partida i sincronitzar les dades.' });
+      return Promise.resolve(false);
+    }
+    if (pendingResult) {
+      const pending = pendingResult;
+      cancelPendingApply();
+      try { return Promise.resolve(applyManualResult(pending.result, pending.epoch)); }
+      catch (e) { setStatus({ state: 'error', error: e.message }); return Promise.resolve(false); }
+    }
+    try { if (typeof window.prepareCloudSync === 'function') window.prepareCloudSync(); }
+    catch (e) { setStatus({ state: 'error', error: e.message }); return Promise.resolve(false); }
+    const ref = docRef();
+    const epoch = ++syncEpoch;
+    const uid = currentUser.uid;
+    setStatus({ state: 'syncing', error: null });
+    let timeout;
+    let timedOut = false;
+    // Les transaccions no s'encuen fora de línia: si el servidor no confirma,
+    // no es marca «Sincronitzat» ni es fa una pujada sorpresa en tornar a obrir.
+    const operation = Promise.resolve().then(function () { return db.runTransaction(async function (transaction) {
+      const snap = await transaction.get(ref);
+      if (epoch !== syncEpoch) throw new Error('Sincronització cancel·lada. Torna-ho a provar.');
+      const local = collectSnapshot();
+      const cloudDoc = snap.exists ? snap.data() : null;
+      const data = mergeForManualSync(local, cloudDoc);
+      const updatedAt = Math.max(Date.now(), Number(cloudDoc && cloudDoc.updatedAt) || 0);
+      transaction.set(ref, { data: data, updatedAt: updatedAt, deviceId: getDeviceId(), app: 'eltauler' });
+      return { data: data, updatedAt: updatedAt, local: local };
+    }); });
+    const deadline = new Promise(function (_, reject) {
+      timeout = setTimeout(function () {
+        if (epoch === syncEpoch) { timedOut = true; syncEpoch++; }
+        reject(new Error('No s’ha pogut confirmar la sincronització. Comprova la connexió i prem «Sincronitza ara» de nou.'));
+      }, SYNC_TIMEOUT_MS);
+    });
+    const pending = Promise.race([operation, deadline]).then(function (result) {
+      if (epoch !== syncEpoch) return false;
+      return applyManualResult(result, epoch);
+    }).catch(function (e) {
+      if (currentUser && currentUser.uid === uid && (epoch === syncEpoch || (timedOut && epoch + 1 === syncEpoch))) {
+        console.warn('[CloudSync] manual sync', e);
+        setStatus({ state: 'error', error: e && e.message ? e.message : 'No s’ha pogut sincronitzar. Torna-ho a provar.' });
+      }
+      return false;
+    }).finally(function () {
+      clearTimeout(timeout);
+      if (manualSyncPromise === pending) manualSyncPromise = null;
+    });
+    manualSyncPromise = pending;
+    return manualSyncPromise;
   }
 
   // ---------------------------------------------------------------------------
@@ -791,9 +513,9 @@
       try {
         db.settings({ experimentalAutoDetectLongPolling: true, merge: true });
       } catch (e) { console.warn('[CloudSync] settings()', e); }
-      try {
-        db.enablePersistence({ synchronizeTabs: true }).catch(function () {});
-      } catch (e) {}
+      // Les dades es desen localment a l'app; el sync usa transaccions de
+      // servidor i no activa cap cua persistent de pujades automàtiques.
+      lastObservedHash = snapshotHash(collectSnapshot());
 
       // Recupera el resultat d'un inici de sessió per redirecció (mòbil) i detecta
       // si la redirecció ha tornat SENSE completar la sessió (cas típic a mòbil per
@@ -828,17 +550,6 @@
         else handleSignedOut();
       });
 
-      // Flush-on-exit: puja les dades pendents en amagar o tancar la pestanya, en
-      // comptes d'escriure durant el joc a cada desat. Així una sessió sencera es
-      // resol en poques escriptures. Firestore encua l'escriptura localment
-      // (persistència) i la sincronitza encara que la pàgina es tanqui.
-      try {
-        document.addEventListener('visibilitychange', function () {
-          if (document.visibilityState === 'hidden') flushPendingPush();
-          else if (document.visibilityState === 'visible') pullOnFocus();
-        });
-        window.addEventListener('pagehide', function () { flushPendingPush(); });
-      } catch (e) {}
     } catch (e) {
       console.warn('[CloudSync] init error', e);
       setStatus({ state: 'error', error: e && e.message ? e.message : 'Error d\'inicialització' });
@@ -853,11 +564,10 @@
     signIn: signIn,
     switchAccount: switchAccount,
     syncNow: syncNow,
-    // El crida saveStorage() de app.js cada cop que es desen dades locals.
-    onLocalSave: function () { schedulePush(); },
-    // El crida app.js després d'un esdeveniment valuós (final de partida, error
-    // resolt) perquè es pugi de seguida, sense esperar el debounce llarg.
-    flushSoon: function () { flushSoon(); },
+    // Les crides antigues de desat només marquen canvis pendents. Cap d'elles
+    // transfereix dades: totes les pujades/baixades passen per syncNow().
+    onLocalSave: noteLocalChange,
+    flushSoon: noteLocalChange,
     isConfigured: isConfigured,
     // ¿Pot l'app fiar-se de l'estat local per resoldre fets guiats pel
     // rellotge (venciments de diàries, ratxa a zero)? Vegeu isSettled().

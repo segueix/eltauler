@@ -16,7 +16,7 @@ Hi ha **tres** usos de Cloud Firestore, molt diferents pel que fa al consum:
 
 | Ús | Document | Escriptura | Lectura |
 |---|---|---|---|
-| **Sincronització del compte** (`cloudsync.js`) | `eltauler_users/{uid}` (privat, 1 per usuari) | Instantània completa del `localStorage` | Lectura inicial + listener del propi doc |
+| **Sincronització del compte** (`cloudsync.js`) | `eltauler_users/{uid}` (privat, 1 per usuari) | Instantània fusionada en prémer «Sincronitza ara» | Lectura de servidor dins de la mateixa transacció manual |
 | **Partida col·lectiva** (`catalans.js`) | `eltauler_catalans/current` (+ `c_<id>`) — **1 doc compartit** | Un vot = una escriptura al mapa `votes[uid]` | **Sondeig** del document compartit |
 | **Rànquing global** (`app.js`) | `eltauler_ranking/leaderboard` (1 doc compartit) | `merge` de la pròpia entrada (debounce + hash) | `.get()` amb cau de 3 min |
 
@@ -81,24 +81,20 @@ S'ha substituït el listener en temps real del document compartit per un
 `N × (temps_visible / interval)` (**acotades, lineals i previsibles**),
 independentment del volum de vots.
 
-### Punt 2 — Sincronització del compte sense escriptures a cada moviment
+### Punt 2 — Sincronització del compte només manual
 *(`cloudsync.js`)*
 
-- **Debounce llarg:** `PUSH_DEBOUNCE_MS` de 2,5 s → **20 s**, amb un **sostre**
-  (`PUSH_MAX_WAIT_MS` = 60 s) perquè, encara que hi hagi desats continus, es pugi
-  de tant en tant.
-- **Flush-on-exit:** es puja el que estigui pendent en **amagar o tancar** la
-  pestanya (`visibilitychange` a *hidden* i `pagehide`). Així una sessió sencera
-  es resol en **poques escriptures** en comptes d'una per cada desat.
-- **Guard per hash:** `snapshotHash()` calcula un hash estable de la instantània;
-  si no ha canviat des de l'última pujada, **no s'escriu** (elimina pujades
-  redundants). En baixar dades del núvol es fixa el hash per no re-pujar
-  immediatament el que s'acaba de baixar.
-- **«Sincronitza ara»** (`syncNow`) força la pujada encara que el hash coincideixi.
+- **Cap sincronització en obrir, enfocar, desar o sortir.** Els desats són
+  locals; `onLocalSave` i `flushSoon` només marquen canvis pendents.
+- **«Sincronitza ara»** llegeix el servidor, fusiona i escriu en una transacció.
+  Els dobles clics comparteixen la mateixa petició. Un conflicte concurrent
+  provoca un reintent amb les dades noves.
+- **Confirmació real:** només es mostra l'èxit després de la confirmació del
+  servidor i del desat al navegador. Un error o un temps d'espera de 20 s deixa
+  el botó disponible per tornar-ho a provar.
 
-**Efecte:** ~75 % menys d'escriptures per sessió, sense que l'usuari noti
-diferència (la sincronització entre dispositius segueix passant en obrir/enfocar
-i en sortir).
+**Consum:** habitualment una lectura i una escriptura per clic, amb possibles
+lectures addicionals per reintents; cap operació de sync del compte en obrir.
 
 ### Punt 3 — Debounce + refredament del vot
 *(`catalans.js`)*
@@ -116,28 +112,19 @@ i en sortir).
 **Efecte:** un usuari que «juga» amb el tauler ja no genera desenes d'escriptures;
 cada votant fa, com a molt, una escriptura cada 30 s.
 
-### Punt 2b — Robustesa multi-dispositiu
+### Punt 2b — Robustesa entre aparells
 *(`cloudsync.js` + `app.js`)*
 
-El debounce llarg del punt 2 estalvia quota, però eixampla la finestra en què les
-dades poden quedar sense pujar entre dispositius. Per compensar-ho sense renunciar
-a l'estalvi:
+- **Unió de les partides sense rellotge:** cada partida es fusiona per id i
+  revisió; es preserven les partides exclusives de cada aparell. Les baixes
+  també viatgen per impedir que reapareguin còpies antigues.
+- **Resum per clau de l'últim sync:** si una dada no ha canviat aquí, s'adopta
+  la del servidor. Les partides diàries i la ratxa mantenen la seva fusió pròpia.
+- **Canvis durant la petició:** es conserven localment i queden pendents del
+  següent clic; mai no es canvia la partida que el jugador té oberta.
 
-- **Flush imminent en esdeveniments valuosos** (`CloudSync.flushSoon`,
-  `FLUSH_SOON_MS` = 3 s): el final de partida (`handleGameOver`), el desat d'un
-  error nou i la resolució d'un exercici de tàctica (`completeTacticsPuzzle`)
-  pugen de seguida (coalescent una ràfega en una sola escriptura), en comptes
-  d'esperar el debounce llarg. Els desats menors segueixen amb el debounce de 20 s.
-- **Baixada en recuperar el focus** (`pullOnFocus`, throttle
-  `FOCUS_PULL_THROTTLE_MS` = 30 s): en tornar a primer pla, a més del listener en
-  temps real, es llegeix del **servidor** l'última versió i s'aplica si és més
-  nova. Garanteix que en tornar a un dispositiu tens l'estat més recent abans de
-  continuar jugant, gastant com a molt una lectura cada 30 s.
-
-**Nota:** segueix sent «última escriptura guanya» sobre la instantània **sencera**
-(no hi ha fusió camp a camp), així que **jugar alhora en dos dispositius sense
-deixar-los sincronitzar** encara pot sobreescriure dades. La fusió per seccions
-seria el pas següent (vegeu la secció 4).
+Per canviar d'aparell, cal prémer **«Sincronitza ara» primer a l'origen i
+després al destí**, amb el mateix compte de Google.
 
 ---
 
@@ -157,8 +144,8 @@ Per ordre d'impacte, si algun dia es volen aguantar molts més usuaris:
    per reduir egress i no acostar-se mai al límit d'1 MB per document.
 4. **Avisos i explicacions a la UI** (secció «Com funciona» de la partida,
    Configuració → Sincronització) sobre que els vots s'actualitzen cada ~30 s i
-   que la sincronització es fa periòdicament i en sortir. *(El refredament del vot
-   ja mostra un avís en temps d'execució.)*
+   com funciona cada servei. *(El refredament del vot i la sincronització manual
+   del compte ja mostren indicacions en temps d'execució.)*
 5. **Bàner reactiu** si Firestore retorna `resource-exhausted` de manera repetida:
    *«S'ha arribat a la quota gratuïta diària; torna-ho a provar més tard.»*
 
@@ -167,7 +154,8 @@ Per ordre d'impacte, si algun dia es volen aguantar molts més usuaris:
 ## 5. Estimacions de capacitat (pla gratuït)
 
 Ordres de magnitud per **usuari actiu diari (DAU)** que juga una sessió real.
-L'ús real varia molt; són estimacions.
+L'ús real varia molt; són estimacions. Per al compte, la taula assumeix cinc
+clics de sincronització al dia; ara el consum depèn dels clics manuals.
 
 **Escriptures/dia per usuari**
 
@@ -240,10 +228,7 @@ imprevistos.
 | `POLL_NEAR_DEADLINE_MS` | `catalans.js` | 120.000 | Finestra final del torn on s'accelera el sondeig |
 | `VOTE_DEBOUNCE_MS` | `catalans.js` | 2.500 | Agrupació de canvis ràpids de vot |
 | `VOTE_COOLDOWN_MS` | `catalans.js` | 30.000 | Temps mínim entre escriptures de vot |
-| `PUSH_DEBOUNCE_MS` | `cloudsync.js` | 20.000 | Debounce de la pujada de sincronització |
-| `PUSH_MAX_WAIT_MS` | `cloudsync.js` | 60.000 | Sostre entre pujades sota desats continus |
-| `FLUSH_SOON_MS` | `cloudsync.js` | 3.000 | Pujada imminent en esdeveniments valuosos |
-| `FOCUS_PULL_THROTTLE_MS` | `cloudsync.js` | 30.000 | Freqüència màxima de baixada en recuperar el focus |
+| `SYNC_TIMEOUT_MS` | `cloudsync.js` | 20.000 | Espera màxima per confirmar una sincronització manual |
 | `RANKING_CACHE_MS` | `app.js` | 180.000 | Cau de lectura del rànquing |
 
 Pujar els intervals estalvia més quota a canvi de menys immediatesa; baixar-los

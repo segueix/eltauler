@@ -10,7 +10,7 @@ const persistence = source.slice(source.indexOf("const LIVE_GAME_KEY ="),
     source.indexOf('/* ===== Navegació de jugades'));
 const leave = source.slice(source.indexOf('function returnToMainMenuImmediate()'),
     source.indexOf('/* ===================== TRIO DE NAVEGACIÓ'));
-const SAVED = 'eltauler_cloud_untimedGames';
+const SAVED = 'chess_untimedGames';
 const LIVE = 'eltauler_cloud_liveGame';
 
 function snapshot(id, extra = {}) {
@@ -174,4 +174,66 @@ test('una jornada de lliga ja resolta no es torna a jugar', () => {
     h.context.resumeLiveGame('old');
     expect(h.context.startGame).not.toHaveBeenCalled();
     expect(h.context.loadUntimedGames()).toHaveLength(0);
+});
+
+test('migra tota la col·lecció local antiga sense perdre partides ni duplicar-les', () => {
+    const h = harness(new Map([
+        ['eltauler_cloud_untimedGames', JSON.stringify([snapshot('a'), snapshot('b')])],
+        [SAVED, JSON.stringify([snapshot('a', { moves: ['e4', 'e5', 'Nf3'] }), snapshot('c')])]
+    ]));
+    h.context.migrateUntimedCollection();
+    h.context.migrateUntimedCollection();
+    expect(h.context.loadUntimedGames().map(g => g.id)).toEqual(['a', 'b', 'c']);
+    expect(h.context.loadUntimedGames()[0].moves).toHaveLength(3);
+    expect(h.data.has('eltauler_cloud_untimedGames')).toBe(false);
+});
+
+test('la migració fallida conserva l’original', () => {
+    const h = harness(new Map([['eltauler_cloud_untimedGames', JSON.stringify([snapshot('a')])]]));
+    h.context.localStorage.setItem = () => { throw new Error('quota'); };
+    h.context.migrateUntimedCollection();
+    expect(h.data.has('eltauler_cloud_untimedGames')).toBe(true);
+    expect(() => h.context.window.prepareCloudSync()).toThrow('No s’han pogut preparar totes les partides');
+});
+
+test('desar sense moure no incrementa la revisió; desfer sí que és una nova posició', () => {
+    const h = harness();
+    activate(h, 'a');
+    h.context.saveLiveGame();
+    const initial = h.context.loadUntimedGames()[0];
+    h.context.saveLiveGame();
+    expect(h.context.loadUntimedGames()[0].revision).toBe(initial.revision);
+    h.context.game.move('Nf3');
+    h.context.saveLiveGame();
+    const advanced = h.context.loadUntimedGames()[0];
+    h.context.game.undo();
+    h.context.saveLiveGame();
+    const undone = h.context.loadUntimedGames()[0];
+    expect(undone.revision).toBe(advanced.revision + 1);
+    expect(Core.untimedMergeGames([advanced], [undone])[0].moves).toEqual(['e4', 'e5']);
+});
+
+test('les baixes impedeixen ressuscitar una partida des d’una pestanya antiga', () => {
+    const h = harness(new Map([[SAVED, JSON.stringify([snapshot('a'), snapshot('b')])]]));
+    h.context.removeUntimedGame('a');
+    expect(JSON.parse(h.data.get('chess_untimedGameRemovals'))).toHaveProperty('a');
+    expect(() => h.context.saveUntimedSnapshot(snapshot('a'))).toThrow();
+    h.data.set('eltauler_cloud_untimedGames', JSON.stringify([snapshot('a')]));
+    h.context.migrateUntimedCollection();
+    expect(h.context.loadUntimedGames().map(g => g.id)).toEqual(['b']);
+});
+
+test('la fusió és simètrica, estable i ignora entrades corruptes o amb rellotge', () => {
+    const a = snapshot('a', { moves: ['e4'] });
+    const advanced = snapshot('a', { moves: ['e4', 'e5'] });
+    const b = snapshot('b');
+    const timed = snapshot('timed', { timeControlId: '3+2', clock: { white: 1000, black: 1000 } });
+    const ab = Core.untimedMergeGames([a, b, null, {}], [advanced, timed]);
+    const ba = Core.untimedMergeGames([advanced, timed], [a, b]);
+    expect(ab).toEqual(ba);
+    expect(ab.map(g => g.id)).toEqual(['a', 'b']);
+    expect(Core.untimedMergeGames(ab, ab)).toEqual(ab);
+    const equalA = snapshot('tie', { review: [{ san: 'e4' }] });
+    const equalB = snapshot('tie', { review: [] });
+    expect(Core.untimedPickVersion(equalA, equalB)).toEqual(Core.untimedPickVersion(equalB, equalA));
 });
