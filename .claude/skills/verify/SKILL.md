@@ -51,6 +51,17 @@ Conduir amb Playwright + Chromium preinstal·lat
    `chess_tutorialProgress`; `?mode=tutorial` i `?mode=guide` són enllaços
    directes.
 
+10. **Stockfish TV** (`stockfishtv.js`): `#btn-sftv-banner` (o `?mode=tv`)
+    obre `#sftv-screen`. Estat: `ElTaulerStockfishTV._controller().state()`
+    (`caps` amb les línies `uci` reals, `game.moves`, `game.comment`,
+    `game.end`). Per accelerar una partida sencera, abans d'obrir-la es pot
+    retocar `ElTaulerStockfishTV.TV_CONFIG` (`SPEEDS.quick`,
+    `NEXT_GAME_DELAY_MS`, `ANALYSIS_MOVETIME_MS`) i triar «Àgil» a
+    `#sftv-speed`. El Chromium headless no té cap veu (`getVoices()` buit):
+    la veu catalana només es pot provar substituint `window.speechSynthesis`
+    amb un `addInitScript`. La pestanya oculta es simula redefinint
+    `document.visibilityState` i llançant `visibilitychange`.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
