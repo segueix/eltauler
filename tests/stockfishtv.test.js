@@ -361,7 +361,7 @@ describe('comentaris basats en fets verificats', () => {
         const p = play(fen, 'e4d5');
         const reliable = candidates(fen, 'e4d5', { after: analysis(p.fenAfter, { type: 'cp', value: 0 }, 'd8d5') });
         expect(reliable.find(c => c.kind === 'capture-recoverable').text)
-            .toBe('Les blanques capturen el peó, però les negres el poden recuperar a la jugada següent.');
+            .toBe('Les blanques capturen el peó; les negres el poden recuperar.');
         const shallow = candidates(fen, 'e4d5', { after: analysis(p.fenAfter, { type: 'cp', value: 0 }, 'd8d5', 6) });
         expect(kinds(shallow)).not.toContain('capture-recoverable');
     });
@@ -419,26 +419,29 @@ describe('comentaris basats en fets verificats', () => {
         expect(list[0].text).toBe('Escac i mat. Guanyen les negres.');
     });
 
-    test('desenvolupament: només a l\'obertura i no per a espectadors avançats', () => {
+    test('desenvolupament: cada peça que surt de casa és un fet propi, amb la casella', () => {
         const fen = new Chess().fen();
-        expect(candidates(fen, 'g1f3', { ply: 0 }).find(c => c.kind === 'development').text).toBe('Les blanques desenvolupen el cavall.');
-        expect(kinds(candidates(fen, 'g1f3', { ply: 0, tier: 'advanced' }))).not.toContain('development');
-        expect(kinds(candidates(fen, 'g1f3', { ply: 25 }))).not.toContain('development');
+        expect(candidates(fen, 'g1f3', { ply: 0 }).find(c => c.kind === 'development').text).toBe('Les blanques desenvolupen el cavall cap a f3, que controla les caselles centrals d4 i e5.');
+        expect(candidates(fen, 'b2b3', { ply: 0 }).map(c => c.kind)).not.toContain('development');
+        // Una peça que ja havia sortit no «es desenvolupa» de nou.
+        const later = new Chess();
+        ['Nf3', 'e5', 'Ng5', 'd6'].forEach(m => later.move(m));
+        expect(kinds(candidates(later.fen(), 'g5f3', { ply: 4 }))).not.toContain('development');
     });
 
-    test('cadència: comentaris ocasionals, sense repetir tipus ni frases', () => {
-        const dev = { kind: 'development', priority: 20, text: 'Les blanques desenvolupen el cavall.' };
-        const check = { kind: 'check', priority: 30, text: 'Escac al rei negre.' };
-        const mate = { kind: 'mate', priority: 100, text: 'Escac i mat. Guanyen les blanques.' };
-        expect(TV.tvChooseComment([dev], [], 0, 'w')).toBe(dev);
-        // Massa a prop de l'últim comentari: silenci.
-        expect(TV.tvChooseComment([check], [{ ply: 0, kind: 'development', text: 'x', color: 'w' }], 1, 'b')).toBeNull();
-        // Mateix tipus dins la finestra: silenci.
-        expect(TV.tvChooseComment([check], [{ ply: 2, kind: 'check', text: 'y', color: 'w' }], 5, 'b')).toBeNull();
-        // Frase ja dita: silenci.
-        expect(TV.tvChooseComment([dev], [{ ply: 0, kind: 'development', text: dev.text, color: 'w' }], 10, 'w')).toBeNull();
+    test('selecció: es poden comentar jugades consecutives; la mateixa idea no es repeteix', () => {
+        const dev = { kind: 'development', priority: 42, text: 'Les blanques desenvolupen el cavall cap a f3.', variants: ['Les blanques desenvolupen el cavall cap a f3.'], key: 'dev:w:g1', sig: 'f3', family: 'development', tags: { squares: ['f3'] }, explanatory: true };
+        const check = { kind: 'check', priority: 36, text: 'L\'alfil blanc fa escac des de b5.', variants: ['L\'alfil blanc fa escac des de b5.'], key: 'check:w:b5', sig: 'b5', family: 'check', tags: { squares: ['b5'] }, explanatory: false };
+        const mate = { kind: 'mate', priority: 100, text: 'Escac i mat. Guanyen les blanques.', variants: ['Escac i mat. Guanyen les blanques.'], key: 'mate', sig: 'x', family: 'mate', tags: { squares: [] }, explanatory: true };
+        expect(TV.tvChooseComment([dev], [], 0, 'w').text).toBe(dev.text);
+        // Just després d'un altre comentari: ja NO hi ha silenci obligatori.
+        expect(TV.tvChooseComment([check], [{ ply: 0, kind: 'development', text: 'x', color: 'w' }], 1, 'b').text).toBe(check.text);
+        // La mateixa idea en el mateix estat, dins de la finestra: no aporta res.
+        expect(TV.tvChooseComment([dev], [{ ply: 0, kind: 'development', text: 'altra', key: 'dev:w:g1', sig: 'f3' }], 4, 'w')).toBeNull();
+        // La mateixa frase dita fa poc: tampoc.
+        expect(TV.tvChooseComment([dev], [{ ply: 0, kind: 'development', text: dev.text }], 6, 'w')).toBeNull();
         // Els importants passen sempre.
-        expect(TV.tvChooseComment([mate], [{ ply: 9, kind: 'check', text: 'z', color: 'w' }], 10, 'w')).toBe(mate);
+        expect(TV.tvChooseComment([mate], [{ ply: 9, kind: 'check', text: 'z' }], 10, 'w').text).toBe(mate.text);
         expect(TV.tvChooseComment([], [], 3, 'w')).toBeNull();
     });
 });

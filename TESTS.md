@@ -411,6 +411,32 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   simulat: ordres abans de calcular, cancel·lació sense resultats colats,
   sortir i tornar de seguida sense bloquejos ni reinicis tardans, worker penjat
   i worker que no es pot crear.
+- **`tvcommentary.test.js`** — **retransmissió** de Stockfish TV: comentaris a
+  gairebé cada jugada amb varietat, continuïtat i valor educatiu. Les partides
+  de `tests/fixtures/tv-games.json` les ha jugat el mateix `stockfish.js` de
+  l'app contra si mateix (`node scripts/gen-tv-fixtures.js`: Italiana, Gambit de
+  dama, Siciliana, un final de rei i peons i un final de torres) i porten
+  l'anàlisi pedagògica real de cada posició; el test les repassa amb el MATEIX
+  pas de retransmissió que fa servir el controlador (`tvBroadcastStep`) i
+  n'imprimeix la cobertura per partida i per fase. Exigeix ≥88% de jugades
+  comentades en conjunt (≥85% per partida, cap silenci de més de dues
+  semijugades) i que ≥55% de TOTES les jugades tinguin un comentari explicatiu
+  (no n'hi ha prou d'anunciar jugades). Cobreix jugades consecutives,
+  desenvolupament de peces diferents sense silencis, jugades tranquil·les amb
+  descripció factual sense intencions, memòria d'idees (la mateixa idea en el
+  mateix estat no es repeteix; quan evoluciona, sí), continuïtat (la peça
+  atacada s'aparta o es defensa, el canvi elimina un atacant, es reforça la
+  defensa d'un peó pressionat), revalidació de les idees, fets per als dos
+  bàndols (columnes, peons passats, doblats i aïllats, rei al final), prudència
+  (atacada ≠ guanyable; «guanyar/perdre» només amb l'anàlisi; cap canvi normal
+  presentat com a peça penjada; cap balanç de material a mig canvi), que les
+  amenaces comentades a les partides reals siguin certes al tauler, l'auditoria
+  de català del redactor sobre tots els comentaris, varietat (cap frase
+  repetida seguida, ≥90% de frases diferents, cap tipus més de tres cops
+  seguits), brevetat (majoria d'una sola frase), definicions bàsiques una sola
+  vegada, resum estratègic espaiat i sense repetir-se, i la integració amb el
+  controlador (comentari lligat a la posició visible, veu que llegeix el mateix
+  text sense cues i cap anàlisi d'una posició acabada).
 - **`veuneural.test.js`** — veus neuronals **Matxa** (BSC, `veuneural.js`) amb
   un `fetch` i un àudio SIMULATS (sense xarxa): les vuit veus, la conversió de
   velocitat a durada, el lector SSE, el protocol Gradio de la demo (primer
