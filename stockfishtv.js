@@ -1621,6 +1621,10 @@
     let lastHighlight = null;
     let countdownTimer = null;
     let uiReady = false;
+    let expanded = false;
+    let nativeFullscreen = false;
+    let fullscreenRequest = 0;
+    let savedScroll = null;
 
     function $id(id) { return typeof document !== 'undefined' ? document.getElementById(id) : null; }
     function loadPrefsRaw() {
@@ -1644,9 +1648,14 @@
 
     let boardObserver = null;
     let boardWidth = 0;
+    let boardRenderedWidth = 0;
     function buildBoard() {
         if (board || typeof root.Chessboard !== 'function' || !$id('sftv-board')) return;
-        board = root.Chessboard('sftv-board', { position: 'start', draggable: false, pieceTheme: PIECE_THEME, moveSpeed: 350 });
+        board = root.Chessboard('sftv-board', {
+            position: 'start', draggable: false, pieceTheme: PIECE_THEME, moveSpeed: 450,
+            onMoveEnd: applyHighlight
+        });
+        boardRenderedWidth = Math.round($id('sftv-board').getBoundingClientRect().width);
         // El tauler es torna a mesurar sempre que canvia l'amplada disponible
         // (p. ex. quan apareix la barra de nivell o es gira el mòbil).
         const wrap = $id('sftv-board') && $id('sftv-board').parentElement;
@@ -1662,23 +1671,118 @@
         try { if (boardObserver) boardObserver.disconnect(); } catch (e) {}
         boardObserver = null;
         boardWidth = 0;
+        boardRenderedWidth = 0;
         try { if (board && board.destroy) board.destroy(); } catch (e) {}
         board = null;
     }
     function applyHighlight() {
         const el = $id('sftv-board');
         if (!el) return;
-        el.querySelectorAll('.sftv-hl').forEach(sq => sq.classList.remove('sftv-hl'));
-        if (!lastHighlight) return;
-        [lastHighlight.from, lastHighlight.to].forEach((sq) => {
-            const node = el.querySelector('[data-square="' + sq + '"]');
-            if (node) node.classList.add('sftv-hl');
+        // Conservar les classes si la jugada no canvia: els renders d'estat no
+        // han de reiniciar el pols de la peça ni esborrar el destí després d'animar.
+        el.querySelectorAll('[data-square]').forEach((sq) => {
+            const name = sq.getAttribute('data-square');
+            sq.classList.toggle('sftv-from', !!lastHighlight && name === lastHighlight.from);
+            sq.classList.toggle('sftv-to', !!lastHighlight && name === lastHighlight.to);
         });
     }
     function resizeBoard() {
         if (!board || !screenVisible()) return;
-        try { board.resize(); } catch (e) {}
+        const screen = $id('sftv-screen');
+        if (expanded && screen) {
+            const layout = screen.querySelector('.sftv-layout');
+            const col = screen.querySelector('.sftv-board-col');
+            const wrap = screen.querySelector('.sftv-board-wrap');
+            const side = screen.querySelector('.sftv-side');
+            if (layout && col && wrap && side) {
+                const stacked = !root.matchMedia('(min-width: 760px) and (min-aspect-ratio: 4/3)').matches;
+                const css = root.getComputedStyle(screen);
+                const available = screen.clientHeight - (layout.getBoundingClientRect().top - screen.getBoundingClientRect().top)
+                    - parseFloat(css.paddingBottom || 0);
+                const chrome = col.getBoundingClientRect().height - wrap.getBoundingClientRect().height;
+                const sideHeight = stacked ? side.getBoundingClientRect().height + 12 : 0;
+                const size = Math.max(120, Math.floor(Math.min(col.clientWidth, available - chrome - sideHeight - 2)));
+                screen.style.setProperty('--sftv-board-size', size + 'px');
+            }
+        }
+        const width = Math.round($id('sftv-board').getBoundingClientRect().width);
+        if (width && width !== boardRenderedWidth) {
+            try { board.resize(); boardRenderedWidth = width; } catch (e) {}
+        }
         applyHighlight();
+    }
+
+    function fullscreenElement() { return document.fullscreenElement || document.webkitFullscreenElement; }
+
+    function setExpanded(value) {
+        const screen = $id('sftv-screen');
+        if (!screen || expanded === value) return;
+        expanded = value;
+        if (value) savedScroll = { x: root.scrollX, y: root.scrollY };
+        screen.classList.toggle('is-expanded', value);
+        document.body.classList.toggle('sftv-expanded', value);
+        document.documentElement.classList.toggle('sftv-expanded', value);
+        const button = $id('sftv-expand');
+        if (button) {
+            button.setAttribute('aria-expanded', String(value));
+            button.setAttribute('title', value ? 'Torna a la mida normal (Esc)' : 'Amplia el tauler a pantalla completa');
+            const label = button.querySelector('span');
+            if (label) label.textContent = value ? 'Minimitza' : 'Amplia el tauler';
+        }
+        if (!value) {
+            screen.style.removeProperty('--sftv-board-size');
+            if (savedScroll) root.scrollTo(savedScroll.x, savedScroll.y);
+            savedScroll = null;
+        }
+        setTimeout(resizeBoard, 0);
+    }
+
+    function exitNativeFullscreen() {
+        if (fullscreenElement() !== $id('sftv-screen')) return;
+        const exit = document.exitFullscreen || document.webkitExitFullscreen;
+        try { if (exit) return Promise.resolve(exit.call(document)).catch(() => {}); } catch (e) {}
+    }
+
+    function minimizeBoard() {
+        fullscreenRequest++;
+        exitNativeFullscreen();
+        setExpanded(false);
+    }
+
+    function toggleExpanded() {
+        if (expanded) { minimizeBoard(); return; }
+        const screen = $id('sftv-screen');
+        if (!screen || !screenVisible()) return;
+        setExpanded(true);
+        const requestId = ++fullscreenRequest;
+        const request = screen.requestFullscreen || screen.webkitRequestFullscreen;
+        // Si el navegador no admet pantalla completa, o la denega, el mateix
+        // tauler omple la finestra i conserva el botó de minimitzar.
+        if (!request || fullscreenElement()) return;
+        try {
+            Promise.resolve(request.call(screen)).then(() => {
+                if (requestId !== fullscreenRequest || !expanded || !screenVisible()) {
+                    exitNativeFullscreen();
+                    return;
+                }
+                nativeFullscreen = fullscreenElement() === screen;
+                resizeBoard();
+            }).catch(() => {});
+        } catch (e) {}
+    }
+
+    function onFullscreenChange() {
+        const ownsFullscreen = fullscreenElement() === $id('sftv-screen');
+        if (ownsFullscreen) {
+            nativeFullscreen = true;
+            if (!expanded || !screenVisible()) exitNativeFullscreen();
+        } else if (nativeFullscreen) {
+            nativeFullscreen = false;
+            setExpanded(false);
+            const button = $id('sftv-expand');
+            if (button && screenVisible()) button.focus({ preventScroll: true });
+        }
+        setTimeout(resizeBoard, 0);
     }
 
     function renderVoice() {
@@ -1917,6 +2021,14 @@
             renderComment(state);
             renderResult(state);
             renderVoice();
+            const caption = $id('sftv-last-move');
+            if (caption) {
+                const last = g && g.lastMove;
+                const mv = last && last.verbose;
+                caption.textContent = last ? (mv ? capFirst(pieceNP(mv.promotion || mv.piece, mv.color)) + ': ' : '')
+                    + last.from + ' → ' + last.to : 'Origen discontinu · destí blau: peça moguda';
+            }
+            if (expanded) resizeBoard();
         }
     };
 
@@ -1974,6 +2086,7 @@
 
     // Tanca la pantalla (sense tornar a l'inici): atura motor, temporitzadors i veu.
     function closeScreen() {
+        minimizeBoard();
         if (controller) controller.close();
         if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
         uiReady = false;
@@ -2008,6 +2121,7 @@
         if (typeof document === 'undefined') return;
         const on = (id, ev, fn) => { const el = $id(id); if (el) el.addEventListener(ev, fn); };
         on('btn-sftv-banner', 'click', open);
+        on('sftv-expand', 'click', toggleExpanded);
         on('btn-back-sftv', 'click', () => {
             // Mateix camí que el gest d'enrere (navGoBack) si l'app el té.
             if (typeof bridge.goBack === 'function') bridge.goBack(); else goHome();
@@ -2041,8 +2155,20 @@
             renderVoice();
         });
         document.addEventListener('visibilitychange', onVisibility);
+        document.addEventListener('fullscreenchange', onFullscreenChange);
+        document.addEventListener('webkitfullscreenchange', onFullscreenChange);
+        document.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape' && expanded) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                minimizeBoard();
+                const button = $id('sftv-expand');
+                if (button) button.focus({ preventScroll: true });
+            }
+        }, true);
         root.addEventListener && root.addEventListener('pagehide', () => { if (controller && screenVisible()) controller.setHidden(true); });
         root.addEventListener && root.addEventListener('resize', () => { setTimeout(resizeBoard, 80); });
+        if (root.visualViewport) root.visualViewport.addEventListener('resize', () => { setTimeout(resizeBoard, 80); });
     }
 
     return {

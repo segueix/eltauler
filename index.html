@@ -3195,7 +3195,30 @@
         .sftv-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
         #sftv-board { margin: 0 auto; max-width: min(100%, 62vh); }
         #sftv-board, #sftv-board * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-        #sftv-board .square-55d63.sftv-hl { box-shadow: inset 0 0 0 100px rgba(201, 162, 39, 0.38); }
+        #sftv-board .square-55d63.sftv-from { background: #d8ae55; }
+        #sftv-board .square-55d63.sftv-to { background: #51b9d4; }
+        #sftv-board .sftv-from::after, #sftv-board .sftv-to::after {
+            content: ''; position: absolute; inset: 4px; pointer-events: none; z-index: 1;
+        }
+        #sftv-board .sftv-from::after { border: 3px dashed #5a3b09; border-radius: 4px; }
+        #sftv-board .sftv-to::after { border: 3px solid #fff; outline: 2px solid #095064; border-radius: 50%; }
+        #sftv-board .sftv-to img {
+            position: relative; z-index: 2; filter: drop-shadow(0 0 2px white) drop-shadow(0 1px 2px #143941);
+            animation: sftv-piece-arrives 750ms ease-out;
+        }
+        @keyframes sftv-piece-arrives { 0%, 100% { transform: scale(1); } 45% { transform: scale(1.13); } }
+        .sftv-last-move { text-align: center; font-size: 0.83rem; font-weight: 600; padding: 4px 0; min-height: 1.6em; }
+        .sftv-topbar { display: flex; flex-wrap: wrap; justify-content: center; align-items: start; gap: 8px 16px; margin-bottom: 12px; }
+        .sftv-topbar .sftv-voicebar { margin: 0; flex: 1 1 220px; }
+        .sftv-expand {
+            flex: 0 0 auto; border: 1px solid var(--accent-gold); border-radius: 10px; padding: 10px 14px;
+            min-height: 44px; background: var(--bg-card); color: var(--text-primary); font: inherit; font-size: 0.9rem; cursor: pointer;
+            display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        }
+        .sftv-expand svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        .sftv-expand .sftv-icon-shrink, .sftv-expand[aria-expanded="true"] .sftv-icon-expand { display: none; }
+        .sftv-expand[aria-expanded="true"] .sftv-icon-shrink { display: inline; }
+        .sftv-expand:focus-visible { outline: 3px solid var(--accent-gold); outline-offset: 3px; }
         .sftv-board-wrap { position: relative; margin-bottom: 0; }
         .sftv-player {
             max-width: min(100%, 62vh); margin: 4px auto; padding: 5px 10px; border-radius: 10px; font-size: 0.85rem;
@@ -3291,6 +3314,48 @@
         body.device-desktop .sftv-moves { max-height: 14em; }
         body.epaper-mode .catalans-banner.sftv-banner { background: #fff; color: #000; border-color: #000; }
         body.epaper-mode .sftv-comment, body.epaper-mode .sftv-level-card, body.epaper-mode .sftv-result { background: #fff; border-color: #000; color: #000; }
+        html.sftv-expanded, body.sftv-expanded { overflow: hidden !important; }
+        body.sftv-expanded { filter: none !important; }
+        #sftv-screen.is-expanded {
+            position: fixed; inset: 0; z-index: 10000; width: 100%; height: 100vh; height: 100dvh;
+            max-width: none; max-height: none; margin: 0; overflow: auto; overscroll-behavior: contain;
+            padding: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(10px, env(safe-area-inset-left));
+            background: var(--bg-dark); animation: none;
+        }
+        #sftv-screen::backdrop { background: var(--bg-dark); }
+        #sftv-screen.is-expanded > .stats-header, #sftv-screen.is-expanded > .game-buttons,
+        #sftv-screen.is-expanded .sftv-ladder, #sftv-screen.is-expanded .sftv-level-card,
+        #sftv-screen.is-expanded .sftv-moves, #sftv-screen.is-expanded .sftv-engine-note,
+        #sftv-screen.is-expanded .sftv-opening { display: none !important; }
+        #sftv-screen.is-expanded .sftv-topbar { position: relative; z-index: 6; }
+        #sftv-screen.is-expanded .sftv-layout { display: grid; grid-template-columns: minmax(0, 1fr); align-items: start; gap: 12px; }
+        #sftv-screen.is-expanded .sftv-board-row { display: block; }
+        #sftv-screen.is-expanded .sftv-board-wrap,
+        #sftv-screen.is-expanded .sftv-player { width: var(--sftv-board-size, 70vmin); max-width: 100%; margin-left: auto; margin-right: auto; }
+        #sftv-screen.is-expanded #sftv-board { width: 100%; max-width: none; }
+        #sftv-screen.is-expanded .sftv-side { width: 100%; max-width: 650px; justify-self: center; }
+        #sftv-screen.is-expanded .sftv-comment { max-height: 20vh; overflow: auto; }
+        #sftv-screen.is-expanded .sftv-comment.is-empty { display: none; }
+        #sftv-screen.is-expanded .sftv-controls { display: flex; flex-wrap: wrap; gap: 8px; }
+        #sftv-screen.is-expanded .sftv-controls > .btn { flex: 1 1 130px; }
+        #sftv-screen.is-expanded .sftv-speed-label { flex: 1 1 180px; }
+        body.epaper-mode #sftv-board .sftv-from { background: #ddd; }
+        body.epaper-mode #sftv-board .sftv-to { background: #aaa; }
+        body.epaper-mode #sftv-board .sftv-from::after { border-color: #222; }
+        body.epaper-mode #sftv-board .sftv-to::after { outline-color: #000; }
+        @media (min-width: 760px) and (min-aspect-ratio: 4/3) {
+            #sftv-screen.is-expanded .sftv-layout { grid-template-columns: minmax(0, 1fr) minmax(240px, 28%); }
+            #sftv-screen.is-expanded .sftv-side { align-self: center; }
+            #sftv-screen.is-expanded .sftv-comment { max-height: 45vh; }
+        }
+        @media (max-width: 599px) {
+            #sftv-screen.is-expanded { padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
+            #sftv-screen.is-expanded .sftv-topbar, #sftv-screen.is-expanded .sftv-side { padding-left: 10px; padding-right: 10px; }
+        }
+        @media (max-height: 500px) and (min-aspect-ratio: 4/3) {
+            #sftv-screen.is-expanded .sftv-player { display: none; }
+            #sftv-screen.is-expanded .sftv-status { font-size: 0.75rem; }
+        }
 
         /* ── Bàner de Jeroglífics (sota la lliga) ─────────────────────────── */
         .hieroglyphic-banner {
@@ -6010,10 +6075,13 @@
                 <h1>Stockfish TV</h1>
                 <div class="tutorial-sub">Stockfish contra Stockfish. La partida es genera en temps real en aquest dispositiu: cada aparell en veu una de diferent.</div>
             </div>
+            <div class="sftv-topbar">
+            <button type="button" class="sftv-expand" id="sftv-expand" aria-expanded="false" aria-controls="sftv-screen" title="Amplia el tauler a pantalla completa"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="sftv-icon-expand" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path class="sftv-icon-shrink" d="M3 8h5V3m13 5h-5V3M3 16h5v5m13-5h-5v5"/></svg><span>Amplia el tauler</span></button>
             <div class="sftv-voicebar" role="group" aria-label="Veu dels comentaris">
                 <button type="button" class="btn btn-primary sftv-voice-activate" id="sftv-voice-activate" style="display:none;">🔊 Activa la veu</button>
                 <button type="button" class="sftv-voice-toggle" id="sftv-voice-toggle" aria-pressed="false">🔇 Veu apagada</button>
                 <span class="sftv-note" id="sftv-voice-note" role="status" style="display:none;"></span>
+            </div>
             </div>
             <div class="sftv-layout">
                 <div class="sftv-main">
@@ -6034,6 +6102,7 @@
                                 <div class="sftv-result" id="sftv-result" role="status" aria-live="polite" style="display:none;"></div>
                             </div>
                             <div class="sftv-player" id="sftv-player-white">♔ Blanques</div>
+                            <div class="sftv-last-move" id="sftv-last-move">Origen discontinu · destí blau: peça moguda</div>
                             <div class="sftv-status" id="sftv-status" aria-live="polite">Preparant el motor…</div>
                         </div>
                     </div>
@@ -8314,7 +8383,7 @@
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.2"></script>
     <script src="veuneural.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=1.1.0"></script>
+    <script src="stockfishtv.js?v=1.1.1"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
