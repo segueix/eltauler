@@ -290,7 +290,9 @@
                 { id: 'obertures', icon: 'ic-book', title: 'Obertures', action: 'openings', cta: 'Obre les obertures',
                   text: 'Repertori recomanat amb blanques i defenses amb negres, amb <strong>lliçons guiades</strong>, correcció immediata i càlcul de precisió. <strong>La teva obertura</strong> construeix un repertori personal a partir del que ja jugues, reforçat pel motor on falla. I els <strong>jeroglífics d\'obertura</strong> et fan trobar la jugada teòrica a partir d\'una pista.' },
                 { id: 'analisi', icon: 'ic-analysis', title: 'Tauler d\'anàlisi', action: 'explorer', cta: 'Obre el tauler',
-                  text: 'Analitza qualsevol posició: carrega una FEN, munta-la amb l\'<strong>editor</strong> o enganxa un PGN. Veus la <strong>barra d\'avaluació</strong> i les línies del motor, pots jugar la millor jugada, navegar la línia i <strong>jugar la posició contra Stockfish</strong> (sense puntuar ELO).' }
+                  text: 'Analitza qualsevol posició: carrega una FEN, munta-la amb l\'<strong>editor</strong> o enganxa un PGN. Veus la <strong>barra d\'avaluació</strong> i les línies del motor, pots jugar la millor jugada, navegar la línia i <strong>jugar la posició contra Stockfish</strong> (sense puntuar ELO).' },
+                { id: 'tv', icon: 'ic-tv', title: 'Stockfish TV', action: 'tv', cta: 'Mira-la',
+                  text: 'Stockfish contra Stockfish, amb una partida <strong>generada en temps real al teu dispositiu</strong> (cada aparell en veu una de diferent). Els dos jugadors tenen el mateix nivell, a prop del teu, i el pots canviar per a la partida següent amb «Massa fàcil» o «Massa difícil». Comentaris breus basats en fets comprovats, <strong>veu en català</strong> opcional i «Prova aquesta posició» per portar-la al tauler d\'anàlisi. No toca el teu nivell ni les teves partides.' }
             ]
         },
         {
@@ -326,7 +328,7 @@
     // ------------------------------------------------------------------
     const STEP_KINDS = ['text', 'explore', 'square', 'task'];
     const ACTION_IDS = ['new-game', 'daily', 'positional', 'antidote', 'league', 'hieroglyphics', 'tria',
-        'tactics', 'errors', 'openings', 'explorer', 'catalans', 'ranking', 'history', 'stats', 'settings', 'tutorial'];
+        'tactics', 'errors', 'openings', 'explorer', 'tv', 'catalans', 'ranking', 'history', 'stats', 'settings', 'tutorial'];
     const PREDICATES = ['checkmate', 'capture', 'castle', 'promote', 'enpassant', 'check', 'any'];
     const SQUARE_RE = /^[a-h][1-8]$/;
 
@@ -541,6 +543,7 @@
         'errors': () => click('#btn-bundle-menu'),
         'openings': () => click('#btn-opening'),
         'explorer': () => click('#btn-explorer'),
+        'tv': () => click('#btn-sftv-banner'),
         'catalans': () => click('#btn-catalans'),
         'ranking': () => click('#btn-ranking'),
         'history': () => click('#btn-history'),

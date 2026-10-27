@@ -1,0 +1,940 @@
+// Stockfish TV (stockfishtv.js): rang de nivell segons el motor REAL, objectiu
+// de l'espectador, valoracions normalitzades, finals, comentaris verificats,
+// text parlat, veu catalana (amb una speechSynthesis simulada) i el bucle de
+// la partida (amb un motor fals i temporitzadors simulats).
+const path = require('path');
+const { execFileSync } = require('child_process');
+const { Chess } = require('chess.js');
+const TV = require('../stockfishtv');
+const Core = require('../core');
+
+const C = TV.TV_CONFIG;
+
+function caps(lines) { return TV.tvEngineCapabilities(TV.parseUciOptions(lines)); }
+const ELO_LINES = (min, max) => [
+    'id name Stockfish de prova',
+    'option name Skill Level type spin default 20 min 0 max 20',
+    `option name UCI_Elo type spin default ${min} min ${min} max ${max}`,
+    'option name UCI_LimitStrength type check default false',
+    'uciok'
+];
+const SKILL_CAPS = caps(['option name Skill Level type spin default 20 min 0 max 20', 'uciok']);
+
+// ---------------------------------------------------------------------------
+// 1. Opcions UCI i rang de la TV
+// ---------------------------------------------------------------------------
+describe('rang de nivell a partir del que declara el motor', () => {
+    test('motor REAL (stockfish.js de l\'app): es llegeix la resposta a `uci`, no cap constant', () => {
+        const out = execFileSync(process.execPath, [path.join(__dirname, '..', 'scripts', 'engine-uci-options.js')], { encoding: 'utf8', timeout: 30000 });
+        const report = JSON.parse(out);
+        expect(report.lines).toContain('uciok');
+        const parsed = TV.parseUciOptions(report.lines);
+        const real = TV.tvEngineCapabilities(parsed);
+        const elo = parsed.options.UCI_Elo;
+        if (elo && parsed.options.UCI_LimitStrength) {
+            // Si el motor declara UCI_Elo, el mínim de la TV és max(800, mínim natiu).
+            expect(real.mode).toBe('elo');
+            expect(real.min).toBe(Math.max(800, elo.min));
+            expect(real.max).toBe(elo.max);
+        } else {
+            // El binari inclòs (Stockfish 2019-08-15 Multi-Variant) NO declara
+            // UCI_Elo ni UCI_LimitStrength: la TV ho tracta com a incompatibilitat
+            // explícita i no inventa cap Elo.
+            expect(real.mode).not.toBe('elo');
+            expect(real.missing).toEqual(expect.arrayContaining(['UCI_Elo']));
+            expect(real.engineEloMin).toBeNull();
+            expect(TV.tvCompatibilityNote(real)).toMatch(/no declara UCI_Elo/);
+            if (parsed.options['Skill Level']) {
+                expect(real.mode).toBe('skill');
+                expect(real.min).toBe(parsed.options['Skill Level'].min);
+                expect(real.max).toBe(parsed.options['Skill Level'].max);
+                expect(TV.tvLevelLabel(real, 4).long).not.toMatch(/elo/i);
+            }
+        }
+    });
+
+    test('parseUciOptionLine llegeix nom amb espais, tipus, default, min i max', () => {
+        const o = TV.parseUciOptionLine('option name Skill Level type spin default 20 min 0 max 20');
+        expect(o).toEqual(expect.objectContaining({ name: 'Skill Level', type: 'spin', default: '20', min: 0, max: 20 }));
+        expect(TV.parseUciOptionLine('option name Clear Hash type button')).toEqual(expect.objectContaining({ name: 'Clear Hash', type: 'button', min: null }));
+        expect(TV.parseUciOptionLine('info depth 3')).toBeNull();
+    });
+
+    test('mínim de la TV = max(800, mínim natiu); màxim = màxim natiu', () => {
+        expect(caps(ELO_LINES(1350, 2850))).toEqual(expect.objectContaining({ mode: 'elo', min: 1350, max: 2850, engineEloMin: 1350 }));
+        expect(caps(ELO_LINES(1320, 3190))).toEqual(expect.objectContaining({ mode: 'elo', min: 1320, max: 3190 }));
+        expect(caps(ELO_LINES(800, 2850))).toEqual(expect.objectContaining({ mode: 'elo', min: 800 }));
+        // Un motor que baixa de 800 no fa baixar la TV per sota de 800.
+        expect(caps(ELO_LINES(500, 2850))).toEqual(expect.objectContaining({ mode: 'elo', min: 800, engineEloMin: 500 }));
+    });
+
+    test('sense UCI_LimitStrength (o amb UCI_Elo sota 800) no hi ha mode Elo', () => {
+        const noLimit = caps(['option name UCI_Elo type spin default 1350 min 1350 max 2850', 'option name Skill Level type spin default 20 min 0 max 20']);
+        expect(noLimit.mode).toBe('skill');
+        expect(noLimit.missing).toEqual(['UCI_LimitStrength']);
+        const tooLow = caps(ELO_LINES(100, 700));
+        expect(tooLow.mode).toBe('skill');
+        expect(tooLow.eloOutOfRange).toEqual({ min: 100, max: 700 });
+        expect(TV.tvCompatibilityNote(tooLow)).toMatch(/per sota del mínim de la TV/);
+        const nothing = caps(['option name Hash type spin default 16 min 16 max 16']);
+        expect(nothing.mode).toBe('none');
+        expect(TV.tvCompatibilityNote(nothing)).toMatch(/força plena/);
+    });
+
+    test('ordres UCI: jugadors amb UCI_LimitStrength + UCI_Elo; anàlisi sense límit', () => {
+        const elo = caps(ELO_LINES(1350, 2850));
+        expect(TV.tvStrengthCommands(elo, 'player', 1550)).toEqual([
+            'setoption name UCI_LimitStrength value true', 'setoption name UCI_Elo value 1550']);
+        expect(TV.tvStrengthCommands(elo, 'analysis')).toEqual([
+            'setoption name UCI_LimitStrength value false', 'setoption name Skill Level value 20']);
+        expect(TV.tvStrengthCommands(SKILL_CAPS, 'player', 3)).toEqual(['setoption name Skill Level value 3']);
+        expect(TV.tvStrengthCommands(SKILL_CAPS, 'analysis')).toEqual(['setoption name Skill Level value 20']);
+        expect(TV.tvStrengthCommands(caps([]), 'player', 3)).toEqual([]);
+    });
+
+    test('etiqueta: «Elo aproximat del motor» només en mode Elo', () => {
+        const elo = caps(ELO_LINES(1350, 2850));
+        expect(TV.tvLevelLabel(elo, 1550).long).toBe('Elo aproximat del motor: 1550');
+        expect(TV.tvLevelLabel(SKILL_CAPS, 4).long).toBe('Habilitat del motor: 4 de 20');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 2. Espectador, objectiu i ajustos
+// ---------------------------------------------------------------------------
+describe('objectiu adaptat a l\'espectador', () => {
+    const elo1350 = caps(ELO_LINES(1350, 2850));
+    const elo800 = caps(ELO_LINES(800, 2850));
+
+    test('objectiu inicial = nivell + 200 amb la conversió existent, dins del rang', () => {
+        const v = (roc) => TV.tvViewerProfile({ calibrated: true, roc: roc }, elo800);
+        expect(TV.tvBaseTarget(elo800, v(900))).toBe(Core.rocToEngineElo(1100, 800, 2850));
+        expect(TV.tvBaseTarget(elo800, v(900))).toBe(1100);
+        expect(TV.tvBaseTarget(elo800, v(500))).toBe(800);
+        expect(TV.tvBaseTarget(elo800, v(2800))).toBe(2850);
+        const w = (roc) => TV.tvViewerProfile({ calibrated: true, roc: roc }, elo1350);
+        expect(TV.tvBaseTarget(elo1350, w(1000))).toBe(1350);
+        expect(TV.tvBaseTarget(elo1350, w(1400))).toBe(1600);
+    });
+
+    test('sense nivell conegut es comença pel mínim de la TV', () => {
+        const unknown = TV.tvViewerProfile({ calibrated: false, roc: 1700 }, elo1350);
+        expect(unknown.known).toBe(false);
+        expect(TV.tvBaseTarget(elo1350, unknown)).toBe(1350);
+        expect(TV.tvBaseTarget(SKILL_CAPS, unknown)).toBe(0);
+        expect(TV.tvBaseTarget(elo1350, TV.tvViewerProfile(null, elo1350))).toBe(1350);
+    });
+
+    test('per sota del mínim del motor: llenguatge senzill i ritme més lent', () => {
+        const low = TV.tvViewerProfile({ calibrated: true, roc: 1200 }, elo1350);
+        expect(low.belowEngineMin).toBe(true);
+        expect(low.tier).toBe('basic');
+        expect(TV.tvViewerProfile({ calibrated: true, roc: 1400 }, elo1350).tier).toBe('mid');
+        expect(TV.tvViewerProfile({ calibrated: true, roc: 1900 }, elo1350).tier).toBe('advanced');
+        const basic = TV.tvMoveDelayMs('calm', { tier: 'basic', random: 0.5 });
+        const mid = TV.tvMoveDelayMs('calm', { tier: 'mid', random: 0.5 });
+        expect(basic).toBeGreaterThan(mid);
+    });
+
+    test('ritme tranquil: entre 5 i 8 segons; les jugades preparades són més àgils', () => {
+        expect(TV.tvMoveDelayMs('calm', { random: 0 })).toBe(5000);
+        expect(TV.tvMoveDelayMs('calm', { random: 1 })).toBe(8000);
+        expect(TV.tvMoveDelayMs('calm', { random: 0.5, prepared: true })).toBeLessThan(5000);
+        expect(TV.tvMoveDelayMs('quick', { random: 1 })).toBeLessThan(TV.tvMoveDelayMs('calm', { random: 0 }));
+    });
+
+    test('«Massa fàcil» / «Massa difícil»: passos de 100 dins dels límits, desats només a la TV', () => {
+        const viewerInput = { calibrated: true, roc: 1400 };
+        const v = TV.tvViewerProfile(viewerInput, elo1350);
+        let prefs = TV.tvNormalizePrefs(null);
+        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1600);
+        prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'harder');
+        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1700);
+        prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'easier');
+        prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'easier');
+        prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'easier');
+        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1400);
+        for (let i = 0; i < 10; i++) prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'easier');
+        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1350);
+        // Tocar fons no acumula deute: un sol «massa fàcil» ja torna a pujar.
+        prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'harder');
+        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1450);
+        // L'escala nativa puja d'un en un.
+        const s = TV.tvAdjustPrefs(SKILL_CAPS, TV.tvViewerProfile(null, SKILL_CAPS), null, 'harder');
+        expect(TV.tvResolveTarget(SKILL_CAPS, TV.tvViewerProfile(null, SKILL_CAPS), s).value).toBe(1);
+        // El nivell de l'usuari no es toca mai.
+        expect(viewerInput).toEqual({ calibrated: true, roc: 1400 });
+        // Clau pròpia de la TV, fora dels prefixos que sincronitza el núvol.
+        expect(C.PREFS_KEY.indexOf('chess_')).not.toBe(0);
+        expect(C.PREFS_KEY.indexOf('eltauler_')).not.toBe(0);
+    });
+
+    test('una preferència desada amb un altre motor no s\'aplica al motor actual', () => {
+        const v = TV.tvViewerProfile({ calibrated: true, roc: 1400 }, elo1350);
+        const prefs = TV.tvAdjustPrefs(elo1350, v, null, 'harder');
+        expect(TV.tvResolveTarget(SKILL_CAPS, TV.tvViewerProfile({ calibrated: true, roc: 1400 }, SKILL_CAPS), prefs).offset).toBe(0);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 3. Valoracions i finals
+// ---------------------------------------------------------------------------
+describe('valoracions normalitzades i finals de partida', () => {
+    test('parseInfoLine: cp, mat, límits i PV', () => {
+        const a = TV.parseInfoLine('info depth 14 seldepth 19 multipv 2 score cp -35 nodes 1 pv e7e5 g1f3');
+        expect(a).toEqual(expect.objectContaining({ depth: 14, multipv: 2, type: 'cp', value: -35, bound: null, pv: ['e7e5', 'g1f3'] }));
+        expect(TV.parseInfoLine('info depth 9 score mate -3 pv h7h6').type).toBe('mate');
+        expect(TV.parseInfoLine('info depth 11 score cp 108 upperbound pv b1c3').bound).toBe('upper');
+        expect(TV.parseInfoLine('info string hola')).toBeNull();
+    });
+
+    test('tot es porta al punt de vista de les blanques abans de comparar', () => {
+        expect(TV.tvScoreWhite({ type: 'cp', value: 50 }, 'b')).toEqual({ type: 'cp', value: -50 });
+        expect(TV.tvScoreWhite({ type: 'mate', value: 2 }, 'b')).toEqual({ type: 'mate', value: -2 });
+        expect(TV.tvMateFor({ type: 'mate', value: -2 }, 'b')).toBe(2);
+        expect(TV.tvMateFor({ type: 'mate', value: -2 }, 'w')).toBeNull();
+    });
+
+    test('centipeons i mats mai es barregen', () => {
+        expect(TV.tvMoverLossCp({ type: 'cp', value: 30 }, { type: 'cp', value: -250 }, 'w')).toBe(280);
+        expect(TV.tvMoverLossCp({ type: 'cp', value: -30 }, { type: 'cp', value: 250 }, 'b')).toBe(280);
+        expect(TV.tvMoverLossCp({ type: 'mate', value: 3 }, { type: 'cp', value: 100 }, 'w')).toBeNull();
+        expect(TV.tvMoverLossCp({ type: 'cp', value: 0 }, { type: 'mate', value: -1 }, 'w')).toBeNull();
+    });
+
+    test('anàlisi poc profunda: no fiable', () => {
+        const fen = new Chess().fen();
+        const deep = TV.tvBuildAnalysis(fen, { 1: { depth: 12, type: 'cp', value: 20, pv: ['e2e4'] } }, 'e2e4');
+        const shallow = TV.tvBuildAnalysis(fen, { 1: { depth: 6, type: 'cp', value: 20, pv: ['e2e4'] } }, 'e2e4');
+        expect(deep.reliable).toBe(true);
+        expect(shallow.reliable).toBe(false);
+        expect(TV.tvBuildAnalysis(fen, {}, null).reliable).toBe(false);
+    });
+
+    test('finals: mat, ofegat, material insuficient, repetició i cinquanta jugades', () => {
+        const mate = new Chess();
+        ['f3', 'e5', 'g4', 'Qh4#'].forEach(m => mate.move(m));
+        expect(TV.tvGameEnd(mate)).toEqual(expect.objectContaining({ result: '0-1', reason: 'checkmate' }));
+        expect(TV.tvGameEnd(new Chess('7k/5Q2/6K1/8/8/8/8/8 b - - 0 1'))).toEqual(expect.objectContaining({ result: '½-½', reason: 'stalemate' }));
+        expect(TV.tvGameEnd(new Chess('8/8/4k3/8/8/4K3/8/8 w - - 0 1')).reason).toBe('insufficient');
+        const rep = new Chess();
+        ['Nf3', 'Nf6', 'Ng1', 'Ng8', 'Nf3', 'Nf6', 'Ng1', 'Ng8'].forEach(m => rep.move(m));
+        expect(TV.tvGameEnd(rep).reason).toBe('repetition');
+        expect(TV.tvGameEnd(new Chess('8/8/4k3/8/8/4K3/4R3/8 w - - 100 80')).reason).toBe('fifty');
+        expect(TV.tvGameEnd(new Chess())).toBeNull();
+        expect(TV.tvResultHeadline({ result: '1-0' })).toMatch(/Guanyen les blanques/);
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 4. Comentaris verificats
+// ---------------------------------------------------------------------------
+function play(fen, uci) {
+    const g = new Chess(fen);
+    const mv = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci[4] || 'q' });
+    if (!mv) throw new Error('jugada il·legal ' + uci);
+    return { move: mv, fenAfter: g.fen(), chess: g };
+}
+function candidates(fen, uci, extra) {
+    const p = play(fen, uci);
+    return TV.tvCommentCandidates(Object.assign({
+        ChessCtor: Chess, fenBefore: fen, fenAfter: p.fenAfter, move: p.move, tier: 'mid', ply: 30,
+        end: TV.tvGameEnd(p.chess)
+    }, extra || {}));
+}
+function analysis(fen, scoreW, bestUci, depth, pv) {
+    const turn = fen.split(' ')[1];
+    const raw = turn === 'b' ? { type: scoreW.type, value: -scoreW.value } : scoreW;
+    return TV.tvBuildAnalysis(fen, { 1: { depth: depth || 12, type: raw.type, value: raw.value, pv: pv || [bestUci] } }, bestUci);
+}
+const kinds = (list) => list.map(c => c.kind);
+
+describe('comentaris basats en fets verificats', () => {
+    test('forquilla amb escac: «El cavall ataca alhora el rei i la dama»', () => {
+        const list = candidates('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1', 'd5c7');
+        expect(list[0].kind).toBe('fork-check');
+        expect(list[0].text).toBe('El cavall blanc ataca alhora el rei i la dama.');
+        // Sense anàlisi no es diu que es guanyi res.
+        expect(list[0].text).not.toMatch(/guanyar/);
+    });
+
+    test('el guany de la peça només es diu si l\'anàlisi l\'avala', () => {
+        const fen = 'q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1';
+        const p = play(fen, 'd5c7');
+        const before = analysis(fen, { type: 'cp', value: 0 }, 'd5c7');
+        const after = analysis(p.fenAfter, { type: 'cp', value: 650 }, 'e8d8', 14, ['e8d8', 'c7a8']);
+        const list = candidates(fen, 'd5c7', { before: before, after: after });
+        expect(list[0].text).toMatch(/Segons l'anàlisi, les blanques poden guanyar la dama\./);
+    });
+
+    test('enroc: torres connectades només si ho estan de debò', () => {
+        expect(candidates('4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1', 'e1g1').find(c => c.kind === 'castle').text)
+            .toBe('Les blanques han enrocat curt i han connectat les torres.');
+        expect(candidates('4k3/8/8/8/8/8/8/RN2K2R w KQ - 0 1', 'e1g1').find(c => c.kind === 'castle').text)
+            .toBe('Les blanques han enrocat curt.');
+        expect(candidates('4k3/8/8/8/8/8/8/RN2K2R w KQ - 0 1', 'e1g1', { tier: 'basic' }).find(c => c.kind === 'castle').text)
+            .toMatch(/el rei s'aparta del centre/);
+    });
+
+    test('peça atacada però defensada: cap amenaça ni cap «guany»', () => {
+        const defended = candidates('4k3/8/4p3/3n4/8/8/8/4KB2 w - - 0 1', 'f1c4');
+        expect(kinds(defended)).not.toContain('threat');
+        defended.forEach(c => expect(c.text).not.toMatch(/guany|perd/));
+        const loose = candidates('4k3/8/8/3n4/8/8/8/4KB2 w - - 0 1', 'f1c4');
+        const threat = loose.find(c => c.kind === 'threat');
+        expect(threat.text).toBe('L\'alfil blanc ataca el cavall negre, que no està defensat.');
+    });
+
+    test('una peça clavada al rei no amenaça res', () => {
+        // La torre d'e4 «veu» el cavall de b4, però capturar-lo deixaria el rei
+        // en escac de la torre d'e8 (defensada pel rei negre): no és cap amenaça.
+        const list = candidates('4rk2/8/8/8/1n6/3P4/4R3/4K3 w - - 0 1', 'e2e4');
+        expect(kinds(list)).not.toContain('threat');
+        // Amb la torre negra indefensa, en canvi, sí que n'hi ha una de real.
+        const loose = candidates('4r1k1/8/8/8/1n6/3P4/4R3/4K3 w - - 0 1', 'e2e4');
+        expect(loose.find(c => c.kind === 'threat').text).toBe('La torre blanca ataca la torre negra, que no està defensada.');
+    });
+
+    test('atac doble sense escac: el peó ataca alhora dues peces', () => {
+        const list = candidates('4k3/8/8/2n1b3/8/2PP4/8/4K3 w - - 0 1', 'd3d4');
+        expect(list.find(c => c.kind === 'threat').text).toBe('El peó blanc ataca alhora el cavall i l\'alfil.');
+        // Si el peó queda penjat (l'alfil se'l menja sense resposta), no es ven com a amenaça.
+        expect(kinds(candidates('4k3/8/8/2n1b3/8/3P4/8/4K3 w - - 0 1', 'd3d4'))).not.toContain('threat');
+    });
+
+    test('recaptura: «és un canvi de cavalls»', () => {
+        const start = '4k3/8/2n5/4N3/3P4/8/8/4K3 b - - 0 1';
+        const first = play(start, 'c6e5');
+        const list = TV.tvCommentCandidates({
+            ChessCtor: Chess, fenBefore: first.fenAfter, fenAfter: play(first.fenAfter, 'd4e5').fenAfter,
+            move: play(first.fenAfter, 'd4e5').move, prevMove: first.move, tier: 'mid', ply: 30
+        });
+        expect(list.find(c => c.kind === 'recapture').text).toBe('Les blanques tornen a capturar a e5: és un canvi de cavalls.');
+    });
+
+    test('captura que es pot recuperar: només amb la millor resposta de l\'anàlisi', () => {
+        const fen = '3qk3/8/8/3p4/4P3/8/8/4K3 w - - 0 1';
+        const p = play(fen, 'e4d5');
+        const reliable = candidates(fen, 'e4d5', { after: analysis(p.fenAfter, { type: 'cp', value: 0 }, 'd8d5') });
+        expect(reliable.find(c => c.kind === 'capture-recoverable').text)
+            .toBe('Les blanques capturen el peó, però les negres el poden recuperar a la jugada següent.');
+        const shallow = candidates(fen, 'e4d5', { after: analysis(p.fenAfter, { type: 'cp', value: 0 }, 'd8d5', 6) });
+        expect(kinds(shallow)).not.toContain('capture-recoverable');
+    });
+
+    test('peça capturada sense cap defensa', () => {
+        const list = candidates('4k3/8/8/3n4/8/8/8/3RK3 w - - 0 1', 'd1d5');
+        expect(list.find(c => c.kind === 'capture-free').text).toBe('Les blanques capturen el cavall negre, que no estava defensat.');
+        const defended = candidates('4k3/8/4p3/3n4/8/8/8/3RK3 w - - 0 1', 'd1d5');
+        expect(kinds(defended)).not.toContain('capture-free');
+    });
+
+    test('alternativa millor: només amb anàlisi fiable i valoracions del mateix bàndol', () => {
+        const fen = new Chess().fen();
+        const p = play(fen, 'g2g4');
+        const before = analysis(fen, { type: 'cp', value: 30 }, 'e2e4');
+        const after = analysis(p.fenAfter, { type: 'cp', value: -250 }, 'e7e5');
+        const ok = candidates(fen, 'g2g4', { before: before, after: after, ply: 0 });
+        expect(ok.find(c => c.kind === 'missed').text).toMatch(/^Per a les blanques, l'anàlisi preferia .+\.$/);
+        expect(ok.find(c => c.kind === 'missed').text).not.toMatch(/[a-h][1-8][a-h][1-8]/);
+        const shallow = candidates(fen, 'g2g4', { before: before, after: analysis(p.fenAfter, { type: 'cp', value: -250 }, 'e7e5', 7), ply: 0 });
+        expect(kinds(shallow)).not.toContain('missed');
+        // Pèrdua petita: res a dir.
+        const small = candidates(fen, 'g2g4', { before: before, after: analysis(p.fenAfter, { type: 'cp', value: -60 }, 'e7e5'), ply: 0 });
+        expect(kinds(small)).not.toContain('missed');
+    });
+
+    test('les negres també es mesuren des del seu bàndol', () => {
+        const fen = 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq - 0 1';
+        const p = play(fen, 'g7g5');
+        const before = analysis(fen, { type: 'cp', value: 30 }, 'e7e5');
+        const after = analysis(p.fenAfter, { type: 'cp', value: 320 }, 'd2d4');
+        expect(candidates(fen, 'g7g5', { before: before, after: after, ply: 1 }).find(c => c.kind === 'missed').text)
+            .toMatch(/^Per a les negres/);
+        // Si l'avantatge blanc es redueix, les negres NO han perdut res.
+        const better = analysis(p.fenAfter, { type: 'cp', value: -300 }, 'd2d4');
+        expect(kinds(candidates(fen, 'g7g5', { before: before, after: better, ply: 1 }))).not.toContain('missed');
+    });
+
+    test('mats anunciats per l\'anàlisi, tractats a part', () => {
+        const fen = '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1';
+        const p = play(fen, 'g2g3');
+        const before = analysis(fen, { type: 'mate', value: 1 }, 'd1d8');
+        const after = analysis(p.fenAfter, { type: 'cp', value: 450 }, 'h7h6');
+        const list = candidates(fen, 'g2g3', { before: before, after: after });
+        expect(list.find(c => c.kind === 'missed-mate').text).toMatch(/^L'anàlisi veia mat en 1 per a les blanques amb una altra jugada: /);
+        expect(kinds(list)).not.toContain('missed');
+    });
+
+    test('coronació i escac i mat', () => {
+        expect(candidates('8/4P3/8/8/8/8/k7/4K3 w - - 0 1', 'e7e8q')[0].text).toBe('El peó blanc corona a e8 i es converteix en dama.');
+        const g = new Chess();
+        ['f3', 'e5', 'g4'].forEach(m => g.move(m));
+        const list = candidates(g.fen(), 'd8h4');
+        expect(list[0].kind).toBe('mate');
+        expect(list[0].text).toBe('Escac i mat. Guanyen les negres.');
+    });
+
+    test('desenvolupament: només a l\'obertura i no per a espectadors avançats', () => {
+        const fen = new Chess().fen();
+        expect(candidates(fen, 'g1f3', { ply: 0 }).find(c => c.kind === 'development').text).toBe('Les blanques desenvolupen el cavall.');
+        expect(kinds(candidates(fen, 'g1f3', { ply: 0, tier: 'advanced' }))).not.toContain('development');
+        expect(kinds(candidates(fen, 'g1f3', { ply: 25 }))).not.toContain('development');
+    });
+
+    test('cadència: comentaris ocasionals, sense repetir tipus ni frases', () => {
+        const dev = { kind: 'development', priority: 20, text: 'Les blanques desenvolupen el cavall.' };
+        const check = { kind: 'check', priority: 30, text: 'Escac al rei negre.' };
+        const mate = { kind: 'mate', priority: 100, text: 'Escac i mat. Guanyen les blanques.' };
+        expect(TV.tvChooseComment([dev], [], 0, 'w')).toBe(dev);
+        // Massa a prop de l'últim comentari: silenci.
+        expect(TV.tvChooseComment([check], [{ ply: 0, kind: 'development', text: 'x', color: 'w' }], 1, 'b')).toBeNull();
+        // Mateix tipus dins la finestra: silenci.
+        expect(TV.tvChooseComment([check], [{ ply: 2, kind: 'check', text: 'y', color: 'w' }], 5, 'b')).toBeNull();
+        // Frase ja dita: silenci.
+        expect(TV.tvChooseComment([dev], [{ ply: 0, kind: 'development', text: dev.text, color: 'w' }], 10, 'w')).toBeNull();
+        // Els importants passen sempre.
+        expect(TV.tvChooseComment([mate], [{ ply: 9, kind: 'check', text: 'z', color: 'w' }], 10, 'w')).toBe(mate);
+        expect(TV.tvChooseComment([], [], 3, 'w')).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 5. Text parlat
+// ---------------------------------------------------------------------------
+describe('text parlat sense codis SAN ni símbols', () => {
+    test('jugades amb número, SAN amb peça, enrocs i coronacions', () => {
+        expect(TV.tvSpeechText('1.d4 ocupa el centre.')).toBe('peó a d 4 ocupa el centre.');
+        expect(TV.tvSpeechText('...Nf6 desenvolupa una peça.')).toBe('cavall a f 6 desenvolupa una peça.');
+        expect(TV.tvSpeechText('6.O-O completa el desenvolupament.')).toBe('enroc curt completa el desenvolupament.');
+        expect(TV.tvSpeechText('3...exd4 i Nxd4+')).toBe('peó de la columna e captura a d 4 i cavall captura a d 4 amb escac');
+        expect(TV.tvSpeechText('e8=Q#')).toBe('peó a e 8 i corona dama amb escac i mat');
+        expect(TV.tvSpeechText('Siciliana: Rossolimo (Bb5)')).toBe('Siciliana: Rossolimo alfil a b 5');
+        expect(TV.tvSpeechText('½-½ · Taules')).toBe('taules Taules');
+    });
+
+    test('cap comentari generat no deixa SAN ni símbols al text parlat', () => {
+        const samples = [
+            candidates('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1', 'd5c7'),
+            candidates('4k3/8/8/8/8/8/8/R3K2R w KQ - 0 1', 'e1g1'),
+            candidates('4k3/8/8/3n4/8/8/8/4KB2 w - - 0 1', 'f1c4'),
+            candidates('8/4P3/8/8/8/8/k7/4K3 w - - 0 1', 'e7e8q')
+        ];
+        // Frases reals del repertori (porten SAN).
+        const repertoireLike = ['1.d4 ocupa el centre i prepara una partida posicional amb espai estable.',
+            '...O-O posa el rei negre segur abans de decidir la tensió de c4 i d5.'];
+        const texts = samples.flat().map(c => c.text).concat(repertoireLike);
+        texts.forEach((t) => {
+            const spoken = TV.tvSpeechText(t);
+            expect(spoken).not.toMatch(/\b[KQRBN][a-h]?[1-8]?x?[a-h][1-8]/);
+            expect(spoken).not.toMatch(/\b[a-h][1-8]\b/);
+            expect(spoken).not.toMatch(/O-O|[+#=·→]/);
+        });
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 6. Veu catalana (speechSynthesis simulada: NO és una prova de veu real)
+// ---------------------------------------------------------------------------
+function fakeSynth(voices) {
+    const s = {
+        voices: voices || [],
+        spoken: [],
+        cancelCount: 0,
+        current: null,
+        listeners: {},
+        getVoices() { return this.voices; },
+        addEventListener(ev, fn) { (this.listeners[ev] = this.listeners[ev] || []).push(fn); },
+        speak(u) { this.spoken.push(u); this.current = u; },
+        cancel() {
+            this.cancelCount++;
+            const u = this.current;
+            this.current = null;
+            if (u && u.onerror) setTimeout(() => u.onerror({ error: 'interrupted' }), 0);
+        },
+        finish() { const u = this.current; this.current = null; if (u && u.onend) u.onend(); },
+        fire(ev) { (this.listeners[ev] || []).forEach(fn => fn()); }
+    };
+    return s;
+}
+class FakeUtterance { constructor(text) { this.text = text; } }
+const CA = { name: 'Montserrat', lang: 'ca-ES', localService: true };
+const ES = { name: 'Mónica', lang: 'es-ES', localService: true };
+const EN = { name: 'Samantha', lang: 'en-US', localService: true };
+
+describe('veu catalana opcional', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    function voice(synth, pref) {
+        let saved = pref;
+        const v = TV.createTvVoice({
+            speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance,
+            loadPref: () => saved, savePref: (p) => { saved = p; }
+        });
+        v._saved = () => saved;
+        return v;
+    }
+
+    test('selecció: només codis ca / variants catalanes', () => {
+        expect(TV.tvPickCatalanVoice([ES, EN])).toBeNull();
+        expect(TV.tvPickCatalanVoice([ES, CA, EN])).toBe(CA);
+        expect(TV.tvIsCatalanVoice({ lang: 'ca-ES-valencia' })).toBe(true);
+        expect(TV.tvIsCatalanVoice({ lang: 'ca_AD' })).toBe(true);
+        expect(TV.tvIsCatalanVoice({ lang: 'ca' })).toBe(true);
+        expect(TV.tvIsCatalanVoice({ lang: 'cs-CZ' })).toBe(false);
+        expect(TV.tvIsCatalanVoice({ name: 'Català', lang: 'es-ES' })).toBe(false);
+    });
+
+    test('primer accés: cal activar-la; la preferència es recorda', () => {
+        const v = voice(fakeSynth([CA]), null);
+        expect(v.needsActivation()).toBe(true);
+        expect(v.isOn()).toBe(false);
+        v.setOn(true);
+        expect(v._saved()).toBe('on');
+        expect(voice(fakeSynth([CA]), 'on').isOn()).toBe(true);
+    });
+
+    test('sense veu catalana: no parla i mai no tria una veu castellana', async () => {
+        const synth = fakeSynth([ES, EN]);
+        const v = voice(synth, 'on');
+        expect(v.status()).toBe('no-voice');
+        const r = await v.speak('Escac al rei negre.');
+        expect(r).toEqual({ spoken: false, reason: 'no-voice' });
+        expect(synth.spoken).toHaveLength(0);
+    });
+
+    test('veus que arriben tard (voiceschanged)', async () => {
+        const synth = fakeSynth([]);
+        const v = voice(synth, 'on');
+        expect(v.status()).toBe('loading');
+        synth.voices = [ES, CA];
+        synth.fire('voiceschanged');
+        expect(v.status()).toBe('ready');
+        const p = v.speak('Les blanques han enrocat curt.');
+        expect(synth.spoken).toHaveLength(1);
+        expect(synth.spoken[0].voice).toBe(CA);
+        expect(synth.spoken[0].lang).toBe('ca-ES');
+        synth.finish();
+        await expect(p).resolves.toEqual({ spoken: true, reason: 'end' });
+    });
+
+    test('navegador sense cap veu ni voiceschanged: passat el marge, «cap veu catalana»', () => {
+        const synth = fakeSynth([]);
+        const v = voice(synth, 'on');
+        expect(v.status()).toBe('loading');
+        jest.advanceTimersByTime(3500);
+        expect(v.status()).toBe('no-voice');
+        // Si després n'arriba una de catalana, es fa servir.
+        synth.voices = [CA];
+        synth.fire('voiceschanged');
+        expect(v.status()).toBe('ready');
+    });
+
+    test('veus que arriben tard sense cap esdeveniment: es tornen a consultar', () => {
+        const synth = fakeSynth([]);
+        synth.addEventListener = undefined;
+        const v = voice(synth, 'on');
+        synth.voices = [CA];
+        jest.advanceTimersByTime(1300);
+        expect(v.status()).toBe('ready');
+    });
+
+    test('mai no s\'acumulen locucions: la nova talla l\'anterior', async () => {
+        const synth = fakeSynth([CA]);
+        const v = voice(synth, 'on');
+        const first = v.speak('Primer comentari.');
+        const second = v.speak('Segon comentari.');
+        await expect(first).resolves.toEqual({ spoken: false, reason: 'stopped' });
+        expect(synth.cancelCount).toBeGreaterThanOrEqual(1);
+        expect(synth.current.text).toBe('Segon comentari.');
+        // L'error «interrupted» de la primera no resol la segona.
+        jest.advanceTimersByTime(1);
+        expect(v.isSpeaking()).toBe(true);
+        synth.finish();
+        await expect(second).resolves.toEqual({ spoken: true, reason: 'end' });
+    });
+
+    test('apagar la veu la silencia a l\'instant', async () => {
+        const synth = fakeSynth([CA]);
+        const v = voice(synth, 'on');
+        const p = v.speak('Un comentari llarg que no s\'ha d\'acabar.');
+        v.setOn(false);
+        await expect(p).resolves.toEqual({ spoken: false, reason: 'stopped' });
+        expect(synth.current).toBeNull();
+        expect(v._saved()).toBe('off');
+        await expect(v.speak('Res.')).resolves.toEqual({ spoken: false, reason: 'off' });
+    });
+
+    test('temps màxim: si el navegador no avisa del final, no es bloqueja', async () => {
+        const synth = fakeSynth([CA]);
+        const v = voice(synth, 'on');
+        const p = v.speak('Comentari.', { maxWaitMs: 5000 });
+        const cancelsBefore = synth.cancelCount;
+        jest.advanceTimersByTime(4999);
+        expect(v.isSpeaking()).toBe(true);
+        jest.advanceTimersByTime(1);
+        await expect(p).resolves.toEqual({ spoken: false, reason: 'timeout' });
+        expect(synth.cancelCount).toBe(cancelsBefore + 1);
+        expect(v.isSpeaking()).toBe(false);
+    });
+
+    test('una fallada de veu (not-allowed) no bloqueja res i queda indicada', async () => {
+        const synth = fakeSynth([CA]);
+        const v = voice(synth, 'on');
+        const p = v.speak('Comentari.');
+        synth.current.onerror({ error: 'not-allowed' });
+        await expect(p).resolves.toEqual({ spoken: false, reason: 'not-allowed' });
+        expect(v.status()).toBe('blocked');
+    });
+
+    test('sense speechSynthesis: no suportada i sense errors', async () => {
+        const v = TV.createTvVoice({});
+        expect(v.status()).toBe('unsupported');
+        await expect(v.speak('Hola')).resolves.toEqual({ spoken: false, reason: 'unsupported' });
+        expect(() => v.stop()).not.toThrow();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 7. Bucle de la partida (motor fals, temporitzadors simulats)
+// ---------------------------------------------------------------------------
+function fakeEngine(opts) {
+    const o = opts || {};
+    const pending = new Set();
+    const engine = {
+        jobs: [],
+        newGames: 0,
+        destroyed: 0,
+        ready: () => Promise.resolve(o.caps || SKILL_CAPS),
+        failed: () => false,
+        newGame() { engine.newGames++; },
+        request(job) {
+            engine.jobs.push(job);
+            return new Promise((resolve) => {
+                const entry = { job: job, cancelled: false };
+                pending.add(entry);
+                setTimeout(() => {
+                    pending.delete(entry);
+                    if (entry.cancelled && !o.ignoreCancel) { resolve(null); return; }
+                    const g = new Chess();
+                    const tail = job.position.split(' moves ')[1];
+                    (tail ? tail.split(' ') : []).forEach(u => g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' }));
+                    const legal = g.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || '')).sort();
+                    let best = legal[0] || null;
+                    if (job.tag.kind === 'move' && o.script && o.script[g.history().length]) best = o.script[g.history().length];
+                    resolve({ bestUci: best, infos: best ? { 1: { depth: 12, multipv: 1, type: 'cp', value: 0, bound: null, pv: [best] } } : {} });
+                }, o.delay || 200);
+            });
+        },
+        cancelAll() { pending.forEach(e => { e.cancelled = true; }); },
+        destroy() { engine.destroyed++; pending.forEach(e => { e.cancelled = true; }); },
+        pendingCount: () => pending.size
+    };
+    return engine;
+}
+
+function makeController(extra) {
+    const renders = [];
+    const results = [];
+    let savedPrefs = null;
+    const viewerInput = { calibrated: false, roc: 900 };
+    const ctl = TV.createTvController(Object.assign({
+        ChessCtor: Chess,
+        engine: fakeEngine(),
+        voice: null,
+        view: { render: s => renders.push(s), result: r => results.push(r) },
+        getViewer: () => viewerInput,
+        getOpenings: () => [],
+        loadPrefs: () => savedPrefs,
+        savePrefs: (p) => { savedPrefs = JSON.parse(JSON.stringify(p)); },
+        random: () => 0.5
+    }, extra || {}));
+    return { ctl, renders, results, viewerInput, prefs: () => savedPrefs };
+}
+
+const FOOLS = ['f2f3', 'e7e5', 'g2g4', 'd8h4'];
+
+describe('bucle de Stockfish TV', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    test('cada partida té el nivell FIXAT; els ajustos s\'apliquen a la següent', async () => {
+        const engine = fakeEngine({ script: FOOLS });
+        const { ctl, results, viewerInput } = makeController({ engine: engine });
+        await ctl.open();
+        expect(ctl.state().game.level.value).toBe(0);
+        await jest.advanceTimersByTimeAsync(6000);
+        ctl.adjust('harder');
+        ctl.adjust('harder');
+        expect(ctl.state().game.level.value).toBe(0);
+        expect(ctl.state().nextLevel).toBe(2);
+        // Totes les peticions de jugada de la partida 1 van amb el nivell 0.
+        await jest.advanceTimersByTimeAsync(40000);
+        const g1Moves = engine.jobs.filter(j => j.tag.kind === 'move' && j.tag.gameId === 1);
+        expect(g1Moves.length).toBeGreaterThan(0);
+        g1Moves.forEach(j => expect(j.strength).toEqual(['setoption name Skill Level value 0']));
+        // Final i resultat.
+        expect(results[0].end).toEqual(expect.objectContaining({ result: '0-1', reason: 'checkmate' }));
+        // L'anàlisi va SEMPRE sense límit.
+        engine.jobs.filter(j => j.tag.kind === 'analysis').forEach(j => expect(j.strength).toEqual(['setoption name Skill Level value 20']));
+        // Pausa breu i partida següent amb el nivell nou.
+        await jest.advanceTimersByTimeAsync(C.NEXT_GAME_DELAY_MS * 1.2 + 100);
+        expect(ctl.state().game.id).toBe(2);
+        expect(ctl.state().game.level.value).toBe(2);
+        expect(ctl.state().game.end).toBeNull();
+        expect(engine.newGames).toBe(2);
+        // El nivell de l'usuari no s'ha tocat.
+        expect(viewerInput).toEqual({ calibrated: false, roc: 900 });
+        ctl.close();
+    });
+
+    test('el comentari sempre correspon a la posició visible', async () => {
+        const { ctl, renders } = makeController({ engine: fakeEngine({ script: FOOLS }) });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(40000);
+        const withComment = renders.filter(s => s.game && s.game.comment && s.game.comment.kind !== 'intro');
+        expect(withComment.length).toBeGreaterThan(0);
+        withComment.forEach((s) => {
+            expect(s.game.comment.fen).toBe(s.game.fen);
+            expect(s.game.comment.gameId).toBe(s.game.id);
+        });
+        const last = withComment[withComment.length - 1];
+        expect(last.game.comment.kind).toBe('mate');
+        ctl.close();
+    });
+
+    test('pausa: atura càlcul i temporitzadors; en reprendre, sense jugades duplicades', async () => {
+        // Motor que ignora la cancel·lació: el controlador ha de descartar igualment
+        // el resultat obsolet.
+        const engine = fakeEngine({ ignoreCancel: true, delay: 300 });
+        const { ctl } = makeController({ engine: engine });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(4200);
+        const movesBefore = ctl.state().game.moves.length;
+        ctl.pause();
+        const jobsAtPause = engine.jobs.length;
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(ctl.state().game.moves.length).toBe(movesBefore);
+        expect(engine.jobs.length).toBe(jobsAtPause);
+        expect(ctl.isActive()).toBe(false);
+        ctl.resume();
+        await jest.advanceTimersByTimeAsync(30000);
+        const g = ctl.state().game;
+        expect(g.moves.length).toBeGreaterThan(movesBefore);
+        // L'historial mostrat és exactament el de la partida (cap jugada repetida
+        // ni cap resultat antic colat).
+        const replay = new Chess();
+        g.moves.forEach(m => expect(replay.move(m.san)).not.toBeNull());
+        expect(replay.fen()).toBe(g.fen);
+        g.moves.forEach((m, i) => expect(m.ply).toBe(i));
+        ctl.close();
+    });
+
+    test('pestanya oculta: res no calcula; en tornar es reprèn ordenadament', async () => {
+        const engine = fakeEngine();
+        const { ctl } = makeController({ engine: engine });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(5000);
+        ctl.setHidden(true);
+        const jobs = engine.jobs.length;
+        const moves = ctl.state().game.moves.length;
+        await jest.advanceTimersByTimeAsync(120000);
+        expect(engine.jobs.length).toBe(jobs);
+        expect(ctl.state().game.moves.length).toBe(moves);
+        ctl.setHidden(false);
+        await jest.advanceTimersByTimeAsync(20000);
+        expect(ctl.state().game.moves.length).toBeGreaterThan(moves);
+        ctl.close();
+        expect(engine.destroyed).toBe(1);
+    });
+
+    test('sortir i tornar: continua la mateixa partida', async () => {
+        const { ctl } = makeController();
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(10000);
+        const id = ctl.state().game.id;
+        const n = ctl.state().game.moves.length;
+        ctl.close();
+        await jest.advanceTimersByTimeAsync(30000);
+        expect(ctl.state().game.moves.length).toBe(n);
+        await ctl.open();
+        expect(ctl.state().game.id).toBe(id);
+        await jest.advanceTimersByTimeAsync(15000);
+        expect(ctl.state().game.moves.length).toBeGreaterThan(n);
+        ctl.close();
+    });
+
+    test('obertura preparada: s\'identifica com a obertura de partida i alterna', async () => {
+        const openings = [
+            { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', idea: 'Pressiona el cavall.', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5'] },
+            { eco: 'D06', name: 'Gambit de Dama Refusat', moves: ['d4', 'd5', 'c4', 'e6'] }
+        ];
+        const { ctl, prefs } = makeController({ getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0 }) });
+        await ctl.open();
+        const st = ctl.state();
+        expect(st.game.opening).toEqual(expect.objectContaining({ name: 'Obertura Espanyola (Ruy López)', plies: 5 }));
+        expect(st.game.comment.text).toBe('Obertura de partida: Obertura Espanyola (Ruy López). Pressiona el cavall.');
+        await jest.advanceTimersByTimeAsync(30000);
+        const g = ctl.state().game;
+        expect(g.moves.slice(0, 5).map(m => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bb5']);
+        expect(g.moves.slice(0, 5).every(m => m.prepared)).toBe(true);
+        // Les jugades preparades no demanen res al motor.
+        expect(prefs().openingIndex).toBe(1);
+        ctl.newGame();
+        expect(ctl.state().game.opening.name).toBe('Gambit de Dama Refusat');
+        ctl.close();
+    });
+
+    test('veu: l\'avanç espera el final de la locució (amb temps màxim) i apagar-la la talla', async () => {
+        const synth = fakeSynth([CA]);
+        const voice = TV.createTvVoice({ speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on' });
+        const openings = [{ eco: 'C60', name: 'Obertura Espanyola', idea: 'Pressiona el cavall.', moves: ['e4', 'e5'] }];
+        const { ctl } = makeController({ voice: voice, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0 }) });
+        await ctl.open();
+        expect(synth.spoken).toHaveLength(1);
+        expect(synth.spoken[0].text).toMatch(/^Obertura de partida/);
+        // La presentació s'està llegint: la primera jugada no surt.
+        await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS + 1000);
+        expect(ctl.state().game.moves.length).toBe(0);
+        synth.finish();
+        await jest.advanceTimersByTimeAsync(C.POST_SPEECH_PAUSE_MS + 50);
+        expect(ctl.state().game.moves.length).toBe(1);
+        // Apagar la veu: silenci immediat, i la partida continua.
+        voice.setOn(false);
+        expect(synth.current).toBeNull();
+        await jest.advanceTimersByTimeAsync(20000);
+        expect(ctl.state().game.moves.length).toBeGreaterThan(1);
+        // Sortir cancel·la qualsevol parla.
+        voice.setOn(true);
+        ctl.close();
+        expect(synth.current).toBeNull();
+    });
+
+    test('motor que no arrenca: error explícit, sense bucle', async () => {
+        const engine = fakeEngine();
+        engine.ready = () => Promise.resolve(null);
+        const { ctl } = makeController({ engine: engine });
+        await ctl.open();
+        expect(ctl.state().error).toBe('engine');
+        expect(ctl.state().game).toBeNull();
+    });
+});
+
+// ---------------------------------------------------------------------------
+// 8. Motor propi de la TV (worker simulat)
+// ---------------------------------------------------------------------------
+function makeWorkerFactory(opts) {
+    const o = opts || {};
+    const workers = [];
+    const factory = () => {
+        const w = {
+            sent: [], terminated: false, onmessage: null, searchTimer: null, hang: !!o.hang,
+            emit(line) { if (!w.terminated && w.onmessage) w.onmessage({ data: line }); },
+            postMessage(cmd) {
+                if (w.terminated) return;
+                w.sent.push(cmd);
+                if (cmd === 'uci') {
+                    setTimeout(() => {
+                        (o.uciLines || ['id name Fals', 'option name Skill Level type spin default 20 min 0 max 20']).forEach(l => w.emit(l));
+                        w.emit('uciok');
+                    }, 5);
+                } else if (cmd === 'isready') setTimeout(() => w.emit('readyok'), 1);
+                else if (cmd.indexOf('go ') === 0) {
+                    if (w.hang) return;
+                    const ms = parseInt((/movetime (\d+)/.exec(cmd) || [0, 100])[1], 10);
+                    const tag = w.sent.length;
+                    w.searchTimer = setTimeout(() => {
+                        w.emit('info depth 12 seldepth 14 multipv 1 score cp 25 nodes 10 pv e2e4 e7e5');
+                        w.emit('bestmove e2e4 ponder e7e5 #' + tag);
+                    }, ms);
+                } else if (cmd === 'stop') {
+                    clearTimeout(w.searchTimer);
+                    setTimeout(() => w.emit('bestmove d2d4'), 1);
+                }
+            },
+            terminate() { w.terminated = true; clearTimeout(w.searchTimer); }
+        };
+        workers.push(w);
+        return w;
+    };
+    return { factory, workers };
+}
+const JOB = (extra) => Object.assign({
+    tag: { gameId: 1, ply: 0, kind: 'move' }, position: 'position startpos',
+    strength: ['setoption name Skill Level value 3'], multipv: 1, go: 'go movetime 500', movetime: 500
+}, extra || {});
+
+describe('motor dedicat de la TV', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    test('llegeix les opcions amb `uci` i configura cada petició abans de calcular', async () => {
+        const wf = makeWorkerFactory();
+        const engine = TV.createTvEngine({ createWorker: wf.factory });
+        const p = engine.ready();
+        await jest.advanceTimersByTimeAsync(20);
+        const c = await p;
+        expect(c.mode).toBe('skill');
+        const r = engine.request(JOB());
+        await jest.advanceTimersByTimeAsync(600);
+        const res = await r;
+        expect(res.bestUci).toBe('e2e4');
+        expect(res.infos[1]).toEqual(expect.objectContaining({ depth: 12, type: 'cp', value: 25 }));
+        const sent = wf.workers[0].sent;
+        expect(sent.indexOf('setoption name Skill Level value 3')).toBeLessThan(sent.indexOf('go movetime 500'));
+        expect(sent.indexOf('ucinewgame')).toBeGreaterThan(-1);
+    });
+
+    test('cancel·lació: la cerca aturada es descarta i la següent rep el seu propi resultat', async () => {
+        const wf = makeWorkerFactory();
+        const engine = TV.createTvEngine({ createWorker: wf.factory });
+        const a = engine.request(JOB());
+        await jest.advanceTimersByTimeAsync(100);
+        engine.cancelAll();
+        const b = engine.request(JOB({ go: 'go movetime 300', movetime: 300 }));
+        await jest.advanceTimersByTimeAsync(400);
+        await expect(a).resolves.toBeNull();
+        const rb = await b;
+        // El «bestmove d2d4» de la cerca aturada no es cola a la petició nova.
+        expect(rb.bestUci).toBe('e2e4');
+    });
+
+    test('sortir amb una cerca en marxa i tornar de seguida: cap bloqueig ni reinici tardà', async () => {
+        const wf = makeWorkerFactory();
+        const engine = TV.createTvEngine({ createWorker: wf.factory });
+        const a = engine.request(JOB());
+        await jest.advanceTimersByTimeAsync(100);
+        engine.destroy();
+        await expect(a).resolves.toBeNull();
+        expect(wf.workers[0].terminated).toBe(true);
+        const b = engine.request(JOB());
+        await jest.advanceTimersByTimeAsync(600);
+        expect((await b).bestUci).toBe('e2e4');
+        // Passat el temporitzador de seguretat de la cerca vella, el worker nou continua viu.
+        await jest.advanceTimersByTimeAsync(20000);
+        expect(wf.workers).toHaveLength(2);
+        expect(wf.workers[1].terminated).toBe(false);
+        const c = engine.request(JOB());
+        await jest.advanceTimersByTimeAsync(600);
+        expect((await c).bestUci).toBe('e2e4');
+    });
+
+    test('worker penjat: temps màxim i reinici en la petició següent', async () => {
+        const wf = makeWorkerFactory({ hang: true });
+        const engine = TV.createTvEngine({ createWorker: wf.factory });
+        const a = engine.request(JOB());
+        await jest.advanceTimersByTimeAsync(500 + 10000 + 50);
+        await expect(a).resolves.toBeNull();
+        expect(wf.workers[0].terminated).toBe(true);
+        engine.request(JOB());
+        await jest.advanceTimersByTimeAsync(50);
+        expect(wf.workers).toHaveLength(2);
+    });
+
+    test('worker que no es pot crear: el motor queda marcat com a fallat', async () => {
+        const engine = TV.createTvEngine({ createWorker: () => { throw new Error('no'); } });
+        await expect(engine.ready()).resolves.toBeNull();
+        expect(engine.failed()).toBe(true);
+    });
+});

@@ -718,6 +718,7 @@ const NAVIGATION_SCREEN_IDS = [
     'daily-screen',
     'tutorial-screen',
     'guide-screen',
+    'sftv-screen',
     'stats-screen',
     'history-screen',
     'league-screen',
@@ -875,6 +876,11 @@ function navGoBack() {
         if (typeof closeDailyScreen === 'function') closeDailyScreen();
     } else if (current === 'tutorial-screen' || current === 'guide-screen') {
         if (window.ElTaulerTutorial && typeof window.ElTaulerTutorial.closeScreens === 'function') window.ElTaulerTutorial.closeScreens();
+        $('#start-screen').show();
+    } else if (current === 'sftv-screen') {
+        // Stockfish TV: atura el seu motor, els temporitzadors i la veu.
+        if (window.ElTaulerStockfishTV && typeof window.ElTaulerStockfishTV.closeScreen === 'function') window.ElTaulerStockfishTV.closeScreen();
+        else $('#sftv-screen').hide();
         $('#start-screen').show();
     }
     navStack.pop();
@@ -36083,6 +36089,8 @@ function isIdleForBackgroundPrep() {
 // (historial, obertures, etc.), no només al menú/estadístiques/ajustos.
 function isIdleForHieroglyphicPrep() {
     if ($('#game-screen').hasClass('active')) return false;
+    // Stockfish TV ja té el seu motor calculant: no n'hi afegim un altre.
+    if (window.ElTaulerStockfishTV && window.ElTaulerStockfishTV.isActive()) return false;
     if (hieroglyphicExerciseActive || openingLessonActive || openingErrorPracticeActive) return false;
     // A l'explorador el motor és per a l'usuari (avalua cada posició que toca).
     if (explorerActive) return false;
@@ -36218,6 +36226,21 @@ $(document).ready(() => {
     try { initSoundSettingsUi(); initDailyNotifySettingsUi(); } catch (e) { console.warn('[Dispositiu] init', e); }
     // Tutorials: «Aprèn a jugar» i «Guia d'El Tauler» (tutorial.js).
     try { if (window.ElTaulerTutorial) window.ElTaulerTutorial.init(); } catch (e) { console.warn('[Tutorial] init', e); }
+    // Stockfish TV (stockfishtv.js): estat i motor PROPIS. Només llegeix el
+    // nivell de l'usuari; mai no el modifica ni toca la partida personal.
+    try {
+        if (window.ElTaulerStockfishTV) window.ElTaulerStockfishTV.init({
+            createWorker: () => new Worker(STOCKFISH_URL),
+            getViewer: () => ({ calibrated: !isCalibrationRequired(), roc: currentElo }),
+            getCuratedOpenings: () => CURATED_OPENINGS,
+            getOpeningGraph: () => getOpeningPositionGraph(),
+            openExplorer: (fen, opts) => openExplorer(fen, opts),
+            navPush: (id) => navPush(id),
+            popNav: () => { navStack.pop(); },
+            goBack: () => navGoBack(),
+            onOpen: () => { try { requestBackgroundPrepAbort(); } catch (e) {} }
+        });
+    } catch (e) { console.warn('[Stockfish TV] init', e); }
     enablePremoveCancelGesture();
     // L'arrencada es fa després del primer pintat: quan s'obre una partida
     // amb rellotge, el worker sol estar llest abans de la primera jugada.
@@ -36238,6 +36261,7 @@ $(document).ready(() => {
             else if (__mode === 'daily') openDailyFromLink(__dailyId);
             else if (__mode === 'tutorial' && window.ElTaulerTutorial) window.ElTaulerTutorial.open();
             else if (__mode === 'guide' && window.ElTaulerTutorial) window.ElTaulerTutorial.openGuide();
+            else if (__mode === 'tv' && window.ElTaulerStockfishTV) window.ElTaulerStockfishTV.open();
         }, 0);
     }
     if (!window.__boardResizeBound) {

@@ -366,6 +366,42 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   etiqueta del bàner) i la «Guia d'El Tauler»: ids únics, text a cada targeta,
   accions dins del conjunt conegut i cobertura de totes les modalitats.
 
+- **`stockfishtv.test.js`** — secció 📺 **Stockfish TV** (`stockfishtv.js`).
+  **Rang del motor**: executa el `stockfish.js` REAL de l'app
+  (`scripts/engine-uci-options.js`, que també es pot llançar a mà) i en llegeix
+  la resposta a `uci`; si el motor declara `UCI_Elo` + `UCI_LimitStrength`, el
+  mínim de la TV ha de ser `max(800, mínim natiu)` i el màxim el natiu. El
+  binari inclòs (Stockfish 2019-08-15 Multi-Variant) **no declara cap de les
+  dues opcions**, i la prova comprova que la TV ho tracta com a incompatibilitat
+  explícita (mode `Skill Level` 0–20, sense etiquetar res com a Elo). Amb
+  respostes `uci` simulades es cobreixen els mínims 1350, 1320, 800 i 500 (que
+  queda a 800), l'absència de `UCI_LimitStrength`, un rang per sota de 800 i un
+  motor sense cap opció de força, i les ordres `setoption` de jugadors i anàlisi.
+  **Espectador**: objectiu = nivell + 200 amb la conversió existent
+  (`rocToEngineElo`), mínim de la TV sense nivell conegut, espectadors per sota
+  del mínim amb llenguatge senzill i ritme més lent, «Massa fàcil»/«Massa
+  difícil» en passos de 100 dins dels límits, preferències amb clau pròpia fora
+  de la sincronització i el nivell de l'usuari intacte. **Valoracions**:
+  normalització al punt de vista blanc, centipeons i mats mai barrejats,
+  anàlisi poc profunda marcada com a no fiable. **Finals** amb chess.js real:
+  mat, ofegat, material insuficient, repetició i cinquanta jugades.
+  **Comentaris** sobre posicions reals: forquilla amb escac (i el «guany» només
+  si l'anàlisi l'avala), enroc amb torres connectades de debò, peça atacada però
+  defensada (sense cap «guany»), peça clavada que no amenaça, peó que queda
+  penjat, recaptura, captura recuperable segons la millor resposta, alternativa
+  millor només amb anàlisi fiable i del mateix bàndol, mats anunciats,
+  coronació, desenvolupament i cadència (comentaris ocasionals sense
+  repeticions). **Text parlat** sense SAN ni símbols. **Veu** amb una
+  `speechSynthesis` SIMULADA: només veus `ca`, absència de veu catalana (mai una
+  castellana), veus que arriben tard (amb i sense `voiceschanged`), navegador
+  sense cap veu, cap cua de locucions, silenci immediat, temps màxim i error
+  `not-allowed`. **Bucle** amb un motor fals i temporitzadors simulats: nivell
+  fixat per partida i ajustos aplicats a la següent, final i partida nova,
+  comentari lligat a la posició visible, pausa i pestanya oculta sense càlcul ni
+  jugades duplicades (fins i tot amb un motor que ignora la cancel·lació),
+  sortida i tornada, obertura preparada identificada i alternada, avanç
+  coordinat amb el final de la locució i motor que no arrenca.
+
 ## Verificació al navegador
 
 A més de la suite de Jest, la modalitat Rival Antídot s'ha comprovat conduint
