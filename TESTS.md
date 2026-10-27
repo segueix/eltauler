@@ -400,7 +400,25 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   comentari lligat a la posició visible, pausa i pestanya oculta sense càlcul ni
   jugades duplicades (fins i tot amb un motor que ignora la cancel·lació),
   sortida i tornada, obertura preparada identificada i alternada, avanç
-  coordinat amb el final de la locució i motor que no arrenca.
+  coordinat amb el final de la locució i motor que no arrenca. També l'**Elo
+  estimat** de cada nivell 0–20 (inversa exacta de la relació que Stockfish 11
+  fa servir entre `UCI_Elo` i `Skill Level`, creixent i de ≈1350 a ≈2950), la
+  **barra de nivell** (valor de la partida següent, límits, i que la partida en
+  curs no canviï), l'objectiu de l'espectador sobre aquesta escala, la **veu
+  neuronal** del perfil amb prioritat sobre la del dispositiu i el retorn a la
+  veu catalana local si falla, i que l'àudio de cada comentari es **prepari
+  abans** de mostrar la jugada. El **motor dedicat** es prova amb un worker
+  simulat: ordres abans de calcular, cancel·lació sense resultats colats,
+  sortir i tornar de seguida sense bloquejos ni reinicis tardans, worker penjat
+  i worker que no es pot crear.
+- **`veuneural.test.js`** — veus neuronals **Matxa** (BSC, `veuneural.js`) amb
+  un `fetch` i un àudio SIMULATS (sense xarxa): les vuit veus, la conversió de
+  velocitat a durada, el lector SSE, el protocol Gradio de la demo (primer
+  l'accent a la sessió, després la síntesi amb la mateixa sessió; sessió
+  caducada refeta una sola vegada), i el reproductor: memòria cau (preparar per
+  endavant no sintetitza dues vegades) amb límit, cap cua de locucions, aturada
+  immediata, temps màxim, sense connexió i pausa d'un minut després d'una
+  fallada del servei.
 
 ## Verificació al navegador
 

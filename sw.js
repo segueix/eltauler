@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.9.124';
+const SW_VERSION = '3.9.125';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 // Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
 // versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
@@ -153,6 +153,9 @@ self.addEventListener('fetch', (event) => {
 
   // Firebase: passa directament sense cap intervenció del SW.
   if (FIREBASE_HOSTS.some((h) => url.indexOf(h) !== -1)) return;
+  // Veu neuronal Matxa (Hugging Face): flux SSE i àudios efímers; el SW no
+  // els ha de tallar (timeout de 8 s) ni desar a la cau.
+  if (url.indexOf('.hf.space/') !== -1) return;
 
   // Motor Stockfish: cache-first des de la cau persistent, perquè funcioni
   // OFFLINE encara que s'hagi actualitzat el SW (no es torna a baixar 1,5 MB).
