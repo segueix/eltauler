@@ -1712,8 +1712,10 @@ function buildHistoryReviewText(entry) {
 }
 
 
-// Lectura local de les ressenyes amb la veu del dispositiu. No envia cap text
-// fora de l'app: usa Web Speech API quan el navegador exposa speechSynthesis.
+// Lectura de les ressenyes. Amb una veu del dispositiu és LOCAL (Web Speech
+// API, cap text surt de l'app). Amb una veu neuronal Matxa (veuneural.js) el
+// text s'envia al servei en línia del BSC i, si no respon, es torna a la veu
+// del dispositiu.
 const REVIEW_TTS_STATE = {
     voicesReady: false,
     isSpeaking: false,
@@ -1725,13 +1727,34 @@ const REVIEW_TTS_STATE = {
     chunks: [],
     chunkIndex: 0,
     utterance: null,
-    pauseTimer: null
+    pauseTimer: null,
+    neuralToken: 0,
+    neuralActive: false,
+    neuralFailed: false
 };
 
 const REVIEW_TTS_PRESETS_KEY = 'eltauler_tts_presets';
 const REVIEW_TTS_DEFAULT_KEY = 'eltauler_tts_default_preset';
 const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
 const DEFAULT_REVIEW_TTS_PRESET = { id: 'default', name: 'Català natural', voiceURI: '', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
+// Perfil base amb veu NEURONAL (Matxa, BSC): molt més natural que les veus del
+// sistema. És el perfil per defecte mentre l'usuari no n'hagi triat cap altre.
+const NEURAL_REVIEW_TTS_PRESET = { id: 'matxa', name: 'Veu neuronal Matxa · Elia (central)', voiceURI: 'matxa:central:elia', pitch: 1, rate: 1, expressivity: 0.5, cadence: 0.5, builtin: true };
+
+function neuralTtsAvailable() {
+    return typeof window !== 'undefined' && !!window.ElTaulerVeuNeural && typeof window.Audio === 'function';
+}
+function isNeuralTtsVoice(voiceURI) {
+    return neuralTtsAvailable() && window.ElTaulerVeuNeural.isNeuralVoiceId(voiceURI);
+}
+function builtinReviewTtsPresets() {
+    return neuralTtsAvailable() ? [DEFAULT_REVIEW_TTS_PRESET, NEURAL_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
+}
+// Veu neuronal del perfil per defecte (la fa servir Stockfish TV), o null.
+function defaultNeuralTtsVoice() {
+    const p = getReviewTtsPresetById(getDefaultReviewTtsPresetId());
+    return isNeuralTtsVoice(p.voiceURI) ? { id: p.voiceURI, rate: p.rate || 1 } : null;
+}
 
 function reviewTtsSupported() {
     return typeof window !== 'undefined'
@@ -1847,7 +1870,7 @@ function writeReviewTtsPresets(presets) {
 }
 
 function allReviewTtsPresets() {
-    return [DEFAULT_REVIEW_TTS_PRESET].concat(readReviewTtsPresets());
+    return builtinReviewTtsPresets().concat(readReviewTtsPresets());
 }
 
 function getReviewTtsMode() {
@@ -1860,8 +1883,9 @@ function setReviewTtsMode(mode) {
 }
 
 function getDefaultReviewTtsPresetId() {
-    try { return localStorage.getItem(REVIEW_TTS_DEFAULT_KEY) || DEFAULT_REVIEW_TTS_PRESET.id; }
-    catch (e) { return DEFAULT_REVIEW_TTS_PRESET.id; }
+    const fallback = neuralTtsAvailable() ? NEURAL_REVIEW_TTS_PRESET.id : DEFAULT_REVIEW_TTS_PRESET.id;
+    try { return localStorage.getItem(REVIEW_TTS_DEFAULT_KEY) || fallback; }
+    catch (e) { return fallback; }
 }
 
 function setDefaultReviewTtsPresetId(id) {
@@ -1882,8 +1906,9 @@ function getEffectiveReviewTtsPreset() {
 
 function currentReviewTtsSettingsPreset() {
     const id = ($('#tts-preset-select').val() || '').trim();
+    const isBuiltin = builtinReviewTtsPresets().some(p => p.id === id);
     return {
-        id: id && id !== 'default' ? id : `tts_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+        id: id && !isBuiltin ? id : `tts_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         name: String($('#tts-preset-name').val() || '').trim() || 'Perfil de veu',
         voiceURI: String($('#tts-voice-select').val() || ''),
         pitch: Math.max(0.5, Math.min(2, (+$('#tts-pitch-range').val() || 100) / 100)),
@@ -1920,12 +1945,20 @@ function refreshReviewTtsSettingsUi() {
     const voiceSelect = $('#tts-voice-select');
     if (voiceSelect.length) {
         const current = voiceSelect.val() || '';
-        voiceSelect.empty().append($('<option></option>').val('').text('Automàtica en català'));
+        voiceSelect.empty();
+        if (neuralTtsAvailable()) {
+            const group = $('<optgroup></optgroup>').attr('label', 'Veus neuronals Matxa (BSC) · en línia');
+            window.ElTaulerVeuNeural.MATXA_VOICES.forEach(v => group.append($('<option></option>').val(v.id).text(`${v.name} (${v.accentLabel})`)));
+            voiceSelect.append(group);
+        }
+        const local = $('<optgroup></optgroup>').attr('label', 'Veus del dispositiu');
+        local.append($('<option></option>').val('').text('Automàtica en català'));
         if (reviewTtsSupported()) {
             (window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [])
                 .filter(v => /^ca([_-]|$)/i.test(v.lang || '') || /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
-                .forEach(v => voiceSelect.append($('<option></option>').val(v.voiceURI).text(v.name || 'Català')));
+                .forEach(v => local.append($('<option></option>').val(v.voiceURI).text(v.name || 'Català')));
         }
+        voiceSelect.append(local);
         voiceSelect.val(current);
     }
     applyReviewTtsPresetToSettings(getReviewTtsPresetById(presetSelect.val() || selected));
@@ -1947,7 +1980,7 @@ function saveCurrentReviewTtsPreset() {
 
 function deleteCurrentReviewTtsPreset() {
     const id = $('#tts-preset-select').val();
-    if (!id || id === DEFAULT_REVIEW_TTS_PRESET.id) { showToast('El perfil base no es pot eliminar.', 'warn'); return; }
+    if (!id || builtinReviewTtsPresets().some(p => p.id === id)) { showToast('Els perfils base no es poden eliminar.', 'warn'); return; }
     const presets = readReviewTtsPresets().filter(p => p.id !== id);
     writeReviewTtsPresets(presets);
     if (getDefaultReviewTtsPresetId() === id) setDefaultReviewTtsPresetId(DEFAULT_REVIEW_TTS_PRESET.id);
@@ -1987,6 +2020,7 @@ function updateReviewTtsButtons() {
         playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>${playLabel}`);
     });
     if (!supported) setReviewTtsStatus('Lectura local no disponible en aquest navegador.');
+    else if (REVIEW_TTS_STATE.isSpeaking && REVIEW_TTS_STATE.neuralActive) setReviewTtsStatus('Llegint amb la veu neuronal Matxa (en línia).');
     else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint amb la veu local en català.');
     else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
     else {
@@ -2012,6 +2046,9 @@ function stopReviewTts() {
     REVIEW_TTS_STATE.stopRequested = true;
     if (REVIEW_TTS_STATE.pauseTimer) { clearTimeout(REVIEW_TTS_STATE.pauseTimer); REVIEW_TTS_STATE.pauseTimer = null; }
     try { window.speechSynthesis.cancel(); } catch (e) {}
+    REVIEW_TTS_STATE.neuralToken++;
+    REVIEW_TTS_STATE.neuralActive = false;
+    try { if (neuralTtsAvailable()) window.ElTaulerVeuNeural.sharedSpeaker().stop(); } catch (e) {}
     resetReviewTtsState(false);
     updateReviewTtsButtons();
 }
@@ -2022,6 +2059,10 @@ function pauseReviewTts() {
         if (REVIEW_TTS_STATE.pauseTimer) {
             clearTimeout(REVIEW_TTS_STATE.pauseTimer);
             REVIEW_TTS_STATE.pauseTimer = null;
+            REVIEW_TTS_STATE.isPaused = true;
+            REVIEW_TTS_STATE.isSpeaking = false;
+        } else if (REVIEW_TTS_STATE.neuralActive) {
+            window.ElTaulerVeuNeural.sharedSpeaker().pause();
             REVIEW_TTS_STATE.isPaused = true;
             REVIEW_TTS_STATE.isSpeaking = false;
         } else if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
@@ -2038,6 +2079,8 @@ function speakReviewTtsChunk() {
     if (REVIEW_TTS_STATE.stopRequested) return;
     const chunk = REVIEW_TTS_STATE.chunks[REVIEW_TTS_STATE.chunkIndex];
     if (!chunk) { resetReviewTtsState(false); updateReviewTtsButtons(); return; }
+    if (speakReviewTtsChunkNeural(chunk)) return;
+    REVIEW_TTS_STATE.neuralActive = false;
     const utterance = new SpeechSynthesisUtterance(chunk.text || String(chunk));
     // Etiqueta genèrica: de cara a l'usuari és només «català», sense país.
     utterance.lang = 'ca';
@@ -2074,8 +2117,55 @@ function speakReviewTtsChunk() {
     updateReviewTtsButtons();
 }
 
+// Fragment llegit amb la veu neuronal del perfil (si n'és una i el servei
+// respon). Retorna false perquè el fragment es llegeixi amb la veu local.
+function speakReviewTtsChunkNeural(chunk) {
+    const preset = REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET;
+    if (!isNeuralTtsVoice(preset.voiceURI) || REVIEW_TTS_STATE.neuralFailed) return false;
+    const speaker = window.ElTaulerVeuNeural.sharedSpeaker();
+    if (!speaker.available()) return false;
+    const token = ++REVIEW_TTS_STATE.neuralToken;
+    const rate = clampTts(preset.rate || 1, 0.5, 2);
+    // Mentre sona aquest fragment, es prepara el següent: sense silencis llargs.
+    const next = REVIEW_TTS_STATE.chunks[REVIEW_TTS_STATE.chunkIndex + 1];
+    if (next) speaker.prefetch(next.text || String(next), preset.voiceURI, { rate });
+    REVIEW_TTS_STATE.neuralActive = true;
+    REVIEW_TTS_STATE.isSpeaking = true;
+    REVIEW_TTS_STATE.isPaused = false;
+    speaker.speak(chunk.text || String(chunk), preset.voiceURI, { rate, maxWaitMs: 600000 }).then((r) => {
+        if (REVIEW_TTS_STATE.stopRequested || token !== REVIEW_TTS_STATE.neuralToken) return;
+        if (r && r.spoken) {
+            REVIEW_TTS_STATE.chunkIndex += 1;
+            if (REVIEW_TTS_STATE.chunkIndex < REVIEW_TTS_STATE.chunks.length) {
+                const cadence = clampTts(preset.cadence ?? 0.5, 0, 1);
+                REVIEW_TTS_STATE.pauseTimer = setTimeout(speakReviewTtsChunk, Math.round((chunk.pauseBase || 0) * cadence));
+            } else {
+                REVIEW_TTS_STATE.neuralActive = false;
+                resetReviewTtsState(false);
+                updateReviewTtsButtons();
+            }
+            return;
+        }
+        if (r && r.reason === 'stopped') return;
+        // El servei no respon: la resta es llegeix amb la veu del dispositiu.
+        REVIEW_TTS_STATE.neuralFailed = true;
+        REVIEW_TTS_STATE.neuralActive = false;
+        showToast('La veu neuronal Matxa no respon ara mateix: continuo amb la veu del dispositiu.', 'warn');
+        speakReviewTtsChunk();
+    });
+    updateReviewTtsButtons();
+    return true;
+}
+
 function resumeReviewTtsIfPaused() {
     if (!REVIEW_TTS_STATE.isPaused) return false;
+    if (REVIEW_TTS_STATE.neuralActive) {
+        window.ElTaulerVeuNeural.sharedSpeaker().resume();
+        REVIEW_TTS_STATE.isPaused = false;
+        REVIEW_TTS_STATE.isSpeaking = true;
+        updateReviewTtsButtons();
+        return true;
+    }
     try {
         if (window.speechSynthesis.paused) window.speechSynthesis.resume();
         else speakReviewTtsChunk();
@@ -2091,6 +2181,7 @@ function beginReviewTts(rawText, source, presetOverride = null) {
     if (!text) { showToast('No hi ha text per llegir.', 'warn'); return; }
     stopReviewTts();
     REVIEW_TTS_STATE.stopRequested = false;
+    REVIEW_TTS_STATE.neuralFailed = false;
     REVIEW_TTS_STATE.lastText = text;
     REVIEW_TTS_STATE.source = source || null;
     REVIEW_TTS_STATE.activePreset = presetOverride || getEffectiveReviewTtsPreset();
@@ -36238,7 +36329,10 @@ $(document).ready(() => {
             navPush: (id) => navPush(id),
             popNav: () => { navStack.pop(); },
             goBack: () => navGoBack(),
-            onOpen: () => { try { requestBackgroundPrepAbort(); } catch (e) {} }
+            // Veu neuronal del perfil per defecte de Configuració › Veus de lectura.
+            getNeuralVoiceId: () => { const v = defaultNeuralTtsVoice(); return v ? v.id : null; },
+            getNeuralRate: () => { const v = defaultNeuralTtsVoice(); return v ? v.rate : 1; },
+            onOpen: () => { try { stopReviewTts(); requestBackgroundPrepAbort(); } catch (e) {} }
         });
     } catch (e) { console.warn('[Stockfish TV] init', e); }
     enablePremoveCancelGesture();

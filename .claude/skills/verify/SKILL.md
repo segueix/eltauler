@@ -61,6 +61,13 @@ Conduir amb Playwright + Chromium preinstal·lat
     la veu catalana només es pot provar substituint `window.speechSynthesis`
     amb un `addInitScript`. La pestanya oculta es simula redefinint
     `document.visibilityState` i llançant `visibilitychange`.
+11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
+    `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
+    directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i
+    fer la petició des de Node amb `NODE_USE_ENV_PROXY=1
+    NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt` (el `fetch` de Node llavors
+    passa pel proxy). Per saber si sona, embolcallar `window.Audio` en un
+    `addInitScript` i escoltar `playing`/`ended`.
 
 ## Fluxos útils
 

@@ -48,7 +48,9 @@ describe('rang de nivell a partir del que declara el motor', () => {
                 expect(real.mode).toBe('skill');
                 expect(real.min).toBe(parsed.options['Skill Level'].min);
                 expect(real.max).toBe(parsed.options['Skill Level'].max);
-                expect(TV.tvLevelLabel(real, 4).long).not.toMatch(/elo/i);
+                // Mai «Elo del motor»: només un Elo ESTIMAT, presentat com a tal.
+                expect(TV.tvLevelLabel(real, 4).long).toMatch(/Elo estimat/);
+                expect(TV.tvLevelLabel(real, 4).long).not.toMatch(/Elo aproximat del motor/);
             }
         }
     });
@@ -95,7 +97,26 @@ describe('rang de nivell a partir del que declara el motor', () => {
     test('etiqueta: «Elo aproximat del motor» només en mode Elo', () => {
         const elo = caps(ELO_LINES(1350, 2850));
         expect(TV.tvLevelLabel(elo, 1550).long).toBe('Elo aproximat del motor: 1550');
-        expect(TV.tvLevelLabel(SKILL_CAPS, 4).long).toBe('Habilitat del motor: 4 de 20');
+        expect(TV.tvLevelLabel(SKILL_CAPS, 4).long).toBe('Nivell 4 de 20 · Elo estimat ≈ ' + TV.tvSkillEloEstimate(4));
+        expect(TV.tvLevelLabel(SKILL_CAPS, 4).short).toBe('Nivell 4 · ≈' + TV.tvSkillEloEstimate(4));
+    });
+
+    test('Elo estimat per a cadascun dels nivells 0–20 (relació de Stockfish 11)', () => {
+        const scale = TV.tvLevelScale(SKILL_CAPS);
+        expect(scale).toHaveLength(21);
+        expect(scale[0]).toEqual({ value: 0, elo: 1350 });
+        expect(scale[20]).toEqual({ value: 20, elo: 2950 });
+        for (let i = 1; i < scale.length; i++) expect(scale[i].elo).toBeGreaterThan(scale[i - 1].elo);
+        // Inversa exacta de la fórmula de SF11: Skill Level = ((Elo − 1346,6) / 143,4)^(1/0,806).
+        [1, 5, 10, 18].forEach((l) => {
+            const back = Math.pow((TV.tvSkillEloEstimate(l) - 1346.6) / 143.4, 1 / 0.806);
+            expect(Math.abs(back - l)).toBeLessThan(0.15);
+        });
+        // En mode Elo natiu la barra va de 50 en 50 sobre el rang declarat.
+        const elo = TV.tvLevelScale(caps(ELO_LINES(1350, 2850)));
+        expect(elo[0].value).toBe(1350);
+        expect(elo[elo.length - 1].value).toBe(2850);
+        expect(TV.tvLevelScale(caps([]))).toEqual([]);
     });
 });
 
@@ -115,6 +136,29 @@ describe('objectiu adaptat a l\'espectador', () => {
         const w = (roc) => TV.tvViewerProfile({ calibrated: true, roc: roc }, elo1350);
         expect(TV.tvBaseTarget(elo1350, w(1000))).toBe(1350);
         expect(TV.tvBaseTarget(elo1350, w(1400))).toBe(1600);
+    });
+
+    test('escala nativa: objectiu = nivell amb l\'Elo estimat més proper a nivell + 200', () => {
+        const v = (roc) => TV.tvViewerProfile({ calibrated: true, roc: roc }, SKILL_CAPS);
+        expect(TV.tvBaseTarget(SKILL_CAPS, v(1400))).toBe(2);          // 1600 → nivell 2 (≈1600)
+        expect(TV.tvBaseTarget(SKILL_CAPS, v(900))).toBe(0);           // 1100 → per sota: nivell 0
+        expect(TV.tvBaseTarget(SKILL_CAPS, v(2900))).toBe(20);
+        // El mínim estimat del motor (≈1350) marca qui rep explicacions senzilles.
+        expect(v(1200).belowEngineMin).toBe(true);
+        expect(v(1200).tier).toBe('basic');
+        expect(v(1500).tier).toBe('mid');
+    });
+
+    test('barra de nivell: fixa el valor de la partida següent dins dels límits', () => {
+        const v = TV.tvViewerProfile({ calibrated: true, roc: 1400 }, SKILL_CAPS);
+        let prefs = TV.tvSetTargetPrefs(SKILL_CAPS, v, null, 8);
+        expect(TV.tvResolveTarget(SKILL_CAPS, v, prefs).value).toBe(8);
+        prefs = TV.tvSetTargetPrefs(SKILL_CAPS, v, prefs, 25);
+        expect(TV.tvResolveTarget(SKILL_CAPS, v, prefs).value).toBe(20);
+        prefs = TV.tvSetTargetPrefs(SKILL_CAPS, v, prefs, -3);
+        expect(TV.tvResolveTarget(SKILL_CAPS, v, prefs).value).toBe(0);
+        prefs = TV.tvAdjustPrefs(SKILL_CAPS, v, prefs, 'harder');
+        expect(TV.tvResolveTarget(SKILL_CAPS, v, prefs).value).toBe(1);
     });
 
     test('sense nivell conegut es comença pel mínim de la TV', () => {
@@ -588,6 +632,65 @@ describe('veu catalana opcional', () => {
         expect(v.status()).toBe('blocked');
     });
 
+    function fakeNeural(behaviour) {
+        const n = {
+            calls: [], prefetched: [], stops: 0, ok: true, speaking: false,
+            available: () => n.ok,
+            prefetch: (t, id) => n.prefetched.push([t, id]),
+            speak: (t, id, o) => { n.calls.push([t, id, o]); return Promise.resolve(behaviour ? behaviour(t) : { spoken: true, reason: 'end' }); },
+            stop: () => { n.stops++; },
+            isSpeaking: () => n.speaking
+        };
+        return n;
+    }
+
+    test('veu neuronal Matxa del perfil: té prioritat sobre la del dispositiu', async () => {
+        const synth = fakeSynth([CA]);
+        const neural = fakeNeural();
+        const v = TV.createTvVoice({ speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on',
+            neural: neural, getNeuralVoiceId: () => 'matxa:central:elia', getNeuralRate: () => 1.1 });
+        expect(v.engine()).toBe('neural');
+        await expect(v.speak('Escac al rei negre.')).resolves.toEqual({ spoken: true, reason: 'end' });
+        expect(neural.calls[0][1]).toBe('matxa:central:elia');
+        expect(neural.calls[0][2].rate).toBe(1.1);
+        expect(synth.spoken).toHaveLength(0);
+        v.prefetch('Les blanques han enrocat curt.');
+        expect(neural.prefetched[0]).toEqual(['Les blanques han enrocat curt.', 'matxa:central:elia']);
+        v.setOn(false);
+        expect(neural.stops).toBeGreaterThan(0);
+    });
+
+    test('si Matxa falla, es llegeix amb la veu catalana del dispositiu (mai una altra llengua)', async () => {
+        const synth = fakeSynth([CA, ES]);
+        const neural = fakeNeural(() => ({ spoken: false, reason: 'network' }));
+        const v = TV.createTvVoice({ speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on',
+            neural: neural, getNeuralVoiceId: () => 'matxa:central:elia' });
+        const p = v.speak('Escac al rei negre.');
+        await Promise.resolve(); await Promise.resolve();
+        expect(synth.spoken).toHaveLength(1);
+        expect(synth.spoken[0].voice).toBe(CA);
+        synth.finish();
+        await expect(p).resolves.toEqual({ spoken: true, reason: 'end' });
+        // Sense veu catalana al dispositiu i amb Matxa caigut: només text.
+        const neural2 = fakeNeural();
+        neural2.ok = false;
+        const v2 = TV.createTvVoice({ speechSynthesis: fakeSynth([ES]), SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on',
+            neural: neural2, getNeuralVoiceId: () => 'matxa:central:elia' });
+        expect(v2.status()).toBe('no-voice');
+        expect(v2.neuralUnavailable()).toBe(true);
+        await expect(v2.speak('Hola.')).resolves.toEqual({ spoken: false, reason: 'no-voice' });
+        expect(neural2.calls).toHaveLength(0);
+    });
+
+    test('sense perfil neuronal: es manté la veu del dispositiu', () => {
+        const neural = fakeNeural();
+        const v = TV.createTvVoice({ speechSynthesis: fakeSynth([CA]), SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on',
+            neural: neural, getNeuralVoiceId: () => null });
+        expect(v.engine()).toBe('system');
+        v.prefetch('Hola');
+        expect(neural.prefetched).toHaveLength(0);
+    });
+
     test('sense speechSynthesis: no suportada i sense errors', async () => {
         const v = TV.createTvVoice({});
         expect(v.status()).toBe('unsupported');
@@ -809,6 +912,40 @@ describe('bucle de Stockfish TV', () => {
         voice.setOn(true);
         ctl.close();
         expect(synth.current).toBeNull();
+    });
+
+    test('barra de nivell durant la partida: només canvia la següent', async () => {
+        const { ctl } = makeController({ engine: fakeEngine({ script: FOOLS }) });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(5000);
+        ctl.setNextLevel(9);
+        expect(ctl.state().game.level.value).toBe(0);
+        expect(ctl.state().nextLevel).toBe(9);
+        ctl.newGame();
+        expect(ctl.state().game.level.value).toBe(9);
+        expect(ctl.state().game.level.label.long).toBe('Nivell 9 de 20 · Elo estimat ≈ ' + TV.tvSkillEloEstimate(9));
+        ctl.close();
+    });
+
+    test('l\'àudio del comentari es prepara ABANS de mostrar la jugada', async () => {
+        const events = [];
+        const voice = {
+            isOn: () => true, status: () => 'ready', stop: () => events.push('stop'),
+            prefetch: (t) => events.push('prefetch:' + t),
+            speak: (t) => { events.push('speak:' + t); return Promise.resolve({ spoken: true, reason: 'end' }); }
+        };
+        const { ctl } = makeController({ engine: fakeEngine({ script: FOOLS }), voice: voice });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(40000);
+        const spoken = events.filter(e => e.indexOf('speak:') === 0);
+        expect(spoken.length).toBeGreaterThan(0);
+        spoken.forEach((sp) => {
+            const text = sp.slice(6);
+            const pre = events.indexOf('prefetch:' + text);
+            expect(pre).toBeGreaterThan(-1);
+            expect(pre).toBeLessThan(events.indexOf(sp));
+        });
+        ctl.close();
     });
 
     test('motor que no arrenca: error explícit, sense bucle', async () => {

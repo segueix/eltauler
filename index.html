@@ -3218,9 +3218,52 @@
         }
         .sftv-comment.is-empty { border-style: dashed; border-color: rgba(201,162,39,0.18); }
         .sftv-comment.is-empty::before { content: 'Els comentaris apareixeran aquí quan hi hagi alguna cosa clara a explicar.'; color: var(--text-secondary); font-size: 0.85rem; }
-        .sftv-controls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-        .sftv-controls .btn { flex: 1 1 140px; min-width: 0; margin: 0; }
-        .sftv-speed-label { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: var(--text-secondary); flex: 1 1 140px; white-space: nowrap; }
+        .sftv-controls { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; align-items: stretch; }
+        .sftv-controls .sftv-btn-try { grid-column: 1 / -1; }
+        .sftv-speed-label { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--text-secondary); white-space: nowrap; }
+        /* Botons de la TV: tipografia de lectura (no la de titulars), sense
+           partir paraules, i un color per a cada acció. */
+        .btn.sftv-btn {
+            font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.9rem; letter-spacing: 0;
+            text-transform: none; font-variant: normal; overflow-wrap: normal; word-break: normal; hyphens: none;
+            padding: 10px 12px; min-height: 2.6rem; margin: 0; gap: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.12);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.12);
+            transition: filter .15s ease, transform .1s ease;
+        }
+        .btn.sftv-btn:hover:not([disabled]) { filter: brightness(1.1); }
+        .btn.sftv-btn .btn-ic { flex: 0 0 auto; }
+        .sftv-btn-pause { background: linear-gradient(135deg, #d9a43a 0%, #a8731b 100%); color: #241808 !important; }
+        .sftv-btn-new { background: linear-gradient(135deg, #3b82c4 0%, #23578f 100%); }
+        .sftv-btn-try { background: linear-gradient(135deg, #8a5cc2 0%, #5d3b8e 100%); }
+        .sftv-btn-easy { background: linear-gradient(135deg, #3f9a62 0%, #286a41 100%); }
+        .sftv-btn-hard { background: linear-gradient(135deg, #d0674f 0%, #9c3f2d 100%); }
+        .sftv-link-btn { font: inherit; font-size: 0.8rem; background: none; border: none; padding: 0 0 0 4px; color: #9fd0ff; cursor: pointer; text-decoration: underline; }
+        /* Barra de nivell */
+        .sftv-board-row { display: flex; flex-direction: column; gap: 10px; }
+        .sftv-board-col { min-width: 0; flex: 1 1 auto; }
+        .sftv-ladder {
+            order: 2; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px;
+            background: linear-gradient(180deg, rgba(201,162,39,0.10), rgba(74,124,89,0.10)); border: 1px solid rgba(201,162,39,0.3);
+        }
+        .sftv-ladder-head { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-gold); }
+        .sftv-ladder-body { position: relative; display: flex; flex-direction: column; gap: 4px; }
+        .sftv-level-range { width: 100%; margin: 0; accent-color: var(--accent-gold); touch-action: none; cursor: pointer; height: 28px; }
+        .sftv-ladder-scale { display: flex; justify-content: space-between; padding: 0 6px; font-size: 0.68rem; color: var(--text-secondary); }
+        .sftv-tick { display: flex; flex-direction: column; align-items: center; line-height: 1.15; background: none; border: none; color: inherit; font: inherit; padding: 0; cursor: pointer; }
+        .sftv-tick .sftv-tick-elo { opacity: 0.8; }
+        .sftv-tick.is-minor { display: none; }
+        .sftv-tick.is-current { color: var(--text-primary); font-weight: 700; }
+        .sftv-tick.is-next { color: var(--accent-gold); font-weight: 700; }
+        .sftv-ladder-value { font-size: 0.82rem; color: var(--text-primary); }
+        body.device-desktop .sftv-board-row { flex-direction: row; align-items: stretch; }
+        body.device-desktop .sftv-ladder { order: 0; flex: 0 0 104px; padding: 10px 8px; align-items: stretch; }
+        body.device-desktop .sftv-ladder-body { flex: 1 1 auto; flex-direction: row; gap: 4px; min-height: 0; }
+        body.device-desktop .sftv-level-range { writing-mode: vertical-lr; direction: rtl; width: 22px; height: auto; flex: 0 0 22px; }
+        body.device-desktop .sftv-ladder-scale { flex-direction: column-reverse; padding: 6px 0; font-size: 0.66rem; }
+        body.device-desktop .sftv-tick { flex-direction: row; gap: 4px; justify-content: flex-start; white-space: nowrap; }
+        body.device-desktop .sftv-tick.is-minor { display: flex; }
+        body.device-desktop .sftv-tick .sftv-tick-num { min-width: 1.3em; text-align: right; }
+        body.device-desktop .sftv-ladder-value { text-align: center; font-size: 0.76rem; }
         .sftv-speed-label .select-control { flex: 1 1 auto; min-width: 0; }
         .sftv-opening { font-size: 0.88rem; text-align: left; padding: 8px 12px; border-radius: 10px; background: rgba(255,255,255,0.04); display: flex; flex-direction: column; gap: 2px; }
         .sftv-opening-kicker { font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-gold); }
@@ -3230,7 +3273,7 @@
         .sftv-level-current { font-weight: 700; font-size: 0.92rem; }
         .sftv-level-next { font-size: 0.82rem; color: var(--accent-gold); margin-top: 2px; }
         .sftv-level-actions { display: flex; gap: 8px; margin: 8px 0 6px; }
-        .sftv-level-actions .btn { flex: 1 1 0; min-width: 0; margin: 0; }
+        .sftv-level-actions .btn { flex: 1 1 0; min-width: 0; }
         .sftv-level-help { font-size: 0.76rem; color: var(--text-secondary); line-height: 1.35; margin-top: 4px; }
         .sftv-moves {
             max-height: 9.5em; overflow-y: auto; padding: 8px 10px; border-radius: 10px; text-align: left;
@@ -3243,7 +3286,7 @@
         .sftv-move.is-last { color: var(--accent-gold); font-weight: 700; }
         .sftv-moves-empty { color: var(--text-secondary); }
         .sftv-engine-note { font-size: 0.74rem; color: var(--text-secondary); line-height: 1.35; text-align: left; }
-        body.device-desktop .sftv-layout { display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(280px, 1fr); align-items: start; gap: 18px; }
+        body.device-desktop .sftv-layout { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); align-items: start; gap: 18px; }
         body.device-desktop #sftv-board, body.device-desktop .sftv-player { max-width: min(100%, 68vh); }
         body.device-desktop .sftv-moves { max-height: 14em; }
         body.epaper-mode .catalans-banner.sftv-banner { background: #fff; color: #000; border-color: #000; }
@@ -5974,20 +6017,33 @@
             </div>
             <div class="sftv-layout">
                 <div class="sftv-main">
-                    <div class="sftv-player" id="sftv-player-black">♚ Negres</div>
-                    <div class="board-container sftv-board-wrap">
-                        <div id="sftv-board"></div>
-                        <div class="sftv-result" id="sftv-result" role="status" aria-live="polite" style="display:none;"></div>
+                    <div class="sftv-board-row">
+                        <!-- Barra de nivell: el marcador tria el nivell de la PARTIDA SEGÜENT. -->
+                        <div class="sftv-ladder" id="sftv-ladder">
+                            <div class="sftv-ladder-head">Nivell</div>
+                            <div class="sftv-ladder-body">
+                                <input type="range" id="sftv-level-range" class="sftv-level-range" min="0" max="20" step="1" value="0" aria-label="Nivell de la partida següent" aria-describedby="sftv-ladder-value">
+                                <div class="sftv-ladder-scale" id="sftv-ladder-scale" aria-hidden="true"></div>
+                            </div>
+                            <div class="sftv-ladder-value" id="sftv-ladder-value" aria-live="polite"></div>
+                        </div>
+                        <div class="sftv-board-col">
+                            <div class="sftv-player" id="sftv-player-black">♚ Negres</div>
+                            <div class="board-container sftv-board-wrap">
+                                <div id="sftv-board"></div>
+                                <div class="sftv-result" id="sftv-result" role="status" aria-live="polite" style="display:none;"></div>
+                            </div>
+                            <div class="sftv-player" id="sftv-player-white">♔ Blanques</div>
+                            <div class="sftv-status" id="sftv-status" aria-live="polite">Preparant el motor…</div>
+                        </div>
                     </div>
-                    <div class="sftv-player" id="sftv-player-white">♔ Blanques</div>
-                    <div class="sftv-status" id="sftv-status" aria-live="polite">Preparant el motor…</div>
                 </div>
                 <div class="sftv-side">
                     <div class="sftv-comment is-empty" id="sftv-comment" aria-live="polite"></div>
                     <div class="sftv-controls">
-                        <button type="button" class="btn btn-secondary" id="sftv-pause"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg>Pausa</button>
-                        <button type="button" class="btn btn-secondary" id="sftv-new"><svg class="btn-ic" aria-hidden="true"><use href="#ic-reset"/></svg>Nova partida</button>
-                        <button type="button" class="btn btn-secondary" id="sftv-try"><svg class="btn-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>Prova aquesta posició</button>
+                        <button type="button" class="btn sftv-btn sftv-btn-pause" id="sftv-pause"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg>Pausa</button>
+                        <button type="button" class="btn sftv-btn sftv-btn-new" id="sftv-new"><svg class="btn-ic" aria-hidden="true"><use href="#ic-reset"/></svg>Nova partida</button>
+                        <button type="button" class="btn sftv-btn sftv-btn-try" id="sftv-try"><svg class="btn-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>Prova aquesta posició</button>
                         <label class="sftv-speed-label" for="sftv-speed">Ritme
                             <select id="sftv-speed" class="select-control">
                                 <option value="slow">Lent</option>
@@ -5999,10 +6055,10 @@
                     <div class="sftv-opening" id="sftv-opening" style="display:none;"></div>
                     <div class="sftv-level-card">
                         <div class="sftv-level-current" id="sftv-level-current">Preparant el motor…</div>
-                        <div class="sftv-level-next" id="sftv-level-next" style="display:none;"></div>
+                        <div class="sftv-level-next" id="sftv-level-next" style="display:none;"><span id="sftv-level-next-text"></span> <button type="button" class="sftv-link-btn" id="sftv-level-apply">Comença-la ara ›</button></div>
                         <div class="sftv-level-actions">
-                            <button type="button" class="btn btn-secondary" id="sftv-too-easy" title="Puja el nivell de la partida següent">Massa fàcil</button>
-                            <button type="button" class="btn btn-secondary" id="sftv-too-hard" title="Abaixa el nivell de la partida següent">Massa difícil</button>
+                            <button type="button" class="btn sftv-btn sftv-btn-easy" id="sftv-too-easy" title="Puja el nivell de la partida següent">▲ Massa fàcil</button>
+                            <button type="button" class="btn sftv-btn sftv-btn-hard" id="sftv-too-hard" title="Abaixa el nivell de la partida següent">▼ Massa difícil</button>
                         </div>
                         <div class="sftv-level-help" id="sftv-level-help"></div>
                         <div class="sftv-level-help" id="sftv-viewer-note" style="display:none;"></div>
@@ -6165,7 +6221,8 @@
 
             <div class="settings-panel">
                 <div class="settings-title">🔊 Veus de lectura</div>
-                <div class="setting-help" style="margin-bottom:10px;">Crea perfils locals per llegir ressenyes i diagnòstics: tria veu del dispositiu, timbre més greu o agut i velocitat. Es desen només al teu navegador.</div>
+                <div class="setting-help" style="margin-bottom:10px;">Crea perfils per llegir ressenyes, diagnòstics i els comentaris de Stockfish TV: tria la veu, el timbre i la velocitat. Els perfils es desen només al teu navegador.</div>
+                <div class="setting-help" style="margin-bottom:10px;">🎙️ <strong>Veus neuronals Matxa</strong> (BSC, projecte Aina; la comparativa de síntesi en català de Softcatalà la recomana com el model nou de referència): molt més naturals que les del dispositiu, amb accent central, nord-occidental, valencià i balear. Funcionen <strong>en línia</strong>: el text que es llegeix s'envia al servei del BSC. Sense connexió es fa servir la veu del dispositiu. El timbre i l'expressivitat només s'apliquen a les veus del dispositiu.</div>
                 <div class="setting-row">
                     <div class="setting-label">Ús per defecte</div>
                     <select id="tts-preset-mode" class="select-control">
@@ -6178,7 +6235,7 @@
                     <select id="tts-preset-select" class="select-control"></select>
                 </div>
                 <div class="setting-row">
-                    <div class="setting-label">Veu del dispositiu</div>
+                    <div class="setting-label">Veu</div>
                     <select id="tts-voice-select" class="select-control"></select>
                 </div>
                 <div class="setting-row">
@@ -8255,19 +8312,20 @@
     <script src="obertures.js?v=1.0.3"></script>
     <script src="core.js?v=1.0.33"></script>
     <script src="sons.js?v=1.0.0"></script>
-    <script src="tutorial.js?v=1.0.1"></script>
-    <script src="stockfishtv.js?v=1.0.0"></script>
+    <script src="tutorial.js?v=1.0.2"></script>
+    <script src="veuneural.js?v=1.0.0"></script>
+    <script src="stockfishtv.js?v=1.1.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
     <script>
-        window.APP_VERSION = '1.0.35';
+        window.APP_VERSION = '1.0.36';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.100"></script>
+    <script src="app.js?v=1.0.101"></script>
 
     <!-- Service Worker Registration -->
     <script>

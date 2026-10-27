@@ -203,15 +203,47 @@
                 + (caps.mode === 'skill' ? ' Els jugadors fan servir l\'opció nativa «Skill Level» (' + caps.min + '–' + caps.max + '), que no és cap Elo.' : '');
         }
         if (caps.mode === 'skill') {
-            return 'Aquest motor no declara ' + missing + ', així que no se li pot fixar cap Elo. Els jugadors fan servir l\'opció nativa «Skill Level» (' + caps.min + '–' + caps.max + '): és una escala del motor, no cap Elo.';
+            return 'Aquest motor no declara ' + missing + ', així que no se li pot fixar cap Elo. Els jugadors fan servir l\'opció nativa «Skill Level» (' + caps.min + '–' + caps.max + '). L\'Elo de cada nivell és una estimació orientativa (la relació que Stockfish 11 fa servir entre UCI_Elo i Skill Level), no un Elo FIDE.';
         }
         return 'Aquest motor no declara ' + missing + ' ni «Skill Level»: els dos jugadors juguen a força plena i el nivell no es pot ajustar.';
+    }
+
+    // Elo ESTIMAT de cada nivell de l'escala nativa «Skill Level». El motor
+    // inclòs no declara cap Elo; com a referència orientativa s'usa la relació
+    // que Stockfish 11 (gener del 2020, la versió publicada més propera al
+    // binari del 2019, amb el mateix algorisme de Skill Level) fa servir per
+    // convertir UCI_Elo en Skill Level: nivell = ((Elo − 1346,6) / 143,4)^(1/0,806).
+    // Aquí s'aplica a la inversa i s'arrodoneix a la desena. No és cap Elo FIDE
+    // ni una mesura d'aquest binari amb aquest temps de reflexió.
+    function tvSkillEloEstimate(level) {
+        const l = clamp(isNum(level) ? level : 0, 0, 20);
+        return Math.round((1346.6 + 143.4 * Math.pow(l, 0.806)) / 10) * 10;
+    }
+
+    // Elo (natiu o estimat) d'un valor de nivell, per a les etiquetes.
+    function tvLevelElo(caps, value) {
+        if (!caps || caps.mode === 'none' || !isNum(value)) return null;
+        return caps.mode === 'elo' ? Math.round(value) : tvSkillEloEstimate(value);
+    }
+
+    // Graella de valors de la barra de nivell.
+    function tvLevelScale(caps) {
+        if (!caps || caps.mode === 'none') return [];
+        const out = [];
+        if (caps.mode === 'elo') {
+            for (let v = caps.min; v <= caps.max; v += 50) out.push({ value: v, elo: v });
+            if (out[out.length - 1].value !== caps.max) out.push({ value: caps.max, elo: caps.max });
+            return out;
+        }
+        for (let v = caps.min; v <= caps.max; v++) out.push({ value: v, elo: tvSkillEloEstimate(v) });
+        return out;
     }
 
     function tvLevelLabel(caps, value) {
         if (!caps || caps.mode === 'none' || !isNum(value)) return { short: 'Força plena', long: 'Força del motor sense limitar' };
         if (caps.mode === 'elo') return { short: '≈ ' + value, long: 'Elo aproximat del motor: ' + value };
-        return { short: 'Habilitat ' + value + '/' + caps.max, long: 'Habilitat del motor: ' + value + ' de ' + caps.max };
+        const elo = tvSkillEloEstimate(value);
+        return { short: 'Nivell ' + value + ' · ≈' + elo, long: 'Nivell ' + value + ' de ' + caps.max + ' · Elo estimat ≈ ' + elo };
     }
 
     // Ordres UCI per configurar un jugador o l'anàlisi (sempre explícites:
@@ -242,7 +274,8 @@
         const roc = known ? Math.round(input.roc) : null;
         // «Mínim del motor»: l'Elo mínim de la TV si n'hi ha; si el motor no
         // admet Elo, el mínim nominal de la TV (800).
-        const floor = (caps && caps.mode === 'elo') ? caps.min : TV_CONFIG.ELO_FLOOR;
+        const floor = (caps && caps.mode === 'elo') ? caps.min
+            : ((caps && caps.mode === 'skill') ? Math.max(TV_CONFIG.ELO_FLOOR, tvSkillEloEstimate(caps.min)) : TV_CONFIG.ELO_FLOOR);
         const belowEngineMin = known && roc < floor;
         let tier;
         if (!known || belowEngineMin) tier = 'basic';
@@ -255,18 +288,22 @@
     //   elo   → conversió existent ROC→UCI_Elo (rocToEngineElo de core.js) sobre
     //           nivell + 200, dins del rang DECLARAT. Per sota del mínim, la
     //           conversió el deixa al mínim: el ROC no es fa passar per Elo.
-    //   skill → ordenació HEURÍSTICA sobre l'escala nativa (un pas per cada 100
-    //           punts per sobre de 800): no és cap equivalència d'Elo.
+    //   skill → la mateixa conversió sobre el rang d'Elo ESTIMAT de l'escala
+    //           nativa i el nivell amb l'Elo estimat més proper.
     function tvBaseTarget(caps, viewer) {
         if (!caps || caps.mode === 'none') return null;
         if (!viewer || !viewer.known) return caps.min;
         const wanted = viewer.roc + TV_CONFIG.VIEWER_MARGIN;
-        if (caps.mode === 'elo') {
-            const Core = getCore();
-            if (Core && typeof Core.rocToEngineElo === 'function') return Core.rocToEngineElo(wanted, caps.min, caps.max);
-            return clamp(Math.round(wanted), caps.min, caps.max);
+        const Core = getCore();
+        const convert = (v, min, max) => (Core && typeof Core.rocToEngineElo === 'function')
+            ? Core.rocToEngineElo(v, min, max) : clamp(Math.round(v), min, max);
+        if (caps.mode === 'elo') return convert(wanted, caps.min, caps.max);
+        const target = convert(wanted, tvSkillEloEstimate(caps.min), tvSkillEloEstimate(caps.max));
+        let best = caps.min;
+        for (let l = caps.min; l <= caps.max; l++) {
+            if (Math.abs(tvSkillEloEstimate(l) - target) < Math.abs(tvSkillEloEstimate(best) - target)) best = l;
         }
-        return clamp(Math.round((wanted - TV_CONFIG.ELO_FLOOR) / 100), caps.min, caps.max);
+        return best;
     }
 
     function tvCapsSignature(caps) {
@@ -297,6 +334,18 @@
 
     // «Massa fàcil» puja el nivell; «Massa difícil» l'abaixa. Retorna les
     // preferències noves (no toca la partida en curs: s'aplica a la següent).
+    // Fixa directament l'objectiu de la partida següent (barra de nivell).
+    function tvSetTargetPrefs(caps, viewer, prefs, value) {
+        const p = tvNormalizePrefs(prefs);
+        if (!caps || caps.mode === 'none' || !isNum(value)) return p;
+        const current = tvResolveTarget(caps, viewer, p);
+        const step = caps.mode === 'elo' ? 1 : caps.step;
+        const next = clamp(Math.round(value / step) * step, caps.min, caps.max);
+        const offsets = Object.assign({}, p.offsets);
+        offsets[tvCapsSignature(caps)] = next - current.base;
+        return Object.assign({}, p, { offsets: offsets });
+    }
+
     function tvAdjustPrefs(caps, viewer, prefs, direction) {
         const p = tvNormalizePrefs(prefs);
         if (!caps || caps.mode === 'none') return p;
@@ -830,14 +879,25 @@
     }
 
     // env = { speechSynthesis, SpeechSynthesisUtterance, setTimeout,
-    //         clearTimeout, loadPref(), savePref(v), onChange() }
+    //         clearTimeout, loadPref(), savePref(v), onChange(),
+    //         neural (veuneural.js), getNeuralVoiceId(), getNeuralRate() }
+    // Si el perfil de veu per defecte de la Configuració és una veu neuronal
+    // Matxa, es fa servir aquesta; si falla (sense xarxa, servei aturat), es
+    // torna a la veu catalana del dispositiu i, si tampoc n'hi ha, només text.
     function createTvVoice(env) {
         const e = env || {};
         const synth = e.speechSynthesis || null;
         const Utter = e.SpeechSynthesisUtterance || null;
         const setT = e.setTimeout || ((fn, ms) => setTimeout(fn, ms));
         const clearT = e.clearTimeout || ((id) => clearTimeout(id));
-        const supported = !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
+        const neural = e.neural || null;
+        const neuralId = () => {
+            try { return (neural && typeof e.getNeuralVoiceId === 'function') ? (e.getNeuralVoiceId() || null) : null; } catch (err) { return null; }
+        };
+        const neuralRate = () => { try { return typeof e.getNeuralRate === 'function' ? e.getNeuralRate() : 1; } catch (err) { return 1; } };
+        const neuralReady = () => !!(neuralId() && neural.available());
+        const synthSupported = !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
+        const supported = synthSupported || !!neural;
         let pref = typeof e.loadPref === 'function' ? e.loadPref() : null;
         if (pref !== 'on' && pref !== 'off') pref = null;
         let voice = null;
@@ -850,7 +910,7 @@
         const emit = () => { try { if (typeof e.onChange === 'function') e.onChange(api.status()); } catch (err) {} };
 
         function refreshVoices() {
-            if (!supported) return;
+            if (!synthSupported) return;
             let list = [];
             try { list = synth.getVoices() || []; } catch (err) { list = []; }
             if (list.length) voicesSeen = true;
@@ -865,20 +925,39 @@
             entry.resolve({ spoken: spoken, reason: reason });
         }
 
+        let speakSeq = 0;
         function stop() {
+            speakSeq++;
             const entry = current;
             if (entry) finish(entry, false, 'stopped');
-            if (supported) { try { synth.cancel(); } catch (err) {} }
+            if (neural) { try { neural.stop(); } catch (err) {} }
+            if (synthSupported) { try { synth.cancel(); } catch (err) {} }
         }
 
         function speak(text, opts) {
             const o = opts || {};
             if (!supported) return Promise.resolve({ spoken: false, reason: 'unsupported' });
             if (pref !== 'on') return Promise.resolve({ spoken: false, reason: 'off' });
-            if (!voice) return Promise.resolve({ spoken: false, reason: 'no-voice' });
             if (!text) return Promise.resolve({ spoken: false, reason: 'empty' });
             // Una sola locució viva: la nova substitueix l'anterior.
             stop();
+            const seq = speakSeq;
+            if (neuralReady()) {
+                return neural.speak(text, neuralId(), { rate: neuralRate(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
+                    .then((r) => {
+                        if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
+                        if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
+                        emit();
+                        // La veu neuronal ha fallat: veu del dispositiu, si n'hi ha.
+                        return voice ? speakSystem(text, o) : { spoken: false, reason: 'neural-failed' };
+                    });
+            }
+            if (!voice) return Promise.resolve({ spoken: false, reason: 'no-voice' });
+            return speakSystem(text, o);
+        }
+
+        function speakSystem(text, o) {
+            if (!synthSupported || !voice) return Promise.resolve({ spoken: false, reason: 'no-voice' });
             return new Promise((resolve) => {
                 let u;
                 try { u = new Utter(text); } catch (err) { resolve({ spoken: false, reason: 'exception' }); return; }
@@ -906,14 +985,27 @@
             supported: supported,
             status() {
                 if (!supported) return 'unsupported';
-                if (!voice) return (voicesSeen || voicesSettled) ? 'no-voice' : 'loading';
-                return blocked ? 'blocked' : 'ready';
+                if (blocked) return 'blocked';
+                if (neuralReady()) return 'ready';
+                if (!voice) return (!synthSupported || voicesSeen || voicesSettled) ? 'no-voice' : 'loading';
+                return 'ready';
             },
+            // Quina veu sonarà ara: 'neural', 'system' o null.
+            engine() { return neuralReady() ? 'neural' : (voice ? 'system' : null); },
+            // La veu neuronal triada no està disponible (sense xarxa o servei aturat).
+            neuralUnavailable() { return !!(neuralId() && !neural.available()); },
+            prefetch(text) { if (pref === 'on' && text && neuralReady()) neural.prefetch(text, neuralId(), { rate: neuralRate() }); },
             pref() { return pref; },
             isOn() { return pref === 'on'; },
             needsActivation() { return pref === null; },
-            voiceName() { return voice ? (voice.name || voice.lang) : null; },
-            isSpeaking() { return !!current; },
+            voiceName() {
+                if (neuralReady()) {
+                    const V = root && root.ElTaulerVeuNeural;
+                    return (V && V.voiceLabel(neuralId())) || 'Matxa';
+                }
+                return voice ? (voice.name || voice.lang) : null;
+            },
+            isSpeaking() { return !!current || !!(neural && neural.isSpeaking()); },
             setOn(on) {
                 pref = on ? 'on' : 'off';
                 if (typeof e.savePref === 'function') { try { e.savePref(pref); } catch (err) {} }
@@ -926,7 +1018,7 @@
             stop: stop
         };
 
-        if (supported) {
+        if (synthSupported) {
             refreshVoices();
             // Les veus sovint arriben tard: escolta voiceschanged sense trepitjar
             // els altres oients de l'app i torna a mirar uns quants cops.
@@ -1332,6 +1424,12 @@
                     after = await analyze(g, afterUci, ply + 1, applied.fen, epoch);
                     if (!alive(epoch) || S.game !== g) return;
                 }
+                // El comentari es decideix ARA (no depèn de res que passi durant
+                // l'espera) i així la veu es pot preparar mentre es veu la jugada
+                // anterior: quan surti la jugada, l'àudio ja hi és.
+                const plan = planMove(g, uci, fenBefore, prepared, before, after);
+                if (!plan) { fail('illegal'); return; }
+                if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') d.voice.prefetch(tvSpeechText(plan.chosen.text));
 
                 // Espera la visualització de la jugada anterior i la seva locució.
                 const waitMs = S.nextRevealAt - now();
@@ -1344,28 +1442,43 @@
                 }
                 // La posició visible ha de ser exactament la del càlcul.
                 if (g.chess.fen() !== fenBefore) return;
-                reveal(g, uci, fenBefore, prepared, before, after, epoch);
+                reveal(g, uci, prepared, plan, epoch);
             }
             if (alive(epoch) && S.game === g && g.end) scheduleNextGame(g, epoch);
         }
 
-        function reveal(g, uci, fenBefore, prepared, before, after, epoch) {
+        // Calcula la jugada i el seu comentari sense tocar la partida visible
+        // (sobre una còpia amb tot l'historial, per a la repetició i els finals).
+        function planMove(g, uci, fenBefore, prepared, before, after) {
             const ply = g.moves.length;
             const prevMove = ply ? g.moves[ply - 1].verbose : null;
-            const mv = g.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
-            if (!mv) { fail('illegal'); return; }
-            const fenAfter = g.chess.fen();
-            g.uci.push(uci);
-            const end = tvGameEnd(g.chess);
-            const entry = { ply: ply, san: mv.san, uci: uci, color: mv.color, from: mv.from, to: mv.to, prepared: !!prepared, fen: fenAfter, verbose: mv };
-            g.moves.push(entry);
-            if (!g.identified || ply < 30) g.identified = identifyOpening(g) || g.identified;
+            const copy = new d.ChessCtor();
+            for (const u of g.uci) {
+                if (!copy.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : 'q' })) return null;
+            }
+            const mv = copy.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
+            if (!mv) return null;
+            const fenAfter = copy.fen();
+            const end = tvGameEnd(copy);
             const candidates = tvCommentCandidates({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply
             });
-            const chosen = tvChooseComment(candidates, g.comments, ply, mv.color);
+            return { ply: ply, fenAfter: fenAfter, end: end, chosen: tvChooseComment(candidates, g.comments, ply, mv.color) };
+        }
+
+        function reveal(g, uci, prepared, plan, epoch) {
+            const ply = g.moves.length;
+            const mv = g.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
+            if (!mv || ply !== plan.ply) { fail('illegal'); return; }
+            const fenAfter = g.chess.fen();
+            g.uci.push(uci);
+            const end = plan.end;
+            const entry = { ply: ply, san: mv.san, uci: uci, color: mv.color, from: mv.from, to: mv.to, prepared: !!prepared, fen: fenAfter, verbose: mv };
+            g.moves.push(entry);
+            if (!g.identified || ply < 30) g.identified = identifyOpening(g) || g.identified;
+            const chosen = plan.chosen;
             g.end = end;
             g.comment = null;
             if (chosen) {
@@ -1475,6 +1588,13 @@
                 savePrefs();
                 render();
             },
+            // Barra de nivell: fixa l'objectiu de la PARTIDA SEGÜENT.
+            setNextLevel(value) {
+                if (!S.caps) return;
+                prefs = tvSetTargetPrefs(S.caps, viewer(), prefs, value);
+                savePrefs();
+                render();
+            },
             // Només canvia l'objectiu de la PARTIDA SEGÜENT.
             adjust(direction) {
                 if (!S.caps) return;
@@ -1522,11 +1642,26 @@
         return !!(el && el.style.display !== 'none');
     }
 
+    let boardObserver = null;
+    let boardWidth = 0;
     function buildBoard() {
         if (board || typeof root.Chessboard !== 'function' || !$id('sftv-board')) return;
         board = root.Chessboard('sftv-board', { position: 'start', draggable: false, pieceTheme: PIECE_THEME, moveSpeed: 350 });
+        // El tauler es torna a mesurar sempre que canvia l'amplada disponible
+        // (p. ex. quan apareix la barra de nivell o es gira el mòbil).
+        const wrap = $id('sftv-board') && $id('sftv-board').parentElement;
+        if (wrap && typeof root.ResizeObserver === 'function') {
+            boardObserver = new root.ResizeObserver((entries) => {
+                const w = Math.round(entries[0].contentRect.width);
+                if (w && w !== boardWidth) { boardWidth = w; resizeBoard(); }
+            });
+            boardObserver.observe(wrap);
+        }
     }
     function destroyBoard() {
+        try { if (boardObserver) boardObserver.disconnect(); } catch (e) {}
+        boardObserver = null;
+        boardWidth = 0;
         try { if (board && board.destroy) board.destroy(); } catch (e) {}
         board = null;
     }
@@ -1564,8 +1699,15 @@
         if (note) {
             let text = '';
             if (!voice.supported) text = 'Aquest navegador no pot llegir els comentaris en veu alta.';
-            else if (status === 'no-voice' && on) text = 'No hi ha cap veu catalana disponible en aquest dispositiu';
-            else if (status === 'blocked' && on) text = 'El navegador ha aturat la veu: toca el botó de veu per tornar-la a activar.';
+            else if (status === 'no-voice' && on) {
+                text = voice.neuralUnavailable()
+                    ? 'La veu neuronal Matxa no respon ara mateix i no hi ha cap veu catalana disponible en aquest dispositiu'
+                    : 'No hi ha cap veu catalana disponible en aquest dispositiu';
+            } else if (status === 'blocked' && on) text = 'El navegador ha aturat la veu: toca el botó de veu per tornar-la a activar.';
+            else if (on && voice.neuralUnavailable() && voice.engine() === 'system') text = 'La veu neuronal Matxa no respon ara mateix: es llegeix amb la veu del dispositiu.';
+            else if (on && voice.engine()) {
+                text = 'Veu: ' + voice.voiceName() + (voice.engine() === 'neural' ? ' · en línia (BSC). Es canvia a Configuració › Veus de lectura.' : ' · del dispositiu.');
+            }
             note.textContent = text;
             note.style.display = text ? '' : 'none';
         }
@@ -1587,12 +1729,14 @@
         const help = $id('sftv-level-help');
         const easy = $id('sftv-too-easy');
         const hard = $id('sftv-too-hard');
-        if (cur) cur.textContent = g ? (g.level.label.long + (caps && caps.mode !== 'none' ? ' (tots dos jugadors)' : '')) : 'Preparant el motor…';
+        if (cur) cur.textContent = g ? ('Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' ? ' (tots dos jugadors)' : '')) : 'Preparant el motor…';
         if (next) {
             const pending = caps && caps.mode !== 'none' && g && state.nextLevel !== null && state.nextLevel !== g.level.value;
-            next.textContent = pending ? 'Partida següent: ' + tvLevelLabel(caps, state.nextLevel).short : '';
+            const nextText = $id('sftv-level-next-text');
+            if (nextText) nextText.textContent = pending ? 'Partida següent: ' + tvLevelLabel(caps, state.nextLevel).long + '.' : '';
             next.style.display = pending ? '' : 'none';
         }
+        renderLadder(state);
         if (help) {
             let text = '';
             if (caps && caps.mode === 'elo') text = 'És un objectiu de força configurat al motor (UCI_Elo ' + caps.min + '–' + caps.max + '), no una equivalència garantida amb l\'Elo FIDE.';
@@ -1610,6 +1754,46 @@
             else if (v.belowEngineMin) t = 'El motor no juga més fluix que aquest mínim: per això els comentaris són més senzills i el ritme més pausat.';
             viewerNote.textContent = t;
             viewerNote.style.display = t ? '' : 'none';
+        }
+    }
+
+    let ladderSignature = null;
+    function renderLadder(state) {
+        const caps = state.caps;
+        const ladder = $id('sftv-ladder');
+        const range = $id('sftv-level-range');
+        const scaleBox = $id('sftv-ladder-scale');
+        const value = $id('sftv-ladder-value');
+        if (!ladder || !range || !scaleBox) return;
+        const scale = tvLevelScale(caps);
+        ladder.style.display = scale.length ? '' : 'none';
+        if (!scale.length) return;
+        const sig = tvCapsSignature(caps);
+        if (sig !== ladderSignature) {
+            ladderSignature = sig;
+            range.min = String(caps.min);
+            range.max = String(caps.max);
+            range.step = caps.mode === 'elo' ? '50' : '1';
+            const every = Math.max(1, Math.round(scale.length / 5));
+            scaleBox.innerHTML = scale.map((t, i) => {
+                const major = i === 0 || i === scale.length - 1 || i % every === 0;
+                const num = caps.mode === 'elo' ? '' : '<span class="sftv-tick-num">' + t.value + '</span>';
+                return '<button type="button" tabindex="-1" class="sftv-tick' + (major ? '' : ' is-minor') + '" data-level="' + t.value + '">'
+                    + num + '<span class="sftv-tick-elo">≈' + t.elo + '</span></button>';
+            }).join('');
+        }
+        const g = state.game;
+        const nextVal = state.nextLevel;
+        if (nextVal !== null && document.activeElement !== range) range.value = String(nextVal);
+        scaleBox.querySelectorAll('.sftv-tick').forEach((el) => {
+            const v = Number(el.getAttribute('data-level'));
+            el.classList.toggle('is-current', !!(g && g.level.value === v));
+            el.classList.toggle('is-next', v === nextVal);
+        });
+        range.setAttribute('aria-valuetext', tvLevelLabel(caps, Number(range.value)).long);
+        if (value) {
+            const shown = Number(range.value);
+            value.textContent = 'Següent: ' + tvLevelLabel(caps, shown).short;
         }
     }
 
@@ -1747,6 +1931,9 @@
         voice = createTvVoice({
             speechSynthesis: root.speechSynthesis,
             SpeechSynthesisUtterance: root.SpeechSynthesisUtterance,
+            neural: (root.ElTaulerVeuNeural && typeof root.Audio === 'function') ? root.ElTaulerVeuNeural.sharedSpeaker() : null,
+            getNeuralVoiceId: () => (typeof bridge.getNeuralVoiceId === 'function' ? bridge.getNeuralVoiceId() : null),
+            getNeuralRate: () => (typeof bridge.getNeuralRate === 'function' ? bridge.getNeuralRate() : 1),
             loadPref: () => tvNormalizePrefs(loadPrefsRaw()).voice,
             savePref: (v) => savePrefsRaw({ voice: v }),
             onChange: () => renderVoice()
@@ -1829,6 +2016,13 @@
         on('sftv-new', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-try', 'click', tryPosition);
         on('sftv-too-easy', 'click', () => { if (controller) controller.adjust('harder'); });
+        on('sftv-level-range', 'input', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
+        on('sftv-level-range', 'change', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
+        on('sftv-ladder-scale', 'click', (ev) => {
+            const tick = ev.target && ev.target.closest ? ev.target.closest('.sftv-tick') : null;
+            if (tick && controller) controller.setNextLevel(Number(tick.getAttribute('data-level')));
+        });
+        on('sftv-level-apply', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-too-hard', 'click', () => { if (controller) controller.adjust('easier'); });
         on('sftv-speed', 'change', (ev) => { if (controller) controller.setSpeed(ev.target.value); });
         // Activar la veu és sempre fruit d'un toc de l'usuari (requisit dels
@@ -1858,6 +2052,10 @@
         tvEngineCapabilities,
         tvCompatibilityNote,
         tvLevelLabel,
+        tvSkillEloEstimate,
+        tvLevelElo,
+        tvLevelScale,
+        tvSetTargetPrefs,
         tvStrengthCommands,
         tvViewerProfile,
         tvBaseTarget,
