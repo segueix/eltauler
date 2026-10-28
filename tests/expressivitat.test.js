@@ -52,6 +52,19 @@ describe('Expressivitat — comentaris verificats', () => {
         expect(res[0].variants.every(sentence)).toBe(true);
         expect(res[0].variants.join(' ')).toMatch(/al joc|casella inicial/);
     });
+    test('tots els tipus de peça i colors respecten la contracció de + article', () => {
+        const kinds = ['describe', 'center', 'fork', 'capture', 'check', 'recapture'];
+        for (const color of ['w', 'b']) {
+            for (const piece of ['p', 'n', 'b', 'r', 'q', 'k']) {
+                const move = { piece, color, from: 'a1', to: 'a2', captured: 'p', san: 'Ra2+', flags: 'n' };
+                for (const kind of kinds) {
+                    const forms = E.alternatives(candidate(kind), ctx({ move }));
+                    forms.forEach(t => expect(t).not.toMatch(/(?:^|\s)(?:de el|a el)\b/i));
+                }
+            }
+        }
+    });
+
     test('les variants no pressuposen valoracions, errors ni plans de l’ordinador', () => {
         const kinds = ['describe', 'development', 'activation', 'center', 'fork', 'pin',
             'skewer', 'remove-defender', 'discovered-attack', 'diagonal', 'open-file', 'passed-new', 'seventh'];
