@@ -69,7 +69,7 @@ def inject_seo(index_path: str) -> None:
         #start-screen .seo-home { margin: -4px 0 12px; text-align: left; }
         #start-screen .seo-home-heading {
             margin: 0 0 2px;
-            font-family: var(--hd-font, 'Inter', system-ui, sans-serif);
+            font-family: var(--font-ui, system-ui, sans-serif);
             font-size: 0.95rem;
             font-weight: 700;
             line-height: 1.3;
