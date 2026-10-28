@@ -407,7 +407,13 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   fiable no hi compta. Amb 3 peons d'avantatge les jugades van al ritme àgil.
   Una partida de cada dues comença amb una obertura que desequilibra aviat
   (gambits, partides obertes, sicilianes…), i la prova del bucle comprova que
-  una partida decidida acaba sola amb l'abandonament.
+  una partida decidida acaba sola amb l'abandonament. **Nivells desiguals**
+  (activats per defecte): un bàndol a l'atzar juga un esglaó de «Skill Level»
+  per sobre (o 100 d'Elo, centrats en l'objectiu, si el motor admet UCI_Elo),
+  dins dels límits de l'escala; cada petició de jugada porta el nivell del
+  bàndol que té el torn; la pantalla mostra el nivell mitjà sense dir quin
+  bàndol és el més fort i al final es revela; apagar-los s'aplica a la partida
+  següent i es desa a les preferències de la TV.
   **Comentaris** sobre posicions reals: forquilla amb escac (i el «guany» només
   si l'anàlisi l'avala), enroc amb torres connectades de debò, peça atacada però
   defensada (sense cap «guany»), peça clavada que no amenaça, peó que queda

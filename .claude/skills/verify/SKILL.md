@@ -72,7 +72,10 @@ Conduir amb Playwright + Chromium preinstal·lat
     en pocs minuts, abans d'obrir la TV baixar `TV_CONFIG.RESIGN_MIN_PLY` (p. ex.
     16), `MOVE_PREVIEW_MS`, `INTRO_DELAY_MS`, `SPEEDS.quick` i
     `PLAYER_MOVETIME_MS.skill`, i esperar `game.end` (el resultat surt a
-    `.sftv-result-head` / `.sftv-result-text`).
+    `.sftv-result-head` / `.sftv-result-text`). **Nivells desiguals**:
+    `state().game.level.sides` (`{ w, b }` o `null`) i `level.reveal`; la
+    pantalla mostra la mitjana fins al final. L'interruptor és `#sftv-unequal`
+    (clicar l'etiqueta pare) i es desa a `tauler_tv_prefs.unequal`.
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i

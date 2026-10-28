@@ -114,6 +114,13 @@
         // Amb la partida decidida (aquest avantatge o un mat), les jugades es
         // mostren al ritme «Àgil», triï l'espectador el ritme que triï.
         DECIDED_PACE_CP: 300,
+        // Nivells desiguals (activats per defecte): un bàndol a l'atzar juga
+        // una mica més fort que l'altre —un esglaó de «Skill Level», el mínim
+        // que permet el motor de l'app (≈70–140 Elo estimats), o 100 d'Elo si
+        // el motor admet UCI_Elo—. La pantalla mostra el nivell mitjà sense dir
+        // quin bàndol és el més fort, i es revela en acabar la partida.
+        UNEQUAL_SKILL_GAP: 1,
+        UNEQUAL_ELO_GAP: 100,
         // Pèrdua mínima (cp, mateix bàndol) per comentar una alternativa.
         MISSED_LOSS_CP: { basic: 250, mid: 200, advanced: 150 },
         // Amb una posició ja decidida no es comenten matisos.
@@ -348,7 +355,7 @@
             Object.keys(p.offsets).forEach((k) => { if (isNum(p.offsets[k])) offsets[k] = Math.round(p.offsets[k]); });
         }
         const openingIndex = isNum(p.openingIndex) ? Math.max(0, Math.floor(p.openingIndex)) : null;
-        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex };
+        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false };
     }
 
     function tvResolveTarget(caps, viewer, prefs) {
@@ -358,6 +365,56 @@
         const offset = p.offsets[tvCapsSignature(caps)] || 0;
         const value = clamp(base + offset, caps.min, caps.max);
         return { value: value, base: base, offset: value - base };
+    }
+
+    // Nivells dels dos jugadors d'una partida. Amb nivells desiguals, el bàndol
+    // més fort (a l'atzar) juga un esglaó (o 100 d'Elo) per sobre de l'altre:
+    // amb «Skill Level» el més fluix juga el nivell triat i el més fort, el
+    // següent; amb Elo, tots dos se separen 50 de l'objectiu. Als extrems de
+    // l'escala la parella es desplaça per no sortir-ne.
+    function tvGameLevels(caps, target, unequal, random) {
+        if (!caps || caps.mode === 'none' || !isNum(target)) return null;
+        if (!unequal) return { w: target, b: target, stronger: null };
+        let lo, hi;
+        if (caps.mode === 'elo') {
+            const gap = TV_CONFIG.UNEQUAL_ELO_GAP;
+            lo = Math.max(caps.min, Math.round(target - gap / 2));
+            hi = Math.min(caps.max, lo + gap);
+            lo = Math.max(caps.min, hi - gap);
+        } else {
+            const gap = TV_CONFIG.UNEQUAL_SKILL_GAP * (caps.step || 1);
+            hi = Math.min(caps.max, target + gap);
+            lo = Math.max(caps.min, hi - gap);
+        }
+        if (hi <= lo) return { w: target, b: target, stronger: null };
+        const stronger = (typeof random === 'function' ? random() : Math.random()) < 0.5 ? 'w' : 'b';
+        return { w: stronger === 'w' ? hi : lo, b: stronger === 'b' ? hi : lo, stronger: stronger };
+    }
+
+    // Etiqueta de la partida: amb nivells desiguals, el nivell mitjà, sense dir
+    // quin bàndol és el més fort.
+    function tvGameLevelLabel(caps, levels, value) {
+        if (!levels || !levels.stronger) return tvLevelLabel(caps, value);
+        const avg = Math.round((tvLevelElo(caps, levels.w) + tvLevelElo(caps, levels.b)) / 2 / 10) * 10;
+        const gap = caps.mode === 'elo' ? Math.abs(levels.w - levels.b) + ' d\'Elo' : 'un nivell';
+        return caps.mode === 'elo'
+            ? { short: '≈ ' + avg + ' de mitjana', long: 'Elo mitjà del motor ≈ ' + avg + ': un dels dos juga ' + gap + ' per sobre (es descobreix al final)' }
+            : { short: 'Nivell mitjà · ≈' + avg, long: 'Nivell mitjà · Elo estimat ≈ ' + avg + ': un dels dos juga ' + gap + ' per sobre (es descobreix al final)' };
+    }
+
+    // Revelació en acabar la partida: qui jugava més fort.
+    function tvLevelReveal(caps, levels) {
+        if (!caps || !levels || !levels.stronger) return null;
+        const s = levels.stronger, o = other(s);
+        const label = v => caps.mode === 'elo' ? 'Elo ' + v : 'nivell ' + v;
+        return COLOR[s].Pl + ' jugaven una mica més fort: ' + label(levels[s]) + ' contra ' + label(levels[o]) + '.';
+    }
+
+    // Nivell del bàndol que té el torn en aquesta posició.
+    function tvSideLevel(level, fen) {
+        if (!level) return null;
+        const turn = String(fen || '').split(' ')[1] === 'b' ? 'b' : 'w';
+        return level.sides ? level.sides[turn] : level.value;
     }
 
     // «Massa fàcil» puja el nivell; «Massa difícil» l'abaixa. Retorna les
@@ -2573,6 +2630,7 @@
                 caps: S.caps,
                 viewer: v,
                 speed: prefs.speed,
+                unequal: prefs.unequal,
                 movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
                 nextLevel: next.value,
                 control: S.control && g ? {
@@ -2631,13 +2689,17 @@
             S.control = null;
             const v = viewer();
             const target = tvResolveTarget(S.caps, v, prefs);
+            const levels = tvGameLevels(S.caps, target.value, prefs.unequal, random);
             S.game = {
                 id: ++S.gameSeq,
                 chess: new d.ChessCtor(),
                 moves: [],
                 uci: [],
-                // El nivell queda FIXAT per a tota la partida (els dos jugadors).
-                level: { value: target.value, label: tvLevelLabel(S.caps, target.value), mode: S.caps ? S.caps.mode : 'none' },
+                // El nivell queda FIXAT per a tota la partida. `value` és l'objectiu
+                // triat; `sides`, el de cada jugador (diferents amb nivells desiguals).
+                level: { value: target.value, sides: levels && levels.stronger ? { w: levels.w, b: levels.b } : null,
+                    stronger: levels ? levels.stronger : null, label: tvGameLevelLabel(S.caps, levels, target.value),
+                    reveal: tvLevelReveal(S.caps, levels), mode: S.caps ? S.caps.mode : 'none' },
                 tier: v.tier,
                 opening: pick.opening,
                 prepared: tvPreparedLine(d.ChessCtor, pick.opening, 12),
@@ -2705,7 +2767,7 @@
             return d.engine.request({
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move' },
                 position: tvPositionCommand(uciMoves),
-                strength: tvStrengthCommands(S.caps, 'player', g.level.value),
+                strength: tvStrengthCommands(S.caps, 'player', tvSideLevel(g.level, fen)),
                 multipv: 1,
                 go: 'go movetime ' + movetime,
                 movetime: movetime
@@ -2982,6 +3044,12 @@
             setSpeed(id) {
                 if (!TV_CONFIG.SPEEDS[id]) return;
                 prefs = Object.assign({}, prefs, { speed: id });
+                savePrefs();
+                render();
+            },
+            // Nivells desiguals: s'aplica a la PARTIDA SEGÜENT.
+            setUnequal(on) {
+                prefs = Object.assign({}, prefs, { unequal: !!on });
                 savePrefs();
                 render();
             },
@@ -3542,7 +3610,9 @@
         const g = state.game;
         const levelText = g ? g.level.label.short : '—';
         const mine = (color) => !!(state.control && state.control.color === color);
-        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · Stockfish · ' + levelText);
+        // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
+        const sideText = (color) => g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
+        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · Stockfish · ' + sideText(color));
         const pw = $id('sftv-player-white');
         const pb = $id('sftv-player-black');
         if (pw) pw.textContent = playerLine('w');
@@ -3556,7 +3626,10 @@
         const help = $id('sftv-level-help');
         const easy = $id('sftv-too-easy');
         const hard = $id('sftv-too-hard');
-        if (cur) cur.textContent = g ? ('Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' ? ' (tots dos jugadors)' : '')) : 'Preparant el motor…';
+        if (cur) cur.textContent = g ? ('Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' && !g.level.sides ? ' (tots dos jugadors)' : '')
+            + (g.end && g.level.reveal ? '. ' + g.level.reveal : '')) : 'Preparant el motor…';
+        const unequal = $id('sftv-unequal');
+        if (unequal && document.activeElement !== unequal) unequal.checked = state.unequal !== false;
         if (next) {
             const pending = caps && caps.mode !== 'none' && g && state.nextLevel !== null && state.nextLevel !== g.level.value;
             const nextText = $id('sftv-level-next-text');
@@ -3749,6 +3822,7 @@
             const left = g.nextGameAt && !state.paused ? Math.max(0, Math.ceil((g.nextGameAt - Date.now()) / 1000)) : null;
             el.innerHTML = '<div class="sftv-result-head">' + escapeHtml(tvResultHeadline(g.end)) + '</div>'
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
+                + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
                 + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.'
                     : (state.control ? 'Control manual: tira enrere o torna el control al motor.' : (state.paused ? 'En pausa.' : ''))) + '</div>';
         };
@@ -3855,7 +3929,7 @@
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
             loadPrefs: loadPrefsRaw,
-            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex })
+            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal })
         });
         return controller;
     }
@@ -3934,6 +4008,7 @@
         on('sftv-board', 'click', onBoardClick);
         on('sftv-promo', 'click', onPromoClick);
         on('sftv-too-easy', 'click', () => { if (controller) controller.adjust('harder'); });
+        on('sftv-unequal', 'change', (ev) => { if (controller) controller.setUnequal(ev.target.checked); });
         on('sftv-level-range', 'input', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
         on('sftv-level-range', 'change', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
         on('sftv-ladder-scale', 'click', (ev) => {
@@ -4023,6 +4098,10 @@
         tvResignStep,
         tvIsDecided,
         tvIsSharpOpening,
+        tvGameLevels,
+        tvGameLevelLabel,
+        tvLevelReveal,
+        tvSideLevel,
         tvResultHeadline,
         tvPickOpening,
         tvPreparedLine,
