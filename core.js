@@ -2841,8 +2841,8 @@
             const finalFen = info.moves[info.lastPlayerIdx].afterFen;
             const after = material(finalFen);
             const swing = (after[player] - after[enemy]) - (before[player] - before[enemy]);
-            if (majorCapture) {
-                return { motif: 'major_win', swing, captured: true, confidence: 'high', reason: 'La combinació guanya una peça major (dama o torre).' };
+            if (majorCapture && swing >= 3) {
+                return { motif: 'major_win', swing, captured: true, confidence: 'high', reason: `La línia captura una peça major i acaba amb ${swing} punts nets de material a favor.` };
             }
             if (swing >= 5) {
                 return { motif: 'major_win', swing, captured: false, confidence: swing >= 9 ? 'high' : 'medium', reason: `La línia guanya material decisiu (${swing} punts nets).` };

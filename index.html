@@ -3055,6 +3055,8 @@
             margin-bottom: 8px;
             filter: drop-shadow(0 0 12px rgba(74, 124, 89, 0.6));
         }
+        .hiero-conclusion { text-align: left; font-size: 0.9rem; line-height: 1.5; max-height: 35vh; overflow-y: auto; margin: 12px 0; }
+        .hiero-conclusion p { margin: 8px 0; }
         .bundle-success-title { font-family: var(--font-ui); color: var(--accent-gold); font-size: 1.2rem; margin-bottom: 8px; }
         .bundle-success-remaining { color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 14px; }
         .bundle-success-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
@@ -8996,7 +8998,8 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.33"></script>
+    <script src="core.js?v=1.0.34"></script>
+    <script src="hieroclosure.js?v=1.0.0"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.3"></script>
     <script src="veuneural.js?v=1.1.0"></script>
@@ -9011,7 +9014,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.105"></script>
+    <script src="app.js?v=1.0.106"></script>
 
     <!-- Service Worker Registration -->
     <script>

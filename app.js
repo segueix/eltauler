@@ -9204,6 +9204,7 @@ function parseUciInfo(line) {
         multipv: 1,
         score: null,
         scoreType: 'cp',
+        bound: /\blowerbound\b/.test(line) ? 'lower' : (/\bupperbound\b/.test(line) ? 'upper' : null),
         nodes: null,
         nps: null,
         time: null,
@@ -9283,6 +9284,7 @@ class EnrichedAnalysis {
                 move: info.pv[0] || null,
                 eval: info.score,
                 evalType: info.scoreType,
+                bound: info.bound || null,
                 depth: info.depth,
                 pv: info.pv
             }));
@@ -9296,6 +9298,7 @@ class EnrichedAnalysis {
             move: best.pv[0] || null,
             eval: best.score,
             evalType: best.scoreType,
+            bound: best.bound || null,
             depth: best.depth,
             pv: best.pv
         };
@@ -19662,6 +19665,7 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
         tacticKind: puzzle.tacticKind || null,
         playerMove: puzzle.playerMove || null,
         // Final tàctic i origen (per mostrar-los i reconstruir-los en reintentar).
+        conclusion: puzzle.conclusion || (existing && existing.conclusion) || null,
         finalMotif: puzzle.finalMotif || (existing && existing.finalMotif) || null,
         finalMotifs: puzzle.finalMotifs || (existing && existing.finalMotifs) || null,
         finalMotifLabel: puzzle.finalMotifLabel || (existing && existing.finalMotifLabel) || null,
@@ -20529,7 +20533,7 @@ function candidateFromPreparedBestLine(candidate, prepared) {
         const reply = i === 1 ? prepared.opponentMove : (i === 2 ? prepared.opponentMove2 : null);
         if (reply && reply.move) replies.push(reply.move);
     }
-    if (solution.length < 2) return null;
+    if (!solution.length || (solution.length < 3 && !prepared.endsInMate)) return null;
     return Object.assign({}, candidate, {
         stockfishValidated: true,
         // Línia trobada per Stockfish des d'una FEN real: és una VARIANT legal,
@@ -20572,7 +20576,15 @@ async function closeHieroglyphicCandidateWithStockfish(candidate, opts = {}) {
 // si té confiança baixa (llavors el candidat es descarta), o si es demana un
 // motiu concret que no coincideix. Així, cap jeroglífic del rebost queda sense
 // un final clar i verificable.
-function stampHieroglyphicFinalMotif(candidate, opts = {}) {
+async function verifyHieroglyphicConclusion(candidate, opts = {}) {
+    if (!window.ElTaulerHieroClosure) return null;
+    const verifier = window.ElTaulerHieroClosure.createVerifier(Chess, analyzeFenRobust);
+    return verifier.verify(candidate, opts);
+}
+function hasVerifiedHieroglyphicConclusion(candidate) {
+    return !!(window.ElTaulerHieroClosure && window.ElTaulerHieroClosure.matches(candidate));
+}
+async function stampHieroglyphicFinalMotif(candidate, opts = {}) {
     if (!candidate || !candidate.fen) return false;
     const solution = (candidate.solutionMoves || []).slice(0, 3);
     const replies = (candidate.replyMoves || []).slice(0, Math.max(0, solution.length - 1));
@@ -20592,6 +20604,9 @@ function stampHieroglyphicFinalMotif(candidate, opts = {}) {
     candidate.finalMotifReason = info.reason;
     candidate.finalMotifConfidence = info.confidence;
     candidate.origin = candidate.origin || 'game_real';
+    const verified = await verifyHieroglyphicConclusion(candidate, opts);
+    if (!verified) return false;
+    Object.assign(candidate, verified);
     return true;
 }
 
@@ -20609,7 +20624,7 @@ async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = 
         const validated = await closeHieroglyphicCandidateWithStockfish(candidate, opts);
         // Filtre de FINAL TÀCTIC obligatori: només acceptem el candidat si acaba
         // en un motiu permès i clar (i, si l'usuari n'ha triat un, que coincideixi).
-        if (validated && stampHieroglyphicFinalMotif(validated, opts)) return validated;
+        if (validated && await stampHieroglyphicFinalMotif(validated, opts)) return validated;
     }
     return null;
 }
@@ -20669,9 +20684,9 @@ async function tryBuildAdaptedHieroglyphicFromGameEntry(entry, opts = {}) {
             const reply = i === 1 ? prepared.opponentMove : (i === 2 ? prepared.opponentMove2 : null);
             if (reply && reply.move) replies.push(reply.move);
         }
-        if (solution.length < 3) continue;
+        if (!solution.length || (solution.length < 3 && !prepared.endsInMate)) continue;
         const steps = [prepared.step1, prepared.step2, prepared.step3].filter(Boolean);
-        return Object.assign({
+        const candidate = Object.assign({
             fen,
             bestMove: solution[0],
             bestMoveSan: prepared.step1.playerMoveSan || null,
@@ -20694,6 +20709,8 @@ async function tryBuildAdaptedHieroglyphicFromGameEntry(entry, opts = {}) {
             theme: info.motif,
             tacticKind: HIERO_FINAL_MOTIF_LABELS[info.motif] || null
         }, ElTaulerCore.hieroglyphicVariantMeta(entry, fen, moveNumber));
+        const verified = await verifyHieroglyphicConclusion(candidate, opts);
+        if (verified) return verified;
     }
     return null;
 }
@@ -20808,7 +20825,7 @@ function hasPersonalHieroglyphicCandidate(entry = null) {
 }
 
 function buildHieroglyphicBundleSequence(candidate) {
-    if (!candidate || !candidate.fen) return null;
+    if (!candidate || !candidate.fen || !hasVerifiedHieroglyphicConclusion(candidate)) return null;
     const line = {
         solution: candidate.solutionMoves || buildHieroglyphicLineFromCandidate(candidate).solution,
         replies: candidate.replyMoves || buildHieroglyphicLineFromCandidate(candidate).replies
@@ -20894,9 +20911,13 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
     let chosen = presetPuzzle;
     if (!chosen && typeof hgConsumeNext === 'function') chosen = hgConsumeNext(hieroglyphicPreferredFinalMotif || 'any');
     if (!chosen) chosen = takePreparedPersonalHieroglyphic();
+    if (chosen && !hasVerifiedHieroglyphicConclusion(chosen)) {
+        showToast('Comprovant que el desenllaç sigui concloent…', 'info');
+        chosen = await verifyHieroglyphicConclusion(chosen);
+    }
     if (!chosen) {
         refreshJeroglificButton();
-        showToast('Encara s’està preparant un jeroglífic personal validat. Torna-ho a provar en uns segons.', 'warn');
+        showToast(presetPuzzle ? 'No s’ha pogut confirmar un desenllaç únic per a aquest jeroglífic antic. Pots triar un dels nous.' : 'Encara s’està preparant un jeroglífic personal validat. Torna-ho a provar en uns segons.', 'warn');
         return;
     }
     try {
@@ -20962,6 +20983,7 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
             ratingEstimate: chosen.ratingEstimate ?? null,
             difficultyPercent: hieroglyphicDifficultyPercent(chosen),
             // Final tàctic i origen (per a les etiquetes visibles i l'historial).
+            conclusion: chosen.conclusion || null,
             finalMotif: chosen.finalMotif || null,
             finalMotifs: chosen.finalMotifs || null,
             finalMotifLabel: chosen.finalMotifLabel || (chosen.finalMotif ? HIERO_FINAL_MOTIF_LABELS[chosen.finalMotif] : null),
@@ -21003,6 +21025,7 @@ function retryHieroglyphicFromHistory(id) {
         tacticKind: entry.tacticKind,
         playerMove: entry.playerMove,
         difficultyPercent: entry.difficultyPercent ?? null,
+        conclusion: entry.conclusion || null,
         finalMotif: entry.finalMotif || null,
         finalMotifs: entry.finalMotifs || null,
         finalMotifLabel: entry.finalMotifLabel || (entry.finalMotif ? HIERO_FINAL_MOTIF_LABELS[entry.finalMotif] : null),
@@ -21210,7 +21233,7 @@ function hgPurgeStale() {
     const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
     const seen = new Set();
     hgState.queue = hgState.queue.filter(it => {
-        if (!it || !it.fen) return false;
+        if (!it || !it.fen || !hasVerifiedHieroglyphicConclusion(it)) return false;
         const fp = hgFingerprint(it);
         if (seen.has(fp)) return false; seen.add(fp);
         return !solved.has(norm(it.fen));
@@ -21317,8 +21340,9 @@ async function hgGenerateFromSelfPlaySeed(shouldAbort) {
             const reply = i === 1 ? prepared.opponentMove : (i === 2 ? prepared.opponentMove2 : null);
             if (reply && reply.move) replies.push(reply.move);
         }
-        if (solution.length < 3) continue;
-        return hgSelfPlayCandidate(fen, prepared, line, info, solution, replies);
+        if (!solution.length || (solution.length < 3 && !prepared.endsInMate)) continue;
+        const verified = await verifyHieroglyphicConclusion(hgSelfPlayCandidate(fen, prepared, line, info, solution, replies), { shouldAbort });
+        if (verified) return verified;
     }
     return null;
 }
@@ -21375,6 +21399,7 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
             try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
         }
         if (shouldAbort && shouldAbort()) diag.aborted = true;
+        if (cand && !hasVerifiedHieroglyphicConclusion(cand)) cand = null;
         if (cand && excludeFens.has(norm(cand.fen))) { cand = null; diag.reason = 'duplicate'; }
         // Classifica el motiu quan no hi ha candidat, de la causa més específica a
         // la més general.
@@ -21414,7 +21439,7 @@ function hgGenReasonText(diag) {
 }
 // Converteix un candidat validat en un element de cua sincronitzable.
 function hgToQueueItem(cand, sourceTag) {
-    const line = Array.isArray(cand.lineUci) && cand.lineUci.length ? cand.lineUci.slice() : (cand.solutionMoves || []).slice();
+    const line = window.ElTaulerHieroClosure.lineOf(cand);
     let sideToMove = String(cand.fen).split(' ')[1] === 'b' ? 'b' : 'w';
     const sanLine = [];
     try {
@@ -21436,6 +21461,7 @@ function hgToQueueItem(cand, sourceTag) {
         bestMove: cand.bestMove || null, bestMoveSan: cand.bestMoveSan || null,
         solutionMoves: (cand.solutionMoves || []).slice(0, 3), replyMoves: (cand.replyMoves || []).slice(0, 2),
         theme: cand.theme || null, tacticKind: cand.tacticKind || null, playerMove: cand.playerMove || null,
+        conclusion: cand.conclusion || null,
         finalMotif: cand.finalMotif || null, finalMotifs: cand.finalMotifs || null,
         finalMotifLabel: cand.finalMotifLabel || (cand.finalMotif ? HIERO_FINAL_MOTIF_LABELS[cand.finalMotif] : null),
         finalMotifReason: cand.finalMotifReason || null, origin: cand.origin || 'game_real',
@@ -21454,6 +21480,7 @@ function hgQueueItemToChosen(item) {
         theme: item.theme, tacticKind: item.tacticKind, playerMove: item.playerMove,
         pv: item.pv, evalBefore: item.evalBefore,
         difficultyPercent: item.difficultyPercent ?? null, ratingEstimate: item.ratingEstimate ?? null,
+        conclusion: item.conclusion || null,
         finalMotif: item.finalMotif || (item.finalType !== 'any' ? item.finalType : null), finalMotifs: item.finalMotifs || null,
         finalMotifLabel: item.finalMotifLabel || null, origin: item.origin || 'game_real',
         sourceGameId: item.sourceGameId || null, sourceFen: item.sourceFen || item.fen,
@@ -26265,6 +26292,16 @@ function showHieroglyphicBundleOverlay() {
     if (!overlay.length) { returnToMainMenuImmediate(); return; }
     const hasNext = jeroglificsReady();
     overlay.find('.bundle-success-title').text('Jeroglífic resolt ⚡ (+1 ★)');
+    overlay.find('.hiero-conclusion').remove();
+    const proof = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.conclusion;
+    if (proof && hasVerifiedHieroglyphicConclusion(currentHieroglyphicPuzzle)) {
+        const box = $('<div class="hiero-conclusion"></div>');
+        box.append($('<p></p>').text(proof.explanation));
+        box.append($('<p></p>').text(proof.uniqueness));
+        if (proof.alternativeSan) box.append($('<p></p>').text('Alternativa contrastada: ' + proof.alternativeSan + (proof.kind === 'mate' ? ' no fa mat.' : ' no conserva un avantatge decisiu segons Stockfish.')));
+        if (proof.alternativeLine && proof.alternativeLine.length > 1) box.append($('<p></p>').text('Continuació de l’alternativa: ' + proof.alternativeLine.join(' → ') + '.'));
+        overlay.find('.bundle-success-title').after(box);
+    }
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${hieroglyphicStats.solved || 0} · Ratxa: ${hieroglyphicStats.currentStreak || 0} · Rècord: ${hieroglyphicStats.bestStreak || 0}`).show();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
     overlay.find('#btn-bundle-random-again').hide();
@@ -31388,6 +31425,7 @@ function wireContinueSolvedFenButton(overlay) {
 }
 
 function handleBundleSuccess() {
+    $('#bundle-success-overlay .hiero-conclusion').remove();
     playSound('success');
     bundleSequenceStep = 1;
     bundleStepStartFen = null;
