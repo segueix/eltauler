@@ -6153,6 +6153,11 @@
                     <button class="home-at-btn" id="home-contact-btn" type="button" aria-label="Peticions i contacte" title="Peticions i contacte">@</button>
                 </div>
             </div>
+            <!-- En publicar la web, scripts/inject-seo.py hi posa el títol i la
+                 presentació de la portada, i scripts/inject-remigi-link.py afegeix
+                 l'accés a Remigi a .home-topbar. No canvieu aquestes marques sense
+                 adaptar-los (ho comprova tests/deploy-inject.test.js). -->
+            <!-- seo-home -->
             <div class="stats-row">
                 <div class="stat-box">
                     <div class="stat-label">ELO</div>
@@ -8873,7 +8878,7 @@
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
     <script>
-        window.APP_VERSION = '1.0.37';
+        window.APP_VERSION = '1.0.38';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;

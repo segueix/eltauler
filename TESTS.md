@@ -456,6 +456,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   endavant no sintetitza dues vegades) amb límit, cap cua de locucions, aturada
   immediata, temps màxim, sense connexió i pausa d'un minut després d'una
   fallada del servei.
+- **`deploy-inject.test.js`** — els scripts que el desplegament
+  (`.github/workflows/desplega-web.yml`) aplica a la portada abans de
+  publicar-la: `scripts/inject-remigi-link.py` (accés a Remigi dins la barra de
+  la capçalera, abans del nom d'usuari) i `scripts/inject-seo.py` (títol,
+  metadades i la presentació indexable a la marca `<!-- seo-home -->`, sota la
+  capçalera). Els executa amb `python3` sobre una còpia d'`index.html`, en
+  l'ordre del workflow, i comprova que no fallin, que tot quedi al seu lloc i
+  que tornar-los a aplicar no dupliqui res. Si es canvien les marques de la
+  portada sense adaptar-los, el desplegament fallaria després del merge: així
+  salta abans, als tests del PR.
 
 ## Verificació al navegador
 

@@ -83,6 +83,11 @@ Conduir amb Playwright + Chromium preinstal·lat
     lletra real cal baixar el CSS de `fonts.googleapis.com/css2` i els
     `.woff2` amb `curl` i servir-los amb `ctx.route`. Per al mode dia o
     paper electrònic: `eltauler_day_mode` / `eltauler_epaper_mode` = `on`.
+    **Portada publicada**: el desplegament hi afegeix l'accés a Remigi i el
+    text SEO (`scripts/inject-remigi-link.py` i `scripts/inject-seo.py`, que
+    busquen `.home-topbar` i `<!-- seo-home -->`). Per veure-la com a
+    eltauler.cat, aplicar tots dos scripts a una còpia del repo i servir-la
+    (la icona és `/remigi/icona-192.png`).
 
 ## Fluxos útils
 
