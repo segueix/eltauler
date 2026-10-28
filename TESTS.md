@@ -163,6 +163,21 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   variant legal treta d'una FEN real (`hieroglyphicVariantMeta`:
   `origin: 'game_variant'`, conserva `sourceGameId`/`sourceFen` sense alterar la
   partida).
+- **`hieroclosure.test.js`** — el certificat de desenllaç dels jeroglífics
+  (`hieroclosure.js`). Un jeroglífic són **sempre tres jugades** del jugador amb
+  les dues rèpliques del rival entremig (`hasThreeMoves`): un mat en 1 o en 2, un
+  guany immediat o una línia de quatre jugades no reben certificat, i una prova
+  antiga d'una línia més curta ja no val (`matches`). A més, que el final sigui
+  real (mat únic a la tercera jugada o guany de material consolidat davant
+  qualsevol rèplica, també amb negres), que es rebutgin dos mats possibles,
+  recaptures, forquilles sense cobrar i coronacions ambigües, i la contrastació
+  amb Stockfish injectat de cada tria i de la defensa.
+- **`hieroglyphic-generation.test.js`** — el camí del generador dins d'app.js:
+  un mat en tres validat arriba a la cua sincronitzada, sobreviu la
+  reconstrucció i es juga en tres passos; la cua neteja els jeroglífics antics
+  d'una sola jugada; el generador no publica mai un mat en 1 o en 2, i una línia
+  de Stockfish que acaba a la segona jugada (`candidateFromPreparedBestLine`) es
+  descarta encara que faci mat.
 - **`import.test.js`** — importació de partides externes (PGN): separació d'un
   fitxer amb diverses partides, lectura de capçaleres (amb cometes escapades),
   neteja del movetext (comentaris `{...}` i `;`, variants niades, NAGs, números
@@ -234,9 +249,9 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   (`createOpeningHieroglyphicHelpers`), els de la secció d'Obertures: que
   l'exercici surti sempre d'una obertura ja catalogada al repertori i comenci al
   **tercer o quart moviment** (el ply correcte per a cada color), que la solució
-  siguin les jugades teòriques següents de la línia (fins a tres) amb les
+  siguin **sempre les tres** jugades teòriques següents de la línia amb les dues
   respostes del rival de la mateixa línia i sense rèplica sobrera a l'últim pas,
-  que una línia massa curta no doni exercici, la classificació del motiu de cada
+  que una línia que no arriba a tres jugades no doni exercici, la classificació del motiu de cada
   jugada teòrica (enroc, clavada, fianchetto, palanca…) i la tria sense
   repetir-se. La prova de fons recorre el repertori REAL (`CURATED_OPENINGS`):
   cada obertura ha de donar almenys un exercici i tota la línia ha de ser legal
@@ -384,7 +399,21 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   de la sincronització i el nivell de l'usuari intacte. **Valoracions**:
   normalització al punt de vista blanc, centipeons i mats mai barrejats,
   anàlisi poc profunda marcada com a no fiable. **Finals** amb chess.js real:
-  mat, ofegat, material insuficient, repetició i cinquanta jugades.
+  mat, ofegat, material insuficient, repetició, cinquanta jugades i la durada
+  màxima de 100 jugades. **Partides decidides**: abandona qui perd quan
+  l'anàlisi a força plena dona 5 peons (7 als nivells d'Elo estimat < 1800) o
+  un mat al mateix bàndol durant 6 semijugades seguides, mai abans de la jugada
+  20; una remuntada o un canvi de bàndol reinicien la sèrie i una anàlisi poc
+  fiable no hi compta. Amb 3 peons d'avantatge les jugades van al ritme àgil.
+  Una partida de cada dues comença amb una obertura que desequilibra aviat
+  (gambits, partides obertes, sicilianes…), i la prova del bucle comprova que
+  una partida decidida acaba sola amb l'abandonament. **Nivells desiguals**
+  (activats per defecte): un bàndol a l'atzar juga un esglaó de «Skill Level»
+  per sobre (o 100 d'Elo, centrats en l'objectiu, si el motor admet UCI_Elo),
+  dins dels límits de l'escala; cada petició de jugada porta el nivell del
+  bàndol que té el torn; la pantalla mostra el nivell mitjà sense dir quin
+  bàndol és el més fort i al final es revela; apagar-los s'aplica a la partida
+  següent i es desa a les preferències de la TV.
   **Comentaris** sobre posicions reals: forquilla amb escac (i el «guany» només
   si l'anàlisi l'avala), enroc amb torres connectades de debò, peça atacada però
   defensada (sense cap «guany»), peça clavada que no amenaça, peó que queda

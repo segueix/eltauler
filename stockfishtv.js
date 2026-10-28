@@ -98,7 +98,29 @@
         // Pausa breu entre una partida acabada i la següent.
         NEXT_GAME_DELAY_MS: 10000,
         // Límit de durada de la TV (en semijugades): taules si s'hi arriba.
-        MAX_PLIES: 400,
+        MAX_PLIES: 200,
+        // Abandonament, com en una partida humana: si l'anàlisi a força plena
+        // dona aquest avantatge (o un mat) al mateix bàndol durant RESIGN_PLIES
+        // semijugades seguides, a partir de RESIGN_MIN_PLY, el bàndol que perd
+        // abandona. Als nivells baixos (Elo estimat < RESIGN_LOW_ELO) es demana
+        // més marge: els jugadors febles encara poden girar una partida. A les
+        // simulacions amb el motor de l'app, la regla dona el mateix guanyador
+        // que jugar fins al mat i s'estalvia una vintena de jugades.
+        RESIGN_CP: 500,
+        RESIGN_CP_LOW: 700,
+        RESIGN_LOW_ELO: 1800,
+        RESIGN_PLIES: 6,
+        RESIGN_MIN_PLY: 40,
+        // Amb la partida decidida (aquest avantatge o un mat), les jugades es
+        // mostren al ritme «Àgil», triï l'espectador el ritme que triï.
+        DECIDED_PACE_CP: 300,
+        // Nivells desiguals (activats per defecte): un bàndol a l'atzar juga
+        // una mica més fort que l'altre —un esglaó de «Skill Level», el mínim
+        // que permet el motor de l'app (≈70–140 Elo estimats), o 100 d'Elo si
+        // el motor admet UCI_Elo—. La pantalla mostra el nivell mitjà sense dir
+        // quin bàndol és el més fort, i es revela en acabar la partida.
+        UNEQUAL_SKILL_GAP: 1,
+        UNEQUAL_ELO_GAP: 100,
         // Pèrdua mínima (cp, mateix bàndol) per comentar una alternativa.
         MISSED_LOSS_CP: { basic: 250, mid: 200, advanced: 150 },
         // Amb una posició ja decidida no es comenten matisos.
@@ -333,7 +355,7 @@
             Object.keys(p.offsets).forEach((k) => { if (isNum(p.offsets[k])) offsets[k] = Math.round(p.offsets[k]); });
         }
         const openingIndex = isNum(p.openingIndex) ? Math.max(0, Math.floor(p.openingIndex)) : null;
-        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex };
+        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false };
     }
 
     function tvResolveTarget(caps, viewer, prefs) {
@@ -343,6 +365,56 @@
         const offset = p.offsets[tvCapsSignature(caps)] || 0;
         const value = clamp(base + offset, caps.min, caps.max);
         return { value: value, base: base, offset: value - base };
+    }
+
+    // Nivells dels dos jugadors d'una partida. Amb nivells desiguals, el bàndol
+    // més fort (a l'atzar) juga un esglaó (o 100 d'Elo) per sobre de l'altre:
+    // amb «Skill Level» el més fluix juga el nivell triat i el més fort, el
+    // següent; amb Elo, tots dos se separen 50 de l'objectiu. Als extrems de
+    // l'escala la parella es desplaça per no sortir-ne.
+    function tvGameLevels(caps, target, unequal, random) {
+        if (!caps || caps.mode === 'none' || !isNum(target)) return null;
+        if (!unequal) return { w: target, b: target, stronger: null };
+        let lo, hi;
+        if (caps.mode === 'elo') {
+            const gap = TV_CONFIG.UNEQUAL_ELO_GAP;
+            lo = Math.max(caps.min, Math.round(target - gap / 2));
+            hi = Math.min(caps.max, lo + gap);
+            lo = Math.max(caps.min, hi - gap);
+        } else {
+            const gap = TV_CONFIG.UNEQUAL_SKILL_GAP * (caps.step || 1);
+            hi = Math.min(caps.max, target + gap);
+            lo = Math.max(caps.min, hi - gap);
+        }
+        if (hi <= lo) return { w: target, b: target, stronger: null };
+        const stronger = (typeof random === 'function' ? random() : Math.random()) < 0.5 ? 'w' : 'b';
+        return { w: stronger === 'w' ? hi : lo, b: stronger === 'b' ? hi : lo, stronger: stronger };
+    }
+
+    // Etiqueta de la partida: amb nivells desiguals, el nivell mitjà, sense dir
+    // quin bàndol és el més fort.
+    function tvGameLevelLabel(caps, levels, value) {
+        if (!levels || !levels.stronger) return tvLevelLabel(caps, value);
+        const avg = Math.round((tvLevelElo(caps, levels.w) + tvLevelElo(caps, levels.b)) / 2 / 10) * 10;
+        const gap = caps.mode === 'elo' ? Math.abs(levels.w - levels.b) + ' d\'Elo' : 'un nivell';
+        return caps.mode === 'elo'
+            ? { short: '≈ ' + avg + ' de mitjana', long: 'Elo mitjà del motor ≈ ' + avg + ': un dels dos juga ' + gap + ' per sobre (es descobreix al final)' }
+            : { short: 'Nivell mitjà · ≈' + avg, long: 'Nivell mitjà · Elo estimat ≈ ' + avg + ': un dels dos juga ' + gap + ' per sobre (es descobreix al final)' };
+    }
+
+    // Revelació en acabar la partida: qui jugava més fort.
+    function tvLevelReveal(caps, levels) {
+        if (!caps || !levels || !levels.stronger) return null;
+        const s = levels.stronger, o = other(s);
+        const label = v => caps.mode === 'elo' ? 'Elo ' + v : 'nivell ' + v;
+        return COLOR[s].Pl + ' jugaven una mica més fort: ' + label(levels[s]) + ' contra ' + label(levels[o]) + '.';
+    }
+
+    // Nivell del bàndol que té el torn en aquesta posició.
+    function tvSideLevel(level, fen) {
+        if (!level) return null;
+        const turn = String(fen || '').split(' ')[1] === 'b' ? 'b' : 'w';
+        return level.sides ? level.sides[turn] : level.value;
     }
 
     // «Massa fàcil» puja el nivell; «Massa difícil» l'abaixa. Retorna les
@@ -375,7 +447,8 @@
     // ------------------------------------------------------------------
     function tvMoveDelayMs(speedId, opts) {
         const o = opts || {};
-        const speed = TV_CONFIG.SPEEDS[speedId] || TV_CONFIG.SPEEDS[TV_CONFIG.DEFAULT_SPEED];
+        // Partida decidida: el desenllaç no s'allarga (sempre el ritme més àgil).
+        const speed = o.decided ? TV_CONFIG.SPEEDS.quick : (TV_CONFIG.SPEEDS[speedId] || TV_CONFIG.SPEEDS[TV_CONFIG.DEFAULT_SPEED]);
         const r = isNum(o.random) ? clamp(o.random, 0, 1) : 0.5;
         let ms = speed.min + (speed.max - speed.min) * r;
         if (o.tier === 'basic') ms *= TV_CONFIG.BASIC_PACE_FACTOR;
@@ -493,13 +566,70 @@
     }
 
     // ------------------------------------------------------------------
+    // Partides decidides: abandonament i ritme
+    // ------------------------------------------------------------------
+    // Bàndol amb un avantatge d'almenys `thresholdCp` (o un mat) segons una
+    // valoració des del punt de vista de les blanques.
+    function tvDecisiveSide(scoreW, thresholdCp) {
+        if (!scoreW || !isNum(scoreW.value)) return null;
+        if (scoreW.type === 'mate') return scoreW.value > 0 ? 'w' : (scoreW.value < 0 ? 'b' : null);
+        if (scoreW.type !== 'cp') return null;
+        return scoreW.value >= thresholdCp ? 'w' : (scoreW.value <= -thresholdCp ? 'b' : null);
+    }
+
+    function tvResignThresholdCp(caps, level) {
+        const elo = tvLevelElo(caps, level);
+        return isNum(elo) && elo < TV_CONFIG.RESIGN_LOW_ELO ? TV_CONFIG.RESIGN_CP_LOW : TV_CONFIG.RESIGN_CP;
+    }
+
+    function tvResignEnd(winner) {
+        const loser = other(winner);
+        return { result: winner === 'w' ? '1-0' : '0-1', winner: winner, reason: 'resign',
+            text: COLOR[loser].Pl + ' abandonen: l\'avantatge de ' + COLOR[winner].pl + ' ja és decisiu. Guanyen ' + COLOR[winner].pl + '.' };
+    }
+
+    // Una semijugada més de la sèrie: `analysis` és la de la posició que acaba
+    // de quedar i `plies` les semijugades jugades. Una anàlisi absent o poc
+    // fiable no compta, però tampoc no trenca la sèrie.
+    function tvResignStep(state, analysis, plies, thresholdCp) {
+        const prev = state && state.side ? state : { side: null, plies: 0 };
+        if (!analysis || !analysis.reliable) return { state: prev, end: null };
+        const side = tvDecisiveSide(analysis.best, thresholdCp);
+        const next = side ? { side: side, plies: side === prev.side ? prev.plies + 1 : 1 } : { side: null, plies: 0 };
+        const resigns = !!side && plies >= TV_CONFIG.RESIGN_MIN_PLY && next.plies >= TV_CONFIG.RESIGN_PLIES;
+        return { state: next, end: resigns ? tvResignEnd(side) : null };
+    }
+
+    function tvIsDecided(analysis) {
+        return !!(analysis && analysis.reliable && tvDecisiveSide(analysis.best, TV_CONFIG.DECIDED_PACE_CP));
+    }
+
+    // ------------------------------------------------------------------
     // Obertures del repertori
     // ------------------------------------------------------------------
-    // Rotació: cada partida nova agafa la següent obertura de la llista.
-    function tvPickOpening(curated, index) {
+    // Obertures que desequilibren aviat (gambits, partides obertes, sicilianes,
+    // índies dinàmiques…): donen partides que es decideixen abans.
+    const SHARP_ECO = /^(B0[1-3]|B[2-9]\d|C2\d|C3\d|C4[4-9]|C5\d|A5[2-9]|A[68]\d|D08|D8\d|E[6-9]\d)/;
+    function tvIsSharpOpening(opening) {
+        if (!opening) return false;
+        const name = String(opening.name || '');
+        if (/gambit/i.test(name) && !/gambit de dama/i.test(name)) return true;
+        return SHARP_ECO.test(String(opening.eco || ''));
+    }
+
+    // Rotació: cada partida nova agafa la següent obertura de la llista. Amb
+    // `opts.sharp`, la següent de la rotació que sigui d'aquelles que
+    // desequilibren aviat.
+    function tvPickOpening(curated, index, opts) {
         const list = Array.isArray(curated) ? curated.filter(o => o && Array.isArray(o.moves) && o.moves.length) : [];
         if (!list.length) return { opening: null, nextIndex: 0 };
-        const i = ((isNum(index) ? Math.floor(index) : 0) % list.length + list.length) % list.length;
+        let i = ((isNum(index) ? Math.floor(index) : 0) % list.length + list.length) % list.length;
+        if (opts && opts.sharp) {
+            for (let k = 0; k < list.length; k++) {
+                const j = (i + k) % list.length;
+                if (tvIsSharpOpening(list[j])) { i = j; break; }
+            }
+        }
         return { opening: list[i], nextIndex: (i + 1) % list.length };
     }
 
@@ -2500,6 +2630,7 @@
                 caps: S.caps,
                 viewer: v,
                 speed: prefs.speed,
+                unequal: prefs.unequal,
                 movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
                 nextLevel: next.value,
                 control: S.control && g ? {
@@ -2549,20 +2680,26 @@
         function startGame() {
             halt();
             const epoch = S.epoch;
+            // Una partida de cada dues comença amb una obertura que desequilibra
+            // aviat: les partides es decideixen abans sense tocar el nivell.
             const pick = tvPickOpening(typeof d.getOpenings === 'function' ? d.getOpenings() : [],
-                prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000));
+                prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000), { sharp: S.gameSeq % 2 === 0 });
             prefs = Object.assign({}, prefs, { openingIndex: pick.nextIndex });
             savePrefs();
             S.control = null;
             const v = viewer();
             const target = tvResolveTarget(S.caps, v, prefs);
+            const levels = tvGameLevels(S.caps, target.value, prefs.unequal, random);
             S.game = {
                 id: ++S.gameSeq,
                 chess: new d.ChessCtor(),
                 moves: [],
                 uci: [],
-                // El nivell queda FIXAT per a tota la partida (els dos jugadors).
-                level: { value: target.value, label: tvLevelLabel(S.caps, target.value), mode: S.caps ? S.caps.mode : 'none' },
+                // El nivell queda FIXAT per a tota la partida. `value` és l'objectiu
+                // triat; `sides`, el de cada jugador (diferents amb nivells desiguals).
+                level: { value: target.value, sides: levels && levels.stronger ? { w: levels.w, b: levels.b } : null,
+                    stronger: levels ? levels.stronger : null, label: tvGameLevelLabel(S.caps, levels, target.value),
+                    reveal: tvLevelReveal(S.caps, levels), mode: S.caps ? S.caps.mode : 'none' },
                 tier: v.tier,
                 opening: pick.opening,
                 prepared: tvPreparedLine(d.ChessCtor, pick.opening, 12),
@@ -2570,6 +2707,8 @@
                 analyses: {},
                 comments: [],
                 memory: tvEmptyMemory(),
+                // Semijugades seguides amb un bàndol clarament guanyador (abandonament).
+                resign: { side: null, plies: 0 },
                 comment: null,
                 intro: null,
                 end: null,
@@ -2628,7 +2767,7 @@
             return d.engine.request({
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move' },
                 position: tvPositionCommand(uciMoves),
-                strength: tvStrengthCommands(S.caps, 'player', g.level.value),
+                strength: tvStrengthCommands(S.caps, 'player', tvSideLevel(g.level, fen)),
                 multipv: 1,
                 go: 'go movetime ' + movetime,
                 movetime: movetime
@@ -2675,7 +2814,9 @@
                 // El comentari es decideix ARA (no depèn de res que passi durant
                 // l'espera) i així la veu es pot preparar mentre es veu la jugada
                 // anterior: quan surti la jugada, l'àudio ja hi és.
-                const plan = planMove(g, uci, fenBefore, prepared, before, after);
+                // Amb control manual l'usuari decideix quan s'acaba: el motor no abandona per ell.
+                const resign = S.control ? null : tvResignStep(g.resign, after, ply + 1, tvResignThresholdCp(S.caps, g.level.value));
+                const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') d.voice.prefetch(tvSpeechText(plan.chosen.text));
 
@@ -2711,7 +2852,7 @@
 
         // Calcula la jugada i el seu comentari sense tocar la partida visible
         // (sobre una còpia amb tot l'historial, per a la repetició i els finals).
-        function planMove(g, uci, fenBefore, prepared, before, after) {
+        function planMove(g, uci, fenBefore, prepared, before, after, resign) {
             const ply = g.moves.length;
             const prevMove = ply ? g.moves[ply - 1].verbose : null;
             const copy = new d.ChessCtor();
@@ -2721,7 +2862,7 @@
             const mv = copy.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
             if (!mv) return null;
             const fenAfter = copy.fen();
-            const end = tvGameEnd(copy);
+            const end = tvGameEnd(copy) || (resign && resign.end) || null;
             // La memòria de la retransmissió només s'actualitza quan la jugada
             // es mostra de debò (reveal): si una pausa descarta aquest pla, la
             // memòria visible continua intacta.
@@ -2730,14 +2871,15 @@
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply, memory: g.memory
             });
-            return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory };
+            return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
+                resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
         }
 
         function reveal(g, uci, prepared, plan, epoch) {
             const entry = commitMove(g, uci, prepared, plan, false);
             if (!entry) return;
             const shownAt = now();
-            let delay = tvMoveDelayMs(prefs.speed, { tier: g.tier, prepared: !!prepared, random: random() });
+            let delay = tvMoveDelayMs(prefs.speed, { tier: g.tier, prepared: !!prepared, random: random(), decided: !!plan.decided });
             if (g.comment) delay = Math.max(delay, tvReadingTimeMs(g.comment.text, g.tier));
             S.nextRevealAt = shownAt + delay;
             notify('move', { gameId: g.id, move: entry, comment: g.comment });
@@ -2750,7 +2892,7 @@
         function commitMove(g, uci, prepared, plan, byUser) {
             const ply = g.moves.length;
             const fenBefore = g.chess.fen();
-            const undo = { fenBefore: fenBefore, memory: g.memory, identified: g.identified };
+            const undo = { fenBefore: fenBefore, memory: g.memory, identified: g.identified, resign: g.resign };
             const mv = g.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
             if (!mv || ply !== plan.ply) { fail('illegal'); return null; }
             const fenAfter = g.chess.fen();
@@ -2762,6 +2904,7 @@
             g.end = plan.end;
             g.comment = null;
             g.memory = plan.memory;
+            if (plan.resign !== undefined) g.resign = plan.resign;
             if (plan.chosen) attachComment(g, entry, plan.chosen);
             return entry;
         }
@@ -2904,6 +3047,12 @@
                 savePrefs();
                 render();
             },
+            // Nivells desiguals: s'aplica a la PARTIDA SEGÜENT.
+            setUnequal(on) {
+                prefs = Object.assign({}, prefs, { unequal: !!on });
+                savePrefs();
+                render();
+            },
             // Barra de nivell: fixa l'objectiu de la PARTIDA SEGÜENT.
             setNextLevel(value) {
                 if (!S.caps) return;
@@ -2931,6 +3080,7 @@
                 if (!undone || g.chess.fen() !== entry.undo.fenBefore) rebuildChess(g);
                 g.memory = entry.undo.memory;
                 g.identified = entry.undo.identified;
+                g.resign = entry.undo.resign || { side: null, plies: 0 };
                 g.comments = g.comments.filter(c => c.ply < g.moves.length);
                 g.end = null;
                 g.nextGameAt = null;
@@ -3460,7 +3610,9 @@
         const g = state.game;
         const levelText = g ? g.level.label.short : '—';
         const mine = (color) => !!(state.control && state.control.color === color);
-        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · Stockfish · ' + levelText);
+        // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
+        const sideText = (color) => g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
+        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · Stockfish · ' + sideText(color));
         const pw = $id('sftv-player-white');
         const pb = $id('sftv-player-black');
         if (pw) pw.textContent = playerLine('w');
@@ -3474,7 +3626,10 @@
         const help = $id('sftv-level-help');
         const easy = $id('sftv-too-easy');
         const hard = $id('sftv-too-hard');
-        if (cur) cur.textContent = g ? ('Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' ? ' (tots dos jugadors)' : '')) : 'Preparant el motor…';
+        if (cur) cur.textContent = g ? ('Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' && !g.level.sides ? ' (tots dos jugadors)' : '')
+            + (g.end && g.level.reveal ? '. ' + g.level.reveal : '')) : 'Preparant el motor…';
+        const unequal = $id('sftv-unequal');
+        if (unequal && document.activeElement !== unequal) unequal.checked = state.unequal !== false;
         if (next) {
             const pending = caps && caps.mode !== 'none' && g && state.nextLevel !== null && state.nextLevel !== g.level.value;
             const nextText = $id('sftv-level-next-text');
@@ -3667,6 +3822,7 @@
             const left = g.nextGameAt && !state.paused ? Math.max(0, Math.ceil((g.nextGameAt - Date.now()) / 1000)) : null;
             el.innerHTML = '<div class="sftv-result-head">' + escapeHtml(tvResultHeadline(g.end)) + '</div>'
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
+                + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
                 + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.'
                     : (state.control ? 'Control manual: tira enrere o torna el control al motor.' : (state.paused ? 'En pausa.' : ''))) + '</div>';
         };
@@ -3773,7 +3929,7 @@
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
             loadPrefs: loadPrefsRaw,
-            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex })
+            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal })
         });
         return controller;
     }
@@ -3852,6 +4008,7 @@
         on('sftv-board', 'click', onBoardClick);
         on('sftv-promo', 'click', onPromoClick);
         on('sftv-too-easy', 'click', () => { if (controller) controller.adjust('harder'); });
+        on('sftv-unequal', 'change', (ev) => { if (controller) controller.setUnequal(ev.target.checked); });
         on('sftv-level-range', 'input', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
         on('sftv-level-range', 'change', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
         on('sftv-ladder-scale', 'click', (ev) => {
@@ -3936,6 +4093,15 @@
         tvBuildAnalysis,
         tvMoverLossCp,
         tvGameEnd,
+        tvDecisiveSide,
+        tvResignThresholdCp,
+        tvResignStep,
+        tvIsDecided,
+        tvIsSharpOpening,
+        tvGameLevels,
+        tvGameLevelLabel,
+        tvLevelReveal,
+        tvSideLevel,
         tvResultHeadline,
         tvPickOpening,
         tvPreparedLine,

@@ -268,6 +268,133 @@ describe('valoracions normalitzades i finals de partida', () => {
         expect(TV.tvGameEnd(new Chess())).toBeNull();
         expect(TV.tvResultHeadline({ result: '1-0' })).toMatch(/Guanyen les blanques/);
     });
+    test('durada màxima de 100 jugades (200 semijugades)', () => {
+        expect(C.MAX_PLIES).toBe(200);
+        const g = new Chess();
+        ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6', 'Ba4', 'Nf6', 'O-O', 'Be7', 'Re1', 'b5'].forEach(m => g.move(m));
+        expect(TV.tvGameEnd(g, 13)).toBeNull();
+        expect(TV.tvGameEnd(g, 12)).toEqual(expect.objectContaining({ result: '½-½', reason: 'length' }));
+        expect(TV.tvGameEnd(g, 12).text).toContain('6 jugades');
+    });
+});
+
+describe('partides decidides: abandonament i ritme', () => {
+    const cp = (value, depth = 16) => ({ reliable: depth >= C.MIN_RELIABLE_DEPTH, best: { type: 'cp', value } });
+    const mate = value => ({ reliable: true, best: { type: 'mate', value } });
+    function run(list, startPly = 40, threshold = 500) {
+        let state = null, end = null, at = null;
+        list.forEach((a, i) => { const r = TV.tvResignStep(state, a, startPly + i, threshold); state = r.state; if (r.end && !end) { end = r.end; at = startPly + i; } });
+        return { state, end, at };
+    }
+    test('bàndol decisiu: centipeons a partir del llindar o un mat, des del punt de vista de les blanques', () => {
+        expect(TV.tvDecisiveSide({ type: 'cp', value: 520 }, 500)).toBe('w');
+        expect(TV.tvDecisiveSide({ type: 'cp', value: -500 }, 500)).toBe('b');
+        expect(TV.tvDecisiveSide({ type: 'cp', value: 499 }, 500)).toBeNull();
+        expect(TV.tvDecisiveSide({ type: 'mate', value: -3 }, 500)).toBe('b');
+        expect(TV.tvDecisiveSide({ type: 'mate', value: 2 }, 500)).toBe('w');
+        expect(TV.tvDecisiveSide(null, 500)).toBeNull();
+    });
+    test('abandona qui perd després de sis semijugades seguides amb el mateix bàndol clarament guanyador', () => {
+        const r = run([cp(600), cp(650), cp(700), mate(5), cp(800), cp(900)]);
+        expect(r.at).toBe(45);
+        expect(r.end).toEqual(expect.objectContaining({ result: '1-0', winner: 'w', reason: 'resign' }));
+        expect(r.end.text).toBe('Les negres abandonen: l\'avantatge de les blanques ja és decisiu. Guanyen les blanques.');
+        expect(TV.tvResultHeadline(r.end)).toMatch(/Guanyen les blanques/);
+        expect(run([cp(-600), cp(-600), cp(-600), cp(-600), cp(-600), cp(-600)]).end.winner).toBe('b');
+    });
+    test('una remuntada, un bàndol diferent o massa poc avantatge reinicien la sèrie', () => {
+        expect(run([cp(600), cp(600), cp(600), cp(300), cp(600), cp(600), cp(600)]).end).toBeNull();
+        expect(run([cp(600), cp(600), cp(600), cp(-600), cp(600), cp(600)]).end).toBeNull();
+        expect(run([cp(600), cp(600), cp(600), cp(-600), cp(600), cp(600)]).state).toEqual({ side: 'w', plies: 2 });
+    });
+    test('una anàlisi poc fiable o absent no compta, però tampoc no trenca la sèrie', () => {
+        const r = run([cp(600), cp(600), cp(600, 6), null, cp(600), cp(600), cp(600)]);
+        expect(r.state).toEqual({ side: 'w', plies: 5 });
+        expect(r.end).toBeNull();
+        expect(run([cp(600), cp(600), cp(600, 6), null, cp(600), cp(600), cp(600), cp(600)]).end).not.toBeNull();
+    });
+    test('mai abans de la jugada 20, encara que la partida ja estigui decidida', () => {
+        expect(run(Array.from({ length: 12 }, () => cp(900)), 26).end).toBeNull();
+        expect(run(Array.from({ length: 16 }, () => cp(900)), 26).at).toBe(40);
+    });
+    test('als nivells baixos es demana més marge per abandonar', () => {
+        expect(TV.tvResignThresholdCp(SKILL_CAPS, 2)).toBe(C.RESIGN_CP_LOW);
+        expect(TV.tvResignThresholdCp(SKILL_CAPS, 10)).toBe(C.RESIGN_CP);
+        const eloCaps = caps(ELO_LINES(1320, 3190));
+        expect(TV.tvResignThresholdCp(eloCaps, 1500)).toBe(C.RESIGN_CP_LOW);
+        expect(TV.tvResignThresholdCp(eloCaps, 2200)).toBe(C.RESIGN_CP);
+        expect(run(Array.from({ length: 6 }, () => cp(600)), 40, C.RESIGN_CP_LOW).end).toBeNull();
+    });
+    test('partida decidida: ritme àgil sigui quin sigui el ritme triat', () => {
+        expect(TV.tvIsDecided(cp(350))).toBe(true);
+        expect(TV.tvIsDecided(cp(-350))).toBe(true);
+        expect(TV.tvIsDecided(cp(200))).toBe(false);
+        expect(TV.tvIsDecided(cp(900, 6))).toBe(false);
+        expect(TV.tvMoveDelayMs('slow', { random: 1, decided: true })).toBe(C.SPEEDS.quick.max);
+        expect(TV.tvMoveDelayMs('calm', { random: 0, decided: true })).toBe(C.SPEEDS.quick.min);
+        expect(TV.tvMoveDelayMs('calm', { random: 0 })).toBe(C.SPEEDS.calm.min);
+    });
+});
+
+describe('nivells desiguals', () => {
+    test('per defecte activats; es poden apagar i es desen a les preferències de la TV', () => {
+        expect(TV.tvNormalizePrefs(null).unequal).toBe(true);
+        expect(TV.tvNormalizePrefs({ unequal: false }).unequal).toBe(false);
+        expect(TV.tvNormalizePrefs({ unequal: 'x' }).unequal).toBe(true);
+    });
+    test('Skill Level: el més fluix juga el nivell triat i el més fort, el següent; als extrems es desplacen', () => {
+        expect(TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.2)).toEqual({ w: 4, b: 3, stronger: 'w' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.7)).toEqual({ w: 3, b: 4, stronger: 'b' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 20, true, () => 0.7)).toEqual({ w: 19, b: 20, stronger: 'b' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 0, true, () => 0.2)).toEqual({ w: 1, b: 0, stronger: 'w' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 5, false)).toEqual({ w: 5, b: 5, stronger: null });
+        expect(TV.tvGameLevels(caps([]), 5, true)).toBeNull();
+    });
+    test('Elo: 100 de diferència centrats en l\'objectiu i dins del rang del motor', () => {
+        const elo = caps(ELO_LINES(1320, 3190));
+        expect(TV.tvGameLevels(elo, 1500, true, () => 0.1)).toEqual({ w: 1550, b: 1450, stronger: 'w' });
+        expect(TV.tvGameLevels(elo, elo.min, true, () => 0.9)).toEqual({ w: elo.min, b: elo.min + 100, stronger: 'b' });
+        expect(TV.tvGameLevels(elo, elo.max, true, () => 0.1)).toEqual({ w: elo.max, b: elo.max - 100, stronger: 'w' });
+    });
+    test('durant la partida es mostra la mitjana sense dir qui és el més fort; al final es revela', () => {
+        const levels = TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.7);
+        const label = TV.tvGameLevelLabel(SKILL_CAPS, levels, 3);
+        const avg = Math.round((TV.tvSkillEloEstimate(3) + TV.tvSkillEloEstimate(4)) / 2 / 10) * 10;
+        expect(label.short).toBe('Nivell mitjà · ≈' + avg);
+        expect(label.long).toContain('un dels dos juga un nivell per sobre');
+        expect(label.long).not.toMatch(/blanques|negres/);
+        expect(TV.tvLevelReveal(SKILL_CAPS, levels)).toBe('Les negres jugaven una mica més fort: nivell 4 contra nivell 3.');
+        expect(TV.tvGameLevelLabel(SKILL_CAPS, TV.tvGameLevels(SKILL_CAPS, 3, false), 3)).toEqual(TV.tvLevelLabel(SKILL_CAPS, 3));
+        expect(TV.tvLevelReveal(SKILL_CAPS, TV.tvGameLevels(SKILL_CAPS, 3, false))).toBeNull();
+    });
+    test('cada bàndol rep el seu nivell segons el torn de la posició', () => {
+        const level = { value: 3, sides: { w: 3, b: 4 } };
+        expect(TV.tvSideLevel(level, new Chess().fen())).toBe(3);
+        expect(TV.tvSideLevel(level, 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1')).toBe(4);
+        expect(TV.tvSideLevel({ value: 7, sides: null }, new Chess().fen())).toBe(7);
+    });
+});
+
+describe('obertures que desequilibren aviat', () => {
+    const list = [
+        { name: 'Obertura Catalana', eco: 'E01', moves: ['d4'] },
+        { name: 'Gambit de Dama Refusat', eco: 'D06', moves: ['d4'] },
+        { name: 'Gambit de Rei', eco: 'C21', moves: ['e4'] },
+        { name: 'Sistema Londres', eco: 'D02', moves: ['d4'] },
+        { name: 'Siciliana Najdorf', eco: 'B90', moves: ['e4'] }
+    ];
+    test('gambits, partides obertes i sicilianes, sí; el Gambit de Dama i les posicionals, no', () => {
+        expect(list.map(TV.tvIsSharpOpening)).toEqual([false, false, true, false, true]);
+        expect(TV.tvIsSharpOpening({ name: 'Contragambit Albin', eco: 'D08' })).toBe(true);
+        expect(TV.tvIsSharpOpening(null)).toBe(false);
+    });
+    test('amb sharp, la rotació salta a la següent obertura que desequilibra; sense, segueix igual', () => {
+        expect(TV.tvPickOpening(list, 0)).toEqual({ opening: list[0], nextIndex: 1 });
+        expect(TV.tvPickOpening(list, 0, { sharp: true })).toEqual({ opening: list[2], nextIndex: 3 });
+        expect(TV.tvPickOpening(list, 3, { sharp: true })).toEqual({ opening: list[4], nextIndex: 0 });
+        const quiet = list.filter(o => !TV.tvIsSharpOpening(o));
+        expect(TV.tvPickOpening(quiet, 1, { sharp: true })).toEqual({ opening: quiet[1], nextIndex: 2 });
+    });
 });
 
 // ---------------------------------------------------------------------------
@@ -738,7 +865,9 @@ function fakeEngine(opts) {
                     const legal = g.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || '')).sort();
                     let best = legal[0] || null;
                     if (job.tag.kind === 'move' && o.script && o.script[g.history().length]) best = o.script[g.history().length];
-                    resolve({ bestUci: best, infos: best ? { 1: { depth: 12, multipv: 1, type: 'cp', value: 0, bound: null, pv: [best] } } : {} });
+                    // Valoració (des de qui mou) que torna l'anàlisi; per defecte, igualada.
+                    const value = job.tag.kind === 'analysis' && o.evalWhite ? o.evalWhite(g.history().length) * (g.turn() === 'w' ? 1 : -1) : 0;
+                    resolve({ bestUci: best, infos: best ? { 1: { depth: 12, multipv: 1, type: 'cp', value: value, bound: null, pv: [best] } } : {} });
                 }, o.delay || 200);
             });
         },
@@ -824,7 +953,7 @@ describe('bucle de Stockfish TV', () => {
 
     test('cada partida té el nivell FIXAT; els ajustos s\'apliquen a la següent', async () => {
         const engine = fakeEngine({ script: FOOLS });
-        const { ctl, results, viewerInput } = makeController({ engine: engine });
+        const { ctl, results, viewerInput } = makeController({ engine: engine, loadPrefs: () => ({ unequal: false }) });
         await ctl.open();
         expect(ctl.state().game.level.value).toBe(0);
         await jest.advanceTimersByTimeAsync(6000);
@@ -849,6 +978,77 @@ describe('bucle de Stockfish TV', () => {
         expect(engine.newGames).toBe(2);
         // El nivell de l'usuari no s'ha tocat.
         expect(viewerInput).toEqual({ calibrated: false, roc: 900 });
+        ctl.close();
+    });
+
+    test('una partida decidida acaba amb l\'abandonament del bàndol que perd i passa al ritme àgil', async () => {
+        // Una línia legal sense repeticions; les negres tenen un avantatge
+        // decisiu a partir de la semijugada 30.
+        const line = [], g0 = new Chess(), seen = new Set([g0.fen().split(' ').slice(0, 4).join(' ')]);
+        while (line.length < 80) {
+            const next = g0.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || '')).sort().find(u => {
+                g0.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
+                const key = g0.fen().split(' ').slice(0, 4).join(' '), fresh = !seen.has(key) && !g0.game_over();
+                g0.undo(); return fresh;
+            });
+            g0.move({ from: next.slice(0, 2), to: next.slice(2, 4), promotion: next[4] });
+            seen.add(g0.fen().split(' ').slice(0, 4).join(' ')); line.push(next);
+        }
+        const engine = fakeEngine({ script: line, delay: 20, evalWhite: plies => plies >= 30 ? -800 : 0 });
+        const { ctl, results } = makeController({ engine, loadPrefs: () => ({ speed: 'slow' }) });
+        await ctl.open();
+        for (let t = 0; t < 120 && !ctl.state().game.end; t++) await jest.advanceTimersByTimeAsync(5000);
+        const g = ctl.state().game;
+        expect(g.end).toEqual(expect.objectContaining({ result: '0-1', winner: 'b', reason: 'resign' }));
+        expect(g.end.text).toMatch(/^Les blanques abandonen/);
+        expect(g.moves.length).toBe(C.RESIGN_MIN_PLY);
+        expect(results[0].end.reason).toBe('resign');
+        ctl.close();
+    });
+
+    test('el ritme àgil només quan la partida està decidida', async () => {
+        const engine = fakeEngine({ delay: 20, evalWhite: plies => plies >= 4 ? 900 : 0 });
+        const { ctl } = makeController({ engine, loadPrefs: () => ({ speed: 'slow' }) });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS + 200);
+        const times = [];
+        let last = ctl.state().game.moves.length;
+        for (let t = 0; t < 2000 && times.length < 6; t++) {
+            await jest.advanceTimersByTimeAsync(100);
+            const n = ctl.state().game.moves.length;
+            if (n !== last) { times.push({ ply: n, at: t * 100 }); last = n; }
+        }
+        const gaps = times.slice(1).map((x, i) => ({ ply: x.ply, gap: x.at - times[i].at }));
+        // Amb la partida igualada, el ritme «Lent»; quan ja està decidida, l'«Àgil».
+        gaps.filter(x => x.ply <= 4).forEach(x => expect(x.gap).toBeGreaterThanOrEqual(C.SPEEDS.slow.min));
+        gaps.filter(x => x.ply >= 6).forEach(x => expect(x.gap).toBeLessThan(C.SPEEDS.slow.min));
+        expect(gaps.some(x => x.ply >= 6)).toBe(true);
+        ctl.close();
+    });
+
+    test('nivells desiguals: cada bàndol juga el seu nivell, la pantalla en mostra la mitjana i al final es revela', async () => {
+        const engine = fakeEngine({ script: FOOLS });
+        const { ctl, renders } = makeController({ engine });
+        await ctl.open();
+        const lv = ctl.state().game.level;
+        // Amb random() = 0.5 el més fort és el negre: nivell 1 contra 0.
+        expect(lv).toEqual(expect.objectContaining({ value: 0, sides: { w: 0, b: 1 }, stronger: 'b' }));
+        expect(lv.label.short).toMatch(/^Nivell mitjà/);
+        await jest.advanceTimersByTimeAsync(40000);
+        const moves = engine.jobs.filter(j => j.tag.kind === 'move' && j.tag.gameId === 1);
+        moves.filter(j => j.tag.ply % 2 === 0).forEach(j => expect(j.strength).toEqual(['setoption name Skill Level value 0']));
+        moves.filter(j => j.tag.ply % 2 === 1).forEach(j => expect(j.strength).toEqual(['setoption name Skill Level value 1']));
+        expect(moves.some(j => j.tag.ply % 2 === 1)).toBe(true);
+        expect(ctl.state().game.end).toBeTruthy();
+        expect(ctl.state().game.level.reveal).toBe('Les negres jugaven una mica més fort: nivell 1 contra nivell 0.');
+        expect(renders.some(s => s.game && !s.game.end && /blanques|negres/i.test(s.game.level.label.long))).toBe(false);
+        // Apagar-los s'aplica a la partida següent.
+        ctl.setUnequal(false);
+        expect(ctl.state().unequal).toBe(false);
+        expect(ctl.state().game.level.sides).toEqual({ w: 0, b: 1 });
+        ctl.newGame();
+        expect(ctl.state().game.level.sides).toBeNull();
+        expect(ctl.state().game.level.reveal).toBeNull();
         ctl.close();
     });
 
@@ -978,7 +1178,7 @@ describe('bucle de Stockfish TV', () => {
     });
 
     test('barra de nivell durant la partida: només canvia la següent', async () => {
-        const { ctl } = makeController({ engine: fakeEngine({ script: FOOLS }) });
+        const { ctl } = makeController({ engine: fakeEngine({ script: FOOLS }), loadPrefs: () => ({ unequal: false }) });
         await ctl.open();
         await jest.advanceTimersByTimeAsync(5000);
         ctl.setNextLevel(9);
@@ -1103,7 +1303,7 @@ describe('jugada enrere i control manual', () => {
         const moveJobs = engine.jobs.filter(j => j.tag.kind === 'move');
         expect(moveJobs.length).toBe(1);
         expect(moveJobs[0].tag.ply).toBe(1);
-        expect(moveJobs[0].strength).toEqual(['setoption name Skill Level value ' + st.game.level.value]);
+        expect(moveJobs[0].strength).toEqual(['setoption name Skill Level value ' + (st.game.level.sides ? st.game.level.sides.b : st.game.level.value)]);
         // I no torna a moure fins que l'usuari mou.
         await jest.advanceTimersByTimeAsync(60000);
         expect(ctl.state().game.moves.length).toBe(2);

@@ -67,6 +67,15 @@ Conduir amb Playwright + Chromium preinstal·lat
     i després la casella de destí (sense espera mínima entre tocs) o
     arrossegant amb `page.mouse` en mode «arrossegar» (escriptori).
     `_controller().userMoves(casella)` dona els destins legals.
+    **Abandonament**: una partida decidida acaba amb `game.end.reason ===
+    'resign'`; la sèrie és a `_controller()._internal.game.resign`. Per veure-ho
+    en pocs minuts, abans d'obrir la TV baixar `TV_CONFIG.RESIGN_MIN_PLY` (p. ex.
+    16), `MOVE_PREVIEW_MS`, `INTRO_DELAY_MS`, `SPEEDS.quick` i
+    `PLAYER_MOVETIME_MS.skill`, i esperar `game.end` (el resultat surt a
+    `.sftv-result-head` / `.sftv-result-text`). **Nivells desiguals**:
+    `state().game.level.sides` (`{ w, b }` o `null`) i `level.reveal`; la
+    pantalla mostra la mitjana fins al final. L'interruptor és `#sftv-unequal`
+    (clicar l'etiqueta pare) i es desa a `tauler_tv_prefs.unequal`.
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i
@@ -113,6 +122,17 @@ Conduir amb Playwright + Chromium preinstal·lat
     i després `#bp-next`; la contrarellotge passa sola a la posició següent i
     acaba als resultats (`#bp-results`, rècord a `#bp-record`). El progrés és
     a `chess_bulletPractice_v1`.
+
+15. **Jeroglífics** (`hieroclosure.js` + generador d'app.js): sempre tres
+    jugades del jugador i dues rèpliques. Per no esperar el motor, sembrar la
+    cua `eltauler_hieroglyphics_state` amb un ítem que porti `conclusion`
+    (generada amb `ElTaulerHieroClosure.createVerifier(Chess, anàlisi
+    simulada).verify(...)`, línia de 5 mitges jugades) i obrir-lo amb
+    `#btn-hieroglyphic-banner`; un ítem d'1 o 2 jugades desapareix de la cua
+    en carregar. Si la FEN de l'ítem és a l'historial
+    (`eltauler_hieroglyphic_history`) com a resolta, també es descarta. Els
+    jeroglífics d'obertura: `startOpeningTheoryHieroglyphic()` i l'exercici
+    és a `currentOpeningHieroglyphic`.
 
 ## Fluxos útils
 

@@ -428,8 +428,8 @@
 
     const OPENING_HIERO_CONFIG = {
         startMoveNumbers: [3, 4], // moviment (no ply) on comença l'exercici
-        maxSteps: 3,              // jugades de l'usuari com a màxim
-        preferredMinSteps: 2      // si es pot, l'exercici té més d'un pas
+        maxSteps: 3,              // jugades de l'usuari: un jeroglífic en té sempre tres
+        minSteps: 3
     };
 
     // Ply (0-based dins la llista de jugades) del moviment `moveNumber` del
@@ -491,7 +491,7 @@
     const OPENING_BRANCH_CONFIG = {
         minAnchorPlies: 4,                     // mínim per identificar l'obertura
         startMoveNumbers: [3, 4, 5, 6, 7, 8],  // moviments on pot arrencar l'exercici
-        minSteps: 2                            // un exercici d'una sola jugada és massa prim
+        minSteps: 3                            // un jeroglífic són sempre tres jugades
     };
 
     // L'ÀNCORA d'una obertura: el prefix més curt que la distingeix de la resta
@@ -756,7 +756,8 @@
                 replySan.push(reply.san);
                 replyMoves.push(`${reply.from}${reply.to}${reply.promotion || ''}`);
             }
-            if (!solutionMoves.length) return null;
+            // Sempre tres jugades: una línia que no hi arriba no dona exercici.
+            if (solutionMoves.length < (opts.minSteps || OPENING_HIERO_CONFIG.minSteps)) return null;
             // Les rèpliques sobreres (l'última jugada de la solució no en necessita).
             const usableReplies = Math.max(0, solutionMoves.length - 1);
 
@@ -792,15 +793,14 @@
             (openings || []).forEach(op => {
                 if (opts.userColor && (op.userColor === 'b' ? 'b' : 'w') !== opts.userColor) return;
                 starts.forEach(startMoveNumber => {
-                    const puzzle = buildOpeningHieroglyphic(op, { startMoveNumber, maxSteps: opts.maxSteps });
+                    const puzzle = buildOpeningHieroglyphic(op, { startMoveNumber, maxSteps: opts.maxSteps, minSteps: opts.minSteps });
                     if (puzzle) out.push(puzzle);
                 });
             });
             return out;
         }
 
-        // Tria un exercici: evita els últims jugats i, si pot, en dona un de més
-        // d'un pas (un jeroglífic d'una sola jugada és massa curt).
+        // Tria un exercici (sempre de tres jugades) i evita els últims jugats.
         function pickOpeningHieroglyphic(openings, options) {
             const opts = options || {};
             const rng = typeof opts.rng === 'function' ? opts.rng : Math.random;
@@ -809,11 +809,8 @@
             if (!all.length) return null;
             const fresh = all.filter(p => !recent.has(p.key));
             const pool = fresh.length ? fresh : all;
-            const minSteps = opts.preferredMinSteps || OPENING_HIERO_CONFIG.preferredMinSteps;
-            const rich = pool.filter(p => p.solutionMoves.length >= minSteps);
-            const finalPool = rich.length ? rich : pool;
-            const idx = Math.floor(rng() * finalPool.length) % finalPool.length;
-            return finalPool[Math.max(0, idx)] || finalPool[0];
+            const idx = Math.floor(rng() * pool.length) % pool.length;
+            return pool[Math.max(0, idx)] || pool[0];
         }
 
         // Converteix una branca de l'índex en exercici de debò. Retorna null si
@@ -830,10 +827,8 @@
                 moves: slot.moves,
                 movePhrases: slot.movePhrases,
                 lineKey: slot.key
-            }, { startMoveNumber: slot.startMoveNumber, maxSteps: opts.maxSteps });
+            }, { startMoveNumber: slot.startMoveNumber, maxSteps: opts.maxSteps, minSteps: opts.minSteps || OPENING_BRANCH_CONFIG.minSteps });
             if (!puzzle) return null;
-            const minSteps = opts.minSteps || OPENING_BRANCH_CONFIG.minSteps;
-            if (puzzle.solutionMoves.length < minSteps) return null;
             puzzle.variation = slot.variation || null;
             puzzle.solvedVariation = slot.solvedVariation || null;
             puzzle.solvedEco = slot.solvedEco || null;
