@@ -6,12 +6,14 @@ def inject_remigi_link(index_path: str) -> None:
     path = Path(index_path)
     html = path.read_text(encoding="utf-8")
 
+    # La capçalera de la portada té la marca a l'esquerra i, a la dreta,
+    # .home-topbar (nom d'usuari i contacte): Remigi hi entra el primer.
     topbar = '<div class="home-topbar">'
     remigi_link = '''<div class="home-topbar">
-                <a class="remigi-home-link" href="/remigi/" target="_self" aria-label="Obre Remigi" title="Remigi">
-                    <img src="/remigi/icona-192.png" alt="Remigi">
-                    <span class="remigi-home-label">Remigi</span>
-                </a>'''
+                    <a class="remigi-home-link" href="/remigi/" target="_self" aria-label="Obre Remigi" title="Remigi">
+                        <img src="/remigi/icona-192.png" alt="">
+                        <span class="remigi-home-label">Remigi</span>
+                    </a>'''
 
     if 'class="remigi-home-link"' not in html:
         if topbar not in html:
@@ -19,102 +21,52 @@ def inject_remigi_link(index_path: str) -> None:
         html = html.replace(topbar, remigi_link, 1)
 
     css = '''
-        /* Accés a Remigi: logo i nom a l'esquerra; usuari i contacte a la dreta */
-        #start-screen .home-topbar {
-            position: relative !important;
-            display: flex !important;
-            align-items: flex-start !important;
-            justify-content: flex-end !important;
-            gap: 8px !important;
-            width: 100%;
-            min-height: 126px;
-            padding-left: 116px;
-        }
-        #start-screen .home-user-chip,
-        #start-screen .home-at-btn {
-            flex: 0 0 auto;
-        }
+        /* Accés a Remigi a la capçalera de la portada, abans del nom d'usuari */
         .remigi-home-link {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 104px;
-            display: flex;
-            flex-direction: column;
+            display: inline-flex;
             align-items: center;
-            justify-content: flex-start;
-            color: inherit;
+            gap: 6px;
+            flex: 0 0 auto;
+            height: 36px;
+            padding: 0 11px 0 3px;
+            border-radius: 999px;
+            border: 1px solid rgba(201, 162, 39, 0.35);
+            background: rgba(255, 255, 255, 0.06);
+            color: var(--text-primary);
+            font-family: var(--hd-font, inherit);
+            font-size: 0.85rem;
+            font-weight: 700;
+            line-height: 1;
             text-decoration: none;
-            cursor: pointer;
-            z-index: 2;
-            outline: none;
+            transition: background .15s ease, border-color .15s ease;
         }
         .remigi-home-link img {
-            width: 104px;
-            height: 104px;
+            width: 30px;
+            height: 30px;
             display: block;
+            border-radius: 50%;
             object-fit: cover;
-            object-position: center;
-            border-radius: 4px;
-            border: 1px solid rgba(201, 162, 39, 0.52);
             background: #16867d;
-            box-shadow: 0 5px 16px rgba(0,0,0,0.30);
-            transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
         }
-        .remigi-home-label {
-            display: block;
-            width: 100%;
-            margin-top: 5px;
-            text-align: center;
-            font-size: 0.82rem;
-            font-weight: 600;
-            line-height: 1.1;
-            letter-spacing: 0.03em;
-            color: color-mix(in srgb, var(--bg-dark) 65%, var(--text-secondary));
-            text-shadow: 0 1px 1px rgba(0,0,0,0.18);
-        }
-        .remigi-home-link:hover img,
-        .remigi-home-link:focus-visible img {
-            transform: scale(1.035);
+        .remigi-home-link:hover,
+        .remigi-home-link:focus-visible {
+            background: rgba(255, 255, 255, 0.12);
             border-color: var(--accent-gold);
-            box-shadow: 0 7px 20px rgba(0,0,0,0.38);
         }
-        /* Corona principal d'El Tauler: més gran per equilibrar-la amb Remigi. */
-        #start-screen > .app-logo {
-            font-size: 4.4rem;
-            line-height: 1;
-            margin-top: 2px;
-            margin-bottom: 7px;
+        .remigi-home-link:focus-visible { outline: 3px solid var(--accent-gold); outline-offset: 2px; }
+        body.day-mode .remigi-home-link {
+            background: rgba(120, 95, 40, 0.08);
+            border-color: rgba(120, 95, 40, 0.3);
         }
-        body.epaper-mode .remigi-home-link img {
-            border-color: #999;
-            box-shadow: none;
+        body.epaper-mode .remigi-home-link {
+            background: #f4f4f4;
+            border-color: #9e9e9e;
+            color: #222;
         }
-        body.epaper-mode .remigi-home-label {
-            color: #777;
-            text-shadow: none;
-        }
-        @media (max-width: 420px) {
-            #start-screen .home-topbar {
-                min-height: 114px;
-                padding-left: 104px;
-                gap: 6px !important;
-            }
-            .remigi-home-link {
-                width: 94px;
-            }
-            .remigi-home-link img {
-                width: 94px;
-                height: 94px;
-                border-radius: 4px;
-            }
-            .remigi-home-label {
-                margin-top: 4px;
-                font-size: 0.76rem;
-            }
-            #start-screen > .app-logo {
-                font-size: 3.9rem;
-            }
+        /* Al mòbil només la icona: el nom ja el diu l'etiqueta accessible. */
+        @media (max-width: 480px) {
+            .remigi-home-link { padding: 0 3px; }
+            .remigi-home-label { display: none; }
         }
 '''
 

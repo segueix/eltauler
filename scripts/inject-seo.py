@@ -52,40 +52,39 @@ def inject_seo(index_path: str) -> None:
     html = html.replace(old_description, DESCRIPTION)
 
     # Text real i visible per a usuaris i cercadors: no és text ocult ni keyword stuffing.
+    # Va just sota la capçalera de la portada (marca, usuari i contacte), on
+    # index.html deixa la marca <!-- seo-home -->.
     if 'class="seo-home-heading"' not in html:
-        marker = '<h1>EL TAULER</h1>'
-        block = '''<h1>EL TAULER</h1>
-            <h2 class="seo-home-heading">Jugar a escacs online en català</h2>
-            <p class="seo-home-intro">Juga gratis contra Stockfish al teu nivell i millora amb anàlisi de partides, obertures i exercicis d’escacs.</p>'''
+        marker = '<!-- seo-home -->'
+        block = '''<div class="seo-home">
+                <h2 class="seo-home-heading">Jugar a escacs online en català</h2>
+                <p class="seo-home-intro">Juga gratis contra Stockfish al teu nivell i millora amb anàlisi de partides, obertures i exercicis d’escacs.</p>
+            </div>'''
         if marker not in html:
-            raise SystemExit("No s'ha trobat el títol EL TAULER de la portada")
+            raise SystemExit("No s'ha trobat la marca <!-- seo-home --> de la portada")
         html = html.replace(marker, block, 1)
 
     css = '''
-        /* Text introductori indexable i visible de la portada */
+        /* Text introductori indexable i visible de la portada (sota la capçalera) */
+        #start-screen .seo-home { margin: -4px 0 12px; text-align: left; }
         #start-screen .seo-home-heading {
-            margin: 0.2rem auto 0.35rem;
-            max-width: 30rem;
-            font-family: 'Inter', system-ui, sans-serif;
-            font-size: 1rem;
-            font-weight: 600;
+            margin: 0 0 2px;
+            font-family: var(--hd-font, 'Inter', system-ui, sans-serif);
+            font-size: 0.95rem;
+            font-weight: 700;
             line-height: 1.3;
             letter-spacing: 0;
-            color: var(--text-secondary);
-            text-align: center;
+            text-transform: none;
+            color: var(--text-primary);
         }
         #start-screen .seo-home-intro {
-            margin: 0 auto 0.9rem;
-            max-width: 31rem;
-            font-size: 0.88rem;
+            margin: 0;
+            font-size: 0.82rem;
             line-height: 1.45;
             color: var(--text-secondary);
-            text-align: center;
         }
-        @media (max-width: 420px) {
-            #start-screen .seo-home-heading { font-size: 0.95rem; }
-            #start-screen .seo-home-intro { font-size: 0.82rem; }
-        }
+        body.epaper-mode #start-screen .seo-home-heading { color: #222; }
+        body.epaper-mode #start-screen .seo-home-intro { color: #444; }
 '''
     if '#start-screen .seo-home-heading {' not in html:
         marker = '</style>'
