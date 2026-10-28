@@ -1218,7 +1218,9 @@
         return {
             ideas: {}, texts: [], templates: {}, plainStreak: 0, lastExtendedPly: -99, lastCommentPly: -99,
             focus: [], threats: [], pressures: [], tactics: [], defined: {}, lastSummaryPly: 0, summarySig: null,
-            materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false }
+            materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false },
+            // Fils narratius per partida: es restauren en desfer les jugades.
+            story: { threads: [], lastNarrationPly: -100 }
         };
     }
     function cloneMemory(m) { return JSON.parse(JSON.stringify(m || tvEmptyMemory())); }
@@ -2313,6 +2315,20 @@
             const summary = tvStrategicSummary(c, memory);
             if (summary) chosen = summary;
         }
+        // Enllacem les explicacions amb temes COMENTATS abans. El mòdul
+        // narratiu no interpreta el tauler: només reutilitza motius validats
+        // i captures verificables. Si no carrega, el comentari no canvia.
+        if (c.narrative && typeof c.narrative.apply === 'function') {
+            try {
+                const connected = c.narrative.apply(memory.story, chosen, {
+                    ply: c.ply, move: c.move, candidates: candidates
+                });
+                if (connected && connected.story) {
+                    memory.story = connected.story;
+                    chosen = connected.comment;
+                }
+            } catch (err) { /* reserva: comentari original i memòria intacta */ }
+        }
         const next = tvCommitComment(memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
         return { comment: chosen, memory: next, candidates: candidates };
     }
@@ -2339,7 +2355,8 @@
             const step = tvBroadcastStep({
                 ChessCtor: ChessCtor, fenBefore: fenBefore, fenAfter: chess.fen(), move: mv, prevMove: prevMove,
                 before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
-                tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory
+                tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory,
+                expression: s.expression || null, narrative: s.narrative || null
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
@@ -2864,6 +2881,7 @@
                     matchPlan: g.matchPlan,
                     opening: g.opening ? { name: g.opening.name, eco: g.opening.eco, idea: g.opening.idea || null, plies: g.prepared.length } : null,
                     identified: g.identified,
+                    story: g.memory && g.memory.story ? g.memory.story : null,
                     lastMove: g.moves.length ? g.moves[g.moves.length - 1] : null,
                     end: g.end,
                     nextGameAt: g.nextGameAt || null,
@@ -3117,7 +3135,7 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
-                end: end, ply: ply, memory: g.memory, expression: d.expression
+                end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
@@ -3160,7 +3178,8 @@
         function attachComment(g, entry, chosen) {
             // El comentari queda LLIGAT a aquesta posició (partida + ply + FEN).
             g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
-                explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser };
+                explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser,
+                narrative: chosen.narrative || null };
             g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
             entry.comment = chosen.text;
             entry.commentObj = g.comment;
@@ -3180,7 +3199,7 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
                 prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
-                end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression
+                end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative
             });
             S.pendingUser = false;
             g.memory = step.memory;
@@ -4152,6 +4171,22 @@
         const valid = c && c.gameId === g.id && (c.kind === 'intro' || c.fen === g.fen);
         el.textContent = valid ? c.text : '';
         el.classList.toggle('is-empty', !valid);
+        // Llista de temes que S'HAN comentat en aquesta partida. No
+        // pressuposa que encara siguin un avantatge o un pla actiu.
+        const trail = $id('sftv-storyline');
+        if (trail) {
+            const story = g && g.story;
+            const topics = story && Array.isArray(story.threads) ? story.threads : [];
+            const recent = topics.filter(t => t && t.ply >= g.moves.length - 20)
+                .slice(-3).map(t => {
+                    const group = { center: 'centre', file: 'columna ' + t.loc,
+                        passed: 'peó passat (' + t.loc + ')', pressure: 'pressió a ' + t.loc,
+                        king: 'seguretat del rei', majority: 'majoria de peons' };
+                    return group[t.group] || null;
+                }).filter(Boolean);
+            trail.textContent = recent.length ? 'Fils comentats: ' + Array.from(new Set(recent)).join(' · ') : '';
+            trail.style.display = recent.length ? '' : 'none';
+        }
     }
 
     const viewApi = {
@@ -4240,6 +4275,7 @@
             engine: engine,
             lozzaEngine: lozzaEngine,
             expression: root.ElTaulerExpressivitat || null,
+            narrative: root.ElTaulerNarrativa || null,
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
