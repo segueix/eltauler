@@ -114,9 +114,9 @@
         // que un pla s'ha complert perquè la valoració hagi canviat.
         let closed = null;
         if (gap && o.move.captured && ['capture', 'recapture', 'capture-free'].includes(chosen.kind)) {
-            closed = previous.threads.find(t => ply - t.ply >= MIN_RECALL && t.loc === o.move.to && (
-                (t.group === 'pressure' && t.color === o.move.color
-                    && t.targetType === o.move.captured)
+            closed = previous.threads.find(t => ply - t.ply >= MIN_RECALL && (
+                (t.group === 'pressure' && t.loc === o.move.to
+                    && t.color === o.move.color && t.targetType === o.move.captured)
                 || (t.group === 'passed' && t.color !== o.move.color
                     && o.move.captured === 'p' && t.lastSquare === o.move.to)
             ));
