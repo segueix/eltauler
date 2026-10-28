@@ -466,6 +466,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   que tornar-los a aplicar no dupliqui res. Si es canvien les marques de la
   portada sense adaptar-los, el desplegament fallaria després del merge: així
   salta abans, als tests del PR.
+- **`boardexperience.test.js`** — la capa de veu, ràdio i marques dels taulers
+  (`boardexperience.js`): només es narren jugades legals reals, les
+  previsualitzacions no apliquen jugades antigues ni cancel·lades, i
+  l'embolcall de `board.position` funciona amb un tauler que es comporta com
+  chessboard.js 1.0.0 (`fen()` crida `position('fen')`, i `start()`/`clear()`
+  també hi passen): crear el tauler, llegir-ne la FEN, moure-hi peces i aturar
+  totes les narracions no pot entrar en bucle. Aquell bucle deixava les
+  partides sense rellotge visible ni peces mòbils i tallava «Reprodueix» a
+  l'historial.
 
 ## Verificació al navegador
 

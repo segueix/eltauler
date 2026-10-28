@@ -90,6 +90,18 @@ Conduir amb Playwright + Chromium preinstal·lat
     eltauler.cat, aplicar tots dos scripts a una còpia del repo i servir-la
     (la icona és `/remigi/icona-192.png`).
 
+13. **Taulers amb veu i ràdio** (`boardexperience.js`): `#myBoard`,
+    `opening-board`, `explorer-board`, `daily-board` i `tv-board` es creen amb
+    `createExperienceBoard`, que embolcalla `board.position`. Un `RangeError:
+    Maximum call stack size exceeded` aquí deixa la partida a «Preparat...»,
+    sense rellotge (`#game-clocks` amb `display:none`) i sense poder moure.
+    Per veure la pila sencera, registrar `page.on('pageerror')` amb
+    `e.stack`. L'historial (`#history-board`, `historytv.js`) reprodueix al
+    ritme de TV («Tranquil», 5–8 s per jugada més 1,5 s de marca), i
+    «Reprodueix» només falla si abans s'ha obert una partida: cal provar-ho
+    jugant primer (`#btn-new-game` → `#btn-back`) i obrint després
+    `#btn-history`.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
