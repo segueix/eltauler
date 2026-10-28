@@ -342,28 +342,30 @@ describe('nivells desiguals', () => {
         expect(TV.tvNormalizePrefs({ unequal: false }).unequal).toBe(false);
         expect(TV.tvNormalizePrefs({ unequal: 'x' }).unequal).toBe(true);
     });
-    test('Skill Level: el més fluix juga el nivell triat i el més fort, el següent; als extrems es desplacen', () => {
-        expect(TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.2)).toEqual({ w: 4, b: 3, stronger: 'w' });
-        expect(TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.7)).toEqual({ w: 3, b: 4, stronger: 'b' });
-        expect(TV.tvGameLevels(SKILL_CAPS, 20, true, () => 0.7)).toEqual({ w: 19, b: 20, stronger: 'b' });
-        expect(TV.tvGameLevels(SKILL_CAPS, 0, true, () => 0.2)).toEqual({ w: 1, b: 0, stronger: 'w' });
+    test('Skill Level: el més fluix juga el nivell triat i el més fort, dos per sobre; als extrems es desplacen', () => {
+        expect(C.UNEQUAL_SKILL_GAP).toBe(2);
+        expect(TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.2)).toEqual({ w: 5, b: 3, stronger: 'w' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.7)).toEqual({ w: 3, b: 5, stronger: 'b' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 20, true, () => 0.7)).toEqual({ w: 18, b: 20, stronger: 'b' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 19, true, () => 0.7)).toEqual({ w: 18, b: 20, stronger: 'b' });
+        expect(TV.tvGameLevels(SKILL_CAPS, 0, true, () => 0.2)).toEqual({ w: 2, b: 0, stronger: 'w' });
         expect(TV.tvGameLevels(SKILL_CAPS, 5, false)).toEqual({ w: 5, b: 5, stronger: null });
         expect(TV.tvGameLevels(caps([]), 5, true)).toBeNull();
     });
-    test('Elo: 100 de diferència centrats en l\'objectiu i dins del rang del motor', () => {
+    test('Elo: 200 de diferència centrats en l\'objectiu i dins del rang del motor', () => {
         const elo = caps(ELO_LINES(1320, 3190));
-        expect(TV.tvGameLevels(elo, 1500, true, () => 0.1)).toEqual({ w: 1550, b: 1450, stronger: 'w' });
-        expect(TV.tvGameLevels(elo, elo.min, true, () => 0.9)).toEqual({ w: elo.min, b: elo.min + 100, stronger: 'b' });
-        expect(TV.tvGameLevels(elo, elo.max, true, () => 0.1)).toEqual({ w: elo.max, b: elo.max - 100, stronger: 'w' });
+        expect(TV.tvGameLevels(elo, 1500, true, () => 0.1)).toEqual({ w: 1600, b: 1400, stronger: 'w' });
+        expect(TV.tvGameLevels(elo, elo.min, true, () => 0.9)).toEqual({ w: elo.min, b: elo.min + 200, stronger: 'b' });
+        expect(TV.tvGameLevels(elo, elo.max, true, () => 0.1)).toEqual({ w: elo.max, b: elo.max - 200, stronger: 'w' });
     });
     test('durant la partida es mostra la mitjana sense dir qui és el més fort; al final es revela', () => {
         const levels = TV.tvGameLevels(SKILL_CAPS, 3, true, () => 0.7);
         const label = TV.tvGameLevelLabel(SKILL_CAPS, levels, 3);
-        const avg = Math.round((TV.tvSkillEloEstimate(3) + TV.tvSkillEloEstimate(4)) / 2 / 10) * 10;
+        const avg = Math.round((TV.tvSkillEloEstimate(3) + TV.tvSkillEloEstimate(5)) / 2 / 10) * 10;
         expect(label.short).toBe('Nivell mitjà · ≈' + avg);
-        expect(label.long).toContain('un dels dos juga un nivell per sobre');
+        expect(label.long).toContain('un dels dos juga 2 nivells per sobre');
         expect(label.long).not.toMatch(/blanques|negres/);
-        expect(TV.tvLevelReveal(SKILL_CAPS, levels)).toBe('Les negres jugaven una mica més fort: nivell 4 contra nivell 3.');
+        expect(TV.tvLevelReveal(SKILL_CAPS, levels)).toBe('Les negres jugaven una mica més fort: nivell 5 contra nivell 3.');
         expect(TV.tvGameLevelLabel(SKILL_CAPS, TV.tvGameLevels(SKILL_CAPS, 3, false), 3)).toEqual(TV.tvLevelLabel(SKILL_CAPS, 3));
         expect(TV.tvLevelReveal(SKILL_CAPS, TV.tvGameLevels(SKILL_CAPS, 3, false))).toBeNull();
     });
@@ -372,6 +374,63 @@ describe('nivells desiguals', () => {
         expect(TV.tvSideLevel(level, new Chess().fen())).toBe(3);
         expect(TV.tvSideLevel(level, 'rnbqkbnr/pppppppp/8/8/4P3/8/PPPP1PPP/RNBQKBNR b KQkq e3 0 1')).toBe(4);
         expect(TV.tvSideLevel({ value: 7, sides: null }, new Chess().fen())).toBe(7);
+    });
+});
+
+describe('perfils de joc', () => {
+    const CASTLED = 'r1bq1rk1/pppp1ppp/2n2n2/2b1p3/2B1P3/2NP1N2/PPP2PPP/R1BQK2R w KQ - 1 6';
+    const RUY = 'r1bqkb1r/pppp1ppp/2n2n2/1B2p3/4P3/5N2/PPPP1PPP/RNBQK2R w KQkq - 4 4';
+    const feats = (fen, uci, ev = 0) => TV.tvMoveFeatures(Chess, fen, uci, ev);
+    const info = (uci, value, type = 'cp') => ({ depth: 12, type, value, pv: [uci], bound: null });
+    test('quatre perfils, dos de diferents per partida i activats per defecte', () => {
+        expect(Object.keys(TV.TV_STYLES)).toEqual(['attacker', 'wall', 'hunter', 'strategist']);
+        expect(TV.TV_STYLES.attacker.label).toBe('L\'Atacant');
+        for (let r = 0; r < 1; r += 0.05) {
+            const st = TV.tvPickStyles(() => r);
+            expect(st.w).not.toBe(st.b);
+            expect(TV.TV_STYLES[st.w] && TV.TV_STYLES[st.b]).toBeTruthy();
+        }
+        expect(TV.tvNormalizePrefs(null).profiles).toBe(true);
+        expect(TV.tvNormalizePrefs({ profiles: false }).profiles).toBe(false);
+        expect(TV.tvStylesLine({ w: 'attacker', b: 'wall' })).toBe('L\'Atacant (blanques) contra El Mur (negres)');
+    });
+    test('trets de jugada: escac, captura, enroc, peons contra el rei enrocat, canvi, sacrifici, columna oberta', () => {
+        expect(feats(CASTLED, 'h2h4')).toEqual(expect.objectContaining({ storm: 1, quiet: 1 }));
+        expect(feats(CASTLED, 'd3d4').storm).toBe(0);
+        expect(feats(CASTLED, 'e1g1')).toEqual(expect.objectContaining({ castle: 1, kingMove: 0 }));
+        expect(feats(CASTLED, 'c1g5')).toEqual(expect.objectContaining({ development: 1, approach: 3 }));
+        expect(feats(RUY, 'b5c6')).toEqual(expect.objectContaining({ captureValue: 3, trade: 1, tradeAhead: 0 }));
+        expect(feats(RUY, 'b5c6', 150).tradeAhead).toBe(1);
+        expect(feats('rnbqkb1r/ppp2ppp/3p1n2/4p3/4P3/2N2N2/PPPP1PPP/R1BQKB1R w KQkq - 0 4', 'f3e5')).toEqual(expect.objectContaining({ sacrifice: 1, captureValue: 1 }));
+        expect(feats('4k3/pp3ppp/8/8/8/8/PP3PPP/R3K3 w - - 0 20', 'a1d1').rookFile).toBe(2);
+        expect(feats('4k3/8/8/8/8/8/8/4K2R w K - 0 30', 'e1e2')).toEqual(expect.objectContaining({ kingMove: 1, castle: 0 }));
+        expect(feats('4k3/8/8/8/8/8/8/4K2R w K - 0 30', 'h1h8')).toEqual(expect.objectContaining({ check: 1 }));
+        expect(feats(RUY, 'a1a8')).toBeNull();
+    });
+    test('cada perfil prefereix les jugades del seu estil', () => {
+        const pick = (style, fen, list) => list.slice().sort((a, b) => TV.tvStyleScore(style, feats(fen, b)) - TV.tvStyleScore(style, feats(fen, a)))[0];
+        expect(pick('attacker', CASTLED, ['h2h4', 'e1g1', 'a2a3'])).toBe('h2h4');
+        expect(pick('wall', CASTLED, ['h2h4', 'e1g1', 'a2a3'])).toBe('e1g1');
+        expect(pick('hunter', RUY, ['b5c6', 'e1g1', 'b1c3'])).toBe('b5c6');
+        expect(pick('strategist', RUY, ['b5c6', 'a2a3', 'b1c3'])).toBe('b1c3');
+        expect(TV.tvStyleScore('desconegut', feats(RUY, 'b1c3'))).toBe(0);
+    });
+    test('el perfil tria només entre jugades d\'una qualitat semblant a la del nivell', () => {
+        const infos = { 1: info('b1c3', 60), 2: info('e1g1', 45), 3: info('b5c6', 30), 4: info('a2a3', -40) };
+        // Jugada del nivell: Cc3 (60). Dins de la finestra de 40: O-O i Axc6; a3 (-40) queda fora.
+        expect(TV.tvPickStyledMove(Chess, RUY, infos, 'b1c3', 'wall')).toEqual(expect.objectContaining({ uci: 'e1g1', changed: true }));
+        expect(TV.tvPickStyledMove(Chess, RUY, infos, 'b1c3', 'hunter').uci).toBe('b5c6');
+        expect(TV.tvPickStyledMove(Chess, RUY, infos, 'b1c3', 'strategist')).toEqual(expect.objectContaining({ uci: 'b1c3', changed: false }));
+        expect(TV.tvPickStyledMove(Chess, RUY, infos, 'b1c3', 'hunter', 20).uci).toBe('b1c3');
+        // Si el nivell ha triat una jugada fluixa, el perfil no la millora fora de la finestra.
+        expect(TV.tvPickStyledMove(Chess, RUY, infos, 'a2a3', 'hunter').uci).toBe('a2a3');
+    });
+    test('amb mats, una jugada del nivell que no és a les línies o sense perfil, mana el nivell', () => {
+        const mate = { 1: info('b5c6', 3, 'mate'), 2: info('b1c3', 50) };
+        expect(TV.tvPickStyledMove(Chess, RUY, mate, 'b1c3', 'hunter').uci).toBe('b1c3');
+        expect(TV.tvPickStyledMove(Chess, RUY, { 1: info('b1c3', 50) }, 'e1g1', 'wall').uci).toBe('e1g1');
+        expect(TV.tvPickStyledMove(Chess, RUY, { 1: info('b1c3', 50), 2: info('e1g1', 50) }, 'b1c3', null).uci).toBe('b1c3');
+        expect(TV.tvPickStyledMove(Chess, RUY, {}, 'b1c3', 'wall').uci).toBe('b1c3');
     });
 });
 
@@ -862,6 +921,7 @@ function fakeEngine(opts) {
                     const g = new Chess();
                     const tail = job.position.split(' moves ')[1];
                     (tail ? tail.split(' ') : []).forEach(u => g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] || 'q' }));
+                    if (job.tag.kind === 'move' && o.moveInfos) { const r = o.moveInfos(g); if (r) { resolve(r); return; } }
                     const legal = g.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || '')).sort();
                     let best = legal[0] || null;
                     if (job.tag.kind === 'move' && o.script && o.script[g.history().length]) best = o.script[g.history().length];
@@ -1031,24 +1091,50 @@ describe('bucle de Stockfish TV', () => {
         const { ctl, renders } = makeController({ engine });
         await ctl.open();
         const lv = ctl.state().game.level;
-        // Amb random() = 0.5 el més fort és el negre: nivell 1 contra 0.
-        expect(lv).toEqual(expect.objectContaining({ value: 0, sides: { w: 0, b: 1 }, stronger: 'b' }));
+        // Amb random() = 0.5 el més fort és el negre: nivell 2 contra 0.
+        expect(lv).toEqual(expect.objectContaining({ value: 0, sides: { w: 0, b: 2 }, stronger: 'b' }));
         expect(lv.label.short).toMatch(/^Nivell mitjà/);
         await jest.advanceTimersByTimeAsync(40000);
         const moves = engine.jobs.filter(j => j.tag.kind === 'move' && j.tag.gameId === 1);
         moves.filter(j => j.tag.ply % 2 === 0).forEach(j => expect(j.strength).toEqual(['setoption name Skill Level value 0']));
-        moves.filter(j => j.tag.ply % 2 === 1).forEach(j => expect(j.strength).toEqual(['setoption name Skill Level value 1']));
+        moves.filter(j => j.tag.ply % 2 === 1).forEach(j => expect(j.strength).toEqual(['setoption name Skill Level value 2']));
         expect(moves.some(j => j.tag.ply % 2 === 1)).toBe(true);
         expect(ctl.state().game.end).toBeTruthy();
-        expect(ctl.state().game.level.reveal).toBe('Les negres jugaven una mica més fort: nivell 1 contra nivell 0.');
+        expect(ctl.state().game.level.reveal).toBe('Les negres jugaven una mica més fort: nivell 2 contra nivell 0.');
         expect(renders.some(s => s.game && !s.game.end && /blanques|negres/i.test(s.game.level.label.long))).toBe(false);
         // Apagar-los s'aplica a la partida següent.
         ctl.setUnequal(false);
         expect(ctl.state().unequal).toBe(false);
-        expect(ctl.state().game.level.sides).toEqual({ w: 0, b: 1 });
+        expect(ctl.state().game.level.sides).toEqual({ w: 0, b: 2 });
         ctl.newGame();
         expect(ctl.state().game.level.sides).toBeNull();
         expect(ctl.state().game.level.reveal).toBeNull();
+        ctl.close();
+    });
+
+    test('perfils de joc: cada bàndol en té un de diferent, es diuen a la presentació i trien la jugada del seu estil', async () => {
+        const seq = [0.8, 0.1];
+        const random = () => (seq.length ? seq.shift() : 0.5);
+        const line = (uci, value) => ({ depth: 12, multipv: 1, type: 'cp', value, bound: null, pv: [uci] });
+        const engine = fakeEngine({ delay: 20, moveInfos: g => g.history().length === 0
+            ? { bestUci: 'a2a3', infos: { 1: line('a2a3', 20), 2: line('g1f3', 10), 3: line('h2h4', 5) } } : null });
+        const openings = [{ eco: 'A00', name: 'Prova', moves: ['xx'] }];
+        const { ctl } = makeController({ engine, random, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0, unequal: false }) });
+        await ctl.open();
+        const g = ctl.state().game;
+        // 0.8 → L'Estratega amb blanques; 0.1 → L'Atacant amb negres.
+        expect(g.styles).toEqual({ w: 'strategist', b: 'attacker' });
+        expect(g.comment.text).toContain('Juguen L\'Estratega, amb blanques, contra L\'Atacant, amb negres.');
+        for (let t = 0; t < 40 && !ctl.state().game.moves.length; t++) await jest.advanceTimersByTimeAsync(1000);
+        // El nivell volia a3; L'Estratega, entre jugades de qualitat semblant, desenvolupa el cavall.
+        expect(ctl.state().game.moves[0].uci).toBe('g1f3');
+        const job = engine.jobs.find(j => j.tag.kind === 'move');
+        expect(job.multipv).toBe(C.STYLE_MULTIPV);
+        // Apagar-los: la partida següent juga «com Stockfish», sense perfils.
+        ctl.setProfiles(false);
+        expect(ctl.state().profiles).toBe(false);
+        ctl.newGame();
+        expect(ctl.state().game.styles).toBeNull();
         ctl.close();
     });
 
@@ -1133,7 +1219,7 @@ describe('bucle de Stockfish TV', () => {
             { eco: 'C60', name: 'Obertura Espanyola (Ruy López)', idea: 'Pressiona el cavall.', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5'] },
             { eco: 'D06', name: 'Gambit de Dama Refusat', moves: ['d4', 'd5', 'c4', 'e6'] }
         ];
-        const { ctl, prefs } = makeController({ getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0 }) });
+        const { ctl, prefs } = makeController({ getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0, profiles: false }) });
         await ctl.open();
         const st = ctl.state();
         expect(st.game.opening).toEqual(expect.objectContaining({ name: 'Obertura Espanyola (Ruy López)', plies: 5 }));
@@ -1153,7 +1239,7 @@ describe('bucle de Stockfish TV', () => {
         const synth = fakeSynth([CA]);
         const voice = TV.createTvVoice({ speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on' });
         const openings = [{ eco: 'C60', name: 'Obertura Espanyola', idea: 'Pressiona el cavall.', moves: ['e4', 'e5'] }];
-        const { ctl } = makeController({ voice: voice, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0 }) });
+        const { ctl } = makeController({ voice: voice, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0, profiles: false }) });
         await ctl.open();
         expect(synth.spoken).toHaveLength(1);
         expect(synth.spoken[0].text).toMatch(/^Obertura de partida/);
