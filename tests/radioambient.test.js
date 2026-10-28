@@ -31,7 +31,7 @@ describe('preferències i activació exclusives de Matxa Ràdio', () => {
 });
 
 describe('generació i reproducció sense xarxa', () => {
-    test.each(['studio', 'theme', 'tuning'])('el so %s té energia, marge i extrems suaus per repetir-se', sound => {
+    test.each(['studio', 'tuning'])('el so %s té energia, marge i extrems suaus per repetir-se', sound => {
         let seed = 7;
         const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
         const data = R.samples(sound, 22050, random);
@@ -43,6 +43,55 @@ describe('generació i reproducció sense xarxa', () => {
         expect(Number.isFinite(sum)).toBe(true);
         expect(sum / data.length).toBeGreaterThan(0.0001);
         expect(peak).toBeLessThanOrEqual(0.8);
+    });
+    describe('sintonia suau: música de fons per a la ràdio', () => {
+        let data;
+        beforeAll(() => {
+            let seed = 11;
+            const random = () => { seed = (seed * 16807) % 2147483647; return seed / 2147483647; };
+            data = R.samples('theme', 22050, random);
+        });
+        test('vuit compassos (32 s) que es repeteixen sense cap salt ni silenci', () => {
+            expect(data).toHaveLength(22050 * R.THEME_SECONDS);
+            expect(R.THEME_SECONDS).toBe(32);
+            // El bucle és circular: l'últim sample enllaça amb el primer.
+            expect(Math.abs(data[data.length - 1] - data[0])).toBeLessThan(0.05);
+            let jump = 0;
+            for (let i = 1; i < data.length; i++) jump = Math.max(jump, Math.abs(data[i] - data[i - 1]));
+            expect(jump).toBeLessThan(0.35);
+            // Cap segon en silenci: sempre hi ha música sota la veu.
+            for (let s = 0; s < R.THEME_SECONDS; s++) {
+                let sum = 0;
+                for (let i = s * 22050; i < (s + 1) * 22050; i++) sum += data[i] * data[i];
+                expect(Math.sqrt(sum / 22050)).toBeGreaterThan(0.02);
+            }
+        });
+        test('té marge i se sent en altaveus petits (la major part per sobre de 300 Hz)', () => {
+            let sum = 0, peak = 0, high = 0, y = 0, prev = 0;
+            const a = Math.exp(-2 * Math.PI * 300 / 22050);
+            for (const x of data) {
+                sum += x * x; peak = Math.max(peak, Math.abs(x));
+                y = a * (y + x - prev); prev = x; high += y * y;
+            }
+            expect(peak).toBeLessThanOrEqual(0.8);
+            expect(Math.sqrt(sum / data.length)).toBeGreaterThan(0.06);
+            expect(high / sum).toBeGreaterThan(0.5);
+        });
+    });
+    test('la sintonia té més marge que l’aire filtrat i baixa mentre parla la veu', () => {
+        const ctx = context(), player = R.createPlayer({ createContext: () => ctx, random: () => 0.5 });
+        player.update({ sound: 'theme', volume: 50 }, true); player.unlock();
+        const gain = ctx.gains[0].gain.setTargetAtTime;
+        expect(gain).toHaveBeenLastCalledWith(0.5 * R.LEVELS.theme, 1, 0.08);
+        player.duck(true);
+        expect(gain).toHaveBeenLastCalledWith(0.5 * R.LEVELS.theme * R.DUCK, 1, 0.12);
+        player.duck(true);
+        expect(gain).toHaveBeenCalledTimes(2);
+        player.duck(false);
+        expect(gain).toHaveBeenLastCalledWith(0.5 * R.LEVELS.theme, 1, 0.6);
+        // Baixar el fons no crea cap altre bucle.
+        expect(ctx.sources).toHaveLength(1);
+        player.dispose();
     });
     test('cap context sense activació i un sol bucle en canviar el volum', () => {
         const ctx = context(), createContext = jest.fn(() => ctx), player = R.createPlayer({ createContext });
