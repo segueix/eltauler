@@ -33,6 +33,20 @@ function setup({ saved, presets = [], voices = [CA_AD, CA_ES], available = true,
 }
 
 describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
+    test.each(['warm', 'radio'])('el perfil %s arriba a les ressenyes i al pont de TV', profile => {
+        const app = setup({ saved: 'matxa-' + profile });
+        expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile, intensity: 0.6, clarity: 0.5, volume: 1 });
+        app.run("beginReviewTts('Una forquilla.', 'settings')");
+        expect(app.speaker.speak.mock.calls[0][2].effects).toEqual({ profile });
+    });
+
+    test('els perfils antics mantenen el so original i els personals conserven els filtres', () => {
+        const app = setup({ saved: 'personal', presets: [{ id: 'personal', name: 'Personal', voiceURI: 'matxa:central:elia' }] });
+        expect(app.run('defaultNeuralTtsVoice().effects.profile')).toBe('natural');
+        app.run("writeReviewTtsPresets([{ id: 'personal', name: 'Personal', voiceURI: 'matxa:central:elia', matxaEffects: { profile: 'warm', intensity: 0.3, clarity: 0.8, volume: 0 } }])");
+        expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile: 'warm', intensity: 0.3, clarity: 0.8, volume: 0 });
+    });
+
     test.each([true, false])('la ressenya diu peó i peons amb Matxa disponible: %s', available => {
         const app = setup({ available });
         app.run("beginReviewTts('El pawn defensa dos pawns.', 'settings')");

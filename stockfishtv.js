@@ -2106,6 +2106,7 @@
             try { return (neural && typeof e.getNeuralVoiceId === 'function') ? (e.getNeuralVoiceId() || null) : null; } catch (err) { return null; }
         };
         const neuralRate = () => { try { return typeof e.getNeuralRate === 'function' ? e.getNeuralRate() : 1; } catch (err) { return 1; } };
+        const neuralEffects = () => { try { return typeof e.getNeuralEffects === 'function' ? e.getNeuralEffects() : null; } catch (err) { return null; } };
         const neuralReady = () => !!(neuralId() && neural.available());
         const synthSupported = !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
         const supported = synthSupported || !!neural;
@@ -2154,7 +2155,7 @@
             stop();
             const seq = speakSeq;
             if (neuralReady()) {
-                return neural.speak(text, neuralId(), { rate: neuralRate(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
+                return neural.speak(text, neuralId(), { rate: neuralRate(), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
                     .then((r) => {
                         if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
                         if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
@@ -2219,12 +2220,14 @@
             isSpeaking() { return !!current || !!(neural && neural.isSpeaking()); },
             setOn(on) {
                 pref = on ? 'on' : 'off';
+                if (on && neuralId() && neural.unlock) neural.unlock();
                 if (typeof e.savePref === 'function') { try { e.savePref(pref); } catch (err) {} }
                 if (!on) stop();
                 blocked = false;
                 emit();
             },
             refreshVoices: refreshVoices,
+            unlock() { if (neuralId() && neural.unlock) neural.unlock(); },
             speak: speak,
             stop: stop
         };
@@ -3566,6 +3569,7 @@
             neural: (root.ElTaulerVeuNeural && typeof root.Audio === 'function') ? root.ElTaulerVeuNeural.sharedSpeaker() : null,
             getNeuralVoiceId: () => (typeof bridge.getNeuralVoiceId === 'function' ? bridge.getNeuralVoiceId() : null),
             getNeuralRate: () => (typeof bridge.getNeuralRate === 'function' ? bridge.getNeuralRate() : 1),
+            getNeuralEffects: () => (typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null),
             loadPref: () => tvNormalizePrefs(loadPrefsRaw()).voice,
             savePref: (v) => savePrefsRaw({ voice: v }),
             onChange: () => renderVoice()
@@ -3591,6 +3595,7 @@
         const c = ensureController();
         const screen = $id('sftv-screen');
         if (!c || !screen) return;
+        if (voice && voice.isOn()) voice.unlock();
         if (root.jQuery) root.jQuery('#start-screen').hide(); else { const s = $id('start-screen'); if (s) s.style.display = 'none'; }
         screen.style.display = '';
         try { if (typeof bridge.navPush === 'function') bridge.navPush('sftv-screen'); } catch (e) {}

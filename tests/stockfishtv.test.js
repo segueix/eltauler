@@ -657,11 +657,13 @@ describe('veu catalana opcional', () => {
         const synth = fakeSynth([CA]);
         const neural = fakeNeural();
         const v = TV.createTvVoice({ speechSynthesis: synth, SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on',
-            neural: neural, getNeuralVoiceId: () => 'matxa:central:elia', getNeuralRate: () => 1.1 });
+            neural: neural, getNeuralVoiceId: () => 'matxa:central:elia', getNeuralRate: () => 1.1,
+            getNeuralEffects: () => ({ profile: 'radio', intensity: 0.7, clarity: 0.6, volume: 0.8 }) });
         expect(v.engine()).toBe('neural');
         await expect(v.speak('Escac al rei negre.')).resolves.toEqual({ spoken: true, reason: 'end' });
         expect(neural.calls[0][1]).toBe('matxa:central:elia');
         expect(neural.calls[0][2].rate).toBe(1.1);
+        expect(neural.calls[0][2].effects).toEqual({ profile: 'radio', intensity: 0.7, clarity: 0.6, volume: 0.8 });
         expect(synth.spoken).toHaveLength(0);
         v.prefetch('Les blanques han enrocat curt.');
         expect(neural.prefetched[0]).toEqual(['Les blanques han enrocat curt.', 'matxa:central:elia']);

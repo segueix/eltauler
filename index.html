@@ -1029,6 +1029,11 @@
         }
         .settings-title { font-family: var(--font-ui); font-size: 0.95rem; color: var(--accent-gold); margin-bottom: 10px; }
         .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+        .tts-system-only[hidden], #tts-matxa-controls[hidden] { display: none !important; }
+        .tts-matxa-controls { min-width: 0; margin: 12px 0; padding: 12px; border: 1px solid var(--accent); border-radius: 12px; }
+        .tts-matxa-controls legend { padding: 0 6px; font-weight: 600; }
+        .tts-matxa-controls .setting-row { margin-top: 10px; }
+        .tts-matxa-controls input:disabled { opacity: 0.4; }
         .setting-label { font-size: 0.85rem; color: var(--text-primary); flex: 1 1 12rem; line-height: 1.25; }
         .setting-row > :not(.setting-label) { min-width: 0; }
         .select-control {
@@ -6827,7 +6832,7 @@
             <div class="settings-panel">
                 <div class="settings-title">🔊 Veus de lectura</div>
                 <div class="setting-help" style="margin-bottom:10px;">Crea perfils per llegir ressenyes, diagnòstics i els comentaris de Stockfish TV: tria la veu, el timbre i la velocitat. Els perfils es desen només al teu navegador.</div>
-                <div class="setting-help" style="margin-bottom:10px;">🎙️ <strong>Veus neuronals Matxa</strong> (BSC, projecte Aina; la comparativa de síntesi en català de Softcatalà la recomana com el model nou de referència): molt més naturals que les del dispositiu, amb accent central, nord-occidental, valencià i balear. Funcionen <strong>en línia</strong>: el text que es llegeix s'envia al servei del BSC. Sense connexió es fa servir la veu del dispositiu. El timbre i l'expressivitat només s'apliquen a les veus del dispositiu.</div>
+                <div class="setting-help" style="margin-bottom:10px;">🎙️ <strong>Veus neuronals Matxa</strong> (BSC, projecte Aina), amb accent central, nord-occidental, valencià i balear. Funcionen <strong>en línia</strong>: el text que es llegeix s'envia al servei del BSC. Si fallen, es fa servir la veu en català del dispositiu. Matxa té tres perfils de so: Natural, Càlida i Ràdio.</div>
                 <div class="setting-row">
                     <div class="setting-label">Ús per defecte</div>
                     <select id="tts-preset-mode" class="select-control">
@@ -6847,7 +6852,43 @@
                     <div class="setting-label">Nom del perfil</div>
                     <input class="text-input" id="tts-preset-name" maxlength="28" placeholder="Ex. Greu tranquil·la">
                 </div>
-                <div class="setting-row">
+                <fieldset id="tts-matxa-controls" class="tts-matxa-controls" hidden>
+                    <legend>So de Matxa</legend>
+                    <div class="setting-row">
+                        <label class="setting-label" for="tts-matxa-profile">Perfil de so</label>
+                        <select id="tts-matxa-profile" class="select-control" aria-describedby="tts-matxa-help">
+                            <option value="natural">Natural</option>
+                            <option value="warm">Càlida</option>
+                            <option value="radio">Ràdio</option>
+                        </select>
+                    </div>
+                    <div class="setting-help" id="tts-matxa-help">La veu original de Matxa, sense filtres.</div>
+                    <div class="setting-row">
+                        <label class="setting-label" for="tts-matxa-intensity-range">Intensitat del filtre</label>
+                        <div class="font-size-control">
+                            <input type="range" id="tts-matxa-intensity-range" min="0" max="100" step="1" value="60" disabled>
+                            <span id="tts-matxa-intensity-value">60%</span>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <label class="setting-label" for="tts-matxa-clarity-range">Claredat</label>
+                        <div class="font-size-control">
+                            <span>Suau</span>
+                            <input type="range" id="tts-matxa-clarity-range" min="0" max="100" step="1" value="50" disabled>
+                            <span>Nítida</span>
+                            <span id="tts-matxa-clarity-value">50%</span>
+                        </div>
+                    </div>
+                    <div class="setting-row">
+                        <label class="setting-label" for="tts-matxa-volume-range">Volum de Matxa</label>
+                        <div class="font-size-control">
+                            <input type="range" id="tts-matxa-volume-range" min="0" max="100" step="1" value="100">
+                            <span id="tts-matxa-volume-value">100%</span>
+                        </div>
+                    </div>
+                    <div class="setting-help">Escolta una prova per comparar els ajustos i desa el perfil per aplicar-lo també a Stockfish TV. Si el dispositiu no admet els filtres, sentiràs la veu original.</div>
+                </fieldset>
+                <div class="setting-row tts-system-only">
                     <div class="setting-label">Timbre / agudesa</div>
                     <div class="font-size-control">
                         <span style="font-size:0.78rem;opacity:0.7;">Greu</span>
@@ -6865,7 +6906,7 @@
                         <span id="tts-rate-value">95%</span>
                     </div>
                 </div>
-                <div class="setting-row">
+                <div class="setting-row tts-system-only">
                     <div class="setting-label">Expressivitat</div>
                     <div class="font-size-control">
                         <span style="font-size:0.78rem;opacity:0.7;">Plana</span>
@@ -6875,7 +6916,7 @@
                     </div>
                 </div>
                 <div class="setting-row">
-                    <div class="setting-label">Cadència</div>
+                    <div class="setting-label">Pauses de les ressenyes</div>
                     <div class="font-size-control">
                         <span style="font-size:0.78rem;opacity:0.7;">Sense pauses</span>
                         <input type="range" id="tts-cadence-range" min="0" max="100" step="1" value="50" style="accent-color:var(--accent);touch-action:none;">
@@ -6883,14 +6924,14 @@
                         <span id="tts-cadence-value">50%</span>
                     </div>
                 </div>
-                <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+                <div class="tts-system-only" style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
                     <button type="button" class="btn btn-secondary" id="tts-preset-news" style="flex:1;min-width:100px;">Notícies</button>
                     <button type="button" class="btn btn-secondary" id="tts-preset-story" style="flex:1;min-width:100px;">Conte</button>
                     <button type="button" class="btn btn-secondary" id="tts-preset-dictation" style="flex:1;min-width:100px;">Dictat</button>
                 </div>
                 <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
-                    <button type="button" class="btn btn-primary" id="tts-preview" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Prova</button>
-                    <button type="button" class="btn btn-secondary" id="tts-save" style="flex:1;min-width:120px;">Desa perfil</button>
+                    <button type="button" class="btn btn-primary" id="tts-preview" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Escolta una prova</button>
+                    <button type="button" class="btn btn-secondary" id="tts-save" style="flex:1;min-width:120px;">Desa i aplica</button>
                     <button type="button" class="btn btn-secondary" id="tts-default" style="flex:1;min-width:120px;">Per defecte</button>
                     <button type="button" class="btn btn-secondary" id="tts-delete" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg>Elimina</button>
                     <button type="button" class="btn btn-secondary" id="tts-stop-preview" style="flex:1;min-width:120px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-stop"/></svg>Atura</button>
@@ -8918,8 +8959,8 @@
     <script src="core.js?v=1.0.33"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.3"></script>
-    <script src="veuneural.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=1.4.0"></script>
+    <script src="veuneural.js?v=1.1.0"></script>
+    <script src="stockfishtv.js?v=1.4.1"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -8930,7 +8971,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.103"></script>
+    <script src="app.js?v=1.0.104"></script>
 
     <!-- Service Worker Registration -->
     <script>

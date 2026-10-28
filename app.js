@@ -1739,7 +1739,7 @@ const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
 const DEFAULT_REVIEW_TTS_PRESET = { id: 'system-ca-es', name: 'Català (Espanya) · sistema', voiceURI: 'system:ca-ES', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
 // Perfil base amb veu NEURONAL (Matxa, BSC): molt més natural que les veus del
 // sistema. És el perfil per defecte mentre l'usuari no n'hagi triat cap altre.
-const NEURAL_REVIEW_TTS_PRESET = { id: 'matxa', name: 'Veu neuronal Matxa · Elia (central)', voiceURI: 'matxa:central:elia', pitch: 1, rate: 1, expressivity: 0.5, cadence: 0.5, builtin: true };
+const NEURAL_REVIEW_TTS_PRESET = { id: 'matxa', name: 'Matxa · Elia · Natural', voiceURI: 'matxa:central:elia', pitch: 1, rate: 1, expressivity: 0.5, cadence: 0.5, builtin: true };
 
 function neuralTtsAvailable() {
     return typeof window !== 'undefined' && !!window.ElTaulerVeuNeural && typeof window.Audio === 'function';
@@ -1748,12 +1748,16 @@ function isNeuralTtsVoice(voiceURI) {
     return neuralTtsAvailable() && window.ElTaulerVeuNeural.isNeuralVoiceId(voiceURI);
 }
 function builtinReviewTtsPresets() {
-    return neuralTtsAvailable() ? [NEURAL_REVIEW_TTS_PRESET, DEFAULT_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
+    return neuralTtsAvailable() ? [NEURAL_REVIEW_TTS_PRESET,
+        { ...NEURAL_REVIEW_TTS_PRESET, id: 'matxa-warm', name: 'Matxa · Elia · Càlida', matxaEffects: { profile: 'warm' } },
+        { ...NEURAL_REVIEW_TTS_PRESET, id: 'matxa-radio', name: 'Matxa · Elia · Ràdio', matxaEffects: { profile: 'radio' } },
+        DEFAULT_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
 }
 // Veu neuronal del perfil per defecte (la fa servir Stockfish TV), o null.
 function defaultNeuralTtsVoice() {
     const p = getReviewTtsPresetById(getDefaultReviewTtsPresetId());
-    return isNeuralTtsVoice(p.voiceURI) ? { id: p.voiceURI, rate: p.rate || 1 } : null;
+    return isNeuralTtsVoice(p.voiceURI) ? { id: p.voiceURI, rate: p.rate || 1,
+        effects: window.ElTaulerVeuNeural.normalizeEffects(p.matxaEffects) } : null;
 }
 
 function reviewTtsSupported() {
@@ -1915,10 +1919,15 @@ function getEffectiveReviewTtsPreset() {
 function currentReviewTtsSettingsPreset() {
     const id = ($('#tts-preset-select').val() || '').trim();
     const isBuiltin = builtinReviewTtsPresets().some(p => p.id === id);
+    const voiceURI = String($('#tts-voice-select').val() || builtinReviewTtsPresets()[0].voiceURI);
+    const effects = isNeuralTtsVoice(voiceURI) ? currentMatxaTtsEffects() : undefined;
+    const voice = isNeuralTtsVoice(voiceURI) ? window.ElTaulerVeuNeural.voiceById(voiceURI) : null;
+    const effectName = effects && window.ElTaulerVeuNeural.AUDIO_PROFILES.find(p => p.id === effects.profile).name;
     return {
         id: id && !isBuiltin ? id : `tts_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-        name: String($('#tts-preset-name').val() || '').trim() || 'Perfil de veu',
-        voiceURI: String($('#tts-voice-select').val() || builtinReviewTtsPresets()[0].voiceURI),
+        name: String($('#tts-preset-name').val() || '').trim() || (voice ? voice.name + ' · ' + effectName : 'Perfil de veu'),
+        voiceURI: voiceURI,
+        matxaEffects: effects,
         pitch: Math.max(0.5, Math.min(2, (+$('#tts-pitch-range').val() || 100) / 100)),
         rate: Math.max(0.5, Math.min(2, (+$('#tts-rate-range').val() || 95) / 100)),
         expressivity: Math.max(0, Math.min(1, (+$('#tts-expressivity-range').val() || 0) / 100)),
@@ -1926,10 +1935,43 @@ function currentReviewTtsSettingsPreset() {
     };
 }
 
+function currentMatxaTtsEffects() {
+    return window.ElTaulerVeuNeural.normalizeEffects({
+        profile: $('#tts-matxa-profile').val(),
+        intensity: Number($('#tts-matxa-intensity-range').val()) / 100,
+        clarity: Number($('#tts-matxa-clarity-range').val()) / 100,
+        volume: Number($('#tts-matxa-volume-range').val()) / 100
+    });
+}
+
+function updateMatxaTtsControls() {
+    const matxa = isNeuralTtsVoice($('#tts-voice-select').val());
+    $('#tts-matxa-controls').prop('hidden', !matxa);
+    $('.tts-system-only').prop('hidden', matxa);
+    // Matxa limita la durada dels fonemes: no mostrem velocitats inassolibles.
+    const min = matxa ? 81 : 70, max = matxa ? 111 : 130;
+    const rate = Number($('#tts-rate-range').val()) || 100;
+    $('#tts-rate-range').attr({ min, max }).val(Math.max(min, Math.min(max, rate)));
+    $('#tts-rate-value').text(`${$('#tts-rate-range').val()}%`);
+    if (!matxa) return;
+    const e = currentMatxaTtsEffects();
+    const profile = window.ElTaulerVeuNeural.AUDIO_PROFILES.find(p => p.id === e.profile);
+    $('#tts-matxa-help').text(profile.description);
+    $('#tts-matxa-intensity-range, #tts-matxa-clarity-range').prop('disabled', e.profile === 'natural');
+    ['intensity', 'clarity', 'volume'].forEach(key => $('#tts-matxa-' + key + '-value').text(`${Math.round(e[key] * 100)}%`));
+}
+
 function applyReviewTtsPresetToSettings(preset) {
     const p = preset || builtinReviewTtsPresets()[0];
     $('#tts-preset-name').val(p.builtin ? '' : p.name);
     $('#tts-voice-select').val(p.voiceURI || builtinReviewTtsPresets()[0].voiceURI);
+    const matxa = isNeuralTtsVoice(p.voiceURI);
+    $('#tts-rate-range').attr({ min: matxa ? 81 : 70, max: matxa ? 111 : 130 });
+    if (neuralTtsAvailable()) {
+        const effects = window.ElTaulerVeuNeural.normalizeEffects(p.matxaEffects);
+        $('#tts-matxa-profile').val(effects.profile);
+        ['intensity', 'clarity', 'volume'].forEach(key => $('#tts-matxa-' + key + '-range').val(Math.round(effects[key] * 100)));
+    }
     $('#tts-pitch-range').val(Math.round((p.pitch || 1) * 100));
     $('#tts-rate-range').val(Math.round((p.rate || 0.95) * 100));
     $('#tts-expressivity-range').val(Math.round((p.expressivity ?? 0.5) * 100));
@@ -1938,6 +1980,7 @@ function applyReviewTtsPresetToSettings(preset) {
     $('#tts-rate-value').text(`${Math.round((p.rate || 0.95) * 100)}%`);
     $('#tts-expressivity-value').text(`${Math.round((p.expressivity ?? 0.5) * 100)}%`);
     $('#tts-cadence-value').text(`${Math.round((p.cadence ?? 0.5) * 100)}%`);
+    updateMatxaTtsControls();
 }
 
 function refreshReviewTtsSettingsUi() {
@@ -1980,6 +2023,7 @@ function saveCurrentReviewTtsPreset() {
     if (idx >= 0) presets[idx] = preset; else presets.push(preset);
     writeReviewTtsPresets(presets);
     setDefaultReviewTtsPresetId(preset.id);
+    setReviewTtsMode('fixed');
     refreshReviewTtsSettingsUi();
     $('#tts-preset-select').val(preset.id);
     applyReviewTtsPresetToSettings(preset);
@@ -1998,7 +2042,7 @@ function deleteCurrentReviewTtsPreset() {
 
 function previewCurrentReviewTtsPreset() {
     const preset = currentReviewTtsSettingsPreset();
-    beginReviewTts('Aquesta és una prova de lectura en català del perfil de veu seleccionat.', 'settings', preset);
+    beginReviewTts('El cavall fa una forquilla: ataca el rei i la torre. Les negres han de respondre a l’escac.', 'settings', preset);
 }
 
 function setReviewTtsStatus(text) {
@@ -2140,7 +2184,7 @@ function speakReviewTtsChunkNeural(chunk) {
     REVIEW_TTS_STATE.neuralActive = true;
     REVIEW_TTS_STATE.isSpeaking = true;
     REVIEW_TTS_STATE.isPaused = false;
-    speaker.speak(chunk.text || String(chunk), preset.voiceURI, { rate, maxWaitMs: 600000 }).then((r) => {
+    speaker.speak(chunk.text || String(chunk), preset.voiceURI, { rate, effects: preset.matxaEffects, maxWaitMs: 600000 }).then((r) => {
         if (REVIEW_TTS_STATE.stopRequested || token !== REVIEW_TTS_STATE.neuralToken) return;
         if (r && r.spoken) {
             REVIEW_TTS_STATE.chunkIndex += 1;
@@ -23060,7 +23104,8 @@ function setupEvents() {
 
     $('#tts-preset-mode').off('change').on('change', function () { setReviewTtsMode(this.value); refreshReviewTtsSettingsUi(); });
     $('#tts-preset-select').off('change').on('change', function () { applyReviewTtsPresetToSettings(getReviewTtsPresetById(this.value)); });
-    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-expressivity-range, #tts-cadence-range, #tts-preset-name').off('input change').on('input change', function () {
+    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-expressivity-range, #tts-cadence-range, #tts-preset-name, #tts-matxa-profile, #tts-matxa-intensity-range, #tts-matxa-clarity-range, #tts-matxa-volume-range').off('input change').on('input change', function () {
+        updateMatxaTtsControls();
         $('#tts-pitch-value').text(`${$('#tts-pitch-range').val()}%`);
         $('#tts-rate-value').text(`${$('#tts-rate-range').val()}%`);
         $('#tts-expressivity-value').text(`${$('#tts-expressivity-range').val()}%`);
@@ -23074,7 +23119,7 @@ function setupEvents() {
     $('#tts-stop-preview').off('click').on('click', () => stopReviewTts());
     $('#tts-save').off('click').on('click', () => saveCurrentReviewTtsPreset());
     $('#tts-delete').off('click').on('click', () => deleteCurrentReviewTtsPreset());
-    $('#tts-default').off('click').on('click', () => { setDefaultReviewTtsPresetId($('#tts-preset-select').val() || DEFAULT_REVIEW_TTS_PRESET.id); setReviewTtsMode('fixed'); refreshReviewTtsSettingsUi(); showToast('Perfil de veu per defecte actualitzat.', 'success'); });
+    $('#tts-default').off('click').on('click', () => { setReviewTtsMode('fixed'); saveCurrentReviewTtsPreset(); });
     $('#btn-history').click(() => {
         $('#start-screen').hide();
         $('#history-screen').show();
@@ -36340,6 +36385,7 @@ $(document).ready(() => {
             // Veu neuronal del perfil per defecte de Configuració › Veus de lectura.
             getNeuralVoiceId: () => { const v = defaultNeuralTtsVoice(); return v ? v.id : null; },
             getNeuralRate: () => { const v = defaultNeuralTtsVoice(); return v ? v.rate : 1; },
+            getNeuralEffects: () => { const v = defaultNeuralTtsVoice(); return v ? v.effects : null; },
             onOpen: () => { try { stopReviewTts(); requestBackgroundPrepAbort(); } catch (e) {} }
         });
     } catch (e) { console.warn('[Stockfish TV] init', e); }

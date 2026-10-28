@@ -64,6 +64,88 @@
         return v ? 'Matxa · ' + v.name + ' (' + v.accentLabel + ')' : '';
     }
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+
+    const AUDIO_PROFILES = [
+        { id: 'natural', name: 'Natural', description: 'La veu original de Matxa, sense filtres.' },
+        { id: 'warm', name: 'Càlida', description: 'Més cos i aguts més suaus.' },
+        { id: 'radio', name: 'Ràdio', description: 'Veu més present i volum més uniforme.' }
+    ];
+    function normalizeEffects(value) {
+        const v = value || {};
+        const number = (n, fallback) => typeof n === 'number' && isFinite(n) ? clamp(n, 0, 1) : fallback;
+        return {
+            profile: AUDIO_PROFILES.some(p => p.id === v.profile) ? v.profile : 'natural',
+            intensity: number(v.intensity, 0.6), clarity: number(v.clarity, 0.5), volume: number(v.volume, 1)
+        };
+    }
+
+    // Un únic context per reproductor. Només processa l'àudio Matxa (WAV),
+    // mai speechSynthesis. Sense Web Audio o sense permís, sona l'original.
+    function createAudioEffects(env) {
+        const e = env || {};
+        let context = null;
+        function unlock() {
+            try {
+                if (!context || context.state === 'closed') {
+                    const Ctor = root && (root.AudioContext || root.webkitAudioContext);
+                    context = e.createContext ? e.createContext() : (Ctor ? new Ctor() : null);
+                }
+                if (context && context.state === 'suspended') {
+                    const p = context.resume();
+                    if (p && p.catch) p.catch(() => {});
+                }
+            } catch (err) {}
+        }
+        function attach(audio, value) {
+            const s = normalizeEffects(value);
+            const amount = s.profile === 'natural' ? 0 : s.intensity;
+            if ((!amount && s.volume === 1) || !context || context.state !== 'running') {
+                audio.volume = s.volume;
+                return null;
+            }
+            const nodes = [];
+            const disconnect = () => nodes.forEach(n => { try { n.disconnect(); } catch (err) {} });
+            try {
+                // Si una connexió falla després de crear la font, el caller
+                // ha de recrear l'element Audio: la font ja n'ha capturat la sortida.
+                const source = context.createMediaElementSource(audio);
+                nodes.push(source);
+                const filter = (type, frequency, gain) => {
+                    const node = context.createBiquadFilter();
+                    nodes.push(node);
+                    node.type = type; node.frequency.value = frequency;
+                    node.Q.value = 0.7; node.gain.value = gain;
+                };
+                let headroomDb = 0;
+                if (amount) {
+                    const warmth = (s.profile === 'warm' ? 3.5 : 1.5) * amount;
+                    const brightness = (s.profile === 'warm' ? -3 : -0.5) * amount;
+                    const presence = ((s.clarity - 0.5) * 6 + (s.profile === 'radio' ? 1.5 : 0)) * amount;
+                    filter('lowshelf', 180, warmth);
+                    filter('highshelf', 4500, brightness);
+                    filter('peaking', 2400, presence);
+                    headroomDb = Math.max(0, warmth) + Math.max(0, presence);
+                    if (s.profile === 'radio') {
+                        filter('highpass', 80, 0);
+                        const compressor = context.createDynamicsCompressor();
+                        nodes.push(compressor);
+                        compressor.threshold.value = -24 * amount;
+                        compressor.knee.value = 18;
+                        compressor.ratio.value = 1 + 2.5 * amount;
+                        compressor.attack.value = 0.008;
+                        compressor.release.value = 0.18;
+                    }
+                }
+                const gain = context.createGain();
+                nodes.push(gain);
+                gain.gain.value = s.volume * Math.pow(10, -headroomDb / 20);
+                audio.volume = 1;
+                nodes.forEach((node, i) => node.connect(nodes[i + 1] || context.destination));
+                return { disconnect: disconnect };
+            } catch (err) { disconnect(); throw err; }
+        }
+        return { unlock: unlock, attach: attach };
+    }
     // La velocitat del perfil es tradueix a la durada de Matxa (més lent =
     // fonemes més llargs), dins del rang que admet el model.
     function lengthScaleForRate(rate) {
@@ -200,6 +282,7 @@
         const now = e.now || (() => Date.now());
         const isOnline = e.isOnline || (() => !(root && root.navigator && root.navigator.onLine === false));
         const createAudio = e.createAudio || ((src) => new root.Audio(src));
+        const audioEffects = e.audioEffects || createAudioEffects({ createContext: e.createAudioContext });
         // Es baixa el WAV i es reprodueix des de memòria: no depèn que el
         // fitxer temporal del servidor continuï existint.
         const fetchAudio = e.fetchAudio || (async (url, signal) => {
@@ -249,11 +332,14 @@
             current = null;
             clearT(entry.timer);
             if (entry.audio) { try { entry.audio.onended = null; entry.audio.onerror = null; entry.audio.pause(); } catch (err) {} }
+            if (entry.effects) { try { entry.effects.disconnect(); } catch (err) {} }
             entry.resolve({ spoken: spoken, reason: reason });
         }
 
         const api = {
             available() { return isOnline() && now() >= cooldownUntil; },
+            // Cal cridar-ho durant el gest de l'usuari, abans d'esperar la síntesi.
+            unlock() { audioEffects.unlock(); },
             // Prepara l'àudio per endavant (p. ex. mentre es veu la jugada anterior).
             prefetch(text, voiceId, opts) {
                 if (!api.available() || !isNeuralVoiceId(voiceId) || !text) return;
@@ -265,6 +351,7 @@
                 if (!text) return Promise.resolve({ spoken: false, reason: 'empty' });
                 if (!isNeuralVoiceId(voiceId) || !voiceById(voiceId)) return Promise.resolve({ spoken: false, reason: 'voice' });
                 if (!api.available()) return Promise.resolve({ spoken: false, reason: 'unavailable' });
+                audioEffects.unlock();
                 return new Promise((resolve) => {
                     const entry = { resolve: resolve, timer: null, audio: null };
                     current = entry;
@@ -273,6 +360,12 @@
                         if (current !== entry) return;
                         let audio;
                         try { audio = createAudio(src); } catch (err) { finish(entry, false, 'audio-error'); return; }
+                        try { entry.effects = audioEffects.attach(audio, o.effects); }
+                        catch (err) {
+                            // Un filtre incompatible no ha de deixar la retransmissió muda.
+                            try { audio.pause(); audio = createAudio(src); audio.volume = normalizeEffects(o.effects).volume; }
+                            catch (err2) { finish(entry, false, 'audio-error'); return; }
+                        }
                         entry.audio = audio;
                         audio.onended = () => finish(entry, true, 'end');
                         audio.onerror = () => finish(entry, false, 'audio-error');
@@ -285,7 +378,7 @@
                 });
             },
             pause() { if (current && current.audio) { try { current.audio.pause(); } catch (err) {} } },
-            resume() { if (current && current.audio) { try { const p = current.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (err) {} } },
+            resume() { if (current && current.audio) { try { audioEffects.unlock(); const p = current.audio.play(); if (p && p.catch) p.catch(() => {}); } catch (err) {} } },
             isSpeaking() { return !!current; },
             stop() { if (current) finish(current, false, 'stopped'); },
             _cache: cache
@@ -303,6 +396,9 @@
         MATXA_CONFIG,
         MATXA_VOICES,
         DEFAULT_VOICE_ID,
+        AUDIO_PROFILES,
+        normalizeEffects,
+        createAudioEffects,
         isNeuralVoiceId,
         voiceById,
         voiceLabel,
