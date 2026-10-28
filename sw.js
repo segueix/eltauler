@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.9.130';
+const SW_VERSION = '3.9.131';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 // Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
 // versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
@@ -16,7 +16,7 @@ console.log(`[SW] Service Worker versió: ${SW_VERSION}`);
 // Recursos ESTÀTICS (cache-first, rarament canvien): imatges de peces, fonts.
 // ---------------------------------------------------------------------------
 const STATIC_ASSETS = [
-  'https://fonts.googleapis.com/css2?family=Crimson+Pro:wght@400;600;700&family=Cinzel:wght@500;700&display=swap',
+  'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap',
   'https://chessboardjs.com/img/chesspieces/wikipedia/wP.png',
   'https://chessboardjs.com/img/chesspieces/wikipedia/wR.png',
   'https://chessboardjs.com/img/chesspieces/wikipedia/wN.png',

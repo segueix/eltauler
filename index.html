@@ -63,7 +63,7 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
     <!-- Chessboard CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
@@ -87,6 +87,8 @@
             --text-positive: #7fcf9a;
             --text-negative: #ff6f61;
             --font-scale: 1;
+            /* Lletra única de la web (la del redisseny de l'inici). */
+            --font-ui: 'Plus Jakarta Sans', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
         }
                 body.epaper-mode {
             --bg-dark: #f2f2f2;
@@ -118,7 +120,7 @@
         }
    
         body {
-            font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            font-family: var(--font-ui);
             background: linear-gradient(180deg, var(--bg-dark) 0%, #251c15 50%, var(--bg-dark) 100%);
             color: var(--text-primary);
             min-height: 100vh;
@@ -239,7 +241,7 @@
         body.day-mode .mission-item,
         body.day-mode .coach-item { border-left-color: var(--tone, rgba(120,95,40,0.5)); }
         body.day-mode .mission-item.completed,
-        body.day-mode .coach-item.done { border-left-color: var(--accent-green); }
+        body.day-mode .coach-item.done { border-left-color: #a07a1c; }
         /* Botons daurats: daurat brillant + text fosc (no daurat fosc + text fosc) */
         body.day-mode .btn-primary,
         body.day-mode .engagement-banner .eng-cta,
@@ -365,7 +367,7 @@
         /* Botó d'informació (i en cursiva i encerclada) a dalt a la dreta de l'inici */
         #start-screen { position: relative; }
         h1 {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 1.7rem;
             color: var(--accent-gold);
             margin-bottom: 5px;
@@ -465,7 +467,7 @@
             flex: 1;
         }
         .stat-label { font-size: 0.65rem; text-transform: uppercase; color: var(--text-secondary); margin-bottom: 3px; }
-        .stat-value { font-family: 'Cinzel', serif; font-size: 1.5rem; font-weight: 700; }
+        .stat-value { font-family: var(--font-ui); font-size: 1.5rem; font-weight: 700; }
         .elo-value { color: var(--accent-gold); }
         .streak-value { color: var(--streak-fire); }
         .stars-value { color: var(--star-gold); text-shadow: 0 0 10px rgba(255,215,0,0.5); }
@@ -511,16 +513,16 @@
             text-align: left;
         }
         .missions-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-        .missions-title { font-family: 'Cinzel', serif; font-size: 0.9rem; color: var(--accent-gold); }
+        .missions-title { font-family: var(--font-ui); font-size: 0.9rem; color: var(--accent-gold); }
         .badges-btn {
             background: rgba(255,215,0,0.15); border: 1px solid var(--star-gold); color: var(--star-gold);
-            padding: 4px 10px; border-radius: 15px; font-size: 0.7rem; cursor: pointer; font-family: 'Inter', sans-serif;
+            padding: 4px 10px; border-radius: 15px; font-size: 0.7rem; cursor: pointer; font-family: var(--font-ui);
         }
         .mission-item {
             display: flex; align-items: center; gap: 10px; padding: 8px; margin-bottom: 6px;
             background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid var(--text-secondary);
         }
-        .mission-item.completed { border-left-color: var(--accent-green); opacity: 0.8; background: rgba(74, 124, 89, 0.1); }
+        .mission-item.completed { border-left-color: var(--accent-gold); opacity: 0.8; background: rgba(201, 162, 39, 0.08); }
 
         .mission-stars { font-size: 0.9rem; color: var(--star-gold); width: 54px; text-align: center; opacity: 0.9; }
         .mission-text { flex: 1; font-size: 0.85rem; color: var(--text-primary); }
@@ -541,7 +543,7 @@
             text-align: left;
         }
         .coach-kicker {
-            font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
+            font-family: var(--font-ui); font-size: 0.85rem; color: var(--accent-gold);
             margin-bottom: 6px; display: flex; align-items: center; justify-content: space-between; gap: 8px;
         }
         .coach-text, .coach-plan-summary { font-size: 0.88rem; color: var(--text-primary); line-height: 1.5; }
@@ -589,7 +591,7 @@
             flex-wrap: wrap;
             background: rgba(0,0,0,0.2); border-radius: 8px; border-left: 3px solid var(--accent-gold);
         }
-        .coach-item.done { border-left-color: var(--accent-green); opacity: 0.75; }
+        .coach-item.done { border-left-color: var(--accent-gold); opacity: 0.75; }
         /* flex-basis ampla: si no hi cap al costat del botó, el text ocupa tota la fila i el botó baixa a sota */
         .coach-item-main { flex: 1 1 220px; min-width: 0; }
         .coach-item-title { font-size: 0.85rem; color: var(--text-primary); overflow-wrap: break-word; line-height: 1.35; }
@@ -597,7 +599,7 @@
         .coach-item-bar { flex: 1; height: 6px; background: rgba(0,0,0,0.3); border-radius: 4px; overflow: hidden; }
         .coach-item-fill {
             height: 100%; border-radius: 4px; transition: width 0.4s ease;
-            background: linear-gradient(90deg, var(--accent-green), var(--accent-gold));
+            background: linear-gradient(90deg, #d08a2e, var(--accent-gold));
         }
         .coach-item-count { font-size: 0.72rem; color: var(--text-secondary); min-width: 30px; text-align: right; }
         /* Selector amb 2 classes per guanyar a la regla genèrica .btn { width:100% } definida més avall */
@@ -609,14 +611,14 @@
         @media (max-width: 480px) {
             .coach-item .btn.coach-item-go { flex: 1 1 100%; width: 100%; padding: 9px 12px; }
         }
-        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--text-positive); cursor: default; }
+        .coach-item.done .btn.coach-item-go { background: rgba(255,255,255,0.08); color: var(--text-secondary); cursor: default; }
 
         /* Ruta guiada del pla: progrés global, passos numerats i desbloqueig seqüencial */
         .coach-plan-progress { display: flex; align-items: center; gap: 10px; margin: 10px 0 4px; }
         .coach-plan-progress-bar { flex: 1; height: 8px; background: rgba(0,0,0,0.3); border-radius: 5px; overflow: hidden; }
         .coach-plan-progress-fill {
             height: 100%; width: 0; border-radius: 5px; transition: width 0.4s ease;
-            background: linear-gradient(90deg, var(--accent-green), var(--accent-gold));
+            background: linear-gradient(90deg, #d08a2e, var(--accent-gold));
         }
         .coach-plan-progress-label { font-size: 0.74rem; color: var(--text-secondary); white-space: nowrap; font-variant-numeric: tabular-nums; }
         .plan-streak {
@@ -658,9 +660,9 @@
         /* ── Color per activitat ─────────────────────────────────────────────
            Cada modalitat té el seu to i el fan servir igual les files del pla i
            les missions: el color diu de què va la tasca abans de llegir-la. */
-        .tone-game { --tone: #5fa06f; }
+        .tone-game { --tone: #f0a35e; }
         .tone-clock { --tone: #e05a4a; }
-        .tone-tria { --tone: #23b39a; }
+        .tone-tria { --tone: #3fa9d9; }
         .tone-hiero { --tone: #b452c9; }
         .tone-opening { --tone: #d4af37; }
         .tone-error { --tone: #e08a3c; }
@@ -669,7 +671,7 @@
         .tone-srs { --tone: #9b7fd4; }
         .tone-focus { --tone: #e8a33d; }
         .tone-mate { --tone: #a07cd8; }
-        .tone-antidote { --tone: #4fc3a1; }
+        .tone-antidote { --tone: #d47fb0; }
         .tone-positional { --tone: #7f9ad8; }
 
         /* Les regles .coach-item.done / .locked de més amunt guanyen per
@@ -679,7 +681,7 @@
             background: linear-gradient(100deg, rgba(0,0,0,0.28) 0%, rgba(0,0,0,0.18) 60%);
             box-shadow: inset 3px 0 12px -6px var(--tone, transparent);
         }
-        .coach-item .coach-item-fill { background: linear-gradient(90deg, var(--tone, var(--accent-green)), var(--accent-gold)); }
+        .coach-item .coach-item-fill { background: linear-gradient(90deg, var(--tone, var(--accent-gold)), var(--accent-gold)); }
         .coach-item-kind { display: flex; align-items: center; gap: 6px; color: var(--tone, var(--accent-gold)); }
         .coach-item-ic { font-size: 0.95rem; line-height: 1; }
         .coach-item .coach-step-badge { color: var(--tone, var(--accent-gold)); border-color: var(--tone, var(--accent-gold)); }
@@ -692,7 +694,7 @@
         }
         .coach-item.is-actionable:focus-visible { border: 1px solid var(--tone); border-left-width: 3px; }
         .coach-item .btn.coach-item-go { background: linear-gradient(135deg, var(--tone, var(--accent-gold)) 0%, rgba(0,0,0,0.45) 160%); color: #12100d; font-weight: 700; }
-        .coach-item.done .btn.coach-item-go { background: rgba(74,124,89,0.4); color: var(--text-positive); }
+        .coach-item.done .btn.coach-item-go { background: rgba(255,255,255,0.08); color: var(--text-secondary); }
 
         /* La ruta es desplega: els passos fets es repleguen a una línia i el pas
            que toca ara es queda sencer, amb el seu perquè i la seva barra. */
@@ -717,7 +719,7 @@
         /* ── Missions: fila clicable, amb icona, to i barra de progrés ─────── */
         .missions-title { display: flex; align-items: center; gap: 8px; }
         .missions-count {
-            font-family: 'Inter', sans-serif; font-size: 0.72rem; color: var(--text-secondary);
+            font-family: var(--font-ui); font-size: 0.72rem; color: var(--text-secondary);
             background: rgba(0,0,0,0.25); border: 1px solid rgba(201,162,39,0.3);
             border-radius: 10px; padding: 1px 7px; font-variant-numeric: tabular-nums;
         }
@@ -742,11 +744,11 @@
         /* D'on surt el llistó d'una missió de precisió: la seva mitjana recent. */
         .mission-note { font-size: 0.7rem; color: var(--text-secondary); line-height: 1.35; margin-top: 2px; }
         .mission-bar { height: 5px; border-radius: 4px; background: rgba(0,0,0,0.3); overflow: hidden; margin: 5px 0 3px; }
-        .mission-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; background: linear-gradient(90deg, var(--tone, var(--accent-green)), var(--accent-gold)); }
+        .mission-fill { height: 100%; border-radius: 4px; transition: width 0.4s ease; background: linear-gradient(90deg, var(--tone, var(--accent-gold)), var(--accent-gold)); }
         .mission-item .mission-stars { display: inline; width: auto; color: var(--star-gold); }
         .mission-go { flex: 0 0 auto; color: var(--tone, var(--accent-gold)); font-size: 1.2rem; opacity: 0.8; }
-        .mission-item.completed { border-left-color: var(--accent-green); }
-        .mission-item.completed .mission-go { color: var(--accent-green); }
+        .mission-item.completed { border-left-color: var(--accent-gold); }
+        .mission-item.completed .mission-go { color: var(--accent-gold); }
         @media (max-width: 480px) {
             .mission-trophies { display: none; }
         }
@@ -1004,6 +1006,10 @@
             box-shadow: 0 1px 3px rgba(0,0,0,0.2);
         }
         .epaper-toggle input:checked + .epaper-slider {
+            background-color: #c9a227;
+            box-shadow: inset 0 0 0 1px rgba(255,255,255,0.18);
+        }
+        body.epaper-mode .epaper-toggle input:checked + .epaper-slider {
             background-color: #9d9d9d;
             box-shadow: inset 0 0 0 1px #cfcfcf;
         }
@@ -1021,7 +1027,7 @@
             margin: 12px 0 16px;
             text-align: left;
         }
-        .settings-title { font-family: 'Cinzel', serif; font-size: 0.95rem; color: var(--accent-gold); margin-bottom: 10px; }
+        .settings-title { font-family: var(--font-ui); font-size: 0.95rem; color: var(--accent-gold); margin-bottom: 10px; }
         .setting-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
         .setting-label { font-size: 0.85rem; color: var(--text-primary); flex: 1 1 12rem; line-height: 1.25; }
         .setting-row > :not(.setting-label) { min-width: 0; }
@@ -1031,7 +1037,7 @@
             color: var(--text-primary);
             padding: 8px 10px;
             border-radius: 10px;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-ui);
             font-size: 0.9rem;
         }
         /* Opcions desplegades amb fons SÒLID: el fons translúcid del select feia que
@@ -1049,7 +1055,7 @@
             color: var(--text-primary);
             padding: 8px 10px;
             border-radius: 10px;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-ui);
             font-size: 0.9rem;
             flex: 1 1 auto;
             min-width: 160px;
@@ -1182,7 +1188,7 @@
             border-radius: 14px;
             padding: 14px 12px;
             text-align: center;
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 0.95rem;
             letter-spacing: 0.5px;
             color: var(--text-primary);
@@ -1256,36 +1262,36 @@
             color: #222;
         }        
           #tv-prev {
-            background: linear-gradient(135deg, #2f5f44, #254434);
-            color: #e6f4ea;
+            background: linear-gradient(135deg, #4a6274, #2a3a48);
+            color: #fff;
         }
         #tv-play {
-            background: linear-gradient(135deg, #3f7a4f, #2f5f44);
-            color: #f1fbf4;
+            background: linear-gradient(135deg, #3b82c4, #23578f);
+            color: #fff;
         }
         #tv-pause {
-            background: linear-gradient(135deg, #5f9b68, #3f7a4f);
-            color: #f4fff7;
+            background: linear-gradient(135deg, #4b56b4, #2d3478);
+            color: #fff;
         }
         #tv-next {
-            background: linear-gradient(135deg, #4c8a5a, #336947);
-            color: #f0fbf3;
+            background: linear-gradient(135deg, #4a6274, #2a3a48);
+            color: #fff;
         }
         #history-prev {
-            background: linear-gradient(135deg, #2f5f44, #254434);
-            color: #e6f4ea;
+            background: linear-gradient(135deg, #4a6274, #2a3a48);
+            color: #fff;
         }
         #history-play {
-            background: linear-gradient(135deg, #3f7a4f, #2f5f44);
-            color: #f1fbf4;
+            background: linear-gradient(135deg, #3b82c4, #23578f);
+            color: #fff;
         }
         #history-pause {
-            background: linear-gradient(135deg, #5f9b68, #3f7a4f);
-            color: #f4fff7;
+            background: linear-gradient(135deg, #4b56b4, #2d3478);
+            color: #fff;
         }
         #history-next {
-            background: linear-gradient(135deg, #4c8a5a, #336947);
-            color: #f0fbf3;
+            background: linear-gradient(135deg, #4a6274, #2a3a48);
+            color: #fff;
         }
         #tv-hint {
             background: linear-gradient(135deg, #8257c0, #5e3a9e);
@@ -1296,9 +1302,9 @@
         /* BUTTONS */
         .menu-buttons { display: flex; flex-direction: column; gap: 10px; margin-top: 15px; }
         .btn {
-            font-family: 'Cinzel', serif; font-size: 0.95rem; font-weight: 600; padding: 14px 18px;
-            border: none; border-radius: 10px; cursor: pointer; width: 100%;
-            display: flex; align-items: center; justify-content: center; gap: 10px; letter-spacing: 1px;
+            font-family: var(--font-ui); font-size: 0.95rem; font-weight: 700; padding: 14px 18px;
+            border: none; border-radius: 14px; cursor: pointer; width: 100%;
+            display: flex; align-items: center; justify-content: center; gap: 10px; letter-spacing: 0;
             min-height: 2.75rem; height: auto; white-space: normal; line-height: 1.15;
             overflow-wrap: anywhere; text-align: center;
         }
@@ -1318,7 +1324,8 @@
             filter: grayscale(0.35);
         }
         .btn-primary { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
-        .btn-secondary { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: #fff; }
+        .btn-secondary { background: rgba(255,255,255,0.08); color: var(--text-primary); box-shadow: inset 0 0 0 1px rgba(244,228,188,0.22); }
+        body.day-mode .btn-secondary { background: rgba(120,95,40,0.10); color: var(--text-primary); box-shadow: none; }
         .btn-blue { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: white; }
 
         /* Botons de menú nomenats (substitueixen els estils inline per coherència i suport de temes) */
@@ -1354,7 +1361,7 @@
         }
         .btn-nav-home { background: linear-gradient(135deg, var(--accent-gold) 0%, #a68522 100%); color: var(--bg-dark); }
         .btn-nav-home .btn-ic { width: 1.5em; height: 1.5em; }
-        .btn-nav-board { background: linear-gradient(135deg, var(--accent-green) 0%, #3a6347 100%); color: #fff; }
+        .btn-nav-board { background: linear-gradient(135deg, #4a6274 0%, #2a3a48 100%); color: #fff; }
         .btn-nav-section { background: linear-gradient(135deg, var(--accent-blue) 0%, #0d47a1 100%); color: #fff; }
         .menu-grid .btn {
             flex-direction: column;
@@ -1371,7 +1378,7 @@
             border-radius: 999px;
             background: rgba(255,255,255,0.16);
             border: 1px solid rgba(255,255,255,0.22);
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-ui);
             font-size: 0.64rem;
             font-weight: 700;
             letter-spacing: 0.4px;
@@ -1380,7 +1387,7 @@
         .training-title { line-height: 1.1; }
         .training-desc {
             max-width: 12rem;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-ui);
             font-size: 0.72rem;
             line-height: 1.2;
             opacity: 0.88;
@@ -1390,7 +1397,7 @@
         .menu-section { margin-top: 16px; }
         .menu-section:first-child { margin-top: 0; }
         .menu-section-title {
-            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            font-family: var(--font-ui); font-size: 0.78rem; letter-spacing: 1px;
             text-transform: uppercase; color: var(--text-secondary);
             text-align: left; margin: 0 0 8px 2px; opacity: 0.85;
             display: flex; align-items: center; gap: 8px;
@@ -1439,7 +1446,7 @@
         }
         .play-clock-title {
             display: flex; align-items: center; gap: 6px;
-            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            font-family: var(--font-ui); font-size: 0.78rem; letter-spacing: 1px;
             text-transform: uppercase; color: var(--text-secondary);
         }
         .play-clock-current { font-size: 0.82rem; font-weight: 700; color: var(--accent-gold); }
@@ -1511,7 +1518,7 @@
         }
         .daily-grid:empty { display: none; }
         .daily-section-title {
-            font-family: 'Cinzel', serif; font-size: 0.78rem; letter-spacing: 1px;
+            font-family: var(--font-ui); font-size: 0.78rem; letter-spacing: 1px;
             text-transform: uppercase; color: var(--text-secondary);
             text-align: left; margin: 2px 0 -2px 2px; opacity: 0.85;
             display: flex; align-items: center; gap: 8px;
@@ -1649,7 +1656,7 @@
             justify-content: center;
             flex-wrap: wrap;
             gap: 4px 8px;
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             color: var(--accent-gold);
             font-size: 1.05rem;
             letter-spacing: 1px;
@@ -1751,7 +1758,7 @@
             display: flex;
             align-items: center;
             gap: 8px;
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 0.85rem;
             color: var(--accent-gold);
             padding: 6px 0 2px;
@@ -1852,7 +1859,7 @@
         /* Apresa: el rail verd la marca d'un cop d'ull i la ↻ diu que s'hi pot
            tornar. Abans el rail era un border-left verd damunt d'un botó verd
            i no es veia. */
-        .opening-lesson-btn.lesson-done::before { background: var(--accent-green); }
+        .opening-lesson-btn.lesson-done::before { background: var(--accent-gold); }
         .opening-lesson-btn.lesson-done .ol-eco { opacity: 0.6; }
         .opening-progress-bar { margin-bottom: 12px; }
         .opening-progress-label {
@@ -1887,9 +1894,9 @@
             box-shadow: 0 4px 12px rgba(201, 162, 39, 0.35);
         }
         .btn-positional {
-            background: linear-gradient(135deg, #2e7d5b 0%, #174d36 100%);
-            color: #e6f4ec;
-            box-shadow: 0 4px 12px rgba(46, 125, 91, 0.35);
+            background: linear-gradient(135deg, #3d6fa8 0%, #23466f 100%);
+            color: #eef4fb;
+            box-shadow: 0 4px 12px rgba(61, 111, 168, 0.35);
             border: 1px solid rgba(255,255,255,0.12);
         }
         /* Comentari de la pàgina inicial que explica la modalitat Joc posicional */
@@ -1951,7 +1958,7 @@
         }
         .opening-stats-row .move-cell {
             color: var(--accent-gold);
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 0.95rem;
             font-weight: bold;
         }
@@ -2101,11 +2108,11 @@
             cursor: pointer;
             -webkit-appearance: none;
             appearance: none;
-            background: linear-gradient(135deg, #8b5418 0%, #b97822 48%, #2f7180 100%);
+            background: linear-gradient(135deg, #8b5418 0%, #b97822 48%, #3a5f9a 100%);
             transition: background 0.15s ease;
         }
-        .opening-banner-head:hover { background: linear-gradient(135deg, #9c611d 0%, #c9892c 48%, #387f8e 100%); }
-        .opening-banner-head:active { background: linear-gradient(135deg, #7d4b16 0%, #a96b1d 48%, #2a6573 100%); }
+        .opening-banner-head:hover { background: linear-gradient(135deg, #9c611d 0%, #c9892c 48%, #4568a6 100%); }
+        .opening-banner-head:active { background: linear-gradient(135deg, #7d4b16 0%, #a96b1d 48%, #33558a 100%); }
         .opening-banner-head:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: -3px; }
         .opening-banner-ic {
             width: 2.1rem;
@@ -2120,7 +2127,7 @@
         .opening-banner-headings { flex: 1 1 auto; min-width: 0; }
         .opening-banner-title {
             display: block;
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             color: #fff8e7;
             font-size: 1.12rem;
             letter-spacing: 1px;
@@ -2492,7 +2499,7 @@
             font-weight: 600;
             color: var(--accent-gold);
             margin-bottom: 8px;
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
         }
         .opening-maxim-box .maxim-text {
             font-style: italic;
@@ -2518,7 +2525,7 @@
         
         .sync-container { display: flex; gap: 8px; margin-top: 15px; padding-top: 15px; border-top: 1px solid rgba(255,255,255,0.1); flex-wrap: wrap; }
         .btn-file {
-            background: var(--bg-warm); color: var(--text-secondary); font-family: 'Inter', sans-serif;
+            background: var(--bg-warm); color: var(--text-secondary); font-family: var(--font-ui);
             font-size: 0.8rem; padding: 10px; flex: 1; border: 1px solid rgba(255,255,255,0.1); border-radius: 8px;
         }
         .btn-share { background: linear-gradient(135deg, #673ab7, #9c27b0); color: white; width: 100%; margin-bottom: 5px; display: none; font-weight: bold; }
@@ -2563,8 +2570,8 @@
         .toast.toast-warn { border-left-color: #d6a020; }
         body.epaper-mode .toast { background: #ededed; color: #222; border-color: #cfcfcf; box-shadow: 0 4px 12px rgba(0,0,0,0.2); }
         
-        .modal-title { font-family: 'Cinzel', serif; font-size: 1.5rem; color: var(--accent-gold); margin-bottom: 15px; }
-        .close-modal { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-top: 15px; font-family: 'Inter', sans-serif; }
+        .modal-title { font-family: var(--font-ui); font-size: 1.5rem; color: var(--accent-gold); margin-bottom: 15px; }
+        .close-modal { background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.2); color: var(--text-secondary); padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-top: 15px; font-family: var(--font-ui); }
         
         .new-badge { width: 80px; height: 80px; font-size: 3.5rem; margin: 0 auto 15px; }
         .new-badge-name { font-size: 1.3rem; color: var(--text-primary); margin-bottom: 5px; font-weight: bold; }
@@ -2576,7 +2583,7 @@
         .badge-icon { font-size: 2.5rem; margin-bottom: 5px; }
         .badge-name { font-size: 0.8rem; color: var(--text-primary); margin-bottom: 3px; }
         .badge-req { font-size: 0.65rem; color: var(--text-secondary); }
-        .badge-cat-title { grid-column: 1 / -1; font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold); margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; }
+        .badge-cat-title { grid-column: 1 / -1; font-family: var(--font-ui); font-size: 0.85rem; color: var(--accent-gold); margin-top: 8px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 10px; }
 
         /* BUNDLE & DRILLS MENU */
         .bundle-list { text-align: left; max-height: 300px; overflow-y: auto; margin-top: 15px; }
@@ -2612,7 +2619,7 @@
             background: rgba(0,0,0,0.25);
         }
         .bundle-section-title {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 0.85rem;
             letter-spacing: 1px;
             color: var(--text-primary);
@@ -2662,7 +2669,7 @@
         /* GAME SCREEN */
         #game-screen { display: none; }
         .header { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
-        .header-title { font-family: 'Cinzel', serif; font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 8px; }
+        .header-title { font-family: var(--font-ui); font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 8px; }
         .game-info { display: flex; justify-content: space-between; font-size: 0.85rem; color: var(--text-secondary); }
         .streak-badge { color: var(--star-gold); font-weight: bold; }
 
@@ -2674,7 +2681,7 @@
             border-radius: 10px; padding: 6px 12px; transition: all 0.2s;
         }
         .clock-tag { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 1px; color: var(--text-secondary); }
-        .clock-time { font-family: 'Cinzel', serif; font-size: 1.25rem; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
+        .clock-time { font-family: var(--font-ui); font-size: 1.25rem; font-weight: 700; color: var(--text-primary); font-variant-numeric: tabular-nums; }
         .clock-pill.clock-active {
             border-color: var(--accent-gold);
             background: rgba(201,162,39,0.18);
@@ -2700,7 +2707,7 @@
         .precision-panel { background: var(--bg-card); padding: 12px 16px; border-radius: 14px; margin-bottom: 12px; display: flex; align-items: center; gap: 14px; border: 1px solid rgba(201,162,39,0.15); box-shadow: 0 2px 6px rgba(0,0,0,0.18); }
         .precision-stat { text-align: center; min-width: 70px; }
         .precision-label { font-size: 0.65rem; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-secondary); margin-bottom: 3px; }
-        .precision-value { font-family: 'Cinzel', serif; font-size: 1.3rem; font-weight: 700; color: var(--accent-gold); }
+        .precision-value { font-family: var(--font-ui); font-size: 1.3rem; font-weight: 700; color: var(--accent-gold); }
         .precision-target-text { color: var(--text-secondary); }
 
         .precision-bar-container {
@@ -2872,7 +2879,7 @@
         }
         .opening-session-stats .stats-value {
             font-weight: 700;
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
         }
         .opening-session-stats .stats-percent {
             opacity: 0.9;
@@ -3043,7 +3050,7 @@
             margin-bottom: 8px;
             filter: drop-shadow(0 0 12px rgba(74, 124, 89, 0.6));
         }
-        .bundle-success-title { font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1.2rem; margin-bottom: 8px; }
+        .bundle-success-title { font-family: var(--font-ui); color: var(--accent-gold); font-size: 1.2rem; margin-bottom: 8px; }
         .bundle-success-remaining { color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 14px; }
         .bundle-success-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
         .bundle-success-actions .btn { flex: 1; min-width: 150px; }
@@ -3066,7 +3073,7 @@
         .league-banner:hover { box-shadow: 0 10px 24px rgba(0,0,0,0.45); }
         .league-banner-header {
             display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;
-            font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1rem; letter-spacing: 1px;
+            font-family: var(--font-ui); color: var(--accent-gold); font-size: 1rem; letter-spacing: 1px;
         }
         .league-banner-quote { color: var(--text-secondary); font-style: italic; font-size: 0.85rem; margin-bottom: 10px; }
         .league-banner-body { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
@@ -3090,7 +3097,7 @@
         }
         .live-game-banner-header {
             display: flex; align-items: center; gap: 8px; margin-bottom: 6px;
-            font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1rem; letter-spacing: 1px;
+            font-family: var(--font-ui); color: var(--accent-gold); font-size: 1rem; letter-spacing: 1px;
         }
         .live-game-banner-detail { color: var(--text-secondary); font-size: 0.9rem; margin-bottom: 10px; }
         .live-game-banner-actions { display: flex; gap: 8px; flex-wrap: wrap; }
@@ -3127,21 +3134,21 @@
         .tutorial-lesson-row.is-done { opacity: 0.85; }
         .tutorial-lesson-num {
             flex: 0 0 auto; width: 2rem; height: 2rem; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
-            font-family: 'Cinzel', serif; font-weight: 700; background: rgba(201,162,39,0.18); color: var(--accent-gold);
+            font-family: var(--font-ui); font-weight: 700; background: rgba(201,162,39,0.18); color: var(--accent-gold);
         }
-        .tutorial-lesson-row.is-done .tutorial-lesson-num { background: rgba(74,124,89,0.35); color: #b8f0c6; }
+        .tutorial-lesson-row.is-done .tutorial-lesson-num { background: rgba(227,184,74,0.22); color: #f0cd62; }
         .tutorial-lesson-body { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
         .tutorial-lesson-title { font-weight: 700; }
         .tutorial-lesson-summary { font-size: 0.8rem; color: var(--text-secondary); }
         .tutorial-lesson-go { flex: 0 0 auto; font-size: 0.85rem; color: var(--accent-gold); white-space: nowrap; }
         .tutorial-lesson-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
-        .tutorial-lesson-title-main { font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1rem; flex: 1 1 auto; text-align: left; }
+        .tutorial-lesson-title-main { font-family: var(--font-ui); color: var(--accent-gold); font-size: 1rem; flex: 1 1 auto; text-align: left; }
         .tutorial-step-count { font-size: 0.8rem; color: var(--text-secondary); white-space: nowrap; }
         .tutorial-text {
             background: rgba(0,0,0,0.2); border: 1px solid rgba(201,162,39,0.2); border-radius: 12px;
             padding: 12px 14px; margin: 0 0 12px; text-align: left; line-height: 1.45; font-size: 0.95rem;
         }
-        .tutorial-step-title { font-family: 'Cinzel', serif; color: var(--accent-gold); margin-bottom: 6px; }
+        .tutorial-step-title { font-family: var(--font-ui); color: var(--accent-gold); margin-bottom: 6px; }
         #tutorial-board { margin: 0 auto; max-width: min(100%, 62vh); }
         body.control-tap #tutorial-board { touch-action: manipulation; }
         body.control-drag #tutorial-board { touch-action: none; }
@@ -3187,7 +3194,7 @@
             font: inherit; font-size: 0.85rem; padding: 7px 12px; border-radius: 999px; cursor: pointer;
             background: rgba(255,255,255,0.06); border: 1px solid rgba(201,162,39,0.35); color: var(--text-primary);
         }
-        .sftv-voice-toggle.is-on { background: rgba(74,124,89,0.35); border-color: rgba(143,209,158,0.6); }
+        .sftv-voice-toggle.is-on { background: rgba(201,162,39,0.24); border-color: rgba(227,184,74,0.65); }
         .sftv-voice-toggle:disabled { opacity: 0.55; cursor: default; }
         .sftv-note { flex-basis: 100%; text-align: center; font-size: 0.78rem; color: var(--text-secondary); }
         .sftv-layout { display: flex; flex-direction: column; gap: 12px; }
@@ -3232,7 +3239,7 @@
             padding: 14px 16px; border-radius: 14px; text-align: center; color: var(--text-primary);
             background: rgba(26, 20, 16, 0.92); border: 1px solid rgba(201,162,39,0.6); box-shadow: 0 10px 28px rgba(0,0,0,0.5);
         }
-        .sftv-result-head { font-family: 'Cinzel', serif; color: var(--accent-gold); font-size: 1.1rem; margin-bottom: 6px; }
+        .sftv-result-head { font-family: var(--font-ui); color: var(--accent-gold); font-size: 1.1rem; margin-bottom: 6px; }
         .sftv-result-text { font-size: 0.9rem; line-height: 1.4; }
         .sftv-result-next { font-size: 0.8rem; color: var(--text-secondary); margin-top: 8px; }
         .sftv-comment {
@@ -3247,7 +3254,7 @@
         /* Botons de la TV: tipografia de lectura (no la de titulars), sense
            partir paraules, i un color per a cada acció. */
         .btn.sftv-btn {
-            font-family: 'Inter', sans-serif; font-weight: 600; font-size: 0.9rem; letter-spacing: 0;
+            font-family: var(--font-ui); font-weight: 600; font-size: 0.9rem; letter-spacing: 0;
             text-transform: none; font-variant: normal; overflow-wrap: normal; word-break: normal; hyphens: none;
             padding: 10px 12px; min-height: 2.6rem; margin: 0; gap: 8px; color: #fff; border: 1px solid rgba(255,255,255,0.12);
             box-shadow: 0 3px 10px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.12);
@@ -3258,10 +3265,10 @@
         .sftv-btn-pause { background: linear-gradient(135deg, #d9a43a 0%, #a8731b 100%); color: #241808 !important; }
         .sftv-btn-new { background: linear-gradient(135deg, #3b82c4 0%, #23578f 100%); }
         .sftv-btn-try { background: linear-gradient(135deg, #8a5cc2 0%, #5d3b8e 100%); }
-        .sftv-btn-easy { background: linear-gradient(135deg, #3f9a62 0%, #286a41 100%); }
-        .sftv-btn-undo { background: linear-gradient(135deg, #2f9aa0 0%, #1d666b 100%); }
+        .sftv-btn-easy { background: linear-gradient(135deg, #5a6d82 0%, #36475a 100%); }
+        .sftv-btn-undo { background: linear-gradient(135deg, #4b56b4 0%, #2d3478 100%); }
         .sftv-btn-control { background: linear-gradient(135deg, #e0843b 0%, #a9531c 100%); }
-        .sftv-btn-control.is-active { background: linear-gradient(135deg, #58b86f 0%, #2f7c45 100%); box-shadow: 0 0 0 2px rgba(143,209,158,0.55), 0 3px 10px rgba(0,0,0,0.28); }
+        .sftv-btn-control.is-active { background: linear-gradient(135deg, #b0457a 0%, #7a2752 100%); box-shadow: 0 0 0 2px rgba(240,160,200,0.55), 0 3px 10px rgba(0,0,0,0.28); }
         .btn.sftv-btn[disabled] { filter: saturate(0.35); opacity: 0.6; cursor: default; }
         /* Control manual: qui mou, peça triada i destins legals. */
         .sftv-control-note {
@@ -3295,7 +3302,7 @@
         .sftv-board-col { min-width: 0; flex: 1 1 auto; }
         .sftv-ladder {
             order: 2; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px;
-            background: linear-gradient(180deg, rgba(201,162,39,0.10), rgba(74,124,89,0.10)); border: 1px solid rgba(201,162,39,0.3);
+            background: linear-gradient(180deg, rgba(201,162,39,0.12), rgba(201,162,39,0.04)); border: 1px solid rgba(201,162,39,0.3);
         }
         .sftv-ladder-head { font-size: 0.72rem; letter-spacing: 0.08em; text-transform: uppercase; color: var(--accent-gold); }
         .sftv-ladder-body { position: relative; display: flex; flex-direction: column; gap: 4px; }
@@ -3416,7 +3423,7 @@
         }
         .hg-banner-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
         .hg-banner-title {
-            font-family: 'Cinzel', serif; font-size: 1.08rem; letter-spacing: 0.6px;
+            font-family: var(--font-ui); font-size: 1.08rem; letter-spacing: 0.6px;
             color: #ffe9a8; text-shadow: 0 1px 3px rgba(0,0,0,0.35);
         }
         .hg-banner-sub { font-size: 0.82rem; color: rgba(255,255,255,0.86); }
@@ -3827,7 +3834,7 @@
             gap: 8px; margin-bottom: 10px;
         }
         .history-title {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 0.95rem;
             color: var(--accent-gold);
         }
@@ -4099,12 +4106,12 @@
         .history-graph { position: relative; min-width: 0; }
         .history-graph svg { display: block; width: 100%; height: auto; }
         .history-graph .hgc-grid { stroke: rgba(168, 154, 138, 0.22); stroke-width: 1; }
-        .history-graph .hgc-axis { fill: var(--text-secondary); font-size: 10px; font-family: 'Inter', sans-serif; }
+        .history-graph .hgc-axis { fill: var(--text-secondary); font-size: 10px; font-family: var(--font-ui); }
         .history-graph .hgc-band { fill: rgba(168, 154, 138, 0.07); }
         .history-graph .hgc-band-sep { stroke: rgba(168, 154, 138, 0.35); stroke-width: 1; }
         .history-graph .hgc-band-label {
             fill: var(--text-secondary); font-size: 10px; font-weight: 600;
-            letter-spacing: 0.6px; text-transform: uppercase; font-family: 'Inter', sans-serif;
+            letter-spacing: 0.6px; text-transform: uppercase; font-family: var(--font-ui);
         }
         .history-graph .hgc-area { fill: rgba(201, 162, 39, 0.10); }
         .history-graph .hgc-line { fill: none; stroke: var(--accent-gold); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
@@ -4112,9 +4119,9 @@
         body.epaper-mode .history-graph .hgc-dot { stroke: #ededed; }
         .history-graph .hgc-glyph {
             fill: var(--text-primary); font-size: 10px; font-weight: 700;
-            font-family: 'Inter', sans-serif; text-anchor: middle;
+            font-family: var(--font-ui); text-anchor: middle;
         }
-        .history-graph .hgc-endlabel { fill: var(--text-primary); font-size: 11px; font-weight: 600; font-family: 'Inter', sans-serif; }
+        .history-graph .hgc-endlabel { fill: var(--text-primary); font-size: 11px; font-weight: 600; font-family: var(--font-ui); }
         .history-graph .hgc-hit { fill: transparent; cursor: pointer; }
         .history-graph .hgc-hit:focus { outline: none; }
         .history-graph .hgc-hit:focus + .hgc-dot,
@@ -4168,7 +4175,7 @@
             padding: 8px 10px;
             font-size: 0.78rem;
             letter-spacing: 0;
-            font-family: 'Inter', sans-serif;
+            font-family: var(--font-ui);
             font-weight: 600;
             background: rgba(201, 162, 39, 0.14);
             color: var(--accent-gold);
@@ -4266,7 +4273,7 @@
         }
         .tria-bar-fill {
             height: 100%; width: 0%; border-radius: 999px;
-            background: linear-gradient(90deg, #2ecc71, #c9a227);
+            background: linear-gradient(90deg, #f0cd62, #c9a227);
             transition: width 0.25s ease;
         }
         .tria-prompt {
@@ -4339,10 +4346,10 @@
         }
         .tria-card-note { font-size: 0.72rem; color: var(--text-secondary); line-height: 1.35; }
         /* Verd o vermell a l'instant. */
-        .tria-card.is-correct { border-color: #2ecc71; background: rgba(46, 204, 113, 0.10); }
+        .tria-card.is-correct { border-color: #e3b84a; background: rgba(227, 184, 74, 0.12); }
         .tria-card.is-incorrect { border-color: #c62828; background: rgba(198, 40, 40, 0.10); }
         .tria-card-verdict { font-size: 0.8rem; font-weight: 700; }
-        .tria-card.is-correct .tria-card-verdict { color: #2ecc71; }
+        .tria-card.is-correct .tria-card-verdict { color: #f0cd62; }
         .tria-card.is-incorrect .tria-card-verdict { color: #e07a7a; }
 
         .tria-dots { display: flex; justify-content: center; gap: 6px; margin-bottom: 12px; }
@@ -4366,7 +4373,7 @@
         }
         .tria-vote-btn:hover:not(:disabled) { border-color: var(--accent-gold, #c9a227); }
         .tria-vote-btn:disabled { opacity: 0.4; cursor: default; }
-        .tria-vote-btn.is-correct { background: rgba(46,204,113,0.18); border-color: #2ecc71; color: #2ecc71; }
+        .tria-vote-btn.is-correct { background: rgba(227,184,74,0.18); border-color: #e3b84a; color: #f0cd62; }
         .tria-vote-btn.is-incorrect { background: rgba(198,40,40,0.18); border-color: #c62828; color: #e07a7a; }
 
         .tria-result {
@@ -4527,7 +4534,7 @@
             border-color: #cfcfcf;
         }
         .history-review-title {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 1rem;
             color: var(--accent-gold);
             margin-bottom: 8px;
@@ -4677,7 +4684,7 @@
         .coach-banner-main:hover { background: rgba(255,255,255,0.08); }
         .coach-banner-ic { font-size:1.9rem; flex:0 0 auto; }
         .coach-banner-text { display:flex; flex-direction:column; gap:2px; flex:1 1 auto; min-width:0; }
-        .coach-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.15rem; line-height:1.15; }
+        .coach-banner-title { font-family: var(--font-ui); font-weight:700; font-size:1.15rem; line-height:1.15; }
         .coach-banner-sub {
             font-size:0.82rem; opacity:0.92; line-height:1.3;
             display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden;
@@ -4883,7 +4890,7 @@
         }
         
         .chart-title {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 1rem;
             color: var(--accent-gold);
             margin-bottom: 10px;
@@ -4924,7 +4931,7 @@
         }
 
         .weakness-group-title {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             color: var(--accent-gold);
             font-size: 0.85rem;
             letter-spacing: 0.5px;
@@ -4950,7 +4957,7 @@
         body.epaper-mode .weakness-bar-fill { background: #888 !important; }
 
         .stat-card-value {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 1.8rem;
             color: var(--accent-gold);
             font-weight: 700;
@@ -5009,7 +5016,7 @@
         body.epaper-mode .danger-zone { background: #e6e6e6; border: 1px solid #cfcfcf; }
         
         .danger-zone-title {
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
             font-size: 0.9rem;
             color: var(--text-negative);
             margin-bottom: 10px;
@@ -5044,7 +5051,7 @@
             margin-top: 12px;
             border: 1px solid rgba(201, 162, 39, 0.12);
         }
-        .league-name { font-family: 'Cinzel', serif; font-weight: 700; letter-spacing: 0.5px; }
+        .league-name { font-family: var(--font-ui); font-weight: 700; letter-spacing: 0.5px; }
         .league-round, .league-next, .league-note { color: var(--text-secondary); margin-top: 4px; font-size: 0.95rem; }
         .league-note { font-size: 0.9rem; }
 
@@ -5059,7 +5066,7 @@
         }
         .league-history { margin-top: 14px; text-align: left; }
         .league-history-title {
-            font-family: 'Cinzel', serif; font-size: 0.85rem; color: var(--accent-gold);
+            font-family: var(--font-ui); font-size: 0.85rem; color: var(--accent-gold);
             margin-bottom: 8px; letter-spacing: 0.5px;
         }
         .league-history-empty { font-size: 0.82rem; color: var(--text-secondary); }
@@ -5308,7 +5315,7 @@
             font-size: 1.05rem;
             color: var(--accent-gold);
             margin-bottom: 8px;
-            font-family: 'Cinzel', serif;
+            font-family: var(--font-ui);
         }
         .review-precision {
             color: var(--text-secondary);
@@ -5431,6 +5438,37 @@
         }
 
         /* ════════════════════════════════════════════════════════════════════
+           DISSENY COMÚ: el llenguatge de l'inici, a tota la web
+           Una sola lletra (--font-ui), títols sense espaiat de lletra,
+           etiquetes de secció petites i daurades, botons i targetes arrodonits.
+           Cap botó no és verd: el verd queda per a la informació (jugades
+           bones, valoracions, progrés). Va prefixat amb `body` perquè guanyi
+           els blocs d'estil que hi ha més avall del document.
+           ════════════════════════════════════════════════════════════════════ */
+        body h1 { font-weight: 800; letter-spacing: -0.01em; color: var(--text-primary); }
+        body .btn { letter-spacing: 0; }
+        body .stat-value, body .missions-title, body .coach-kicker, body .tv-card,
+        body .opening-lesson-group-title, body .opening-banner-title, body .opening-maxim-box .maxim-title,
+        body .modal-title, body .badge-cat-title, body .header-title, body .bundle-success-title,
+        body .league-banner-header, body .live-game-banner-header, body .tutorial-lesson-num,
+        body .tutorial-lesson-title-main, body .tutorial-step-title, body .sftv-result-head,
+        body .hg-banner-title, body .history-title, body .history-review-title, body .coach-banner-title,
+        body .stat-card-value, body .danger-zone-title, body .league-name, body .league-history-title,
+        body .review-modal-result, body .catalans-banner-title, body .ranking-banner-title,
+        body .clock-time, body .precision-value, body .opening-session-stats .stats-value,
+        body .opening-section-title, body .bundle-section-title, body .weakness-group-title {
+            letter-spacing: normal; font-weight: 800;
+        }
+        /* Etiquetes de secció, com les de l'inici: petites, en majúscules i daurades */
+        body .settings-title, body .chart-title, body .menu-section-title,
+        body .play-clock-title, body .daily-section-title {
+            font-size: 0.76rem; font-weight: 800; letter-spacing: 0.08em; text-transform: uppercase;
+            color: var(--accent-gold); opacity: 1;
+        }
+        body .settings-panel, body .chart-container, body .stat-card { border-radius: 18px; }
+        body .modal-content { border-radius: 20px; }
+
+        /* ════════════════════════════════════════════════════════════════════
            INICI · bàners ordenats (proposta D)
            Seccions en ordre lògic (Juga, Avui, Entrena, Comunitat, Aprèn i
            Progrés i ajustos, amb la configuració i la guia al final). Cada
@@ -5443,7 +5481,7 @@
            bàners (que segueixen servint a altres pantalles) sense !important.
            ════════════════════════════════════════════════════════════════════ */
         #start-screen.home-d {
-            --hd-font: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            --hd-font: var(--font-ui);
             --hd-card: rgba(0,0,0,0.22);
             --hd-line: rgba(244,228,188,0.10);
             --hd-text: var(--text-primary);
@@ -5511,7 +5549,7 @@
         .home-sec--avui { --sec: #e8d9b5; }
         .home-sec--entrena { --sec: #b7a2f0; }
         .home-sec--comunitat { --sec: #ef8a6b; }
-        .home-sec--apren { --sec: #6fc4a4; }
+        .home-sec--apren { --sec: #7fbfe6; }
         .home-sec--final { --sec: #a9bccb; }
 
         /* ── Bàner (.hb) ─────────────────────────────────────────────────── */
@@ -5521,11 +5559,12 @@
         .hb--terracotta { --hb-a: #b04430; --hb-b: #6c2114; }
         .hb--copper { --hb-a: #a65a2c; --hb-b: #64321a; }
         .hb--rosewood { --hb-a: #a8445c; --hb-b: #64203a; }
-        .hb--green { --hb-a: #2c7656; --hb-b: #174431; }
-        .hb--teal { --hb-a: #237078; --hb-b: #134046; }
+        .hb--ocean { --hb-a: #2b78a8; --hb-b: #164866; }
+        .hb--azure { --hb-a: #3468b0; --hb-b: #1d3d6e; }
         .hb--ochre { --hb-a: #9a7430; --hb-b: #5a4118; }
         .hb--stone { --hb-a: #6b6157; --hb-b: #3d3731; }
         .hb--navy { --hb-a: #3f5a96; --hb-b: #24335e; }
+        .hb--graphite { --hb-a: #545c6e; --hb-b: #2e333f; }
         #start-screen .hb,
         #start-screen #custom-banners .custom-banner {
             display: flex; align-items: center; gap: 12px; width: 100%; min-height: 76px; margin: 0;
@@ -5605,7 +5644,7 @@
         body.device-desktop #start-screen .hb-hero .play-clock-chips { grid-template-columns: repeat(8, minmax(0, 1fr)); }
 
         /* Modes contra el motor: tres rajoles, cadascuna amb el seu to */
-        .hb-mode--sea { --mode: #6fc8b4; }
+        .hb-mode--gold { --mode: #e3b84a; }
         .hb-mode--lilac { --mode: #b9a3f0; }
         .hb-mode--sky { --mode: #8dbcf0; }
         #start-screen .home-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
@@ -5815,14 +5854,14 @@
         body.day-mode .home-sec--avui { --sec: #6b5a3a; }
         body.day-mode .home-sec--entrena { --sec: #5b3fa8; }
         body.day-mode .home-sec--comunitat { --sec: #a03a26; }
-        body.day-mode .home-sec--apren { --sec: #23664c; }
+        body.day-mode .home-sec--apren { --sec: #2f6aa8; }
         body.day-mode .home-sec--final { --sec: #3f5466; }
         body.day-mode .hb-tile--rose { --tile: #b0405a; --tile-bg: rgba(176,64,90,0.08); }
         body.day-mode .hb-tile--amber { --tile: #9a5c14; --tile-bg: rgba(154,92,20,0.08); }
         body.day-mode .hb-tile--lilac { --tile: #6a4bc2; --tile-bg: rgba(106,75,194,0.08); }
         body.day-mode .hb-tile--sky { --tile: #2f6aa8; --tile-bg: rgba(47,106,168,0.08); }
         body.day-mode .hb-tile--slate { --tile: #3f5466; --tile-bg: rgba(63,84,102,0.08); }
-        body.day-mode .hb-mode--sea { --mode: #1f7a6c; }
+        body.day-mode .hb-mode--gold { --mode: #8a6514; }
         body.day-mode .hb-mode--lilac { --mode: #6a4bc2; }
         body.day-mode .hb-mode--sky { --mode: #2f6aa8; }
         body.day-mode #start-screen .missions-ic,
@@ -6122,11 +6161,11 @@
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
-    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #4a7c59, #3d6b4a); color:#fff; padding:12px 16px; padding-top:calc(12px + env(safe-area-inset-top, 0px)); box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:'Inter',sans-serif;">
+    <div id="sw-update-banner" style="display:none; position:fixed; top:0; left:0; right:0; z-index:10000; background:linear-gradient(135deg, #8a6514, #5a4118); color:#fff; padding:12px 16px; padding-top:calc(12px + env(safe-area-inset-top, 0px)); box-shadow:0 2px 10px rgba(0,0,0,0.3); font-family:var(--font-ui);">
         <div style="display:flex; align-items:center; justify-content:space-between; max-width:600px; margin:0 auto;">
             <span style="font-size:14px;">Nova versió disponible</span>
             <div style="display:flex; gap:8px;">
-                <button id="sw-update-btn" style="background:#fff; color:#4a7c59; border:none; padding:6px 14px; border-radius:4px; font-weight:600; cursor:pointer; font-size:13px;">Actualitzar ara</button>
+                <button id="sw-update-btn" style="background:#fff; color:#5a4118; border:none; padding:6px 14px; border-radius:4px; font-weight:600; cursor:pointer; font-size:13px;">Actualitzar ara</button>
                 <button id="sw-dismiss-btn" style="background:transparent; color:#fff; border:1px solid rgba(255,255,255,0.5); padding:6px 10px; border-radius:4px; cursor:pointer; font-size:13px;">Ara no</button>
             </div>
         </div>
@@ -6216,9 +6255,9 @@
                     </div>
                     <!-- Els altres modes contra el motor -->
                     <div class="home-modes">
-                        <button type="button" class="hb-mode hb-mode--sea" id="btn-positional-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-scope"/></svg><span>Joc vista</span></button>
+                        <button type="button" class="hb-mode hb-mode--sky" id="btn-positional-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-scope"/></svg><span>Joc vista</span></button>
                         <button type="button" class="hb-mode hb-mode--lilac" id="btn-antidote-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-dna"/></svg><span>Rival Antídot</span></button>
-                        <button type="button" class="hb-mode hb-mode--sky" id="btn-league"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-trophy"/></svg><span>Lliga</span></button>
+                        <button type="button" class="hb-mode hb-mode--gold" id="btn-league"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-trophy"/></svg><span>Lliga</span></button>
                     </div>
                     <!-- Per a qui encara ha de fer la partida de calibratge: si no sap
                          jugar, que aprengui primer. El mostra tutorial.js. -->
@@ -6246,7 +6285,7 @@
                     <div class="daily-dots" id="daily-dots" style="display:none;"></div>
                     <!-- Repte del bessó: DESACTIVAT de moment (BESSO_ENABLED a app.js).
                          El marcatge es conserva per poder reprendre la modalitat. -->
-                    <button class="hb hb--teal besso-banner" id="btn-besso" aria-label="Repte del bessó" style="display:none;">
+                    <button class="hb hb--ocean besso-banner" id="btn-besso" aria-label="Repte del bessó" style="display:none;">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-swap"/></svg></span>
                         <span class="hb-text">
                             <span class="hb-title">Repte del bessó</span>
@@ -6450,7 +6489,7 @@
                     <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren">Aprèn</h2></div>
                     <!-- Stockfish TV (stockfishtv.js): partida Stockfish contra
                          Stockfish GENERADA AL DISPOSITIU, amb comentaris breus. -->
-                    <button class="hb hb--green" id="btn-sftv-banner" aria-label="Stockfish TV">
+                    <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish TV">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-tv"/></svg></span>
                         <span class="hb-text">
                             <span class="hb-title">Stockfish TV</span>
@@ -6458,7 +6497,7 @@
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>
-                    <button class="hb hb--teal" id="btn-tutorial-banner" aria-label="Aprèn a jugar a escacs">
+                    <button class="hb hb--azure" id="btn-tutorial-banner" aria-label="Aprèn a jugar a escacs">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-cap"/></svg></span>
                         <span class="hb-text">
                             <span class="hb-title">Aprèn a jugar</span>
@@ -6492,7 +6531,7 @@
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>
-                    <button class="hb hb--navy" id="btn-guide-banner" aria-label="Guia d'El Tauler">
+                    <button class="hb hb--graphite" id="btn-guide-banner" aria-label="Guia d'El Tauler">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-compass"/></svg></span>
                         <span class="hb-text">
                             <span class="hb-title">Guia d'El Tauler</span>
@@ -7236,7 +7275,7 @@
 
         <!-- EXPLORADOR: tauler d'anàlisi lliure amb el motor avaluant -->
         <style>
-            .btn-explorer-menu { background: linear-gradient(135deg, #4a6b52 0%, #2c4432 100%); color: #e9f2ea; box-shadow: 0 4px 12px rgba(74, 107, 82, 0.35); }
+            .btn-explorer-menu { background: linear-gradient(135deg, #3f5a96 0%, #24335e 100%); color: #eef2fb; box-shadow: 0 4px 12px rgba(63, 90, 150, 0.35); }
             .explorer-eval-card {
                 background: var(--bg-card); border: 1px solid rgba(201,162,39,0.18);
                 border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
@@ -7512,7 +7551,7 @@
             #pgn-import-modal .modal-content { max-height: 85vh; overflow-y: auto; }
             #pgn-import-modal textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:110px;
                 background: rgba(0,0,0,0.18); border:1px solid rgba(201,162,39,0.35); border-radius:10px;
-                color: var(--text-primary); padding:8px 10px; font-family:'Inter',monospace,sans-serif; font-size:0.82rem; }
+                color: var(--text-primary); padding:8px 10px; font-family:var(--font-ui); font-size:0.82rem; }
             #pgn-import-modal textarea:focus { outline:none; border-color: var(--accent-gold); }
             body.epaper-mode #pgn-import-modal textarea { background:#ededed; color:#222; border-color:#777; }
             .pgn-import-game { text-align:left; background: rgba(255,255,255,0.04); border:1px solid rgba(201,162,39,0.22);
@@ -7969,7 +8008,7 @@
             .catalans-banner-live { display:inline-flex; align-items:center; gap:5px; font-size:0.66rem; font-weight:700; letter-spacing:0.08em; color:#ffd9a8; opacity:0.95; }
             .catalans-banner-live .cb-dot { width:7px; height:7px; border-radius:50%; background:#ff5252; box-shadow:0 0 0 0 rgba(255,82,82,0.7); animation: cbPulse 1.8s infinite; }
             @keyframes cbPulse { 0%{box-shadow:0 0 0 0 rgba(255,82,82,0.65);} 70%{box-shadow:0 0 0 7px rgba(255,82,82,0);} 100%{box-shadow:0 0 0 0 rgba(255,82,82,0);} }
-            .catalans-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
+            .catalans-banner-title { font-family: var(--font-ui); font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
             .catalans-banner-sub { font-size:0.8rem; opacity:0.9; line-height:1.25; }
             .catalans-banner-cta { flex:0 0 auto; z-index:1; font-weight:700; font-size:0.9rem; color: var(--accent-gold); background: rgba(0,0,0,0.25); padding:7px 14px; border-radius:999px; white-space:nowrap; }
             /* Repte del bessó: reutilitza l'estructura del bàner col·lectiu amb una
@@ -8060,7 +8099,7 @@
                 display:flex; flex-direction:column; align-items:flex-start; gap:2px;
                 width:100%; padding:12px 16px; border-radius:12px; cursor:pointer; text-align:left;
                 border:1px solid rgba(120,200,220,0.4); color:#eaf6fa;
-                background: linear-gradient(135deg, #245b6e 0%, #17414f 100%);
+                background: linear-gradient(135deg, #2b78a8 0%, #164866 100%);
                 transition: transform .12s ease, box-shadow .12s ease;
             }
             .besso-opt:hover { transform: translateY(-1px); box-shadow: 0 6px 16px rgba(0,0,0,0.35); }
@@ -8175,7 +8214,7 @@
             #catalans-custom-modal .cc-label, #username-modal .cc-label { display:block; font-size:0.8rem; color: var(--text-secondary); margin-bottom:4px; }
             #catalans-custom-modal input, #username-modal input { width:100%; box-sizing:border-box;
                 background: rgba(0,0,0,0.18); border:1px solid rgba(201,162,39,0.35); border-radius:10px;
-                color: var(--text-primary); padding:9px 11px; font-family:'Inter',sans-serif; font-size:0.95rem; }
+                color: var(--text-primary); padding:9px 11px; font-family:var(--font-ui); font-size:0.95rem; }
             #catalans-custom-modal input:focus, #username-modal input:focus { outline:none; border-color: var(--accent-gold); }
             body.epaper-mode #catalans-custom-modal input, body.epaper-mode #username-modal input { background:#ededed; color:#222; border-color:#777; }
             #catalans-custom-modal .cc-elo-hint, #username-modal .cc-elo-hint { font-size:0.74rem; color: var(--text-secondary); margin-top:4px; }
@@ -8195,7 +8234,7 @@
                 fill:none; stroke:#1b1712; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round;
                 filter: drop-shadow(0 1px 2px rgba(255,255,255,0.35)); }
             .ranking-banner-text { display:flex; flex-direction:column; gap:2px; flex:1 1 auto; min-width:0; z-index:1; }
-            .ranking-banner-title { font-family:'Cinzel',serif; font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
+            .ranking-banner-title { font-family: var(--font-ui); font-weight:700; font-size:1.2rem; letter-spacing:0.02em; line-height:1.15; }
             .ranking-banner-sub { font-size:0.8rem; opacity:0.85; line-height:1.25; }
             .ranking-banner-cta { flex:0 0 auto; z-index:1; font-weight:700; font-size:0.9rem; color:#1b1712; background: rgba(255,255,255,0.35); padding:7px 14px; border-radius:999px; white-space:nowrap; }
             @media (max-width: 560px) {
@@ -8309,7 +8348,7 @@
             #catalans-msg-modal .catalans-msg-move { font-weight:700; color: var(--accent-gold); margin-bottom:8px; }
             #catalans-msg-modal textarea { width:100%; box-sizing:border-box; resize:vertical; min-height:64px;
                 background: rgba(0,0,0,0.18); border:1px solid rgba(201,162,39,0.35); border-radius:10px;
-                color: var(--text-primary); padding:8px 10px; font-family:'Inter',sans-serif; font-size:0.9rem; }
+                color: var(--text-primary); padding:8px 10px; font-family:var(--font-ui); font-size:0.9rem; }
             #catalans-msg-modal textarea:focus { outline:none; border-color: var(--accent-gold); }
             body.epaper-mode #catalans-msg-modal textarea { background:#ededed; color:#222; border-color:#777; }
             .catalans-msg-count { text-align:right; font-size:0.75rem; color: var(--text-secondary); margin-top:4px; }
@@ -8878,7 +8917,7 @@
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
     <script>
-        window.APP_VERSION = '1.0.38';
+        window.APP_VERSION = '1.0.39';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;

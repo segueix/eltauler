@@ -78,10 +78,11 @@ Conduir amb Playwright + Chromium preinstal·lat
 12. **Inici (bàners per seccions)**: `#start-screen.home-d` agrupa els
     bàners en `.home-sec--juga/avui/entrena/comunitat/apren/final`; els
     identificadors dels botons són els de sempre (`#btn-new-game`,
-    `#btn-settings`, `#btn-guide-banner`...). Les Google Fonts (Plus Jakarta
-    Sans, Inter, Cinzel) tampoc no carreguen des de Chromium: per veure la
-    lletra real cal baixar el CSS de `fonts.googleapis.com/css2` i els
-    `.woff2` amb `curl` i servir-los amb `ctx.route`. Per al mode dia o
+    `#btn-settings`, `#btn-guide-banner`...). Tota la web fa servir una sola
+    lletra, Plus Jakarta Sans (`--font-ui`), i cap botó no és verd. Les Google
+    Fonts tampoc no carreguen des de Chromium: per veure la lletra real cal
+    baixar el CSS de `fonts.googleapis.com/css2` i els `.woff2` amb `curl` i
+    servir-los amb `ctx.route`. Per al mode dia o
     paper electrònic: `eltauler_day_mode` / `eltauler_epaper_mode` = `on`.
     **Portada publicada**: el desplegament hi afegeix l'accés a Remigi i el
     text SEO (`scripts/inject-remigi-link.py` i `scripts/inject-seo.py`, que
