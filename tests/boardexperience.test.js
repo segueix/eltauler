@@ -96,3 +96,80 @@ describe('pausa i represa sense callbacks antics', () => {
         c.replayStopPlay(); jobs[2](false); await fresh; expect(replay.idx).toBe(1);
     });
 });
+
+// chessboard.js 1.0.0 implementa fen() com a position('fen') i start()/clear()
+// també passen per position(). L'embolcall dels taulers no pot tractar aquestes
+// lectures com una posició nova: abans es tornava a cridar fen() sense fi, el
+// tauler de la partida no arrencava (ni rellotge ni peces) i aturar la narració
+// des de l'historial tallava «Reprodueix».
+describe('embolcall del tauler de chessboard.js', () => {
+    const START = 'rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR';
+    function fakeElement(id = '') {
+        const kids = {};
+        return { id, hidden: false, isConnected: true, parentElement: null, style: {}, textContent: '', value: '',
+            classList: { contains: () => false, add() {}, remove() {} }, innerHTML: '',
+            getAttribute: () => null, querySelector: sel => kids[sel] || (kids[sel] = fakeElement()),
+            querySelectorAll: () => [], closest: () => null, insertAdjacentElement() {}, appendChild() {} };
+    }
+    function fakeChessboard(id, config) {
+        let placement = config.position === 'start' ? START : config.position.split(' ')[0];
+        const board = {};
+        board.position = function (target) {
+            if (!arguments.length) return { placement };
+            if (typeof target === 'string' && target.toLowerCase() === 'fen') return placement;
+            placement = target === 'start' ? START : typeof target === 'string' ? target.split(' ')[0] : '8/8/8/8/8/8/8/8';
+        };
+        board.fen = function () { return board.position('fen'); };
+        board.start = animate => board.position('start', animate);
+        board.clear = animate => board.position({}, animate);
+        board.resize = () => {}; board.destroy = () => {};
+        return board;
+    }
+    function load() {
+        const boardEl = Object.assign(fakeElement('myBoard'), { querySelector: () => null });
+        const elements = { myBoard: boardEl };
+        const sandbox = {
+            document: { hidden: false, getElementById: id => elements[id] || null, createElement: () => fakeElement(),
+                querySelectorAll: () => [], addEventListener() {} },
+            MutationObserver: class { observe() {} disconnect() {} },
+            localStorage: { getItem: () => null, setItem() {} },
+            getComputedStyle: () => ({ display: 'block' }), addEventListener() {},
+            Chessboard: jest.fn(fakeChessboard),
+            ElTaulerStockfishTV: { TV_CONFIG: { SPEEDS: { calm: { label: 'Tranquil' } }, MOVE_ANIMATION_MS: 750 },
+                tvNormalizePrefs: () => ({ speed: 'calm' }),
+                createTvVoice: () => ({ isOn: () => false, unlock() {}, stop() {} }),
+                createBroadcastAudioControls: () => ({ bind() {}, render() {}, dispose() {}, sync() {} }),
+                applyBroadcastHighlights: jest.fn() },
+            ElTaulerGameBroadcast: { createNarrator: () => ({ stop() {}, speak: () => Promise.resolve({}) }), comment: () => null }
+        };
+        sandbox.self = sandbox;
+        vm.createContext(sandbox);
+        vm.runInContext(fs.readFileSync(require.resolve('../boardexperience.js'), 'utf8'), sandbox);
+        const api = sandbox.ElTaulerBoardExperience;
+        api.configure({ Chess, bridge: {} });
+        return { api, sandbox };
+    }
+
+    test('crear el tauler, llegir-ne la FEN i moure-hi peces no entra en bucle', () => {
+        const { api, sandbox } = load();
+        const game = new Chess();
+        const board = api.createBoard('myBoard', { position: 'start' }, () => ({ chess: game, key: game, timed: true }));
+        expect(sandbox.Chessboard).toHaveBeenCalledTimes(1);
+        expect(board.fen()).toBe(START);
+        game.move('e4');
+        board.position(game.fen());
+        expect(board.fen()).toBe(game.fen().split(' ')[0]);
+        expect(board.position('FEN')).toBe(game.fen().split(' ')[0]);
+        board.start(false);
+        expect(board.fen()).toBe(START);
+        board.clear(false);
+        expect(board.fen()).toBe('8/8/8/8/8/8/8/8');
+    });
+
+    test('aturar totes les narracions (p. ex. en prémer Reprodueix a l’historial) no falla', () => {
+        const { api } = load();
+        const game = new Chess();
+        api.createBoard('myBoard', { position: 'start' }, () => ({ chess: game, key: game }));
+        expect(() => { api.stopAll(); api.cancel('myBoard'); api.refresh('myBoard'); }).not.toThrow();
+    });
+});

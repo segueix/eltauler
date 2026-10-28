@@ -176,6 +176,9 @@
         const position = board.position.bind(board), resize = board.resize.bind(board), destroy = board.destroy.bind(board);
         board.position = function (target, animate) {
             if (!arguments.length) return position();
+            // chessboard.js implementa fen() com a position('fen'): és una lectura,
+            // i sincronitzar-la tornaria a cridar fen() sense fi.
+            if (typeof target === 'string' && target.toLowerCase() === 'fen') return position(target);
             const out = position(target, animate);
             sync(typeof target === 'string' && target !== 'start' ? target : board.fen());
             return out;
