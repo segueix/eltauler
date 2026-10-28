@@ -3882,8 +3882,13 @@
         const levelText = g ? g.level.label.short : '—';
         const mine = (color) => !!(state.control && state.control.color === color);
         // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
-        const sideText = (color) => g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
-        const who = (color) => g && g.styles && TV_STYLES[g.styles[color]] ? TV_STYLES[g.styles[color]].label : 'Stockfish';
+        const sideText = (color) => g && g.matchPlan
+            ? (g.engines[color] === 'lozza' ? 'profunditat ' + g.matchPlan.lozzaDepth
+                : tvLevelLabel(caps, g.matchPlan.stockfishLevel).short)
+            : g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
+        const who = (color) => g && g.engines && g.engines[color] === 'lozza'
+            ? 'Lozza' : g && g.matchPlan ? 'Stockfish'
+                : g && g.styles && TV_STYLES[g.styles[color]] ? TV_STYLES[g.styles[color]].label : 'Stockfish';
         const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · ' + who(color) + ' · ' + sideText(color));
         const pw = $id('sftv-player-white');
         const pb = $id('sftv-player-black');
@@ -3898,8 +3903,12 @@
         const help = $id('sftv-level-help');
         const easy = $id('sftv-too-easy');
         const hard = $id('sftv-too-hard');
-        if (cur) cur.textContent = g ? ('Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' && !g.level.sides ? ' (tots dos jugadors)' : '')
-            + (g.end && g.level.reveal ? '. ' + g.level.reveal : '')) : 'Preparant el motor…';
+        if (cur) cur.textContent = g
+            ? (g.matchPlan ? 'Objectiu Stockfish: ' + g.level.label.long + '. Lozza juga amb profunditat limitada, sense Elo equiparable.'
+                + (g.end && g.level.reveal ? ' ' + g.level.reveal : '')
+                : 'Aquesta partida: ' + g.level.label.long + (caps && caps.mode !== 'none' && !g.level.sides ? ' (tots dos jugadors)' : '')
+                    + (g.end && g.level.reveal ? '. ' + g.level.reveal : ''))
+            : 'Preparant els motors…';
         const unequal = $id('sftv-unequal');
         if (unequal && document.activeElement !== unequal) unequal.checked = state.unequal !== false;
         const profiles = $id('sftv-profiles');
@@ -3907,7 +3916,10 @@
         const stylesBox = $id('sftv-styles');
         if (stylesBox) {
             const st = g && g.styles;
-            stylesBox.textContent = st ? 'Perfils: ' + tvStylesLine(st) + '. ' + TV_STYLES[st.w].label + ' ' + TV_STYLES[st.w].text + '; ' + TV_STYLES[st.b].label.charAt(0).toLowerCase() + TV_STYLES[st.b].label.slice(1) + ' ' + TV_STYLES[st.b].text + '.' : '';
+            stylesBox.textContent = st ? (g.matchPlan
+                ? 'Stockfish: ' + TV_STYLES[st[g.matchPlan.engines.w === 'stockfish' ? 'w' : 'b']].label
+                    + '. Lozza: estil propi del motor, sense modificacions artificials.'
+                : 'Perfils: ' + tvStylesLine(st) + '. ' + TV_STYLES[st.w].label + ' ' + TV_STYLES[st.w].text + '; ' + TV_STYLES[st.b].label.charAt(0).toLowerCase() + TV_STYLES[st.b].label.slice(1) + ' ' + TV_STYLES[st.b].text + '.') : '';
             stylesBox.style.display = st ? '' : 'none';
         }
         if (next) {
@@ -3917,6 +3929,16 @@
             next.style.display = pending ? '' : 'none';
         }
         renderLadder(state);
+        const rivalry = $id('sftv-rivalry');
+        if (rivalry) {
+            const recent = state.recentResults || [];
+            const wins = { stockfish: 0, lozza: 0, draw: 0 };
+            recent.forEach(x => { if (Object.prototype.hasOwnProperty.call(wins, x.winner)) wins[x.winner]++; });
+            rivalry.textContent = 'Últimes ' + recent.length + ' partides: Stockfish ' + wins.stockfish
+                + ' · Lozza ' + wins.lozza + ' · Taules ' + wins.draw + '.'
+                + (g && g.matchPlan ? ' ' + g.matchPlan.reason : '');
+            rivalry.style.display = state.duelWarning ? 'none' : '';
+        }
         if (help) {
             let text = '';
             if (caps && caps.mode === 'elo') text = 'És un objectiu de força configurat al motor (UCI_Elo ' + caps.min + '–' + caps.max + '), no una equivalència garantida amb l\'Elo FIDE.';
@@ -4028,6 +4050,7 @@
             text = (g.turn === 'w' ? 'Mouen les blanques' : 'Mouen les negres')
                 + (last && last.prepared ? ' · jugada preparada de l\'obertura' : '');
         }
+        if (state.duelWarning) text += ' · Lozza no disponible: s\'utilitza temporalment Stockfish als dos bàndols.';
         if (state.paused) text += ' · En pausa';
         if (el) el.textContent = text;
         const pauseBtn = $id('sftv-pause');
@@ -4052,7 +4075,9 @@
                 const range = caps.mode === 'elo'
                     ? 'UCI_Elo ' + caps.engineEloMin + '–' + caps.engineEloMax + ' i UCI_LimitStrength (mínim de la TV: ' + caps.min + ')'
                     : (caps.mode === 'skill' ? 'Skill Level ' + caps.min + '–' + caps.max + '; sense ' + caps.missing.join(' ni ') : 'cap opció de força');
-                note = 'Motor: ' + (caps.engineName || 'Stockfish') + ' · opcions declarades: ' + range + '.';
+                note = 'Analista: ' + (caps.engineName || 'Stockfish') + ' · opcions declarades: ' + range + '.'
+                    + (state.duelWarning ? ' Lozza no disponible en aquest dispositiu.'
+                        : ' Rival: Lozza 3.0, motor UCI de Colin Jenkins. La profunditat de Lozza no es pot equiparar amb Elo.');
             }
             engineNote.textContent = note;
             engineNote.style.display = note ? '' : 'none';
@@ -4103,6 +4128,7 @@
             el.innerHTML = '<div class="sftv-result-head">' + escapeHtml(tvResultHeadline(g.end)) + '</div>'
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
                 + (g.level && g.level.reveal ? '<div class="sftv-result-reveal">' + escapeHtml(g.level.reveal) + '</div>' : '')
+                + (g.matchPlan ? '<div class="sftv-result-reveal">Adaptació de la rivalitat: ' + escapeHtml(g.matchPlan.reason) + '</div>' : '')
                 + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.'
                     : (state.control ? 'Control manual: tira enrere o torna el control al motor.' : (state.paused ? 'En pausa.' : ''))) + '</div>';
         };
