@@ -119,8 +119,16 @@
         // que permet el motor de l'app (≈70–140 Elo estimats), o 100 d'Elo si
         // el motor admet UCI_Elo—. La pantalla mostra el nivell mitjà sense dir
         // quin bàndol és el més fort, i es revela en acabar la partida.
-        UNEQUAL_SKILL_GAP: 1,
-        UNEQUAL_ELO_GAP: 100,
+        UNEQUAL_SKILL_GAP: 2,
+        UNEQUAL_ELO_GAP: 200,
+        // Perfils de joc (activats per defecte): cada bàndol té un estil. El
+        // motor del seu nivell decideix com de bona és la jugada (la que triaria
+        // amb «Skill Level») i el perfil tria, entre les STYLE_MULTIPV millors
+        // jugades amb una valoració a STYLE_WINDOW_CP o menys d'aquella, la que
+        // encaixa més amb el seu estil. Així el nivell es manté i el caràcter
+        // de cada jugador es nota.
+        STYLE_MULTIPV: 4,
+        STYLE_WINDOW_CP: 40,
         // Pèrdua mínima (cp, mateix bàndol) per comentar una alternativa.
         MISSED_LOSS_CP: { basic: 250, mid: 200, advanced: 150 },
         // Amb una posició ja decidida no es comenten matisos.
@@ -355,7 +363,7 @@
             Object.keys(p.offsets).forEach((k) => { if (isNum(p.offsets[k])) offsets[k] = Math.round(p.offsets[k]); });
         }
         const openingIndex = isNum(p.openingIndex) ? Math.max(0, Math.floor(p.openingIndex)) : null;
-        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false };
+        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false };
     }
 
     function tvResolveTarget(caps, viewer, prefs) {
@@ -365,6 +373,131 @@
         const offset = p.offsets[tvCapsSignature(caps)] || 0;
         const value = clamp(base + offset, caps.min, caps.max);
         return { value: value, base: base, offset: value - base };
+    }
+
+    // ------------------------------------------------------------------
+    // Perfils de joc
+    // ------------------------------------------------------------------
+    // Cada perfil puntua els trets d'una jugada (vegeu tvMoveFeatures). Els pesos
+    // només decideixen entre jugades de qualitat semblant: mai no fan jugar pitjor.
+    const TV_STYLES = {
+        attacker: { label: 'L\'Atacant', text: 'va a buscar el rei rival: escacs, peces que s\'hi acosten i peons que avancen',
+            weights: { check: 3, approach: 1.2, storm: 1.5, sacrifice: 1, threat: 0.6, trade: -1.5, retreat: -0.8 } },
+        wall: { label: 'El Mur', text: 'juga segur: protegeix el rei, canvia peces quan va per davant i no regala res',
+            weights: { castle: 3, shield: -2.5, tradeAhead: 2, tradeBehind: -1.5, sacrifice: -2.5, kingMove: -1, retreat: 0.3, development: 0.8 } },
+        hunter: { label: 'El Caçador', text: 'no deixa passar cap peça: captura i amenaça material sempre que pot',
+            weights: { captureValue: 1.2, threat: 1.5, promotion: 3, check: 0.5 } },
+        strategist: { label: 'L\'Estratega', text: 'pensa a llarg termini: centre, desenvolupament i columnes obertes',
+            weights: { centralization: 1.2, development: 2, rookFile: 1.5, castle: 1, quiet: 0.5, storm: -0.5, kingMove: -1 } }
+    };
+    const STYLE_IDS = Object.keys(TV_STYLES);
+
+    // Dos perfils diferents a l'atzar, un per bàndol.
+    function tvPickStyles(random) {
+        const r = typeof random === 'function' ? random : Math.random;
+        const a = STYLE_IDS[Math.floor(r() * STYLE_IDS.length) % STYLE_IDS.length];
+        const rest = STYLE_IDS.filter(id => id !== a);
+        return { w: a, b: rest[Math.floor(r() * rest.length) % rest.length] };
+    }
+
+    function tvKingSquare(chess, color) {
+        const b = chess.board();
+        for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+            const p = b[r][f];
+            if (p && p.type === 'k' && p.color === color) return { file: f, rank: 7 - r };
+        }
+        return null;
+    }
+
+    // Trets d'una jugada que importen als perfils (amb chess.js). `evalCp` és la
+    // valoració de la posició des de qui mou (per saber si va per davant).
+    function tvMoveFeatures(ChessCtor, fen, uci, evalCp) {
+        let g;
+        try { g = new ChessCtor(fen); } catch (err) { return null; }
+        const color = g.turn(), opp = other(color);
+        const ownKing = tvKingSquare(g, color), oppKing = tvKingSquare(g, opp);
+        const ply = (parseInt(String(fen).split(' ')[5], 10) - 1) * 2 + (color === 'b' ? 1 : 0);
+        let mv = null;
+        try { mv = g.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : undefined }); } catch (err) { mv = null; }
+        if (!mv) return null;
+        const from = fileRank(mv.from), to = fileRank(mv.to);
+        const value = PIECE_VALUE[mv.piece] || 0, captured = mv.captured ? PIECE_VALUE[mv.captured] : 0;
+        const forward = color === 'w' ? to.rank - from.rank : from.rank - to.rank;
+        const centerDist = fr => Math.max(Math.abs(fr.file - 3.5), Math.abs(fr.rank - 3.5));
+        const dist = (a, b) => Math.max(Math.abs(a.file - b.file), Math.abs(a.rank - b.rank));
+        // Respostes del rival que capturen a la casella d'arribada.
+        const recaptures = g.moves({ verbose: true }).filter(r => r.to === mv.to && r.captured);
+        const recapturable = recaptures.length > 0;
+        const cheapest = recapturable ? Math.min.apply(null, recaptures.map(r => PIECE_VALUE[r.piece] || 0)) : null;
+        // Peces valuoses rivals que la peça moguda ataca després de moure.
+        let threat = 0;
+        const swapped = swapTurnFen(g.fen());
+        if (swapped && mv.piece !== 'k') {
+            try {
+                const t = new ChessCtor(swapped);
+                threat = t.moves({ square: mv.to, verbose: true }).filter(r => r.captured && (PIECE_VALUE[r.captured] || 0) >= 3 && r.captured !== 'k').length;
+            } catch (err) { threat = 0; }
+        }
+        const ownPawnsOnFile = g.board().some(row => row.some((p, f) => p && p.type === 'p' && p.color === color && f === to.file));
+        const anyPawnOnFile = g.board().some(row => row.some((p, f) => p && p.type === 'p' && f === to.file));
+        const castled = ownKing && (ownKing.file >= 6 || ownKing.file <= 2) && ownKing.rank === (color === 'w' ? 0 : 7);
+        const trade = !!mv.captured && recapturable && captured >= value - 1;
+        const ahead = isNum(evalCp) && evalCp >= 100, behind = isNum(evalCp) && evalCp <= -100;
+        return {
+            check: g.in_check() ? 1 : 0,
+            captureValue: captured,
+            promotion: mv.promotion ? 1 : 0,
+            castle: /[kq]/.test(mv.flags) ? 1 : 0,
+            kingMove: mv.piece === 'k' && !/[kq]/.test(mv.flags) ? 1 : 0,
+            approach: mv.piece !== 'k' && mv.piece !== 'p' && oppKing ? clamp(dist(from, oppKing) - dist(to, oppKing), -3, 3) : 0,
+            // Peons d'un flanc que avancen cap a un rei enrocat en aquell flanc (no els centrals de l'obertura).
+            storm: mv.piece === 'p' && oppKing && (oppKing.file <= 2 || oppKing.file >= 5) && to.file !== 3 && to.file !== 4
+                && Math.abs(to.file - oppKing.file) <= 2 && forward > 0 ? 1 : 0,
+            shield: mv.piece === 'p' && castled && Math.abs(from.file - ownKing.file) <= 1 ? 1 : 0,
+            sacrifice: recapturable && cheapest !== null && value - captured >= 2 && cheapest < value ? 1 : 0,
+            trade: trade ? 1 : 0,
+            tradeAhead: trade && ahead ? 1 : 0,
+            tradeBehind: trade && behind ? 1 : 0,
+            threat: threat,
+            retreat: forward < 0 && mv.piece !== 'k' ? 1 : 0,
+            centralization: mv.piece !== 'k' ? clamp(centerDist(from) - centerDist(to), -2, 2) : 0,
+            development: (mv.piece === 'n' || mv.piece === 'b') && from.rank === (color === 'w' ? 0 : 7) && ply < 30 ? 1 : 0,
+            rookFile: mv.piece === 'r' && !ownPawnsOnFile ? (anyPawnOnFile ? 1 : 2) : 0,
+            quiet: !mv.captured && !g.in_check() ? 1 : 0
+        };
+    }
+
+    function tvStyleScore(style, features) {
+        const profile = TV_STYLES[style];
+        if (!profile || !features) return 0;
+        return Object.keys(profile.weights).reduce((sum, k) => sum + profile.weights[k] * (features[k] || 0), 0);
+    }
+
+    // Tria la jugada d'un perfil. `infos` són les línies del motor (des de qui
+    // mou) i `levelUci` la jugada que el motor tria al seu nivell. Només
+    // s'hi juguen jugades amb una valoració a `windowCp` o menys de la del
+    // nivell: el perfil decideix QUINA jugada, el nivell decideix COM DE BONA.
+    // Amb un mat (a favor o en contra), o si la jugada del nivell no és entre
+    // les línies, mana el nivell.
+    function tvPickStyledMove(ChessCtor, fen, infos, levelUci, style, windowCp) {
+        const lines = Object.keys(infos || {}).map(k => infos[k]).filter(i => i && i.pv && i.pv.length);
+        const base = { uci: levelUci, changed: false, score: null };
+        if (!levelUci || !TV_STYLES[style] || !lines.length) return base;
+        const own = lines.find(i => i.pv[0] === levelUci);
+        if (!own || own.type !== 'cp' || lines.some(i => i.type === 'mate')) return base;
+        const win = isNum(windowCp) ? windowCp : TV_CONFIG.STYLE_WINDOW_CP;
+        let best = null;
+        lines.filter(i => i.type === 'cp' && Math.abs(i.value - own.value) <= win).forEach((i) => {
+            const score = tvStyleScore(style, tvMoveFeatures(ChessCtor, fen, i.pv[0], own.value));
+            if (!best || score > best.score + 1e-9 || (Math.abs(score - best.score) < 1e-9 && i.pv[0] === levelUci)) best = { uci: i.pv[0], score: score };
+        });
+        if (!best) return base;
+        return { uci: best.uci, changed: best.uci !== levelUci, score: best.score };
+    }
+
+    function tvStylesLine(styles) {
+        if (!styles || !TV_STYLES[styles.w] || !TV_STYLES[styles.b]) return '';
+        return TV_STYLES[styles.w].label + ' (blanques) contra ' + TV_STYLES[styles.b].label + ' (negres)';
     }
 
     // Nivells dels dos jugadors d'una partida. Amb nivells desiguals, el bàndol
@@ -396,7 +529,8 @@
     function tvGameLevelLabel(caps, levels, value) {
         if (!levels || !levels.stronger) return tvLevelLabel(caps, value);
         const avg = Math.round((tvLevelElo(caps, levels.w) + tvLevelElo(caps, levels.b)) / 2 / 10) * 10;
-        const gap = caps.mode === 'elo' ? Math.abs(levels.w - levels.b) + ' d\'Elo' : 'un nivell';
+        const steps = Math.abs(levels.w - levels.b) / (caps.step || 1);
+        const gap = caps.mode === 'elo' ? Math.abs(levels.w - levels.b) + ' d\'Elo' : (steps === 1 ? 'un nivell' : steps + ' nivells');
         return caps.mode === 'elo'
             ? { short: '≈ ' + avg + ' de mitjana', long: 'Elo mitjà del motor ≈ ' + avg + ': un dels dos juga ' + gap + ' per sobre (es descobreix al final)' }
             : { short: 'Nivell mitjà · ≈' + avg, long: 'Nivell mitjà · Elo estimat ≈ ' + avg + ': un dels dos juga ' + gap + ' per sobre (es descobreix al final)' };
@@ -2631,6 +2765,7 @@
                 viewer: v,
                 speed: prefs.speed,
                 unequal: prefs.unequal,
+                profiles: prefs.profiles,
                 movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
                 nextLevel: next.value,
                 control: S.control && g ? {
@@ -2646,6 +2781,7 @@
                     turn: g.chess.turn(),
                     moves: g.moves.slice(),
                     level: g.level,
+                    styles: g.styles,
                     opening: g.opening ? { name: g.opening.name, eco: g.opening.eco, idea: g.opening.idea || null, plies: g.prepared.length } : null,
                     identified: g.identified,
                     lastMove: g.moves.length ? g.moves[g.moves.length - 1] : null,
@@ -2690,6 +2826,7 @@
             const v = viewer();
             const target = tvResolveTarget(S.caps, v, prefs);
             const levels = tvGameLevels(S.caps, target.value, prefs.unequal, random);
+            const styles = prefs.profiles && S.caps && S.caps.mode !== 'none' ? tvPickStyles(random) : null;
             S.game = {
                 id: ++S.gameSeq,
                 chess: new d.ChessCtor(),
@@ -2700,6 +2837,8 @@
                 level: { value: target.value, sides: levels && levels.stronger ? { w: levels.w, b: levels.b } : null,
                     stronger: levels ? levels.stronger : null, label: tvGameLevelLabel(S.caps, levels, target.value),
                     reveal: tvLevelReveal(S.caps, levels), mode: S.caps ? S.caps.mode : 'none' },
+                // Perfil de joc de cada bàndol (o null si estan apagats).
+                styles: styles,
                 tier: v.tier,
                 opening: pick.opening,
                 prepared: tvPreparedLine(d.ChessCtor, pick.opening, 12),
@@ -2717,7 +2856,8 @@
             if (d.engine) d.engine.newGame();
             S.nextRevealAt = now() + TV_CONFIG.INTRO_DELAY_MS;
             if (pick.opening) {
-                const intro = 'Obertura de partida: ' + pick.opening.name + '.' + (pick.opening.idea ? ' ' + pick.opening.idea : '');
+                const intro = 'Obertura de partida: ' + pick.opening.name + '.' + (pick.opening.idea ? ' ' + pick.opening.idea : '')
+                    + (styles ? ' Juguen ' + TV_STYLES[styles.w].label + ', amb blanques, contra ' + TV_STYLES[styles.b].label + ', amb negres.' : '');
                 S.game.comment = { kind: 'intro', text: intro, speech: tvSpeechText(intro), ply: 0, gameId: S.game.id };
                 S.game.intro = S.game.comment;
                 S.nextRevealAt = Math.max(S.nextRevealAt, now() + tvReadingTimeMs(intro, v.tier));
@@ -2764,14 +2904,19 @@
             if (!d.engine) return Promise.resolve(null);
             const mode = S.caps ? S.caps.mode : 'none';
             const movetime = TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
+            const style = g.styles ? g.styles[String(fen).split(' ')[1] === 'b' ? 'b' : 'w'] : null;
             return d.engine.request({
                 tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move' },
                 position: tvPositionCommand(uciMoves),
                 strength: tvStrengthCommands(S.caps, 'player', tvSideLevel(g.level, fen)),
-                multipv: 1,
+                // Amb perfil, les millors línies per poder triar-ne una del seu estil.
+                multipv: style ? TV_CONFIG.STYLE_MULTIPV : 1,
                 go: 'go movetime ' + movetime,
                 movetime: movetime
-            }).then((res) => (res && alive(epoch) && S.game === g) ? res.bestUci : null);
+            }).then((res) => {
+                if (!res || !alive(epoch) || S.game !== g) return null;
+                return style ? tvPickStyledMove(d.ChessCtor, fen, res.infos, res.bestUci, style).uci : res.bestUci;
+            });
         }
 
         async function runLoop(epoch) {
@@ -3044,6 +3189,12 @@
             setSpeed(id) {
                 if (!TV_CONFIG.SPEEDS[id]) return;
                 prefs = Object.assign({}, prefs, { speed: id });
+                savePrefs();
+                render();
+            },
+            // Perfils de joc: s'aplica a la PARTIDA SEGÜENT.
+            setProfiles(on) {
+                prefs = Object.assign({}, prefs, { profiles: !!on });
                 savePrefs();
                 render();
             },
@@ -3612,7 +3763,8 @@
         const mine = (color) => !!(state.control && state.control.color === color);
         // Amb nivells desiguals, el nivell de cada bàndol només es veu en acabar.
         const sideText = (color) => g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
-        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · Stockfish · ' + sideText(color));
+        const who = (color) => g && g.styles && TV_STYLES[g.styles[color]] ? TV_STYLES[g.styles[color]].label : 'Stockfish';
+        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · ' + who(color) + ' · ' + sideText(color));
         const pw = $id('sftv-player-white');
         const pb = $id('sftv-player-black');
         if (pw) pw.textContent = playerLine('w');
@@ -3630,6 +3782,14 @@
             + (g.end && g.level.reveal ? '. ' + g.level.reveal : '')) : 'Preparant el motor…';
         const unequal = $id('sftv-unequal');
         if (unequal && document.activeElement !== unequal) unequal.checked = state.unequal !== false;
+        const profiles = $id('sftv-profiles');
+        if (profiles && document.activeElement !== profiles) profiles.checked = state.profiles !== false;
+        const stylesBox = $id('sftv-styles');
+        if (stylesBox) {
+            const st = g && g.styles;
+            stylesBox.textContent = st ? 'Perfils: ' + tvStylesLine(st) + '. ' + TV_STYLES[st.w].label + ' ' + TV_STYLES[st.w].text + '; ' + TV_STYLES[st.b].label.charAt(0).toLowerCase() + TV_STYLES[st.b].label.slice(1) + ' ' + TV_STYLES[st.b].text + '.' : '';
+            stylesBox.style.display = st ? '' : 'none';
+        }
         if (next) {
             const pending = caps && caps.mode !== 'none' && g && state.nextLevel !== null && state.nextLevel !== g.level.value;
             const nextText = $id('sftv-level-next-text');
@@ -3929,7 +4089,7 @@
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
             loadPrefs: loadPrefsRaw,
-            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal })
+            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal, profiles: p.profiles })
         });
         return controller;
     }
@@ -4009,6 +4169,7 @@
         on('sftv-promo', 'click', onPromoClick);
         on('sftv-too-easy', 'click', () => { if (controller) controller.adjust('harder'); });
         on('sftv-unequal', 'change', (ev) => { if (controller) controller.setUnequal(ev.target.checked); });
+        on('sftv-profiles', 'change', (ev) => { if (controller) controller.setProfiles(ev.target.checked); });
         on('sftv-level-range', 'input', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
         on('sftv-level-range', 'change', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
         on('sftv-ladder-scale', 'click', (ev) => {
@@ -4098,6 +4259,12 @@
         tvResignStep,
         tvIsDecided,
         tvIsSharpOpening,
+        TV_STYLES,
+        tvPickStyles,
+        tvMoveFeatures,
+        tvStyleScore,
+        tvPickStyledMove,
+        tvStylesLine,
         tvGameLevels,
         tvGameLevelLabel,
         tvLevelReveal,

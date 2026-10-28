@@ -408,12 +408,21 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   Una partida de cada dues comença amb una obertura que desequilibra aviat
   (gambits, partides obertes, sicilianes…), i la prova del bucle comprova que
   una partida decidida acaba sola amb l'abandonament. **Nivells desiguals**
-  (activats per defecte): un bàndol a l'atzar juga un esglaó de «Skill Level»
-  per sobre (o 100 d'Elo, centrats en l'objectiu, si el motor admet UCI_Elo),
-  dins dels límits de l'escala; cada petició de jugada porta el nivell del
-  bàndol que té el torn; la pantalla mostra el nivell mitjà sense dir quin
+  (activats per defecte): un bàndol a l'atzar juga dos esglaons de «Skill
+  Level» per sobre (o 200 d'Elo, centrats en l'objectiu, si el motor admet
+  UCI_Elo), dins dels límits de l'escala; cada petició de jugada porta el nivell
+  del bàndol que té el torn; la pantalla mostra el nivell mitjà sense dir quin
   bàndol és el més fort i al final es revela; apagar-los s'aplica a la partida
-  següent i es desa a les preferències de la TV.
+  següent i es desa a les preferències de la TV. **Perfils de joc** (activats
+  per defecte): quatre estils (L'Atacant, El Mur, El Caçador, L'Estratega), dos
+  de diferents per partida, anunciats a la presentació. Els trets de cada jugada
+  (escac, captura, enroc, peons contra el rei enrocat, canvi, sacrifici,
+  columna oberta, desenvolupament…) es calculen amb chess.js real, cada perfil
+  prefereix les jugades del seu estil, i només tria entre les línies amb una
+  valoració a 40 centipeons o menys de la jugada que fa el motor al seu nivell
+  (amb un mat, o si aquella jugada no és entre les línies, mana el nivell). La
+  prova del bucle comprova que la petició demana 4 línies i que el perfil
+  canvia la jugada del nivell per una del seu estil.
   **Comentaris** sobre posicions reals: forquilla amb escac (i el «guany» només
   si l'anàlisi l'avala), enroc amb torres connectades de debò, peça atacada però
   defensada (sense cap «guany»), peça clavada que no amenaça, peó que queda

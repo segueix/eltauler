@@ -75,7 +75,12 @@ Conduir amb Playwright + Chromium preinstal·lat
     `.sftv-result-head` / `.sftv-result-text`). **Nivells desiguals**:
     `state().game.level.sides` (`{ w, b }` o `null`) i `level.reveal`; la
     pantalla mostra la mitjana fins al final. L'interruptor és `#sftv-unequal`
-    (clicar l'etiqueta pare) i es desa a `tauler_tv_prefs.unequal`.
+    (clicar l'etiqueta pare) i es desa a `tauler_tv_prefs.unequal`. **Perfils
+    de joc**: `state().game.styles` (`{ w, b }` amb `attacker`, `wall`,
+    `hunter` o `strategist`), els noms als xips dels jugadors i a `#sftv-styles`;
+    interruptor `#sftv-profiles` (`tauler_tv_prefs.profiles`). Per mesurar si es
+    nota l'estil cal jugar partides senceres amb el motor des de Node
+    (`TV.tvPickStyledMove` + `TV.tvMoveFeatures`), no n'hi ha prou amb una.
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i
