@@ -962,6 +962,229 @@ describe('bucle de Stockfish TV', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 7b. Jugada enrere i control manual
+// ---------------------------------------------------------------------------
+describe('jugada enrere i control manual', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    const replayOk = (g) => {
+        const replay = new Chess();
+        g.moves.forEach((m, i) => { expect(m.ply).toBe(i); expect(replay.move(m.san)).not.toBeNull(); });
+        expect(replay.fen()).toBe(g.fen);
+    };
+
+    test('tirar enrere desfà semijugades, atura el motor i dona el torn a l\'usuari', async () => {
+        const engine = fakeEngine();
+        const { ctl } = makeController({ engine: engine });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(30000);
+        const n = ctl.state().game.moves.length;
+        expect(n).toBeGreaterThanOrEqual(3);
+        const internal = ctl._internal.game;
+        const memoryBeforeLast = internal.moves[n - 1].undo.memory;
+        const undone = internal.moves[n - 1];
+        expect(ctl.stepBack()).toBe(true);
+        let st = ctl.state();
+        expect(st.game.moves.length).toBe(n - 1);
+        // L'usuari mou el bàndol de la jugada desfeta.
+        expect(st.control).toEqual(expect.objectContaining({ color: undone.color, yourTurn: true, thinking: false }));
+        expect(st.game.turn).toBe(undone.color);
+        expect(st.game.fen).toBe(undone.undo.fenBefore);
+        expect(ctl._internal.game.memory).toBe(memoryBeforeLast);
+        expect(ctl._internal.game.comments.every(c => c.ply < n - 1)).toBe(true);
+        replayOk(st.game);
+        // Una altra vegada: ara mou l'altre bàndol.
+        expect(ctl.stepBack()).toBe(true);
+        st = ctl.state();
+        expect(st.game.moves.length).toBe(n - 2);
+        expect(st.control.color).toBe(st.game.turn);
+        // El comentari visible, si n'hi ha, és el de la posició visible.
+        if (st.game.comment && st.game.comment.kind !== 'intro') expect(st.game.comment.fen).toBe(st.game.fen);
+        // Amb el control, el motor no juga sol.
+        const jobs = engine.jobs.length;
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(ctl.state().game.moves.length).toBe(n - 2);
+        expect(engine.jobs.length).toBe(jobs);
+        // Fins a l'inici, i no més enllà.
+        while (ctl.state().game.moves.length) expect(ctl.stepBack()).toBe(true);
+        expect(ctl.stepBack()).toBe(false);
+        expect(ctl.state().game.fen).toBe(new Chess().fen());
+        expect(ctl.state().canUndo).toBe(false);
+        ctl.close();
+    });
+
+    test('l\'usuari mou el seu color; Stockfish respon amb l\'altre al nivell de la partida', async () => {
+        const engine = fakeEngine({ script: { 1: 'e7e5', 3: 'b8c6' } });
+        const { ctl } = makeController({ engine: engine });
+        await ctl.open();
+        expect(ctl.takeControl()).toBe(true);
+        expect(ctl.state().control).toEqual(expect.objectContaining({ color: 'w', yourTurn: true }));
+        // Peça del rival, destí il·legal o casella buida: rebutjades.
+        expect(ctl.userMoves('e7')).toEqual([]);
+        expect(ctl.userMove('e7', 'e5')).toBe(false);
+        expect(ctl.userMove('e2', 'e5')).toBe(false);
+        expect(ctl.userMove('e4', 'e5')).toBe(false);
+        expect(ctl.userMoves('g1').map(m => m.to).sort()).toEqual(['f3', 'h3']);
+        expect(ctl.userMove('e2', 'e4')).toBe(true);
+        // La jugada surt a l'instant; el comentari, quan acaba l'anàlisi.
+        let st = ctl.state();
+        expect(st.game.moves.map(m => m.san)).toEqual(['e4']);
+        expect(st.game.moves[0].byUser).toBe(true);
+        expect(st.control).toEqual(expect.objectContaining({ yourTurn: false, analyzing: true, thinking: true }));
+        // Mentre s'analitza, cap altra jugada de l'usuari.
+        expect(ctl.userMove('d2', 'd4')).toBe(false);
+        await jest.advanceTimersByTimeAsync(C.CONTROL_REPLY_MAX_MS + 3000);
+        st = ctl.state();
+        expect(st.game.moves.map(m => m.san)).toEqual(['e4', 'e5']);
+        expect(st.game.moves[1].byUser).toBe(false);
+        expect(st.control).toEqual(expect.objectContaining({ color: 'w', yourTurn: true, analyzing: false }));
+        // El motor ha jugat les negres amb el nivell FIXAT de la partida.
+        const moveJobs = engine.jobs.filter(j => j.tag.kind === 'move');
+        expect(moveJobs.length).toBe(1);
+        expect(moveJobs[0].tag.ply).toBe(1);
+        expect(moveJobs[0].strength).toEqual(['setoption name Skill Level value ' + st.game.level.value]);
+        // I no torna a moure fins que l'usuari mou.
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(ctl.state().game.moves.length).toBe(2);
+        expect(ctl.userMove('g1', 'f3')).toBe(true);
+        await jest.advanceTimersByTimeAsync(C.CONTROL_REPLY_MAX_MS + 3000);
+        expect(ctl.state().game.moves.map(m => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6']);
+        replayOk(ctl.state().game);
+        ctl.close();
+    });
+
+    test('tornar el control: Stockfish juga els dos bàndols des de la posició actual', async () => {
+        const openings = [{ eco: 'C60', name: 'Obertura Espanyola', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5', 'a6'] }];
+        const engine = fakeEngine();
+        const { ctl } = makeController({ engine: engine, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0 }) });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(9000);
+        while (ctl.state().game.moves.length < 3) await jest.advanceTimersByTimeAsync(500);
+        // Enrere fins al torn de les negres de la segona jugada i surt de la línia preparada.
+        while (ctl.state().game.moves.length > 3) ctl.stepBack();
+        ctl.stepBack();
+        expect(ctl.state().game.moves.map(m => m.san)).toEqual(['e4', 'e5']);
+        expect(ctl.state().control.color).toBe('w');
+        expect(ctl.userMove('d2', 'd4')).toBe(true);
+        await jest.advanceTimersByTimeAsync(C.CONTROL_REPLY_MAX_MS + 3000);
+        expect(ctl.state().game.moves.length).toBe(4);
+        expect(ctl.releaseControl()).toBe(true);
+        expect(ctl.state().control).toBeNull();
+        await jest.advanceTimersByTimeAsync(40000);
+        const g = ctl.state().game;
+        expect(g.moves.length).toBeGreaterThan(6);
+        replayOk(g);
+        // Fora de la línia preparada, cap jugada no es marca com a preparada
+        // (i el motor calcula totes les jugades dels dos bàndols).
+        expect(g.moves.slice(2).every(m => !m.prepared)).toBe(true);
+        expect(g.moves.slice(3).every(m => !m.byUser)).toBe(true);
+        const colors = new Set(engine.jobs.filter(j => j.tag.kind === 'move' && j.tag.ply >= 4).map(j => j.tag.ply % 2));
+        expect(colors).toEqual(new Set([0, 1]));
+        ctl.close();
+    });
+
+    test('agafar el control mentre el motor calcula descarta la jugada pendent', async () => {
+        const engine = fakeEngine({ ignoreCancel: true, delay: 300 });
+        const { ctl } = makeController({ engine: engine });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(4200);
+        const n = ctl.state().game.moves.length;
+        const turn = ctl.state().game.turn;
+        expect(ctl.takeControl()).toBe(true);
+        expect(ctl.takeControl()).toBe(false);
+        await jest.advanceTimersByTimeAsync(30000);
+        expect(ctl.state().game.moves.length).toBe(n);
+        expect(ctl.state().control).toEqual(expect.objectContaining({ color: turn, yourTurn: true }));
+        // La pausa no s'aplica amb el control manual.
+        ctl.pause();
+        expect(ctl.state().paused).toBe(false);
+        ctl.close();
+    });
+
+    test('final de partida: tirar enrere el reprèn i no comença cap partida sola', async () => {
+        const { ctl } = makeController({ engine: fakeEngine({ script: FOOLS }) });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(40000);
+        expect(ctl.state().game.end).toEqual(expect.objectContaining({ reason: 'checkmate' }));
+        expect(ctl.takeControl()).toBe(false);
+        expect(ctl.stepBack()).toBe(true);
+        const st = ctl.state();
+        expect(st.game.end).toBeNull();
+        expect(st.game.nextGameAt).toBeNull();
+        expect(st.control).toEqual(expect.objectContaining({ color: 'b', yourTurn: true }));
+        await jest.advanceTimersByTimeAsync(C.NEXT_GAME_DELAY_MS * 2);
+        expect(ctl.state().game.id).toBe(1);
+        // L'usuari torna a fer el mat: tampoc no comença cap partida sola.
+        expect(ctl.userMove('d8', 'h4')).toBe(true);
+        await jest.advanceTimersByTimeAsync(5000);
+        expect(ctl.state().game.end).toEqual(expect.objectContaining({ result: '0-1', reason: 'checkmate' }));
+        expect(ctl.state().game.comment).toEqual(expect.objectContaining({ kind: 'mate', byUser: true }));
+        await jest.advanceTimersByTimeAsync(C.NEXT_GAME_DELAY_MS * 2);
+        expect(ctl.state().game.id).toBe(1);
+        // En tornar el control, la partida següent arriba després de la pausa habitual.
+        ctl.releaseControl();
+        await jest.advanceTimersByTimeAsync(C.NEXT_GAME_DELAY_MS * 1.2 + 500);
+        expect(ctl.state().game.id).toBe(2);
+        expect(ctl.state().control).toBeNull();
+        ctl.close();
+    });
+
+    test('coronació triada per l\'usuari i comentaris lligats a la posició', async () => {
+        // 1.e4 d5 2.exd5 c6 3.dxc6 Nf6 4.cxb7 Nbd7 5.bxa8=C
+        const engine = fakeEngine({ script: { 1: 'd7d5', 3: 'c7c6', 5: 'g8f6', 7: 'b8d7' } });
+        const { ctl, renders } = makeController({ engine: engine });
+        await ctl.open();
+        ctl.takeControl();
+        for (const [from, to] of [['e2', 'e4'], ['e4', 'd5'], ['d5', 'c6'], ['c6', 'b7']]) {
+            expect(ctl.userMove(from, to)).toBe(true);
+            await jest.advanceTimersByTimeAsync(C.CONTROL_REPLY_MAX_MS + 3000);
+        }
+        expect(ctl.userMoves('b7').filter(m => m.to === 'a8').every(m => m.promotion)).toBe(true);
+        expect(ctl.userMove('b7', 'a8', 'n')).toBe(true);
+        const g = ctl.state().game;
+        expect(g.moves[8]).toEqual(expect.objectContaining({ san: 'bxa8=N', uci: 'b7a8n', byUser: true }));
+        replayOk(g);
+        renders.filter(s => s.game && s.game.comment && s.game.comment.kind !== 'intro').forEach((s) => {
+            expect(s.game.comment.fen).toBe(s.game.fen);
+        });
+        ctl.close();
+    });
+
+    test('pestanya oculta durant la resposta: no calcula res i en tornar respon', async () => {
+        const engine = fakeEngine();
+        const { ctl } = makeController({ engine: engine });
+        await ctl.open();
+        ctl.takeControl();
+        expect(ctl.userMove('d2', 'd4')).toBe(true);
+        ctl.setHidden(true);
+        const jobs = engine.jobs.length;
+        await jest.advanceTimersByTimeAsync(60000);
+        expect(engine.jobs.length).toBe(jobs);
+        expect(ctl.state().game.moves.length).toBe(1);
+        ctl.setHidden(false);
+        await jest.advanceTimersByTimeAsync(10000);
+        expect(ctl.state().game.moves.length).toBe(2);
+        expect(ctl.state().control.yourTurn).toBe(true);
+        ctl.close();
+    });
+
+    test('nova partida: surt del control manual', async () => {
+        const { ctl } = makeController();
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(10000);
+        ctl.stepBack();
+        expect(ctl.state().control).not.toBeNull();
+        ctl.newGame();
+        expect(ctl.state().control).toBeNull();
+        expect(ctl.state().game.id).toBe(2);
+        await jest.advanceTimersByTimeAsync(15000);
+        expect(ctl.state().game.moves.length).toBeGreaterThan(0);
+        ctl.close();
+    });
+});
+
+// ---------------------------------------------------------------------------
 // 8. Motor propi de la TV (worker simulat)
 // ---------------------------------------------------------------------------
 function makeWorkerFactory(opts) {

@@ -3259,6 +3259,35 @@
         .sftv-btn-new { background: linear-gradient(135deg, #3b82c4 0%, #23578f 100%); }
         .sftv-btn-try { background: linear-gradient(135deg, #8a5cc2 0%, #5d3b8e 100%); }
         .sftv-btn-easy { background: linear-gradient(135deg, #3f9a62 0%, #286a41 100%); }
+        .sftv-btn-undo { background: linear-gradient(135deg, #2f9aa0 0%, #1d666b 100%); }
+        .sftv-btn-control { background: linear-gradient(135deg, #e0843b 0%, #a9531c 100%); }
+        .sftv-btn-control.is-active { background: linear-gradient(135deg, #58b86f 0%, #2f7c45 100%); box-shadow: 0 0 0 2px rgba(143,209,158,0.55), 0 3px 10px rgba(0,0,0,0.28); }
+        .btn.sftv-btn[disabled] { filter: saturate(0.35); opacity: 0.6; cursor: default; }
+        /* Control manual: qui mou, peça triada i destins legals. */
+        .sftv-control-note {
+            margin: 6px auto 0; max-width: min(100%, 62vh); padding: 7px 10px; border-radius: 10px; font-size: 0.82rem; line-height: 1.35;
+            text-align: center; color: var(--text-primary); background: rgba(224,132,59,0.14); border: 1px solid rgba(224,132,59,0.55);
+        }
+        .sftv-player.is-user { border-color: rgba(224,132,59,0.75); }
+        .sftv-player.is-user.is-turn { background: rgba(224,132,59,0.18); color: var(--text-primary); }
+        #sftv-screen.is-your-turn #sftv-board .square-55d63 { cursor: pointer; }
+        body.control-drag #sftv-screen.is-your-turn #sftv-board { touch-action: none; }
+        #sftv-board .square-55d63.sftv-sel { box-shadow: inset 0 0 0 4px #e0843b; }
+        #sftv-board .square-55d63.sftv-target::before {
+            content: ''; position: absolute; left: 50%; top: 50%; width: 30%; height: 30%; transform: translate(-50%, -50%);
+            border-radius: 50%; background: rgba(224,132,59,0.75); box-shadow: 0 0 0 2px rgba(255,255,255,0.65); pointer-events: none; z-index: 3;
+        }
+        .sftv-move.is-user { color: #ffb37a; font-weight: 600; }
+        .sftv-promo {
+            position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%); z-index: 8; padding: 12px 14px; border-radius: 14px;
+            background: rgba(26, 20, 16, 0.95); border: 1px solid rgba(224,132,59,0.8); box-shadow: 0 10px 28px rgba(0,0,0,0.55); text-align: center;
+        }
+        .sftv-promo-title { font-size: 0.88rem; color: var(--text-primary); margin-bottom: 8px; }
+        .sftv-promo-row { display: flex; gap: 8px; justify-content: center; }
+        .sftv-promo-piece { width: 52px; height: 52px; padding: 4px; border-radius: 10px; cursor: pointer; background: #f0d9b5; border: 2px solid transparent; }
+        .sftv-promo-piece:hover, .sftv-promo-piece:focus-visible { border-color: #e0843b; outline: none; }
+        .sftv-promo-piece img { width: 100%; height: 100%; display: block; }
+        .sftv-promo-cancel { margin-top: 8px; }
         .sftv-btn-hard { background: linear-gradient(135deg, #d0674f 0%, #9c3f2d 100%); }
         .sftv-link-btn { font: inherit; font-size: 0.8rem; background: none; border: none; padding: 0 0 0 4px; color: #9fd0ff; cursor: pointer; text-decoration: underline; }
         /* Barra de nivell */
@@ -3313,7 +3342,10 @@
         body.device-desktop #sftv-board, body.device-desktop .sftv-player { max-width: min(100%, 68vh); }
         body.device-desktop .sftv-moves { max-height: 14em; }
         body.epaper-mode .catalans-banner.sftv-banner { background: #fff; color: #000; border-color: #000; }
-        body.epaper-mode .sftv-comment, body.epaper-mode .sftv-level-card, body.epaper-mode .sftv-result { background: #fff; border-color: #000; color: #000; }
+        body.epaper-mode .sftv-comment, body.epaper-mode .sftv-level-card, body.epaper-mode .sftv-result,
+        body.epaper-mode .sftv-control-note, body.epaper-mode .sftv-promo { background: #fff; border-color: #000; color: #000; }
+        body.epaper-mode #sftv-board .sftv-sel { box-shadow: inset 0 0 0 4px #000; }
+        body.epaper-mode #sftv-board .sftv-target::before { background: #000; }
         html.sftv-expanded, body.sftv-expanded { overflow: hidden !important; }
         body.sftv-expanded { filter: none !important; }
         #sftv-screen.is-expanded {
@@ -6100,10 +6132,12 @@
                             <div class="board-container sftv-board-wrap">
                                 <div id="sftv-board"></div>
                                 <div class="sftv-result" id="sftv-result" role="status" aria-live="polite" style="display:none;"></div>
+                                <div class="sftv-promo" id="sftv-promo" role="dialog" aria-label="Tria la peça de la coronació" style="display:none;"></div>
                             </div>
                             <div class="sftv-player" id="sftv-player-white">♔ Blanques</div>
                             <div class="sftv-last-move" id="sftv-last-move">Origen discontinu · destí blau: peça moguda</div>
                             <div class="sftv-status" id="sftv-status" aria-live="polite">Preparant el motor…</div>
+                            <div class="sftv-control-note" id="sftv-control-note" style="display:none;"></div>
                         </div>
                     </div>
                 </div>
@@ -6112,6 +6146,8 @@
                     <div class="sftv-controls">
                         <button type="button" class="btn sftv-btn sftv-btn-pause" id="sftv-pause"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg>Pausa</button>
                         <button type="button" class="btn sftv-btn sftv-btn-new" id="sftv-new"><svg class="btn-ic" aria-hidden="true"><use href="#ic-reset"/></svg>Nova partida</button>
+                        <button type="button" class="btn sftv-btn sftv-btn-undo" id="sftv-undo" title="Desfà l'última jugada i passa a moure tu aquest bàndol" disabled><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-back"/></svg>Jugada enrere</button>
+                        <button type="button" class="btn sftv-btn sftv-btn-control" id="sftv-control" aria-pressed="false" title="Mou tu el bàndol que té el torn; Stockfish jugarà l'altre" disabled><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Agafa el control</button>
                         <button type="button" class="btn sftv-btn sftv-btn-try" id="sftv-try"><svg class="btn-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>Prova aquesta posició</button>
                         <label class="sftv-speed-label" for="sftv-speed">Ritme
                             <select id="sftv-speed" class="select-control">
@@ -8381,9 +8417,9 @@
     <script src="obertures.js?v=1.0.3"></script>
     <script src="core.js?v=1.0.33"></script>
     <script src="sons.js?v=1.0.0"></script>
-    <script src="tutorial.js?v=1.0.2"></script>
+    <script src="tutorial.js?v=1.0.3"></script>
     <script src="veuneural.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=1.2.0"></script>
+    <script src="stockfishtv.js?v=1.3.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
