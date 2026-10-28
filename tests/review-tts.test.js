@@ -1,6 +1,7 @@
 const fs = require('fs');
 const vm = require('vm');
 const Neural = require('../veuneural');
+const Redactor = require('../redactor');
 const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
 const speechCode = source.slice(source.indexOf('const REVIEW_TTS_STATE ='), source.indexOf('function getCoachDiagnosisText()'));
 const CA_ES = { lang: 'ca-ES', name: 'Català Espanya', voiceURI: 'catala-es' };
@@ -22,14 +23,29 @@ function setup({ saved, presets = [], voices = [CA_AD, CA_ES], available = true,
         window: { Audio: function () {}, speechSynthesis: synth, SpeechSynthesisUtterance: Utterance,
             ElTaulerVeuNeural: neural ? { ...Neural, sharedSpeaker: () => speaker } : undefined },
         SpeechSynthesisUtterance: Utterance,
+        ElTaulerRedactor: Redactor,
         localStorage: { getItem: key => data.get(key), setItem: (key, value) => data.set(key, value) },
         setTimeout, clearTimeout, showToast: jest.fn()
     });
-    vm.runInContext(speechCode + '\nupdateReviewTtsButtons = () => {};', context);
+    const coachSpeechCode = source.slice(source.indexOf('function speakableChessText(text)'), source.indexOf('function speakCoachText(text)'));
+    vm.runInContext(speechCode + '\n' + coachSpeechCode + '\nupdateReviewTtsButtons = () => {};', context);
     return { run: code => vm.runInContext(code, context), synth, speaker };
 }
 
 describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
+    test.each([true, false])('la ressenya diu peó i peons amb Matxa disponible: %s', available => {
+        const app = setup({ available });
+        app.run("beginReviewTts('El pawn defensa dos pawns.', 'settings')");
+        const text = available ? app.speaker.speak.mock.calls[0][0] : app.synth.speak.mock.calls[0][0].text;
+        expect(text).toBe('El peó defensa dos peons.');
+    });
+
+    test('la lectura de l’entrenador també normalitza els noms', () => {
+        const app = setup();
+        expect(app.run("speakableChessText('El pawn defensa dos pawns amb Nf3.')"))
+            .toBe('El peó defensa dos peons amb cavall f 3.');
+    });
+
     test.each([undefined, '', 'default', 'perfil-esborrat'])('Elia per defecte amb preferència %s', saved => {
         const app = setup({ saved });
         expect(app.run('getEffectiveReviewTtsPreset().voiceURI')).toBe('matxa:central:elia');

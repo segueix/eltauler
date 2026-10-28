@@ -1875,7 +1875,8 @@
     }
 
     function tvSpeechText(text) {
-        let t = String(text || '');
+        const redactor = getRedactor();
+        let t = redactor ? redactor.corregirCatala(text) : String(text || '');
         // Jugades amb número («1.d4», «3...Bc5», «...Nf6») i SAN amb peça.
         t = t.replace(/(?:\b\d+\s*\.(?:\s*\.\.)?\s*|\.\.\.\s*)(O-O-O|O-O|[KQRBN]?[a-h]?[1-8]?x?[a-h][1-8](?:=[QRBN])?[+#]?)/g,
             (all, san) => spokenSan(san) || all);

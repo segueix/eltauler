@@ -79,6 +79,8 @@
     // de llengua (o una plantilla mal escrita) deixa anar sovint. Totes són
     // segures: la forma esquerra no és mai correcta en aquest context.
     const SUBSTITUCIONS_DIRECTES = [
+        [/\bpawns\b/gi, 'peons'],
+        [/\bpawn\b/gi, 'peó'],
         [/\bper a que\b/gi, 'perquè'],
         [/\btenir que\b/gi, 'haver de'],
         [/\btinc que\b/gi, 'he de'],

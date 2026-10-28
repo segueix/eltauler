@@ -460,6 +460,11 @@ describe('text parlat sense codis SAN ni símbols', () => {
         expect(TV.tvSpeechText('½-½ · Taules')).toBe('taules Taules');
     });
 
+    test('la lectura tradueix pawn i pawns també dins dels textos rebuts', () => {
+        expect(TV.tvSpeechText('Pawn a e4: captura un pawn i defensa dos pawns.'))
+            .toBe('Peó a e 4: captura un peó i defensa dos peons.');
+    });
+
     test('cap comentari generat no deixa SAN ni símbols al text parlat', () => {
         const samples = [
             candidates('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1', 'd5c7'),

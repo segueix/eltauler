@@ -34798,7 +34798,7 @@ function updateCoachSpeakButtons() {
 function speakableChessText(text) {
     if (!text) return text;
     const pieces = { K: 'rei', Q: 'dama', R: 'torre', B: 'alfil', N: 'cavall' };
-    let t = String(text);
+    let t = normalizeTextForCatalanTTS(text);
     t = t.replace(/\bO-O-O\b/g, 'enroc llarg').replace(/\bO-O\b/g, 'enroc curt');
     t = t.replace(/\b([KQRBN])([a-h]?[1-8]?)(x?)([a-h][1-8])(=[QRBN])?([+#]?)/g,
         (m, p, dis, cap, dest, promo, chk) => {

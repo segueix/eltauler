@@ -1,5 +1,12 @@
 const Redactor = require('../redactor.js');
 
+test('pawn i pawns es corregeixen en català sense tocar identificadors', () => {
+    expect(Redactor.corregirCatala('Pawn a e4: el pawn defensa dos pawns.'))
+        .toBe('Peó a e4: el peó defensa dos peons.');
+    expect(Redactor.corregirCatala('Pawns: peó, peons, pawn_endgame, spawn.'))
+        .toBe('Peons: peó, peons, pawn_endgame, spawn.');
+});
+
 // ---------------------------------------------------------------------------
 // Capa 1 — corregirCatala: esmenes normatives segures
 // ---------------------------------------------------------------------------
