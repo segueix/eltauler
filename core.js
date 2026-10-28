@@ -8446,6 +8446,8 @@
             // Un rellotge a zero és una partida acabada per bandera, no una
             // partida a mig fer.
             if (c.white <= 0 || c.black <= 0) return false;
+            if (c.awaitingFirstMove !== undefined && typeof c.awaitingFirstMove !== 'boolean') return false;
+            if (c.awaitingFirstMove === true && (snap.playerColor !== 'w' || snap.moves.length !== 0)) return false;
         }
         return true;
     }
@@ -8475,7 +8477,8 @@
         const ageMs = Math.max(0, now - snap.savedAt);
         const untimed = liveGameIsUntimed(snap);
         if (!untimed && ageMs > LIVE_GAME_MAX_AGE_MS) return null;
-        if (!untimed && snap.moves.length < 1) return null;
+        const waitingForFirstMove = snap.clock && snap.clock.awaitingFirstMove === true && snap.playerColor === 'w';
+        if (!untimed && snap.moves.length < 1 && !waitingForFirstMove) return null;
         let fen = null;
         let turn = (snap.moves.length % 2 === 0) ? 'w' : 'b';
         if (typeof ChessCtor === 'function') {

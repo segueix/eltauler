@@ -201,3 +201,18 @@ describe('liveGameAgeLabel i liveGameBannerText', () => {
         expect(Core.liveGameBannerText(null)).toBeNull();
     });
 });
+
+describe('partida amb blanques pendent de la primera jugada', () => {
+    const waiting = () => snapshot({ moves: [], timeControlId: '1+0', clock: { white: 60000, black: 60000, inc: 0, awaitingFirstMove: true } });
+    test('es pot recuperar sense activar el temps ni perdre la preferència', () => {
+        const saved = JSON.parse(JSON.stringify(waiting()));
+        expect(Core.liveGameResumeInfo(saved, T0 + MIN, Chess)).toMatchObject({ movesCount: 0, playerColor: 'w', playerToMove: true });
+        expect(saved.clock.awaitingFirstMove).toBe(true);
+    });
+    test('no es pot declarar pendent una partida que ja té jugades o que es juga amb negres', () => {
+        expect(Core.liveGameSnapshotIsValid({ ...waiting(), moves: ['e4', 'e5'] })).toBe(false);
+        expect(Core.liveGameSnapshotIsValid({ ...waiting(), playerColor: 'b' })).toBe(false);
+        const corrupt = waiting();corrupt.clock.awaitingFirstMove = 'true';
+        expect(Core.liveGameSnapshotIsValid(corrupt)).toBe(false);
+    });
+});

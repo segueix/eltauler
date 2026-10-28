@@ -2854,9 +2854,11 @@ function resizeBoardToViewport() {
     const controlsEl = gameScreen.querySelector('.controls');
 
     const isDesktopLayout = deviceType === 'desktop';
-    const used = isDesktopLayout ? 0 : (headerEl ? headerEl.getBoundingClientRect().height : 0)
+    const clockEl = document.getElementById('game-clocks');
+    const clockHeight = clockEl ? clockEl.getBoundingClientRect().height : 0;
+    const used = (clockHeight ? clockHeight + 8 : 0) + (isDesktopLayout ? 0 : (headerEl ? headerEl.getBoundingClientRect().height : 0)
         + (precisionEl ? precisionEl.getBoundingClientRect().height : 0)
-        + (controlsEl ? controlsEl.getBoundingClientRect().height : 0);
+        + (controlsEl ? controlsEl.getBoundingClientRect().height : 0));
 
     const availableW = window.innerWidth;
     const isSmall = availableW <= 520;
@@ -2880,6 +2882,7 @@ function resizeBoardToViewport() {
         boardEl.style.marginRight = 'auto';
     }
 
+    if (clockEl) clockEl.style.width = size + 'px';
     boardEl.style.width = size + 'px';
     boardEl.style.height = size + 'px';
 
@@ -27807,6 +27810,9 @@ function resumeGameClock() {
         startClockTicks();
     }
 }
+function clockCanWaitForFirstMove() {
+    return playerColor === 'w' && game.turn() === 'w' && game.history().length === 0;
+}
 function initGameClock(applies) {
     stopGameClock();
     const cfg = getTimeControlConfig();
@@ -27828,12 +27834,15 @@ function initGameClock(applies) {
         tickMs: 0,
         lastTs: 0,
         turnSpentMs: 0,
+        awaitingFirstMove: enabled && clockCanWaitForFirstMove(),
         paused: false
     };
     const wrap = document.getElementById('game-clocks');
     if (wrap) wrap.style.display = enabled ? 'flex' : 'none';
     if (!enabled) return;
     renderClock();
+    // La primera jugada legal de les blanques posa el rellotge en marxa.
+    if (gameClock.awaitingFirstMove) return;
     // Comença a córrer pel costat que té el torn. El cronòmetre és MONOTÒNIC
     // (nowMs → performance.now): un rellotge de paret (Date.now) pot recular
     // amb un ajust NTP o un canvi d'hora, i un delta negatiu regalaria temps.
@@ -27897,6 +27906,8 @@ function clockOnMove(viaPremove) {
     if (!gameClock.enabled) return;
     const justMoved = (game.turn() === 'w') ? 'b' : 'w';
     const now = nowMs();
+    const starting = gameClock.awaitingFirstMove === true;
+    gameClock.awaitingFirstMove = false;
     if (gameClock.active === justMoved) {
         // El tram entre l'últim tic i la jugada també es paga. Abans es
         // descartava en reiniciar lastTs: qualsevol jugada més ràpida que el
@@ -27936,7 +27947,8 @@ function clockOnMove(viaPremove) {
     gameClock.lastTs = Math.max(gameClock.lastTs, now);
     gameClock.turnSpentMs = 0;
     renderClock();
-    syncClockTickRate();
+    if (starting && !game.game_over()) startClockTicks();
+    else syncClockTickRate();
     clockTimingLog('turn-start', {
         active: gameClock.active,
         whiteMs: Math.round(gameClock.white), blackMs: Math.round(gameClock.black)
@@ -27952,6 +27964,8 @@ function clockOnMove(viaPremove) {
 }
 function renderClock() {
     if (!gameClock.enabled) return;
+    const wrap = document.getElementById('game-clocks');
+    if (wrap) wrap.title = gameClock.awaitingFirstMove ? 'El temps comença amb la teva primera jugada.' : '';
     const youColor = playerColor;
     const oppColor = youColor === 'w' ? 'b' : 'w';
     const youMs = youColor === 'w' ? gameClock.white : gameClock.black;
@@ -28432,6 +28446,7 @@ blunderMode = isBundle;
     // Partida represa amb rellotge: els rellotges continuen on eren.
     if (liveResume && liveResume.clock && clockApplies) restoreGameClock(liveResume.clock);
     else initGameClock(clockApplies);
+    resizeBoardToViewport(); // reserva també l’alçada del rellotge acabat de mostrar
     // Ritme de la partida que comença: decideix quin ELO val (el del ritme o el
     // principal), tant per a la força del rival com per puntuar el resultat.
     currentGameTimeControlId = gameClock.enabled ? getActiveTimeControlId() : 'none';
@@ -28825,7 +28840,8 @@ function buildLiveGameSnapshot() {
             white: Math.round(gameClock.white),
             black: Math.round(gameClock.black),
             inc: gameClock.inc,
-            lowMs: gameClock.lowMs
+            lowMs: gameClock.lowMs,
+            awaitingFirstMove: gameClock.awaitingFirstMove === true
         } : null,
         clockTemperament: currentGameClockTemperament,
         counters: {
@@ -29016,11 +29032,13 @@ function restoreGameClock(saved) {
         tickMs: 0,
         lastTs: 0,
         turnSpentMs: 0,
+        awaitingFirstMove: saved.awaitingFirstMove === true && clockCanWaitForFirstMove(),
         paused: false
     };
     const wrap = document.getElementById('game-clocks');
     if (wrap) wrap.style.display = 'flex';
     renderClock();
+    if (gameClock.awaitingFirstMove) return;
     gameClock.active = game.turn();
     gameClock.lastTs = nowMs();
     startClockTicks();

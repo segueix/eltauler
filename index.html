@@ -5258,6 +5258,9 @@
             grid-row: 3;
         }
 
+        #game-board-stage > .game-clocks { width:100%; margin:0 auto 8px; }
+        #myBoard-broadcast { grid-column:1 / -1; }
+
         /* Controls del tauler (tocar / arrossegar) */
         body.control-tap #myBoard { touch-action: manipulation; }
         body.control-drag #myBoard { touch-action: none; }
@@ -8726,15 +8729,141 @@
                         <div class="calibration-progress-fill" id="calibration-progress-fill"></div>
                     </div>
                 </div>
-                <!-- El teu rellotge, a l'esquerra: és el que es mira a cada jugada. -->
+
+            </div>
+
+            <!-- Repte «Rejugar +5%» des de l'historial: progrés de la fase que es rejuga -->
+            <div class="phase-replay-banner" id="phase-replay-banner" style="display:none;">
+                <svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>
+                <span class="prb-text" id="phase-replay-banner-text"></span>
+            </div>
+
+            <div id="error-context-banner" style="display:none;">
+                <div class="error-context-text" id="error-context-text"></div>
+                <button class="btn error-context-replay" id="btn-error-replay">👁 Reviu l'errada</button>
+            </div>
+
+            <div id="tactic-theme-banner" style="display:none;">
+                <div class="tactic-theme-text" id="tactic-theme-text"></div>
+            </div>
+
+            <!-- Joc posicional: la Norma (principi que ha de regir el moviment) -->
+            <div id="norma-banner" style="display:none;">
+                <div class="norma-text" id="norma-text"></div>
+                <div class="norma-cycle" id="norma-cycle"></div>
+            </div>
+
+            <div id="hieroglyphic-panel" class="hg-panel" style="display:none;"></div>
+            <div id="hieroglyphic-history-panel" class="hg-panel" style="display:none;"></div>
+
+            <div class="board-container" id="game-board-stage">
+                <!-- Rellotge i tauler sempre junts, també en mòbil. -->
                 <div class="game-clocks" id="game-clocks" style="display:none;">
                     <div class="clock-pill"><span class="clock-tag">Tu</span><span class="clock-time" id="clock-you">5:00</span></div>
                     <div class="clock-pill" title="Stockfish"><span class="clock-tag">SF</span><span class="clock-time" id="clock-opp">5:00</span></div>
                 </div>
-                <div id="myBoard-broadcast"></div>
+                <div id="myBoard"></div>
+                <!-- Final del repte «Rejugar +5%»: resultat sobre el tauler -->
+                <div class="bundle-success-overlay" id="phase-replay-overlay">
+                    <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
+                        <div class="bundle-success-icon" id="phase-replay-result-icon">⏳</div>
+                        <div class="bundle-success-title" id="phase-replay-result-title">Repte acabat</div>
+                        <div class="phase-replay-result-detail" id="phase-replay-result-detail"></div>
+                        <div class="bundle-success-actions">
+                            <button class="btn btn-primary" id="btn-phase-replay-retry">↻ Reintenta el repte</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-phase-replay-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-phase-replay-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-phase-replay-history"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="bundle-success-overlay" id="bundle-success-overlay">
+                    <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
+                        <div class="bundle-success-icon">✅</div>
+                        <div class="bundle-success-title">Blunder resolt</div>
+                        <div class="bundle-success-remaining">Blunders pendents</div>
+                        <div class="bundle-success-actions">
+                            <button class="btn btn-primary btn-continue-fen-game" style="display:none;">♟ Continua contra ELO màxim</button>
+                            <button class="btn btn-primary" id="btn-bundle-random-again">🎲 Un altre</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-bundle-random-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-bundle-random-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-bundle-random-section">Tornar</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="bundle-success-overlay" id="bundle-category-success-overlay">
+                    <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
+                        <div class="bundle-success-icon">✅</div>
+                        <div class="bundle-success-title">Error resolt</div>
+                        <div class="bundle-success-remaining">Queden errors d'aquesta categoria</div>
+                        <div class="bundle-success-actions">
+                            <button class="btn btn-primary btn-continue-fen-game" style="display:none;">♟ Continua contra ELO màxim</button>
+                            <button class="btn btn-primary" id="btn-bundle-category-again">➡️ Un altre d'aquesta categoria</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-bundle-category-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-bundle-category-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-bundle-category-home"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisa errors</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="bundle-success-overlay overlay-fixed" id="match-error-success-overlay">
+                    <div class="bundle-success-content">
+                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
+                        <div class="bundle-success-icon">✅</div>
+                        <div class="bundle-success-title">Error revisat</div>
+                        <div class="bundle-success-remaining" id="match-error-remaining">—</div>
+                        <div class="bundle-success-actions">
+                            <button class="btn btn-primary" id="btn-match-error-again">Un altre</button>
+                        </div>
+                        <div class="nav-trio">
+                            <button class="btn btn-nav-home" id="btn-match-error-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                            <button class="btn btn-nav-board" id="btn-match-error-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
+                            <button class="btn btn-nav-section" id="btn-match-error-home">Tornar</button>
+                        </div>
+                    </div>
+                </div>
+                <div class="blunder-alert" id="blunder-alert" title="Desfés l'error (clic)">
+                    <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
+                        <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
+                    </svg>
+                </div>
             </div>
-            
 
+            <div class="controls">
+                <div class="status-row">
+                    <div class="status-message" id="status">Preparat...</div>
+                    <div class="move-nav">
+                        <button type="button" class="move-nav-btn move-nav-btn-start" id="btn-move-start" title="Torna al FEN inicial" aria-label="Torna al FEN inicial" disabled>
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 5v14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M18 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button type="button" class="move-nav-btn" id="btn-move-back" title="Jugada anterior" aria-label="Jugada anterior" disabled>
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                        <button type="button" class="move-nav-btn" id="btn-move-fwd" title="Jugada següent" aria-label="Jugada següent" disabled>
+                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                        </button>
+                    </div>
+                </div>
+                <div class="game-buttons">
+                    <button class="btn btn-hint" id="btn-hint" title="Demanar pista">💡 Pista</button>
+                    <button class="btn btn-norma" id="btn-norma" title="Quin principi ha de regir aquest moviment" style="display:none;">📜 Norma</button>
+                    <button class="btn btn-undo" id="btn-undo-move" title="Tira enrere la darrera jugada i prova'n una altra" style="display:none;">⟲ Enrere</button>
+                    <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb OpenAI" style="display:none;">
+                        <img src="brain.svg" alt="Cervell">
+                        <span>Màxima</span>
+                    </button>
+                    <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
+                    <button class="btn btn-nav-home" id="btn-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                </div>
+            </div>
             <div class="precision-panel" id="game-precision-panel">
                 <div class="precision-stat" id="precision-global-stat">
                     <div class="precision-label">Precisió</div>
@@ -8774,133 +8903,6 @@
                 </div>
             </div>
 
-            <!-- Repte «Rejugar +5%» des de l'historial: progrés de la fase que es rejuga -->
-            <div class="phase-replay-banner" id="phase-replay-banner" style="display:none;">
-                <svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>
-                <span class="prb-text" id="phase-replay-banner-text"></span>
-            </div>
-
-            <div id="error-context-banner" style="display:none;">
-                <div class="error-context-text" id="error-context-text"></div>
-                <button class="btn error-context-replay" id="btn-error-replay">👁 Reviu l'errada</button>
-            </div>
-
-            <div id="tactic-theme-banner" style="display:none;">
-                <div class="tactic-theme-text" id="tactic-theme-text"></div>
-            </div>
-
-            <!-- Joc posicional: la Norma (principi que ha de regir el moviment) -->
-            <div id="norma-banner" style="display:none;">
-                <div class="norma-text" id="norma-text"></div>
-                <div class="norma-cycle" id="norma-cycle"></div>
-            </div>
-
-            <div id="hieroglyphic-panel" class="hg-panel" style="display:none;"></div>
-            <div id="hieroglyphic-history-panel" class="hg-panel" style="display:none;"></div>
-
-            <div class="board-container">
-                <div id="myBoard"></div>
-                <!-- Final del repte «Rejugar +5%»: resultat sobre el tauler -->
-                <div class="bundle-success-overlay" id="phase-replay-overlay">
-                    <div class="bundle-success-content">
-                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
-                        <div class="bundle-success-icon" id="phase-replay-result-icon">⏳</div>
-                        <div class="bundle-success-title" id="phase-replay-result-title">Repte acabat</div>
-                        <div class="phase-replay-result-detail" id="phase-replay-result-detail"></div>
-                        <div class="bundle-success-actions">
-                            <button class="btn btn-primary" id="btn-phase-replay-retry">↻ Reintenta el repte</button>
-                        </div>
-                        <div class="nav-trio">
-                            <button class="btn btn-nav-home" id="btn-phase-replay-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
-                            <button class="btn btn-nav-board" id="btn-phase-replay-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
-                            <button class="btn btn-nav-section" id="btn-phase-replay-history"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="bundle-success-overlay" id="bundle-success-overlay">
-                    <div class="bundle-success-content">
-                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
-                        <div class="bundle-success-icon">✅</div>
-                        <div class="bundle-success-title">Blunder resolt</div>
-                        <div class="bundle-success-remaining">Blunders pendents</div>
-                        <div class="bundle-success-actions">
-                            <button class="btn btn-primary btn-continue-fen-game" style="display:none;">♟ Continua contra ELO màxim</button>
-                            <button class="btn btn-primary" id="btn-bundle-random-again">🎲 Un altre</button>
-                        </div>
-                        <div class="nav-trio">
-                            <button class="btn btn-nav-home" id="btn-bundle-random-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
-                            <button class="btn btn-nav-board" id="btn-bundle-random-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
-                            <button class="btn btn-nav-section" id="btn-bundle-random-section">Tornar</button>
-                        </div>
-                    </div>
-                </div> 
-                <div class="bundle-success-overlay" id="bundle-category-success-overlay">
-                    <div class="bundle-success-content">
-                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
-                        <div class="bundle-success-icon">✅</div>
-                        <div class="bundle-success-title">Error resolt</div>
-                        <div class="bundle-success-remaining">Queden errors d'aquesta categoria</div>
-                        <div class="bundle-success-actions">
-                            <button class="btn btn-primary btn-continue-fen-game" style="display:none;">♟ Continua contra ELO màxim</button>
-                            <button class="btn btn-primary" id="btn-bundle-category-again">➡️ Un altre d'aquesta categoria</button>
-                        </div>
-                        <div class="nav-trio">
-                            <button class="btn btn-nav-home" id="btn-bundle-category-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
-                            <button class="btn btn-nav-board" id="btn-bundle-category-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
-                            <button class="btn btn-nav-section" id="btn-bundle-category-home"><svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>Revisa errors</button>
-                        </div>
-                    </div>
-                </div>           
-                <div class="bundle-success-overlay overlay-fixed" id="match-error-success-overlay">
-                    <div class="bundle-success-content">
-                        <button class="overlay-close-x" aria-label="Tancar" title="Tancar i veure el tauler">✕</button>
-                        <div class="bundle-success-icon">✅</div>
-                        <div class="bundle-success-title">Error revisat</div>
-                        <div class="bundle-success-remaining" id="match-error-remaining">—</div>
-                        <div class="bundle-success-actions">
-                            <button class="btn btn-primary" id="btn-match-error-again">Un altre</button>
-                        </div>
-                        <div class="nav-trio">
-                            <button class="btn btn-nav-home" id="btn-match-error-menu" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
-                            <button class="btn btn-nav-board" id="btn-match-error-board" title="Tanca la finestra i mira la posició final"><svg class="btn-ic" aria-hidden="true"><use href="#ic-board"/></svg>Veure tauler</button>
-                            <button class="btn btn-nav-section" id="btn-match-error-home">Tornar</button>
-                        </div>
-                    </div>
-                </div>
-                <div class="blunder-alert" id="blunder-alert" title="Desfés l'error (clic)">
-                    <svg width="26" height="26" viewBox="0 0 24 24" fill="white">
-                        <path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/>
-                    </svg>
-                </div>
-            </div>
-            
-            <div class="controls">
-                <div class="status-row">
-                    <div class="status-message" id="status">Preparat...</div>
-                    <div class="move-nav">
-                        <button type="button" class="move-nav-btn move-nav-btn-start" id="btn-move-start" title="Torna al FEN inicial" aria-label="Torna al FEN inicial" disabled>
-                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M6 5v14" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"/><path d="M18 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <button type="button" class="move-nav-btn" id="btn-move-back" title="Jugada anterior" aria-label="Jugada anterior" disabled>
-                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M15 5l-7 7 7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                        <button type="button" class="move-nav-btn" id="btn-move-fwd" title="Jugada següent" aria-label="Jugada següent" disabled>
-                            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path d="M9 5l7 7-7 7" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                        </button>
-                    </div>
-                </div>
-                <div class="game-buttons">
-                    <button class="btn btn-hint" id="btn-hint" title="Demanar pista">💡 Pista</button>
-                    <button class="btn btn-norma" id="btn-norma" title="Quin principi ha de regir aquest moviment" style="display:none;">📜 Norma</button>
-                    <button class="btn btn-undo" id="btn-undo-move" title="Tira enrere la darrera jugada i prova'n una altra" style="display:none;">⟲ Enrere</button>
-                    <button class="btn btn-brain-hint" id="btn-brain-hint" title="Màxima amb OpenAI" style="display:none;">
-                        <img src="brain.svg" alt="Cervell">
-                        <span>Màxima</span>
-                    </button>
-                    <button class="btn btn-primary" id="btn-resign">Rendir-se</button>
-                    <button class="btn btn-nav-home" id="btn-back" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
-                </div>
-            </div>
             <div class="positional-note positional-note-game" id="positional-note-game" style="display:none;">
                 <strong>🔭 Joc vista:</strong> practica el joc «en present». Tria les
                 <strong>jugades vista</strong> perquè l'enginy calculi només aquest horitzó; quan
@@ -8909,9 +8911,11 @@
                 puguis provar una de millor. La <strong>Norma</strong> resumeix el principi que cal aplicar.
             </div>
 
+            <div id="myBoard-broadcast"></div>
+
         </div>
 
-        <!-- Pantalla d'una partida diària (24 h per jugada). Tauler i controls
+<!-- Pantalla d'una partida diària (24 h per jugada). Tauler i controls
              PROPIS, separats del #game-screen: aquí no hi ha rellotge en viu ni
              resposta immediata del motor (respon al cap de 3 hores, encara que
              l'app estigui tancada), així que cap peça del flux de partida en
@@ -9055,7 +9059,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.35"></script>
+    <script src="core.js?v=1.0.36"></script>
     <script src="hieroclosure.js?v=1.0.0"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.4"></script>
@@ -9075,7 +9079,7 @@
     <script src="gamebroadcast.js?v=1.0.0"></script>
     <script src="historytv.js?v=1.0.0"></script>
     <script src="boardexperience.js?v=1.0.0"></script>
-    <script src="app.js?v=1.0.110"></script>
+    <script src="app.js?v=1.0.111"></script>
 
     <!-- Service Worker Registration -->
     <script>
