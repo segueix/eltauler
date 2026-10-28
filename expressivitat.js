@@ -100,7 +100,6 @@
         const Side = colorName(m.color, true);
         const piece = nomPeca(m.piece, m.color, false, false);
         const Piece = nomPeca(m.piece, m.color, true, true);
-        const victim = nomPeca(m.captured, m.color, false, false);
         const registre = perfil(c.tier, c.registre);
         if (!cand || !Array.isArray(cand.variants) || !side || !piece || !to || !from) return [];
         const kind = cand.kind;
@@ -113,7 +112,7 @@
                 'Ara ' + piece + ' ocupa la casella ' + to + '.'
             ];
             didactic = [Side + ' mouen ' + piece + ' de ' + from + ' a ' + to + '.'];
-            analitic = ['Moviment de ' + piece + ': de ' + from + ' a ' + to + '.'];
+            analitic = ['Moviment de ' + (PECES[m.piece] && PECES[m.piece].nom) + ': de ' + from + ' a ' + to + '.'];
         } else if (kind === 'capture' && m.captured) {
             base = [
                 Side + ' capturen una peça rival a ' + to + '.',
@@ -127,11 +126,11 @@
                 Piece + ' abandona la casella inicial i entra en acció.'
             ];
             didactic = ['Amb ' + piece + ' a ' + to + ', ' + side + ' desenvolupen una peça més.'];
-            analitic = ['Desenvolupament de ' + piece + ' cap a ' + to + '.'];
+            analitic = ['Desenvolupament: ' + piece + ' cap a ' + to + '.'];
         } else if (kind === 'activation') {
-            base = [Piece + ' entra ara en joc.', 'Un altre moviment d’activació: ' + piece + ' a ' + to + '.'];
+            base = [Piece + ' entra ara en joc.', 'Moviment d’activació: ' + piece + ' a ' + to + '.'];
         } else if (kind === 'center') {
-            base = ['El centre torna a ser protagonista amb ' + piece + ' a ' + to + '.'];
+            base = ['El centre és protagonista amb ' + piece + ' a ' + to + '.'];
             didactic = ['Aquest moviment de ' + piece + ' està relacionat amb la lluita pel centre.'];
             analitic = ['La disputa central continua després de ' + piece + ' a ' + to + '.'];
         } else if (kind === 'check' && /[+#]/.test(m.san || '')) {
@@ -171,10 +170,10 @@
         } else if (kind === 'promotion' && m.promotion) {
             const promoted = PECES[m.promotion];
             if (!promoted) return [];
-            base = ['Coronació a ' + to + ': el peó es transforma en ' + promoted.nom + '.'];
+            base = ['Coronació a ' + to + ': el peó es transforma en ' + (promoted.genere === 'f' ? 'una ' : 'un ') + promoted.nom + '.'];
             didactic = ['El peó arriba a l’última fila i corona a ' + to + '.'];
         } else if (kind === 'castle' && (m.flags || '').match(/[kq]/)) {
-            base = [Side + ' posen el rei més a resguard amb l’enroc.',
+            base = [Side + ' enroquen i desplacen el rei cap a un dels flancs.',
                 'Enroc de ' + side + ': el rei i una torre canvien de posició.'];
         } else if (kind === 'mate' && /#$/.test(m.san || '')) {
             base = ['Escac i mat! El rei rival no té cap resposta legal.',
