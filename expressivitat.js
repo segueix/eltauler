@@ -99,6 +99,7 @@
         const to = casella(m.to), from = casella(m.from), side = colorName(m.color, false);
         const Side = colorName(m.color, true);
         const piece = nomPeca(m.piece, m.color, false, false);
+        const dePiece = piece && piece.indexOf('el ') === 0 ? 'del ' + piece.slice(3) : 'de ' + piece;
         const Piece = nomPeca(m.piece, m.color, true, true);
         const registre = perfil(c.tier, c.registre);
         if (!cand || !Array.isArray(cand.variants) || !side || !piece || !to || !from) return [];
@@ -119,7 +120,7 @@
                 Piece + ' fa una captura a ' + to + '.'
             ];
             didactic = [Side + ' retiren una peça del rival amb la captura a ' + to + '.'];
-            analitic = ['Captura de ' + piece + ' a ' + to + '.'];
+            analitic = ['Captura ' + dePiece + ' a ' + to + '.'];
         } else if (kind === 'development' && (m.piece === 'n' || m.piece === 'b')) {
             base = [
                 Side + ' incorporen ' + piece + ' al joc.',
@@ -131,15 +132,15 @@
             base = [Piece + ' entra ara en joc.', 'Moviment d’activació: ' + piece + ' a ' + to + '.'];
         } else if (kind === 'center') {
             base = ['El centre és protagonista amb ' + piece + ' a ' + to + '.'];
-            didactic = ['Aquest moviment de ' + piece + ' està relacionat amb la lluita pel centre.'];
-            analitic = ['La disputa central continua després de ' + piece + ' a ' + to + '.'];
+            didactic = ['Aquest moviment ' + dePiece + ' està relacionat amb la lluita pel centre.'];
+            analitic = ['La disputa central continua després ' + dePiece + ' a ' + to + '.'];
         } else if (kind === 'check' && /[+#]/.test(m.san || '')) {
             base = [
                 Piece + ' dona escac des de ' + to + '.',
                 Side + ' fan escac amb ' + piece + '.'
             ];
             didactic = ['Hi ha escac: el rei rival ha de respondre a aquesta amenaça.'];
-            analitic = ['Escac de ' + piece + ' a ' + to + '.'];
+            analitic = ['Escac ' + dePiece + ' a ' + to + '.'];
         } else if (kind === 'double-check' && /[+#]/.test(m.san || '')) {
             base = ['Escac doble: dues peces amenacen el rei rival al mateix temps.',
                 'El rei rival rep dos escacs simultanis.'];
@@ -148,7 +149,7 @@
                 'Forquilla amb escac: el rei rival és un dels objectius.'];
         } else if (kind === 'fork') {
             base = ['Una forquilla obliga a vigilar dos objectius alhora.',
-                'Atac doble de ' + piece + ' des de ' + to + '.'];
+                'Atac doble ' + dePiece + ' des de ' + to + '.'];
             didactic = ['La jugada crea una forquilla: una mateixa peça amenaça dos objectius.'];
         } else if (kind === 'pin') {
             base = ['La clavada condiciona els moviments d’una peça rival.',
@@ -166,7 +167,7 @@
                 'La captura deixa una altra peça rival amb menys protecció.'];
         } else if (kind === 'recapture' && m.captured) {
             base = [Side + ' responen a la captura amb una recaptura a ' + to + '.',
-                'Recaptura immediata de ' + piece + ' a ' + to + '.'];
+                'Recaptura immediata ' + dePiece + ' a ' + to + '.'];
         } else if (kind === 'promotion' && m.promotion) {
             const promoted = PECES[m.promotion];
             if (!promoted) return [];
