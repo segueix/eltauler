@@ -773,6 +773,54 @@ describe('bucle de Stockfish TV', () => {
     beforeEach(() => jest.useFakeTimers());
     afterEach(() => jest.useRealTimers());
 
+    test.each(['slow', 'calm', 'quick'])('marca la peça durant 1500 ms abans de moure-la, amb ritme %s', async speed => {
+        const { ctl, renders } = makeController({ engine: fakeEngine({ script: FOOLS }), loadPrefs: () => ({ speed }) });
+        await ctl.open();
+        const fen = ctl.state().game.fen;
+        await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS - 1);
+        expect(ctl.state().movePreview).toBeNull();
+        await jest.advanceTimersByTimeAsync(1);
+        expect(ctl.state().movePreview).toEqual({ from: 'f2', piece: 'p', color: 'w' });
+        expect(ctl.state().game.fen).toBe(fen);
+        await jest.advanceTimersByTimeAsync(1499);
+        expect(ctl.state().game.moves).toHaveLength(0);
+        expect(ctl.state().movePreview.from).toBe('f2');
+        await jest.advanceTimersByTimeAsync(1);
+        expect(ctl.state().movePreview).toBeNull();
+        expect(ctl.state().game.moves.map(m => m.uci)).toEqual(['f2f3']);
+        expect(renders.some(s => s.movePreview && s.game.fen === fen)).toBe(true);
+        ctl.close();
+    });
+
+    test.each(['pause', 'hide', 'close', 'newGame', 'takeControl'])('cancel·la el marcatge i la jugada pendent en fer %s', async action => {
+        const { ctl } = makeController({ engine: fakeEngine({ script: FOOLS, ignoreCancel: true }) });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS + 500);
+        expect(ctl.state().movePreview.from).toBe('f2');
+        if (action === 'hide') ctl.setHidden(true); else ctl[action]();
+        expect(ctl.state().movePreview).toBeNull();
+        await jest.advanceTimersByTimeAsync(1500);
+        expect(ctl.state().game.moves).toHaveLength(0);
+        expect(ctl.state().movePreview).toBeNull();
+        ctl.close();
+    });
+
+    test('reprendre després del marcatge torna a mostrar 1500 ms complets, sense duplicar la jugada', async () => {
+        const { ctl } = makeController({ engine: fakeEngine({ script: FOOLS }) });
+        await ctl.open();
+        await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS + 1000);
+        ctl.pause();
+        await jest.advanceTimersByTimeAsync(5000);
+        ctl.resume();
+        await jest.advanceTimersByTimeAsync(C.RESUME_DELAY_MS);
+        expect(ctl.state().movePreview.from).toBe('f2');
+        await jest.advanceTimersByTimeAsync(1499);
+        expect(ctl.state().game.moves).toHaveLength(0);
+        await jest.advanceTimersByTimeAsync(1);
+        expect(ctl.state().game.moves.map(m => m.uci)).toEqual(['f2f3']);
+        ctl.close();
+    });
+
     test('cada partida té el nivell FIXAT; els ajustos s\'apliquen a la següent', async () => {
         const engine = fakeEngine({ script: FOOLS });
         const { ctl, results, viewerInput } = makeController({ engine: engine });
@@ -889,7 +937,7 @@ describe('bucle de Stockfish TV', () => {
         const st = ctl.state();
         expect(st.game.opening).toEqual(expect.objectContaining({ name: 'Obertura Espanyola (Ruy López)', plies: 5 }));
         expect(st.game.comment.text).toBe('Obertura de partida: Obertura Espanyola (Ruy López). Pressiona el cavall.');
-        await jest.advanceTimersByTimeAsync(30000);
+        await jest.advanceTimersByTimeAsync(30000 + 5 * C.MOVE_PREVIEW_MS);
         const g = ctl.state().game;
         expect(g.moves.slice(0, 5).map(m => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bb5']);
         expect(g.moves.slice(0, 5).every(m => m.prepared)).toBe(true);
@@ -913,6 +961,9 @@ describe('bucle de Stockfish TV', () => {
         expect(ctl.state().game.moves.length).toBe(0);
         synth.finish();
         await jest.advanceTimersByTimeAsync(C.POST_SPEECH_PAUSE_MS + 50);
+        expect(ctl.state().game.moves.length).toBe(0);
+        expect(ctl.state().movePreview).toEqual({ from: 'e2', piece: 'p', color: 'w' });
+        await jest.advanceTimersByTimeAsync(C.MOVE_PREVIEW_MS);
         expect(ctl.state().game.moves.length).toBe(1);
         // Apagar la veu: silenci immediat, i la partida continua.
         voice.setOn(false);

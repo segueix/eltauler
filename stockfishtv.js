@@ -78,6 +78,9 @@
             quick: { label: 'Àgil', min: 2500, max: 4000 }
         },
         DEFAULT_SPEED: 'calm',
+        // Mostra la peça que mourà abans de modificar la posició visible.
+        MOVE_PREVIEW_MS: 1500,
+        MOVE_ANIMATION_MS: 750,
         // Espectadors per sota del mínim del motor: ritme més lent.
         BASIC_PACE_FACTOR: 1.3,
         // Jugades preparades de l'obertura: més àgils (ja són teoria).
@@ -2439,6 +2442,7 @@
             timers: new Set(),
             nextRevealAt: 0,
             speech: null,
+            movePreview: null,
             error: null,
             loopRunning: false,
             // Control manual: { color } del bàndol que mou l'usuari (l'altre el
@@ -2476,6 +2480,7 @@
             if (d.voice) d.voice.stop();
             S.speech = null;
             S.pendingUser = false;
+            S.movePreview = null;
         }
 
         function userTurn(g) { return !!(S.control && g && !g.end && g.chess.turn() === S.control.color); }
@@ -2492,6 +2497,7 @@
                 caps: S.caps,
                 viewer: v,
                 speed: prefs.speed,
+                movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
                 nextLevel: next.value,
                 control: S.control && g ? {
                     color: S.control.color,
@@ -2681,6 +2687,12 @@
                 }
                 // La posició visible ha de ser exactament la del càlcul.
                 if (g.chess.fen() !== fenBefore) return;
+                const piece = g.chess.get(uci.slice(0, 2));
+                S.movePreview = { from: uci.slice(0, 2), piece: piece.type, color: piece.color };
+                render();
+                if (!(await sleep(TV_CONFIG.MOVE_PREVIEW_MS, epoch))) return;
+                if (!alive(epoch) || S.game !== g || g.chess.fen() !== fenBefore) return;
+                S.movePreview = null;
                 reveal(g, uci, prepared, plan, epoch);
             }
             if (alive(epoch) && S.game === g && g.end && !S.control) scheduleNextGame(g, epoch);
@@ -2994,6 +3006,7 @@
     // Control manual: peça triada (tocar-tocar), destins legals i jugada
     // arrossegada pendent del final de l'animació.
     let selectedSquare = null;
+    let previewHighlight = null;
     let selectedTargets = [];
     let pendingDrop = null;
     let promoPending = null;
@@ -3027,7 +3040,7 @@
         // l'usuari. Amb el mode «Tocar» de l'app no s'arrossega (tocar-tocar).
         const tapOnly = !!(document.body && document.body.classList.contains('control-tap'));
         board = root.Chessboard('sftv-board', {
-            position: 'start', draggable: !tapOnly, pieceTheme: PIECE_THEME, moveSpeed: 450,
+            position: 'start', draggable: !tapOnly, pieceTheme: PIECE_THEME, moveSpeed: TV_CONFIG.MOVE_ANIMATION_MS,
             onMoveEnd: applyHighlight,
             onDragStart: onBoardDragStart,
             onDrop: onBoardDrop,
@@ -3060,8 +3073,9 @@
         // han de reiniciar el pols de la peça ni esborrar el destí després d'animar.
         el.querySelectorAll('[data-square]').forEach((sq) => {
             const name = sq.getAttribute('data-square');
-            sq.classList.toggle('sftv-from', !!lastHighlight && name === lastHighlight.from);
-            sq.classList.toggle('sftv-to', !!lastHighlight && name === lastHighlight.to);
+            sq.classList.toggle('sftv-from', !previewHighlight && !!lastHighlight && name === lastHighlight.from);
+            sq.classList.toggle('sftv-to', !previewHighlight && !!lastHighlight && name === lastHighlight.to);
+            sq.classList.toggle('sftv-preview', name === previewHighlight);
             sq.classList.toggle('sftv-sel', name === selectedSquare);
             sq.classList.toggle('sftv-target', selectedTargets.indexOf(name) !== -1);
         });
@@ -3567,6 +3581,7 @@
                 hidePromo();
             }
             if (board && g && !pendingDrop) {
+                previewHighlight = state.movePreview ? state.movePreview.from : null;
                 const pos = g.fen.split(' ')[0];
                 if (board.fen() !== pos) board.position(pos, true);
                 lastHighlight = g.lastMove ? { from: g.lastMove.from, to: g.lastMove.to } : null;
@@ -3583,8 +3598,10 @@
             if (caption) {
                 const last = g && g.lastMove;
                 const mv = last && last.verbose;
-                caption.textContent = last ? (last.byUser ? 'La teva jugada · ' : '') + (mv ? capFirst(pieceNP(mv.promotion || mv.piece, mv.color)) + ': ' : '')
-                    + last.from + ' → ' + last.to : 'Origen discontinu · destí blau: peça moguda';
+                const preview = state.movePreview;
+                caption.textContent = preview ? 'Es mourà: ' + pieceNP(preview.piece, preview.color) + ' de ' + preview.from
+                    : (last ? (last.byUser ? 'La teva jugada · ' : '') + (mv ? capFirst(pieceNP(mv.promotion || mv.piece, mv.color)) + ': ' : '')
+                    + last.from + ' → ' + last.to : 'La peça es marca durant 1,5 segons abans de moure’s');
             }
             if (expanded) resizeBoard();
         }
