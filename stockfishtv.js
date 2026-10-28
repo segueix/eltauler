@@ -2181,6 +2181,7 @@
                 u.voice = voice;
                 u.lang = voice.lang || 'ca-ES';
                 u.rate = isNum(o.rate) ? o.rate : 1;
+                u.volume = isNum(o.volume) ? clamp(o.volume, 0, 1) : 1;
                 u.onend = () => { blocked = false; finish(entry, true, 'end'); };
                 u.onerror = (ev) => {
                     const reason = (ev && ev.error) || 'error';

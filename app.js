@@ -2254,6 +2254,8 @@ function resumeReviewTtsIfPaused() {
 function beginReviewTts(rawText, source, presetOverride = null) {
     const text = normalizeTextForCatalanTTS(rawText);
     if (!text) { showToast('No hi ha text per llegir.', 'warn'); return; }
+    if (typeof stopGameNarration === 'function') stopGameNarration();
+    if (typeof historyReplay !== 'undefined' && historyReplay && historyReplay.isPlaying) stopHistoryPlayback();
     stopReviewTts();
     REVIEW_TTS_STATE.stopRequested = false;
     REVIEW_TTS_STATE.neuralFailed = false;
@@ -2263,6 +2265,131 @@ function beginReviewTts(rawText, source, presetOverride = null) {
     REVIEW_TTS_STATE.chunks = splitReviewTtsText(text);
     REVIEW_TTS_STATE.chunkIndex = 0;
     speakReviewTtsChunk();
+}
+
+/* ===================== RETRANSMISSIÓ DE PARTIDES ===================== */
+const GAME_NARRATION = { voice: null, narrator: null, scope: null, fen: null, initialized: false };
+function narrationPrefs(scope) {
+    if (!window.ElTaulerGameBroadcast || !window.ElTaulerStockfishTV) return { enabled: false, volume: 0.8, frequency: 'all' };
+    let raw = null;
+    try { raw = JSON.parse(localStorage.getItem('eltauler_narration_' + scope)); } catch (e) {}
+    return window.ElTaulerGameBroadcast.preferences(raw);
+}
+function trainingNarrationAllowed() {
+    return window.ElTaulerGameBroadcast && window.ElTaulerGameBroadcast.trainingAllowed({
+        mode: currentGameMode, exercise: blunderMode, calibration: isCalibrationGame,
+        timedCalibration: !!timedCalibrationTcId
+    });
+}
+function stopGameNarration(scope) {
+    if (scope && GAME_NARRATION.scope !== scope) return;
+    if (GAME_NARRATION.narrator) GAME_NARRATION.narrator.stop();
+    if (GAME_NARRATION.scope) $('#' + GAME_NARRATION.scope + '-narration-caption').text('');
+    GAME_NARRATION.scope = null;
+    GAME_NARRATION.fen = null;
+}
+function ensureGameNarrator(scope) {
+    if (!GAME_NARRATION.voice) {
+        const TV = window.ElTaulerStockfishTV;
+        GAME_NARRATION.voice = TV.createTvVoice({
+            speechSynthesis: window.speechSynthesis, SpeechSynthesisUtterance: window.SpeechSynthesisUtterance,
+            neural: window.ElTaulerVeuNeural ? window.ElTaulerVeuNeural.sharedSpeaker() : null,
+            getNeuralVoiceId: () => { const v = defaultNeuralTtsVoice(); return v ? v.id : null; },
+            getNeuralRate: () => { const v = defaultNeuralTtsVoice(); return v ? v.rate : 1; },
+            getNeuralEffects: () => {
+                const v = defaultNeuralTtsVoice(), effects = Object.assign({}, v && v.effects);
+                effects.volume = (typeof effects.volume === 'number' ? effects.volume : 1) * narrationPrefs(GAME_NARRATION.scope || scope).volume;
+                return effects;
+            },
+            loadPref: () => 'on'
+        });
+        GAME_NARRATION.narrator = window.ElTaulerGameBroadcast.createNarrator(GAME_NARRATION.voice);
+    }
+    return GAME_NARRATION.narrator;
+}
+function renderGameNarrationControls() {
+    if (!window.ElTaulerGameBroadcast) return;
+    const allowed = trainingNarrationAllowed();
+    $('#training-narration-controls').prop('hidden', !allowed);
+    if (GAME_NARRATION.scope === 'training' && (!allowed || !game || GAME_NARRATION.fen !== game.fen() || isViewingGameHistory())) stopGameNarration('training');
+    ['history', 'training'].forEach(scope => {
+        const p = narrationPrefs(scope);
+        $('#' + scope + '-narration-toggle').attr('aria-pressed', String(p.enabled)).text(p.enabled ? 'Desactiva la veu' : 'Activa la veu');
+        $('#' + scope + '-narration-volume').val(Math.round(p.volume * 100));
+        $('#' + scope + '-narration-volume-value').text(Math.round(p.volume * 100) + '%');
+        $('#' + scope + '-narration-frequency').val(p.frequency);
+    });
+}
+async function narrateGameMove(scope, chess, move, fenBefore, reviews) {
+    stopGameNarration();
+    const p = narrationPrefs(scope);
+    if (!p.enabled || p.volume === 0 || document.hidden) return;
+    if (scope === 'training' && (!trainingNarrationAllowed() || isViewingGameHistory() || !$('#game-screen').hasClass('active'))) return;
+    if (scope === 'history' && getCurrentScreen() !== 'history-screen') return;
+    const comment = window.ElTaulerGameBroadcast.comment(Chess, window.ElTaulerStockfishTV, {
+        scope, chess, move: { from: move.from, to: move.to, promotion: move.promotion || 'q' },
+        fenBefore, fenAfter: chess.fen(), ply: chess.history().length - 1, reviews,
+        playerColor: scope === 'training' ? playerColor : null
+    });
+    if (!comment || (p.frequency === 'key' && !comment.important)) return;
+    stopReviewTts();
+    const narrator = ensureGameNarrator(scope);
+    GAME_NARRATION.scope = scope;
+    GAME_NARRATION.fen = chess.fen();
+    $('#' + scope + '-narration-caption').text(comment.text);
+    const result = await narrator.speak(comment.speech, { volume: p.volume });
+    if (GAME_NARRATION.scope === scope && GAME_NARRATION.fen === chess.fen() && result && !result.spoken && result.reason !== 'stopped') {
+        const blocked = GAME_NARRATION.voice.status() === 'blocked';
+        $('#' + scope + '-narration-caption').text(comment.text + (blocked ? ' · Toca «Activa la veu» per permetre l’àudio.' : ' · Àudio no disponible en aquest moment.'));
+        if (blocked) $('#' + scope + '-narration-toggle').text('Activa la veu');
+    }
+}
+function narrateTrainingMove(chess, move) {
+    if (!window.ElTaulerGameBroadcast || !trainingNarrationAllowed()) return;
+    stopGameNarration('training');
+    if (!narrationPrefs('training').enabled) return;
+    try {
+        const before = new Chess();
+        if (!before.load_pgn(chess.pgn(), { sloppy: true }) || !before.undo()) return;
+        void narrateGameMove('training', chess, move, before.fen()).catch(() => {});
+    } catch (e) { /* La retransmissió no pot interrompre la partida. */ }
+}
+function initGameNarration() {
+    if (GAME_NARRATION.initialized || !window.ElTaulerGameBroadcast || !window.ElTaulerStockfishTV) return;
+    GAME_NARRATION.initialized = true;
+    ['history', 'training'].forEach(scope => {
+        const save = changes => {
+            const p = Object.assign(narrationPrefs(scope), changes);
+            try { localStorage.setItem('eltauler_narration_' + scope, JSON.stringify(p)); } catch (e) {}
+            // Els ajustos no deixen viva una locució amb el volum anterior.
+            stopGameNarration(scope);
+            renderGameNarrationControls();
+            return p;
+        };
+        $('#' + scope + '-narration-toggle').on('click', () => {
+            const blocked = GAME_NARRATION.voice && GAME_NARRATION.voice.status() === 'blocked';
+            const p = save({ enabled: blocked || !narrationPrefs(scope).enabled });
+            if (p.enabled) { stopReviewTts(); ensureGameNarrator(scope); GAME_NARRATION.voice.setOn(true); }
+            $('#' + scope + '-narration-caption').text(p.enabled ? 'La veu comentarà les pròximes jugades.' : 'Retransmissió desactivada.');
+        });
+        $('#' + scope + '-narration-volume').on('input', ev => save({ volume: Number(ev.target.value) / 100 }));
+        $('#' + scope + '-narration-frequency').on('change', ev => save({ frequency: ev.target.value }));
+    });
+    const checkScreen = () => {
+        const current = getCurrentScreen();
+        if (GAME_NARRATION.scope === 'training' && current !== 'game-screen') stopGameNarration('training');
+        if (current !== 'history-screen' && historyReplay && historyReplay.isPlaying) stopHistoryPlayback();
+        if (GAME_NARRATION.scope === 'history' && current !== 'history-screen') stopGameNarration('history');
+    };
+    const observer = new MutationObserver(checkScreen);
+    ['game-screen', 'history-screen'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) observer.observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
+    });
+    const suspend = () => { stopGameNarration(); stopHistoryPlayback(); };
+    document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); });
+    window.addEventListener('pagehide', suspend);
+    renderGameNarrationControls();
 }
 
 function getCoachDiagnosisText() {
@@ -11184,8 +11311,10 @@ function randomizeTvElo() {
 }
 
 function stopHistoryPlayback() {
+    if (typeof stopGameNarration === 'function') stopGameNarration('history');
+    if (historyReplay) historyReplay.playToken = (historyReplay.playToken || 0) + 1;
     if (historyReplay && historyReplay.timer) {
-        clearInterval(historyReplay.timer);
+        clearTimeout(historyReplay.timer);
         historyReplay.timer = null;
     }
     if (historyReplay) historyReplay.isPlaying = false;
@@ -12526,6 +12655,7 @@ function repairEntryMoveReviewFens(entry, movesArg) {
 
 function loadHistoryEntry(entry) {
     if (!entry) return;
+    $('#history-narration-caption').text('');
     stopHistoryPlayback();
     activeReviewHighlight = null; // nova partida: cap moment clau actiu encara
     // La veu temporal és de cada ressenya oberta: en obrir-ne una altra,
@@ -15801,17 +15931,21 @@ async function requestOpenAIReview(entry, severeErrors) {
     }
 }
 
-function historyStepForward() {
+async function historyStepForward() {
     if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex >= historyReplay.moves.length) return;
+    const fenBefore = historyReplay.game.fen();
     const move = historyReplay.moves[historyReplay.moveIndex];
     const mv = historyReplay.game.move(move, { sloppy: true });
+    if (!mv) { stopHistoryPlayback(); return; }
     historyReplay.moveIndex++;
     historyReplay.lastMove = mv ? { from: mv.from, to: mv.to } : null;
     activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
     updateHistoryBoard();
+    if (typeof narrateGameMove === 'function') await narrateGameMove('history', historyReplay.game, mv, fenBefore, historyReplay.entry.moveReviews);
 }
 
 function historyStepBack() {
+    stopHistoryPlayback();
     if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex <= 0) return;
     historyReplay.game.undo();
     historyReplay.moveIndex--;
@@ -15824,15 +15958,21 @@ function historyStepBack() {
 
 function startHistoryPlayback() {
     if (!historyReplay || !historyReplay.entry || historyReplay.moves.length === 0 || historyReplay.isPlaying) return;
-    historyReplay.isPlaying = true;
+    stopReviewTts();
+    if (narrationPrefs('history').enabled) { ensureGameNarrator('history'); GAME_NARRATION.voice.unlock(); }
+    const replay = historyReplay;
+    const token = replay.playToken = (replay.playToken || 0) + 1;
+    replay.isPlaying = true;
     updateHistoryControls();
-    historyReplay.timer = setInterval(() => {
-        if (historyReplay.moveIndex >= historyReplay.moves.length) {
-            stopHistoryPlayback();
-            return;
-        }
-        historyStepForward();
-    }, 900);
+    const step = async () => {
+        if (historyReplay !== replay || !replay.isPlaying || token !== replay.playToken) return;
+        if (replay.moveIndex >= replay.moves.length) { stopHistoryPlayback(); return; }
+        try { await historyStepForward(); } catch (e) { /* Àudio opcional. */ }
+        if (historyReplay !== replay || !replay.isPlaying || token !== replay.playToken) return;
+        if (replay.moveIndex >= replay.moves.length) { stopHistoryPlayback(); return; }
+        replay.timer = setTimeout(step, 900);
+    };
+    replay.timer = setTimeout(step, 900);
 }
 
 function stopTvPlayback() {
@@ -27538,6 +27678,7 @@ function stopGameClock() {
 }
 // Pausa sense perdre el torn (per a modals dins la partida)
 function pauseGameClock() {
+    if (typeof stopGameNarration === 'function') stopGameNarration('training');
     if (gameClock.enabled && gameClock.interval) {
         clearInterval(gameClock.interval);
         gameClock.interval = null;
@@ -27741,6 +27882,9 @@ function showPreparingBoard(fen) {
 }
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
+    stopGameNarration();
+    $('#training-narration-caption').text('');
+    if (narrationPrefs('training').enabled) { ensureGameNarrator('training'); GAME_NARRATION.voice.unlock(); }
     // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
     clearEngineMoveTimers();
     isEngineThinking = false;
@@ -28201,6 +28345,7 @@ blunderMode = isBundle;
             ? ElTaulerCore.rollClockTemperament(currentGameTimeControlId, currentGameActiveStrengthElo)
             : 1);
     updateEloDisplay();
+    renderGameNarrationControls();
 
     // HUD del repte «Rejugar +5%» i objectiu del panell de precisió (75% per defecte)
     updatePhaseReplayHud();
@@ -28340,6 +28485,7 @@ function playSound(kind) {
 function playMoveSound(move, chessInstance) {
     const chess = chessInstance || game;
     if (!move || !chess) return;
+    if (chess === game && typeof narrateTrainingMove === 'function') narrateTrainingMove(chess, move);
     let kind = null;
     try {
         kind = ElTaulerCore.soundKindForMove(move, { inCheck: chess.in_check(), gameOver: chess.game_over() });
@@ -28852,6 +28998,7 @@ function applyGameMoveNavHighlight(ply) {
 }
 
 function stepGameMoveNav(delta) {
+    stopGameNarration('training');
     if (!board || !game) return;
     const total = game.history().length;
     const current = (gameViewPly === null) ? total : gameViewPly;
@@ -32979,6 +33126,7 @@ function setResultIndicator(outcome) {
 }
 
 function updateStatus() {
+    if (typeof renderGameNarrationControls === 'function') renderGameNarrationControls();
     if (!isEngineThinking) {
         var s = (game.turn() === 'b' ? 'Negres' : 'Blanques');
         if (game.in_check()) s += ' — Escac!';
@@ -36451,6 +36599,7 @@ $(document).ready(() => {
             onOpen: () => { try { stopReviewTts(); requestBackgroundPrepAbort(); } catch (e) {} }
         });
     } catch (e) { console.warn('[Stockfish TV] init', e); }
+    initGameNarration();
     enablePremoveCancelGesture();
     // L'arrencada es fa després del primer pintat: quan s'obre una partida
     // amb rellotge, el worker sol estar llest abans de la primera jugada.

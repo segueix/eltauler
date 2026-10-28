@@ -2672,6 +2672,13 @@
         }
 
         /* GAME SCREEN */
+        .game-narration-controls { display:flex; flex-wrap:wrap; align-items:center; gap:8px; padding:10px; margin:8px 0; border:1px solid var(--border-color, #444); border-radius:10px; }
+        .game-narration-controls[hidden] { display:none !important; }
+        .game-narration-controls label { font-size:12px; }
+        .game-narration-controls input { width:100px; max-width:100%; }
+        .game-narration-controls select { width:auto; max-width:100%; }
+        .game-narration-controls small, .game-narration-caption { flex-basis:100%; font-size:12px; color:var(--text-secondary); margin:0; }
+        .game-narration-caption:empty { display:none; }
         #game-screen { display: none; }
         .header { background: var(--bg-card); padding: 15px; border-radius: 12px; margin-bottom: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.3); }
         .header-title { font-family: var(--font-ui); font-size: 1.2rem; color: var(--accent-gold); margin-bottom: 8px; }
@@ -7341,6 +7348,15 @@
                                     <button class="btn btn-secondary" id="history-pause" aria-label="Pausa" title="Pausa"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg></button>
                                     <button class="btn btn-secondary" id="history-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
                                 </div>
+                                <div class="game-narration-controls" id="history-narration-controls">
+                                    <button type="button" class="btn btn-secondary" id="history-narration-toggle" aria-pressed="false">Activa la veu</button>
+                                    <label for="history-narration-frequency">Comentaris</label>
+                                    <select id="history-narration-frequency" class="select-control"><option value="all">Cada jugada</option><option value="key">Moments clau</option></select>
+                                    <label for="history-narration-volume">Volum <output id="history-narration-volume-value">80%</output></label>
+                                    <input id="history-narration-volume" type="range" min="0" max="100" step="5" value="80">
+                                    <small>Veu opcional sincronitzada amb el tauler. Pots aturar-la en qualsevol moment.</small>
+                                    <p class="game-narration-caption" id="history-narration-caption"></p>
+                                </div>
                                 <div class="history-progress" id="history-progress">0/0</div>
                                 <!-- Transcripció clicable: toca una jugada per veure-la al tauler (queda marcada) -->
                                 <div id="history-moves" style="display:none;"></div>
@@ -8697,8 +8713,18 @@
                     <div class="clock-pill"><span class="clock-tag">Tu</span><span class="clock-time" id="clock-you">5:00</span></div>
                     <div class="clock-pill" title="Stockfish"><span class="clock-tag">SF</span><span class="clock-time" id="clock-opp">5:00</span></div>
                 </div>
+                <div class="game-narration-controls" id="training-narration-controls" hidden>
+                    <button type="button" class="btn btn-secondary" id="training-narration-toggle" aria-pressed="false">Activa la veu</button>
+                    <label for="training-narration-frequency">Comentaris</label>
+                    <select id="training-narration-frequency" class="select-control"><option value="all">Cada jugada</option><option value="key">Moments clau</option></select>
+                    <label for="training-narration-volume">Volum <output id="training-narration-volume-value">80%</output></label>
+                    <input id="training-narration-volume" type="range" min="0" max="100" step="5" value="80">
+                    <small>Comenta només jugades fetes, sense suggerir la següent. Pots desactivar-la durant la partida. La preferència es desa.</small>
+                    <p class="game-narration-caption" id="training-narration-caption"></p>
+                </div>
             </div>
             
+
             <div class="precision-panel" id="game-precision-panel">
                 <div class="precision-stat" id="precision-global-stat">
                     <div class="precision-label">Precisió</div>
@@ -9025,7 +9051,7 @@
     <script src="tutorial.js?v=1.0.3"></script>
     <script src="veuneural.js?v=1.1.0"></script>
     <script src="radioambient.js?v=1.1.0"></script>
-    <script src="stockfishtv.js?v=1.4.5"></script>
+    <script src="stockfishtv.js?v=1.4.6"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -9036,7 +9062,8 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.106"></script>
+    <script src="gamebroadcast.js?v=1.0.0"></script>
+    <script src="app.js?v=1.0.107"></script>
 
     <!-- Service Worker Registration -->
     <script>
