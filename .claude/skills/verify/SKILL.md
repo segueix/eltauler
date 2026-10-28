@@ -75,6 +75,15 @@ Conduir amb Playwright + Chromium preinstal·lat
     passa pel proxy). Per saber si sona, embolcallar `window.Audio` en un
     `addInitScript` i escoltar `playing`/`ended`.
 
+12. **Inici (bàners per seccions)**: `#start-screen.home-d` agrupa els
+    bàners en `.home-sec--juga/avui/entrena/comunitat/apren/final`; els
+    identificadors dels botons són els de sempre (`#btn-new-game`,
+    `#btn-settings`, `#btn-guide-banner`...). Les Google Fonts (Plus Jakarta
+    Sans, Inter, Cinzel) tampoc no carreguen des de Chromium: per veure la
+    lletra real cal baixar el CSS de `fonts.googleapis.com/css2` i els
+    `.woff2` amb `curl` i servir-los amb `ctx.route`. Per al mode dia o
+    paper electrònic: `eltauler_day_mode` / `eltauler_epaper_mode` = `on`.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
