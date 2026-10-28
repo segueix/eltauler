@@ -680,6 +680,7 @@ describe('veu catalana opcional', () => {
         await Promise.resolve(); await Promise.resolve();
         expect(synth.spoken).toHaveLength(1);
         expect(synth.spoken[0].voice).toBe(CA);
+        expect(v.engine()).toBe('system'); // el fons de Matxa s'atura durant l'alternativa local
         synth.finish();
         await expect(p).resolves.toEqual({ spoken: true, reason: 'end' });
         // Sense veu catalana al dispositiu i amb Matxa caigut: només text.

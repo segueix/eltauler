@@ -3204,6 +3204,8 @@
         .sftv-voice-toggle.is-on { background: rgba(201,162,39,0.24); border-color: rgba(227,184,74,0.65); }
         .sftv-voice-toggle:disabled { opacity: 0.55; cursor: default; }
         #sftv-matxa-controls[hidden] { display: none !important; }
+        #sftv-radio-controls[hidden] { display: none !important; }
+        #sftv-radio-controls { margin: 14px 0 0; padding: 10px; min-width: 0; border: 1px solid var(--accent); border-radius: 8px; }
         .sftv-matxa-controls { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 12px; }
         .sftv-matxa-controls summary { cursor: pointer; font-weight: 600; }
         .sftv-matxa-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px 20px; margin-top: 12px; }
@@ -6661,6 +6663,25 @@
                     </label>
                 </div>
                 <p class="setting-help" id="sftv-matxa-help">Els canvis es desen al teu perfil i s’escolten a partir del comentari següent.</p>
+                <fieldset id="sftv-radio-controls" hidden>
+                    <legend>Ambient de ràdio</legend>
+                    <div class="sftv-matxa-grid">
+                        <label for="sftv-radio-sound">So de fons
+                            <select id="sftv-radio-sound" class="select-control">
+                                <option value="off">Sense so de fons</option>
+                                <option value="studio">Ambient d’estudi</option>
+                                <option value="theme">Sintonia suau</option>
+                                <option value="tuning">Ràdio clàssica</option>
+                            </select>
+                        </label>
+                        <label for="sftv-radio-volume">Volum del fons
+                            <input id="sftv-radio-volume" type="range" min="0" max="100" value="20" disabled>
+                            <output id="sftv-radio-volume-value" for="sftv-radio-volume">20%</output>
+                        </label>
+                    </div>
+                    <p class="setting-help">Canvia al moment i es desa per a Stockfish TV. Sona mentre la veu Matxa Ràdio està activada; s’atura en pausar o sortir.</p>
+                    <p class="setting-help" id="sftv-radio-status" role="status"></p>
+                </fieldset>
             </details>
             <div class="sftv-layout">
                 <div class="sftv-main">
@@ -9003,7 +9024,8 @@
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.3"></script>
     <script src="veuneural.js?v=1.1.0"></script>
-    <script src="stockfishtv.js?v=1.4.3"></script>
+    <script src="radioambient.js?v=1.0.0"></script>
+    <script src="stockfishtv.js?v=1.4.4"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.9"></script>

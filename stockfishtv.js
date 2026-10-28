@@ -2138,6 +2138,7 @@
             current = null;
             clearT(entry.timer);
             entry.resolve({ spoken: spoken, reason: reason });
+            emit();
         }
 
         let speakSeq = 0;
@@ -2187,6 +2188,7 @@
                     finish(entry, false, reason);
                 };
                 current = entry;
+                emit();
                 entry.timer = setT(() => {
                     if (current !== entry) return;
                     try { synth.cancel(); } catch (err) {}
@@ -2206,7 +2208,7 @@
                 return 'ready';
             },
             // Quina veu sonarà ara: 'neural', 'system' o null.
-            engine() { return neuralReady() ? 'neural' : (voice ? 'system' : null); },
+            engine() { return current ? 'system' : (neuralReady() ? 'neural' : (voice ? 'system' : null)); },
             // La veu neuronal triada no està disponible (sense xarxa o servei aturat).
             neuralUnavailable() { return !!(neuralId() && !neural.available()); },
             prefetch(text) { if (pref === 'on' && text && neuralReady()) neural.prefetch(text, neuralId(), { rate: neuralRate() }); },
@@ -2214,7 +2216,7 @@
             isOn() { return pref === 'on'; },
             needsActivation() { return pref === null; },
             voiceName() {
-                if (neuralReady()) {
+                if (!current && neuralReady()) {
                     const V = root && root.ElTaulerVeuNeural;
                     return (V && V.voiceLabel(neuralId())) || 'Matxa';
                 }
@@ -2995,6 +2997,7 @@
     let bridge = {};
     let controller = null;
     let voice = null;
+    let radioAmbience = null;
     let board = null;
     let lastHighlight = null;
     let countdownTimer = null;
@@ -3267,14 +3270,59 @@
         setTimeout(resizeBoard, 0);
     }
 
+    function syncRadioAmbience(unlock = false) {
+        const api = root.ElTaulerRadioAmbient;
+        if (!api) return;
+        const state = controller ? controller.state() : {};
+        const matxa = typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId();
+        const effects = typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null;
+        const prefs = api.normalize((loadPrefsRaw() || {}).radioBackground);
+        const active = api.canPlay({ matxa, profile: effects && effects.profile,
+            voiceOn: voice && voice.isOn(), engine: voice && voice.engine(), blocked: voice && voice.status() === 'blocked',
+            open: state.open, paused: state.paused, hidden: state.hidden || document.visibilityState === 'hidden',
+            visible: screenVisible(), error: state.error });
+        if (!radioAmbience && active && prefs.sound !== 'off' && prefs.volume > 0) radioAmbience = api.createPlayer();
+        if (radioAmbience) {
+            radioAmbience.update(prefs, active);
+            if (unlock && active) radioAmbience.unlock();
+        }
+        const status = $id('sftv-radio-status');
+        if (status) status.textContent = radioAmbience && radioAmbience.status() === 'unavailable'
+            ? 'El so de fons no està disponible en aquest navegador. La veu continua funcionant.' : '';
+    }
+
+    function renderRadioControls(matxa, profile) {
+        const panel = $id('sftv-radio-controls');
+        if (!panel) return;
+        panel.hidden = !matxa || profile !== 'radio';
+        const api = root.ElTaulerRadioAmbient;
+        if (!api) return;
+        const prefs = api.normalize((loadPrefsRaw() || {}).radioBackground);
+        const sound = $id('sftv-radio-sound'), volume = $id('sftv-radio-volume'), label = $id('sftv-radio-volume-value');
+        if (sound) sound.value = prefs.sound;
+        if (volume) { volume.value = prefs.volume; volume.disabled = prefs.sound === 'off'; }
+        if (label) label.textContent = prefs.volume + '%';
+    }
+
+    function changeRadioControl(key, value) {
+        const api = root.ElTaulerRadioAmbient;
+        if (!api) return;
+        const prefs = api.normalize((loadPrefsRaw() || {}).radioBackground);
+        prefs[key] = key === 'volume' ? Number(value) : value;
+        savePrefsRaw({ radioBackground: api.normalize(prefs) });
+        renderMatxaControls();
+        syncRadioAmbience(true);
+    }
+
     function renderMatxaControls() {
         const panel = $id('sftv-matxa-controls');
         if (!panel) return;
         const selected = typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId();
         panel.hidden = !selected;
-        if (!selected) return;
+        if (!selected) { renderRadioControls(false, null); return; }
         const effects = typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null;
         const settings = Object.assign({ profile: 'natural', intensity: 0.6, clarity: 0.5, volume: 1 }, effects || {});
+        renderRadioControls(true, settings.profile);
         const profile = $id('sftv-matxa-profile');
         if (profile) profile.value = settings.profile;
         settings.rate = typeof bridge.getNeuralRate === 'function' ? bridge.getNeuralRate() : 1;
@@ -3299,10 +3347,12 @@
             : { effects: { [key]: key === 'profile' ? value : Number(value) / 100 } };
         bridge.updateNeuralSettings(changes);
         renderMatxaControls();
+        syncRadioAmbience(true);
     }
 
     function renderVoice() {
         renderMatxaControls();
+        syncRadioAmbience();
         if (!voice) return;
         const status = voice.status();
         const activate = $id('sftv-voice-activate');
@@ -3610,6 +3660,7 @@
     function onVisibility() {
         if (!controller) return;
         controller.setHidden(document.visibilityState === 'hidden' || !screenVisible());
+        if (radioAmbience) syncRadioAmbience(document.visibilityState !== 'hidden');
     }
 
     function ensureController() {
@@ -3659,12 +3710,14 @@
         c.setHidden(document.visibilityState === 'hidden');
         c.open();
         viewApi.render(c.state());
+        syncRadioAmbience(true);
     }
 
     // Tanca la pantalla (sense tornar a l'inici): atura motor, temporitzadors i veu.
     function closeScreen() {
         minimizeBoard();
         if (controller) controller.close();
+        if (radioAmbience) { radioAmbience.dispose(); radioAmbience = null; }
         if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
         uiReady = false;
         destroyBoard();
@@ -3703,7 +3756,7 @@
             // Mateix camí que el gest d'enrere (navGoBack) si l'app el té.
             if (typeof bridge.goBack === 'function') bridge.goBack(); else goHome();
         });
-        on('sftv-pause', 'click', () => { if (!controller) return; const st = controller.state(); if (st.paused) controller.resume(); else controller.pause(); });
+        on('sftv-pause', 'click', () => { if (!controller) return; const st = controller.state(); if (st.paused) controller.resume(); else controller.pause(); syncRadioAmbience(true); });
         on('sftv-new', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-try', 'click', tryPosition);
         on('sftv-undo', 'click', () => { if (controller) controller.stepBack(); });
@@ -3724,6 +3777,9 @@
         on('sftv-too-hard', 'click', () => { if (controller) controller.adjust('easier'); });
         on('sftv-speed', 'change', (ev) => { if (controller) controller.setSpeed(ev.target.value); });
         on('sftv-matxa-profile', 'change', ev => changeMatxaControl('profile', ev.target.value));
+        on('sftv-radio-sound', 'change', ev => changeRadioControl('sound', ev.target.value));
+        on('sftv-radio-volume', 'input', ev => changeRadioControl('volume', ev.target.value));
+        on('sftv-radio-volume', 'change', ev => changeRadioControl('volume', ev.target.value));
         ['intensity', 'clarity', 'volume', 'rate'].forEach(key => {
             on('sftv-matxa-' + key, 'input', ev => changeMatxaControl(key, ev.target.value));
             on('sftv-matxa-' + key, 'change', ev => changeMatxaControl(key, ev.target.value));
@@ -3735,6 +3791,7 @@
             voice.setOn(true);
             if (voice.status() === 'ready') voice.speak('Veu activada.');
             renderVoice();
+            syncRadioAmbience(true);
         });
         on('sftv-voice-toggle', 'click', () => {
             if (!voice) return;
@@ -3742,6 +3799,7 @@
             voice.setOn(turnOn);
             if (turnOn && voice.status() === 'ready') voice.speak('Veu activada.');
             renderVoice();
+            syncRadioAmbience(true);
         });
         document.addEventListener('visibilitychange', onVisibility);
         document.addEventListener('fullscreenchange', onFullscreenChange);
