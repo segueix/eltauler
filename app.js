@@ -433,11 +433,9 @@ const CALIBRATION_ROC_MIN = 200;
 const CALIBRATION_ROC_MAX = 2000;
 // La lliga (i la resta de modes) es desbloquegen amb la mateixa partida de calibratge.
 const LEAGUE_UNLOCK_MIN_GAMES = CALIBRATION_GAME_COUNT;
-// Rang REAL de UCI_Elo que accepta el binari de Stockfish inclòs. El build
-// (niklasf/stockfish.js, fork ddugovic) té un terra al voltant de 1350: per sota,
-// Stockfish retalla el valor silenciosament i juga sempre a la mateixa força. Aquests
-// valors es detecten dinàmicament en rebre la llista d'opcions UCI ('option name UCI_Elo
-// ... min X max Y'); els valors per defecte són només un fallback robust.
+// Rang d'ELO si el motor l'anuncia; si només admet Skill Level,
+// el terra de 1350 és una referència aproximada per a la capa ROC.
+let engineStrengthCaps = {};
 let engineEloMin = 1350;
 let engineEloMax = 2850;
 let engineRangeDetected = false;
@@ -472,6 +470,7 @@ let isEngineThinking = false;
 // aplicar com si fos una altra jugada de l'enginy.
 let engineMoveApplyPending = false;
 let engineMoveCandidates = [];
+let engineMoveCandidateCollector = null;
 // Traça de la línia principal (multipv 1) durant la cerca de la jugada de
 // l'enginy: serveix per estimar la dificultat de la posició (inestabilitat
 // del millor moviment, volatilitat d'avaluació) per al temps humanitzat.
@@ -3040,8 +3039,9 @@ function commitHumanMove(from, to, promotionPiece, viaPremove) {
     engineReplyStartTs = nowMs();
     if (lastEngineMoveAppliedTs !== null) {
         const sample = Math.max(0, engineReplyStartTs - lastEngineMoveAppliedTs);
-        humanPaceSamples++;
-        humanPaceMs = humanPaceMs === null ? sample : (humanPaceMs * 0.75 + sample * 0.25);
+        const pace = ElTaulerCore.nextHumanPace({ ms: humanPaceMs, samples: humanPaceSamples,
+            elapsed: sample, premove: !!viaPremove, timeControlId: getActiveTimeControlId() });
+        humanPaceMs = pace.ms; humanPaceSamples = pace.samples;
     }
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
@@ -5886,20 +5886,10 @@ function clampEngineElo(elo) {
         : ElTaulerCore.clampElo(elo, ELO_MIN, ELO_MAX);
 }
 
-// Converteix un ROC (escala pròpia 200-2000) a un UCI_Elo VÀLID per a Stockfish.
-//
-// Model de força en dues etapes (coherent i interpretable pel motor):
-//   - ROC < terra del motor (~1350): el motor no pot jugar tan fluix amb UCI_Elo, així que el
-//     fixem al terra i la força efectiva és PROPORCIONAL a la fracció ROC/terra (vegeu
-//     getStrengthNormalized): la profunditat reduïda (eloToSearchDepth) i la selecció humana de
-//     moviments (chooseHumanLikeMove) escalen linealment amb aquesta proporció. Així un ROC X
-//     equival al X/1350 de la força del motor al seu terra: relació proporcional amb Stockfish,
-//     que és la franja on jugarà la majoria d'usuaris.
-//   - ROC >= terra del motor: ROC == UCI_Elo real, de manera que el nivell mostrat
-//     coincideix amb la força exacta que Stockfish reprodueix.
-//
-// Així evitem el retall silenciós que abans feia que tots els ROC baixos fossin idèntics
-// per al motor, i el rang s'adapta automàticament al binari realment carregat.
+// El ROC és l'escala adaptativa de l'app. Si el binari admet UCI_Elo,
+// es limita al seu rang anunciat; amb Skill Level es fa una aproximació.
+// Per sota del terra, profunditat i selecció de candidates diferencien
+// els nivells. La precisió real també depèn de la posició i del temps disponible.
 function rocToEngineElo(roc) {
     return ElTaulerCore.rocToEngineElo(roc, engineEloMin, engineEloMax);
 }
@@ -7641,6 +7631,7 @@ function maybeSuggestDailyNotify() {
 
 function resetEngineMoveCandidates() {
     engineMoveCandidates = [];
+    engineMoveCandidateCollector = null;
 }
 
 function resetOpeningEngineMoveCandidates() {
@@ -7667,15 +7658,22 @@ function trackEngineCandidate(msg) {
 
     const multipv = parseInt(pvMatch[1]);
     const move = pvMatch[2];
-    const existingIdx = targetCandidates.findIndex(c => c.multipv === multipv);
-    const candidate = { multipv, move, score };
-    if (existingIdx >= 0) targetCandidates[existingIdx] = candidate;
-    else targetCandidates.push(candidate);
+    const depthMatch = msg.match(/\bdepth (\d+)/);
+    const candidate = { multipv, move, score, depth: depthMatch ? parseInt(depthMatch[1]) : 0,
+        bound: /\b(?:lowerbound|upperbound)\b/.test(msg) };
+    if (targetCandidates === engineMoveCandidates && engineMoveCandidateCollector) {
+        engineMoveCandidateCollector.push(candidate);
+        engineMoveCandidates = engineMoveCandidateCollector.values();
+    } else {
+        const existingIdx = targetCandidates.findIndex(c => c.multipv === multipv);
+        if (existingIdx >= 0) targetCandidates[existingIdx] = candidate;
+        else targetCandidates.push(candidate);
+    }
 
     // Traça de la línia principal per profunditats: alimenta l'estimació de
     // dificultat del temps de resposta humanitzat (canvis de millor jugada i
     // volatilitat de l'avaluació mentre puja la cerca).
-    if (isEngineThinking && targetCandidates === engineMoveCandidates && multipv === 1) {
+    if (isEngineThinking && multipv === 1 && !candidate.bound) {
         const depthMatch = msg.match(/\bdepth (\d+)/);
         engineMoveSearchTrace.push({ depth: depthMatch ? parseInt(depthMatch[1]) : 0, score, move });
     }
@@ -7882,13 +7880,30 @@ function chooseBeginnerMistakeMove(enriched, chessInstance, roc) {
     return selected;
 }
 
-function chooseHumanLikeMove(candidates, chessInstance = game) {
+function chooseHumanLikeMove(candidates, chessInstance = game, options = {}) {
+    const activeRoc = getActiveStrengthElo();
+    const floor = engineEloMin || 1350;
+    let nativeChoice = null;
+    if (options.clock && options.engineBestMove && chessInstance) {
+        const legal = chessInstance.moves({ verbose: true }).some(m => m.from + m.to + (m.promotion || '') === options.engineBestMove);
+        // UCI_Elo i Skill Level regulen el BESTMOVE, no necessàriament la PV1.
+        // Substituir-lo per la PV1 feia els rivals de nivells diferents massa bons.
+        if (legal) {
+            const picked = (candidates || []).find(c => c.move === options.engineBestMove) || { move: options.engineBestMove };
+            if (options.nativeStrength) nativeChoice = picked;
+            if ((options.nativeStrength && activeRoc >= floor) || !candidates || candidates.length < 2) return picked;
+            // Sense avaluació del bestmove natiu, no hi afegim errors a cegues.
+            if (nativeChoice && !Number.isFinite(nativeChoice.score)) return nativeChoice;
+        }
+    }
     if (!candidates || candidates.length === 0) return null;
     const sorted = candidates.slice().sort((a, b) => b.score - a.score);
-
-    const roc = getActiveStrengthElo();
-    const normalized = getStrengthNormalized();
+    const roc = options.clock ? ElTaulerCore.timedSelectionLevel({ ...options.clock, elo: activeRoc }) : activeRoc;
+    const normalized = Math.max(0.05, Math.min(1, roc / floor));
     const bestScore = sorted[0].score;
+    // Sota el terra, afegim errors al rival natiu; no li corregim els que
+    // ja ha comès. Això evita que ROC 1250 acabi jugant millor que ROC 1350.
+    const preserveNative = choice => nativeChoice && choice && choice.score > nativeChoice.score ? nativeChoice : choice;
     const maxDelta = roc < 1000 ? getWeakAiTuning(roc).cpLossWindow : getHumanLikeMaxCpLoss(roc);
     const tolerableLoss = levelTolerableLossPawns(normalized, roc);
 
@@ -7916,11 +7931,11 @@ function chooseHumanLikeMove(candidates, chessInstance = game) {
         return base;
     }).filter(c => c.legal);
 
-    if (!enriched.length) return sorted[0];
+    if (!enriched.length) return nativeChoice || sorted[0];
 
     const beginnerChoice = chooseBeginnerMistakeMove(enriched, chessInstance, roc);
-    if (beginnerChoice) return beginnerChoice;
-    if (beginnerChoice === undefined && roc < 1000) return enriched[0];
+    if (beginnerChoice) return preserveNative(beginnerChoice);
+    if (beginnerChoice === undefined && roc < 1000) return nativeChoice || enriched[0];
 
     // El filtre de material immediat evita regals de dama/torre o material enorme sense
     // compensació aparent. A ROC baix, si el filtre queda buit busquem alternatives moderades
@@ -7929,7 +7944,7 @@ function chooseHumanLikeMove(candidates, chessInstance = game) {
     if (!safeCandidates.length && roc < 1000) {
         safeCandidates = enriched.filter(c => c.materialLoss <= WEAK_AI_CONFIG.reasonableFallbackLossPawns);
     }
-    if (!safeCandidates.length) return sorted[0];
+    if (!safeCandidates.length) return nativeChoice || sorted[0];
 
     const plausible = safeCandidates.filter(c => c.cpLoss <= maxDelta);
     const pool = (plausible.length ? plausible : (roc < 1000 ? safeCandidates : [safeCandidates[0]]));
@@ -7937,7 +7952,7 @@ function chooseHumanLikeMove(candidates, chessInstance = game) {
     const maxCandidates = weakMax || (normalized < 0.35 ? 7 : (normalized < 0.75 ? 5 : (roc < (engineEloMin || 1350) ? 4 : 2)));
     const trimmed = pool.slice(0, maxCandidates);
 
-    if (trimmed.length === 1) return trimmed[0];
+    if (trimmed.length === 1) return preserveNative(trimmed[0]);
 
     // Als ROC baixos explorem alternatives MultiPV molt més sovint; als ROC alts el motor
     // gairebé sempre manté la millor línia o una alternativa molt propera.
@@ -7945,7 +7960,7 @@ function chooseHumanLikeMove(candidates, chessInstance = game) {
         ? getWeakAiTuning(roc).offPathChance
         : Math.max(0.06, Math.min(0.68, 0.72 - (normalized * 0.62)));
     const explore = Math.random() < offPathChance;
-    if (!explore) return trimmed[0];
+    if (!explore) return nativeChoice || trimmed[0];
 
     // La ponderació combina naturalitat humana, pèrdua en centipeons i rang MultiPV. Això permet
     // errors visibles sota ROC 1230 sense convertir Stockfish en un generador de jugades absurdes.
@@ -7960,7 +7975,7 @@ function chooseHumanLikeMove(candidates, chessInstance = game) {
     });
     const selected = chooseWeightedCandidate(trimmed, (c, idx) => weights[idx]);
     logWeakAiSelection(roc, selected, 'human-like-weighted');
-    return selected;
+    return preserveNative(selected);
 }
 
 // MODIFICAT: Ara carrega directament el fitxer local
@@ -7977,6 +7992,8 @@ function ensureStockfish() {
     if (stockfish) return true;
     try {
         stockfish = createStockfishWorker();
+        engineStrengthCaps = {};
+        engineRangeDetected = false;
         stockfish.onmessage = (e) => handleEngineMessage(e.data);
         stockfishReady = false;
         try { stockfish.postMessage('uci'); } catch (e) {}    
@@ -8979,15 +8996,15 @@ function updateAdaptiveEngineEloLabel() {
         $('#engine-elo').text('Antídot · Stockfish');
         return;
     }
-    const elo = Math.round(currentElo);
+    const elo = Math.round(getActiveStrengthElo());
     // Per sobre del terra del motor el número és un UCI_Elo real de Stockfish ("ELO");
     // per sota és l'escala pròpia adaptativa ("ROC"), que el motor no reprodueix exactament.
-    const unit = elo >= engineEloMin ? 'ELO' : 'ROC';
+    const unit = engineRangeDetected && engineStrengthCaps.limit && elo >= engineEloMin ? 'ELO' : 'ROC';
     if (currentGameMode === 'positional' && !blunderMode) {
         // Al Joc posicional el rival juga a l'ELO EQUIVALENT de les jugades
         // vista triades al desplegable del menú.
         const level = getPositionalVisionLevel();
-        const levelUnit = level.roc >= engineEloMin ? 'ELO' : 'ROC';
+        const levelUnit = engineRangeDetected && engineStrengthCaps.limit && level.roc >= engineEloMin ? 'ELO' : 'ROC';
         $('#engine-elo').text(`${levelUnit} ~${level.roc} · ${positionalVisionText(level)}`);
         return;
     }
@@ -9000,26 +9017,22 @@ function updateAdaptiveEngineEloLabel() {
 
 function applyEngineEloStrength(eloValue) {
     if (!stockfish) return;
-    // El ROC es manté dins l'escala pròpia (200-2000) i després es projecta al rang
-    // vàlid real del motor. Per sota del terra, UCI_Elo queda al mínim del motor i la
-    // resta de la debilitat la posen profunditat + selecció humana de moviments.
-    const safeElo = rocToEngineElo(clampEngineElo(eloValue));
-    try {
-        stockfish.postMessage('setoption name UCI_LimitStrength value true');
-        stockfish.postMessage(`setoption name UCI_Elo value ${safeElo}`);
-    } catch (e) {}
+    // Amb rellotge, conserva el control de força natiu fins al bestmove.
+    // Fora d'aquest flux, la selecció ROC existent continua sobre PV de força
+    // plena si el binari no admet UCI_Elo, com abans d'activar Skill Level.
+    const timed = gameClock.enabled;
+    const hasElo = engineStrengthCaps.limit && engineStrengthCaps.elo;
+    const commands = ElTaulerCore.nativeStrengthCommands(engineStrengthCaps,
+        clampEngineElo(eloValue), !timed && !hasElo);
+    commands.forEach(command => { try { stockfish.postMessage(command); } catch (e) {} });
 }
 
-// Força MÀXIMA del motor: es desactiva el límit d'ELO (UCI_LimitStrength) i
-// Stockfish analitza al 100%. Al Joc posicional és la força amb què es calcula
-// l'ÍNDEX de cada jugada i la pista, no la del rival: el rival hi juga a l'ELO
-// equivalent de les jugades vista triades (makeEngineMove torna a limitar la
-// força amb applyEngineEloStrength just abans de cada resposta seva).
 function applyEngineMaxStrength() {
     if (!stockfish) return;
-    try {
-        stockfish.postMessage('setoption name UCI_LimitStrength value false');
-    } catch (e) {}
+    // La revisió sempre es fa a força màxima, encara que l'últim rival fos
+    // feble. El nivell de l'adversari no rebaixa l'exigència de l'avaluació.
+    ElTaulerCore.nativeStrengthCommands(engineStrengthCaps, ELO_MAX, true)
+        .forEach(command => { try { stockfish.postMessage(command); } catch (e) {} });
 }
 
 function syncEngineEloFromUser() {
@@ -24077,7 +24090,7 @@ function setupEvents() {
     $('#status').text("Buscant objectiu clau...");
     // Al Joc posicional la pista guia cap a la jugada verda: es calcula a
     // força màxima (el rival ja es re-limitarà a la seva propera resposta).
-    if (isPositionalMode()) applyEngineMaxStrength();
+    if (isPositionalMode() || gameClock.enabled) applyEngineMaxStrength();
     stockfish.postMessage(`position fen ${game.fen()}`);
     stockfish.postMessage('go depth 15');
 });
@@ -27567,30 +27580,34 @@ function estimateEngineMoveComplexity() {
 function engineClockContext() {
     const engineColor = playerColor === 'w' ? 'b' : 'w';
     const fen = game.fen();
+    const uncharged = gameClock.enabled && !gameClock.paused && gameClock.active === engineColor
+        ? Math.max(0, nowMs() - gameClock.lastTs) : 0;
     return {
         timeControlId: gameClock.enabled ? getActiveTimeControlId() : 'none',
         remainingMs: gameClock.enabled
-            ? (engineColor === 'w' ? gameClock.white : gameClock.black)
+            ? Math.max(0, (engineColor === 'w' ? gameClock.white : gameClock.black) - uncharged)
             : null,
         incMs: gameClock.enabled ? gameClock.inc : 0,
         elo: getActiveStrengthElo(),
         phase: ElTaulerCore.phaseFromFen(fen),
         moveNumber: parseInt(fen.split(' ')[5], 10) || 1,
-        clockTemperament: currentGameClockTemperament
+        clockTemperament: currentGameClockTemperament,
+        forced: game.moves().length === 1,
+        humanPaceMs, paceSamples: humanPaceSamples
     };
 }
 
 // Temps que ja s'ha consumit del rellotge del rival des que l'usuari ha mogut
 // (l'anàlisi de la seva jugada hi corre a sobre), abans que la cerca comenci.
 function engineReplyElapsedMs() {
-    return engineReplyStartTs ? Math.max(0, nowMs() - engineReplyStartTs) : 0;
+    return engineReplyStartTs !== null ? Math.max(0, nowMs() - engineReplyStartTs) : 0;
 }
 
 // Revisió ràpida de la jugada humana: sense rellotge manté la profunditat
 // completa; amb rellotge, cada passada té un límit segons ritme, nivell i
 // temps ja consumit, perquè no bloquegi la resposta real de l'adversari.
 function postClockAwareReviewSearch(depth, stage) {
-    const budgetMs = ElTaulerCore.moveReviewSearchBudgetMs({
+    const budgetMs = ElTaulerCore.gameReviewSearchBudgetMs({
         ...engineClockContext(),
         stage,
         elapsedMs: engineReplyElapsedMs()
@@ -27605,13 +27622,18 @@ function postClockAwareReviewSearch(depth, stage) {
 
 // Retard (ms) amb què s'aplicarà la jugada ja decidida per l'enginy. Del temps
 // "pensat" es descompta el que la cerca real ja ha trigat; la protecció
-// antibandera queda centralitzada a humanThinkTimeMs (core.js) per no duplicar
+// del rellotge queda centralitzada a gameThinkTimeMs (core.js) per no duplicar
 // descomptes ni afegir cap segona capa agressiva.
-function computeHumanReplyDelayMs() {
+function computeHumanReplyDelayMs(moveUci = null) {
     const ctx = engineClockContext();
     const complexity = estimateEngineMoveComplexity();
-    const thinkMs = ElTaulerCore.humanThinkTimeMs({
+    const legal = game.moves({ verbose: true });
+    const chosen = moveUci && legal.find(m => m.from + m.to + (m.promotion || '') === moveUci);
+    const previous = game.history({ verbose: true }).slice(-1)[0];
+    const thinkMs = ElTaulerCore.gameThinkTimeMs({
         ...ctx,
+        forced: legal.length === 1,
+        recapture: !!(chosen && chosen.captured && previous && previous.captured && chosen.to === previous.to),
         complexity: complexity.score,
         humanPaceMs,
         paceSamples: humanPaceSamples
@@ -27893,6 +27915,8 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     engineReplyStartTs = null;
     clearQueuedPremove();
     lastEngineMoveAppliedTs = null;
+    humanPaceMs = null;
+    humanPaceSamples = 0;
     maybeRollLuckyThemes();
     // Cedeix el motor: atura la pre-generació en segon pla (tret que estigui
     // preparant justament aquest exercici, que llavors es recull del rebost).
@@ -28437,8 +28461,9 @@ function onDrop(source, target) {
     engineReplyStartTs = nowMs();
     if (lastEngineMoveAppliedTs !== null) {
         const sample = Math.max(0, engineReplyStartTs - lastEngineMoveAppliedTs);
-        humanPaceSamples++;
-        humanPaceMs = humanPaceMs === null ? sample : (humanPaceMs * 0.75 + sample * 0.25);
+        const pace = ElTaulerCore.nextHumanPace({ ms: humanPaceMs, samples: humanPaceSamples,
+            elapsed: sample, timeControlId: getActiveTimeControlId() });
+        humanPaceMs = pace.ms; humanPaceSamples = pace.samples;
     }
     lastHumanMoveUci = move.from + move.to + (move.promotion ? move.promotion : '');
 
@@ -29439,7 +29464,9 @@ function makeAntidoteEngineMove() {
 
     const deviceOpts = antidoteDeviceOptions();
     const multiPv = ElTaulerCore.antidoteMultiPv(deviceOpts);
-    const budget = ElTaulerCore.antidoteSearchBudget(deviceOpts.timeControlKind);
+    const budget = { ...ElTaulerCore.antidoteSearchBudget(deviceOpts.timeControlKind) };
+    const clockBudget = ElTaulerCore.gameSearchBudgetMs({ ...engineClockContext(), elapsedMs: engineReplyElapsedMs() });
+    if (clockBudget !== null) budget.moveTimeMs = Math.min(budget.moveTimeMs, clockBudget);
     const searchStartedAt = nowMs();
 
     const bail = (reason) => {
@@ -29581,8 +29608,7 @@ function applyAntidoteAnalysis(analysis, fen, searchStartedAt, deviceOpts) {
 
     // Temps de resposta: es descompta el que ja ha trigat la cerca, de manera
     // que el rellotge es comporta com a la resta de modes.
-    const elapsed = Math.max(0, nowMs() - searchStartedAt);
-    let replyDelayMs = Math.max(0, computeHumanReplyDelayMs() - elapsed);
+    let replyDelayMs = computeHumanReplyDelayMs(selection.move);
     if (gameClock.enabled && replyDelayMs > 150) {
         try {
             const probe = new Chess(game.fen());
@@ -30052,15 +30078,14 @@ function makeEngineMove(skipAntidote) {
     // Partida de calibratge inicial: el rival s'adapta ABANS de cada resposta a
     // la qualitat de joc demostrada fins ara (com el calibratge per ritme).
     if (isCalibrationGame) updateCalibrationOpponentRoc();
-    // Font única de força: UCI_LimitStrength + UCI_Elo segons el nivell actiu.
-    // Amb UCI_LimitStrength actiu, Stockfish ignora Skill Level, així que no el fixem
-    // (evita el doble control que abans feia la força inconsistent). Re-afirmem cada
-    // jugada per no heretar opcions d'altres modes (p. ex. pràctica d'obertures).
-    // Al Joc posicional, getActiveStrengthElo retorna l'ELO EQUIVALENT de les
-    // jugades vista triades, així que el rival juga (i s'humanitza) a aquell
-    // nivell; l'anàlisi de l'índex, en canvi, va a força màxima (analyzeMove).
+    // Reafirma la força en cada resposta amb les opcions que el binari
+    // anuncia: UCI_Elo o Skill Level. La revisió entre torns usa força màxima.
     applyEngineEloStrength(getActiveStrengthElo());
-    const multiPvValue = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
+    const requestedPv = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
+    const shortClock = gameClock.enabled && ElTaulerCore.SHORT_CLOCK_LIMITS[getActiveTimeControlId()];
+    const multiPvValue = shortClock ? Math.min(8, requestedPv) : requestedPv;
+    if (gameClock.enabled) engineMoveCandidateCollector = ElTaulerCore.createMoveCandidateCollector(
+        Math.min(multiPvValue, game.moves().length));
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     // Sostre de temps REAL de la cerca (només amb rellotge). Mentre Stockfish
     // cerca, el rellotge del rival corre: la cerca és l'únic tros de la resposta
@@ -30070,7 +30095,7 @@ function makeEngineMove(skipAntidote) {
     // 1,5: el rival s'entrabancava amb el rellotge justament als nivells alts.
     // El pressupost surt del mateix model humà (core.js) i ja descompta el que
     // s'ha trigat des que l'usuari ha mogut.
-    const searchBudgetMs = ElTaulerCore.engineSearchBudgetMs({
+    const searchBudgetMs = ElTaulerCore.gameSearchBudgetMs({
         ...engineClockContext(),
         elapsedMs: engineReplyElapsedMs()
     });
@@ -30302,6 +30327,7 @@ function resetEnrichedAnalysisBuffer() {
 function handleEngineMessage(rawMsg) {
     if (typeof rawMsg !== 'string') return;
     const msg = rawMsg.trim();
+    if (msg.startsWith('option name ')) engineStrengthCaps = ElTaulerCore.engineStrengthOption(engineStrengthCaps, msg);
     // Detecta el rang real de UCI_Elo del binari carregat per no dependre de valors
     // codificats ni del retall silenciós del motor.
     if (!engineRangeDetected && msg.indexOf('option name UCI_Elo') !== -1) {
@@ -30721,7 +30747,7 @@ function handleEngineMessage(rawMsg) {
                 // mat el resultat arriba de seguida en lloc d'esperar l'escena.
                 engineMoveTimeout = setTimeout(() => {
                     if (!game.game_over()) makeEngineMove();
-                }, gameClock.enabled ? 200 : 1500);
+                }, gameClock.enabled ? 0 : 1500);
             } else {
                 if (blunderMode) handleBundleSuccess();
                 else if (!game.game_over()) makeEngineMove();
@@ -30750,16 +30776,16 @@ function handleEngineMessage(rawMsg) {
             // durant el calibratge reflecteix la força real que el jugador trobarà després.
             // (El Joc posicional també hi passa: la humanització treballa amb
             // l'ELO equivalent de les jugades vista, via getActiveStrengthElo.)
-            const chosen = chooseHumanLikeMove(engineMoveCandidates) || { move: null };
-            const moveStr = (engineMoveCandidates.length > 0 && chosen.move)
-                ? chosen.move
-                : chooseFallbackMove(fallbackMove);
+            const chosen = chooseHumanLikeMove(engineMoveCandidates, game, gameClock.enabled
+                ? { engineBestMove: fallbackMove, clock: engineClockContext(),
+                    nativeStrength: !!(engineStrengthCaps.skill || (engineStrengthCaps.limit && engineStrengthCaps.elo)) } : {}) || { move: null };
+            const moveStr = chosen.move || (gameClock.enabled ? fallbackMove : chooseFallbackMove(fallbackMove));
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
             // Temps de resposta humanitzat: es calcula ABANS de netejar els
             // candidats perquè la dificultat surt de la mateixa cerca MultiPV.
-            let replyDelayMs = computeHumanReplyDelayMs();
+            let replyDelayMs = computeHumanReplyDelayMs(moveStr);
             // La jugada que ACABA la partida no espera la reflexió simulada:
             // amb rellotge, el temps humanitzat pot ser de segons i retardava
             // el resultat (guanyat/perdut/taules) quan ja estava decidit.
@@ -30774,6 +30800,7 @@ function handleEngineMessage(rawMsg) {
             }
             registerEngineMovePrecision(moveStr, engineMoveCandidates);
             resetEngineMoveCandidates();
+            if (gameClock.enabled) applyEngineMaxStrength();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
             scheduleEngineMoveApply(fromSq, toSq, promotion, replyDelayMs);
         }
@@ -32609,6 +32636,7 @@ function updateAIPrecisionTarget() {
 
 function registerEngineMovePrecision(moveStr, candidates) {
     if (!moveStr) return;
+    if (!candidates || !candidates.some(c => c.move === moveStr && Number.isFinite(c.score))) return;
     totalEngineMoves++;
     let isGood = true;
     if (candidates && candidates.length) {

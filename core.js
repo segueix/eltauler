@@ -4807,6 +4807,137 @@
     }
 
 
+    // Capacitats anunciades pel binari real. El Stockfish inclòs actualment
+    // ofereix Skill Level, no UCI_Elo; enviar opcions inexistents no el debilita.
+    function engineStrengthOption(caps, line) {
+        const out = { ...(caps || {}) };
+        const range = String(line).match(/\bmin (-?\d+) max (-?\d+)/);
+        if (/^option name UCI_LimitStrength type check\b/.test(line)) out.limit = true;
+        if (/^option name UCI_Elo type spin\b/.test(line) && range) out.elo = { min: +range[1], max: +range[2] };
+        if (/^option name Skill Level type spin\b/.test(line) && range) out.skill = { min: +range[1], max: +range[2] };
+        return out;
+    }
+    function nativeStrengthCommands(caps, elo, analysis) {
+        const c = caps || {};
+        const commands = [];
+        if (c.limit) commands.push('setoption name UCI_LimitStrength value ' + (!analysis && !!c.elo ? 'true' : 'false'));
+        if (analysis) {
+            if (c.skill) commands.push('setoption name Skill Level value ' + c.skill.max);
+        } else if (c.limit && c.elo) {
+            commands.push('setoption name UCI_Elo value ' + Math.round(clampNum(elo, c.elo.min, c.elo.max)));
+        } else if (c.skill) {
+            // Mateixa escala aproximada que Stockfish TV. No equival a una
+            // certificació d'ELO; sota el terra s'hi afegeix la selecció ROC.
+            const skill = Math.pow(Math.max(0, (elo - 1346.6) / 143.4), 1 / 0.806);
+            commands.push('setoption name Skill Level value ' + Math.round(clampNum(skill, c.skill.min, c.skill.max)));
+        }
+        return commands;
+    }
+
+    // Ajust del model de rellotge per a partides curtes. Les estadístiques
+    // anteriors són una referència de ritme, no una quota de derrotes per temps:
+    // una pausa llarga ha de correspondre a una decisió difícil i tenir marge.
+    const SHORT_CLOCK_LIMITS = {
+        '30s': { floor: 220, ceiling: 2000, review: 80 },
+        '1+0': { floor: 260, ceiling: 3600, review: 120 },
+        '3+2': { floor: 320, ceiling: 8000, review: 200 }
+    };
+    function shortClockPressure(p) {
+        const limit = SHORT_CLOCK_LIMITS[p.timeControlId];
+        if (!limit || !Number.isFinite(p.remainingMs)) return 0;
+        const base = HUMAN_CLOCK_BASE_MS[p.timeControlId];
+        // Amb increment encara hi ha temps per pensar quan el marcador baixa.
+        const runway = Math.max(0, p.remainingMs) + 3 * Math.max(0, p.incMs || 0);
+        return clampNum(1 - runway / Math.min(15000, base * 0.25), 0, 1);
+    }
+    function gameThinkTimeMs(params) {
+        const p = params || {};
+        const limit = SHORT_CLOCK_LIMITS[p.timeControlId];
+        if (!limit || !Number.isFinite(p.remainingMs)) return humanThinkTimeMs(p);
+        const random = typeof p.random === 'function' ? p.random : Math.random;
+        const complexity = clampNum(Number.isFinite(p.complexity) ? p.complexity : 0.5, 0, 1);
+        const pressure = shortClockPressure(p);
+        const elo = clampNum(Number(p.elo) || 800, 200, 2600);
+        const skill = clampNum((elo - 200) / 2200, 0, 1);
+        // Reutilitza la corba per fase i nivell, sense les encallades aleatòries.
+        let target = humanThinkTimeMs({ ...p, complexity: 0.5, deepThinkRate: 0,
+            clockTemperament: clampNum(Number(p.clockTemperament) || 1, 0.8, 1.2), random });
+        target *= 0.78 + 0.52 * complexity;
+        // També separa els nivells sota la primera àncora de les dades (~800).
+        target *= 1 + clampNum((800 - elo) / 600, 0, 1) * 0.12;
+        if (p.forced) target *= 0.55;
+        else if (p.recapture) target *= 0.72;
+        if (!p.forced && !p.recapture && complexity >= 0.65 && pressure === 0
+                && p.remainingMs > target * 12 && random() < 0.04 + 0.05 * skill) {
+            target *= 1.2 + 0.5 * random();
+        }
+        const floor = limit.floor * (1 - pressure * 0.55);
+        // Reserva repartida entre diverses jugades, en lloc de gastar el
+        // rellotge per reproduir artificialment una freqüència de banderes.
+        const allocation = Math.max(floor, p.remainingMs / (14 + 6 * skill) + 0.75 * Math.max(0, p.incMs || 0));
+        const cap = Math.min(limit.ceiling * (0.65 + 0.35 * complexity), allocation);
+        return Math.round(Math.max(0, Math.min(Math.max(floor, humanSoftCapMs(target, cap)), p.remainingMs + 100)));
+    }
+    function gameSearchBudgetMs(params) {
+        const p = params || {};
+        if (!SHORT_CLOCK_LIMITS[p.timeControlId] || !Number.isFinite(p.remainingMs)) return engineSearchBudgetMs(p);
+        const target = gameThinkTimeMs({ ...p, complexity: 0.75, random: medianNoiseRandom() });
+        const left = Math.max(1, p.remainingMs - 20);
+        // Les dues revisions i la cerca comparteixen el mateix torn real.
+        // Ni el mínim de cerca pot superar el rellotge que queda.
+        return Math.round(Math.min(left, Math.max(Math.min(80, left),
+            target * 0.80 - Math.max(0, Number(p.elapsedMs) || 0))));
+    }
+    function gameReviewSearchBudgetMs(params) {
+        const p = params || {};
+        const limit = SHORT_CLOCK_LIMITS[p.timeControlId];
+        if (!limit || !Number.isFinite(p.remainingMs)) return moveReviewSearchBudgetMs(p);
+        const full = gameSearchBudgetMs({ ...p, elapsedMs: 0 });
+        const skill = clampNum(((Number(p.elo) || 800) - 200) / 2200, 0, 1);
+        const total = Math.max(2, Math.min(limit.review, full * (0.16 + 0.06 * skill), p.remainingMs * 0.04));
+        const stage = Number(p.stage) === 2 ? 0.4 : 0.6;
+        return Math.max(1, Math.floor(Math.min(total * stage, total - Math.max(0, p.elapsedMs || 0))));
+    }
+    function timedSelectionLevel(params) {
+        const p = params || {};
+        const elo = clampNum(Number(p.elo) || 800, 200, 2600);
+        // La pressió només amplia suaument els errors de la capa de nivells
+        // baixos; als nivells UCI, el bestmove del motor ja regula la força.
+        return Math.max(200, elo - shortClockPressure(p) * 140 * clampNum((1350 - elo) / 1150, 0, 1));
+    }
+    function nextHumanPace(params) {
+        const p = params || {};
+        const old = { ms: Number.isFinite(p.ms) ? p.ms : null, samples: Math.max(0, p.samples || 0) };
+        if (p.premove || !Number.isFinite(p.elapsed) || p.elapsed < 80) return old;
+        const max = SHORT_CLOCK_LIMITS[p.timeControlId] ? SHORT_CLOCK_LIMITS[p.timeControlId].ceiling * 3 : 60000;
+        if (p.elapsed > max) return old; // modal, pestanya suspesa o pausa llarga
+        return { ms: old.ms === null ? p.elapsed : old.ms * 0.75 + p.elapsed * 0.25, samples: old.samples + 1 };
+    }
+    // Només comparem MultiPV de la mateixa profunditat, amb puntuacions
+    // exactes i moviments diferents. Una iteració incompleta no esborra
+    // l'última completa ni barreja puntuacions superficials i profundes.
+    function createMoveCandidateCollector(expected) {
+        const count = Math.max(1, Math.floor(expected) || 1);
+        const frames = new Map();
+        let complete = [], principal = null;
+        return {
+            push(candidate) {
+                const c = candidate;
+                if (!c || c.bound || !Number.isFinite(c.score) || !(c.depth > 0) || !c.move || !(c.multipv >= 1 && c.multipv <= count)) return;
+                if (c.multipv === 1 && (!principal || c.depth >= principal.depth)) principal = c;
+                if (!frames.has(c.depth)) frames.set(c.depth, new Map());
+                const frame = frames.get(c.depth);
+                frame.set(c.multipv, c);
+                const list = Array.from(frame.values()).sort((a, b) => a.multipv - b.multipv);
+                if (list.length === count && new Set(list.map(x => x.move)).size === count
+                        && (!complete.length || c.depth >= complete[0].depth)) complete = list;
+                const depths = Array.from(frames.keys()).sort((a, b) => b - a);
+                depths.slice(4).forEach(depth => frames.delete(depth));
+            },
+            values() { return complete.length ? complete.slice() : (principal ? [principal] : []); }
+        };
+    }
+
     // ----------------------------------------------------------------------
     // Comptabilitat del rellotge de partida
     // ----------------------------------------------------------------------
@@ -8676,6 +8807,16 @@
         clockManagementSkill,
         phaseFromFen,
         humanThinkTimeMs,
+        engineStrengthOption,
+        nativeStrengthCommands,
+        SHORT_CLOCK_LIMITS,
+        shortClockPressure,
+        gameThinkTimeMs,
+        gameSearchBudgetMs,
+        gameReviewSearchBudgetMs,
+        timedSelectionLevel,
+        nextHumanPace,
+        createMoveCandidateCollector,
         visibleHumanReplyDelayMs,
         engineSearchBudgetMs,
         ENGINE_SEARCH_MIN_MS,
