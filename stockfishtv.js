@@ -3677,6 +3677,19 @@
             savePref: (v) => savePrefsRaw({ voice: v }),
             onChange: () => renderVoice()
         });
+        // Mentre la veu parla, el so de fons baixa (com a la ràdio). Només
+        // la locució més recent el torna a pujar: si una de nova talla
+        // l'anterior, el final de l'anterior no l'ha d'apujar.
+        const speakVoice = voice.speak;
+        let duckSeq = 0;
+        voice.speak = (text, opts) => {
+            const id = ++duckSeq;
+            if (radioAmbience) radioAmbience.duck(true);
+            const done = () => { if (id === duckSeq && radioAmbience) radioAmbience.duck(false); };
+            const result = speakVoice(text, opts);
+            Promise.resolve(result).then(done, done);
+            return result;
+        };
         const engine = createTvEngine({
             createWorker: () => (typeof bridge.createWorker === 'function' ? bridge.createWorker() : new Worker('stockfish.js'))
         });
