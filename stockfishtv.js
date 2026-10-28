@@ -128,7 +128,7 @@
         // encaixa més amb el seu estil. Així el nivell es manté i el caràcter
         // de cada jugador es nota.
         STYLE_MULTIPV: 4,
-        STYLE_WINDOW_CP: 40,
+        STYLE_WINDOW_CP: 50,
         // Pèrdua mínima (cp, mateix bàndol) per comentar una alternativa.
         MISSED_LOSS_CP: { basic: 250, mid: 200, advanced: 150 },
         // Amb una posició ja decidida no es comenten matisos.
@@ -383,8 +383,10 @@
     const TV_STYLES = {
         attacker: { label: 'L\'Atacant', text: 'va a buscar el rei rival: escacs, peces que s\'hi acosten i peons que avancen',
             weights: { check: 3, approach: 1.2, storm: 1.5, sacrifice: 1, threat: 0.6, trade: -1.5, retreat: -0.8 } },
+        // El contrari de L'Atacant: simplifica, no s'exposa i no busca el rei.
         wall: { label: 'El Mur', text: 'juga segur: protegeix el rei, canvia peces quan va per davant i no regala res',
-            weights: { castle: 3, shield: -2.5, tradeAhead: 2, tradeBehind: -1.5, sacrifice: -2.5, kingMove: -1, retreat: 0.3, development: 0.8 } },
+            weights: { castle: 3, shield: -2.5, trade: 1.2, tradeAhead: 2, tradeBehind: -1.5, sacrifice: -2.5, kingMove: -1,
+                retreat: 0.6, development: 0.8, check: -0.8, approach: -0.6, storm: -1.5, quiet: 0.4 } },
         hunter: { label: 'El Caçador', text: 'no deixa passar cap peça: captura i amenaça material sempre que pot',
             weights: { captureValue: 1.2, threat: 1.5, promotion: 3, check: 0.5 } },
         strategist: { label: 'L\'Estratega', text: 'pensa a llarg termini: centre, desenvolupament i columnes obertes',

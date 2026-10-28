@@ -419,10 +419,14 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   (escac, captura, enroc, peons contra el rei enrocat, canvi, sacrifici,
   columna oberta, desenvolupament…) es calculen amb chess.js real, cada perfil
   prefereix les jugades del seu estil, i només tria entre les línies amb una
-  valoració a 40 centipeons o menys de la jugada que fa el motor al seu nivell
+  valoració a 50 centipeons o menys de la jugada que fa el motor al seu nivell
   (amb un mat, o si aquella jugada no és entre les línies, mana el nivell). La
   prova del bucle comprova que la petició demana 4 línies i que el perfil
-  canvia la jugada del nivell per una del seu estil.
+  canvia la jugada del nivell per una del seu estil. Els pesos s'han ajustat
+  simulant unes 60 partides amb el motor de l'app (nivells 4 i 10): respecte de
+  jugar sense perfil, L'Atacant fa un 84% més d'escacs, El Mur un 67% menys
+  d'escacs i un 29% més de canvis, El Caçador un 28% més de captures i un 66%
+  més d'amenaces, i L'Estratega centralitza un 87% més.
   **Comentaris** sobre posicions reals: forquilla amb escac (i el «guany» només
   si l'anàlisi l'avala), enroc amb torres connectades de debò, peça atacada però
   defensada (sense cap «guany»), peça clavada que no amenaça, peó que queda
