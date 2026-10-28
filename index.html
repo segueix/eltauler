@@ -3201,6 +3201,14 @@
         }
         .sftv-voice-toggle.is-on { background: rgba(201,162,39,0.24); border-color: rgba(227,184,74,0.65); }
         .sftv-voice-toggle:disabled { opacity: 0.55; cursor: default; }
+        #sftv-matxa-controls[hidden] { display: none !important; }
+        .sftv-matxa-controls { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 12px; }
+        .sftv-matxa-controls summary { cursor: pointer; font-weight: 600; }
+        .sftv-matxa-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px 20px; margin-top: 12px; }
+        .sftv-matxa-grid label { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; min-width: 0; }
+        .sftv-matxa-grid input { flex: 1; min-width: 70px; width: 100%; accent-color: var(--accent); }
+        .sftv-matxa-grid input:disabled { opacity: 0.4; }
+        .sftv-matxa-grid output { min-width: 3.2em; text-align: right; }
         .sftv-note { flex-basis: 100%; text-align: center; font-size: 0.78rem; color: var(--text-secondary); }
         .sftv-layout { display: flex; flex-direction: column; gap: 12px; }
         .sftv-main { min-width: 0; }
@@ -6620,6 +6628,35 @@
                 <span class="sftv-note" id="sftv-voice-note" role="status" style="display:none;"></span>
             </div>
             </div>
+            <details id="sftv-matxa-controls" class="sftv-matxa-controls" hidden>
+                <summary>Ajusta la veu Matxa</summary>
+                <div class="sftv-matxa-grid">
+                    <label for="sftv-matxa-profile">Perfil de so
+                        <select id="sftv-matxa-profile" class="select-control">
+                            <option value="natural">Natural</option>
+                            <option value="warm">Càlida</option>
+                            <option value="radio">Ràdio</option>
+                        </select>
+                    </label>
+                    <label for="sftv-matxa-intensity">Intensitat
+                        <input id="sftv-matxa-intensity" type="range" min="0" max="100" value="60" aria-describedby="sftv-matxa-help">
+                        <output id="sftv-matxa-intensity-value" for="sftv-matxa-intensity">60%</output>
+                    </label>
+                    <label for="sftv-matxa-clarity">Claredat
+                        <input id="sftv-matxa-clarity" type="range" min="0" max="100" value="50" aria-describedby="sftv-matxa-help">
+                        <output id="sftv-matxa-clarity-value" for="sftv-matxa-clarity">50%</output>
+                    </label>
+                    <label for="sftv-matxa-volume">Volum
+                        <input id="sftv-matxa-volume" type="range" min="0" max="100" value="100">
+                        <output id="sftv-matxa-volume-value" for="sftv-matxa-volume">100%</output>
+                    </label>
+                    <label for="sftv-matxa-rate">Velocitat de la veu
+                        <input id="sftv-matxa-rate" type="range" min="81" max="111" value="100">
+                        <output id="sftv-matxa-rate-value" for="sftv-matxa-rate">100%</output>
+                    </label>
+                </div>
+                <p class="setting-help" id="sftv-matxa-help">Els canvis es desen al teu perfil i s’escolten a partir del comentari següent.</p>
+            </details>
             <div class="sftv-layout">
                 <div class="sftv-main">
                     <div class="sftv-board-row">
@@ -8960,7 +8997,7 @@
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.3"></script>
     <script src="veuneural.js?v=1.1.0"></script>
-    <script src="stockfishtv.js?v=1.4.1"></script>
+    <script src="stockfishtv.js?v=1.4.2"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -8971,7 +9008,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.104"></script>
+    <script src="app.js?v=1.0.105"></script>
 
     <!-- Service Worker Registration -->
     <script>

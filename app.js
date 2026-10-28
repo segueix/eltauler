@@ -1760,6 +1760,29 @@ function defaultNeuralTtsVoice() {
         effects: window.ElTaulerVeuNeural.normalizeEffects(p.matxaEffects) } : null;
 }
 
+// Els ajustos de TV es desen al mateix perfil que fa servir la retransmissió.
+// Un perfil base es copia una sola vegada abans de personalitzar-lo.
+function updateNeuralTtsSettings(changes) {
+    const current = defaultNeuralTtsVoice();
+    if (!current) return null;
+    const p = getReviewTtsPresetById(getDefaultReviewTtsPresetId());
+    const c = changes || {};
+    const preset = { ...p,
+        id: p.builtin ? `tts_${Date.now()}_${Math.floor(Math.random() * 1000)}` : p.id,
+        name: p.builtin ? 'Matxa · ' + window.ElTaulerVeuNeural.voiceById(current.id).name + ' · TV' : p.name,
+        builtin: false,
+        rate: typeof c.rate === 'number' && Number.isFinite(c.rate) ? Math.max(0.81, Math.min(1.11, c.rate)) : current.rate,
+        matxaEffects: window.ElTaulerVeuNeural.normalizeEffects({ ...current.effects, ...c.effects })
+    };
+    const presets = readReviewTtsPresets();
+    const index = presets.findIndex(item => item.id === preset.id);
+    if (index < 0) presets.push(preset); else presets[index] = preset;
+    writeReviewTtsPresets(presets);
+    setDefaultReviewTtsPresetId(preset.id);
+    setReviewTtsMode('fixed');
+    return defaultNeuralTtsVoice();
+}
+
 function reviewTtsSupported() {
     return typeof window !== 'undefined'
         && 'speechSynthesis' in window
@@ -36386,6 +36409,7 @@ $(document).ready(() => {
             getNeuralVoiceId: () => { const v = defaultNeuralTtsVoice(); return v ? v.id : null; },
             getNeuralRate: () => { const v = defaultNeuralTtsVoice(); return v ? v.rate : 1; },
             getNeuralEffects: () => { const v = defaultNeuralTtsVoice(); return v ? v.effects : null; },
+            updateNeuralSettings: updateNeuralTtsSettings,
             onOpen: () => { try { stopReviewTts(); requestBackgroundPrepAbort(); } catch (e) {} }
         });
     } catch (e) { console.warn('[Stockfish TV] init', e); }

@@ -33,6 +33,39 @@ function setup({ saved, presets = [], voices = [CA_AD, CA_ES], available = true,
 }
 
 describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
+    test('els controls de TV copien el perfil base una vegada i desen els quatre ajustos', () => {
+        const app = setup({ saved: 'matxa-radio' });
+        app.run("updateNeuralTtsSettings({ effects: { intensity: 0.8 } })");
+        const id = app.run('getDefaultReviewTtsPresetId()');
+        app.run("updateNeuralTtsSettings({ effects: { clarity: 0.7, volume: 0 }, rate: 1.05 })");
+        expect(app.run('readReviewTtsPresets().length')).toBe(1);
+        expect(app.run('getDefaultReviewTtsPresetId()')).toBe(id);
+        expect(app.run('defaultNeuralTtsVoice()')).toEqual({ id: 'matxa:central:elia', rate: 1.05,
+            effects: { profile: 'radio', intensity: 0.8, clarity: 0.7, volume: 0 } });
+        expect(app.run("getReviewTtsPresetById('matxa-radio').matxaEffects")).toEqual({ profile: 'radio' });
+        app.run("beginReviewTts('Una forquilla.', 'settings')");
+        expect(app.speaker.speak.mock.calls[0][2]).toMatchObject({ rate: 1.05,
+            effects: { profile: 'radio', intensity: 0.8, clarity: 0.7, volume: 0 } });
+    });
+
+    test('TV actualitza el perfil personal existent i limita la velocitat de Matxa', () => {
+        const app = setup({ saved: 'personal', presets: [{ id: 'personal', name: 'La meva veu', voiceURI: 'matxa:balear:quim', rate: 1 }] });
+        app.run("updateNeuralTtsSettings({ rate: 2, effects: { profile: 'warm' } })");
+        expect(app.run('defaultNeuralTtsVoice().rate')).toBe(1.11);
+        expect(app.run('defaultNeuralTtsVoice().id')).toBe('matxa:balear:quim');
+        expect(app.run('readReviewTtsPresets().length')).toBe(1);
+        expect(app.run('readReviewTtsPresets()[0].name')).toBe('La meva veu');
+        app.run('updateNeuralTtsSettings({ rate: 0.1 })');
+        expect(app.run('defaultNeuralTtsVoice().rate')).toBe(0.81);
+    });
+
+    test('els ajustos de TV no modifiquen cap perfil del sistema', () => {
+        const app = setup({ saved: 'system-ca-es' });
+        expect(app.run("updateNeuralTtsSettings({ rate: 1.1, effects: { volume: 0.2 } })")).toBeNull();
+        expect(app.run('readReviewTtsPresets()')).toEqual([]);
+        expect(app.run('getDefaultReviewTtsPresetId()')).toBe('system-ca-es');
+    });
+
     test.each(['warm', 'radio'])('el perfil %s arriba a les ressenyes i al pont de TV', profile => {
         const app = setup({ saved: 'matxa-' + profile });
         expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile, intensity: 0.6, clarity: 0.5, volume: 1 });

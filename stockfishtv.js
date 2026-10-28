@@ -3253,7 +3253,42 @@
         setTimeout(resizeBoard, 0);
     }
 
+    function renderMatxaControls() {
+        const panel = $id('sftv-matxa-controls');
+        if (!panel) return;
+        const selected = typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId();
+        panel.hidden = !selected;
+        if (!selected) return;
+        const effects = typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null;
+        const settings = Object.assign({ profile: 'natural', intensity: 0.6, clarity: 0.5, volume: 1 }, effects || {});
+        const profile = $id('sftv-matxa-profile');
+        if (profile) profile.value = settings.profile;
+        settings.rate = typeof bridge.getNeuralRate === 'function' ? bridge.getNeuralRate() : 1;
+        ['intensity', 'clarity', 'volume', 'rate'].forEach(key => {
+            const control = $id('sftv-matxa-' + key);
+            const value = $id('sftv-matxa-' + key + '-value');
+            const percent = Math.round(settings[key] * 100);
+            if (control) {
+                control.value = percent;
+                control.disabled = settings.profile === 'natural' && (key === 'intensity' || key === 'clarity');
+            }
+            if (value) value.textContent = percent + '%';
+        });
+        const help = $id('sftv-matxa-help');
+        if (help) help.textContent = (settings.profile === 'natural' ? 'Natural no aplica filtres. Tria Càlida o Ràdio per ajustar la intensitat i la claredat. ' : '')
+            + 'Els canvis es desen al teu perfil i s’escolten a partir del comentari següent.';
+    }
+
+    function changeMatxaControl(key, value) {
+        if (typeof bridge.updateNeuralSettings !== 'function') return;
+        const changes = key === 'rate' ? { rate: Number(value) / 100 }
+            : { effects: { [key]: key === 'profile' ? value : Number(value) / 100 } };
+        bridge.updateNeuralSettings(changes);
+        renderMatxaControls();
+    }
+
     function renderVoice() {
+        renderMatxaControls();
         if (!voice) return;
         const status = voice.status();
         const activate = $id('sftv-voice-activate');
@@ -3671,6 +3706,11 @@
         on('sftv-level-apply', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-too-hard', 'click', () => { if (controller) controller.adjust('easier'); });
         on('sftv-speed', 'change', (ev) => { if (controller) controller.setSpeed(ev.target.value); });
+        on('sftv-matxa-profile', 'change', ev => changeMatxaControl('profile', ev.target.value));
+        ['intensity', 'clarity', 'volume', 'rate'].forEach(key => {
+            on('sftv-matxa-' + key, 'input', ev => changeMatxaControl(key, ev.target.value));
+            on('sftv-matxa-' + key, 'change', ev => changeMatxaControl(key, ev.target.value));
+        });
         // Activar la veu és sempre fruit d'un toc de l'usuari (requisit dels
         // navegadors): la primera locució surt dins del mateix gest.
         on('sftv-voice-activate', 'click', () => {
