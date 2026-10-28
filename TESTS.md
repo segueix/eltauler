@@ -399,7 +399,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   de la sincronització i el nivell de l'usuari intacte. **Valoracions**:
   normalització al punt de vista blanc, centipeons i mats mai barrejats,
   anàlisi poc profunda marcada com a no fiable. **Finals** amb chess.js real:
-  mat, ofegat, material insuficient, repetició i cinquanta jugades.
+  mat, ofegat, material insuficient, repetició, cinquanta jugades i la durada
+  màxima de 100 jugades. **Partides decidides**: abandona qui perd quan
+  l'anàlisi a força plena dona 5 peons (7 als nivells d'Elo estimat < 1800) o
+  un mat al mateix bàndol durant 6 semijugades seguides, mai abans de la jugada
+  20; una remuntada o un canvi de bàndol reinicien la sèrie i una anàlisi poc
+  fiable no hi compta. Amb 3 peons d'avantatge les jugades van al ritme àgil.
+  Una partida de cada dues comença amb una obertura que desequilibra aviat
+  (gambits, partides obertes, sicilianes…), i la prova del bucle comprova que
+  una partida decidida acaba sola amb l'abandonament.
   **Comentaris** sobre posicions reals: forquilla amb escac (i el «guany» només
   si l'anàlisi l'avala), enroc amb torres connectades de debò, peça atacada però
   defensada (sense cap «guany»), peça clavada que no amenaça, peó que queda

@@ -67,6 +67,12 @@ Conduir amb Playwright + Chromium preinstal·lat
     i després la casella de destí (sense espera mínima entre tocs) o
     arrossegant amb `page.mouse` en mode «arrossegar» (escriptori).
     `_controller().userMoves(casella)` dona els destins legals.
+    **Abandonament**: una partida decidida acaba amb `game.end.reason ===
+    'resign'`; la sèrie és a `_controller()._internal.game.resign`. Per veure-ho
+    en pocs minuts, abans d'obrir la TV baixar `TV_CONFIG.RESIGN_MIN_PLY` (p. ex.
+    16), `MOVE_PREVIEW_MS`, `INTRO_DELAY_MS`, `SPEEDS.quick` i
+    `PLAYER_MOVETIME_MS.skill`, i esperar `game.end` (el resultat surt a
+    `.sftv-result-head` / `.sftv-result-text`).
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i

@@ -98,7 +98,22 @@
         // Pausa breu entre una partida acabada i la següent.
         NEXT_GAME_DELAY_MS: 10000,
         // Límit de durada de la TV (en semijugades): taules si s'hi arriba.
-        MAX_PLIES: 400,
+        MAX_PLIES: 200,
+        // Abandonament, com en una partida humana: si l'anàlisi a força plena
+        // dona aquest avantatge (o un mat) al mateix bàndol durant RESIGN_PLIES
+        // semijugades seguides, a partir de RESIGN_MIN_PLY, el bàndol que perd
+        // abandona. Als nivells baixos (Elo estimat < RESIGN_LOW_ELO) es demana
+        // més marge: els jugadors febles encara poden girar una partida. A les
+        // simulacions amb el motor de l'app, la regla dona el mateix guanyador
+        // que jugar fins al mat i s'estalvia una vintena de jugades.
+        RESIGN_CP: 500,
+        RESIGN_CP_LOW: 700,
+        RESIGN_LOW_ELO: 1800,
+        RESIGN_PLIES: 6,
+        RESIGN_MIN_PLY: 40,
+        // Amb la partida decidida (aquest avantatge o un mat), les jugades es
+        // mostren al ritme «Àgil», triï l'espectador el ritme que triï.
+        DECIDED_PACE_CP: 300,
         // Pèrdua mínima (cp, mateix bàndol) per comentar una alternativa.
         MISSED_LOSS_CP: { basic: 250, mid: 200, advanced: 150 },
         // Amb una posició ja decidida no es comenten matisos.
@@ -375,7 +390,8 @@
     // ------------------------------------------------------------------
     function tvMoveDelayMs(speedId, opts) {
         const o = opts || {};
-        const speed = TV_CONFIG.SPEEDS[speedId] || TV_CONFIG.SPEEDS[TV_CONFIG.DEFAULT_SPEED];
+        // Partida decidida: el desenllaç no s'allarga (sempre el ritme més àgil).
+        const speed = o.decided ? TV_CONFIG.SPEEDS.quick : (TV_CONFIG.SPEEDS[speedId] || TV_CONFIG.SPEEDS[TV_CONFIG.DEFAULT_SPEED]);
         const r = isNum(o.random) ? clamp(o.random, 0, 1) : 0.5;
         let ms = speed.min + (speed.max - speed.min) * r;
         if (o.tier === 'basic') ms *= TV_CONFIG.BASIC_PACE_FACTOR;
@@ -493,13 +509,70 @@
     }
 
     // ------------------------------------------------------------------
+    // Partides decidides: abandonament i ritme
+    // ------------------------------------------------------------------
+    // Bàndol amb un avantatge d'almenys `thresholdCp` (o un mat) segons una
+    // valoració des del punt de vista de les blanques.
+    function tvDecisiveSide(scoreW, thresholdCp) {
+        if (!scoreW || !isNum(scoreW.value)) return null;
+        if (scoreW.type === 'mate') return scoreW.value > 0 ? 'w' : (scoreW.value < 0 ? 'b' : null);
+        if (scoreW.type !== 'cp') return null;
+        return scoreW.value >= thresholdCp ? 'w' : (scoreW.value <= -thresholdCp ? 'b' : null);
+    }
+
+    function tvResignThresholdCp(caps, level) {
+        const elo = tvLevelElo(caps, level);
+        return isNum(elo) && elo < TV_CONFIG.RESIGN_LOW_ELO ? TV_CONFIG.RESIGN_CP_LOW : TV_CONFIG.RESIGN_CP;
+    }
+
+    function tvResignEnd(winner) {
+        const loser = other(winner);
+        return { result: winner === 'w' ? '1-0' : '0-1', winner: winner, reason: 'resign',
+            text: COLOR[loser].Pl + ' abandonen: l\'avantatge de ' + COLOR[winner].pl + ' ja és decisiu. Guanyen ' + COLOR[winner].pl + '.' };
+    }
+
+    // Una semijugada més de la sèrie: `analysis` és la de la posició que acaba
+    // de quedar i `plies` les semijugades jugades. Una anàlisi absent o poc
+    // fiable no compta, però tampoc no trenca la sèrie.
+    function tvResignStep(state, analysis, plies, thresholdCp) {
+        const prev = state && state.side ? state : { side: null, plies: 0 };
+        if (!analysis || !analysis.reliable) return { state: prev, end: null };
+        const side = tvDecisiveSide(analysis.best, thresholdCp);
+        const next = side ? { side: side, plies: side === prev.side ? prev.plies + 1 : 1 } : { side: null, plies: 0 };
+        const resigns = !!side && plies >= TV_CONFIG.RESIGN_MIN_PLY && next.plies >= TV_CONFIG.RESIGN_PLIES;
+        return { state: next, end: resigns ? tvResignEnd(side) : null };
+    }
+
+    function tvIsDecided(analysis) {
+        return !!(analysis && analysis.reliable && tvDecisiveSide(analysis.best, TV_CONFIG.DECIDED_PACE_CP));
+    }
+
+    // ------------------------------------------------------------------
     // Obertures del repertori
     // ------------------------------------------------------------------
-    // Rotació: cada partida nova agafa la següent obertura de la llista.
-    function tvPickOpening(curated, index) {
+    // Obertures que desequilibren aviat (gambits, partides obertes, sicilianes,
+    // índies dinàmiques…): donen partides que es decideixen abans.
+    const SHARP_ECO = /^(B0[1-3]|B[2-9]\d|C2\d|C3\d|C4[4-9]|C5\d|A5[2-9]|A[68]\d|D08|D8\d|E[6-9]\d)/;
+    function tvIsSharpOpening(opening) {
+        if (!opening) return false;
+        const name = String(opening.name || '');
+        if (/gambit/i.test(name) && !/gambit de dama/i.test(name)) return true;
+        return SHARP_ECO.test(String(opening.eco || ''));
+    }
+
+    // Rotació: cada partida nova agafa la següent obertura de la llista. Amb
+    // `opts.sharp`, la següent de la rotació que sigui d'aquelles que
+    // desequilibren aviat.
+    function tvPickOpening(curated, index, opts) {
         const list = Array.isArray(curated) ? curated.filter(o => o && Array.isArray(o.moves) && o.moves.length) : [];
         if (!list.length) return { opening: null, nextIndex: 0 };
-        const i = ((isNum(index) ? Math.floor(index) : 0) % list.length + list.length) % list.length;
+        let i = ((isNum(index) ? Math.floor(index) : 0) % list.length + list.length) % list.length;
+        if (opts && opts.sharp) {
+            for (let k = 0; k < list.length; k++) {
+                const j = (i + k) % list.length;
+                if (tvIsSharpOpening(list[j])) { i = j; break; }
+            }
+        }
         return { opening: list[i], nextIndex: (i + 1) % list.length };
     }
 
@@ -2549,8 +2622,10 @@
         function startGame() {
             halt();
             const epoch = S.epoch;
+            // Una partida de cada dues comença amb una obertura que desequilibra
+            // aviat: les partides es decideixen abans sense tocar el nivell.
             const pick = tvPickOpening(typeof d.getOpenings === 'function' ? d.getOpenings() : [],
-                prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000));
+                prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000), { sharp: S.gameSeq % 2 === 0 });
             prefs = Object.assign({}, prefs, { openingIndex: pick.nextIndex });
             savePrefs();
             S.control = null;
@@ -2570,6 +2645,8 @@
                 analyses: {},
                 comments: [],
                 memory: tvEmptyMemory(),
+                // Semijugades seguides amb un bàndol clarament guanyador (abandonament).
+                resign: { side: null, plies: 0 },
                 comment: null,
                 intro: null,
                 end: null,
@@ -2675,7 +2752,9 @@
                 // El comentari es decideix ARA (no depèn de res que passi durant
                 // l'espera) i així la veu es pot preparar mentre es veu la jugada
                 // anterior: quan surti la jugada, l'àudio ja hi és.
-                const plan = planMove(g, uci, fenBefore, prepared, before, after);
+                // Amb control manual l'usuari decideix quan s'acaba: el motor no abandona per ell.
+                const resign = S.control ? null : tvResignStep(g.resign, after, ply + 1, tvResignThresholdCp(S.caps, g.level.value));
+                const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
                 if (!plan) { fail('illegal'); return; }
                 if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') d.voice.prefetch(tvSpeechText(plan.chosen.text));
 
@@ -2711,7 +2790,7 @@
 
         // Calcula la jugada i el seu comentari sense tocar la partida visible
         // (sobre una còpia amb tot l'historial, per a la repetició i els finals).
-        function planMove(g, uci, fenBefore, prepared, before, after) {
+        function planMove(g, uci, fenBefore, prepared, before, after, resign) {
             const ply = g.moves.length;
             const prevMove = ply ? g.moves[ply - 1].verbose : null;
             const copy = new d.ChessCtor();
@@ -2721,7 +2800,7 @@
             const mv = copy.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
             if (!mv) return null;
             const fenAfter = copy.fen();
-            const end = tvGameEnd(copy);
+            const end = tvGameEnd(copy) || (resign && resign.end) || null;
             // La memòria de la retransmissió només s'actualitza quan la jugada
             // es mostra de debò (reveal): si una pausa descarta aquest pla, la
             // memòria visible continua intacta.
@@ -2730,14 +2809,15 @@
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply, memory: g.memory
             });
-            return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory };
+            return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
+                resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
         }
 
         function reveal(g, uci, prepared, plan, epoch) {
             const entry = commitMove(g, uci, prepared, plan, false);
             if (!entry) return;
             const shownAt = now();
-            let delay = tvMoveDelayMs(prefs.speed, { tier: g.tier, prepared: !!prepared, random: random() });
+            let delay = tvMoveDelayMs(prefs.speed, { tier: g.tier, prepared: !!prepared, random: random(), decided: !!plan.decided });
             if (g.comment) delay = Math.max(delay, tvReadingTimeMs(g.comment.text, g.tier));
             S.nextRevealAt = shownAt + delay;
             notify('move', { gameId: g.id, move: entry, comment: g.comment });
@@ -2750,7 +2830,7 @@
         function commitMove(g, uci, prepared, plan, byUser) {
             const ply = g.moves.length;
             const fenBefore = g.chess.fen();
-            const undo = { fenBefore: fenBefore, memory: g.memory, identified: g.identified };
+            const undo = { fenBefore: fenBefore, memory: g.memory, identified: g.identified, resign: g.resign };
             const mv = g.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
             if (!mv || ply !== plan.ply) { fail('illegal'); return null; }
             const fenAfter = g.chess.fen();
@@ -2762,6 +2842,7 @@
             g.end = plan.end;
             g.comment = null;
             g.memory = plan.memory;
+            if (plan.resign !== undefined) g.resign = plan.resign;
             if (plan.chosen) attachComment(g, entry, plan.chosen);
             return entry;
         }
@@ -2931,6 +3012,7 @@
                 if (!undone || g.chess.fen() !== entry.undo.fenBefore) rebuildChess(g);
                 g.memory = entry.undo.memory;
                 g.identified = entry.undo.identified;
+                g.resign = entry.undo.resign || { side: null, plies: 0 };
                 g.comments = g.comments.filter(c => c.ply < g.moves.length);
                 g.end = null;
                 g.nextGameAt = null;
@@ -3936,6 +4018,11 @@
         tvBuildAnalysis,
         tvMoverLossCp,
         tvGameEnd,
+        tvDecisiveSide,
+        tvResignThresholdCp,
+        tvResignStep,
+        tvIsDecided,
+        tvIsSharpOpening,
         tvResultHeadline,
         tvPickOpening,
         tvPreparedLine,
