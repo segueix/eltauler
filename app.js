@@ -1736,7 +1736,7 @@ const REVIEW_TTS_STATE = {
 const REVIEW_TTS_PRESETS_KEY = 'eltauler_tts_presets';
 const REVIEW_TTS_DEFAULT_KEY = 'eltauler_tts_default_preset';
 const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
-const DEFAULT_REVIEW_TTS_PRESET = { id: 'default', name: 'Català natural', voiceURI: '', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
+const DEFAULT_REVIEW_TTS_PRESET = { id: 'system-ca-es', name: 'Català (Espanya) · sistema', voiceURI: 'system:ca-ES', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
 // Perfil base amb veu NEURONAL (Matxa, BSC): molt més natural que les veus del
 // sistema. És el perfil per defecte mentre l'usuari no n'hagi triat cap altre.
 const NEURAL_REVIEW_TTS_PRESET = { id: 'matxa', name: 'Veu neuronal Matxa · Elia (central)', voiceURI: 'matxa:central:elia', pitch: 1, rate: 1, expressivity: 0.5, cadence: 0.5, builtin: true };
@@ -1748,7 +1748,7 @@ function isNeuralTtsVoice(voiceURI) {
     return neuralTtsAvailable() && window.ElTaulerVeuNeural.isNeuralVoiceId(voiceURI);
 }
 function builtinReviewTtsPresets() {
-    return neuralTtsAvailable() ? [DEFAULT_REVIEW_TTS_PRESET, NEURAL_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
+    return neuralTtsAvailable() ? [NEURAL_REVIEW_TTS_PRESET, DEFAULT_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
 }
 // Veu neuronal del perfil per defecte (la fa servir Stockfish TV), o null.
 function defaultNeuralTtsVoice() {
@@ -1847,7 +1847,8 @@ function ttsProsodyForFragment(fragment, preset) {
 function getCatalanSpeechVoice() {
     if (!reviewTtsSupported()) return null;
     const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
-    return voices.find(v => /^ca([_-]|$)/i.test(v.lang || ''))
+    return voices.find(v => /^ca[-_]ES$/i.test(v.lang || ''))
+        || voices.find(v => /^ca([_-]|$)/i.test(v.lang || ''))
         || voices.find(v => /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
         || null;
 }
@@ -1861,7 +1862,10 @@ function getSpeechVoiceByURI(voiceURI) {
 function readReviewTtsPresets() {
     try {
         const arr = JSON.parse(localStorage.getItem(REVIEW_TTS_PRESETS_KEY) || '[]');
-        return Array.isArray(arr) ? arr.filter(p => p && p.id && p.name) : [];
+        // Els perfils antics sense veu concreta feien servir «Automàtica».
+        return Array.isArray(arr) ? arr.filter(p => p && p.id && p.name).map(p => (
+            p.voiceURI ? p : { ...p, voiceURI: builtinReviewTtsPresets()[0].voiceURI }
+        )) : [];
     } catch (e) { return []; }
 }
 
@@ -1884,16 +1888,20 @@ function setReviewTtsMode(mode) {
 
 function getDefaultReviewTtsPresetId() {
     const fallback = neuralTtsAvailable() ? NEURAL_REVIEW_TTS_PRESET.id : DEFAULT_REVIEW_TTS_PRESET.id;
-    try { return localStorage.getItem(REVIEW_TTS_DEFAULT_KEY) || fallback; }
+    try {
+        const saved = localStorage.getItem(REVIEW_TTS_DEFAULT_KEY);
+        // Migra també el perfil automàtic desat abans d'introduir Matxa.
+        return !saved || saved === 'default' ? fallback : saved;
+    }
     catch (e) { return fallback; }
 }
 
 function setDefaultReviewTtsPresetId(id) {
-    try { localStorage.setItem(REVIEW_TTS_DEFAULT_KEY, id || DEFAULT_REVIEW_TTS_PRESET.id); } catch (e) {}
+    try { localStorage.setItem(REVIEW_TTS_DEFAULT_KEY, id || builtinReviewTtsPresets()[0].id); } catch (e) {}
 }
 
 function getReviewTtsPresetById(id) {
-    return allReviewTtsPresets().find(p => p.id === id) || DEFAULT_REVIEW_TTS_PRESET;
+    return allReviewTtsPresets().find(p => p.id === id) || builtinReviewTtsPresets()[0];
 }
 
 function getEffectiveReviewTtsPreset() {
@@ -1910,7 +1918,7 @@ function currentReviewTtsSettingsPreset() {
     return {
         id: id && !isBuiltin ? id : `tts_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
         name: String($('#tts-preset-name').val() || '').trim() || 'Perfil de veu',
-        voiceURI: String($('#tts-voice-select').val() || ''),
+        voiceURI: String($('#tts-voice-select').val() || builtinReviewTtsPresets()[0].voiceURI),
         pitch: Math.max(0.5, Math.min(2, (+$('#tts-pitch-range').val() || 100) / 100)),
         rate: Math.max(0.5, Math.min(2, (+$('#tts-rate-range').val() || 95) / 100)),
         expressivity: Math.max(0, Math.min(1, (+$('#tts-expressivity-range').val() || 0) / 100)),
@@ -1919,9 +1927,9 @@ function currentReviewTtsSettingsPreset() {
 }
 
 function applyReviewTtsPresetToSettings(preset) {
-    const p = preset || DEFAULT_REVIEW_TTS_PRESET;
+    const p = preset || builtinReviewTtsPresets()[0];
     $('#tts-preset-name').val(p.builtin ? '' : p.name);
-    $('#tts-voice-select').val(p.voiceURI || '');
+    $('#tts-voice-select').val(p.voiceURI || builtinReviewTtsPresets()[0].voiceURI);
     $('#tts-pitch-range').val(Math.round((p.pitch || 1) * 100));
     $('#tts-rate-range').val(Math.round((p.rate || 0.95) * 100));
     $('#tts-expressivity-range').val(Math.round((p.expressivity ?? 0.5) * 100));
@@ -1939,7 +1947,7 @@ function refreshReviewTtsSettingsUi() {
     if (presetSelect.length) {
         presetSelect.empty();
         presets.forEach(p => presetSelect.append($('<option></option>').val(p.id).text(p.builtin ? `${p.name} (base)` : p.name)));
-        presetSelect.val(presets.some(p => p.id === selected) ? selected : DEFAULT_REVIEW_TTS_PRESET.id);
+        presetSelect.val(presets.some(p => p.id === selected) ? selected : builtinReviewTtsPresets()[0].id);
     }
     $('#tts-preset-mode').val(getReviewTtsMode());
     const voiceSelect = $('#tts-voice-select');
@@ -1952,7 +1960,7 @@ function refreshReviewTtsSettingsUi() {
             voiceSelect.append(group);
         }
         const local = $('<optgroup></optgroup>').attr('label', 'Veus del dispositiu');
-        local.append($('<option></option>').val('').text('Automàtica en català'));
+        local.append($('<option></option>').val(DEFAULT_REVIEW_TTS_PRESET.voiceURI).text('Català (Espanya) · sistema'));
         if (reviewTtsSupported()) {
             (window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [])
                 .filter(v => /^ca([_-]|$)/i.test(v.lang || '') || /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
@@ -1983,7 +1991,7 @@ function deleteCurrentReviewTtsPreset() {
     if (!id || builtinReviewTtsPresets().some(p => p.id === id)) { showToast('Els perfils base no es poden eliminar.', 'warn'); return; }
     const presets = readReviewTtsPresets().filter(p => p.id !== id);
     writeReviewTtsPresets(presets);
-    if (getDefaultReviewTtsPresetId() === id) setDefaultReviewTtsPresetId(DEFAULT_REVIEW_TTS_PRESET.id);
+    if (getDefaultReviewTtsPresetId() === id) setDefaultReviewTtsPresetId(null);
     refreshReviewTtsSettingsUi();
     showToast('Perfil de veu eliminat.', 'success');
 }
@@ -2023,6 +2031,7 @@ function updateReviewTtsButtons() {
     else if (REVIEW_TTS_STATE.isSpeaking && REVIEW_TTS_STATE.neuralActive) setReviewTtsStatus('Llegint amb la veu neuronal Matxa (en línia).');
     else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint amb la veu local en català.');
     else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
+    else if (defaultNeuralTtsVoice()) setReviewTtsStatus('Veu: ' + window.ElTaulerVeuNeural.voiceLabel(defaultNeuralTtsVoice().id) + '. Si falla, es farà servir el català del sistema.');
     else {
         const caVoice = getCatalanSpeechVoice();
         setReviewTtsStatus(caVoice ? 'Veu local: català' : 'No he trobat cap veu en català; provaré amb la veu del dispositiu.');
@@ -2082,10 +2091,9 @@ function speakReviewTtsChunk() {
     if (speakReviewTtsChunkNeural(chunk)) return;
     REVIEW_TTS_STATE.neuralActive = false;
     const utterance = new SpeechSynthesisUtterance(chunk.text || String(chunk));
-    // Etiqueta genèrica: de cara a l'usuari és només «català», sense país.
-    utterance.lang = 'ca';
     const preset = REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET;
     const voice = getSpeechVoiceByURI(preset.voiceURI) || getCatalanSpeechVoice();
+    utterance.lang = voice ? (voice.lang || 'ca-ES') : 'ca-ES';
     if (voice) utterance.voice = voice;
     const prosody = ttsProsodyForFragment(chunk, preset);
     utterance.rate = prosody.rate;

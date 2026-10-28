@@ -5131,14 +5131,20 @@
             position: sticky;
             right: 0;
             z-index: 5;
-            background: rgba(61, 50, 42, 0.98);
+            background: var(--bg-warm);
+            color: var(--text-primary);
+            text-align: right;
+            white-space: nowrap;
             box-shadow: -10px 0 14px rgba(0,0,0,0.25);
         }
         .league-table tbody td:last-child {
             position: sticky;
             right: 0;
             z-index: 4;
-            background: rgba(61, 50, 42, 0.98);
+            background: var(--bg-warm);
+            color: var(--text-primary);
+            font-weight: 800;
+            white-space: nowrap;
             box-shadow: -10px 0 14px rgba(0,0,0,0.18);
         }
         body.epaper-mode .league-table thead th:last-child,
@@ -8923,7 +8929,7 @@
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
-    <script src="app.js?v=1.0.101"></script>
+    <script src="app.js?v=1.0.102"></script>
 
     <!-- Service Worker Registration -->
     <script>
