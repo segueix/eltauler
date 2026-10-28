@@ -163,6 +163,21 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   variant legal treta d'una FEN real (`hieroglyphicVariantMeta`:
   `origin: 'game_variant'`, conserva `sourceGameId`/`sourceFen` sense alterar la
   partida).
+- **`hieroclosure.test.js`** — el certificat de desenllaç dels jeroglífics
+  (`hieroclosure.js`). Un jeroglífic són **sempre tres jugades** del jugador amb
+  les dues rèpliques del rival entremig (`hasThreeMoves`): un mat en 1 o en 2, un
+  guany immediat o una línia de quatre jugades no reben certificat, i una prova
+  antiga d'una línia més curta ja no val (`matches`). A més, que el final sigui
+  real (mat únic a la tercera jugada o guany de material consolidat davant
+  qualsevol rèplica, també amb negres), que es rebutgin dos mats possibles,
+  recaptures, forquilles sense cobrar i coronacions ambigües, i la contrastació
+  amb Stockfish injectat de cada tria i de la defensa.
+- **`hieroglyphic-generation.test.js`** — el camí del generador dins d'app.js:
+  un mat en tres validat arriba a la cua sincronitzada, sobreviu la
+  reconstrucció i es juga en tres passos; la cua neteja els jeroglífics antics
+  d'una sola jugada; el generador no publica mai un mat en 1 o en 2, i una línia
+  de Stockfish que acaba a la segona jugada (`candidateFromPreparedBestLine`) es
+  descarta encara que faci mat.
 - **`import.test.js`** — importació de partides externes (PGN): separació d'un
   fitxer amb diverses partides, lectura de capçaleres (amb cometes escapades),
   neteja del movetext (comentaris `{...}` i `;`, variants niades, NAGs, números
@@ -234,9 +249,9 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   (`createOpeningHieroglyphicHelpers`), els de la secció d'Obertures: que
   l'exercici surti sempre d'una obertura ja catalogada al repertori i comenci al
   **tercer o quart moviment** (el ply correcte per a cada color), que la solució
-  siguin les jugades teòriques següents de la línia (fins a tres) amb les
+  siguin **sempre les tres** jugades teòriques següents de la línia amb les dues
   respostes del rival de la mateixa línia i sense rèplica sobrera a l'últim pas,
-  que una línia massa curta no doni exercici, la classificació del motiu de cada
+  que una línia que no arriba a tres jugades no doni exercici, la classificació del motiu de cada
   jugada teòrica (enroc, clavada, fianchetto, palanca…) i la tria sense
   repetir-se. La prova de fons recorre el repertori REAL (`CURATED_OPENINGS`):
   cada obertura ha de donar almenys un exercici i tota la línia ha de ser legal

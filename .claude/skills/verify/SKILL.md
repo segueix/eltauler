@@ -114,6 +114,17 @@ Conduir amb Playwright + Chromium preinstal·lat
     acaba als resultats (`#bp-results`, rècord a `#bp-record`). El progrés és
     a `chess_bulletPractice_v1`.
 
+15. **Jeroglífics** (`hieroclosure.js` + generador d'app.js): sempre tres
+    jugades del jugador i dues rèpliques. Per no esperar el motor, sembrar la
+    cua `eltauler_hieroglyphics_state` amb un ítem que porti `conclusion`
+    (generada amb `ElTaulerHieroClosure.createVerifier(Chess, anàlisi
+    simulada).verify(...)`, línia de 5 mitges jugades) i obrir-lo amb
+    `#btn-hieroglyphic-banner`; un ítem d'1 o 2 jugades desapareix de la cua
+    en carregar. Si la FEN de l'ítem és a l'historial
+    (`eltauler_hieroglyphic_history`) com a resolta, també es descarta. Els
+    jeroglífics d'obertura: `startOpeningTheoryHieroglyphic()` i l'exercici
+    és a `currentOpeningHieroglyphic`.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →

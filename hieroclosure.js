@@ -7,6 +7,10 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
     const VERSION = 1;
+    // Un jeroglífic són SEMPRE tres jugades del jugador amb les dues rèpliques
+    // del rival entremig: cinc mitges jugades, ni més ni menys.
+    const PLAYER_MOVES = 3;
+    const LINE_PLIES = PLAYER_MOVES * 2 - 1;
     const VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
     const uci = m => m.from + m.to + (m.promotion || '');
     const play = (g, u) => typeof u === 'string' && /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(u)
@@ -17,9 +21,15 @@
         sol.forEach((m, i) => { line.push(m); if (i < sol.length - 1) line.push(rep[i]); });
         return line;
     }
+    function hasThreeMoves(candidate) {
+        if (!candidate || !Array.isArray(candidate.solutionMoves) || candidate.solutionMoves.length !== PLAYER_MOVES) return false;
+        const line = lineOf(candidate);
+        return line.length === LINE_PLIES && line.every(Boolean);
+    }
+    // Una prova antiga d'una línia més curta (abans s'acceptaven mats en 1 o 2) ja no val.
     function matches(candidate) {
         const proof = candidate && candidate.conclusion;
-        return !!(proof && proof.version === VERSION && proof.fen === candidate.fen
+        return !!(proof && proof.version === VERSION && proof.fen === candidate.fen && hasThreeMoves(candidate)
             && JSON.stringify(proof.line) === JSON.stringify(lineOf(candidate)));
     }
     // Un MultiPV incomplet no demostra unicitat. Tampoc dos mats de durada diferent.
@@ -66,7 +76,8 @@
         function inspect(candidate) {
             try {
                 const line = lineOf(candidate);
-                if (!line.length || line.length > 5 || line.some(m => !m)) return null;
+                // Tres jugades exactes: un mat o un guany abans de la tercera no fa jeroglífic.
+                if (!hasThreeMoves(candidate)) return null;
                 const g = new Chess(candidate.fen), color = g.turn(), initialBalance = balance(g, color);
                 const positions = [];
                 let last;
@@ -153,5 +164,5 @@
         }
         return { inspect, verify };
     }
-    return { VERSION, lineOf, matches, uniqueChoice, createVerifier };
+    return { VERSION, PLAYER_MOVES, lineOf, hasThreeMoves, matches, uniqueChoice, createVerifier };
 });

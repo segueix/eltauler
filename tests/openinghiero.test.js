@@ -76,13 +76,16 @@ describe('buildOpeningHieroglyphic', () => {
 
     test('una línia massa curta no dona exercici', () => {
         expect(helpers.buildOpeningHieroglyphic(CURTA, { startMoveNumber: 3 })).toBeNull();
+        // Sempre tres jugades: la Najdorf pel 4t moviment només en tindria dues.
+        expect(helpers.buildOpeningHieroglyphic(NAJDORF, { startMoveNumber: 4 })).toBeNull();
         expect(helpers.buildOpeningHieroglyphic(null, { startMoveNumber: 3 })).toBeNull();
         expect(helpers.buildOpeningHieroglyphic({ moves: [] }, {})).toBeNull();
     });
 
     test('la darrera jugada de la solució no arrossega rèplica', () => {
-        const p = helpers.buildOpeningHieroglyphic(NAJDORF, { startMoveNumber: 4 });
-        expect(p.solutionSan).toEqual(['Nf6', 'a6']);
+        const p = helpers.buildOpeningHieroglyphic(NAJDORF, { startMoveNumber: 3 });
+        expect(p.solutionSan).toEqual(['cxd4', 'Nf6', 'a6']);
+        expect(p.replySan).toEqual(['Nxd4', 'Nc3']);
         expect(p.replyMoves.length).toBe(p.solutionMoves.length - 1);
     });
 
@@ -133,7 +136,9 @@ describe('pickOpeningHieroglyphic', () => {
 
     test('els candidats surten només de les línies prou llargues', () => {
         const all = helpers.openingHieroglyphicCandidates(repertoire);
-        expect(all.length).toBe(4); // catalana i najdorf, pel 3r i pel 4t moviment
+        // Catalana pel 3r i pel 4t moviment; Najdorf només pel 3r (pel 4t no arriba a tres jugades).
+        expect(all.length).toBe(3);
+        expect(all.every(p => p.solutionMoves.length === 3)).toBe(true);
         expect(all.every(p => p.name !== 'Línia curta')).toBe(true);
         expect(all.every(p => [3, 4].includes(p.startMoveNumber))).toBe(true);
     });
@@ -141,7 +146,7 @@ describe('pickOpeningHieroglyphic', () => {
     test('filtra per color', () => {
         const blacks = helpers.openingHieroglyphicCandidates(repertoire, { userColor: 'b' });
         expect(blacks.every(p => p.userColor === 'b')).toBe(true);
-        expect(blacks.length).toBe(2);
+        expect(blacks.length).toBe(1);
     });
 
     test('evita els exercicis recents', () => {
@@ -198,8 +203,9 @@ describe('repertori real (CURATED_OPENINGS)', () => {
                     expect(g.move({ from: reply.slice(0, 2), to: reply.slice(2, 4) })).not.toBeNull();
                 }
             });
-            expect(p.solutionMoves.length).toBeGreaterThan(0);
-            expect(p.solutionMoves.length).toBeLessThanOrEqual(3);
+            // Un jeroglífic són sempre tres jugades amb les dues rèpliques entremig.
+            expect(p.solutionMoves.length).toBe(3);
+            expect(p.replyMoves.length).toBe(2);
         });
     });
 });
