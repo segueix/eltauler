@@ -716,6 +716,7 @@ const NAVIGATION_SCREEN_IDS = [
     'game-screen',
     'daily-screen',
     'tutorial-screen',
+    'bullet-screen',
     'guide-screen',
     'sftv-screen',
     'stats-screen',
@@ -875,6 +876,9 @@ function navGoBack() {
         if (typeof closeDailyScreen === 'function') closeDailyScreen();
     } else if (current === 'tutorial-screen' || current === 'guide-screen') {
         if (window.ElTaulerTutorial && typeof window.ElTaulerTutorial.closeScreens === 'function') window.ElTaulerTutorial.closeScreens();
+        $('#start-screen').show();
+    } else if (current === 'bullet-screen') {
+        if (window.ElTaulerBulletPractice) window.ElTaulerBulletPractice.close();
         $('#start-screen').show();
     } else if (current === 'sftv-screen') {
         // Stockfish TV: atura el seu motor, els temporitzadors i la veu.
@@ -36728,6 +36732,7 @@ $(document).ready(() => {
     try { initSoundSettingsUi(); initDailyNotifySettingsUi(); } catch (e) { console.warn('[Dispositiu] init', e); }
     // Tutorials: «Aprèn a jugar» i «Guia d'El Tauler» (tutorial.js).
     try { if (window.ElTaulerTutorial) window.ElTaulerTutorial.init(); } catch (e) { console.warn('[Tutorial] init', e); }
+    try { if (window.ElTaulerBulletPractice) window.ElTaulerBulletPractice.init({ navPush, goBack: navGoBack, beforeOpen: () => { if (window.ElTaulerBoardExperience) window.ElTaulerBoardExperience.stopAll(); } }); } catch (e) { console.warn('[Bullet] init', e); }
     // Stockfish TV (stockfishtv.js): estat i motor PROPIS. Només llegeix el
     // nivell de l'usuari; mai no el modifica ni toca la partida personal.
     try {

@@ -478,6 +478,25 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
 
 ## Verificació al navegador
 
+### Reflexos bullet
+
+`tests/bulletpractice.test.js` comprova les 44 posicions amb chess.js real,
+les alternatives de mat, les captures amb guany immediat, les sortides d'escac,
+els dos colors, les promocions i la captura al pas. També verifica el pressupost
+compartit del sprint, els límits a 30/60 segons, la primera decisió definitiva,
+el record del rellotge, la interrupció, la persistència i la progressió separada
+per modalitat, ritme i nivell. El mòdul no escriu a l'estat d'una partida ni al ROC.
+
+Per comprovar la integració: `Entrena → Reflexos bullet`, completar una sèrie
+de cada modalitat tocant i arrossegant peces; comprovar que el rellotge és just
+damunt del tauler, que s'oculta en preguntar pel temps i que no consumeix temps
+durant la revisió. Tocar una peça sense arrossegar-la l'ha de seleccionar sense
+avisar de jugada il·legal. Verificar també promoció, temps exhaurit, retorn a
+l'inici, canvi d'app i reobertura amb el progrés desat. Si les imatges de les
+peces encara no han carregat, el rellotge ha d'esperar; un error de càrrega
+interromp la sèrie sense comptar aquest temps.
+
+
 A més de la suite de Jest, la modalitat Rival Antídot s'ha comprovat conduint
 l'app REAL amb Playwright + Chromium (vegeu `.claude/skills/verify`): botó i
 introducció a la pàgina principal, debilitats amb el seu grau de confiança,

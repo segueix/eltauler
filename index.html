@@ -5963,6 +5963,7 @@
         body.epaper-mode #start-screen .hg-banner-advanced summary { background: #ddd !important; color: #333 !important; border-color: #bbb !important; }
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
+    <link rel="stylesheet" href="bulletpractice.css?v=1.0.0">
 </head>
 <body>
     <!-- Conjunt d'icones de menú (line-icons monocromes, hereten el color del text via currentColor) -->
@@ -6473,6 +6474,11 @@
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>
+                    <button class="hb hb--ocean" id="btn-bullet-practice" type="button">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-zap"/></svg></span>
+                        <span class="hb-text"><span class="hb-title">Reflexos bullet</span><span class="hb-sub">Tauler, rellotge i decisions · 30 o 60 segons</span></span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
                     <button class="hb hb--plum" id="btn-srs-review">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-repeat"/></svg></span>
                         <span class="hb-text">
@@ -6601,6 +6607,73 @@
             </div>
             <div class="app-version-tag" id="app-version-tag"></div>
         </div>
+        <section id="bullet-screen" class="screen-anim" style="display:none;" aria-labelledby="bp-title">
+            <header class="bp-header">
+                <button type="button" class="btn btn-secondary" id="bp-back" aria-label="Torna a l’inici">‹</button>
+                <div><h1 id="bp-title">Reflexos bullet</h1><p>Entrena el tauler, el rellotge i la decisió ràpida.</p></div>
+            </header>
+            <div id="bp-setup">
+                <div class="bp-panel">
+                    <h2>Una rutina curta, una jugada cada vegada</h2>
+                    <ol class="bp-routine">
+                        <li><strong>1. Llegeix</strong>Mira de qui és el torn, si el rei està en escac i què pots capturar.</li>
+                        <li><strong>2. Mira el temps</strong>Fes una ullada al rellotge, just damunt del tauler. Decideix quant pots pensar.</li>
+                        <li><strong>3. Mou i revisa</strong>Executa una jugada. Després comprova l’objectiu i el record del rellotge.</li>
+                    </ol>
+                    <div class="bp-fields">
+                        <label>Modalitat<select id="bp-mode"><option value="scan">1 · Lectura ràpida</option><option value="radar">2 · Rellotge al radar</option><option value="sprint">3 · Sprint combinat</option></select></label>
+                        <label>Prepara’t per a partides de<select id="bp-seconds"><option value="60">1 minut</option><option value="30">30 segons</option></select></label>
+                    </div>
+                    <p id="bp-mode-help"></p><p id="bp-level" class="bp-level"></p>
+                    <button type="button" class="btn btn-primary" id="bp-start">Comença la sèrie</button>
+                    <p class="bp-muted">Sèries de 8 o 10 posicions, sense jugar una partida sencera. El rellotge només compta mentre decideixes; s’atura durant les preguntes i la revisió. Al radar, cada posició simula un moment diferent de la partida; al sprint comparteixes tot el temps. Pots tocar origen i destí o arrossegar la peça.</p>
+                    <details><summary>Com practicar i com es mesura el progrés</summary>
+                        <p class="bp-muted">Prova una sèrie de cada modalitat, amb una pausa curta entre sèries. Torna-hi un altre dia i compara els encerts abans de buscar més velocitat. El nivell puja després de 3 sèries bones consecutives: almenys un 85% d’encerts, cap temps exhaurit i, si hi ha preguntes, un 75% d’encerts del rellotge. Baixa si 3 sèries seguides queden per sota del 60%.</p>
+                        <p class="bp-muted">Mesurem el temps fins a executar una decisió correcta i el record del temps restant. No podem detectar on mires. Aquests resultats tenen un progrés propi, independent del ROC de les partides. Si surts de l’app, la sèrie queda interrompuda per no falsejar els temps.</p>
+                    </details>
+                </div>
+            </div>
+            <div id="bp-practice" hidden>
+                <div id="bp-round" class="bp-round"></div><h2 id="bp-goal"></h2>
+                <div id="bp-stage">
+                    <div id="bp-clock" class="bp-clock"><span id="bp-clock-status">Preparat</span><strong id="bp-clock-value" role="timer" aria-live="off">0:00</strong></div>
+                    <div id="bp-board"></div>
+                    <div class="bp-budget-row"><span id="bp-budget"></span><span id="bp-input-note" role="status"></span></div>
+                    <div class="bp-meter-track"><div id="bp-meter"></div></div>
+                </div>
+                <div id="bp-promotion" class="bp-controls" hidden role="group" aria-label="Tria la peça de promoció">
+                    <button class="btn btn-secondary" type="button" data-piece="q">Dama</button><button class="btn btn-secondary" type="button" data-piece="r">Torre</button><button class="btn btn-secondary" type="button" data-piece="b">Alfil</button><button class="btn btn-secondary" type="button" data-piece="n">Cavall</button>
+                </div>
+                <div id="bp-recall" class="bp-panel" hidden>
+                    <h2>Quant temps et quedava quan has mogut?</h2><p class="bp-muted">Tria la xifra més propera. El rellotge està aturat.</p><div id="bp-recall-options" class="bp-controls"></div>
+                </div>
+                <div id="bp-feedback" class="bp-panel" hidden>
+                    <p id="bp-feedback-text" role="status"></p><p id="bp-explanation" class="bp-muted"></p>
+                    <p class="bp-muted">Toca una solució per veure-la al tauler:</p><div id="bp-solutions" class="bp-solutions"></div>
+                </div>
+                <div class="bp-controls"><button type="button" class="btn btn-primary" id="bp-next" hidden>Següent posició</button><button type="button" class="btn btn-secondary" id="bp-stop">Acaba la sèrie</button></div>
+            </div>
+            <div id="bp-results" hidden>
+                <div class="bp-panel">
+                    <h2 id="bp-result-title" tabindex="-1">Sèrie acabada</h2><p id="bp-result-context" class="bp-muted"></p>
+                    <div class="bp-metrics">
+                        <div><strong id="bp-result-accuracy"></strong><span>Decisions correctes</span></div>
+                        <div><strong id="bp-result-speed"></strong><span>Mediana dels encerts</span></div>
+                        <div><strong id="bp-result-clock"></strong><span>Record del rellotge</span></div>
+                        <div><strong id="bp-result-timeouts"></strong><span>Temps exhaurits</span></div>
+                    </div>
+                    <p id="bp-result-clock-note" class="bp-muted"></p><p id="bp-advice"></p>
+                    <details id="bp-mistakes-wrap"><summary>Objectius per repassar</summary><ul id="bp-mistakes"></ul></details>
+                    <div class="bp-controls"><button type="button" class="btn btn-primary" id="bp-again">Una altra sèrie</button><button type="button" class="btn btn-secondary" id="bp-configure">Canvia la pràctica</button></div>
+                </div>
+            </div>
+            <p id="bp-storage" role="status"></p>
+            <details id="bp-progress" class="bp-panel" open>
+                <summary>El teu progrés</summary><p id="bp-progress-note" class="bp-muted"></p><p id="bp-trend" class="bp-muted"></p>
+                <div id="bp-chart-wrap" hidden><p class="bp-muted">Temps dels encerts al mateix nivell · una barra més baixa significa menys temps. A sota, els encerts de cada sèrie.</p><div id="bp-chart" class="bp-chart"></div></div>
+                <div id="bp-history-wrap" class="bp-history-wrap" hidden><table><caption class="bp-muted">Últimes sèries de la modalitat i el ritme seleccionats</caption><thead><tr><th scope="col">Data</th><th scope="col">Nivell</th><th scope="col">Encerts</th><th scope="col">Temps</th><th scope="col">Rellotge</th></tr></thead><tbody id="bp-history"></tbody></table></div>
+            </details>
+        </section>
         <!-- APRÈN A JUGAR: lliçons d'escacs amb tauler interactiu (tutorial.js) -->
         <div id="tutorial-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
@@ -9070,7 +9143,7 @@
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.41';
+        window.APP_VERSION = '1.0.42';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
@@ -9079,7 +9152,8 @@
     <script src="gamebroadcast.js?v=1.0.0"></script>
     <script src="historytv.js?v=1.0.0"></script>
     <script src="boardexperience.js?v=1.0.1"></script>
-    <script src="app.js?v=1.0.111"></script>
+    <script src="bulletpractice.js?v=1.0.0"></script>
+    <script src="app.js?v=1.0.112"></script>
 
     <!-- Service Worker Registration -->
     <script>
