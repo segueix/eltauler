@@ -3072,14 +3072,15 @@
     }
     function applyBroadcastHighlights(el, marks = {}) {
         if (!el) return;
+        const toggle = (el, name, active) => { if (el.classList.contains(name) !== !!active) el.classList.toggle(name, !!active); };
         const preview = marks.preview || null, last = marks.last || null;
         el.querySelectorAll('[data-square]').forEach(sq => {
             const name = sq.getAttribute('data-square');
-            sq.classList.toggle('sftv-from', !preview && !!last && name === last.from);
-            sq.classList.toggle('sftv-to', !preview && !!last && name === last.to);
-            sq.classList.toggle('sftv-preview', name === preview);
-            sq.classList.toggle('sftv-sel', name === marks.selected);
-            sq.classList.toggle('sftv-target', (marks.targets || []).includes(name));
+            toggle(sq, 'sftv-from', !preview && !!last && name === last.from);
+            toggle(sq, 'sftv-to', !preview && !!last && name === last.to);
+            toggle(sq, 'sftv-preview', name === preview);
+            toggle(sq, 'sftv-sel', name === marks.selected);
+            toggle(sq, 'sftv-target', (marks.targets || []).includes(name));
         });
     }
     function applyHighlight() {

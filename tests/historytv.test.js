@@ -168,7 +168,7 @@ describe('cancel·lació i propietat dels recursos', () => {
     test('les marques compartides són idèntiques i no deixen destins antics durant la previsualització', () => {
         const cells = ['e2', 'e4', 'e7'].map(name => {
             const classes = new Set();
-            return { name, classes, getAttribute: () => name, classList: { toggle: (key, yes) => yes ? classes.add(key) : classes.delete(key) } };
+            return { name, classes, getAttribute: () => name, classList: { contains: key => classes.has(key), toggle: (key, yes) => yes ? classes.add(key) : classes.delete(key) } };
         });
         const el = { querySelectorAll: () => cells };
         TV.applyBroadcastHighlights(el, { last: { from: 'e2', to: 'e4' } });

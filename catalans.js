@@ -1233,11 +1233,12 @@
     try { return localStorage.getItem('eltauler_control_mode') === 'tap'; } catch (e) { return false; }
   }
 
+  let broadcastFen = null, broadcastGame = null;
   function renderBoard() {
     if (previewActive) return; // no sobreescriguis la posició que s'està revisant
     const fen = state.fen;
     if (!board) {
-      board = Chessboard('catalans-board', {
+      board = (window.createExperienceBoard || Chessboard)('catalans-board', {
         position: fen,
         draggable: !isTapMode(),
         orientation: 'white',
@@ -1245,6 +1246,14 @@
         onDrop: onDrop,
         onSnapEnd: onSnapEnd,
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
+      }, () => {
+        if (!broadcastGame || broadcastFen !== (state && state.fen)) {
+          broadcastGame = newChess();
+          ((state && state.movesSan) || []).forEach(m => broadcastGame.move(m, { sloppy: true }));
+          broadcastFen = state && state.fen;
+          if (broadcastFen && broadcastGame.fen() !== broadcastFen) broadcastGame = newChess(broadcastFen);
+        }
+        return { chess: broadcastGame, key: config.id + ':' + (state && state.gameNumber), disabled: previewActive, playerColor: null };
       });
       // Clics per al mode "toc".
       $('#catalans-board').on('click', '.square-55d63', function () {
@@ -1526,6 +1535,7 @@
   function openReplayGame(idx) {
     const g = historyView[idx];
     if (!g || !Array.isArray(g.movesSan) || !g.movesSan.length) return;
+    replayStopPlay();
     replay = { moves: g.movesSan.slice(), idx: 0, timer: null, playing: false };
     const d = new Date(g.date || 0);
     const elo = Math.round(g.sfElo || g.catalansElo || 0);
@@ -1533,10 +1543,10 @@
       ' · ' + d.toLocaleDateString('ca-ES', { day: '2-digit', month: 'short', year: 'numeric' }));
     $('#catalans-replay').css('display', 'block');
     if (!replayBoard) {
-      replayBoard = Chessboard('catalans-replay-board', {
+      replayBoard = (window.createExperienceBoard || Chessboard)('catalans-replay-board', {
         position: 'start', draggable: false, orientation: 'white',
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
-      });
+      }, () => ({ chess: replay && replayChessAt(replay.idx).chess, key: replay, mode: 'replay', pace: true, paused: !replay || !replay.playing }));
     }
     renderReplayMoves();
     replayRender();
@@ -1586,15 +1596,7 @@
   function replayRender() {
     if (!replay || !replayBoard) return;
     const r = replayChessAt(replay.idx);
-    replayBoard.position(r.chess.fen(), false);
-    // Ressalta l'última jugada reproduïda.
-    setTimeout(function () {
-      $('#catalans-replay-board .square-55d63').removeClass('cat-preview-from cat-preview-to');
-      if (r.last) {
-        $("#catalans-replay-board .square-55d63[data-square='" + r.last.from + "']").addClass('cat-preview-from');
-        $("#catalans-replay-board .square-55d63[data-square='" + r.last.to + "']").addClass('cat-preview-to');
-      }
-    }, 30);
+    replayBoard.position(r.chess.fen(), true);
     const total = replay.moves.length;
     const moveNum = replay.idx > 0 ? Math.floor((replay.idx - 1) / 2) + 1 : 0;
     const sanLabel = replay.idx > 0 ? (r.last ? r.last.san : replay.moves[replay.idx - 1]) : 'inici';
@@ -1611,21 +1613,28 @@
   function replayStep(delta) { if (replay) replaySeek(replay.idx + delta); }
 
   function replayStopPlay() {
+    if (window.ElTaulerBoardExperience) window.ElTaulerBoardExperience.cancel('catalans-replay-board');
     if (replay && replay.timer) { clearInterval(replay.timer); replay.timer = null; }
-    if (replay) replay.playing = false;
+    if (replay) { replay.playing = false; replay.playToken = (replay.playToken || 0) + 1; }
   }
-  function replayTogglePlay() {
+  async function replayTogglePlay() {
     if (!replay) return;
     if (replay.playing) { replayStopPlay(); replayRender(); return; }
-    if (replay.idx >= replay.moves.length) replay.idx = 0; // reinicia si era al final
-    replay.playing = true;
-    replayRender();
-    replay.timer = setInterval(function () {
-      if (!replay) return;
-      if (replay.idx >= replay.moves.length) { replayStopPlay(); replayRender(); return; }
-      replay.idx++;
-      replayRender();
-    }, 900);
+    if (replay.idx >= replay.moves.length) replay.idx = 0;
+    const active = replay, playToken = (replay.playToken || 0) + 1;
+    active.playToken = playToken;
+    replay.playing = true; replayRender();
+    const experience = window.ElTaulerBoardExperience;
+    if (experience) experience.unlock('catalans-replay-board');
+    while (replay === active && active.playing && active.idx < active.moves.length) {
+      const valid = () => replay === active && active.playing && active.playToken === playToken;
+      if (!experience || !await experience.preview('catalans-replay-board', active.moves[active.idx], valid) || !valid()) break;
+      active.idx++; replayRender();
+    }
+    if (replay === active && active.playing && active.playToken === playToken) {
+      if (experience) await experience.settled('catalans-replay-board');
+      if (replay === active && active.playing && active.playToken === playToken) { replayStopPlay(); replayRender(); }
+    }
   }
   function closeReplay() {
     replayStopPlay();

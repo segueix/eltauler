@@ -2440,129 +2440,72 @@ function historyTvSnapEnd() {
     updateHistoryBoard();
 }
 
-/* ===================== RETRANSMISSIÓ DE PARTIDES ===================== */
-const GAME_NARRATION = { voice: null, narrator: null, scope: null, fen: null, initialized: false };
+/* ===================== VEU, RÀDIO I MARQUES DELS TAULERS ===================== */
+let boardExperienceReady = false;
 function narrationPrefs(scope) {
-    if (!window.ElTaulerGameBroadcast || !window.ElTaulerStockfishTV) return { enabled: false, volume: 0.8, frequency: 'all' };
     let raw = null;
     try { raw = JSON.parse(localStorage.getItem('eltauler_narration_' + scope)); } catch (e) {}
     return window.ElTaulerGameBroadcast.preferences(raw);
 }
-function trainingNarrationAllowed() {
-    return window.ElTaulerGameBroadcast && window.ElTaulerGameBroadcast.trainingAllowed({
-        mode: currentGameMode, exercise: blunderMode, calibration: isCalibrationGame,
-        timedCalibration: !!timedCalibrationTcId
-    });
+function initBoardExperience() {
+    const api = window.ElTaulerBoardExperience;
+    if (!api || boardExperienceReady) return;
+    boardExperienceReady = true;
+    api.configure({ Chess, beforeVoice: () => stopReviewTts(), bridge: {
+        getNeuralVoiceId: () => { const v = defaultNeuralTtsVoice(); return v ? v.id : null; },
+        getNeuralRate: () => { const v = defaultNeuralTtsVoice(); return v ? v.rate : 1; },
+        getNeuralEffects: () => { const v = defaultNeuralTtsVoice(); return v ? v.effects : null; },
+        updateNeuralSettings: updateNeuralTtsSettings
+    } });
+}
+function boardExperienceContext(id, fen) {
+    if (id === 'myBoard') {
+        const reviewing = isViewingGameHistory();
+        const exercise = blunderMode || currentGameMode === 'bundle';
+        const competitive = isCalibrationGame || !!timedCalibrationTcId || currentGameMode === 'league';
+        return { chess: game, key: game, timed: gameClock.enabled, silent: reviewing,
+            playerColor: !exercise && !competitive ? playerColor : null,
+            pace: exercise && !gameClock.enabled, disabled: reviewing };
+    }
+    if (id === 'opening-board') {
+        const matches = g => g && typeof fen === 'string' && g.fen().split(' ')[0] === fen.split(' ')[0];
+        const g = (hieroglyphicExerciseActive || openingPracticeGame === hieroglyphicGame) && matches(hieroglyphicGame) ? hieroglyphicGame : openingPracticeGame;
+        return { chess: g, key: g, pace: true, playerColor: null };
+    }
+    if (id === 'explorer-board') {
+        const preview = explorerPreview.active;
+        return { chess: preview ? new Chess(explorerPreview.previewFen) : explorerGame,
+            key: explorerGame, disabled: explorerEditMode, mode: explorerPractice.active ? 'exercise' : 'replay',
+            last: preview ? explorerPreview.lastMove : null };
+    }
+    if (id === 'daily-board') return { chess: dailyChess, key: dailyScreenGameId, playerColor: null, pending: !!dailyPendingMove };
+    if (id === 'tv-board') return { chess: tvReplay && tvReplay.game, key: tvReplay,
+        mode: tvJeroglyphicsActive ? 'exercise' : 'replay', pace: !tvJeroglyphicsActive,
+        silent: tvJeroglyphicsActive, paused: !tvReplay || !tvReplay.isPlaying };
+    return { disabled: true };
+}
+function createExperienceBoard(id, config, context) {
+    initBoardExperience();
+    return window.ElTaulerBoardExperience
+        ? window.ElTaulerBoardExperience.createBoard(id, config, context || (fen => boardExperienceContext(id, fen)))
+        : Chessboard(id, config);
 }
 function stopGameNarration(scope) {
-    if (scope && GAME_NARRATION.scope !== scope) return;
-    if (GAME_NARRATION.narrator) GAME_NARRATION.narrator.stop();
-    if (GAME_NARRATION.scope) $('#' + GAME_NARRATION.scope + '-narration-caption').text('');
-    GAME_NARRATION.scope = null;
-    GAME_NARRATION.fen = null;
-}
-function ensureGameNarrator(scope) {
-    if (!GAME_NARRATION.voice) {
-        const TV = window.ElTaulerStockfishTV;
-        GAME_NARRATION.voice = TV.createTvVoice({
-            speechSynthesis: window.speechSynthesis, SpeechSynthesisUtterance: window.SpeechSynthesisUtterance,
-            neural: window.ElTaulerVeuNeural ? window.ElTaulerVeuNeural.sharedSpeaker() : null,
-            getNeuralVoiceId: () => { const v = defaultNeuralTtsVoice(); return v ? v.id : null; },
-            getNeuralRate: () => { const v = defaultNeuralTtsVoice(); return v ? v.rate : 1; },
-            getNeuralEffects: () => {
-                const v = defaultNeuralTtsVoice(), effects = Object.assign({}, v && v.effects);
-                effects.volume = (typeof effects.volume === 'number' ? effects.volume : 1) * narrationPrefs(GAME_NARRATION.scope || scope).volume;
-                return effects;
-            },
-            loadPref: () => 'on'
-        });
-        GAME_NARRATION.narrator = window.ElTaulerGameBroadcast.createNarrator(GAME_NARRATION.voice);
-    }
-    return GAME_NARRATION.narrator;
+    const api = window.ElTaulerBoardExperience;
+    if (!api) return;
+    if (scope === 'training') api.cancel('myBoard'); else api.stopAll();
 }
 function renderGameNarrationControls() {
-    if (!window.ElTaulerGameBroadcast) return;
-    const allowed = trainingNarrationAllowed();
-    $('#training-narration-controls').prop('hidden', !allowed);
-    if (GAME_NARRATION.scope === 'training' && (!allowed || !game || GAME_NARRATION.fen !== game.fen() || isViewingGameHistory())) stopGameNarration('training');
-    ['training'].forEach(scope => {
-        const p = narrationPrefs(scope);
-        $('#' + scope + '-narration-toggle').attr('aria-pressed', String(p.enabled)).text(p.enabled ? 'Desactiva la veu' : 'Activa la veu');
-        $('#' + scope + '-narration-volume').val(Math.round(p.volume * 100));
-        $('#' + scope + '-narration-volume-value').text(Math.round(p.volume * 100) + '%');
-        $('#' + scope + '-narration-frequency').val(p.frequency);
-    });
-}
-async function narrateGameMove(scope, chess, move, fenBefore, reviews) {
-    stopGameNarration();
-    const p = narrationPrefs(scope);
-    if (!p.enabled || p.volume === 0 || document.hidden) return;
-    if (scope === 'training' && (!trainingNarrationAllowed() || isViewingGameHistory() || !$('#game-screen').hasClass('active'))) return;
-    if (scope === 'history' && getCurrentScreen() !== 'history-screen') return;
-    const comment = window.ElTaulerGameBroadcast.comment(Chess, window.ElTaulerStockfishTV, {
-        scope, chess, move: { from: move.from, to: move.to, promotion: move.promotion || 'q' },
-        fenBefore, fenAfter: chess.fen(), ply: chess.history().length - 1, reviews,
-        playerColor: scope === 'training' ? playerColor : null
-    });
-    if (!comment || (p.frequency === 'key' && !comment.important)) return;
-    stopReviewTts();
-    const narrator = ensureGameNarrator(scope);
-    GAME_NARRATION.scope = scope;
-    GAME_NARRATION.fen = chess.fen();
-    $('#' + scope + '-narration-caption').text(comment.text);
-    const result = await narrator.speak(comment.speech, { volume: p.volume });
-    if (GAME_NARRATION.scope === scope && GAME_NARRATION.fen === chess.fen() && result && !result.spoken && result.reason !== 'stopped') {
-        const blocked = GAME_NARRATION.voice.status() === 'blocked';
-        $('#' + scope + '-narration-caption').text(comment.text + (blocked ? ' · Toca «Activa la veu» per permetre l’àudio.' : ' · Àudio no disponible en aquest moment.'));
-        if (blocked) $('#' + scope + '-narration-toggle').text('Activa la veu');
-    }
-}
-function narrateTrainingMove(chess, move) {
-    if (!window.ElTaulerGameBroadcast || !trainingNarrationAllowed()) return;
-    stopGameNarration('training');
-    if (!narrationPrefs('training').enabled) return;
-    try {
-        const before = new Chess();
-        if (!before.load_pgn(chess.pgn(), { sloppy: true }) || !before.undo()) return;
-        void narrateGameMove('training', chess, move, before.fen()).catch(() => {});
-    } catch (e) { /* La retransmissió no pot interrompre la partida. */ }
+    if (window.ElTaulerBoardExperience) window.ElTaulerBoardExperience.refresh('myBoard');
 }
 function initGameNarration() {
-    if (GAME_NARRATION.initialized || !window.ElTaulerGameBroadcast || !window.ElTaulerStockfishTV) return;
-    GAME_NARRATION.initialized = true;
-    ['training'].forEach(scope => {
-        const save = changes => {
-            const p = Object.assign(narrationPrefs(scope), changes);
-            try { localStorage.setItem('eltauler_narration_' + scope, JSON.stringify(p)); } catch (e) {}
-            // Els ajustos no deixen viva una locució amb el volum anterior.
-            stopGameNarration(scope);
-            renderGameNarrationControls();
-            return p;
-        };
-        $('#' + scope + '-narration-toggle').on('click', () => {
-            const blocked = GAME_NARRATION.voice && GAME_NARRATION.voice.status() === 'blocked';
-            const p = save({ enabled: blocked || !narrationPrefs(scope).enabled });
-            if (p.enabled) { stopReviewTts(); ensureGameNarrator(scope); GAME_NARRATION.voice.setOn(true); }
-            $('#' + scope + '-narration-caption').text(p.enabled ? 'La veu comentarà les pròximes jugades.' : 'Retransmissió desactivada.');
-        });
-        $('#' + scope + '-narration-volume').on('input', ev => save({ volume: Number(ev.target.value) / 100 }));
-        $('#' + scope + '-narration-frequency').on('change', ev => save({ frequency: ev.target.value }));
-    });
-    const checkScreen = () => {
-        const current = getCurrentScreen();
-        if (GAME_NARRATION.scope === 'training' && current !== 'game-screen') stopGameNarration('training');
-        if (current !== 'history-screen' && HISTORY_TV.player && HISTORY_TV.player.state().open) closeHistoryTv();
-        if (GAME_NARRATION.scope === 'history' && current !== 'history-screen') stopGameNarration('history');
-    };
-    const observer = new MutationObserver(checkScreen);
-    ['game-screen', 'history-screen'].forEach(id => {
-        const el = document.getElementById(id);
-        if (el) observer.observe(el, { attributes: true, attributeFilter: ['class', 'style'] });
-    });
-    const suspend = () => { stopGameNarration(); stopHistoryPlayback(); };
-    document.addEventListener('visibilitychange', () => { if (document.hidden) suspend(); });
-    window.addEventListener('pagehide', suspend);
-    renderGameNarrationControls();
+    initBoardExperience();
+    const screen = document.getElementById('history-screen');
+    if (screen) new MutationObserver(() => {
+        if (getCurrentScreen() !== 'history-screen' && HISTORY_TV.player && HISTORY_TV.player.state().open) closeHistoryTv();
+    }).observe(screen, { attributes: true, attributeFilter: ['class', 'style'] });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { stopGameNarration(); stopHistoryPlayback(); stopTvPlayback(); } });
+    window.addEventListener('pagehide', () => { stopGameNarration(); stopHistoryPlayback(); stopTvPlayback(); });
 }
 
 function getCoachDiagnosisText() {
@@ -2855,7 +2798,7 @@ function rebuildBoardForControlMode() {
     const fen = game.fen();
 
     if (board) board.destroy();
-    board = Chessboard('myBoard', {
+    board = createExperienceBoard('myBoard', {
         draggable: (controlMode === 'drag'),
         position: fen,
         onDragStart: onDragStart,
@@ -7309,7 +7252,7 @@ function closeDailyScreen() {
 
 function buildDailyBoard(entry) {
     if (dailyBoard) { try { dailyBoard.destroy(); } catch (e) {} dailyBoard = null; }
-    dailyBoard = Chessboard('daily-board', {
+    dailyBoard = createExperienceBoard('daily-board', {
         position: dailyChess.fen(),
         orientation: entry.playerColor === 'b' ? 'black' : 'white',
         draggable: (controlMode === 'drag'),
@@ -12012,7 +11955,7 @@ function createExplorerBoard(editMode) {
             if (explorerGame && explorerBoard) explorerBoard.position(explorerGame.fen(), false);
         };
     }
-    explorerBoard = Chessboard('explorer-board', config);
+    explorerBoard = createExperienceBoard('explorer-board', config);
     explorerBoardControlMode = desiredControlMode;
     updateExplorerBoardInteractivity();
     // Cal lligar-ho aquí (i no un sol cop a l'inici): destroy() de
@@ -16107,6 +16050,8 @@ function startHistoryPlayback() {
 }
 
 function stopTvPlayback() {
+    if (tvReplay) { tvReplay.presenting = false; tvReplay.playToken = (tvReplay.playToken || 0) + 1; }
+    if (window.ElTaulerBoardExperience) window.ElTaulerBoardExperience.cancel('tv-board');
     if (tvReplay && tvReplay.timer) {
         clearInterval(tvReplay.timer);
         tvReplay.timer = null;
@@ -16128,10 +16073,10 @@ function updateTvControls() {
 
     const lockedByPuzzle = tvJeroglyphicsActive || tvJeroglyphicsAnalyzing || tvJeroglyphicsIncorrect;
 
-    playBtn.prop('disabled', !hasEntry || movesCount === 0 || tvReplay.isPlaying || atEnd || lockedByPuzzle);
-    pauseBtn.prop('disabled', !hasEntry || !tvReplay.isPlaying || lockedByPuzzle);
-    prevBtn.prop('disabled', !hasEntry || atStart || tvReplay.isPlaying || lockedByPuzzle);
-    nextBtn.prop('disabled', !hasEntry || atEnd || tvReplay.isPlaying || lockedByPuzzle);
+    playBtn.prop('disabled', !hasEntry || movesCount === 0 || (tvReplay.isPlaying || tvReplay.presenting) || atEnd || lockedByPuzzle);
+    pauseBtn.prop('disabled', !hasEntry || (!tvReplay.isPlaying && !tvReplay.presenting) || lockedByPuzzle);
+    prevBtn.prop('disabled', !hasEntry || atStart || tvReplay.isPlaying || tvReplay.presenting || lockedByPuzzle);
+    nextBtn.prop('disabled', !hasEntry || atEnd || tvReplay.isPlaying || tvReplay.presenting || lockedByPuzzle);
      hintBtn.prop('disabled', !tvJeroglyphicsActive || tvJeroglyphicsSolved);
     updateTvBoardInteractivity();  
     updateTvEndActions();
@@ -16159,8 +16104,7 @@ function updateTvEndActions() {
 
 function updateTvBoard() {
     if (!tvBoard || !tvReplay || !tvReplay.game) return;
-    tvBoard.position(tvReplay.game.fen(), false);
-    resizeTvBoardToViewport();
+    tvBoard.position(tvReplay.game.fen(), true);
     clearTvHintHighlight();   
     updateTvProgress();
     updateTvControls();
@@ -16171,7 +16115,7 @@ function initTvBoard() {
     if (tvBoard) return;
     const boardEl = document.getElementById('tv-board');
     if (!boardEl) return;
-    tvBoard = Chessboard('tv-board', {
+    tvBoard = createExperienceBoard('tv-board', {
         draggable: true,
         position: 'start',
         onDragStart: tvOnDragStart,
@@ -16764,36 +16708,39 @@ function requestTvJeroglyphicsHint() {
     stockfish.postMessage('go depth 15');
 }
 
-function tvStepForward() {
-    if (!tvReplay || !tvReplay.moves || tvReplay.moveIndex >= tvReplay.moves.length) return;
-    if (shouldTriggerTvJeroglyphics()) {
-        startTvJeroglyphics(tvReplay.isPlaying);
-        return;
-    }   
-    const move = tvReplay.moves[tvReplay.moveIndex];
-    tvReplay.game.move(move, { sloppy: true });
-    tvReplay.moveIndex++;
+async function tvStepForward() {
+    if (!tvReplay || !tvReplay.moves || tvReplay.moveIndex >= tvReplay.moves.length || tvReplay.presenting) return;
+    if (shouldTriggerTvJeroglyphics()) { startTvJeroglyphics(tvReplay.isPlaying); return; }
+    const active = tvReplay, index = active.moveIndex, playToken = active.playToken || 0;
+    active.presenting = true; updateTvControls();
+    const valid = () => tvReplay === active && active.moveIndex === index && active.presenting && (active.playToken || 0) === playToken && !tvJeroglyphicsActive;
+    const experience = window.ElTaulerBoardExperience;
+    if (experience) experience.unlock('tv-board');
+    const ready = !experience || await experience.preview('tv-board', active.moves[index], valid);
+    if (!valid()) return;
+    active.presenting = false; updateTvControls();
+    if (!ready) return;
+    active.game.move(active.moves[index], { sloppy: true }); active.moveIndex++;
     updateTvBoard();
 }
-
 function tvStepBack() {
+    stopTvPlayback();
     if (!tvReplay || !tvReplay.moves || tvReplay.moveIndex <= 0) return;
-    tvReplay.game.undo();
-    tvReplay.moveIndex--;
-    updateTvBoard();
+    tvReplay.game.undo(); tvReplay.moveIndex--; updateTvBoard();
 }
-
-function startTvPlayback() {
-    if (!tvReplay || !tvReplay.moves || tvReplay.moves.length === 0 || tvReplay.isPlaying) return;
-    tvReplay.isPlaying = true;
-    updateTvControls();
-    tvReplay.timer = setInterval(() => {
-        if (tvReplay.moveIndex >= tvReplay.moves.length) {
-            stopTvPlayback();
-            return;
-        }
-        tvStepForward();
-    }, 2000);
+async function startTvPlayback() {
+    if (!tvReplay || !tvReplay.moves || !tvReplay.moves.length || tvReplay.isPlaying) return;
+    const active = tvReplay, playToken = (tvReplay.playToken || 0) + 1;
+    active.playToken = playToken; active.isPlaying = true; updateTvControls();
+    while (tvReplay === active && active.isPlaying && active.moveIndex < active.moves.length) {
+        const before = active.moveIndex;
+        await tvStepForward();
+        if (active.moveIndex === before) break;
+    }
+    if (tvReplay === active && active.isPlaying && active.playToken === playToken) {
+        if (window.ElTaulerBoardExperience) await window.ElTaulerBoardExperience.settled('tv-board');
+        if (tvReplay === active && active.isPlaying && active.playToken === playToken) stopTvPlayback();
+    }
 }
 
 function resetTvReplay() {
@@ -18387,7 +18334,7 @@ function continueOpeningErrorFenGame() {
     goodMoves = 0;
     goodEngineMoves = 0;
     if (board) board.destroy();
-    board = Chessboard('myBoard', {
+    board = createExperienceBoard('myBoard', {
         orientation: orientation === 'black' ? 'black' : 'white',
         draggable: (controlMode === 'drag'),
         position: game.fen(),
@@ -18661,20 +18608,38 @@ function startOpeningLessonWith(op, forceColor, idx) {
     if (boardEl && boardEl.scrollIntoView) setTimeout(() => boardEl.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
 }
 
+let openingPresentationSerial = 0;
+function presentOpeningReply(requested, apply, extraValid = () => true) {
+    const active = openingPracticeGame, fen = active && active.fen(), serial = ++openingPresentationSerial;
+    if (!active) return;
+    const valid = () => serial === openingPresentationSerial && openingPracticeGame === active && active.fen() === fen && extraValid();
+    openingPracticeEngineThinking = true;
+    if (typeof openingBundleBoard !== 'undefined' && openingBundleBoard && openingBundleBoard.fen() !== fen.split(' ')[0]) openingBundleBoard.position(fen, false);
+    const experience = window.ElTaulerBoardExperience;
+    void (async () => {
+        const ready = !experience || await experience.preview('opening-board', requested, valid);
+        if (!valid()) return;
+        openingPracticeEngineThinking = false;
+        if (ready) apply();
+    })();
+}
+
 function playOpeningLessonOpponentMove() {
     if (!openingLessonActive) return;
     if (openingLessonStep >= openingLessonLine.length) { completeOpeningLesson(); return; }
     const san = openingLessonLine[openingLessonStep];
-    const mv = openingPracticeGame.move(san, { sloppy: true });
-    if (!mv) { completeOpeningLesson(); return; }
-    openingLessonStep++;
-    // L'enginy ha mogut: treu el vist-i-plau verd de la jugada anterior
-    clearOpeningMoveVisualFeedback();
-    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
-    if (openingLessonStep >= openingLessonLine.length) { setTimeout(() => completeOpeningLesson(), 500); return; }
-    updateOpeningLessonNote();
-    // Marca en lila la casella de la nova jugada que toca a l'usuari
-    showOpeningLessonTargetHint();
+    presentOpeningReply(san, () => {
+        const mv = openingPracticeGame.move(san, { sloppy: true });
+        if (!mv) { completeOpeningLesson(); return; }
+        openingLessonStep++;
+        // L'enginy ha mogut: treu el vist-i-plau verd de la jugada anterior
+        clearOpeningMoveVisualFeedback();
+        if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+        if (openingLessonStep >= openingLessonLine.length) { setTimeout(() => completeOpeningLesson(), 500); return; }
+        updateOpeningLessonNote();
+        // Marca en lila la casella de la nova jugada que toca a l'usuari
+        showOpeningLessonTargetHint();
+    }, () => openingLessonActive && openingLessonLine[openingLessonStep] === san);
 }
 
 function updateOpeningLessonNote(intro = false) {
@@ -22760,9 +22725,16 @@ function handleHieroglyphicMove(source, target) {
                 openingPracticeEngineThinking = true;
                 if (isOpeningHiero) renderOpeningHieroglyphicNote('Resposta del rival…');
                 else renderHieroglyphicExerciseNote(false, 'Resposta del rival…');
-                setTimeout(() => {
+                const activeHiero = hieroglyphicGame, replyFen = activeHiero.fen();
+                setTimeout(async () => {
+                    const valid = () => hieroglyphicExerciseActive && hieroglyphicGame === activeHiero && activeHiero.fen() === replyFen;
+                    const experience = window.ElTaulerBoardExperience;
+                    if (experience && !await experience.preview('opening-board', { from: replyFrom, to: replyTo, promotion: reply[4] || 'q' }, valid)) {
+                        if (valid()) openingPracticeEngineThinking = false;
+                        return;
+                    }
+                    if (!valid()) return;
                     openingPracticeEngineThinking = false;
-                    if (!hieroglyphicExerciseActive) return;
                     hieroglyphicGame.move({ from: replyFrom, to: replyTo, promotion: reply.length > 4 ? reply[4] : undefined });
                     if (openingBundleBoard) openingBundleBoard.position(hieroglyphicGame.fen());
                     // Al jeroglífic d'obertura, la jugada del rival queda marcada
@@ -22851,7 +22823,7 @@ function initOpeningBundleBoard() {
     if (!boardEl) return;
     openingPracticeGame = new Chess();
     openingPracticeMoveCount = 0;
-    openingBundleBoard = Chessboard('opening-board', {
+    openingBundleBoard = createExperienceBoard('opening-board', {
         draggable: (controlMode === 'drag'),
         position: 'start',
         onDragStart: (source, piece) => {
@@ -23158,26 +23130,29 @@ function chooseOpeningTheoryMoveForCurrentPosition() {
 
 function applyOpeningOpponentSanMove(san, noteText = null) {
     if (!openingPracticeGame || openingPracticeGame.game_over() || !san) return false;
-    const move = openingPracticeGame.move(san, { sloppy: true });
-    if (!move) return false;
+    if (!new Chess(openingPracticeGame.fen()).move(san, { sloppy: true })) return false;
+    presentOpeningReply(san, () => {
+        const move = openingPracticeGame.move(san, { sloppy: true });
+        if (!move) return;
 
-    clearOpeningHintHighlight();
-    openingPracticeBestMove = null;
-    openingPracticeMoveCount += 1;
-    if (move.san) {
-        openingCurrentSequence.push(move.san);
-        updateSelectedOpening();
-    }
-    if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
-    openingPracticeEngineThinking = false;
-    updateOpeningPracticeStatus();
-    updateOpeningPrecisionDisplay();
-    updateOpeningUndoButton();
-    if (noteText) {
-        const noteEl = document.getElementById('opening-practice-note');
-        if (noteEl) noteEl.textContent = noteText;
-    }
-    setTimeout(() => preCalculateOpeningBestMove(), 200);
+        clearOpeningHintHighlight();
+        openingPracticeBestMove = null;
+        openingPracticeMoveCount += 1;
+        if (move.san) {
+            openingCurrentSequence.push(move.san);
+            updateSelectedOpening();
+        }
+        if (openingBundleBoard) openingBundleBoard.position(openingPracticeGame.fen());
+        openingPracticeEngineThinking = false;
+        updateOpeningPracticeStatus();
+        updateOpeningPrecisionDisplay();
+        updateOpeningUndoButton();
+        if (noteText) {
+            const noteEl = document.getElementById('opening-practice-note');
+            if (noteEl) noteEl.textContent = noteText;
+        }
+        setTimeout(() => preCalculateOpeningBestMove(), 200);
+    });
     return true;
 }
 
@@ -28008,7 +27983,7 @@ function showPreparingBoard(fen) {
         disableTapToMove();
         detachDragGuards();
         clearTapSelection();
-        board = Chessboard('myBoard', {
+        board = createExperienceBoard('myBoard', {
             orientation,
             draggable: false,
             position: fen,
@@ -28023,8 +27998,7 @@ function showPreparingBoard(fen) {
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     stopGameNarration();
-    $('#training-narration-caption').text('');
-    if (narrationPrefs('training').enabled) { ensureGameNarrator('training'); GAME_NARRATION.voice.unlock(); }
+    if (window.ElTaulerBoardExperience) window.ElTaulerBoardExperience.unlock('myBoard');
     // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
     clearEngineMoveTimers();
     isEngineThinking = false;
@@ -28271,7 +28245,7 @@ blunderMode = isBundle;
     }
     
     if (board) board.destroy();
-    board = Chessboard('myBoard', {
+    board = createExperienceBoard('myBoard', {
         orientation: boardOrientation,
         draggable: (controlMode === 'drag'), 
         position: game.fen(), 
@@ -28628,7 +28602,6 @@ function playSound(kind) {
 function playMoveSound(move, chessInstance) {
     const chess = chessInstance || game;
     if (!move || !chess) return;
-    if (chess === game && typeof narrateTrainingMove === 'function') narrateTrainingMove(chess, move);
     let kind = null;
     try {
         kind = ElTaulerCore.soundKindForMove(move, { inCheck: chess.in_check(), gameOver: chess.game_over() });
@@ -30544,38 +30517,39 @@ function handleEngineMessage(rawMsg) {
             resetOpeningEngineMoveCandidates();
             try { stockfish.postMessage('setoption name MultiPV value 1'); } catch (e) {}
 
-            // Fer el moviment de l'engine immediatament en chess.js (per evitar que l'usuari mogui abans)
-            const move = openingPracticeGame.move({
-                from,
-                to,
-                promotion
-            });
-            if (move) {
-                clearOpeningHintHighlight();
-                openingPracticeBestMove = null;
-                openingPracticeMoveCount += 1;
-                updateOpeningPracticeStatus();
-                // Afegir moviment de l'engine a la seqüència d'obertures
-                if (move.san) {
-                    openingCurrentSequence.push(move.san);
-                    console.log(`[OpeningEngine] Moviment engine afegit: ${move.san}, seqüència: [${openingCurrentSequence.join(', ')}]`);
-                    // Actualitzar l'obertura seleccionada i la pista
-                    updateSelectedOpening();
+            presentOpeningReply({ from, to, promotion }, () => {
+                const move = openingPracticeGame.move({
+                    from,
+                    to,
+                    promotion
+                });
+                if (move) {
+                    clearOpeningHintHighlight();
+                    openingPracticeBestMove = null;
+                    openingPracticeMoveCount += 1;
+                    updateOpeningPracticeStatus();
+                    // Afegir moviment de l'engine a la seqüència d'obertures
+                    if (move.san) {
+                        openingCurrentSequence.push(move.san);
+                        console.log(`[OpeningEngine] Moviment engine afegit: ${move.san}, seqüència: [${openingCurrentSequence.join(', ')}]`);
+                        // Actualitzar l'obertura seleccionada i la pista
+                        updateSelectedOpening();
+                    }
                 }
-            }
 
-            // Ara l'estat del joc és correcte, podem permetre que l'usuari mogui
-            openingPracticeEngineThinking = false;
-            updateOpeningUndoButton();
+                // Ara l'estat del joc és correcte, podem permetre que l'usuari mogui
+                openingPracticeEngineThinking = false;
+                updateOpeningUndoButton();
 
-            // Actualitzar el tauler visualment amb un petit delay per a animació suau
-            setTimeout(() => {
-                if (openingBundleBoard && openingPracticeGame) {
-                    openingBundleBoard.position(openingPracticeGame.fen());
-                }
-                // Pre-calcular el millor moviment per al proper torn de l'usuari
-                preCalculateOpeningBestMove();
-            }, 200);
+                // Actualitzar el tauler visualment amb un petit delay per a animació suau
+                setTimeout(() => {
+                    if (openingBundleBoard && openingPracticeGame) {
+                        openingBundleBoard.position(openingPracticeGame.fen());
+                    }
+                    // Pre-calcular el millor moviment per al proper torn de l'usuari
+                    preCalculateOpeningBestMove();
+                }, 200);
+            }, () => !hieroglyphicExerciseActive);
         } else {
             openingPracticeEngineThinking = false;
             updateOpeningUndoButton(); // Rehabilitar undo
@@ -31000,8 +30974,19 @@ function selectBundlePvLineForMove(bundleData, playedMove) {
     return match || (candidates[0] || []);
 }
 
-function applyBundleAutoReply(moveUci) {
+async function applyBundleAutoReply(moveUci) {
     if (!moveUci) return;
+    const active = game, fen = active.fen(), generation = gameGeneration;
+    const valid = () => game === active && gameGeneration === generation && active.fen() === fen && blunderMode;
+    if (window.ElTaulerBoardExperience && !gameClock.enabled && blunderMode && !isViewingGameHistory()) {
+        isEngineThinking = true;
+        const ready = await window.ElTaulerBoardExperience.preview('myBoard', {
+            from: moveUci.slice(0, 2), to: moveUci.slice(2, 4), promotion: moveUci[4] || 'q'
+        }, valid);
+        if (!valid()) return;
+        isEngineThinking = false;
+        if (!ready) return;
+    }
     const fromSq = moveUci.substring(0, 2);
     const toSq = moveUci.substring(2, 4);
     const promotion = moveUci.length > 4 ? moveUci[4] : 'q';

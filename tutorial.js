@@ -746,7 +746,7 @@
         else if (typeof step.fen === 'string') position = step.fen.split(' ')[0];
         const mode = (typeof controlMode !== 'undefined') ? controlMode : null;
         const interactiveDrag = step.kind === 'task' && mode === 'drag';
-        board = window.Chessboard('tutorial-board', {
+        board = (window.createExperienceBoard || window.Chessboard)('tutorial-board', {
             position,
             orientation: boardOrientation(step),
             draggable: interactiveDrag,
@@ -754,7 +754,7 @@
             onDrop: onDrop,
             onSnapEnd: () => { if (board && stepChess && !stepSolved) board.position(stepChess.fen()); },
             pieceTheme: PIECE_THEME
-        });
+        }, () => ({ chess: stepChess, key: currentStep(), playerColor: null, disabled: !stepChess }));
         $('#tutorial-board').off('click.tut').on('click.tut', '.square-55d63', function () {
             const sq = $(this).attr('data-square');
             if (sq) onSquareTap(sq);
@@ -879,6 +879,7 @@
             return;
         }
         clearMarks();
+        if (result.ok) stepChess.move(result.move, { sloppy: true });
         if (board) board.position(result.fenAfter);
         const fromEl = squareEl(from);
         const toEl = squareEl(to);
