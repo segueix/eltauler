@@ -99,14 +99,20 @@
         // Mat anunciat: només si és curt.
         MATE_ANNOUNCE_MAX: 3,
         MISSED_MATE_MAX: 5,
-        // Cadència dels comentaris: entre dos comentaris ordinaris hi ha
-        // d'haver almenys aquestes semijugades, i un mateix tipus no es
-        // repeteix dins de la finestra.
-        COMMENT_GAP_PLIES: 2,
-        SAME_KIND_WINDOW_PLIES: 6,
-        HIGH_PRIORITY: 70,
-        DEVELOPMENT_MAX_PLY: 20,
-        DEVELOPMENT_MAX_PER_COLOR: 2,
+        // Retransmissió: es poden comentar jugades consecutives. El control
+        // de repeticions és per IDEA concreta (clau + estat): una idea igual no
+        // es repeteix dins d'aquesta finestra, i una frase idèntica tampoc.
+        IDEA_MEMORY_PLIES: 16,
+        TEXT_MEMORY_PLIES: 24,
+        // Resum estratègic cada 5 jugades completes (si aporta res de nou).
+        SUMMARY_EVERY_PLIES: 10,
+        // Explicació ampliada: com a molt aquestes paraules en total.
+        EXTENDED_MAX_WORDS: 26,
+        // Entre dues explicacions ampliades (definició, ampliació o fets
+        // combinats) hi ha d'haver almenys aquestes semijugades.
+        EXTENDED_GAP_PLIES: 3,
+        // Fet de la jugada (captura o escac) + conseqüència: marge propi.
+        LEAD_MAX_WORDS: 32,
         PREFS_KEY: 'tauler_tv_prefs'
     };
 
@@ -577,32 +583,258 @@
         } catch (e) { return null; }
     }
 
-    // Acció en infinitiu d'una jugada («portar el cavall a f3»), validada.
+    // Acció en infinitiu d'una jugada («portar el cavall a f3»), validada
+    // sobre la FEN amb els fets de core.js. A la TV no hi ha cap «tu»: la
+    // redacció és impersonal (el redactor de les ressenyes parla a l'usuari).
     function moveAction(ChessCtor, fen, uci) {
         const Core = getCore();
-        const R = getRedactor();
-        if (!Core || !R || typeof Core.createPvBoardHelpers !== 'function') return null;
+        if (!Core || typeof Core.createPvBoardHelpers !== 'function') return null;
         const helpers = Core.createPvBoardHelpers(ChessCtor);
-        const facts = helpers ? helpers.moveFacts(fen, uci) : null;
-        if (!facts) return null;
-        const veu = R.descriuJugadaPerVeu ? R.descriuJugadaPerVeu(facts, { estil: 'casual' }) : null;
-        return veu && veu.accio ? veu.accio : null;
+        const f = helpers ? helpers.moveFacts(fen, uci) : null;
+        if (!f) return null;
+        const check = f.mat ? ' amb escac i mat' : (f.escac ? ' amb escac' : '');
+        if (f.enroc) return 'enrocar ' + (f.enroc === 'k' ? 'curt' : 'llarg') + check;
+        const origin = f.desambigua ? ' ' + deSq(f.origen) : '';
+        if (f.coronacio) return 'coronar el peó a ' + f.desti + check;
+        if (f.captura) {
+            const withPiece = f.peca === 'p' ? 'el peó de la columna ' + f.origen[0] : pieceShort(f.peca) + origin;
+            return 'capturar ' + pieceShort(f.captura) + ' a ' + f.desti + ' amb ' + withPiece + check;
+        }
+        if (f.peca === 'p') return 'avançar el peó de la columna ' + f.origen[0] + ' fins a ' + f.desti + check;
+        return 'portar ' + pieceShort(f.peca) + origin + ' a ' + f.desti + check;
     }
 
     // ------------------------------------------------------------------
-    // Comentaris
+    // Retransmissió: fets del tauler, candidats, selecció i memòria
     // ------------------------------------------------------------------
+    // Objectiu: acompanyar gairebé cada jugada amb una frase curta i CERTA.
+    // Cada candidat surt d'un fet comprovable (regles de chess.js, atacs i
+    // defenses del tauler o una anàlisi fiable) i porta:
+    //   kind      → tipus d'idea (per a les estadístiques i el to)
+    //   priority  → urgència: tàctica > estratègia verificada > descripció
+    //   key/sig   → identitat de la idea concreta i del seu estat: es pot
+    //               tornar a comentar quan l'estat canvia, mai per repetir-la
+    //   variants  → maneres de dir el mateix (varietat sense canviar el fet)
+    //   extra     → frase opcional per a l'explicació ampliada
+    //   explanatory → si explica alguna cosa més enllà d'anunciar la jugada
+    // Si no hi ha res prou fonamentat, la jugada es descriu sense atribuir-li
+    // cap intenció («Les negres porten el cavall a f6»).
     const KIND_PRIORITY = {
-        'mate': 100, 'end': 95, 'promotion': 90, 'fork-check': 85, 'missed-mate': 80,
-        'allows-mate': 78, 'mate-threat': 75, 'missed': 70, 'opening-phrase': 65,
-        'castle': 60, 'capture-free': 55, 'capture-recoverable': 50, 'recapture': 45,
-        'threat': 40, 'check': 30, 'development': 20
+        'mate': 100, 'end': 96, 'promotion': 94, 'double-check': 92, 'fork-check': 90,
+        'missed-mate': 86, 'allows-mate': 85, 'mate-threat': 82, 'out-of-check': 80,
+        'discovered-attack': 78, 'threat': 76, 'hanging': 74, 'reply': 72, 'missed': 70,
+        'capture-free': 68, 'only-move': 67, 'capture-recoverable': 66, 'recapture': 64,
+        'opening-phrase': 62, 'queens-off': 60, 'endgame': 59, 'passed-new': 58, 'passed-advance': 57, 'opposition': 57,
+        'castle': 56, 'structure': 55, 'material': 54, 'defend': 53, 'open-file': 52,
+        'doubled-rooks': 50, 'seventh': 49, 'pressure': 48, 'threat-pawn': 47, 'king-pressure': 47, 'majority': 46, 'center': 46, 'diagonal': 45,
+        'blocked': 44, 'tension': 43,
+        'development': 42, 'king-activity': 40, 'activation': 38, 'check': 36, 'capture': 30,
+        'describe': 10
     };
+    const NON_EXPLANATORY = { describe: true, capture: true, check: true };
+    // Comentaris que expliquen una conseqüència però no diuen la captura o
+    // l'escac de la jugada: van precedits d'aquest fet.
+    const LEAD_WITH_FACT = ['hanging', 'threat', 'threat-pawn', 'discovered-attack', 'structure', 'passed-new', 'open-file',
+        'center', 'diagonal', 'pressure', 'defend', 'material', 'queens-off', 'endgame', 'fork-check', 'seventh', 'doubled-rooks',
+        'only-move', 'missed', 'tension', 'king-pressure', 'majority', 'blocked', 'king-activity', 'opposition', 'reply', 'mate-threat'];
+    const CENTER_SQUARES = ['d4', 'e4', 'd5', 'e5'];
+    const NUM_WORDS = { 1: ['un', 'una'], 2: ['dos', 'dues'], 3: ['tres', 'tres'], 4: ['quatre', 'quatre'], 5: ['cinc', 'cinc'], 6: ['sis', 'sis'], 7: ['set', 'set'], 8: ['vuit', 'vuit'] };
+    function numWord(n, fem) { const w = NUM_WORDS[n]; return w ? w[fem ? 1 : 0] : String(n); }
+
+    // «de» davant d'una casella: s'apostrofa davant de les lletres que es
+    // pronuncien amb vocal (a, e, efa, hac): «el peó d'e4», «la torre de d1».
+    function deSq(sq) { return (/^[aefh]/.test(sq) ? 'd\'' : 'de ') + sq; }
+    function deWord(w) { return (/^[aeiouàèéíòóú]/i.test(w) ? 'd\'' : 'de ') + w; }
+    function delPiece(type) { return PIECE_FEMININE[type] ? 'de la ' + PIECE_NAME[type] : (/^[aeiou]/.test(PIECE_NAME[type]) ? 'de l\'' : 'del ') + PIECE_NAME[type]; }
+    function pieceOn(type, color, sq) { return pieceNP(type, color) + ' ' + deSq(sq); }
+    // «per» + article: «pel peó», «per la torre», «per l'alfil».
+    function perNP(np) { return /^el /.test(np) ? 'pel ' + np.slice(3) : 'per ' + np; }
+    function shortOn(type, sq) { return pieceShort(type) + ' ' + deSq(sq); }
+    function pieceTitle(type, color) { return capFirst(PIECE_NAME[type]) + ' ' + (PIECE_FEMININE[type] ? COLOR[color].adjF : COLOR[color].adj); }
+    function agree(type, masc, fem) { return PIECE_FEMININE[type] ? fem : masc; }
+
+    function gridAt(grid, sq) { const fr = fileRank(sq); return fr ? grid[fr.rank][fr.file] : null; }
+    function attackersAt(H, grid, sq, color) { const fr = fileRank(sq); return fr ? H.attackers(grid, fr.file, fr.rank, color) : []; }
+    function targetsFrom(H, grid, sq) {
+        const fr = fileRank(sq);
+        return fr ? H.targets(grid, fr.file, fr.rank).map(t => squareOf(t.file, t.rank)) : [];
+    }
+    function piecesOf(grid, color, type) {
+        const out = [];
+        for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+            const p = grid[r][f];
+            if (p && p.c === color && (!type || p.t === type)) out.push({ sq: squareOf(f, r), t: p.t });
+        }
+        return out;
+    }
+    function materialOf(grid) {
+        const m = { w: { p: 0, n: 0, b: 0, r: 0, q: 0 }, b: { p: 0, n: 0, b: 0, r: 0, q: 0 } };
+        for (let r = 0; r < 8; r++) for (let f = 0; f < 8; f++) {
+            const p = grid[r][f];
+            if (p && p.t !== 'k') m[p.c][p.t]++;
+        }
+        return m;
+    }
+    function materialSig(m) { return ['p', 'n', 'b', 'r', 'q'].map(t => m.w[t] - m.b[t]).join(','); }
+    // Descripció del desequilibri material des del bàndol que en té més.
+    function materialPhrase(m) {
+        const d = {};
+        ['p', 'n', 'b', 'r', 'q'].forEach(t => { d[t] = m.w[t] - m.b[t]; });
+        const pts = d.p + 3 * (d.n + d.b) + 5 * d.r + 9 * d.q;
+        if (!pts) return null;
+        const leader = pts > 0 ? 'w' : 'b';
+        const s = pts > 0 ? 1 : -1;
+        const p = d.p * s, minor = (d.n + d.b) * s, r = d.r * s, q = d.q * s;
+        let desc;
+        if (!minor && !r && !q) desc = p === 1 ? 'un peó de més' : numWord(p) + ' peons de més';
+        else if (r === 1 && minor === -1 && !q) desc = 'la qualitat de més' + (p > 0 ? ' i ' + (p === 1 ? 'un peó' : numWord(p) + ' peons') : '');
+        else if (minor === 1 && !r && !q && p <= 0) desc = p === 0 ? 'una peça de més' : 'una peça per ' + (p === -1 ? 'un peó' : numWord(-p) + ' peons');
+        else if (r === 1 && !minor && !q && p >= 0) desc = 'una torre de més';
+        else if (q === 1 && !minor && !r) desc = 'la dama de més';
+        else {
+            const items = [];
+            const dd = { q: d.q * s, r: d.r * s, b: d.b * s, n: d.n * s, p: d.p * s };
+            const allPositive = Object.keys(dd).every(t => dd[t] >= 0);
+            if (allPositive) {
+                ['q', 'r', 'b', 'n', 'p'].forEach((t) => {
+                    if (dd[t] === 1) items.push((PIECE_FEMININE[t] ? 'una ' : 'un ') + PIECE_NAME[t]);
+                    else if (dd[t] > 1) items.push(numWord(dd[t], PIECE_FEMININE[t]) + ' ' + PIECE_PLURAL[t]);
+                });
+                const R = getRedactor();
+                desc = (R && R.llistaEnCatala ? R.llistaEnCatala(items) : items.join(' i ')) + ' de més';
+            } else {
+                desc = 'l\'equivalent a ' + (pts * s === 1 ? 'un peó' : numWord(pts * s) + ' peons') + ' de més';
+            }
+        }
+        return { leader: leader, desc: desc, pts: pts * s };
+    }
+    function pieceListPhrase(m, color) {
+        const parts = [];
+        const add = (t) => { const n = m[color][t]; if (n === 1) parts.push(PIECE_NAME[t]); else if (n > 1) parts.push(numWord(n, PIECE_FEMININE[t]) + ' ' + PIECE_PLURAL[t]); };
+        ['q', 'r', 'b', 'n'].forEach(add);
+        const R = getRedactor();
+        return parts.length ? (R && R.llistaEnCatala ? R.llistaEnCatala(parts) : parts.join(' i ')) : 'només peons';
+    }
+    function pawnStructure(grid, color) {
+        const Core = getCore();
+        const passed = new Set((Core && Core.antidotePassedPawns ? Core.antidotePassedPawns(grid, color) : []).map(p => p.square));
+        const isoFiles = Core && Core.antidoteIsolatedPawns ? Core.antidoteIsolatedPawns(grid, color) : [];
+        const isolated = new Set();
+        const perFile = [0, 0, 0, 0, 0, 0, 0, 0];
+        piecesOf(grid, color, 'p').forEach((p) => {
+            const f = 'abcdefgh'.indexOf(p.sq[0]);
+            perFile[f]++;
+            if (isoFiles.indexOf(f) !== -1) isolated.add(p.sq);
+        });
+        const doubled = new Set();
+        perFile.forEach((n, f) => { if (n >= 2) doubled.add('abcdefgh'[f]); });
+        return { passed: passed, isolated: isolated, doubled: doubled };
+    }
+    function fileCounts(grid, f) {
+        const c = { w: 0, b: 0 };
+        for (let r = 0; r < 8; r++) { const p = grid[r][f]; if (p && p.t === 'p') c[p.c]++; }
+        return c;
+    }
+    function chebyshev(a, b) {
+        const x = fileRank(a), y = fileRank(b);
+        return (x && y) ? Math.max(Math.abs(x.file - y.file), Math.abs(x.rank - y.rank)) : 99;
+    }
+    function centerDistance(sq) { return Math.min.apply(null, CENTER_SQUARES.map(c => chebyshev(sq, c))); }
+    // Final, a efectes del relat: la fase de final de core.js o, com a molt,
+    // quatre peces (sense comptar reis ni peons) entre tots dos bàndols.
+    function isPhaseEndgame(fen) {
+        const Core = getCore();
+        if (Core && Core.phaseFromFen && Core.phaseFromFen(fen) === 'endgame') return true;
+        const placement = String(fen || '').split(' ')[0];
+        return (placement.match(/[nbrqNBRQ]/g) || []).length <= 4;
+    }
+    function kingSq(grid, color) { const k = piecesOf(grid, color, 'k')[0]; return k ? k.sq : null; }
+    // Peces «penjades» d'un color: atacades i sense defensa, o atacades per
+    // una peça més barata. Atacada NO vol dir guanyable: és només un fet.
+    function hangingSet(H, grid, color) {
+        const out = {};
+        piecesOf(grid, color).forEach((p) => {
+            if (p.t === 'k') return;
+            const att = attackersAt(H, grid, p.sq, other(color));
+            if (!att.length) return;
+            const def = attackersAt(H, grid, p.sq, color);
+            const cheapest = Math.min.apply(null, att.map(a => PIECE_VALUE[a.t]));
+            if (!def.length || cheapest < PIECE_VALUE[p.t]) out[p.sq] = { t: p.t, defended: def.length > 0, cheapest: cheapest };
+        });
+        return out;
+    }
+    function developedMinors(grid, color) {
+        const home = HOME_SQUARES[color];
+        let atHome = 0;
+        Object.keys(home).forEach((sq) => { const p = gridAt(grid, sq); if (p && p.c === color && p.t === home[sq]) atHome++; });
+        const minors = piecesOf(grid, color).filter(p => p.t === 'n' || p.t === 'b').length;
+        return { out: Math.max(0, minors - atHome), atHome: atHome, minors: minors };
+    }
+
+    function tvEmptyMemory() {
+        return {
+            ideas: {}, texts: [], templates: {}, plainStreak: 0, lastExtendedPly: -99, lastCommentPly: -99,
+            focus: [], threats: [], pressures: [], defined: {}, lastSummaryPly: 0, summarySig: null,
+            materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false }
+        };
+    }
+    function cloneMemory(m) { return JSON.parse(JSON.stringify(m || tvEmptyMemory())); }
+
+    // Descripció factual de la jugada, sense intencions ni valoracions.
+    function describeMove(mv, extraCheck) {
+        const me = COLOR[mv.color];
+        const ps = pieceShort(mv.piece);
+        const check = extraCheck ? (/#/.test(mv.san) ? ', escac i mat' : (/\+/.test(mv.san) ? ', amb escac' : '')) : '';
+        const end = (s) => s.replace(/\.$/, '') + check + '.';
+        if (mv.flags.indexOf('k') !== -1 || mv.flags.indexOf('q') !== -1) {
+            const side = mv.flags.indexOf('k') !== -1 ? 'curt' : 'llarg';
+            return { family: 'describe-castle', variants: [end(me.Pl + ' enroquen ' + side + '.'), end('Enroc ' + side + ' de ' + me.pl + '.')] };
+        }
+        if (mv.captured) {
+            const victim = shortOn(mv.captured, mv.to);
+            const enPassant = mv.flags.indexOf('e') !== -1 ? ' al pas' : '';
+            if (mv.piece === 'p') {
+                return { family: 'describe-capture-p', variants: [
+                    end(me.Pl + ' capturen ' + victim + enPassant + ' amb el peó de la columna ' + mv.from[0] + '.'),
+                    end('El peó ' + me.adj + ' de la columna ' + mv.from[0] + ' captura' + enPassant + ' a ' + mv.to + '.'),
+                    end('Captura de peó a ' + mv.to + enPassant + ': ' + me.pl + ' prenen ' + pieceShort(mv.captured) + '.')
+                ] };
+            }
+            return { family: 'describe-capture', variants: [
+                end(me.Pl + ' capturen ' + victim + ' amb ' + ps + '.'),
+                end(capFirst(pieceNP(mv.piece, mv.color)) + ' captura ' + pieceShort(mv.captured) + ' a ' + mv.to + '.'),
+                end('Captura a ' + mv.to + ': ' + pieceNP(mv.piece, mv.color) + ' pren ' + pieceShort(mv.captured) + '.')
+            ] };
+        }
+        if (mv.piece === 'p') {
+            const file = mv.from[0];
+            const two = Math.abs(parseInt(mv.to[1], 10) - parseInt(mv.from[1], 10)) === 2;
+            return { family: 'describe-pawn', variants: [
+                end(two ? me.Pl + ' avancen dues caselles el peó de la columna ' + file + '.' : me.Pl + ' avancen el peó de la columna ' + file + ' fins a ' + mv.to + '.'),
+                end('Peó ' + me.adj + ' a ' + mv.to + '.'),
+                end(me.Pl + ' juguen el peó a ' + mv.to + '.'),
+                end('Ara, el peó ' + me.adj + ' arriba a ' + mv.to + '.')
+            ] };
+        }
+        if (mv.piece === 'k') {
+            return { family: 'describe-king', variants: [
+                end('El rei ' + me.adj + ' passa a ' + mv.to + '.'),
+                end(me.Pl + ' mouen el rei a ' + mv.to + '.'),
+                end('Rei ' + me.adj + ' a ' + mv.to + '.')
+            ] };
+        }
+        return { family: 'describe-piece', variants: [
+            end(me.Pl + ' porten ' + ps + ' a ' + mv.to + '.'),
+            end(pieceTitle(mv.piece, mv.color) + ' a ' + mv.to + '.'),
+            end(me.Pl + ' juguen ' + ps + ' a ' + mv.to + '.'),
+            end('Ara, ' + pieceNP(mv.piece, mv.color) + ' va a ' + mv.to + '.')
+        ] };
+    }
 
     // Llista de comentaris candidats d'una jugada, de més a menys prioritari.
     // ctx = { ChessCtor, fenBefore, fenAfter, move (verbós de chess.js),
     //         prevMove, before, after (anàlisis), tier, prepared, phrase,
-    //         end (final de partida o null) }
+    //         end (final de partida o null), ply, memory (opcional) }
     function tvCommentCandidates(ctx) {
         const c = ctx || {};
         const mv = c.move;
@@ -613,22 +845,41 @@
         const me = COLOR[color];
         const them = COLOR[opp];
         const uci = mv.from + mv.to + (mv.promotion || '');
+        const memory = c.memory || null;
         const out = [];
-        const add = (kind, text) => { if (text) out.push({ kind: kind, priority: KIND_PRIORITY[kind] || 0, text: text }); };
-        const helpers = boardHelpers();
-        const before = helpers ? helpers.parse(c.fenBefore) : null;
-        const after = helpers ? helpers.parse(c.fenAfter) : null;
+        // add(kind, variants|text, opts{key, sig, extra, tags, payload})
+        const add = (kind, text, o) => {
+            const variants = (Array.isArray(text) ? text : [text]).filter(Boolean);
+            if (!variants.length) return null;
+            const opts = o || {};
+            const cand = {
+                kind: kind, priority: KIND_PRIORITY[kind] || 0, text: variants[0], variants: variants,
+                key: opts.key || (kind + ':' + color + ':' + mv.to), sig: opts.sig || mv.to,
+                family: opts.family || kind, extra: opts.extra || null, define: opts.define || null,
+                tags: opts.tags || { color: color, squares: [mv.to] }, payload: opts.payload || null,
+                explanatory: !NON_EXPLANATORY[kind], reliability: opts.reliability || 'board'
+            };
+            out.push(cand);
+            return cand;
+        };
+        const H = boardHelpers();
+        const before = H ? H.parse(c.fenBefore) : null;
+        const after = H ? H.parse(c.fenAfter) : null;
         const isCheck = /[+#]/.test(mv.san);
         const reliable = !!(c.before && c.before.reliable && c.after && c.after.reliable);
+        const isCastle = mv.flags && (mv.flags.indexOf('k') !== -1 || mv.flags.indexOf('q') !== -1);
+        const toFR = fileRank(mv.to);
+        const moved = (after && toFR) ? after.grid[toFR.rank][toFR.file] : null;
+        const movedValue = moved ? PIECE_VALUE[moved.t] : 0;
 
         // 1) Final de partida.
         if (c.end) {
             if (c.end.reason === 'checkmate') {
                 add('mate', tier === 'basic'
                     ? 'Escac i mat: el rei ' + COLOR[opp].adj + ' està atacat i no té cap manera d\'escapar. Guanyen ' + me.pl + '.'
-                    : c.end.text);
+                    : c.end.text, { reliability: 'rules' });
             } else {
-                add('end', c.end.text);
+                add('end', c.end.text, { reliability: 'rules' });
             }
         }
 
@@ -637,21 +888,30 @@
             const noun = PIECE_NAME[mv.promotion] || 'dama';
             add('promotion', tier === 'basic'
                 ? 'El peó ' + me.adj + ' arriba a l\'última fila i es converteix en ' + noun + '.'
-                : 'El peó ' + me.adj + ' corona a ' + mv.to + ' i es converteix en ' + noun + (isCheck ? ', amb escac.' : '.'));
+                : 'El peó ' + me.adj + ' corona a ' + mv.to + ' i es converteix en ' + noun + (isCheck ? ', amb escac.' : '.'), { reliability: 'rules' });
         }
 
-        // 3) Escac i atac doble de la peça que ha mogut (forquilla amb escac).
-        if (isCheck && helpers && after && !c.end) {
-            const to = fileRank(mv.to);
-            const moved = to ? after.grid[to.rank][to.file] : null;
-            if (moved) {
-                const hits = helpers.targets(after.grid, to.file, to.rank)
-                    .map(t => ({ sq: squareOf(t.file, t.rank), p: after.grid[t.rank][t.file] }))
+        // 3) Escacs: doble, a la descoberta, amb atac doble o simple.
+        let checkers = [];
+        if (isCheck && H && after && !c.end) {
+            const ks = kingSq(after.grid, opp);
+            checkers = ks ? attackersAt(H, after.grid, ks, color).map(a => ({ sq: squareOf(a.file, a.rank), t: a.t })) : [];
+            const discovered = checkers.find(k => k.sq !== mv.to);
+            if (checkers.length >= 2) {
+                add('double-check', tier === 'basic'
+                    ? 'Escac doble: dues peces ataquen el rei ' + COLOR[opp].adj + ', i l\'única defensa és moure el rei.'
+                    : 'Escac doble: el rei ' + COLOR[opp].adj + ' està obligat a moure\'s.', { reliability: 'rules' });
+            } else if (discovered) {
+                add('check', ['Escac a la descoberta ' + delPiece(discovered.t) + ' ' + COLOR[color].adj + (PIECE_FEMININE[discovered.t] ? 'a' : '') + ' des ' + deSq(discovered.sq) + '.'],
+                    { reliability: 'rules', family: 'check-discovered' });
+            }
+            if (moved && checkers.some(k => k.sq === mv.to)) {
+                const hits = targetsFrom(H, after.grid, mv.to)
+                    .map(sq => ({ sq: sq, p: gridAt(after.grid, sq) }))
                     .filter(t => t.p && t.p.c === opp);
-                const givesCheck = hits.some(t => t.p.t === 'k');
-                const valuable = hits.filter(t => (t.p.t === 'q' || t.p.t === 'r') && PIECE_VALUE[t.p.t] > PIECE_VALUE[moved.t])
+                const valuable = hits.filter(t => (t.p.t === 'q' || t.p.t === 'r') && PIECE_VALUE[t.p.t] > movedValue)
                     .sort((a, b) => PIECE_VALUE[b.p.t] - PIECE_VALUE[a.p.t]);
-                if (givesCheck && valuable.length) {
+                if (valuable.length) {
                     const target = valuable[0];
                     let text = capFirst(pieceNP(moved.t, color)) + ' ataca alhora el rei i ' + pieceShort(target.p.t) + '.';
                     // Que es GUANYI és una altra cosa: només si l'anàlisi ho avala
@@ -661,12 +921,32 @@
                     if (reliable && pv[1] && pv[1].slice(2, 4) === target.sq && isNum(gain) && gain >= 300) {
                         text += ' Segons l\'anàlisi, ' + me.pl + ' poden guanyar ' + pieceShort(target.p.t) + '.';
                     }
-                    add('fork-check', text);
+                    add('fork-check', text, { key: 'fork:' + color + ':' + target.sq, tags: { color: color, squares: [mv.to, target.sq] } });
                 }
+                const name = pieceNP(moved.t, color);
+                const checkTexts = mv.captured ? describeMove(mv, true).variants : [
+                    capFirst(name) + ' fa escac des ' + deSq(mv.to) + '.',
+                    'Escac amb ' + pieceShort(moved.t) + ' a ' + mv.to + '.',
+                    capFirst(me.pl) + ' fan escac amb ' + pieceShort(moved.t) + ' a ' + mv.to + '.'
+                ];
+                add('check', checkTexts.map(s => tier === 'basic' ? s.replace(/\.$/, ': ' + them.pl + ' han de protegir el rei.') : s), { reliability: 'rules', family: mv.captured ? 'check-capture' : 'check' });
             }
         }
 
-        // 4) Mats segons l'anàlisi (mai barrejats amb centipeons).
+        // 4) Sortir de l'escac (la jugada anterior feia escac).
+        if (before && H && !c.end) {
+            const ksBefore = kingSq(before.grid, color);
+            const checkersBefore = ksBefore ? attackersAt(H, before.grid, ksBefore, opp) : [];
+            if (checkersBefore.length) {
+                const chk = squareOf(checkersBefore[0].file, checkersBefore[0].rank);
+                if (mv.piece === 'k') add('out-of-check', [me.Pl + ' surten de l\'escac amb el rei a ' + mv.to + '.', 'El rei ' + me.adj + ' s\'aparta de l\'escac cap a ' + mv.to + '.',
+                    'Per sortir de l\'escac, ' + me.pl + ' porten el rei a ' + mv.to + '.', capFirst(me.pl) + ' responen a l\'escac amb el rei a ' + mv.to + '.'], { reliability: 'rules', key: 'outcheck:' + color + ':' + c.ply });
+                else if (mv.captured && mv.to === chk) add('out-of-check', [me.Pl + ' capturen la peça que feia escac.', 'La captura a ' + mv.to + ' elimina la peça que feia escac.'], { reliability: 'rules', key: 'outcheck:' + color + ':' + c.ply });
+                else add('out-of-check', [me.Pl + ' tapen l\'escac amb ' + pieceShort(mv.piece) + ' a ' + mv.to + '.', 'L\'escac queda tapat: ' + pieceNP(mv.piece, color) + ' s\'interposa a ' + mv.to + '.'], { reliability: 'rules', key: 'outcheck:' + color + ':' + c.ply });
+            }
+        }
+
+        // 5) Mats segons l'anàlisi (mai barrejats amb centipeons).
         if (reliable && !c.end) {
             const mateMine = tvMateFor(c.after.best, color);
             const mateTheirs = tvMateFor(c.after.best, opp);
@@ -678,22 +958,24 @@
                 if (accio) {
                     add('missed-mate', tier === 'basic'
                         ? capFirst(me.pl) + ' tenien un mat a l\'abast amb una altra jugada: ' + accio + '.'
-                        : 'L\'anàlisi veia mat en ' + hadMate + ' per a ' + me.pl + ' amb una altra jugada: ' + accio + '.');
+                        : 'L\'anàlisi veia mat en ' + hadMate + ' per a ' + me.pl + ' amb una altra jugada: ' + accio + '.', { reliability: 'analysis' });
                 }
             }
             if (mateTheirs && mateTheirs <= TV_CONFIG.MATE_ANNOUNCE_MAX && !theyHadMate) {
                 add('allows-mate', tier === 'basic'
                     ? 'Compte: ara ' + them.pl + ' tenen un mat a prop.'
-                    : 'Aquesta jugada permet a ' + them.pl + ' un mat en ' + mateTheirs + ', segons l\'anàlisi.');
+                    : 'Aquesta jugada permet a ' + them.pl + ' un mat en ' + mateTheirs + ', segons l\'anàlisi.', { reliability: 'analysis' });
             }
-            if (mateMine && mateMine <= TV_CONFIG.MATE_ANNOUNCE_MAX) {
+            const prevMate = memory && memory.ideas && memory.ideas['mate:' + color];
+            const longer = prevMate && isNum(c.ply) && c.ply - prevMate.ply < 8 && +prevMate.sig <= mateMine;
+            if (mateMine && mateMine <= TV_CONFIG.MATE_ANNOUNCE_MAX && !longer) {
                 add('mate-threat', tier === 'basic'
                     ? capFirst(me.pl) + ' tenen un mat a prop.'
-                    : 'L\'anàlisi veu mat en ' + mateMine + ' per a ' + me.pl + '.');
+                    : 'L\'anàlisi veu mat en ' + mateMine + ' per a ' + me.pl + '.', { reliability: 'analysis', key: 'mate:' + color, sig: String(mateMine) });
             }
         }
 
-        // 5) Alternativa millor avalada per l'anàlisi (centipeons, mateix bàndol).
+        // 6) Alternativa millor avalada per l'anàlisi (centipeons, mateix bàndol).
         if (reliable && !c.end && c.before.bestUci && c.before.bestUci !== uci) {
             const loss = tvMoverLossCp(c.before.best, c.after.best, color);
             const threshold = TV_CONFIG.MISSED_LOSS_CP[tier] || TV_CONFIG.MISSED_LOSS_CP.mid;
@@ -701,123 +983,865 @@
             if (isNum(loss) && loss >= threshold && isNum(moverBefore) && Math.abs(moverBefore) <= TV_CONFIG.DECIDED_CP) {
                 const accio = moveAction(c.ChessCtor, c.fenBefore, c.before.bestUci);
                 if (accio) {
-                    if (tier === 'basic') add('missed', 'Hi havia una jugada millor per a ' + me.pl + ': ' + accio + '.');
-                    else if (tier === 'advanced') {
-                        const pawns = (Math.round(loss / 10) / 10).toFixed(1).replace('.', ',');
-                        add('missed', 'Per a ' + me.pl + ', l\'anàlisi preferia ' + accio + ': segons el motor, la jugada feta cedeix uns ' + pawns + ' peons.');
-                    } else add('missed', 'Per a ' + me.pl + ', l\'anàlisi preferia ' + accio + '.');
+                    const pawns = (Math.round(loss / 10) / 10).toFixed(1).replace('.', ',');
+                    const tail = tier === 'advanced' ? ': segons el motor, la jugada feta cedeix uns ' + pawns + ' peons.' : '.';
+                    const variants = tier === 'basic'
+                        ? ['Hi havia una jugada millor per a ' + me.pl + ': ' + accio + '.', capFirst(me.pl) + ' tenien una opció millor: ' + accio + '.']
+                        : ['Per a ' + me.pl + ', l\'anàlisi preferia ' + accio + tail, 'L\'anàlisi recomanava ' + accio + tail,
+                            'Segons l\'anàlisi, era millor ' + accio + tail, capFirst(me.pl) + ' tenien una opció millor: ' + accio + tail];
+                    add('missed', variants, { reliability: 'analysis', key: 'missed:' + c.ply, family: 'missed' });
                 }
             }
         }
 
-        // 6) Frase del repertori per a les jugades preparades.
-        if (c.prepared && c.phrase) add('opening-phrase', c.phrase);
-
-        // 7) Enroc.
-        if (mv.flags && (mv.flags.indexOf('k') !== -1 || mv.flags.indexOf('q') !== -1)) {
-            const side = mv.flags.indexOf('k') !== -1 ? 'curt' : 'llarg';
-            if (tier === 'basic') {
-                add('castle', me.Pl + ' han enrocat: el rei s\'aparta del centre i la torre entra en joc.');
-            } else {
-                const connected = after && rooksConnected(after.grid, color);
-                add('castle', me.Pl + ' han enrocat ' + side + (connected ? ' i han connectat les torres.' : '.'));
+        // 7) Única bona jugada segons l'anàlisi (MultiPV 2: la segona opció
+        //    perd clarament). Només amb centipeons als dos costats.
+        if (reliable && !c.end && c.before.bestUci === uci && c.before.second && c.before.second.score
+            && c.before.best.type === 'cp' && c.before.second.score.type === 'cp' && c.before.second.depth >= TV_CONFIG.MIN_RELIABLE_DEPTH) {
+            const gap = tvMoverLossCp(c.before.best, c.before.second.score, color);
+            if (isNum(gap) && gap >= 150) {
+                add('only-move', tier === 'advanced'
+                    ? 'Era l\'única bona jugada segons l\'anàlisi: la segona opció cedia uns ' + (Math.round(gap / 10) / 10).toFixed(1).replace('.', ',') + ' peons.'
+                    : 'Era la millor jugada segons l\'anàlisi, i les alternatives eren clarament pitjors.', { reliability: 'analysis', key: 'only:' + c.ply });
             }
         }
 
-        // 8) Captures.
-        if (mv.captured && helpers && before && after && mv.flags.indexOf('e') === -1) {
-            const to = fileRank(mv.to);
+        // 8) Frase del repertori per a les jugades preparades.
+        if (c.prepared && c.phrase) add('opening-phrase', c.phrase, { key: 'phrase:' + c.ply, reliability: 'rules' });
+
+        // 9) Enroc.
+        if (isCastle) {
+            const side = mv.flags.indexOf('k') !== -1 ? 'curt' : 'llarg';
+            const connected = after && rooksConnected(after.grid, color);
+            add('castle', tier === 'basic'
+                ? [me.Pl + ' han enrocat: el rei s\'aparta del centre i la torre entra en joc.']
+                : [me.Pl + ' han enrocat ' + side + (connected ? ' i han connectat les torres.' : '.'),
+                    'Enroc ' + side + ' de ' + me.pl + (connected ? ': les torres ja es veuen.' : ': el rei queda a ' + mv.to + '.')],
+                { key: 'castle:' + color, reliability: 'rules', payload: { castled: color },
+                  define: tier === 'mid' ? { term: 'castle', text: 'Enrocar posa el rei lluny del centre i acosta una torre a les columnes centrals.' } : null });
+        }
+
+        // 10) Captures (si la captura fa escac, es diu).
+        const withCheck = (t) => {
+            if (!isCheck || c.end) return t;
+            if (/\bcapturen /.test(t)) return t.replace(/\bcapturen /, 'capturen amb escac ');
+            if (t.indexOf('a ' + mv.to) !== -1) return t.replace('a ' + mv.to, 'a ' + mv.to + ' amb escac');
+            return t.replace(/\.$/, ', amb escac.');
+        };
+        if (mv.captured && H && before && after) {
             const prev = c.prevMove;
             const isRecapture = !!(prev && prev.captured && prev.to === mv.to && prev.color === opp);
+            const enPassant = mv.flags.indexOf('e') !== -1;
             if (isRecapture) {
-                add('recapture', prev.captured === mv.captured
-                    ? me.Pl + ' tornen a capturar a ' + mv.to + ': és un canvi de ' + PIECE_PLURAL[mv.captured] + '.'
-                    : me.Pl + ' tornen a capturar a ' + mv.to + ' i recuperen material.');
+                add('recapture', (prev.captured === mv.captured
+                    ? [me.Pl + ' tornen a capturar a ' + mv.to + ': és un canvi ' + deWord(PIECE_PLURAL[mv.captured]) + '.',
+                        'Canvi ' + deWord(PIECE_PLURAL[mv.captured]) + ' a ' + mv.to + ': ' + me.pl + ' recuperen la peça.']
+                    : [me.Pl + ' tornen a capturar a ' + mv.to + ' i recuperen material.']).map(withCheck), { key: 'recap:' + c.ply, reliability: 'rules' });
             }
-            // Peça sense cap defensa (abans i després de la captura).
-            const defendersBefore = helpers.attackers(before.grid, to.file, to.rank, opp).length;
-            const defendersAfter = helpers.attackers(after.grid, to.file, to.rank, opp).length;
-            if (!isRecapture && PIECE_VALUE[mv.captured] >= 3 && defendersBefore === 0 && defendersAfter === 0) {
-                add('capture-free', me.Pl + ' capturen ' + pieceNP(mv.captured, opp) + ', que no estava defensa' + (PIECE_FEMININE[mv.captured] ? 'da.' : 't.'));
-            }
-            // Recuperable: la millor resposta de l'anàlisi hi torna a capturar.
-            if (!isRecapture && c.after && c.after.reliable && c.after.bestUci && c.after.bestUci.slice(2, 4) === mv.to) {
-                const reply = applyUci(c.ChessCtor, c.fenAfter, c.after.bestUci);
-                if (reply && reply.move.captured) {
-                    add('capture-recoverable', me.Pl + ' capturen ' + pieceShort(mv.captured) + ', però ' + them.pl + ' '
-                        + piecePronoun(mv.captured) + ' poden recuperar a la jugada següent.');
+            if (!enPassant) {
+                const defendersBefore = attackersAt(H, before.grid, mv.to, opp).length;
+                const defendersAfter = attackersAt(H, after.grid, mv.to, opp).length;
+                if (!isRecapture && PIECE_VALUE[mv.captured] >= 3 && defendersBefore === 0 && defendersAfter === 0) {
+                    add('capture-free', [me.Pl + ' capturen ' + pieceNP(mv.captured, opp) + ', que no estava ' + agree(mv.captured, 'defensat', 'defensada') + '.',
+                        capFirst(pieceNP(mv.captured, opp)) + ' no estava ' + agree(mv.captured, 'defensat', 'defensada') + ', i ' + me.pl + ' ' + piecePronoun(mv.captured) + ' capturen.'].map(withCheck),
+                    { key: 'free:' + c.ply });
+                }
+                // Recuperable: la millor resposta de l'anàlisi hi torna a capturar.
+                if (!isRecapture && c.after && c.after.reliable && c.after.bestUci && c.after.bestUci.slice(2, 4) === mv.to) {
+                    const reply = applyUci(c.ChessCtor, c.fenAfter, c.after.bestUci);
+                    if (reply && reply.move.captured) {
+                        add('capture-recoverable', [withCheck(me.Pl + ' capturen ' + pieceShort(mv.captured) + '; ' + them.pl + ' '
+                            + piecePronoun(mv.captured) + ' poden recuperar.'), withCheck(me.Pl + ' capturen ' + pieceShort(mv.captured) + ', que ' + them.pl + ' poden recuperar.')], { key: 'recov:' + c.ply, reliability: 'analysis' });
+                    }
                 }
             }
+            const d = describeMove(mv, true);
+            add('capture', d.variants, { family: d.family, key: 'capture:' + c.ply, reliability: 'rules' });
         }
 
-        // 9) Amenaça concreta de la peça que ha mogut (atacada ≠ guanyada).
-        if (!isCheck && !c.end && helpers && after && mv.piece !== 'k') {
-            const to = fileRank(mv.to);
-            const moved = to ? after.grid[to.rank][to.file] : null;
-            const movedValue = moved ? PIECE_VALUE[moved.t] : 0;
-            // Si la peça que ha mogut queda penjada, l'«amenaça» no diu res.
-            const oppAttackers = moved ? helpers.attackers(after.grid, to.file, to.rank, opp) : [];
-            const myDefenders = moved ? helpers.attackers(after.grid, to.file, to.rank, color) : [];
-            const exposed = oppAttackers.length > 0
+        // 11) Amenaça concreta de la peça que ha mogut (atacada ≠ guanyada).
+        let movedExposed = false;
+        if (H && after && moved) {
+            const oppAttackers = attackersAt(H, after.grid, mv.to, opp);
+            const myDefenders = attackersAt(H, after.grid, mv.to, color);
+            movedExposed = oppAttackers.length > 0 && moved.t !== 'k'
                 && (myDefenders.length === 0 || oppAttackers.some(a => PIECE_VALUE[a.t] < movedValue));
-            if (moved && !exposed) {
-                const threats = helpers.targets(after.grid, to.file, to.rank)
-                    .map(t => ({ sq: squareOf(t.file, t.rank), file: t.file, rank: t.rank, p: after.grid[t.rank][t.file] }))
-                    .filter(t => t.p && t.p.c === opp && t.p.t !== 'k')
-                    .map(t => Object.assign(t, { defended: helpers.attackers(after.grid, t.file, t.rank, opp).length > 0 }))
-                    .filter(t => (PIECE_VALUE[t.p.t] > movedValue) || (!t.defended && PIECE_VALUE[t.p.t] >= 3))
-                    .filter(t => legalCaptureExists(c.ChessCtor, c.fenAfter, mv.to, t.sq))
-                    .sort((a, b) => PIECE_VALUE[b.p.t] - PIECE_VALUE[a.p.t]);
-                if (threats.length >= 2) {
-                    add('threat', capFirst(pieceNP(moved.t, color)) + ' ataca alhora ' + pieceShort(threats[0].p.t) + ' i ' + pieceShort(threats[1].p.t) + '.');
-                } else if (threats.length === 1) {
-                    const t = threats[0];
-                    add('threat', capFirst(pieceNP(moved.t, color)) + ' ataca ' + pieceNP(t.p.t, opp)
-                        + (t.defended ? '.' : (', que no està defensa' + (PIECE_FEMININE[t.p.t] ? 'da.' : 't.'))));
+        }
+        if (!isCheck && !c.end && H && after && moved && !movedExposed) {
+            // El rei només «amenaça» peces sense defensa (no en pot capturar cap
+            // de defensada); la resta de peces, també les de més valor.
+            const threats = targetsFrom(H, after.grid, mv.to)
+                .map(sq => ({ sq: sq, p: gridAt(after.grid, sq) }))
+                .filter(t => t.p && t.p.c === opp && t.p.t !== 'k')
+                .map(t => Object.assign(t, { defended: attackersAt(H, after.grid, t.sq, opp).length > 0 }))
+                .filter(t => mv.piece === 'k' ? (!t.defended && PIECE_VALUE[t.p.t] >= 3) : ((PIECE_VALUE[t.p.t] > movedValue) || (!t.defended && PIECE_VALUE[t.p.t] >= 3)))
+                .filter(t => legalCaptureExists(c.ChessCtor, c.fenAfter, mv.to, t.sq))
+                .sort((a, b) => PIECE_VALUE[b.p.t] - PIECE_VALUE[a.p.t]);
+            const payload = threats.slice(0, 2).map(t => ({ attackerSq: mv.to, attackerType: moved.t, attackerColor: color, targetSq: t.sq, targetType: t.p.t, mode: t.defended ? 'value' : 'loose' }));
+            if (threats.length >= 2) {
+                add('threat', [capFirst(pieceNP(moved.t, color)) + ' ataca alhora ' + pieceShort(threats[0].p.t) + ' i ' + pieceShort(threats[1].p.t) + '.',
+                    'Atac doble ' + delPiece(moved.t) + ' a ' + mv.to + ': ' + pieceShort(threats[0].p.t) + ' i ' + pieceShort(threats[1].p.t) + ' queden atacats.'],
+                { key: 'threat:' + color + ':' + threats[0].sq + '+' + threats[1].sq, sig: mv.to, payload: { threats: payload },
+                  tags: { color: color, squares: [mv.to, threats[0].sq, threats[1].sq] } });
+            } else if (!threats.length) {
+                // Peó sense defensa a l'abast (fet; si es guanya ho dirà l'anàlisi).
+                const pawns = targetsFrom(H, after.grid, mv.to)
+                    .filter(sq => { const p = gridAt(after.grid, sq); return p && p.c === opp && p.t === 'p' && !attackersAt(H, after.grid, sq, opp).length; })
+                    .filter(sq => legalCaptureExists(c.ChessCtor, c.fenAfter, mv.to, sq));
+                if (pawns.length && mv.piece !== 'p' && mv.piece !== 'k') {
+                    add('threat-pawn', [capFirst(pieceNP(moved.t, color)) + ' ataca el peó ' + deSq(pawns[0]) + ', que no està defensat.',
+                        'El peó ' + COLOR[opp].adj + ' ' + deSq(pawns[0]) + ' queda atacat i sense defensa.'],
+                    { key: 'threat:' + color + ':' + pawns[0], sig: mv.to + '>' + pawns[0],
+                      payload: { threats: [{ attackerSq: mv.to, attackerType: moved.t, attackerColor: color, targetSq: pawns[0], targetType: 'p', mode: 'loose' }] },
+                      tags: { color: color, squares: [mv.to, pawns[0]] } });
+                }
+            } else if (threats.length === 1) {
+                const t = threats[0];
+                const loose = t.defended ? '' : ', que no està ' + agree(t.p.t, 'defensat', 'defensada');
+                const v = [capFirst(pieceNP(moved.t, color)) + ' ataca ' + pieceNP(t.p.t, opp) + loose + '.'];
+                if (moved.t !== t.p.t) v.push(capFirst(me.pl) + ' ataquen amb ' + pieceShort(moved.t) + ' ' + shortOn(t.p.t, t.sq) + loose + '.');
+                else v.push(capFirst(pieceNP(moved.t, color)) + ' apunta ara a ' + shortOn(t.p.t, t.sq) + loose + '.');
+                add('threat', v,
+                { key: 'threat:' + color + ':' + t.sq, sig: mv.to + '>' + t.sq, payload: { threats: payload },
+                  tags: { color: color, squares: [mv.to, t.sq] } });
+            }
+        }
+
+        // 12) Atac a la descoberta: una peça que ja era al seu lloc ataca ara
+        //     una peça penjada, perquè la que ha mogut li ha obert la línia.
+        if (!c.end && H && before && after && !isCheck) {
+            const hangBefore = hangingSet(H, before.grid, opp);
+            const hangAfter = hangingSet(H, after.grid, opp);
+            Object.keys(hangAfter).forEach((sq) => {
+                if (hangBefore[sq] || hangAfter[sq].t === 'p') return;
+                const attackers = attackersAt(H, after.grid, sq, color).map(a => squareOf(a.file, a.rank));
+                const liner = attackers.find(a => a !== mv.to && ['b', 'r', 'q'].indexOf(gridAt(after.grid, a).t) !== -1
+                    && attackersAt(H, before.grid, sq, color).every(b => squareOf(b.file, b.rank) !== a));
+                if (!liner || !legalCaptureExists(c.ChessCtor, c.fenAfter, liner, sq)) return;
+                const lt = gridAt(after.grid, liner).t;
+                add('discovered-attack', [capFirst(pieceNP(lt, color)) + ' ' + deSq(liner) + ' ataca ara ' + shortOn(hangAfter[sq].t, sq) + ': la jugada li ha obert la línia.'],
+                    { key: 'disc:' + color + ':' + sq, sig: liner, payload: { threats: [{ attackerSq: liner, attackerType: lt, attackerColor: color, targetSq: sq, targetType: hangAfter[sq].t, mode: hangAfter[sq].defended ? 'value' : 'loose' }] },
+                      tags: { color: color, squares: [liner, sq] } });
+            });
+        }
+
+        // 13) Peces pròpies que queden atacades i sense prou defensa després de
+        //     la jugada (fet del tauler). Que es puguin perdre només ho diu
+        //     l'anàlisi, si recomana capturar-les.
+        if (!c.end && H && before && after) {
+            const mineBefore = hangingSet(H, before.grid, color);
+            const mineAfter = hangingSet(H, after.grid, color);
+            // Una peça que acaba de capturar-ne una d'igual o més valor no està
+            // «penjada»: és un canvi normal.
+            const isTrade = (sq) => sq === mv.to && mv.captured && PIECE_VALUE[mv.captured] >= movedValue;
+            const fresh = Object.keys(mineAfter).filter(sq => !mineBefore[sq] && !(sq === mv.to && mineBefore[mv.from]) && mineAfter[sq].t !== 'p' && !isTrade(sq));
+            if (fresh.length) {
+                const sq = fresh.sort((a, b) => PIECE_VALUE[mineAfter[b].t] - PIECE_VALUE[mineAfter[a].t])[0];
+                const h = mineAfter[sq];
+                const at = agree(h.t, 'atacat', 'atacada');
+                let variants = h.defended
+                    ? [capFirst(pieceOn(h.t, color, sq)) + ' queda ' + at + ' per una peça de menys valor.',
+                        'Una peça de menys valor ataca ara ' + pieceOn(h.t, color, sq) + '.',
+                        capFirst(pieceOn(h.t, color, sq)) + ' queda a l\'abast d\'una peça de menys valor.']
+                    : [capFirst(pieceOn(h.t, color, sq)) + ' queda ' + at + ' i sense defensa.',
+                        'Ara ' + pieceOn(h.t, color, sq) + ' està ' + at + ' i ningú no ' + (PIECE_FEMININE[h.t] ? 'la' : 'el') + ' defensa.',
+                        me.Pl + ' deixen ' + shortOn(h.t, sq) + ' ' + at + ' i sense defensa.'];
+                if (c.after && c.after.reliable && c.after.bestUci) {
+                    const pron = PIECE_FEMININE[h.t] ? 'la' : 'lo';
+                    const tail = c.after.bestUci.slice(2, 4) === sq ? ' L\'anàlisi recomana a ' + them.pl + ' capturar-' + pron + '.'
+                        : ' Tot i així, l\'anàlisi no recomana capturar-' + pron + ' de seguida.';
+                    variants = variants.map(v => v + tail);
+                }
+                add('hanging', variants, { key: 'hang:' + color + ':' + sq, sig: h.defended ? 'd' : 'u', reliability: c.after && c.after.reliable ? 'analysis' : 'board',
+                    tags: { color: color, squares: [sq] } });
+            }
+        }
+
+        // 14) Continuïtat: respostes a amenaces i pressions ja comentades.
+        if (memory && H && before && after) {
+            (memory.threats || []).forEach((t) => {
+                if (t.targetColor === undefined) t.targetColor = other(t.attackerColor);
+                if (t.targetColor !== color) return;
+                const target = gridAt(after.grid, t.targetSq);
+                const attacker = gridAt(after.grid, t.attackerSq);
+                if (mv.to === t.attackerSq && mv.captured) {
+                    add('reply', [mv.from === t.targetSq
+                        ? capFirst(pieceNP(t.targetType, color)) + ' atacada captura la peça que l\'atacava.'.replace('atacada', agree(t.targetType, 'atacat', 'atacada'))
+                        : 'La captura elimina la peça que atacava ' + pieceShort(t.targetType) + '.',
+                    me.Pl + ' eliminen l\'atacant capturant-lo a ' + mv.to + '.'],
+                        { key: 'reply:' + t.targetSq + ':' + c.ply, tags: { color: color, squares: [t.attackerSq, t.targetSq] } });
+                } else if (mv.from === t.targetSq) {
+                    const stillHit = attacker && attacker.c === t.attackerColor && targetsFrom(H, after.grid, t.attackerSq).indexOf(mv.to) !== -1;
+                    if (!stillHit) add('reply', [me.Pl + ' aparten ' + pieceShort(t.targetType) + ' de l\'atac.', capFirst(pieceNP(t.targetType, color)) + ' s\'aparta de l\'atac cap a ' + mv.to + '.'],
+                        { key: 'reply:' + t.targetSq + ':' + c.ply, tags: { color: color, squares: [mv.to, t.targetSq] } });
+                } else if (target && target.t === t.targetType && attacker && attacker.t === t.attackerType
+                    && targetsFrom(H, after.grid, t.attackerSq).indexOf(t.targetSq) === -1) {
+                    add('reply', [me.Pl + ' tapen la línia d\'atac sobre ' + shortOn(t.targetType, t.targetSq) + '.'],
+                        { key: 'reply:' + t.targetSq + ':' + c.ply, tags: { color: color, squares: [mv.to, t.targetSq] } });
+                } else if (t.mode === 'loose' && target && target.t === t.targetType
+                    && attackersAt(H, before.grid, t.targetSq, color).length === 0 && attackersAt(H, after.grid, t.targetSq, color).length > 0) {
+                    add('reply', [me.Pl + ' defensen ara ' + shortOn(t.targetType, t.targetSq) + '.', 'Ara ' + shortOn(t.targetType, t.targetSq) + ' ja té defensa.'],
+                        { key: 'reply:' + t.targetSq + ':' + c.ply, tags: { color: color, squares: [mv.to, t.targetSq] } });
+                }
+            });
+            (memory.pressures || []).forEach((p) => {
+                const target = gridAt(after.grid, p.targetSq);
+                if (!target || target.t !== p.targetType || target.c === p.color) return;
+                const att = attackersAt(H, after.grid, p.targetSq, p.color).length;
+                const def = attackersAt(H, after.grid, p.targetSq, target.c).length;
+                if (color === target.c && def > p.defenders) {
+                    add('reply', [me.Pl + ' reforcen la defensa ' + delPiece(p.targetType) + ' ' + deSq(p.targetSq) + '.', 'Ara ' + shortOn(p.targetType, p.targetSq) + ' té un defensor més.'],
+                        { key: 'pdef:' + p.targetSq + ':' + def, tags: { color: color, squares: [p.targetSq] } });
+                } else if (mv.captured && att < p.attackers && color === target.c) {
+                    add('reply', ['El canvi elimina un dels atacants ' + delPiece(p.targetType) + ' ' + deSq(p.targetSq) + '.'],
+                        { key: 'patt:' + p.targetSq + ':' + att, tags: { color: color, squares: [p.targetSq] } });
+                }
+            });
+        }
+
+        // 15) Pressió: la peça que ha mogut s'afegeix als atacants d'una peça
+        //     o peó defensat (recompte d'atacants i defensors, sense prometre res).
+        if (!c.end && H && before && after && moved && !movedExposed && mv.piece !== 'k') {
+            const newly = targetsFrom(H, after.grid, mv.to).filter((sq) => {
+                const p = gridAt(after.grid, sq);
+                return p && p.c === opp && p.t !== 'k' && attackersAt(H, after.grid, sq, opp).length > 0;
+            });
+            newly.forEach((sq) => {
+                const p = gridAt(after.grid, sq);
+                const a = attackersAt(H, after.grid, sq, color).length;
+                const aBefore = attackersAt(H, before.grid, sq, color).length;
+                const dCount = attackersAt(H, after.grid, sq, opp).length;
+                if (a < 2 || a <= aBefore) return;
+                const fem = PIECE_FEMININE[p.t];
+                add('pressure', [me.Pl + ' pressionen ' + shortOn(p.t, sq) + '.', 'Més pressió sobre ' + shortOn(p.t, sq) + '.'],
+                    { key: 'press:' + color + ':' + sq, sig: a + '/' + dCount, payload: { pressure: { color: color, targetSq: sq, targetType: p.t, attackers: a, defenders: dCount } },
+                      extra: 'Ara ' + (fem ? 'l\'ataquen ' : 'l\'ataquen ') + numWord(a, true) + ' peces i ' + (fem ? 'la' : 'el') + ' ' + (dCount === 1 ? 'defensa una' : 'defensen ' + numWord(dCount, true)) + '.',
+                      tags: { color: color, squares: [sq] } });
+            });
+        }
+
+        // 16) Defensa nova d'una peça pròpia que estava atacada.
+        if (!c.end && H && before && after && moved) {
+            targetsFrom(H, after.grid, mv.to).forEach((sq) => {
+                const p = gridAt(after.grid, sq);
+                if (!p || p.c !== color || p.t === 'k' || sq === mv.to) return;
+                const attacked = attackersAt(H, after.grid, sq, opp).length;
+                const defBefore = attackersAt(H, before.grid, sq, color).length;
+                const defAfter = attackersAt(H, after.grid, sq, color).length;
+                if (attacked && defAfter > defBefore && PIECE_VALUE[p.t] <= 5) {
+                    add('defend', [capFirst(pieceNP(moved.t, color)) + ' defensa ' + shortOn(p.t, sq) + ', que estava ' + agree(p.t, 'atacat', 'atacada') + '.', me.Pl + ' protegeixen ' + shortOn(p.t, sq) + '.'],
+                        { key: 'defend:' + color + ':' + sq, sig: attacked + '/' + defAfter, tags: { color: color, squares: [sq] } });
+                }
+            });
+        }
+
+        // 17) Columnes obertes i semiobertes, torres doblades i setena fila.
+        if (H && after && moved && (moved.t === 'r' || moved.t === 'q') && !isCastle) {
+            const f = 'abcdefgh'.indexOf(mv.to[0]);
+            const fc = fileCounts(after.grid, f);
+            const changedFile = mv.from[0] !== mv.to[0];
+            if (changedFile && fc[color] === 0) {
+                const open = fc[opp] === 0;
+                const name = pieceNP(moved.t, color);
+                add('open-file', open
+                    ? [capFirst(name) + ' ocupa la columna ' + mv.to[0] + ', que està oberta.', capFirst(me.pl) + ' prenen la columna ' + mv.to[0] + ' oberta amb ' + pieceShort(moved.t) + '.']
+                    : [capFirst(name) + ' s\'instal·la a la columna ' + mv.to[0] + ', semioberta.', capFirst(me.pl) + ' situen ' + pieceShort(moved.t) + ' a la columna ' + mv.to[0] + ', sense peons propis.'],
+                { key: 'file:' + color + ':' + mv.to[0], sig: moved.t + (open ? 'o' : 's'),
+                  define: open ? { term: 'open-file', text: 'Una columna oberta no té cap peó, i les torres hi poden actuar de punta a punta.' }
+                      : { term: 'semi-file', text: 'Semioberta vol dir sense peons propis: la peça hi pot pressionar el peó contrari.' },
+                  tags: { color: color, squares: [mv.to] }, payload: { plan: { piece: moved.t, sq: mv.to } } });
+            }
+            const heavies = piecesOf(after.grid, color).filter(p => (p.t === 'r' || p.t === 'q') && p.sq[0] === mv.to[0]);
+            const heaviesBefore = piecesOf(before.grid, color).filter(p => (p.t === 'r' || p.t === 'q') && p.sq[0] === mv.to[0]);
+            if (heavies.filter(p => p.t === 'r').length >= 2 && heaviesBefore.filter(p => p.t === 'r').length < 2) {
+                add('doubled-rooks', [me.Pl + ' dupliquen les torres a la columna ' + mv.to[0] + '.', 'Torres doblades de ' + me.pl + ' a la columna ' + mv.to[0] + '.'],
+                    { key: 'dbl:' + color + ':' + mv.to[0] });
+            }
+            const seventh = color === 'w' ? '7' : '2';
+            if (moved.t === 'r' && mv.to[1] === seventh && mv.from[1] !== seventh) {
+                const hitsPawns = targetsFrom(H, after.grid, mv.to).filter(sq => { const p = gridAt(after.grid, sq); return p && p.c === opp && p.t === 'p'; }).length;
+                add('seventh', [capFirst(pieceNP('r', color)) + ' entra a la fila ' + seventh + (hitsPawns ? ', on ataca peons de ' + them.pl + '.' : '.')],
+                    { key: 'seventh:' + color });
+            }
+        }
+
+        // 18) Diagonals: peó que obre o tanca la diagonal d'un alfil propi,
+        //     i fianchetto.
+        if (H && before && after && mv.piece === 'p' && !mv.captured) {
+            piecesOf(after.grid, color, 'b').forEach((b) => {
+                const mobB = targetsFrom(H, before.grid, b.sq).length;
+                const mobA = targetsFrom(H, after.grid, b.sq).length;
+                if (mobA - mobB >= 3) add('diagonal', ['Aquest avanç obre la diagonal de l\'alfil ' + deSq(b.sq) + '.', 'L\'alfil ' + deSq(b.sq) + ' té ara la diagonal oberta gràcies a aquest peó.'], { key: 'diag:' + b.sq, sig: 'o' + mobA });
+                else if (mobB - mobA >= 3) add('diagonal', ['Aquest peó tanca la diagonal del propi alfil ' + deSq(b.sq) + '.'], { key: 'diag:' + b.sq, sig: 'c' + mobA });
+            });
+        }
+        if (mv.piece === 'b' && ['b2', 'g2', 'b7', 'g7'].indexOf(mv.to) !== -1 && after) {
+            const pawnSq = mv.to[0] + (color === 'w' ? '3' : '6');
+            const p = gridAt(after.grid, pawnSq);
+            if (p && p.c === color && p.t === 'p') {
+                add('diagonal', ['Fianchetto: l\'alfil ' + me.adj + ' s\'instal·la a la gran diagonal.', 'L\'alfil ' + me.adj + ' es col·loca en fianchetto a ' + mv.to + '.'],
+                    { key: 'fianchetto:' + color + ':' + mv.to, define: { term: 'fianchetto', text: 'La gran diagonal és la més llarga del tauler, d\'una cantonada a l\'altra.' } });
+            }
+        }
+
+        // 19) Centre: ocupació amb peons i control de caselles centrals (no als
+        //     finals, on el que compta és l'activitat del rei i dels peons).
+        if (H && before && after && moved && !c.end && !isPhaseEndgame(c.fenAfter)) {
+            const pawnCtrl = mv.piece === 'p' && CENTER_SQUARES.indexOf(mv.to) === -1
+                ? targetsFrom(H, after.grid, mv.to).filter(sq => CENTER_SQUARES.indexOf(sq) !== -1) : [];
+            if (pawnCtrl.length && !mv.captured) {
+                add('center', ['El peó ' + me.adj + ' ' + deSq(mv.to) + ' controla la casella central ' + pawnCtrl[0] + '.', 'Amb aquest peó, ' + me.pl + ' vigilen la casella central ' + pawnCtrl[0] + '.'],
+                    { key: 'center-pawnctrl:' + color + ':' + mv.to, define: { term: 'center', text: 'Les caselles centrals, d4, e4, d5 i e5, donen espai i mobilitat a les peces.' } });
+            }
+            if (mv.piece === 'p' && CENTER_SQUARES.indexOf(mv.to) !== -1) {
+                add('center', [me.Pl + ' ocupen el centre amb el peó ' + deSq(mv.to) + '.', 'Peó ' + me.adj + ' al centre, a ' + mv.to + '.'],
+                    { key: 'center-pawn:' + color + ':' + mv.to,
+                      define: { term: 'center', text: 'Les caselles centrals, d4, e4, d5 i e5, donen espai i mobilitat a les peces.' } });
+            } else if ((mv.piece === 'n' || mv.piece === 'b') && HOME_SQUARES[color][mv.from] !== mv.piece) {
+                // (Si la peça surt de casa, el control del centre va dins del
+                // comentari de desenvolupament.)
+                const ctrl = targetsFrom(H, after.grid, mv.to).filter(sq => CENTER_SQUARES.indexOf(sq) !== -1);
+                const ctrlBefore = targetsFrom(H, before.grid, mv.from).filter(sq => CENTER_SQUARES.indexOf(sq) !== -1);
+                if (ctrl.length >= 2 && ctrl.length > ctrlBefore.length) {
+                    const R = getRedactor();
+                    const list = R && R.llistaEnCatala ? R.llistaEnCatala(ctrl) : ctrl.join(' i ');
+                    add('center', [capFirst(pieceNP(moved.t, color)) + ' controla ara les caselles centrals ' + list + '.'],
+                        { key: 'center-ctrl:' + color + ':' + mv.to, sig: ctrl.join(','), define: { term: 'center', text: 'Les caselles centrals, d4, e4, d5 i e5, donen espai i mobilitat a les peces.' } });
                 }
             }
         }
 
-        // 10) Escac simple.
-        if (isCheck && !c.end) {
-            add('check', tier === 'basic'
-                ? 'Escac al rei ' + COLOR[opp].adj + ': ' + them.pl + ' l\'han de protegir a la jugada següent.'
-                : 'Escac al rei ' + COLOR[opp].adj + '.');
+        // 20) Estructura de peons: peons passats, doblats i aïllats nous.
+        if (before && after) {
+            ['w', 'b'].forEach((side) => {
+                const sb = pawnStructure(before.grid, side);
+                const sa = pawnStructure(after.grid, side);
+                const S = COLOR[side];
+                sa.passed.forEach((sq) => {
+                    if (sb.passed.has(sq)) return;
+                    if (side === color && mv.piece === 'p' && mv.from && sb.passed.has(mv.from) && sq === mv.to) {
+                        const left = side === 'w' ? 8 - parseInt(sq[1], 10) : parseInt(sq[1], 10) - 1;
+                        const rest = left === 1 ? 'una casella' : numWord(left, true) + ' caselles';
+                        if (left >= 1) add('passed-advance', ['El peó passat ' + S.adj + ' avança fins a ' + sq + ': li ' + (left === 1 ? 'falta ' : 'falten ') + rest + ' per coronar.',
+                            'Un pas més del peó passat ' + S.adj + ', que arriba a ' + sq + ': ' + (left === 1 ? 'queda ' : 'queden ') + rest + ' fins a coronar.',
+                            S.Pl + ' empenyen el peó passat fins a ' + sq + '; ' + (left === 1 ? 'en falta una' : 'en falten ' + numWord(left, true)) + ' per coronar.'],
+                            { key: 'passed:' + side + ':' + sq[0], sig: sq, tags: { color: side, squares: [sq] } });
+                        return;
+                    }
+                    add('passed-new', [S.Pl + ' tenen un peó passat a ' + sq + '.', 'Apareix un peó passat ' + S.adj + ' a ' + sq + '.'],
+                        { key: 'passed:' + side + ':' + sq[0], sig: sq, tags: { color: side, squares: [sq] },
+                          define: { term: 'passed', text: 'Un peó passat no té cap peó contrari al davant ni a les columnes del costat que l\'aturi.' } });
+                });
+                sa.doubled.forEach((file) => {
+                    if (sb.doubled.has(file)) return;
+                    add('structure', [S.Pl + ' queden amb peons doblats a la columna ' + file + '.'],
+                        { key: 'doubled:' + side + ':' + file, define: { term: 'doubled', text: 'Dos peons a la mateixa columna es tapen l\'un a l\'altre i costen més de defensar.' }, tags: { color: side, squares: [] } });
+                });
+                sa.isolated.forEach((sq) => {
+                    if (sb.isolated.has(sq) || (side === color && sq === mv.to && sb.isolated.has(mv.from))) return;
+                    if (sa.passed.has(sq) && !sb.passed.has(sq)) return;
+                    add('structure', ['El peó ' + S.adj + ' ' + deSq(sq) + ' queda aïllat.', S.Pl + ' tenen ara un peó aïllat a ' + sq + '.'],
+                        { key: 'isolated:' + side + ':' + sq, define: { term: 'isolated', text: 'Un peó aïllat no té peons propis a les columnes del costat que el puguin defensar.' }, tags: { color: side, squares: [sq] } });
+                });
+            });
         }
 
-        // 11) Desenvolupament d'una peça menor a l'obertura.
-        if (!mv.captured && tier !== 'advanced' && isNum(c.ply) && c.ply < TV_CONFIG.DEVELOPMENT_MAX_PLY
-            && HOME_SQUARES[color][mv.from] === mv.piece) {
-            add('development', tier === 'basic'
-                ? me.Pl + ' treuen ' + pieceShort(mv.piece) + ' de la casella inicial: és el desenvolupament, posar les peces en joc.'
-                : me.Pl + ' desenvolupen ' + pieceShort(mv.piece) + '.');
+        // 21) Material: canvi de dames, balanç després dels canvis i final.
+        if (before && after) {
+            const mb = materialOf(before.grid);
+            const ma = materialOf(after.grid);
+            const queensBefore = mb.w.q + mb.b.q;
+            const queensAfter = ma.w.q + ma.b.q;
+            if (queensBefore > 0 && queensAfter === 0) {
+                add('queens-off', ['Ja no queden dames al tauler.', 'S\'han canviat les dames.'], { key: 'queens-off',
+                    define: { term: 'queens-off', text: 'Sense dames, els reis corren menys perill d\'atac.' } });
+            }
+            // El balanç només es diu quan la captura no es pot recuperar de seguida.
+            const sigNow = materialSig(ma);
+            // Canvi encara obert: el rival pot recuperar a la casella, té una
+            // peça penjada per capturar o l'anàlisi recomana una captura.
+            const recapturable = mv.captured && H && attackersAt(H, after.grid, mv.to, opp).length > 0;
+            const pendingCapture = (H && (Object.keys(hangingSet(H, after.grid, color)).length > 0 || Object.keys(hangingSet(H, after.grid, opp)).length > 0))
+                || (c.after && c.after.reliable && c.after.bestUci && !!gridAt(after.grid, c.after.bestUci.slice(2, 4)));
+            if (memory && sigNow !== memory.materialSig && !recapturable && !pendingCapture && (mv.captured || (c.prevMove && c.prevMove.captured))) {
+                const ph = materialPhrase(ma);
+                add('material', ph ? ['Després dels canvis, ' + COLOR[ph.leader].pl + ' tenen ' + ph.desc + '.', 'Balanç de material: ' + COLOR[ph.leader].pl + ' tenen ' + ph.desc + '.']
+                    : ['Després dels canvis, el material torna a estar igualat.', 'Material igualat després dels canvis.'],
+                { key: 'material', sig: sigNow, payload: { materialSig: sigNow }, reliability: 'rules' });
+            }
+            if (memory && !memory.endgame && isPhaseEndgame(c.fenAfter) && !isPhaseEndgame(c.fenBefore)) {
+                const wList = pieceListPhrase(ma, 'w');
+                const bList = pieceListPhrase(ma, 'b');
+                add('endgame', wList === 'només peons' && bList === 'només peons'
+                    ? ['Entrem en un final de reis i peons.']
+                    : ['Entrem en el final: ' + wList + ' de les blanques contra ' + bList + ' de les negres.'],
+                { key: 'endgame', payload: { endgame: true },
+                  define: { term: 'endgame', text: 'En el final, el rei deixa d\'amagar-se i passa a ser una peça activa.' } });
+            }
+        }
+
+        // 22) Rei actiu al final.
+        if (mv.piece === 'k' && !isCastle && after && isPhaseEndgame(c.fenAfter)) {
+            const passedAll = [].concat(Array.from(pawnStructure(after.grid, 'w').passed), Array.from(pawnStructure(after.grid, 'b').passed));
+            const near = passedAll.find(sq => chebyshev(mv.to, sq) < chebyshev(mv.from, sq) && chebyshev(mv.to, sq) <= 2);
+            if (near) {
+                add('king-activity', ['El rei ' + me.adj + ' s\'acosta al peó passat ' + deSq(near) + '.'], { key: 'kact:' + color + ':' + near, sig: mv.to });
+            } else if (centerDistance(mv.to) < centerDistance(mv.from)) {
+                add('king-activity', ['El rei ' + me.adj + ' s\'acosta al centre.', 'El rei ' + me.adj + ' s\'activa cap al centre.'],
+                    { key: 'kact:' + color + ':center', sig: mv.to,
+                      define: { term: 'endgame', text: 'En el final, el rei deixa d\'amagar-se i passa a ser una peça activa.' } });
+            }
+        }
+
+        // 22b) Finals: oposició, rei i peons passats, rei contra els peons.
+        if (mv.piece === 'k' && !isCastle && before && after && isPhaseEndgame(c.fenAfter)) {
+            const oppKing = kingSq(after.grid, opp);
+            const onlyPawns = ['n', 'b', 'r', 'q'].every(t => !piecesOf(after.grid, 'w', t).length && !piecesOf(after.grid, 'b', t).length);
+            if (oppKing && onlyPawns) {
+                const a = fileRank(mv.to), b = fileRank(oppKing);
+                const facing = (a.file === b.file && Math.abs(a.rank - b.rank) === 2) || (a.rank === b.rank && Math.abs(a.file - b.file) === 2);
+                if (facing) add('opposition', ['Els reis queden cara a cara: ' + me.pl + ' prenen l\'oposició.', capFirst(me.pl) + ' prenen l\'oposició: ara el rei ' + COLOR[opp].adj + ' ha de cedir.'],
+                    { key: 'opp:' + color + ':' + mv.to, define: { term: 'opposition', text: 'Amb l\'oposició, el rei contrari ha de moure i cedir el pas.' }, tags: { color: color, squares: [mv.to, oppKing] } });
+            }
+            const enemyPassed = Array.from(pawnStructure(after.grid, opp).passed);
+            enemyPassed.forEach((sq) => {
+                const promo = sq[0] + (opp === 'w' ? '8' : '1');
+                const front = sq[0] + (parseInt(sq[1], 10) + (opp === 'w' ? 1 : -1));
+                if (mv.to === front) {
+                    add('king-activity', ['El rei ' + me.adj + ' es col·loca davant del peó passat ' + deSq(sq) + '.', 'El rei ' + me.adj + ' bloqueja el peó passat ' + deSq(sq) + '.'],
+                        { key: 'kblock:' + color + ':' + sq, sig: mv.to, tags: { color: color, squares: [sq] } });
+                } else if (chebyshev(mv.to, promo) < chebyshev(mv.from, promo) && chebyshev(mv.to, promo) <= 3) {
+                    add('king-activity', ['El rei ' + me.adj + ' s\'acosta a ' + promo + ', la casella de coronació del peó passat ' + deSq(sq) + '.'],
+                        { key: 'kpromo:' + color + ':' + sq, sig: mv.to, tags: { color: color, squares: [sq, promo] } });
+                }
+            });
+            Array.from(pawnStructure(after.grid, color).passed).forEach((sq) => {
+                if (chebyshev(mv.to, sq) === 1 && chebyshev(mv.from, sq) > 1) {
+                    add('king-activity', ['El rei ' + me.adj + ' acompanya el seu peó passat ' + deSq(sq) + '.'], { key: 'kescort:' + color + ':' + sq, sig: mv.to, tags: { color: color, squares: [sq] } });
+                }
+            });
+            const enemyPawns = piecesOf(after.grid, opp, 'p').map(p => p.sq);
+            const nearest = (from) => Math.min.apply(null, enemyPawns.map(sq => chebyshev(from, sq)).concat([99]));
+            if (enemyPawns.length && nearest(mv.to) < nearest(mv.from) && nearest(mv.to) <= 2) {
+                add('king-activity', ['El rei ' + me.adj + ' s\'acosta als peons de ' + them.pl + '.', 'El rei ' + me.adj + ' va a buscar els peons de ' + them.pl + '.'],
+                    { key: 'kpawns:' + color, sig: mv.to });
+            }
+        }
+
+        // 22c) Peons: majoria en un flanc, peó bloquejat i contacte de peons.
+        if (mv.piece === 'p' && before && after && H) {
+            const fileIdx = 'abcdefgh'.indexOf(mv.to[0]);
+            const flankFiles = fileIdx <= 3 ? [0, 1, 2, 3] : [4, 5, 6, 7];
+            const countOn = (side) => piecesOf(after.grid, side, 'p').filter(p => flankFiles.indexOf('abcdefgh'.indexOf(p.sq[0])) !== -1).length;
+            const flank = fileIdx <= 3 ? 'de dama' : 'de rei';
+            if (!mv.captured && countOn(color) > countOn(opp) && countOn(color) >= 2 && (isPhaseEndgame(c.fenAfter) || (memory && memory.queensOff))) {
+                add('majority', [me.Pl + ' fan avançar la majoria de peons del flanc ' + flank + '.', 'Al flanc ' + flank + ', ' + me.pl + ' tenen més peons i els avancen.'],
+                    { key: 'major:' + color + ':' + flank, sig: mv.to, define: { term: 'majority', text: 'Una majoria de peons en un flanc pot acabar creant un peó passat.' } });
+            }
+            const ahead = mv.to[0] + (parseInt(mv.to[1], 10) + (color === 'w' ? 1 : -1));
+            const blocker = gridAt(after.grid, ahead);
+            const Cph = getCore();
+            const inOpening = !!(Cph && Cph.phaseFromFen && Cph.phaseFromFen(c.fenAfter) === 'opening');
+            if (blocker && blocker.c === opp && !inOpening) {
+                add('blocked', ['El peó ' + me.adj + ' ' + deSq(mv.to) + ' queda bloquejat ' + perNP(pieceOn(blocker.t, opp, ahead)) + '.', 'El peó ' + me.adj + ' ja no pot avançar: ' + pieceOn(blocker.t, opp, ahead) + ' li barra el pas.'],
+                    { key: 'blocked:' + mv.to, tags: { color: color, squares: [mv.to, ahead] } });
+            }
+            const contacts = targetsFrom(H, after.grid, mv.to).filter(sq => { const q = gridAt(after.grid, sq); return q && q.c === opp && q.t === 'p'; });
+            if (contacts.length && !mv.captured) {
+                add('tension', ['Els peons entren en contacte: el peó ' + me.adj + ' ' + deSq(mv.to) + ' pot capturar a ' + contacts[0] + '.', 'Contacte de peons: el peó ' + deSq(mv.to) + ' i el peó ' + deSq(contacts[0]) + ' es poden capturar.'],
+                    { key: 'tension:' + mv.to + ':' + contacts[0], tags: { color: color, squares: [mv.to, contacts[0]] } });
+            }
+        }
+
+        // 22d) Peça que apunta a la zona del rei contrari (caselles veïnes atacades).
+        if (moved && before && after && H && ['q', 'r', 'b', 'n'].indexOf(moved.t) !== -1 && !isCheck && !movedExposed) {
+            const ks = kingSq(after.grid, opp);
+            if (ks) {
+                const zone = (grid, from) => targetsFrom(H, grid, from).filter(sq => chebyshev(sq, ks) <= 1).length;
+                const nowZ = zone(after.grid, mv.to);
+                const thenZ = zone(before.grid, mv.from);
+                if (nowZ >= 2 && nowZ > thenZ) {
+                    add('king-pressure', [capFirst(pieceNP(moved.t, color)) + ' apunta a la zona del rei ' + COLOR[opp].adj + '.', capFirst(pieceNP(moved.t, color)) + ' s\'acosta al rei ' + COLOR[opp].adj + ': controla caselles del seu voltant.'],
+                        { key: 'kzone:' + color + ':' + moved.t + ':' + mv.to, tags: { color: color, squares: [mv.to, ks] } });
+                }
+            }
+        }
+
+        // 22e) Peça que s'instal·la al centre.
+        if (moved && ['n', 'b', 'q'].indexOf(moved.t) !== -1 && CENTER_SQUARES.indexOf(mv.to) !== -1 && !movedExposed && !mv.captured && !isPhaseEndgame(c.fenAfter)) {
+            add('center', [capFirst(pieceNP(moved.t, color)) + ' s\'instal·la al centre, a ' + mv.to + '.', capFirst(me.pl) + ' centralitzen ' + pieceShort(moved.t) + ' a ' + mv.to + '.'],
+                { key: 'center-piece:' + color + ':' + mv.to });
+        }
+
+        // 23) Desenvolupament i activació de peces.
+        if (!mv.captured && before && after && HOME_SQUARES[color][mv.from] === mv.piece) {
+            const dev = developedMinors(after.grid, color);
+            const ctrl = H ? targetsFrom(H, after.grid, mv.to).filter(sq => CENTER_SQUARES.indexOf(sq) !== -1) : [];
+            const R = getRedactor();
+            const ctrlTxt = ctrl.length >= 2 ? ', que controla les caselles centrals ' + (R && R.llistaEnCatala ? R.llistaEnCatala(ctrl) : ctrl.join(' i ')) : '';
+            const variants = [me.Pl + ' desenvolupen ' + pieceShort(mv.piece) + ' cap a ' + mv.to + ctrlTxt + '.',
+                me.Pl + ' treuen ' + pieceShort(mv.piece) + ' a ' + mv.to + ctrlTxt + '.',
+                'Una altra peça en joc: ' + pieceNP(mv.piece, color) + ' a ' + mv.to + ctrlTxt + '.'];
+            const extra = dev.atHome === 0 ? 'Ja tenen totes les peces menors fora de casa.'
+                : (dev.out >= 2 ? 'Ja en tenen ' + numWord(dev.out, true) + ' de les quatre peces menors en joc.' : null);
+            add('development', variants, { key: 'dev:' + color + ':' + mv.from, extra: extra,
+                define: { term: 'development', text: 'Desenvolupar és treure les peces de la casella inicial perquè participin en el joc.' } });
+        }
+        if (mv.piece === 'q' && mv.from === (color === 'w' ? 'd1' : 'd8')) {
+            add('activation', ['La dama ' + me.adjF + ' surt per primera vegada.', 'Primera jugada de la dama ' + me.adjF + ', que va a ' + mv.to + '.'], { key: 'qout:' + color });
+        }
+        if (mv.piece === 'r' && !isCastle && ['a1', 'h1', 'a8', 'h8'].indexOf(mv.from) !== -1) {
+            add('activation', ['La torre ' + me.adjF + ' entra en joc des ' + deSq(mv.from) + '.', 'La torre ' + me.adjF + ' deixa la cantonada i va a ' + mv.to + '.'], { key: 'rout:' + color + ':' + mv.from });
+        }
+
+        // 24) Descripció factual (sempre disponible).
+        if (!mv.captured) {
+            const d = describeMove(mv, true);
+            add('describe', d.variants, { family: d.family, key: 'describe:' + c.ply, reliability: 'rules' });
+        }
+
+        // Continuació possible segons l'anàlisi per a les idees de pla: la
+        // mateixa peça torna a jugar a la variant principal (i es presenta
+        // només com a possibilitat).
+        if (reliable && c.after.pv && c.after.pv.length >= 2) {
+            const nextMine = c.after.pv[1];
+            if (nextMine && nextMine.slice(0, 2) === mv.to) {
+                const afterReply = applyUci(c.ChessCtor, c.fenAfter, c.after.pv[0]);
+                const accio = afterReply ? moveAction(c.ChessCtor, afterReply.fen, nextMine) : null;
+                if (accio) out.filter(x => ['open-file', 'seventh', 'pressure', 'passed-advance', 'passed-new', 'king-activity', 'center', 'development'].indexOf(x.kind) !== -1 && !x.extra)
+                    .forEach((x) => { x.extra = 'Una continuació possible, segons l\'anàlisi: ' + accio + '.'; });
+            }
         }
 
         out.sort((a, b) => b.priority - a.priority);
         return out;
     }
 
-    // Tria el comentari (o cap) respectant la cadència: els comentaris
-    // importants passen sempre; la resta, ocasionals i sense repetir-se.
-    // history = [{ ply, kind, text, color }] dels comentaris ja fets.
-    function tvChooseComment(candidates, history, ply, color) {
+    function wordCount(t) { return String(t || '').trim().split(/\s+/).filter(Boolean).length; }
+
+    // Tria el comentari segons importància, fiabilitat, novetat, relació amb
+    // el que s'estava explicant i nivell de l'espectador. Retorna null quan
+    // l'únic que es podria dir és una descripció que faria monòton el relat.
+    // info = { ply, color, tier, prepared }
+    function tvSelectComment(candidates, memory, info) {
         const list = Array.isArray(candidates) ? candidates : [];
-        const past = Array.isArray(history) ? history : [];
-        const last = past.length ? past[past.length - 1] : null;
-        for (const cand of list) {
-            if (past.some(h => h.text === cand.text)) continue;
-            if (cand.priority < TV_CONFIG.HIGH_PRIORITY) {
-                if (last && isNum(ply) && ply - last.ply < TV_CONFIG.COMMENT_GAP_PLIES) continue;
-                if (cand.kind !== 'opening-phrase'
-                    && past.some(h => h.kind === cand.kind && isNum(ply) && ply - h.ply < TV_CONFIG.SAME_KIND_WINDOW_PLIES)) continue;
-                if (cand.kind === 'development'
-                    && past.filter(h => h.kind === 'development' && h.color === color).length >= TV_CONFIG.DEVELOPMENT_MAX_PER_COLOR) continue;
-            } else if (cand.kind === 'mate-threat' && past.some(h => h.kind === 'mate-threat' && isNum(ply) && ply - h.ply < 4)) {
-                continue;
+        const mem = memory || tvEmptyMemory();
+        const o = info || {};
+        const ply = isNum(o.ply) ? o.ply : 0;
+        const recentTexts = new Set((mem.texts || []).filter(t => ply - t.ply < TV_CONFIG.TEXT_MEMORY_PLIES).map(t => t.text));
+        const focus = new Set(mem.focus || []);
+        let best = null;
+        let bestScore = -Infinity;
+        list.forEach((cand) => {
+            let score = cand.priority;
+            let evolved = false;
+            const idea = cand.key ? mem.ideas[cand.key] : null;
+            if (idea && ply - idea.ply < TV_CONFIG.IDEA_MEMORY_PLIES) {
+                // La mateixa idea en el mateix estat no aporta res de nou.
+                if (idea.sig === cand.sig) { if (cand.priority < 90) return; score -= 40; }
+                else { evolved = true; score -= 4; }
             }
-            return cand;
+            const variants = cand.variants.filter(v => !recentTexts.has(v));
+            if (!variants.length) return;
+            if (cand.reliability === 'analysis') score += 2;
+            if (cand.tags && cand.tags.squares && cand.tags.squares.some(sq => focus.has(sq))) score += 6;
+            // Nivell: per a l'espectador avançat, el desenvolupament i el centre
+            // són obvis; per al bàsic, les pressions numèriques pesen menys.
+            if (o.tier === 'advanced' && (cand.kind === 'development' || cand.kind === 'center')) score -= 20;
+            if (o.tier === 'basic' && cand.kind === 'pressure') score -= 6;
+            if (score > bestScore) { bestScore = score; best = { cand: cand, variants: variants, evolved: evolved }; }
+        });
+        if (!best) return null;
+        const cand = best.cand;
+        // Monotonia: després de dues descripcions seguides, o just després
+        // d'una explicació llarga, una jugada tranquil·la passa en silenci.
+        if (cand.kind === 'describe' && (mem.plainStreak >= 2 || mem.lastExtendedPly === ply - 1)) return null;
+
+        // Variant que no s'hagi fet servir fa poc en aquesta família.
+        const recent = ((mem.templates && mem.templates[cand.family]) || []).slice(0, Math.max(0, cand.variants.length - 1));
+        const start = ply % best.variants.length;
+        let text = best.variants[start];
+        for (let i = 0; i < best.variants.length; i++) {
+            const v = best.variants[(start + i) % best.variants.length];
+            const id = cand.variants.indexOf(v);
+            if (recent.indexOf(id) === -1) { text = v; break; }
         }
-        return null;
+        // Si la jugada captura o fa escac i el comentari triat només n'explica
+        // la conseqüència, primer es diu què ha passat.
+        let leadFact = null;
+        let leadFamily = null;
+        if (LEAD_WITH_FACT.indexOf(cand.kind) !== -1 && !(cand.kind === 'reply' && /captur/.test(text))) {
+            const checkFact = cand.kind === 'fork-check' ? null : list.find(x => x.kind === 'check' && x.family !== 'check-discovered');
+            const fact = checkFact || list.find(x => x.kind === 'capture');
+            if (fact && fact !== cand && wordCount(fact.text) + wordCount(text) <= TV_CONFIG.LEAD_MAX_WORDS) {
+                const recentFact = ((mem.templates && mem.templates[fact.family]) || []).slice(0, Math.max(0, fact.variants.length - 1));
+                const startF = ply % fact.variants.length;
+                const order = fact.variants.map((v, i) => (startF + i) % fact.variants.length);
+                const pickF = order.find(i => recentFact.indexOf(i) === -1 && !recentTexts.has(fact.variants[i]));
+                leadFact = fact.variants[pickF !== undefined ? pickF : startF];
+                leadFamily = fact.family;
+                // Dues frases seguides no han de començar igual («Les blanques…
+                // Les blanques…»): es tria una variant del comentari amb un altre inici.
+                const opening = (t) => t.split(/\s+/).slice(0, 2).join(' ').toLowerCase();
+                if (opening(leadFact) === opening(text)) {
+                    const alt = best.variants.find(v => opening(v) !== opening(leadFact));
+                    if (alt) text = alt;
+                    else {
+                        const altFact = fact.variants.find(v => opening(v) !== opening(text));
+                        if (altFact) leadFact = altFact;
+                    }
+                }
+            }
+        }
+        const variantId = cand.variants.indexOf(text);
+        const parts = leadFact ? [leadFact, text] : [text];
+        // Si la jugada fa escac i el comentari no ho diu, s'afegeix a la frase.
+        if (o.isCheck && !parts.some(p => /escac/i.test(p))) parts[0] = parts[0].replace(/\.$/, ', amb escac.');
+        let extended = !!leadFact;
+        const canExtend = !leadFact && mem.lastExtendedPly < ply - TV_CONFIG.EXTENDED_GAP_PLIES;
+        // Definició bàsica: una sola vegada per partida i només si cal.
+        if (canExtend && cand.define && o.tier !== 'advanced' && !mem.defined[cand.define.term] && !best.evolved) {
+            parts.push(cand.define.text);
+            extended = true;
+        } else if (canExtend && cand.extra && !best.evolved && o.tier !== 'basic') {
+            parts.push(cand.extra);
+            extended = true;
+        }
+        // Explicació ampliada: un fet de captura o una descripció es completa
+        // amb una conseqüència estratègica nova i comprovada (estructura,
+        // material, columnes...), si cap en poques paraules.
+        let secondary = null;
+        if (!extended && canExtend && ['capture', 'recapture', 'describe', 'check', 'castle', 'capture-free', 'development'].indexOf(cand.kind) !== -1) {
+            secondary = list.find((x) => x !== cand && x.explanatory && x.priority >= 50 && x.priority < 70 && x.family !== cand.family
+                && ['recapture', 'capture-free', 'capture-recoverable'].indexOf(x.kind) === -1
+                && !(mem.ideas[x.key] && mem.ideas[x.key].sig === x.sig && ply - mem.ideas[x.key].ply < TV_CONFIG.IDEA_MEMORY_PLIES)
+                && !recentTexts.has(x.text) && wordCount(text) + wordCount(x.text) <= TV_CONFIG.EXTENDED_MAX_WORDS);
+            if (secondary) { parts.push(secondary.text); extended = true; }
+        }
+        return {
+            kind: cand.kind, text: parts.join(' '), leadText: text, explanatory: cand.explanatory || !!secondary,
+            key: cand.key, sig: cand.sig, family: cand.family, variantId: variantId, extended: extended,
+            defined: (parts.length > 1 && cand.define && parts[1] === cand.define.text) ? cand.define.term : null,
+            tags: cand.tags, payload: cand.payload, evolved: best.evolved,
+            lead: leadFact ? { family: leadFamily, text: leadFact } : null,
+            secondary: secondary ? { key: secondary.key, sig: secondary.sig, kind: secondary.kind, payload: secondary.payload } : null
+        };
+    }
+
+    // Compatibilitat: la selecció antiga rebia l'historial de comentaris.
+    function tvChooseComment(candidates, history, ply, color, tier) {
+        const mem = tvEmptyMemory();
+        (Array.isArray(history) ? history : []).forEach((h) => {
+            mem.texts.push({ text: h.text, ply: h.ply });
+            if (h.key) mem.ideas[h.key] = { ply: h.ply, sig: h.sig };
+        });
+        return tvSelectComment(candidates, mem, { ply: ply, color: color, tier: tier });
+    }
+
+    // Revalida les idees obertes amb la posició nova: les amenaces que ja no
+    // existeixen i les pressions que s'han desfet surten de la memòria.
+    function reviseMemory(mem, H, grid) {
+        if (!H || !grid) return;
+        mem.threats = (mem.threats || []).filter((t) => {
+            const a = gridAt(grid, t.attackerSq);
+            const tg = gridAt(grid, t.targetSq);
+            if (!a || !tg || a.t !== t.attackerType || a.c !== t.attackerColor || tg.t !== t.targetType || tg.c === t.attackerColor) return false;
+            if (targetsFrom(H, grid, t.attackerSq).indexOf(t.targetSq) === -1) return false;
+            if (t.mode === 'loose' && attackersAt(H, grid, t.targetSq, tg.c).length > 0) return false;
+            return true;
+        });
+        mem.pressures = (mem.pressures || []).map((p) => {
+            const tg = gridAt(grid, p.targetSq);
+            if (!tg || tg.t !== p.targetType || tg.c === p.color) return null;
+            const attackers = attackersAt(H, grid, p.targetSq, p.color).length;
+            if (attackers < 2) return null;
+            return Object.assign({}, p, { attackers: attackers, defenders: attackersAt(H, grid, p.targetSq, tg.c).length });
+        }).filter(Boolean);
+    }
+
+    // Desa a la memòria el comentari fet (o el silenci) i revalida les idees.
+    function tvCommitComment(memory, chosen, info) {
+        const mem = cloneMemory(memory);
+        const o = info || {};
+        const ply = isNum(o.ply) ? o.ply : 0;
+        const H = boardHelpers();
+        const grid = (H && o.fenAfter) ? H.parse(o.fenAfter).grid : null;
+        if (o.move && (o.move.flags.indexOf('k') !== -1 || o.move.flags.indexOf('q') !== -1)) mem.castled[o.move.color] = true;
+        if (grid) {
+            const ma = materialOf(grid);
+            if (ma.w.q + ma.b.q === 0) mem.queensOff = true;
+            if (isPhaseEndgame(o.fenAfter)) mem.endgame = true;
+        }
+        const applyPayload = (payload) => {
+            if (!payload) return;
+            if (payload.threats) payload.threats.forEach(t => mem.threats.push(Object.assign({ ply: ply, targetColor: other(t.attackerColor) }, t)));
+            if (payload.pressure) {
+                mem.pressures = mem.pressures.filter(p => p.targetSq !== payload.pressure.targetSq);
+                mem.pressures.push(Object.assign({ ply: ply }, payload.pressure));
+            }
+            if (payload.materialSig) mem.materialSig = payload.materialSig;
+        };
+        if (chosen) {
+            if (chosen.key) mem.ideas[chosen.key] = { ply: ply, sig: chosen.sig };
+            if (chosen.secondary && chosen.secondary.key) mem.ideas[chosen.secondary.key] = { ply: ply, sig: chosen.secondary.sig };
+            mem.texts.push({ text: chosen.leadText || chosen.text, ply: ply });
+            mem.templates[chosen.family] = [chosen.variantId].concat(mem.templates[chosen.family] || []).slice(0, 2);
+            if (chosen.lead && chosen.lead.family) {
+                const fam = chosen.lead.family;
+                const cand = (info && info.candidates) ? info.candidates.find(x => x.family === fam) : null;
+                const id = cand ? cand.variants.indexOf(chosen.lead.text) : -1;
+                if (id >= 0) mem.templates[fam] = [id].concat(mem.templates[fam] || []).slice(0, 2);
+            }
+            mem.plainStreak = chosen.kind === 'describe' || chosen.kind === 'capture' ? mem.plainStreak + 1 : 0;
+            if (chosen.extended) mem.lastExtendedPly = ply;
+            if (chosen.defined) mem.defined[chosen.defined] = true;
+            if (chosen.kind === 'summary') { mem.lastSummaryPly = ply; mem.summarySig = chosen.sig; }
+            mem.lastCommentPly = ply;
+            mem.focus = (chosen.tags && chosen.tags.squares) ? chosen.tags.squares.slice(0, 3) : [];
+            applyPayload(chosen.payload);
+            if (chosen.secondary) applyPayload(chosen.secondary.payload);
+        } else {
+            mem.plainStreak = 0;
+        }
+        mem.texts = mem.texts.filter(t => ply - t.ply < TV_CONFIG.TEXT_MEMORY_PLIES);
+        Object.keys(mem.ideas).forEach((k) => { if (ply - mem.ideas[k].ply >= TV_CONFIG.IDEA_MEMORY_PLIES * 2) delete mem.ideas[k]; });
+        reviseMemory(mem, H, grid);
+        return mem;
+    }
+
+    // Bandes de valoració (punt de vista blanc) per al resum.
+    function tvEvalBand(scoreW) {
+        if (!scoreW || scoreW.type !== 'cp' || !isNum(scoreW.value)) return null;
+        const v = scoreW.value;
+        const a = Math.abs(v);
+        const side = v > 0 ? 'w' : 'b';
+        if (a < 60) return 'equal';
+        if (a < 150) return side + '-slight';
+        if (a < 350) return side + '-clear';
+        return side + '-decisive';
+    }
+
+    // Resum estratègic (cada 4-6 jugades completes, només si aporta res de
+    // nou): material, valoració fiable, seguretat del rei i peons passats.
+    function tvStrategicSummary(ctx, memory) {
+        const c = ctx || {};
+        const mem = memory || tvEmptyMemory();
+        const H = boardHelpers();
+        if (!H) return null;
+        const grid = H.parse(c.fenAfter).grid;
+        const ma = materialOf(grid);
+        const mp = materialPhrase(ma);
+        const parts = [];
+        const sigParts = [];
+        parts.push(mp ? COLOR[mp.leader].pl + ' tenen ' + mp.desc : 'el material està igualat');
+        sigParts.push(materialSig(ma));
+        const band = c.after && c.after.reliable ? tvEvalBand(c.after.best) : null;
+        if (band) {
+            const who = band[0] === 'w' ? 'les blanques' : 'les negres';
+            const pawns = c.tier === 'advanced' ? ' (uns ' + (Math.round(Math.abs(c.after.best.value) / 10) / 10).toFixed(1).replace('.', ',') + ' peons)' : '';
+            const txt = band === 'equal' ? 'segons l\'anàlisi, la posició està equilibrada'
+                : band.slice(2) === 'slight' ? 'segons l\'anàlisi, ' + who + ' estan una mica millor' + pawns
+                    : band.slice(2) === 'clear' ? 'segons l\'anàlisi, ' + who + ' tenen un avantatge clar' + pawns
+                        : 'segons l\'anàlisi, ' + who + ' tenen una posició guanyadora' + pawns;
+            parts.push(txt);
+        }
+        sigParts.push(band || '-');
+        const second = [];
+        if (!mem.endgame && c.ply < 50) {
+            const kw = mem.castled.w, kb = mem.castled.b;
+            if (kw !== kb) second.push((kw ? 'les blanques' : 'les negres') + ' ja han enrocat i ' + (kw ? 'les negres' : 'les blanques') + ' encara tenen el rei al centre');
+            sigParts.push((kw ? 'W' : '-') + (kb ? 'B' : '-'));
+        }
+        ['w', 'b'].forEach((side) => {
+            const passed = Array.from(pawnStructure(grid, side).passed).sort();
+            if (passed.length) second.push(COLOR[side].pl + ' tenen ' + (passed.length === 1 ? 'un peó passat a ' + passed[0] : numWord(passed.length) + ' peons passats'));
+            sigParts.push(side + passed.join(''));
+        });
+        // La novetat es mesura pel CONTINGUT redactat (no per l'encapçalament ni
+        // per detalls que no es diuen, com la casella exacta dels peons passats).
+        const sig = parts.join('|') + '#' + second.slice(0, 2).join('|');
+        if (sig === mem.summarySig) return null;
+        // «Material igualat» tot sol no és cap novetat.
+        if (!mp && !band && !second.length) return null;
+        const intros = ['Balanç de la partida: ', 'Com està la partida: ', 'Situació de la partida: '];
+        let text = intros[Math.floor((c.ply || 0) / TV_CONFIG.SUMMARY_EVERY_PLIES) % intros.length] + parts.join(', i ') + '.';
+        if (second.length) text += ' ' + capFirst(second.slice(0, 2).join('; ')) + '.';
+        return { kind: 'summary', text: text, leadText: text, explanatory: true, key: 'summary', sig: sig, family: 'summary', variantId: 0,
+            extended: second.length > 0 || parts.length > 1, defined: null, tags: { color: null, squares: [] }, payload: null, evolved: false, secondary: null };
+    }
+
+    // Un pas complet de la retransmissió: candidats, selecció, resum
+    // periòdic i memòria nova. El fan servir el controlador i les proves, de
+    // manera que la cobertura que es mesura és la que veu l'espectador.
+    function tvBroadcastStep(ctx) {
+        const c = ctx || {};
+        const memory = cloneMemory(c.memory);
+        const candidates = tvCommentCandidates(Object.assign({}, c, { memory: memory }));
+        let chosen = tvSelectComment(candidates, memory, { ply: c.ply, color: c.move && c.move.color, tier: c.tier, prepared: c.prepared,
+            isCheck: !!(c.move && /\+$/.test(c.move.san) && !c.end) });
+        const urgent = chosen && KIND_PRIORITY[chosen.kind] >= 70;
+        const mvq = c.move || {};
+        const quiet = !mvq.captured && !/[+#]/.test(mvq.san || '') && !mvq.promotion && (mvq.flags || '').indexOf('k') === -1 && (mvq.flags || '').indexOf('q') === -1;
+        if (!urgent && quiet && !c.prepared && !c.end && isNum(c.ply) && c.ply - memory.lastSummaryPly >= TV_CONFIG.SUMMARY_EVERY_PLIES) {
+            // El resum SUBSTITUEIX el comentari ordinari d'aquesta jugada.
+            const summary = tvStrategicSummary(c, memory);
+            if (summary) chosen = summary;
+        }
+        const next = tvCommitComment(memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
+        return { comment: chosen, memory: next, candidates: candidates };
+    }
+
+    // Repassa una partida sencera amb el mateix pas de retransmissió (per a
+    // les proves de cobertura i per revisar seqüències de comentaris).
+    // spec = { startFen, moves:[uci], analyses:[{fen,bestUci,infos}], prepared, tier }
+    function tvSimulateCommentary(ChessCtor, spec) {
+        const s = spec || {};
+        const chess = s.startFen ? new ChessCtor(s.startFen) : new ChessCtor();
+        let memory = tvEmptyMemory();
+        if (isNum(s.lastSummaryPly)) memory.lastSummaryPly = s.lastSummaryPly;
+        let prevMove = null;
+        const rows = [];
+        const analysisAt = (i) => {
+            const a = s.analyses && s.analyses[i];
+            return a ? tvBuildAnalysis(a.fen, a.infos, a.bestUci) : null;
+        };
+        (s.moves || []).forEach((uci, i) => {
+            const fenBefore = chess.fen();
+            const mv = chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
+            if (!mv) return;
+            const prepared = i < (s.prepared || 0);
+            const step = tvBroadcastStep({
+                ChessCtor: ChessCtor, fenBefore: fenBefore, fenAfter: chess.fen(), move: mv, prevMove: prevMove,
+                before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
+                tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory
+            });
+            memory = step.memory;
+            rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
+                kind: step.comment ? step.comment.kind : null, explanatory: !!(step.comment && step.comment.explanatory), extended: !!(step.comment && step.comment.extended),
+                key: step.comment ? step.comment.key : null, payload: step.comment ? step.comment.payload : null, speech: step.comment ? tvSpeechText(step.comment.text) : null,
+                candidates: step.candidates.map(x => x.kind) });
+            prevMove = mv;
+        });
+        return rows;
+    }
+
+    function tvCommentaryStats(rows) {
+        const n = rows.length;
+        const commented = rows.filter(r => r.comment);
+        const explanatory = commented.filter(r => r.explanatory);
+        const kinds = {};
+        commented.forEach((r) => { kinds[r.kind] = (kinds[r.kind] || 0) + 1; });
+        let maxSilence = 0, run = 0;
+        rows.forEach((r) => { run = r.comment ? 0 : run + 1; maxSilence = Math.max(maxSilence, run); });
+        const words = commented.map(r => wordCount(r.comment));
+        return {
+            plies: n, commented: commented.length, coverage: n ? commented.length / n : 0,
+            explanatory: explanatory.length, explanatoryRatio: n ? explanatory.length / n : 0,
+            explanatoryShare: commented.length ? explanatory.length / commented.length : 0,
+            distinctTexts: new Set(commented.map(r => r.comment)).size, maxSilence: maxSilence, kinds: kinds,
+            avgWords: words.length ? words.reduce((a, b) => a + b, 0) / words.length : 0,
+            longComments: commented.filter(r => r.extended).length
+        };
     }
 
     // ------------------------------------------------------------------
@@ -1330,6 +2354,7 @@
                 identified: null,
                 analyses: {},
                 comments: [],
+                memory: tvEmptyMemory(),
                 comment: null,
                 end: null,
                 nextGameAt: null
@@ -1420,7 +2445,12 @@
                 if (!applied) { fail('illegal'); return; }
                 const afterUci = g.uci.concat([uci]);
                 let after = null;
-                if (!prepared) {
+                // Una posició acabada (mat, ofegat, material insuficient) no
+                // s'analitza: aquest motor no respon a «go» en aquests casos i el
+                // worker quedaria penjat fins al temporitzador de seguretat.
+                let finished = false;
+                try { finished = new d.ChessCtor(applied.fen).game_over(); } catch (err) { finished = false; }
+                if (!prepared && !finished) {
                     after = await analyze(g, afterUci, ply + 1, applied.fen, epoch);
                     if (!alive(epoch) || S.game !== g) return;
                 }
@@ -1460,12 +2490,15 @@
             if (!mv) return null;
             const fenAfter = copy.fen();
             const end = tvGameEnd(copy);
-            const candidates = tvCommentCandidates({
+            // La memòria de la retransmissió només s'actualitza quan la jugada
+            // es mostra de debò (reveal): si una pausa descarta aquest pla, la
+            // memòria visible continua intacta.
+            const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
-                end: end, ply: ply
+                end: end, ply: ply, memory: g.memory
             });
-            return { ply: ply, fenAfter: fenAfter, end: end, chosen: tvChooseComment(candidates, g.comments, ply, mv.color) };
+            return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory };
         }
 
         function reveal(g, uci, prepared, plan, epoch) {
@@ -1481,10 +2514,12 @@
             const chosen = plan.chosen;
             g.end = end;
             g.comment = null;
+            g.memory = plan.memory;
             if (chosen) {
                 // El comentari queda LLIGAT a aquesta posició (partida + ply + FEN).
-                g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: ply, fen: fenAfter, gameId: g.id };
-                g.comments.push({ ply: ply, kind: chosen.kind, text: chosen.text, color: mv.color });
+                g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: ply, fen: fenAfter, gameId: g.id,
+                    explanatory: !!chosen.explanatory, extended: !!chosen.extended };
+                g.comments.push({ ply: ply, kind: chosen.kind, text: chosen.text, color: mv.color, key: chosen.key, sig: chosen.sig });
                 entry.comment = chosen.text;
             }
             const shownAt = now();
@@ -2203,6 +3238,14 @@
         tvPreparedLine,
         tvCommentCandidates,
         tvChooseComment,
+        tvSelectComment,
+        tvCommitComment,
+        tvEmptyMemory,
+        tvBroadcastStep,
+        tvStrategicSummary,
+        tvEvalBand,
+        tvSimulateCommentary,
+        tvCommentaryStats,
         tvSpeechText,
         tvIsCatalanVoice,
         tvPickCatalanVoice,
