@@ -1,0 +1,12 @@
+Lozza 3.0 — original by Colin Jenkins
+Source: https://github.com/op12no2/lozza
+Imported unchanged from upstream commit 0f53bb5de712f006b61a78aebf78df2191f042bf
+
+Original LICENCE text:
+
+Feel free to use as you like but I always appreciate an email
+telling me about your project and how you use Lozza.
+
+op12no2@gmail.com
+
+Note: upstream license text does not explicitly identify an SPDX MIT license.
