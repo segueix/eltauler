@@ -63,7 +63,7 @@
     <!-- Fonts -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@500;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Cinzel:wght@500;700&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     
     <!-- Chessboard CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
@@ -5429,6 +5429,447 @@
             overflow-wrap: anywhere;
             word-break: break-word;
         }
+
+        /* ════════════════════════════════════════════════════════════════════
+           INICI · bàners ordenats (proposta D)
+           Seccions en ordre lògic (Juga, Avui, Entrena, Comunitat, Aprèn i
+           Progrés i ajustos, amb la configuració i la guia al final). Cada
+           secció té la seva família de color i dins de la família els tons
+           varien una mica: degradats a 135°, de lluminositat semblant i amb
+           text blanc, perquè la pàgina sigui variada sense ser un arc de Sant
+           Martí. Tots els bàners comparteixen la mateixa forma (.hb): icona,
+           títol, una línia i, si cal, etiqueta, botó o fletxa.
+           Tot va prefixat amb #start-screen: guanya els estils antics dels
+           bàners (que segueixen servint a altres pantalles) sense !important.
+           ════════════════════════════════════════════════════════════════════ */
+        #start-screen.home-d {
+            --hd-font: 'Plus Jakarta Sans', 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+            --hd-card: rgba(0,0,0,0.22);
+            --hd-line: rgba(244,228,188,0.10);
+            --hd-text: var(--text-primary);
+            --hd-text-2: var(--text-secondary);
+            --hd-on: #ffffff;
+            --hd-on-2: rgba(255,255,255,0.88);
+            font-family: var(--hd-font);
+            text-align: left;
+            padding-top: 16px;
+            padding-bottom: 18px;
+        }
+        #start-screen.home-d h1, #start-screen.home-d h2,
+        #start-screen.home-d .btn, #start-screen.home-d .stat-value,
+        #start-screen.home-d .missions-title, #start-screen.home-d .missions-count,
+        #start-screen.home-d .badges-btn, #start-screen.home-d .coach-kicker,
+        #start-screen.home-d .coach-banner-title, #start-screen.home-d .league-banner-header,
+        #start-screen.home-d .live-game-banner-header, #start-screen.home-d .daily-section-title,
+        #start-screen.home-d .hg-banner-title, #start-screen.home-d .training-desc {
+            font-family: var(--hd-font);
+            letter-spacing: normal;
+        }
+        /* Els botons no hereten la font per defecte: aquí sí. */
+        #start-screen.home-d button, #start-screen.home-d select { font-family: var(--hd-font); }
+        #start-screen.home-d .btn { font-weight: 700; }
+
+        /* Capçalera: marca a l'esquerra, nom d'usuari i contacte a la dreta */
+        #start-screen .home-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 12px; }
+        #start-screen .home-brand { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        #start-screen .home-brand-mark { font-size: 1.65rem; line-height: 1; color: var(--accent-gold); }
+        #start-screen .home-brand-name {
+            margin: 0; font-size: 1.3rem; font-weight: 800; letter-spacing: -0.01em;
+            color: var(--hd-text); white-space: nowrap; overflow-wrap: normal;
+        }
+        #start-screen .home-topbar { position: static; display: flex; align-items: center; gap: 8px; min-width: 0; }
+
+        /* Xifres del jugador en una sola franja */
+        #start-screen .stats-row {
+            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0;
+            margin: 0 0 4px; padding: 10px 4px; border-radius: 16px;
+            background: var(--hd-card); border: 1px solid var(--hd-line);
+        }
+        #start-screen .stats-row .stat-box {
+            background: none; border: 0; border-radius: 0; padding: 2px 6px; min-width: 0;
+            text-align: center; animation: none; display: flex; flex-direction: column; align-items: center;
+        }
+        #start-screen .stats-row .stat-box + .stat-box { border-left: 1px solid var(--hd-line); }
+        #start-screen .stat-label { font-size: 0.72rem; font-weight: 600; text-transform: none; margin: 0; }
+        #start-screen .stat-value { font-size: 1.35rem; font-weight: 800; line-height: 1.25; }
+        #start-screen .stars-value { text-shadow: none; }
+        #start-screen .streak-status { font-size: 0.66rem; font-weight: 700; margin-top: 2px; }
+
+        /* Seccions: punt de color + títol + filet */
+        #start-screen .home-sections { display: flex; flex-direction: column; gap: 6px; }
+        #start-screen .home-sec { display: flex; flex-direction: column; gap: 10px; min-width: 0; animation: fadeInUp 0.34s ease both; }
+        #start-screen .home-sec:nth-child(2) { animation-delay: 0.04s; }
+        #start-screen .home-sec:nth-child(3) { animation-delay: 0.08s; }
+        #start-screen .home-sec-head { display: flex; align-items: center; gap: 8px; min-height: 40px; margin-top: 6px; }
+        #start-screen .home-sec-head::after { content: ''; flex: 1; height: 1px; background: var(--sec); opacity: 0.28; }
+        #start-screen .home-sec-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--sec); flex: 0 0 auto; }
+        #start-screen .home-sec-title {
+            margin: 0; font-size: 0.74rem; font-weight: 800; letter-spacing: 0.09em;
+            text-transform: uppercase; color: var(--sec); line-height: 1.2;
+        }
+        .home-sec--juga { --sec: #e3b84a; }
+        .home-sec--avui { --sec: #e8d9b5; }
+        .home-sec--entrena { --sec: #b7a2f0; }
+        .home-sec--comunitat { --sec: #ef8a6b; }
+        .home-sec--apren { --sec: #6fc4a4; }
+        .home-sec--final { --sec: #a9bccb; }
+
+        /* ── Bàner (.hb) ─────────────────────────────────────────────────── */
+        .hb--violet { --hb-a: #6a4bc2; --hb-b: #3f2d86; }
+        .hb--indigo { --hb-a: #4b56b4; --hb-b: #2d3478; }
+        .hb--plum { --hb-a: #8a4aa8; --hb-b: #52276d; }
+        .hb--terracotta { --hb-a: #b04430; --hb-b: #6c2114; }
+        .hb--copper { --hb-a: #a65a2c; --hb-b: #64321a; }
+        .hb--rosewood { --hb-a: #a8445c; --hb-b: #64203a; }
+        .hb--green { --hb-a: #2c7656; --hb-b: #174431; }
+        .hb--teal { --hb-a: #237078; --hb-b: #134046; }
+        .hb--ochre { --hb-a: #9a7430; --hb-b: #5a4118; }
+        .hb--stone { --hb-a: #6b6157; --hb-b: #3d3731; }
+        .hb--navy { --hb-a: #3f5a96; --hb-b: #24335e; }
+        #start-screen .hb,
+        #start-screen #custom-banners .custom-banner {
+            display: flex; align-items: center; gap: 12px; width: 100%; min-height: 76px; margin: 0;
+            padding: 12px 14px; border: 0; border-radius: 18px; cursor: pointer; position: relative; overflow: hidden;
+            font-family: var(--hd-font); font-size: 1rem; font-weight: 400; letter-spacing: normal;
+            text-align: left; color: var(--hd-on);
+            background: linear-gradient(135deg, var(--hb-a, #4a6274) 0%, var(--hb-b, #2a3a48) 100%);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.26);
+            transition: transform .15s ease, box-shadow .15s ease;
+        }
+        #start-screen .hb::after,
+        #start-screen #custom-banners .custom-banner::after { content: none; }
+        #start-screen .hb:hover,
+        #start-screen #custom-banners .custom-banner:hover { transform: translateY(-1px); box-shadow: 0 10px 22px rgba(0,0,0,0.32); }
+        #start-screen .hb:active { transform: translateY(0); }
+        #start-screen .hb:focus-visible, #start-screen .hb-tile:focus-visible,
+        #start-screen .hb-mode:focus-visible, #start-screen .hb-add:focus-visible,
+        #start-screen #custom-banners .custom-banner:focus-visible {
+            outline: 3px solid var(--sec, var(--accent-gold)); outline-offset: 2px;
+        }
+        #start-screen .hb--lg { min-height: 96px; padding: 16px; }
+        #start-screen .hb-ic {
+            width: 44px; height: 44px; flex: 0 0 auto; border-radius: 13px;
+            background: rgba(255,255,255,0.16); display: grid; place-items: center;
+        }
+        #start-screen .hb--lg .hb-ic { width: 48px; height: 48px; border-radius: 14px; }
+        #start-screen .hb-ic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        #start-screen .hb--lg .hb-ic svg { width: 24px; height: 24px; }
+        #start-screen .hb-text { display: flex; flex-direction: column; gap: 2px; flex: 1 1 auto; min-width: 0; }
+        #start-screen .hb-title { font-size: 1rem; font-weight: 800; line-height: 1.2; }
+        #start-screen .hb--lg .hb-title { font-size: 1.1rem; }
+        #start-screen .hb-sub { margin: 0; font-size: 0.8rem; line-height: 1.32; color: var(--hd-on-2); opacity: 1; }
+        #start-screen .hb-meta { margin: 1px 0 0; font-size: 0.76rem; font-weight: 700; color: var(--hd-on-2); font-variant-numeric: tabular-nums; }
+        #start-screen .hb-live { display: inline-flex; align-items: center; gap: 6px; font-size: 0.68rem; font-weight: 800; letter-spacing: 0.07em; }
+        #start-screen .hb-live .cb-dot {
+            width: 7px; height: 7px; border-radius: 50%; background: #ffd2c4;
+            box-shadow: 0 0 0 0 rgba(255,210,196,0.7); animation: cbPulse 1.8s infinite;
+        }
+        #start-screen .hb-cta {
+            flex: 0 0 auto; display: inline-flex; align-items: center; height: 34px; padding: 0 13px;
+            border-radius: 999px; background: #ffffff; color: var(--hb-b, #2a3a48);
+            font-weight: 800; font-size: 0.8rem; white-space: nowrap; text-shadow: none;
+        }
+        #start-screen .hb-go { flex: 0 0 auto; display: grid; place-items: center; opacity: 0.85; }
+        #start-screen .hb-go svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+        #start-screen .hb[disabled], #start-screen .hb.btn-disabled,
+        #start-screen .hb-tile[disabled], #start-screen .hb-tile.btn-disabled,
+        #start-screen .hb-mode[disabled], #start-screen .hb-mode.btn-disabled {
+            opacity: 0.5; filter: grayscale(0.4); cursor: not-allowed; transform: none; box-shadow: none;
+        }
+
+        /* Bàner principal de «Juga»: ritme + Nova partida */
+        #start-screen .hb-hero {
+            --hb-a: #e6bc50; --hb-b: #c3912e;
+            display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 0; border-radius: 20px;
+            background: linear-gradient(135deg, var(--hb-a) 0%, var(--hb-b) 100%); color: #1f1606;
+            box-shadow: 0 8px 20px rgba(0,0,0,0.28);
+        }
+        #start-screen .hb-hero-head { display: flex; align-items: center; gap: 12px; }
+        #start-screen .hb-hero .hb-ic { background: rgba(31,22,6,0.12); }
+        #start-screen .hb-hero .hb-title { font-size: 1.2rem; }
+        #start-screen .hb-hero .hb-sub { color: rgba(31,22,6,0.8); font-weight: 600; }
+        #start-screen .hb-hero .play-clock-current { font-size: inherit; font-weight: 800; color: #1f1606; }
+        #start-screen .hb-hero .play-clock-chips { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+        #start-screen .hb-hero .play-clock-chip {
+            border: 0; border-radius: 12px; padding: 7px 2px 6px; min-height: 44px;
+            background: rgba(31,22,6,0.12); color: #2a1d07; box-shadow: none;
+        }
+        #start-screen .hb-hero .play-clock-chip.active { background: #1f1606; color: #f6e2a6; box-shadow: none; }
+        #start-screen .hb-hero .pcc-time { font-size: 0.92rem; }
+        #start-screen .hb-hero .pcc-kind { font-size: 0.6rem; opacity: 0.8; }
+        #start-screen .hb-hero #btn-new-game {
+            margin: 0; min-height: 52px; padding: 14px 18px; border-radius: 14px;
+            background: #1f1606; color: #f6e2a6; font-size: 1.05rem; font-weight: 800; box-shadow: none;
+        }
+        body.device-tablet #start-screen .hb-hero .play-clock-chips,
+        body.device-desktop #start-screen .hb-hero .play-clock-chips { grid-template-columns: repeat(8, minmax(0, 1fr)); }
+
+        /* Modes contra el motor: tres rajoles, cadascuna amb el seu to */
+        .hb-mode--sea { --mode: #6fc8b4; }
+        .hb-mode--lilac { --mode: #b9a3f0; }
+        .hb-mode--sky { --mode: #8dbcf0; }
+        #start-screen .home-modes { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+        #start-screen .hb-mode {
+            display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+            min-height: 80px; padding: 10px 6px; border-radius: 16px; cursor: pointer;
+            font-family: var(--hd-font); font-weight: 700; font-size: 0.86rem; line-height: 1.2; text-align: center;
+            color: var(--hd-text); background: var(--hd-card); border: 1px solid var(--hd-line);
+            transition: border-color .15s ease, transform .15s ease;
+        }
+        #start-screen .hb-mode:hover { border-color: var(--mode); transform: translateY(-1px); }
+        #start-screen .hb-mode-ic { width: 24px; height: 24px; fill: none; stroke: var(--mode); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+
+        /* Rajoles (eines d'entrenament, historial i estadístiques) */
+        .hb-tile--rose { --tile: #f08ca0; --tile-bg: rgba(240,140,160,0.10); }
+        .hb-tile--amber { --tile: #f0b56a; --tile-bg: rgba(240,181,106,0.10); }
+        .hb-tile--lilac { --tile: #b9a3f0; --tile-bg: rgba(185,163,240,0.10); }
+        .hb-tile--sky { --tile: #8dbcf0; --tile-bg: rgba(141,188,240,0.10); }
+        .hb-tile--slate { --tile: #a9bccb; --tile-bg: rgba(169,188,203,0.10); }
+        #start-screen .home-tiles { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+        #start-screen .hb-tile {
+            display: flex; flex-direction: column; align-items: flex-start; justify-content: space-between; gap: 6px;
+            min-height: 92px; padding: 12px; border-radius: 16px; cursor: pointer; text-align: left;
+            font-family: var(--hd-font); color: var(--hd-text);
+            background: var(--tile-bg, var(--hd-card)); border: 1px solid var(--hd-line);
+            transition: border-color .15s ease, transform .15s ease;
+        }
+        #start-screen .hb-tile:hover { border-color: var(--tile); transform: translateY(-1px); }
+        #start-screen .hb-tile-ic { width: 22px; height: 22px; fill: none; stroke: var(--tile); stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        #start-screen .hb-tile-title { font-weight: 800; font-size: 0.95rem; line-height: 1.2; }
+        #start-screen .hb-tile-sub { font-size: 0.74rem; line-height: 1.3; color: var(--hd-text-2); }
+
+        /* «Crea la teva partida col·lectiva»: acció d'afegir, amb traç */
+        #start-screen .hb-add {
+            display: flex; align-items: center; gap: 12px; width: 100%; min-height: 64px; margin: 0;
+            padding: 10px 14px; border-radius: 18px; cursor: pointer; text-align: left;
+            font-family: var(--hd-font); color: var(--hd-text);
+            background: transparent; border: 1.5px dashed rgba(239,138,107,0.55);
+        }
+        #start-screen .hb-add:hover { background: rgba(239,138,107,0.08); }
+        #start-screen .hb-add-plus {
+            width: 36px; height: 36px; flex: 0 0 auto; border-radius: 11px; display: grid; place-items: center;
+            background: rgba(239,138,107,0.16); color: #ef8a6b; font-size: 1.15rem; font-weight: 800;
+        }
+        #start-screen .hb-add .hb-title { font-size: 0.95rem; font-weight: 700; }
+        #start-screen .hb-add .hb-sub { color: var(--hd-text-2); }
+
+        /* Partides col·lectives pròpies (les genera catalans.js amb un color
+           a l'atzar): aquí prenen la forma .hb i un to de la família teula. */
+        #start-screen #custom-banners { display: flex; flex-direction: column; gap: 10px; }
+        #start-screen #custom-banners:empty { display: none; }
+        #start-screen #custom-banners .custom-banner { --hb-a: #a8445c; --hb-b: #64203a; padding-right: 44px; background: linear-gradient(135deg, var(--hb-a) 0%, var(--hb-b) 100%) !important; }
+        #start-screen #custom-banners .custom-banner:nth-child(3n+2) { --hb-a: #a65a2c; --hb-b: #64321a; }
+        #start-screen #custom-banners .custom-banner:nth-child(3n+3) { --hb-a: #9c3f3f; --hb-b: #5c1f22; }
+        #start-screen #custom-banners .catalans-banner-ic {
+            width: 44px; height: 44px; padding: 11px; box-sizing: border-box; border-radius: 13px;
+            background: rgba(255,255,255,0.16); stroke: #fff; stroke-width: 2; filter: none;
+        }
+        #start-screen #custom-banners .catalans-banner-text { gap: 2px; }
+        #start-screen #custom-banners .catalans-banner-live { font-size: 0.68rem; font-weight: 800; letter-spacing: 0.07em; color: #fff; opacity: 1; }
+        #start-screen #custom-banners .catalans-banner-live .cb-dot { background: #ffd2c4; }
+        #start-screen #custom-banners .catalans-banner-title { font-family: var(--hd-font); font-size: 1rem; font-weight: 800; letter-spacing: normal; }
+        #start-screen #custom-banners .catalans-banner-sub { font-size: 0.8rem; color: var(--hd-on-2); opacity: 1; }
+        #start-screen #custom-banners .catalans-banner-countdown { font-size: 0.76rem; color: var(--hd-on-2); }
+        #start-screen #custom-banners .catalans-banner-cta {
+            height: 34px; display: inline-flex; align-items: center; padding: 0 13px;
+            background: #fff; color: var(--hb-b); font-size: 0.8rem; font-weight: 800;
+        }
+
+        @media (max-width: 480px) {
+            /* Al mòbil, la partida pròpia ja té la creu per sortir-ne: sense el
+               botó, el nom hi cap sencer. */
+            #start-screen #custom-banners .catalans-banner-cta { display: none; }
+            #start-screen .hb-cta { padding: 0 11px; font-size: 0.76rem; }
+        }
+
+        /* Jeroglífics: bàner gran amb una fila d'eines discreta a sota */
+        #start-screen .hb-card {
+            margin: 0; border: 0; border-radius: 20px; overflow: hidden; color: var(--hd-on);
+            background: linear-gradient(135deg, var(--hb-a) 0%, var(--hb-b) 100%);
+            box-shadow: 0 8px 20px rgba(0,0,0,0.28); animation: none;
+        }
+        #start-screen .hieroglyphic-banner.hg-banner-has-new {
+            box-shadow: 0 0 0 2px rgba(214,196,255,0.8), 0 8px 22px rgba(0,0,0,0.3); animation: none;
+        }
+        #start-screen .hb--bare { background: transparent; box-shadow: none; border-radius: 0; }
+        #start-screen .hb--bare:hover { transform: none; box-shadow: none; background: rgba(255,255,255,0.06); }
+        #start-screen .hg-banner-title { color: #fff; text-shadow: none; }
+        #start-screen .hg-banner-sub { color: var(--hd-on-2); }
+        #start-screen .hg-banner-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; margin-top: 4px; }
+        #start-screen .hg-banner-count { font-size: 0.78rem; font-weight: 700; color: #fff; }
+        #start-screen .hg-banner-status { font-size: 0.7rem; font-weight: 700; padding: 2px 8px; border: 0; background: rgba(255,255,255,0.18); }
+        #start-screen .hg-banner-tools { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding: 0 16px 14px; }
+        #start-screen .hg-banner-gen-btn,
+        #start-screen .hg-banner-history-btn,
+        #start-screen .hg-banner-advanced summary {
+            display: inline-flex; align-items: center; gap: 6px; height: 34px; padding: 0 12px;
+            border-radius: 999px; border: 1px solid rgba(255,255,255,0.28); background: rgba(255,255,255,0.12);
+            color: #fff; font-family: var(--hd-font); font-size: 0.76rem; font-weight: 700; cursor: pointer;
+        }
+        #start-screen .hg-banner-progress { flex: 1 1 140px; }
+        #start-screen .hg-banner-advanced { margin-left: auto; padding: 0; border: 0; background: none; }
+        #start-screen .hg-banner-advanced[open] { flex-basis: 100%; margin-left: 0; }
+        #start-screen .hg-banner-advanced summary { width: max-content; list-style: none; user-select: none; }
+        #start-screen .hg-banner-advanced-row { padding: 10px 0 0; }
+
+        /* Avui: suggeriment, missions i entrenador en targetes tranquil·les */
+        #start-screen .engagement-banner {
+            margin: 0; padding: 10px 12px; gap: 10px; border-radius: 16px;
+            background: rgba(227,184,74,0.08); border: 1px solid rgba(227,184,74,0.28);
+        }
+        #start-screen .engagement-banner .eng-text { font-size: 0.86rem; }
+        #start-screen .engagement-banner .eng-cta {
+            width: auto; min-height: 36px; padding: 6px 14px; border-radius: 999px; font-size: 0.8rem; font-weight: 800;
+            background: #e3b84a; color: #1f1606; box-shadow: none;
+        }
+        #start-screen .missions-panel,
+        #start-screen .coach-panel {
+            margin: 0; padding: 12px; border-radius: 18px;
+            background: var(--hd-card); border: 1px solid var(--hd-line);
+        }
+        #start-screen .missions-header { margin-bottom: 8px; gap: 8px; }
+        #start-screen .missions-title { gap: 8px; font-size: 0.98rem; font-weight: 800; color: var(--hd-text); }
+        #start-screen .missions-ic { width: 1.15em; height: 1.15em; fill: none; stroke: #e3b84a; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        #start-screen .missions-count { font-size: 0.74rem; font-weight: 800; }
+        #start-screen .badges-btn {
+            display: inline-flex; align-items: center; gap: 6px; min-height: 34px; padding: 0 12px;
+            border-radius: 999px; font-size: 0.78rem; font-weight: 700;
+        }
+        #start-screen .badges-btn .btn-ic { width: 1.1em; height: 1.1em; }
+        #start-screen .mission-item { border-radius: 12px; padding: 8px 10px; margin-bottom: 6px; }
+        #start-screen .mission-item:last-child { margin-bottom: 0; }
+        #start-screen .mission-trophies { display: none; }
+        #start-screen .coach-kicker { font-size: 0.92rem; font-weight: 800; color: var(--hd-text); }
+        #start-screen .coach-kicker .coach-ic { color: #e3b84a; }
+        #start-screen .coach-banner {
+            --hb-a: #9a7430; --hb-b: #5a4118;
+            margin: 0; border: 0; border-radius: 18px;
+            background: linear-gradient(135deg, var(--hb-a) 0%, var(--hb-b) 100%);
+            box-shadow: 0 6px 16px rgba(0,0,0,0.26);
+        }
+        #start-screen .coach-banner-main { gap: 12px; padding: 14px 14px 10px; }
+        #start-screen .coach-banner-ic {
+            width: 44px; height: 44px; flex: 0 0 auto; border-radius: 13px;
+            background: rgba(255,255,255,0.16); display: grid; place-items: center; font-size: 1rem;
+        }
+        #start-screen .coach-banner-ic svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+        #start-screen .coach-banner-title { font-size: 1rem; font-weight: 800; }
+        #start-screen .coach-banner-sub { font-size: 0.8rem; opacity: 1; color: var(--hd-on-2); }
+        #start-screen .coach-banner-cta { height: 34px; display: inline-flex; align-items: center; padding: 0 13px; background: #fff; color: var(--hb-b); font-size: 0.8rem; font-weight: 800; }
+        #start-screen .coach-banner-foot { padding: 0 14px 12px 70px; flex-wrap: nowrap; }
+        #start-screen .coach-banner-foot label { flex: 0 0 auto; white-space: nowrap; overflow-wrap: normal; hyphens: none; }
+        #start-screen .coach-banner-foot select {
+            flex: 1 1 auto; min-width: 0; max-width: 220px; width: auto; min-height: 36px; padding: 6px 10px;
+            font-size: 0.82rem; border-radius: 10px; border: 1px solid rgba(255,255,255,0.4);
+            background: rgba(0,0,0,0.25); color: #fff;
+        }
+        #start-screen .coach-refresh-btn { flex: 0 0 auto; width: 36px; height: 36px; border-radius: 10px; }
+        body.device-tablet #start-screen .home-sec--entrena > .home-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+
+        /* Juga: partides en curs, lliga i avís de partida a mig fer */
+        #start-screen .live-game-banner {
+            margin: 0; border-radius: 18px; box-shadow: none;
+            background: rgba(227,184,74,0.10); border: 1px solid rgba(227,184,74,0.55);
+        }
+        #start-screen .live-game-banner-header { font-size: 1rem; font-weight: 800; color: var(--hd-text); }
+        #start-screen .league-banner {
+            margin: 0; border-radius: 18px; box-shadow: none;
+            background: rgba(141,188,240,0.08); border: 1px solid rgba(141,188,240,0.4);
+        }
+        #start-screen .league-banner-header { font-size: 0.98rem; font-weight: 800; color: var(--hd-text); }
+        #start-screen .daily-section-title { font-size: 0.72rem; font-weight: 800; letter-spacing: 0.08em; color: var(--hd-text-2); margin: 4px 0 -2px 2px; }
+        #start-screen .learn-hint { text-align: center; }
+        #start-screen .sync-container { justify-content: center; text-align: center; margin-top: 18px; }
+
+        /* Ordinador: dues columnes de contingut i una lateral. A l'esquerra,
+           Juga i Entrena (el que es fa); a la dreta, Avui (missions i pla), que
+           acostuma a ser llarg i així no deixa forats. A sota, Comunitat al
+           costat d'Aprèn i, al final, Progrés i ajustos a tota l'amplada. */
+        body.device-desktop #start-screen .home-sections {
+            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 22px; align-items: start;
+            grid-template-areas: "juga juga avui" "entrena entrena avui" "comunitat comunitat apren" "final final final";
+        }
+        body.device-desktop #start-screen .home-sec--juga { grid-area: juga; }
+        body.device-desktop #start-screen .home-sec--avui { grid-area: avui; }
+        body.device-desktop #start-screen .home-sec--entrena { grid-area: entrena; }
+        body.device-desktop #start-screen .home-sec--comunitat { grid-area: comunitat; }
+        body.device-desktop #start-screen .home-sec--apren { grid-area: apren; }
+        body.device-desktop #start-screen .home-sec--final { grid-area: final; }
+        body.device-desktop #start-screen .home-sec--entrena { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+        body.device-desktop #start-screen .home-sec--entrena > .home-sec-head,
+        body.device-desktop #start-screen .home-sec--entrena > .home-tiles { grid-column: 1 / -1; }
+        body.device-desktop #start-screen .home-sec--entrena > .hb-card { grid-row: span 2; }
+        body.device-desktop #start-screen .home-sec--entrena > .home-tiles { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+        body.device-desktop #start-screen .home-sec--comunitat { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; }
+        body.device-desktop #start-screen .home-sec--comunitat > .home-sec-head,
+        body.device-desktop #start-screen .home-sec--comunitat > #btn-catalans,
+        body.device-desktop #start-screen .home-sec--comunitat > #custom-banners { grid-column: 1 / -1; }
+        body.device-desktop #start-screen .home-sec--final { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px 12px; align-items: stretch; }
+        body.device-desktop #start-screen .home-sec--final > .home-sec-head { grid-column: 1 / -1; }
+        body.device-desktop #start-screen .home-sec--final > .home-tiles { grid-column: span 2; gap: 12px; }
+        body.device-desktop #start-screen .hb-tile { min-height: 100px; }
+
+        /* Mode dia (pergamí): targetes clares i tons foscos per al contrast */
+        body.day-mode #start-screen.home-d { --hd-card: rgba(120,95,40,0.08); --hd-line: rgba(120,95,40,0.20); }
+        body.day-mode .home-sec--juga { --sec: #8a6514; }
+        body.day-mode .home-sec--avui { --sec: #6b5a3a; }
+        body.day-mode .home-sec--entrena { --sec: #5b3fa8; }
+        body.day-mode .home-sec--comunitat { --sec: #a03a26; }
+        body.day-mode .home-sec--apren { --sec: #23664c; }
+        body.day-mode .home-sec--final { --sec: #3f5466; }
+        body.day-mode .hb-tile--rose { --tile: #b0405a; --tile-bg: rgba(176,64,90,0.08); }
+        body.day-mode .hb-tile--amber { --tile: #9a5c14; --tile-bg: rgba(154,92,20,0.08); }
+        body.day-mode .hb-tile--lilac { --tile: #6a4bc2; --tile-bg: rgba(106,75,194,0.08); }
+        body.day-mode .hb-tile--sky { --tile: #2f6aa8; --tile-bg: rgba(47,106,168,0.08); }
+        body.day-mode .hb-tile--slate { --tile: #3f5466; --tile-bg: rgba(63,84,102,0.08); }
+        body.day-mode .hb-mode--sea { --mode: #1f7a6c; }
+        body.day-mode .hb-mode--lilac { --mode: #6a4bc2; }
+        body.day-mode .hb-mode--sky { --mode: #2f6aa8; }
+        body.day-mode #start-screen .missions-ic,
+        body.day-mode #start-screen .coach-kicker .coach-ic { stroke: #8a6514; color: #8a6514; }
+        body.day-mode #start-screen .hb-add { border-color: rgba(160,58,38,0.5); }
+        body.day-mode #start-screen .hb-add-plus { color: #a03a26; background: rgba(160,58,38,0.10); }
+        body.day-mode #start-screen .engagement-banner { background: rgba(201,162,39,0.10); border-color: rgba(120,95,40,0.3); }
+        body.day-mode #start-screen .live-game-banner { background: rgba(201,162,39,0.12); border-color: rgba(138,101,20,0.5); }
+        body.day-mode #start-screen .league-banner { background: rgba(47,106,168,0.07); border-color: rgba(47,106,168,0.35); }
+
+        /* Paper electrònic: sense degradats ni colors, només contrast */
+        body.epaper-mode #start-screen .home-sec { animation: none; }
+        body.epaper-mode .home-sec--juga, body.epaper-mode .home-sec--avui, body.epaper-mode .home-sec--entrena,
+        body.epaper-mode .home-sec--comunitat, body.epaper-mode .home-sec--apren, body.epaper-mode .home-sec--final { --sec: #333; }
+        body.epaper-mode #start-screen .hb,
+        body.epaper-mode #start-screen .hb-card,
+        body.epaper-mode #start-screen .hb-hero,
+        body.epaper-mode #start-screen .coach-banner,
+        body.epaper-mode #start-screen #custom-banners .custom-banner {
+            background: #f2f2f2 !important; color: #111 !important; border: 1px solid #9e9e9e !important;
+            box-shadow: none !important; animation: none !important; transition: none;
+        }
+        body.epaper-mode #start-screen .hb--bare { border: 0 !important; background: transparent !important; }
+        body.epaper-mode #start-screen .hb-sub, body.epaper-mode #start-screen .hb-meta,
+        body.epaper-mode #start-screen .hb-hero .hb-sub, body.epaper-mode #start-screen .hb-hero .play-clock-current,
+        body.epaper-mode #start-screen .hg-banner-title, body.epaper-mode #start-screen .hg-banner-sub,
+        body.epaper-mode #start-screen .hg-banner-count, body.epaper-mode #start-screen .coach-banner-sub,
+        body.epaper-mode #start-screen #custom-banners .catalans-banner-sub,
+        body.epaper-mode #start-screen #custom-banners .catalans-banner-countdown,
+        body.epaper-mode #start-screen #custom-banners .catalans-banner-live { color: #333 !important; }
+        body.epaper-mode #start-screen .hb-ic, body.epaper-mode #start-screen .coach-banner-ic,
+        body.epaper-mode #start-screen #custom-banners .catalans-banner-ic { background: #e2e2e2 !important; stroke: #222; }
+        body.epaper-mode #start-screen .hb-cta, body.epaper-mode #start-screen .coach-banner-cta,
+        body.epaper-mode #start-screen #custom-banners .catalans-banner-cta { background: #222 !important; color: #fff !important; }
+        body.epaper-mode #start-screen .hb-live .cb-dot { background: #222; animation: none; }
+        body.epaper-mode #start-screen .hb-hero .play-clock-chip { background: #e6e6e6 !important; color: #222 !important; border: 1px solid #9e9e9e !important; }
+        body.epaper-mode #start-screen .hb-hero .play-clock-chip.active { background: #222 !important; color: #fff !important; }
+        body.epaper-mode #start-screen .hb-tile, body.epaper-mode #start-screen .hb-mode,
+        body.epaper-mode #start-screen .hb-add, body.epaper-mode #start-screen .stats-row,
+        body.epaper-mode #start-screen .engagement-banner, body.epaper-mode #start-screen .league-banner {
+            background: #f4f4f4 !important; border-color: #9e9e9e !important; color: #111; box-shadow: none !important; transition: none;
+        }
+        body.epaper-mode #start-screen .hb-tile-ic, body.epaper-mode #start-screen .hb-mode-ic,
+        body.epaper-mode #start-screen .missions-ic { stroke: #222; }
+        body.epaper-mode #start-screen .hb-add-plus { background: #e2e2e2; color: #222; }
+        body.epaper-mode #start-screen .hg-banner-advanced summary { background: #ddd !important; color: #333 !important; border-color: #bbb !important; }
+        body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
 </head>
 <body>
@@ -5663,6 +6104,21 @@
             <circle cx="16.5" cy="16.5" r="4.2"/>
             <path d="M19.6 19.6 22.2 22.2"/>
         </symbol>
+        <!-- Rival Antídot: doble hèlix (estudia les teves debilitats) -->
+        <symbol id="ic-dna" viewBox="0 0 24 24">
+            <path d="M7 3c0 6 10 6 10 12s-10 6-10 6"/>
+            <path d="M17 3c0 6-10 6-10 12s10 6 10 6"/>
+            <path d="M8.5 7h7M8.5 17h7"/>
+        </symbol>
+        <!-- Fletxa «obre» dels bàners de l'inici -->
+        <symbol id="ic-chevron" viewBox="0 0 24 24">
+            <path d="M9 6l6 6-6 6"/>
+        </symbol>
+        <!-- Missions diàries: banderola -->
+        <symbol id="ic-flag" viewBox="0 0 24 24">
+            <path d="M5 21V4"/>
+            <path d="M5 4h12l-2.2 4L17 12H5"/>
+        </symbol>
     </svg>
 
     <!-- Banner d'actualització del Service Worker -->
@@ -5677,17 +6133,26 @@
     </div>
 
     <div id="app-container">
-        <div id="start-screen" class="screen-anim">
-            <div class="home-topbar">
-                <button class="home-user-chip empty" id="home-user-chip" type="button" title="Posa el teu nom d'usuari">
-                    <span class="huc-ic">👤</span><span class="huc-name">Nom d'usuari</span>
-                </button>
-                <button class="home-at-btn" id="home-contact-btn" type="button" aria-label="Peticions i contacte" title="Peticions i contacte">@</button>
+        <div id="start-screen" class="screen-anim home-d">
+            <!-- INICI (proposta D): bàners agrupats per seccions, cadascuna amb la
+                 seva família de color (Juga daurat, Avui crema, Entrena lila,
+                 Comunitat teula, Aprèn verd i Progrés i ajustos pissarra). Tots
+                 els bàners tenen la mateixa forma: icona, títol, una línia i, si
+                 cal, una etiqueta o un botó. La configuració i la guia (el
+                 manual) tanquen la pàgina. Els identificadors són els de sempre:
+                 app.js, catalans.js, tutorial.js i stockfishtv.js els omplen. -->
+            <div class="home-head">
+                <div class="home-brand">
+                    <span class="home-brand-mark" aria-hidden="true">♔</span>
+                    <h1 class="home-brand-name">El Tauler</h1>
+                </div>
+                <div class="home-topbar">
+                    <button class="home-user-chip empty" id="home-user-chip" type="button" title="Posa el teu nom d'usuari">
+                        <span class="huc-ic">👤</span><span class="huc-name">Nom d'usuari</span>
+                    </button>
+                    <button class="home-at-btn" id="home-contact-btn" type="button" aria-label="Peticions i contacte" title="Peticions i contacte">@</button>
+                </div>
             </div>
-            <div class="app-logo">♔</div>
-            <h1>EL TAULER</h1>
-            <div class="subtitle">El teu company d'escacs</div>
-
             <div class="stats-row">
                 <div class="stat-box">
                     <div class="stat-label">ELO</div>
@@ -5703,40 +6168,21 @@
                     <div class="stat-value stars-value" id="current-stars">0</div>
                 </div>
             </div>
-            
-            <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
-            <div class="engagement-banner" id="engagement-banner" style="display:none;">
-                <span class="eng-icon">💡</span>
-                <span class="eng-text"></span>
-                <button class="btn eng-cta" data-eng-action="play"></button>
-            </div>
 
-            <!-- LES TEVES MISSIONS: el marcador del dia, a dalt de tot.
-                 La veu de l'entrenador (diagnòstic i pla) va més avall,
-                 sota les partides col·lectives. -->
-            <div class="menu-section menu-section-coach">
-                <div class="missions-panel">
-                    <div class="missions-header">
-                        <div class="missions-title">🎖️ Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
-                        <button class="badges-btn" id="btn-badges">🏆 Trofeus</button>
-                    </div>
-                    <div class="missions-hint">Toca una missió i t'hi porta directament.</div>
-                    <div id="missions-list"></div>
-                </div>
-            </div>
-
-            <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
-            <div class="menu-section">
-                <div class="menu-section-title">Juga</div>
-                <div class="menu-buttons">
-                    <!-- Un sol bloc de joc: tria de rellotge ben visible i els
-                         modes contra el motor (nova, joc vista, antídot i lliga) -->
-                    <div class="play-card">
+            <div class="home-sections">
+                <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
+                <section class="home-sec home-sec--juga" aria-labelledby="home-sec-juga">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-juga">Juga</h2></div>
+                    <!-- Bàner principal: ritme (rellotge) i «Nova partida» -->
+                    <div class="play-card hb-hero">
+                        <div class="hb-hero-head">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-pawn"/></svg></span>
+                            <span class="hb-text">
+                                <span class="hb-title">Juga contra Stockfish</span>
+                                <span class="hb-sub">Al teu nivell · <span class="play-clock-current" id="play-clock-current">Sense rellotge</span></span>
+                            </span>
+                        </div>
                         <div class="play-clock" role="group" aria-label="Rellotge de la partida">
-                            <div class="play-clock-head">
-                                <span class="play-clock-title"><svg class="btn-ic" aria-hidden="true"><use href="#ic-clock"/></svg>Rellotge</span>
-                                <span class="play-clock-current" id="play-clock-current">Sense rellotge</span>
-                            </div>
                             <div class="play-clock-chips" id="play-clock-chips">
                                 <button type="button" class="play-clock-chip active" data-tc="none" title="Sense rellotge"><span class="pcc-time">∞</span><span class="pcc-kind">Sense</span></button>
                                 <button type="button" class="play-clock-chip" data-tc="30s" title="Bullet 30 segons"><span class="pcc-time">30s</span><span class="pcc-kind">Bullet</span></button>
@@ -5761,20 +6207,18 @@
                                 <option value="24h">Diària 24h</option>
                             </select>
                         </div>
-                        <div class="play-modes">
-                            <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Nova partida</button>
-                            <button class="btn btn-positional" id="btn-positional-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-scope"/></svg>Joc vista</button>
-                            <button class="btn btn-antidote" id="btn-antidote-game"><span class="btn-emoji" aria-hidden="true">🧬</span>Rival Antídot</button>
-                            <button class="btn btn-league" id="btn-league"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Lliga</button>
-                        </div>
+                        <button class="btn btn-primary btn-hero" id="btn-new-game"><svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Nova partida</button>
                     </div>
-
+                    <!-- Els altres modes contra el motor -->
+                    <div class="home-modes">
+                        <button type="button" class="hb-mode hb-mode--sea" id="btn-positional-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-scope"/></svg><span>Joc vista</span></button>
+                        <button type="button" class="hb-mode hb-mode--lilac" id="btn-antidote-game"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-dna"/></svg><span>Rival Antídot</span></button>
+                        <button type="button" class="hb-mode hb-mode--sky" id="btn-league"><svg class="hb-mode-ic" aria-hidden="true"><use href="#ic-trophy"/></svg><span>Lliga</span></button>
+                    </div>
                     <!-- Per a qui encara ha de fer la partida de calibratge: si no sap
                          jugar, que aprengui primer. El mostra tutorial.js. -->
                     <div class="learn-hint" id="learn-hint" style="display:none;">Nou als escacs? <a href="#" id="learn-hint-link">Aprèn a jugar abans de la partida de calibratge ›</a></div>
-
-                    <!-- Partida en viu interrompuda (pestanya morta, app tancada o
-                         actualitzada a mitja partida): es pot reprendre o descartar.
+                    <!-- Partida en viu interrompuda: es pot reprendre o descartar.
                          La pinta app.js (renderLiveGameBanner) i, sense res a
                          reprendre, no ocupa lloc. -->
                     <div class="live-game-banner" id="live-game-banner" style="display:none;" role="region" aria-label="Partida a mig fer">
@@ -5787,41 +6231,27 @@
                             <button type="button" class="btn btn-secondary" id="btn-live-game-discard">Descarta-la</button>
                         </div>
                     </div>
-
                     <div class="daily-section-title" id="untimed-section-title" style="display:none;">Partides sense rellotge</div>
                     <div class="daily-grid" id="untimed-grid" aria-label="Partides sense rellotge desades"></div>
-
-                    <!-- Partides diàries (ritme «24h» del rellotge de dalt) en curs:
-                         miniatures de costat amb l'estat del tauler, el temps que
-                         queda i el botó de jugar; una partida perduda per temps queda
-                         entre les miniatures amb la derrota i el botó de tancar. Es
-                         pinta des d'app.js i, buida, no ocupa lloc. -->
-                    <!-- Títol de les partides diàries en curs. S'amaga sol quan
-                         no n'hi ha cap (no ha d'encapçalar el buit). -->
+                    <!-- Partides diàries (ritme «24h») en curs: miniatures amb l'estat
+                         del tauler, el temps que queda i el botó de jugar. Es pinta
+                         des d'app.js i, buida, no ocupa lloc. -->
                     <div class="daily-section-title" id="daily-section-title" style="display:none;">Partides 24 h</div>
                     <div class="daily-grid" id="daily-grid"></div>
-                    <!-- Punts del carrusel (només al mòbil amb més de dues
-                         partides): diuen quantes n'hi ha i on ets, i tocant-ne
-                         un es porta la seva miniatura al centre. -->
                     <div class="daily-dots" id="daily-dots" style="display:none;"></div>
-
-                    <!-- Repte del bessó: juga contra una versió de tu mateix.
-                         DESACTIVAT de moment: el bàner arrenca amagat i només
-                         es mostra si BESSO_ENABLED (app.js) torna a ser true.
-                         El marcatge i el modal es conserven sencers per poder
-                         reprendre la modalitat sense refer-la. -->
-                    <button class="catalans-banner besso-banner" id="btn-besso" aria-label="Repte del bessó" style="display:none;">
-                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swap"/></svg>
-                        <span class="catalans-banner-text">
-                            <span class="catalans-banner-title">Repte del bessó</span>
-                            <span class="catalans-banner-sub">Juga contra una versió de tu mateix: les teves obertures i el teu estil</span>
+                    <!-- Repte del bessó: DESACTIVAT de moment (BESSO_ENABLED a app.js).
+                         El marcatge es conserva per poder reprendre la modalitat. -->
+                    <button class="hb hb--teal besso-banner" id="btn-besso" aria-label="Repte del bessó" style="display:none;">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-swap"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Repte del bessó</span>
+                            <span class="hb-sub">Juga contra una versió de tu mateix: les teves obertures i el teu estil</span>
                         </span>
-                        <span class="catalans-banner-cta">Juga-hi ›</span>
+                        <span class="hb-cta">Juga-hi ›</span>
                     </button>
-
                     <div class="league-banner" id="league-banner" style="display:none;">
                         <div class="league-banner-header">
-                            <span>🏅 Proper partit de lliga</span>
+                            <span>Proper partit de lliga</span>
                             <span class="league-badge" id="league-banner-opp-rank">#—</span>
                         </div>
                         <div class="league-banner-quote" id="league-banner-quote">Preparat per brillar?</div>
@@ -5833,219 +6263,239 @@
                             </div>
                         </div>
                         <div class="league-banner-actions">
-                            <button class="btn btn-primary" id="btn-league-banner-play" style="margin-top:8px;"><svg class="btn-ic" aria-hidden="true"><use href="#ic-target"/></svg>Jugar ara</button>
+                            <button class="btn btn-primary" id="btn-league-banner-play"><svg class="btn-ic" aria-hidden="true"><use href="#ic-target"/></svg>Jugar ara</button>
                         </div>
                     </div>
+                </section>
 
-                    <!-- Partides cooperatives (col·lectives) -->
-                    <button class="catalans-banner" id="btn-catalans" aria-label="Catalans vs Stockfish">
-                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-swords"/></svg>
-                        <span class="catalans-banner-text">
-                            <span class="catalans-banner-live"><span class="cb-dot"></span> EN DIRECTE</span>
-                            <span class="catalans-banner-title">Catalans vs Stockfish</span>
-                            <span class="catalans-banner-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
-                            <span class="catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
-                        </span>
-                        <span class="catalans-banner-cta">Juga-hi ›</span>
-                    </button>
-
-                    <!-- Bàners de partides col·lectives pròpies (es generen dinàmicament) -->
-                    <div id="custom-banners"></div>
-                    <button class="custom-create-banner" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
-                        <span class="ccb-plus">＋</span>
-                        <span class="ccb-text">
-                            <span class="ccb-title">Crea la teva partida col·lectiva</span>
-                            <span class="ccb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
-                        </span>
-                    </button>
-                </div>
-            </div>
-
-            <!-- EL TEU ENTRENADOR: diagnòstic del dia i ruta d'entrenament,
-                 just sota les partides col·lectives. -->
-            <div class="menu-section menu-section-coach">
-                <div class="menu-section-title coach-section-title">El teu entrenador</div>
-                <div class="coach-banner" id="home-coach-banner" style="display:none;">
-                    <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
-                        <span class="coach-banner-ic" aria-hidden="true">🧠</span>
-                        <span class="coach-banner-text">
-                            <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
-                            <span class="coach-banner-sub" id="home-coach-text">—</span>
-                        </span>
-                        <span class="coach-banner-cta">Veure ›</span>
-                    </button>
-                    <div class="coach-banner-foot">
-                        <label for="home-coach-style">Estil</label>
-                        <select id="home-coach-style" class="select-control">
-                            <option value="casual">Casual</option>
-                            <option value="balanced">Equilibrada</option>
-                            <option value="technical">Tècnica</option>
-                        </select>
-                        <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                <!-- AVUI: suggeriment del dia, missions i entrenador -->
+                <section class="home-sec home-sec--avui" aria-labelledby="home-sec-avui">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-avui">Avui</h2></div>
+                    <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
+                    <div class="engagement-banner" id="engagement-banner" style="display:none;">
+                        <span class="eng-icon">💡</span>
+                        <span class="eng-text"></span>
+                        <button class="btn eng-cta" data-eng-action="play"></button>
                     </div>
-                </div>
-
-                <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
-                    <div class="coach-kicker">
-                        <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
-                        <span class="coach-kicker-right">
-                            <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
-                            <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                        </span>
+                    <div class="missions-panel">
+                        <div class="missions-header">
+                            <div class="missions-title"><svg class="missions-ic" aria-hidden="true"><use href="#ic-flag"/></svg>Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
+                            <button class="badges-btn" id="btn-badges"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Trofeus</button>
+                        </div>
+                        <div id="missions-list"></div>
                     </div>
-                    <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                    <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
-                    <div class="coach-plan-progress" id="weekly-plan-progress">
-                        <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
-                        <span class="coach-plan-progress-label">0/0 passos</span>
+                    <div class="coach-banner" id="home-coach-banner" style="display:none;">
+                        <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
+                            <span class="coach-banner-ic" aria-hidden="true"><svg><use href="#ic-bulb"/></svg></span>
+                            <span class="coach-banner-text">
+                                <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
+                                <span class="coach-banner-sub" id="home-coach-text">—</span>
+                            </span>
+                            <span class="coach-banner-cta">Veure ›</span>
+                        </button>
+                        <div class="coach-banner-foot">
+                            <label for="home-coach-style">Estil</label>
+                            <select id="home-coach-style" class="select-control">
+                                <option value="casual">Casual</option>
+                                <option value="balanced">Equilibrada</option>
+                                <option value="technical">Tècnica</option>
+                            </select>
+                            <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                        </div>
                     </div>
-                    <div id="weekly-plan-list"></div>
-                    <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
-                </div>
+                    <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                        <div class="coach-kicker">
+                            <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
+                            <span class="coach-kicker-right">
+                                <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
+                                <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                            </span>
+                        </div>
+                        <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                        <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                        <div class="coach-plan-progress" id="weekly-plan-progress">
+                            <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                            <span class="coach-plan-progress-label">0/0 passos</span>
+                        </div>
+                        <div id="weekly-plan-list"></div>
+                        <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
+                    </div>
+                </section>
 
-            </div>
-
-            <!-- ENTRENA: exercicis per millorar, amb els jeroglífics al capdavant -->
-            <div class="menu-section">
-                <div class="menu-section-title">Entrena</div>
-                <div class="menu-buttons">
-                    <!-- Tres camins: test d'opció múltiple amb jugades TEVES
-                         que no vas fer del tot bé. Es desactiva sol mentre no
-                         hi hagi prou partides revisades. -->
-                    <button class="catalans-banner tria-banner" id="btn-tria-banner" aria-label="Tres camins">
-                        <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-shuffle"/></svg>
-                        <span class="catalans-banner-text">
-                            <span class="catalans-banner-title">Tres camins</span>
-                            <span class="catalans-banner-sub">Test de 20: les tres millors jugades de les teves posicions. Tria la bona.</span>
-                            <span class="tria-banner-meta" id="tria-banner-meta">Preparant el fons…</span>
-                        </span>
-                        <span class="catalans-banner-cta">Fer el test ›</span>
-                    </button>
-
-                    <div class="hieroglyphic-banner" id="hieroglyphic-banner">
-                        <button class="hg-banner-main" id="btn-hieroglyphic-banner" type="button">
-                            <span class="hg-banner-icon" aria-hidden="true"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg></span>
-                            <span class="hg-banner-text">
-                                <span class="hg-banner-title">Jeroglífics</span>
-                                <span class="hg-banner-sub">Troba els 3 millors moviments</span>
+                <!-- ENTRENA: jeroglífics al capdavant, després els tests i el repàs,
+                     i les eines d'entrenament en rajoles -->
+                <section class="home-sec home-sec--entrena" aria-labelledby="home-sec-entrena">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-entrena">Entrena</h2></div>
+                    <div class="hieroglyphic-banner hb-card hb--violet" id="hieroglyphic-banner">
+                        <button class="hg-banner-main hb hb--lg hb--bare" id="btn-hieroglyphic-banner" type="button">
+                            <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-puzzle-piece"/></svg></span>
+                            <span class="hb-text">
+                                <span class="hb-title hg-banner-title">Jeroglífics</span>
+                                <span class="hb-sub hg-banner-sub">Troba els 3 millors moviments</span>
                                 <span class="hg-banner-meta">
                                     <span class="hg-banner-count" id="hg-banner-count">Preparant-ne un…</span>
                                     <span class="hg-banner-status" id="hg-banner-status">Preparats</span>
                                 </span>
                             </span>
-                            <span class="hg-banner-cta">Resoldre ›</span>
+                            <span class="hb-cta hg-banner-cta">Resol ›</span>
                         </button>
-                        <div class="hg-banner-gen">
-                            <button type="button" class="hg-banner-gen-btn" id="btn-hieroglyphic-generate"><svg class="hg-ic" aria-hidden="true"><use href="#ic-zap"/></svg> Generar ara</button>
+                        <div class="hg-banner-tools">
+                            <button type="button" class="hg-banner-gen-btn" id="btn-hieroglyphic-generate">⚡ Generar ara</button>
+                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history"><svg class="hg-ic" aria-hidden="true"><use href="#ic-history"/></svg> Historial</button>
                             <div class="hg-banner-progress" id="hg-banner-progress" aria-hidden="true">
                                 <div class="hg-banner-progress-track">
                                     <div class="hg-banner-progress-bar" id="hg-banner-progress-bar"></div>
                                 </div>
                                 <span class="hg-banner-progress-text" id="hg-banner-progress-text">0%</span>
                             </div>
+                            <details class="hg-banner-advanced">
+                                <summary>Opcions</summary>
+                                <div class="hg-banner-advanced-row">
+                                    <label for="hg-final-select">Final del jeroglífic</label>
+                                    <select id="hg-final-select">
+                                        <option value="any">Qualsevol</option>
+                                        <option value="mate">Escac i mat</option>
+                                        <option value="check">Escac</option>
+                                        <option value="fork">Forquilla</option>
+                                        <option value="pin">Clavada</option>
+                                        <option value="discovery">Descoberta</option>
+                                        <option value="promotion">Promoció</option>
+                                        <option value="major_win">Guany de dama o torre</option>
+                                    </select>
+                                </div>
+                            </details>
                         </div>
-                        <div class="hg-banner-foot">
-                            <button type="button" class="hg-banner-history-btn" id="btn-hieroglyphic-history"><svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> Historial de jeroglífics</button>
-                        </div>
-                        <details class="hg-banner-advanced">
-                            <summary>Opció avançada</summary>
-                            <div class="hg-banner-advanced-row">
-                                <label for="hg-final-select">Final del jeroglífic</label>
-                                <select id="hg-final-select">
-                                    <option value="any">Qualsevol</option>
-                                    <option value="mate">Escac i mat</option>
-                                    <option value="check">Escac</option>
-                                    <option value="fork">Forquilla</option>
-                                    <option value="pin">Clavada</option>
-                                    <option value="discovery">Descoberta</option>
-                                    <option value="promotion">Promoció</option>
-                                    <option value="major_win">Guany de dama o torre</option>
-                                </select>
-                            </div>
-                        </details>
                     </div>
-                    <button class="btn btn-opening" id="btn-opening"><svg class="btn-ic" aria-hidden="true"><use href="#ic-book"/></svg>Obertures</button>
-                    <button class="btn btn-explorer-menu" id="btn-explorer"><svg class="btn-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>Tauler d'anàlisi</button>
-                    <div class="menu-grid menu-grid-3">
-                        <button class="btn btn-tactics" id="btn-tactics">
-                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
-                            <span class="training-kind">General</span>
-                            <span class="training-title">Tàctiques</span>
-                            <span class="training-desc" id="tactics-info">Combinacions noves</span>
+                    <!-- Tres camins: test d'opció múltiple amb jugades TEVES. Sense prou
+                         partides revisades, la línia explica què hi falta. -->
+                    <button class="hb hb--indigo tria-banner" id="btn-tria-banner" aria-label="Tres camins" title="Test de 20: les tres millors jugades de les teves posicions. Tria la bona.">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-shuffle"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Tres camins</span>
+                            <span class="hb-sub tria-banner-meta" id="tria-banner-meta">Preparant el fons…</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                    <button class="hb hb--plum" id="btn-srs-review">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-repeat"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Repàs intel·ligent</span>
+                            <span class="hb-sub" id="srs-info">Cua SRS</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                    <div class="home-tiles">
+                        <button class="hb-tile hb-tile--rose" id="btn-tactics">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-zap"/></svg>
+                            <span class="hb-tile-title">Tàctiques</span>
+                            <span class="hb-tile-sub" id="tactics-info">Combinacions noves</span>
                         </button>
-                        <button class="btn btn-bundle" id="btn-bundle-menu">
-                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-search"/></svg>
-                            <span class="training-kind">Els teus errors</span>
-                            <span class="training-title">Revisa Errors</span>
-                            <span class="training-desc" id="bundle-info">Biblioteca manual</span>
+                        <button class="hb-tile hb-tile--amber" id="btn-bundle-menu">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-search"/></svg>
+                            <span class="hb-tile-title">Revisa errors</span>
+                            <span class="hb-tile-sub" id="bundle-info">Biblioteca manual</span>
                         </button>
-                        <button class="btn btn-srs" id="btn-srs-review">
-                            <svg class="btn-ic" aria-hidden="true"><use href="#ic-repeat"/></svg>
-                            <span class="training-kind">Toca avui</span>
-                            <span class="training-title">Repàs intel·ligent</span>
-                            <span class="training-desc" id="srs-info">Cua SRS</span>
+                        <button class="hb-tile hb-tile--lilac" id="btn-opening">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-book"/></svg>
+                            <span class="hb-tile-title">Obertures</span>
+                            <span class="hb-tile-sub">Repertori i lliçons</span>
+                        </button>
+                        <button class="hb-tile hb-tile--sky" id="btn-explorer">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-analysis"/></svg>
+                            <span class="hb-tile-title">Tauler d'anàlisi</span>
+                            <span class="hb-tile-sub">Qualsevol posició, amb motor</span>
                         </button>
                     </div>
-                </div>
-            </div>
+                </section>
 
-            <!-- COMUNITAT: rànquing de jugadors -->
-            <div class="menu-section">
-                <div class="menu-section-title">Comunitat</div>
+                <!-- COMUNITAT: partides col·lectives i rànquing -->
+                <section class="home-sec home-sec--comunitat" aria-labelledby="home-sec-comunitat">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-comunitat">Comunitat</h2></div>
+                    <button class="hb hb--lg hb--terracotta" id="btn-catalans" aria-label="Catalans vs Stockfish">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-swords"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-live"><span class="cb-dot"></span> EN DIRECTE</span>
+                            <span class="hb-title">Catalans vs Stockfish</span>
+                            <span class="hb-sub">Partida col·lectiva · vota el moviment del nostre exèrcit</span>
+                            <span class="hb-meta catalans-banner-countdown" data-countdown-key="default">⏳ …</span>
+                        </span>
+                        <span class="hb-cta">Juga-hi ›</span>
+                    </button>
+                    <!-- Bàners de partides col·lectives pròpies (els genera catalans.js) -->
+                    <div id="custom-banners"></div>
+                    <button class="hb hb--copper" id="btn-ranking" aria-label="Rànquing">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-bars"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Rànquing</span>
+                            <span class="hb-sub">Qui mana? ELO, estrelles, partides i jeroglífics</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                    <button class="hb-add" id="btn-create-custom" aria-label="Crea la teva partida col·lectiva">
+                        <span class="hb-add-plus" aria-hidden="true">＋</span>
+                        <span class="hb-text">
+                            <span class="hb-title">Crea la teva partida col·lectiva</span>
+                            <span class="hb-sub">El teu equip contra Stockfish · convida qui vulguis</span>
+                        </span>
+                    </button>
+                </section>
 
-                <button class="ranking-banner" id="btn-ranking" aria-label="Rànquing">
-                    <svg class="ranking-banner-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>
-                    <span class="ranking-banner-text">
-                        <span class="ranking-banner-title">Rànquing</span>
-                        <span class="ranking-banner-sub">Qui mana? ELO · ⭐ estrelles · partides · <svg class="hg-ic" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg> jeroglífics</span>
-                    </span>
-                    <span class="ranking-banner-cta">Veure ›</span>
-                </button>
-            </div>
+                <!-- APRÈN: Stockfish TV i el tutorial d'escacs -->
+                <section class="home-sec home-sec--apren" aria-labelledby="home-sec-apren">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren">Aprèn</h2></div>
+                    <!-- Stockfish TV (stockfishtv.js): partida Stockfish contra
+                         Stockfish GENERADA AL DISPOSITIU, amb comentaris breus. -->
+                    <button class="hb hb--green" id="btn-sftv-banner" aria-label="Stockfish TV">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-tv"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Stockfish TV</span>
+                            <span class="hb-sub">Stockfish contra Stockfish, amb comentaris al teu nivell</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                    <button class="hb hb--teal" id="btn-tutorial-banner" aria-label="Aprèn a jugar a escacs">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-cap"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Aprèn a jugar</span>
+                            <span class="hb-sub" id="tutorial-banner-meta">13 lliçons curtes amb tauler interactiu</span>
+                        </span>
+                        <span class="hb-cta" id="tutorial-banner-cta">Comença ›</span>
+                    </button>
+                </section>
 
-            <!-- PROGRÉS -->
-            <div class="menu-section">
-                <div class="menu-section-title">Progrés</div>
-                <div class="menu-buttons">
-                    <div class="menu-grid">
-                        <button class="btn btn-history" id="btn-history"><svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial</button>
-                        <button class="btn btn-stats" id="btn-stats"><svg class="btn-ic" aria-hidden="true"><use href="#ic-bars"/></svg>Estadístiques</button>
+                <!-- PROGRÉS I AJUSTOS: historial i estadístiques; la configuració i
+                     la guia d'ús (el manual) tanquen la pàgina. -->
+                <section class="home-sec home-sec--final" aria-labelledby="home-sec-final">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-final">Progrés i ajustos</h2></div>
+                    <div class="home-tiles home-tiles--two">
+                        <button class="hb-tile hb-tile--slate" id="btn-history">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-history"/></svg>
+                            <span class="hb-tile-title">Historial</span>
+                            <span class="hb-tile-sub">Les teves partides</span>
+                        </button>
+                        <button class="hb-tile hb-tile--slate" id="btn-stats">
+                            <svg class="hb-tile-ic" aria-hidden="true"><use href="#ic-bars"/></svg>
+                            <span class="hb-tile-title">Estadístiques</span>
+                            <span class="hb-tile-sub">Evolució i diagnòstic</span>
+                        </button>
                     </div>
-                    <button class="btn btn-settings" id="btn-settings"><svg class="btn-ic" aria-hidden="true"><use href="#ic-gear"/></svg>Configuració</button>
-                </div>
-            </div>
-
-            <!-- APRÈN: tutorial d'escacs i guia de l'app (tutorial.js) -->
-            <div class="menu-section">
-                <div class="menu-section-title">Aprèn</div>
-                <!-- Stockfish TV (stockfishtv.js): partida Stockfish contra
-                     Stockfish GENERADA AL DISPOSITIU, amb comentaris breus. -->
-                <button class="catalans-banner sftv-banner" id="btn-sftv-banner" aria-label="Stockfish TV">
-                    <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-tv"/></svg>
-                    <span class="catalans-banner-text">
-                        <span class="catalans-banner-title">Stockfish TV</span>
-                        <span class="catalans-banner-sub">Mira Stockfish contra Stockfish i aprèn amb comentaris breus adaptats al teu nivell.</span>
-                        <span class="tria-banner-meta">Partida generada en temps real en aquest dispositiu</span>
-                    </span>
-                    <span class="catalans-banner-cta">Mira-la ›</span>
-                </button>
-                <button class="catalans-banner tutorial-banner" id="btn-tutorial-banner" aria-label="Aprèn a jugar a escacs">
-                    <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-book"/></svg>
-                    <span class="catalans-banner-text">
-                        <span class="catalans-banner-title">Aprèn a jugar</span>
-                        <span class="catalans-banner-sub">Les regles dels escacs pas a pas, amb tauler interactiu i exercicis.</span>
-                        <span class="tria-banner-meta" id="tutorial-banner-meta">13 lliçons curtes amb tauler interactiu</span>
-                    </span>
-                    <span class="catalans-banner-cta" id="tutorial-banner-cta">Comença ›</span>
-                </button>
-                <button class="catalans-banner guide-banner" id="btn-guide-banner" aria-label="Guia d'El Tauler">
-                    <svg class="catalans-banner-ic" aria-hidden="true"><use href="#ic-compass"/></svg>
-                    <span class="catalans-banner-text">
-                        <span class="catalans-banner-title">Guia d'El Tauler</span>
-                        <span class="catalans-banner-sub">Què és cada modalitat i cada funció de l'app, i com treure'n profit.</span>
-                    </span>
-                    <span class="catalans-banner-cta">Obre ›</span>
-                </button>
+                    <button class="hb hb--stone" id="btn-settings">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-gear"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Configuració</span>
+                            <span class="hb-sub">Aparença, joc, veus i sincronització</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                    <button class="hb hb--navy" id="btn-guide-banner" aria-label="Guia d'El Tauler">
+                        <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-compass"/></svg></span>
+                        <span class="hb-text">
+                            <span class="hb-title">Guia d'El Tauler</span>
+                            <span class="hb-sub">El manual: què fa cada modalitat i com treure'n profit</span>
+                        </span>
+                        <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
+                    </button>
+                </section>
             </div>
 
             <div class="sync-container">
@@ -6054,7 +6504,6 @@
             </div>
             <div class="app-version-tag" id="app-version-tag"></div>
         </div>
-
         <!-- APRÈN A JUGAR: lliçons d'escacs amb tauler interactiu (tutorial.js) -->
         <div id="tutorial-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
@@ -8424,7 +8873,7 @@
     <script src="redactor.js?v=1.0.4"></script>
     <script src="catalans.js?v=1.2.9"></script>
     <script>
-        window.APP_VERSION = '1.0.36';
+        window.APP_VERSION = '1.0.37';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
