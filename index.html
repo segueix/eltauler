@@ -6552,13 +6552,13 @@
                 <!-- APRÈN: Stockfish TV i el tutorial d'escacs -->
                 <section class="home-sec home-sec--apren" aria-labelledby="home-sec-apren">
                     <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren">Aprèn</h2></div>
-                    <!-- Stockfish TV (stockfishtv.js): partida Stockfish contra
+                    <!-- Stockfish vs Lozza TV (stockfishtv.js): partida entre
                          Stockfish GENERADA AL DISPOSITIU, amb comentaris breus. -->
-                    <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish TV">
+                    <button class="hb hb--ocean" id="btn-sftv-banner" aria-label="Stockfish vs Lozza TV">
                         <span class="hb-ic" aria-hidden="true"><svg><use href="#ic-tv"/></svg></span>
                         <span class="hb-text">
-                            <span class="hb-title">Stockfish TV</span>
-                            <span class="hb-sub">Stockfish contra Stockfish, amb comentaris al teu nivell</span>
+                            <span class="hb-title">Stockfish vs Lozza TV</span>
+                            <span class="hb-sub">Dos motors diferents, rivalitat adaptativa i comentaris en català</span>
                         </span>
                         <span class="hb-go" aria-hidden="true"><svg><use href="#ic-chevron"/></svg></span>
                     </button>
@@ -6749,13 +6749,13 @@
             </div>
         </div>
 
-        <!-- STOCKFISH TV: Stockfish contra Stockfish amb comentaris (stockfishtv.js).
+        <!-- STOCKFISH VS LOZZA TV: duel entre motors amb anàlisi Stockfish (stockfishtv.js).
              Cada dispositiu genera la seva partida: no és cap emissió compartida. -->
         <div id="sftv-screen" class="screen-anim" style="display:none;">
             <div class="stats-header">
                 <div class="app-logo"><svg class="sftv-logo-ic" aria-hidden="true"><use href="#ic-tv"/></svg></div>
-                <h1>Stockfish TV</h1>
-                <div class="tutorial-sub">Stockfish contra Stockfish. La partida es genera en temps real en aquest dispositiu: cada aparell en veu una de diferent.</div>
+                <h1>Stockfish vs Lozza TV</h1>
+                <div class="tutorial-sub">Stockfish contra Lozza, amb anàlisi i comentaris de Stockfish. Les partides es generen al teu dispositiu i el duel següent s'adapta als resultats anteriors.</div>
             </div>
             <div class="sftv-topbar">
             <button type="button" class="sftv-expand" id="sftv-expand" aria-expanded="false" aria-controls="sftv-screen" title="Amplia el tauler a pantalla completa"><svg viewBox="0 0 24 24" aria-hidden="true"><path class="sftv-icon-expand" d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/><path class="sftv-icon-shrink" d="M3 8h5V3m13 5h-5V3M3 16h5v5m13-5h-5v5"/></svg><span>Amplia el tauler</span></button>
@@ -6809,7 +6809,7 @@
                             <output id="sftv-radio-volume-value" for="sftv-radio-volume">20%</output>
                         </label>
                     </div>
-                    <p class="setting-help">Canvia al moment i es desa per a Stockfish TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. La sintonia suau és una peça curta de piano elèctric, baix i escombretes generada al dispositiu.</p>
+                    <p class="setting-help">Canvia al moment i es desa per a Stockfish vs Lozza TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. La sintonia suau és una peça curta de piano elèctric, baix i escombretes generada al dispositiu.</p>
                     <p class="setting-help" id="sftv-radio-status" role="status"></p>
                 </fieldset>
             </details>
@@ -6864,13 +6864,14 @@
                             <button type="button" class="btn sftv-btn sftv-btn-hard" id="sftv-too-hard" title="Abaixa el nivell de la partida següent">▼ Massa difícil</button>
                         </div>
                         <div class="sftv-styles" id="sftv-styles" style="display:none;"></div>
+                        <div class="sftv-styles" id="sftv-rivalry" role="status" aria-live="polite"></div>
                         <div class="sftv-unequal-row">
                             <label class="epaper-toggle sftv-unequal-toggle"><input type="checkbox" id="sftv-profiles" checked><span class="epaper-slider"></span></label>
-                            <label for="sftv-profiles" class="sftv-unequal-text">Perfils de joc: cada bàndol té un estil (L’Atacant, El Mur, El Caçador o L’Estratega) sense jugar ni més fort ni més fluix. S’aplica a la partida següent.</label>
+                            <label for="sftv-profiles" class="sftv-unequal-text">Perfils de joc: Stockfish tria entre estils quan hi ha alternatives equivalents; Lozza conserva el seu estil propi. S’aplica a la partida següent.</label>
                         </div>
                         <div class="sftv-unequal-row">
                             <label class="epaper-toggle sftv-unequal-toggle"><input type="checkbox" id="sftv-unequal" checked><span class="epaper-slider"></span></label>
-                            <label for="sftv-unequal" class="sftv-unequal-text">Nivells desiguals: un dels dos juga una mica més fort i no se sap quin fins al final. S’aplica a la partida següent.</label>
+                            <label for="sftv-unequal" class="sftv-unequal-text">Rivalitat adaptativa: el sistema ajusta moderadament la força de la partida següent segons les victòries i les taules. No manipula jugades ni resultats.</label>
                         </div>
                         <div class="sftv-level-help" id="sftv-level-help"></div>
                         <div class="sftv-level-help" id="sftv-viewer-note" style="display:none;"></div>
@@ -9175,15 +9176,15 @@
     <script src="core.js?v=1.0.37"></script>
     <script src="hieroclosure.js?v=1.1.0"></script>
     <script src="sons.js?v=1.0.0"></script>
-    <script src="tutorial.js?v=1.0.4"></script>
+    <script src="tutorial.js?v=1.0.5"></script>
     <script src="veuneural.js?v=1.1.0"></script>
     <script src="radioambient.js?v=1.1.0"></script>
-    <script src="stockfishtv.js?v=1.7.1"></script>
+    <script src="stockfishtv.js?v=1.8.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.47';
+        window.APP_VERSION = '1.0.48';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;

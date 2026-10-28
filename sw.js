@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.9.154';
+const SW_VERSION = '3.9.155';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 // Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
 // versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
@@ -157,9 +157,9 @@ self.addEventListener('fetch', (event) => {
   // els ha de tallar (timeout de 8 s) ni desar a la cau.
   if (url.indexOf('.hf.space/') !== -1) return;
 
-  // Motor Stockfish: cache-first des de la cau persistent, perquè funcioni
+  // Motors Stockfish i Lozza: cache-first des de la cau persistent, perquè funcionin
   // OFFLINE encara que s'hagi actualitzat el SW (no es torna a baixar 1,5 MB).
-  if (url.indexOf('stockfish.js') !== -1) {
+  if (/\/(stockfish|lozza)\.js(?:\?|$)/.test(url)) {
     event.respondWith(engineCacheFirst(event.request));
     return;
   }
@@ -208,7 +208,7 @@ async function networkFirst(request) {
 }
 
 // ================================
-// MOTOR (Stockfish) — cache-first persistent amb fallback offline
+// MOTORS (Stockfish i Lozza) — cache-first persistent amb fallback offline
 // ================================
 async function engineCacheFirst(request) {
   const cache = await caches.open(ENGINE_CACHE);
@@ -221,9 +221,10 @@ async function engineCacheFirst(request) {
     if (res && res.status === 200) { await cache.put(request, res.clone()); }
     return res;
   } catch (err) {
-    // 3) Sense xarxa: serveix QUALSEVOL stockfish.js desat (ignorant el ?v).
+    // 3) Sense xarxa: serveix una versió emmagatzemada del motor sol·licitat.
+    const engineName = new URL(request.url).pathname.endsWith('/lozza.js') ? 'lozza.js' : 'stockfish.js';
     const any = await cache.match(request, { ignoreSearch: true })
-      || await cache.match('stockfish.js', { ignoreSearch: true });
+      || await cache.match(engineName, { ignoreSearch: true });
     if (any) return any;
     return new Response('// motor no disponible offline', {
       status: 503, headers: { 'Content-Type': 'application/javascript' }
