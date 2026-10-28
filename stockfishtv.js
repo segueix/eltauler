@@ -2296,7 +2296,13 @@
     function tvBroadcastStep(ctx) {
         const c = ctx || {};
         const memory = cloneMemory(c.memory);
-        const candidates = tvCommentCandidates(Object.assign({}, c, { memory: memory }));
+        let candidates = tvCommentCandidates(Object.assign({}, c, { memory: memory }));
+        // La capa lingüística treballa sobre motius JA verificats pel
+        // detector, sense alterar ni els fets ni la prioritat dels comentaris.
+        if (c.expression && typeof c.expression.expandCandidates === 'function') {
+            try { candidates = c.expression.expandCandidates(candidates, { move: c.move, tier: c.tier }); }
+            catch (err) { /* El comentari original continua sent vàlid. */ }
+        }
         let chosen = tvSelectComment(candidates, memory, { ply: c.ply, color: c.move && c.move.color, tier: c.tier, prepared: c.prepared,
             isCheck: !!(c.move && /\+$/.test(c.move.san) && !c.end) });
         const urgent = chosen && KIND_PRIORITY[chosen.kind] >= 70;
@@ -3111,7 +3117,7 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
-                end: end, ply: ply, memory: g.memory
+                end: end, ply: ply, memory: g.memory, expression: d.expression
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
@@ -3174,7 +3180,7 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
                 prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
-                end: g.end, ply: ply, memory: entry.undo.memory
+                end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression
             });
             S.pendingUser = false;
             g.memory = step.memory;
@@ -4233,6 +4239,7 @@
             ChessCtor: root.Chess,
             engine: engine,
             lozzaEngine: lozzaEngine,
+            expression: root.ElTaulerExpressivitat || null,
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
