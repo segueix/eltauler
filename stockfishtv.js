@@ -3070,19 +3070,21 @@
         try { if (board && board.destroy) board.destroy(); } catch (e) {}
         board = null;
     }
-    function applyHighlight() {
-        const el = $id('sftv-board');
+    function applyBroadcastHighlights(el, marks = {}) {
         if (!el) return;
-        // Conservar les classes si la jugada no canvia: els renders d'estat no
-        // han de reiniciar el pols de la peça ni esborrar el destí després d'animar.
-        el.querySelectorAll('[data-square]').forEach((sq) => {
+        const preview = marks.preview || null, last = marks.last || null;
+        el.querySelectorAll('[data-square]').forEach(sq => {
             const name = sq.getAttribute('data-square');
-            sq.classList.toggle('sftv-from', !previewHighlight && !!lastHighlight && name === lastHighlight.from);
-            sq.classList.toggle('sftv-to', !previewHighlight && !!lastHighlight && name === lastHighlight.to);
-            sq.classList.toggle('sftv-preview', name === previewHighlight);
-            sq.classList.toggle('sftv-sel', name === selectedSquare);
-            sq.classList.toggle('sftv-target', selectedTargets.indexOf(name) !== -1);
+            sq.classList.toggle('sftv-from', !preview && !!last && name === last.from);
+            sq.classList.toggle('sftv-to', !preview && !!last && name === last.to);
+            sq.classList.toggle('sftv-preview', name === preview);
+            sq.classList.toggle('sftv-sel', name === marks.selected);
+            sq.classList.toggle('sftv-target', (marks.targets || []).includes(name));
         });
+    }
+    function applyHighlight() {
+        applyBroadcastHighlights($id('sftv-board'), { preview: previewHighlight, last: lastHighlight,
+            selected: selectedSquare, targets: selectedTargets });
     }
 
     // ---- Control manual: moure peces al tauler de la TV ----
@@ -3271,7 +3273,34 @@
         setTimeout(resizeBoard, 0);
     }
 
+    // Shared audio UI: one template and one implementation for both players.
+    function createBroadcastAudioControls(options) {
+        const prefix = options.prefix || 'sftv';
+        const bridge = options.bridge || {};
+        const $id = id => document.getElementById(id.replace(/^sftv/, prefix));
+        const loadPrefsRaw = options.loadPrefs;
+        const savePrefsRaw = options.savePrefs;
+        const screenVisible = options.visible;
+        const controller = { state: options.getState };
+        let voice = null, radioAmbience = null;
+        if (prefix !== 'sftv' && options.host) {
+            options.host.textContent = '';
+            ['.sftv-voicebar', '#sftv-matxa-controls'].forEach(selector => {
+                const source = document.querySelector(selector);
+                if (!source) return;
+                const clone = source.cloneNode(true);
+                [clone, ...clone.querySelectorAll('*')].forEach(el => {
+                    ['id', 'for', 'aria-controls', 'aria-describedby'].forEach(attr => {
+                        if (el.hasAttribute(attr)) el.setAttribute(attr, el.getAttribute(attr).replace(/sftv/g, prefix));
+                    });
+                });
+                const help = clone.querySelector('fieldset .setting-help');
+                if (help) help.textContent = help.textContent.replace('Stockfish TV', 'aquesta reproducció');
+                options.host.appendChild(clone);
+            });
+        }
     function syncRadioAmbience(unlock = false) {
+        voice = options.getVoice();
         const api = root.ElTaulerRadioAmbient;
         if (!api) return;
         const state = controller ? controller.state() : {};
@@ -3285,6 +3314,7 @@
         if (!radioAmbience && active && prefs.sound !== 'off' && prefs.volume > 0) radioAmbience = api.createPlayer();
         if (radioAmbience) {
             radioAmbience.update(prefs, active);
+            if (radioAmbience.duck) radioAmbience.duck(!!(voice && voice.isSpeaking()));
             if (unlock && active) radioAmbience.unlock();
         }
         const status = $id('sftv-radio-status');
@@ -3352,6 +3382,7 @@
     }
 
     function renderVoice() {
+        voice = options.getVoice();
         renderMatxaControls();
         syncRadioAmbience();
         if (!voice) return;
@@ -3384,6 +3415,44 @@
             note.style.display = text ? '' : 'none';
         }
     }
+
+        return {
+            render: renderVoice, sync: syncRadioAmbience, renderMatxa: renderMatxaControls,
+            changeMatxa: changeMatxaControl, changeRadio: changeRadioControl,
+            player: () => radioAmbience,
+            dispose() { if (radioAmbience) radioAmbience.dispose(); radioAmbience = null; },
+            bind() {
+                const on = (id, event, fn) => { const el = $id(id); if (el) el.addEventListener(event, fn); };
+                on('sftv-matxa-profile', 'change', ev => changeMatxaControl('profile', ev.target.value));
+                ['intensity', 'clarity', 'volume', 'rate'].forEach(key => {
+                    on('sftv-matxa-' + key, 'input', ev => changeMatxaControl(key, ev.target.value));
+                });
+                on('sftv-radio-sound', 'change', ev => changeRadioControl('sound', ev.target.value));
+                on('sftv-radio-volume', 'input', ev => changeRadioControl('volume', ev.target.value));
+                const toggle = activate => {
+                    voice = options.getVoice();
+                    if (!voice) return;
+                    if (options.beforeVoice) options.beforeVoice();
+                    voice.setOn(activate || !voice.isOn() || voice.status() === 'blocked');
+                    renderVoice(); syncRadioAmbience(true);
+                };
+                on('sftv-voice-activate', 'click', () => toggle(true));
+                on('sftv-voice-toggle', 'click', () => toggle(false));
+            }
+        };
+    }
+    let sharedTvAudio = null;
+    function tvAudioControls() {
+        if (!sharedTvAudio) sharedTvAudio = createBroadcastAudioControls({ prefix: 'sftv', bridge,
+            getVoice: () => voice, getState: () => controller ? controller.state() : {},
+            visible: screenVisible, loadPrefs: loadPrefsRaw, savePrefs: savePrefsRaw });
+        return sharedTvAudio;
+    }
+    function syncRadioAmbience(unlock = false) { const audio = tvAudioControls(); audio.sync(unlock); radioAmbience = audio.player(); }
+    function renderMatxaControls() { tvAudioControls().renderMatxa(); }
+    function changeMatxaControl(key, value) { tvAudioControls().changeMatxa(key, value); radioAmbience = tvAudioControls().player(); }
+    function changeRadioControl(key, value) { tvAudioControls().changeRadio(key, value); radioAmbience = tvAudioControls().player(); }
+    function renderVoice() { tvAudioControls().render(); radioAmbience = tvAudioControls().player(); }
 
     function renderLevel(state) {
         const caps = state.caps;
@@ -3731,7 +3800,8 @@
     function closeScreen() {
         minimizeBoard();
         if (controller) controller.close();
-        if (radioAmbience) { radioAmbience.dispose(); radioAmbience = null; }
+        if (sharedTvAudio) sharedTvAudio.dispose();
+        radioAmbience = null;
         if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
         uiReady = false;
         destroyBoard();
@@ -3883,6 +3953,8 @@
         tvPickCatalanVoice,
         tvPositionCommand,
         createTvVoice,
+        createBroadcastAudioControls,
+        applyBroadcastHighlights,
         createTvEngine,
         createTvController,
         // Navegador

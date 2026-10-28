@@ -2266,6 +2266,180 @@ function beginReviewTts(rawText, source, presetOverride = null) {
     speakReviewTtsChunk();
 }
 
+/* ===================== HISTORIAL AMB EL REPRODUCTOR DE TV ===================== */
+const HISTORY_TV = { player: null, voice: null, audio: null, entry: null, selected: null, targets: [], drop: null, promotion: null };
+function historyTvPrefs(changes) {
+    let prefs = {};
+    try { prefs = JSON.parse(localStorage.getItem('eltauler_history_tv')) || {}; } catch (e) {}
+    if (!prefs.voice) prefs.voice = narrationPrefs('history').enabled ? 'on' : 'off';
+    if (changes) {
+        prefs = Object.assign(prefs, changes);
+        try { localStorage.setItem('eltauler_history_tv', JSON.stringify(prefs)); } catch (e) {}
+    }
+    return prefs;
+}
+function historyInitialFen(entry) {
+    const parsed = new Chess();
+    try {
+        if (entry && entry.pgn && parsed.load_pgn(entry.pgn, { sloppy: true })) return parsed.header().FEN || new Chess().fen();
+        if (entry && entry.initialFen && parsed.load(entry.initialFen)) return parsed.fen();
+        if (entry && entry.importHeaders && entry.importHeaders.FEN && parsed.load(entry.importHeaders.FEN)) return parsed.fen();
+    } catch (e) {}
+    return new Chess().fen();
+}
+function clearHistoryTvSelection() {
+    HISTORY_TV.selected = null; HISTORY_TV.targets = []; HISTORY_TV.drop = null;
+    HISTORY_TV.promotion = null;
+    $('#history-tv-promo').hide().empty();
+}
+function historyTvHighlights() {
+    if (!window.ElTaulerStockfishTV) return;
+    const s = HISTORY_TV.player && HISTORY_TV.player.state();
+    window.ElTaulerStockfishTV.applyBroadcastHighlights(document.getElementById('history-board'), {
+        last: activeReviewHighlight ? null : historyReplay && historyReplay.lastMove,
+        preview: !activeReviewHighlight && s && s.preview ? s.preview.from : null,
+        selected: HISTORY_TV.selected, targets: HISTORY_TV.targets
+    });
+}
+function ensureHistoryTv() {
+    if (HISTORY_TV.player) return HISTORY_TV.player;
+    const TV = window.ElTaulerStockfishTV, H = window.ElTaulerHistoryTV;
+    if (!TV || !H) return null;
+    const bridge = {
+        getNeuralVoiceId: () => { const v = defaultNeuralTtsVoice(); return v ? v.id : null; },
+        getNeuralRate: () => { const v = defaultNeuralTtsVoice(); return v ? v.rate : 1; },
+        getNeuralEffects: () => { const v = defaultNeuralTtsVoice(); return v ? v.effects : null; },
+        updateNeuralSettings: updateNeuralTtsSettings
+    };
+    HISTORY_TV.voice = TV.createTvVoice({ ...bridge, speechSynthesis: window.speechSynthesis,
+        SpeechSynthesisUtterance: window.SpeechSynthesisUtterance,
+        neural: window.ElTaulerVeuNeural ? window.ElTaulerVeuNeural.sharedSpeaker() : null,
+        loadPref: () => historyTvPrefs().voice, savePref: voice => historyTvPrefs({ voice }),
+        onChange: () => { if (HISTORY_TV.audio) HISTORY_TV.audio.render(); }
+    });
+    HISTORY_TV.audio = TV.createBroadcastAudioControls({ prefix: 'history-tv', bridge,
+        host: document.getElementById('history-tv-audio'), getVoice: () => HISTORY_TV.voice,
+        getState: () => HISTORY_TV.player ? HISTORY_TV.player.state() : {},
+        loadPrefs: () => historyTvPrefs(), savePrefs: historyTvPrefs,
+        visible: () => getCurrentScreen() === 'history-screen',
+        beforeVoice: () => { stopReviewTts(); stopGameNarration(); }
+    });
+    HISTORY_TV.audio.bind();
+    HISTORY_TV.player = H.createPlayer({ ChessCtor: Chess, getVoice: () => HISTORY_TV.voice,
+        createEngine: () => TV.createTvEngine({ createWorker: () => new Worker(STOCKFISH_URL) }),
+        loadPrefs: () => historyTvPrefs(), savePrefs: historyTvPrefs,
+        render: (s, chess) => {
+            if (!historyReplay || !chess) return;
+            if (!s.open) { historyReplay.isPlaying = false; if (HISTORY_TV.audio) HISTORY_TV.audio.render(); return; }
+            historyReplay.game = chess; historyReplay.moveIndex = s.index;
+            historyReplay.lastMove = s.last; historyReplay.isPlaying = s.open && !s.paused;
+            historyReplay.tvState = s;
+            if (!s.yourTurn) clearHistoryTvSelection();
+            if (s.last || s.preview || s.control) activeReviewHighlight = null;
+            updateHistoryBoard();
+            const names = { p: 'el peó', n: 'el cavall', b: 'l’alfil', r: 'la torre', q: 'la dama', k: 'el rei' };
+            $('#history-tv-last-move').text(s.preview ? 'Es mourà: ' + names[s.preview.piece] + ' de ' + s.preview.from
+                : s.last ? (s.last.byUser ? 'La teva jugada · ' : '') + s.last.from + ' → ' + s.last.to
+                : 'La peça es marca durant 1,5 segons abans de moure’s');
+            $('#history-tv-comment').text(s.comment && s.comment.fen === s.fen ? s.comment.text : '').toggleClass('is-empty', !s.comment);
+            const color = s.playerColor === 'b' ? 'les negres' : 'les blanques';
+            $('#history-tv-control-note').text(s.control
+                ? 'Variant de prova: mous ' + color + '. ' + (s.yourTurn ? 'Toca una peça i el destí, o arrossega-la.' : s.finished ? 'Variant acabada.' : 'Stockfish respon amb l’altre color.')
+                    + ' La partida original es conserva.'
+                : 'Agafa el control per provar una jugada amb ' + color + '.');
+            $('#history-tv-variation').text(s.control && s.variation.length ? 'Variant: ' + s.variation.join(' · ') : '').prop('hidden', !s.control);
+            $('#history-tv-status').text(s.error || (s.finished ? (s.control ? 'Final de la variant.' : 'Final de la partida guardada.')
+                : s.paused ? 'En pausa.' : s.yourTurn ? 'Et toca moure.' : s.preview ? 'Preparant la jugada…' : s.busy ? 'Analitzant la posició…' : 'Reproduint…'));
+            HISTORY_TV.audio.render();
+        }
+    });
+    $('#history-tv-speed').html(Object.entries(TV.TV_CONFIG.SPEEDS).map(([id, p]) => '<option value="' + id + '">' + p.label + '</option>').join(''))
+        .val(TV.tvNormalizePrefs(historyTvPrefs()).speed).on('change', ev => { HISTORY_TV.player.setSpeed(ev.target.value); HISTORY_TV.audio.sync(true); });
+    $('#history-tv-control').on('click', () => {
+        const p = syncHistoryTvPosition(); if (!p) return;
+        stopReviewTts(); stopGameNarration();
+        if (p.state().control) p.releaseControl(); else p.takeControl();
+        HISTORY_TV.voice.unlock(); HISTORY_TV.audio.sync(true);
+    });
+    $('#history-board').on('click.historytv', '[data-square]', function () {
+        const p = HISTORY_TV.player;
+        if (!p || !p.state().yourTurn) return;
+        const square = this.getAttribute('data-square');
+        if (HISTORY_TV.selected && HISTORY_TV.targets.includes(square)) { playHistoryTvMove(HISTORY_TV.selected, square); return; }
+        const moves = p.userMoves(square);
+        clearHistoryTvSelection();
+        if (moves.length) { HISTORY_TV.selected = square; HISTORY_TV.targets = moves.map(m => m.to); }
+        historyTvHighlights();
+    });
+    $('#history-tv-promo').on('click', 'button[data-piece]', function () {
+        const pending = HISTORY_TV.promotion, piece = this.getAttribute('data-piece');
+        clearHistoryTvSelection();
+        if (pending && piece && HISTORY_TV.player.state().fen === pending.fen) HISTORY_TV.player.userMove(pending.from, pending.to, piece);
+        historyTvHighlights();
+    });
+    document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && HISTORY_TV.promotion) { clearHistoryTvSelection(); historyTvHighlights(); } });
+    window.addEventListener('resize', () => { if (historyBoard && getCurrentScreen() === 'history-screen') { historyBoard.resize(); historyTvHighlights(); } });
+    window.addEventListener('pagehide', closeHistoryTv);
+    HISTORY_TV.audio.render();
+    return HISTORY_TV.player;
+}
+function loadHistoryTv(entry, atIndex = 0) {
+    const p = ensureHistoryTv(); if (!p) return;
+    HISTORY_TV.entry = entry;
+    clearHistoryTvSelection();
+    p.load({ moves: getHistoryMoves(entry), startFen: historyInitialFen(entry), playerColor: entry.playerColor,
+        roc: entry.roc || (entry.opponent && entry.opponent.elo) || currentElo });
+    if (atIndex) p.seek(atIndex);
+    if (historyBoard) historyBoard.resize();
+}
+function syncHistoryTvPosition() {
+    if (!historyReplay || !historyReplay.entry) return null;
+    const p = ensureHistoryTv(); if (!p) return null;
+    if (HISTORY_TV.entry !== historyReplay.entry || !p.state().open) loadHistoryTv(historyReplay.entry, historyReplay.moveIndex);
+    else if (p.state().fen !== historyReplay.game.fen() || (!p.state().control && p.state().index !== historyReplay.moveIndex)) p.seek(historyReplay.moveIndex);
+    activeReviewHighlight = null;
+    return p;
+}
+function closeHistoryTv() {
+    if (HISTORY_TV.player) HISTORY_TV.player.close();
+    if (HISTORY_TV.audio) HISTORY_TV.audio.dispose();
+    clearHistoryTvSelection();
+}
+function playHistoryTvMove(from, to) {
+    const p = HISTORY_TV.player;
+    if (!p) return false;
+    const moves = p.userMoves(from).filter(m => m.to === to);
+    if (!moves.length) return false;
+    clearHistoryTvSelection();
+    if (moves.some(m => m.promotion)) {
+        HISTORY_TV.promotion = { from, to, fen: p.state().fen };
+        const color = p.state().playerColor;
+        $('#history-tv-promo').html('<div class="sftv-promo-title">Corona el peó a ' + to + ':</div><div class="sftv-promo-row">'
+            + [['q', 'dama'], ['r', 'torre'], ['b', 'alfil'], ['n', 'cavall']].map(([piece, name]) => '<button type="button" class="sftv-promo-piece" data-piece="' + piece + '" aria-label="Corona: ' + name + '"><img alt="' + name + '" src="https://chessboardjs.com/img/chesspieces/wikipedia/' + color + piece.toUpperCase() + '.png"></button>').join('')
+            + '</div><button type="button" class="sftv-link-btn" data-piece="">Cancel·la</button>').show().find('button').first().trigger('focus');
+        historyTvHighlights(); return false;
+    }
+    return p.userMove(from, to);
+}
+function historyTvDragStart(source, piece) {
+    const p = HISTORY_TV.player;
+    if (!p || !p.state().yourTurn || piece[0] !== p.state().playerColor) return false;
+    HISTORY_TV.selected = source; HISTORY_TV.targets = p.userMoves(source).map(m => m.to); historyTvHighlights();
+    return true;
+}
+function historyTvDrop(source, target) {
+    const p = HISTORY_TV.player;
+    const moves = p ? p.userMoves(source).filter(m => m.to === target) : [];
+    if (!moves.length) return 'snapback';
+    if (moves.some(m => m.promotion)) { playHistoryTvMove(source, target); return 'snapback'; }
+    HISTORY_TV.drop = { from: source, to: target };
+}
+function historyTvSnapEnd() {
+    const drop = HISTORY_TV.drop; HISTORY_TV.drop = null;
+    if (drop && HISTORY_TV.player) HISTORY_TV.player.userMove(drop.from, drop.to);
+    updateHistoryBoard();
+}
+
 /* ===================== RETRANSMISSIÓ DE PARTIDES ===================== */
 const GAME_NARRATION = { voice: null, narrator: null, scope: null, fen: null, initialized: false };
 function narrationPrefs(scope) {
@@ -2311,7 +2485,7 @@ function renderGameNarrationControls() {
     const allowed = trainingNarrationAllowed();
     $('#training-narration-controls').prop('hidden', !allowed);
     if (GAME_NARRATION.scope === 'training' && (!allowed || !game || GAME_NARRATION.fen !== game.fen() || isViewingGameHistory())) stopGameNarration('training');
-    ['history', 'training'].forEach(scope => {
+    ['training'].forEach(scope => {
         const p = narrationPrefs(scope);
         $('#' + scope + '-narration-toggle').attr('aria-pressed', String(p.enabled)).text(p.enabled ? 'Desactiva la veu' : 'Activa la veu');
         $('#' + scope + '-narration-volume').val(Math.round(p.volume * 100));
@@ -2356,7 +2530,7 @@ function narrateTrainingMove(chess, move) {
 function initGameNarration() {
     if (GAME_NARRATION.initialized || !window.ElTaulerGameBroadcast || !window.ElTaulerStockfishTV) return;
     GAME_NARRATION.initialized = true;
-    ['history', 'training'].forEach(scope => {
+    ['training'].forEach(scope => {
         const save = changes => {
             const p = Object.assign(narrationPrefs(scope), changes);
             try { localStorage.setItem('eltauler_narration_' + scope, JSON.stringify(p)); } catch (e) {}
@@ -2377,7 +2551,7 @@ function initGameNarration() {
     const checkScreen = () => {
         const current = getCurrentScreen();
         if (GAME_NARRATION.scope === 'training' && current !== 'game-screen') stopGameNarration('training');
-        if (current !== 'history-screen' && historyReplay && historyReplay.isPlaying) stopHistoryPlayback();
+        if (current !== 'history-screen' && HISTORY_TV.player && HISTORY_TV.player.state().open) closeHistoryTv();
         if (GAME_NARRATION.scope === 'history' && current !== 'history-screen') stopGameNarration('history');
     };
     const observer = new MutationObserver(checkScreen);
@@ -11324,30 +11498,24 @@ function randomizeTvElo() {
 }
 
 function stopHistoryPlayback() {
-    if (typeof stopGameNarration === 'function') stopGameNarration('history');
-    if (historyReplay) historyReplay.playToken = (historyReplay.playToken || 0) + 1;
-    if (historyReplay && historyReplay.timer) {
-        clearTimeout(historyReplay.timer);
-        historyReplay.timer = null;
-    }
+    if (HISTORY_TV.player && !HISTORY_TV.player.state().paused) HISTORY_TV.player.pause();
     if (historyReplay) historyReplay.isPlaying = false;
     updateHistoryControls();
 }
 
 function updateHistoryControls() {
-    const playBtn = $('#history-play');
-    const pauseBtn = $('#history-pause');
-    const prevBtn = $('#history-prev');
-    const nextBtn = $('#history-next');
-    const hasEntry = historyReplay && historyReplay.entry;
-    const movesCount = hasEntry ? historyReplay.moves.length : 0;
-    const atStart = !hasEntry || historyReplay.moveIndex === 0;
-    const atEnd = !hasEntry || historyReplay.moveIndex >= movesCount;
-
-    playBtn.prop('disabled', !hasEntry || movesCount === 0 || historyReplay.isPlaying || atEnd);
-    pauseBtn.prop('disabled', !hasEntry || !historyReplay.isPlaying);
-    prevBtn.prop('disabled', !hasEntry || atStart || historyReplay.isPlaying);
-    nextBtn.prop('disabled', !hasEntry || atEnd || historyReplay.isPlaying);
+    const has = !!(historyReplay && historyReplay.entry);
+    const s = has && historyReplay.tvState;
+    const playing = !!(has && historyReplay.isPlaying);
+    const atEnd = !!(has && historyReplay.moveIndex >= historyReplay.moves.length);
+    $('#history-play').prop('disabled', !has || playing || (s && s.control ? s.finished : atEnd));
+    $('#history-pause').prop('disabled', !has || !playing);
+    $('#history-prev').prop('disabled', !has || (s && s.control ? !s.canUndo : historyReplay.moveIndex <= 0));
+    $('#history-next').prop('disabled', !has || playing || (s && s.control ? s.finished || s.playerColor === historyReplay.game.turn() : atEnd));
+    $('#history-tv-control').prop('disabled', !has || (!s?.control && historyReplay.game.game_over()))
+        .attr('aria-pressed', String(!!s?.control)).toggleClass('is-active', !!s?.control)
+        .text(s?.control ? 'Reprèn la partida original' : 'Agafa el control');
+    if (s) $('#history-tv-speed').val(s.speed);
 }
 
 function updateHistoryProgress() {
@@ -11398,31 +11566,16 @@ function updateHistoryMovesActive() {
 // Salta a la posició de DESPRÉS de la jugada `idx` (1-based) de la transcripció.
 function seekHistoryMove(idx) {
     if (!historyReplay || !historyReplay.entry) return;
-    stopHistoryPlayback();
-    const target = Math.max(0, Math.min(idx, historyReplay.moves.length));
-    const game = new Chess();
-    let last = null;
-    for (let i = 0; i < target; i++) {
-        const mv = game.move(historyReplay.moves[i], { sloppy: true });
-        if (!mv) break;
-        last = mv;
-    }
-    historyReplay.game = game;
-    historyReplay.moveIndex = target;
-    historyReplay.lastMove = last ? { from: last.from, to: last.to } : null;
-    activeReviewHighlight = null; // el moment clau deixa pas a la jugada clicada
-    updateHistoryBoard();
+    activeReviewHighlight = null;
+    clearHistoryTvSelection();
+    const p = syncHistoryTvPosition(); if (p) p.seek(idx);
 }
 
 // Caselles (origen→destinació) de la jugada actual, en or. Només quan no hi ha
 // cap moment clau actiu (el vermell/verd del moment clau té prioritat).
 function applyCurrentMoveMark() {
     $('#history-board .square-55d63').removeClass('hl-cur-from hl-cur-to');
-    if (activeReviewHighlight) return;
-    const lm = historyReplay && historyReplay.lastMove;
-    if (!lm) return;
-    $("#history-board .square-55d63[data-square='" + lm.from + "']").addClass('hl-cur-from');
-    $("#history-board .square-55d63[data-square='" + lm.to + "']").addClass('hl-cur-to');
+    historyTvHighlights();
 }
 
 function updateHistoryBoard() {
@@ -11434,8 +11587,7 @@ function updateHistoryBoard() {
         const want = (historyReplay.entry && historyReplay.entry.playerColor === 'b') ? 'black' : 'white';
         if (historyBoard.orientation() !== want) historyBoard.orientation(want);
     }
-    historyBoard.position(historyReplay.game.fen(), false);
-    if (typeof historyBoard.resize === 'function') historyBoard.resize();
+    if (historyBoard.fen() !== historyReplay.game.fen().split(' ')[0]) historyBoard.position(historyReplay.game.fen(), !activeReviewHighlight);
     // Reaplica els ressaltats del moment clau actiu (si n'hi ha); si no, els neteja.
     applyReviewHighlights();
     applyCurrentMoveMark();
@@ -11444,19 +11596,6 @@ function updateHistoryBoard() {
     updateHistoryControls();
 }
 
-// CERCA AQUESTA FUNCIÓ:
-function initHistoryBoard() {
-    if (historyBoard) return;
-    const boardEl = document.getElementById('history-board');
-    if (!boardEl) return;
-    historyBoard = Chessboard('history-board', {
-        draggable: false,
-        position: 'start',
-        pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
-    });
-}
-
-// CANVIA-LA PER AQUESTA:
 function initHistoryBoard(entry) {
     const boardEl = document.getElementById('history-board');
     if (!boardEl) return;
@@ -11474,8 +11613,10 @@ function initHistoryBoard(entry) {
     }
     
     historyBoard = Chessboard('history-board', {
-        draggable: false,
+        draggable: !document.body.classList.contains('control-tap'),
         position: 'start',
+        moveSpeed: window.ElTaulerStockfishTV.TV_CONFIG.MOVE_ANIMATION_MS,
+        onDragStart: historyTvDragStart, onDrop: historyTvDrop, onSnapEnd: historyTvSnapEnd, onMoveEnd: historyTvHighlights,
         orientation: orientation,
         pieceTheme: 'https://chessboardjs.com/img/chesspieces/wikipedia/{piece}.png'
     });
@@ -12668,7 +12809,7 @@ function repairEntryMoveReviewFens(entry, movesArg) {
 
 function loadHistoryEntry(entry) {
     if (!entry) return;
-    $('#history-narration-caption').text('');
+    clearHistoryTvSelection();
     stopHistoryPlayback();
     activeReviewHighlight = null; // nova partida: cap moment clau actiu encara
     // La veu temporal és de cada ressenya oberta: en obrir-ne una altra,
@@ -12683,13 +12824,14 @@ function loadHistoryEntry(entry) {
     const moves = getHistoryMoves(entry);
     historyReplay = {
         entry: entry,
-        game: new Chess(),
+        game: new Chess(historyInitialFen(entry)),
         moves: moves,
         moveIndex: 0,
         lastMove: null,
         timer: null,
         isPlaying: false
     };
+    loadHistoryTv(entry);
     applyHistoryEntryBody(entry, moves);
     updateHistoryDetails(entry);
     renderHistoryMovesList();
@@ -12699,10 +12841,17 @@ function loadHistoryEntry(entry) {
     // tauler i les jugades ja es veuen (surten de l'índex), i quan el tenim es
     // repinta el detall sense tocar la posició del rejoc.
     if (!historyEntryIsHydrated(entry)) {
+        const replayStartFen = historyInitialFen(entry);
         ensureHistoryEntryBody(entry).then(loaded => {
             if (!loaded) return;
             if (!historyReplay || historyReplay.entry !== entry) return;
-            applyHistoryEntryBody(entry, moves);
+            const loadedMoves = getHistoryMoves(entry);
+            if (historyInitialFen(entry) !== replayStartFen || JSON.stringify(loadedMoves) !== JSON.stringify(historyReplay.moves)) {
+                const atIndex = historyReplay.moveIndex;
+                historyReplay.moves = loadedMoves;
+                loadHistoryTv(entry, atIndex);
+            }
+            applyHistoryEntryBody(entry, loadedMoves);
             updateHistoryDetails(entry);
             renderHistoryMovesList();
         });
@@ -15944,48 +16093,17 @@ async function requestOpenAIReview(entry, severeErrors) {
     }
 }
 
-async function historyStepForward() {
-    if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex >= historyReplay.moves.length) return;
-    const fenBefore = historyReplay.game.fen();
-    const move = historyReplay.moves[historyReplay.moveIndex];
-    const mv = historyReplay.game.move(move, { sloppy: true });
-    if (!mv) { stopHistoryPlayback(); return; }
-    historyReplay.moveIndex++;
-    historyReplay.lastMove = mv ? { from: mv.from, to: mv.to } : null;
-    activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
-    updateHistoryBoard();
-    if (typeof narrateGameMove === 'function') await narrateGameMove('history', historyReplay.game, mv, fenBefore, historyReplay.entry.moveReviews);
+function historyStepForward() {
+    const p = syncHistoryTvPosition();
+    if (p) { stopReviewTts(); stopGameNarration(); p.step(); HISTORY_TV.audio.sync(true); }
 }
-
 function historyStepBack() {
-    stopHistoryPlayback();
-    if (!historyReplay || !historyReplay.entry || historyReplay.moveIndex <= 0) return;
-    historyReplay.game.undo();
-    historyReplay.moveIndex--;
-    const h = historyReplay.game.history({ verbose: true });
-    const last = h.length ? h[h.length - 1] : null;
-    historyReplay.lastMove = last ? { from: last.from, to: last.to } : null;
-    activeReviewHighlight = null; // navegació manual: treu els ressaltats del moment clau
-    updateHistoryBoard();
+    const p = syncHistoryTvPosition();
+    if (p) { clearHistoryTvSelection(); p.back(); }
 }
-
 function startHistoryPlayback() {
-    if (!historyReplay || !historyReplay.entry || historyReplay.moves.length === 0 || historyReplay.isPlaying) return;
-    stopReviewTts();
-    if (narrationPrefs('history').enabled) { ensureGameNarrator('history'); GAME_NARRATION.voice.unlock(); }
-    const replay = historyReplay;
-    const token = replay.playToken = (replay.playToken || 0) + 1;
-    replay.isPlaying = true;
-    updateHistoryControls();
-    const step = async () => {
-        if (historyReplay !== replay || !replay.isPlaying || token !== replay.playToken) return;
-        if (replay.moveIndex >= replay.moves.length) { stopHistoryPlayback(); return; }
-        try { await historyStepForward(); } catch (e) { /* Àudio opcional. */ }
-        if (historyReplay !== replay || !replay.isPlaying || token !== replay.playToken) return;
-        if (replay.moveIndex >= replay.moves.length) { stopHistoryPlayback(); return; }
-        replay.timer = setTimeout(step, 900);
-    };
-    replay.timer = setTimeout(step, 900);
+    const p = syncHistoryTvPosition();
+    if (p) { stopReviewTts(); stopGameNarration(); p.play(); HISTORY_TV.audio.sync(true); }
 }
 
 function stopTvPlayback() {

@@ -3210,9 +3210,9 @@
         }
         .sftv-voice-toggle.is-on { background: rgba(201,162,39,0.24); border-color: rgba(227,184,74,0.65); }
         .sftv-voice-toggle:disabled { opacity: 0.55; cursor: default; }
-        #sftv-matxa-controls[hidden] { display: none !important; }
-        #sftv-radio-controls[hidden] { display: none !important; }
-        #sftv-radio-controls { margin: 14px 0 0; padding: 10px; min-width: 0; border: 1px solid var(--accent); border-radius: 8px; }
+        :is(#sftv-matxa-controls, #history-tv-matxa-controls)[hidden] { display: none !important; }
+        :is(#sftv-radio-controls, #history-tv-radio-controls)[hidden] { display: none !important; }
+        :is(#sftv-radio-controls, #history-tv-radio-controls) { margin: 14px 0 0; padding: 10px; min-width: 0; border: 1px solid var(--accent); border-radius: 8px; }
         .sftv-matxa-controls { margin: 0 0 12px; padding: 10px 12px; border: 1px solid var(--accent); border-radius: 12px; }
         .sftv-matxa-controls summary { cursor: pointer; font-weight: 600; }
         .sftv-matxa-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px 20px; margin-top: 12px; }
@@ -3222,20 +3222,26 @@
         .sftv-matxa-grid output { min-width: 3.2em; text-align: right; }
         .sftv-note { flex-basis: 100%; text-align: center; font-size: 0.78rem; color: var(--text-secondary); }
         .sftv-layout { display: flex; flex-direction: column; gap: 12px; }
+        .history-tv-controls { margin:8px 0; }
+        #history-tv-control { grid-column:1 / -1; }
+        #history-tv-audio .sftv-matxa-controls { max-width:100%; }
+        #history-tv-audio, #history-tv-comment { margin-top:10px; }
+        #history-tv-variation[hidden] { display:none; }
+        #history-board, #history-board * { -webkit-user-select:none; user-select:none; -webkit-touch-callout:none; }
         .sftv-main { min-width: 0; }
         .sftv-side { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
         #sftv-board { margin: 0 auto; max-width: min(100%, 62vh); }
         #sftv-board, #sftv-board * { -webkit-user-select: none; user-select: none; -webkit-touch-callout: none; }
-        #sftv-board .square-55d63.sftv-from { background: #d8ae55; }
-        #sftv-board .square-55d63.sftv-to { background: #51b9d4; }
-        #sftv-board .square-55d63.sftv-preview { background: #f1c75b; box-shadow: inset 0 0 0 4px #674400; }
-        #sftv-board .sftv-preview img { filter: drop-shadow(0 0 3px white); }
-        #sftv-board .sftv-from::after, #sftv-board .sftv-to::after {
+        :is(#sftv-board, #history-board) .square-55d63.sftv-from { background: #d8ae55; }
+        :is(#sftv-board, #history-board) .square-55d63.sftv-to { background: #51b9d4; }
+        :is(#sftv-board, #history-board) .square-55d63.sftv-preview { background: #f1c75b; box-shadow: inset 0 0 0 4px #674400; }
+        :is(#sftv-board, #history-board) .sftv-preview img { filter: drop-shadow(0 0 3px white); }
+        :is(#sftv-board, #history-board) .sftv-from::after, :is(#sftv-board, #history-board) .sftv-to::after {
             content: ''; position: absolute; inset: 4px; pointer-events: none; z-index: 1;
         }
-        #sftv-board .sftv-from::after { border: 3px dashed #5a3b09; border-radius: 4px; }
-        #sftv-board .sftv-to::after { border: 3px solid #fff; outline: 2px solid #095064; border-radius: 50%; }
-        #sftv-board .sftv-to img {
+        :is(#sftv-board, #history-board) .sftv-from::after { border: 3px dashed #5a3b09; border-radius: 4px; }
+        :is(#sftv-board, #history-board) .sftv-to::after { border: 3px solid #fff; outline: 2px solid #095064; border-radius: 50%; }
+        :is(#sftv-board, #history-board) .sftv-to img {
             position: relative; z-index: 2; filter: drop-shadow(0 0 2px white) drop-shadow(0 1px 2px #143941);
             animation: sftv-piece-arrives 750ms ease-out;
         }
@@ -3306,8 +3312,8 @@
         .sftv-player.is-user.is-turn { background: rgba(224,132,59,0.18); color: var(--text-primary); }
         #sftv-screen.is-your-turn #sftv-board .square-55d63 { cursor: pointer; }
         body.control-drag #sftv-screen.is-your-turn #sftv-board { touch-action: none; }
-        #sftv-board .square-55d63.sftv-sel { box-shadow: inset 0 0 0 4px #e0843b; }
-        #sftv-board .square-55d63.sftv-target::before {
+        :is(#sftv-board, #history-board) .square-55d63.sftv-sel { box-shadow: inset 0 0 0 4px #e0843b; }
+        :is(#sftv-board, #history-board) .square-55d63.sftv-target::before {
             content: ''; position: absolute; left: 50%; top: 50%; width: 30%; height: 30%; transform: translate(-50%, -50%);
             border-radius: 50%; background: rgba(224,132,59,0.75); box-shadow: 0 0 0 2px rgba(255,255,255,0.65); pointer-events: none; z-index: 3;
         }
@@ -3378,8 +3384,8 @@
         body.epaper-mode .catalans-banner.sftv-banner { background: #fff; color: #000; border-color: #000; }
         body.epaper-mode .sftv-comment, body.epaper-mode .sftv-level-card, body.epaper-mode .sftv-result,
         body.epaper-mode .sftv-control-note, body.epaper-mode .sftv-promo { background: #fff; border-color: #000; color: #000; }
-        body.epaper-mode #sftv-board .sftv-sel { box-shadow: inset 0 0 0 4px #000; }
-        body.epaper-mode #sftv-board .sftv-target::before { background: #000; }
+        body.epaper-mode :is(#sftv-board, #history-board) .sftv-sel { box-shadow: inset 0 0 0 4px #000; }
+        body.epaper-mode :is(#sftv-board, #history-board) .sftv-target::before { background: #000; }
         html.sftv-expanded, body.sftv-expanded { overflow: hidden !important; }
         body.sftv-expanded { filter: none !important; }
         #sftv-screen.is-expanded {
@@ -3405,11 +3411,11 @@
         #sftv-screen.is-expanded .sftv-controls { display: flex; flex-wrap: wrap; gap: 8px; }
         #sftv-screen.is-expanded .sftv-controls > .btn { flex: 1 1 130px; }
         #sftv-screen.is-expanded .sftv-speed-label { flex: 1 1 180px; }
-        body.epaper-mode #sftv-board .sftv-from { background: #ddd; }
-        body.epaper-mode #sftv-board .sftv-to { background: #aaa; }
-        body.epaper-mode #sftv-board .square-55d63.sftv-preview { background: #ddd; box-shadow: inset 0 0 0 4px #000; }
-        body.epaper-mode #sftv-board .sftv-from::after { border-color: #222; }
-        body.epaper-mode #sftv-board .sftv-to::after { outline-color: #000; }
+        body.epaper-mode :is(#sftv-board, #history-board) .sftv-from { background: #ddd; }
+        body.epaper-mode :is(#sftv-board, #history-board) .sftv-to { background: #aaa; }
+        body.epaper-mode :is(#sftv-board, #history-board) .square-55d63.sftv-preview { background: #ddd; box-shadow: inset 0 0 0 4px #000; }
+        body.epaper-mode :is(#sftv-board, #history-board) .sftv-from::after { border-color: #222; }
+        body.epaper-mode :is(#sftv-board, #history-board) .sftv-to::after { outline-color: #000; }
         @media (min-width: 760px) and (min-aspect-ratio: 4/3) {
             #sftv-screen.is-expanded .sftv-layout { grid-template-columns: minmax(0, 1fr) minmax(240px, 28%); }
             #sftv-screen.is-expanded .sftv-side { align-self: center; }
@@ -7335,8 +7341,9 @@
 
                         <div class="history-detail-body">
                             <div class="history-side">
-                                <div class="history-board">
+                                <div class="history-board sftv-board-wrap">
                                     <div id="history-board"></div>
+                                    <div id="history-tv-promo" class="sftv-promo" role="dialog" aria-label="Tria la peça de la coronació" style="display:none;"></div>
                                 </div>
                                 <div id="review-board-legend" class="review-board-legend" style="display:none;">
                                     <span id="review-legend-played"><span class="sw" style="background:#6e0f0f; box-shadow: inset 0 0 0 2px #ff1744;"></span>la teva jugada</span>
@@ -7348,15 +7355,16 @@
                                     <button class="btn btn-secondary" id="history-pause" aria-label="Pausa" title="Pausa"><svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg></button>
                                     <button class="btn btn-secondary" id="history-next" aria-label="Jugada següent" title="Jugada següent"><svg class="btn-ic" aria-hidden="true"><use href="#ic-skip-forward"/></svg></button>
                                 </div>
-                                <div class="game-narration-controls" id="history-narration-controls">
-                                    <button type="button" class="btn btn-secondary" id="history-narration-toggle" aria-pressed="false">Activa la veu</button>
-                                    <label for="history-narration-frequency">Comentaris</label>
-                                    <select id="history-narration-frequency" class="select-control"><option value="all">Cada jugada</option><option value="key">Moments clau</option></select>
-                                    <label for="history-narration-volume">Volum <output id="history-narration-volume-value">80%</output></label>
-                                    <input id="history-narration-volume" type="range" min="0" max="100" step="5" value="80">
-                                    <small>Veu opcional sincronitzada amb el tauler. Pots aturar-la en qualsevol moment.</small>
-                                    <p class="game-narration-caption" id="history-narration-caption"></p>
+                                <div class="sftv-controls history-tv-controls">
+                                    <button type="button" class="btn sftv-btn sftv-btn-control" id="history-tv-control" aria-pressed="false">Agafa el control</button>
+                                    <label class="sftv-speed-label" for="history-tv-speed">Ritme <select id="history-tv-speed" class="select-control"></select></label>
                                 </div>
+                                <div id="history-tv-control-note" class="sftv-control-note"></div>
+                                <div id="history-tv-last-move" class="sftv-last-move"></div>
+                                <div id="history-tv-status" class="sftv-status" role="status"></div>
+                                <div id="history-tv-audio"></div>
+                                <div id="history-tv-comment" class="sftv-comment is-empty" aria-live="polite"></div>
+                                <div id="history-tv-variation" class="sftv-moves" hidden></div>
                                 <div class="history-progress" id="history-progress">0/0</div>
                                 <!-- Transcripció clicable: toca una jugada per veure-la al tauler (queda marcada) -->
                                 <div id="history-moves" style="display:none;"></div>
@@ -9051,7 +9059,7 @@
     <script src="tutorial.js?v=1.0.3"></script>
     <script src="veuneural.js?v=1.1.0"></script>
     <script src="radioambient.js?v=1.1.0"></script>
-    <script src="stockfishtv.js?v=1.4.6"></script>
+    <script src="stockfishtv.js?v=1.4.7"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.9"></script>
@@ -9063,7 +9071,8 @@
         })();
     </script>
     <script src="gamebroadcast.js?v=1.0.0"></script>
-    <script src="app.js?v=1.0.108"></script>
+    <script src="historytv.js?v=1.0.0"></script>
+    <script src="app.js?v=1.0.109"></script>
 
     <!-- Service Worker Registration -->
     <script>
