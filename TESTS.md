@@ -407,7 +407,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   curs no canviï), l'objectiu de l'espectador sobre aquesta escala, la **veu
   neuronal** del perfil amb prioritat sobre la del dispositiu i el retorn a la
   veu catalana local si falla, i que l'àudio de cada comentari es **prepari
-  abans** de mostrar la jugada. El **motor dedicat** es prova amb un worker
+  abans** de mostrar la jugada. **Jugada enrere i control manual**: tirar
+  enrere desfà semijugades (fins a l'inici i no més enllà), atura el motor i
+  restaura la memòria de la retransmissió i el comentari de la posició; l'usuari
+  mou el bàndol de la jugada desfeta (peces del rival, destins il·legals i
+  jugades mentre s'analitza, rebutjades); la jugada surt a l'instant i Stockfish
+  respon amb l'altre bàndol al nivell fixat de la partida, sense tornar a moure
+  fins que l'usuari mou; tornar el control fa jugar els dos bàndols des de la
+  posició actual (fora de la línia preparada, tot ho calcula el motor); agafar
+  el control mentre el motor calcula descarta la jugada pendent i la pausa no
+  s'hi aplica; en una partida acabada, tirar enrere la reprèn i, amb el control,
+  no comença cap partida sola (sí en tornar-lo); coronació triada per l'usuari;
+  pestanya oculta durant la resposta; i «Nova partida» surt del control. El **motor dedicat** es prova amb un worker
   simulat: ordres abans de calcular, cancel·lació sense resultats colats,
   sortir i tornar de seguida sense bloquejos ni reinicis tardans, worker penjat
   i worker que no es pot crear.

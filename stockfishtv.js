@@ -86,6 +86,10 @@
         POST_SPEECH_PAUSE_MS: 900,
         // Pausa en reprendre (sense jugades acumulades).
         RESUME_DELAY_MS: 1500,
+        // Control manual: espera mínima i màxima abans que el motor respongui
+        // la jugada de l'usuari (dona temps a llegir-ne el comentari).
+        CONTROL_REPLY_DELAY_MS: 1200,
+        CONTROL_REPLY_MAX_MS: 4500,
         // Presentació de l'obertura abans de la primera jugada.
         INTRO_DELAY_MS: 3500,
         // Pausa breu entre una partida acabada i la següent.
@@ -2250,7 +2254,12 @@
             nextRevealAt: 0,
             speech: null,
             error: null,
-            loopRunning: false
+            loopRunning: false,
+            // Control manual: { color } del bàndol que mou l'usuari (l'altre el
+            // juga el motor). null: Stockfish juga els dos bàndols.
+            control: null,
+            // La jugada de l'usuari ja és al tauler i se n'està preparant el comentari.
+            pendingUser: false
         };
 
         let prefs = tvNormalizePrefs(typeof d.loadPrefs === 'function' ? d.loadPrefs() : null);
@@ -2280,7 +2289,10 @@
             if (d.engine) d.engine.cancelAll();
             if (d.voice) d.voice.stop();
             S.speech = null;
+            S.pendingUser = false;
         }
+
+        function userTurn(g) { return !!(S.control && g && !g.end && g.chess.turn() === S.control.color); }
 
         function snapshot() {
             const g = S.game;
@@ -2295,6 +2307,13 @@
                 viewer: v,
                 speed: prefs.speed,
                 nextLevel: next.value,
+                control: S.control && g ? {
+                    color: S.control.color,
+                    yourTurn: userTurn(g) && !S.pendingUser,
+                    analyzing: S.pendingUser,
+                    thinking: !g.end && (S.pendingUser || !userTurn(g))
+                } : null,
+                canUndo: !!(g && g.moves.length && !S.error),
                 game: g ? {
                     id: g.id,
                     fen: g.chess.fen(),
@@ -2339,6 +2358,7 @@
                 prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000));
             prefs = Object.assign({}, prefs, { openingIndex: pick.nextIndex });
             savePrefs();
+            S.control = null;
             const v = viewer();
             const target = tvResolveTarget(S.caps, v, prefs);
             S.game = {
@@ -2356,6 +2376,7 @@
                 comments: [],
                 memory: tvEmptyMemory(),
                 comment: null,
+                intro: null,
                 end: null,
                 nextGameAt: null
             };
@@ -2364,6 +2385,7 @@
             if (pick.opening) {
                 const intro = 'Obertura de partida: ' + pick.opening.name + '.' + (pick.opening.idea ? ' ' + pick.opening.idea : '');
                 S.game.comment = { kind: 'intro', text: intro, speech: tvSpeechText(intro), ply: 0, gameId: S.game.id };
+                S.game.intro = S.game.comment;
                 S.nextRevealAt = Math.max(S.nextRevealAt, now() + tvReadingTimeMs(intro, v.tier));
                 notify('comment', S.game.comment);
             }
@@ -2421,10 +2443,11 @@
         async function runLoop(epoch) {
             const g = S.game;
             if (!g) return;
-            while (alive(epoch) && S.game === g && !g.end) {
+            // Amb control manual, el motor només juga el bàndol que no és de l'usuari.
+            while (alive(epoch) && S.game === g && !g.end && !userTurn(g)) {
                 const ply = g.moves.length;
                 const fenBefore = g.chess.fen();
-                const prepared = ply < g.prepared.length ? g.prepared[ply] : null;
+                const prepared = preparedAt(g, ply);
                 let uci = null;
                 let before = null;
                 if (prepared) {
@@ -2474,7 +2497,15 @@
                 if (g.chess.fen() !== fenBefore) return;
                 reveal(g, uci, prepared, plan, epoch);
             }
-            if (alive(epoch) && S.game === g && g.end) scheduleNextGame(g, epoch);
+            if (alive(epoch) && S.game === g && g.end && !S.control) scheduleNextGame(g, epoch);
+        }
+
+        // La línia preparada només val mentre la partida la segueix: si l'usuari
+        // n'ha sortit (o s'hi ha tornat a entrar tirant enrere), mana el motor.
+        function preparedAt(g, ply) {
+            if (ply >= g.prepared.length) return null;
+            for (let i = 0; i < ply; i++) if (g.uci[i] !== g.prepared[i].uci) return null;
+            return g.prepared[ply];
         }
 
         // Calcula la jugada i el seu comentari sense tocar la partida visible
@@ -2502,26 +2533,8 @@
         }
 
         function reveal(g, uci, prepared, plan, epoch) {
-            const ply = g.moves.length;
-            const mv = g.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
-            if (!mv || ply !== plan.ply) { fail('illegal'); return; }
-            const fenAfter = g.chess.fen();
-            g.uci.push(uci);
-            const end = plan.end;
-            const entry = { ply: ply, san: mv.san, uci: uci, color: mv.color, from: mv.from, to: mv.to, prepared: !!prepared, fen: fenAfter, verbose: mv };
-            g.moves.push(entry);
-            if (!g.identified || ply < 30) g.identified = identifyOpening(g) || g.identified;
-            const chosen = plan.chosen;
-            g.end = end;
-            g.comment = null;
-            g.memory = plan.memory;
-            if (chosen) {
-                // El comentari queda LLIGAT a aquesta posició (partida + ply + FEN).
-                g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: ply, fen: fenAfter, gameId: g.id,
-                    explanatory: !!chosen.explanatory, extended: !!chosen.extended };
-                g.comments.push({ ply: ply, kind: chosen.kind, text: chosen.text, color: mv.color, key: chosen.key, sig: chosen.sig });
-                entry.comment = chosen.text;
-            }
+            const entry = commitMove(g, uci, prepared, plan, false);
+            if (!entry) return;
             const shownAt = now();
             let delay = tvMoveDelayMs(prefs.speed, { tier: g.tier, prepared: !!prepared, random: random() });
             if (g.comment) delay = Math.max(delay, tvReadingTimeMs(g.comment.text, g.tier));
@@ -2530,6 +2543,65 @@
             if (g.comment) notify('comment', g.comment);
             render();
             if (g.comment) S.speech = speakComment(g.comment, epoch);
+        }
+
+        // Aplica la jugada a la partida visible i desa el que cal per desfer-la.
+        function commitMove(g, uci, prepared, plan, byUser) {
+            const ply = g.moves.length;
+            const fenBefore = g.chess.fen();
+            const undo = { fenBefore: fenBefore, memory: g.memory, identified: g.identified };
+            const mv = g.chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4), promotion: uci.length > 4 ? uci[4] : 'q' });
+            if (!mv || ply !== plan.ply) { fail('illegal'); return null; }
+            const fenAfter = g.chess.fen();
+            g.uci.push(uci);
+            const entry = { ply: ply, san: mv.san, uci: uci, color: mv.color, from: mv.from, to: mv.to, prepared: !!prepared, fen: fenAfter, verbose: mv,
+                byUser: !!byUser, commentObj: null, undo: undo };
+            g.moves.push(entry);
+            if (!g.identified || ply < 30) g.identified = identifyOpening(g) || g.identified;
+            g.end = plan.end;
+            g.comment = null;
+            g.memory = plan.memory;
+            if (plan.chosen) attachComment(g, entry, plan.chosen);
+            return entry;
+        }
+
+        function attachComment(g, entry, chosen) {
+            // El comentari queda LLIGAT a aquesta posició (partida + ply + FEN).
+            g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
+                explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser };
+            g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
+            entry.comment = chosen.text;
+            entry.commentObj = g.comment;
+        }
+
+        // Jugada de l'usuari: surt al tauler a l'instant i el comentari arriba
+        // quan l'anàlisi (sense límit) ha valorat la posició d'abans i la d'ara.
+        // Després, si la partida continua, respon el motor amb l'altre bàndol.
+        async function userMoveFlow(g, entry, epoch) {
+            const ply = entry.ply;
+            const history = g.uci.slice(0, ply);
+            const current = () => alive(epoch) && S.game === g && g.moves.length === ply + 1 && g.moves[ply] === entry;
+            const before = await analyze(g, history, ply, entry.undo.fenBefore, epoch);
+            if (!current()) return;
+            const after = g.end ? null : await analyze(g, history.concat([entry.uci]), ply + 1, entry.fen, epoch);
+            if (!current()) return;
+            const step = tvBroadcastStep({
+                ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
+                prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
+                end: g.end, ply: ply, memory: entry.undo.memory
+            });
+            S.pendingUser = false;
+            g.memory = step.memory;
+            let delay = TV_CONFIG.CONTROL_REPLY_DELAY_MS;
+            if (step.comment) {
+                attachComment(g, entry, step.comment);
+                delay = clamp(tvReadingTimeMs(g.comment.text, g.tier), delay, TV_CONFIG.CONTROL_REPLY_MAX_MS);
+                notify('comment', g.comment);
+            }
+            S.nextRevealAt = now() + delay;
+            render();
+            if (g.comment) S.speech = speakComment(g.comment, epoch);
+            if (!g.end) runLoop(epoch);
         }
 
         async function scheduleNextGame(g, epoch) {
@@ -2546,6 +2618,12 @@
             if (S.game === g) startGame();
         }
 
+        function rebuildChess(g) {
+            const chess = new d.ChessCtor();
+            g.uci.forEach(u => chess.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : 'q' }));
+            g.chess = chess;
+        }
+
         function fail(reason) {
             halt();
             S.error = reason;
@@ -2560,7 +2638,9 @@
             if (!g) { startGame(); return; }
             if (g.end) {
                 g.nextGameAt = null;
-                scheduleNextGame(g, epoch);
+                // Amb control manual no comença cap partida sola: l'usuari pot
+                // tirar enrere o tornar el control al motor.
+                if (S.control) render(); else scheduleNextGame(g, epoch);
                 return;
             }
             S.nextRevealAt = now() + TV_CONFIG.RESUME_DELAY_MS;
@@ -2594,7 +2674,7 @@
                 render();
             },
             pause() {
-                if (S.userPaused) return;
+                if (S.userPaused || S.control) return;
                 S.userPaused = true;
                 halt();
                 render();
@@ -2637,6 +2717,71 @@
                 savePrefs();
                 render();
             },
+            // Tira enrere l'última semijugada i dona el control a l'usuari: mou
+            // el bàndol de la jugada desfeta (es pot repetir fins a l'inici).
+            stepBack() {
+                const g = S.game;
+                if (!S.open || !g || !g.moves.length || S.error) return false;
+                halt();
+                S.userPaused = false;
+                const entry = g.moves.pop();
+                g.uci.pop();
+                const undone = g.chess.undo();
+                if (!undone || g.chess.fen() !== entry.undo.fenBefore) rebuildChess(g);
+                g.memory = entry.undo.memory;
+                g.identified = entry.undo.identified;
+                g.comments = g.comments.filter(c => c.ply < g.moves.length);
+                g.end = null;
+                g.nextGameAt = null;
+                const prev = g.moves[g.moves.length - 1];
+                g.comment = prev ? prev.commentObj : g.intro;
+                S.control = { color: g.chess.turn() };
+                notify('undo', { gameId: g.id, move: entry });
+                render();
+                return true;
+            },
+            // L'usuari passa a moure el bàndol que té el torn; l'altre, el motor.
+            takeControl() {
+                const g = S.game;
+                if (!S.open || !g || g.end || S.control || S.error) return false;
+                halt();
+                S.userPaused = false;
+                S.control = { color: g.chess.turn() };
+                render();
+                return true;
+            },
+            // Torna els dos bàndols a Stockfish des de la posició actual.
+            releaseControl() {
+                if (!S.control) return false;
+                S.control = null;
+                if (S.open && !S.hidden && S.caps && !S.error) resumeLoop(); else { halt(); render(); }
+                return true;
+            },
+            // Jugades legals de la peça de la casella (només al torn de l'usuari).
+            userMoves(square) {
+                const g = S.game;
+                if (!userTurn(g) || S.pendingUser || S.error) return [];
+                try { return g.chess.moves({ square: square, verbose: true }); } catch (err) { return []; }
+            },
+            userMove(from, to, promotion) {
+                const g = S.game;
+                if (!S.open || !userTurn(g) || S.pendingUser || S.error) return false;
+                const legal = api.userMoves(from).filter(m => m.to === to);
+                if (!legal.length) return false;
+                const promo = legal[0].promotion ? (/^[qrbn]$/.test(promotion || '') ? promotion : 'q') : '';
+                const uci = from + to + promo;
+                halt();
+                const epoch = S.epoch;
+                const entry = commitMove(g, uci, null, { ply: g.moves.length, end: null, chosen: null, memory: g.memory }, true);
+                if (!entry) return false;
+                // Final de partida amb tot l'historial (repetició inclosa).
+                g.end = tvGameEnd(g.chess);
+                S.pendingUser = true;
+                notify('move', { gameId: g.id, move: entry, comment: null });
+                render();
+                userMoveFlow(g, entry, epoch);
+                return true;
+            },
             currentFen() { return S.game ? S.game.chess.fen() : null; },
             isActive() { return S.open && !S.userPaused && !S.hidden; },
             // Per als tests i el diagnòstic.
@@ -2660,6 +2805,12 @@
     let nativeFullscreen = false;
     let fullscreenRequest = 0;
     let savedScroll = null;
+    // Control manual: peça triada (tocar-tocar), destins legals i jugada
+    // arrossegada pendent del final de l'animació.
+    let selectedSquare = null;
+    let selectedTargets = [];
+    let pendingDrop = null;
+    let promoPending = null;
 
     function $id(id) { return typeof document !== 'undefined' ? document.getElementById(id) : null; }
     function loadPrefsRaw() {
@@ -2686,9 +2837,15 @@
     let boardRenderedWidth = 0;
     function buildBoard() {
         if (board || typeof root.Chessboard !== 'function' || !$id('sftv-board')) return;
+        // Les peces només es poden moure amb el control manual i al torn de
+        // l'usuari. Amb el mode «Tocar» de l'app no s'arrossega (tocar-tocar).
+        const tapOnly = !!(document.body && document.body.classList.contains('control-tap'));
         board = root.Chessboard('sftv-board', {
-            position: 'start', draggable: false, pieceTheme: PIECE_THEME, moveSpeed: 450,
-            onMoveEnd: applyHighlight
+            position: 'start', draggable: !tapOnly, pieceTheme: PIECE_THEME, moveSpeed: 450,
+            onMoveEnd: applyHighlight,
+            onDragStart: onBoardDragStart,
+            onDrop: onBoardDrop,
+            onSnapEnd: onBoardSnapEnd
         });
         boardRenderedWidth = Math.round($id('sftv-board').getBoundingClientRect().width);
         // El tauler es torna a mesurar sempre que canvia l'amplada disponible
@@ -2719,7 +2876,97 @@
             const name = sq.getAttribute('data-square');
             sq.classList.toggle('sftv-from', !!lastHighlight && name === lastHighlight.from);
             sq.classList.toggle('sftv-to', !!lastHighlight && name === lastHighlight.to);
+            sq.classList.toggle('sftv-sel', name === selectedSquare);
+            sq.classList.toggle('sftv-target', selectedTargets.indexOf(name) !== -1);
         });
+    }
+
+    // ---- Control manual: moure peces al tauler de la TV ----
+    function yourTurnState() {
+        const st = controller ? controller.state() : null;
+        return st && st.control && st.control.yourTurn ? st : null;
+    }
+    function clearSelection() {
+        if (!selectedSquare && !selectedTargets.length) return;
+        selectedSquare = null;
+        selectedTargets = [];
+        applyHighlight();
+    }
+    function selectSquare(square) {
+        const moves = controller ? controller.userMoves(square) : [];
+        if (!moves.length) { clearSelection(); return false; }
+        selectedSquare = square;
+        selectedTargets = moves.map(m => m.to).filter((sq, i, all) => all.indexOf(sq) === i);
+        applyHighlight();
+        return true;
+    }
+    function playUserMove(from, to) {
+        const moves = controller ? controller.userMoves(from).filter(m => m.to === to) : [];
+        if (!moves.length) return false;
+        clearSelection();
+        if (moves.some(m => m.promotion)) { askPromotion(from, to); return false; }
+        return controller.userMove(from, to);
+    }
+    function onBoardDragStart(source, piece) {
+        const st = yourTurnState();
+        if (!st || String(piece).charAt(0) !== st.control.color) return false;
+        return selectSquare(source);
+    }
+    function onBoardDrop(source, target) {
+        // Deixar-la a la mateixa casella és un toc: la peça queda triada.
+        if (target === source || target === 'offboard') return 'snapback';
+        const moves = controller ? controller.userMoves(source).filter(m => m.to === target) : [];
+        if (!moves.length) return 'snapback';
+        clearSelection();
+        if (moves.some(m => m.promotion)) { askPromotion(source, target); return 'snapback'; }
+        pendingDrop = { from: source, to: target };
+        return undefined;
+    }
+    function onBoardSnapEnd() {
+        const drop = pendingDrop;
+        pendingDrop = null;
+        if (drop && controller && !controller.userMove(drop.from, drop.to) && board) {
+            // Jugada rebutjada (el torn ha canviat): el tauler torna a la partida.
+            const st = controller.state();
+            if (st.game) board.position(st.game.fen.split(' ')[0], false);
+        }
+    }
+    function onBoardClick(ev) {
+        const sqEl = ev.target && ev.target.closest ? ev.target.closest('[data-square]') : null;
+        if (!sqEl) return;
+        if (!yourTurnState()) { clearSelection(); return; }
+        const square = sqEl.getAttribute('data-square');
+        if (selectedSquare && selectedTargets.indexOf(square) !== -1) { playUserMove(selectedSquare, square); return; }
+        if (!selectSquare(square)) clearSelection();
+    }
+    const PROMO_PIECES = [['q', 'dama'], ['r', 'torre'], ['b', 'alfil'], ['n', 'cavall']];
+    function askPromotion(from, to) {
+        const box = $id('sftv-promo');
+        const st = yourTurnState();
+        if (!st) return;
+        if (!box) { controller.userMove(from, to, 'q'); return; }
+        promoPending = { from: from, to: to };
+        const color = st.control.color;
+        box.innerHTML = '<div class="sftv-promo-title">Corona el peó a ' + escapeHtml(to) + ':</div><div class="sftv-promo-row">'
+            + PROMO_PIECES.map(p => '<button type="button" class="sftv-promo-piece" data-piece="' + p[0] + '" aria-label="Corona ' + (p[0] === 'q' || p[0] === 'r' ? 'una ' : 'un ') + p[1] + '" title="' + capFirst(p[1]) + '">'
+                + '<img src="' + PIECE_THEME.replace('{piece}', color + p[0].toUpperCase()) + '" alt=""></button>').join('')
+            + '</div><button type="button" class="sftv-link-btn sftv-promo-cancel" data-piece="">Cancel·la</button>';
+        box.style.display = '';
+        const first = box.querySelector('.sftv-promo-piece');
+        if (first) first.focus({ preventScroll: true });
+    }
+    function hidePromo() {
+        promoPending = null;
+        const box = $id('sftv-promo');
+        if (box && box.style.display !== 'none') { box.style.display = 'none'; box.innerHTML = ''; }
+    }
+    function onPromoClick(ev) {
+        const button = ev.target && ev.target.closest ? ev.target.closest('button[data-piece]') : null;
+        if (!button) return;
+        const pending = promoPending;
+        const piece = button.getAttribute('data-piece');
+        hidePromo();
+        if (pending && piece && controller) controller.userMove(pending.from, pending.to, piece);
     }
     function resizeBoard() {
         if (!board || !screenVisible()) return;
@@ -2856,13 +3103,16 @@
         const caps = state.caps;
         const g = state.game;
         const levelText = g ? g.level.label.short : '—';
-        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + ' · Stockfish · ' + levelText;
+        const mine = (color) => !!(state.control && state.control.color === color);
+        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · Stockfish · ' + levelText);
         const pw = $id('sftv-player-white');
         const pb = $id('sftv-player-black');
         if (pw) pw.textContent = playerLine('w');
         if (pb) pb.textContent = playerLine('b');
         pw && pw.classList.toggle('is-turn', !!(g && !g.end && g.turn === 'w'));
         pb && pb.classList.toggle('is-turn', !!(g && !g.end && g.turn === 'b'));
+        pw && pw.classList.toggle('is-user', mine('w'));
+        pb && pb.classList.toggle('is-user', mine('b'));
         const cur = $id('sftv-level-current');
         const next = $id('sftv-level-next');
         const help = $id('sftv-level-help');
@@ -2944,8 +3194,9 @@
         g.moves.forEach((m, i) => {
             if (m.color === 'w') html += '<span class="sftv-move-num">' + (Math.floor(i / 2) + 1) + '.</span>';
             else if (i === 0) html += '<span class="sftv-move-num">1…</span>';
-            const cls = 'sftv-move' + (m.prepared ? ' is-prepared' : '') + (i === g.moves.length - 1 ? ' is-last' : '') + (m.comment ? ' has-comment' : '');
-            html += '<span class="' + cls + '"' + (m.comment ? ' title="' + escapeHtml(m.comment) + '"' : '') + '>' + escapeHtml(m.san) + '</span> ';
+            const cls = 'sftv-move' + (m.prepared ? ' is-prepared' : '') + (m.byUser ? ' is-user' : '') + (i === g.moves.length - 1 ? ' is-last' : '') + (m.comment ? ' has-comment' : '');
+            const title = (m.byUser ? 'Jugada teva' + (m.comment ? ': ' : '') : '') + (m.comment || '');
+            html += '<span class="' + cls + '"' + (title ? ' title="' + escapeHtml(title) + '"' : '') + '>' + escapeHtml(m.san) + '</span> ';
         });
         box.innerHTML = html;
         box.scrollTop = box.scrollHeight;
@@ -2975,8 +3226,13 @@
         let text = '';
         if (state.error) text = state.error === 'engine' ? 'No s\'ha pogut arrencar el motor en aquest dispositiu.' : 'La partida s\'ha aturat per un error intern.';
         else if (!g) text = 'Preparant el motor…';
-        else if (g.end) text = tvResultHeadline(g.end);
-        else {
+        else if (g.end) text = tvResultHeadline(g.end) + (state.control ? ' · control manual' : '');
+        else if (state.control) {
+            const ctl = state.control;
+            if (ctl.yourTurn) text = 'Et toca: mous ' + COLOR[ctl.color].pl;
+            else if (ctl.analyzing) text = 'Analitzant la teva jugada…';
+            else text = 'Stockfish pensa la resposta amb ' + COLOR[other(ctl.color)].pl + '…';
+        } else {
             const last = g.lastMove;
             text = (g.turn === 'w' ? 'Mouen les blanques' : 'Mouen les negres')
                 + (last && last.prepared ? ' · jugada preparada de l\'obertura' : '');
@@ -2988,8 +3244,9 @@
             pauseBtn.innerHTML = state.paused
                 ? '<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Continua'
                 : '<svg class="btn-ic" aria-hidden="true"><use href="#ic-pause"/></svg>Pausa';
-            pauseBtn.disabled = !g || !!state.error;
+            pauseBtn.disabled = !g || !!state.error || !!state.control;
         }
+        renderControl(state);
         const tryBtn = $id('sftv-try');
         if (tryBtn) tryBtn.disabled = !g || !!(g && g.end) || !bridge.openExplorer;
         const speed = $id('sftv-speed');
@@ -3011,6 +3268,39 @@
         }
     }
 
+    function renderControl(state) {
+        const g = state.game;
+        const ctl = state.control;
+        const undo = $id('sftv-undo');
+        if (undo) undo.disabled = !state.canUndo;
+        const button = $id('sftv-control');
+        if (button) {
+            button.innerHTML = ctl
+                ? '<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>Torna el control al motor'
+                : '<svg class="btn-ic" aria-hidden="true"><use href="#ic-pawn"/></svg>Agafa el control';
+            button.classList.toggle('is-active', !!ctl);
+            button.setAttribute('aria-pressed', ctl ? 'true' : 'false');
+            button.title = ctl ? 'Stockfish torna a jugar els dos bàndols des d\'aquesta posició'
+                : 'Mou tu el bàndol que té el torn; Stockfish jugarà l\'altre';
+            button.disabled = !g || !!state.error || (!ctl && !!g.end);
+        }
+        const note = $id('sftv-control-note');
+        if (note) {
+            let text = '';
+            if (ctl && g) {
+                const mine = COLOR[ctl.color].pl;
+                const tapOnly = !!(document.body && document.body.classList.contains('control-tap'));
+                if (g.end) text = 'La partida s\'ha acabat. Pots tirar enrere per provar una altra jugada o tornar el control al motor perquè comenci la partida següent.';
+                else if (ctl.yourTurn) {
+                    text = 'Control manual: mous ' + mine + '. ' + (tapOnly ? 'Toca una peça i després la casella de destí.' : 'Arrossega una peça, o toca-la i després toca la casella de destí.')
+                        + ' Stockfish respon amb ' + COLOR[other(ctl.color)].pl + '.';
+                } else text = 'Control manual: mous ' + mine + '. Stockfish respon amb ' + COLOR[other(ctl.color)].pl + '.';
+            }
+            note.textContent = text;
+            note.style.display = text ? '' : 'none';
+        }
+    }
+
     function renderResult(state) {
         const el = $id('sftv-result');
         const g = state.game;
@@ -3021,7 +3311,8 @@
             const left = g.nextGameAt && !state.paused ? Math.max(0, Math.ceil((g.nextGameAt - Date.now()) / 1000)) : null;
             el.innerHTML = '<div class="sftv-result-head">' + escapeHtml(tvResultHeadline(g.end)) + '</div>'
                 + '<div class="sftv-result-text">' + escapeHtml(g.end.text) + '</div>'
-                + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.' : (state.paused ? 'En pausa.' : '')) + '</div>';
+                + '<div class="sftv-result-next">' + (left !== null ? 'La partida següent comença d\'aquí a ' + left + ' s.'
+                    : (state.control ? 'Control manual: tira enrere o torna el control al motor.' : (state.paused ? 'En pausa.' : ''))) + '</div>';
         };
         paint();
         el.style.display = '';
@@ -3043,7 +3334,18 @@
         render(state) {
             if (!uiReady) return;
             const g = state.game;
-            if (board && g) {
+            const ctl = state.control;
+            const screen = $id('sftv-screen');
+            if (screen) {
+                screen.classList.toggle('is-control', !!ctl);
+                screen.classList.toggle('is-your-turn', !!(ctl && ctl.yourTurn));
+            }
+            if (!ctl || !ctl.yourTurn) {
+                selectedSquare = null;
+                selectedTargets = [];
+                hidePromo();
+            }
+            if (board && g && !pendingDrop) {
                 const pos = g.fen.split(' ')[0];
                 if (board.fen() !== pos) board.position(pos, true);
                 lastHighlight = g.lastMove ? { from: g.lastMove.from, to: g.lastMove.to } : null;
@@ -3060,7 +3362,7 @@
             if (caption) {
                 const last = g && g.lastMove;
                 const mv = last && last.verbose;
-                caption.textContent = last ? (mv ? capFirst(pieceNP(mv.promotion || mv.piece, mv.color)) + ': ' : '')
+                caption.textContent = last ? (last.byUser ? 'La teva jugada · ' : '') + (mv ? capFirst(pieceNP(mv.promotion || mv.piece, mv.color)) + ': ' : '')
                     + last.from + ' → ' + last.to : 'Origen discontinu · destí blau: peça moguda';
             }
             if (expanded) resizeBoard();
@@ -3164,6 +3466,13 @@
         on('sftv-pause', 'click', () => { if (!controller) return; const st = controller.state(); if (st.paused) controller.resume(); else controller.pause(); });
         on('sftv-new', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-try', 'click', tryPosition);
+        on('sftv-undo', 'click', () => { if (controller) controller.stepBack(); });
+        on('sftv-control', 'click', () => {
+            if (!controller) return;
+            if (controller.state().control) controller.releaseControl(); else controller.takeControl();
+        });
+        on('sftv-board', 'click', onBoardClick);
+        on('sftv-promo', 'click', onPromoClick);
         on('sftv-too-easy', 'click', () => { if (controller) controller.adjust('harder'); });
         on('sftv-level-range', 'input', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
         on('sftv-level-range', 'change', (ev) => { if (controller) controller.setNextLevel(Number(ev.target.value)); });
@@ -3193,6 +3502,12 @@
         document.addEventListener('fullscreenchange', onFullscreenChange);
         document.addEventListener('webkitfullscreenchange', onFullscreenChange);
         document.addEventListener('keydown', (ev) => {
+            if (ev.key === 'Escape' && promoPending) {
+                ev.preventDefault();
+                ev.stopPropagation();
+                hidePromo();
+                return;
+            }
             if (ev.key === 'Escape' && expanded) {
                 ev.preventDefault();
                 ev.stopPropagation();

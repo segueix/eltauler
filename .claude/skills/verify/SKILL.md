@@ -60,7 +60,13 @@ Conduir amb Playwright + Chromium preinstal·lat
     `#sftv-speed`. El Chromium headless no té cap veu (`getVoices()` buit):
     la veu catalana només es pot provar substituint `window.speechSynthesis`
     amb un `addInitScript`. La pestanya oculta es simula redefinint
-    `document.visibilityState` i llançant `visibilitychange`.
+    `document.visibilityState` i llançant `visibilitychange`. **Control
+    manual**: `#sftv-undo` (jugada enrere) i `#sftv-control` (agafa/torna el
+    control); l'estat és `state().control` (`color`, `yourTurn`,
+    `analyzing`). Les jugades es fan clicant `#sftv-board [data-square="e2"]`
+    i després la casella de destí (sense espera mínima entre tocs) o
+    arrossegant amb `page.mouse` en mode «arrossegar» (escriptori).
+    `_controller().userMoves(casella)` dona els destins legals.
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i
