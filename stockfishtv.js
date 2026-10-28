@@ -626,6 +626,7 @@
     const KIND_PRIORITY = {
         'mate': 100, 'end': 96, 'promotion': 94, 'double-check': 92, 'fork-check': 90,
         'missed-mate': 86, 'allows-mate': 85, 'mate-threat': 82, 'out-of-check': 80,
+        'fork': 84, 'skewer': 81, 'pin': 79, 'remove-defender': 79, 'tactic-reply': 79,
         'discovered-attack': 78, 'threat': 76, 'hanging': 74, 'reply': 72, 'missed': 70,
         'capture-free': 68, 'only-move': 67, 'capture-recoverable': 66, 'recapture': 64,
         'opening-phrase': 62, 'queens-off': 60, 'endgame': 59, 'passed-new': 58, 'passed-advance': 57, 'opposition': 57,
@@ -640,7 +641,7 @@
     // l'escac de la jugada: van precedits d'aquest fet.
     const LEAD_WITH_FACT = ['hanging', 'threat', 'threat-pawn', 'discovered-attack', 'structure', 'passed-new', 'open-file',
         'center', 'diagonal', 'pressure', 'defend', 'material', 'queens-off', 'endgame', 'fork-check', 'seventh', 'doubled-rooks',
-        'only-move', 'missed', 'tension', 'king-pressure', 'majority', 'blocked', 'king-activity', 'opposition', 'reply', 'mate-threat'];
+        'only-move', 'missed', 'tension', 'king-pressure', 'majority', 'blocked', 'king-activity', 'opposition', 'reply', 'mate-threat', 'fork', 'pin', 'skewer'];
     const CENTER_SQUARES = ['d4', 'e4', 'd5', 'e5'];
     const NUM_WORDS = { 1: ['un', 'una'], 2: ['dos', 'dues'], 3: ['tres', 'tres'], 4: ['quatre', 'quatre'], 5: ['cinc', 'cinc'], 6: ['sis', 'sis'], 7: ['set', 'set'], 8: ['vuit', 'vuit'] };
     function numWord(n, fem) { const w = NUM_WORDS[n]; return w ? w[fem ? 1 : 0] : String(n); }
@@ -775,10 +776,114 @@
         return { out: Math.max(0, minors - atHome), atHome: atHome, minors: minors };
     }
 
+    // Captures legals del bàndol indicat, també quan encara no té el torn.
+    // No confon les línies geomètriques d'una peça clavada amb amenaces reals.
+    function tacticalCapture(ChessCtor, fen, color, from, to) {
+        try {
+            const parts = fen.split(' ');
+            if (parts[1] !== color) { parts[1] = color; parts[3] = '-'; }
+            const g = new ChessCtor(parts.join(' '));
+            return g.moves({ square: from, verbose: true }).some(m => m.to === to && m.captured);
+        } catch (e) { return false; }
+    }
+
+    function lineTactics(ChessCtor, fen, grid, color, geometryOnly) {
+        const Core = getCore();
+        if (!Core || !Core.antidotePinsAndSkewers) return [];
+        return Core.antidotePinsAndSkewers(grid, color).filter(t => {
+            const front = gridAt(grid, t.front), back = gridAt(grid, t.back);
+            // Dues peces del mateix valor alineades no són una clavada.
+            if (t.kind === 'pin' && PIECE_VALUE[back.t] <= PIECE_VALUE[front.t]) return false;
+            if (t.kind === 'skewer' && PIECE_VALUE[back.t] < 3) return false;
+            return geometryOnly || front.t === 'k' || tacticalCapture(ChessCtor, fen, color, t.from, t.front);
+        });
+    }
+
+    function tacticalTarget(grid, sq) {
+        const p = gridAt(grid, sq);
+        return { sq: sq, type: p.t, color: p.c };
+    }
+
+    function tacticData(kind, grid, color, from, squares, extra) {
+        return Object.assign({ kind: kind, color: color, attackerSq: from, attackerType: gridAt(grid, from).t,
+            targets: squares.map(sq => tacticalTarget(grid, sq)) }, extra || {});
+    }
+
+    // Només seguim motius que la veu HA explicat. La resposta immediata i
+    // la captura següent es descriuen com a fets, mai com un guany assegurat.
+    function tacticalReplies(c, H, after, add) {
+        const mv = c.move;
+        const names = { fork: 'forquilla', pin: 'clavada', skewer: 'enfilada',
+            'discovered-attack': 'atac a la descoberta', 'remove-defender': 'eliminació del defensor' };
+        (c.memory && c.memory.tactics || []).forEach(t => {
+            const age = c.ply - t.ply;
+            if (age !== 1 && age !== 2) return;
+            const name = names[t.kind];
+            const attacker = gridAt(after.grid, t.attackerSq);
+            const intact = attacker && attacker.t === t.attackerType && attacker.c === t.color;
+            const targets = t.targets || [];
+            const emit = variants => add('tactic-reply', variants, {
+                key: 'tactic-reply:' + t.kind + ':' + t.attackerSq + ':' + c.ply,
+                family: 'reply-' + t.kind, reliability: 'rules',
+                tags: { color: mv.color, squares: [mv.to, t.attackerSq].concat(targets.map(x => x.sq)) }
+            });
+            if (mv.color === t.color) {
+                const victim = targets.find(x => x.sq === mv.to && x.type === mv.captured);
+                if (age === 2 && victim && mv.from === t.attackerSq) emit([
+                    'Després de ' + (name.startsWith('eliminació') || name.startsWith('enfilada') || name.startsWith('atac') ? "l'" : 'la ') + name + ', ' + pieceNP(mv.piece, mv.color) + ' captura ' + shortOn(mv.captured, mv.to) + '.',
+                    'La seqüència tàctica continua: ' + pieceNP(mv.piece, mv.color) + ' captura ' + shortOn(mv.captured, mv.to) + '.'
+                ]);
+                return;
+            }
+            if (age !== 1) return;
+            if (mv.to === t.attackerSq && mv.captured === t.attackerType) {
+                emit([t.kind === 'remove-defender'
+                    ? COLOR[mv.color].Pl + ' eliminen l’atacant capturant ' + pieceShort(t.attackerType) + '.'
+                    : COLOR[mv.color].Pl + ' neutralitzen ' + (['skewer', 'discovered-attack'].includes(t.kind) ? "l'" : 'la ') + name + ' capturant ' + pieceShort(t.attackerType) + '.']);
+                return;
+            }
+            if (!intact) return;
+            const remaining = targets.filter(x => {
+                const sq = mv.from === x.sq ? mv.to : x.sq;
+                const p = gridAt(after.grid, sq);
+                return p && p.t === x.type && p.c === x.color && p.t !== 'k'
+                    && tacticalCapture(c.ChessCtor, c.fenAfter, t.color, t.attackerSq, sq);
+            });
+            const stillAttacked = targets.some(x => {
+                const sq = mv.from === x.sq ? mv.to : x.sq;
+                const p = gridAt(after.grid, sq);
+                return p && p.t === x.type && p.c === x.color && p.t !== 'k'
+                    && targetsFrom(H, after.grid, t.attackerSq).includes(sq);
+            });
+            // Un contraescac pot ajornar la captura sense haver desfet l'atac.
+            if (!remaining.length && stillAttacked) return;
+            const movedTarget = targets.find(x => x.sq === mv.from);
+            if (t.kind === 'pin') {
+                const frontSq = mv.from === t.front ? mv.to : t.front;
+                const stillPinned = lineTactics(c.ChessCtor, c.fenAfter, after.grid, t.color, true)
+                    .some(p => p.kind === 'pin' && p.from === t.attackerSq && p.front === frontSq);
+                if (stillPinned) return;
+                const back = targets.find(x => x.sq === t.back);
+                if (movedTarget && movedTarget.sq === t.front && remaining.some(x => x.sq === t.back)) {
+                    emit(['La peça surt de la clavada, però deixa ' + pieceShort(back.type) + ' sota atac.']);
+                } else emit([COLOR[mv.color].Pl + ' desfan la clavada movent ' + pieceShort(mv.piece) + ' a ' + mv.to + '.']);
+            } else if (movedTarget && remaining.some(x => x.sq !== movedTarget.sq)) {
+                const target = remaining.find(x => x.sq !== movedTarget.sq);
+                // No diem que s'ha evitat tota la tàctica si queda una víctima.
+                emit([capFirst(pieceNP(movedTarget.type, mv.color)) + " s'aparta, però " + shortOn(target.type, target.sq) + ' continua sota atac.',
+                    'La resposta mou ' + pieceShort(movedTarget.type) + ', però manté ' + shortOn(target.type, target.sq) + ' sota atac.']);
+            } else if (!remaining.length && t.kind === 'remove-defender' && movedTarget) {
+                emit([capFirst(pieceNP(movedTarget.type, mv.color)) + ' s’aparta de l’atac després de quedar sense defensor.']);
+            } else if (!remaining.length && t.kind !== 'remove-defender') {
+                emit([COLOR[mv.color].Pl + ' neutralitzen ' + (t.kind === 'fork' ? 'la ' : "l'") + name + ': les peces ja no queden atacades per ' + pieceShort(t.attackerType) + '.']);
+            }
+        });
+    }
+
     function tvEmptyMemory() {
         return {
             ideas: {}, texts: [], templates: {}, plainStreak: 0, lastExtendedPly: -99, lastCommentPly: -99,
-            focus: [], threats: [], pressures: [], defined: {}, lastSummaryPly: 0, summarySig: null,
+            focus: [], threats: [], pressures: [], tactics: [], defined: {}, lastSummaryPly: 0, summarySig: null,
             materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false }
         };
     }
@@ -914,18 +1019,27 @@
                     .map(sq => ({ sq: sq, p: gridAt(after.grid, sq) }))
                     .filter(t => t.p && t.p.c === opp);
                 const valuable = hits.filter(t => (t.p.t === 'q' || t.p.t === 'r') && PIECE_VALUE[t.p.t] > movedValue)
+                    .filter(t => tacticalCapture(c.ChessCtor, c.fenAfter, color, mv.to, t.sq))
                     .sort((a, b) => PIECE_VALUE[b.p.t] - PIECE_VALUE[a.p.t]);
                 if (valuable.length) {
                     const target = valuable[0];
-                    let text = capFirst(pieceNP(moved.t, color)) + ' ataca alhora el rei i ' + pieceShort(target.p.t) + '.';
+                    const variants = [
+                        'Forquilla amb escac: ' + pieceNP(moved.t, color) + ' ataca el rei i ' + pieceShort(target.p.t) + '.',
+                        capFirst(pieceNP(moved.t, color)) + ' fa una forquilla al rei i ' + pieceShort(target.p.t) + '.',
+                        'Escac i atac doble: ' + pieceNP(moved.t, color) + ' també ataca ' + pieceShort(target.p.t) + '.'
+                    ];
                     // Que es GUANYI és una altra cosa: només si l'anàlisi ho avala
                     // (la línia principal hi captura i l'avantatge creix).
                     const pv = c.after && c.after.pv ? c.after.pv : [];
                     const gain = tvMoverLossCp(c.after && c.after.best, c.before && c.before.best, color);
-                    if (reliable && pv[1] && pv[1].slice(2, 4) === target.sq && isNum(gain) && gain >= 300) {
-                        text += ' Segons l\'anàlisi, ' + me.pl + ' poden guanyar ' + pieceShort(target.p.t) + '.';
+                    const reply = reliable && pv[0] ? applyUci(c.ChessCtor, c.fenAfter, pv[0]) : null;
+                    const capture = reply && pv[1] ? applyUci(c.ChessCtor, reply.fen, pv[1]) : null;
+                    if (capture && capture.move.from === mv.to && capture.move.to === target.sq && capture.move.captured === target.p.t && isNum(gain) && gain >= 300) {
+                        variants.forEach((text, i) => { variants[i] = text + ' Segons l\'anàlisi, ' + me.pl + ' poden guanyar ' + pieceShort(target.p.t) + '.'; });
                     }
-                    add('fork-check', text, { key: 'fork:' + color + ':' + target.sq, tags: { color: color, squares: [mv.to, target.sq] } });
+                    add('fork-check', variants, { key: 'fork:' + color + ':' + target.sq,
+                        payload: { tactic: tacticData('fork', after.grid, color, mv.to, [ks, target.sq]) },
+                        tags: { color: color, squares: [mv.to, target.sq] } });
                 }
                 const name = pieceNP(moved.t, color);
                 const checkTexts = mv.captured ? describeMove(mv, true).variants : [
@@ -1083,9 +1197,12 @@
                 .sort((a, b) => PIECE_VALUE[b.p.t] - PIECE_VALUE[a.p.t]);
             const payload = threats.slice(0, 2).map(t => ({ attackerSq: mv.to, attackerType: moved.t, attackerColor: color, targetSq: t.sq, targetType: t.p.t, mode: t.defended ? 'value' : 'loose' }));
             if (threats.length >= 2) {
-                add('threat', [capFirst(pieceNP(moved.t, color)) + ' ataca alhora ' + pieceShort(threats[0].p.t) + ' i ' + pieceShort(threats[1].p.t) + '.',
-                    'Atac doble ' + delPiece(moved.t) + ' a ' + mv.to + ': ' + pieceShort(threats[0].p.t) + ' i ' + pieceShort(threats[1].p.t) + ' queden atacats.'],
-                { key: 'threat:' + color + ':' + threats[0].sq + '+' + threats[1].sq, sig: mv.to, payload: { threats: payload },
+                add('fork', ['Forquilla ' + delPiece(moved.t) + ': ataca alhora ' + pieceShort(threats[0].p.t) + ' i ' + pieceShort(threats[1].p.t) + '.',
+                    'Atac doble a ' + mv.to + ': ' + shortOn(threats[0].p.t, threats[0].sq) + ' i ' + shortOn(threats[1].p.t, threats[1].sq) + ' queden sota atac.',
+                    capFirst(pieceNP(moved.t, color)) + ' fa una forquilla contra ' + pieceShort(threats[0].p.t) + ' i ' + pieceShort(threats[1].p.t) + '.'],
+                { key: 'fork:' + color + ':' + threats[0].sq + '+' + threats[1].sq, sig: mv.to,
+                  define: { term: 'fork', text: 'Una sola peça crea dues amenaces alhora.' },
+                  payload: { threats: payload, tactic: tacticData('fork', after.grid, color, mv.to, threats.slice(0, 2).map(t => t.sq)) },
                   tags: { color: color, squares: [mv.to, threats[0].sq, threats[1].sq] } });
             } else if (!threats.length) {
                 // Peó sense defensa a l'abast (fet; si es guanya ho dirà l'anàlisi).
@@ -1121,12 +1238,73 @@
                 const attackers = attackersAt(H, after.grid, sq, color).map(a => squareOf(a.file, a.rank));
                 const liner = attackers.find(a => a !== mv.to && ['b', 'r', 'q'].indexOf(gridAt(after.grid, a).t) !== -1
                     && attackersAt(H, before.grid, sq, color).every(b => squareOf(b.file, b.rank) !== a));
-                if (!liner || !legalCaptureExists(c.ChessCtor, c.fenAfter, liner, sq)) return;
+                const oldLiner = liner && gridAt(before.grid, liner);
+                if (!oldLiner || oldLiner.c !== color || oldLiner.t !== gridAt(after.grid, liner).t || !legalCaptureExists(c.ChessCtor, c.fenAfter, liner, sq)) return;
                 const lt = gridAt(after.grid, liner).t;
-                add('discovered-attack', [capFirst(pieceNP(lt, color)) + ' ' + deSq(liner) + ' ataca ara ' + shortOn(hangAfter[sq].t, sq) + ': la jugada li ha obert la línia.'],
-                    { key: 'disc:' + color + ':' + sq, sig: liner, payload: { threats: [{ attackerSq: liner, attackerType: lt, attackerColor: color, targetSq: sq, targetType: hangAfter[sq].t, mode: hangAfter[sq].defended ? 'value' : 'loose' }] },
+                add('discovered-attack', ['Atac a la descoberta: ' + pieceNP(lt, color) + ' ataca ara ' + shortOn(hangAfter[sq].t, sq) + '.',
+                    'En apartar ' + pieceShort(mv.piece) + ', queda oberta la línia ' + delPiece(lt) + ' contra ' + shortOn(hangAfter[sq].t, sq) + '.',
+                    capFirst(pieceNP(lt, color)) + ' entra en acció amb un atac a la descoberta sobre ' + shortOn(hangAfter[sq].t, sq) + '.'],
+                    { key: 'disc:' + color + ':' + sq, sig: liner,
+                      define: { term: 'discovered-attack', text: 'Una peça es mou i destapa l’atac d’una altra.' },
+                      payload: { tactic: tacticData('discovered-attack', after.grid, color, liner, [sq]),
+                        threats: [{ attackerSq: liner, attackerType: lt, attackerColor: color, targetSq: sq, targetType: hangAfter[sq].t, mode: hangAfter[sq].defended ? 'value' : 'loose' }] },
                       tags: { color: color, squares: [liner, sq] } });
             });
+        }
+
+        // Clavades i enfilades NOVES: alineació verificada i captura legal.
+        // La clavada absoluta impedeix sortir de la línia, no tot moviment.
+        if (!c.end && H && before && after) {
+            const signature = t => [t.kind, t.from, t.front, t.back].join(':');
+            const oldLines = new Set(lineTactics(c.ChessCtor, c.fenBefore, before.grid, color).map(signature));
+            lineTactics(c.ChessCtor, c.fenAfter, after.grid, color).filter(t => !oldLines.has(signature(t))).forEach(t => {
+                const attacker = gridAt(after.grid, t.from), front = gridAt(after.grid, t.front), back = gridAt(after.grid, t.back);
+                const pinned = shortOn(front.t, t.front), behind = shortOn(back.t, t.back);
+                const absolute = back.t === 'k';
+                const variants = t.kind === 'pin' ? [
+                    'Clavada: ' + pieceNP(attacker.t, color) + ' clava ' + pinned + ' contra ' + behind + '.',
+                    capFirst(pinned) + ' queda ' + agree(front.t, 'clavat', 'clavada') + ' contra ' + behind + '.',
+                    'Nova clavada ' + delPiece(attacker.t) + ': ' + pinned + ' té ' + behind + ' al darrere.'
+                ] : [
+                    'Enfilada: ' + pinned + ' està sota atac, amb ' + behind + ' al darrere.',
+                    capFirst(pieceNP(attacker.t, color)) + ' crea una enfilada sobre ' + pinned + ' i ' + behind + '.',
+                    'Dues peces en línia: ' + pinned + ' rep l’atac i ' + behind + ' queda al darrere.'
+                ];
+                add(t.kind, variants, { key: signature(t), sig: signature(t),
+                    define: t.kind === 'pin'
+                        ? { term: absolute ? 'pin-absolute' : 'pin-relative', text: absolute ? 'No pot abandonar la línia i deixar el rei en escac.' : 'Sortir de la línia exposaria una peça més valuosa.' }
+                        : { term: 'skewer', text: 'La peça més valuosa és davant de l’altra.' },
+                    payload: { tactic: tacticData(t.kind, after.grid, color, t.from, [t.front, t.back], { front: t.front, back: t.back }) },
+                    tags: { color: color, squares: [t.from, t.front, t.back] }
+                });
+            });
+
+            // El defensor capturat havia de poder RECAPTURAR legalment abans.
+            // Després de la captura, la víctima continua atacada i sense defensa.
+            if (mv.captured) {
+                const defenderSq = mv.flags.includes('e') ? mv.to[0] + mv.from[1] : mv.to;
+                piecesOf(after.grid, opp).filter(p => PIECE_VALUE[p.t] >= 3 && p.t !== 'k' && p.sq !== mv.to).forEach(p => {
+                    const defenders = attackersAt(H, before.grid, p.sq, opp);
+                    if (!defenders.some(d => squareOf(d.file, d.rank) === defenderSq) || attackersAt(H, after.grid, p.sq, opp).length) return;
+                    const attackers = attackersAt(H, after.grid, p.sq, color).map(a => squareOf(a.file, a.rank))
+                        .filter(sq => tacticalCapture(c.ChessCtor, c.fenAfter, color, sq, p.sq));
+                    if (!attackers.length) return;
+                    const wasDefended = attackersAt(H, before.grid, p.sq, color).some(a => {
+                        const capture = applyUci(c.ChessCtor, c.fenBefore, squareOf(a.file, a.rank) + p.sq);
+                        return capture && tacticalCapture(c.ChessCtor, capture.fen, opp, defenderSq, p.sq);
+                    });
+                    if (!wasDefended) return;
+                    add('remove-defender', [
+                        'Eliminació del defensor: captura ' + pieceShort(mv.captured) + ' i deixa ' + shortOn(p.t, p.sq) + ' sota atac i sense defensa.',
+                        capFirst(shortOn(p.t, p.sq)) + ' queda sense defensor: ' + pieceShort(mv.captured) + ' acaba de ser ' + agree(mv.captured, 'capturat', 'capturada') + '.',
+                        'La captura elimina el defensor ' + delPiece(p.t) + ': ara ' + shortOn(p.t, p.sq) + ' queda sota atac i sense defensa.'
+                    ], { key: 'remove-defender:' + color + ':' + p.sq, sig: mv.to,
+                        payload: { tactic: tacticData('remove-defender', after.grid, color, attackers[0], [p.sq]) },
+                        tags: { color: color, squares: [mv.to, p.sq, attackers[0]] }
+                    });
+                });
+            }
+            tacticalReplies(c, H, after, add);
         }
 
         // 13) Peces pròpies que queden atacades i sense prou defensa després de
@@ -1678,6 +1856,9 @@
         }
         const applyPayload = (payload) => {
             if (!payload) return;
+            if (payload.tactic) {
+                mem.tactics = (mem.tactics || []).concat(Object.assign({ ply: ply }, payload.tactic));
+            }
             if (payload.threats) payload.threats.forEach(t => mem.threats.push(Object.assign({ ply: ply, targetColor: other(t.attackerColor) }, t)));
             if (payload.pressure) {
                 mem.pressures = mem.pressures.filter(p => p.targetSq !== payload.pressure.targetSq);
@@ -1708,6 +1889,7 @@
             mem.plainStreak = 0;
         }
         mem.texts = mem.texts.filter(t => ply - t.ply < TV_CONFIG.TEXT_MEMORY_PLIES);
+        mem.tactics = (mem.tactics || []).filter(t => ply - t.ply < 2);
         Object.keys(mem.ideas).forEach((k) => { if (ply - mem.ideas[k].ply >= TV_CONFIG.IDEA_MEMORY_PLIES * 2) delete mem.ideas[k]; });
         reviseMemory(mem, H, grid);
         return mem;

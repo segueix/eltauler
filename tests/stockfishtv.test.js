@@ -297,7 +297,7 @@ describe('comentaris basats en fets verificats', () => {
     test('forquilla amb escac: «El cavall ataca alhora el rei i la dama»', () => {
         const list = candidates('q3k3/8/8/3N4/8/8/8/6K1 w - - 0 1', 'd5c7');
         expect(list[0].kind).toBe('fork-check');
-        expect(list[0].text).toBe('El cavall blanc ataca alhora el rei i la dama.');
+        expect(list[0].text).toBe('Forquilla amb escac: el cavall blanc ataca el rei i la dama.');
         // Sense anàlisi no es diu que es guanyi res.
         expect(list[0].text).not.toMatch(/guanyar/);
     });
@@ -341,9 +341,10 @@ describe('comentaris basats en fets verificats', () => {
 
     test('atac doble sense escac: el peó ataca alhora dues peces', () => {
         const list = candidates('4k3/8/8/2n1b3/8/2PP4/8/4K3 w - - 0 1', 'd3d4');
-        expect(list.find(c => c.kind === 'threat').text).toBe('El peó blanc ataca alhora el cavall i l\'alfil.');
+        expect(list.find(c => c.kind === 'fork').text).toBe('Forquilla del peó: ataca alhora el cavall i l\'alfil.');
         // Si el peó queda penjat (l'alfil se'l menja sense resposta), no es ven com a amenaça.
         expect(kinds(candidates('4k3/8/8/2n1b3/8/3P4/8/4K3 w - - 0 1', 'd3d4'))).not.toContain('threat');
+        expect(kinds(candidates('4k3/8/8/2n1b3/8/3P4/8/4K3 w - - 0 1', 'd3d4'))).not.toContain('fork');
     });
 
     test('recaptura: «és un canvi de cavalls»', () => {
