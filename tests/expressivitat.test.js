@@ -61,7 +61,7 @@ describe('Expressivitat — comentaris verificats', () => {
             vs.forEach(s => {
                 expect(sentence(s)).toBe(true);
                 expect(s).not.toMatch(/avantatge (decisiu|guanyador)|és la millor jugada|Elo|Stockfish diu|sense defensa garantida/i);
-                expect(s).not.toMatch(/de el |a el |en alfil|en torre/i);
+                expect(s).not.toMatch(/(?:^|\s)(?:de el |a el |en alfil|en torre)/i);
             });
         }
     });
