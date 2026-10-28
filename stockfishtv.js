@@ -1,8 +1,8 @@
 // ============================================================================
-// stockfishtv.js — «Stockfish TV»: Stockfish contra Stockfish amb comentaris
+// stockfishtv.js — «Stockfish vs Lozza TV»: duel amb anàlisi de Stockfish
 // ============================================================================
 // Cada dispositiu GENERA la seva pròpia partida en temps real (no és cap
-// emissió compartida): dos jugadors Stockfish al mateix nivell, una anàlisi
+// emissió compartida): Stockfish juga contra Lozza, amb nivells adaptatius i una anàlisi
 // independent sense límit de força i comentaris breus en català basats en
 // fets verificats (regles amb chess.js i anàlisi fiable del motor).
 //
@@ -150,7 +150,9 @@
         EXTENDED_GAP_PLIES: 3,
         // Fet de la jugada (captura o escac) + conseqüència: marge propi.
         LEAD_MAX_WORDS: 32,
-        PREFS_KEY: 'tauler_tv_prefs'
+        PREFS_KEY: 'tauler_tv_prefs',
+        RIVALRY_HISTORY: 8,
+        LOZZA_MAX_DEPTH: 9
     };
 
     const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 100 };
@@ -363,7 +365,7 @@
             Object.keys(p.offsets).forEach((k) => { if (isNum(p.offsets[k])) offsets[k] = Math.round(p.offsets[k]); });
         }
         const openingIndex = isNum(p.openingIndex) ? Math.max(0, Math.floor(p.openingIndex)) : null;
-        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false };
+        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false, recent: tvRecentResults(p.recent) };
     }
 
     function tvResolveTarget(caps, viewer, prefs) {
@@ -547,6 +549,69 @@
     }
 
     // Nivell del bàndol que té el torn en aquesta posició.
+    // Historial estrictament local de partides automàtiques. No s'utilitza
+    // cap valoració Elo fictícia per convertir la profunditat de Lozza.
+    function tvRecentResults(items) {
+        if (!Array.isArray(items)) return [];
+        return items.filter(x => x && ['stockfish', 'lozza', 'draw'].includes(x.winner)
+            && ['w', 'b'].includes(x.lozzaColor) && isNum(x.plies) && x.plies >= 0)
+            .slice(-TV_CONFIG.RIVALRY_HISTORY)
+            .map(x => ({ winner: x.winner, lozzaColor: x.lozzaColor,
+                plies: Math.floor(x.plies), reason: String(x.reason || '').slice(0, 40) }));
+    }
+
+    // Tria les condicions de la PARTIDA SEGÜENT, mai una jugada ni el resultat.
+    // Alterna colors; després de taules augmenta el desequilibri, i després
+    // de ratxes afavoreix el rival que ha perdut. Tot es comprova al tauler.
+    function tvMatchPlan(items, options) {
+        const o = options || {};
+        const history = tvRecentResults(items);
+        const last = history[history.length - 1] || null;
+        const r = typeof o.random === 'function' ? o.random : Math.random;
+        const lozzaColor = last ? other(last.lozzaColor) : (r() < 0.5 ? 'w' : 'b');
+        const engines = { w: lozzaColor === 'w' ? 'lozza' : 'stockfish',
+            b: lozzaColor === 'b' ? 'lozza' : 'stockfish' };
+        const caps = o.caps || null;
+        const target = isNum(o.target) ? o.target : (caps && isNum(caps.min) ? caps.min : 0);
+        const ratio = caps && caps.mode !== 'none' && isNum(caps.max) && isNum(caps.min)
+            ? clamp((target - caps.min) / Math.max(1, caps.max - caps.min), 0, 1) : 0.3;
+        let depth = 3 + Math.round(ratio * 5);
+        const moveTime = 110 + Math.round(ratio * 150);
+        let stockfishLevel = target;
+        let draws = 0;
+        for (let i = history.length - 1; i >= 0 && history[i].winner === 'draw'; i--) draws++;
+        const wins = { stockfish: 0, lozza: 0, draw: 0 };
+        history.forEach(x => { wins[x.winner]++; });
+        const previousWinner = history.slice().reverse().find(x => x.winner !== 'draw');
+        let streak = 0;
+        if (previousWinner) {
+            for (let i = history.length - 1; i >= 0; i--) {
+                if (history[i].winner === 'draw') continue;
+                if (history[i].winner !== previousWinner.winner) break;
+                streak++;
+            }
+        }
+        let bias = 0; // positiu: Stockfish s'enforteix i Lozza es limita
+        if (o.unequal !== false) {
+            if (streak >= 2) bias = previousWinner.winner === 'stockfish' ? -1 : 1;
+            if (draws >= 2) {
+                const favor = wins.stockfish > wins.lozza ? -1
+                    : wins.lozza > wins.stockfish ? 1 : (history.length % 2 === 0 ? -1 : 1);
+                bias = favor * Math.min(2, Math.floor(draws / 2));
+            }
+            if (caps && caps.mode === 'skill') stockfishLevel = clamp(target + bias, caps.min, caps.max);
+            else if (caps && caps.mode === 'elo') stockfishLevel = clamp(target + 100 * bias, caps.min, caps.max);
+            depth = clamp(depth - bias, 2, TV_CONFIG.LOZZA_MAX_DEPTH);
+        }
+        const sharp = draws >= 1 || (isNum(o.gameSeq) ? o.gameSeq % 2 === 0 : false);
+        const reason = draws >= 2 ? 'Després de ' + draws + ' taules seguides, augmentem moderadament el contrast de forces i prioritzem una obertura tàctica.'
+            : streak >= 2 && o.unequal !== false ? 'Després de ' + streak + ' victòries consecutives, donem més opcions al rival.'
+            : sharp ? 'Rotació cap a una obertura més tàctica.' : 'Alternança de colors i obertures.';
+        return { engines: engines, lozzaColor: lozzaColor, stockfishLevel: stockfishLevel,
+            lozzaDepth: depth, lozzaMovetime: moveTime, sharp: sharp, reason: reason,
+            draws: draws, wins: wins, bias: bias };
+    }
+
     function tvSideLevel(level, fen) {
         if (!level) return null;
         const turn = String(fen || '').split(' ')[1] === 'b' ? 'b' : 'w';
@@ -2714,6 +2779,8 @@
             movePreview: null,
             error: null,
             loopRunning: false,
+            lozzaReady: false,
+            duelWarning: false,
             // Control manual: { color } del bàndol que mou l'usuari (l'altre el
             // juga el motor). null: Stockfish juga els dos bàndols.
             control: null,
@@ -2746,6 +2813,7 @@
             S.timers.forEach((t) => { clearT(t.id); t.resolve(false); });
             S.timers.clear();
             if (d.engine) d.engine.cancelAll();
+            if (d.lozzaEngine) d.lozzaEngine.cancelAll();
             if (d.voice) d.voice.stop();
             S.speech = null;
             S.pendingUser = false;
@@ -2768,6 +2836,8 @@
                 speed: prefs.speed,
                 unequal: prefs.unequal,
                 profiles: prefs.profiles,
+                recentResults: prefs.recent.slice(),
+                duelWarning: S.duelWarning,
                 movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
                 nextLevel: next.value,
                 control: S.control && g ? {
@@ -2784,6 +2854,8 @@
                     moves: g.moves.slice(),
                     level: g.level,
                     styles: g.styles,
+                    engines: g.engines,
+                    matchPlan: g.matchPlan,
                     opening: g.opening ? { name: g.opening.name, eco: g.opening.eco, idea: g.opening.idea || null, plies: g.prepared.length } : null,
                     identified: g.identified,
                     lastMove: g.moves.length ? g.moves[g.moves.length - 1] : null,
@@ -2820,14 +2892,19 @@
             const epoch = S.epoch;
             // Una partida de cada dues comença amb una obertura que desequilibra
             // aviat: les partides es decideixen abans sense tocar el nivell.
+            const v = viewer();
+            const target = tvResolveTarget(S.caps, v, prefs);
+            const duel = S.lozzaReady ? tvMatchPlan(prefs.recent, {
+                caps: S.caps, target: target.value, unequal: prefs.unequal,
+                gameSeq: S.gameSeq, random: random
+            }) : null;
             const pick = tvPickOpening(typeof d.getOpenings === 'function' ? d.getOpenings() : [],
-                prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000), { sharp: S.gameSeq % 2 === 0 });
+                prefs.openingIndex !== null ? prefs.openingIndex : Math.floor(random() * 1000),
+                { sharp: duel ? duel.sharp : S.gameSeq % 2 === 0 });
             prefs = Object.assign({}, prefs, { openingIndex: pick.nextIndex });
             savePrefs();
             S.control = null;
-            const v = viewer();
-            const target = tvResolveTarget(S.caps, v, prefs);
-            const levels = tvGameLevels(S.caps, target.value, prefs.unequal, random);
+            const levels = duel ? null : tvGameLevels(S.caps, target.value, prefs.unequal, random);
             const styles = prefs.profiles && S.caps && S.caps.mode !== 'none' ? tvPickStyles(random) : null;
             S.game = {
                 id: ++S.gameSeq,
@@ -2837,8 +2914,15 @@
                 // El nivell queda FIXAT per a tota la partida. `value` és l'objectiu
                 // triat; `sides`, el de cada jugador (diferents amb nivells desiguals).
                 level: { value: target.value, sides: levels && levels.stronger ? { w: levels.w, b: levels.b } : null,
-                    stronger: levels ? levels.stronger : null, label: tvGameLevelLabel(S.caps, levels, target.value),
-                    reveal: tvLevelReveal(S.caps, levels), mode: S.caps ? S.caps.mode : 'none' },
+                    stronger: levels ? levels.stronger : null,
+                    label: duel ? tvLevelLabel(S.caps, target.value) : tvGameLevelLabel(S.caps, levels, target.value),
+                    reveal: duel ? 'Stockfish: ' + tvLevelLabel(S.caps, duel.stockfishLevel).long
+                        + '. Lozza: profunditat ' + duel.lozzaDepth + ' (no és un Elo comparable).' : tvLevelReveal(S.caps, levels),
+                    mode: S.caps ? S.caps.mode : 'none', stockfish: duel ? duel.stockfishLevel : null },
+                engines: duel ? duel.engines : { w: 'stockfish', b: 'stockfish' },
+                matchPlan: duel,
+                recorded: false,
+                hadManualControl: false,
                 // Perfil de joc de cada bàndol (o null si estan apagats).
                 styles: styles,
                 tier: v.tier,
@@ -2856,10 +2940,12 @@
                 nextGameAt: null
             };
             if (d.engine) d.engine.newGame();
+            if (duel && d.lozzaEngine) d.lozzaEngine.newGame();
             S.nextRevealAt = now() + TV_CONFIG.INTRO_DELAY_MS;
             if (pick.opening) {
                 const intro = 'Obertura de partida: ' + pick.opening.name + '.' + (pick.opening.idea ? ' ' + pick.opening.idea : '')
-                    + (styles ? ' Juguen ' + TV_STYLES[styles.w].label + ', amb blanques, contra ' + TV_STYLES[styles.b].label + ', amb negres.' : '');
+                    + (duel ? ' Duel entre Stockfish i Lozza: ' + duel.reason
+                        : (styles ? ' Juguen ' + TV_STYLES[styles.w].label + ', amb blanques, contra ' + TV_STYLES[styles.b].label + ', amb negres.' : ''));
                 S.game.comment = { kind: 'intro', text: intro, speech: tvSpeechText(intro), ply: 0, gameId: S.game.id };
                 S.game.intro = S.game.comment;
                 S.nextRevealAt = Math.max(S.nextRevealAt, now() + tvReadingTimeMs(intro, v.tier));
@@ -2903,17 +2989,23 @@
         }
 
         function playerMove(g, uciMoves, ply, fen, epoch) {
-            if (!d.engine) return Promise.resolve(null);
+            const color = String(fen).split(' ')[1] === 'b' ? 'b' : 'w';
+            const lozzaTurn = g.engines && g.engines[color] === 'lozza';
+            const engine = lozzaTurn ? d.lozzaEngine : d.engine;
+            if (!engine) return Promise.resolve(null);
             const mode = S.caps ? S.caps.mode : 'none';
-            const movetime = TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
-            const style = g.styles ? g.styles[String(fen).split(' ')[1] === 'b' ? 'b' : 'w'] : null;
-            return d.engine.request({
-                tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move' },
+            const movetime = lozzaTurn ? g.matchPlan.lozzaMovetime : TV_CONFIG.PLAYER_MOVETIME_MS[mode] || 500;
+            const style = !lozzaTurn && g.styles ? g.styles[color] : null;
+            return engine.request({
+                tag: { gameId: g.id, ply: ply, fen: fen, kind: 'move', engine: lozzaTurn ? 'lozza' : 'stockfish' },
                 position: tvPositionCommand(uciMoves),
-                strength: tvStrengthCommands(S.caps, 'player', tvSideLevel(g.level, fen)),
-                // Amb perfil, les millors línies per poder triar-ne una del seu estil.
+                strength: lozzaTurn ? [] : tvStrengthCommands(S.caps, 'player',
+                    g.matchPlan ? g.matchPlan.stockfishLevel : tvSideLevel(g.level, fen)),
                 multipv: style ? TV_CONFIG.STYLE_MULTIPV : 1,
-                go: 'go movetime ' + movetime,
+                // Lozza no declara Skill Level ni UCI_Elo. La profunditat és un
+                // límit de càlcul, mai una valoració d'Elo equivalent.
+                go: lozzaTurn ? 'go depth ' + g.matchPlan.lozzaDepth + ' movetime ' + movetime
+                    : 'go movetime ' + movetime,
                 movetime: movetime
             }).then((res) => {
                 if (!res || !alive(epoch) || S.game !== g) return null;
@@ -2939,7 +3031,10 @@
                     uci = await playerMove(g, g.uci, ply, fenBefore, epoch);
                     if (!alive(epoch) || S.game !== g) return;
                     if (!uci) {
-                        if (d.engine && d.engine.failed && d.engine.failed()) { fail('engine'); return; }
+                        if ((d.engine && d.engine.failed && d.engine.failed())
+                            || (g.engines[g.chess.turn()] === 'lozza' && d.lozzaEngine && d.lozzaEngine.failed && d.lozzaEngine.failed())) {
+                            fail('engine'); return;
+                        }
                         // Sense resposta vàlida: es torna a provar més tard.
                         if (!(await sleep(1000, epoch))) return;
                         continue;
@@ -3096,6 +3191,18 @@
         }
 
         async function scheduleNextGame(g, epoch) {
+            // Només compten partides íntegrament automàtiques i acabades.
+            // El comptador és idempotent en pauses i reobertures.
+            if (g.end && !g.recorded && !g.hadManualControl && g.matchPlan) {
+                g.recorded = true;
+                const winningColor = g.end.result === '1-0' ? 'w' : g.end.result === '0-1' ? 'b' : null;
+                const winner = winningColor ? g.engines[winningColor] : 'draw';
+                prefs = Object.assign({}, prefs, { recent: tvRecentResults(prefs.recent.concat([{
+                    winner: winner, lozzaColor: g.matchPlan.lozzaColor,
+                    plies: g.moves.length, reason: g.end.reason
+                }])) });
+                savePrefs();
+            }
             if (S.speech) {
                 await S.speech;
                 if (!alive(epoch) || S.game !== g) return;
@@ -3153,15 +3260,24 @@
                     if (!S.open) return;
                     if (!caps) { fail('engine'); return; }
                     S.caps = caps;
-                    notify('caps', caps);
-                    if (S.userPaused || S.hidden) { render(); return; }
-                    if (!S.game) startGame(); else resumeLoop();
+                    // Lozza es carrega només quan s'obre aquesta TV; si falla
+                    // la càrrega, es continua amb Stockfish sense bloquejar.
+                    const opponent = d.lozzaEngine ? d.lozzaEngine.ready().catch(() => null) : Promise.resolve(null);
+                    return opponent.then((lozzaCaps) => {
+                        if (!S.open) return;
+                        S.lozzaReady = !!lozzaCaps;
+                        S.duelWarning = !!d.lozzaEngine && !S.lozzaReady;
+                        notify('caps', caps);
+                        if (S.userPaused || S.hidden) { render(); return; }
+                        if (!S.game) startGame(); else resumeLoop();
+                    });
                 });
             },
             close() {
                 halt();
                 S.open = false;
                 if (d.engine) d.engine.destroy();
+                if (d.lozzaEngine) d.lozzaEngine.destroy();
                 render();
             },
             pause() {
@@ -3240,6 +3356,7 @@
                 const prev = g.moves[g.moves.length - 1];
                 g.comment = prev ? prev.commentObj : g.intro;
                 S.control = { color: g.chess.turn() };
+                g.hadManualControl = true;
                 notify('undo', { gameId: g.id, move: entry });
                 render();
                 return true;
@@ -3251,6 +3368,7 @@
                 halt();
                 S.userPaused = false;
                 S.control = { color: g.chess.turn() };
+                g.hadManualControl = true;
                 render();
                 return true;
             },
@@ -4082,16 +4200,20 @@
         const engine = createTvEngine({
             createWorker: () => (typeof bridge.createWorker === 'function' ? bridge.createWorker() : new Worker('stockfish.js'))
         });
+        const lozzaEngine = createTvEngine({
+            createWorker: () => new Worker('lozza.js')
+        });
         controller = createTvController({
             ChessCtor: root.Chess,
             engine: engine,
+            lozzaEngine: lozzaEngine,
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
             getOpenings: () => { try { return typeof bridge.getCuratedOpenings === 'function' ? bridge.getCuratedOpenings() : []; } catch (e) { return []; } },
             getOpeningGraph: () => { try { return typeof bridge.getOpeningGraph === 'function' ? bridge.getOpeningGraph() : null; } catch (e) { return null; } },
             loadPrefs: loadPrefsRaw,
-            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal, profiles: p.profiles })
+            savePrefs: (p) => savePrefsRaw({ speed: p.speed, offsets: p.offsets, openingIndex: p.openingIndex, unequal: p.unequal, profiles: p.profiles, recent: p.recent })
         });
         return controller;
     }
@@ -4268,6 +4390,8 @@
         tvPickStyledMove,
         tvStylesLine,
         tvGameLevels,
+        tvRecentResults,
+        tvMatchPlan,
         tvGameLevelLabel,
         tvLevelReveal,
         tvSideLevel,
