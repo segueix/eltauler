@@ -1,6 +1,8 @@
 const B = require('../bulletpractice');
+const REAL = require('../bulletbank');
 const { Chess } = require('chess.js');
-const bank = B.buildBank(Chess);
+const bank = B.buildBank(Chess, REAL);
+const seeds = bank.filter(t => !t.puzzle);
 const move = u => ({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
 
 describe('banc de lectura immediata', () => {
@@ -12,6 +14,7 @@ describe('banc de lectura immediata', () => {
         // No pot estar en escac el jugador que acaba de moure.
         expect(new Chess(p.join(' ')).in_check()).toBe(false);
         expect(task.answers.length).toBeGreaterThan(0);
+        expect(new Set(task.answers).size).toBe(task.answers.length);
         if (task.kind === 'escape') expect(c.in_check()).toBe(true);
         for (const u of task.answers) {
             const m = c.move(move(u)); expect(m).not.toBeNull();
@@ -22,8 +25,34 @@ describe('banc de lectura immediata', () => {
         }
         if (task.kind === 'mate') {
             const all = c.moves({ verbose: true }).filter(m => { c.move(m); const ok = c.in_checkmate(); c.undo(); return ok; }).map(m => m.from + m.to + (m.promotion || ''));
-            expect(task.answers.sort()).toEqual(all.sort());
+            expect(task.answers.slice().sort()).toEqual(all.sort());
+        } else {
+            // Cap resposta fora de la regla de l'objectiu (guany immediat o sortida segura).
+            const rule = B.solutions(Chess, task);
+            task.answers.forEach(u => expect(rule).toContain(u));
         }
+        if (task.puzzle) {
+            // La jugada anterior del rival acaba en una peça seva.
+            const piece = c.get(task.last.slice(2, 4));
+            expect(piece && piece.color).toBe(c.turn() === 'w' ? 'b' : 'w');
+        }
+    });
+    test('banc real: entrades vàlides, úniques i repartides per objectiu i dificultat', () => {
+        const real = bank.filter(t => t.puzzle);
+        expect(real).toHaveLength(REAL.length);
+        expect(new Set(real.map(t => t.id)).size).toBe(real.length);
+        expect(new Set(real.map(t => t.fen.split(' ').slice(0, 2).join(' '))).size).toBe(real.length);
+        B.KINDS.forEach(kind => expect(real.filter(t => t.kind === kind).length).toBeGreaterThanOrEqual(100));
+        expect(new Set(real.map(t => t.fen.split(' ')[1])).size).toBe(2);
+        // Cada nivell té prou posicions de cada objectiu per a una contrarellotge sense repetir.
+        for (let level = 1; level <= 5; level++) {
+            const pool = B.levelPool(bank, level);
+            expect(new Set(pool.map(t => t.family)).size).toBeGreaterThanOrEqual(B.MODES.rush.count);
+            B.KINDS.forEach(kind => expect(pool.filter(t => t.kind === kind).length).toBeGreaterThanOrEqual(10));
+        }
+        expect(B.realTask(['x', 'm', 'fen', 'e2e4', 'e7e5', 900])).toBeNull();
+        expect(B.realTask(['abcde', 'z', '8/8/8/8/8/8/8/8 w - - 0 1', 'e2e4', 'e7e5', 900])).toBeNull();
+        expect(B.realTask(['abcde', 'm', '8/8/8/8/8/8/8/8 w - - 0 1', 'e2e4', '', 900])).toBeNull();
     });
     test('simetria reversible incloent enroc i captura al pas', () => {
         for (const [, fen] of B.SEEDS) expect(B.mirrorFen(B.mirrorFen(fen))).toBe(fen);
@@ -47,6 +76,23 @@ describe('banc de lectura immediata', () => {
         const deck = B.makeDeck(bank, 'scan', [], () => .5);
         const fresh = B.makeDeck(bank, 'scan', deck.map(t => t.id), () => .5);
         expect(fresh.some(t => deck.some(old => old.id === t.id))).toBe(false);
+    });
+    test.each([1, 2, 3, 4, 5])('nivell %s: posicions dins la franja de dificultat', level => {
+        const cap = B.LEVEL_CAP[level], floor = level > 1 ? B.LEVEL_CAP[level - 1] - 250 : 0;
+        const deck = B.makeDeck(bank, 'sprint', [], () => .3, level);
+        expect(deck).toHaveLength(B.MODES.sprint.count);
+        deck.forEach(t => { expect(t.rating).toBeLessThanOrEqual(cap); expect(t.rating).toBeGreaterThanOrEqual(floor); });
+    });
+    test('contrarellotge: quaranta posicions diferents de dificultat creixent', () => {
+        const deck = B.makeDeck(bank, 'rush', [], () => .7, 3);
+        expect(deck).toHaveLength(40);
+        expect(new Set(deck.map(t => t.family)).size).toBe(40);
+        deck.slice(1).forEach((t, i) => expect(t.rating).toBeGreaterThanOrEqual(deck[i].rating));
+    });
+    test('només amb les posicions bàsiques també es pot fer una sèrie', () => {
+        const basic = B.buildBank(Chess);
+        expect(basic).toHaveLength(seeds.length);
+        expect(B.makeDeck(basic, 'scan', [], () => .5, 5)).toHaveLength(8);
     });
 });
 
@@ -150,5 +196,119 @@ describe('progrés: rapidesa, precisió i atenció separades', () => {
         const p = B.normalizeProgress(JSON.parse(JSON.stringify({ sessions: many })));
         expect(p.sessions).toHaveLength(120); expect(p.sessions[0].id).toBe('10');
         expect(B.normalizeProgress(p)).toEqual(p);
+    });
+});
+
+describe('contrarellotge: temps compartit i penalització per error', () => {
+    function rush(seconds = 30) {
+        let time = 0;
+        const s = B.createSession({ mode: 'rush', seconds, level: 2, deck: B.makeDeck(bank, 'rush', [], () => .5, 2), now: () => time });
+        return { s, advance: ms => { time += ms; } };
+    }
+    test.each([30, 60])('%s s: encerts i errors consumeixen el mateix rellotge; l’error resta temps extra', seconds => {
+        const { s, advance } = rush(seconds), penalty = B.PENALTY_MS[seconds];
+        s.prepare(); expect(s.state().limitMs).toBe(seconds * 1000);
+        s.begin(); advance(1500); s.submit(s.state().task.answers[0]);
+        expect(s.state().status).toBe('feedback'); expect(s.state().remainingMs).toBe(seconds * 1000 - 1500);
+        s.prepare(); s.begin(); advance(800); s.submit('a1a1');
+        const row = s.state().rows[1];
+        expect(row).toMatchObject({ correct: false, timeout: false, penaltyMs: penalty, clockMs: seconds * 1000 - 2300 });
+        expect(s.state().remainingMs).toBe(seconds * 1000 - 2300 - penalty);
+        expect(s.state().rows.some(r => 'clockCorrect' in r)).toBe(false);
+    });
+    test('la penalització no deixa el rellotge en negatiu i la sèrie s’acaba a zero', () => {
+        const { s, advance } = rush(30);
+        s.prepare(); s.begin(); advance(28000); s.submit('a1a1');
+        expect(s.state().rows[0].penaltyMs).toBe(2000); expect(s.state().remainingMs).toBe(0);
+        expect(s.prepare()).toBe(false); expect(s.state().status).toBe('done');
+        expect(B.summary(s.state().rows)).toMatchObject({ correct: 0, penaltyMs: 2000 });
+    });
+    test('la posició a mitges quan s’acaba el temps tanca la prova i no compta com a error', () => {
+        const { s, advance } = rush(30);
+        s.prepare(); s.begin(); advance(2000); s.submit(s.state().task.answers[0]);
+        s.prepare(); s.begin(); advance(31000);
+        expect(s.tick()).toMatchObject({ timeout: true, correct: false });
+        expect(s.state().rows).toHaveLength(1); expect(s.state().remainingMs).toBe(0);
+        // Una jugada tardana tampoc no compta.
+        expect(s.submit(s.state().task.answers[0])).toBeNull();
+        expect(s.prepare()).toBe(false); expect(s.state().status).toBe('done');
+        expect(B.summary(s.state().rows)).toMatchObject({ attempts: 1, correct: 1, accuracy: 1 });
+    });
+    test('tota una contrarellotge d’encerts ràpids: més posicions que una sèrie normal', () => {
+        const { s, advance } = rush(60);
+        while (s.prepare()) { s.begin(); advance(1400); s.submit(s.state().task.answers[0]); }
+        const a = B.summary(s.state().rows);
+        expect(a.correct).toBe(40); expect(a.accuracy).toBe(1);
+    });
+});
+
+describe('estratègia: nivell, rècords, pla diari, ratxa i fase', () => {
+    const row = (extra = {}) => ({ taskId: 't', kind: 'mate', correct: true, timeout: false, reactionMs: 1500, targetMs: 30000, clockMs: 15000, ...extra });
+    const day = (d, h = 18) => new Date(2026, 9, d, h).getTime();
+    let n = 0;
+    const session = (mode, at, extra = {}) => ({ id: 's' + (n++), at, mode, seconds: 60, level: 1, complete: true, rows: Array.from({ length: mode === 'rush' ? 10 : B.MODES[mode].count }, () => row()), ...extra });
+    test('contrarellotge: puja amb precisió i prou encerts; persisteix fins a 60 files amb la penalització', () => {
+        const good = () => session('rush', day(1), { rows: Array.from({ length: 10 }, () => row()) });
+        const few = () => session('rush', day(1), { rows: Array.from({ length: 6 }, () => row()) });
+        expect(B.suggestedLevel({ sessions: [good(), good(), good()] }, 'rush', 60)).toBe(2);
+        expect(B.suggestedLevel({ sessions: [good(), good(), few()] }, 'rush', 60)).toBe(1);
+        expect(B.suggestedLevel({ sessions: [few(), few(), few()].map(s => ({ ...s, seconds: 30 })) }, 'rush', 30)).toBe(2);
+        const long = session('rush', day(1), { rows: Array.from({ length: 70 }, () => row({ correct: false, penaltyMs: 5000 })) });
+        const p = B.normalizeProgress(JSON.parse(JSON.stringify({ sessions: [long] })));
+        expect(p.sessions[0].rows).toHaveLength(60); expect(p.sessions[0].rows[0].penaltyMs).toBe(5000);
+        expect(B.normalizeProgress({ sessions: [session('rush', 1, { rows: [row({ penaltyMs: 99999 })] })] }).sessions[0].rows[0].penaltyMs).toBeUndefined();
+    });
+    test('rècords per ritme: només contrarellotges acabades; en cas d’empat, la més ràpida', () => {
+        const p = { sessions: [
+            session('rush', day(1), { rows: Array.from({ length: 8 }, () => row({ reactionMs: 2000 })) }),
+            session('rush', day(2), { rows: Array.from({ length: 8 }, () => row({ reactionMs: 1500 })), level: 2 }),
+            session('rush', day(3), { rows: Array.from({ length: 20 }, () => row()), complete: false }),
+            session('rush', day(4), { seconds: 30, rows: Array.from({ length: 5 }, () => row()) }),
+            session('sprint', day(4), { rows: Array.from({ length: 10 }, () => row()) })
+        ] };
+        const r = B.records(p);
+        expect(r[60]).toMatchObject({ score: 8, level: 2, medianMs: 1500 });
+        expect(r[30]).toMatchObject({ score: 5 });
+        expect(B.records({ sessions: [] })).toEqual({ 30: null, 60: null });
+    });
+    test('pla d’avui: compta les sèries acabades d’avui en ordre i marca el pas següent', () => {
+        const now = day(10, 20);
+        expect(B.planToday({ sessions: [] }, now)).toMatchObject({ next: 'scan', complete: false });
+        const p = { sessions: [session('scan', day(9)), session('scan', day(10, 9)), session('radar', day(10, 10)), session('sprint', day(10, 11), { complete: false })] };
+        let plan = B.planToday(p, now);
+        expect(plan.steps.map(s => s.done)).toEqual([1, 1, 0, 0]); expect(plan.next).toBe('sprint');
+        p.sessions.push(session('sprint', day(10, 12)), session('rush', day(10, 13)));
+        plan = B.planToday(p, now); expect(plan.next).toBe('rush'); expect(plan.steps[3].done).toBe(1);
+        p.sessions.push(session('rush', day(10, 14)), session('rush', day(10, 15)));
+        plan = B.planToday(p, now); expect(plan).toMatchObject({ complete: true, next: null }); expect(plan.steps[3].done).toBe(2);
+    });
+    test('ratxa de dies: avui o fins ahir, i un forat la talla', () => {
+        const p = { sessions: [session('scan', day(5)), session('scan', day(6)), session('scan', day(8, 9)), session('radar', day(9, 23)), session('scan', day(9, 1), { complete: false })] };
+        expect(B.streak(p, day(9, 23))).toBe(2);
+        expect(B.streak(p, day(10, 8))).toBe(2);
+        expect(B.streak(p, day(11, 8))).toBe(0);
+        expect(B.streak({ sessions: [] }, day(9))).toBe(0);
+        expect(B.activeDays(p, day(9, 23))).toBe(4);
+    });
+    test('fase: precisió → rellotge → velocitat → passa a 30 segons', () => {
+        const p = { sessions: [] };
+        expect(B.phase(p, 60)).toMatchObject({ step: 1, mode: 'scan' });
+        p.sessions.push(session('scan', day(1)), session('scan', day(2)), session('scan', day(3)));
+        expect(B.phase(p, 60)).toMatchObject({ step: 2, mode: 'radar' });
+        const radar = extra => session('radar', day(4), { rows: Array.from({ length: 8 }, () => row({ clockCorrect: true, clockErrorMs: 0 })), ...extra });
+        p.sessions.push(radar(), radar(), radar());
+        expect(B.phase(p, 60)).toMatchObject({ step: 3, mode: 'rush' });
+        expect(B.phase(p, 30)).toMatchObject({ step: 1 });
+        p.sessions.push(session('rush', day(5), { rows: Array.from({ length: 12 }, () => row()) }));
+        expect(B.phase(p, 60)).toMatchObject({ step: 4 });
+    });
+    test('punt feble: el tipus d’objectiu amb menys encerts recents, si n’hi ha prou dades', () => {
+        const now = day(20);
+        const rows = [...Array.from({ length: 8 }, () => row({ kind: 'mate' })), ...Array.from({ length: 8 }, (_, i) => row({ kind: 'escape', correct: i < 4 })), row({ kind: 'capture', correct: false })];
+        const ks = B.kindStats({ sessions: [session('scan', day(19), { rows })] }, now);
+        expect(ks.weakest).toBe('escape');
+        expect(ks.byKind.mate.accuracy).toBe(1); expect(ks.byKind.capture.attempts).toBe(1);
+        // Fora de la finestra de 30 dies no compta.
+        expect(B.kindStats({ sessions: [session('scan', new Date(2026, 7, 1).getTime(), { rows })] }, now).weakest).toBeNull();
     });
 });

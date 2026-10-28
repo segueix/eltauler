@@ -480,15 +480,30 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
 
 ### Reflexos bullet
 
-`tests/bulletpractice.test.js` comprova les 44 posicions amb chess.js real,
-les alternatives de mat, les captures amb guany immediat, les sortides d'escac,
-els dos colors, les promocions i la captura al pas. També verifica el pressupost
-compartit del sprint, els límits a 30/60 segons, la primera decisió definitiva,
-el record del rellotge, la interrupció, la persistència i la progressió separada
-per modalitat, ritme i nivell. El mòdul no escriu a l'estat d'una partida ni al ROC.
+`tests/bulletpractice.test.js` comprova amb chess.js real les 44 posicions
+bàsiques i les 526 posicions reals de `bulletbank.js` (problemes d'una jugada de
+Lichess, CC0, generats amb `scripts/build-bullet-bank.js`): posició legal, la
+jugada anterior del rival acaba en una peça seva, tots els mats en una acceptats,
+i cap resposta de captura o de sortida d'escac fora de la regla de l'objectiu.
+També que cada nivell té prou posicions de cada objectiu per a una
+contrarellotge sense repetir, els dos colors, les promocions i la captura al pas.
+De les sessions: el pressupost compartit del sprint, els límits a 30/60 segons,
+la primera decisió definitiva, el record del rellotge, la interrupció i la
+**contrarellotge** (temps compartit, −3 s / −5 s per error sense passar de zero,
+la posició a mitges quan s'acaba el temps no compta com a error, dificultat
+creixent). De l'estratègia: la pujada de nivell per modalitat, ritme i nivell
+(a la contrarellotge, precisió i un mínim d'encerts), els **rècords** per ritme,
+el **pla d'avui** (lectura → radar → sprint → dues contrarellotges), la **ratxa**
+de dies, la **fase** (precisió → rellotge → velocitat → passa a 30 s) i el punt
+feble per tipus d'objectiu. La persistència queda acotada i tolerant a dades
+corruptes. El mòdul no escriu a l'estat d'una partida ni al ROC.
 
 Per comprovar la integració: `Entrena → Reflexos bullet`, completar una sèrie
-de cada modalitat tocant i arrossegant peces; comprovar que el rellotge és just
+de cada modalitat tocant i arrossegant peces (l'estat es llegeix amb
+`ElTaulerBulletPractice._state()`, que inclou `task.answers`); a la
+contrarellotge, comprovar el senyal `+1` / `−3 s`, que acaba sola quan s'esgota
+el temps i el rècord als resultats; comprovar que el pla d'avui marca els passos
+fets i que la jugada anterior del rival queda marcada al tauler. Comprovar que el rellotge és just
 damunt del tauler, que s'oculta en preguntar pel temps i que no consumeix temps
 durant la revisió. Tocar una peça sense arrossegar-la l'ha de seleccionar sense
 avisar de jugada il·legal. Verificar també promoció, temps exhaurit, retorn a

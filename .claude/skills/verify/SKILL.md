@@ -102,6 +102,18 @@ Conduir amb Playwright + Chromium preinstal·lat
     jugant primer (`#btn-new-game` → `#btn-back`) i obrint després
     `#btn-history`.
 
+14. **Reflexos bullet** (`bulletpractice.js`, posicions a `bulletbank.js`):
+    `#btn-bullet-practice` obre `#bullet-screen`. Modalitat `#bp-mode`
+    (`scan`, `radar`, `sprint`, `rush` = contrarellotge) i ritme `#bp-seconds`;
+    `#bp-start` o el pas del pla `#bp-plan-go`. L'estat és
+    `ElTaulerBulletPractice._state()` (`status`, `task.answers`, `rows`,
+    `remainingMs`): esperar `status === 'running'` (el rellotge no arrenca fins
+    que les peces han carregat) i clicar origen i destí a
+    `#bp-board [data-square]`. Al radar, `#bp-recall-options` demana el temps
+    i després `#bp-next`; la contrarellotge passa sola a la posició següent i
+    acaba als resultats (`#bp-results`, rècord a `#bp-record`). El progrés és
+    a `chess_bulletPractice_v1`.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
