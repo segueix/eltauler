@@ -12,7 +12,7 @@
     }
     const labels = { stockfish: 'Stockfish', lozza: 'Lozza', draw: 'Taules' };
     let ledger = null, sig = null, pageId = String(Date.now()) + '-' + String(Math.floor(Math.random() * 1e9));
-    let seenGame = null, currentPick = null, migrated = {}, lastAnimated = null, bound = false;
+    let seenGame = null, currentPick = null, lastAnimated = null, bound = false;
     function read(m) {
         if (ledger) return ledger;
         try { ledger = m.normalize(JSON.parse(root.localStorage.getItem(m.KEY) || 'null')); }
@@ -63,16 +63,9 @@
         if (!signature) return;
         if (sig !== signature) { sig = signature; seenGame = null; currentPick = null; }
         read(m);
-        if (!migrated[sig]) {
-            // Migració inicial de les fins a 8 partides que ja tenia la TV.
-            // Els registres antics duen només la signatura de força; la
-            // migració associa com a màxim els vuit recents al motor UCI actual.
-            const migratedRecent = (state.recentResults || []).filter(x => x.sig === baseSig)
-                .map(x => Object.assign({}, x, { sig: sig }));
-            ledger = m.fromRecent(ledger, sig, migratedRecent);
-            migrated[sig] = true;
-            persist(m);
-        }
+        // Els 8 resultats antics no identifiquen amb certesa la versió UCI.
+        // Es conserven al resum existent de la TV, sense barrejar-los amb el
+        // campionat històric nou que registra cada motor real per separat.
         if (duel && seenGame !== state.game.id) {
             seenGame = state.game.id;
             const claim = m.claim(ledger, sig);
