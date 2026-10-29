@@ -471,6 +471,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   **interfície de veu** només ofereix el perfil Ràdio, té l'equalitzador de
   cinc bandes a la TV i a la Configuració, la música de fons és «sense música» o
   «una melodia a l'atzar a cada partida» i hi ha l'avís d'espera.
+  **Stockfish 19 (prova pilot)**: amb les opcions que declara Stockfish
+  oficial (`UCI_Elo` 1320–3190 i `UCI_LimitStrength`) la TV passa sola al mode
+  Elo, amb vint esglaons (els extrems i els centenars rodons: 1320, 1400 …
+  3100, 3190) per a la barra, l'objectiu i «Massa fàcil/difícil»; la
+  preferència `engine` (per defecte, el clàssic), l'URL del worker amb la
+  versió també al `.wasm`, el retorn al clàssic quan el motor nou no carrega
+  (error del worker, sense esperar el temps màxim, o worker que no es pot
+  crear), que la rivalitat amb Lozza només compti les partides del mateix
+  motor i que canviar de motor deixi la partida i en comenci una amb l'escala
+  nova. El motor real no s'executa als tests: es fa servir un worker simulat.
   El **motor dedicat** es prova amb un worker
   simulat: ordres abans de calcular, cancel·lació sense resultats colats,
   sortir i tornar de seguida sense bloquejos ni reinicis tardans, worker penjat

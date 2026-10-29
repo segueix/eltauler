@@ -81,6 +81,15 @@ Conduir amb Playwright + Chromium preinstal·lat
     interruptor `#sftv-profiles` (`tauler_tv_prefs.profiles`). Per mesurar si es
     nota l'estil cal jugar partides senceres amb el motor des de Node
     (`TV.tvPickStyledMove` + `TV.tvMoveFeatures`), no n'hi ha prou amb una.
+    **Motor de Stockfish** (`#sftv-engine`, `tauler_tv_prefs.engine`:
+    `classic` o `sf19`): Stockfish 19 és `stockfish-19-lite-single.js` + `.wasm`
+    (vegeu `STOCKFISH-19.md`). Per provar la interfície sense executar el motor
+    real, servir amb `ctx.route(/stockfish-19-lite-single\.js/)` un worker
+    propi que respongui `uci` amb `option name UCI_Elo type spin default 1320
+    min 1320 max 3190` i `UCI_LimitStrength`, i jugades legals (pot fer
+    `importScripts` de chess.js servit amb una altra ruta). Amb un 404 s'hi veu
+    el retorn al clàssic (`#sftv-engine-status`). En mode Elo, la barra té els
+    esglaons 1320, 1400 … 3100, 3190.
 11. **Veu neuronal Matxa** (`veuneural.js`, demo del BSC a
     `projecte-aina-matxa-alvocat-tts-ca.hf.space`): el Chromium no hi arriba
     directament, però es pot redirigir amb `ctx.route(/\.hf\.space\//, …)` i

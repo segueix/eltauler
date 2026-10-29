@@ -310,6 +310,29 @@
         return out;
     }
 
+    // Motors de Stockfish per a la TV. «classic» és el de tota l'app
+    // (Stockfish 2019-08-15, sense xarxa neuronal, només «Skill Level»).
+    // «sf19» és la prova pilot: Stockfish.js 19 (2026), versió lite d'un sol
+    // fil (xarxa NNUE petita, uns 1,9 MB, sense capçaleres especials al
+    // servidor), que declara UCI_Elo 1320–3190 (Elo CCRL de partides
+    // ràpides, segons Stockfish) i UCI_LimitStrength. La TV en llegeix les
+    // opcions i passa sola a l'escala d'Elo; si no carrega, torna al clàssic.
+    const TV_ENGINES = {
+        classic: { id: 'classic', label: 'Stockfish 2019 (clàssic)', file: 'stockfish.js' },
+        sf19: { id: 'sf19', label: 'Stockfish 19 · 2026 (xarxa neuronal, prova)', file: 'stockfish-19-lite-single.js',
+            wasm: 'stockfish-19-lite-single.wasm' }
+    };
+    const TV_DEFAULT_ENGINE = 'classic';
+    function tvEngineId(id) { return TV_ENGINES[id] ? id : TV_DEFAULT_ENGINE; }
+    // URL del worker. El de Stockfish 19 busca el .wasm al costat i accepta
+    // l'adreça al fragment (#): així la versió també trenca la memòria cau
+    // del .wasm, que el fitxer no rep pel paràmetre ?v.
+    function tvEngineWorkerUrl(id, version) {
+        const e = TV_ENGINES[tvEngineId(id)];
+        const v = version ? '?v=' + encodeURIComponent(version) : '';
+        return e.file + v + (e.wasm ? '#' + encodeURIComponent(e.wasm + v) : '');
+    }
+
     // Capacitats de la TV segons el que el motor DECLARA (mai segons
     // constants del projecte):
     //   mode 'elo'   → UCI_Elo + UCI_LimitStrength: min = max(800, mínim natiu)
@@ -379,15 +402,28 @@
         return caps.mode === 'elo' ? Math.round(value) : tvSkillEloEstimate(value);
     }
 
+    // Esglaons de l'escala d'Elo: els extrems que declara el motor i els
+    // centenars rodons entremig (amb Stockfish 19: 1320, 1400, 1500 … 3100,
+    // 3190, vint nivells). Un centenar a menys de 50 d'un extrem no hi és.
+    function tvEloSteps(caps) {
+        const out = [caps.min];
+        for (let v = Math.floor(caps.min / 100) * 100 + 100; v < caps.max; v += 100) {
+            if (v - caps.min >= 50 && caps.max - v >= 50) out.push(v);
+        }
+        if (caps.max > caps.min) out.push(caps.max);
+        return out;
+    }
+    // Valor de nivell vàlid: en mode Elo, l'esglaó més proper.
+    function tvSnapLevel(caps, value) {
+        if (!caps || caps.mode !== 'elo' || !isNum(value)) return value;
+        return tvEloSteps(caps).reduce((best, v) => (Math.abs(v - value) < Math.abs(best - value) ? v : best));
+    }
+
     // Graella de valors de la barra de nivell.
     function tvLevelScale(caps) {
         if (!caps || caps.mode === 'none') return [];
+        if (caps.mode === 'elo') return tvEloSteps(caps).map(v => ({ value: v, elo: v }));
         const out = [];
-        if (caps.mode === 'elo') {
-            for (let v = caps.min; v <= caps.max; v += 50) out.push({ value: v, elo: v });
-            if (out[out.length - 1].value !== caps.max) out.push({ value: caps.max, elo: caps.max });
-            return out;
-        }
         for (let v = caps.min; v <= caps.max; v++) out.push({ value: v, elo: tvSkillEloEstimate(v) });
         return out;
     }
@@ -450,7 +486,7 @@
         const Core = getCore();
         const convert = (v, min, max) => (Core && typeof Core.rocToEngineElo === 'function')
             ? Core.rocToEngineElo(v, min, max) : clamp(Math.round(v), min, max);
-        if (caps.mode === 'elo') return convert(wanted, caps.min, caps.max);
+        if (caps.mode === 'elo') return tvSnapLevel(caps, convert(wanted, caps.min, caps.max));
         const target = convert(wanted, tvSkillEloEstimate(caps.min), tvSkillEloEstimate(caps.max));
         let best = caps.min;
         for (let l = caps.min; l <= caps.max; l++) {
@@ -473,7 +509,7 @@
             Object.keys(p.offsets).forEach((k) => { if (isNum(p.offsets[k])) offsets[k] = Math.round(p.offsets[k]); });
         }
         const openingIndex = isNum(p.openingIndex) ? Math.max(0, Math.floor(p.openingIndex)) : null;
-        return { voice: voice, speed: speed, duo: p.duo !== false, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false, recent: tvRecentResults(p.recent) };
+        return { voice: voice, speed: speed, duo: p.duo !== false, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false, engine: tvEngineId(p.engine), recent: tvRecentResults(p.recent) };
     }
 
     function tvResolveTarget(caps, viewer, prefs) {
@@ -481,7 +517,7 @@
         if (base === null) return { value: null, base: null, offset: 0 };
         const p = tvNormalizePrefs(prefs);
         const offset = p.offsets[tvCapsSignature(caps)] || 0;
-        const value = clamp(base + offset, caps.min, caps.max);
+        const value = tvSnapLevel(caps, clamp(base + offset, caps.min, caps.max));
         return { value: value, base: base, offset: value - base };
     }
 
@@ -659,13 +695,23 @@
     // Nivell del bàndol que té el torn en aquesta posició.
     // Historial estrictament local de partides automàtiques. No s'utilitza
     // cap valoració Elo fictícia per convertir la profunditat de Lozza.
+    // Les partides desades abans de poder triar motor són del clàssic.
+    const TV_LEGACY_SIG = 'skill:0-20';
+    // Només compten les partides jugades amb la mateixa escala de motor:
+    // un Stockfish més fort no hereta les ratxes de l'altre.
+    function tvRivalryHistory(items, caps) {
+        const sig = tvCapsSignature(caps);
+        return tvRecentResults(items).filter(x => x.sig === sig);
+    }
     function tvRecentResults(items) {
         if (!Array.isArray(items)) return [];
         return items.filter(x => x && ['stockfish', 'lozza', 'draw'].includes(x.winner)
             && ['w', 'b'].includes(x.lozzaColor) && isNum(x.plies) && x.plies >= 0)
             .slice(-TV_CONFIG.RIVALRY_HISTORY)
             .map(x => ({ winner: x.winner, lozzaColor: x.lozzaColor,
-                plies: Math.floor(x.plies), reason: String(x.reason || '').slice(0, 40) }));
+                plies: Math.floor(x.plies), reason: String(x.reason || '').slice(0, 40),
+                // Escala del motor amb què es va jugar (vegeu tvCapsSignature).
+                sig: typeof x.sig === 'string' ? x.sig.slice(0, 40) : TV_LEGACY_SIG }));
     }
 
     // Tria les condicions de la PARTIDA SEGÜENT, mai una jugada ni el resultat.
@@ -733,8 +779,8 @@
         const p = tvNormalizePrefs(prefs);
         if (!caps || caps.mode === 'none' || !isNum(value)) return p;
         const current = tvResolveTarget(caps, viewer, p);
-        const step = caps.mode === 'elo' ? 1 : caps.step;
-        const next = clamp(Math.round(value / step) * step, caps.min, caps.max);
+        const next = caps.mode === 'elo' ? tvSnapLevel(caps, clamp(value, caps.min, caps.max))
+            : clamp(Math.round(value / caps.step) * caps.step, caps.min, caps.max);
         const offsets = Object.assign({}, p.offsets);
         offsets[tvCapsSignature(caps)] = next - current.base;
         return Object.assign({}, p, { offsets: offsets });
@@ -744,8 +790,14 @@
         const p = tvNormalizePrefs(prefs);
         if (!caps || caps.mode === 'none') return p;
         const current = tvResolveTarget(caps, viewer, p);
-        const delta = direction === 'harder' ? caps.step : (direction === 'easier' ? -caps.step : 0);
-        const next = clamp(current.value + delta, caps.min, caps.max);
+        const dir = direction === 'harder' ? 1 : (direction === 'easier' ? -1 : 0);
+        let next;
+        if (caps.mode === 'elo') {
+            // Un esglaó amunt o avall de l'escala.
+            const steps = tvEloSteps(caps);
+            const i = steps.indexOf(current.value);
+            next = steps[clamp((i < 0 ? 0 : i) + dir, 0, steps.length - 1)];
+        } else next = clamp(current.value + dir * caps.step, caps.min, caps.max);
         const offsets = Object.assign({}, p.offsets);
         offsets[tvCapsSignature(caps)] = next - current.base;
         return Object.assign({}, p, { offsets: offsets });
@@ -2766,8 +2818,11 @@
     // Motor propi de la TV (worker dedicat i cua serialitzada)
     // ------------------------------------------------------------------
     // env = { createWorker, setTimeout, clearTimeout }
+    // env.createFallbackWorker: si el worker principal no arrenca (fitxer que
+    // no carrega, navegador sense WebAssembly), es fa servir aquest altre.
     function createTvEngine(env) {
         const e = env || {};
+        let usingFallback = false;
         const setT = e.setTimeout || ((fn, ms) => setTimeout(fn, ms));
         const clearT = e.clearTimeout || ((id) => clearTimeout(id));
         let worker = null;
@@ -2809,18 +2864,36 @@
         }
         function waitFor(pred, ms) { return listen(line => (pred(line) ? line : undefined), ms); }
 
+        function createWorker() {
+            try { return (usingFallback ? e.createFallbackWorker : e.createWorker)(); } catch (err) { return null; }
+        }
+        // El motor principal no ha arrencat: un sol intent amb el de reserva.
+        function bootFallback() {
+            if (usingFallback || typeof e.createFallbackWorker !== 'function') return null;
+            usingFallback = true;
+            generation++;
+            try { if (worker) worker.terminate(); } catch (err) {}
+            worker = null;
+            lineHandler = null;
+            return boot();
+        }
         function boot() {
             failed = false;
             const gen = ++generation;
-            try { worker = e.createWorker(); } catch (err) { worker = null; }
-            if (!worker) { failed = true; return Promise.resolve(null); }
+            worker = createWorker();
+            if (!worker) { const next = bootFallback(); if (next) return next; failed = true; return Promise.resolve(null); }
             worker.onmessage = (ev) => onMessage(gen, ev);
+            // Un worker que no carrega avisa de seguida: no cal esperar 20 s.
+            worker.onerror = () => { if (gen === generation && lineHandler) lineHandler(WORKER_ERROR); };
             const lines = [];
-            const done = listen((line) => { lines.push(line); return line === 'uciok' ? lines : undefined; }, 20000);
+            const done = listen((line) => {
+                if (line === WORKER_ERROR) return false;
+                lines.push(line); return line === 'uciok' ? lines : undefined;
+            }, 20000);
             send('uci');
             return done.then((got) => {
                 if (gen !== generation) return null;
-                if (!got) { failed = true; return null; }
+                if (!got) { const next = bootFallback(); if (next) return next; failed = true; return null; }
                 caps = tvEngineCapabilities(parseUciOptions(got));
                 caps.uciLines = got.filter(l => l.indexOf('option name') === 0 || l.indexOf('id name') === 0);
                 const r = waitFor(l => l === 'readyok', 10000);
@@ -2898,6 +2971,8 @@
         return {
             ready: ready,
             caps() { return caps; },
+            // El motor triat no ha arrencat i s'està fent servir el de reserva.
+            usingFallback() { return usingFallback; },
             failed() { return failed; },
             // job = { tag, position, strength:[], multipv, go, movetime }
             request(job) {
@@ -2925,6 +3000,8 @@
             }
         };
     }
+
+    const WORKER_ERROR = '\u0000worker-error';
 
     function tvPositionCommand(uciMoves) {
         return (Array.isArray(uciMoves) && uciMoves.length) ? 'position startpos moves ' + uciMoves.join(' ') : 'position startpos';
@@ -3021,7 +3098,7 @@
                 duo: prefs.duo,
                 unequal: prefs.unequal,
                 profiles: prefs.profiles,
-                recentResults: prefs.recent.slice(),
+                recentResults: S.caps ? tvRivalryHistory(prefs.recent, S.caps) : prefs.recent.slice(),
                 duelWarning: S.duelWarning,
                 movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
                 voiceHold: S.voiceHold ? Object.assign({}, S.voiceHold) : null,
@@ -3081,7 +3158,7 @@
             // aviat: les partides es decideixen abans sense tocar el nivell.
             const v = viewer();
             const target = tvResolveTarget(S.caps, v, prefs);
-            const duel = S.lozzaReady ? tvMatchPlan(prefs.recent, {
+            const duel = S.lozzaReady ? tvMatchPlan(tvRivalryHistory(prefs.recent, S.caps), {
                 caps: S.caps, target: target.value, unequal: prefs.unequal,
                 gameSeq: S.gameSeq, random: random
             }) : null;
@@ -3478,7 +3555,7 @@
                 const winningColor = g.end.result === '1-0' ? 'w' : g.end.result === '0-1' ? 'b' : null;
                 const winner = winningColor ? g.engines[winningColor] : 'draw';
                 prefs = Object.assign({}, prefs, { recent: tvRecentResults(prefs.recent.concat([{
-                    winner: winner, lozzaColor: g.matchPlan.lozzaColor,
+                    winner: winner, lozzaColor: g.matchPlan.lozzaColor, sig: tvCapsSignature(S.caps),
                     plies: g.moves.length, reason: g.end.reason
                 }])) });
                 savePrefs();
@@ -3560,6 +3637,20 @@
                 if (d.engine) d.engine.destroy();
                 if (d.lozzaEngine) d.lozzaEngine.destroy();
                 render();
+            },
+            // Canvia el motor de Stockfish: l'escala de nivells pot ser una altra
+            // (Skill Level o Elo), així que la partida en curs es deixa i, si la
+            // TV és oberta, en comença una de nova amb el motor nou.
+            replaceEngine(engine) {
+                halt();
+                if (d.engine && d.engine !== engine) d.engine.destroy();
+                d.engine = engine;
+                S.caps = null;
+                S.game = null;
+                S.control = null;
+                S.error = null;
+                render();
+                return S.open ? api.open() : Promise.resolve();
             },
             pause() {
                 if (S.userPaused || S.control) return;
@@ -4287,7 +4378,7 @@
         }
         if (help) {
             let text = '';
-            if (caps && caps.mode === 'elo') text = 'És un objectiu de força configurat al motor (UCI_Elo ' + caps.min + '–' + caps.max + '), no una equivalència garantida amb l\'Elo FIDE.';
+            if (caps && caps.mode === 'elo') text = 'És un objectiu de força configurat al motor (UCI_Elo ' + caps.min + '–' + caps.max + '). Stockfish el calibra amb l\'Elo CCRL de partides ràpides entre motors: no és una equivalència garantida amb l\'Elo FIDE.';
             else if (caps) text = tvCompatibilityNote(caps) || '';
             help.textContent = text;
         }
@@ -4321,7 +4412,7 @@
             ladderSignature = sig;
             range.min = String(caps.min);
             range.max = String(caps.max);
-            range.step = caps.mode === 'elo' ? '50' : '1';
+            range.step = caps.mode === 'elo' ? '10' : '1';
             const every = Math.max(1, Math.round(scale.length / 5));
             scaleBox.innerHTML = scale.map((t, i) => {
                 const major = i === 0 || i === scale.length - 1 || i % every === 0;
@@ -4338,11 +4429,9 @@
             el.classList.toggle('is-current', !!(g && g.level.value === v));
             el.classList.toggle('is-next', v === nextVal);
         });
-        range.setAttribute('aria-valuetext', tvLevelLabel(caps, Number(range.value)).long);
-        if (value) {
-            const shown = Number(range.value);
-            value.textContent = 'Següent: ' + tvLevelLabel(caps, shown).short;
-        }
+        const shown = tvSnapLevel(caps, Number(range.value));
+        range.setAttribute('aria-valuetext', tvLevelLabel(caps, shown).long);
+        if (value) value.textContent = 'Següent: ' + tvLevelLabel(caps, shown).short;
     }
 
     function renderMoves(g) {
@@ -4563,6 +4652,7 @@
             renderMoves(g);
             renderOpening(g);
             renderStatus(state);
+            renderEngineChoice(state);
             renderVoiceHold(state);
             renderComment(state);
             renderResult(state);
@@ -4584,6 +4674,38 @@
         if (!controller) return;
         controller.setHidden(document.visibilityState === 'hidden' || !screenVisible());
         if (radioAmbience) syncRadioAmbience(document.visibilityState !== 'hidden');
+    }
+
+    // Motor de Stockfish triat a la TV. Stockfish 19 té el clàssic de reserva.
+    let stockfishEngine = null;
+    function classicWorker() {
+        return typeof bridge.createWorker === 'function' ? bridge.createWorker() : new Worker('stockfish.js');
+    }
+    function createStockfishTvEngine(id) {
+        const engineId = tvEngineId(id);
+        stockfishEngine = engineId === 'classic' ? createTvEngine({ createWorker: classicWorker })
+            : createTvEngine({ createWorker: () => new Worker(tvEngineWorkerUrl(engineId, root.APP_VERSION)), createFallbackWorker: classicWorker });
+        return stockfishEngine;
+    }
+    function switchEngine(id) {
+        const engineId = tvEngineId(id);
+        if (engineId === tvNormalizePrefs(loadPrefsRaw()).engine && stockfishEngine) return;
+        savePrefsRaw({ engine: engineId });
+        if (!controller) return;
+        controller.replaceEngine(createStockfishTvEngine(engineId)).then(() => { if (controller) renderEngineChoice(controller.state()); });
+    }
+    function renderEngineChoice(state) {
+        const select = $id('sftv-engine');
+        const wanted = tvNormalizePrefs(loadPrefsRaw()).engine;
+        if (select && select.value !== wanted) select.value = wanted;
+        const status = $id('sftv-engine-status');
+        if (!status) return;
+        const fallback = wanted !== 'classic' && stockfishEngine && stockfishEngine.usingFallback();
+        status.textContent = fallback
+            ? TV_ENGINES[wanted].label + ' no s\'ha pogut carregar en aquest navegador: la TV fa servir ' + TV_ENGINES.classic.label + '.'
+            : (wanted === 'sf19' ? 'Prova pilot: Stockfish 19 té xarxa neuronal i nivells en Elo (UCI_Elo). La resta de l\'app continua amb Stockfish 2019. '
+                : '') + 'Canviar de motor comença una partida nova.';
+        if (state && state.caps === null && state.open && !state.error) status.textContent += ' Carregant el motor…';
     }
 
     function ensureController() {
@@ -4618,9 +4740,7 @@
             Promise.resolve(result).then(done, done);
             return result;
         };
-        const engine = createTvEngine({
-            createWorker: () => (typeof bridge.createWorker === 'function' ? bridge.createWorker() : new Worker('stockfish.js'))
-        });
+        const engine = createStockfishTvEngine(tvNormalizePrefs(loadPrefsRaw()).engine);
         const lozzaEngine = createTvEngine({
             createWorker: () => new Worker('lozza.js')
         });
@@ -4730,6 +4850,7 @@
         on('sftv-level-apply', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-too-hard', 'click', () => { if (controller) controller.adjust('easier'); });
         on('sftv-speed', 'change', (ev) => { if (controller) controller.setSpeed(ev.target.value); });
+        on('sftv-engine', 'change', (ev) => switchEngine(ev.target.value));
         on('sftv-duo', 'change', (ev) => {
             if (!controller) return;
             controller.setDuo(ev.target.checked);
@@ -4797,6 +4918,8 @@
         tvSkillEloEstimate,
         tvLevelElo,
         tvLevelScale,
+        tvEloSteps,
+        tvSnapLevel,
         tvSetTargetPrefs,
         tvStrengthCommands,
         tvViewerProfile,
@@ -4854,6 +4977,10 @@
         tvPositionCommand,
         createTvVoice,
         createBroadcastAudioControls,
+        TV_ENGINES,
+        tvEngineId,
+        tvEngineWorkerUrl,
+        tvRivalryHistory,
         applyBroadcastHighlights,
         createTvEngine,
         createTvController,
