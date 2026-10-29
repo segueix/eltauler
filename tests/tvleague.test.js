@@ -68,6 +68,12 @@ describe('Campionat local Stockfish vs Lozza', () => {
         expect(ui).toContain('game.end && game.recorded && !game.hadManualControl');
         expect(html).toContain('id="sftv-predict"');
         expect(html).toContain('tvleague-ui.js?v=1.0.0');
-        expect(html.indexOf('tvleague.js?v=1.0.0')).toBeLessThan(html.indexOf('stockfishtv.js?v=2.10.1'));
+        // Importa els mòduls abans de la TV sense fixar una versió de cache-busting.
+        const leagueScript = html.indexOf('<script src="tvleague.js?v=');
+        const leagueUiScript = html.indexOf('<script src="tvleague-ui.js?v=');
+        const tvScript = html.indexOf('<script src="stockfishtv.js?v=');
+        expect(leagueScript).toBeGreaterThanOrEqual(0);
+        expect(leagueUiScript).toBeGreaterThan(leagueScript);
+        expect(tvScript).toBeGreaterThan(leagueUiScript);
     });
 });
