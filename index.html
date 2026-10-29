@@ -3221,6 +3221,23 @@
         .sftv-matxa-grid input { flex: 1; min-width: 70px; width: 100%; accent-color: var(--accent); }
         .sftv-matxa-grid input:disabled { opacity: 0.4; }
         .sftv-matxa-grid output { min-width: 3.2em; text-align: right; }
+        .sftv-matxa-profile { display: flex; align-items: center; gap: 8px; min-width: 0; }
+        /* Equalitzador de Matxa (TV i Configuració): cinc bandes de -12 a +12 dB.
+           Lliscadors verticals on el navegador els admet; si no, files horitzontals. */
+        .matxa-eq { margin: 14px 0 0; padding: 10px; min-width: 0; border: 1px solid rgba(201,162,39,0.35); border-radius: 8px; }
+        .matxa-eq legend { padding: 0 6px; font-weight: 600; }
+        .matxa-eq-bands { display: grid; gap: 8px; }
+        .matxa-eq-band { display: grid; grid-template-columns: minmax(5.5em, auto) 1fr 3.6em; grid-template-areas: "name input value" "freq input value"; align-items: center; column-gap: 10px; min-width: 0; font-size: 0.85rem; }
+        .matxa-eq-band input { grid-area: input; width: 100%; min-width: 0; margin: 0; }
+        .matxa-eq-band output { grid-area: value; text-align: right; font-variant-numeric: tabular-nums; }
+        .matxa-eq-name { grid-area: name; font-weight: 600; }
+        .matxa-eq-freq { grid-area: freq; font-size: 0.72rem; color: var(--text-secondary); }
+        .matxa-eq--vertical .matxa-eq-bands { grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 4px; }
+        .matxa-eq--vertical .matxa-eq-band { grid-template-columns: 1fr; grid-template-areas: "value" "input" "name" "freq"; justify-items: center; row-gap: 4px; text-align: center; }
+        .matxa-eq--vertical .matxa-eq-band input { writing-mode: vertical-lr; direction: rtl; width: 28px; height: 120px; }
+        .matxa-eq--vertical .matxa-eq-band output { text-align: center; font-size: 0.78rem; }
+        .matxa-eq--vertical .matxa-eq-name { font-size: 0.74rem; overflow-wrap: anywhere; }
+        .matxa-eq-reset { margin-top: 10px; font: inherit; font-size: 0.82rem; padding: 6px 12px; border-radius: 999px; cursor: pointer; background: rgba(255,255,255,0.06); color: var(--text-primary); border: 1px solid rgba(201,162,39,0.35); }
         .sftv-note { flex-basis: 100%; text-align: center; font-size: 0.78rem; color: var(--text-secondary); }
         .sftv-layout { display: flex; flex-direction: column; gap: 12px; }
         .board-broadcast { margin:10px 0; min-width:0; width:100%; font-family:var(--font-ui); }
@@ -3278,6 +3295,9 @@
         }
         .sftv-player.is-turn { color: var(--text-primary); border-color: rgba(201,162,39,0.55); background: rgba(201,162,39,0.1); }
         .sftv-status { text-align: center; font-size: 0.9rem; color: var(--text-secondary); margin-top: 4px; min-height: 1.3em; }
+        .sftv-voice-hold { margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--accent-gold); border-radius: 10px; background: rgba(201,162,39,0.12); text-align: center; font-size: 0.86rem; line-height: 1.4; }
+        .sftv-voice-hold[hidden] { display: none !important; }
+        .sftv-voice-hold strong { display: block; }
         .sftv-result {
             position: absolute; left: 50%; bottom: 10px; transform: translateX(-50%); width: min(86%, 340px); z-index: 5;
             padding: 14px 16px; border-radius: 14px; text-align: center; color: var(--text-primary);
@@ -6774,13 +6794,7 @@
             <details id="sftv-matxa-controls" class="sftv-matxa-controls" hidden>
                 <summary>Ajusta la veu Matxa</summary>
                 <div class="sftv-matxa-grid">
-                    <label for="sftv-matxa-profile">Perfil de so
-                        <select id="sftv-matxa-profile" class="select-control">
-                            <option value="natural">Natural</option>
-                            <option value="warm">Càlida</option>
-                            <option value="radio">Ràdio</option>
-                        </select>
-                    </label>
+                    <div class="sftv-matxa-profile">Perfil de so <strong id="sftv-matxa-profile">Ràdio</strong></div>
                     <label for="sftv-matxa-intensity">Intensitat
                         <input id="sftv-matxa-intensity" type="range" min="0" max="100" value="60" aria-describedby="sftv-matxa-help">
                         <output id="sftv-matxa-intensity-value" for="sftv-matxa-intensity">60%</output>
@@ -6799,15 +6813,49 @@
                     </label>
                 </div>
                 <p class="setting-help" id="sftv-matxa-help">Els canvis es desen al teu perfil i s’escolten a partir del comentari següent.</p>
+                <fieldset id="sftv-matxa-eq" class="matxa-eq">
+                    <legend>Equalitzador</legend>
+                    <div class="matxa-eq-bands">
+                        <label class="matxa-eq-band" for="sftv-matxa-eq-low">
+                            <output id="sftv-matxa-eq-low-value" for="sftv-matxa-eq-low">0 dB</output>
+                            <input id="sftv-matxa-eq-low" class="sftv-matxa-eq-range" data-band="low" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Greus</span>
+                            <span class="matxa-eq-freq">120 Hz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="sftv-matxa-eq-lowmid">
+                            <output id="sftv-matxa-eq-lowmid-value" for="sftv-matxa-eq-lowmid">0 dB</output>
+                            <input id="sftv-matxa-eq-lowmid" class="sftv-matxa-eq-range" data-band="lowmid" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Cos</span>
+                            <span class="matxa-eq-freq">400 Hz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="sftv-matxa-eq-mid">
+                            <output id="sftv-matxa-eq-mid-value" for="sftv-matxa-eq-mid">0 dB</output>
+                            <input id="sftv-matxa-eq-mid" class="sftv-matxa-eq-range" data-band="mid" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Mitjans</span>
+                            <span class="matxa-eq-freq">1,2 kHz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="sftv-matxa-eq-presence">
+                            <output id="sftv-matxa-eq-presence-value" for="sftv-matxa-eq-presence">0 dB</output>
+                            <input id="sftv-matxa-eq-presence" class="sftv-matxa-eq-range" data-band="presence" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Presència</span>
+                            <span class="matxa-eq-freq">3 kHz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="sftv-matxa-eq-high">
+                            <output id="sftv-matxa-eq-high-value" for="sftv-matxa-eq-high">0 dB</output>
+                            <input id="sftv-matxa-eq-high" class="sftv-matxa-eq-range" data-band="high" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Aguts</span>
+                            <span class="matxa-eq-freq">7,5 kHz</span>
+                        </label>
+                    </div>
+                    <button type="button" class="matxa-eq-reset" id="sftv-matxa-eq-reset">Restableix (pla)</button>
+                </fieldset>
                 <fieldset id="sftv-radio-controls" hidden>
                     <legend>Ambient de ràdio</legend>
                     <div class="sftv-matxa-grid">
-                        <label for="sftv-radio-sound">So de fons
+                        <label for="sftv-radio-sound">Música de fons
                             <select id="sftv-radio-sound" class="select-control">
-                                <option value="off">Sense so de fons</option>
-                                <option value="studio">Ambient d’estudi</option>
-                                <option value="theme">Sintonia suau</option>
-                                <option value="tuning">Ràdio clàssica</option>
+                                <option value="off">Sense música</option>
+                                <option value="music">Una melodia a l’atzar a cada partida</option>
                             </select>
                         </label>
                         <label for="sftv-radio-volume">Volum del fons
@@ -6815,7 +6863,7 @@
                             <output id="sftv-radio-volume-value" for="sftv-radio-volume">20%</output>
                         </label>
                     </div>
-                    <p class="setting-help">Canvia al moment i es desa per a Stockfish vs Lozza TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. La sintonia suau és una peça curta de piano elèctric, baix i escombretes generada al dispositiu.</p>
+                    <p class="setting-help">Canvia al moment i es desa per a Stockfish vs Lozza TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. A cada partida sona una de les cinc melodies, triada a l’atzar: Sintonia suau, Jardí oriental, Bossa del tauler, Vals de la capsa de música i Capvespre. Totes es generen al dispositiu.</p>
                     <p class="setting-help" id="sftv-radio-status" role="status"></p>
                 </fieldset>
             </details>
@@ -6846,6 +6894,7 @@
                     </div>
                 </div>
                 <div class="sftv-side">
+                    <div class="sftv-voice-hold" id="sftv-voice-hold" role="status" hidden></div>
                     <div class="sftv-comment is-empty" id="sftv-comment" aria-live="polite"></div>
                     <div class="sftv-storyline" id="sftv-storyline" aria-label="Temes seguits durant aquesta partida" style="display:none;"></div>
                     <div class="sftv-controls">
@@ -7042,7 +7091,7 @@
             <div class="settings-panel">
                 <div class="settings-title">🔊 Veus de lectura</div>
                 <div class="setting-help" style="margin-bottom:10px;">Crea perfils per llegir ressenyes, diagnòstics i els comentaris de Stockfish TV: tria la veu, el timbre i la velocitat. Els perfils es desen només al teu navegador.</div>
-                <div class="setting-help" style="margin-bottom:10px;">🎙️ <strong>Veus neuronals Matxa</strong> (BSC, projecte Aina), amb accent central, nord-occidental, valencià i balear. Funcionen <strong>en línia</strong>: el text que es llegeix s'envia al servei del BSC. Si fallen, es fa servir la veu en català del dispositiu. Matxa té tres perfils de so: Natural, Càlida i Ràdio.</div>
+                <div class="setting-help" style="margin-bottom:10px;">🎙️ <strong>Veus neuronals Matxa</strong> (BSC, projecte Aina), amb accent central, nord-occidental, valencià i balear. Funcionen <strong>en línia</strong>: el text que es llegeix s'envia al servei del BSC. Si fallen, es fa servir la veu en català del dispositiu (a Stockfish TV, la partida s'atura fins que Matxa torna). El so de Matxa és sempre el perfil Ràdio, amb un equalitzador de cinc bandes per ajustar-ne el to.</div>
                 <div class="setting-row">
                     <div class="setting-label">Ús per defecte</div>
                     <select id="tts-preset-mode" class="select-control">
@@ -7065,18 +7114,14 @@
                 <fieldset id="tts-matxa-controls" class="tts-matxa-controls" hidden>
                     <legend>So de Matxa</legend>
                     <div class="setting-row">
-                        <label class="setting-label" for="tts-matxa-profile">Perfil de so</label>
-                        <select id="tts-matxa-profile" class="select-control" aria-describedby="tts-matxa-help">
-                            <option value="natural">Natural</option>
-                            <option value="warm">Càlida</option>
-                            <option value="radio">Ràdio</option>
-                        </select>
+                        <div class="setting-label">Perfil de so</div>
+                        <strong id="tts-matxa-profile">Ràdio</strong>
                     </div>
-                    <div class="setting-help" id="tts-matxa-help">La veu original de Matxa, sense filtres.</div>
+                    <div class="setting-help" id="tts-matxa-help">Veu present i volum uniforme, com a la ràdio. Ajusta el to amb l’equalitzador.</div>
                     <div class="setting-row">
                         <label class="setting-label" for="tts-matxa-intensity-range">Intensitat del filtre</label>
                         <div class="font-size-control">
-                            <input type="range" id="tts-matxa-intensity-range" min="0" max="100" step="1" value="60" disabled>
+                            <input type="range" id="tts-matxa-intensity-range" min="0" max="100" step="1" value="60">
                             <span id="tts-matxa-intensity-value">60%</span>
                         </div>
                     </div>
@@ -7084,7 +7129,7 @@
                         <label class="setting-label" for="tts-matxa-clarity-range">Claredat</label>
                         <div class="font-size-control">
                             <span>Suau</span>
-                            <input type="range" id="tts-matxa-clarity-range" min="0" max="100" step="1" value="50" disabled>
+                            <input type="range" id="tts-matxa-clarity-range" min="0" max="100" step="1" value="50">
                             <span>Nítida</span>
                             <span id="tts-matxa-clarity-value">50%</span>
                         </div>
@@ -7096,6 +7141,42 @@
                             <span id="tts-matxa-volume-value">100%</span>
                         </div>
                     </div>
+                    <fieldset id="tts-matxa-eq" class="matxa-eq">
+                        <legend>Equalitzador</legend>
+                        <div class="matxa-eq-bands">
+                        <label class="matxa-eq-band" for="tts-matxa-eq-low">
+                            <output id="tts-matxa-eq-low-value" for="tts-matxa-eq-low">0 dB</output>
+                            <input id="tts-matxa-eq-low" class="tts-matxa-eq-range" data-band="low" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Greus</span>
+                            <span class="matxa-eq-freq">120 Hz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="tts-matxa-eq-lowmid">
+                            <output id="tts-matxa-eq-lowmid-value" for="tts-matxa-eq-lowmid">0 dB</output>
+                            <input id="tts-matxa-eq-lowmid" class="tts-matxa-eq-range" data-band="lowmid" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Cos</span>
+                            <span class="matxa-eq-freq">400 Hz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="tts-matxa-eq-mid">
+                            <output id="tts-matxa-eq-mid-value" for="tts-matxa-eq-mid">0 dB</output>
+                            <input id="tts-matxa-eq-mid" class="tts-matxa-eq-range" data-band="mid" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Mitjans</span>
+                            <span class="matxa-eq-freq">1,2 kHz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="tts-matxa-eq-presence">
+                            <output id="tts-matxa-eq-presence-value" for="tts-matxa-eq-presence">0 dB</output>
+                            <input id="tts-matxa-eq-presence" class="tts-matxa-eq-range" data-band="presence" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Presència</span>
+                            <span class="matxa-eq-freq">3 kHz</span>
+                        </label>
+                        <label class="matxa-eq-band" for="tts-matxa-eq-high">
+                            <output id="tts-matxa-eq-high-value" for="tts-matxa-eq-high">0 dB</output>
+                            <input id="tts-matxa-eq-high" class="tts-matxa-eq-range" data-band="high" type="range" min="-12" max="12" step="1" value="0" aria-valuetext="0 dB">
+                            <span class="matxa-eq-name">Aguts</span>
+                            <span class="matxa-eq-freq">7,5 kHz</span>
+                        </label>
+                        </div>
+                        <button type="button" class="matxa-eq-reset" id="tts-matxa-eq-reset">Restableix (pla)</button>
+                    </fieldset>
                     <div class="setting-help">Escolta una prova per comparar els ajustos i desa el perfil per aplicar-lo també a Stockfish TV. Si el dispositiu no admet els filtres, sentiràs la veu original.</div>
                 </fieldset>
                 <div class="setting-row tts-system-only">
@@ -9187,31 +9268,31 @@
     <script src="jeropedagogia.js?v=1.2.1"></script>
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.5"></script>
-    <script src="veuneural.js?v=1.1.0"></script>
-    <script src="radioambient.js?v=1.1.0"></script>
+    <script src="veuneural.js?v=1.2.0"></script>
+    <script src="radioambient.js?v=2.0.0"></script>
     <script src="expressivitat.js?v=1.0.0"></script>
     <script src="narrativa.js?v=2.1.0"></script>
     <script src="artdelaguerra.js?v=1.0.0"></script>
     <script src="prosodia.js?v=2.0.0"></script>
     <script src="auditoria.js?v=1.0.0"></script>
     <script src="tvintro.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=2.7.0"></script>
+    <script src="stockfishtv.js?v=2.8.0"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.5"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.53';
+        window.APP_VERSION = '1.0.54';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
         })();
     </script>
     <script src="gamebroadcast.js?v=1.1.0"></script>
-    <script src="historytv.js?v=1.0.0"></script>
+    <script src="historytv.js?v=1.0.1"></script>
     <script src="boardexperience.js?v=1.0.2"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.1.0"></script>
-    <script src="app.js?v=1.0.116"></script>
+    <script src="app.js?v=1.0.117"></script>
 
     <!-- Service Worker Registration -->
     <script>

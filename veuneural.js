@@ -16,7 +16,9 @@
 //
 // És una veu EN LÍNIA: el text que es llegeix s'envia al servidor del BSC.
 // Si no hi ha xarxa, el servei dorm o triga massa, qui la fa servir torna a
-// la veu del dispositiu (i durant un minut no s'hi torna a provar).
+// la veu del dispositiu (i durant un minut no s'hi torna a provar). Stockfish
+// vs Lozza TV, en canvi, atura la partida i hi torna a provar (speak amb
+// force) fins que Matxa respon; una síntesi correcta acaba la pausa.
 //
 // Es carrega com a:
 //   - Navegador: <script src="veuneural.js"> → window.ElTaulerVeuNeural
@@ -65,17 +67,59 @@
     }
     function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
 
+    // Ràdio és l'únic perfil de so: veu present, volum uniforme i, a sobre,
+    // l'equalitzador de cinc bandes que ajusta cada usuari. Els perfils antics
+    // (Natural, Càlida) es llegeixen com a Ràdio.
     const AUDIO_PROFILES = [
-        { id: 'natural', name: 'Natural', description: 'La veu original de Matxa, sense filtres.' },
-        { id: 'warm', name: 'Càlida', description: 'Més cos i aguts més suaus.' },
-        { id: 'radio', name: 'Ràdio', description: 'Veu més present i volum més uniforme.' }
+        { id: 'radio', name: 'Ràdio', description: 'Veu present i volum uniforme, com a la ràdio. Ajusta el to amb l’equalitzador.' }
     ];
+    const EQ_MAX_DB = 12;
+    const EQ_BANDS = [
+        { id: 'low', label: 'Greus', type: 'lowshelf', frequency: 120 },
+        { id: 'lowmid', label: 'Cos', type: 'peaking', frequency: 400 },
+        { id: 'mid', label: 'Mitjans', type: 'peaking', frequency: 1200 },
+        { id: 'presence', label: 'Presència', type: 'peaking', frequency: 3000 },
+        { id: 'high', label: 'Aguts', type: 'highshelf', frequency: 7500 }
+    ];
+    function normalizeEq(value) {
+        const v = value || {};
+        const out = {};
+        EQ_BANDS.forEach(b => {
+            const n = v[b.id];
+            out[b.id] = typeof n === 'number' && isFinite(n) ? Math.round(clamp(n, -EQ_MAX_DB, EQ_MAX_DB)) : 0;
+        });
+        return out;
+    }
+    function formatDb(value) {
+        const n = Math.round(Number(value) || 0);
+        return (n > 0 ? '+' + n : n < 0 ? '−' + Math.abs(n) : '0') + ' dB';
+    }
+    // Lliscadors verticals (com un equalitzador de debò) només si el
+    // navegador els dibuixa en vertical; si no, es queden en files.
+    let verticalRange = null;
+    function layoutEq(el) {
+        if (!el || !el.classList) return;
+        if (verticalRange === null) {
+            try {
+                const doc = el.ownerDocument;
+                const probe = doc.createElement('input');
+                probe.type = 'range';
+                probe.style.cssText = 'position:absolute;visibility:hidden;writing-mode:vertical-lr;direction:rtl;';
+                doc.body.appendChild(probe);
+                const box = probe.getBoundingClientRect();
+                probe.remove();
+                verticalRange = box.height > box.width && !!(root.CSS && root.CSS.supports && root.CSS.supports('writing-mode', 'vertical-lr'));
+            } catch (err) { verticalRange = false; }
+        }
+        el.classList.toggle('matxa-eq--vertical', verticalRange);
+    }
     function normalizeEffects(value) {
         const v = value || {};
         const number = (n, fallback) => typeof n === 'number' && isFinite(n) ? clamp(n, 0, 1) : fallback;
         return {
-            profile: AUDIO_PROFILES.some(p => p.id === v.profile) ? v.profile : 'natural',
-            intensity: number(v.intensity, 0.6), clarity: number(v.clarity, 0.5), volume: number(v.volume, 1)
+            profile: 'radio',
+            intensity: number(v.intensity, 0.6), clarity: number(v.clarity, 0.5), volume: number(v.volume, 1),
+            eq: normalizeEq(v.eq)
         };
     }
 
@@ -98,8 +142,10 @@
         }
         function attach(audio, value) {
             const s = normalizeEffects(value);
-            const amount = s.profile === 'natural' ? 0 : s.intensity;
-            if ((!amount && s.volume === 1) || !context || context.state !== 'running') {
+            const amount = s.intensity;
+            const eqGains = EQ_BANDS.map(b => s.eq[b.id]);
+            const eqFlat = eqGains.every(g => g === 0);
+            if ((!amount && eqFlat && s.volume === 1) || !context || context.state !== 'running') {
                 audio.volume = s.volume;
                 return null;
             }
@@ -110,31 +156,34 @@
                 // ha de recrear l'element Audio: la font ja n'ha capturat la sortida.
                 const source = context.createMediaElementSource(audio);
                 nodes.push(source);
-                const filter = (type, frequency, gain) => {
+                const filter = (type, frequency, gain, q) => {
                     const node = context.createBiquadFilter();
                     nodes.push(node);
                     node.type = type; node.frequency.value = frequency;
-                    node.Q.value = 0.7; node.gain.value = gain;
+                    node.Q.value = q || 0.7; node.gain.value = gain;
                 };
                 let headroomDb = 0;
                 if (amount) {
-                    const warmth = (s.profile === 'warm' ? 3.5 : 1.5) * amount;
-                    const brightness = (s.profile === 'warm' ? -3 : -0.5) * amount;
-                    const presence = ((s.clarity - 0.5) * 6 + (s.profile === 'radio' ? 1.5 : 0)) * amount;
+                    const warmth = 1.5 * amount;
+                    const presence = ((s.clarity - 0.5) * 6 + 1.5) * amount;
                     filter('lowshelf', 180, warmth);
-                    filter('highshelf', 4500, brightness);
+                    filter('highshelf', 4500, -0.5 * amount);
                     filter('peaking', 2400, presence);
                     headroomDb = Math.max(0, warmth) + Math.max(0, presence);
-                    if (s.profile === 'radio') {
-                        filter('highpass', 80, 0);
-                        const compressor = context.createDynamicsCompressor();
-                        nodes.push(compressor);
-                        compressor.threshold.value = -24 * amount;
-                        compressor.knee.value = 18;
-                        compressor.ratio.value = 1 + 2.5 * amount;
-                        compressor.attack.value = 0.008;
-                        compressor.release.value = 0.18;
-                    }
+                    filter('highpass', 80, 0);
+                    const compressor = context.createDynamicsCompressor();
+                    nodes.push(compressor);
+                    compressor.threshold.value = -24 * amount;
+                    compressor.knee.value = 18;
+                    compressor.ratio.value = 1 + 2.5 * amount;
+                    compressor.attack.value = 0.008;
+                    compressor.release.value = 0.18;
+                }
+                // Equalitzador després del compressor: el que mou l'usuari se
+                // sent tal qual. Es reserva marge per a la banda més alta.
+                if (!eqFlat) {
+                    EQ_BANDS.forEach((b, i) => filter(b.type, b.frequency, eqGains[i], b.type === 'peaking' ? 1 : 0.7));
+                    headroomDb += Math.max(0, ...eqGains);
                 }
                 const gain = context.createGain();
                 nodes.push(gain);
@@ -311,7 +360,7 @@
             const timer = setT(() => { if (controller) controller.abort(); }, o.synthTimeoutMs || MATXA_CONFIG.SYNTH_TIMEOUT_MS);
             const p = client.synthesize(text, voiceId, { rate: o.rate, signal: controller ? controller.signal : undefined })
                 .then(url => fetchAudio(url, controller ? controller.signal : undefined))
-                .then((src) => { clearT(timer); return src; }, (err) => {
+                .then((src) => { clearT(timer); cooldownUntil = 0; return src; }, (err) => {
                     clearT(timer);
                     cache.delete(k);
                     cooldownUntil = now() + MATXA_CONFIG.COOLDOWN_MS;
@@ -338,6 +387,9 @@
 
         const api = {
             available() { return isOnline() && now() >= cooldownUntil; },
+            // La TV que espera Matxa hi torna a provar abans que s'acabi la
+            // pausa d'un minut (opció force de speak).
+            online() { return isOnline(); },
             // Cal cridar-ho durant el gest de l'usuari, abans d'esperar la síntesi.
             unlock() { audioEffects.unlock(); },
             // Prepara l'àudio per endavant (p. ex. mentre es veu la jugada anterior).
@@ -350,7 +402,7 @@
                 api.stop();
                 if (!text) return Promise.resolve({ spoken: false, reason: 'empty' });
                 if (!isNeuralVoiceId(voiceId) || !voiceById(voiceId)) return Promise.resolve({ spoken: false, reason: 'voice' });
-                if (!api.available()) return Promise.resolve({ spoken: false, reason: 'unavailable' });
+                if (!(o.force ? isOnline() : api.available())) return Promise.resolve({ spoken: false, reason: 'unavailable' });
                 audioEffects.unlock();
                 return new Promise((resolve) => {
                     const entry = { resolve: resolve, timer: null, audio: null };
@@ -397,6 +449,11 @@
         MATXA_VOICES,
         DEFAULT_VOICE_ID,
         AUDIO_PROFILES,
+        EQ_BANDS,
+        EQ_MAX_DB,
+        normalizeEq,
+        formatDb,
+        layoutEq,
         normalizeEffects,
         createAudioEffects,
         isNeuralVoiceId,

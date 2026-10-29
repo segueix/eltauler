@@ -6,6 +6,7 @@ const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
 const speechCode = source.slice(source.indexOf('const REVIEW_TTS_STATE ='), source.indexOf('function getCoachDiagnosisText()'));
 const CA_ES = { lang: 'ca-ES', name: 'Català Espanya', voiceURI: 'catala-es' };
 const CA_AD = { lang: 'ca-AD', name: 'Català Andorra', voiceURI: 'catala-ad' };
+const FLAT = { low: 0, lowmid: 0, mid: 0, presence: 0, high: 0 };
 
 function setup({ saved, presets = [], voices = [CA_AD, CA_ES], available = true, neural = true, result = { spoken: true } } = {}) {
     const data = new Map([
@@ -41,11 +42,28 @@ describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
         expect(app.run('readReviewTtsPresets().length')).toBe(1);
         expect(app.run('getDefaultReviewTtsPresetId()')).toBe(id);
         expect(app.run('defaultNeuralTtsVoice()')).toEqual({ id: 'matxa:central:elia', rate: 1.05,
-            effects: { profile: 'radio', intensity: 0.8, clarity: 0.7, volume: 0 } });
+            effects: { profile: 'radio', intensity: 0.8, clarity: 0.7, volume: 0, eq: FLAT } });
+        // L'antic perfil base «Ràdio» ara és el perfil base Matxa (sempre Ràdio).
         expect(app.run("getReviewTtsPresetById('matxa-radio').matxaEffects")).toEqual({ profile: 'radio' });
         app.run("beginReviewTts('Una forquilla.', 'settings')");
         expect(app.speaker.speak.mock.calls[0][2]).toMatchObject({ rate: 1.05,
             effects: { profile: 'radio', intensity: 0.8, clarity: 0.7, volume: 0 } });
+    });
+
+    test('l’equalitzador de TV es desa al perfil i arriba a les ressenyes', () => {
+        const app = setup({ saved: 'matxa' });
+        app.run("updateNeuralTtsSettings({ effects: { eq: { low: 5, presence: -3, high: 40 } } })");
+        expect(app.run('defaultNeuralTtsVoice().effects.eq')).toEqual({ low: 5, lowmid: 0, mid: 0, presence: -3, high: 12 });
+        app.run("updateNeuralTtsSettings({ effects: { volume: 0.5 } })");
+        expect(app.run('defaultNeuralTtsVoice().effects.eq.low')).toBe(5);
+        app.run("beginReviewTts('Una forquilla.', 'settings')");
+        expect(app.speaker.speak.mock.calls[0][2].effects.eq).toMatchObject({ low: 5, presence: -3 });
+    });
+
+    test('només hi ha un perfil base Matxa, el de Ràdio', () => {
+        const app = setup();
+        expect(app.run('builtinReviewTtsPresets().map(p => p.id)')).toEqual(['matxa', 'system-ca-es']);
+        expect(app.run('builtinReviewTtsPresets()[0].name')).toBe('Matxa · Elia · Ràdio');
     });
 
     test('TV actualitza el perfil personal existent i limita la velocitat de Matxa', () => {
@@ -66,18 +84,18 @@ describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
         expect(app.run('getDefaultReviewTtsPresetId()')).toBe('system-ca-es');
     });
 
-    test.each(['warm', 'radio'])('el perfil %s arriba a les ressenyes i al pont de TV', profile => {
-        const app = setup({ saved: 'matxa-' + profile });
-        expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile, intensity: 0.6, clarity: 0.5, volume: 1 });
+    test.each(['matxa', 'matxa-warm', 'matxa-radio'])('el perfil base desat %s arriba com a Ràdio a les ressenyes i al pont de TV', saved => {
+        const app = setup({ saved });
+        expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile: 'radio', intensity: 0.6, clarity: 0.5, volume: 1, eq: FLAT });
         app.run("beginReviewTts('Una forquilla.', 'settings')");
-        expect(app.speaker.speak.mock.calls[0][2].effects).toEqual({ profile });
+        expect(app.speaker.speak.mock.calls[0][2].effects).toEqual({ profile: 'radio' });
     });
 
-    test('els perfils antics mantenen el so original i els personals conserven els filtres', () => {
+    test('els perfils personals antics passen a Ràdio i conserven els ajustos', () => {
         const app = setup({ saved: 'personal', presets: [{ id: 'personal', name: 'Personal', voiceURI: 'matxa:central:elia' }] });
-        expect(app.run('defaultNeuralTtsVoice().effects.profile')).toBe('natural');
+        expect(app.run('defaultNeuralTtsVoice().effects.profile')).toBe('radio');
         app.run("writeReviewTtsPresets([{ id: 'personal', name: 'Personal', voiceURI: 'matxa:central:elia', matxaEffects: { profile: 'warm', intensity: 0.3, clarity: 0.8, volume: 0 } }])");
-        expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile: 'warm', intensity: 0.3, clarity: 0.8, volume: 0 });
+        expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile: 'radio', intensity: 0.3, clarity: 0.8, volume: 0, eq: FLAT });
     });
 
     test.each([true, false])('la ressenya diu peó i peons amb Matxa disponible: %s', available => {

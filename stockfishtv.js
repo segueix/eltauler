@@ -143,6 +143,9 @@
         POST_SPEECH_PAUSE_MS: 900,
         // Pausa en reprendre (sense jugades acumulades).
         RESUME_DELAY_MS: 1500,
+        // Matxa ha deixat de respondre: la TV s'atura i hi torna a provar
+        // cada tants mil·lisegons (a més del temps que triga cada intent).
+        VOICE_RETRY_MS: 8000,
         // Control manual: espera mínima i màxima abans que el motor respongui
         // la jugada de l'usuari (dona temps a llegir-ne el comentari).
         CONTROL_REPLY_DELAY_MS: 1200,
@@ -2577,6 +2580,9 @@
     // Si el perfil de veu per defecte de la Configuració és una veu neuronal
     // Matxa, es fa servir aquesta; si falla (sense xarxa, servei aturat), es
     // torna a la veu catalana del dispositiu i, si tampoc n'hi ha, només text.
+    // Amb holdNeural (Stockfish vs Lozza TV) no hi ha alternativa: la locució
+    // torna { reason: 'neural-down' } i qui la fa servir espera que Matxa
+    // torni (speak amb force hi prova abans que acabi la pausa d'un minut).
     function createTvVoice(env) {
         const e = env || {};
         const synth = e.speechSynthesis || null;
@@ -2600,6 +2606,10 @@
             catch (err) { return false; }
         };
         const neuralReady = () => !!(neuralId() && neural.available());
+        const holding = () => {
+            try { return !!(neuralId() && (typeof e.holdNeural === 'function' ? e.holdNeural() : e.holdNeural)); }
+            catch (err) { return false; }
+        };
         const actualNeuralId = opts => (dualEnabled() && opts &&
             (opts.voiceId === TV_DUO.presenter || opts.voiceId === TV_DUO.analyst))
             ? opts.voiceId : neuralId();
@@ -2650,16 +2660,20 @@
             // Una sola locució viva: la nova substitueix l'anterior.
             stop();
             const seq = speakSeq;
-            if (neuralReady()) {
-                return neural.speak(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
+            const hold = holding();
+            if (neuralReady() || (hold && o.force)) {
+                return neural.speak(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000, force: !!(hold && o.force) })
                     .then((r) => {
                         if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
                         if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
                         emit();
-                        // La veu neuronal ha fallat: veu del dispositiu, si n'hi ha.
+                        // La veu neuronal ha fallat: o s'espera que torni, o
+                        // veu del dispositiu, si n'hi ha.
+                        if (holding()) return { spoken: false, reason: 'neural-down' };
                         return voice ? speakSystem(text, o) : { spoken: false, reason: 'neural-failed' };
                     });
             }
+            if (hold) return Promise.resolve({ spoken: false, reason: 'neural-down' });
             if (!voice) return Promise.resolve({ spoken: false, reason: 'no-voice' });
             return speakSystem(text, o);
         }
@@ -2697,21 +2711,23 @@
             status() {
                 if (!supported) return 'unsupported';
                 if (blocked) return 'blocked';
-                if (neuralReady()) return 'ready';
+                if (neuralReady() || holding()) return 'ready';
                 if (!voice) return (!synthSupported || voicesSeen || voicesSettled) ? 'no-voice' : 'loading';
                 return 'ready';
             },
             // Quina veu sonarà ara: 'neural', 'system' o null.
-            engine() { return current ? 'system' : (neuralReady() ? 'neural' : (voice ? 'system' : null)); },
+            engine() { return current ? 'system' : (neuralReady() || holding() ? 'neural' : (voice ? 'system' : null)); },
             // La veu neuronal triada no està disponible (sense xarxa o servei aturat).
             neuralUnavailable() { return !!(neuralId() && !neural.available()); },
+            // Si Matxa falla, no es llegeix amb una altra veu: s'espera que torni.
+            holdsForNeural() { return holding(); },
             prefetch(text, opts) { if (pref === 'on' && text && neuralReady()) { const o = opts || {}; neural.prefetch(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25) }); } },
-            supportsDual() { return dualEnabled() && neuralReady(); },
+            supportsDual() { return dualEnabled() && (neuralReady() || holding()); },
             pref() { return pref; },
             isOn() { return pref === 'on'; },
             needsActivation() { return pref === null; },
             voiceName() {
-                if (!current && neuralReady()) {
+                if (!current && (neuralReady() || holding())) {
                     const V = root && root.ElTaulerVeuNeural;
                     if (dualEnabled()) return 'Matxa · Elia i Grau';
                     return (V && V.voiceLabel(neuralId())) || 'Matxa';
@@ -2949,7 +2965,10 @@
             // juga el motor). null: Stockfish juga els dos bàndols.
             control: null,
             // La jugada de l'usuari ja és al tauler i se n'està preparant el comentari.
-            pendingUser: false
+            pendingUser: false,
+            // Matxa no respon: { since, attempts, nextTryAt, trying }. La
+            // partida no avança fins que la veu torna (o l'usuari l'apaga).
+            voiceHold: null
         };
 
         let prefs = tvNormalizePrefs(typeof d.loadPrefs === 'function' ? d.loadPrefs() : null);
@@ -2982,6 +3001,7 @@
             S.speech = null;
             S.pendingUser = false;
             S.movePreview = null;
+            S.voiceHold = null;
         }
 
         function userTurn(g) { return !!(S.control && g && !g.end && g.chess.turn() === S.control.color); }
@@ -3004,6 +3024,7 @@
                 recentResults: prefs.recent.slice(),
                 duelWarning: S.duelWarning,
                 movePreview: S.movePreview ? Object.assign({}, S.movePreview) : null,
+                voiceHold: S.voiceHold ? Object.assign({}, S.voiceHold) : null,
                 nextLevel: next.value,
                 control: S.control && g ? {
                     color: S.control.color,
@@ -3136,27 +3157,72 @@
                 d.voice.supportsDual()));
         }
 
-        function speakComment(comment, epoch) {
+        // opts = { fromTurn, force }: per reprendre un comentari a mitges
+        // quan Matxa torna. El resultat diu si la veu ha caigut (voiceDown) i
+        // en quin fragment.
+        function speakComment(comment, epoch, opts) {
+            const o = opts || {};
             if (!d.voice || !d.voice.isOn() || d.voice.status() === 'no-voice' || d.voice.status() === 'unsupported') return null;
             const started = now(), direction = tvSpeechDirection(comment);
             const turns = spokenTurns(comment);
             // Com a màxim dos fragments per comentari. L'estat de partida
             // s'examina ENTRE fragments per no parlar després d'aturar la TV.
             return (async () => {
-                let spoken = false;
-                for (const turn of turns) {
+                let spoken = false, voiceDown = false, failedTurn = -1;
+                for (let i = o.fromTurn || 0; i < turns.length; i++) {
+                    const turn = turns[i];
                     if (!alive(epoch)) break;
                     const tone = turn.role === 'maxim'
                         ? tvSpeechDirection({ kind: 'summary' }) : direction;
                     const r = await d.voice.speak(turn.text, { rate: tone.rate, pitch: tone.pitch,
-                        voiceId: turn.voiceId, maxWaitMs: tvSpeechMaxWaitMs(turn.text) });
+                        voiceId: turn.voiceId, maxWaitMs: tvSpeechMaxWaitMs(turn.text), force: !!o.force });
                     if (!r || r.reason === 'stopped' || r.reason === 'not-allowed') break;
+                    if (r.reason === 'neural-down') { voiceDown = true; failedTurn = i; break; }
                     spoken = spoken || !!r.spoken;
                     if (!r.spoken) break;
                 }
-                return { spoken, endedAt: now(), startedAt: started, epoch, pauseMs: direction.pauseMs };
+                return { spoken, voiceDown, failedTurn, comment, endedAt: now(), startedAt: started, epoch, pauseMs: direction.pauseMs };
             })().catch(() => ({ spoken: false, endedAt: now(), startedAt: started, epoch,
                 pauseMs: direction.pauseMs }));
+        }
+
+        function voiceHoldWanted() {
+            return !!(d.voice && d.voice.isOn() && typeof d.voice.holdsForNeural === 'function' && d.voice.holdsForNeural());
+        }
+
+        // Matxa s'ha aturat a mitja partida: no es mou cap peça ni es comenta
+        // res fins que la veu torna. Cada VOICE_RETRY_MS es torna a provar el
+        // fragment que ha fallat; quan sona, la partida continua on era. Si
+        // l'usuari apaga la veu, continua sense comentaris. Torna false si la
+        // TV s'ha aturat o ha canviat de partida mentre s'esperava.
+        async function holdForVoice(g, result, epoch) {
+            let sp = result;
+            while (sp && sp.voiceDown && voiceHoldWanted()) {
+                if (!S.voiceHold) {
+                    S.voiceHold = { since: now(), attempts: 0, nextTryAt: 0, trying: false };
+                    notify('voiceHold', true);
+                }
+                S.voiceHold.trying = false;
+                S.voiceHold.nextTryAt = now() + TV_CONFIG.VOICE_RETRY_MS;
+                render();
+                while (S.voiceHold && now() < S.voiceHold.nextTryAt) {
+                    if (!(await sleep(Math.min(1000, S.voiceHold.nextTryAt - now()), epoch)) || S.game !== g) return false;
+                    if (!voiceHoldWanted()) break;
+                }
+                if (!S.voiceHold || !voiceHoldWanted()) break;
+                S.voiceHold.attempts++;
+                S.voiceHold.trying = true;
+                render();
+                const next = speakComment(sp.comment, epoch, { fromTurn: Math.max(0, sp.failedTurn), force: true });
+                sp = next ? await next : null;
+                if (!alive(epoch) || S.game !== g) return false;
+            }
+            if (S.voiceHold) {
+                S.voiceHold = null;
+                notify('voiceHold', false);
+                render();
+            }
+            return sp || null;
         }
 
         function analysisJob(g, uciMoves, ply, fen) {
@@ -3269,9 +3335,13 @@
                 const waitMs = S.nextRevealAt - now();
                 if (waitMs > 0 && !(await sleep(waitMs, epoch))) return;
                 if (S.speech) {
-                    const sp = await S.speech;
+                    let sp = await S.speech;
                     if (!alive(epoch) || S.game !== g) return;
                     S.speech = null;
+                    if (sp && sp.voiceDown) {
+                        sp = await holdForVoice(g, sp, epoch);
+                        if (sp === false) return;
+                    }
                     if (sp && sp.spoken && !(await sleep(isNum(sp.pauseMs) ? sp.pauseMs : TV_CONFIG.POST_SPEECH_PAUSE_MS, epoch))) return;
                 }
                 // La posició visible ha de ser exactament la del càlcul.
@@ -3414,9 +3484,10 @@
                 savePrefs();
             }
             if (S.speech) {
-                await S.speech;
+                const sp = await S.speech;
                 if (!alive(epoch) || S.game !== g) return;
                 S.speech = null;
+                if (sp && sp.voiceDown && (await holdForVoice(g, sp, epoch)) === false) return;
             }
             const delay = Math.round(TV_CONFIG.NEXT_GAME_DELAY_MS * (g.tier === 'basic' ? 1.2 : 1));
             g.nextGameAt = now() + delay;
@@ -3640,6 +3711,7 @@
     let board = null;
     let lastHighlight = null;
     let countdownTimer = null;
+    let voiceHoldTimer = null;
     let uiReady = false;
     let expanded = false;
     let nativeFullscreen = false;
@@ -3922,6 +3994,15 @@
         const screenVisible = options.visible;
         const controller = { state: options.getState };
         let voice = null, radioAmbience = null;
+        // Melodia de fons: una a l'atzar per partida (identificador de la
+        // partida a l'estat) o, si no n'hi ha, per a cada retransmissió.
+        let melodyKey, melody = null;
+        function gameMelody(api, state) {
+            const key = state && state.game && state.game.id !== undefined ? 'game:' + state.game.id
+                : (state && state.gameKey !== undefined ? 'key:' + state.gameKey : 'session');
+            if (!melody || key !== melodyKey) { melodyKey = key; melody = api.pickMelody(Math.random, melody); }
+            return melody;
+        }
         if (prefix !== 'sftv' && options.host) {
             options.host.textContent = '';
             ['.sftv-voicebar', '#sftv-matxa-controls'].forEach(selector => {
@@ -3952,15 +4033,24 @@
             voiceOn: voice && voice.isOn(), engine: voice && voice.engine(), blocked: voice && voice.status() === 'blocked',
             open: state.open, paused: state.paused, hidden: state.hidden || document.visibilityState === 'hidden',
             visible: screenVisible(), error: state.error });
-        if (!radioAmbience && active && prefs.sound !== 'off' && prefs.volume > 0) radioAmbience = api.createPlayer();
+        if (!radioAmbience && active && prefs.sound !== 'off' && prefs.volume > 0) radioAmbience = api.createPlayer({ onChange: () => renderRadioStatus() });
         if (radioAmbience) {
-            radioAmbience.update(prefs, active);
+            radioAmbience.update(Object.assign({}, prefs, { melody: gameMelody(api, state) }), active);
             if (radioAmbience.duck) radioAmbience.duck(!!(voice && voice.isSpeaking()));
             if (unlock && active) radioAmbience.unlock();
         }
+        renderRadioStatus();
+    }
+
+    function renderRadioStatus() {
         const status = $id('sftv-radio-status');
-        if (status) status.textContent = radioAmbience && radioAmbience.status() === 'unavailable'
-            ? 'El so de fons no està disponible en aquest navegador. La veu continua funcionant.' : '';
+        if (!status) return;
+        const api = root.ElTaulerRadioAmbient;
+        const st = radioAmbience ? radioAmbience.status() : 'off';
+        const playing = radioAmbience && radioAmbience.playing ? radioAmbience.playing() : null;
+        status.textContent = st === 'unavailable'
+            ? 'La música de fons no està disponible en aquest navegador. La veu continua funcionant.'
+            : (st === 'playing' && playing && api ? 'Ara sona: ' + api.melodyInfo(playing).name + ' (' + api.melodyInfo(playing).description + ').' : '');
     }
 
     function renderRadioControls(matxa, profile) {
@@ -3986,6 +4076,13 @@
         syncRadioAmbience(true);
     }
 
+    function neuralApi() { return root.ElTaulerVeuNeural || null; }
+    function currentEffects() {
+        const effects = typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null;
+        const V = neuralApi();
+        return V ? V.normalizeEffects(effects) : Object.assign({ profile: 'radio', intensity: 0.6, clarity: 0.5, volume: 1, eq: {} }, effects || {});
+    }
+
     function renderMatxaControls() {
         const panel = $id('sftv-matxa-controls');
         if (!panel) return;
@@ -3994,31 +4091,45 @@
             : (typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId());
         panel.hidden = !selected;
         if (!selected) { renderRadioControls(false, null); return; }
-        const effects = typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null;
-        const settings = Object.assign({ profile: 'natural', intensity: 0.6, clarity: 0.5, volume: 1 }, effects || {});
-        renderRadioControls(true, settings.profile);
-        const profile = $id('sftv-matxa-profile');
-        if (profile) profile.value = settings.profile;
+        const settings = currentEffects();
+        // Ràdio és l'únic perfil de so de Matxa.
+        renderRadioControls(true, 'radio');
         settings.rate = typeof bridge.getNeuralRate === 'function' ? bridge.getNeuralRate() : 1;
         ['intensity', 'clarity', 'volume', 'rate'].forEach(key => {
             const control = $id('sftv-matxa-' + key);
             const value = $id('sftv-matxa-' + key + '-value');
             const percent = Math.round(settings[key] * 100);
-            if (control) {
-                control.value = percent;
-                control.disabled = settings.profile === 'natural' && (key === 'intensity' || key === 'clarity');
-            }
+            if (control) { control.value = percent; control.disabled = false; }
             if (value) value.textContent = percent + '%';
         });
+        const V = neuralApi();
+        const eq = $id('sftv-matxa-eq');
+        if (eq && V) {
+            if (typeof V.layoutEq === 'function') V.layoutEq(eq);
+            V.EQ_BANDS.forEach(band => {
+                const gain = settings.eq ? settings.eq[band.id] || 0 : 0;
+                const control = $id('sftv-matxa-eq-' + band.id);
+                const value = $id('sftv-matxa-eq-' + band.id + '-value');
+                const text = V.formatDb(gain);
+                if (control) { control.value = gain; control.setAttribute('aria-valuetext', text); }
+                if (value) value.textContent = text;
+            });
+        }
         const help = $id('sftv-matxa-help');
-        if (help) help.textContent = (settings.profile === 'natural' ? 'Natural no aplica filtres. Tria Càlida o Ràdio per ajustar la intensitat i la claredat. ' : '')
-            + 'Els canvis es desen al teu perfil i s’escolten a partir del comentari següent.';
+        if (help) help.textContent = 'Perfil Ràdio: veu present i volum uniforme. Els canvis es desen al teu perfil i s’escolten a partir del comentari següent.';
     }
 
     function changeMatxaControl(key, value) {
         if (typeof bridge.updateNeuralSettings !== 'function') return;
-        const changes = key === 'rate' ? { rate: Number(value) / 100 }
-            : { effects: { [key]: key === 'profile' ? value : Number(value) / 100 } };
+        let changes;
+        if (key === 'rate') changes = { rate: Number(value) / 100 };
+        else if (key === 'eq') {
+            // value: { band, gain } o null per tornar l'equalitzador a pla.
+            const eq = Object.assign({}, currentEffects().eq);
+            if (value && value.band) eq[value.band] = Number(value.gain);
+            else Object.keys(eq).forEach(band => { eq[band] = 0; });
+            changes = { effects: { eq } };
+        } else changes = { effects: { [key]: Number(value) / 100 } };
         bridge.updateNeuralSettings(changes);
         renderMatxaControls();
         syncRadioAmbience(true);
@@ -4055,6 +4166,7 @@
                     ? 'La veu neuronal Matxa no respon ara mateix i no hi ha cap veu catalana disponible en aquest dispositiu'
                     : 'No hi ha cap veu catalana disponible en aquest dispositiu';
             } else if (status === 'blocked' && on) text = 'El navegador ha aturat la veu: toca el botó de veu per tornar-la a activar.';
+            else if (on && voice.neuralUnavailable() && typeof voice.holdsForNeural === 'function' && voice.holdsForNeural()) text = 'La veu neuronal Matxa no respon ara mateix: la partida s’atura fins que torni.';
             else if (on && voice.neuralUnavailable() && voice.engine() === 'system') text = 'La veu neuronal Matxa no respon ara mateix: es llegeix amb la veu del dispositiu.';
             else if (on && voice.engine()) {
                 const duo = prefix === 'sftv' && tvNormalizePrefs(loadPrefsRaw()).duo &&
@@ -4072,13 +4184,17 @@
             render: renderVoice, sync: syncRadioAmbience, renderMatxa: renderMatxaControls,
             changeMatxa: changeMatxaControl, changeRadio: changeRadioControl,
             player: () => radioAmbience,
-            dispose() { if (radioAmbience) radioAmbience.dispose(); radioAmbience = null; },
+            dispose() { if (radioAmbience) radioAmbience.dispose(); radioAmbience = null; melody = null; },
             bind() {
                 const on = (id, event, fn) => { const el = $id(id); if (el) el.addEventListener(event, fn); };
-                on('sftv-matxa-profile', 'change', ev => changeMatxaControl('profile', ev.target.value));
                 ['intensity', 'clarity', 'volume', 'rate'].forEach(key => {
                     on('sftv-matxa-' + key, 'input', ev => changeMatxaControl(key, ev.target.value));
                 });
+                const V = neuralApi();
+                (V ? V.EQ_BANDS : []).forEach(band => {
+                    on('sftv-matxa-eq-' + band.id, 'input', ev => changeMatxaControl('eq', { band: band.id, gain: ev.target.value }));
+                });
+                on('sftv-matxa-eq-reset', 'click', () => changeMatxaControl('eq', null));
                 on('sftv-radio-sound', 'change', ev => changeRadioControl('sound', ev.target.value));
                 on('sftv-radio-volume', 'input', ev => changeRadioControl('volume', ev.target.value));
                 const toggle = activate => {
@@ -4281,6 +4397,7 @@
                 + (last && last.prepared ? ' · jugada preparada de l\'obertura' : '');
         }
         if (state.duelWarning) text += ' · Lozza no disponible: s\'utilitza temporalment Stockfish als dos bàndols.';
+        if (state.voiceHold && g && !g.end) text += ' · Esperant la veu Matxa';
         if (state.paused) text += ' · En pausa';
         if (el) el.textContent = text;
         const pauseBtn = $id('sftv-pause');
@@ -4345,6 +4462,25 @@
             note.textContent = text;
             note.style.display = text ? '' : 'none';
         }
+    }
+
+    // Matxa no respon: la partida queda aturada i es diu quan es torna a provar.
+    function renderVoiceHold(state) {
+        const el = $id('sftv-voice-hold');
+        if (voiceHoldTimer) { clearInterval(voiceHoldTimer); voiceHoldTimer = null; }
+        if (!el) return;
+        const hold = state.voiceHold;
+        if (!hold) { el.hidden = true; el.textContent = ''; return; }
+        const paint = () => {
+            const left = Math.max(0, Math.ceil((hold.nextTryAt - Date.now()) / 1000));
+            const next = hold.trying ? 'Provant de tornar a connectar amb Matxa…'
+                : 'Nou intent d’aquí a ' + left + ' s' + (hold.attempts ? ' (intents fets: ' + hold.attempts + ')' : '') + '.';
+            el.innerHTML = '<strong>La veu Matxa no respon: partida aturada fins que torni.</strong>'
+                + escapeHtml(next) + ' Apaga la veu per continuar sense comentaris.';
+        };
+        paint();
+        el.hidden = false;
+        if (!hold.trying) voiceHoldTimer = setInterval(paint, 500);
     }
 
     function renderResult(state) {
@@ -4427,6 +4563,7 @@
             renderMoves(g);
             renderOpening(g);
             renderStatus(state);
+            renderVoiceHold(state);
             renderComment(state);
             renderResult(state);
             renderVoice();
@@ -4462,6 +4599,8 @@
                 : (typeof bridge.getNeuralVoiceId === 'function' ? bridge.getNeuralVoiceId() : null),
             getNeuralRate: () => (typeof bridge.getNeuralRate === 'function' ? bridge.getNeuralRate() : 1),
             getNeuralEffects: () => (typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null),
+            // Stockfish vs Lozza: si Matxa cau, la partida s'atura fins que torna.
+            holdNeural: true,
             loadPref: () => tvNormalizePrefs(loadPrefsRaw()).voice,
             savePref: (v) => savePrefsRaw({ voice: v }),
             onChange: () => renderVoice()
@@ -4531,6 +4670,7 @@
         if (sharedTvAudio) sharedTvAudio.dispose();
         radioAmbience = null;
         if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null; }
+        if (voiceHoldTimer) { clearInterval(voiceHoldTimer); voiceHoldTimer = null; }
         uiReady = false;
         destroyBoard();
         const screen = $id('sftv-screen');
@@ -4595,7 +4735,6 @@
             controller.setDuo(ev.target.checked);
             renderVoice();
         });
-        on('sftv-matxa-profile', 'change', ev => changeMatxaControl('profile', ev.target.value));
         on('sftv-radio-sound', 'change', ev => changeRadioControl('sound', ev.target.value));
         on('sftv-radio-volume', 'input', ev => changeRadioControl('volume', ev.target.value));
         on('sftv-radio-volume', 'change', ev => changeRadioControl('volume', ev.target.value));
@@ -4603,6 +4742,11 @@
             on('sftv-matxa-' + key, 'input', ev => changeMatxaControl(key, ev.target.value));
             on('sftv-matxa-' + key, 'change', ev => changeMatxaControl(key, ev.target.value));
         });
+        const NeuralApi = root.ElTaulerVeuNeural;
+        (NeuralApi ? NeuralApi.EQ_BANDS : []).forEach(band => {
+            on('sftv-matxa-eq-' + band.id, 'input', ev => changeMatxaControl('eq', { band: band.id, gain: ev.target.value }));
+        });
+        on('sftv-matxa-eq-reset', 'click', () => changeMatxaControl('eq', null));
         // Activar la veu és sempre fruit d'un toc de l'usuari (requisit dels
         // navegadors): la primera locució surt dins del mateix gest.
         on('sftv-voice-activate', 'click', () => {
