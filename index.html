@@ -3249,6 +3249,33 @@
         .sftv-banner .catalans-banner-ic { stroke: #cdeed7; }
         .sftv-banner .catalans-banner-cta { color: #133024; background: rgba(205,238,215,0.92); }
         .sftv-logo-ic { width: 1em; height: 1em; fill: none; stroke: var(--accent-gold); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+        /* Campionat històric de la TV: dades locals reals, sense apostes amb diners. */
+        .sftv-league { padding: 13px; border: 1px solid rgba(201,162,39,.5); border-radius: 14px; background: linear-gradient(145deg, rgba(201,162,39,.13), rgba(43,120,168,.07)); color: var(--text-primary); }
+        .sftv-league[hidden] { display: none !important; }
+        .sftv-league-head { display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px; font-size: .84rem; }
+        .sftv-league-head strong { color: var(--accent-gold); font-variant-numeric: tabular-nums; }
+        .sftv-league-score { display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr); align-items: center; gap: 7px; margin: 10px 0 5px; }
+        .sftv-league-fighter { text-align: center; min-width: 0; padding: 7px 5px; border-radius: 10px; background: rgba(255,255,255,.045); }
+        .sftv-league-fighter span { display: block; font-size: .77rem; font-weight: 700; }
+        .sftv-league-fighter strong { display: block; font-size: clamp(1.55rem, 5vw, 2.15rem); line-height: 1.2; font-variant-numeric: tabular-nums; }
+        .sftv-league-draws { text-align: center; font-size: .68rem; line-height: 1.35; color: var(--text-secondary); }
+        .sftv-league-draws strong { display: block; font-size: 1.2rem; color: var(--text-primary); }
+        .sftv-league-story { margin: 8px 0; font-size: .81rem; line-height: 1.4; }
+        .sftv-league-recent { font-size: .82rem; font-family: ui-monospace, monospace; letter-spacing: .06em; font-weight: 700; word-break: break-word; }
+        .sftv-league-muted { font-size: .73rem; line-height: 1.4; color: var(--text-secondary); }
+        .sftv-league-next { margin: 9px 0 7px; font-size: .86rem; font-weight: 700; color: var(--accent-gold); }
+        .sftv-predict { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 5px; margin: 5px 0; }
+        .sftv-predict button { font: inherit; font-size: .74rem; font-weight: 700; padding: 11px 3px; min-width: 0; border-radius: 9px; border: 1px solid rgba(201,162,39,.42); background: rgba(30,42,56,.6); color: #fff; cursor: pointer; touch-action: manipulation; }
+        .sftv-predict button.is-picked { border-color: var(--accent-gold); background: rgba(201,162,39,.26); box-shadow: inset 0 0 0 1px var(--accent-gold); }
+        .sftv-predict button:focus-visible { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+        .sftv-predict button:disabled { opacity: .45; cursor: default; }
+        .sftv-league-feedback { margin-top: 7px; font-size: .75rem; }
+        @keyframes sftv-league-flash { 0% { box-shadow: 0 0 0 0 rgba(201,162,39,.5); } 50% { box-shadow: 0 0 0 6px rgba(201,162,39,.2); } 100% { box-shadow: 0 0 0 0 transparent; } }
+        .sftv-league-celebrate { animation: sftv-league-flash 850ms ease-out 1; }
+        @media (prefers-reduced-motion: reduce) { .sftv-league-celebrate { animation: none; } }
+        body.epaper-mode .sftv-league { background: #fff; border-color: #333; }
+        body.epaper-mode .sftv-predict button { background: #fff; color: #000; border-color: #333; }
+        body.epaper-mode .sftv-predict button.is-picked { background: #ddd; }
         .sftv-voicebar { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 8px; margin: 0 0 12px; }
         .sftv-voice-activate { min-width: 0; width: auto; max-width: 320px; flex: 0 1 auto; padding-left: 22px; padding-right: 22px; margin: 0; }
         .sftv-voice-toggle {
@@ -6953,6 +6980,26 @@
                     </div>
                 </div>
                 <div class="sftv-side">
+                    <section id="sftv-league" class="sftv-league" hidden aria-label="Campionat històric Stockfish contra Lozza">
+                        <div class="sftv-league-head"><span>🏆 Campionat dels motors</span><strong id="sftv-league-round">Duel 1</strong></div>
+                        <div class="sftv-league-score">
+                            <div class="sftv-league-fighter"><span>Stockfish</span><strong id="sftv-league-sf">0</strong></div>
+                            <div class="sftv-league-draws">Taules<strong id="sftv-league-draw">0</strong></div>
+                            <div class="sftv-league-fighter"><span>Lozza</span><strong id="sftv-league-lozza">0</strong></div>
+                        </div>
+                        <p id="sftv-league-story" class="sftv-league-story"></p>
+                        <div id="sftv-league-recent" class="sftv-league-recent" aria-label="Resultats recents">—</div>
+                        <div id="sftv-league-recent-note" class="sftv-league-muted"></div>
+                        <div id="sftv-league-next" class="sftv-league-next">Qui s'emportarà el pròxim duel?</div>
+                        <div id="sftv-predict" class="sftv-predict" role="group" aria-label="Pronòstic del duel següent, sense diners">
+                            <button type="button" data-predict="stockfish" aria-pressed="false">Stockfish</button>
+                            <button type="button" data-predict="draw" aria-pressed="false">Taules</button>
+                            <button type="button" data-predict="lozza" aria-pressed="false">Lozza</button>
+                        </div>
+                        <div id="sftv-league-forecast" class="sftv-league-muted"></div>
+                        <div id="sftv-league-feedback" class="sftv-league-feedback" role="status" aria-live="polite"></div>
+                        <div class="sftv-league-muted">Pronòstics gratuïts, sense diners. Historial d'aquest dispositiu, separat per motor de Stockfish; només duels automàtics complets. S/L/½ = victòria de Stockfish/Lozza/taules.</div>
+                    </section>
                     <div class="sftv-voice-hold" id="sftv-voice-hold" role="status" hidden></div>
                     <div class="sftv-comment is-empty" id="sftv-comment" aria-live="polite"></div>
                     <div class="sftv-storyline" id="sftv-storyline" aria-label="Temes seguits durant aquesta partida" style="display:none;"></div>
@@ -9369,7 +9416,9 @@
     <script src="prosodia.js?v=2.0.0"></script>
     <script src="auditoria.js?v=1.0.0"></script>
     <script src="tvintro.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=2.10.0"></script>
+    <script src="tvleague.js?v=1.0.0"></script>
+    <script src="tvleague-ui.js?v=1.0.0"></script>
+    <script src="stockfishtv.js?v=2.10.1"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
