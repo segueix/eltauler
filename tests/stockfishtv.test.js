@@ -1954,10 +1954,11 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
             expect(html).toContain('id="sftv-color-' + color + '"');
             expect(html).toContain('id="sftv-meta-' + color + '"');
         }
-        expect(html).toContain('background: rgba(255,255,255,.68);');
-        expect(html).toContain('.sftv-player.is-turn { background: rgba(255,255,255,.72);');
-        expect(html).toContain('.sftv-player.is-user.is-turn { background: rgba(255,255,255,.72);');
-        expect(html).toContain('backdrop-filter: blur(10px)');
+        expect(html).toContain('background: rgba(255,255,255,.12);');
+        expect(html).toContain('.sftv-player.is-turn { background: rgba(255,255,255,.18);');
+        expect(html).toContain('.sftv-player.is-user.is-turn { background: rgba(255,255,255,.18);');
+        expect(html).toContain('backdrop-filter: none');
+        expect(html).toContain('body.epaper-mode .sftv-player-name');
         expect(html).toContain('font-size: clamp(1.2rem, 4.5vw, 1.65rem)');
         expect(html).toContain('.sftv-player.is-turn .sftv-player-name');
         expect(js).toContain("g.engines[color] === 'lozza' ? 'Lozza' : 'Stockfish 19'");
