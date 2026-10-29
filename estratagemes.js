@@ -19,7 +19,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
     const BOOK_ID = 'estratagemes';
     const BOOK_LABEL = 'Les 36 estratagemes';
     const ATTRIBUTION = 'Frase original inspirada en «Les 36 estratagemes», no una citació';
@@ -28,8 +28,8 @@
     const RECENT_IDS = 36;          // no repeteix literalment cap frase dins la partida
     const MIN_STOCKFISH_DEPTH = 10;
 
-    // Estratagemes que s'hi adapten bé, amb el número tradicional i 4 frases
-    // cadascun. Les frases són generals i condicionals: mai no diuen que hi
+    // Estratagemes que s'hi adapten bé, amb el número tradicional i de 4 a 8
+    // frases cadascun (8 els que surten més sovint). Les frases són generals i condicionals: mai no diuen que hi
     // hagi una jugada forçada ni una victòria segura, i totes valen per a
     // cadascun dels motius verificats als quals l'estratagema està lligat.
     const STRATAGEMS = Object.freeze({
@@ -37,7 +37,11 @@
             '«Travessar el mar sense que el cel ho vegi»: les jugades tranquil·les sovint amaguen el camí més llarg.',
             'Qui avança sense fer soroll no regala informació al rival.',
             'Una maniobra discreta pot preparar el que una amenaça oberta només anunciaria.',
-            'El vell estratagema xinès aconsella moure’s a la vista de tothom com si no passés res.'] },
+            'El vell estratagema xinès aconsella moure’s a la vista de tothom com si no passés res.',
+            'Les forces que es despleguen en silenci arriben al combat sense haver-lo anunciat.',
+            'Moure’s sense cridar l’atenció deixa el rival sense res a què respondre.',
+            'El camí discret és llarg, però no avisa ningú de la seva destinació.',
+            'Qui prepara el pas a poc a poc no necessita revelar on vol arribar.'] },
         wei: { n: 2, title: 'Assetjar Wei per salvar Zhao', texts: [
             '«Assetjar Wei per salvar Zhao»: de vegades la millor defensa és amenaçar allà on l’altre no mira.',
             'Quan una plaça pateix, atacar-ne una altra del rival pot obligar-lo a recular.',
@@ -52,7 +56,11 @@
             '«Esperar descansat l’enemic cansat»: una posició ben protegida deixa que sigui l’altre qui s’esgoti.',
             'La paciència també és una arma quan la defensa és sòlida.',
             'Qui ho té tot protegit pot deixar que el rival gasti les forces.',
-            'Defensar amb calma és obligar l’enemic a fer el pas següent.'] },
+            'Defensar amb calma és obligar l’enemic a fer el pas següent.',
+            'Una defensa ben tancada converteix l’impuls de l’atacant en cansament.',
+            'Qui posa el rei a cobert pot esperar amb calma la jugada de l’altre.',
+            'La solidesa no té pressa: deixa que l’enemic busqui on no hi ha res.',
+            'Esperar ben protegit és fer que el temps treballi a favor teu.'] },
         casa: { n: 5, title: 'Saquejar la casa que crema', texts: [
             '«Saquejar la casa que crema»: quan el rival té problemes, és el moment d’aprofitar-ne el desordre.',
             'Una peça desprotegida és una porta oberta en una casa en flames.',
@@ -67,12 +75,20 @@
             '«Crear alguna cosa del no-res»: d’una majoria de peons pot néixer un peó que cap peó rival no pot aturar.',
             'Un peó passat és un petit exèrcit que avança amb el camí lliure de peons.',
             'Allà on només hi havia peons, comença a dibuixar-se una amenaça per al futur.',
-            'Les petites diferències d’un flanc poden créixer fins a decidir una partida.'] },
+            'Les petites diferències d’un flanc poden créixer fins a decidir una partida.',
+            'Un peó que ningú no pot barrar acaba exigint l’atenció de tot l’exèrcit.',
+            'D’un avantatge petit en un flanc pot sortir una força que abans no existia.',
+            'El peó lliure és una promesa que obliga l’altre a vigilar sense descans.',
+            'Allà on el rival no té peons per oposar-se, el camí comença a obrir-se.'] },
         chencang: { n: 8, title: 'Reparar el camí a la vista i passar d’amagat per Chencang', texts: [
             '«Reparar el camí a la vista i passar d’amagat per Chencang»: una columna oberta és una ruta que pot portar lluny.',
             'Les torres necessiten camins; quan en tenen un, el viatge pot començar.',
             'Ocupar una ruta abans que l’altre és guanyar temps per a més endavant.',
-            'Qui controla la carretera decideix per on passaran les tropes.'] },
+            'Qui controla la carretera decideix per on passaran les tropes.',
+            'Una ruta oberta convida les peces pesants a avançar sense obstacles.',
+            'La línia que ningú no vigila pot portar fins al cor del camp enemic.',
+            'Quan les torres troben el seu camí, la rereguarda rival comença a patir.',
+            'Un camí lliure val més si s’ocupa abans que l’altre hi pensi.'] },
         riba: { n: 9, title: 'Mirar l’incendi des de l’altra riba', texts: [
             '«Mirar l’incendi des de l’altra riba»: no sempre convé ser el primer a resoldre la tensió.',
             'Quan els peons es troben, sol treure’n profit qui sap esperar el moment.',
@@ -82,7 +98,11 @@
             '«Amagar el ganivet darrere un somriure»: una jugada d’aparença tranquil·la pot portar una amenaça.',
             'Les amenaces més perilloses són les que arriben sense fer soroll.',
             'Abans de respondre a una jugada, cal mirar què ataca.',
-            'Una amenaça ben amagada obliga el rival a pensar més del que voldria.'] },
+            'Una amenaça ben amagada obliga el rival a pensar més del que voldria.',
+            'Una amenaça callada fa més feina que un atac declarat.',
+            'El perill que no s’anuncia obliga a revisar cada casella.',
+            'Darrere una jugada amable hi pot haver una pregunta que el rival haurà de respondre.',
+            'Qui amenaça sense cridar deixa l’altre sense temps per preparar-se.'] },
         prunera: { n: 11, title: 'Sacrificar la prunera per salvar el presseguer', texts: [
             '«Sacrificar la prunera per salvar el presseguer»: es dona una cosa petita per protegir-ne una de més valuosa.',
             'Cedir material només té sentit quan el que es guanya val més del que es perd.',
@@ -92,7 +112,11 @@
             '«Endur-se la cabra que passa»: el material que ningú no defensa no s’ha de deixar escapar.',
             'Una peça sense protecció és un regal que el tauler no sempre torna a oferir.',
             'Les petites ganàncies, sumades, també guanyen guerres.',
-            'Qui recull el que l’altre abandona no necessita cap pla complicat.'] },
+            'Qui recull el que l’altre abandona no necessita cap pla complicat.',
+            'Una peça sense guarda convida a prendre-la, però abans cal mirar si és un esquer.',
+            'Les ocasions petites que es deixen passar sovint no tornen.',
+            'Abans de buscar grans plans, recull el que el rival ha deixat desprotegit.',
+            'Una peça abandonada pesa més del que sembla en el compte final.'] },
         serp: { n: 13, title: 'Picar l’herba per espantar la serp', texts: [
             '«Picar l’herba per espantar la serp»: un peó que ataca obliga la peça rival a moure’s i a mostrar-se.',
             'Un petit avanç pot fer recular una peça gran.',
@@ -117,7 +141,11 @@
             '«Per vèncer la banda, captura el cap»: quan les peces apunten al rei, cada jugada del rival es fa més difícil.',
             'Un escac obliga a respondre; mentre el rei es defensa, la resta de l’exèrcit espera.',
             'L’atac al rei no busca peces: busca el cor de la posició.',
-            'Qui fa tremolar el rei condiciona totes les decisions del rival.'] },
+            'Qui fa tremolar el rei condiciona totes les decisions del rival.',
+            'Quan el rei trontolla, tot l’exèrcit enemic perd el seu centre.',
+            'Apuntar al rei és obligar totes les peces rivals a mirar cap a casa.',
+            'Un rei sense refugi converteix cada jugada de l’atacant en una pregunta urgent.',
+            'Qui ataca el cap no necessita vèncer cada soldat.'] },
         llenya: { n: 19, title: 'Treure la llenya de sota l’olla', texts: [
             '«Treure la llenya de sota l’olla»: quan desapareix la peça que ho sostenia tot, el que en depenia queda a l’aire.',
             'No cal apagar el foc a cops: n’hi ha prou de treure-li la llenya.',
@@ -132,7 +160,11 @@
             '«La cigala es desfà de la closca daurada»: una resposta a temps deixa l’enemic sense objectiu.',
             'Saber sortir d’un mal lloc també és saber jugar.',
             'Defensar-se bé és no deixar res al rival per endur-se.',
-            'La millor resposta a una amenaça és la que no deixa cap ferida.'] },
+            'La millor resposta a una amenaça és la que no deixa cap ferida.',
+            'Quan l’atac arriba, la peça que s’aparta a temps deixa el cop a l’aire.',
+            'Respondre amb serenitat a una amenaça és desfer-se’n sense pagar res.',
+            'Qui surt del perill sense perdre forces deixa l’enemic amb les mans buides.',
+            'L’enemic que no troba res on colpejar ha de tornar a començar.'] },
         porta: { n: 22, title: 'Tancar la porta per atrapar el lladre', texts: [
             '«Tancar la porta per atrapar el lladre»: en els finals, el rei que barra el pas a l’altre guanya terreny.',
             'Quan els reis s’enfronten, sovint té l’avantatge qui no ha de moure.',
@@ -152,12 +184,20 @@
             '«Fingir bogeria sense perdre el seny»: una jugada que sembla innocent pot amagar una intenció ben calculada.',
             'Qui sembla no fer res pot estar preparant el moment exacte.',
             'Deixar que el rival es confiï és, de vegades, la jugada més ben pensada.',
-            'La calma aparent desarma més que una amenaça declarada.'] },
+            'La calma aparent desarma més que una amenaça declarada.',
+            'Una jugada modesta pot ser la disfressa d’un pla ambiciós.',
+            'Qui no mostra pressa fa creure a l’altre que no hi ha perill.',
+            'De vegades, semblar indecís és la manera més segura de no delatar-se.',
+            'El rival que es relaxa davant d’una jugada tranquil·la pot oblidar de mirar què prepara.'] },
         escala: { n: 28, title: 'Treure l’escala quan l’enemic és al terrat', texts: [
             '«Treure l’escala quan l’enemic és al terrat»: una peça lligada a la seva línia ja no és lliure de fugir.',
             'Una peça que no es pot moure és com un soldat que s’ha quedat sense escala per baixar.',
             'Lligar una peça és deixar-la fora de joc mentre el lligam aguanta.',
-            'Quan dues peces queden en la mateixa línia, una pot pagar per l’altra.'] },
+            'Quan dues peces queden en la mateixa línia, una pot pagar per l’altra.',
+            'La peça clavada protegeix el que té darrere, però deixa de protegir la resta.',
+            'Mentre el lligam aguanta, cal aprofitar el temps abans que l’enemic el desfaci.',
+            'Atacar una peça que no es pot moure és multiplicar la pressió.',
+            'Qui talla la retirada d’una peça li pren també la meitat del seu valor.'] },
         flors: { n: 29, title: 'Guarnir l’arbre amb flors falses', texts: [
             '«Guarnir l’arbre amb flors falses»: un exèrcit ben desplegat sembla més gran del que és.',
             'Les peces ben col·locades impressionen abans d’haver fet res.',
@@ -167,12 +207,20 @@
             '«Que l’hoste passi a ser l’amfitrió»: la peça que esperava a casa ara surt a dictar el ritme.',
             'Una peça que entra en joc canvia el repartiment de forces.',
             'Les peces que esperaven ordres poden passar a donar-les.',
-            'Prendre la iniciativa és canviar el paper de cadascú al tauler.'] },
+            'Prendre la iniciativa és canviar el paper de cadascú al tauler.',
+            'La peça que surt del racó comença a imposar les seves condicions.',
+            'Qui entra en joc tard pot acabar decidint el ritme de la batalla.',
+            'Quan una força passiva es desperta, el repartiment del tauler canvia.',
+            'Deixar d’esperar és el primer pas per començar a manar.'] },
         retirada: { n: 36, title: 'Retirar-se és la millor opció', texts: [
             '«Retirar-se és la millor opció»: una peça exposada que torna a lloc segur conserva tota la seva força.',
             'Recular a temps no és perdre: és negar a l’enemic el seu objectiu.',
             'Una força que es retira amb ordre pot tornar quan més convingui.',
-            'Quan una casella ja no aporta res, abandonar-la és guanyar llibertat.'] }
+            'Quan una casella ja no aporta res, abandonar-la és guanyar llibertat.',
+            'Tornar enrere a temps és guardar forces per a una batalla millor.',
+            'Una peça que es retira pot trobar des de casa una línia més llarga.',
+            'La retirada ordenada no deixa res al camp perquè l’enemic ho reculli.',
+            'Qui recula sense pressa pot escollir on tornarà a lluitar.'] }
     });
 
     // Motius verificats (tvCommentCandidates i patrons.js) → estratagemes que

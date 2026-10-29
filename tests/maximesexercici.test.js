@@ -163,7 +163,7 @@ describe('Màximes dels exercicis de dues jugades', () => {
             if (any) withMaxim++;
         }
         expect(withMaxim / exercises.length).toBeGreaterThanOrEqual(0.98);
-        expect(new Set(shown).size).toBeGreaterThanOrEqual(230);
+        expect(new Set(shown).size).toBeGreaterThanOrEqual(300);
         expect(families.size).toBeGreaterThanOrEqual(14);
         // Cap text no torna abans de vuit màximes (el marge que garanteix el mòdul).
         const last = {};

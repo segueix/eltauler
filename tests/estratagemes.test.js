@@ -9,11 +9,11 @@ const base = (kind = 'fork', ply = 8, rest = {}) => ({
 });
 
 describe('Biblioteca de les 36 estratagemes', () => {
-    test('28 estratagemes amb el número tradicional i 4 frases cadascun: 112 frases diferents', () => {
+    test('28 estratagemes amb el número tradicional i de 4 a 8 frases cadascun: 160 frases diferents', () => {
         expect(Object.keys(E.STRATAGEMS)).toHaveLength(28);
-        expect(E.CATALOG).toHaveLength(112);
-        expect(new Set(E.CATALOG.map(m => m.text)).size).toBe(112);
-        expect(new Set(E.CATALOG.map(m => m.id)).size).toBe(112);
+        expect(E.CATALOG).toHaveLength(160);
+        expect(new Set(E.CATALOG.map(m => m.text)).size).toBe(160);
+        expect(new Set(E.CATALOG.map(m => m.id)).size).toBe(160);
         const numbers = Object.values(E.STRATAGEMS).map(s => s.n);
         expect(new Set(numbers).size).toBe(28);
         numbers.forEach(n => { expect(n).toBeGreaterThanOrEqual(1); expect(n).toBeLessThanOrEqual(36); });
@@ -30,7 +30,9 @@ describe('Biblioteca de les 36 estratagemes', () => {
         // Cada estratagema s'anomena pel seu títol almenys en una frase.
         for (const [id, s] of Object.entries(E.STRATAGEMS)) {
             expect(s.texts.some(t => t.includes('«' + s.title + '»'))).toBe(true);
-            expect(E.CATALOG.filter(m => m.stratagem === id)).toHaveLength(4);
+            const count = E.CATALOG.filter(m => m.stratagem === id).length;
+            expect(count).toBeGreaterThanOrEqual(4);
+            expect(count).toBeLessThanOrEqual(8);
         }
     });
     test('cada estratagema té almenys un motiu verificat i cap motiu desconegut rep frase', () => {
