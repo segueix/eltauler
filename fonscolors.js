@@ -11,7 +11,7 @@
 })(typeof window !== 'undefined' ? window : this, function () {
     'use strict';
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
     // Clau local al dispositiu: no interferim amb la sincronització de partides.
     const MODE_KEY = 'chess_app_background_mode';
     const LAST_KEY = 'chess_app_background_last';
@@ -58,6 +58,15 @@
         let current = resolve(mode, safeGet(storage, LAST_KEY), () =>
             (w.Math && typeof w.Math.random === 'function' ? w.Math.random() : Math.random()));
         const random = () => (w.Math && typeof w.Math.random === 'function' ? w.Math.random() : Math.random());
+        // A Android, una PWA es pot reactivar des de la pantalla d'inici sense
+        // recarregar l'HTML: ni start() ni pageshow.persisted es tornen a executar.
+        // Un canvi de visibilitat després d'haver estat en segon pla és una
+        // nova obertura; no ho és canviar de secció dins de l'aplicació.
+        const now = () => (w.Date && typeof w.Date.now === 'function' ? w.Date.now() : Date.now());
+        let backgroundedAt = null;
+        let lastResumeAt = -Infinity;
+        const MIN_BACKGROUND_MS = 750;
+        const RESUME_DEDUP_MS = 1500;
 
         function paint() {
             doc.documentElement.setAttribute('data-app-bg', current);
@@ -86,6 +95,9 @@
             mode = normalized;
             safeSet(storage, MODE_KEY, mode);
             safeSet(storage, LAST_KEY, current);
+            // Si es canvia manualment l'opció, una represa imminent no ha de
+            // revertir-la per culpa d'un esdeveniment pendent del navegador.
+            backgroundedAt = null;
             paint();
             return current;
         }
@@ -100,16 +112,38 @@
         if (doc.readyState === 'loading') doc.addEventListener('DOMContentLoaded', mount);
         else mount();
 
-        // Quan una pàgina es recupera de la bfcache, es considera una
-        // obertura nova; canviar de secció o pestanya NO altera el color.
-        if (typeof w.addEventListener === 'function') {
-            w.addEventListener('pageshow', function (event) {
-                if (event && event.persisted && mode === 'aleatori') {
-                    current = pickRandom(current, random);
-                    safeSet(storage, LAST_KEY, current);
-                    paint();
-                }
+        function markBackgrounded() {
+            if (backgroundedAt === null) backgroundedAt = now();
+        }
+        function resumeIfNeeded(force) {
+            if (!force && doc.visibilityState === 'hidden') return false;
+            const stamp = now();
+            const wasAway = backgroundedAt !== null && stamp - backgroundedAt >= MIN_BACKGROUND_MS;
+            backgroundedAt = null;
+            // pageshow (bfcache), visibilitychange, focus i resume poden arribar
+            // junts: un únic sorteig per reobertura, mai dos.
+            if ((!force && !wasAway) || mode !== 'aleatori'
+                || stamp - lastResumeAt < RESUME_DEDUP_MS) return false;
+            current = pickRandom(current, random);
+            safeSet(storage, LAST_KEY, current);
+            lastResumeAt = stamp;
+            paint();
+            return true;
+        }
+        if (typeof doc.addEventListener === 'function') {
+            doc.addEventListener('visibilitychange', function () {
+                if (doc.visibilityState === 'hidden') markBackgrounded();
+                else if (doc.visibilityState === 'visible') resumeIfNeeded(false);
             });
+        }
+        if (typeof w.addEventListener === 'function') {
+            w.addEventListener('pagehide', markBackgrounded);
+            w.addEventListener('freeze', markBackgrounded);
+            w.addEventListener('pageshow', function (event) {
+                resumeIfNeeded(!!(event && event.persisted));
+            });
+            w.addEventListener('resume', function () { resumeIfNeeded(false); });
+            w.addEventListener('focus', function () { resumeIfNeeded(false); });
         }
         return Object.freeze({
             getMode: () => mode,

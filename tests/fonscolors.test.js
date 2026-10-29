@@ -15,6 +15,7 @@ function harness(options={}) {
     const doc={
         documentElement:{setAttribute:(k,v)=>{doc.lastAttribute={k,v};}},
         readyState:options.readyState||'loading',
+        visibilityState:'visible',
         addEventListener:(type,cb)=>{hooks[type]=cb;},
         getElementById:id=>nodes[id]||null
     };
@@ -22,11 +23,13 @@ function harness(options={}) {
         addEventListener(type,cb){this.callbacks=this.callbacks||{};this.callbacks[type]=cb;}});
     ['app-bg-select','app-bg-preview','app-bg-status'].forEach(id=>nodes[id]=makeNode(''));
     const listeners={};
+    const clock=options.clock||{now:0};
     const host={document:doc,localStorage:storage,Math:{random:()=>options.random??0.4},
+        Date:{now:()=>clock.now},
         addEventListener:(type,cb)=>{listeners[type]=cb;}};
     const controller=BG.start(host);
     if(hooks.DOMContentLoaded)hooks.DOMContentLoaded();
-    return {controller,storage,doc,nodes,listeners,hooks};
+    return {controller,storage,doc,nodes,listeners,hooks,clock};
 }
 describe('Fons de l’aplicació',()=>{
     test('exactament cinc colors, diferenciats i amb nom en català',()=>{
@@ -81,6 +84,51 @@ describe('Fons de l’aplicació',()=>{
         x.listeners.pageshow({persisted:true});
         expect(x.controller.getColor()).not.toBe(previous);
     });
+    test('Android: en reobrir una PWA sense recarregar canvia el color aleatori',()=>{
+        const x=harness({random:0});
+        const previous=x.controller.getColor();
+        x.doc.visibilityState='hidden';
+        x.hooks.visibilitychange();
+        x.clock.now=2000;
+        x.doc.visibilityState='visible';
+        x.hooks.visibilitychange();
+        expect(x.controller.getColor()).not.toBe(previous);
+        expect(x.storage.getItem(BG.LAST_KEY)).toBe(x.controller.getColor());
+        const resumed=x.controller.getColor();
+        x.listeners.focus();
+        x.listeners.pageshow({persisted:true});
+        expect(x.controller.getColor()).toBe(resumed); // un únic sorteig
+        x.clock.now=5000;
+        x.listeners.pageshow({persisted:false});
+        expect(x.controller.getColor()).toBe(resumed); // navegació normal no canvia
+    });
+    test('un ocultament breu no canvia de fons; una represa llarga sí',()=>{
+        const x=harness({random:0});
+        const old=x.controller.getColor();
+        x.doc.visibilityState='hidden';
+        x.hooks.visibilitychange();
+        x.clock.now=200;
+        x.doc.visibilityState='visible';
+        x.hooks.visibilitychange();
+        expect(x.controller.getColor()).toBe(old);
+        x.clock.now=4000;
+        x.listeners.pagehide();
+        x.clock.now=5500;
+        x.listeners.resume();
+        expect(x.controller.getColor()).not.toBe(old);
+    });
+    test('el mode fix no canvia en recuperar l’app ni amb pageshow',()=>{
+        const x=harness({random:0});
+        x.controller.selectMode('granat');
+        x.doc.visibilityState='hidden';
+        x.hooks.visibilitychange();
+        x.clock.now=4000;
+        x.doc.visibilityState='visible';
+        x.hooks.visibilitychange();
+        x.listeners.pageshow({persisted:true});
+        expect(x.controller.getColor()).toBe('granat');
+        expect(x.storage.getItem(BG.MODE_KEY)).toBe('granat');
+    });
     test('les preferències corruptes recuperen aleatori i les absències de localStorage no trenquen la UI',()=>{
         expect(BG.normalizeMode('__proto__')).toBe('aleatori');
         expect(BG.resolve('unknown',null,()=>1)).toBe('groc');
@@ -91,8 +139,8 @@ describe('Fons de l’aplicació',()=>{
     test('CSS i configuració: els modes especials conserven la seva aparença',()=>{
         const fs=require('fs'),path=require('path');
         const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
-        expect(html).toContain('<script src="fonscolors.js?v=1.0.0"></script>');
-        const jsPos=html.indexOf('fonscolors.js?v=1.0.0'),cssPos=html.indexOf('<style>');
+        expect(html).toContain('<script src="fonscolors.js?v=1.1.0"></script>');
+        const jsPos=html.indexOf('fonscolors.js?v=1.1.0'),cssPos=html.indexOf('<style>');
         expect(jsPos).toBeLessThan(cssPos);
         expect((html.match(/<option value="(?:aleatori|blau|granat|verd|lila|groc)">/g)||[])).toHaveLength(6);
         expect((html.match(/html\[data-app-bg="(?:blau|granat|verd|lila|groc)"\] body:not\(\.day-mode\):not\(\.epaper-mode\)/g)||[])).toHaveLength(5);
