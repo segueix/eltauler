@@ -62,3 +62,48 @@ test('cap desviació ni interferència sense una variant certificada',()=>{
 test('les explicacions pedagògiques conserven el retorn segur quan no hi ha certificat',()=>{
     expect(J.build({fen:new Chess().fen()},Chess,H,P)).toBeNull();
 });
+
+
+function mechanicallyClosed(base) {
+    // El certificat reflecteix una verificació del desenllaç; la CI no
+    // substitueix Stockfish i comprova només l'extracció del motiu.
+    const end=H.createVerifier(Chess).inspect(base);
+    expect(end).not.toBeNull();
+    return {...base,conclusion:{
+        version:H.VERSION,fen:base.fen,line:H.lineOf(base),
+        finalFen:end.finalFen,kind:end.kind,gain:end.gain,
+        minDepth:14,requestedDepth:16
+    }};
+}
+test('desviació: el defensor atacat abandona la protecció de la torre capturada',()=>{
+    const candidate=mechanicallyClosed({
+        fen:'r5k1/1b6/8/8/8/8/8/R1R3K1 w - - 0 1',
+        solutionMoves:['c1c7','g1f2','a1a8'],
+        replyMoves:['b7c8','g8f8']
+    });
+    const hits=P.detectCertifiedLine({candidate,ChessCtor:Chess,Hieroclosure:H});
+    expect(hits.map(h=>h.id)).toContain('deflection');
+    const hint=hits.find(h=>h.id==='deflection');
+    expect(hint.evidence).toMatchObject({defender:'b7',target:'a8'});
+    const explanation=J.build(candidate,Chess,H,P);
+    expect(explanation.advancedPatterns.map(x=>x.id)).toContain('deflection');
+    expect(explanation.learn).toMatch(/Desviació demostrada/);
+    expect(J.solvedStep(candidate,1,Chess,H,P)).not.toMatch(/desviació/i);
+});
+test('interferència: una peça se situa entre la torre defensora i la dama capturada',()=>{
+    const candidate=mechanicallyClosed({
+        fen:'q6r/7k/5B2/8/8/8/8/R5K1 w - - 0 1',
+        solutionMoves:['f6d8','g1f2','a1a8'],
+        replyMoves:['h7g6','g6f5']
+    });
+    const hits=P.detectCertifiedLine({candidate,ChessCtor:Chess,Hieroclosure:H});
+    expect(hits.map(h=>h.id)).toContain('interference');
+    expect(hits.find(h=>h.id==='interference').evidence)
+        .toMatchObject({defender:'h8',blocking:'d8',target:'a8'});
+    // Canviar la prova o la línia no pot activar el motiu.
+    expect(P.detectCertifiedLine({
+        candidate:{...candidate,solutionMoves:['f6d8','g1f2','a1a7']},
+        ChessCtor:Chess,Hieroclosure:H
+    })).toEqual([]);
+    expect(J.solvedStep(candidate,1,Chess,H,P)).not.toMatch(/interferència/i);
+});
