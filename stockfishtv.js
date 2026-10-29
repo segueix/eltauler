@@ -351,20 +351,16 @@
         return out;
     }
 
-    // Motors de Stockfish per a la TV. «classic» és el de tota l'app
-    // (Stockfish 2019-08-15, sense xarxa neuronal, només «Skill Level»).
-    // «sf19» és la prova pilot: Stockfish.js 19 (2026), versió lite d'un sol
-    // fil (xarxa NNUE petita, uns 1,9 MB, sense capçaleres especials al
-    // servidor), que declara UCI_Elo 1320–3190 (Elo CCRL de partides
-    // ràpides, segons Stockfish) i UCI_LimitStrength. La TV en llegeix les
-    // opcions i passa sola a l'escala d'Elo; si no carrega, torna al clàssic.
+    // La TV fa servir exclusivament Stockfish 19 Lite (2026, NNUE).
+    // El Stockfish clàssic de la resta de l'aplicació no és un motor
+    // alternatiu en aquesta secció. Si 19 falla, mostrem l'error real.
     const TV_ENGINES = {
-        classic: { id: 'classic', label: 'Stockfish 2019 (clàssic)', file: 'stockfish.js' },
-        sf19: { id: 'sf19', label: 'Stockfish 19 · 2026 (xarxa neuronal, prova)', file: 'stockfish-19-lite-single.js',
+        sf19: { id: 'sf19', label: 'Stockfish 19 · 2026', file: 'stockfish-19-lite-single.js',
             wasm: 'stockfish-19-lite-single.wasm' }
     };
-    const TV_DEFAULT_ENGINE = 'classic';
-    function tvEngineId(id) { return TV_ENGINES[id] ? id : TV_DEFAULT_ENGINE; }
+    const TV_DEFAULT_ENGINE = 'sf19';
+    // Les preferències antigues «classic» es migren automàticament a 19.
+    function tvEngineId(id) { return TV_DEFAULT_ENGINE; }
     // URL del worker. El de Stockfish 19 busca el .wasm al costat i accepta
     // l'adreça al fragment (#): així la versió també trenca la memòria cau
     // del .wasm, que el fitxer no rep pel paràmetre ?v.
@@ -4877,36 +4873,21 @@
         if (radioAmbience) syncRadioAmbience(document.visibilityState !== 'hidden');
     }
 
-    // Motor de Stockfish triat a la TV. Stockfish 19 té el clàssic de reserva.
-    let stockfishEngine = null;
-    function classicWorker() {
-        return typeof bridge.createWorker === 'function' ? bridge.createWorker() : new Worker('stockfish.js');
+    // Sense selector ni motor antic de reserva: aquest worker és sempre Stockfish 19.
+    function createStockfishTvEngine() {
+        return createTvEngine({
+            createWorker: () => new Worker(tvEngineWorkerUrl('sf19', root.APP_VERSION))
+        });
     }
-    function createStockfishTvEngine(id) {
-        const engineId = tvEngineId(id);
-        stockfishEngine = engineId === 'classic' ? createTvEngine({ createWorker: classicWorker })
-            : createTvEngine({ createWorker: () => new Worker(tvEngineWorkerUrl(engineId, root.APP_VERSION)), createFallbackWorker: classicWorker });
-        return stockfishEngine;
-    }
-    function switchEngine(id) {
-        const engineId = tvEngineId(id);
-        if (engineId === tvNormalizePrefs(loadPrefsRaw()).engine && stockfishEngine) return;
-        savePrefsRaw({ engine: engineId });
-        if (!controller) return;
-        controller.replaceEngine(createStockfishTvEngine(engineId)).then(() => { if (controller) renderEngineChoice(controller.state()); });
-    }
+
     function renderEngineChoice(state) {
-        const select = $id('sftv-engine');
-        const wanted = tvNormalizePrefs(loadPrefsRaw()).engine;
-        if (select && select.value !== wanted) select.value = wanted;
         const status = $id('sftv-engine-status');
         if (!status) return;
-        const fallback = wanted !== 'classic' && stockfishEngine && stockfishEngine.usingFallback();
-        status.textContent = fallback
-            ? TV_ENGINES[wanted].label + ' no s\'ha pogut carregar en aquest navegador: la TV fa servir ' + TV_ENGINES.classic.label + '.'
-            : (wanted === 'sf19' ? 'Prova pilot: Stockfish 19 té xarxa neuronal i nivells en Elo (UCI_Elo). La resta de l\'app continua amb Stockfish 2019. '
-                : '') + 'Canviar de motor comença una partida nova.';
-        if (state && state.caps === null && state.open && !state.error) status.textContent += ' Carregant el motor…';
+        status.textContent = state && state.error === 'engine'
+            ? 'Stockfish 19 no es pot carregar en aquest dispositiu. No es canvia al motor antic.'
+            : 'Stockfish 19 és l’únic motor Stockfish d’aquesta TV (NNUE, nivell Elo segons les opcions UCI).';
+        if (state && state.caps === null && state.open && !state.error)
+            status.textContent = 'Carregant Stockfish 19…';
     }
 
     function ensureController() {
@@ -4941,7 +4922,7 @@
             Promise.resolve(result).then(done, done);
             return result;
         };
-        const engine = createStockfishTvEngine(tvNormalizePrefs(loadPrefsRaw()).engine);
+        const engine = createStockfishTvEngine();
         const lozzaEngine = createTvEngine({
             createWorker: () => new Worker('lozza.js')
         });
@@ -5052,7 +5033,6 @@
         on('sftv-level-apply', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-too-hard', 'click', () => { if (controller) controller.adjust('easier'); });
         on('sftv-speed', 'change', (ev) => { if (controller) controller.setSpeed(ev.target.value); });
-        on('sftv-engine', 'change', (ev) => switchEngine(ev.target.value));
         on('sftv-duo', 'change', (ev) => {
             if (!controller) return;
             controller.setDuo(ev.target.checked);
