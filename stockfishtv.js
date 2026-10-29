@@ -2464,6 +2464,12 @@
         };
         const neuralRate = () => { try { return typeof e.getNeuralRate === 'function' ? e.getNeuralRate() : 1; } catch (err) { return 1; } };
         const neuralEffects = () => { try { return typeof e.getNeuralEffects === 'function' ? e.getNeuralEffects() : null; } catch (err) { return null; } };
+        const neuralText = (text) => {
+            const P = typeof e.prepareNeuralText === 'function' ? { prepare: e.prepareNeuralText }
+                : (root && root.ElTaulerProsodia);
+            if (!P || typeof P.prepare !== 'function') return text;
+            try { return P.prepare(text) || text; } catch (err) { return text; }
+        };
         const neuralReady = () => !!(neuralId() && neural.available());
         const synthSupported = !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
         const supported = synthSupported || !!neural;
@@ -2513,7 +2519,7 @@
             stop();
             const seq = speakSeq;
             if (neuralReady()) {
-                return neural.speak(text, neuralId(), { rate: neuralRate(), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
+                return neural.speak(neuralText(text), neuralId(), { rate: neuralRate(), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
                     .then((r) => {
                         if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
                         if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
@@ -2566,7 +2572,7 @@
             engine() { return current ? 'system' : (neuralReady() ? 'neural' : (voice ? 'system' : null)); },
             // La veu neuronal triada no està disponible (sense xarxa o servei aturat).
             neuralUnavailable() { return !!(neuralId() && !neural.available()); },
-            prefetch(text) { if (pref === 'on' && text && neuralReady()) neural.prefetch(text, neuralId(), { rate: neuralRate() }); },
+            prefetch(text) { if (pref === 'on' && text && neuralReady()) neural.prefetch(neuralText(text), neuralId(), { rate: neuralRate() }); },
             pref() { return pref; },
             isOn() { return pref === 'on'; },
             needsActivation() { return pref === null; },
