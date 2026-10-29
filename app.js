@@ -15965,6 +15965,58 @@ ${localMaximText}`;
     }
 }
 
+// Màximes de «L'Art de la Guerra» i de «Les 36 estratagemes» (els llibres de
+// la TV) per a la línia fixa de l'exercici. Només parteixen de fets que el
+// detector de la TV comprova amb el tauler; si cap no encaixa o no n'hi ha cap
+// de nou, retorna null i es manté la màxima de sempre (OpenAI o banc local).
+const bundleBookMaximCache = new Map();
+
+function buildBundleBookMaximHtml() {
+    const M = window.ElTaulerMaximesExercici;
+    const TV = window.ElTaulerStockfishTV;
+    const books = [window.ElTaulerArtDeLaGuerra, window.ElTaulerEstratagemes].filter(Boolean);
+    if (!M || !TV || typeof TV.tvCommentCandidates !== 'function' || !books.length) return null;
+    if (!bundleFixedSequence || typeof Chess !== 'function') return null;
+    const fen = bundleFixedSequence.initialFen || currentBundleFen;
+    // Tornar a prémer el botó en el mateix pas mostra les mateixes màximes.
+    const cacheKey = fen + ':' + bundleSequenceStep;
+    if (bundleBookMaximCache.has(cacheKey)) return bundleBookMaximCache.get(cacheKey);
+
+    let memory = null;
+    try { memory = JSON.parse(localStorage.getItem(M.STORAGE_KEY) || 'null'); } catch (e) { memory = null; }
+    let result = null;
+    try {
+        result = M.forStep({
+            fen,
+            line: bundleFixedSequence.fullSequence || [],
+            step: bundleSequenceStep,
+            Chess,
+            detect: TV.tvCommentCandidates,
+            books,
+            lineVerified: bundleFixedSequence.lineSource !== 'emergency',
+            exerciseId: fen
+        }, memory);
+    } catch (e) { result = null; }
+    if (!result || !result.maxims.length) return null;
+    try { localStorage.setItem(M.STORAGE_KEY, JSON.stringify(result.memory)); } catch (e) {}
+
+    let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
+    html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Màximes per a aquest pas:</div>';
+    result.maxims.forEach(m => {
+        const source = m.book === 'estratagemes' && m.number
+            ? `${m.bookLabel} · estratagema ${m.number}: «${m.title}»`
+            : m.bookLabel;
+        html += `<div style="margin:6px 0;" title="${escapeHtml(m.attribution || '')}">`;
+        html += `<div style="font-style:italic;">${escapeHtml(m.text)}</div>`;
+        html += `<div style="font-size:0.78em; opacity:0.75;">— ${escapeHtml(source)}</div>`;
+        html += '</div>';
+    });
+    html += '</div>';
+    if (bundleBookMaximCache.size > 40) bundleBookMaximCache.clear();
+    bundleBookMaximCache.set(cacheKey, html);
+    return html;
+}
+
 function showOfflineBundleMaxim() {
     const theme = classifyPositionTheme(currentBundleFen || '', '');
     const m1 = pickOfflineMaxim(theme);
@@ -15980,6 +16032,12 @@ function showOfflineBundleMaxim() {
 
 async function requestOpenAIBundleHint() {
     if (!blunderMode || !currentBundleFen) return;
+    const bookHtml = buildBundleBookMaximHtml();
+    if (bookHtml) {
+        lastBundleOpenAIHint = bookHtml;
+        $('#status').html(bookHtml);
+        return;
+    }
     if (!openaiApiKey) {
         // Sense clau: banc de màximes local en comptes d'un avís d'error.
         showOfflineBundleMaxim();
@@ -26598,9 +26656,13 @@ function buildEmergencyBundleSequence(fen) {
     const pv = Array.isArray(err.bestMovePv) ? err.bestMovePv.filter(Boolean) : [];
     const line = pv.length ? pv : (err.bestMove ? [err.bestMove] : []);
     if (!line.length) return null;
-    return buildBundleSequenceFromLine(fen, line, {
+    const seq = buildBundleSequenceFromLine(fen, line, {
         stepMeta: [{ playerMovePv: pv, alternatives: [] }]
     });
+    // Línia desada amb l'errada, sense cap verificació nova del motor: les
+    // màximes no la tracten com una variant certificada (cap cessió).
+    if (seq) seq.lineSource = 'emergency';
+    return seq;
 }
 
 // Una posició només és exercici si encara s'hi pot jugar: si el FEN és il·legible
