@@ -2306,6 +2306,12 @@
         const c = ctx || {};
         const memory = cloneMemory(c.memory);
         let candidates = tvCommentCandidates(Object.assign({}, c, { memory: memory }));
+        // Patrons amb proves reglamentàries. Mai no afirmem els patrons
+        // pendents del catàleg ni substituïm els avisos crítics.
+        if (c.patterns && typeof c.patterns.candidates === 'function' && !c.end) {
+            try { candidates = candidates.concat(c.patterns.candidates(c)); }
+            catch (err) { /* el comentari original continua funcionant */ }
+        }
         // La capa lingüística treballa sobre motius JA verificats pel
         // detector, sense alterar ni els fets ni la prioritat dels comentaris.
         if (c.expression && typeof c.expression.expandCandidates === 'function') {
@@ -2363,7 +2369,8 @@
                 ChessCtor: ChessCtor, fenBefore: fenBefore, fenAfter: chess.fen(), move: mv, prevMove: prevMove,
                 before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
                 tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory,
-                expression: s.expression || null, narrative: s.narrative || null, quality: s.quality || null
+                expression: s.expression || null, narrative: s.narrative || null, quality: s.quality || null,
+                patterns: s.patterns || null
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
@@ -3150,7 +3157,8 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
-                end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality
+                end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
+                patterns: d.patterns
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
@@ -3214,7 +3222,8 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
                 prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
-                end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative, quality: d.quality
+                end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
+                patterns: d.patterns
             });
             S.pendingUser = false;
             g.memory = step.memory;
@@ -4292,6 +4301,7 @@
             expression: root.ElTaulerExpressivitat || null,
             narrative: root.ElTaulerNarrativa || null,
             quality: root.ElTaulerAuditoria || null,
+            patterns: root.ElTaulerPatrons || null,
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
