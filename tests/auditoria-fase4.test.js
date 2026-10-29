@@ -110,7 +110,7 @@ describe('Auditoria reproduïble de partides completes', () => {
             coverage: g.metrics.coverage, exactRepeat: g.metrics.exactRepeat,
             repeatedOpenings: g.metrics.repeatedOpenings,
             malformed: g.metrics.malformed, narration: g.metrics.narrativeLinks,
-            timeMs: g.elapsedMs
+            timeMs: g.elapsedMs, events: g.events.filter(e => e.code === 'grammar' || e.code === 'length')
         }))));
     });
 });
