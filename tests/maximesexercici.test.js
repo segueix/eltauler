@@ -163,7 +163,7 @@ describe('Màximes dels exercicis de dues jugades', () => {
             if (any) withMaxim++;
         }
         expect(withMaxim / exercises.length).toBeGreaterThanOrEqual(0.98);
-        expect(new Set(shown).size).toBeGreaterThanOrEqual(230);
+        expect(new Set(shown).size).toBeGreaterThanOrEqual(300);
         expect(families.size).toBeGreaterThanOrEqual(14);
         // Cap text no torna abans de vuit màximes (el marge que garanteix el mòdul).
         const last = {};
@@ -195,6 +195,28 @@ describe('Integració a l\'app', () => {
         const fn = app.slice(app.indexOf('function buildEmergencyBundleSequence'));
         expect(fn.slice(0, fn.indexOf('\n}\n'))).toMatch(/lineSource = 'emergency'/);
         expect(app).toMatch(/lineVerified: bundleFixedSequence\.lineSource !== 'emergency'/);
+    });
+
+    test('les frases de les estratagemes no diuen de quin estratagema vénen', () => {
+        const fn = app.slice(app.indexOf('function buildBundleBookMaximHtml'), app.indexOf('function renderBundleMaximBox'));
+        expect(fn).toMatch(/m\.book === 'estratagemes' \? '' : m\.bookLabel/);
+        expect(fn).not.toMatch(/estratagema \$\{m\.number\}/);
+        expect(fn).not.toMatch(/attribution/);
+    });
+
+    test('totes les màximes del botó passen per la mateixa caixa i es llegeixen si la veu és activa', () => {
+        const body = app.slice(app.indexOf('async function requestOpenAIBundleHint'), app.indexOf('function buildOpenAIReviewPrompt'));
+        expect(body).not.toMatch(/\$\('#status'\)\.html\(bookHtml\)/);
+        expect((body.match(/showBundleMaxims\(/g) || []).length).toBe(3);
+        const show = app.slice(app.indexOf('function showBundleMaxims'), app.indexOf('function showOfflineBundleMaxim'));
+        expect(show).toMatch(/api\.say\('myBoard', speech\)/);
+        expect(show).toMatch(/\.maxim-panel-text/);
+    });
+
+    test('la caixa ocupa tota l\'amplada de l\'estat i les fletxes passen a sota', () => {
+        expect(html).toMatch(/\.status-row \{ flex-wrap: wrap; \}/);
+        expect(html).toMatch(/\.status-row \.status-message:has\(> div\) \{ flex: 1 1 100%; \}/);
+        expect(html).toMatch(/\.maxim-panel \{/);
     });
 
     test('la memòria es desa en una clau local que no se sincronitza', () => {

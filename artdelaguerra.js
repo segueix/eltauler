@@ -17,7 +17,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.1.0';
+    const VERSION = '1.2.0';
     // Identificació per al prestatge de llibres de la TV (alterna amb
     // estratagemes.js).
     const BOOK_ID = 'art';
@@ -135,7 +135,20 @@
             "Resistir no vol dir esperar immòbil que l’altre decideixi.",
             "La bona protecció preserva peces, temps i opcions alhora.",
             "És més savi tancar una esquerda que elogiar la solidesa de la paret.",
-            "Un escut ben orientat pot convertir una urgència en una nova oportunitat."
+            "Un escut ben orientat pot convertir una urgència en una nova oportunitat.",
+            "Una amenaça aturada a temps és una batalla que ja no cal lliurar.",
+            "El defensor savi tapa la bretxa abans que l’enemic hi posi el peu.",
+            "Protegir bé una peça és donar llibertat a totes les altres.",
+            "La defensa no és només aguantar: és preparar el moment de tornar el cop.",
+            "Qui reacciona amb calma davant del perill conserva la capacitat de decidir.",
+            "Una muralla ben feta obliga l’atacant a buscar un altre camí.",
+            "Defensar el que importa i deixar el que no importa és tot un art.",
+            "El rei protegit deixa les mans lliures a la resta de l’exèrcit.",
+            "Sortir del perill amb ordre val més que contraatacar amb pressa.",
+            "La resposta més prudent no sempre és la més passiva.",
+            "Un exèrcit que sap defensar-se pot permetre’s esperar l’ocasió.",
+            "Abans de pensar en l’atac, comprova que no deixes cap porta oberta.",
+            "La seguretat és la base des de la qual neix tota iniciativa."
         ]),
         cessio: Object.freeze([
             "No es cedeix una força per bellesa, sinó per allò que el canvi permet obtenir.",
@@ -165,7 +178,14 @@
             "La força d’un peó sovint és el temps que obliga l’altre a dedicar-li.",
             "Prometre una coronació no és el mateix que poder assolir-la.",
             "Els petits avanços creen grans decisions només si tenen continuació.",
-            "Quan el final s’acosta, els camins dels peons esdevenen una altra mena de mapa."
+            "Quan el final s’acosta, els camins dels peons esdevenen una altra mena de mapa.",
+            "Cada peó que avança deixa enrere caselles que ja no podrà protegir.",
+            "Un avanç de peó és una decisió que no es pot desfer.",
+            "La infanteria obre camí; les peces només el poden aprofitar si hi és.",
+            "El peó que avança amb suport té més força que el que avança sol.",
+            "Quan els peons avancen junts, el terreny que guanyen és més segur.",
+            "Un sol pas de peó pot canviar la frontera de tot el tauler.",
+            "La coronació sovint es prepara molts passos abans de semblar possible."
         ]),
         estructura: Object.freeze([
             "La forma de l’exèrcit determina quins camins són possibles.",
@@ -195,7 +215,14 @@
             "Un petit avantatge no treballa sol: cal saber convertir-lo.",
             "La calma del final és enganyosa per a qui deixa de comptar.",
             "Una ruta correcta no admet dreceres només perquè sembli fàcil.",
-            "L’estratega del final escolta el temps, les distàncies i les caselles."
+            "L’estratega del final escolta el temps, les distàncies i les caselles.",
+            "En el final, el rei deixa de ser un tresor amagat i esdevé un soldat més.",
+            "Amb poques peces al camp, cada temps compta com un regiment.",
+            "Simplificar fins al final només té sentit si el final és favorable.",
+            "Quan les forces són escasses, la casella correcta val més que la peça més forta.",
+            "El final premia qui ha calculat el camí sencer, no només el primer pas.",
+            "Un rei que arriba a temps pot salvar el que semblava perdut.",
+            "Les posicions senzilles amaguen sovint les decisions més exigents."
         ]),
         decisions: Object.freeze([
             "L’error més costós sovint és respondre a una pregunta que ningú no ha fet.",
@@ -227,7 +254,20 @@
             "Qui prepara bé el terreny sovint no necessita lliurar tantes batalles.",
             "Una peça ben situada treballa en silenci mentre les altres discuteixen.",
             "La calma no és absència d’acció; és acció que encara no s’ha revelat.",
-            "Abans de buscar el cop, assegura’t que totes les forces hi podran arribar."
+            "Abans de buscar el cop, assegura’t que totes les forces hi podran arribar.",
+            "El moviment més savi és sovint el que no demana resposta immediata.",
+            "Ordenar les forces sense pressa és preparar una victòria que encara no té data.",
+            "Qui millora una peça cada vegada acaba tenint un exèrcit sencer a punt.",
+            "La paciència no és esperar l’error de l’altre, sinó fer-lo més probable.",
+            "Una jugada callada pot canviar més coses que una de sorollosa.",
+            "El general pacient deixa que el terreny parli abans de decidir.",
+            "No totes les batalles es lliuren; algunes es guanyen preparant-les.",
+            "La tranquil·litat del tauler és el millor moment per posar-hi ordre.",
+            "Un pas petit en la bona direcció val més que un salt cap enlloc.",
+            "Quan el combat no és a punt, el temps s’inverteix en posició.",
+            "La maniobra lenta té una virtut: el rival no sempre la veu arribar.",
+            "Construir abans d’atacar fa que l’atac no hagi de dependre de la sort.",
+            "Qui sap esperar escull el camp; qui no en sap, l’accepta."
         ]),
         retirada: Object.freeze([
             "Retirar-se a temps conserva les forces per a la batalla que importa.",

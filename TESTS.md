@@ -548,8 +548,8 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   sense Web Audio, amb errors i amb un context que es reprèn tard. Els sons
   antics (`studio`, `tuning`, `theme`) es llegeixen com a música.
 - **`estratagemes.test.js`** — **Les 36 estratagemes** (`estratagemes.js`):
-  28 estratagemes amb el número tradicional i 4 frases originals cadascun
-  (112), totes breus, acabades en punt, sense «victòries segures» ni
+  28 estratagemes amb el número tradicional i de 4 a 8 frases originals
+  cadascun (160), totes breus, acabades en punt, sense «victòries segures» ni
   citacions, i cap que el corrector de català hagi de tocar; cada estratagema
   lligat a motius verificats concrets (atac doble, clavada, eliminar el
   defensor, escac…); les mateixes garanties que l'Art de la Guerra
@@ -568,11 +568,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   retirada, intercanvi amb recaptura) i el mat o l'escapada de l'escac amb
   màxima als exercicis però no a la TV, funció pura i memòria serialitzable,
   cap error amb entrades dolentes, i sobre les partides de prova: ≥98 %
-  d'exercicis amb màxima, ≥230 textos diferents, ≥14 famílies i cap repetició
+  d'exercicis amb màxima, ≥300 textos diferents, ≥14 famílies i cap repetició
   abans de 8 màximes. També que
   el mòdul es carrega abans d'`app.js`, que el botó prova els llibres abans
   d'OpenAI i del banc local, que la línia d'emergència no compta com a
-  verificada i que la memòria no se sincronitza.
+  verificada, que la memòria no se sincronitza, que les estratagemes no
+  diuen de quin estratagema vénen, que totes les màximes del botó passen per
+  la mateixa caixa (tota l'amplada, fletxes a sota) i que es llegeixen amb
+  la veu del tauler. A `boardexperience.test.js`, que `say` només llegeix
+  amb la veu activada.
 - **`deploy-inject.test.js`** — els scripts que el desplegament
   (`.github/workflows/desplega-web.yml`) aplica a la portada abans de
   publicar-la: `scripts/inject-remigi-link.py` (accés a Remigi dins la barra de

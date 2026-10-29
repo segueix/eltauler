@@ -16000,42 +16000,54 @@ function buildBundleBookMaximHtml() {
     if (!result || !result.maxims.length) return null;
     try { localStorage.setItem(M.STORAGE_KEY, JSON.stringify(result.memory)); } catch (e) {}
 
-    let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
-    html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Màximes per a aquest pas:</div>';
-    result.maxims.forEach(m => {
-        const source = m.book === 'estratagemes' && m.number
-            ? `${m.bookLabel} · estratagema ${m.number}: «${m.title}»`
-            : m.bookLabel;
-        html += `<div style="margin:6px 0;" title="${escapeHtml(m.attribution || '')}">`;
-        html += `<div style="font-style:italic;">${escapeHtml(m.text)}</div>`;
-        html += `<div style="font-size:0.78em; opacity:0.75;">— ${escapeHtml(source)}</div>`;
-        html += '</div>';
-    });
-    html += '</div>';
+    // Les frases de les estratagemes es mostren soles, sense dir de quin
+    // estratagema vénen; les de l'Art de la Guerra porten el nom del llibre.
+    const html = renderBundleMaximBox('Màximes per a aquest pas:', result.maxims.map(m => ({
+        text: m.text,
+        source: m.book === 'estratagemes' ? '' : m.bookLabel
+    })));
     if (bundleBookMaximCache.size > 40) bundleBookMaximCache.clear();
     bundleBookMaximCache.set(cacheKey, html);
     return html;
+}
+
+// Caixa comuna de les màximes de l'exercici (llibres, banc local o OpenAI):
+// ocupa tota l'amplada del panell (vegeu .maxim-panel a index.html).
+function renderBundleMaximBox(title, lines) {
+    let html = `<div class="maxim-panel"><div class="maxim-panel-title">💡 ${escapeHtml(title)}</div>`;
+    lines.forEach(line => {
+        html += `<div class="maxim-panel-item"><div class="maxim-panel-text">${escapeHtml(line.text)}</div>`;
+        if (line.source) html += `<div class="maxim-panel-source">— ${escapeHtml(line.source)}</div>`;
+        html += '</div>';
+    });
+    return html + '</div>';
+}
+
+// Mostra les màximes i, si la veu del tauler («Veu i ràdio») està activada,
+// les llegeix en veu alta. Només es llegeixen les frases, no el títol ni el llibre.
+function showBundleMaxims(html) {
+    lastBundleOpenAIHint = html;
+    const statusEl = $('#status');
+    statusEl.html(html);
+    const speech = statusEl.find('.maxim-panel-text').map((_, el) => $(el).text().trim()).get().filter(Boolean).join(' ');
+    const api = window.ElTaulerBoardExperience;
+    if (speech && api && typeof api.say === 'function') void api.say('myBoard', speech);
 }
 
 function showOfflineBundleMaxim() {
     const theme = classifyPositionTheme(currentBundleFen || '', '');
     const m1 = pickOfflineMaxim(theme);
     const m2 = pickOfflineMaxim('general');
-    let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
-    html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
-    html += `<div style="font-style:italic; margin:4px 0;">${m1}</div>`;
-    if (m2 !== m1) html += `<div style="font-style:italic; margin:4px 0;">${m2}</div>`;
-    html += '</div>';
-    lastBundleOpenAIHint = html;
-    $('#status').html(html);
+    const lines = [{ text: m1 }];
+    if (m2 !== m1) lines.push({ text: m2 });
+    showBundleMaxims(renderBundleMaximBox('Principis d\'escacs:', lines));
 }
 
 async function requestOpenAIBundleHint() {
     if (!blunderMode || !currentBundleFen) return;
     const bookHtml = buildBundleBookMaximHtml();
     if (bookHtml) {
-        lastBundleOpenAIHint = bookHtml;
-        $('#status').html(bookHtml);
+        showBundleMaxims(bookHtml);
         return;
     }
     if (!openaiApiKey) {
@@ -16048,7 +16060,7 @@ async function requestOpenAIBundleHint() {
     // Cau per FEN: reaprofita la màxima si ja s'ha generat per aquesta posició.
     const cacheKey = `bundle:${currentBundleFen}:${bundleSequenceStep}`;
     const cached = getCachedOpenAI(cacheKey);
-    if (cached) { lastBundleOpenAIHint = cached; $('#status').html(cached); return; }
+    if (cached) { showBundleMaxims(cached); return; }
     
     bundleOpenAIHintPending = true;
     updateBundleHintButtons();
@@ -16109,19 +16121,9 @@ async function requestOpenAIBundleHint() {
             throw new Error('Respostes massa curtes');
         }
               
-        const trimmedLines = validLines.map(l => l.trim());
-        
-        let html = '<div style="padding:12px; background:rgba(100,150,255,0.12); border-left:3px solid #6495ed; border-radius:8px; line-height:1.6;">';
-        html += '<div style="font-weight:600; color:var(--accent-gold); margin-bottom:6px;">💡 Principis d\'escacs:</div>';
-        trimmedLines.forEach(line => {
-            html += `<div style="font-style:italic; margin:4px 0;">${line.trim()}</div>`;
-        });
-        html += '</div>';
-        
-        // CANVI: Guardar el missatge generat
-        lastBundleOpenAIHint = html;
+        const html = renderBundleMaximBox('Principis d\'escacs:', validLines.map(l => ({ text: l.trim() })));
         setCachedOpenAI(`bundle:${currentBundleFen}:${bundleSequenceStep}`, html);
-        statusEl.html(html);
+        showBundleMaxims(html);
 
     } catch (err) {
         console.error(err);
