@@ -20454,12 +20454,19 @@ function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const voice = HIEROS.voices.find(v => v.id === recentVoiceId) || pickHieroglyphicVoice();
     const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
     const level = Math.min(3, Math.max(hieroglyphicHintLevel || 1, (hieroglyphicAttempts || 0) + 1));
-    const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${statusText}</div>` : '';
+    const pedagogy = window.ElTaulerJeroPedagogia && window.ElTaulerHieroClosure && currentHieroglyphicPuzzle
+        ? window.ElTaulerJeroPedagogia.solvedStep(currentHieroglyphicPuzzle, hieroglyphicStep || 0, Chess, window.ElTaulerHieroClosure)
+        : null;
+    const pedagogyHtml = pedagogy
+        ? `<div class="maxim-text hiero-step-pedagogy" style="font-size:0.84rem; margin-top:8px;">Ja has trobat un moviment: ${escapeHtml(pedagogy)}</div>`
+        : '';
+    const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${escapeHtml(statusText)}</div>` : '';
     noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
         <div class="maxim-title">${getHieroglyphicTitle()}</div>
         <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
         <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
         <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · Pas ${(hieroglyphicStep || 0) + 1}/${Math.max(1, hieroglyphicSolutionUci.length || 1)} · Troba la millor jugada. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
+        ${pedagogyHtml}
         ${extra}
     </div>`;
 }
@@ -26560,6 +26567,18 @@ function showHieroglyphicBundleOverlay() {
     const proof = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.conclusion;
     if (proof && hasVerifiedHieroglyphicConclusion(currentHieroglyphicPuzzle)) {
         const box = $('<div class="hiero-conclusion"></div>');
+        // Revelar el raonament complet només DESPRÉS d'haver resolt la línia.
+        const P = window.ElTaulerJeroPedagogia;
+        const lesson = P && P.build(currentHieroglyphicPuzzle, Chess, window.ElTaulerHieroClosure);
+        if (lesson) {
+            box.append($('<h4></h4>').text('Per què funciona aquesta combinació?'));
+            lesson.steps.forEach(step => {
+                box.append($('<p></p>').text(step.title + ' (' + step.san + '): ' + step.text
+                    + (step.reply ? ' ' + step.reply : '')));
+            });
+            box.append($('<p></p>').text('Desenllaç: ' + lesson.outcome));
+            if (lesson.learn) box.append($('<p></p>').text('Què pots aprendre: ' + lesson.learn));
+        }
         box.append($('<p></p>').text(proof.explanation));
         box.append($('<p></p>').text(proof.uniqueness));
         if (proof.alternativeSan) box.append($('<p></p>').text('Alternativa contrastada: ' + proof.alternativeSan + (proof.kind === 'mate' ? ' no fa mat.' : ' no conserva un avantatge decisiu segons Stockfish.')));
