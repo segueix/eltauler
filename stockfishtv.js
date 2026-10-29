@@ -4515,14 +4515,28 @@
             ? (g.engines[color] === 'lozza' ? 'profunditat ' + g.matchPlan.lozzaDepth
                 : tvLevelLabel(caps, g.matchPlan.stockfishLevel).short)
             : g && g.end && g.level.sides ? tvLevelLabel(caps, g.level.sides[color]).short : levelText;
-        const who = (color) => g && g.engines && g.engines[color] === 'lozza'
-            ? 'Lozza' : g && g.matchPlan ? 'Stockfish'
-                : g && g.styles && TV_STYLES[g.styles[color]] ? TV_STYLES[g.styles[color]].label : 'Stockfish';
-        const playerLine = (color) => (color === 'w' ? '♔ Blanques' : '♚ Negres') + (mine(color) ? ' · Tu (control manual)' : ' · ' + who(color) + ' · ' + sideText(color));
+        const who = (color) => g && g.engines && g.engines[color] === 'lozza' ? 'Lozza' : 'Stockfish 19';
+        // Separa visualment el nom de l'enginy (gran) de color i nivell (petits).
+        // La versió del motor es conserva en canviar els colors de cada duel.
+        const showPlayer = (color, suffix) => {
+            const name = $id('sftv-name-' + suffix);
+            const side = $id('sftv-color-' + suffix);
+            const meta = $id('sftv-meta-' + suffix);
+            const box = $id('sftv-player-' + suffix);
+            const playerName = mine(color) ? 'Tu' : who(color);
+            if (name) name.textContent = playerName;
+            if (side) side.textContent = color === 'w' ? '♔ Blanques' : '♚ Negres';
+            if (meta) meta.textContent = !g ? 'Preparant els motors…'
+                : mine(color) ? 'Control manual · ' + sideText(color)
+                : (g.engines && g.engines[color] === 'lozza' ? 'Motor Lozza · ' : 'Motor Stockfish · ') + sideText(color);
+            if (box) box.setAttribute('aria-label',
+                (color === 'w' ? 'Blanques: ' : 'Negres: ') + playerName
+                + (g ? ', ' + (mine(color) ? 'control manual' : sideText(color)) : ''));
+        };
+        showPlayer('w', 'white');
+        showPlayer('b', 'black');
         const pw = $id('sftv-player-white');
         const pb = $id('sftv-player-black');
-        if (pw) pw.textContent = playerLine('w');
-        if (pb) pb.textContent = playerLine('b');
         pw && pw.classList.toggle('is-turn', !!(g && !g.end && g.turn === 'w'));
         pb && pb.classList.toggle('is-turn', !!(g && !g.end && g.turn === 'b'));
         pw && pw.classList.toggle('is-user', mine('w'));
