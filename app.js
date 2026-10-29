@@ -13045,6 +13045,78 @@ function importPgnGameAt(idx) {
     );
 }
 
+
+async function runHistoryPositionalSacrificesWithUi(entry) {
+    const M=window.ElTaulerReviewSacrifices,H=window.ElTaulerHieroClosure;
+    if(!M||!H||typeof H.createPositionalVerifier!=='function'||!entry)return;
+    if(!historyEntryIsHydrated(entry)){
+        showToast('Carrega primer els detalls de la partida.', 'warn');return;
+    }
+    const btn=$('#history-review-content .history-check-positional');
+    if(deepReviewInProgress||waitingForBlunderAnalysis){
+        showToast('El motor encara està analitzant una altra posició.', 'warn');return;
+    }
+    const moves=getHistoryMoves(entry),all=M.collect(entry,moves,Chess),maxCandidates=2;
+    const selected=all.slice(0,maxCandidates);
+    const entryId=entry.id,started=Date.now(),limitMs=90000;
+    const shouldAbort=()=>!historyReplay||!historyReplay.entry||
+        historyReplay.entry.id!==entryId||Date.now()-started>limitMs;
+    btn.prop('disabled',true).text('Comprovant sacrificis…');
+    if(!selected.length) {
+        entry.positionalSacrificeReview={version:M.VERSION,key:M.cacheKey(entry,moves),
+            candidates:0,checked:0,results:[],analyzedAt:new Date().toISOString()};
+        saveStorage();
+        if(!shouldAbort())updateHistoryReview(entry);
+        return;
+    }
+    deepReviewInProgress=true;
+    let checked=0;
+    const results=[];
+    try {
+        try { requestBackgroundPrepAbort(); } catch(e) {}
+        const yieldStart=Date.now();
+        while((hgGenerating||personalHieroglyphicPrepInFlight||backgroundPrepPromise)&&
+            Date.now()-yieldStart<10000&&!shouldAbort())
+            await new Promise(resolve=>setTimeout(resolve,250));
+        if(shouldAbort()||hgGenerating||personalHieroglyphicPrepInFlight||backgroundPrepPromise)
+            throw Error('Motor ocupat o anàlisi interrompuda');
+        if(!stockfish)ensureStockfish();
+        if(!stockfish||!(await prewarmStockfish(12000)))throw Error('Motor no disponible');
+        try{stockfish.postMessage('setoption name UCI_LimitStrength value false');}catch(e){}
+        const verifier=H.createPositionalVerifier(Chess,analyzeFenRobust);
+        for(let i=0;i<selected.length;i++) {
+            if(shouldAbort())break;
+            btn.text('Comprovant '+(i+1)+'/'+selected.length+'…');
+            const item=selected[i];
+            const analysis=await verifier.verify({
+                fen:item.fen,move:item.move,reply:item.reply
+            },{shouldAbort,moveTimeMs:5500});
+            if(shouldAbort())break;
+            checked++;
+            if(analysis&&analysis.type==='positional_sacrifice')
+                results.push({...item,analysis});
+        }
+        if(!shouldAbort()) {
+            entry.positionalSacrificeReview={
+                version:M.VERSION,key:M.cacheKey(entry,moves),candidates:all.length,
+                checked,results,analyzedAt:new Date().toISOString()
+            };
+            saveStorage();
+            updateHistoryReview(entry);
+            showToast(results.length
+                ? 'Sacrificis posicionals verificats: '+results.length+' ✓'
+                : 'No s’ha acreditat cap sacrifici posicional entre els candidats examinats.', 'info');
+        }
+    }catch(e){
+        console.warn('[ReviewSacrifices] comprovació',e);
+        if(!shouldAbort())showToast('No s’ha completat la verificació dels sacrificis. La ressenya anterior es conserva.', 'warn');
+    }finally{
+        deepReviewInProgress=false;
+        if(!shouldAbort()&&!M.cached(entry,moves))
+            btn.prop('disabled',false).text('Analitza sacrificis posicionals');
+    }
+}
+
 function updateHistoryReview(entry) {
     const reviewContent = $('#history-review-content');
     const generateBtn = $('#history-generate-review');
@@ -13094,6 +13166,20 @@ function updateHistoryReview(entry) {
         return;
     }
     reviewContent.html(html);
+    reviewContent.find('.history-check-positional').off('click').on('click',function(event){
+        event.preventDefault();
+        void runHistoryPositionalSacrificesWithUi(entry);
+    });
+    reviewContent.find('.hist-positional-sacrifice-link').off('click').on('click',function(event){
+        event.preventDefault();
+        const moveNumber=Number($(this).attr('data-move-number'));
+        const san=String($(this).attr('data-san')||'');
+        const fen=String($(this).attr('data-fen')||'');
+        const uci=String($(this).attr('data-uci')||'');
+        jumpToHistoryMove(moveNumber,san,fen,uci);
+        const boardEl=document.getElementById('history-board');
+        if(boardEl&&boardEl.scrollIntoView)boardEl.scrollIntoView({behavior:'smooth',block:'center'});
+    });
     bindOpenAIMoveLinks(reviewContent);
     // Secció «Moment clau de la partida»: pràctica, obertura al tauler d'anàlisi i
     // còpia del FEN. Es captura l'entrada actual per resoldre el moment fresc.
@@ -14892,6 +14978,59 @@ function composeImportedDebriefText(entry, facts, voiceStyle) {
     return text;
 }
 
+
+// Sacrificis posicionals de partides reals: l'estudi és opcional perquè
+// repetir Stockfish a profunditat 22 a cada render alentiria molt el mòbil.
+function renderReviewPositionalSacrificesHtml(entry) {
+    const M=window.ElTaulerReviewSacrifices;
+    if(!M||!entry||!historyEntryIsHydrated(entry)||!historyEntryReviewCount(entry))return '';
+    const moves=getHistoryMoves(entry),saved=M.cached(entry,moves);
+    const parts=[
+        '<section class="history-positional-sacrifices" style="margin:14px 0;padding:12px;border:1px solid var(--border-color, #9996);border-radius:10px;">',
+        '<strong>Sacrificis amb compensació posicional</strong>',
+        '<p style="margin:7px 0;font-size:0.9em;">Comprova amb Stockfish les peces cedides sense recuperació immediata. És una anàlisi opcional, local i sense LLM.</p>'
+    ];
+    if(saved) {
+        const verified=(saved.results||[]).filter(r=>r&&r.analysis&&r.analysis.type==='positional_sacrifice');
+        parts.push('<p style="margin:8px 0;">'+verified.length+
+            (verified.length===1?' sacrifici posicional documentat':' sacrificis posicionals documentats')+
+            ' · '+Number(saved.checked||0)+' de '+Number(saved.candidates||0)+
+            ' candidats examinats. Les absències no descarten altres sacrificis.</p>');
+        if(verified.length) {
+            const names={n:'cavall',b:'alfil',r:'torre',q:'dama'};
+            parts.push('<ul style="margin:6px 0 12px 20px;padding:0;">');
+            for(const found of verified.slice(0,3)) {
+                const a=found.analysis||{},evals=Array.isArray(a.evaluations)?a.evaluations:[];
+                const values=evals.filter(x=>Number.isFinite(x.depth)&&Number.isFinite(x.cp))
+                    .map(x=>'profunditat '+x.depth+': '+(x.cp/100).toLocaleString('ca-ES',{minimumFractionDigits:2,maximumFractionDigits:2}))
+                    .join(' · ');
+                const indicator=a.initiative||{},structure=a.structure||{};
+                const link='<a href="#" class="hist-positional-sacrifice-link" data-fen="'+escapeHtml(found.fen||'')+
+                    '" data-uci="'+escapeHtml(found.move||'')+'" data-san="'+escapeHtml(found.san||'')+
+                    '" data-move-number="'+Number(found.moveNumber||0)+'">jugada '+Number(found.moveNumber||0)+
+                    ' ('+escapeHtml(found.san||'')+')</a>';
+                parts.push('<li style="margin-bottom:10px;">'+link+': '+
+                    's’ha cedit '+escapeHtml(names[found.offered]||'una peça')+
+                    ' ('+Number(a.loss||0)+' punts de diferència material en aquesta seqüència). '+
+                    escapeHtml(a.text||'Stockfish manté compensació segons les variants examinades.')+
+                    '<div style="font-size:0.86em;opacity:0.85;">'+escapeHtml(values)+
+                    ' · escacs a la variant: '+Number(indicator.checks||0)+
+                    ' · captures: '+Number(indicator.captures||0)+
+                    ' · peons passats: '+(Array.isArray(structure.passed)?structure.passed.length:0)+
+                    ' · peons doblats: '+Number(structure.doubled||0)+
+                    '. Aquestes dades no proven per si soles la causa de la compensació.</div></li>');
+            }
+            parts.push('</ul>');
+        }
+    } else {
+        parts.push('<p style="font-size:0.85em;opacity:0.85;">Encara no s’ha executat aquesta comprovació per a la partida.</p>');
+    }
+    parts.push('<button type="button" class="btn btn-secondary history-check-positional" '+
+        'style="padding:6px 12px;font-size:0.85rem;">'+
+        (saved?'Torna a comprovar sacrificis':'Analitza sacrificis posicionals')+'</button></section>');
+    return parts.join('');
+}
+
 // =================== RESSENYA LOCAL EN HTML (sense OpenAI) ===================
 // Construeix la ressenya rica de l'historial: debrief, color del jugador, lliçó
 // del dia, obertura amb enllaç a la pràctica i correcció per fases (amb nombre
@@ -14918,6 +15057,9 @@ function renderLocalReviewHtml(entry, opts = {}) {
         if (maxim) {
             blocks.push(`<blockquote style="margin:0 0 12px 0; padding:8px 12px; border-left:3px solid var(--accent-gold); font-style:italic; opacity:0.95;">“${escapeHtml(maxim)}”</blockquote>`);
         }
+
+        // --- Sacrificis posicionals confirmats amb anàlisi sota demanda ---
+        try { const tactical=renderReviewPositionalSacrificesHtml(entry); if(tactical)blocks.push(tactical); } catch(e) { console.warn('[ReviewSacrifices] render',e); }
 
         // --- Moment clau de la partida (secció destacada, a dalt de tot) ---
         try {

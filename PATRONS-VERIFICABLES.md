@@ -73,3 +73,16 @@ El patró `sacrifice` passa de `pendent_de_validacio` a `variant_certificada`. N
 - **Compensació posicional**: `ElTaulerHieroClosure.createPositionalVerifier(Chess, analyze).verify({fen, move, reply})` permet validar específicament sacrificis de peces **acceptats** en una partida, encara que no es recuperi material ni hi hagi mat en tres. Exigeix jugada recomanada per Stockfish abans de l'oferta, captura legal inclosa en MultiPV, dèficit material real de ≥2 punts, avaluacions a profunditat 18 i 22 coherents (sense cotes), valoració després de la captura ≥−70 centipeons, PV reproduïble de ≥4 semijugades i absència de recuperació material immediata.
 - El resultat separa **valoració del motor** dels **indicadors objectius**: escacs i captures de la PV com a indicis de la iniciativa, estat del rei en escac, peons doblats, illes de peons i peons passats. Aquests indicadors no es presenten com a causes demostrades de compensació.
 - El verificador posicional queda com a API disponible per als fluxos d'anàlisi, sense executar exploracions costoses a cada moviment de Stockfish TV. No modifica el criteri de tres jugades dels jeroglífics ni els seus desenllaços concloents.
+
+
+## Quarta onada: integració a la ressenya de partides
+
+A la ressenya local d'una partida ja analitzada, la secció **«Sacrificis amb compensació posicional»** ofereix el botó **«Analitza sacrificis posicionals»**. No s'executa automàticament: profunditat 22 pot consumir bateria i el motor és compartit amb altres funcionalitats.
+
+1. `reviewsacrifices.js` reconstrueix el PGN des de l'inici i només identifica jugades del color analitzat que consten a `moveReviews`, que ofereixen una peça i que el rival **captura** a la jugada següent amb pèrdua temporal de com a mínim dos punts. Una oferta refusada no entra en aquesta fase.
+2. Com a màxim s'estudien **dos candidats per petició**, en sèrie i amb cancel·lació si es deixa la partida o el temps global d'anàlisi s'exhaureix. Es reserven els recursos del motor abans de començar.
+3. Cada candidat es contrasta amb `createPositionalVerifier`: dues profunditats concordants, variació legal i absència de recaptura immediata. Cap resultat negatiu es presenta com a demostració que no existeixin sacrificis.
+4. Els casos acreditats mostren la jugada amb enllaç al tauler, les dues avaluacions i els indicadors observables d'iniciativa i de peons. No es confonen indicadors amb raons demostrades.
+5. Les troballes es desen a `entry.positionalSacrificeReview` en el **cos d'IndexedDB** de la partida, no a l'índex lleuger, i tenen una clau derivada de la seqüència de jugades i del color. Si canvia la partida, el resultat anterior no es mostra.
+
+Els exercicis de tres jugades i la narració de Stockfish TV no canvien. Aquest sistema no utilitza cap LLM i no requereix cap clau d'IA.
