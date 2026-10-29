@@ -1865,16 +1865,17 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
         expect(TV.tvBaseTarget(SF19_CAPS, { known: true, roc: 1700 })).toBeGreaterThan(1320);
     });
 
-    test('per defecte la TV continua amb el clàssic; la preferència tria el motor', () => {
-        expect(TV.tvNormalizePrefs({}).engine).toBe('classic');
+    test('Stockfish 19 és l’únic motor de TV, fins i tot amb preferències antigues', () => {
+        expect(TV.tvNormalizePrefs({}).engine).toBe('sf19');
         expect(TV.tvNormalizePrefs({ engine: 'sf19' }).engine).toBe('sf19');
-        expect(TV.tvNormalizePrefs({ engine: 'stockfish-99' }).engine).toBe('classic');
-        expect(Object.keys(TV.TV_ENGINES)).toEqual(['classic', 'sf19']);
+        expect(TV.tvNormalizePrefs({ engine: 'classic' }).engine).toBe('sf19');
+        expect(TV.tvNormalizePrefs({ engine: 'stockfish-99' }).engine).toBe('sf19');
+        expect(Object.keys(TV.TV_ENGINES)).toEqual(['sf19']);
     });
 
     test('el worker de Stockfish 19 porta la versió també al .wasm (fragment de l’URL)', () => {
         expect(TV.tvEngineWorkerUrl('sf19', '1.0.55')).toBe('stockfish-19-lite-single.js?v=1.0.55#' + encodeURIComponent('stockfish-19-lite-single.wasm?v=1.0.55'));
-        expect(TV.tvEngineWorkerUrl('classic', '1.0.55')).toBe('stockfish.js?v=1.0.55');
+        expect(TV.tvEngineWorkerUrl('classic', '1.0.55')).toBe(TV.tvEngineWorkerUrl('sf19', '1.0.55'));
         expect(TV.tvEngineWorkerUrl('sf19')).toBe('stockfish-19-lite-single.js#stockfish-19-lite-single.wasm');
         // Els fitxers del motor són al repositori, al costat de l'app.
         const fs = require('fs');
@@ -1882,42 +1883,36 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
         expect(fs.statSync(path.join(__dirname, '../stockfish-19-lite-single.wasm')).size).toBeGreaterThan(1000000);
     });
 
-    test('si Stockfish 19 no carrega, la TV fa servir el clàssic sense esperar el temps màxim', async () => {
-        const classic = makeWorkerFactory();
-        let broken = null;
+    test('si el motor Stockfish 19 no es pot crear, no hi ha substitució silenciosa', async () => {
+        const engine = TV.createTvEngine({ createWorker: () => { throw new Error('no wasm'); } });
+        await expect(engine.ready()).resolves.toBeNull();
+        expect(engine.usingFallback()).toBe(false);
+        expect(engine.failed()).toBe(true);
+    });
+
+    test('si falla el worker de Stockfish 19, la TV no arrenca un motor antic', async () => {
+        let broken;
         const engine = TV.createTvEngine({
-            createWorker: () => { broken = { postMessage: jest.fn(), terminate: jest.fn(), onmessage: null, onerror: null }; setTimeout(() => broken.onerror && broken.onerror(new Event('error')), 10); return broken; },
-            createFallbackWorker: classic.factory
+            createWorker: () => {
+                broken = { postMessage: jest.fn(), terminate: jest.fn(), onmessage: null, onerror: null };
+                setTimeout(() => broken.onerror && broken.onerror(new Event('error')), 10);
+                return broken;
+            }
         });
         const ready = engine.ready();
         await jest.advanceTimersByTimeAsync(100);
-        await expect(ready).resolves.toMatchObject({ mode: 'skill' });
-        expect(engine.usingFallback()).toBe(true);
-        expect(broken.terminate).toHaveBeenCalled();
-        expect(classic.workers).toHaveLength(1);
+        await expect(ready).resolves.toBeNull();
+        expect(engine.usingFallback()).toBe(false);
+        expect(engine.failed()).toBe(true);
     });
 
-    test('un worker que no es pot crear també passa al clàssic; sense reserva, el motor queda fallat', async () => {
-        const classic = makeWorkerFactory();
-        const engine = TV.createTvEngine({ createWorker: () => { throw new Error('no wasm'); }, createFallbackWorker: classic.factory });
-        const ready = engine.ready();
-        await jest.advanceTimersByTimeAsync(50);
-        await expect(ready).resolves.toMatchObject({ mode: 'skill' });
-        expect(engine.usingFallback()).toBe(true);
-        const alone = TV.createTvEngine({ createWorker: () => { throw new Error('no wasm'); } });
-        await expect(alone.ready()).resolves.toBeNull();
-        expect(alone.failed()).toBe(true);
-    });
-
-    test('quan Stockfish 19 arrenca, no es toca la reserva', async () => {
+    test('Stockfish 19 inicia amb els seus nivells Elo sense motor alternatiu', async () => {
         const sf19 = makeWorkerFactory({ uciLines: SF19_LINES.slice(0, -1) });
-        const classic = makeWorkerFactory();
-        const engine = TV.createTvEngine({ createWorker: sf19.factory, createFallbackWorker: classic.factory });
+        const engine = TV.createTvEngine({ createWorker: sf19.factory });
         const ready = engine.ready();
         await jest.advanceTimersByTimeAsync(50);
         await expect(ready).resolves.toMatchObject({ mode: 'elo', min: 1320, max: 3190 });
         expect(engine.usingFallback()).toBe(false);
-        expect(classic.workers).toHaveLength(0);
     });
 
     test('la rivalitat amb Lozza només compta les partides del mateix motor', () => {
@@ -1948,13 +1943,15 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
         ctl.close();
     });
 
-    test('la interfície ofereix el motor a la TV i el canvi crea el motor nou', () => {
+    test('la interfície no ofereix Stockfish 2019 ni un selector; sempre arrenca 19', () => {
         const html = require('fs').readFileSync(path.join(__dirname, '../index.html'), 'utf8');
-        expect(html).toContain('id="sftv-engine"');
-        expect(html).toMatch(/<option value="sf19">Stockfish 19 · 2026/);
+        expect(html).not.toContain('id="sftv-engine"');
+        expect(html).not.toContain('<option value="classic">');
+        expect(html).toContain('Motor únic: Stockfish 19 (2026)');
         const js = require('fs').readFileSync(require.resolve('../stockfishtv'), 'utf8');
-        expect(js).toContain("on('sftv-engine', 'change'");
-        expect(js).toContain('controller.replaceEngine(createStockfishTvEngine(engineId))');
+        expect(js).not.toContain("on('sftv-engine', 'change'");
+        expect(js).not.toContain('createFallbackWorker: classicWorker');
+        expect(js).toContain("createWorker: () => new Worker(tvEngineWorkerUrl('sf19', root.APP_VERSION))");
     });
 });
 
