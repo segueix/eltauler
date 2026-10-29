@@ -51,6 +51,76 @@
         return second.evalType === 'cp' && second.eval < 200 && best.eval - second.eval >= 150;
     }
 
+
+    // Un sacrifici només és identificable quan la peça oferta és CAPTURADA
+    // en la resposta del rival i el balanç cau realment respecte a l'inici.
+    // No confondre-ho amb intercanvis equivalents ni amb gambits de peó.
+    function materialOffers(candidate, Chess) {
+        if(typeof Chess!=='function'||!hasThreeMoves(candidate))return [];
+        try {
+            const g=new Chess(candidate.fen),color=g.turn(),initial=balance(g,color);
+            const line=lineOf(candidate),out=[];
+            for(let i=0;i<line.length;i++) {
+                if(g.game_over())return [];
+                const own=play(g,line[i]);if(!own)return [];
+                if(i%2!==0||i>=3)continue; // cal la rèplica en aquesta línia
+                if(g.game_over())return [];
+                const replyPosition=g.fen();
+                const reply=play(g,line[++i]);if(!reply)return [];
+                const lost=initial-balance(g,color);
+                if(reply.captured && reply.captured!=='p'&&
+                    reply.to===own.to&&reply.captured===(own.promotion||own.piece)&&
+                    lost>=2&&!g.game_over()) {
+                    out.push({step:(i+1)/2,offered:own.piece,
+                        offerUci:uci(own),replyUci:uci(reply),
+                        square:reply.to,loss:lost,replyPosition,
+                        kingInCheck:g.in_check()});
+                }
+            }
+            return out;
+        }catch(err){return [];}
+    }
+    function verifiedScore(x, side) {
+        return !!(x&&Number.isFinite(x.depth)&&x.depth>=14&&
+            Number.isFinite(x.eval)&&!x.bound&&
+            ((x.evalType==='mate'&&(side==='player'?x.eval>0:x.eval<0))||
+             (x.evalType==='cp'&&(side==='player'?x.eval>=300:x.eval<=-300))));
+    }
+    // Només retorna les anotacions creades durant verify, i les contrasta
+    // novament contra la línia legal, les valoracions i el desenllaç.
+    function certifiedSacrifices(candidate, Chess) {
+        const proof=candidate&&candidate.conclusion;
+        if(!matches(candidate)||!proof||!Number.isFinite(proof.requestedDepth)||
+            proof.requestedDepth<16||!Number.isFinite(proof.minDepth)||
+            proof.minDepth<14||!Array.isArray(proof.sacrifices)||
+            !Array.isArray(candidate.stepAlternatives))return [];
+        try {
+            const inspected=createVerifier(Chess).inspect(candidate);
+            if(!inspected||inspected.finalFen!==proof.finalFen||
+                inspected.kind!==proof.kind||inspected.gain!==proof.gain)return [];
+            const legal=materialOffers(candidate,Chess);
+            return proof.sacrifices.filter(x=>{
+                const offer=legal.find(y=>y.step===x.step&&
+                    y.offered===x.offered&&y.offerUci===x.offerUci&&y.replyUci===x.replyUci&&
+                    y.loss===x.loss&&y.square===x.square&&
+                    y.kingInCheck===x.kingInCheck);
+                const answer=candidate.stepAlternatives[x.step]&&
+                    candidate.stepAlternatives[x.step][0];
+                const g=offer&&new Chess(offer.replyPosition);
+                return offer&&g&&Number.isInteger(x.checkedDefenses)&&
+                    x.checkedDefenses>=1&&x.checkedDefenses<=g.moves().length&&
+                    x.compensationKind===proof.kind&&
+                    verifiedScore(answer,'player')&&
+                    answer.move===candidate.solutionMoves[x.step]&&
+                    x.continuationType===answer.evalType&&
+                    x.continuationEval===answer.eval;
+            }).map(x=>({step:x.step,offered:x.offered,offerUci:x.offerUci,
+                replyUci:x.replyUci,square:x.square,loss:x.loss,
+                kingInCheck:x.kingInCheck,checkedDefenses:x.checkedDefenses,
+                compensationKind:x.compensationKind}));
+        }catch(err){return [];}
+    }
+
     function createVerifier(Chess, analyze) {
         async function request(...args) {
             try { return await analyze(...args); } catch (err) { return null; }
@@ -110,7 +180,7 @@
             const end = inspect(candidate);
             if (!end || typeof analyze !== 'function') return null;
             const abort = () => !!(opts.shouldAbort && opts.shouldAbort());
-            const depth = Math.max(16, opts.depth || 0), stepAlternatives = [], stepEvals = [], stepPvs = [];
+            const depth = Math.max(16, opts.depth || 0), stepAlternatives = [], stepEvals = [], stepPvs = [], opponentRows = [];
             let finalAnalysis = null;
             for (let i = 0; i < end.positions.length; i++) {
                 if (abort()) return null;
@@ -125,7 +195,10 @@
                     stepEvals.push(a.bestMove.eval);
                     stepPvs.push(a.bestMove.pv || []);
                     finalAnalysis = a;
-                } else if (!Number.isFinite(a.bestMove.depth) || a.bestMove.depth < 14 || a.bestMove.bound) return null;
+                } else {
+                    if (!Number.isFinite(a.bestMove.depth) || a.bestMove.depth < 14 || a.bestMove.bound) return null;
+                    opponentRows.push(a);
+                }
             }
             if (end.kind !== 'mate') {
                 const a = await request(end.finalFen, depth, 1, opts.moveTimeMs || 8000, opts.shouldAbort || null);
@@ -152,6 +225,47 @@
             const uniqueness = end.kind === 'mate'
                 ? (end.alternatives.length ? 'S’han comprovat les altres ' + end.alternatives.length + ' jugades legals: cap no fa mat en aquesta posició.' : 'Era l’única jugada legal.')
                 : 'Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.';
+
+            // Evidència addicional, NOMÉS per a sacrificis ja legalment observats.
+            // La línia principal no autoritza dir que totes les defenses perden:
+            // comprovem com a mínim les dues defenses principals, si existeixen.
+            const sacrifices=[];
+            for(const offer of materialOffers(candidate,Chess)) {
+                if(abort())return null;
+                const next=stepAlternatives[offer.step]&&stepAlternatives[offer.step][0];
+                const replyGame=new Chess(offer.replyPosition);
+                const legal=replyGame.moves({verbose:true});
+                const required=Math.min(2,legal.length);
+                if(!verifiedScore(next,'player')||
+                    next.move!==candidate.solutionMoves[offer.step])continue;
+                let defense=opponentRows[offer.step-1];
+                if(required>1) {
+                    defense=await request(offer.replyPosition,depth,3,
+                        opts.moveTimeMs||8000,opts.shouldAbort||null);
+                }
+                if(abort())return null;
+                const lines=defense&&defense.alternatives;
+                if(!defense||!defense.bestMove||
+                    defense.bestMove.move!==offer.replyUci||
+                    !Array.isArray(lines)||lines.length<required)continue;
+                const seen=new Set(),choices=lines.slice(0,required);
+                const legitimate=choices.every(x=>{
+                    if(!x||!verifiedScore(x,'opponent')||seen.has(x.move))return false;
+                    const g=new Chess(offer.replyPosition),m=play(g,x.move);
+                    if(!m)return false;
+                    seen.add(x.move);return true;
+                });
+                if(!legitimate)continue;
+                sacrifices.push({
+                    step:offer.step,offered:offer.offered,
+                    offerUci:offer.offerUci,replyUci:offer.replyUci,
+                    square:offer.square,loss:offer.loss,
+                    kingInCheck:offer.kingInCheck,checkedDefenses:choices.length,
+                    compensationKind:end.kind,
+                    continuationType:next.evalType,continuationEval:next.eval
+                });
+            }
+
             return { ...candidate, stepAlternatives, stepEvals, stepPvs,
                 conclusion: { version: VERSION, fen: candidate.fen, line: end.line, finalFen: end.finalFen,
                     kind: end.kind, finalSan: end.finalSan, gain: end.gain, checkedReplies: end.replies,
@@ -159,10 +273,11 @@
                     alternativeSan: altMove ? altMove.san : null,
                     alternativeLine,
                     alternativeEval: alternative ? { type: alternative.evalType, value: alternative.eval } : null,
-                    minDepth: 14, requestedDepth: depth }
+                    minDepth: 14, requestedDepth: depth, sacrifices }
             };
         }
         return { inspect, verify };
     }
-    return { VERSION, PLAYER_MOVES, lineOf, hasThreeMoves, matches, uniqueChoice, createVerifier };
+    return { VERSION, PLAYER_MOVES, lineOf, hasThreeMoves, matches, uniqueChoice,
+        materialOffers,certifiedSacrifices,createVerifier };
 });

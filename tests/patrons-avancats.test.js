@@ -9,17 +9,17 @@ function testMove(fen,uci) {
     return {ChessCtor:Chess,fenBefore:fen,fenAfter:g.fen(),move:m};
 }
 const has=(c,id)=>P.detect(c).find(x=>x.id===id);
-test('els 4 nous detectors geomètrics són automàtics, però desviació i interferència demanen certificat',()=>{
+test('els 4 nous detectors geomètrics són automàtics, però els motius avançats demanen certificat',()=>{
     for(const id of ['pin','skewer','discoveredAttack','discoveredCheck']) {
         expect(P.INDEX[id].status).toBe('detector');
     }
-    for(const id of ['deflection','interference']) {
+    for(const id of ['deflection','interference','sacrifice']) {
         expect(P.INDEX[id].status).toBe('variant_certificada');
         expect(P.AUTOMATIC).not.toContain(id);
     }
     expect(P.CATALOG.filter(x=>x.status==='detector')).toHaveLength(30);
-    expect(P.CATALOG.filter(x=>x.status==='variant_certificada')).toHaveLength(2);
-    expect(P.CATALOG.filter(x=>x.status==='pendent_de_validacio')).toHaveLength(28);
+    expect(P.CATALOG.filter(x=>x.status==='variant_certificada')).toHaveLength(3);
+    expect(P.CATALOG.filter(x=>x.status==='pendent_de_validacio')).toHaveLength(27);
 });
 test('clavada absoluta nova, sense afirmar guany de peça',()=>{
     const c=testMove('4k3/4n3/8/8/8/8/8/R5K1 w - - 0 1','a1e1');

@@ -53,7 +53,7 @@
         'rookEndgame','pawnEndgame','queenEndgame','bishopEndgame',
         'fiftyMoveRule','insufficientMaterial'
     ]);
-    const CERTIFIED_VARIANTS = new Set(['deflection','interference']);
+    const CERTIFIED_VARIANTS = new Set(['deflection','interference','sacrifice']);
     const FAMILY = Object.freeze({ tactica: 'Tàctica', posicional: 'Estratègia posicional',
         defensa: 'Atac i defensa', finals: 'Finals' });
     const CATALOG = Object.freeze(ROWS.map(([id,name,family,lichessTheme]) =>
@@ -289,7 +289,7 @@
         } catch(err){return [];}
     }
 
-    // Desviació i interferència: no s'activen mai a la TV ni amb un sol
+    // Desviació, interferència i sacrifici: no s'activen mai a la TV ni amb un sol
     // moviment. Cal una línia COMPLETA de tres jugades, amb certificat
     // Stockfish preexistent, que torni a passar la inspecció d'escacs.
     function detectCertifiedLine(ctx) {
@@ -359,6 +359,24 @@
                     addLine('deflection',{defender:reply.from,
                         displacedTo:reply.to,target:target.sq},
                         'Desviació demostrada en aquesta variant: el defensor abandona la protecció d’una peça que després es captura.',i);
+                }
+            }
+            // Sacrifici: comprovació pròpia de balanç, captura acceptada,
+            // resultat i alternatives Stockfish; cap identificació per etiqueta.
+            if(typeof H.certifiedSacrifices==='function') {
+                for(const s of H.certifiedSacrifices(item,Chess)) {
+                    out.push({
+                        id:'sacrifice',pattern:INDEX.sacrifice,
+                        evidence:{offered:s.offered,offerUci:s.offerUci,
+                            capture:s.replyUci,square:s.square,loss:s.loss,
+                            checkedDefenses:s.checkedDefenses,
+                            kingInCheck:s.kingInCheck,compensation:s.compensationKind},
+                        text:s.compensationKind==='mate'
+                            ? 'Sacrifici verificat en aquesta variant: s’ha cedit material i la combinació acaba en mat.'
+                            : 'Sacrifici verificat en aquesta variant: s’ha cedit material, però la combinació acaba amb un guany net comprovat.',
+                        color,step:s.step,source:'variant_certificada',
+                        squares:[s.offerUci.slice(0,2),s.offerUci.slice(2,4)]
+                    });
                 }
             }
             return out;
