@@ -368,10 +368,13 @@
                     out.push({
                         id:'sacrifice',pattern:INDEX.sacrifice,
                         evidence:{offered:s.offered,offerUci:s.offerUci,
-                            capture:s.replyUci,square:s.square,loss:s.loss,
+                            kind:s.kind,capture:s.captureUci||s.replyUci,
+                            reply:s.replyUci,square:s.square,loss:s.loss,
                             checkedDefenses:s.checkedDefenses,
                             kingInCheck:s.kingInCheck,compensation:s.compensationKind},
-                        text:s.compensationKind==='mate'
+                        text:s.kind==='refused'
+                            ? 'Oferta de sacrifici refusada en aquesta variant: el rival podia capturar la peça, però ha triat una altra defensa. Stockfish valida la continuació hipotètica si l’accepta.'
+                            : s.compensationKind==='mate'
                             ? 'Sacrifici verificat en aquesta variant: s’ha cedit material i la combinació acaba en mat.'
                             : 'Sacrifici verificat en aquesta variant: s’ha cedit material, però la combinació acaba amb un guany net comprovat.',
                         color,step:s.step,source:'variant_certificada',
