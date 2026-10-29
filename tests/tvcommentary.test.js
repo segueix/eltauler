@@ -355,8 +355,26 @@ describe('redacció i monotonia', () => {
                 expect(summaries[i].ply - summaries[i - 1].ply).toBeGreaterThanOrEqual(TV.TV_CONFIG.SUMMARY_EVERY_PLIES);
                 expect(summaries[i].comment).not.toBe(summaries[i - 1].comment);
             }
-            summaries.forEach(sm => expect(sm.comment).toMatch(/^(Balanç de la partida|Com està la partida|Situació de la partida): /));
+            summaries.forEach(sm => {
+                const intro = TV.TV_SUMMARY_INTROS.find(i => i && sm.comment.indexOf(i) === 0);
+                expect(intro !== undefined || /^[A-ZÀ-Ú]/.test(sm.comment)).toBe(true);
+                // Res de «la qualitat de més» ni de la coma abans d'«i».
+                expect(sm.comment).not.toMatch(/qualitat de més|, i /);
+            });
+            // Dos resums seguits no comencen igual.
+            for (let i = 1; i < summaries.length; i++) {
+                expect(summaries[i].comment.split(/[:,]/)[0]).not.toBe(summaries[i - 1].comment.split(/[:,]/)[0]);
+            }
         });
+    });
+
+    test('resum estratègic amb varietat: introduccions i maneres de dir-ho diferents', () => {
+        const all = [];
+        FIXTURES.forEach((g) => simulateFixture(g).filter(r => r.kind === 'summary').forEach(r => all.push(r.comment)));
+        const starts = new Set(all.map(t => t.split(/[:,]/)[0]));
+        expect(all.length).toBeGreaterThan(5);
+        expect(starts.size).toBeGreaterThanOrEqual(Math.min(6, all.length - 1));
+        expect(new Set(all).size).toBe(all.length);
     });
 });
 
@@ -448,5 +466,45 @@ describe('Simulació Art de la Guerra a TV',()=>{
         for(const r of rich) {
             if(r.maxim) expect(r.comment).toBeTruthy();
         }
+    });
+});
+
+describe('balanç de material amb paraules naturals', () => {
+    const grid = fen => {
+        const rows = fen.split(' ')[0].split('/');
+        return rows.map(r => { const out = []; for (const ch of r) { if (/\d/.test(ch)) for (let i = 0; i < +ch; i++) out.push(null); else out.push({ c: ch === ch.toUpperCase() ? 'w' : 'b', t: ch.toLowerCase() }); } return out; });
+    };
+    const material = fen => { const m = { w: { p: 0, n: 0, b: 0, r: 0, q: 0 }, b: { p: 0, n: 0, b: 0, r: 0, q: 0 } };
+        grid(fen).forEach(r => r.forEach(p => { if (p && p.t !== 'k') m[p.c][p.t]++; })); return m; };
+
+    test('la qualitat es diu amb les peces: torre per cavall o per alfil', () => {
+        const knight = TV.materialPhrase(material('4k3/8/8/8/8/8/n7/R3K3 w - - 0 1'));
+        expect(knight).toMatchObject({ leader: 'w', kind: 'exchange', desc: 'una torre per un cavall' });
+        const bishop = TV.materialPhrase(material('4k3/8/8/8/8/8/b7/R3K3 w - - 0 1'));
+        expect(bishop.desc).toBe('una torre per un alfil');
+        const withPawn = TV.materialPhrase(material('4k3/8/8/8/8/8/n6P/R3K3 w - - 0 1'));
+        expect(withPawn.desc).toBe('una torre per un cavall i un peó de més');
+        const all = TV.materialClauses(knight).concat(TV.materialClauses(withPawn));
+        all.forEach(t => expect(t).not.toMatch(/qualitat de més/));
+        expect(all).toContain('les blanques tenen torre contra cavall');
+        expect(all).toContain('les blanques han guanyat la qualitat (torre per cavall)');
+    });
+
+    test('cada balanç té més d’una manera de dir-se', () => {
+        expect(TV.materialClauses(null).length).toBeGreaterThanOrEqual(3);
+        const pawn = TV.materialPhrase(material('4k3/8/8/8/8/8/P7/4K3 w - - 0 1'));
+        expect(TV.materialClauses(pawn)).toEqual(expect.arrayContaining(['les blanques tenen un peó de més', 'les negres tenen un peó de menys']));
+        const piece = TV.materialPhrase(material('4k3/8/8/8/8/8/8/1N2K3 w - - 0 1'));
+        expect(TV.materialClauses(piece).length).toBeGreaterThanOrEqual(3);
+        expect(TV.materialPhrase(material('4k3/8/8/8/8/8/8/Q3K3 w - - 0 1')).desc).toBe('una dama de més');
+    });
+
+    test('«però» quan el material i l’anàlisi no apunten al mateix bàndol, i sense «, i»', () => {
+        const all = [];
+        FIXTURES.forEach((g) => simulateFixture(g).filter(r => r.kind === 'summary').forEach(r => all.push(r.comment)));
+        const contrast = all.filter(t => / però/.test(t));
+        expect(contrast.length).toBeGreaterThan(0);
+        contrast.forEach(t => expect(t).not.toMatch(/(tenen|van|porten) [^,]* (de més|per davant|d'avantatge)[^.]*però[^.]*(també)/));
+        all.forEach(t => expect(t).not.toMatch(/, i /));
     });
 });

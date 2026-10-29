@@ -508,7 +508,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   de català del redactor sobre tots els comentaris, varietat (cap frase
   repetida seguida, ≥90% de frases diferents, cap tipus més de tres cops
   seguits), brevetat (majoria d'una sola frase), definicions bàsiques una sola
-  vegada, resum estratègic espaiat i sense repetir-se, i la integració amb el
+  vegada, resum estratègic espaiat i sense repetir-se (onze introduccions
+  que no es repeteixen seguides, diverses maneres de dir el material, la
+  valoració, els reis i els peons passats, «però» quan el material i
+  l'anàlisi afavoreixen bàndols diferents, i la qualitat dita amb les peces:
+  «torre per cavall» en lloc de «la qualitat de més»), i la integració amb el
   controlador (comentari lligat a la posició visible, veu que llegeix el mateix
   text sense cues i cap anàlisi d'una posició acabada).
 - **`veuneural.test.js`** — veus neuronals **Matxa** (BSC, `veuneural.js`) amb

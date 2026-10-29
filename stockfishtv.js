@@ -1185,12 +1185,23 @@
         const leader = pts > 0 ? 'w' : 'b';
         const s = pts > 0 ? 1 : -1;
         const p = d.p * s, minor = (d.n + d.b) * s, r = d.r * s, q = d.q * s;
-        let desc;
-        if (!minor && !r && !q) desc = p === 1 ? 'un peó de més' : numWord(p) + ' peons de més';
-        else if (r === 1 && minor === -1 && !q) desc = 'la qualitat de més' + (p > 0 ? ' i ' + (p === 1 ? 'un peó' : numWord(p) + ' peons') : '');
-        else if (minor === 1 && !r && !q && p <= 0) desc = p === 0 ? 'una peça de més' : 'una peça per ' + (p === -1 ? 'un peó' : numWord(-p) + ' peons');
-        else if (r === 1 && !minor && !q && p >= 0) desc = 'una torre de més';
-        else if (q === 1 && !minor && !r) desc = 'la dama de més';
+        const pawnsWord = n => (n === 1 ? 'un peó' : numWord(n) + ' peons');
+        let desc, kind = 'mixed', extra = null;
+        if (!minor && !r && !q) { kind = 'pawns'; desc = pawnsWord(p) + ' de més'; }
+        else if (r === 1 && minor === -1 && !q) {
+            // «La qualitat»: torre contra peça menor. Es diu quina peça és,
+            // que s'entén millor que «tenir la qualitat de més».
+            kind = 'exchange';
+            extra = { minor: d.n * s === -1 ? 'un cavall' : 'un alfil', pawns: p > 0 ? pawnsWord(p) : null };
+            desc = 'una torre per ' + extra.minor + (extra.pawns ? ' i ' + extra.pawns + ' de més' : '');
+        }
+        else if (minor === 1 && !r && !q && p <= 0) {
+            kind = p === 0 ? 'piece' : 'piecePawns';
+            extra = { pawns: p < 0 ? pawnsWord(-p) : null };
+            desc = p === 0 ? 'una peça de més' : 'una peça per ' + extra.pawns;
+        }
+        else if (r === 1 && !minor && !q && p >= 0) { kind = 'rook'; desc = 'una torre de més'; }
+        else if (q === 1 && !minor && !r) { kind = 'queen'; desc = 'una dama de més'; }
         else {
             const items = [];
             const dd = { q: d.q * s, r: d.r * s, b: d.b * s, n: d.n * s, p: d.p * s };
@@ -1203,11 +1214,54 @@
                 const R = getRedactor();
                 desc = (R && R.llistaEnCatala ? R.llistaEnCatala(items) : items.join(' i ')) + ' de més';
             } else {
-                desc = 'l\'equivalent a ' + (pts * s === 1 ? 'un peó' : numWord(pts * s) + ' peons') + ' de més';
+                kind = 'equivalent';
+                desc = pts * s >= 6 ? 'molt més material' : 'l\'equivalent a ' + (pts * s === 1 ? 'un peó' : numWord(pts * s) + ' peons') + ' de més';
             }
         }
-        return { leader: leader, desc: desc, pts: pts * s };
+        return { leader: leader, desc: desc, pts: pts * s, kind: kind, pawns: kind === 'pawns' ? p : null, extra: extra };
     }
+
+    // Maneres diferents (i totes certes) de dir el mateix balanç de material.
+    // Retorna textos; amb { tagged: true }, objectes { text, subject } on
+    // subject és 'leader' si el subjecte és el bàndol amb més material i
+    // 'trailer' si és l'altre (sempre amb un sentit clarament negatiu).
+    function materialClauses(mp, opts) {
+        const tagged = !!(opts && opts.tagged);
+        const out = [];
+        const add = (text, subject) => out.push(tagged ? { text, subject } : text);
+        if (!mp) {
+            ['el material està igualat', 'les forces estan igualades', 'hi ha el mateix material als dos bàndols',
+                'cap bàndol no té més material que l\'altre'].forEach(t => add(t, null));
+            return out;
+        }
+        const L = COLOR[mp.leader].pl, O = COLOR[other(mp.leader)].pl;
+        const x = mp.extra || {};
+        add(L + ' tenen ' + mp.desc, 'leader');
+        if (mp.kind === 'pawns') {
+            const n = mp.pawns === 1 ? 'un peó' : numWord(mp.pawns) + ' peons';
+            add(L + ' van ' + n + ' per davant', 'leader');
+            add(L + ' porten ' + n + ' d\'avantatge en material', 'leader');
+            add(O + ' tenen ' + n + ' de menys', 'trailer');
+        } else if (mp.kind === 'exchange') {
+            const piece = x.minor.replace(/^un /, '');
+            add(L + ' han guanyat la qualitat (torre per ' + piece + ')' + (x.pawns ? ' i tenen ' + x.pawns + ' de més' : ''), 'leader');
+            add(L + ' tenen torre contra ' + piece + (x.pawns ? ' i ' + x.pawns + ' de més' : ''), 'leader');
+            if (!x.pawns) add(O + ' han perdut una torre a canvi d\'' + x.minor, 'trailer');
+        } else if (mp.kind === 'piece') {
+            add(L + ' juguen amb una peça de més', 'leader');
+            add(L + ' van una peça per davant', 'leader');
+            add(O + ' juguen amb una peça de menys', 'trailer');
+        } else if (mp.kind === 'rook') {
+            add(L + ' van una torre per davant', 'leader');
+            add(O + ' juguen amb una torre de menys', 'trailer');
+        } else if (mp.kind === 'queen') {
+            add(O + ' juguen amb una dama de menys', 'trailer');
+        } else if (mp.kind === 'equivalent') {
+            add(L + ' van per davant en material', 'leader');
+        }
+        return out;
+    }
+
     function pieceListPhrase(m, color) {
         const parts = [];
         const add = (t) => { const n = m[color][t]; if (n === 1) parts.push(PIECE_NAME[t]); else if (n > 1) parts.push(numWord(n, PIECE_FEMININE[t]) + ' ' + PIECE_PLURAL[t]); };
@@ -1379,6 +1433,7 @@
         return {
             ideas: {}, texts: [], templates: {}, plainStreak: 0, lastExtendedPly: -99, lastCommentPly: -99,
             focus: [], threats: [], pressures: [], tactics: [], defined: {}, lastSummaryPly: 0, summarySig: null,
+            summaryCount: 0, summaryIntros: [],
             materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false },
             // Fils narratius per partida: es restauren en desfer les jugades.
             story: { threads: [], lastNarrationPly: -100 },
@@ -2046,8 +2101,11 @@
                 || (c.after && c.after.reliable && c.after.bestUci && !!gridAt(after.grid, c.after.bestUci.slice(2, 4)));
             if (memory && sigNow !== memory.materialSig && !recapturable && !pendingCapture && (mv.captured || (c.prevMove && c.prevMove.captured))) {
                 const ph = materialPhrase(ma);
-                add('material', ph ? ['Després dels canvis, ' + COLOR[ph.leader].pl + ' tenen ' + ph.desc + '.', 'Balanç de material: ' + COLOR[ph.leader].pl + ' tenen ' + ph.desc + '.']
-                    : ['Després dels canvis, el material torna a estar igualat.', 'Material igualat després dels canvis.'],
+                const clauses = materialClauses(ph);
+                add('material', ph ? ['Després dels canvis, ' + clauses[0] + '.', 'Balanç de material: ' + clauses[0] + '.',
+                    'Fets els canvis, ' + clauses[1 % clauses.length] + '.', capFirst(clauses[clauses.length - 1]) + ' després dels canvis.']
+                    : ['Després dels canvis, el material torna a estar igualat.', 'Material igualat després dels canvis.',
+                        'Fets els canvis, les forces tornen a estar igualades.'],
                 { key: 'material', sig: sigNow, payload: { materialSig: sigNow }, reliability: 'rules' });
             }
             if (memory && !memory.endgame && isPhaseEndgame(c.fenAfter) && !isPhaseEndgame(c.fenBefore)) {
@@ -2385,7 +2443,11 @@
             mem.plainStreak = chosen.kind === 'describe' || chosen.kind === 'capture' ? mem.plainStreak + 1 : 0;
             if (chosen.extended) mem.lastExtendedPly = ply;
             if (chosen.defined) mem.defined[chosen.defined] = true;
-            if (chosen.kind === 'summary') { mem.lastSummaryPly = ply; mem.summarySig = chosen.sig; }
+            if (chosen.kind === 'summary') {
+                mem.lastSummaryPly = ply; mem.summarySig = chosen.sig;
+                mem.summaryCount = (isNum(mem.summaryCount) ? mem.summaryCount : 0) + 1;
+                if (isNum(chosen.introId)) mem.summaryIntros = [chosen.introId].concat(mem.summaryIntros || []).slice(0, 3);
+            }
             mem.lastCommentPly = ply;
             mem.focus = (chosen.tags && chosen.tags.squares) ? chosen.tags.squares.slice(0, 3) : [];
             applyPayload(chosen.payload);
@@ -2414,6 +2476,53 @@
 
     // Resum estratègic (cada 4-6 jugades completes, només si aporta res de
     // nou): material, valoració fiable, seguretat del rei i peons passats.
+    // Introduccions del resum ('' = sense introducció). Es van alternant
+    // sense repetir cap de les tres últimes.
+    const TV_SUMMARY_INTROS = ['Balanç de la partida: ', 'Com està la partida: ', 'Situació de la partida: ', 'Fem balanç: ',
+        'Una mirada al tauler: ', 'Repassem la posició: ', 'A grans trets, ', 'Si mirem el conjunt, ', 'Ara com ara, ',
+        'Per situar-nos: ', ''];
+    function tvHash(text) {
+        let h = 7;
+        const str = String(text || '');
+        for (let i = 0; i < str.length; i++) h = (h * 31 + str.charCodeAt(i)) % 1000003;
+        return h;
+    }
+    function tvVariant(list, seed) { return list[((seed % list.length) + list.length) % list.length]; }
+
+    // Valoració de l'anàlisi per al bàndol que ja és el subjecte de la frase,
+    // sense tornar a anomenar-lo («les» / «els» s'hi refereixen). Amb also,
+    // «també» (el material i l'anàlisi l'afavoreixen tots dos).
+    function sameSubjectClauses(band, pawns, also) {
+        const level = band.slice(2), t = also ? 'també ' : '';
+        if (level === 'slight') return ['l\'anàlisi ' + t + 'les veu una mica millor' + pawns, 'segons l\'anàlisi, ' + t + 'estan una mica millor' + pawns];
+        if (level === 'clear') return ['l\'anàlisi ' + t + 'els dona un avantatge clar' + pawns, 'segons l\'anàlisi, estan clarament millor' + pawns];
+        return ['l\'anàlisi considera guanyadora la seva posició' + pawns, 'segons l\'anàlisi, la seva posició ja és guanyadora' + pawns];
+    }
+    // Uneix dues parts amb «i» o «però»; un inciso «segons l'anàlisi» va
+    // entre comes i, si la primera part ja porta una «i», es passa a «;».
+    function joinClauses(a, conj, b) {
+        const aside = /^(segons|per a) l'anàlisi, /.test(b);
+        if (conj === 'però') return a + ', però' + (aside ? ', ' : ' ') + b;
+        if (/ i /.test(a)) return a + '; a més, ' + b.replace(/\btambé /, '');
+        return a + ' i' + (aside ? ', ' : ' ') + b;
+    }
+    // Valoració de l'anàlisi en paraules (amb el detall en peons per als avançats).
+    function evalClauses(band, pawns) {
+        if (band === 'equal') return ['segons l\'anàlisi, la posició està equilibrada', 'l\'anàlisi veu la posició equilibrada',
+            'per a l\'anàlisi, cap bàndol no té avantatge'];
+        const who = COLOR[band[0]].pl, level = band.slice(2);
+        if (level === 'slight') return ['segons l\'anàlisi, ' + who + ' estan una mica millor' + pawns,
+            'l\'anàlisi dona un lleuger avantatge a ' + who + pawns, who + ' estan una mica millor, segons l\'anàlisi' + pawns];
+        if (level === 'clear') return ['segons l\'anàlisi, ' + who + ' tenen un avantatge clar' + pawns,
+            'l\'anàlisi dona un avantatge clar a ' + who + pawns, who + ' estan clarament millor, segons l\'anàlisi' + pawns];
+        return ['segons l\'anàlisi, ' + who + ' tenen una posició guanyadora' + pawns,
+            'l\'anàlisi considera guanyadora la posició de ' + who + pawns, who + ' estan guanyant, segons l\'anàlisi' + pawns];
+    }
+
+    // Resum estratègic (cada 4-6 jugades completes, només si aporta res de
+    // nou): material, valoració fiable, seguretat del rei i peons passats.
+    // Cada fet es pot dir de diverses maneres i el connector depèn del sentit:
+    // «però» si el material i l'anàlisi no apunten al mateix bàndol.
     function tvStrategicSummary(ctx, memory) {
         const c = ctx || {};
         const mem = memory || tvEmptyMemory();
@@ -2422,43 +2531,84 @@
         const grid = H.parse(c.fenAfter).grid;
         const ma = materialOf(grid);
         const mp = materialPhrase(ma);
-        const parts = [];
-        const sigParts = [];
-        parts.push(mp ? COLOR[mp.leader].pl + ' tenen ' + mp.desc : 'el material està igualat');
-        sigParts.push(materialSig(ma));
+        const count = isNum(mem.summaryCount) ? mem.summaryCount : 0;
+        // Llavor diferent per a cada resum de cada partida (repetible als tests).
+        const seed = tvHash((c.gameId || '') + ':' + count + ':' + (c.ply || 0));
+        const sigParts = [mp ? mp.leader + mp.kind + mp.pts : '='];
         const band = c.after && c.after.reliable ? tvEvalBand(c.after.best) : null;
+        const clauses = materialClauses(mp, { tagged: true });
+        let first;
         if (band) {
-            const who = band[0] === 'w' ? 'les blanques' : 'les negres';
-            const pawns = c.tier === 'advanced' ? ' (uns ' + (Math.round(Math.abs(c.after.best.value) / 10) / 10).toFixed(1).replace('.', ',') + ' peons)' : '';
-            const txt = band === 'equal' ? 'segons l\'anàlisi, la posició està equilibrada'
-                : band.slice(2) === 'slight' ? 'segons l\'anàlisi, ' + who + ' estan una mica millor' + pawns
-                    : band.slice(2) === 'clear' ? 'segons l\'anàlisi, ' + who + ' tenen un avantatge clar' + pawns
-                        : 'segons l\'anàlisi, ' + who + ' tenen una posició guanyadora' + pawns;
-            parts.push(txt);
-        }
+            // El detall en peons només per als avançats i mentre té sentit.
+            const value = Math.abs(c.after.best.value);
+            const pawns = c.tier === 'advanced' && band !== 'equal' && value < 1000
+                ? ' (uns ' + (Math.round(value / 10) / 10).toFixed(1).replace('.', ',') + ' peons)' : '';
+            const evalSide = band === 'equal' ? null : band[0];
+            if (mp && evalSide === mp.leader) {
+                // Material i anàlisi van a favor del mateix bàndol.
+                const own = tvVariant(clauses.filter(x => x.subject === 'leader'), seed).text;
+                first = joinClauses(own, 'i', tvVariant(sameSubjectClauses(band, pawns, true), seed + 3));
+            } else {
+                const clause = tvVariant(clauses, seed);
+                const contrast = (mp && (band === 'equal' || evalSide !== mp.leader)) || (!mp && evalSide);
+                // «Les negres tenen un peó de menys, però, segons l'anàlisi,
+                // estan una mica millor»: no es repeteix el subjecte.
+                let evs = mp && clause.subject === 'trailer' && evalSide === other(mp.leader)
+                    ? sameSubjectClauses(band, pawns, false) : evalClauses(band, pawns);
+                if (/cap bàndol/.test(clause.text)) evs = evs.filter(t => !/cap bàndol/.test(t));
+                first = joinClauses(clause.text, contrast ? 'però' : 'i', tvVariant(evs, seed + 3));
+            }
+        } else first = tvVariant(clauses, seed).text;
         sigParts.push(band || '-');
         const second = [];
         if (!mem.endgame && c.ply < 50) {
             const kw = mem.castled.w, kb = mem.castled.b;
-            if (kw !== kb) second.push((kw ? 'les blanques' : 'les negres') + ' ja han enrocat i ' + (kw ? 'les negres' : 'les blanques') + ' encara tenen el rei al centre');
-            sigParts.push((kw ? 'W' : '-') + (kb ? 'B' : '-'));
+            if (kw !== kb) {
+                const done = kw ? 'w' : 'b', late = other(done);
+                second.push(tvVariant([COLOR[done].pl + ' ja han enrocat i ' + COLOR[late].pl + ' encara tenen el rei al centre',
+                    'el rei ' + COLOR[late].adj + ' continua al centre, mentre que el ' + COLOR[done].adj + ' ja està enrocat',
+                    COLOR[late].pl + ' encara no han enrocat; ' + COLOR[done].pl + ' ja tenen el rei enrocat'], seed + 11));
+                sigParts.push(done);
+            }
         }
+        let passedStart = null;
         ['w', 'b'].forEach((side) => {
             const passed = Array.from(pawnStructure(grid, side).passed).sort();
-            if (passed.length) second.push(COLOR[side].pl + ' tenen ' + (passed.length === 1 ? 'un peó passat a ' + passed[0] : numWord(passed.length) + ' peons passats'));
-            sigParts.push(side + passed.join(''));
+            let options = [];
+            if (passed.length === 1) {
+                const sq = passed[0];
+                options = [COLOR[side].pl + ' tenen un peó passat a ' + sq,
+                    'hi ha un peó passat ' + COLOR[side].adj + ' a ' + sq,
+                    'el peó ' + COLOR[side].adj + ' de ' + sq + ' és passat: cap peó ' + COLOR[other(side)].adj + ' no li pot barrar el pas'];
+                sigParts.push(side + sq);
+            } else if (passed.length > 1) {
+                options = [COLOR[side].pl + ' tenen ' + numWord(passed.length) + ' peons passats',
+                    'hi ha ' + numWord(passed.length) + ' peons passats ' + (side === 'w' ? 'blancs' : 'negres')];
+                sigParts.push(side + passed.length);
+            }
+            if (!options.length) return;
+            // Si tots dos bàndols en tenen, la segona frase no comença igual.
+            const start = t => t.split(' ').slice(0, 2).join(' ');
+            const fresh = passedStart ? options.filter(t => start(t) !== passedStart) : options;
+            const pick = tvVariant(fresh.length ? fresh : options, seed + 13);
+            passedStart = start(pick);
+            second.push(pick);
         });
-        // La novetat es mesura pel CONTINGUT redactat (no per l'encapçalament ni
-        // per detalls que no es diuen, com la casella exacta dels peons passats).
-        const sig = parts.join('|') + '#' + second.slice(0, 2).join('|');
+        // La novetat es mesura pel CONTINGUT (balanç, valoració, reis i peons
+        // passats que es diuen), no per la manera de dir-ho.
+        const sig = sigParts.join('|') + '#' + second.length;
         if (sig === mem.summarySig) return null;
         // «Material igualat» tot sol no és cap novetat.
         if (!mp && !band && !second.length) return null;
-        const intros = ['Balanç de la partida: ', 'Com està la partida: ', 'Situació de la partida: '];
-        let text = intros[Math.floor((c.ply || 0) / TV_CONFIG.SUMMARY_EVERY_PLIES) % intros.length] + parts.join(', i ') + '.';
+        const recent = Array.isArray(mem.summaryIntros) ? mem.summaryIntros : [];
+        let introId = seed % TV_SUMMARY_INTROS.length;
+        for (let i = 0; i < TV_SUMMARY_INTROS.length && recent.indexOf(introId) !== -1; i++) introId = (introId + 1) % TV_SUMMARY_INTROS.length;
+        const intro = TV_SUMMARY_INTROS[introId];
+        let text = (intro ? intro + first : capFirst(first)) + '.';
         if (second.length) text += ' ' + capFirst(second.slice(0, 2).join('; ')) + '.';
         return { kind: 'summary', text: text, leadText: text, explanatory: true, key: 'summary', sig: sig, family: 'summary', variantId: 0,
-            extended: second.length > 0 || parts.length > 1, defined: null, tags: { color: null, squares: [] }, payload: null, evolved: false, secondary: null };
+            extended: second.length > 0 || !!band, defined: null, tags: { color: null, squares: [] }, payload: null, evolved: false, secondary: null,
+            introId: introId };
     }
 
     // Un pas complet de la retransmissió: candidats, selecció, resum
@@ -4978,6 +5128,9 @@
         tvPositionCommand,
         createTvVoice,
         createBroadcastAudioControls,
+        TV_SUMMARY_INTROS,
+        materialPhrase,
+        materialClauses,
         TV_ENGINES,
         tvEngineId,
         tvEngineWorkerUrl,
