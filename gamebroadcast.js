@@ -44,6 +44,15 @@
             const tactical = candidates.filter(x => ['fork', 'fork-check', 'pin', 'skewer', 'discovered-attack', 'remove-defender'].includes(x.kind))
                 .sort((a, b) => b.priority - a.priority)[0];
             if (tactical) { detail = tactical.text; important = true; }
+            // Patrons posicionals verificats de la jugada JA feta: no
+            // s'anticipen respostes i no s'alteren els entrenaments actius.
+            if (!detail && c.patterns && typeof c.patterns.detect === 'function') {
+                const found = c.patterns.detect({
+                    ChessCtor: Chess, fenBefore: c.fenBefore, fenAfter: chess.fen(), move
+                }).filter(hit => ['passedPawn','connectedPassedPawns','openFile','semiOpenFile',
+                    'rookSeventh','doubledRooks','pawnChain','isolatedPawn','fianchetto'].includes(hit.id));
+                if (found.length) { detail = found[0].text; important = true; }
+            }
             const review = (c.scope === 'history' ? c.reviews || [] : []).find(r => r.fen === c.fenBefore && r.playerMove === move.from + move.to + (move.promotion || ''));
             const quality = review && { blunder: 'L’anàlisi desada marca aquesta jugada com un error greu.',
                 mistake: 'L’anàlisi desada marca aquesta jugada com un error.',

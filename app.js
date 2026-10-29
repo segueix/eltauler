@@ -20455,7 +20455,7 @@ function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const loadingTag = loading ? '<span style="opacity:0.6; font-size:0.78rem;"> · el mestre medita…</span>' : '';
     const level = Math.min(3, Math.max(hieroglyphicHintLevel || 1, (hieroglyphicAttempts || 0) + 1));
     const pedagogy = window.ElTaulerJeroPedagogia && window.ElTaulerHieroClosure && currentHieroglyphicPuzzle
-        ? window.ElTaulerJeroPedagogia.solvedStep(currentHieroglyphicPuzzle, hieroglyphicStep || 0, Chess, window.ElTaulerHieroClosure)
+        ? window.ElTaulerJeroPedagogia.solvedStep(currentHieroglyphicPuzzle, hieroglyphicStep || 0, Chess, window.ElTaulerHieroClosure, window.ElTaulerPatrons)
         : null;
     const pedagogyHtml = pedagogy
         ? `<div class="maxim-text hiero-step-pedagogy" style="font-size:0.84rem; margin-top:8px;">Ja has trobat un moviment: ${escapeHtml(pedagogy)}</div>`
@@ -26569,11 +26569,14 @@ function showHieroglyphicBundleOverlay() {
         const box = $('<div class="hiero-conclusion"></div>');
         // Revelar el raonament complet només DESPRÉS d'haver resolt la línia.
         const P = window.ElTaulerJeroPedagogia;
-        const lesson = P && P.build(currentHieroglyphicPuzzle, Chess, window.ElTaulerHieroClosure);
+        const lesson = P && P.build(currentHieroglyphicPuzzle, Chess, window.ElTaulerHieroClosure, window.ElTaulerPatrons);
         if (lesson) {
             box.append($('<h4></h4>').text('Per què funciona aquesta combinació?'));
             lesson.steps.forEach(step => {
                 box.append($('<p></p>').text(step.title + ' (' + step.san + '): ' + step.text
+                    + (step.patterns && step.patterns.length
+                        ? ' Patrons comprovats: ' + step.patterns.map(x => x.name).join(', ') + '.'
+                        : '')
                     + (step.reply ? ' ' + step.reply : '')));
             });
             box.append($('<p></p>').text('Desenllaç: ' + lesson.outcome));

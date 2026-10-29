@@ -139,7 +139,8 @@
                 if (move && !c.silent && visible(el)) {
                     suspended = false;
                     const comment = B.comment(env.Chess, TV, { chess: g, fenBefore: before, fenAfter: fen, move,
-                        scope: c.mode === 'replay' ? 'history' : 'training', playerColor: c.playerColor || null, ply: history.length - 1 });
+                        scope: c.mode === 'replay' ? 'history' : 'training', playerColor: c.playerColor || null, ply: history.length - 1,
+                        patterns: root && root.ElTaulerPatrons });
                     if (comment) {
                         caption.textContent = comment.text;
                         nextAt = Date.now() + Math.max(TV.tvMoveDelayMs(prefs().speed, { tier: 'advanced', random: Math.random() }), TV.tvReadingTimeMs(comment.text, 'advanced'));
