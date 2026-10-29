@@ -1,5 +1,5 @@
 // Els cinc fons són independents del tauler i dels modes dia / ePaper.
-const BG = require('../fonsapp');
+const BG = require('../fonscolors');
 const newStorage = (initial={})=>{
     const values = new Map(Object.entries(initial));
     return {
@@ -91,8 +91,8 @@ describe('Fons de l’aplicació',()=>{
     test('CSS i configuració: els modes especials conserven la seva aparença',()=>{
         const fs=require('fs'),path=require('path');
         const html=fs.readFileSync(path.join(__dirname,'../index.html'),'utf8');
-        expect(html).toContain('<script src="fonsapp.js?v=1.0.0"></script>');
-        const jsPos=html.indexOf('fonsapp.js?v=1.0.0'),cssPos=html.indexOf('<style>');
+        expect(html).toContain('<script src="fonscolors.js?v=1.0.0"></script>');
+        const jsPos=html.indexOf('fonscolors.js?v=1.0.0'),cssPos=html.indexOf('<style>');
         expect(jsPos).toBeLessThan(cssPos);
         expect((html.match(/<option value="(?:aleatori|blau|granat|verd|lila|groc)">/g)||[])).toHaveLength(6);
         expect((html.match(/html\[data-app-bg="(?:blau|granat|verd|lila|groc)"\] body:not\(\.day-mode\):not\(\.epaper-mode\)/g)||[])).toHaveLength(5);

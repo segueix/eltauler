@@ -1,4 +1,4 @@
-// fonsapp.js — cinc fons foscos per a tota l'aplicació El Tauler.
+// fonscolors.js — cinc fons foscos per a tota l'aplicació El Tauler.
 // El color aleatori es tria UNA vegada per càrrega; la selecció manual persisteix.
 // Els modes dia i ePaper conserven el seu tema, sense alterar taulers ni peces.
 (function (root, factory) {
