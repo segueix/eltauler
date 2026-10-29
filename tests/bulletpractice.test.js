@@ -155,12 +155,20 @@ describe('rellotge i primera decisió', () => {
         const js = fs.readFileSync(path.join(__dirname, '../bulletpractice.js'), 'utf8');
         expect(html).toContain('id="bp-start-overlay"');
         expect(html).toContain('id="bp-start-play"');
-        expect(html).toContain('bulletpractice.js?v=1.2.1');
-        expect(html).toContain('bulletpractice.css?v=1.2.0');
+        expect(html).toContain('bulletpractice.js?v=1.2.2');
+        expect(html).toContain('bulletpractice.css?v=1.2.1');
         expect(css).toContain('.bp-board-wrap.bp-awaiting-start #bp-board');
         expect(css).toContain('filter: blur(');
         expect(css).toContain('pointer-events: none');
         expect(css).toContain('.bp-start-overlay');
+        // El temps també s'amaga: les xifres només es revelen en iniciar cada posició.
+        expect(css).toContain('.bp-clock.bp-awaiting-start #bp-clock-value');
+        expect(css).toContain('filter: blur(12px)');
+        expect(js).toContain("const awaitingStart = s.status === 'ready';");
+        expect(js).toContain("el('clock').classList.toggle('bp-awaiting-start', awaitingStart)");
+        expect(js).toContain("el('clock').classList.remove('bp-awaiting-start')");
+        expect(js).toContain("el('clock-value').setAttribute('aria-hidden', awaitingStart ? 'true' : 'false')");
+        expect(html).toContain('les xifres del rellotge difuminats');
         expect(js).toContain("el('start-play').onclick = beginRound");
         expect(js).toContain("el('start-overlay').hidden = false;");
         expect(js).toContain("el('start-overlay').hidden = true;");
