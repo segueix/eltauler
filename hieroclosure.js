@@ -386,15 +386,17 @@
         function pvEvidence(g,pv,color) {
             if(!Array.isArray(pv)||pv.length<4)return null;
             const line=[],initial=positionBalance(g,color);
+            let recovered=false;
             for(const move of pv.slice(0,8)){
                 if(g.game_over())break;
                 const m=play(g,move);if(!m)return null;
+                if(m.color===color&&positionBalance(g,color)-initial>=2)
+                    recovered=true;
                 line.push({uci:uci(m),san:m.san,color:m.color,
                     check:g.in_check(),capture:!!m.captured});
             }
             if(line.length<4)return null;
             const own=line.filter(x=>x.color===color);
-            const recovered=positionBalance(g,color)-initial>=2;
             return {line:line.map(x=>x.uci),checks:own.filter(x=>x.check).length,
                 captures:own.filter(x=>x.capture).length,
                 immediateRecovery:recovered};
