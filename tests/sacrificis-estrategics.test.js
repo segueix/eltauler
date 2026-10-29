@@ -99,3 +99,33 @@ describe('Compensació posicional: contracte amb Stockfish injectat',()=>{
         expect(st.passed).toContain('d4');
     });
 });
+
+
+test('una recaptura immediata no es classifica com a compensació posicional',async()=>{
+    const base='r5k1/8/8/8/8/8/8/R4QK1 w - - 0 1';
+    function moveFen(...moves){
+        const g=new Chess(base);
+        for(const x of moves){
+            const m=g.move({from:x.slice(0,2),to:x.slice(2,4)});
+            if(!m)throw Error('illegal fixture '+x);
+        }
+        return g.fen();
+    }
+    const fAfterOffer=moveFen('f1a6');
+    const fAfterCapture=moveFen('f1a6','a8a6');
+    const engine=async(fen,depth)=>{
+        if(fen===base)return {bestMove:{move:'f1a6',eval:50,evalType:'cp',depth:22}};
+        if(fen===fAfterOffer)return {bestMove:{move:'a8a6',eval:-50,evalType:'cp',depth:22},
+            alternatives:[{move:'a8a6',eval:-50,evalType:'cp',depth:22}]};
+        if(fen===fAfterCapture)return {
+            bestMove:{move:'a1a6',eval:40,evalType:'cp',depth,
+                pv:['a1a6','g8f7','g1f2','f7e6']},
+            alternatives:[]
+        };
+        return null;
+    };
+    const result=await H.createPositionalVerifier(Chess,engine).verify({
+        fen:base,move:'f1a6',reply:'a8a6'
+    });
+    expect(result).toBeNull();
+});
