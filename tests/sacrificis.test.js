@@ -56,7 +56,7 @@ test('catàleg: 30 automàtics, 3 de variant i 27 pendents',()=>{
     });
     expect(P.AUTOMATIC).not.toContain('sacrifice');
 });
-test('una dama lliurada i acceptada abans del mat és sacrifici material, no un simple atac',()=>{
+test('una dama lliurada i acceptada abans del mat és sacrifici material, no un simple atac',async()=>{
     const offers=H.materialOffers(mate3,Chess);
     expect(offers).toHaveLength(1);
     expect(offers[0]).toMatchObject({
