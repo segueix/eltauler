@@ -90,7 +90,8 @@
     // novament contra la línia legal, les valoracions i el desenllaç.
     function certifiedSacrifices(candidate, Chess) {
         const proof=candidate&&candidate.conclusion;
-        if(!matches(candidate)||!proof||proof.requestedDepth<16||
+        if(!matches(candidate)||!proof||!Number.isFinite(proof.requestedDepth)||
+            proof.requestedDepth<16||!Number.isFinite(proof.minDepth)||
             proof.minDepth<14||!Array.isArray(proof.sacrifices)||
             !Array.isArray(candidate.stepAlternatives))return [];
         try {
@@ -100,7 +101,7 @@
             const legal=materialOffers(candidate,Chess);
             return proof.sacrifices.filter(x=>{
                 const offer=legal.find(y=>y.step===x.step&&
-                    y.offerUci===x.offerUci&&y.replyUci===x.replyUci&&
+                    y.offered===x.offered&&y.offerUci===x.offerUci&&y.replyUci===x.replyUci&&
                     y.loss===x.loss&&y.square===x.square&&
                     y.kingInCheck===x.kingInCheck);
                 const answer=candidate.stepAlternatives[x.step]&&
