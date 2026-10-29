@@ -1257,7 +1257,8 @@ describe('bucle de Stockfish TV', () => {
         const { ctl } = makeController({ voice: voice, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0, profiles: false }) });
         await ctl.open();
         expect(synth.spoken).toHaveLength(1);
-        expect(synth.spoken[0].text).toMatch(/Stockfish/);
+        expect(synth.spoken[0].text).toMatch(/Stoc fix/);
+        expect(synth.spoken[0].text).not.toContain('Stockfish');
         expect(synth.spoken[0].text).not.toContain('Obertura Espanyola');
         // La presentació s'està llegint: la primera jugada no surt.
         await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS + 1000);
