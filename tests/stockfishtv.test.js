@@ -112,10 +112,12 @@ describe('rang de nivell a partir del que declara el motor', () => {
             const back = Math.pow((TV.tvSkillEloEstimate(l) - 1346.6) / 143.4, 1 / 0.806);
             expect(Math.abs(back - l)).toBeLessThan(0.15);
         });
-        // En mode Elo natiu la barra va de 50 en 50 sobre el rang declarat.
+        // En mode Elo natiu la barra va de centenar en centenar, amb els extrems declarats.
         const elo = TV.tvLevelScale(caps(ELO_LINES(1350, 2850)));
         expect(elo[0].value).toBe(1350);
+        expect(elo[1].value).toBe(1400);
         expect(elo[elo.length - 1].value).toBe(2850);
+        expect(elo[elo.length - 2].value).toBe(2800);
         expect(TV.tvLevelScale(caps([]))).toEqual([]);
     });
 });
@@ -200,9 +202,12 @@ describe('objectiu adaptat a l\'espectador', () => {
         expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1400);
         for (let i = 0; i < 10; i++) prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'easier');
         expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1350);
-        // Tocar fons no acumula deute: un sol «massa fàcil» ja torna a pujar.
+        // Tocar fons no acumula deute: un sol «massa fàcil» ja torna a pujar,
+        // fins al centenar rodó següent de l'escala (1350 → 1400).
         prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'harder');
-        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1450);
+        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1400);
+        prefs = TV.tvAdjustPrefs(elo1350, v, prefs, 'harder');
+        expect(TV.tvResolveTarget(elo1350, v, prefs).value).toBe(1500);
         // L'escala nativa puja d'un en un.
         const s = TV.tvAdjustPrefs(SKILL_CAPS, TV.tvViewerProfile(null, SKILL_CAPS), null, 'harder');
         expect(TV.tvResolveTarget(SKILL_CAPS, TV.tvViewerProfile(null, SKILL_CAPS), s).value).toBe(1);
@@ -1808,5 +1813,143 @@ describe('Interfície de veu Matxa: només Ràdio, equalitzador i música de fon
     });
     test('avís visible mentre la partida espera Matxa', () => {
         expect(html).toContain('id="sftv-voice-hold"');
+    });
+});
+
+// ---------------------------------------------------------------------------
+// Prova pilot: Stockfish 19 (2026) a la TV, amb el clàssic de reserva
+// ---------------------------------------------------------------------------
+describe('Stockfish 19 a la TV (prova pilot)', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+    // Opcions tal com les declara Stockfish oficial (engine.cpp i search.h).
+    const SF19_LINES = [
+        'id name Stockfish 19',
+        'option name Skill Level type spin default 20 min 0 max 20',
+        'option name UCI_LimitStrength type check default false',
+        'option name UCI_Elo type spin default 1320 min 1320 max 3190',
+        'uciok'
+    ];
+    const SF19_CAPS = caps(SF19_LINES);
+
+    test('el motor nou passa sol a l’escala d’Elo 1320–3190', () => {
+        expect(SF19_CAPS).toMatchObject({ mode: 'elo', min: 1320, max: 3190, engineEloMin: 1320, engineEloMax: 3190, skillMax: 20, engineName: 'Stockfish 19' });
+        expect(TV.tvStrengthCommands(SF19_CAPS, 'player', 1700)).toEqual(['setoption name UCI_LimitStrength value true', 'setoption name UCI_Elo value 1700']);
+        expect(TV.tvStrengthCommands(SF19_CAPS, 'analysis')).toEqual(['setoption name UCI_LimitStrength value false', 'setoption name Skill Level value 20']);
+        // Vint esglaons: els extrems del motor i els centenars rodons entremig.
+        const scale = TV.tvLevelScale(SF19_CAPS);
+        expect(scale.map(t => t.value)).toEqual([1320, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 2100, 2200, 2300,
+            2400, 2500, 2600, 2700, 2800, 2900, 3000, 3100, 3190]);
+        expect(TV.tvSnapLevel(SF19_CAPS, 1734)).toBe(1700);
+        expect(TV.tvSnapLevel(SF19_CAPS, 1360)).toBe(1320);
+        expect(TV.tvSnapLevel(SKILL_CAPS, 7)).toBe(7);
+        // La barra i «Massa fàcil» van d'esglaó en esglaó.
+        const viewer = TV.tvViewerProfile({ calibrated: true, roc: 1534 }, SF19_CAPS);
+        let p = TV.tvNormalizePrefs(null);
+        expect(TV.tvResolveTarget(SF19_CAPS, viewer, p).value % 100).toBe(0);
+        p = TV.tvSetTargetPrefs(SF19_CAPS, viewer, p, 2468);
+        expect(TV.tvResolveTarget(SF19_CAPS, viewer, p).value).toBe(2500);
+        p = TV.tvAdjustPrefs(SF19_CAPS, viewer, p, 'harder');
+        expect(TV.tvResolveTarget(SF19_CAPS, viewer, p).value).toBe(2600);
+        p = TV.tvSetTargetPrefs(SF19_CAPS, viewer, p, 3170);
+        p = TV.tvAdjustPrefs(SF19_CAPS, viewer, p, 'harder');
+        expect(TV.tvResolveTarget(SF19_CAPS, viewer, p).value).toBe(3190);
+        expect(TV.tvLevelLabel(SF19_CAPS, 1800).long).toBe('Elo aproximat del motor: 1800');
+        expect(TV.tvCompatibilityNote(SF19_CAPS)).toBeNull();
+        // Un espectador de 1100 rep l'objectiu mínim; un de 1700, nivell + 200.
+        expect(TV.tvBaseTarget(SF19_CAPS, { known: true, roc: 1100 })).toBe(1320);
+        expect(TV.tvBaseTarget(SF19_CAPS, { known: true, roc: 1700 })).toBeGreaterThan(1320);
+    });
+
+    test('per defecte la TV continua amb el clàssic; la preferència tria el motor', () => {
+        expect(TV.tvNormalizePrefs({}).engine).toBe('classic');
+        expect(TV.tvNormalizePrefs({ engine: 'sf19' }).engine).toBe('sf19');
+        expect(TV.tvNormalizePrefs({ engine: 'stockfish-99' }).engine).toBe('classic');
+        expect(Object.keys(TV.TV_ENGINES)).toEqual(['classic', 'sf19']);
+    });
+
+    test('el worker de Stockfish 19 porta la versió també al .wasm (fragment de l’URL)', () => {
+        expect(TV.tvEngineWorkerUrl('sf19', '1.0.55')).toBe('stockfish-19-lite-single.js?v=1.0.55#' + encodeURIComponent('stockfish-19-lite-single.wasm?v=1.0.55'));
+        expect(TV.tvEngineWorkerUrl('classic', '1.0.55')).toBe('stockfish.js?v=1.0.55');
+        expect(TV.tvEngineWorkerUrl('sf19')).toBe('stockfish-19-lite-single.js#stockfish-19-lite-single.wasm');
+        // Els fitxers del motor són al repositori, al costat de l'app.
+        const fs = require('fs');
+        expect(fs.statSync(path.join(__dirname, '../stockfish-19-lite-single.js')).size).toBeGreaterThan(10000);
+        expect(fs.statSync(path.join(__dirname, '../stockfish-19-lite-single.wasm')).size).toBeGreaterThan(1000000);
+    });
+
+    test('si Stockfish 19 no carrega, la TV fa servir el clàssic sense esperar el temps màxim', async () => {
+        const classic = makeWorkerFactory();
+        let broken = null;
+        const engine = TV.createTvEngine({
+            createWorker: () => { broken = { postMessage: jest.fn(), terminate: jest.fn(), onmessage: null, onerror: null }; setTimeout(() => broken.onerror && broken.onerror(new Event('error')), 10); return broken; },
+            createFallbackWorker: classic.factory
+        });
+        const ready = engine.ready();
+        await jest.advanceTimersByTimeAsync(100);
+        await expect(ready).resolves.toMatchObject({ mode: 'skill' });
+        expect(engine.usingFallback()).toBe(true);
+        expect(broken.terminate).toHaveBeenCalled();
+        expect(classic.workers).toHaveLength(1);
+    });
+
+    test('un worker que no es pot crear també passa al clàssic; sense reserva, el motor queda fallat', async () => {
+        const classic = makeWorkerFactory();
+        const engine = TV.createTvEngine({ createWorker: () => { throw new Error('no wasm'); }, createFallbackWorker: classic.factory });
+        const ready = engine.ready();
+        await jest.advanceTimersByTimeAsync(50);
+        await expect(ready).resolves.toMatchObject({ mode: 'skill' });
+        expect(engine.usingFallback()).toBe(true);
+        const alone = TV.createTvEngine({ createWorker: () => { throw new Error('no wasm'); } });
+        await expect(alone.ready()).resolves.toBeNull();
+        expect(alone.failed()).toBe(true);
+    });
+
+    test('quan Stockfish 19 arrenca, no es toca la reserva', async () => {
+        const sf19 = makeWorkerFactory({ uciLines: SF19_LINES.slice(0, -1) });
+        const classic = makeWorkerFactory();
+        const engine = TV.createTvEngine({ createWorker: sf19.factory, createFallbackWorker: classic.factory });
+        const ready = engine.ready();
+        await jest.advanceTimersByTimeAsync(50);
+        await expect(ready).resolves.toMatchObject({ mode: 'elo', min: 1320, max: 3190 });
+        expect(engine.usingFallback()).toBe(false);
+        expect(classic.workers).toHaveLength(0);
+    });
+
+    test('la rivalitat amb Lozza només compta les partides del mateix motor', () => {
+        const items = [
+            { winner: 'stockfish', lozzaColor: 'w', plies: 80 },
+            { winner: 'stockfish', lozzaColor: 'b', plies: 70, sig: 'skill:0-20' },
+            { winner: 'lozza', lozzaColor: 'w', plies: 90, sig: TV.tvCapsSignature(SF19_CAPS) }
+        ];
+        expect(TV.tvRivalryHistory(items, SKILL_CAPS).map(x => x.winner)).toEqual(['stockfish', 'stockfish']);
+        expect(TV.tvRivalryHistory(items, SF19_CAPS).map(x => x.winner)).toEqual(['lozza']);
+    });
+
+    test('canviar de motor deixa la partida en curs i en comença una amb l’escala nova', async () => {
+        const old = fakeEngine();
+        const { ctl } = makeController({ engine: old, loadPrefs: () => ({ unequal: false, profiles: false }) });
+        await ctl.open();
+        expect(ctl.state().caps.mode).toBe('skill');
+        const firstId = ctl.state().game.id;
+        const sf19 = fakeEngine({ caps: SF19_CAPS });
+        await ctl.replaceEngine(sf19);
+        expect(old.destroyed).toBe(1);
+        const st = ctl.state();
+        expect(st.caps.mode).toBe('elo');
+        expect(st.game.id).not.toBe(firstId);
+        expect(st.game.level.value).toBeGreaterThanOrEqual(1320);
+        await jest.advanceTimersByTimeAsync(20000);
+        expect(sf19.jobs.some(j => j.strength.includes('setoption name UCI_LimitStrength value true'))).toBe(true);
+        ctl.close();
+    });
+
+    test('la interfície ofereix el motor a la TV i el canvi crea el motor nou', () => {
+        const html = require('fs').readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+        expect(html).toContain('id="sftv-engine"');
+        expect(html).toMatch(/<option value="sf19">Stockfish 19 · 2026/);
+        const js = require('fs').readFileSync(require.resolve('../stockfishtv'), 'utf8');
+        expect(js).toContain("on('sftv-engine', 'change'");
+        expect(js).toContain('controller.replaceEngine(createStockfishTvEngine(engineId))');
     });
 });
