@@ -190,3 +190,50 @@ describe('reproductor neuronal', () => {
         expect(sp._cache.size).toBe(V.MATXA_CONFIG.CACHE_SIZE);
     });
 });
+
+// Matxa comença a parlar als primers mil·lisegons: en arrencar el so, molts
+// dispositius se'n mengen la primera síl·laba. Es posa silenci al davant.
+describe('silenci inicial dels WAV de Matxa', () => {
+    // WAV PCM mínim: mono, 1000 Hz, amb mostres de valor 0x11.
+    function wav(bits, samples, extraChunk) {
+        const block = bits / 8, dataSize = samples * block;
+        const extra = extraChunk ? 8 + extraChunk.length : 0;
+        const buf = Buffer.alloc(44 + extra + dataSize);
+        buf.write('RIFF', 0); buf.writeUInt32LE(36 + extra + dataSize, 4); buf.write('WAVE', 8);
+        buf.write('fmt ', 12); buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); buf.writeUInt16LE(1, 22);
+        buf.writeUInt32LE(1000, 24); buf.writeUInt32LE(1000 * block, 28); buf.writeUInt16LE(block, 32); buf.writeUInt16LE(bits, 34);
+        let off = 36;
+        if (extraChunk) { buf.write('LIST', off); buf.writeUInt32LE(extraChunk.length, off + 4); extraChunk.copy(buf, off + 8); off += extra; }
+        buf.write('data', off); buf.writeUInt32LE(dataSize, off + 4); buf.fill(0x11, off + 8);
+        return buf.buffer.slice(buf.byteOffset, buf.byteOffset + buf.length);
+    }
+    test('la configuració hi posa 250 ms', () => {
+        expect(V.MATXA_CONFIG.LEAD_IN_MS).toBe(250);
+    });
+    test.each([16, 24])('afegeix silenci al davant d\'un WAV de %i bits i n\'actualitza les mides', (bits) => {
+        const block = bits / 8;
+        const out = Buffer.from(V.padWavStart(wav(bits, 10), 250));
+        const pad = 250 * block;   // 1000 Hz · 0,25 s
+        expect(out.length).toBe(44 + 10 * block + pad);
+        expect(out.readUInt32LE(4)).toBe(out.length - 8);
+        expect(out.toString('ascii', 36, 40)).toBe('data');
+        expect(out.readUInt32LE(40)).toBe(10 * block + pad);
+        expect(out.subarray(44, 44 + pad).every(b => b === 0)).toBe(true);
+        expect(out.subarray(44 + pad).every(b => b === 0x11)).toBe(true);
+    });
+    test('respecta els blocs que hi ha abans de les dades', () => {
+        const out = Buffer.from(V.padWavStart(wav(16, 4, Buffer.from('INFOabcd')), 10));
+        expect(out.toString('ascii', 36, 40)).toBe('LIST');
+        expect(out.toString('ascii', 52, 56)).toBe('data');
+        expect(out.readUInt32LE(56)).toBe(8 + 20);
+        expect(out.subarray(60, 80).every(b => b === 0)).toBe(true);
+    });
+    test('si no és un WAV PCM que s\'entengui, el deixa tal qual', () => {
+        const eight = wav(8, 10);
+        expect(V.padWavStart(eight, 250)).toBe(eight);
+        const junk = new Uint8Array([1, 2, 3]).buffer;
+        expect(V.padWavStart(junk, 250)).toBe(junk);
+        const ok = wav(16, 10);
+        expect(V.padWavStart(ok, 0)).toBe(ok);
+    });
+});
