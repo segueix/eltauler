@@ -469,8 +469,14 @@
     function renderClock() {
         if (!session) return;
         const s = session.state();
+        // En totes les modalitats, el rellotge també queda difuminat abans del ▶.
+        // El temps només s'exposa visualment i als lectors de pantalla en començar.
+        const awaitingStart = s.status === 'ready';
+        el('clock').classList.toggle('bp-awaiting-start', awaitingStart);
         el('clock-value').textContent = s.status === 'recall' ? '—:—' : clockLabel(s.clockMs);
-        el('clock-value').setAttribute('aria-label', s.status === 'recall' ? 'Rellotge ocult durant el record' : 'Temps restant: ' + fmt(s.clockMs));
+        el('clock-value').setAttribute('aria-hidden', awaitingStart ? 'true' : 'false');
+        el('clock-value').setAttribute('aria-label', awaitingStart ? 'Rellotge ocult fins a començar'
+            : s.status === 'recall' ? 'Rellotge ocult durant el record' : 'Temps restant: ' + fmt(s.clockMs));
         // Vermell en l'últim tram: el 30% del temps d'una decisió o el 20% del rellotge de la partida.
         const urgent = s.mode === 'scan' ? s.clockMs <= s.limitMs * .3 : s.clockMs <= s.seconds * 200;
         el('clock').classList.toggle('bp-urgent', s.status === 'running' && urgent);
@@ -500,6 +506,7 @@
     function hideStartOverlay() {
         el('start-overlay').hidden = true;
         el('board-wrap').classList.remove('bp-awaiting-start');
+        el('clock').classList.remove('bp-awaiting-start');
     }
     function beginRound() {
         if (!session || session.state().status !== 'ready'
