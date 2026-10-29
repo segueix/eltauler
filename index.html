@@ -67,12 +67,15 @@
     
     <!-- Chessboard CSS -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/chessboard-js/1.0.0/chessboard-1.0.0.min.css">
-    
+
+    <!-- Aplica el color abans de pintar la pàgina: evita el flaix del tema antic. -->
+    <script src="fonscolors.js?v=1.0.0"></script>
     <style>
         :root {
             --bg-dark: #1a1410;
             --bg-card: #2d241c;
             --bg-warm: #3d322a;
+            --bg-gradient-mid: #251c15;
             --accent-gold: #c9a227;
             --accent-green: #4a7c59;
             --accent-purple: #9c27b0;
@@ -121,7 +124,7 @@
    
         body {
             font-family: var(--font-ui);
-            background: linear-gradient(180deg, var(--bg-dark) 0%, #251c15 50%, var(--bg-dark) 100%);
+            background: linear-gradient(180deg, var(--bg-dark) 0%, var(--bg-gradient-mid) 50%, var(--bg-dark) 100%);
             color: var(--text-primary);
             min-height: 100vh;
             display: flex;
@@ -1020,6 +1023,47 @@
         }
 
         /* CONFIGURACIÓ */
+        /* Fons temàtic de l'app. No afecta els colors de les caselles, i els
+           modes dia i ePaper mantenen els seus propis colors i contrastos.
+           La selecció viu a <html data-app-bg="..."> i ja existeix abans
+           del primer render de la pàgina. */
+        html[data-app-bg="blau"] body:not(.day-mode):not(.epaper-mode) {
+            --bg-dark: #0b276a; --bg-card: #183d87; --bg-warm: #26509a;
+            --bg-gradient-mid: #153b91;
+            --text-primary: #fff8f1; --text-secondary: #d5dff5;
+            --accent-gold: #ffe29b;
+        }
+        html[data-app-bg="granat"] body:not(.day-mode):not(.epaper-mode) {
+            --bg-dark: #421425; --bg-card: #5a2138; --bg-warm: #73334c;
+            --bg-gradient-mid: #632640;
+            --text-primary: #fff5f5; --text-secondary: #ebcedc;
+            --accent-gold: #ffe1a0;
+        }
+        html[data-app-bg="verd"] body:not(.day-mode):not(.epaper-mode) {
+            --bg-dark: #0c3024; --bg-card: #194a38; --bg-warm: #27614a;
+            --bg-gradient-mid: #174e3c;
+            --text-primary: #f5fff7; --text-secondary: #cae2d5;
+            --accent-gold: #f6df9b; --accent-green: #85c8a4;
+        }
+        html[data-app-bg="lila"] body:not(.day-mode):not(.epaper-mode) {
+            --bg-dark: #302057; --bg-card: #473276; --bg-warm: #624b92;
+            --bg-gradient-mid: #50377e;
+            --text-primary: #fcf7ff; --text-secondary: #dfd3ef;
+            --accent-gold: #f8dfad;
+        }
+        html[data-app-bg="groc"] body:not(.day-mode):not(.epaper-mode) {
+            --bg-dark: #43310b; --bg-card: #604914; --bg-warm: #796020;
+            --bg-gradient-mid: #664e17;
+            --text-primary: #fff9e7; --text-secondary: #ebddb7;
+            --accent-gold: #ffe9aa;
+        }
+        .app-bg-choice { display: flex; align-items: center; justify-content: flex-end; gap: 10px; flex: 1 1 16rem; min-width: 0; }
+        .app-bg-choice .select-control { flex: 1 1 auto; min-width: 0; }
+        .app-bg-preview { width: 28px; height: 28px; border-radius: 9px; flex: 0 0 28px;
+            border: 2px solid rgba(255,255,255,.65); box-shadow: 0 0 0 1px rgba(0,0,0,.25); }
+        @media (max-width: 420px) { .app-bg-choice { flex-basis: 100%; justify-content: stretch; } }
+        body.epaper-mode .app-bg-preview { filter: grayscale(100%); }
+
         .settings-panel {
             background: rgba(0,0,0,0.2);
             border: 1px solid rgba(201, 162, 39, 0.2);
@@ -7046,6 +7090,22 @@
                     </label>
                 </div>
                 <div class="setting-help">Tons grisos, ombres mínimes i sense animacions per llegir millor.</div>
+                <div class="setting-row">
+                    <label class="setting-label" for="app-bg-select">Color de fons de l'aplicació</label>
+                    <div class="app-bg-choice">
+                        <select id="app-bg-select" class="select-control" aria-describedby="app-bg-status">
+                            <option value="aleatori">Aleatori en obrir</option>
+                            <option value="blau">Blau fort</option>
+                            <option value="granat">Granat</option>
+                            <option value="verd">Verd fosc</option>
+                            <option value="lila">Lila</option>
+                            <option value="groc">Groc fosc</option>
+                        </select>
+                        <span id="app-bg-preview" class="app-bg-preview" aria-hidden="true"></span>
+                    </div>
+                </div>
+                <div class="setting-help" id="app-bg-status" role="status" aria-live="polite">Color de fons de l'aplicació.</div>
+                <div class="setting-help">Canvia el fons i els panells, no les caselles. El mode dia i l'ePaper mantenen el seu aspecte propi.</div>
                 <div class="setting-row">
                     <div class="setting-label">Color del tauler</div>
                     <select id="board-theme-select" class="select-control">
