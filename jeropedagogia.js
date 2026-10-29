@@ -9,6 +9,7 @@
     'use strict';
     const PIECES = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
     const PHASES = ['Primer moviment', 'Segon moviment', 'Tercer moviment'];
+    const ARTICLES = { p: 'El peó', n: 'El cavall', b: "L'alfil", r: 'La torre', q: 'La dama', k: 'El rei' };
     const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
     const SQUARE = /^[a-h][1-8]$/;
     const MOTIFS = {
@@ -17,7 +18,10 @@
         pin: 'El desenllaç inclou una clavada verificada: una peça queda restringida per allò que té al darrere.',
         skewer: 'El desenllaç conté una enfilada verificada: dues peces comparteixen una línia d’atac.',
         promotion: 'La tercera jugada corona un peó.',
-        material: 'La combinació es tanca amb un guany material comprovat.'
+        material: 'La combinació es tanca amb un guany material comprovat.',
+        discovery: 'El desenllaç inclou un atac a la descoberta: una peça destapa l’acció d’una altra.',
+        major_win: 'La combinació culmina amb la captura verificada d’una peça major.',
+        check: 'L’escac final forma part del desenllaç comprovat.'
     };
     function play(g, u) {
         if (typeof u !== 'string' || !UCI.test(u)) return null;
@@ -30,8 +34,7 @@
         const lines = [];
         if (m.captured) lines.push('La jugada captura ' + (PIECES[m.captured] || 'una peça') + ' a ' + m.to + '.');
         else if (m.promotion) lines.push('El peó arriba a ' + m.to + ' i corona.');
-        else lines.push('La ' + (m.piece === 'q' ? 'dama' : m.piece === 'r' ? 'torre' : 'peça')
-            + ' es mou a ' + m.to + '.');
+        else lines.push((ARTICLES[m.piece] || 'La peça') + ' es mou a ' + m.to + '.');
         if (/#$/.test(m.san)) {
             lines.push('És escac i mat: el rei rival no té cap resposta legal.');
         } else if (/\+$/.test(m.san)) {
@@ -64,8 +67,21 @@
                 });
             }
             if (proof.finalFen !== g.fen()) return null;
-            if (proof.kind === 'mate' && !g.in_checkmate()) return null;
-            if (proof.kind !== 'mate' && (!Number.isFinite(proof.gain) || proof.gain < 3)) return null;
+            const isMate = g.in_checkmate();
+            if (proof.kind === 'mate' && !isMate) return null;
+            if (proof.kind === 'material' && (isMate || !Number.isFinite(proof.gain) || proof.gain < 3)) return null;
+            if (proof.kind !== 'mate' && proof.kind !== 'material' && proof.kind !== 'promotion') return null;
+            // El desenllaç de material ha de correspondre a una diferència
+            // real de peces, mai a una etiqueta textual manipulada.
+            if (proof.kind === 'material') {
+                const values = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+                const side = candidate.fen.split(' ')[1];
+                const balance = chess => chess.board().flat().reduce((sum, piece) =>
+                    sum + (piece ? values[piece.type] * (piece.color === side ? 1 : -1) : 0), 0);
+                const baseline = balance(new Chess(candidate.fen));
+                const actualGain = balance(g) - baseline;
+                if (actualGain < proof.gain) return null;
+            }
             const outcome = proof.kind === 'mate'
                 ? 'A la tercera jugada arriba l’escac i mat. No hi ha cap resposta legal.'
                 : 'La tercera jugada culmina un guany de ' + proof.gain
