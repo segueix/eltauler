@@ -13049,6 +13049,9 @@ function importPgnGameAt(idx) {
 async function runHistoryPositionalSacrificesWithUi(entry) {
     const M=window.ElTaulerReviewSacrifices,H=window.ElTaulerHieroClosure;
     if(!M||!H||typeof H.createPositionalVerifier!=='function'||!entry)return;
+    if(!historyEntryIsHydrated(entry)){
+        showToast('Carrega primer els detalls de la partida.', 'warn');return;
+    }
     const btn=$('#history-review-content .history-check-positional');
     if(deepReviewInProgress||waitingForBlunderAnalysis){
         showToast('El motor encara està analitzant una altra posició.', 'warn');return;
@@ -14980,7 +14983,7 @@ function composeImportedDebriefText(entry, facts, voiceStyle) {
 // repetir Stockfish a profunditat 22 a cada render alentiria molt el mòbil.
 function renderReviewPositionalSacrificesHtml(entry) {
     const M=window.ElTaulerReviewSacrifices;
-    if(!M||!entry||!historyEntryReviewCount(entry))return '';
+    if(!M||!entry||!historyEntryIsHydrated(entry)||!historyEntryReviewCount(entry))return '';
     const moves=getHistoryMoves(entry),saved=M.cached(entry,moves);
     const parts=[
         '<section class="history-positional-sacrifices" style="margin:14px 0;padding:12px;border:1px solid var(--border-color, #9996);border-radius:10px;">',
