@@ -116,3 +116,35 @@ describe('Lichess CC0: imports de referència revisats',()=>{
         expect(html.indexOf('<script src="patrons.js')).toBeLessThan(html.indexOf('<script src="stockfishtv.js'));
     });
 });
+
+
+describe('Importador local de Lichess: sense dependència en línia',()=>{
+    const importer=require('../scripts/import-lichess-patrons');
+    test('el CSV original es llegeix correctament amb camps entre cometes',()=>{
+        expect(importer.fields('abc,"a,b",x')).toEqual(['abc','a,b','x']);
+        expect(importer.fields('"a""b",c')).toEqual(['a"b','c']);
+    });
+    test('valida les jugades de la font, no només les etiquetes de tema',()=>{
+        const e=examples.examples[0];
+        const x=importer.parse([e.id,e.fen,e.moves,e.rating,80,99,50,e.themes.join(' '),'https://lichess.org/test'].join(','));
+        expect(x).toBeTruthy();
+        expect(importer.verify(x)).toBe(true);
+        expect(importer.verify({...x,moves:'a1a8 b1b8 c1c8'})).toBe(false);
+        expect(importer.parse('')).toBeNull();
+    });
+    test('extreu un fitxer local compacte i només manté les línies legals',async()=>{
+        const os=require('os'), dir=fs.mkdtempSync(path.join(os.tmpdir(),'eltauler-lichess-'));
+        const input=path.join(dir,'puzzles.csv'),output=path.join(dir,'selection.json');
+        try{
+            const e=examples.examples[0];
+            const row=[e.id,e.fen,e.moves,e.rating,80,95,50,e.themes.join(' '),'https://lichess.org/example'].join(',');
+            const fake=['00abc',e.fen,'a1a8 b1b8 c1c8',e.rating,80,95,50,e.themes.join(' '),''].join(',');
+            fs.writeFileSync(input,'PuzzleId,FEN,Moves,Rating,RatingDeviation,Popularity,NbPlays,Themes,GameUrl\n'+row+'\n'+fake+'\n');
+            const data=await importer.extract(input,output,{limit:10,minPopularity:70});
+            expect(data.examples).toHaveLength(1);
+            expect(data.examples[0].verifiedLine).toBe(true);
+            expect(data.examples[0].firstMoveByOpponent).toBe(true);
+            expect(fs.existsSync(output)).toBe(true);
+        }finally{fs.rmSync(dir,{recursive:true,force:true});}
+    });
+});
