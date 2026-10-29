@@ -22,17 +22,17 @@ test('els 4 nous detectors geomètrics són automàtics, però desviació i inte
     expect(P.CATALOG.filter(x=>x.status==='pendent_de_validacio')).toHaveLength(28);
 });
 test('clavada absoluta nova, sense afirmar guany de peça',()=>{
-    const c=testMove('4k3/4n3/8/8/8/8/8/R3K3 w - - 0 1','a1e1');
+    const c=testMove('4k3/4n3/8/8/8/8/8/R5K1 w - - 0 1','a1e1');
     const x=has(c,'pin');
     expect(x).toBeTruthy();
     expect(x.evidence).toMatchObject({front:'e7',rear:'e8',absolute:true});
     expect(x.text).not.toMatch(/guanya|forçat|decisiu/);
 });
 test('enfilada nova de dama i torre',()=>{
-    const c=testMove('q6r/8/8/8/8/8/8/1R2K3 w - - 0 1','b1a1');
+    const c=testMove('r7/8/q7/8/8/8/8/1R2K3 w - - 0 1','b1a1');
     const x=has(c,'skewer');
     expect(x).toBeTruthy();
-    expect(x.evidence).toMatchObject({front:'a8',rear:'h8'});
+    expect(x.evidence).toMatchObject({front:'a6',rear:'a8'});
     expect(x.text).not.toMatch(/guanya|forçat|decisiu/);
 });
 test('línia que no és nova no produeix falses clavades',()=>{
