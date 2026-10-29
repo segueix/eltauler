@@ -45,7 +45,7 @@ function fixture(options = {}) {
         return sentinel;
     };
     const request = jest.fn(() => {
-        const result = options.nextRequest ? options.nextRequest(calls.length) : Promise.resolve(makeSentinel());
+        const result = options.nextRequest ? options.nextRequest(calls.length, makeSentinel) : Promise.resolve(makeSentinel());
         calls.push(result);
         return result;
     });
@@ -136,7 +136,7 @@ describe('Pantalla sempre activa', () => {
 
     test('resposta tardana de segon pla: no conserva un bloqueig obsolet', async () => {
         const slow = deferred();
-        const x = fixture({ nextRequest: i => i === 0 ? slow.promise : Promise.resolve(x.makeSentinel()) });
+        const x = fixture({ nextRequest: (i, makeSentinel) => i === 0 ? slow.promise : Promise.resolve(makeSentinel()) });
         x.doc.visibilityState = 'hidden';
         x.events.doc.visibilitychange();
         x.doc.visibilityState = 'visible';
@@ -202,9 +202,9 @@ describe('Pantalla sempre activa', () => {
 
     test('si el sistema denega la petició, l’app segueix funcionant i reintenta amb gest', async () => {
         let attempt = 0;
-        const x = fixture({ nextRequest: () => {
+        const x = fixture({ nextRequest: (i, makeSentinel) => {
             attempt++;
-            return attempt === 1 ? Promise.reject(new Error('Battery saver')) : Promise.resolve(x.makeSentinel());
+            return attempt === 1 ? Promise.reject(new Error('Battery saver')) : Promise.resolve(makeSentinel());
         } });
         await settle();
         expect(x.instance.getStatus()).toBe('blocked');
