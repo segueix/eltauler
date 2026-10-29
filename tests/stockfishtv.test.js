@@ -1946,7 +1946,9 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
     test('la interfície no ofereix Stockfish 2019 ni un selector; sempre arrenca 19', () => {
         const html = require('fs').readFileSync(path.join(__dirname, '../index.html'), 'utf8');
         expect(html).not.toContain('id="sftv-engine"');
-        expect(html).not.toContain('<option value="classic">');
+        const tvPanel = html.split('id="sftv-screen"')[1].split('id="calibration-result-screen"')[0];
+        expect(tvPanel).not.toContain('<option value="classic">');
+        expect(tvPanel).not.toContain('Stockfish 2019');
         expect(html).toContain('Motor únic: Stockfish 19 (2026)');
         const js = require('fs').readFileSync(require.resolve('../stockfishtv'), 'utf8');
         expect(js).not.toContain("on('sftv-engine', 'change'");
