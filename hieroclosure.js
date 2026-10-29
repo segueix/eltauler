@@ -320,7 +320,7 @@
             // el motor ha de confirmar que acceptar la peça era una opció
             // legal i que, en la posició hipotètica després de la captura,
             // el bàndol ofertant encara té una continuació guanyadora.
-            for(const offer of refusedOffers(candidate,Chess)) {
+            for(const offer of refusedOffers(candidate,Chess).slice(0,2)) {
                 if(abort())return null;
                 const depthRefused=Math.max(18,depth);
                 const acceptedAnalysis=await request(offer.acceptedFen,depthRefused,2,
