@@ -52,8 +52,12 @@
         const panel = document.getElementById('sftv-league');
         if (!panel) return;
         const tv = root.ElTaulerStockfishTV;
-        const signature = state.caps && tv && typeof tv.tvCapsSignature === 'function'
+        // La versió real del motor prové de la resposta UCI, no del selector:
+        // si Stockfish 19 cau al motor de reserva, el marcador reflecteix el real.
+        const baseSig = state.caps && tv && typeof tv.tvCapsSignature === 'function'
             ? tv.tvCapsSignature(state.caps) : null;
+        const engineName = state.caps ? String(state.caps.engineName || 'Stockfish desconegut').slice(0, 55) : '';
+        const signature = baseSig ? (baseSig + '@' + engineName).slice(0, 80) : null;
         const duel = !!(state.game && state.game.matchPlan && !state.duelWarning && signature);
         panel.hidden = !signature || !!state.duelWarning;
         if (!signature) return;
@@ -61,7 +65,11 @@
         read(m);
         if (!migrated[sig]) {
             // Migració inicial de les fins a 8 partides que ja tenia la TV.
-            ledger = m.fromRecent(ledger, sig, state.recentResults || []);
+            // Els registres antics duen només la signatura de força; la
+            // migració associa com a màxim els vuit recents al motor UCI actual.
+            const migratedRecent = (state.recentResults || []).filter(x => x.sig === baseSig)
+                .map(x => Object.assign({}, x, { sig: sig }));
+            ledger = m.fromRecent(ledger, sig, migratedRecent);
             migrated[sig] = true;
             persist(m);
         }
