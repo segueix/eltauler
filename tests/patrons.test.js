@@ -21,7 +21,7 @@ describe('Fase 5: catàleg, fiabilitat i llengua', () => {
         const counts = P.CATALOG.reduce((a,x)=>{a[x.family]=(a[x.family]||0)+1;return a;},{});
         expect(counts).toEqual({tactica:22,posicional:18,defensa:10,finals:10});
         expect(new Set(P.CATALOG.map(x=>x.id)).size).toBe(60);
-        expect(P.CATALOG.every(x=>x.name && ['detector','pendent_de_validacio'].includes(x.status))).toBe(true);
+        expect(P.CATALOG.every(x=>x.name && ['detector','variant_certificada','pendent_de_validacio'].includes(x.status))).toBe(true);
         expect(P.CATALOG.find(x=>x.id==='zugzwang').status).toBe('pendent_de_validacio');
         expect(P.CATALOG.find(x=>x.id==='fork').status).toBe('detector');
         expect(P.CATALOG.find(x=>x.id==='bishopPair').status).toBe('pendent_de_validacio');

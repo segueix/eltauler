@@ -94,6 +94,9 @@
                 const actualGain = balance(g) - baseline;
                 if (actualGain < proof.gain) return null;
             }
+            const advanced = Patterns && typeof Patterns.detectCertifiedLine === 'function'
+                ? Patterns.detectCertifiedLine({candidate, ChessCtor:Chess, Hieroclosure:H}).slice(0,2)
+                : [];
             const outcome = proof.kind === 'mate'
                 ? 'A la tercera jugada arriba l’escac i mat. No hi ha cap resposta legal.'
                 : 'La tercera jugada culmina un guany de ' + proof.gain
@@ -106,7 +109,10 @@
             const learn = fromMotif || (proof.kind === 'mate'
                 ? 'Comprova sempre quines caselles de sortida li queden al rei abans de calcular un mat.'
                 : 'Comprova les recaptures i les defenses abans de donar per guanyada una peça.');
-            return { version: 1, steps, outcome, alternatives, learn, verified: true,
+            const deepLearn = learn + (advanced.length
+                ? ' ' + advanced.map(p => p.text).join(' ') : '');
+            return { version: 1, steps, outcome, alternatives, learn:deepLearn,
+                advancedPatterns:advanced.map(p=>({id:p.id,name:p.pattern.name,step:p.step})), verified: true,
                 finalKind: proof.kind };
         } catch (err) { return null; }
     }

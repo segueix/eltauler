@@ -4,7 +4,7 @@
 
 El Tauler incorpora **60 conceptes en català** al mòdul local `patrons.js`, distribuïts en 22 tàctics, 18 posicionals, 10 d'atac i defensa i 10 de finals. Cada entrada té identificador estable, denominació catalana, família i equivalència temàtica amb Lichess quan n'existeix.
 
-**No són 60 detectors de força equivalent**: 26 tenen detector automàtic inicial basat en les regles i les posicions; la resta tenen estat `pendent_de_validacio` perquè identificar-los de manera fiable requereix calcular defenses, comparar variants o analitzar plans amb Stockfish. El motor lingüístic **mai no comenta automàticament** una etiqueta pendent. El catàleg no confon etiquetar amb demostrar.
+**No són 60 detectors de força equivalent**: en la primera onada avançada, 30 disposen de detector automàtic geomètric; dos (`deflection`, `interference`) només es reconeixen sobre una línia completa de tres jugades prèviament certificada amb Stockfish. Els 28 restants tenen estat `pendent_de_validacio`. El catàleg diferencia `detector`, `variant_certificada` i `pendent_de_validacio`. El motor lingüístic **mai no comenta automàticament** una etiqueta pendent. El catàleg no confon etiquetar amb demostrar.
 
 Els detectors automàtics disponibles cobreixen, entre altres motius, forquilles geomètriques, atacs dobles, coronacions, mats, enrocs, ocupació del centre, columnes obertes i semiobertes, torres doblades, torres a la setena, peons passats, peons doblats i aïllats, cadenes de peons, fianquets, captures sense atac immediat, activació del rei i diversos finals segons el material.
 
@@ -45,7 +45,9 @@ npm run audit:commentary
 
 `tests/patrons.test.js` comprova la distribució dels 60 conceptes, la fiabilitat dels FEN i moviments, exemples tàctics, peons passats, columnes, finals, integració amb TV, jeroglífics, entrenament i importació local de Lichess.
 
-**Límits intencionats:** no es confirma automàticament cap sacrifici, desviació, interferència, atzucac, fortalesa o avantatge estratègic només per la seva geometria. Aquests motius requereixen detectors i verificacions de variants amb Stockfish addicionals; no es publiquen com a fets fins que hi siguin.
+**Primera onada de patrons avançats:** les clavades (`pin`), enfilades (`skewer`) i descobertes (`discoveredAttack`, `discoveredCheck`) comproven alineacions noves i jugades legals, i no afirmen guanys forçats. Les desviacions i interferències només es poden explicar en jeroglífics concloents, amb una variant certificada, desenllaç revalidat i una peça defensada capturada després de la pèrdua de defensa. No s'apliquen com a inferències lliures a Stockfish TV. Els sacrificis, l'atzucac, les fortaleses i els plans posicionals complexos continuen pendents. Una etiqueta temàtica de Lichess no activa mai cap detector.
+
+**Límits intencionats:** la certificació de la línia acredita la variant principal i el desenllaç del jeroglífic, no que el motiu es produeixi contra totes les defenses possibles ni que qualsevol sacrifici sigui correcte. La redacció evita aquestes afirmacions.
 
 ## Llicències
 

@@ -46,19 +46,20 @@
     // Detector: prova visual/legal, no proves d'avantatge. Un motiu del
     // catàleg sense detector NO es pot comunicar automàticament.
     const AUTOMATIC = new Set([
-        'fork','doubleAttack','mate','underpromotion','promotion',
+        'fork','pin','skewer','discoveredAttack','discoveredCheck','doubleAttack','mate','underpromotion','promotion',
         'centerOccupation','openFile','semiOpenFile','doubledRooks','rookSeventh',
         'isolatedPawn','doubledPawn','passedPawn','connectedPassedPawns','pawnChain',
         'fianchetto','castling','check','safeCapture','activeKing',
         'rookEndgame','pawnEndgame','queenEndgame','bishopEndgame',
         'fiftyMoveRule','insufficientMaterial'
     ]);
+    const CERTIFIED_VARIANTS = new Set(['deflection','interference']);
     const FAMILY = Object.freeze({ tactica: 'Tàctica', posicional: 'Estratègia posicional',
         defensa: 'Atac i defensa', finals: 'Finals' });
     const CATALOG = Object.freeze(ROWS.map(([id,name,family,lichessTheme]) =>
         Object.freeze({ id, name, family, lichessTheme,
-            status: AUTOMATIC.has(id) ? 'detector' : 'pendent_de_validacio',
-            verification: AUTOMATIC.has(id) ? 'regles_del_tauler' : 'requereix_analisi' })));
+            status: AUTOMATIC.has(id) ? 'detector' : CERTIFIED_VARIANTS.has(id) ? 'variant_certificada' : 'pendent_de_validacio',
+            verification: AUTOMATIC.has(id) ? 'regles_del_tauler' : CERTIFIED_VARIANTS.has(id) ? 'stockfish_i_variant' : 'requereix_analisi' })));
     const INDEX = Object.freeze(Object.fromEntries(CATALOG.map(p => [p.id,p])));
     const SQUARES = 'abcdefgh';
     const CENTER = new Set(['d4','e4','d5','e5']);
@@ -110,6 +111,63 @@
         if (p.type==='q') return (df===0||dr===0||Math.abs(df)===Math.abs(dr))&&lineClear(s,p.sq,to);
         return false;
     }
+
+    // Una línia d'atac geomètrica no és, per si sola, un guany de material.
+    // Només s'afirma l'alineació: els qualificatius "forçat", "guanya"
+    // o "decisiu" exigeixen una demostració de variants.
+    const VALUE = {p:1,n:3,b:3,r:5,q:9,k:100};
+    function direction(from,to) {
+        const df=FILE(to)-FILE(from),dr=RANK(to)-RANK(from);
+        if(!df&&!dr) return null;
+        if(df && dr && Math.abs(df)!==Math.abs(dr)) return null;
+        return {f:Math.sign(df),r:Math.sign(dr)};
+    }
+    function sameRay(origin,front,rear) {
+        const one=direction(origin,front),two=direction(front,rear);
+        return !!(one&&two&&one.f===two.f&&one.r===two.r);
+    }
+    function onSegment(origin,between,end) {
+        return sameRay(origin,between,end);
+    }
+    function isSlider(p) {return !!p&&['r','b','q'].includes(p.type);}
+    function xray(s,color) {
+        const results=[];
+        for(const slider of pieces(s,color).filter(isSlider)) {
+            for(const front of pieces(s,opponent(color))) {
+                if(!attacks(s,slider,front.sq)) continue;
+                for(const rear of pieces(s,opponent(color))) {
+                    if(front.sq===rear.sq||!sameRay(slider.sq,front.sq,rear.sq)
+                        ||!lineClear(s,front.sq,rear.sq)) continue;
+                    const first=VALUE[front.type],second=VALUE[rear.type];
+                    const id=second>first?'pin':first>second?'skewer':null;
+                    if(id) results.push({id,slider:slider.sq,front:front.sq,rear:rear.sq,
+                        absolute:rear.type==='k'&&id==='pin'});
+                }
+            }
+        }
+        return results;
+    }
+    function discovered(s0,s1,played) {
+        const results=[],color=played.color;
+        const vacant=s0.at[played.from];
+        if(!vacant||vacant.color!==color) return results;
+        for(const slider of pieces(s1,color).filter(isSlider)) {
+            // La peça que s'ha mogut no pot descobrir el seu propi atac.
+            if(slider.sq===played.to || !s0.at[slider.sq] ||
+                s0.at[slider.sq].type!==slider.type || s0.at[slider.sq].color!==color) continue;
+            for(const target of pieces(s1,opponent(color))) {
+                if(!s0.at[target.sq] || s0.at[target.sq].type!==target.type ||
+                    s0.at[target.sq].color!==target.color ||
+                    !onSegment(slider.sq,played.from,target.sq) ||
+                    attacks(s0,slider,target.sq) ||
+                    !attacks(s1,slider,target.sq)) continue;
+                results.push({id:target.type==='k'?'discoveredCheck':'discoveredAttack',
+                    slider:slider.sq,uncovered:played.from,target:target.sq});
+            }
+        }
+        return results;
+    }
+
     function counter(s,color,type,wing) {
         return pieces(s,color,type).filter(p=> !wing||(wing==='rei'?FILE(p.sq)>=4:FILE(p.sq)<=3)).length;
     }
@@ -149,6 +207,30 @@
                         'La jugada crea una forquilla geomètrica contra dos objectius.');
                 }
             }
+
+            // Només els motius NO presents a la posició anterior.
+            // Evita atribuir a l'última jugada una clavada o enfilada antiga.
+            const priorRays=new Set(xray(before,color).map(x=>
+                [x.id,x.slider,x.front,x.rear].join(':')));
+            for(const x of xray(after,color)) {
+                if(priorRays.has([x.id,x.slider,x.front,x.rear].join(':'))) continue;
+                const evidence={attacker:x.slider,front:x.front,rear:x.rear,absolute:x.absolute};
+                if(x.id==='pin') add('pin',evidence,
+                    x.absolute
+                    ? 'Clavada: la peça de '+x.front+' és davant del seu rei a '+x.rear+'.'
+                    : 'Clavada relativa geomètrica: la peça de '+x.front+' tapa una peça rival de més valor a '+x.rear+'.');
+                else add('skewer',evidence,
+                    'Enfilada geomètrica: una peça de més valor a '+x.front+
+                    ' és davant d’una altra peça rival a '+x.rear+'.');
+            }
+            for(const x of discovered(before,after,played)) {
+                if(x.id==='discoveredCheck'&&!a.in_check()) continue;
+                add(x.id,{attacker:x.slider,uncovered:x.uncovered,target:x.target},
+                    x.id==='discoveredCheck'
+                    ? 'Escac a la descoberta: en apartar-se una peça, s’obre una línia d’atac al rei rival.'
+                    : 'Atac a la descoberta: una peça deixa lliure la línia d’atac d’una altra.');
+            }
+
             if (played.piece==='r'&&((color==='w'&&RANK(played.to)===7)||(color==='b'&&RANK(played.to)===2))) {
                 if(RANK(played.from)!==RANK(played.to)) add('rookSeventh',{sq:played.to},'Una torre entra a la setena fila rival.');
             }
@@ -206,6 +288,83 @@
             return out;
         } catch(err){return [];}
     }
+
+    // Desviació i interferència: no s'activen mai a la TV ni amb un sol
+    // moviment. Cal una línia COMPLETA de tres jugades, amb certificat
+    // Stockfish preexistent, que torni a passar la inspecció d'escacs.
+    function detectCertifiedLine(ctx) {
+        const c=ctx||{},item=c.candidate,Chess=c.ChessCtor,H=c.Hieroclosure;
+        const proof=item&&item.conclusion;
+        if(typeof Chess!=='function'||!H||typeof H.matches!=='function'||
+            typeof H.createVerifier!=='function'||typeof H.lineOf!=='function'||
+            !H.matches(item)||!proof||!Number.isFinite(proof.requestedDepth)||
+            proof.requestedDepth<16||proof.minDepth<14) return [];
+        try {
+            const inspected=H.createVerifier(Chess).inspect(item);
+            if(!inspected||inspected.finalFen!==proof.finalFen||inspected.kind!==proof.kind||
+                (inspected.gain!==null&&inspected.gain!==proof.gain)) return [];
+            const line=H.lineOf(item),g=new Chess(item.fen),states=[snapshot(g)],moves=[];
+            for(const u of line) {
+                const m=g.move({from:u.slice(0,2),to:u.slice(2,4),promotion:u[4]});
+                if(!m)return [];
+                moves.push(m);states.push(snapshot(g));
+            }
+            const color=item.fen.split(' ')[1],enemy=opponent(color),out=[],seen=new Set();
+            function addLine(id,evidence,text,step) {
+                const key=id+':'+step+':'+evidence.target;
+                if(seen.has(key))return;
+                seen.add(key);
+                out.push({id,pattern:INDEX[id],evidence,text,color,
+                    squares:[moves[step].from,moves[step].to],
+                    step:step/2+1,source:'variant_certificada'});
+            }
+            // Per comprovar causalitat, la peça/objectiu posterior és
+            // capturada en un torn posterior del jugador dins la línia.
+            function laterCapture(start,target) {
+                return moves.some((m,j)=>j>start&&j%2===0&&
+                    m.color===color&&m.captured&&m.to===target);
+            }
+            for(let i=0;i<=2;i+=2) {
+                const before=states[i],after=states[i+1],move=moves[i],p=after.at[move.to];
+                if(!p||p.color!==color)continue;
+                // Interferència: el moviment del jugador ocupa una casella
+                // abans buida entre un defensor lliscant i la peça defensada.
+                if(!before.at[move.to]) for(const defender of pieces(before,enemy).filter(isSlider)) {
+                    for(const target of pieces(before,enemy)) {
+                        if(target.sq===defender.sq||!after.at[target.sq]||
+                            !onSegment(defender.sq,move.to,target.sq)||
+                            !attacks(before,defender,target.sq)||
+                            attacks(after,defender,target.sq)||
+                            !laterCapture(i,target.sq))continue;
+                        addLine('interference',{defender:defender.sq,
+                            blocking:move.to,target:target.sq},
+                            'Interferència demostrada en aquesta variant: la jugada talla una línia defensiva abans de capturar la peça protegida.',i);
+                    }
+                }
+                // Desviació: la primera jugada ataca un defensor (o dona
+                // escac); aquest es mou en la rèplica i perd la defensa
+                // d'una peça capturada després pel jugador.
+                if(i+1>=moves.length)continue;
+                const reply=moves[i+1],defender=after.at[reply.from],
+                    afterReply=states[i+2];
+                if(!defender||defender.color!==enemy||defender.type==='k'||
+                    (!attacks(after,p,reply.from)&&!/[+#]/.test(move.san)))continue;
+                for(const target of pieces(after,enemy)) {
+                    if(target.sq===reply.from||!afterReply.at[target.sq]||
+                        afterReply.at[target.sq].color!==enemy||
+                        !attacks(after,defender,target.sq)||
+                        !laterCapture(i+1,target.sq)||
+                        pieces(afterReply,enemy).some(d=>attacks(afterReply,d,target.sq)))
+                        continue;
+                    addLine('deflection',{defender:reply.from,
+                        displacedTo:reply.to,target:target.sq},
+                        'Desviació demostrada en aquesta variant: el defensor abandona la protecció d’una peça que després es captura.',i);
+                }
+            }
+            return out;
+        }catch(err){return [];}
+    }
+
     function candidates(ctx) {
         return detect(ctx).filter(hit=>!['mate','check','promotion','castling','fork','doubleAttack'].includes(hit.id))
             .slice(0,3).map(hit=>({
@@ -220,5 +379,5 @@
         return (Array.isArray(ids)?ids:[]).map(id=>INDEX[id]).filter(Boolean);
     }
     return { VERSION:1, CATALOG, INDEX, FAMILY, AUTOMATIC:[...AUTOMATIC],
-        detect,candidates,describe, snapshot,isPassed };
+        detect,detectCertifiedLine,candidates,describe, snapshot,isPassed };
 });
