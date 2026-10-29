@@ -9,13 +9,13 @@ const base = (kind = 'fork', ply = 8, rest = {}) => ({
 });
 
 describe('Biblioteca de les 36 estratagemes', () => {
-    test('26 estratagemes amb el número tradicional i 4 frases cadascun: 104 frases diferents', () => {
-        expect(Object.keys(E.STRATAGEMS)).toHaveLength(26);
-        expect(E.CATALOG).toHaveLength(104);
-        expect(new Set(E.CATALOG.map(m => m.text)).size).toBe(104);
-        expect(new Set(E.CATALOG.map(m => m.id)).size).toBe(104);
+    test('28 estratagemes amb el número tradicional i 4 frases cadascun: 112 frases diferents', () => {
+        expect(Object.keys(E.STRATAGEMS)).toHaveLength(28);
+        expect(E.CATALOG).toHaveLength(112);
+        expect(new Set(E.CATALOG.map(m => m.text)).size).toBe(112);
+        expect(new Set(E.CATALOG.map(m => m.id)).size).toBe(112);
         const numbers = Object.values(E.STRATAGEMS).map(s => s.n);
-        expect(new Set(numbers).size).toBe(26);
+        expect(new Set(numbers).size).toBe(28);
         numbers.forEach(n => { expect(n).toBeGreaterThanOrEqual(1); expect(n).toBeLessThanOrEqual(36); });
         expect(E.STRATAGEMS.soroll.title).toBe('Fer soroll a l’est i atacar a l’oest');
         expect(E.STRATAGEMS.prunera.title).toBe('Sacrificar la prunera per salvar el presseguer');

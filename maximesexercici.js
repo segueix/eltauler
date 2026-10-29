@@ -18,7 +18,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
     // Clau LOCAL (fora dels prefixos de sincronització): només serveix per no
     // repetir textos d'un exercici a l'altre en aquest aparell.
     const STORAGE_KEY = 'tauler_maximes_exercici_v1';
@@ -27,6 +27,21 @@
     const BOARD_RELIABILITY = new Set(['board', 'rules']);
     const VALUES = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
     const SACRIFICE_PRIORITY = 60;
+    // Els llibres no parlen sobre els fets urgents de la TV (mat, escac,
+    // promoció...) per no endarrerir-ne l'avís. En un exercici no hi ha cap
+    // avís a fer: el fet hi arriba amb un nom propi i per sota del llindar.
+    const EXERCISE_KIND = Object.freeze({
+        mate: 'mate-finish', 'mate-threat': 'mate-finish', 'out-of-check': 'escape-check',
+        promotion: 'promotion-step', 'fork-check': 'fork'
+    });
+    const URGENT_PRIORITY = 85;
+    // Fets que la TV no comenta però que les regles comproven: només omplen
+    // el buit quan la jugada no té res més a dir (prioritat baixa).
+    const MOVE_FACTS = Object.freeze({
+        exchange: { priority: 25, text: 'Intercanvi de peces del mateix valor.' },
+        retreat: { priority: 22, text: 'La peça torna cap al seu camp.' },
+        'quiet-move': { priority: 20, text: 'Jugada tranquil·la: sense captura, escac ni promoció.' }
+    });
     const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
     // Textos mostrats fa poc, de tots dos llibres: encara que un fet molt
     // freqüent esgoti els textos d'una família, no es repeteixen en aquest marge.
@@ -65,6 +80,24 @@
         };
     }
 
+    // Què és la jugada, només amb les regles (g ja és la posició d'après):
+    // intercanvi (es pren una peça del mateix valor i el rival pot recapturar),
+    // retirada (una peça que no és peó ni rei torna cap a la seva primera fila)
+    // o jugada tranquil·la (sense captura, escac, promoció ni enroc).
+    function moveKind(g, mv, me) {
+        const flags = mv.flags || '';
+        if (/[+#]/.test(mv.san || '') || mv.promotion) return null;
+        if (mv.captured) {
+            if (VALUES[mv.captured] !== VALUES[mv.piece]) return null;
+            const recapture = g.moves({ verbose: true }).some(m => m.to === mv.to);
+            return recapture ? 'exchange' : null;
+        }
+        if (flags.indexOf('k') !== -1 || flags.indexOf('q') !== -1) return null;
+        const back = me === 'w' ? mv.to[1] < mv.from[1] : mv.to[1] > mv.from[1];
+        if (back && 'nbrq'.indexOf(mv.piece) !== -1) return 'retreat';
+        return 'quiet-move';
+    }
+
     // Fets verificats de cada jugada del jugador dins la línia fixa.
     // Retorna un array per pas: [{ kind, text, priority, evidence }], amb el
     // més destacat primer i sense tipus repetits dins el mateix pas.
@@ -84,21 +117,28 @@
             if (!mv) break;
             const fenAfter = g.fen();
             const over = g.game_over();
-            const end = over ? { reason: g.in_checkmate() ? 'checkmate' : 'draw', text: '' } : null;
+            // El detector només anuncia el final si porta un text.
+            const end = over ? (g.in_checkmate() ? { reason: 'checkmate', text: 'Escac i mat.' }
+                : { reason: 'draw', text: 'La partida acaba en taules.' }) : null;
             let cands = [];
             try {
                 cands = detect({ ChessCtor: Chess, fenBefore, fenAfter, move: mv, ply: i, tier: 'mid', end }) || [];
             } catch (e) { cands = []; }
+            const found = cands.filter(c => c && BOARD_RELIABILITY.has(c.reliability) && typeof c.text === 'string' && c.text.trim())
+                .map(c => {
+                    const kind = EXERCISE_KIND[c.kind] || c.kind;
+                    const priority = c.priority || 0;
+                    return { kind, text: c.text, priority: kind !== c.kind ? Math.min(priority, URGENT_PRIORITY - 1) : priority };
+                });
+            const own = moveKind(g, mv, me);
+            if (own) found.push({ kind: own, text: MOVE_FACTS[own].text, priority: MOVE_FACTS[own].priority });
             const facts = [];
             const seen = new Set();
-            cands.filter(c => c && BOARD_RELIABILITY.has(c.reliability) && typeof c.text === 'string' && c.text.trim())
-                .sort((a, b) => (b.priority || 0) - (a.priority || 0))
-                .forEach(c => {
-                    if (seen.has(c.kind)) return;
-                    seen.add(c.kind);
-                    facts.push({ kind: c.kind, text: c.text, priority: c.priority || 0,
-                        evidence: { source: 'rules', reliable: true } });
-                });
+            found.sort((a, b) => b.priority - a.priority).forEach(f => {
+                if (seen.has(f.kind)) return;
+                seen.add(f.kind);
+                facts.push(Object.assign(f, { evidence: { source: 'rules', reliable: true } }));
+            });
             // Cessió: la peça (no un peó) que mou el jugador és capturada a la
             // mateixa casella per la rèplica de la línia i el balanç cau almenys
             // dos punts respecte de l'inici. Igual que hieroclosure.materialOffers,

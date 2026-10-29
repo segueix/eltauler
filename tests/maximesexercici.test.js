@@ -86,6 +86,48 @@ describe('Màximes dels exercicis de dues jugades', () => {
         expect(M.stepFacts({ ...ex, Chess, detect, lineVerified: true }).flat().map(f => f.kind)).not.toContain('sacrifice');
     });
 
+    test('jugades sense cap fet de la TV: tranquil·la, retirada i intercanvi, comprovats amb les regles', () => {
+        const kinds = (fen, line) => M.stepFacts({ fen, line, Chess, detect, lineVerified: true }).map(f => f.map(x => x.kind));
+        // a4: avanç tranquil de peó.
+        expect(kinds('4k3/8/8/8/8/8/P7/4K3 w - - 0 1', ['a2a4'])[0]).toContain('quiet-move');
+        // Ab1: l'alfil torna cap a la primera fila.
+        expect(kinds('4k3/8/8/8/8/3B4/8/4K3 w - - 0 1', ['d3b1'])[0]).toContain('retreat');
+        // Cxe5 amb el cavall de d7 que pot recapturar: intercanvi.
+        expect(kinds('4k3/3n3p/8/4n3/8/5N2/P7/4K3 w - - 0 1', ['f3e5'])[0]).toContain('exchange');
+        // Una captura sense recaptura possible no és cap intercanvi.
+        expect(kinds('4k3/7p/8/4n3/8/5N2/P7/4K3 w - - 0 1', ['f3e5'])[0]).not.toContain('exchange');
+        // L'escac i les captures de valor diferent no són jugades tranquil·les.
+        expect(kinds(OFFER.fen, OFFER.line)[0]).not.toContain('quiet-move');
+    });
+
+    test('mat, escapada de l\'escac i promoció: als exercicis sí que tenen màxima', () => {
+        // Dxf7#: mat del pastor.
+        const mate = { fen: 'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4', line: ['f3f7'] };
+        const facts = M.stepFacts({ ...mate, Chess, detect, lineVerified: true })[0];
+        expect(facts[0].kind).toBe('mate-finish');
+        expect(facts[0].priority).toBeLessThan(85);
+        const r = run(mate, 1, null);
+        expect(r.maxims.map(m => m.family || m.stratagem)).toEqual(expect.arrayContaining(['remat']));
+        // A la TV, en canvi, els llibres continuen callant davant del mat.
+        expect(A.familyFor('mate')).toBeNull();
+        expect(E.stratagemsFor('mate')).toEqual([]);
+        // Ke2: el rei surt de l'escac de la torre.
+        const escape = M.stepFacts({ fen: '4r1k1/8/8/8/8/8/8/4K3 w - - 0 1', line: ['e1d2'], Chess, detect, lineVerified: true })[0];
+        expect(escape.map(f => f.kind)).toContain('escape-check');
+        expect(escape.map(f => f.kind)).not.toContain('out-of-check');
+    });
+
+    test('la TV no emet cap dels fets propis dels exercicis', () => {
+        const own = ['quiet-move', 'retreat', 'exchange', 'mate-finish', 'escape-check', 'promotion-step'];
+        const src = fs.readFileSync(path.join(__dirname, '..', 'stockfishtv.js'), 'utf8');
+        own.forEach(kind => expect(src).not.toMatch(new RegExp("add\\('" + kind + "'")));
+        own.forEach(kind => {
+            expect(A.familyFor(kind)).toBeTruthy();
+        });
+        ['quiet-move', 'retreat', 'exchange', 'mate-finish', 'escape-check']
+            .forEach(kind => expect(E.stratagemsFor(kind).length).toBeGreaterThan(0));
+    });
+
     test('funció pura amb memòria serialitzable', () => {
         const first = run(FORK, 1, null).memory;
         const snapshot = JSON.stringify(first);
@@ -120,10 +162,10 @@ describe('Màximes dels exercicis de dues jugades', () => {
             }
             if (any) withMaxim++;
         }
-        expect(withMaxim / exercises.length).toBeGreaterThanOrEqual(0.9);
-        expect(new Set(shown).size).toBeGreaterThanOrEqual(180);
-        expect(families.size).toBeGreaterThanOrEqual(10);
-        // Cap text no torna abans de vuit màximes.
+        expect(withMaxim / exercises.length).toBeGreaterThanOrEqual(0.98);
+        expect(new Set(shown).size).toBeGreaterThanOrEqual(230);
+        expect(families.size).toBeGreaterThanOrEqual(14);
+        // Cap text no torna abans de vuit màximes (el marge que garanteix el mòdul).
         const last = {};
         shown.forEach((id, i) => {
             if (id in last) expect(i - last[id]).toBeGreaterThan(8);
