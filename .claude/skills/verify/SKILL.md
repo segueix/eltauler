@@ -88,6 +88,22 @@ Conduir amb Playwright + Chromium preinstal·lat
     NODE_EXTRA_CA_CERTS=/root/.ccr/ca-bundle.crt` (el `fetch` de Node llavors
     passa pel proxy). Per saber si sona, embolcallar `window.Audio` en un
     `addInitScript` i escoltar `playing`/`ended`.
+    **Matxa caiguda a la TV**: per provar l'espera sense xarxa, substituir
+    `ElTaulerVeuNeural.sharedSpeaker` en un `addInitScript` (abans d'obrir la
+    TV) per un parlant fals (`available`, `speak`, `stop`, `prefetch`,
+    `unlock`, `isSpeaking`) que torni `{ spoken: false, reason: 'network' }`
+    mentre una variable global ho digui. L'espera és a `state().voiceHold`
+    (`attempts`, `nextTryAt`, `trying`) i a l'avís `#sftv-voice-hold`; baixar
+    `TV_CONFIG.VOICE_RETRY_MS` per no esperar 8 s per intent. **Equalitzador**:
+    `#sftv-matxa-eq-<banda>` i `#tts-matxa-eq-<banda>` (`low`, `lowmid`, `mid`,
+    `presence`, `high`; cal disparar `input`), restablir amb `…-eq-reset`; es
+    desa a `matxaEffects.eq` del perfil. **Música de fons**:
+    `tauler_tv_prefs.radioBackground = { sound: 'music' }`; la melodia que
+    sona surt a `#sftv-radio-status` («Ara sona: …») i canvia amb
+    `_controller().newGame()`. **Mòbil**: el disseny de la TV depèn de
+    `body.device-desktop`; per veure'l com en un telèfon cal un context amb
+    `hasTouch: true, isMobile: true` (si no, a 420 px surt la graella
+    d'escriptori i el tauler fa 0 px d'amplada).
 
 12. **Inici (bàners per seccions)**: `#start-screen.home-d` agrupa els
     bàners en `.home-sec--juga/avui/entrena/comunitat/apren/final`; els

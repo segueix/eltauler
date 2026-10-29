@@ -1671,3 +1671,142 @@ describe('Integració de la retransmissió a dues veus', () => {
         expect(js).toContain('spokenTurns(planned)');
     });
 });
+
+// ---------------------------------------------------------------------------
+// Matxa caiguda a mitja partida: la TV s'atura fins que la veu torna
+// ---------------------------------------------------------------------------
+describe('Matxa caiguda: la partida espera la veu', () => {
+    beforeEach(() => jest.useFakeTimers());
+    afterEach(() => jest.useRealTimers());
+
+    function fakeNeural(result) {
+        const n = { calls: [], ok: true, available: () => n.ok, prefetch() {}, stop() {}, isSpeaking: () => false,
+            speak: (t, id, o) => { n.calls.push([t, id, o]); return Promise.resolve(result()); } };
+        return n;
+    }
+    const holdingVoice = (neural, extra) => TV.createTvVoice(Object.assign({ speechSynthesis: fakeSynth([CA]),
+        SpeechSynthesisUtterance: FakeUtterance, loadPref: () => 'on', neural, holdNeural: true,
+        getNeuralVoiceId: () => 'matxa:central:elia' }, extra || {}));
+
+    test('amb holdNeural no es llegeix amb la veu del dispositiu: es diu que Matxa ha caigut', async () => {
+        const synth = fakeSynth([CA]);
+        const neural = fakeNeural(() => ({ spoken: false, reason: 'network' }));
+        const v = holdingVoice(neural, { speechSynthesis: synth });
+        await expect(v.speak('Escac al rei negre.')).resolves.toEqual({ spoken: false, reason: 'neural-down' });
+        expect(synth.spoken).toHaveLength(0);
+        // En pausa de Matxa: no es truca el servei si no es força l'intent.
+        neural.ok = false;
+        expect(v.status()).toBe('ready');
+        expect(v.engine()).toBe('neural');
+        expect(v.holdsForNeural()).toBe(true);
+        await expect(v.speak('Hola.')).resolves.toEqual({ spoken: false, reason: 'neural-down' });
+        expect(neural.calls).toHaveLength(1);
+        await v.speak('Hola.', { force: true });
+        expect(neural.calls[1][2].force).toBe(true);
+    });
+
+    test('sense holdNeural, o sense Matxa al perfil, no canvia res', async () => {
+        const neural = fakeNeural(() => ({ spoken: false, reason: 'network' }));
+        const plain = holdingVoice(neural, { holdNeural: false });
+        expect(plain.holdsForNeural()).toBe(false);
+        const system = holdingVoice(neural, { getNeuralVoiceId: () => null });
+        expect(system.holdsForNeural()).toBe(false);
+        expect(system.engine()).toBe('system');
+    });
+
+    // La presentació es mostra el temps de lectura abans que s'esperi la veu.
+    const waitIntro = ctl => jest.advanceTimersByTimeAsync(Math.max(C.INTRO_DELAY_MS,
+        TV.tvReadingTimeMs(ctl.state().game.comment.text, ctl.state().viewer.tier)) + 500);
+    const OPENINGS = [{ eco: 'C60', name: 'Obertura Espanyola', idea: 'Pressiona el cavall.', moves: ['e4', 'e5', 'Nf3', 'Nc6', 'Bb5'] }];
+    function controllableVoice() {
+        const v = { down: true, on: true, spoken: [], forced: [],
+            isOn: () => v.on, status: () => 'ready', stop() {}, prefetch() {}, holdsForNeural: () => true,
+            speak(text, o) {
+                (o && o.force ? v.forced : v.spoken).push(text);
+                return Promise.resolve(v.down ? { spoken: false, reason: 'neural-down' } : { spoken: true, reason: 'end' });
+            } };
+        return v;
+    }
+
+    test('cap jugada mentre Matxa no respon; quan torna, repeteix el comentari i continua', async () => {
+        const voice = controllableVoice();
+        const { ctl } = makeController({ voice, getOpenings: () => OPENINGS, loadPrefs: () => ({ openingIndex: 0, profiles: false, unequal: false }) });
+        await ctl.open();
+        const intro = ctl.state().game.comment.text;
+        await waitIntro(ctl);
+        expect(ctl.state().game.moves).toHaveLength(0);
+        expect(ctl.state().voiceHold).toMatchObject({ attempts: 0, trying: false });
+        await jest.advanceTimersByTimeAsync(C.VOICE_RETRY_MS * 3);
+        expect(ctl.state().game.moves).toHaveLength(0);
+        expect(ctl.state().voiceHold.attempts).toBeGreaterThanOrEqual(2);
+        expect(voice.forced.every(t => t === voice.spoken[0])).toBe(true);
+        // Matxa torna: el següent intent sona i la partida continua.
+        voice.down = false;
+        await jest.advanceTimersByTimeAsync(C.VOICE_RETRY_MS + 100);
+        expect(ctl.state().voiceHold).toBeNull();
+        expect(voice.forced.at(-1)).toBe(voice.spoken[0]);
+        expect(voice.spoken[0]).toBeTruthy();
+        expect(intro).toBeTruthy();
+        await jest.advanceTimersByTimeAsync(C.POST_SPEECH_PAUSE_MS + C.MOVE_PREVIEW_MS + 500);
+        expect(ctl.state().game.moves.length).toBeGreaterThan(0);
+        ctl.close();
+    });
+
+    test('apagar la veu durant l’espera deixa continuar la partida sense comentaris', async () => {
+        const voice = controllableVoice();
+        const { ctl } = makeController({ voice, getOpenings: () => OPENINGS, loadPrefs: () => ({ openingIndex: 0, profiles: false, unequal: false }) });
+        await ctl.open();
+        await waitIntro(ctl);
+        expect(ctl.state().voiceHold).not.toBeNull();
+        voice.on = false;
+        await jest.advanceTimersByTimeAsync(1100);
+        expect(ctl.state().voiceHold).toBeNull();
+        await jest.advanceTimersByTimeAsync(C.MOVE_PREVIEW_MS + 500);
+        expect(ctl.state().game.moves.length).toBeGreaterThan(0);
+        ctl.close();
+    });
+
+    test('pausar durant l’espera l’anul·la; en reprendre, si Matxa continua caiguda, torna a esperar', async () => {
+        const voice = controllableVoice();
+        const { ctl } = makeController({ voice, getOpenings: () => OPENINGS, loadPrefs: () => ({ openingIndex: 0, profiles: false, unequal: false }) });
+        await ctl.open();
+        await waitIntro(ctl);
+        expect(ctl.state().voiceHold).not.toBeNull();
+        ctl.pause();
+        expect(ctl.state().voiceHold).toBeNull();
+        expect(ctl.state().paused).toBe(true);
+        ctl.resume();
+        await jest.advanceTimersByTimeAsync(20000);
+        // La partida avança fins al comentari següent i s'hi torna a aturar.
+        const moves = ctl.state().game.moves.length;
+        expect(ctl.state().voiceHold).not.toBeNull();
+        await jest.advanceTimersByTimeAsync(C.VOICE_RETRY_MS * 2);
+        expect(ctl.state().game.moves.length).toBe(moves);
+        ctl.close();
+    });
+});
+
+describe('Interfície de veu Matxa: només Ràdio, equalitzador i música de fons', () => {
+    const html = require('fs').readFileSync(require('path').join(__dirname, '../index.html'), 'utf8');
+    test('cap opció Natural ni Càlida: el perfil de so és sempre Ràdio', () => {
+        expect(html).not.toMatch(/<option value="(natural|warm)">/);
+        expect(html).toContain('<strong id="sftv-matxa-profile">Ràdio</strong>');
+        expect(html).toContain('<strong id="tts-matxa-profile">Ràdio</strong>');
+    });
+    test.each(['sftv-matxa', 'tts-matxa'])('equalitzador de cinc bandes sota la configuració de Matxa (%s)', prefix => {
+        expect(html).toContain('id="' + prefix + '-eq"');
+        ['low', 'lowmid', 'mid', 'presence', 'high'].forEach(band => {
+            expect(html).toMatch(new RegExp('id="' + prefix + '-eq-' + band + '"[^>]*type="range" min="-12" max="12"'));
+            expect(html).toContain('id="' + prefix + '-eq-' + band + '-value"');
+        });
+        expect(html).toContain('id="' + prefix + '-eq-reset"');
+    });
+    test('música de fons: sense música o una melodia a l’atzar a cada partida', () => {
+        const select = html.slice(html.indexOf('id="sftv-radio-sound"'), html.indexOf('</select>', html.indexOf('id="sftv-radio-sound"')));
+        expect([...select.matchAll(/<option value="([^"]+)"/g)].map(m => m[1])).toEqual(['off', 'music']);
+        expect(html).toContain('Jardí oriental');
+    });
+    test('avís visible mentre la partida espera Matxa', () => {
+        expect(html).toContain('id="sftv-voice-hold"');
+    });
+});

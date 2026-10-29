@@ -1742,7 +1742,8 @@ const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
 const DEFAULT_REVIEW_TTS_PRESET = { id: 'system-ca-es', name: 'Català (Espanya) · sistema', voiceURI: 'system:ca-ES', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
 // Perfil base amb veu NEURONAL (Matxa, BSC): molt més natural que les veus del
 // sistema. És el perfil per defecte mentre l'usuari no n'hagi triat cap altre.
-const NEURAL_REVIEW_TTS_PRESET = { id: 'matxa', name: 'Matxa · Elia · Natural', voiceURI: 'matxa:central:elia', pitch: 1, rate: 1, expressivity: 0.5, cadence: 0.5, builtin: true };
+// Ràdio és l'únic perfil de so de Matxa (amb equalitzador a la Configuració).
+const NEURAL_REVIEW_TTS_PRESET = { id: 'matxa', name: 'Matxa · Elia · Ràdio', voiceURI: 'matxa:central:elia', pitch: 1, rate: 1, expressivity: 0.5, cadence: 0.5, matxaEffects: { profile: 'radio' }, builtin: true };
 
 function neuralTtsAvailable() {
     return typeof window !== 'undefined' && !!window.ElTaulerVeuNeural && typeof window.Audio === 'function';
@@ -1751,10 +1752,7 @@ function isNeuralTtsVoice(voiceURI) {
     return neuralTtsAvailable() && window.ElTaulerVeuNeural.isNeuralVoiceId(voiceURI);
 }
 function builtinReviewTtsPresets() {
-    return neuralTtsAvailable() ? [NEURAL_REVIEW_TTS_PRESET,
-        { ...NEURAL_REVIEW_TTS_PRESET, id: 'matxa-warm', name: 'Matxa · Elia · Càlida', matxaEffects: { profile: 'warm' } },
-        { ...NEURAL_REVIEW_TTS_PRESET, id: 'matxa-radio', name: 'Matxa · Elia · Ràdio', matxaEffects: { profile: 'radio' } },
-        DEFAULT_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
+    return neuralTtsAvailable() ? [NEURAL_REVIEW_TTS_PRESET, DEFAULT_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
 }
 // Veu neuronal del perfil per defecte (la fa servir Stockfish TV), o null.
 function defaultNeuralTtsVoice() {
@@ -1962,11 +1960,14 @@ function currentReviewTtsSettingsPreset() {
 }
 
 function currentMatxaTtsEffects() {
+    const eq = {};
+    window.ElTaulerVeuNeural.EQ_BANDS.forEach(b => { eq[b.id] = Number($('#tts-matxa-eq-' + b.id).val()) || 0; });
     return window.ElTaulerVeuNeural.normalizeEffects({
-        profile: $('#tts-matxa-profile').val(),
+        profile: 'radio',
         intensity: Number($('#tts-matxa-intensity-range').val()) / 100,
         clarity: Number($('#tts-matxa-clarity-range').val()) / 100,
-        volume: Number($('#tts-matxa-volume-range').val()) / 100
+        volume: Number($('#tts-matxa-volume-range').val()) / 100,
+        eq
     });
 }
 
@@ -1980,11 +1981,16 @@ function updateMatxaTtsControls() {
     $('#tts-rate-range').attr({ min, max }).val(Math.max(min, Math.min(max, rate)));
     $('#tts-rate-value').text(`${$('#tts-rate-range').val()}%`);
     if (!matxa) return;
+    const V = window.ElTaulerVeuNeural;
     const e = currentMatxaTtsEffects();
-    const profile = window.ElTaulerVeuNeural.AUDIO_PROFILES.find(p => p.id === e.profile);
-    $('#tts-matxa-help').text(profile.description);
-    $('#tts-matxa-intensity-range, #tts-matxa-clarity-range').prop('disabled', e.profile === 'natural');
+    $('#tts-matxa-help').text(V.AUDIO_PROFILES[0].description);
     ['intensity', 'clarity', 'volume'].forEach(key => $('#tts-matxa-' + key + '-value').text(`${Math.round(e[key] * 100)}%`));
+    V.layoutEq(document.getElementById('tts-matxa-eq'));
+    V.EQ_BANDS.forEach(b => {
+        const text = V.formatDb(e.eq[b.id]);
+        $('#tts-matxa-eq-' + b.id).attr('aria-valuetext', text);
+        $('#tts-matxa-eq-' + b.id + '-value').text(text);
+    });
 }
 
 function applyReviewTtsPresetToSettings(preset) {
@@ -1995,8 +2001,8 @@ function applyReviewTtsPresetToSettings(preset) {
     $('#tts-rate-range').attr({ min: matxa ? 81 : 70, max: matxa ? 111 : 130 });
     if (neuralTtsAvailable()) {
         const effects = window.ElTaulerVeuNeural.normalizeEffects(p.matxaEffects);
-        $('#tts-matxa-profile').val(effects.profile);
         ['intensity', 'clarity', 'volume'].forEach(key => $('#tts-matxa-' + key + '-range').val(Math.round(effects[key] * 100)));
+        window.ElTaulerVeuNeural.EQ_BANDS.forEach(b => $('#tts-matxa-eq-' + b.id).val(effects.eq[b.id]));
     }
     $('#tts-pitch-range').val(Math.round((p.pitch || 1) * 100));
     $('#tts-rate-range').val(Math.round((p.rate || 0.95) * 100));
@@ -23567,7 +23573,7 @@ function setupEvents() {
 
     $('#tts-preset-mode').off('change').on('change', function () { setReviewTtsMode(this.value); refreshReviewTtsSettingsUi(); });
     $('#tts-preset-select').off('change').on('change', function () { applyReviewTtsPresetToSettings(getReviewTtsPresetById(this.value)); });
-    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-expressivity-range, #tts-cadence-range, #tts-preset-name, #tts-matxa-profile, #tts-matxa-intensity-range, #tts-matxa-clarity-range, #tts-matxa-volume-range').off('input change').on('input change', function () {
+    $('#tts-voice-select, #tts-pitch-range, #tts-rate-range, #tts-expressivity-range, #tts-cadence-range, #tts-preset-name, #tts-matxa-intensity-range, #tts-matxa-clarity-range, #tts-matxa-volume-range, .tts-matxa-eq-range').off('input change').on('input change', function () {
         updateMatxaTtsControls();
         $('#tts-pitch-value').text(`${$('#tts-pitch-range').val()}%`);
         $('#tts-rate-value').text(`${$('#tts-rate-range').val()}%`);
@@ -23575,6 +23581,7 @@ function setupEvents() {
         $('#tts-cadence-value').text(`${$('#tts-cadence-range').val()}%`);
         if (REVIEW_TTS_STATE.source === 'settings') REVIEW_TTS_STATE.activePreset = currentReviewTtsSettingsPreset();
     });
+    $('#tts-matxa-eq-reset').off('click').on('click', () => { $('.tts-matxa-eq-range').val(0); $('#tts-matxa-eq-low').trigger('input'); });
     $('#tts-preset-news').off('click').on('click', () => { $('#tts-rate-range').val(120); $('#tts-cadence-range').val(25); $('#tts-expressivity-range').val(30).trigger('input'); });
     $('#tts-preset-story').off('click').on('click', () => { $('#tts-rate-range').val(88); $('#tts-cadence-range').val(70); $('#tts-expressivity-range').val(85).trigger('input'); });
     $('#tts-preset-dictation').off('click').on('click', () => { $('#tts-rate-range').val(72); $('#tts-cadence-range').val(100); $('#tts-expressivity-range').val(0).trigger('input'); });

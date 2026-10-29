@@ -460,7 +460,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   el control mentre el motor calcula descarta la jugada pendent i la pausa no
   s'hi aplica; en una partida acabada, tirar enrere la reprèn i, amb el control,
   no comença cap partida sola (sí en tornar-lo); coronació triada per l'usuari;
-  pestanya oculta durant la resposta; i «Nova partida» surt del control. El **motor dedicat** es prova amb un worker
+  pestanya oculta durant la resposta; i «Nova partida» surt del control.
+  **Matxa caiguda**: amb `holdNeural` (només a Stockfish vs Lozza TV) una
+  fallada de Matxa no passa a la veu del dispositiu sinó que torna
+  `neural-down`; la partida no fa cap jugada mentre la veu no respon, hi torna a
+  provar cada `VOICE_RETRY_MS` amb el mateix fragment (forçant l'intent abans
+  que acabi la pausa d'un minut) i, quan sona, continua; apagar la veu durant
+  l'espera la deixa continuar sense comentaris, i pausar l'anul·la (en
+  reprendre, si Matxa continua caiguda, s'atura al comentari següent). La
+  **interfície de veu** només ofereix el perfil Ràdio, té l'equalitzador de
+  cinc bandes a la TV i a la Configuració, la música de fons és «sense música» o
+  «una melodia a l'atzar a cada partida» i hi ha l'avís d'espera.
+  El **motor dedicat** es prova amb un worker
   simulat: ordres abans de calcular, cancel·lació sense resultats colats,
   sortir i tornar de seguida sense bloquejos ni reinicis tardans, worker penjat
   i worker que no es pot crear.
@@ -498,6 +509,30 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   endavant no sintetitza dues vegades) amb límit, cap cua de locucions, aturada
   immediata, temps màxim, sense connexió i pausa d'un minut després d'una
   fallada del servei.
+- **`matxa-effects.test.js`** — el so de Matxa: **Ràdio** és l'únic perfil
+  (Natural i Càlida desats abans es llegeixen com a Ràdio), filtres de presència
+  i compressió amb marge per no saturar, i l'**equalitzador** de cinc bandes
+  (greus 120 Hz, cos 400 Hz, mitjans 1,2 kHz, presència 3 kHz i aguts 7,5 kHz,
+  de −12 a +12 dB en passos d'1 dB): va després del compressor, en descompta el
+  guany màxim, funciona amb el filtre a zero i, pla, no afegeix cap node. També
+  que `speak({ force })` hi torna a provar durant la pausa d'un minut (no sense
+  connexió) i que una síntesi correcta l'acaba.
+- **`review-tts.test.js`** — perfils de lectura: un sol perfil base Matxa
+  (Elia · Ràdio), els perfils base antics (`matxa-warm`, `matxa-radio`) i els
+  personals passen a Ràdio conservant els ajustos, i l'equalitzador que es
+  toca a la TV es desa al perfil i arriba a les ressenyes.
+- **`radioambient.test.js`** — la **música de fons** de Matxa Ràdio
+  (`radioambient.js`), tota generada al dispositiu: cinc melodies de 32 s
+  (Sintonia suau, Jardí oriental, Bossa del tauler, Vals de la capsa de música
+  i Capvespre), cadascuna amb bucle circular sense salts ni segons en silenci,
+  marge, el mateix volum mitjà i la major part de l'energia per sobre de 300 Hz;
+  l'oriental només fa servir l'escala japonesa *in* (re · mi♭ · sol · la · si♭).
+  Una melodia a l'atzar per partida, mai la mateixa que l'anterior. La
+  generació a trossos dona el mateix resultat que la de cop i es pot
+  cancel·lar; el reproductor manté la melodia anterior mentre calcula la nova i
+  hi encadena amb un fos, baixa el volum quan parla la veu, i es comporta bé
+  sense Web Audio, amb errors i amb un context que es reprèn tard. Els sons
+  antics (`studio`, `tuning`, `theme`) es llegeixen com a música.
 - **`deploy-inject.test.js`** — els scripts que el desplegament
   (`.github/workflows/desplega-web.yml`) aplica a la portada abans de
   publicar-la: `scripts/inject-remigi-link.py` (accés a Remigi dins la barra de

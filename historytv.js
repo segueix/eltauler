@@ -10,7 +10,7 @@
         let chess = null, original = [], startFen = null, index = 0, playerColor = 'w', roc = 1200;
         let running = false, busy = false, control = false, opened = false, epoch = 0, error = null;
         let preview = null, last = null, comment = null, memory = TV.tvEmptyMemory();
-        let engine = null, caps = null, nextAt = 0, speech = null, ownsSpeech = false, originPly = 0;
+        let engine = null, caps = null, nextAt = 0, speech = null, ownsSpeech = false, originPly = 0, loads = 0;
         let speed = TV.tvNormalizePrefs(d.loadPrefs ? d.loadPrefs() : {}).speed;
         const timers = new Map(), pending = new Set(), cache = new Map();
         const voice = () => d.getVoice ? d.getVoice() : null;
@@ -22,7 +22,8 @@
         };
         const end = () => chess ? TV.tvGameEnd(chess, Number.MAX_SAFE_INTEGER) : null;
         function state() {
-            return { open: opened, paused: !running, busy, control, playerColor, speed, error,
+            // gameKey: canvia amb cada partida carregada (la música de fons en tria una de nova).
+            return { open: opened, paused: !running, busy, control, playerColor, speed, error, gameKey: loads,
                 index, total: original.length, fen: chess && chess.fen(), preview, last, comment,
                 yourTurn: !!(control && running && !busy && chess && !end() && chess.turn() === playerColor),
                 finished: !!(chess && (end() || (!control && index >= original.length))),
@@ -186,7 +187,7 @@
             state, chess: () => chess, pause,
             load(spec) {
                 halt(); if (engine) engine.destroy(); engine = null; caps = null; cache.clear();
-                opened = true; original = (spec.moves || []).slice(); startFen = spec.startFen || new d.ChessCtor().fen();
+                opened = true; loads++; original = (spec.moves || []).slice(); startFen = spec.startFen || new d.ChessCtor().fen();
                 playerColor = spec.playerColor === 'b' ? 'b' : 'w'; roc = Number(spec.roc) || 1200;
                 seek(0);
             },
