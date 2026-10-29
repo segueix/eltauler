@@ -4,7 +4,7 @@
 
 El Tauler incorpora **60 conceptes en català** al mòdul local `patrons.js`, distribuïts en 22 tàctics, 18 posicionals, 10 d'atac i defensa i 10 de finals. Cada entrada té identificador estable, denominació catalana, família i equivalència temàtica amb Lichess quan n'existeix.
 
-**No són 60 detectors de força equivalent**: en la primera onada avançada, 30 disposen de detector automàtic geomètric; dos (`deflection`, `interference`) només es reconeixen sobre una línia completa de tres jugades prèviament certificada amb Stockfish. Els 28 restants tenen estat `pendent_de_validacio`. El catàleg diferencia `detector`, `variant_certificada` i `pendent_de_validacio`. El motor lingüístic **mai no comenta automàticament** una etiqueta pendent. El catàleg no confon etiquetar amb demostrar.
+**No són 60 detectors de força equivalent**: en la primera onada avançada, 30 disposen de detector automàtic geomètric; tres (`deflection`, `interference`, `sacrifice`) només es reconeixen sobre una línia completa de tres jugades prèviament certificada amb Stockfish. Els 27 restants tenen estat `pendent_de_validacio`. El catàleg diferencia `detector`, `variant_certificada` i `pendent_de_validacio`. El motor lingüístic **mai no comenta automàticament** una etiqueta pendent. El catàleg no confon etiquetar amb demostrar.
 
 Els detectors automàtics disponibles cobreixen, entre altres motius, forquilles geomètriques, atacs dobles, coronacions, mats, enrocs, ocupació del centre, columnes obertes i semiobertes, torres doblades, torres a la setena, peons passats, peons doblats i aïllats, cadenes de peons, fianquets, captures sense atac immediat, activació del rei i diversos finals segons el material.
 
@@ -52,3 +52,17 @@ npm run audit:commentary
 ## Llicències
 
 Les dades de la base pública de Lichess són CC0. Les etiquetes i els exemples importats s'han de conservar amb atribució de font. Stockfish continua sotmès a les condicions de la seva llicència GPLv3, d'acord amb la distribució del projecte.
+
+
+## Segona onada: sacrificis realment acceptats i compensació certificada
+
+El patró `sacrifice` passa de `pendent_de_validacio` a `variant_certificada`. Només apareix després de resoldre un jeroglífic **ja verificat per Stockfish**, no com a etiqueta d'una jugada independent a la TV. Per reconèixer-lo, el sistema exigeix tot això:
+
+- La peça oferta (cavall, alfil, torre o dama) és **capturada en la rèplica següent**; l'oferta sola o el gambit de peó no activa el detector.
+- Després de la captura, el balanç material del jugador ha empitjorat **com a mínim dos punts respecte de la posició inicial**. Un intercanvi equivalent no és un sacrifici.
+- La millor continuació del jugador després d'acceptar-lo segueix essent favorable segons Stockfish (mat forçat favorable o valoració de com a mínim +300 centipeons), a profunditat de com a mínim 14 i sense valors acotats.
+- El desenllaç verificat del jeroglífic és un mat real o un guany material consolidat, i se'n comproven la línia legal i el FEN final.
+- Si el rival tenia diverses defenses, es reanalitza la posició anterior a la captura amb MultiPV per contrastar **dues defenses principals**; si la consulta no retorna prou variants fiables, no es publica el motiu. L'anotació desa el nombre de defenses realment contrastades.
+- La comprovació del rei no s'infereix de l'aspecte del tauler: quan el jugador queda en escac després de la captura, l'etiqueta només és possible si l'anàlisi de la continuació el resol amb avantatge. No es formula cap afirmació genèrica sobre un «rei segur».
+
+**Limitacions explícites:** aquesta onada acredita sacrificis *acceptats* dins d'una variant concreta. No certifica sacrificis refusats, sacrificis de peó, compensació merament posicional o totes les defenses possibles, ni representa una garantia absoluta fora de la profunditat analitzada. Si falla la consulta de variants, l'exercici original pot continuar funcionant sense una etiqueta de sacrifici.

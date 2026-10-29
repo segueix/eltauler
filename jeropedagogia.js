@@ -95,7 +95,7 @@
                 if (actualGain < proof.gain) return null;
             }
             const advanced = Patterns && typeof Patterns.detectCertifiedLine === 'function'
-                ? Patterns.detectCertifiedLine({candidate, ChessCtor:Chess, Hieroclosure:H}).slice(0,2)
+                ? Patterns.detectCertifiedLine({candidate, ChessCtor:Chess, Hieroclosure:H}).slice(0,3)
                 : [];
             const outcome = proof.kind === 'mate'
                 ? 'A la tercera jugada arriba l’escac i mat. No hi ha cap resposta legal.'
