@@ -159,7 +159,8 @@
         // Abandonament, com en una partida humana: si l'anàlisi a força plena
         // dona aquest avantatge (o un mat) al mateix bàndol durant RESIGN_PLIES
         // semijugades seguides, a partir de RESIGN_MIN_PLY, el bàndol que perd
-        // abandona. Als nivells baixos (Elo estimat < RESIGN_LOW_ELO) es demana
+        // abandona. Cap motor no abandona abans de la jugada 65 (semijugada
+        // 129, la 65a de les blanques): fins llavors la partida es juga. Als nivells baixos (Elo estimat < RESIGN_LOW_ELO) es demana
         // més marge: els jugadors febles encara poden girar una partida. A les
         // simulacions amb el motor de l'app, la regla dona el mateix guanyador
         // que jugar fins al mat i s'estalvia una vintena de jugades.
@@ -167,7 +168,7 @@
         RESIGN_CP_LOW: 700,
         RESIGN_LOW_ELO: 1800,
         RESIGN_PLIES: 6,
-        RESIGN_MIN_PLY: 40,
+        RESIGN_MIN_PLY: 129,
         // Amb la partida decidida (aquest avantatge o un mat), les jugades es
         // mostren al ritme «Àgil», triï l'espectador el ritme que triï.
         DECIDED_PACE_CP: 300,
