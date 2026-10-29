@@ -6039,7 +6039,7 @@
         body.epaper-mode #start-screen .hg-banner-advanced summary { background: #ddd !important; color: #333 !important; border-color: #bbb !important; }
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
-    <link rel="stylesheet" href="bulletpractice.css?v=1.2.0">
+    <link rel="stylesheet" href="bulletpractice.css?v=1.2.1">
 </head>
 <body>
     <!-- Conjunt d'icones de menú (line-icons monocromes, hereten el color del text via currentColor) -->
@@ -6718,7 +6718,7 @@
                             <li><strong>3. Mou i continua</strong>Una sola jugada. Sense repassar-la dues vegades: al bullet, una bona jugada a temps val més que la millor tard.</li>
                         </ol>
                         <p class="bp-muted">L’ordre del pla no és casual: primer precisió (lectura ràpida), després rellotge (radar), després tots dos alhora (sprint) i, finalment, velocitat pura (contrarellotge). El nivell de cada modalitat puja després de 3 sèries bones seguides: almenys un 85% d’encerts, cap temps exhaurit i, si hi ha preguntes, un 75% d’encerts del rellotge (a la contrarellotge, almenys 5 encerts a 30 s o 9 a 1 minut). Baixa si 3 sèries seguides queden per sota del 60%. Cada nivell escurça el temps i porta posicions més difícils.</p>
-                        <p class="bp-muted">Primer llegeix l’enunciat amb el tauler difuminat. Prem ▶ al centre del tauler quan estiguis preparat: només llavors es mostrarà la posició i començarà el rellotge. Es fa a cada exercici, també a sprint i contrarellotge.</p>
+                        <p class="bp-muted">Primer llegeix l’enunciat amb el tauler i les xifres del rellotge difuminats. Prem ▶ al centre del tauler quan estiguis preparat: només llavors es mostraran la posició i el temps restant, i començarà el rellotge. Es fa a cada exercici, també a radar, sprint i contrarellotge.</p>
                         <p class="bp-muted">Mesurem el temps des del ▶ fins a executar la decisió i el record del temps restant; la lectura de l’enunciat queda fora del còmput. Aquests resultats tenen un progrés propi, independent del ROC de les partides. Si surts de l’app, la sèrie queda interrompuda per no falsejar els temps.</p>
                         <p class="bp-muted">Les posicions són de partides reals: problemes d’una jugada de la base de dades oberta de Lichess (domini públic, CC0), amb totes les respostes vàlides comprovades amb Stockfish. Pots tocar origen i destí o arrossegar la peça.</p>
                     </details>
@@ -6732,10 +6732,10 @@
                         <div id="bp-board"></div>
                         <div id="bp-flash" class="bp-flash" aria-live="polite"></div>
                         <div id="bp-start-overlay" class="bp-start-overlay" hidden>
-                            <button id="bp-start-play" class="bp-start-play" type="button" aria-label="Mostrar el tauler i començar a comptar el temps">
+                            <button id="bp-start-play" class="bp-start-play" type="button" aria-label="Mostrar el tauler i el rellotge i començar a comptar el temps">
                                 <span class="bp-start-icon" aria-hidden="true">▶</span>
                                 <span class="bp-start-label">Comença l’exercici</span>
-                                <span class="bp-start-hint">Prem per veure el tauler i activar el rellotge</span>
+                                <span class="bp-start-hint">Prem per veure el tauler i el temps, i començar</span>
                             </button>
                         </div>
                     </div>
@@ -9384,7 +9384,7 @@
     <script src="historytv.js?v=1.0.1"></script>
     <script src="boardexperience.js?v=1.0.2"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
-    <script src="bulletpractice.js?v=1.2.1"></script>
+    <script src="bulletpractice.js?v=1.2.2"></script>
     <script src="app.js?v=1.0.118"></script>
 
     <!-- Service Worker Registration -->
