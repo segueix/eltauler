@@ -70,6 +70,8 @@
 
     <!-- Aplica el color abans de pintar la pàgina: evita el flaix del tema antic. -->
     <script src="fonscolors.js?v=1.1.0"></script>
+    <!-- Manté el mòbil despert en qualsevol secció, inclosa Stockfish vs Lozza TV. -->
+    <script src="pantallaactiva.js?v=1.0.0"></script>
     <style>
         :root {
             --bg-dark: #1a1410;
@@ -7074,6 +7076,15 @@
                     </div>
                 </div>
                 <div class="setting-help">Ajusta la mida del text, botons i categories de tota l'app. Ideal per a mòbil.</div>
+                <div class="setting-row">
+                    <label class="setting-label" for="keep-screen-on-toggle">Mantenir la pantalla encesa</label>
+                    <label class="epaper-toggle">
+                        <input type="checkbox" id="keep-screen-on-toggle" checked>
+                        <span class="epaper-slider"></span>
+                    </label>
+                </div>
+                <div class="setting-help" id="keep-screen-on-status" role="status" aria-live="polite">Pantalla activa mentre utilitzis El Tauler.</div>
+                <div class="setting-help">Activat per defecte a totes les seccions, també a Stockfish vs Lozza TV. En segon pla s'allibera per estalviar bateria; el dispositiu pot limitar aquesta funció.</div>
                 <div class="setting-row">
                     <div class="setting-label">Mode dia (tema clar)</div>
                     <label class="epaper-toggle">
