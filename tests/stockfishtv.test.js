@@ -1943,6 +1943,24 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
         ctl.close();
     });
 
+    test('les dues etiquetes de motors destaquen amb fons blanc, nom gran i color de les peces', () => {
+        const fs = require('fs');
+        const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+        const js = fs.readFileSync(require.resolve('../stockfishtv'), 'utf8');
+        for (const color of ['black', 'white']) {
+            expect(html).toContain('id="sftv-player-' + color + '"');
+            expect(html).toContain('id="sftv-name-' + color + '"');
+            expect(html).toContain('id="sftv-color-' + color + '"');
+            expect(html).toContain('id="sftv-meta-' + color + '"');
+        }
+        expect(html).toMatch(/\\.sftv-player \\{[^}]*background: #fff/s);
+        expect(html).toMatch(/\\.sftv-player-name \\{[^}]*font-size: clamp\\(1\\.2rem,/s);
+        expect(html).toContain('.sftv-player.is-turn .sftv-player-name');
+        expect(js).toContain("g.engines[color] === 'lozza' ? 'Lozza' : 'Stockfish 19'");
+        expect(js).toContain("showPlayer('w', 'white')");
+        expect(js).toContain("showPlayer('b', 'black')");
+    });
+
     test('la interfície no ofereix Stockfish 2019 ni un selector; sempre arrenca 19', () => {
         const html = require('fs').readFileSync(path.join(__dirname, '../index.html'), 'utf8');
         expect(html).not.toContain('id="sftv-engine"');
