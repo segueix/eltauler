@@ -15,13 +15,19 @@
     let seenGame = null, currentPick = null, lastAnimated = null, bound = false;
     function read(m) {
         if (ledger) return ledger;
-        try { ledger = m.normalize(JSON.parse(root.localStorage.getItem(m.KEY) || 'null')); }
+        try { ledger = m.normalize(JSON.parse(root.localStorage.getItem(m.KEY)
+            || root.localStorage.getItem('eltauler_tv_league_v1') || 'null')); }
         catch (_) { ledger = m.normalize(null); }
         return ledger;
     }
     function persist(m) {
-        try { root.localStorage.setItem(m.KEY, JSON.stringify(m.normalize(ledger))); }
-        catch (_) {}
+        try {
+            root.localStorage.setItem(m.KEY, JSON.stringify(m.normalize(ledger)));
+            // La versió inicial feia servir un prefix que la sincronització
+            // general podria recollir: la consolidem en una clau estrictament TV.
+            if (typeof root.localStorage.removeItem === 'function')
+                root.localStorage.removeItem('eltauler_tv_league_v1');
+        } catch (_) {}
     }
     function text(id, value) {
         const e = root.document.getElementById(id);
