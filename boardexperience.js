@@ -210,7 +210,19 @@
             if (!await wait(TV.TV_CONFIG.MOVE_PREVIEW_MS, expected) || !check()) return false;
             preview = null; paint(); return true;
         }
-        const session = { el, refresh, stop, dispose, anticipate, cancelPreview, sync, settled: () => speech || Promise.resolve(), unlock: () => { suspended = false; voice.unlock(); audio.sync(true); } };
+        // Llegeix un text que no és cap jugada (p. ex. la màxima d'un exercici)
+        // amb la mateixa veu i només si «Veu i ràdio» la té activada.
+        function say(text) {
+            if (disposed || !text || !voice.isOn() || !visible(el)) return Promise.resolve({ spoken: false, reason: 'off' });
+            suspended = false; cancelPreview(); stopAll(id); if (env.beforeVoice) env.beforeVoice();
+            voice.unlock();
+            const words = TV.tvSpeechText(text);
+            speech = narrator.speak(words, { maxWaitMs: TV.tvSpeechMaxWaitMs(words) });
+            const activeSpeech = speech;
+            speech.then(() => { if (speech === activeSpeech && !disposed) audio.sync(); });
+            return speech;
+        }
+        const session = { el, refresh, stop, dispose, anticipate, cancelPreview, sync, say, settled: () => speech || Promise.resolve(), unlock: () => { suspended = false; voice.unlock(); audio.sync(true); } };
         sessions.set(id, session); observeScreens();
         sync(board.fen()); return board;
     }
@@ -218,6 +230,7 @@
         refresh: id => { const s = sessions.get(id); if (s) s.refresh(); },
         cancel: id => { const s = sessions.get(id); if (s) s.stop(); },
         unlock: id => { const s = sessions.get(id); if (s) s.unlock(); },
+        say: (id, text) => { const s = sessions.get(id); return s ? s.say(text) : Promise.resolve({ spoken: false, reason: 'no-board' }); },
         settled: id => { const s = sessions.get(id); return s ? s.settled() : Promise.resolve(); },
         preview: (id, move, valid) => { const s = sessions.get(id); return s ? s.anticipate(move, valid) : Promise.resolve(false); }
     };

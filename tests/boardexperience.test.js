@@ -125,7 +125,8 @@ describe('embolcall del tauler de chessboard.js', () => {
         board.resize = () => {}; board.destroy = () => {};
         return board;
     }
-    function load() {
+    function load(voiceOn = false) {
+        const sandboxSpeak = jest.fn(() => Promise.resolve({ spoken: true }));
         const boardEl = Object.assign(fakeElement('myBoard'), { querySelector: () => null });
         const elements = { myBoard: boardEl };
         const sandbox = {
@@ -137,17 +138,18 @@ describe('embolcall del tauler de chessboard.js', () => {
             Chessboard: jest.fn(fakeChessboard),
             ElTaulerStockfishTV: { TV_CONFIG: { SPEEDS: { calm: { label: 'Tranquil' } }, MOVE_ANIMATION_MS: 750 },
                 tvNormalizePrefs: () => ({ speed: 'calm' }),
-                createTvVoice: () => ({ isOn: () => false, unlock() {}, stop() {} }),
+                createTvVoice: () => ({ isOn: () => voiceOn, unlock() {}, stop() {} }),
+                tvSpeechText: t => t, tvSpeechMaxWaitMs: () => 4000,
                 createBroadcastAudioControls: () => ({ bind() {}, render() {}, dispose() {}, sync() {} }),
                 applyBroadcastHighlights: jest.fn() },
-            ElTaulerGameBroadcast: { createNarrator: () => ({ stop() {}, speak: () => Promise.resolve({}) }), comment: () => null }
+            ElTaulerGameBroadcast: { createNarrator: () => ({ stop() {}, speak: sandboxSpeak }), comment: () => null }
         };
         sandbox.self = sandbox;
         vm.createContext(sandbox);
         vm.runInContext(fs.readFileSync(require.resolve('../boardexperience.js'), 'utf8'), sandbox);
         const api = sandbox.ElTaulerBoardExperience;
         api.configure({ Chess, bridge: {} });
-        return { api, sandbox };
+        return { api, sandbox, speak: sandboxSpeak };
     }
 
     test('crear el tauler, llegir-ne la FEN i moure-hi peces no entra en bucle', () => {
@@ -171,5 +173,19 @@ describe('embolcall del tauler de chessboard.js', () => {
         const game = new Chess();
         api.createBoard('myBoard', { position: 'start' }, () => ({ chess: game, key: game }));
         expect(() => { api.stopAll(); api.cancel('myBoard'); api.refresh('myBoard'); }).not.toThrow();
+    });
+
+    test('say llegeix un text (la màxima d\'un exercici) només amb la veu activada', async () => {
+        const off = load(false);
+        off.api.createBoard('myBoard', { position: 'start' }, () => ({ chess: new Chess() }));
+        expect(await off.api.say('myBoard', 'Una màxima.')).toMatchObject({ spoken: false });
+        expect(off.speak).not.toHaveBeenCalled();
+
+        const on = load(true);
+        on.api.createBoard('myBoard', { position: 'start' }, () => ({ chess: new Chess() }));
+        expect(await on.api.say('myBoard', 'Una màxima.')).toMatchObject({ spoken: true });
+        expect(on.speak).toHaveBeenCalledWith('Una màxima.', { maxWaitMs: 4000 });
+        expect(await on.api.say('myBoard', '')).toMatchObject({ spoken: false });
+        expect(await on.api.say('cap-tauler', 'Text.')).toMatchObject({ spoken: false, reason: 'no-board' });
     });
 });

@@ -572,7 +572,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   abans de 8 màximes. També que
   el mòdul es carrega abans d'`app.js`, que el botó prova els llibres abans
   d'OpenAI i del banc local, que la línia d'emergència no compta com a
-  verificada i que la memòria no se sincronitza.
+  verificada, que la memòria no se sincronitza, que les estratagemes no
+  diuen de quin estratagema vénen, que totes les màximes del botó passen per
+  la mateixa caixa (tota l'amplada, fletxes a sota) i que es llegeixen amb
+  la veu del tauler. A `boardexperience.test.js`, que `say` només llegeix
+  amb la veu activada.
 - **`deploy-inject.test.js`** — els scripts que el desplegament
   (`.github/workflows/desplega-web.yml`) aplica a la portada abans de
   publicar-la: `scripts/inject-remigi-link.py` (accés a Remigi dins la barra de
