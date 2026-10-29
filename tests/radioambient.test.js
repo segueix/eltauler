@@ -1,4 +1,7 @@
 const R = require('../radioambient');
+// Generar música (32 s de mostres) és feina de CPU: als servidors d'integració
+// pot trigar uns quants segons, més del límit per defecte de 5 s.
+jest.setTimeout(30000);
 function context(state = 'running') {
     const sources = [], gains = [];
     const ctx = { state, sampleRate: 48000, currentTime: 1, destination: {}, sources, gains,
@@ -95,15 +98,18 @@ describe('cinc melodies, una a l’atzar a cada partida', () => {
     });
 
     test('la generació a trossos dona exactament el mateix i deixa respirar la pantalla', async () => {
-        const sync = R.samples('oriental', 22050, seeded(3));
-        let slices = 0;
-        const data = await R.samplesAsync('oriental', 22050, seeded(3), { budgetMs: 2, later: fn => { slices++; setImmediate(fn); } });
+        // Rellotge simulat (1 ms per consulta) i freqüència de mostreig baixa:
+        // el nombre de trossos i la durada no depenen de la velocitat de la màquina.
+        const sync = R.samples('oriental', 8000, seeded(3));
+        let slices = 0, clock = 0;
+        const data = await R.samplesAsync('oriental', 8000, seeded(3),
+            { budgetMs: 5, now: () => ++clock, later: fn => { slices++; setImmediate(fn); } });
         expect(slices).toBeGreaterThan(3);
         expect(data).toHaveLength(sync.length);
         let diff = 0;
         for (let i = 0; i < sync.length; i++) diff = Math.max(diff, Math.abs(data[i] - sync[i]));
         expect(diff).toBe(0);
-    });
+    }, 30000);
     test('una generació cancel·lada s’atura', async () => {
         await expect(R.samplesAsync('vals', 22050, seeded(), { cancelled: () => true })).rejects.toThrow('cancelled');
     });

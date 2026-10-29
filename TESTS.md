@@ -252,7 +252,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   siguin **sempre les tres** jugades teòriques següents de la línia amb les dues
   respostes del rival de la mateixa línia i sense rèplica sobrera a l'últim pas,
   que una línia que no arriba a tres jugades no doni exercici, la classificació del motiu de cada
-  jugada teòrica (enroc, clavada, fianchetto, palanca…) i la tria sense
+  jugada teòrica (enroc, clavada, alfil a la diagonal llarga, palanca…) i la tria sense
   repetir-se. La prova de fons recorre el repertori REAL (`CURATED_OPENINGS`):
   cada obertura ha de donar almenys un exercici i tota la línia ha de ser legal
   des de la FEN de partida.
@@ -403,7 +403,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   màxima de 100 jugades. **Partides decidides**: abandona qui perd quan
   l'anàlisi a força plena dona 5 peons (7 als nivells d'Elo estimat < 1800) o
   un mat al mateix bàndol durant 6 semijugades seguides, mai abans de la jugada
-  20; una remuntada o un canvi de bàndol reinicien la sèrie i una anàlisi poc
+  65 (semijugada 129); una remuntada o un canvi de bàndol reinicien la sèrie i una anàlisi poc
   fiable no hi compta. Amb 3 peons d'avantatge les jugades van al ritme àgil.
   Una partida de cada dues comença amb una obertura que desequilibra aviat
   (gambits, partides obertes, sicilianes…), i la prova del bucle comprova que
@@ -508,7 +508,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   de català del redactor sobre tots els comentaris, varietat (cap frase
   repetida seguida, ≥90% de frases diferents, cap tipus més de tres cops
   seguits), brevetat (majoria d'una sola frase), definicions bàsiques una sola
-  vegada, resum estratègic espaiat i sense repetir-se, i la integració amb el
+  vegada, resum estratègic espaiat i sense repetir-se (onze introduccions
+  que no es repeteixen seguides, diverses maneres de dir el material, la
+  valoració, els reis i els peons passats, «però» quan el material i
+  l'anàlisi afavoreixen bàndols diferents, i la qualitat dita amb les peces:
+  «torre per cavall» en lloc de «la qualitat de més»), i la integració amb el
   controlador (comentari lligat a la posició visible, veu que llegeix el mateix
   text sense cues i cap anàlisi d'una posició acabada).
 - **`veuneural.test.js`** — veus neuronals **Matxa** (BSC, `veuneural.js`) amb
@@ -543,6 +547,17 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   hi encadena amb un fos, baixa el volum quan parla la veu, i es comporta bé
   sense Web Audio, amb errors i amb un context que es reprèn tard. Els sons
   antics (`studio`, `tuning`, `theme`) es llegeixen com a música.
+- **`estratagemes.test.js`** — **Les 36 estratagemes** (`estratagemes.js`):
+  26 estratagemes amb el número tradicional i 4 frases originals cadascun
+  (104), totes breus, acabades en punt, sense «victòries segures» ni
+  citacions, i cap que el corrector de català hagi de tocar; cada estratagema
+  lligat a motius verificats concrets (atac doble, clavada, eliminar el
+  defensor, escac…); les mateixes garanties que l'Art de la Guerra
+  (certificació, profunditat, urgències, sacrifici només amb variant
+  certificada), 7 semijugades entre frases i 12 per repetir estratagema,
+  memòria pura i serialitzable, i el **prestatge** `tvBookshelf` que alterna
+  els dos llibres, marca d'on ve cada frase i no canvia cap comentari factual
+  a les partides de prova. També que «la iniciativa» no s'apostrofa.
 - **`deploy-inject.test.js`** — els scripts que el desplegament
   (`.github/workflows/desplega-web.yml`) aplica a la portada abans de
   publicar-la: `scripts/inject-remigi-link.py` (accés a Remigi dins la barra de

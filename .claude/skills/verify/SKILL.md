@@ -69,7 +69,7 @@ Conduir amb Playwright + Chromium preinstal·lat
     `_controller().userMoves(casella)` dona els destins legals.
     **Abandonament**: una partida decidida acaba amb `game.end.reason ===
     'resign'`; la sèrie és a `_controller()._internal.game.resign`. Per veure-ho
-    en pocs minuts, abans d'obrir la TV baixar `TV_CONFIG.RESIGN_MIN_PLY` (p. ex.
+    en pocs minuts (per defecte no abandona ningú abans de la jugada 65), abans d'obrir la TV baixar `TV_CONFIG.RESIGN_MIN_PLY` (p. ex.
     16), `MOVE_PREVIEW_MS`, `INTRO_DELAY_MS`, `SPEEDS.quick` i
     `PLAYER_MOVETIME_MS.skill`, i esperar `game.end` (el resultat surt a
     `.sftv-result-head` / `.sftv-result-text`). **Nivells desiguals**:

@@ -28,7 +28,7 @@
         ['isolatedPawn','peó aïllat','posicional',null],['doubledPawn','peons doblats','posicional',null],
         ['passedPawn','peó passat','posicional','advancedPawn'],['connectedPassedPawns','peons passats connectats','posicional',null],
         ['pawnMajority','majoria de peons','posicional',null],['pawnChain','cadena de peons','posicional',null],
-        ['bishopPair','parella d’alfils','posicional',null],['fianchetto','fianquet','posicional',null],
+        ['bishopPair','parella d’alfils','posicional',null],['fianchetto','alfil a la diagonal llarga','posicional',null],
         ['outpost','casella avançada protegida','posicional',null],['knightOutpost','cavall en posició avançada','posicional',null],
         ['weakSquare','casella feble','posicional',null],['pawnBreak','ruptura de peons','posicional',null],
         ['castling','enroc','defensa','castling'],['kingsideAttack','atac al flanc de rei','defensa','kingsideAttack'],
@@ -246,7 +246,7 @@
                 pieces(before,color,'r').filter(q=>FILE(q.sq)===FILE(played.to)).length<2)
                 add('doubledRooks',{file:played.to[0]},'Les '+sideName(color)+' han situat dues torres a la mateixa columna.');
             if(played.piece==='b'&&['b2','g2','b7','g7'].includes(played.to))
-                add('fianchetto',{square:played.to},'L’alfil ocupa una casella típica de fianquet.');
+                add('fianchetto',{square:played.to},'L’alfil s’instal·la a la diagonal llarga.');
             if(played.piece==='p' && p) {
                 if(!fPawn(after,color,FILE(p.sq)-1).length && !fPawn(after,color,FILE(p.sq)+1).length &&
                     ((fPawn(before,color,FILE(played.from)-1).length + fPawn(before,color,FILE(played.from)+1).length)>0 || FILE(played.from)!==FILE(played.to)))

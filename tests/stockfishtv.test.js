@@ -286,7 +286,7 @@ describe('valoracions normalitzades i finals de partida', () => {
 describe('partides decidides: abandonament i ritme', () => {
     const cp = (value, depth = 16) => ({ reliable: depth >= C.MIN_RELIABLE_DEPTH, best: { type: 'cp', value } });
     const mate = value => ({ reliable: true, best: { type: 'mate', value } });
-    function run(list, startPly = 40, threshold = 500) {
+    function run(list, startPly = C.RESIGN_MIN_PLY, threshold = 500) {
         let state = null, end = null, at = null;
         list.forEach((a, i) => { const r = TV.tvResignStep(state, a, startPly + i, threshold); state = r.state; if (r.end && !end) { end = r.end; at = startPly + i; } });
         return { state, end, at };
@@ -301,7 +301,7 @@ describe('partides decidides: abandonament i ritme', () => {
     });
     test('abandona qui perd després de sis semijugades seguides amb el mateix bàndol clarament guanyador', () => {
         const r = run([cp(600), cp(650), cp(700), mate(5), cp(800), cp(900)]);
-        expect(r.at).toBe(45);
+        expect(r.at).toBe(C.RESIGN_MIN_PLY + 5);
         expect(r.end).toEqual(expect.objectContaining({ result: '1-0', winner: 'w', reason: 'resign' }));
         expect(r.end.text).toBe('Les negres abandonen: l\'avantatge de les blanques ja és decisiu. Guanyen les blanques.');
         expect(TV.tvResultHeadline(r.end)).toMatch(/Guanyen les blanques/);
@@ -318,9 +318,13 @@ describe('partides decidides: abandonament i ritme', () => {
         expect(r.end).toBeNull();
         expect(run([cp(600), cp(600), cp(600, 6), null, cp(600), cp(600), cp(600), cp(600)]).end).not.toBeNull();
     });
-    test('mai abans de la jugada 20, encara que la partida ja estigui decidida', () => {
-        expect(run(Array.from({ length: 12 }, () => cp(900)), 26).end).toBeNull();
-        expect(run(Array.from({ length: 16 }, () => cp(900)), 26).at).toBe(40);
+    test('mai abans de la jugada 65, encara que la partida ja estigui decidida', () => {
+        expect(C.RESIGN_MIN_PLY).toBe(129);
+        // Decidida des de la jugada 20: cap abandonament fins a la 65.
+        expect(run(Array.from({ length: 88 }, () => cp(900)), 40).end).toBeNull();
+        expect(run(Array.from({ length: 100 }, () => cp(900)), 40).at).toBe(129);
+        expect(run(Array.from({ length: 12 }, () => cp(-900)), 115).end).toBeNull();
+        expect(run(Array.from({ length: 16 }, () => cp(-900)), 115)).toMatchObject({ at: 129, end: expect.objectContaining({ winner: 'b' }) });
     });
     test('als nivells baixos es demana més marge per abandonar', () => {
         expect(TV.tvResignThresholdCp(SKILL_CAPS, 2)).toBe(C.RESIGN_CP_LOW);
@@ -1050,7 +1054,7 @@ describe('bucle de Stockfish TV', () => {
         // Una línia legal sense repeticions; les negres tenen un avantatge
         // decisiu a partir de la semijugada 30.
         const line = [], g0 = new Chess(), seen = new Set([g0.fen().split(' ').slice(0, 4).join(' ')]);
-        while (line.length < 80) {
+        while (line.length < 150) {
             const next = g0.moves({ verbose: true }).map(m => m.from + m.to + (m.promotion || '')).sort().find(u => {
                 g0.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
                 const key = g0.fen().split(' ').slice(0, 4).join(' '), fresh = !seen.has(key) && !g0.game_over();
@@ -1062,7 +1066,7 @@ describe('bucle de Stockfish TV', () => {
         const engine = fakeEngine({ script: line, delay: 20, evalWhite: plies => plies >= 30 ? -800 : 0 });
         const { ctl, results } = makeController({ engine, loadPrefs: () => ({ speed: 'slow' }) });
         await ctl.open();
-        for (let t = 0; t < 120 && !ctl.state().game.end; t++) await jest.advanceTimersByTimeAsync(5000);
+        for (let t = 0; t < 500 && !ctl.state().game.end; t++) await jest.advanceTimersByTimeAsync(5000);
         const g = ctl.state().game;
         expect(g.end).toEqual(expect.objectContaining({ result: '0-1', winner: 'b', reason: 'resign' }));
         expect(g.end.text).toMatch(/^Les blanques abandonen/);
@@ -1951,5 +1955,28 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
         const js = require('fs').readFileSync(require.resolve('../stockfishtv'), 'utf8');
         expect(js).toContain("on('sftv-engine', 'change'");
         expect(js).toContain('controller.replaceEngine(createStockfishTvEngine(engineId))');
+    });
+});
+
+describe('vocabulari planer: cap «fianchetto» als textos de la partida', () => {
+    // Els identificadors interns ('fianchetto', 'fianchetto_prep') es mantenen;
+    // cap text que vegi o senti l'usuari no fa servir la paraula. Els noms
+    // oficials en anglès de la base d'obertures (obertures.js) no hi compten.
+    test.each(['stockfishtv.js', 'patrons.js', 'expressivitat.js', 'app.js', 'core.js', 'gamebroadcast.js', 'index.html'])('%s', file => {
+        const src = require('fs').readFileSync(path.join(__dirname, '..', file), 'utf8');
+        const literals = [...src.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*?fian(?:chet|quet)(?:\\.|(?!\1)[^\\\n])*?)\1/gi)].map(m => m[2]);
+        expect(literals.filter(t => !/^fianchetto(_prep)?$/.test(t))).toEqual([]);
+        if (file === 'index.html') expect(src).not.toMatch(/fian(chet|quet)/i);
+    });
+    test('l’alfil a la gran diagonal es comenta amb paraules planeres', () => {
+        const { Chess } = require('chess.js');
+        const P = require('../patrons');
+        expect(P.INDEX.fianchetto.name).toBe('alfil a la diagonal llarga');
+        const fen = '4k3/8/8/8/8/1P6/8/2B1K3 w - - 0 1';
+        const g = new Chess(fen);
+        const move = g.move({ from: 'c1', to: 'b2' });
+        const hit = P.detect({ ChessCtor: Chess, fenBefore: fen, fenAfter: g.fen(), move, tier: 'mid', ply: 0 }).find(x => x.id === 'fianchetto');
+        expect(hit.text).toBe('L’alfil s’instal·la a la diagonal llarga.');
+        expect(hit.pattern.name + ' ' + hit.text).not.toMatch(/fian(chet|quet)/i);
     });
 });

@@ -52,7 +52,7 @@ describe('Fase 5: catàleg, fiabilitat i llengua', () => {
         const seventh=examine('4k3/8/8/8/8/8/R7/4K3 w - - 0 1','a2a7');
         expect(ids(seventh)).toContain('rookSeventh');
     });
-    test('enroc, fianquet i captures sense atac visible',()=>{
+    test('enroc, alfil a la diagonal llarga i captures sense atac visible',()=>{
         expect(ids(examine('r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1','e1g1'))).toContain('castling');
         expect(ids(examine('4k3/8/8/8/8/1P6/8/2B1K3 w - - 0 1','c1b2'))).toContain('fianchetto');
         const cap=examine('4k3/8/8/8/8/8/8/R2rK3 w - - 0 1','a1d1');
