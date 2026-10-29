@@ -46,10 +46,10 @@
     // Detector: prova visual/legal, no proves d'avantatge. Un motiu del
     // catàleg sense detector NO es pot comunicar automàticament.
     const AUTOMATIC = new Set([
-        'fork','doubleAttack','mate','underpromotion','promotion','backRankMate',
+        'fork','doubleAttack','mate','underpromotion','promotion',
         'centerOccupation','openFile','semiOpenFile','doubledRooks','rookSeventh',
         'isolatedPawn','doubledPawn','passedPawn','connectedPassedPawns','pawnChain',
-        'bishopPair','fianchetto','castling','check','safeCapture','activeKing',
+        'fianchetto','castling','check','safeCapture','activeKing',
         'rookEndgame','pawnEndgame','queenEndgame','bishopEndgame',
         'fiftyMoveRule','insufficientMaterial'
     ]);
