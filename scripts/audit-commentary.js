@@ -8,6 +8,7 @@ const TV = require('../stockfishtv');
 const Expression = require('../expressivitat');
 const Narrative = require('../narrativa');
 const Audit = require('../auditoria');
+const Patterns = require('../patrons');
 
 function seedRng(seed) {
     let state = seed >>> 0;
@@ -61,7 +62,7 @@ function report() {
     return scenarios().map(s => {
         const start = process.hrtime.bigint();
         const rows = TV.tvSimulateCommentary(Chess, {
-            moves: s.moves, tier: 'mid', expression: Expression, narrative: Narrative, quality: Audit
+            moves: s.moves, tier: 'mid', expression: Expression, narrative: Narrative, quality: Audit, patterns: Patterns
         });
         const elapsedMs = Number(process.hrtime.bigint() - start) / 1000000;
         const metrics = Audit.audit(rows);
