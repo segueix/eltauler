@@ -18625,7 +18625,7 @@ function exitOpeningErrorPractice() {
 /* ============ APRÈN UNA OBERTURA (lliçons guiades) ============ */
 const CURATED_OPENINGS = [
     // === Obertures amb blanques ===
-    { eco: 'E01', name: 'Obertura Catalana', userColor: 'w', cat: 'white', idea: 'Combina d4 i c4 amb el fianchetto de l’alfil de rei per pressionar el centre i el flanc de dama a llarg termini.', moves: ['d4','Nf6','c4','e6','g3','d5','Bg2','Be7','Nf3','O-O','O-O'], movePhrases: [
+    { eco: 'E01', name: 'Obertura Catalana', userColor: 'w', cat: 'white', idea: 'Combina d4 i c4 amb l’alfil de rei a g2, a la diagonal llarga, per pressionar el centre i el flanc de dama a llarg termini.', moves: ['d4','Nf6','c4','e6','g3','d5','Bg2','Be7','Nf3','O-O','O-O'], movePhrases: [
         '1.d4 ocupa el centre i prepara una partida posicional amb espai estable.',
         '...Nf6 desenvolupa una peça i pressiona e4 sense comprometre encara l’estructura negra.',
         '2.c4 posa tensió sobre d5 i anuncia l’esperit de gambit de dama.',
@@ -18645,19 +18645,19 @@ const CURATED_OPENINGS = [
     { eco: 'D06', name: 'Gambit de Dama Refusat', userColor: 'w', cat: 'white', idea: 'Tensa el centre i desenvolupa amb harmonia.', moves: ['d4','d5','c4','e6','Nc3','Nf6','Bg5','Be7','e3','O-O','Nf3','h6'] },
     { eco: 'D20', name: 'Gambit de Dama Acceptat', userColor: 'w', cat: 'white', idea: 'El blanc recupera el peó i guanya temps de desenvolupament.', moves: ['d4','d5','c4','dxc4','Nf3','Nf6','e3','e6','Bxc4','c5'] },
     { eco: 'D02', name: 'Sistema Londres', userColor: 'w', cat: 'white', idea: 'Estructura sòlida i fàcil: alfil a f4 abans d\'e3.', moves: ['d4','d5','Nf3','Nf6','Bf4','e6','e3','c5','c3'] },
-    { eco: 'A20', name: 'Obertura Anglesa', userColor: 'w', cat: 'white', idea: 'Control del centre des dels flancs amb c4 i fianchetto.', moves: ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5','cxd5','Nxd5','Bg2','Nb6'] },
-    { eco: 'A04', name: 'Atac Reti', userColor: 'w', cat: 'white', idea: 'Hipermodern: controla el centre amb peces i fianchetto.', moves: ['Nf3','d5','g3','Nf6','Bg2','c6','O-O','Bg4','d3'] },
+    { eco: 'A20', name: 'Obertura Anglesa', userColor: 'w', cat: 'white', idea: 'Control del centre des dels flancs amb c4 i l’alfil de rei a la diagonal llarga (g2).', moves: ['c4','e5','Nc3','Nf6','Nf3','Nc6','g3','d5','cxd5','Nxd5','Bg2','Nb6'] },
+    { eco: 'A04', name: 'Atac Reti', userColor: 'w', cat: 'white', idea: 'Hipermodern: controla el centre amb peces i amb l’alfil de rei a la diagonal llarga.', moves: ['Nf3','d5','g3','Nf6','Bg2','c6','O-O','Bg4','d3'] },
     { eco: 'B03', name: 'Atac dels Quatre Peons', userColor: 'w', cat: 'white', idea: 'Avança quatre peons al centre contra l\'Alekhine; aposta per l\'espai.', moves: ['e4','Nf6','e5','Nd5','d4','d6','c4','Nb6','f4'] },
     { eco: 'D43', name: 'Semieslava', userColor: 'w', cat: 'white', idea: 'Pressió central amb c4 contra l\'estructura sòlida negra.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','e6','Bg5'] },
     { eco: 'C50', name: 'Obertura Italiana (Giuoco Piano)', userColor: 'w', cat: 'white', idea: 'Desenvolupa l\'alfil a c4 apuntant a f7 i prepara c3 i d4; joc obert, natural i molt habitual.', moves: ['e4','e5','Nf3','Nc6','Bc4','Bc5','c3','Nf6','d3','d6'] },
     { eco: 'C23', name: 'Obertura de l\'Alfil', userColor: 'w', cat: 'white', idea: 'Treu l\'alfil a c4 abans del cavall per evitar la Petrov i conservar l\'opció de f4.', moves: ['e4','e5','Bc4','Nf6','d3','Nc6','Nf3','Bc5','c3'] },
-    { eco: 'A07', name: 'Atac Índi de Rei', userColor: 'w', cat: 'white', idea: 'Sistema universal: fianchetto de rei, e4 diferit i atac al flanc de rei amb peces.', moves: ['Nf3','d5','g3','Nf6','Bg2','e6','O-O','Be7','d3','O-O','Nbd2'] },
+    { eco: 'A07', name: 'Atac Índi de Rei', userColor: 'w', cat: 'white', idea: 'Sistema universal: alfil de rei a g2, e4 diferit i atac al flanc de rei amb peces.', moves: ['Nf3','d5','g3','Nf6','Bg2','e6','O-O','Be7','d3','O-O','Nbd2'] },
     { eco: 'B31', name: 'Siciliana: Rossolimo (Bb5)', userColor: 'w', cat: 'white', idea: 'Anti-Siciliana sòlida: l\'alfil a b5 pressiona el cavall c6 i evita les línies obertes més teòriques.', moves: ['e4','c5','Nf3','Nc6','Bb5','g6','Bxc6','dxc6','d3','Bg7'] },
     { eco: 'A45', name: 'Atac Trompowsky', userColor: 'w', cat: 'white', idea: 'Surt amb Bg5 el segon moviment per evitar la teoria índia i canviar pel cavall f6.', moves: ['d4','Nf6','Bg5','Ne4','Bf4','d5','e3','c5','Bd3','Nf6','c3','Nc6'] },
     { eco: 'A46', name: 'Atac Torre', userColor: 'w', cat: 'white', idea: 'Desplegament còmode amb Nf3 i Bg5 contra estructures amb ...e6; fàcil i sòlid.', moves: ['d4','Nf6','Nf3','e6','Bg5','h6','Bh4','b6','e3','Bb7','Nbd2','Be7'] },
     { eco: 'D05', name: 'Sistema Colle', userColor: 'w', cat: 'white', idea: 'Estructura sòlida amb e3 i Bd3 preparant el trencament central e4.', moves: ['d4','d5','Nf3','Nf6','e3','e6','Bd3','c5','c3','Nc6'] },
     { eco: 'A03', name: 'Obertura Bird', userColor: 'w', cat: 'white', idea: 'Controla e5 amb 1.f4 i busca un atac al flanc de rei amb estructura de tipus holandès.', moves: ['f4','d5','Nf3','Nf6','e3','g6','Be2','Bg7','O-O','O-O'] },
-    { eco: 'A01', name: 'Atac Nimzowitsch-Larsen', userColor: 'w', cat: 'white', idea: 'Fianchetto de dama amb 1.b3: l\'alfil a b2 pressiona la diagonal llarga i el centre.', moves: ['b3','e5','Bb2','Nc6','e3','Nf6','Bb5','Bd6','Ne2','O-O','O-O','Re8'] },
+    { eco: 'A01', name: 'Atac Nimzowitsch-Larsen', userColor: 'w', cat: 'white', idea: 'Amb 1.b3, l\'alfil de dama va a b2 i des d\'allà pressiona la diagonal llarga i el centre.', moves: ['b3','e5','Bb2','Nc6','e3','Nf6','Bb5','Bd6','Ne2','O-O','O-O','Re8'] },
     { eco: 'A00', name: 'Obertura Sokolsky (Orangutan)', userColor: 'w', cat: 'white', idea: 'Sorprèn amb 1.b4 guanyant espai al flanc de dama i activant l\'alfil a b2.', moves: ['b4','e5','Bb2','Bxb4','Bxe5','Nf6','Nf3','d6','Bb2','O-O','e3','Nc6'] },
     { eco: 'D00', name: 'Atac Stonewall', userColor: 'w', cat: 'white', idea: 'Aixeca un mur de peons (d4-e3-f4) i ataca el flanc de rei amb l\'alfil a d3.', moves: ['d4','d5','e3','Nf6','Bd3','e6','f4','c5','c3','Nc6'] },
     // === Defenses amb negres ===
@@ -18668,20 +18668,20 @@ const CURATED_OPENINGS = [
     { eco: 'C42', name: 'Defensa Petrov', userColor: 'b', cat: 'black', idea: 'Resposta simètrica i sòlida: negres ataquen el peó e4 immediatament.', moves: ['e4','e5','Nf3','Nf6','Nxe5','d6','Nf3','Nxe4','d4','d5'] },
     { eco: 'C41', name: 'Defensa Philidor', userColor: 'b', cat: 'black', idea: 'Enforteix e5 amb d6; joc sòlid i sense compromisos.', moves: ['e4','e5','Nf3','d6','d4','Nf6','Nc3','Nbd7','Bc4','Be7'] },
     { eco: 'B02', name: 'Defensa Alekhine', userColor: 'b', cat: 'black', idea: 'Provoca l\'avanç dels peons blancs per atacar-los després.', moves: ['e4','Nf6','e5','Nd5','d4','d6','Nf3','Bg4','Be2','e6'] },
-    { eco: 'B06', name: 'Defensa Pirc', userColor: 'b', cat: 'black', idea: 'Hipermoderna: fianchetto de rei i contraatac diferit.', moves: ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2','O-O'] },
+    { eco: 'B06', name: 'Defensa Pirc', userColor: 'b', cat: 'black', idea: 'Hipermoderna: alfil de rei a g7, a la diagonal llarga, i contraatac diferit.', moves: ['e4','d6','d4','Nf6','Nc3','g6','Nf3','Bg7','Be2','O-O'] },
     { eco: 'E60', name: 'Defensa Índia de Rei', userColor: 'b', cat: 'black', idea: 'Cedeix el centre per atacar-lo després amb peces i peons.', moves: ['d4','Nf6','c4','g6','Nc3','Bg7','e4','d6','Nf3','O-O'] },
     { eco: 'E20', name: 'Defensa Nimzo-Índia', userColor: 'b', cat: 'black', idea: 'Clava el cavall c3 per controlar el centre; joc posicional ric.', moves: ['d4','Nf6','c4','e6','Nc3','Bb4','e3','O-O','Bd3','d5'] },
-    { eco: 'E10', name: 'Defensa Índia de Dama', userColor: 'b', cat: 'black', idea: 'Fianchetto de dama; pressiona la diagonal llarga.', moves: ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7','Bg2','Be7'] },
+    { eco: 'E10', name: 'Defensa Índia de Dama', userColor: 'b', cat: 'black', idea: 'L’alfil de dama va a b7 i pressiona la diagonal llarga.', moves: ['d4','Nf6','c4','e6','Nf3','b6','g3','Bb7','Bg2','Be7'] },
     { eco: 'D80', name: 'Defensa Grünfeld', userColor: 'b', cat: 'black', idea: 'Cedeix el centre amb d5xc4 per destruir-lo amb peces i Bg7.', moves: ['d4','Nf6','c4','g6','Nc3','d5','cxd5','Nxd5','e4','Nxc3'] },
     { eco: 'A60', name: 'Defensa Benoni Moderna', userColor: 'b', cat: 'black', idea: 'Accepta espai inferior a canvi de contrajoc dinàmic al flanc de dama.', moves: ['d4','Nf6','c4','c5','d5','e6','Nc3','exd5','cxd5','d6'] },
     { eco: 'A80', name: 'Defensa Holandesa', userColor: 'b', cat: 'black', idea: 'f5 controla e4 i prepara un atac al flanc de rei.', moves: ['d4','f5','g3','Nf6','Bg2','e6','Nf3','Be7','O-O','O-O'] },
     { eco: 'B01', name: 'Defensa Escandinava', userColor: 'b', cat: 'black', idea: 'Desafia e4 immediatament; recupera el peó amb la dama activa.', moves: ['e4','d5','exd5','Qxd5','Nc3','Qa5','d4','Nf6','Nf3','c6'] },
     { eco: 'D10', name: 'Defensa Eslava', userColor: 'b', cat: 'black', idea: 'Protegeix d5 amb c6 i manté l\'alfil actiu fora de la cadena.', moves: ['d4','d5','c4','c6','Nf3','Nf6','Nc3','dxc4','a4','Bf5'] },
     { eco: 'C55', name: 'Defensa dels Dos Cavalls', userColor: 'b', cat: 'black', idea: 'Respon a l\'alfil italià amb ...Nf6 i busca contrajoc tàctic actiu de seguida.', moves: ['e4','e5','Nf3','Nc6','Bc4','Nf6','Ng5','d5','exd5','Na5'] },
-    { eco: 'B06', name: 'Defensa Moderna (Robatsch)', userColor: 'b', cat: 'black', idea: 'Cedeix el centre i fianchetta l\'alfil de rei per contraatacar-lo després amb peces i peons.', moves: ['e4','g6','d4','Bg7','Nc3','d6','Be3','a6','Qd2','b5','f3','Nd7'] },
-    { eco: 'B70', name: 'Siciliana Dragó', userColor: 'b', cat: 'black', idea: 'Fianchetto a g7: l\'alfil mira la diagonal llarga i el negre contraataca al flanc de dama.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','g6'] },
+    { eco: 'B06', name: 'Defensa Moderna (Robatsch)', userColor: 'b', cat: 'black', idea: 'Cedeix el centre i porta l\'alfil de rei a g7 per contraatacar-lo després amb peces i peons.', moves: ['e4','g6','d4','Bg7','Nc3','d6','Be3','a6','Qd2','b5','f3','Nd7'] },
+    { eco: 'B70', name: 'Siciliana Dragó', userColor: 'b', cat: 'black', idea: 'L\'alfil a g7 mira la diagonal llarga i el negre contraataca al flanc de dama.', moves: ['e4','c5','Nf3','d6','d4','cxd4','Nxd4','Nf6','Nc3','g6'] },
     { eco: 'B33', name: 'Siciliana Sveshnikov', userColor: 'b', cat: 'black', idea: 'Avança ...e5 aviat acceptant un peó endarrerit a d6 a canvi d\'activitat de peces.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','Nf6','Nc3','e5'] },
-    { eco: 'B35', name: 'Siciliana Dragó Accelerat', userColor: 'b', cat: 'black', idea: 'Fianchetto ràpid sense ...d6 per estalviar temps i pressionar el centre amb ...d5.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','g6','Nc3','Bg7','Be3','Nf6'] },
+    { eco: 'B35', name: 'Siciliana Dragó Accelerat', userColor: 'b', cat: 'black', idea: 'L\'alfil va de pressa a g7, sense ...d6, per estalviar temps i pressionar el centre amb ...d5.', moves: ['e4','c5','Nf3','Nc6','d4','cxd4','Nxd4','g6','Nc3','Bg7','Be3','Nf6'] },
     { eco: 'B47', name: 'Siciliana Taimanov', userColor: 'b', cat: 'black', idea: 'Desplegament flexible amb ...e6 i ...Qc7; manté opcions sobre on col·locar les peces.', moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','Nc6','Nc3','Qc7'] },
     { eco: 'B42', name: 'Siciliana Kan', userColor: 'b', cat: 'black', idea: 'Estructura elàstica amb ...a6 i ...e6: prepara ...b5 i evita pins primerencs.', moves: ['e4','c5','Nf3','e6','d4','cxd4','Nxd4','a6','Nc3','Qc7'] },
     { eco: 'E11', name: 'Defensa Bogo-Índia', userColor: 'b', cat: 'black', idea: 'Clava amb ...Bb4+ per simplificar i jugar una posició sòlida i equilibrada.', moves: ['d4','Nf6','c4','e6','Nf3','Bb4+','Bd2','Qe7','g3','Nc6','Bg2','Bxd2+'] },
@@ -22417,7 +22417,7 @@ const OPENING_HIERO_MOTIFS = {
         ]
     },
     fianchetto_prep: {
-        label: 'preparació del fianchetto',
+        label: 'obrir la diagonal llarga a l’alfil',
         plain: 'obre la casa de l’alfil per posar-lo a la diagonal llarga',
         clues: [
             'Abans que el vigilant s’assegui, algú ha d’obrir-li la finestra. Un pas petit al flanc val una mirada llarga.',
@@ -32826,7 +32826,7 @@ const NORMA_PRINCIPLES = [
         id: 'obre_alfils', score: 40,
         build(ctx) {
             if (!ctx.opening || !ctx.blockedBishops) return null;
-            return { title: 'Obre camí als alfils', text: "Els teus alfils encara miren una paret de peons. Un alfil només val el que val la seva diagonal: avança els peons centrals (o prepara un fianchetto) perquè vegin tauler abans que la partida es decideixi sense ells." };
+            return { title: 'Obre camí als alfils', text: "Els teus alfils encara miren una paret de peons. Un alfil només val el que val la seva diagonal: avança els peons centrals (o el peó del cavall, per posar l’alfil a la diagonal llarga) perquè vegin tauler abans que la partida es decideixi sense ells." };
         }
     },
     {

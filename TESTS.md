@@ -252,7 +252,7 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   siguin **sempre les tres** jugades teòriques següents de la línia amb les dues
   respostes del rival de la mateixa línia i sense rèplica sobrera a l'últim pas,
   que una línia que no arriba a tres jugades no doni exercici, la classificació del motiu de cada
-  jugada teòrica (enroc, clavada, fianchetto, palanca…) i la tria sense
+  jugada teòrica (enroc, clavada, alfil a la diagonal llarga, palanca…) i la tria sense
   repetir-se. La prova de fons recorre el repertori REAL (`CURATED_OPENINGS`):
   cada obertura ha de donar almenys un exercici i tota la línia ha de ser legal
   des de la FEN de partida.

@@ -1946,7 +1946,8 @@
         }
 
         // 18) Diagonals: peó que obre o tanca la diagonal d'un alfil propi,
-        //     i fianchetto.
+        //     i alfil a la gran diagonal (b2/g2/b7/g7 darrere el peó avançat).
+        //     Els comentaris no fan servir la paraula «fianchetto».
         if (H && before && after && mv.piece === 'p' && !mv.captured) {
             piecesOf(after.grid, color, 'b').forEach((b) => {
                 const mobB = targetsFrom(H, before.grid, b.sq).length;
@@ -1959,8 +1960,8 @@
             const pawnSq = mv.to[0] + (color === 'w' ? '3' : '6');
             const p = gridAt(after.grid, pawnSq);
             if (p && p.c === color && p.t === 'p') {
-                add('diagonal', ['Fianchetto: l\'alfil ' + me.adj + ' s\'instal·la a la gran diagonal.', 'L\'alfil ' + me.adj + ' es col·loca en fianchetto a ' + mv.to + '.'],
-                    { key: 'fianchetto:' + color + ':' + mv.to, define: { term: 'fianchetto', text: 'La gran diagonal és la més llarga del tauler, d\'una cantonada a l\'altra.' } });
+                add('diagonal', ['L\'alfil ' + me.adj + ' s\'instal·la a la gran diagonal.', 'L\'alfil ' + me.adj + ' es col·loca a ' + mv.to + ', a la gran diagonal, darrere el peó que ha avançat.'],
+                    { key: 'granDiagonal:' + color + ':' + mv.to, define: { term: 'gran diagonal', text: 'La gran diagonal és la més llarga del tauler, d\'una cantonada a l\'altra.' } });
             }
         }
 

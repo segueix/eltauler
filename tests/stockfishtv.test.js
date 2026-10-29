@@ -1953,3 +1953,26 @@ describe('Stockfish 19 a la TV (prova pilot)', () => {
         expect(js).toContain('controller.replaceEngine(createStockfishTvEngine(engineId))');
     });
 });
+
+describe('vocabulari planer: cap «fianchetto» als textos de la partida', () => {
+    // Els identificadors interns ('fianchetto', 'fianchetto_prep') es mantenen;
+    // cap text que vegi o senti l'usuari no fa servir la paraula. Els noms
+    // oficials en anglès de la base d'obertures (obertures.js) no hi compten.
+    test.each(['stockfishtv.js', 'patrons.js', 'expressivitat.js', 'app.js', 'core.js', 'gamebroadcast.js', 'index.html'])('%s', file => {
+        const src = require('fs').readFileSync(path.join(__dirname, '..', file), 'utf8');
+        const literals = [...src.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*?fian(?:chet|quet)(?:\\.|(?!\1)[^\\\n])*?)\1/gi)].map(m => m[2]);
+        expect(literals.filter(t => !/^fianchetto(_prep)?$/.test(t))).toEqual([]);
+        if (file === 'index.html') expect(src).not.toMatch(/fian(chet|quet)/i);
+    });
+    test('l’alfil a la gran diagonal es comenta amb paraules planeres', () => {
+        const { Chess } = require('chess.js');
+        const P = require('../patrons');
+        expect(P.INDEX.fianchetto.name).toBe('alfil a la diagonal llarga');
+        const fen = '4k3/8/8/8/8/1P6/8/2B1K3 w - - 0 1';
+        const g = new Chess(fen);
+        const move = g.move({ from: 'c1', to: 'b2' });
+        const hit = P.detect({ ChessCtor: Chess, fenBefore: fen, fenAfter: g.fen(), move, tier: 'mid', ply: 0 }).find(x => x.id === 'fianchetto');
+        expect(hit.text).toBe('L’alfil s’instal·la a la diagonal llarga.');
+        expect(hit.pattern.name + ' ' + hit.text).not.toMatch(/fian(chet|quet)/i);
+    });
+});
