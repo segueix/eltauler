@@ -52,7 +52,7 @@ describe('Campionat local Stockfish vs Lozza', () => {
         const normalized = L.normalize(JSON.parse(JSON.stringify(first)));
         expect(L.stats(normalized, 'v1').wins.draw).toBe(1);
         expect(L.stats(normalized, 'v2').total).toBe(0);
-        expect(L.KEY).toBe('eltauler_tv_league_v1');
+        expect(L.KEY).toBe('tauler_tv_league_v1');
     });
     test('el nom visible no canvia però la veu diu Stoc fix', () => {
         expect(TV.tvSpeechText('Stockfish contra Lozza. STOCKFISH guanya.')).toBe(
