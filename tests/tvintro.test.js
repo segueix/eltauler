@@ -54,9 +54,9 @@ describe('50 presentacions breus, genuïnes i sense espòilers',()=>{
         expect(missing).not.toMatch(/Stockfish contra Lozza|duel entre Stockfish i Lozza/);
     });
     test('la detecció d’obertura dinàmica no inventa tàctica quan no hi és',()=>{
-        const calm=scene(6,{duel:plan('w',{sharp:true}),sharpOpening:false,preparedPlies:6});
+        const calm=scene(5,{duel:plan('w',{sharp:true}),sharpOpening:false,preparedPlies:6});
         expect(calm).not.toMatch(/perfil més dinàmic/);
-        const sharp=scene(6,{duel:plan('w',{sharp:true}),sharpOpening:true,preparedPlies:6});
+        const sharp=scene(5,{duel:plan('w',{sharp:true}),sharpOpening:true,preparedPlies:6});
         expect(sharp).toContain('perfil més dinàmic');
     });
     test('la frase inicial continua sent una locució senzilla per a Matxa',()=>{
