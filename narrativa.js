@@ -82,6 +82,27 @@
             && SQUARE.test(move.from || '') && SQUARE.test(move.to || ''));
     }
     function words(s) { return String(s || '').trim().split(/\s+/).filter(Boolean).length; }
+    // Fase 4: els temes sobre peces concretes caduquen tan bon punt la
+    // peça marxa o és capturada, encara que el comentarista faci silenci.
+    // Això evita reconnectar una pressió o un peó passat amb una altra peça
+    // que posteriorment ocupi la mateixa casella.
+    function trackThreads(threads, move) {
+        const enPassant = !!(move && typeof move.flags === 'string' && move.flags.indexOf('e') !== -1);
+        const capturedSquare = enPassant ? move.to[0] + move.from[1] : move.to;
+        return (threads || []).map(t => {
+            if (t.group === 'passed' && t.lastSquare) {
+                if (move.captured === 'p' && move.color !== t.color && capturedSquare === t.lastSquare) return null;
+                if (move.piece === 'p' && move.color === t.color && move.from === t.lastSquare) {
+                    return Object.assign({}, t, { lastSquare: move.to });
+                }
+            }
+            if (t.group === 'pressure') {
+                if (move.color !== t.color && move.from === t.loc) return null;
+                if (move.captured && capturedSquare === t.loc) return null;
+            }
+            return t;
+        }).filter(Boolean);
+    }
     function apply(story, chosen, opts) {
         const o = opts || {};
         const ply = o.ply;
@@ -93,6 +114,7 @@
         // Només recordem idees efectivament comentades. Ni motius descartats
         // pel selector ni hipòtesis del motor es converteixen en fets narrats.
         if (!chosen || !chosen.text || !chosen.key) {
+            previous.threads = trackThreads(previous.threads, o.move);
             return { story: previous, comment: chosen, event: null };
         }
 
@@ -146,6 +168,9 @@
             previous.lastNarrationPly = ply;
         }
 
+        // La captura que acaba d'explicar-se tanca el fil; els temes de
+        // peces capturades o desplaçades tampoc sobreviuen en silenci.
+        previous.threads = trackThreads(previous.threads, o.move);
         if (closed) previous.threads = previous.threads.filter(t => t.topic !== closed.topic);
         if (topic) {
             previous.threads = previous.threads.filter(t => t.topic !== topic.topic);
