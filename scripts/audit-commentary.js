@@ -26,7 +26,7 @@ function fromSan(sans) {
     }
     return { moves, ended: game.game_over(), fen: game.fen() };
 }
-function playSeed(seed, maxPlies = 360) {
+function playSeed(seed, maxPlies = 900) {
     const random = seedRng(seed);
     const g = new Chess(), moves = [];
     while (!g.game_over() && moves.length < maxPlies) {
@@ -51,7 +51,7 @@ function playSeed(seed, maxPlies = 360) {
 const miniatures = [
     { name: 'mat del boig', ...fromSan(['f3','e5','g4','Qh4#']) },
     { name: 'mat del pastor', ...fromSan(['e4','e5','Qh5','Nc6','Bc4','Nf6','Qxf7#']) },
-    { name: 'defensa del pastor', ...fromSan(['e4','e5','Qh5','Nc6','Bc4','g6','Qf3','Nf6']) }
+    { name: 'mat del pastor alternatiu', ...fromSan(['e4','e5','Bc4','Nc6','Qh5','Nf6','Qxf7#']) }
 ];
 function scenarios() {
     const random = [21,69,2026,2027].map(seed => ({ name: 'simulació legal ' + seed, ...playSeed(seed) }));
