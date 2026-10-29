@@ -58,7 +58,7 @@ describe('Pedagogia dels jeroglífics — explicacions verificables', () => {
         const s = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
         expect(s).toContain('ElTaulerJeroPedagogia.solvedStep');
         expect(s).toContain('Ja has trobat un moviment:');
-        expect(s).toContain("const lesson = P && P.build(currentHieroglyphicPuzzle, Chess, window.ElTaulerHieroClosure)");
+        expect(s).toContain("const lesson = P && P.build(currentHieroglyphicPuzzle, Chess, window.ElTaulerHieroClosure, window.ElTaulerPatrons)");
         expect(s).toContain('Per què funciona aquesta combinació?');
     });
 });
