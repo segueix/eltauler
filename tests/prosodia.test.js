@@ -66,3 +66,57 @@ describe('Prosòdia catalana de Matxa', () => {
         expect(html.indexOf('<script src="prosodia.js')).toBeLessThan(html.indexOf('<script src="stockfishtv.js'));
     });
 });
+
+
+describe('Director radiofònic de Stockfish vs Lozza', () => {
+    test('assigna un ritme per motiu verificat sense alterar cap contingut', () => {
+        expect(P.direction({ kind: 'mate' })).toMatchObject({ mood: 'finale', rate: 0.91 });
+        expect(P.direction({ kind: 'fork' }).mood).toBe('surprise');
+        expect(P.direction({ kind: 'missed' }).mood).toBe('tense');
+        expect(P.direction({ kind: 'summary' }).mood).toBe('teaching');
+        expect(P.direction({ kind: 'describe' }).mood).toBe('calm');
+        expect(TV.tvSpeechDirection({ kind: 'mate' })).toEqual(P.direction({ kind: 'mate' }));
+        for (const k of ['mate', 'fork', 'summary', 'quiet', 'unknown']) {
+            const d = P.direction({ kind: k });
+            expect(d.rate).toBeGreaterThanOrEqual(0.9);
+            expect(d.rate).toBeLessThanOrEqual(1.05);
+            expect(d.pauseMs).toBeGreaterThanOrEqual(850);
+        }
+    });
+    test('Matxa rep EXACTAMENT la mateixa velocitat en precàlcul i emissió', async () => {
+        const neural = {
+            available: () => true, speak: jest.fn(async () => ({ spoken: true })),
+            prefetch: jest.fn(), stop: jest.fn(), isSpeaking: () => false
+        };
+        const voice = TV.createTvVoice({
+            neural, getNeuralVoiceId: () => 'matxa:central:elia',
+            getNeuralRate: () => 1.1, loadPref: () => 'on',
+            prepareNeuralText: P.prepare
+        });
+        const dir = TV.tvSpeechDirection({ kind: 'mate' });
+        voice.prefetch('Escac i mat.', dir);
+        await voice.speak('Escac i mat.', dir);
+        const prefRate = neural.prefetch.mock.calls[0][2].rate;
+        const spokenRate = neural.speak.mock.calls[0][2].rate;
+        expect(prefRate).toBe(spokenRate);
+        expect(spokenRate).toBeCloseTo(1.001);
+    });
+    test('la veu catalana del dispositiu interpreta ritme i altura sense alterar la frase', async () => {
+        const spoken = [];
+        const synth = {
+            getVoices: () => [{ lang: 'ca-ES', name: 'Català' }],
+            speak(u) { spoken.push(u); u.onend(); },
+            cancel() {}, addEventListener() {}
+        };
+        function Utterance(text) { this.text = text; }
+        const voice = TV.createTvVoice({
+            speechSynthesis: synth, SpeechSynthesisUtterance: Utterance,
+            loadPref: () => 'on', setTimeout: () => 1, clearTimeout: () => {}
+        });
+        const dir = TV.tvSpeechDirection({kind:'fork'});
+        await voice.speak('El cavall crea una forquilla.',dir);
+        expect(spoken[0].text).toBe('El cavall crea una forquilla.');
+        expect(spoken[0].rate).toBe(dir.rate);
+        expect(spoken[0].pitch).toBe(dir.pitch);
+    });
+});
