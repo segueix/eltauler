@@ -11,10 +11,10 @@ describe('Prosòdia catalana de Matxa', () => {
     });
     test('el ritme de les pauses respecta frases, escacs i puntuació', () => {
         const p = P.prepare('Atenció: el cavall captura a e 4; escac i mat…');
-        expect(p).toBe('Atenció: el cavall captura a e quatre. escac i mat.');
+        expect(p).toBe('Atenció: el cavall captura a e quatre. Escac i mat.');
         expect(P.prepare('')).toBe('');
         expect(P.prepare(null)).toBe('');
-        expect(P.prepare('Taules Taules.')).toBe('taules.');
+        expect(P.prepare('Taules Taules.')).toBe('Taules.');
     });
     test('les paraules originals i la valoració no es reescriuen', () => {
         const source = 'L’anàlisi dona un avantatge de 2,5 peons.';

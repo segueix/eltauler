@@ -7,7 +7,7 @@
     else root.ElTaulerJeroPedagogia = api;
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
-    const PIECES = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
+    const PIECES = { p: 'un peó', n: 'un cavall', b: 'un alfil', r: 'una torre', q: 'una dama', k: 'el rei' };
     const PHASES = ['Primer moviment', 'Segon moviment', 'Tercer moviment'];
     const ARTICLES = { p: 'El peó', n: 'El cavall', b: "L'alfil", r: 'La torre', q: 'La dama', k: 'El rei' };
     const UCI = /^[a-h][1-8][a-h][1-8][qrbn]?$/;
@@ -32,15 +32,17 @@
     }
     function summarizeMove(m, i, last) {
         const lines = [];
-        if (m.captured) lines.push('La jugada captura ' + (PIECES[m.captured] || 'una peça') + ' a ' + m.to + '.');
+        if (m.captured) lines.push((ARTICLES[m.piece] || 'La peça') + ' captura ' + (PIECES[m.captured] || 'una peça') + ' a ' + m.to + '.');
         else if (m.promotion) lines.push('El peó arriba a ' + m.to + ' i corona.');
         else lines.push((ARTICLES[m.piece] || 'La peça') + ' es mou a ' + m.to + '.');
+        // Una coronació amb captura és simultàniament captura i promoció.
+        if (m.captured && m.promotion) lines.push('En arribar a l’última fila, el peó corona.');
         if (/#$/.test(m.san)) {
             lines.push('És escac i mat: el rei rival no té cap resposta legal.');
         } else if (/\+$/.test(m.san)) {
             lines.push('És escac: el rival ha de respondre a aquesta amenaça.');
         } else if (!last) {
-            lines.push('La combinació continua; cal tenir en compte la rèplica del rival.');
+            lines.push(i === 0 ? 'Ara cal observar la resposta del rival.' : 'Encara queda una resposta del rival abans de l’última jugada.');
         }
         return lines.join(' ');
     }

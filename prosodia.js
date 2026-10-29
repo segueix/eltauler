@@ -32,7 +32,10 @@
             .replace(/\s+([,.!?;:])/g, '$1')
             .replace(/([.!?])(?=[A-Za-zÀ-ÿ])/g, '$1 ');
         // "taules Taules" és un duplicat possible en textos de resultat.
-        t = t.replace(/\btaules\s+taules\b/gi, 'taules');
+        t = t.replace(/\b(taules)\s+taules\b/gi, (full, first) => first);
+        // Després d'una pausa llarga, la frase ha de tornar a començar
+        // amb majúscula: Matxa vocalitza més bé les frases separades.
+        t = t.replace(/([.!?]\s+)([a-zà-ÿ])/g, (full, stop, next) => stop + next.toLocaleUpperCase('ca'));
         return t.trim();
     }
     return { VERSION: 1, LETTERS, DIGITS, squares, prepare };
