@@ -54,6 +54,7 @@ test('la ressenya mostra el botó sota demanda sense executar Stockfish al rende
     const context=vm.createContext({
         window:{ElTaulerReviewSacrifices:S},
         historyEntryReviewCount:()=>1,
+        historyEntryIsHydrated:()=>true,
         getHistoryMoves:()=>moves,
         escapeHtml:x=>String(x).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('"','&quot;')
     });
