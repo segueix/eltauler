@@ -46,6 +46,17 @@
         try { if (typeof require === 'function') return require('./core'); } catch (e) {}
         return null;
     }
+    function getProsodia() {
+        if (root && root.ElTaulerProsodia) return root.ElTaulerProsodia;
+        try { if (typeof require === 'function') return require('./prosodia'); } catch (e) {}
+        return null;
+    }
+    function tvSpeechDirection(comment) {
+        const P = getProsodia();
+        return P && typeof P.direction === 'function'
+            ? P.direction(comment) : { mood: 'teaching', rate: 1, pitch: 1, pauseMs: 900 };
+    }
+
     function getRedactor() {
         if (root && root.ElTaulerRedactor) return root.ElTaulerRedactor;
         try { if (typeof require === 'function') return require('./redactor'); } catch (e) {}
@@ -2482,7 +2493,7 @@
         const neuralEffects = () => { try { return typeof e.getNeuralEffects === 'function' ? e.getNeuralEffects() : null; } catch (err) { return null; } };
         const neuralText = (text) => {
             const P = typeof e.prepareNeuralText === 'function' ? { prepare: e.prepareNeuralText }
-                : (root && root.ElTaulerProsodia);
+                : getProsodia();
             if (!P || typeof P.prepare !== 'function') return text;
             try { return P.prepare(text) || text; } catch (err) { return text; }
         };
@@ -2535,7 +2546,7 @@
             stop();
             const seq = speakSeq;
             if (neuralReady()) {
-                return neural.speak(neuralText(text), neuralId(), { rate: neuralRate(), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
+                return neural.speak(neuralText(text), neuralId(), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
                     .then((r) => {
                         if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
                         if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
@@ -2556,7 +2567,8 @@
                 const entry = { resolve: resolve, timer: null, utterance: u };
                 u.voice = voice;
                 u.lang = voice.lang || 'ca-ES';
-                u.rate = isNum(o.rate) ? o.rate : 1;
+                u.rate = isNum(o.rate) ? clamp(o.rate, 0.75, 1.25) : 1;
+                u.pitch = isNum(o.pitch) ? clamp(o.pitch, 0.8, 1.2) : 1;
                 u.volume = isNum(o.volume) ? clamp(o.volume, 0, 1) : 1;
                 u.onend = () => { blocked = false; finish(entry, true, 'end'); };
                 u.onerror = (ev) => {
@@ -2588,7 +2600,7 @@
             engine() { return current ? 'system' : (neuralReady() ? 'neural' : (voice ? 'system' : null)); },
             // La veu neuronal triada no està disponible (sense xarxa o servei aturat).
             neuralUnavailable() { return !!(neuralId() && !neural.available()); },
-            prefetch(text) { if (pref === 'on' && text && neuralReady()) neural.prefetch(neuralText(text), neuralId(), { rate: neuralRate() }); },
+            prefetch(text, opts) { if (pref === 'on' && text && neuralReady()) { const o = opts || {}; neural.prefetch(neuralText(text), neuralId(), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25) }); } },
             pref() { return pref; },
             isOn() { return pref === 'on'; },
             needsActivation() { return pref === null; },
@@ -3004,10 +3016,13 @@
 
         function speakComment(comment, epoch) {
             if (!d.voice || !d.voice.isOn() || d.voice.status() === 'no-voice' || d.voice.status() === 'unsupported') return null;
-            const started = now();
-            return d.voice.speak(comment.speech, { maxWaitMs: tvSpeechMaxWaitMs(comment.speech) })
-                .then(r => ({ spoken: !!(r && r.spoken), endedAt: now(), startedAt: started, epoch: epoch }))
-                .catch(() => ({ spoken: false, endedAt: now(), startedAt: started, epoch: epoch }));
+            const started = now(), direction = tvSpeechDirection(comment);
+            return d.voice.speak(comment.speech, { rate: direction.rate, pitch: direction.pitch,
+                maxWaitMs: tvSpeechMaxWaitMs(comment.speech) })
+                .then(r => ({ spoken: !!(r && r.spoken), endedAt: now(), startedAt: started, epoch: epoch,
+                    pauseMs: direction.pauseMs }))
+                .catch(() => ({ spoken: false, endedAt: now(), startedAt: started, epoch: epoch,
+                    pauseMs: direction.pauseMs }));
         }
 
         function analysisJob(g, uciMoves, ply, fen) {
@@ -3106,7 +3121,7 @@
                 const resign = S.control ? null : tvResignStep(g.resign, after, ply + 1, tvResignThresholdCp(S.caps, g.level.value));
                 const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
                 if (!plan) { fail('illegal'); return; }
-                if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') d.voice.prefetch(tvSpeechText(plan.chosen.text));
+                if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') d.voice.prefetch(tvSpeechText(plan.chosen.text), tvSpeechDirection(plan.chosen));
 
                 // Espera la visualització de la jugada anterior i la seva locució.
                 const waitMs = S.nextRevealAt - now();
@@ -3115,7 +3130,7 @@
                     const sp = await S.speech;
                     if (!alive(epoch) || S.game !== g) return;
                     S.speech = null;
-                    if (sp && sp.spoken && !(await sleep(TV_CONFIG.POST_SPEECH_PAUSE_MS, epoch))) return;
+                    if (sp && sp.spoken && !(await sleep(isNum(sp.pauseMs) ? sp.pauseMs : TV_CONFIG.POST_SPEECH_PAUSE_MS, epoch))) return;
                 }
                 // La posició visible ha de ser exactament la del càlcul.
                 if (g.chess.fen() !== fenBefore) return;
@@ -4504,6 +4519,7 @@
         tvSimulateCommentary,
         tvCommentaryStats,
         tvSpeechText,
+        tvSpeechDirection,
         tvIsCatalanVoice,
         tvPickCatalanVoice,
         tvPositionCommand,
