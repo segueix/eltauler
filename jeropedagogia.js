@@ -46,7 +46,7 @@
         }
         return lines.join(' ');
     }
-    function build(candidate, Chess, H) {
+    function build(candidate, Chess, H, Patterns) {
         if (!isCertified(candidate, H) || typeof Chess !== 'function') return null;
         const proof = candidate.conclusion;
         const line = H.lineOf(candidate);
@@ -55,8 +55,17 @@
             const g = new Chess(candidate.fen);
             const steps = [];
             for (let i = 0; i < 3; i++) {
+                const beforeFen = g.fen();
                 const mv = play(g, line[i * 2]);
                 if (!mv) return null;
+                // Etiquetes pedagògiques: únicament deteccions comprovades
+                // després de moure, mai etiquetes importades a cegues.
+                const patterns = Patterns && typeof Patterns.detect === 'function'
+                    ? Patterns.detect({ ChessCtor: Chess, fenBefore: beforeFen,
+                        fenAfter: g.fen(), move: mv })
+                        .filter(hit => !['check','mate','castling','doubleAttack'].includes(hit.id))
+                        .slice(0, 3).map(hit => ({ id: hit.id, name: hit.pattern.name }))
+                    : [];
                 const reply = i < 2 ? play(g, line[i * 2 + 1]) : null;
                 if (i < 2 && !reply) return null;
                 steps.push({
@@ -64,6 +73,7 @@
                     title: PHASES[i],
                     san: mv.san,
                     text: summarizeMove(mv, i, i === 2),
+                    patterns: patterns,
                     replySan: reply ? reply.san : null,
                     reply: reply ? 'El rival respon amb ' + reply.san + '.' : null
                 });
@@ -100,10 +110,14 @@
                 finalKind: proof.kind };
         } catch (err) { return null; }
     }
-    function solvedStep(candidate, step, Chess, H) {
+    function solvedStep(candidate, step, Chess, H, Patterns) {
         if (!Number.isInteger(step) || step < 1 || step > 2) return null;
-        const p = build(candidate, Chess, H);
-        return p ? p.steps[step - 1].text : null;
+        const p = build(candidate, Chess, H, Patterns);
+        if (!p) return null;
+        const part = p.steps[step - 1];
+        return part.text + (part.patterns && part.patterns.length
+            ? ' Patrons comprovats: ' + part.patterns.map(x => x.name).join(', ') + '.'
+            : '');
     }
     return { VERSION: 1, build, solvedStep };
 });
