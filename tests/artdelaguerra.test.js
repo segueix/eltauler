@@ -122,3 +122,57 @@ describe('Biblioteca original de l’Art de la Guerra', () => {
         expect(bad.count).toBe(0);
     });
 });
+
+
+describe('Integració sense inferències amb Stockfish TV', () => {
+    const TV = require('../stockfishtv');
+    const candidate = (kind='center', extra={})=>({kind, key:'verified:'+kind, sig:'sig',
+        reliability:'rules',priority:46,...extra});
+    const chosen = (kind='center')=>({kind,key:'verified:'+kind,sig:'sig',
+        text:'Les blanques controlen el centre.',explanatory:true});
+    const ctx = (extra={})=>({gameId:'duel-1',ply:12,art:A,prepared:false,end:null,...extra});
+
+    test('no inventa màxima sense candidat verificat coincident',()=>{
+        const memory=TV.tvEmptyMemory();
+        expect(TV.tvArtStep(ctx(),chosen(),memory,[])).toEqual({comment:chosen(),memory});
+        expect(TV.tvArtStep(ctx(),chosen(),memory,[candidate('fork')])).toEqual({comment:chosen(),memory});
+        expect(memory.art).toBeNull();
+    });
+    test('un fet verificat genera una màxima original sense alterar la narració',()=>{
+        const initial=TV.tvEmptyMemory(), comment=chosen();
+        const out=TV.tvArtStep(ctx(),comment,initial,[candidate()]);
+        expect(out.comment.text).toBe(comment.text);
+        expect(out.comment.maxim.family).toBe('territori');
+        expect(out.memory.art.count).toBe(1);
+        expect(initial.art).toBeNull();
+        const again=TV.tvArtStep(ctx({ply:13}),comment,out.memory,[candidate()]);
+        expect(again.comment.maxim).toBeUndefined();
+        expect(again.memory.art).toEqual(out.memory.art);
+    });
+    test('analitzador poc profund o no fiable no produeix màximes',()=>{
+        const c=candidate('center',{reliability:'analysis'});
+        const shallow={before:{reliable:true,depth:9},after:{reliable:true,depth:15}};
+        expect(TV.tvArtStep(ctx(shallow),chosen(),TV.tvEmptyMemory(),[c]).comment.maxim).toBeUndefined();
+        const reliable={before:{reliable:true,depth:12},after:{reliable:true,depth:15}};
+        expect(TV.tvArtStep(ctx(reliable),chosen(),TV.tvEmptyMemory(),[c]).comment.maxim.family).toBe('territori');
+        expect(TV.tvArtStep(ctx({before:{reliable:false,depth:20},after:reliable.after}),chosen(),TV.tvEmptyMemory(),[c]).comment.maxim).toBeUndefined();
+    });
+    test('no desplaça mat ni obertura preparada, ni atribueix un sacrifici no certificat',()=>{
+        const memory=TV.tvEmptyMemory();
+        for (const input of [ctx({end:{reason:'checkmate'}}),ctx({prepared:true})])
+            expect(TV.tvArtStep(input,chosen(),memory,[candidate()]).comment.maxim).toBeUndefined();
+        const sacrifice={...chosen('sacrifice'),text:'Sacrifici tàctic.'};
+        expect(TV.tvArtStep(ctx(),sacrifice,memory,[candidate('sacrifice')]).comment.maxim).toBeUndefined();
+        expect(TV.tvArtStep(ctx(),sacrifice,memory,[candidate('sacrifice',{reliability:'certified-line'})]).comment.maxim.family).toBe('cessio');
+    });
+    test('desfer recupera la memòria anterior de les màximes',()=>{
+        const original=TV.tvEmptyMemory();
+        const first=TV.tvArtStep(ctx(),chosen(),original,[candidate()]);
+        const stored=JSON.parse(JSON.stringify(first.memory));
+        const next=TV.tvArtStep(ctx({ply:20}),chosen('fork'),stored,[candidate('fork',{priority:84})]);
+        expect(next.memory.art.count).toBe(2);
+        const undo=TV.tvArtStep(ctx({ply:13}),chosen('fork'),original,[candidate('fork',{priority:84})]);
+        expect(undo.memory.art.count).toBe(1);
+        expect(original.art).toBeNull();
+    });
+});

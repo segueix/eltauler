@@ -168,3 +168,21 @@ describe('Dues veus Matxa a Stockfish TV', () => {
         expect(TV.tvNormalizePrefs({duo:false,speed:'quick'})).toMatchObject({duo:false,speed:'quick'});
     });
 });
+
+
+describe('Elia i Grau transmeten L’Art de la Guerra sense sobreposició',()=>{
+    test('el fet va a Elia i la màxima a Grau; màxim dos torns',()=>{
+        const fact='Les blanques ocupen la columna oberta.';
+        const maxim='Una ruta oberta és una promesa de pas, no una victòria escrita.';
+        const c={kind:'open-file',speech:fact,ply:14,extended:true,explanatory:true,maxim:{text:maxim}};
+        expect(TV.tvDialogueTurns(c,true)).toEqual([
+            {text:fact,voiceId:TV.TV_DUO.presenter,role:'presenter'},
+            {text:maxim,voiceId:TV.TV_DUO.analyst,role:'maxim'}
+        ]);
+        expect(TV.tvDialogueTurns(c,false)).toEqual([
+            {text:fact,voiceId:null,role:'presenter'},
+            {text:maxim,voiceId:null,role:'maxim'}
+        ]);
+        expect(TV.tvDialogueTurns({...c,maxim:null},true).length).toBeLessThanOrEqual(2);
+    });
+});

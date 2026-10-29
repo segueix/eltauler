@@ -57,6 +57,43 @@
             ? P.direction(comment) : { mood: 'teaching', rate: 1, pitch: 1, pauseMs: 900 };
     }
 
+    function getArtDeLaGuerra() {
+        if (root && root.ElTaulerArtDeLaGuerra) return root.ElTaulerArtDeLaGuerra;
+        try { if (typeof require === 'function') return require('./artdelaguerra'); } catch (e) {}
+        return null;
+    }
+
+    // El narrador filosòfic no interpreta FEN ni calcula res. Rep només el
+    // motiu escollit, que ha d'existir a la llista de candidats verificats.
+    function tvArtStep(ctx, chosen, memory, candidates) {
+        const A = ctx && ctx.art;
+        if (!A || typeof A.choose !== 'function' || !chosen ||
+                !Array.isArray(candidates)) return { comment: chosen, memory };
+        const source = candidates.find(c => c && c.kind === chosen.kind &&
+            c.key === chosen.key && c.sig === chosen.sig);
+        if (!source) return { comment: chosen, memory };
+        let evidence = null;
+        if (source.reliability === 'board' || source.reliability === 'rules') {
+            evidence = { source: 'rules', reliable: true };
+        } else if (source.reliability === 'analysis' &&
+                ctx.before && ctx.before.reliable && ctx.after && ctx.after.reliable) {
+            evidence = { source: 'stockfish', reliable: true,
+                depth: Math.min(ctx.before.depth || 0, ctx.after.depth || 0) };
+        } else if (source.reliability === 'certified-line') {
+            evidence = { source: 'certified-line', reliable: true };
+        }
+        if (!evidence) return { comment: chosen, memory };
+        const output = A.choose({
+            gameId: ctx.gameId || 'tv-simulacio', ply: ctx.ply,
+            comment: { kind: chosen.kind, text: chosen.text, priority: source.priority },
+            certified: true, evidence, prepared: !!ctx.prepared, terminal: !!ctx.end,
+            urgent: source.priority >= 85
+        }, memory.art);
+        if (!output || !output.maxim) return { comment: chosen, memory };
+        return { comment: { ...chosen, maxim: output.maxim },
+            memory: { ...memory, art: output.memory } };
+    }
+
     function getRedactor() {
         if (root && root.ElTaulerRedactor) return root.ElTaulerRedactor;
         try { if (typeof require === 'function') return require('./redactor'); } catch (e) {}
@@ -178,6 +215,14 @@
         const speech = String(c.speech || '').trim();
         if (!speech) return [];
         const single = (voiceId, role) => [{ text: speech, voiceId: voiceId || null, role: role || 'presenter' }];
+        // Màxima separada del fet: Elia narra, Grau reflexiona.
+        // Si el duet és desactivat, la veu única conserva els dos textos.
+        if (c.maxim && typeof c.maxim.text === 'string' && c.maxim.text.trim()) {
+            return [
+                { text: speech, voiceId: enabled ? TV_DUO.presenter : null, role: 'presenter' },
+                { text: c.maxim.text.trim(), voiceId: enabled ? TV_DUO.analyst : null, role: 'maxim' }
+            ];
+        }
         if (!enabled) return single(null, 'presenter');
         const kind = String(c.kind || '');
         const ply = Number.isFinite(c.ply) ? c.ply : -1;
@@ -1275,7 +1320,8 @@
             focus: [], threats: [], pressures: [], tactics: [], defined: {}, lastSummaryPly: 0, summarySig: null,
             materialSig: '0,0,0,0,0', endgame: false, queensOff: false, castled: { w: false, b: false },
             // Fils narratius per partida: es restauren en desfer les jugades.
-            story: { threads: [], lastNarrationPly: -100 }
+            story: { threads: [], lastNarrationPly: -100 },
+            art: null // memòria de màximes, inclosa als estats per desfer
         };
     }
     function cloneMemory(m) { return JSON.parse(JSON.stringify(m || tvEmptyMemory())); }
@@ -2396,7 +2442,9 @@
                 }
             } catch (err) { /* reserva: comentari original i memòria intacta */ }
         }
-        const next = tvCommitComment(memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
+        const artStep = tvArtStep(c, chosen, memory, candidates);
+        chosen = artStep.comment;
+        const next = tvCommitComment(artStep.memory, chosen, { ply: c.ply, fenAfter: c.fenAfter, move: c.move, candidates: candidates });
         return { comment: chosen, memory: next, candidates: candidates };
     }
 
@@ -2424,7 +2472,7 @@
                 before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
                 tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory,
                 expression: s.expression || null, narrative: s.narrative || null, quality: s.quality || null,
-                patterns: s.patterns || null
+                patterns: s.patterns || null, art: s.art || null, gameId: s.gameId || 'tv-simulacio'
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
@@ -2432,6 +2480,7 @@
                 key: step.comment ? step.comment.key : null, payload: step.comment ? step.comment.payload : null,
                 narrative: step.comment ? (step.comment.narrative || null) : null,
                 speech: step.comment ? tvSpeechText(step.comment.text) : null,
+                maxim: step.comment && step.comment.maxim ? step.comment.maxim : null,
                 candidates: step.candidates.map(x => x.kind) });
             prevMove = mv;
         });
@@ -3082,7 +3131,9 @@
                 let spoken = false;
                 for (const turn of turns) {
                     if (!alive(epoch)) break;
-                    const r = await d.voice.speak(turn.text, { rate: direction.rate, pitch: direction.pitch,
+                    const tone = turn.role === 'maxim'
+                        ? tvSpeechDirection({ kind: 'summary' }) : direction;
+                    const r = await d.voice.speak(turn.text, { rate: tone.rate, pitch: tone.pitch,
                         voiceId: turn.voiceId, maxWaitMs: tvSpeechMaxWaitMs(turn.text) });
                     if (!r || r.reason === 'stopped' || r.reason === 'not-allowed') break;
                     spoken = spoken || !!r.spoken;
@@ -3193,7 +3244,9 @@
                     const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.text), ply };
                     const direction = tvSpeechDirection(planned);
                     for (const turn of spokenTurns(planned)) {
-                        d.voice.prefetch(turn.text, { ...direction, voiceId: turn.voiceId });
+                        const tone = turn.role === 'maxim'
+                            ? tvSpeechDirection({ kind: 'summary' }) : direction;
+                        d.voice.prefetch(turn.text, { ...tone, voiceId: turn.voiceId });
                     }
                 }
 
@@ -3247,7 +3300,7 @@
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
                 end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
-                patterns: d.patterns
+                patterns: d.patterns, art: d.art, gameId: g.id
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
@@ -3258,7 +3311,8 @@
             if (!entry) return;
             const shownAt = now();
             let delay = tvMoveDelayMs(prefs.speed, { tier: g.tier, prepared: !!prepared, random: random(), decided: !!plan.decided });
-            if (g.comment) delay = Math.max(delay, tvReadingTimeMs(g.comment.text, g.tier));
+            if (g.comment) delay = Math.max(delay, tvReadingTimeMs(g.comment.text +
+                (g.comment.maxim ? ' ' + g.comment.maxim.text : ''), g.tier));
             S.nextRevealAt = shownAt + delay;
             notify('move', { gameId: g.id, move: entry, comment: g.comment });
             if (g.comment) notify('comment', g.comment);
@@ -3291,7 +3345,8 @@
             // El comentari queda LLIGAT a aquesta posició (partida + ply + FEN).
             g.comment = { kind: chosen.kind, text: chosen.text, speech: tvSpeechText(chosen.text), ply: entry.ply, fen: entry.fen, gameId: g.id,
                 explanatory: !!chosen.explanatory, extended: !!chosen.extended, byUser: entry.byUser,
-                narrative: chosen.narrative || null };
+                narrative: chosen.narrative || null,
+                maxim: chosen.maxim || null };
             g.comments.push({ ply: entry.ply, kind: chosen.kind, text: chosen.text, color: entry.color, key: chosen.key, sig: chosen.sig });
             entry.comment = chosen.text;
             entry.commentObj = g.comment;
@@ -3312,14 +3367,16 @@
                 ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
                 prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
                 end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative, quality: d.quality,
-                patterns: d.patterns
+                patterns: d.patterns, art: d.art, gameId: g.id
             });
             S.pendingUser = false;
             g.memory = step.memory;
             let delay = TV_CONFIG.CONTROL_REPLY_DELAY_MS;
             if (step.comment) {
                 attachComment(g, entry, step.comment);
-                delay = clamp(tvReadingTimeMs(g.comment.text, g.tier), delay, TV_CONFIG.CONTROL_REPLY_MAX_MS);
+                delay = clamp(tvReadingTimeMs(g.comment.text +
+                    (g.comment.maxim ? ' ' + g.comment.maxim.text : ''), g.tier),
+                    delay, TV_CONFIG.CONTROL_REPLY_MAX_MS);
                 notify('comment', g.comment);
             }
             S.nextRevealAt = now() + delay;
@@ -4303,6 +4360,13 @@
         // Només es mostra si és de la partida i la posició visibles.
         const valid = c && c.gameId === g.id && (c.kind === 'intro' || c.fen === g.fen);
         el.textContent = valid ? c.text : '';
+        if (valid && c.maxim && c.maxim.text) {
+            const line = document.createElement('div');
+            line.className = 'sftv-art-maxim';
+            line.textContent = 'L’Art de la Guerra · ' + c.maxim.text;
+            line.title = 'Màxima original inspirada en la filosofia de Sunzi, no una citació històrica';
+            el.appendChild(line);
+        }
         el.classList.toggle('is-empty', !valid);
         // Llista de temes que S'HAN comentat en aquesta partida. No
         // pressuposa que encara siguin un avantatge o un pla actiu.
@@ -4414,6 +4478,7 @@
             narrative: root.ElTaulerNarrativa || null,
             quality: root.ElTaulerAuditoria || null,
             patterns: root.ElTaulerPatrons || null,
+            art: getArtDeLaGuerra(),
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
@@ -4616,6 +4681,7 @@
         tvCommitComment,
         tvEmptyMemory,
         tvBroadcastStep,
+        tvArtStep,
         tvStrategicSummary,
         tvEvalBand,
         tvSimulateCommentary,
