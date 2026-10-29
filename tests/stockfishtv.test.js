@@ -1112,7 +1112,7 @@ describe('bucle de Stockfish TV', () => {
         ctl.close();
     });
 
-    test('perfils de joc: cada bàndol en té un de diferent, es diuen a la presentació i trien la jugada del seu estil', async () => {
+    test('perfils de joc: cada bàndol en té un de diferent, sense espòilers a la presentació, i trien la jugada del seu estil', async () => {
         const seq = [0.8, 0.1];
         const random = () => (seq.length ? seq.shift() : 0.5);
         const line = (uci, value) => ({ depth: 12, multipv: 1, type: 'cp', value, bound: null, pv: [uci] });
@@ -1124,7 +1124,9 @@ describe('bucle de Stockfish TV', () => {
         const g = ctl.state().game;
         // 0.8 → L'Estratega amb blanques; 0.1 → L'Atacant amb negres.
         expect(g.styles).toEqual({ w: 'strategist', b: 'attacker' });
-        expect(g.comment.text).toContain('Juguen L\'Estratega, amb blanques, contra L\'Atacant, amb negres.');
+        expect(g.comment.text).toContain('Stockfish');
+        expect(g.comment.text).not.toContain("L'Estratega");
+        expect(g.comment.text).not.toContain("L'Atacant");
         for (let t = 0; t < 40 && !ctl.state().game.moves.length; t++) await jest.advanceTimersByTimeAsync(1000);
         // El nivell volia a3; L'Estratega, entre jugades de qualitat semblant, desenvolupa el cavall.
         expect(ctl.state().game.moves[0].uci).toBe('g1f3');
@@ -1223,7 +1225,11 @@ describe('bucle de Stockfish TV', () => {
         await ctl.open();
         const st = ctl.state();
         expect(st.game.opening).toEqual(expect.objectContaining({ name: 'Obertura Espanyola (Ruy López)', plies: 5 }));
-        expect(st.game.comment.text).toBe('Obertura de partida: Obertura Espanyola (Ruy López). Pressiona el cavall.');
+        expect(st.game.comment.kind).toBe('intro');
+        expect(st.game.comment.text).toContain('Stockfish');
+        expect(st.game.comment.text).not.toContain('Obertura Espanyola');
+        expect(st.game.comment.text).not.toContain('Pressiona el cavall');
+        expect(st.game.comment.text).not.toMatch(/\be4\b|\be5\b|\bNf3\b/);
         await jest.advanceTimersByTimeAsync(30000 + 5 * C.MOVE_PREVIEW_MS);
         const g = ctl.state().game;
         expect(g.moves.slice(0, 5).map(m => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bb5']);
@@ -1242,12 +1248,18 @@ describe('bucle de Stockfish TV', () => {
         const { ctl } = makeController({ voice: voice, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0, profiles: false }) });
         await ctl.open();
         expect(synth.spoken).toHaveLength(1);
-        expect(synth.spoken[0].text).toMatch(/^Obertura de partida/);
+        expect(synth.spoken[0].text).toMatch(/Stockfish/);
+        expect(synth.spoken[0].text).not.toContain('Obertura Espanyola');
         // La presentació s'està llegint: la primera jugada no surt.
         await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS + 1000);
         expect(ctl.state().game.moves.length).toBe(0);
         synth.finish();
-        await jest.advanceTimersByTimeAsync(C.POST_SPEECH_PAUSE_MS + 50);
+        // El nou text varia de longitud: la previsualització respecta
+        // el temps necessari per llegir-lo, sense encallar el rellotge.
+        const introTime = Math.max(C.INTRO_DELAY_MS,
+            TV.tvReadingTimeMs(ctl.state().game.comment.text, ctl.state().viewer.tier));
+        const remaining = Math.max(0, introTime - (C.INTRO_DELAY_MS + 1000));
+        await jest.advanceTimersByTimeAsync(remaining + C.POST_SPEECH_PAUSE_MS + 50);
         expect(ctl.state().game.moves.length).toBe(0);
         expect(ctl.state().movePreview).toEqual({ from: 'e2', piece: 'p', color: 'w' });
         await jest.advanceTimersByTimeAsync(C.MOVE_PREVIEW_MS);
