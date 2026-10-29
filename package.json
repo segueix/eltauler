@@ -4,7 +4,8 @@
   "description": "El Tauler — escacs en català (PWA)",
   "private": true,
   "scripts": {
-    "test": "jest"
+    "test": "jest",
+    "audit:commentary": "node scripts/audit-commentary.js"
   },
   "devDependencies": {
     "chess.js": "^0.10.3",
