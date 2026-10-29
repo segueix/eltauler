@@ -48,6 +48,13 @@
 .bp-clock { border-radius: 12px 12px 0 0; padding: 6px 12px; background: var(--bg-warm); border: 1px solid rgba(244, 228, 188, .18); border-bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
 #bp-clock-value { font-variant-numeric: tabular-nums; font-size: 1.8rem; line-height: 1.2; font-weight: 800; color: var(--text-primary); }
 #bp-clock-status { font-size: .74rem; text-transform: uppercase; letter-spacing: .6px; color: var(--text-secondary); }
+/* Les xifres del rellotge no es poden llegir abans de començar cada exercici. */
+.bp-clock.bp-awaiting-start #bp-clock-value {
+    filter: blur(12px);
+    pointer-events: none;
+    user-select: none;
+    -webkit-user-select: none;
+}
 .bp-clock.bp-running { box-shadow: inset 0 -3px 0 var(--accent-gold); }
 .bp-clock.bp-running #bp-clock-value { color: var(--accent-gold); }
 .bp-clock.bp-urgent { background: #6b2320; box-shadow: inset 0 -3px 0 #ff6f61; }
