@@ -1647,3 +1647,15 @@ describe('motor dedicat de la TV', () => {
         expect(engine.failed()).toBe(true);
     });
 });
+
+describe('Integració de la retransmissió a dues veus', () => {
+    test('la interfície ofereix un control per al duet Elia/Grau amb estat persistent', () => {
+        const html=require('fs').readFileSync(require('path').join(__dirname,'../index.html'),'utf8');
+        expect(html).toContain('id="sftv-duo"');
+        expect(html).toContain('Elia (narradora) i Grau (analista)');
+        const js=require('fs').readFileSync(require.resolve('../stockfishtv'),'utf8');
+        expect(js).toContain("on('sftv-duo', 'change'");
+        expect(js).toContain('controller.setDuo(ev.target.checked)');
+        expect(js).toContain('spokenTurns(planned)');
+    });
+});
