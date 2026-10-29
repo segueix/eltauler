@@ -225,6 +225,29 @@ describe('banc de tàctiques real (app.js)', () => {
         });
     });
 
+    test('TOTES les tàctiques tenen dues jugades del jugador amb la rèplica del rival', () => {
+        BANK_REAL.forEach(fen => {
+            const sol = SOLUTIONS[fen];
+            expect({ fen, passos: sol.steps.length, repliques: sol.replies.length }).toEqual({ fen, passos: 2, repliques: 1 });
+            // La primera jugada no pot acabar la partida (no hi hauria segon pas).
+            const g = new Chess(fen);
+            g.move({ from: sol.steps[0].move.slice(0, 2), to: sol.steps[0].move.slice(2, 4), promotion: sol.steps[0].move[4] });
+            expect({ fen, acabada: g.game_over() }).toEqual({ fen, acabada: false });
+        });
+    });
+
+    test('l\'app només serveix tàctiques de dues jugades i no s\'encalla esperant la rèplica', () => {
+        expect(src).toMatch(/const TACTICS_MIN_STEPS = 2;/);
+        const pick = src.slice(src.indexOf('function pickTacticsFen()'), src.indexOf('function startTacticsPuzzle()'));
+        expect(pick).toMatch(/tacticsFenHasTwoSteps/);
+        expect(src).toMatch(/if \(isTacticsSession && bundleSequencePlayerSteps\(bundleFixedSequence\) < TACTICS_MIN_STEPS\) \{\n\s+const fallbackFen/);
+        // La rèplica es fa encara que la marca prèvia es cancel·li o tardi.
+        const reply = src.slice(src.indexOf('async function applyBundleAutoReply'), src.indexOf('function requestBundleAutoReply'));
+        expect(reply).not.toMatch(/if \(!ready\) return;/);
+        expect(reply).toMatch(/Promise\.race/);
+        expect(reply).toMatch(/BUNDLE_REPLY_PREVIEW_MAX_MS/);
+    });
+
     test('el rebost no conté posicions que ja no són al banc', () => {
         const bank = new Set(BANK_REAL);
         Object.keys(SOLUTIONS).forEach(fen => {
