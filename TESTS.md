@@ -522,7 +522,10 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   caducada refeta una sola vegada), i el reproductor: memòria cau (preparar per
   endavant no sintetitza dues vegades) amb límit, cap cua de locucions, aturada
   immediata, temps màxim, sense connexió i pausa d'un minut després d'una
-  fallada del servei.
+  fallada del servei. També el **silenci inicial** (`padWavStart`, 250 ms) que
+  s'afegeix als WAV de 16 i 24 bits perquè en arrencar el so no es perdi la
+  primera síl·laba, respectant els blocs previs a les dades i deixant intactes
+  els fitxers que no entén.
 - **`matxa-effects.test.js`** — el so de Matxa: **Ràdio** és l'únic perfil
   (Natural i Càlida desats abans es llegeixen com a Ràdio), filtres de presència
   i compressió amb marge per no saturar, i l'**equalitzador** de cinc bandes

@@ -43,7 +43,12 @@
         MAX_CHARS: 480,
         SYNTH_TIMEOUT_MS: 12000,
         COOLDOWN_MS: 60000,
-        CACHE_SIZE: 40
+        CACHE_SIZE: 40,
+        // Matxa comença a parlar als primers mil·lisegons del WAV. En arrencar
+        // el so, molts dispositius (mòbils, auriculars Bluetooth) se'n mengen
+        // els primers 100-200 ms i, amb ells, la primera síl·laba: s'hi afegeix
+        // aquest silenci perquè el que es perdi sigui silenci.
+        LEAD_IN_MS: 250
     };
 
     // Les vuit veus de Matxa (dues per accent).
@@ -195,6 +200,39 @@
         }
         return { unlock: unlock, attach: attach };
     }
+    // Afegeix ms de silenci al principi d'un WAV PCM. Retorna un ArrayBuffer
+    // nou; si el fitxer no és un WAV PCM que s'entengui, el retorna tal qual.
+    function padWavStart(buffer, ms) {
+        try {
+            const bytes = new Uint8Array(buffer);
+            const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+            const tag = (at) => String.fromCharCode(bytes[at], bytes[at + 1], bytes[at + 2], bytes[at + 3]);
+            if (!(ms > 0) || bytes.length < 44 || tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return buffer;
+            let off = 12, blockAlign = 0, rate = 0, dataAt = -1, dataSize = 0;
+            while (off + 8 <= bytes.length) {
+                const id = tag(off), size = view.getUint32(off + 4, true);
+                if (id === 'fmt ') {
+                    if (view.getUint16(off + 8, true) !== 1) return buffer;   // només PCM
+                    rate = view.getUint32(off + 12, true);
+                    blockAlign = view.getUint16(off + 20, true);
+                    if (view.getUint16(off + 22, true) < 16) return buffer;   // 8 bits: el silenci no és 0
+                }
+                if (id === 'data') { dataAt = off; dataSize = Math.min(size, bytes.length - off - 8); break; }
+                off += 8 + size + (size % 2);
+            }
+            if (dataAt < 0 || !rate || !blockAlign) return buffer;
+            const pad = Math.round(rate * ms / 1000) * blockAlign;
+            const out = new Uint8Array(bytes.length + pad);
+            out.set(bytes.subarray(0, dataAt + 8), 0);
+            // Els bytes nous ja valen zero: és silenci en PCM amb signe (16 bits).
+            out.set(bytes.subarray(dataAt + 8), dataAt + 8 + pad);
+            const outView = new DataView(out.buffer);
+            outView.setUint32(4, view.getUint32(4, true) + pad, true);
+            outView.setUint32(dataAt + 4, dataSize + pad, true);
+            return out.buffer;
+        } catch (err) { return buffer; }
+    }
+
     // La velocitat del perfil es tradueix a la durada de Matxa (més lent =
     // fonemes més llargs), dins del rang que admet el model.
     function lengthScaleForRate(rate) {
@@ -337,9 +375,9 @@
         const fetchAudio = e.fetchAudio || (async (url, signal) => {
             const resp = await fetch(url, { signal: signal });
             if (!resp.ok) throw new Error('audio-' + resp.status);
-            const blob = await resp.blob();
+            const wav = padWavStart(await resp.arrayBuffer(), MATXA_CONFIG.LEAD_IN_MS);
             // El servidor l'envia com a octet-stream: es marca com a WAV.
-            return URL.createObjectURL(new Blob([blob], { type: 'audio/wav' }));
+            return URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }));
         });
         const releaseSrc = e.releaseSrc || ((src) => { try { if (/^blob:/.test(src)) URL.revokeObjectURL(src); } catch (err) {} });
         const cache = new Map();   // clau → Promise<src>
@@ -460,6 +498,7 @@
         voiceById,
         voiceLabel,
         lengthScaleForRate,
+        padWavStart,
         parseSse,
         createMatxaClient,
         createNeuralSpeaker,
