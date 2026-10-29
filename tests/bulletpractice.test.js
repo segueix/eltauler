@@ -155,7 +155,7 @@ describe('rellotge i primera decisió', () => {
         const js = fs.readFileSync(path.join(__dirname, '../bulletpractice.js'), 'utf8');
         expect(html).toContain('id="bp-start-overlay"');
         expect(html).toContain('id="bp-start-play"');
-        expect(html).toContain('bulletpractice.js?v=1.2.0');
+        expect(html).toContain('bulletpractice.js?v=1.2.1');
         expect(html).toContain('bulletpractice.css?v=1.2.0');
         expect(css).toContain('.bp-board-wrap.bp-awaiting-start #bp-board');
         expect(css).toContain('filter: blur(');
@@ -221,9 +221,11 @@ describe('rellotge i primera decisió', () => {
 describe('progrés: rapidesa, precisió i atenció separades', () => {
     const row = (extra = {}) => ({ taskId: '0-0', kind: 'mate', correct: true, timeout: false, reactionMs: 1000, targetMs: 4500, clockMs: 15000, clockCorrect: true, clockErrorMs: 0, ...extra });
     const saved = (extra = {}) => ({ id: Math.random().toString(), at: Date.now(), mode: 'radar', seconds: 30, level: 1, complete: true, rows: Array.from({ length: 8 }, () => row()), ...extra });
-    test('mediana exclou errors ràpids i temps exhaurits', () => {
-        expect(B.summary([row({ reactionMs: 1000 }), row({ reactionMs: 3000 }), row({ correct: false, reactionMs: 1 }), row({ correct: false, timeout: true, reactionMs: 4500 })])).toMatchObject({ accuracy: .5, medianMs: 2000, timeouts: 1 });
-        expect(B.summary([]).medianMs).toBeNull();
+    test('mitjana aritmètica dels encerts, sense errors ràpids ni temps exhaurits', () => {
+        const rows = [row({ reactionMs: 1000 }), row({ reactionMs: 1000 }), row({ reactionMs: 4000 }),
+            row({ correct: false, reactionMs: 1 }), row({ correct: false, timeout: true, reactionMs: 4500 })];
+        expect(B.summary(rows)).toMatchObject({ accuracy: .6, meanMs: 2000, timeouts: 1 });
+        expect(B.summary([]).meanMs).toBeNull();
     });
     test('calen 3 sèries completes bones del mateix mode, ritme i nivell', () => {
         const p = { sessions: [saved(), saved()] }; expect(B.suggestedLevel(p, 'radar', 30)).toBe(1);
@@ -321,9 +323,14 @@ describe('estratègia: nivell, rècords, pla diari, ratxa i fase', () => {
             session('sprint', day(4), { rows: Array.from({ length: 10 }, () => row()) })
         ] };
         const r = B.records(p);
-        expect(r[60]).toMatchObject({ score: 8, level: 2, medianMs: 1500 });
+        expect(r[60]).toMatchObject({ score: 8, level: 2, meanMs: 1500 });
         expect(r[30]).toMatchObject({ score: 5 });
         expect(B.records({ sessions: [] })).toEqual({ 30: null, 60: null });
+    });
+    test('el desempat dels rècords utilitza la mitjana, no el valor central', () => {
+        const older = session('rush', day(1), { rows: [row({ reactionMs: 1000 }), row({ reactionMs: 1000 }), row({ reactionMs: 4000 })] });
+        const newer = session('rush', day(2), { rows: Array.from({ length: 3 }, () => row({ reactionMs: 1800 })) });
+        expect(B.records({ sessions: [older, newer] })[60]).toMatchObject({ id: newer.id, meanMs: 1800 });
     });
     test('pla d’avui: compta les sèries acabades d’avui en ordre i marca el pas següent', () => {
         const now = day(10, 20);
