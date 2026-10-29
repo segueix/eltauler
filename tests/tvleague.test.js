@@ -54,9 +54,9 @@ describe('Campionat local Stockfish vs Lozza', () => {
         expect(L.stats(normalized, 'v2').total).toBe(0);
         expect(L.KEY).toBe('tauler_tv_league_v1');
     });
-    test('el nom visible no canvia però la veu diu Stoc fix', () => {
+    test('el nom visible no canvia però la veu diu Stock fish', () => {
         expect(TV.tvSpeechText('Stockfish contra Lozza. STOCKFISH guanya.')).toBe(
-            'Stoc fix contra Lozza. Stoc fix guanya.');
+            'Stock fish contra Lozza. Stock fish guanya.');
     });
     test('integració: només puntuen duels automàtics complets i es poden fer pronòstics', () => {
         const js = fs.readFileSync(path.join(__dirname, '../stockfishtv.js'), 'utf8');
