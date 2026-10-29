@@ -46,3 +46,13 @@ La interfície mostra un discret resum de **fils comentats**; no els presenta co
 
 - **Fase 3**: explicacions dels jeroglífics i prosòdia de la veu Matxa.
 - **Fase 4**: auditar partides completes, mesurar monotonia, validar la qualitat narrativa i optimitzar el rendiment.
+
+## Fase 6 · L’Art de la Guerra integrat
+
+- `artdelaguerra.js` s'injecta al navegador abans de `stockfishtv.js`.
+- `tvBroadcastStep` només genera una màxima quan el comentari seleccionat es correspon amb un candidat verificat (`kind/key/sig`) i disposa de prova reglamentària o anàlisi fiable amb profunditat suficient.
+- Els resums sense motiu directament verificat, mats, posicions preparades i desenllaços crítics no generen màximes; un sacrifici exigeix una variant certificada.
+- El comentari factual continua intacte a `comment.text`; la màxima original va a `comment.maxim` i es mostra separada, sense falsa atribució històrica.
+- Elia narra el fet i Grau llegeix la màxima, seqüencialment. Amb duet desactivat, s'utilitza una única veu. La síntesi Matxa es precalcula amb el mateix identificador i velocitat que s'emet.
+- `memory.art` acompanya els canvis de jugada, es restaura en desfer i es reinicia a cada partida. El mòdul pot fallar o faltar sense impedir els comentaris normals.
+- Proves noves d'elegibilitat, profunditat, cancel·lació implícita entre torns, duet, memòria i simulació.

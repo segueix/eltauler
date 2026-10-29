@@ -435,3 +435,18 @@ describe('controlador amb la retransmissió nova (motor fals, temps simulat)', (
         ctl.close();
     });
 });
+
+
+describe('Simulació Art de la Guerra a TV',()=>{
+    test('el mòdul és optatiu: no canvia els comentaris factuals',()=>{
+        const Art=require('../artdelaguerra');
+        const {Chess}=require('chess.js');
+        const moves=['e2e4','e7e5','g1f3','b8c6','f1c4','g8f6','d2d3','f8c5'];
+        const basic=TV.tvSimulateCommentary(Chess,{moves,prepared:0});
+        const rich=TV.tvSimulateCommentary(Chess,{moves,prepared:0,art:Art});
+        expect(rich.map(x=>x.comment)).toEqual(basic.map(x=>x.comment));
+        for(const r of rich) {
+            if(r.maxim) expect(r.comment).toBeTruthy();
+        }
+    });
+});
