@@ -2800,6 +2800,8 @@
         t = t.replace(/½-½/g, 'taules').replace(/\b1-0\b/g, 'victòria de les blanques').replace(/\b0-1\b/g, 'victòria de les negres');
         t = t.replace(/[≈~·•→←↑↓«»"“”()[\]{}#+=*_|<>]/g, ' ');
         t = t.replace(/\bvs\b\.?/gi, 'contra');
+        // El text visible conserva Stockfish; en català es pronuncia «Stoc fix».
+        t = t.replace(/\bstockfish\b/gi, 'Stoc fix');
         return t.replace(/\s{2,}/g, ' ').replace(/\s+([,.:;!?])/g, '$1').trim();
     }
 
@@ -3311,6 +3313,8 @@
                     styles: g.styles,
                     engines: g.engines,
                     matchPlan: g.matchPlan,
+                    recorded: !!g.recorded,
+                    hadManualControl: !!g.hadManualControl,
                     opening: g.opening ? { name: g.opening.name, eco: g.opening.eco, idea: g.opening.idea || null, plies: g.prepared.length } : null,
                     identified: g.identified,
                     story: g.memory && g.memory.story ? g.memory.story : null,
@@ -4843,6 +4847,9 @@
                 applyHighlight();
             }
             renderLevel(state);
+            if (root.ElTaulerTvLeagueUI && typeof root.ElTaulerTvLeagueUI.update === 'function') {
+                try { root.ElTaulerTvLeagueUI.update(state); } catch (err) {}
+            }
             renderMoves(g);
             renderOpening(g);
             renderStatus(state);
