@@ -6,7 +6,7 @@
     else root.ElTaulerTvLeague = api;
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
-    const KEY = 'eltauler_tv_league_v1';
+    const KEY = 'tauler_tv_league_v1';
     const CHOICES = ['stockfish', 'lozza', 'draw'];
     const valid = x => CHOICES.includes(x);
     const nonnegative = x => Number.isSafeInteger(x) && x >= 0 ? x : 0;
