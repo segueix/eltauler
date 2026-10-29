@@ -37,7 +37,7 @@
     'use strict';
 
     // Camps PESATS d'una entrada. Tot el que no sigui aquí és índex.
-    const HEAVY_FIELDS = ['moveReviews', 'errors', 'severeErrors', 'review', 'aiReview'];
+    const HEAVY_FIELDS = ['moveReviews', 'errors', 'severeErrors', 'review', 'aiReview', 'positionalSacrificeReview'];
 
     // Forma buida de cada camp pesat: en hidratar una entrada sense cos, s'hi
     // posa això perquè els consumidors trobin sempre el tipus que esperen.
@@ -46,7 +46,8 @@
         errors: [],
         severeErrors: [],
         review: [],
-        aiReview: null
+        aiReview: null,
+        positionalSacrificeReview: null
     };
 
     const DB_NAME = 'eltauler_games';
