@@ -198,11 +198,11 @@
         function abort() { if (status === 'running') tick(); if (status !== 'done') status = 'aborted'; }
         return { state, prepare, begin, submit, recall, tick, abort };
     }
-    function median(values) { if (!values.length) return null; const a = values.slice().sort((a, b) => a - b), mid = Math.floor(a.length / 2); return a.length % 2 ? a[mid] : (a[mid - 1] + a[mid]) / 2; }
+    function mean(values) { return values.length ? values.reduce((total, value) => total + value, 0) / values.length : null; }
     function summary(rows) {
         const good = rows.filter(r => r.correct), probes = rows.filter(r => typeof r.clockCorrect === 'boolean');
         return { attempts: rows.length, correct: good.length, accuracy: rows.length ? good.length / rows.length : 0,
-            medianMs: median(good.map(r => r.reactionMs)), timeouts: rows.filter(r => r.timeout).length,
+            meanMs: mean(good.map(r => r.reactionMs)), timeouts: rows.filter(r => r.timeout).length,
             penaltyMs: rows.reduce((s, r) => s + (r.penaltyMs || 0), 0),
             probes: probes.length, clockAccuracy: probes.length ? probes.filter(r => r.clockCorrect).length / probes.length : null,
             clockErrorMs: probes.length ? probes.reduce((s, r) => s + r.clockErrorMs, 0) / probes.length : null };
@@ -238,8 +238,8 @@
         const out = { 30: null, 60: null };
         progress.sessions.filter(s => s.complete && s.mode === 'rush').forEach(s => {
             const a = summary(s.rows), best = out[s.seconds];
-            if (!best || a.correct > best.score || (a.correct === best.score && a.medianMs != null && (best.medianMs == null || a.medianMs < best.medianMs))) {
-                out[s.seconds] = { score: a.correct, medianMs: a.medianMs, accuracy: a.accuracy, level: s.level, at: s.at, id: s.id };
+            if (!best || a.correct > best.score || (a.correct === best.score && a.meanMs != null && (best.meanMs == null || a.meanMs < best.meanMs))) {
+                out[s.seconds] = { score: a.correct, meanMs: a.meanMs, accuracy: a.accuracy, level: s.level, at: s.at, id: s.id };
             }
         });
         return out;
@@ -274,7 +274,7 @@
         if (seconds === 60 && best && best.score >= 12) return { step: 4, mode: 'rush', title: 'Fase 4 · Passa a 30 segons', text: 'Al minut ja resols ' + best.score + ' posicions. Canvia el ritme a 30 segons i torna a començar la rutina.' };
         return { step: 3, mode: 'rush', title: 'Fase 3 · Velocitat', text: 'La lectura i el rellotge ja van bé. Ara suma encerts al mateix temps: sprints i contrarellotges.' };
     }
-    // Encerts i mediana per tipus d'objectiu de les sèries recents: assenyala el punt feble.
+    // Encerts i mitjana per tipus d'objectiu de les sèries recents: assenyala el punt feble.
     function kindStats(progress, now = Date.now(), span = 30) {
         const from = now - span * 864e5, rows = progress.sessions.filter(s => s.at >= from && s.at <= now).flatMap(s => s.rows);
         const out = {};
@@ -282,7 +282,7 @@
         const ranked = KINDS.filter(k => out[k].attempts >= 6).sort((a, b) => out[a].accuracy - out[b].accuracy);
         return { byKind: out, weakest: ranked.length > 1 && out[ranked[0]].accuracy < out[ranked[ranked.length - 1]].accuracy ? ranked[0] : null };
     }
-    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, levelPool, makeDeck, targetMs, clockChoices, createSession, summary, median, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
+    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, levelPool, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
 
     // UI integrada, sense alterar el ROC, les ratxes ni el rellotge d'una partida.
     let bridge = {}, bank = null, session = null, board = null, chess = null, selected = null;
@@ -358,17 +358,17 @@
             const a = ks.byKind[kind], li = document.createElement('li');
             if (kind === ks.weakest) li.className = 'bp-kind-weak';
             const name = document.createElement('span'); name.textContent = GOALS[kind].title;
-            const value = document.createElement('strong'); value.textContent = a.attempts ? pct(a.accuracy) + (a.medianMs == null ? '' : ' · ' + fmt(a.medianMs)) : '—';
+            const value = document.createElement('strong'); value.textContent = a.attempts ? pct(a.accuracy) + (a.meanMs == null ? '' : ' · ' + fmt(a.meanMs)) : '—';
             const bar = document.createElement('span'); bar.className = 'bp-kind-bar'; bar.style.setProperty('--w', a.attempts ? Math.round(a.accuracy * 100) + '%' : '0%');
             li.append(name, value, bar); kinds.append(li);
         });
-        el('kinds-note').textContent = ks.weakest ? 'Punt feble: «' + GOALS[ks.weakest].title.toLowerCase() + '». Fixa-t’hi a la lectura ràpida abans d’accelerar.' : 'Encerts i mediana dels encerts dels últims 30 dies, de totes les modalitats.';
+        el('kinds-note').textContent = ks.weakest ? 'Punt feble: «' + GOALS[ks.weakest].title.toLowerCase() + '». Fixa-t’hi a la lectura ràpida abans d’accelerar.' : 'Encerts i mitjana dels encerts dels últims 30 dies, de totes les modalitats.';
         const all = p.sessions.filter(s => s.mode === mode && s.seconds === seconds), same = all.filter(s => s.complete && s.level === level);
         el('progress-note').textContent = all.length ? all.filter(s => s.complete).length + ' sèries acabades de ' + MODES[mode].label.toLowerCase() + ' a ' + paceLabel(seconds) + '. Es conserven les 120 sèries més recents.' : 'Encara no hi ha sèries de ' + MODES[mode].label.toLowerCase() + ' a ' + paceLabel(seconds) + '.';
         const tbody = el('history'); tbody.replaceChildren();
         all.slice(-10).reverse().forEach(s => {
             const a = summary(s.rows), tr = document.createElement('tr');
-            [dateLabel(s.at) + (s.complete ? '' : ' · parcial'), 'N' + s.level, mode === 'rush' ? a.correct + ' (' + pct(a.accuracy) + ')' : pct(a.accuracy), a.medianMs == null ? '—' : fmt(a.medianMs), mode === 'rush' ? (a.penaltyMs ? '−' + Math.round(a.penaltyMs / 1000) + ' s' : '—') : pct(a.clockAccuracy)]
+            [dateLabel(s.at) + (s.complete ? '' : ' · parcial'), 'N' + s.level, mode === 'rush' ? a.correct + ' (' + pct(a.accuracy) + ')' : pct(a.accuracy), a.meanMs == null ? '—' : fmt(a.meanMs), mode === 'rush' ? (a.penaltyMs ? '−' + Math.round(a.penaltyMs / 1000) + ' s' : '—') : pct(a.clockAccuracy)]
                 .forEach(text => { const td = document.createElement('td'); td.textContent = text; tr.append(td); }); tbody.append(tr);
         });
         el('history-head-clock').textContent = mode === 'rush' ? 'Penalització' : 'Rellotge';
@@ -376,9 +376,9 @@
         el('history-wrap').hidden = !all.length;
         const recent = same.slice(-3), before = same.slice(-6, -3);
         const a = summary(recent.flatMap(s => s.rows)), b = summary(before.flatMap(s => s.rows));
-        let trend = 'La mediana mesura només les decisions correctes. Compara sempre el mateix ritme, modalitat i nivell.';
-        if (recent.length === 3 && before.length === 3 && a.medianMs != null && b.medianMs != null) {
-            const delta = a.medianMs - b.medianMs;
+        let trend = 'La mitjana mesura només les decisions correctes. Compara sempre el mateix ritme, modalitat i nivell.';
+        if (recent.length === 3 && before.length === 3 && a.meanMs != null && b.meanMs != null) {
+            const delta = a.meanMs - b.meanMs;
             trend = 'Últimes 3 sèries respecte de les 3 anteriors del nivell ' + level + ': ' + fmt(Math.abs(delta)) + (delta < 0 ? ' més ràpid' : ' més lent') + ', encerts ' + pct(b.accuracy) + ' → ' + pct(a.accuracy) + (mode === 'rush' ? '' : ', rellotge ' + pct(b.clockAccuracy) + ' → ' + pct(a.clockAccuracy)) + '.';
         }
         el('trend').textContent = trend;
@@ -388,9 +388,9 @@
         series.forEach((s, i) => {
             const a = summary(s.rows), item = document.createElement('div'), bar = document.createElement('span'), label = document.createElement('small');
             item.className = 'bp-chart-item'; bar.className = 'bp-chart-bar';
-            const h = mode === 'rush' ? a.correct / maxScore * 65 : (a.medianMs == null ? 0 : a.medianMs / targetMs(seconds, level) * 65);
-            bar.style.height = Math.max(a.correct || a.medianMs ? 4 : 0, Math.min(80, h)) + 'px';
-            label.textContent = mode === 'rush' ? a.correct + ' · ' + pct(a.accuracy) : (a.medianMs == null ? '—' : fmt(a.medianMs)) + ' · ' + pct(a.accuracy);
+            const h = mode === 'rush' ? a.correct / maxScore * 65 : (a.meanMs == null ? 0 : a.meanMs / targetMs(seconds, level) * 65);
+            bar.style.height = Math.max(a.correct || a.meanMs ? 4 : 0, Math.min(80, h)) + 'px';
+            label.textContent = mode === 'rush' ? a.correct + ' · ' + pct(a.accuracy) : (a.meanMs == null ? '—' : fmt(a.meanMs)) + ' · ' + pct(a.accuracy);
             item.title = 'Sèrie ' + (i + 1) + ': ' + label.textContent; item.append(bar, label); bars.append(item);
         });
         el('chart-caption').textContent = mode === 'rush'
@@ -615,7 +615,7 @@
         el('result-context').textContent = MODES[s.mode].label + ' · ' + paceLabel(s.seconds) + ' · nivell ' + s.level + ' · ' + a.attempts + ' decisions';
         el('result-accuracy').textContent = rush ? String(a.correct) : a.correct + '/' + a.attempts;
         el('result-accuracy-label').textContent = rush ? 'Posicions resoltes' : 'Decisions correctes';
-        el('result-speed').textContent = a.medianMs == null ? '—' : fmt(a.medianMs);
+        el('result-speed').textContent = a.meanMs == null ? '—' : fmt(a.meanMs);
         el('result-clock').textContent = rush ? pct(a.accuracy) : pct(a.clockAccuracy);
         el('result-clock-label').textContent = rush ? 'Precisió' : 'Record del rellotge';
         el('result-timeouts').textContent = rush ? (a.penaltyMs ? '−' + Math.round(a.penaltyMs / 1000) + ' s' : '0 s') : String(a.timeouts);
