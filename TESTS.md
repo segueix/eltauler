@@ -144,13 +144,19 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   posició s'acaba o quan una jugada és il·legal, i metadades del motor per pas.
   Finalment, una comprovació sobre les dades REALS d'`app.js`: cap posició del
   banc no pot estar ja acabada (mat o taules) i **totes** han de tenir línia
-  preparada de fàbrica a `TACTICS_BANK_SOLUTIONS`, legal i jugable fins al final.
+  preparada de fàbrica a `TACTICS_BANK_SOLUTIONS`, legal i jugable fins al final,
+  amb **dues jugades del jugador** i la rèplica del rival entremig (els mats en
+  una jugada ja no són tàctiques). També que l'app només serveix tàctiques de
+  dues jugades (fins i tot si una seqüència preparada abans en tenia una) i
+  que la rèplica del rival es fa encara que la marca prèvia es cancel·li (p.
+  ex. en llegir una màxima en veu alta) o tardi més de 12 s.
 
   Aquest rebost estàtic es regenera amb el mateix Stockfish que porta l'app:
 
   ```bash
   node scripts/gen-tactics-solutions.js          # reescriu el bloc dins d'app.js
   node scripts/gen-tactics-solutions.js --dry    # només l'imprimeix
+  node scripts/gen-tactics-solutions.js --only "fen1|fen2"   # resol només aquestes; la resta queda igual
   ```
 
 - **`puzzles.test.js`** — jeroglífics tàctics: validació pas a pas de la solució

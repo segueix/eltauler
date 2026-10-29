@@ -13,7 +13,9 @@
 // Gràcies a aquest rebost un exercici de tàctiques arrenca a l'instant i la
 // secció continua funcionant encara que el motor no arrenqui al dispositiu.
 //
-// Ús:  node scripts/gen-tactics-solutions.js [--depth 18] [--dry]
+// Ús:  node scripts/gen-tactics-solutions.js [--depth 18] [--dry] [--only fen1|fen2]
+//      --only: resol només aquestes posicions i conserva tal qual la resta del
+//      rebost (per afegir-ne de noves sense tornar a calcular les existents).
 // ============================================================================
 const fs = require('fs');
 const path = require('path');
@@ -29,6 +31,14 @@ const DEPTH = Number(args[args.indexOf('--depth') + 1]) || 18;
 const MOVETIME_MS = 20000;
 const PV_KEEP = 8;
 const DRY = args.includes('--dry');
+const ONLY = args.includes('--only') ? String(args[args.indexOf('--only') + 1] || '').split('|').map(f => f.trim()).filter(Boolean) : null;
+
+function readSolutions(src) {
+    const start = src.indexOf('const TACTICS_BANK_SOLUTIONS = ');
+    if (start < 0) return {};
+    const end = src.indexOf('\n};', start);
+    return new Function(`${src.slice(start, end + 3)}\n;return TACTICS_BANK_SOLUTIONS;`)();
+}
 
 // ── Motor: stockfish.js és un worker; a Node n'hi ha prou d'oferir postMessage ──
 const listeners = [];
@@ -133,13 +143,18 @@ function serialize(solutions) {
 
 (async () => {
     const src = fs.readFileSync(APP, 'utf8');
-    const fens = readBankFens(src);
-    if (!fens.length) { console.error('No s\'ha pogut llegir cap banc d\'app.js'); process.exit(1); }
+    const bankFens = readBankFens(src);
+    if (!bankFens.length) { console.error('No s\'ha pogut llegir cap banc d\'app.js'); process.exit(1); }
+    const kept = ONLY ? readSolutions(src) : {};
+    const fens = ONLY || bankFens;
 
     send('uci');
     await ready();
 
+    // Amb --only, l'ordre del rebost segueix el dels bancs i les posicions que
+    // ja no hi són es deixen fora.
     const solutions = {};
+    if (ONLY) bankFens.forEach(f => { if (kept[f] && !ONLY.includes(f)) solutions[f] = kept[f]; });
     for (const fen of fens) {
         process.stderr.write('\n== ' + fen + '\n');
         let probe;
@@ -184,6 +199,13 @@ function serialize(solutions) {
         solutions[fen] = { totalSteps: steps.length, sanLine, steps, replies };
     }
 
+    if (ONLY) {
+        const ordered = {};
+        bankFens.forEach(f => { if (solutions[f]) ordered[f] = solutions[f]; });
+        Object.keys(solutions).forEach(f => { if (!ordered[f]) ordered[f] = solutions[f]; });
+        Object.keys(solutions).forEach(f => delete solutions[f]);
+        Object.assign(solutions, ordered);
+    }
     const block = serialize(solutions);
     if (DRY) { console.log(block); process.exit(0); }
 

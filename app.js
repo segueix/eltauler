@@ -26368,8 +26368,13 @@ if (typeof window !== 'undefined') {
 /* ===================== ENTRENAMENT DE TÀCTIQUES ===================== */
 // Banc de posicions tàctiques: el jugador ha de trobar la millor jugada (verificada per Stockfish).
 const TACTICS_BANK = [
-    'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4',
-    '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1',
+    // Totes les tàctiques tenen DUES jugades del jugador amb la rèplica del rival
+    // entremig (vegeu TACTICS_BANK_SOLUTIONS). Els mats en una jugada (mat del
+    // pastor, del passadís i del boig) ja no hi són: queden per al repte diari.
+    // Mat de la coç: Dg8+ Txg8 Cf7#.
+    '5r1k/6pp/7N/3Q4/8/8/6PP/6K1 w - - 0 1',
+    // Mat del passadís en dues: Td8+ Txd8 Txd8#.
+    '2r3k1/5ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1',
     'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5',
     '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11',
     'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9',
@@ -26381,9 +26386,10 @@ const TACTICS_BANK = [
     '2kr3r/ppp2ppp/2n1b3/2b1p1q1/4P3/2NP1N2/PPP1QPPP/R1B2RK1 b - - 0 11',
     '6k1/pp3ppp/8/8/8/1P3Q2/P4qPP/5RK1 w - - 0 1',
     'r4rk1/1pp2ppp/p1np1q2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 9',
-    // Mat del boig: negres juguen i fan mat (abans hi havia la posició JA matada,
-    // sense cap jugada legal, i l'exercici no es podia preparar mai).
-    'rnbqkbnr/pppp1ppp/8/4p3/5PP1/8/PPPPP2P/RNBQKBNR b KQkq g3 0 2'
+    // Forquilla de la dama amb escac: Dd5+ i Dxa8+.
+    'r5k1/6pp/8/8/8/5P2/6PP/3Q2K1 w - - 0 1',
+    // Negres: mat del passadís en dues, ...Td1+ Txd1 Txd1#.
+    '3r2k1/3r1ppp/8/8/8/8/5PPP/2R3K1 b - - 0 1'
 ];
 
 // Rebost estàtic del banc: la línia de cada posició ja ve resolta amb el MATEIX
@@ -26397,29 +26403,39 @@ const TACTICS_BANK = [
 // s'edita a mà.
 // >>> TACTICS_BANK_SOLUTIONS (generat) >>>
 const TACTICS_BANK_SOLUTIONS = {
-    'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4': {
-        totalSteps: 1,
-        sanLine: ['Qxf7#'],
+    '5r1k/6pp/7N/3Q4/8/8/6PP/6K1 w - - 0 1': {
+        totalSteps: 2,
+        sanLine: ['Qg8+', 'Rxg8', 'Nf7#'],
         steps: [
             {
-                move: 'f3f7', eval: 1, evalType: 'mate',
-                pv: ['f3f7'],
-                alternatives: [{ move: 'f3f7', eval: 1, evalType: 'mate' }, { move: 'c4f7', eval: 277, evalType: 'cp' }]
+                move: 'd5g8', eval: 2, evalType: 'mate',
+                pv: ['d5g8', 'f8g8', 'h6f7'],
+                alternatives: [{ move: 'd5g8', eval: 2, evalType: 'mate' }, { move: 'h6f7', eval: 4, evalType: 'mate' }]
+            },
+            {
+                move: 'h6f7', eval: 1, evalType: 'mate',
+                pv: ['h6f7'],
+                alternatives: [{ move: 'h6f7', eval: 1, evalType: 'mate' }, { move: 'h6g8', eval: 0, evalType: 'cp' }]
             }
         ],
-        replies: []
+        replies: [{ move: 'f8g8', eval: -1, evalType: 'mate' }]
     },
-    '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1': {
-        totalSteps: 1,
-        sanLine: ['Rd8#'],
+    '2r3k1/5ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1': {
+        totalSteps: 2,
+        sanLine: ['Rd8+', 'Rxd8', 'Rxd8#'],
         steps: [
+            {
+                move: 'd2d8', eval: 2, evalType: 'mate',
+                pv: ['d2d8', 'c8d8', 'd1d8'],
+                alternatives: [{ move: 'd2d8', eval: 2, evalType: 'mate' }, { move: 'd2c2', eval: 766, evalType: 'cp' }]
+            },
             {
                 move: 'd1d8', eval: 1, evalType: 'mate',
                 pv: ['d1d8'],
-                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'g1f1', eval: 769, evalType: 'cp' }]
+                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'd1a1', eval: 0, evalType: 'cp' }]
             }
         ],
-        replies: []
+        replies: [{ move: 'c8d8', eval: -1, evalType: 'mate' }]
     },
     'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5': {
         totalSteps: 2,
@@ -26608,14 +26624,60 @@ const TACTICS_BANK_SOLUTIONS = {
         ],
         replies: [{ move: 'f6d8', eval: -505, evalType: 'cp' }]
     },
-    'rnbqkbnr/pppp1ppp/8/4p3/5PP1/8/PPPPP2P/RNBQKBNR b KQkq g3 0 2': {
-        totalSteps: 1,
-        sanLine: ['Qh4#'],
+    'r5k1/6pp/8/8/8/5P2/6PP/3Q2K1 w - - 0 1': {
+        totalSteps: 2,
+        sanLine: ['Qd5+', 'Kf8', 'Qxa8+'],
         steps: [
             {
-                move: 'd8h4', eval: 1, evalType: 'mate',
-                pv: ['d8h4'],
-                alternatives: [{ move: 'd8h4', eval: 1, evalType: 'mate' }, { move: 'd7d5', eval: 329, evalType: 'cp' }]
+                move: 'd1d5', eval: 6295, evalType: 'cp',
+                pv: ['d1d5', 'g8f8', 'd5a8', 'f8f7', 'a8d5', 'f7g6', 'd5e4', 'g6h6'],
+                alternatives: [{ move: 'd1d5', eval: 6295, evalType: 'cp' }, { move: 'h2h4', eval: 825, evalType: 'cp' }]
+            },
+            {
+                move: 'd5a8', eval: 7453, evalType: 'cp',
+                pv: ['d5a8', 'f8f7', 'a8d5', 'f7f6', 'd5h5', 'h7h6', 'h2h4', 'f6e7'],
+                alternatives: [{ move: 'd5a8', eval: 7453, evalType: 'cp' }, { move: 'd5f5', eval: 7453, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g8f8', eval: -6637, evalType: 'cp' }]
+    },
+    '3r2k1/3r1ppp/8/8/8/8/5PPP/2R3K1 b - - 0 1': {
+        totalSteps: 2,
+        sanLine: ['Rd1+', 'Rxd1', 'Rxd1#'],
+        steps: [
+            {
+                move: 'd7d1', eval: 2, evalType: 'mate',
+                pv: ['d7d1', 'c1d1', 'd8d1'],
+                alternatives: [{ move: 'd7d1', eval: 2, evalType: 'mate' }, { move: 'd7c7', eval: 761, evalType: 'cp' }]
+            },
+            {
+                move: 'd8d1', eval: 1, evalType: 'mate',
+                pv: ['d8d1'],
+                alternatives: [{ move: 'd8d1', eval: 1, evalType: 'mate' }, { move: 'd8b8', eval: 9, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c1d1', eval: -1, evalType: 'mate' }]
+    },
+    'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4': {
+        totalSteps: 1,
+        sanLine: ['Qxf7#'],
+        steps: [
+            {
+                move: 'f3f7', eval: 1, evalType: 'mate',
+                pv: ['f3f7'],
+                alternatives: [{ move: 'f3f7', eval: 1, evalType: 'mate' }, { move: 'c4f7', eval: 277, evalType: 'cp' }]
+            }
+        ],
+        replies: []
+    },
+    '6k1/5ppp/8/8/8/8/5PPP/3R2K1 w - - 0 1': {
+        totalSteps: 1,
+        sanLine: ['Rd8#'],
+        steps: [
+            {
+                move: 'd1d8', eval: 1, evalType: 'mate',
+                pv: ['d1d8'],
+                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'g1f1', eval: 769, evalType: 'cp' }]
             }
         ],
         replies: []
@@ -26704,17 +26766,29 @@ function offlineReadyTacticsFens() {
 
 // Tria una posició del banc amb línia preparada (per canviar-hi quan la que s'ha
 // demanat no es pot preparar). Respecta la rotació del cicle sempre que pugui.
+// Una tàctica sempre té dues jugades del jugador (amb la rèplica del rival
+// entremig): només se serveixen posicions amb aquesta línia al rebost.
+const TACTICS_MIN_STEPS = 2;
+function tacticsFenHasTwoSteps(fen) {
+    const sol = fen ? TACTICS_BANK_SOLUTIONS[fen] : null;
+    return !!(sol && Array.isArray(sol.steps) && sol.steps.length >= TACTICS_MIN_STEPS);
+}
+function bundleSequencePlayerSteps(seq) {
+    if (!seq) return 0;
+    return seq.totalSteps || (seq.step3 ? 3 : (seq.step2 ? 2 : 1));
+}
+
 function pickOfflineTacticsFen(excludeFen = null) {
     const inCycle = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens)
-        .filter(f => f !== excludeFen && TACTICS_BANK_SOLUTIONS[f] && isPlayableExerciseFen(f));
-    const pool = inCycle.length ? inCycle : offlineReadyTacticsFens().filter(f => f !== excludeFen);
+        .filter(f => f !== excludeFen && tacticsFenHasTwoSteps(f) && isPlayableExerciseFen(f));
+    const pool = inCycle.length ? inCycle : offlineReadyTacticsFens().filter(f => f !== excludeFen && tacticsFenHasTwoSteps(f));
     return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 
 function pickTacticsFen() {
     // Rotació: les posicions ja resoltes no es repeteixen fins completar el banc.
     const pool = ElTaulerCore.tacticsPickPool(TACTICS_BANK, tacticsStats.recentFens)
-        .filter(isPlayableExerciseFen);
+        .filter(f => tacticsFenHasTwoSteps(f) && isPlayableExerciseFen(f));
     if (!pool.length) return pickOfflineTacticsFen() || TACTICS_BANK[0];
     // Prefereix una posició que arrenqui a l'instant (rebost estàtic o preparada
     // en segon pla); si cap no ho està, qualsevol del cicle.
@@ -28379,7 +28453,15 @@ blunderMode = isBundle;
     // ✅ CALCULAR SEQÜÈNCIA FIXA PER BUNDLES
     bundleFixedSequence = null;
     if (isBundle && fen) {
-        if (pendingPreparedSequence && pendingPreparedSequence.initialFen === fen) {
+        // Tàctiques: primer la línia del rebost estàtic, que sempre té dues
+        // jugades; una seqüència preparada en segon pla podria ser més curta.
+        if (isTacticsSession) {
+            const bankSeq = buildBankBundleSequence(fen);
+            if (bundleSequencePlayerSteps(bankSeq) >= TACTICS_MIN_STEPS) bundleFixedSequence = bankSeq;
+        }
+        if (bundleFixedSequence) {
+            // Ja la tenim.
+        } else if (pendingPreparedSequence && pendingPreparedSequence.initialFen === fen) {
             // Seqüència ja preparada i verificada (p. ex. mat en 3)
             bundleFixedSequence = pendingPreparedSequence;
             pendingPreparedSequence = null;
@@ -28416,7 +28498,7 @@ blunderMode = isBundle;
             // ja es va desar quan es va detectar l'errada.
             if (!bundleFixedSequence) bundleFixedSequence = buildEmergencyBundleSequence(fen);
 
-            if (!bundleFixedSequence && isTacticsSession) {
+            if (isTacticsSession && bundleSequencePlayerSteps(bundleFixedSequence) < TACTICS_MIN_STEPS) {
                 // Últim recurs abans de rendir-se: en una sessió de tàctiques,
                 // canvia a una posició del banc que sí que tingui línia preparada.
                 // Així la secció mai no es queda sense exercici.
@@ -28441,6 +28523,19 @@ blunderMode = isBundle;
             }
         }
 
+        // Una tàctica sempre té dues jugades: si la línia n'ha sortit amb una
+        // (p. ex. una seqüència preparada abans que acaba en mat), es canvia a
+        // una posició del banc que en tingui dues.
+        if (isTacticsSession && bundleSequencePlayerSteps(bundleFixedSequence) < TACTICS_MIN_STEPS) {
+            const fallbackFen = pickOfflineTacticsFen(fen);
+            const fallbackSeq = fallbackFen ? buildBankBundleSequence(fallbackFen) : null;
+            if (fallbackSeq) {
+                console.warn('[Bundle] Tàctica amb una sola jugada', fen, '→ es canvia a', fallbackFen);
+                fen = fallbackFen;
+                currentBundleFen = fen;
+                bundleFixedSequence = fallbackSeq;
+            }
+        }
     }
 
     lastHumanMoveUci = null;
@@ -31262,18 +31357,30 @@ function selectBundlePvLineForMove(bundleData, playedMove) {
     return match || (candidates[0] || []);
 }
 
+// Temps màxim que la rèplica de l'exercici espera la marca prèvia (veu del
+// comentari, temps de lectura i marca de la jugada).
+const BUNDLE_REPLY_PREVIEW_MAX_MS = 12000;
+
 async function applyBundleAutoReply(moveUci) {
     if (!moveUci) return;
     const active = game, fen = active.fen(), generation = gameGeneration;
     const valid = () => game === active && gameGeneration === generation && active.fen() === fen && blunderMode;
     if (window.ElTaulerBoardExperience && !gameClock.enabled && blunderMode && !isViewingGameHistory()) {
         isEngineThinking = true;
-        const ready = await window.ElTaulerBoardExperience.preview('myBoard', {
-            from: moveUci.slice(0, 2), to: moveUci.slice(2, 4), promotion: moveUci[4] || 'q'
-        }, valid);
+        let timer = null;
+        await Promise.race([
+            window.ElTaulerBoardExperience.preview('myBoard', {
+                from: moveUci.slice(0, 2), to: moveUci.slice(2, 4), promotion: moveUci[4] || 'q'
+            }, valid),
+            new Promise(resolve => { timer = setTimeout(resolve, BUNDLE_REPLY_PREVIEW_MAX_MS); })
+        ]);
+        clearTimeout(timer);
         if (!valid()) return;
         isEngineThinking = false;
-        if (!ready) return;
+        // La marca prèvia és només visual. Si s'ha cancel·lat (p. ex. en llegir
+        // en veu alta una màxima o en canviar de pantalla) o tarda massa, la
+        // rèplica es fa igualment: abans s'hi renunciava i l'exercici quedava
+        // encallat entre el primer i el segon pas.
     }
     const fromSq = moveUci.substring(0, 2);
     const toSq = moveUci.substring(2, 4);
