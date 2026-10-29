@@ -99,7 +99,19 @@
             if(!inspected||inspected.finalFen!==proof.finalFen||
                 inspected.kind!==proof.kind||inspected.gain!==proof.gain)return [];
             const legal=materialOffers(candidate,Chess);
+            const refused=refusedOffers(candidate,Chess);
             return proof.sacrifices.filter(x=>{
+                if(x.kind==='refused') {
+                    const offer=refused.find(y=>y.step===x.step&&y.offered===x.offered&&
+                        y.offerUci===x.offerUci&&y.replyUci===x.replyUci&&
+                        y.captureUci===x.captureUci&&y.acceptedFen===x.acceptedFen&&
+                        y.loss===x.loss&&y.square===x.square);
+                    return !!(offer&&x.compensationKind===proof.kind&&
+                        Number.isInteger(x.checkedDepth)&&x.checkedDepth>=18&&
+                        x.captureEvalType&&Number.isFinite(x.captureEval)&&
+                        ((x.captureEvalType==='mate'&&x.captureEval>0)||
+                         (x.captureEvalType==='cp'&&x.captureEval>=300)));
+                }
                 const offer=legal.find(y=>y.step===x.step&&
                     y.offered===x.offered&&y.offerUci===x.offerUci&&y.replyUci===x.replyUci&&
                     y.loss===x.loss&&y.square===x.square&&
@@ -114,11 +126,48 @@
                     answer.move===candidate.solutionMoves[x.step]&&
                     x.continuationType===answer.evalType&&
                     x.continuationEval===answer.eval;
-            }).map(x=>({step:x.step,offered:x.offered,offerUci:x.offerUci,
-                replyUci:x.replyUci,square:x.square,loss:x.loss,
-                kingInCheck:x.kingInCheck,checkedDefenses:x.checkedDefenses,
-                compensationKind:x.compensationKind}));
+            }).map(x=>({kind:x.kind||'accepted',step:x.step,offered:x.offered,offerUci:x.offerUci,
+                replyUci:x.replyUci,captureUci:x.captureUci||null,
+                square:x.square,loss:x.loss,kingInCheck:x.kingInCheck,
+                checkedDefenses:x.checkedDefenses||0,compensationKind:x.compensationKind}));
         }catch(err){return [];}
+    }
+
+
+    // L'adversari ha tingut una captura LEGAL de la peça oferta, però ha
+    // preferit una altra resposta. No és un sacrifici consumat.
+    function refusedOffers(candidate, Chess) {
+        if(typeof Chess!=='function'||!hasThreeMoves(candidate))return [];
+        try {
+            const g=new Chess(candidate.fen),color=g.turn(),original=balance(g,color),line=lineOf(candidate),out=[];
+            for(let i=0;i<4;i+=2) {
+                if(g.game_over())return [];
+                const m=play(g,line[i]);if(!m)return [];
+                const offeredFen=g.fen(),options=g.moves({verbose:true});
+                const captures=options.filter(x=>x.to===m.to&&x.captured===m.piece&&
+                    m.piece!=='p'&&m.piece!=='k');
+                const actual=play(g,line[i+1]);if(!actual)return [];
+                if(actual.to===m.to&&actual.captured===m.piece)continue;
+                for(const cap of captures) {
+                    const hypothetical=new Chess(offeredFen),accepted=play(hypothetical,uci(cap));
+                    if(!accepted||hypothetical.game_over())continue;
+                    const projectedLoss=original-balance(hypothetical,color);
+                    if(projectedLoss<2)continue;
+                    out.push({step:i/2+1,offered:m.piece,offerUci:uci(m),
+                        replyUci:uci(actual),captureUci:uci(cap),square:m.to,
+                        loss:projectedLoss,acceptedFen:hypothetical.fen(),
+                        offeredFen,kingInCheck:hypothetical.in_check()});
+                }
+            }
+            return out;
+        }catch(e){return [];}
+    }
+    function stablePlayerAdvantage(row, minDepth=18, minCp=300) {
+        const best=row&&row.bestMove;
+        return !!(best&&Number.isFinite(best.depth)&&best.depth>=minDepth&&!best.bound&&
+            Number.isFinite(best.eval)&&
+            ((best.evalType==='mate'&&best.eval>0)||
+             (best.evalType==='cp'&&best.eval>=minCp)));
     }
 
     function createVerifier(Chess, analyze) {
@@ -266,6 +315,31 @@
                 });
             }
 
+
+            // Una oferta REFUSADA no és un sacrifici efectiu. Per esmentar-la,
+            // el motor ha de confirmar que acceptar la peça era una opció
+            // legal i que, en la posició hipotètica després de la captura,
+            // el bàndol ofertant encara té una continuació guanyadora.
+            for(const offer of refusedOffers(candidate,Chess)) {
+                if(abort())return null;
+                const depthRefused=Math.max(18,depth);
+                const acceptedAnalysis=await request(offer.acceptedFen,depthRefused,2,
+                    opts.moveTimeMs||8000,opts.shouldAbort||null);
+                if(abort())return null;
+                if(!stablePlayerAdvantage(acceptedAnalysis,18,300))continue;
+                const chosen=acceptedAnalysis.bestMove;
+                const g=new Chess(offer.acceptedFen);
+                if(!play(g,chosen.move))continue;
+                sacrifices.push({
+                    kind:'refused',step:offer.step,offered:offer.offered,
+                    offerUci:offer.offerUci,replyUci:offer.replyUci,
+                    captureUci:offer.captureUci,acceptedFen:offer.acceptedFen,
+                    square:offer.square,loss:offer.loss,
+                    compensationKind:end.kind,checkedDepth:chosen.depth,
+                    captureEvalType:chosen.evalType,captureEval:chosen.eval
+                });
+            }
+
             return { ...candidate, stepAlternatives, stepEvals, stepPvs,
                 conclusion: { version: VERSION, fen: candidate.fen, line: end.line, finalFen: end.finalFen,
                     kind: end.kind, finalSan: end.finalSan, gain: end.gain, checkedReplies: end.replies,
@@ -278,6 +352,115 @@
         }
         return { inspect, verify };
     }
+
+    // Verificació independent per a partides/revisions: un sacrifici amb
+    // compensació POSICIONAL no exigeix mat ni recuperació immediata.
+    // La funció consumeix el mateix analitzador local de Stockfish que verify.
+    // Els indicadors de peons i iniciativa descriuen fets, NO proven causalitat.
+    function createPositionalVerifier(Chess, analyze) {
+        function positionBalance(g,color){return balance(g,color);}
+        function pawnStructure(g,color) {
+            const own=g.board().flat().filter(p=>p&&p.color===color&&p.type==='p');
+            const foes=g.board().flat().filter(p=>p&&p.color!==color&&p.type==='p');
+            const files=Array(8).fill(0);
+            // board() inclou les peces; get(sq) determina la columna exacta.
+            const passed=[];
+            for(let f=0;f<8;f++)for(let r=1;r<=8;r++){
+                const sq='abcdefgh'[f]+r,p=g.get(sq);
+                if(!p||p.color!==color||p.type!=='p')continue;
+                files[f]++;
+                let isPassed=true;
+                for(let enemyF=Math.max(0,f-1);enemyF<=Math.min(7,f+1);enemyF++)
+                    for(let enemyR=1;enemyR<=8;enemyR++){
+                        const enemy=g.get('abcdefgh'[enemyF]+enemyR);
+                        if(enemy&&enemy.type==='p'&&enemy.color!==color&&
+                            (color==='w'?enemyR>r:enemyR<r))isPassed=false;
+                    }
+                if(isPassed)passed.push(sq);
+            }
+            return {pawns:own.length,enemyPawns:foes.length,
+                doubled:files.reduce((n,v)=>n+Math.max(0,v-1),0),
+                islands:files.reduce((n,v,i)=>n+(v>0&&(i===0||files[i-1]===0)?1:0),0),
+                passed};
+        }
+        function pvEvidence(g,pv,color) {
+            if(!Array.isArray(pv)||pv.length<4)return null;
+            const line=[],initial=positionBalance(g,color);
+            for(const move of pv.slice(0,8)){
+                if(g.game_over())break;
+                const m=play(g,move);if(!m)return null;
+                line.push({uci:uci(m),san:m.san,color:m.color,
+                    check:g.in_check(),capture:!!m.captured});
+            }
+            if(line.length<4)return null;
+            const own=line.filter(x=>x.color===color);
+            const recovered=positionBalance(g,color)-initial>=2;
+            return {line:line.map(x=>x.uci),checks:own.filter(x=>x.check).length,
+                captures:own.filter(x=>x.capture).length,
+                immediateRecovery:recovered};
+        }
+        async function verify(ctx,opts={}) {
+            if(typeof Chess!=='function'||typeof analyze!=='function'||!ctx||
+                typeof ctx.fen!=='string'||typeof ctx.move!=='string'||
+                typeof ctx.reply!=='string')return null;
+            const abort=()=>!!(opts.shouldAbort&&opts.shouldAbort());
+            const request=async(fen,depth,pv)=>{
+                try{return await analyze(fen,depth,pv,opts.moveTimeMs||8000,
+                    opts.shouldAbort||null);}catch(e){return null;}
+            };
+            try{
+                const start=new Chess(ctx.fen),color=start.turn(),
+                    original=positionBalance(start,color);
+                if(start.game_over()||abort())return null;
+                const before=await request(start.fen(),22,2);
+                if(abort()||!before||!before.bestMove||before.bestMove.move!==ctx.move||
+                    !Number.isFinite(before.bestMove.depth)||before.bestMove.depth<20||
+                    before.bestMove.bound)return null;
+                const offer=play(start,ctx.move);
+                if(!offer||offer.piece==='p'||offer.piece==='k'||start.game_over())return null;
+                const afterOffer=start.fen(),choices=start.moves({verbose:true});
+                const reply=choices.find(m=>uci(m)===ctx.reply);
+                if(!reply)return null;
+                const captures=choices.filter(m=>m.to===offer.to&&m.captured===offer.piece);
+                if(!captures.length)return null;
+                const accepted=captures.some(m=>uci(m)===ctx.reply);
+                if(!accepted)return null; // refusals remain a distinct type
+                const response=await request(afterOffer,22,3);
+                if(abort()||!response||!Array.isArray(response.alternatives)||
+                    !response.alternatives.some(a=>a.move===ctx.reply&&
+                        Number.isFinite(a.depth)&&a.depth>=20&&!a.bound))return null;
+                if(!play(start,ctx.reply)||start.game_over())return null;
+                const loss=original-positionBalance(start,color);
+                if(loss<2||abort())return null;
+                const low=await request(start.fen(),18,2);
+                const high=await request(start.fen(),22,2);
+                if(abort()||!low||!high||!low.bestMove||!high.bestMove)return null;
+                const a=low.bestMove,b=high.bestMove;
+                if(a.evalType!=='cp'||b.evalType!=='cp'||
+                    a.bound||b.bound||a.depth<18||b.depth<22||
+                    !Number.isFinite(a.eval)||!Number.isFinite(b.eval)||
+                    a.eval< -70||b.eval< -70||Math.abs(a.eval-b.eval)>100)return null;
+                if(a.move!==b.move||!Array.isArray(b.pv)||b.pv[0]!==b.move)return null;
+                const evidence=pvEvidence(new Chess(start.fen()),b.pv,color);
+                // No classifiquem una recaptura material immediata com
+                // a compensació posicional.
+                if(!evidence||evidence.immediateRecovery)return null;
+                const kingInCheck=start.in_check();
+                const structure=pawnStructure(start,color);
+                return {
+                    type:'positional_sacrifice',fen:ctx.fen,move:ctx.move,
+                    reply:ctx.reply,accepted:true,loss,
+                    evaluations:[{depth:a.depth,cp:a.eval},{depth:b.depth,cp:b.eval}],
+                    kingInCheck,structure,initiative:{
+                        checks:evidence.checks,captures:evidence.captures,
+                        pv:evidence.line},
+                    text:'Sacrifici material acceptat en aquesta variant: Stockfish manté una valoració pròxima a l’equilibri o favorable sense recuperació material immediata. Els indicadors de pressió i peons descriuen la posició, però no en demostren per si sols la compensació.'
+                };
+            }catch(e){return null;}
+        }
+        return {verify,pawnStructure};
+    }
+
     return { VERSION, PLAYER_MOVES, lineOf, hasThreeMoves, matches, uniqueChoice,
-        materialOffers,certifiedSacrifices,createVerifier };
+        materialOffers,refusedOffers,certifiedSacrifices,createVerifier,createPositionalVerifier };
 });
