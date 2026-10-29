@@ -119,7 +119,7 @@ test('una recaptura immediata no es classifica com a compensació posicional',as
             alternatives:[{move:'a8a6',eval:-50,evalType:'cp',depth:22}]};
         if(fen===fAfterCapture)return {
             bestMove:{move:'a1a6',eval:40,evalType:'cp',depth,
-                pv:['a1a6','g8f7','g1f2','f7e6']},
+                pv:['a1a6','g8f7','g1f2','f7g8']},
             alternatives:[]
         };
         return null;
