@@ -166,6 +166,49 @@
         LOZZA_MAX_DEPTH: 9
     };
 
+    const TV_DUO = Object.freeze({
+        presenter: 'matxa:central:elia',
+        analyst: 'matxa:central:grau'
+    });
+
+    // El text de cada torn és un fragment LITERAL del comentari verificat.
+    // Les dues veus no expliquen dues vegades el mateix fet, ni inventen diàleg.
+    function tvDialogueTurns(comment, enabled) {
+        const c = comment || {};
+        const speech = String(c.speech || '').trim();
+        if (!speech) return [];
+        const single = (voiceId, role) => [{ text: speech, voiceId: voiceId || null, role: role || 'presenter' }];
+        if (!enabled) return single(null, 'presenter');
+        const kind = String(c.kind || '');
+        const ply = Number.isFinite(c.ply) ? c.ply : -1;
+        const explanation = !!c.explanatory;
+        const final = ['mate', 'end', 'resign', 'stalemate', 'intro'].includes(kind);
+        if (final) return single(TV_DUO.presenter, 'presenter');
+
+        // Diàleg ocasional, només quan hi ha dues frases amb sentit propi.
+        // Limitar-ne la freqüència evita dues síntesis i latència a cada jugada.
+        const splitEligible = explanation && (kind === 'summary' ||
+            (c.extended && ply >= 0 && ply % 6 === 0));
+        if (splitEligible) {
+            const parts = speech.split(/(?<=[.!?])\s+(?=[A-ZÀ-Ý])/u).filter(Boolean);
+            const words = s => s.trim().split(/\s+/).length;
+            if (parts.length === 2 && words(parts[0]) >= 4 && words(parts[1]) >= 4 &&
+                    words(speech) <= 46) {
+                return [
+                    { text: parts[0], voiceId: TV_DUO.presenter, role: 'presenter' },
+                    { text: parts[1], voiceId: TV_DUO.analyst, role: 'analyst' }
+                ];
+            }
+        }
+        // Grau interpreta els resums o certs comentaris pedagògics,
+        // mentre Elia presenta la resta de jugades i les incidències urgents.
+        const analyst = kind === 'summary' || (explanation &&
+            (c.extended || (ply >= 0 && ply % 3 === 0)) &&
+            !['check', 'allows-mate', 'mate-threat', 'missed'].includes(kind));
+        return single(analyst ? TV_DUO.analyst : TV_DUO.presenter,
+            analyst ? 'analyst' : 'presenter');
+    }
+
     const PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 100 };
     const PIECE_NAME = { p: 'peó', n: 'cavall', b: 'alfil', r: 'torre', q: 'dama', k: 'rei' };
     const PIECE_PLURAL = { p: 'peons', n: 'cavalls', b: 'alfils', r: 'torres', q: 'dames', k: 'reis' };
@@ -376,7 +419,7 @@
             Object.keys(p.offsets).forEach((k) => { if (isNum(p.offsets[k])) offsets[k] = Math.round(p.offsets[k]); });
         }
         const openingIndex = isNum(p.openingIndex) ? Math.max(0, Math.floor(p.openingIndex)) : null;
-        return { voice: voice, speed: speed, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false, recent: tvRecentResults(p.recent) };
+        return { voice: voice, speed: speed, duo: p.duo !== false, offsets: offsets, openingIndex: openingIndex, unequal: p.unequal !== false, profiles: p.profiles !== false, recent: tvRecentResults(p.recent) };
     }
 
     function tvResolveTarget(caps, viewer, prefs) {
@@ -2497,7 +2540,14 @@
             if (!P || typeof P.prepare !== 'function') return text;
             try { return P.prepare(text) || text; } catch (err) { return text; }
         };
+        const dualEnabled = () => {
+            try { return !!(typeof e.getDualEnabled === 'function' && e.getDualEnabled()); }
+            catch (err) { return false; }
+        };
         const neuralReady = () => !!(neuralId() && neural.available());
+        const actualNeuralId = opts => (dualEnabled() && opts &&
+            (opts.voiceId === TV_DUO.presenter || opts.voiceId === TV_DUO.analyst))
+            ? opts.voiceId : neuralId();
         const synthSupported = !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
         const supported = synthSupported || !!neural;
         let pref = typeof e.loadPref === 'function' ? e.loadPref() : null;
@@ -2546,7 +2596,7 @@
             stop();
             const seq = speakSeq;
             if (neuralReady()) {
-                return neural.speak(neuralText(text), neuralId(), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
+                return neural.speak(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25), effects: neuralEffects(), maxWaitMs: (isNum(o.maxWaitMs) ? o.maxWaitMs : tvSpeechMaxWaitMs(text)) + 9000 })
                     .then((r) => {
                         if (r && (r.spoken || r.reason === 'stopped' || seq !== speakSeq)) return r;
                         if (r && r.reason === 'not-allowed') { blocked = true; emit(); return r; }
@@ -2600,13 +2650,15 @@
             engine() { return current ? 'system' : (neuralReady() ? 'neural' : (voice ? 'system' : null)); },
             // La veu neuronal triada no està disponible (sense xarxa o servei aturat).
             neuralUnavailable() { return !!(neuralId() && !neural.available()); },
-            prefetch(text, opts) { if (pref === 'on' && text && neuralReady()) { const o = opts || {}; neural.prefetch(neuralText(text), neuralId(), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25) }); } },
+            prefetch(text, opts) { if (pref === 'on' && text && neuralReady()) { const o = opts || {}; neural.prefetch(neuralText(text), actualNeuralId(o), { rate: clamp(neuralRate() * (isNum(o.rate) ? o.rate : 1), 0.75, 1.25) }); } },
+            supportsDual() { return dualEnabled() && neuralReady(); },
             pref() { return pref; },
             isOn() { return pref === 'on'; },
             needsActivation() { return pref === null; },
             voiceName() {
                 if (!current && neuralReady()) {
                     const V = root && root.ElTaulerVeuNeural;
+                    if (dualEnabled()) return 'Matxa · Elia i Grau';
                     return (V && V.voiceLabel(neuralId())) || 'Matxa';
                 }
                 return voice ? (voice.name || voice.lang) : null;
@@ -2891,6 +2943,7 @@
                 caps: S.caps,
                 viewer: v,
                 speed: prefs.speed,
+                duo: prefs.duo,
                 unequal: prefs.unequal,
                 profiles: prefs.profiles,
                 recentResults: prefs.recent.slice(),
@@ -3014,15 +3067,30 @@
             runLoop(epoch);
         }
 
+        function spokenTurns(comment) {
+            return tvDialogueTurns(comment, !!(d.voice && typeof d.voice.supportsDual === 'function' &&
+                d.voice.supportsDual()));
+        }
+
         function speakComment(comment, epoch) {
             if (!d.voice || !d.voice.isOn() || d.voice.status() === 'no-voice' || d.voice.status() === 'unsupported') return null;
             const started = now(), direction = tvSpeechDirection(comment);
-            return d.voice.speak(comment.speech, { rate: direction.rate, pitch: direction.pitch,
-                maxWaitMs: tvSpeechMaxWaitMs(comment.speech) })
-                .then(r => ({ spoken: !!(r && r.spoken), endedAt: now(), startedAt: started, epoch: epoch,
-                    pauseMs: direction.pauseMs }))
-                .catch(() => ({ spoken: false, endedAt: now(), startedAt: started, epoch: epoch,
-                    pauseMs: direction.pauseMs }));
+            const turns = spokenTurns(comment);
+            // Com a màxim dos fragments per comentari. L'estat de partida
+            // s'examina ENTRE fragments per no parlar després d'aturar la TV.
+            return (async () => {
+                let spoken = false;
+                for (const turn of turns) {
+                    if (!alive(epoch)) break;
+                    const r = await d.voice.speak(turn.text, { rate: direction.rate, pitch: direction.pitch,
+                        voiceId: turn.voiceId, maxWaitMs: tvSpeechMaxWaitMs(turn.text) });
+                    if (!r || r.reason === 'stopped' || r.reason === 'not-allowed') break;
+                    spoken = spoken || !!r.spoken;
+                    if (!r.spoken) break;
+                }
+                return { spoken, endedAt: now(), startedAt: started, epoch, pauseMs: direction.pauseMs };
+            })().catch(() => ({ spoken: false, endedAt: now(), startedAt: started, epoch,
+                pauseMs: direction.pauseMs }));
         }
 
         function analysisJob(g, uciMoves, ply, fen) {
@@ -3121,7 +3189,13 @@
                 const resign = S.control ? null : tvResignStep(g.resign, after, ply + 1, tvResignThresholdCp(S.caps, g.level.value));
                 const plan = planMove(g, uci, fenBefore, prepared, before, after, resign);
                 if (!plan) { fail('illegal'); return; }
-                if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') d.voice.prefetch(tvSpeechText(plan.chosen.text), tvSpeechDirection(plan.chosen));
+                if (plan.chosen && d.voice && typeof d.voice.prefetch === 'function') {
+                    const planned = { ...plan.chosen, speech: tvSpeechText(plan.chosen.text), ply };
+                    const direction = tvSpeechDirection(planned);
+                    for (const turn of spokenTurns(planned)) {
+                        d.voice.prefetch(turn.text, { ...direction, voiceId: turn.voiceId });
+                    }
+                }
 
                 // Espera la visualització de la jugada anterior i la seva locució.
                 const waitMs = S.nextRevealAt - now();
@@ -3371,6 +3445,13 @@
             setSpeed(id) {
                 if (!TV_CONFIG.SPEEDS[id]) return;
                 prefs = Object.assign({}, prefs, { speed: id });
+                savePrefs();
+                render();
+            },
+            // Parella de comentaristes local a Stockfish TV, sense tocar
+            // les veus que l'usuari té configurades a la resta de l'app.
+            setDuo(on) {
+                prefs = Object.assign({}, prefs, { duo: !!on });
                 savePrefs();
                 render();
             },
@@ -3790,7 +3871,9 @@
         const api = root.ElTaulerRadioAmbient;
         if (!api) return;
         const state = controller ? controller.state() : {};
-        const matxa = typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId();
+        const matxa = (prefix === 'sftv' && tvNormalizePrefs(loadPrefsRaw()).duo)
+            ? TV_DUO.presenter
+            : (typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId());
         const effects = typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null;
         const prefs = api.normalize((loadPrefsRaw() || {}).radioBackground);
         const active = api.canPlay({ matxa, profile: effects && effects.profile,
@@ -3834,7 +3917,9 @@
     function renderMatxaControls() {
         const panel = $id('sftv-matxa-controls');
         if (!panel) return;
-        const selected = typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId();
+        const selected = (prefix === 'sftv' && tvNormalizePrefs(loadPrefsRaw()).duo)
+            ? TV_DUO.presenter
+            : (typeof bridge.getNeuralVoiceId === 'function' && bridge.getNeuralVoiceId());
         panel.hidden = !selected;
         if (!selected) { renderRadioControls(false, null); return; }
         const effects = typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null;
@@ -3877,6 +3962,11 @@
         const toggle = $id('sftv-voice-toggle');
         const note = $id('sftv-voice-note');
         const on = voice.isOn();
+        const duoToggle = $id('sftv-duo');
+        if (duoToggle) {
+            duoToggle.checked = tvNormalizePrefs(loadPrefsRaw()).duo;
+            duoToggle.disabled = !root.ElTaulerVeuNeural;
+        }
         if (activate) activate.style.display = (voice.supported && voice.needsActivation()) ? '' : 'none';
         if (toggle) {
             toggle.setAttribute('aria-pressed', on ? 'true' : 'false');
@@ -3895,7 +3985,11 @@
             } else if (status === 'blocked' && on) text = 'El navegador ha aturat la veu: toca el botó de veu per tornar-la a activar.';
             else if (on && voice.neuralUnavailable() && voice.engine() === 'system') text = 'La veu neuronal Matxa no respon ara mateix: es llegeix amb la veu del dispositiu.';
             else if (on && voice.engine()) {
-                text = 'Veu: ' + voice.voiceName() + (voice.engine() === 'neural' ? ' · en línia (BSC). Es canvia a Configuració › Veus de lectura.' : ' · del dispositiu.');
+                const duo = prefix === 'sftv' && tvNormalizePrefs(loadPrefsRaw()).duo &&
+                    voice.engine() === 'neural';
+                text = 'Veu: ' + voice.voiceName() + (voice.engine() === 'neural'
+                    ? (duo ? ' · Elia narra i Grau comenta les jugades seleccionades. En línia (BSC).' : ' · en línia (BSC). Es canvia a Configuració › Veus de lectura.')
+                    : ' · del dispositiu.');
             }
             note.textContent = text;
             note.style.display = text ? '' : 'none';
@@ -4283,7 +4377,10 @@
             speechSynthesis: root.speechSynthesis,
             SpeechSynthesisUtterance: root.SpeechSynthesisUtterance,
             neural: (root.ElTaulerVeuNeural && typeof root.Audio === 'function') ? root.ElTaulerVeuNeural.sharedSpeaker() : null,
-            getNeuralVoiceId: () => (typeof bridge.getNeuralVoiceId === 'function' ? bridge.getNeuralVoiceId() : null),
+            getDualEnabled: () => tvNormalizePrefs(loadPrefsRaw()).duo,
+            getNeuralVoiceId: () => tvNormalizePrefs(loadPrefsRaw()).duo
+                ? TV_DUO.presenter
+                : (typeof bridge.getNeuralVoiceId === 'function' ? bridge.getNeuralVoiceId() : null),
             getNeuralRate: () => (typeof bridge.getNeuralRate === 'function' ? bridge.getNeuralRate() : 1),
             getNeuralEffects: () => (typeof bridge.getNeuralEffects === 'function' ? bridge.getNeuralEffects() : null),
             loadPref: () => tvNormalizePrefs(loadPrefsRaw()).voice,
@@ -4413,6 +4510,11 @@
         on('sftv-level-apply', 'click', () => { if (controller) controller.newGame(); });
         on('sftv-too-hard', 'click', () => { if (controller) controller.adjust('easier'); });
         on('sftv-speed', 'change', (ev) => { if (controller) controller.setSpeed(ev.target.value); });
+        on('sftv-duo', 'change', (ev) => {
+            if (!controller) return;
+            controller.setDuo(ev.target.checked);
+            renderVoice();
+        });
         on('sftv-matxa-profile', 'change', ev => changeMatxaControl('profile', ev.target.value));
         on('sftv-radio-sound', 'change', ev => changeRadioControl('sound', ev.target.value));
         on('sftv-radio-volume', 'input', ev => changeRadioControl('volume', ev.target.value));
@@ -4520,6 +4622,8 @@
         tvCommentaryStats,
         tvSpeechText,
         tvSpeechDirection,
+        tvDialogueTurns,
+        TV_DUO,
         tvIsCatalanVoice,
         tvPickCatalanVoice,
         tvPositionCommand,

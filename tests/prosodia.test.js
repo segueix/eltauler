@@ -120,3 +120,51 @@ describe('Director radiofònic de Stockfish vs Lozza', () => {
         expect(spoken[0].pitch).toBe(dir.pitch);
     });
 });
+
+describe('Dues veus Matxa a Stockfish TV', () => {
+    const elia = TV.TV_DUO.presenter, grau = TV.TV_DUO.analyst;
+    test('Elia narra les jugades i Grau interpreta els resums pedagògics', () => {
+        expect(TV.tvDialogueTurns({speech:'Escac i mat.',kind:'mate',ply:9},true))
+            .toEqual([{text:'Escac i mat.',voiceId:elia,role:'presenter'}]);
+        expect(TV.tvDialogueTurns({speech:'Les negres ocupen el centre.',kind:'summary',ply:9},true))
+            .toEqual([{text:'Les negres ocupen el centre.',voiceId:grau,role:'analyst'}]);
+        expect(TV.tvDialogueTurns({speech:'El peó avança.',kind:'describe',ply:9},true)[0].voiceId).toBe(elia);
+    });
+    test('un comentari de dues frases es reparteix sense repetir ni afegir fets', () => {
+        const speech='El cavall captura el peó de d cinc. Així obre la diagonal de l’alfil blanc.';
+        const turns=TV.tvDialogueTurns({speech,kind:'summary',explanatory:true,ply:10},true);
+        expect(turns.map(t=>t.voiceId)).toEqual([elia,grau]);
+        expect(turns.map(t=>t.text).join(' ')).toBe(speech);
+        expect(turns).toHaveLength(2);
+    });
+    test('només una veu si el duet és desactivat o no hi ha text vàlid per separar', () => {
+        const speech='El rei es retira a g vuit.';
+        expect(TV.tvDialogueTurns({speech,kind:'summary',ply:12},false))
+            .toEqual([{text:speech,voiceId:null,role:'presenter'}]);
+        expect(TV.tvDialogueTurns({speech,kind:'summary',ply:12},true)).toHaveLength(1);
+        expect(TV.tvDialogueTurns({kind:'mate'},true)).toEqual([]);
+    });
+    test('el mateix identificador Matxa s’usa al precàlcul i a la lectura', async () => {
+        const neural={available:()=>true,speak:jest.fn(async()=>({spoken:true,reason:'end'})),
+            prefetch:jest.fn(),stop:jest.fn(),isSpeaking:()=>false};
+        let on=true;
+        const v=TV.createTvVoice({neural,loadPref:()=> 'on',getDualEnabled:()=>on,
+            getNeuralVoiceId:()=>elia,prepareNeuralText:P.prepare});
+        for(const voiceId of [elia,grau]) {
+            v.prefetch('Una bona jugada.',{voiceId,rate:0.96});
+            await v.speak('Una bona jugada.',{voiceId,rate:0.96});
+        }
+        expect(neural.prefetch.mock.calls.map(x=>x[1])).toEqual([elia,grau]);
+        expect(neural.speak.mock.calls.map(x=>x[1])).toEqual([elia,grau]);
+        expect(neural.prefetch.mock.calls[1][2].rate).toBe(neural.speak.mock.calls[1][2].rate);
+        expect(v.supportsDual()).toBe(true);
+        on=false;
+        expect(v.supportsDual()).toBe(false);
+        await v.speak('Veu única.',{voiceId:grau});
+        expect(neural.speak.mock.lastCall[1]).toBe(elia);
+    });
+    test('les preferències permeten desactivar el duet i conservar altres paràmetres', () => {
+        expect(TV.tvNormalizePrefs(null).duo).toBe(true);
+        expect(TV.tvNormalizePrefs({duo:false,speed:'quick'})).toMatchObject({duo:false,speed:'quick'});
+    });
+});
