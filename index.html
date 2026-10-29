@@ -3361,12 +3361,19 @@
         .sftv-expand:focus-visible { outline: 3px solid var(--accent-gold); outline-offset: 3px; }
         body.device-mobile #sftv-expand { display: none; }
         .sftv-board-wrap { position: relative; margin-bottom: 0; }
+        /* Noms dels motors de la retransmissió: blancs, grans i sempre llegibles. */
         .sftv-player {
-            max-width: min(100%, 62vh); margin: 4px auto; padding: 5px 10px; border-radius: 10px; font-size: 0.85rem;
-            color: var(--text-secondary); background: rgba(255,255,255,0.03); border: 1px solid transparent; text-align: left;
-            overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+            box-sizing: border-box; width: 100%; max-width: min(100%, 62vh); margin: 4px auto;
+            padding: 9px 12px; border: 2px solid #d8dee6; border-radius: 11px;
+            background: #fff; color: #17212f; text-align: left;
+            box-shadow: 0 2px 8px rgba(0,0,0,.13);
         }
-        .sftv-player.is-turn { color: var(--text-primary); border-color: rgba(201,162,39,0.55); background: rgba(201,162,39,0.1); }
+        .sftv-player-main { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; min-width: 0; }
+        .sftv-player-name { font-size: clamp(1.2rem, 4.5vw, 1.65rem); font-weight: 900; line-height: 1.12; color: #121a25; overflow-wrap: anywhere; }
+        .sftv-player-color { flex: 0 0 auto; font-size: .76rem; font-weight: 800; color: #3a4656; white-space: nowrap; }
+        .sftv-player-meta { margin-top: 2px; font-size: .78rem; line-height: 1.25; font-weight: 600; color: #4c596b; overflow-wrap: anywhere; }
+        .sftv-player.is-turn { background: #fff; color: #121a25; border-color: #1685bd; box-shadow: 0 0 0 2px rgba(22,133,189,.26), 0 3px 12px rgba(0,0,0,.16); }
+        .sftv-player.is-turn .sftv-player-name { color: #075785; }
         .sftv-status { text-align: center; font-size: 0.9rem; color: var(--text-secondary); margin-top: 4px; min-height: 1.3em; }
         .sftv-voice-hold { margin: 0 0 10px; padding: 8px 12px; border: 1px solid var(--accent-gold); border-radius: 10px; background: rgba(201,162,39,0.12); text-align: center; font-size: 0.86rem; line-height: 1.4; }
         .sftv-voice-hold[hidden] { display: none !important; }
@@ -3420,8 +3427,9 @@
             margin: 6px auto 0; max-width: min(100%, 62vh); padding: 7px 10px; border-radius: 10px; font-size: 0.82rem; line-height: 1.35;
             text-align: center; color: var(--text-primary); background: rgba(224,132,59,0.14); border: 1px solid rgba(224,132,59,0.55);
         }
-        .sftv-player.is-user { border-color: rgba(224,132,59,0.75); }
-        .sftv-player.is-user.is-turn { background: rgba(224,132,59,0.18); color: var(--text-primary); }
+        .sftv-player.is-user { border-color: #d07721; }
+        .sftv-player.is-user.is-turn { background: #fff; color: #121a25; box-shadow: 0 0 0 2px rgba(208,119,33,.25); }
+        .sftv-player.is-user.is-turn .sftv-player-name { color: #99520f; }
         #sftv-screen.is-your-turn #sftv-board .square-55d63 { cursor: pointer; }
         body.control-drag #sftv-screen.is-your-turn #sftv-board { touch-action: none; }
         :is(#sftv-board, #history-board, .broadcast-board) .square-55d63.sftv-sel { box-shadow: inset 0 0 0 4px #e0843b; }
@@ -3538,7 +3546,9 @@
             #sftv-screen.is-expanded .sftv-topbar, #sftv-screen.is-expanded .sftv-side { padding-left: 10px; padding-right: 10px; }
         }
         @media (max-height: 500px) and (min-aspect-ratio: 4/3) {
-            #sftv-screen.is-expanded .sftv-player { display: none; }
+            #sftv-screen.is-expanded .sftv-player { display: block; padding: 3px 7px; margin: 2px auto; }
+            #sftv-screen.is-expanded .sftv-player-name { font-size: 1.05rem; }
+            #sftv-screen.is-expanded .sftv-player-meta { display: none; }
             #sftv-screen.is-expanded .sftv-status { font-size: 0.75rem; }
         }
 
@@ -6965,13 +6975,19 @@
                             <div class="sftv-ladder-value" id="sftv-ladder-value" aria-live="polite"></div>
                         </div>
                         <div class="sftv-board-col">
-                            <div class="sftv-player" id="sftv-player-black">♚ Negres</div>
+                            <div class="sftv-player" id="sftv-player-black">
+                                <div class="sftv-player-main"><strong class="sftv-player-name" id="sftv-name-black">Stockfish 19</strong><span class="sftv-player-color" id="sftv-color-black">♚ Negres</span></div>
+                                <div class="sftv-player-meta" id="sftv-meta-black"></div>
+                            </div>
                             <div class="board-container sftv-board-wrap">
                                 <div id="sftv-board"></div>
                                 <div class="sftv-result" id="sftv-result" role="status" aria-live="polite" style="display:none;"></div>
                                 <div class="sftv-promo" id="sftv-promo" role="dialog" aria-label="Tria la peça de la coronació" style="display:none;"></div>
                             </div>
-                            <div class="sftv-player" id="sftv-player-white">♔ Blanques</div>
+                            <div class="sftv-player" id="sftv-player-white">
+                                <div class="sftv-player-main"><strong class="sftv-player-name" id="sftv-name-white">Stockfish 19</strong><span class="sftv-player-color" id="sftv-color-white">♔ Blanques</span></div>
+                                <div class="sftv-player-meta" id="sftv-meta-white"></div>
+                            </div>
                             <div class="sftv-last-move" id="sftv-last-move">La peça es marca durant 1,5 segons abans de moure’s</div>
                             <div class="sftv-status" id="sftv-status" aria-live="polite">Preparant el motor…</div>
                             <div class="sftv-control-note" id="sftv-control-note" style="display:none;"></div>
@@ -9413,7 +9429,7 @@
     <script src="tvintro.js?v=1.0.0"></script>
     <script src="tvleague.js?v=1.0.0"></script>
     <script src="tvleague-ui.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=2.10.2"></script>
+    <script src="stockfishtv.js?v=2.10.3"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
