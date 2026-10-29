@@ -610,6 +610,10 @@ let bundleStepStartFen = null;
 let bundleStrictPvLine = [];
 let bundleStrictPvDepth = 0;
 let bundleFixedSequence = null;
+// Tongada d'exercicis (Tàctiques, Repàs intel·ligent, Revisa errors i errades
+// d'una partida): resolts i ratxa sense errar des que s'ha entrat a la secció.
+let exerciseRun = null;
+let exerciseRunClean = true;
 let bundleAutoReplyPending = false;
 let bundleOpenAIHintPending = false;
 const LEAGUE_QUOTES = [
@@ -15508,6 +15512,7 @@ function startHistoryErrorPractice(err) {
     currentMatchError = err;
     isMatchErrorReviewSession = true;
     currentBundleSource = 'history';
+    beginExerciseRun('match');
     currentBundleSeverity = err.severity || (err.quality === 'blunder' ? 'high' : 'med');
     currentGameMode = 'bundle';
     currentOpponent = null;
@@ -22894,6 +22899,7 @@ function showHieroglyphicSuccessOverlay() {
     }
     overlay.find('.bundle-success-title').text('Jeroglífic fet ✅');
     overlay.find('.bundle-success-remaining').text('').hide();
+    overlay.find('.bundle-run-streak').remove();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
     overlay.find('#btn-bundle-random-again').hide();
     wireContinueSolvedFenButton(overlay);
@@ -24460,6 +24466,7 @@ function setupEvents() {
     $('#btn-tactics').click(() => {
         // Reset de ratxa quan s'inicia des del menú (no des de "Una altra")
         tacticsStats.streak = 0;
+        beginExerciseRun('tactics');
         startTacticsPuzzle();
     });
     $('#btn-bestline').off('click').on('click', () => { void startBestLineExercise(); });
@@ -25350,6 +25357,7 @@ function startSrsReview() {
     matchErrorQueue = [];
     currentMatchError = null;
     currentBundleSource = 'srs';
+    beginExerciseRun('srs');
     currentBundleSeverity = null;
     $('#bundle-modal').remove();
     currentGameMode = 'bundle';
@@ -25373,7 +25381,12 @@ function showSrsSuccessOverlay() {
     }
     overlay.find('.bundle-success-title').text('Repàs fet ✅');
     overlay.find('.bundle-success-remaining').text(due > 0 ? `${due} repassos pendents` : 'Cap repàs pendent per ara').show();
-    overlay.find('#btn-bundle-random-again').hide();
+    renderExerciseRunStreak(overlay);
+    overlay.find('#btn-bundle-random-again').text('🔁 Un altre repàs').prop('disabled', due === 0).toggle(due > 0)
+        .off('click').on('click', () => {
+            overlay.hide();
+            if (!startNextSrsReview()) { isSrsReviewSession = false; goToHomeScreen(); }
+        });
     wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
@@ -26759,9 +26772,10 @@ function showTacticsOverlay() {
     const overlay = $('#bundle-success-overlay');
     if (!overlay.length) { isTacticsSession = false; returnToMainMenuImmediate(); return; }
     overlay.find('.bundle-success-title').text('Tàctica resolta ⚡ (+1 ★)');
-    overlay.find('.bundle-success-remaining').text(`Resoltes: ${tacticsStats.solved} · Ratxa: ${tacticsStats.streak} · Rècord: ${tacticsStats.best}`).show();
-    // El botó de secció (⚡ Tàctiques) ja llança la següent tàctica.
-    overlay.find('#btn-bundle-random-again').hide();
+    overlay.find('.bundle-success-remaining').text(`Resoltes en total: ${tacticsStats.solved} · Rècord: ${tacticsStats.best}`).show();
+    renderExerciseRunStreak(overlay);
+    overlay.find('#btn-bundle-random-again').text('⚡ Una altra tàctica').prop('disabled', false).show()
+        .off('click').on('click', () => { overlay.hide(); startTacticsPuzzle(); });
     wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
@@ -27597,6 +27611,8 @@ function setCachedOpenAI(key, value) {
 
 function showBundleMenu() {
     if (savedErrors.length === 0) { alert('No tens errors guardats'); return; }
+    // Obrir «Revisa errors» comença una tongada nova.
+    beginExerciseRun('errors');
 
     $('#bundle-modal').remove();
 
@@ -27733,6 +27749,7 @@ function startMatchErrorReview() {
     isDailyPuzzleSession = false;
     matchErrorQueue = currentGameErrors.slice();
     isMatchErrorReviewSession = true;
+    beginExerciseRun('match');
     currentMatchError = null;
     currentBundleSource = 'match';
     currentBundleSeverity = null;   
@@ -27822,6 +27839,7 @@ function showMatchErrorReviewOverlay(remaining, noMore) {
     );
 
     $('#btn-match-error-again').text(fromHistory ? 'Una altra errada' : 'Un altre');
+    renderExerciseRunStreak(overlay);
 
     const btnAgain = document.getElementById('btn-match-error-again');
     if (btnAgain) {
@@ -28334,6 +28352,8 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
         }
     applyControlMode(loadControlMode(), { save: false, rebuild: false });
     $('#bundle-success-overlay').hide();
+    $('.bundle-run-streak').remove();
+    if (isBundle) exerciseRunClean = true;
     $('.btn-continue-fen-game').hide();
     $('#bundle-category-success-overlay').hide(); 
     $('#match-error-success-overlay').hide();
@@ -31371,6 +31391,7 @@ function evaluateBundleAttempt(bundleData) {
         } else {
             if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect', playedFrom);
             playSound('fail');
+            exerciseRunClean = false;
             if (currentBundleSource === 'bestline') currentHieroglyphicWrongMoves++;
             // Error - resetar al pas actual
             if (pendingMoveEvaluation) {
@@ -31431,6 +31452,7 @@ function evaluateBundleAttempt(bundleData) {
     } else {
         if (playedTo) showMainMoveVisualFeedback(playedTo, 'incorrect', playedFrom);
             playSound('fail');
+        exerciseRunClean = false;
         if (currentBundleSource === 'bestline') currentHieroglyphicWrongMoves++;
         if (pendingMoveEvaluation) {
             pendingMoveEvaluation = false;
@@ -31864,6 +31886,8 @@ function returnToMainMenuImmediate() {
     isSrsReviewSession = false;
     isDailyPuzzleSession = false;
     isTacticsSession = false;
+    // Sortir de la secció acaba la tongada d'exercicis.
+    exerciseRun = null;
     isBestLineSession = false;
     hieroglyphicExerciseActive = false;
     matchErrorQueue = [];
@@ -31959,6 +31983,37 @@ function continueSolvedFenGame() {
     return true;
 }
 
+function beginExerciseRun(section) {
+    exerciseRun = ElTaulerCore.exerciseRunStart(section);
+}
+
+// Secció de la tongada de l'exercici en curs (null si no en té: repte diari,
+// jeroglífics, mats...).
+function exerciseRunSection() {
+    if (isTacticsSession) return 'tactics';
+    if (isSrsReviewSession) return 'srs';
+    if (isMatchErrorReviewSession) return 'match';
+    if (isRandomBundleSession || currentBundleSource === 'category') return 'errors';
+    return null;
+}
+
+// Requadre de la ratxa de la tongada, just abans dels botons de la finestra.
+function renderExerciseRunStreak(overlay) {
+    overlay.find('.bundle-run-streak').remove();
+    const run = exerciseRun;
+    if (!run || !run.solved) return;
+    const solved = `${run.solved} ${run.solved === 1 ? 'resolt' : 'resolts'} en aquesta tongada`;
+    const detail = run.streak > 0
+        ? `Exercicis seguits sense cap jugada errònia · ${solved} · Millor ratxa: ${run.best}`
+        : `Has fet alguna jugada errònia: la ratxa torna a començar · ${solved} · Millor ratxa: ${run.best}`;
+    const box = $('<div class="bundle-run-streak" role="status"></div>');
+    box.append($('<div class="bundle-run-streak-label"></div>').text('Ratxa d’aquesta tongada'));
+    box.append($('<div class="bundle-run-streak-value"></div>').text(`🔥 ${run.streak}`));
+    box.append($('<div class="bundle-run-streak-detail"></div>').text(detail));
+    const actions = overlay.find('.bundle-success-actions').first();
+    if (actions.length) actions.before(box); else overlay.find('.bundle-success-content').append(box);
+}
+
 function wireContinueSolvedFenButton(overlay) {
     const btn = overlay.find('.btn-continue-fen-game');
     const show = canContinueSolvedFenGame();
@@ -31971,6 +32026,12 @@ function wireContinueSolvedFenButton(overlay) {
 
 function handleBundleSuccess() {
     $('#bundle-success-overlay .hiero-conclusion').remove();
+    $('.bundle-run-streak').remove();
+    const runSection = exerciseRunSection();
+    if (runSection) {
+        if (!exerciseRun || exerciseRun.section !== runSection) beginExerciseRun(runSection);
+        exerciseRun = ElTaulerCore.exerciseRunSolved(exerciseRun, exerciseRunClean);
+    }
     playSound('success');
     bundleSequenceStep = 1;
     bundleStepStartFen = null;
@@ -32077,6 +32138,7 @@ function showRandomBundleSuccessOverlay() {
         remaining > 0 ? `${remaining} Blunders pendents` : 'No queda cap Blunder pendent'
     ).show();
     overlay.find('#btn-bundle-random-again').text('🎲 Un altre').prop('disabled', remaining === 0).toggle(true);
+    renderExerciseRunStreak(overlay);
     wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
 
@@ -32115,6 +32177,7 @@ function showCategoryBundleSuccessOverlay() {
     overlay.find('.bundle-success-remaining').text(remainingText);
     const againBtn = overlay.find('#btn-bundle-category-again');
     againBtn.prop('disabled', remaining === 0 || !severity);
+    renderExerciseRunStreak(overlay);
     wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
 

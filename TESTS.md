@@ -577,6 +577,14 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   la mateixa caixa (tota l'amplada, fletxes a sota) i que es llegeixen amb
   la veu del tauler. A `boardexperience.test.js`, que `say` només llegeix
   amb la veu activada.
+- **`exerciserun.test.js`** — **tongada d'exercicis** a Tàctiques, Repàs
+  intel·ligent i Revisa errors (també les errades d'una partida): la ratxa
+  compta els resolts seguits sense cap jugada errònia i es reinicia després
+  d'errar (`ElTaulerCore.exerciseRunStart` / `exerciseRunSolved`, purs); cada
+  secció comença una tongada en entrar-hi i sortir-ne l'acaba; Tàctiques
+  («Una altra tàctica») i Repàs intel·ligent («Un altre repàs») tenen botó per
+  fer-ne un altre, i totes les finestres d'èxit d'aquestes seccions mostren el
+  requadre de la ratxa, que no surt al repte diari, als jeroglífics ni als mats.
 - **`deploy-inject.test.js`** — els scripts que el desplegament
   (`.github/workflows/desplega-web.yml`) aplica a la portada abans de
   publicar-la: `scripts/inject-remigi-link.py` (accés a Remigi dins la barra de
