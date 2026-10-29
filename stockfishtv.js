@@ -57,6 +57,12 @@
             ? P.direction(comment) : { mood: 'teaching', rate: 1, pitch: 1, pauseMs: 900 };
     }
 
+    function getTvIntro() {
+        if (root && root.ElTaulerTvIntro) return root.ElTaulerTvIntro;
+        try { if (typeof require === 'function') return require('./tvintro'); } catch (e) {}
+        return null;
+    }
+
     function getArtDeLaGuerra() {
         if (root && root.ElTaulerArtDeLaGuerra) return root.ElTaulerArtDeLaGuerra;
         try { if (typeof require === 'function') return require('./artdelaguerra'); } catch (e) {}
@@ -3102,10 +3108,19 @@
             if (d.engine) d.engine.newGame();
             if (duel && d.lozzaEngine) d.lozzaEngine.newGame();
             S.nextRevealAt = now() + TV_CONFIG.INTRO_DELAY_MS;
-            if (pick.opening) {
-                const intro = 'Obertura de partida: ' + pick.opening.name + '.' + (pick.opening.idea ? ' ' + pick.opening.idea : '')
-                    + (duel ? ' Duel entre Stockfish i Lozza: ' + duel.reason
-                        : (styles ? ' Juguen ' + TV_STYLES[styles.w].label + ', amb blanques, contra ' + TV_STYLES[styles.b].label + ', amb negres.' : ''));
+            // Presentació curta, sense revelar obertura, línia ni jugades.
+            // El context prové exclusivament de les decisions ja preses
+            // per tvMatchPlan, tvPickOpening i tvPickStyles.
+            const I = getTvIntro();
+            if (I && typeof I.scene === 'function' && (duel || pick.opening)) {
+                const intro = I.scene({
+                    gameSeq: S.game.id, duel: duel,
+                    preparedPlies: S.game.prepared.length,
+                    sharpOpening: tvIsSharpOpening(pick.opening),
+                    strengthAdjusted: !!(prefs.unequal && S.caps &&
+                        (S.caps.mode === 'elo' || S.caps.mode === 'skill')),
+                    styles: styles
+                });
                 S.game.comment = { kind: 'intro', text: intro, speech: tvSpeechText(intro), ply: 0, gameId: S.game.id };
                 S.game.intro = S.game.comment;
                 S.nextRevealAt = Math.max(S.nextRevealAt, now() + tvReadingTimeMs(intro, v.tier));

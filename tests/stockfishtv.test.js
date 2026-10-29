@@ -1223,7 +1223,11 @@ describe('bucle de Stockfish TV', () => {
         await ctl.open();
         const st = ctl.state();
         expect(st.game.opening).toEqual(expect.objectContaining({ name: 'Obertura Espanyola (Ruy López)', plies: 5 }));
-        expect(st.game.comment.text).toBe('Obertura de partida: Obertura Espanyola (Ruy López). Pressiona el cavall.');
+        expect(st.game.comment.kind).toBe('intro');
+        expect(st.game.comment.text).toContain('Stockfish');
+        expect(st.game.comment.text).not.toContain('Obertura Espanyola');
+        expect(st.game.comment.text).not.toContain('Pressiona el cavall');
+        expect(st.game.comment.text).not.toMatch(/\be4\b|\be5\b|\bNf3\b/);
         await jest.advanceTimersByTimeAsync(30000 + 5 * C.MOVE_PREVIEW_MS);
         const g = ctl.state().game;
         expect(g.moves.slice(0, 5).map(m => m.san)).toEqual(['e4', 'e5', 'Nf3', 'Nc6', 'Bb5']);
@@ -1242,7 +1246,8 @@ describe('bucle de Stockfish TV', () => {
         const { ctl } = makeController({ voice: voice, getOpenings: () => openings, loadPrefs: () => ({ openingIndex: 0, profiles: false }) });
         await ctl.open();
         expect(synth.spoken).toHaveLength(1);
-        expect(synth.spoken[0].text).toMatch(/^Obertura de partida/);
+        expect(synth.spoken[0].text).toMatch(/Stockfish/);
+        expect(synth.spoken[0].text).not.toContain('Obertura Espanyola');
         // La presentació s'està llegint: la primera jugada no surt.
         await jest.advanceTimersByTimeAsync(C.INTRO_DELAY_MS + 1000);
         expect(ctl.state().game.moves.length).toBe(0);
