@@ -213,3 +213,27 @@ describe('resum per fases a l\'índex (perfil del bessó)', () => {
         expect(profile.phaseEloDelta.middlegame).toBeLessThan(0);
     });
 });
+
+
+describe('sacrificis posicionals desats al cos i no a l’índex',()=>{
+    test('es conserven en descarregar i rehidratar la partida',()=>{
+        const original=entryWithBody('positional-game',{
+            positionalSacrificeReview:{version:1,key:'key',checked:2,candidates:2,
+                results:[{fen:'position',move:'a1a6',analysis:{type:'positional_sacrifice',loss:9}}]}
+        });
+        const {index,body}=Store.splitEntry(original);
+        expect(index.positionalSacrificeReview).toBeUndefined();
+        expect(body.positionalSacrificeReview.results).toHaveLength(1);
+        const light=Store.shedBody({...original});
+        expect(light.positionalSacrificeReview).toBeUndefined();
+        Store.attachBody(light,body);
+        expect(light.positionalSacrificeReview).toEqual(original.positionalSacrificeReview);
+    });
+    test('no infla el document de sincronització amb variants del motor',()=>{
+        const entry=entryWithBody('heavy',{
+            positionalSacrificeReview:{version:1,key:'x',results:Array.from({length:3},()=>
+                ({analysis:{pv:Array(300).fill('a1a2')}}))}
+        });
+        expect(JSON.stringify(Store.indexForStorage([entry]))).not.toContain('"positionalSacrificeReview"');
+    });
+});
