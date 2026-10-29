@@ -114,9 +114,10 @@
     ];
 
     // Apostrofació segura davant de vocal (lèxic tancat del domini, per no
-    // tocar casos dubtosos).
+    // tocar casos dubtosos). L'article «la» no s'apostrofa davant de i o u
+    // àtones: «la iniciativa» (però «d'iniciativa»).
     const APOSTROFACIONS = [
-        [/\bla (errada|obertura|estructura|activitat|amenaça|anàlisi|estratègia|iniciativa|ala)\b/gi, "l'$1"],
+        [/\bla (errada|obertura|estructura|activitat|amenaça|anàlisi|estratègia|ala)\b/gi, "l'$1"],
         [/\bel (escac|atac|error|enroc|avantatge|alfil|objectiu|exercici)\b/gi, "l'$1"],
         [/\bde (errades?|errors?|escacs?|obertures?|atacs?|iniciativa|avantatge|entrenament|exercicis?|OpenAI)\b/gi, "d'$1"]
     ];

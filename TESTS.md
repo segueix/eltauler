@@ -547,6 +547,17 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   hi encadena amb un fos, baixa el volum quan parla la veu, i es comporta bé
   sense Web Audio, amb errors i amb un context que es reprèn tard. Els sons
   antics (`studio`, `tuning`, `theme`) es llegeixen com a música.
+- **`estratagemes.test.js`** — **Les 36 estratagemes** (`estratagemes.js`):
+  26 estratagemes amb el número tradicional i 4 frases originals cadascun
+  (104), totes breus, acabades en punt, sense «victòries segures» ni
+  citacions, i cap que el corrector de català hagi de tocar; cada estratagema
+  lligat a motius verificats concrets (atac doble, clavada, eliminar el
+  defensor, escac…); les mateixes garanties que l'Art de la Guerra
+  (certificació, profunditat, urgències, sacrifici només amb variant
+  certificada), 7 semijugades entre frases i 12 per repetir estratagema,
+  memòria pura i serialitzable, i el **prestatge** `tvBookshelf` que alterna
+  els dos llibres, marca d'on ve cada frase i no canvia cap comentari factual
+  a les partides de prova. També que «la iniciativa» no s'apostrofa.
 - **`deploy-inject.test.js`** — els scripts que el desplegament
   (`.github/workflows/desplega-web.yml`) aplica a la portada abans de
   publicar-la: `scripts/inject-remigi-link.py` (accés a Remigi dins la barra de

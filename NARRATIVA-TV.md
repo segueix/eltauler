@@ -56,3 +56,11 @@ La interfície mostra un discret resum de **fils comentats**; no els presenta co
 - Elia narra el fet i Grau llegeix la màxima, seqüencialment. Amb duet desactivat, s'utilitza una única veu. La síntesi Matxa es precalcula amb el mateix identificador i velocitat que s'emet.
 - `memory.art` acompanya els canvis de jugada, es restaura en desfer i es reinicia a cada partida. El mòdul pot fallar o faltar sense impedir els comentaris normals.
 - Proves noves d'elegibilitat, profunditat, cancel·lació implícita entre torns, duet, memòria i simulació.
+
+## Fase 7 · Les 36 estratagemes i el prestatge de llibres
+
+- `estratagemes.js` (`ElTaulerEstratagemes`) té 26 dels 36 estratagemes tradicionals xinesos —els que encaixen amb motius d'escacs que ja es verifiquen— amb 4 frases originals cadascun: 104 frases. Cada estratagema s'anomena pel seu títol en català almenys en una frase (per exemple, «Fer soroll a l'est i atacar a l'oest» per a l'atac doble, «Treure l'escala quan l'enemic és al terrat» per a la clavada o «Fer sortir el tigre de la muntanya» per eliminar el defensor). Cap frase no és una citació ni afirma una victòria segura.
+- Mateix contracte i mateixes garanties que l'Art de la Guerra: només amb un comentari certificat i prova reglamentària o anàlisi fiable, mai en urgències ni posicions preparades, i el sacrifici només amb una variant certificada. Totes les frases d'un estratagema valen per a cadascun dels motius als quals està lligat.
+- `tvBookshelf([art, estratagemes])` alterna els dos llibres amb el mateix contracte `choose`: primer prova el llibre que no ha parlat l'última vegada i, si no té res per al motiu (per exemple, l'Art no en té per als escacs), l'altre. Entre dues frases de qualsevol llibre hi ha com a mínim 7 semijugades, com abans; cada llibre conserva la seva memòria dins de `memory.art`.
+- La pantalla indica d'on ve cada frase («L'Art de la Guerra · …» o «Les 36 estratagemes · …», amb el número i el títol de l'estratagema al text emergent). Grau la llegeix com fins ara.
+- Proves: `tests/estratagemes.test.js` (catàleg, elegibilitat, ritme, memòria, alternança i simulació de partides reals sense canviar cap comentari factual).

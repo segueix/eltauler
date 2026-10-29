@@ -68,6 +68,46 @@
         try { if (typeof require === 'function') return require('./artdelaguerra'); } catch (e) {}
         return null;
     }
+    function getEstratagemes() {
+        if (root && root.ElTaulerEstratagemes) return root.ElTaulerEstratagemes;
+        try { if (typeof require === 'function') return require('./estratagemes'); } catch (e) {}
+        return null;
+    }
+
+    // Prestatge de llibres (l'Art de la Guerra, les 36 estratagemes…) amb el
+    // mateix contracte choose(ctx, memory) que cada llibre. Els llibres
+    // s'alternen: primer prova el que no ha parlat l'última vegada i, si no
+    // té res per a aquest motiu, l'altre. Entre dues frases, de qualsevol
+    // llibre, hi ha com a mínim BOOK_GAP_PLIES semijugades. Cada llibre
+    // conserva la seva memòria (frases i famílies recents).
+    const BOOK_GAP_PLIES = 7;
+    function tvBookshelf(books) {
+        const list = (books || []).filter(b => b && typeof b.choose === 'function');
+        if (list.length <= 1) return list[0] || null;
+        const idOf = (b, i) => b.BOOK_ID || ('llibre' + i);
+        return {
+            BOOK_ID: 'prestatge',
+            books: list,
+            choose(ctx, raw) {
+                const m = raw && typeof raw === 'object' && raw.shelf === true ? raw
+                    : { shelf: true, lastPly: -1000, next: 0, books: {} };
+                const ply = ctx && ctx.ply;
+                if (Number.isInteger(ply) && ply >= m.lastPly && ply - m.lastPly < BOOK_GAP_PLIES) return { maxim: null, memory: m, reason: 'too-soon' };
+                const start = Number.isInteger(m.next) ? m.next : 0;
+                for (let k = 0; k < list.length; k++) {
+                    const i = (start + k) % list.length;
+                    const book = list[i], id = idOf(book, i);
+                    const out = book.choose(ctx, m.books && m.books[id]);
+                    if (out && out.maxim) {
+                        return { maxim: Object.assign({}, out.maxim, { book: id, bookLabel: book.BOOK_LABEL || out.maxim.label || '' }),
+                            memory: { shelf: true, lastPly: ply, next: (i + 1) % list.length,
+                                books: Object.assign({}, m.books, { [id]: out.memory }) }, reason: null };
+                    }
+                }
+                return { maxim: null, memory: m, reason: 'no-book' };
+            }
+        };
+    }
 
     // El narrador filosòfic no interpreta FEN ni calcula res. Rep només el
     // motiu escollit, que ha d'existir a la llista de candidats verificats.
@@ -4755,8 +4795,10 @@
         if (valid && c.maxim && c.maxim.text) {
             const line = document.createElement('div');
             line.className = 'sftv-art-maxim';
-            line.textContent = 'L’Art de la Guerra · ' + c.maxim.text;
-            line.title = 'Màxima original inspirada en la filosofia de Sunzi, no una citació històrica';
+            line.textContent = (c.maxim.bookLabel || 'L’Art de la Guerra') + ' · ' + c.maxim.text;
+            line.title = c.maxim.book === 'estratagemes'
+                ? 'Frase original inspirada en «Les 36 estratagemes» (estratagema ' + c.maxim.number + ': «' + c.maxim.title + '»), no una citació'
+                : 'Màxima original inspirada en la filosofia de Sunzi, no una citació històrica';
             el.appendChild(line);
         }
         el.classList.toggle('is-empty', !valid);
@@ -4904,7 +4946,8 @@
             narrative: root.ElTaulerNarrativa || null,
             quality: root.ElTaulerAuditoria || null,
             patterns: root.ElTaulerPatrons || null,
-            art: getArtDeLaGuerra(),
+            // L'Art de la Guerra i les 36 estratagemes, alternats.
+            art: tvBookshelf([getArtDeLaGuerra(), getEstratagemes()]),
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
@@ -5129,6 +5172,7 @@
         tvPositionCommand,
         createTvVoice,
         createBroadcastAudioControls,
+        tvBookshelf,
         TV_SUMMARY_INTROS,
         materialPhrase,
         materialClauses,

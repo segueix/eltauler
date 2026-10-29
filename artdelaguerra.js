@@ -18,6 +18,10 @@
     'use strict';
 
     const VERSION = '1.0.0';
+    // Identificació per al prestatge de llibres de la TV (alterna amb
+    // estratagemes.js).
+    const BOOK_ID = 'art';
+    const BOOK_LABEL = 'L’Art de la Guerra';
     const MIN_GAP_PLIES = 7;       // màxim aproximat: 1 màxima per 7 semijugades
     const FAMILY_GAP_PLIES = 12;   // evita repetir immediatament la mateixa metàfora
     const RECENT_IDS = 36;        // evita repetir literalment textos dins la partida
@@ -352,7 +356,7 @@
     }
 
     return Object.freeze({
-        VERSION, MIN_GAP_PLIES, FAMILY_GAP_PLIES, MIN_STOCKFISH_DEPTH,
+        VERSION, BOOK_ID, BOOK_LABEL, MIN_GAP_PLIES, FAMILY_GAP_PLIES, MIN_STOCKFISH_DEPTH,
         CATALOG, BANK, LABELS, KIND_TO_FAMILY, CRITICAL_KINDS,
         initialMemory, normalizeMemory, familyFor, eligibility, choose
     });
