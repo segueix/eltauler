@@ -113,6 +113,60 @@ describe('rellotge i primera decisió', () => {
         s.prepare(); s.begin(); advance(700); correct();
         expect(s.state().remainingMs).toBe(seconds * 1000 - 1900);
     });
+    test.each(['scan', 'radar', 'sprint', 'rush'])('%s: llegir l’enunciat abans de ▶ no consumeix temps', mode => {
+        const { s, advance, correct } = fixture(mode, 30);
+        expect(s.prepare()).toBe(true);
+        const before = s.state();
+        expect(before.status).toBe('ready');
+        advance(120000); // lectura sense límit
+        expect(s.tick()).toBeNull();
+        expect(s.submit(before.task.answers[0])).toBeNull();
+        expect(s.state().clockMs).toBe(before.clockMs);
+        expect(s.state().remainingMs).toBe(30000);
+        expect(s.state().rows).toHaveLength(0);
+        expect(s.begin()).toBe(true); // clic a ▶
+        expect(s.begin()).toBe(false); // doble clic no reinicia el rellotge
+        advance(500);
+        correct();
+        expect(s.state().rows[0].reactionMs).toBe(500);
+        expect(s.state().remainingMs).toBe(mode === 'rush' || mode === 'sprint' ? 29500 : 30000);
+    });
+    test.each(['scan', 'radar', 'sprint', 'rush'])('%s: cada posició torna a esperar el ▶', mode => {
+        const { s, advance, correct } = fixture(mode, 60);
+        expect(s.prepare()).toBe(true);
+        expect(s.begin()).toBe(true);
+        advance(600); correct();
+        if (s.state().status === 'recall') s.recall(Math.ceil(s.state().clockMs / 1000));
+        expect(s.state().status).toBe('feedback');
+        expect(s.prepare()).toBe(true);
+        const waiting = s.state();
+        advance(30000);
+        expect(s.state().status).toBe('ready');
+        expect(s.state().clockMs).toBe(waiting.clockMs);
+        expect(s.begin()).toBe(true);
+        advance(300); correct();
+        expect(s.state().rows[1].reactionMs).toBe(300);
+        expect(s.state().remainingMs).toBe(mode === 'rush' || mode === 'sprint' ? 59100 : 60000);
+    });
+    test('la capa de play amaga el tauler, no permet interacció abans de començar i es retira després', () => {
+        const fs = require('fs'), path = require('path');
+        const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+        const css = fs.readFileSync(path.join(__dirname, '../bulletpractice.css'), 'utf8');
+        const js = fs.readFileSync(path.join(__dirname, '../bulletpractice.js'), 'utf8');
+        expect(html).toContain('id="bp-start-overlay"');
+        expect(html).toContain('id="bp-start-play"');
+        expect(html).toContain('bulletpractice.js?v=1.2.0');
+        expect(html).toContain('bulletpractice.css?v=1.2.0');
+        expect(css).toContain('.bp-board-wrap.bp-awaiting-start #bp-board');
+        expect(css).toContain('filter: blur(');
+        expect(css).toContain('pointer-events: none');
+        expect(css).toContain('.bp-start-overlay');
+        expect(js).toContain("el('start-play').onclick = beginRound");
+        expect(js).toContain("el('start-overlay').hidden = false;");
+        expect(js).toContain("el('start-overlay').hidden = true;");
+        expect(js).toContain("if (!session.begin()) return false;");
+        expect(js).not.toContain("el('stage').style.visibility = ''; session.begin()");
+    });
     test('primer error definitiu: repetir no el converteix en encert', () => {
         const { s, advance, correct } = fixture('scan'); s.prepare(); s.begin(); advance(200);
         s.submit('a2a3'); correct();

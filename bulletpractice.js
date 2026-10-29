@@ -475,13 +475,19 @@
         const urgent = s.mode === 'scan' ? s.clockMs <= s.limitMs * .3 : s.clockMs <= s.seconds * 200;
         el('clock').classList.toggle('bp-urgent', s.status === 'running' && urgent);
         el('clock').classList.toggle('bp-running', s.status === 'running');
-        el('clock-status').textContent = s.status === 'running' ? (s.mode === 'sprint' || s.mode === 'rush' ? 'El teu temps' : s.mode === 'radar' ? 'Rellotge de la partida' : 'Temps de la decisió') : s.status === 'recall' ? 'Recorda l’última ullada' : 'Rellotge aturat';
-        el('budget').textContent = s.status !== 'running' ? '' : s.mode === 'rush' ? 'Errors: −' + PENALTY_MS[s.seconds] / 1000 + ' s' : 'Decideix en ' + fmt(s.leftMs);
+        el('clock-status').textContent = s.status === 'running'
+            ? (s.mode === 'sprint' || s.mode === 'rush' ? 'El teu temps' : s.mode === 'radar' ? 'Rellotge de la partida' : 'Temps de la decisió')
+            : s.status === 'ready' ? 'Llegeix l’enunciat · prem ▶'
+            : s.status === 'recall' ? 'Recorda l’última ullada' : 'Rellotge aturat';
+        el('budget').textContent = s.status === 'ready' ? 'El temps encara no compta.'
+            : s.status !== 'running' ? ''
+            : s.mode === 'rush' ? 'Errors: −' + PENALTY_MS[s.seconds] / 1000 + ' s'
+            : 'Decideix en ' + fmt(s.leftMs);
         const fraction = s.mode === 'rush' ? s.clockMs / (s.seconds * 1000) : s.leftMs / (s.limitMs || 1);
         el('meter').style.width = s.status === 'running' ? (100 * fraction) + '%' : '0%';
     }
     function start(modeOverride) {
-        clearTimers(); destroyBoard();
+        clearTimers(); hideStartOverlay(); destroyBoard();
         if (!bank) { el('storage').textContent = 'S’estan preparant els exercicis. Torna-ho a provar en un moment.'; return; }
         if (modeOverride && MODES[modeOverride]) el('mode').value = modeOverride;
         const { mode, seconds } = controls(), p = load(), recent = p.sessions.slice(-4).flatMap(s => s.rows.map(r => r.taskId));
@@ -491,9 +497,28 @@
         savedId = null; sessionAt = Date.now(); sessionId = sessionAt + '-' + Math.random().toString(36).slice(2);
         setView('practice'); el('storage').textContent = ''; next();
     }
+    function hideStartOverlay() {
+        el('start-overlay').hidden = true;
+        el('board-wrap').classList.remove('bp-awaiting-start');
+    }
+    function beginRound() {
+        if (!session || session.state().status !== 'ready'
+            || el('stage').style.visibility === 'hidden'
+            || screen().style.display === 'none') return false;
+        if (!session.begin()) return false;
+        // Descobreix tota la posició només quan el jugador prem ▶.
+        hideStartOverlay();
+        renderClock(); paintMarks();
+        timer = setInterval(() => {
+            const late = session.tick();
+            if (late) finishRound(late);
+            else renderClock();
+        }, 40);
+        return true;
+    }
     function next() {
         if (!session || !['idle', 'feedback'].includes(session.state().status)) return;
-        clearTimers(); reviewMove = null; lastRow = null; selected = null;
+        clearTimers(); hideStartOverlay(); reviewMove = null; lastRow = null; selected = null;
         el('promotion').hidden = true; el('recall').hidden = true; el('feedback').hidden = true; el('next').hidden = true; el('solutions').replaceChildren();
         el('flash').textContent = ''; el('flash').className = 'bp-flash';
         if (!session.prepare()) { results(); return; }
@@ -508,8 +533,15 @@
             if (!ready) { interrupt(); el('storage').textContent = 'No s’han pogut carregar totes les peces. Comprova la connexió i torna a començar; aquest temps no s’ha comptat.'; return; }
             frame = requestAnimationFrame(() => {
                 if (token !== openingToken || screen().style.display === 'none') return;
-                frame = null; el('round').textContent = label; el('stage').style.visibility = ''; session.begin(); renderClock(); paintMarks();
-                timer = setInterval(() => { const late = session.tick(); if (late) finishRound(late); else renderClock(); }, 40);
+                frame = null;
+                el('round').textContent = label;
+                // L'enunciat és llegible sense pressa; les peces no es poden
+                // inspeccionar ni moure sota la capa. El clic a ▶ revela el
+                // tauler i inicia el cronòmetre en el mateix gest.
+                el('board-wrap').classList.add('bp-awaiting-start');
+                el('start-overlay').hidden = false;
+                el('stage').style.visibility = '';
+                renderClock(); paintMarks();
             });
         });
     }
@@ -530,7 +562,7 @@
     }
     function finishRound(row) {
         lastRow = row;
-        clearTimers(); el('promotion').hidden = true; el('input-note').textContent = ''; renderClock(); paintMarks();
+        clearTimers(); hideStartOverlay(); el('promotion').hidden = true; el('input-note').textContent = ''; renderClock(); paintMarks();
         const s = session.state();
         if (s.mode === 'rush') { flashAndContinue(s, row); return; }
         if (s.status === 'recall') {
@@ -577,7 +609,7 @@
         board.position(chess.fen(), false); paintMarks();
     }
     function results() {
-        clearTimers(); save(); destroyBoard(); setView('results');
+        clearTimers(); hideStartOverlay(); save(); destroyBoard(); setView('results');
         const s = session.state(), a = summary(s.rows), rush = s.mode === 'rush';
         el('result-title').textContent = s.status === 'done' ? (rush ? 'Contrarellotge acabada' : 'Sèrie acabada') : 'Sèrie interrompuda';
         el('result-context').textContent = MODES[s.mode].label + ' · ' + paceLabel(s.seconds) + ' · nivell ' + s.level + ' · ' + a.attempts + ' decisions';
@@ -611,7 +643,7 @@
         updateSetup(); el('result-title').focus({ preventScroll: true });
     }
     function interrupt() { if (!session || !['running', 'ready', 'recall', 'feedback'].includes(session.state().status)) return; session.abort(); results(); }
-    function close() { clearTimers(); if (session && !['done', 'aborted'].includes(session.state().status)) { session.abort(); save(); } destroyBoard(); screen().style.display = 'none'; }
+    function close() { clearTimers(); hideStartOverlay(); if (session && !['done', 'aborted'].includes(session.state().status)) { session.abort(); save(); } destroyBoard(); screen().style.display = 'none'; }
     function open() {
         if (bridge.beforeOpen) bridge.beforeOpen();
         document.getElementById('start-screen').style.display = 'none'; screen().style.display = '';
@@ -628,6 +660,7 @@
         document.getElementById('btn-bullet-practice').onclick = open;
         el('mode').onchange = updateSetup; el('seconds').onchange = updateSetup;
         el('start').onclick = () => start(); el('next').onclick = next;
+        el('start-play').onclick = beginRound;
         el('again').onclick = () => start(el('again').dataset.mode);
         el('plan-go').onclick = () => start(el('plan-go').dataset.mode);
         el('configure').onclick = () => { setView('setup'); updateSetup(); };
