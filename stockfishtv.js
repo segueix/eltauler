@@ -988,6 +988,7 @@
     function pieceOn(type, color, sq) { return pieceNP(type, color) + ' ' + deSq(sq); }
     // «per» + article: «pel peó», «per la torre», «per l'alfil».
     function perNP(np) { return /^el /.test(np) ? 'pel ' + np.slice(3) : 'per ' + np; }
+    function aNP(np) { return /^el /.test(np) ? 'al ' + np.slice(3) : 'a ' + np; }
     function shortOn(type, sq) { return pieceShort(type) + ' ' + deSq(sq); }
     function pieceTitle(type, color) { return capFirst(PIECE_NAME[type]) + ' ' + (PIECE_FEMININE[type] ? COLOR[color].adjF : COLOR[color].adj); }
     function agree(type, masc, fem) { return PIECE_FEMININE[type] ? fem : masc; }
@@ -1557,7 +1558,7 @@
                 const loose = t.defended ? '' : ', que no està ' + agree(t.p.t, 'defensat', 'defensada');
                 const v = [capFirst(pieceNP(moved.t, color)) + ' ataca ' + pieceNP(t.p.t, opp) + loose + '.'];
                 if (moved.t !== t.p.t) v.push(capFirst(me.pl) + ' ataquen amb ' + pieceShort(moved.t) + ' ' + shortOn(t.p.t, t.sq) + loose + '.');
-                else v.push(capFirst(pieceNP(moved.t, color)) + ' apunta ara a ' + shortOn(t.p.t, t.sq) + loose + '.');
+                else v.push(capFirst(pieceNP(moved.t, color)) + ' apunta ara ' + aNP(shortOn(t.p.t, t.sq)) + loose + '.');
                 add('threat', v,
                 { key: 'threat:' + color + ':' + t.sq, sig: mv.to + '>' + t.sq, payload: { threats: payload },
                   tags: { color: color, squares: [mv.to, t.sq] } });
