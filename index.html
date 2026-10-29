@@ -3113,6 +3113,17 @@
         .hiero-conclusion p { margin: 8px 0; }
         .bundle-success-title { font-family: var(--font-ui); color: var(--accent-gold); font-size: 1.2rem; margin-bottom: 8px; }
         .bundle-success-remaining { color: var(--text-secondary); font-size: 0.95rem; margin-bottom: 14px; }
+        /* Ratxa de la tongada (Tàctiques, Repàs intel·ligent, Revisa errors). */
+        .bundle-run-streak {
+            margin: 0 auto 16px; padding: 10px 14px; max-width: 320px;
+            border: 1px solid rgba(201, 162, 39, 0.45); border-radius: 12px;
+            background: rgba(201, 162, 39, 0.12); text-align: center;
+        }
+        .bundle-run-streak-label { font-size: 0.78rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; color: var(--accent-gold); }
+        .bundle-run-streak-value { font-size: 2rem; font-weight: 800; line-height: 1.2; color: var(--text-primary); }
+        .bundle-run-streak-detail { font-size: 0.82rem; color: var(--text-secondary); line-height: 1.4; }
+        body.epaper-mode .bundle-run-streak { background: #f2f2f2; border-color: #888; }
+        body.epaper-mode .bundle-run-streak-label, body.epaper-mode .bundle-run-streak-value { color: #111; }
         .bundle-success-actions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: center; }
         .bundle-success-actions .btn { flex: 1; min-width: 150px; }
         
@@ -9432,7 +9443,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.37"></script>
+    <script src="core.js?v=1.0.38"></script>
     <script src="hieroclosure.js?v=1.2.0"></script>
     <script src="reviewsacrifices.js?v=1.0.0"></script>
     <script src="patrons.js?v=1.1.1"></script>
@@ -9467,7 +9478,7 @@
     <script src="boardexperience.js?v=1.0.3"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.2"></script>
-    <script src="app.js?v=1.0.120"></script>
+    <script src="app.js?v=1.0.121"></script>
 
     <!-- Service Worker Registration -->
     <script>

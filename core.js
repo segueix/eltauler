@@ -1124,6 +1124,21 @@
     }
 
     // ----------------------------------------------------------------------
+    // Tongada d'exercicis (Tàctiques, Repàs intel·ligent, Revisa errors).
+    // ----------------------------------------------------------------------
+    // Una tongada comença en entrar a la secció i continua amb «Un altre».
+    // La ratxa compta els exercicis resolts seguits sense cap jugada errònia;
+    // un exercici resolt després d'errar la reinicia. No es desa enlloc.
+    function exerciseRunStart(section) {
+        return { section: section || null, solved: 0, streak: 0, best: 0 };
+    }
+    function exerciseRunSolved(run, clean) {
+        const r = run && typeof run === 'object' ? run : exerciseRunStart(null);
+        const streak = clean ? (r.streak || 0) + 1 : 0;
+        return { section: r.section || null, solved: (r.solved || 0) + 1, streak, best: Math.max(r.best || 0, streak) };
+    }
+
+    // ----------------------------------------------------------------------
     // Seqüència d'exercici a partir d'una línia ja verificada (sense motor).
     // ----------------------------------------------------------------------
     // El reproductor d'exercicis (bundle) consumeix sempre la mateixa forma:
@@ -8662,6 +8677,8 @@
         puzzleSubmitMove,
         tacticsPickPool,
         tacticsRecordSolved,
+        exerciseRunStart,
+        exerciseRunSolved,
         createBundleSequenceHelpers,
         BESSO_CONFIG,
         bessoPieceCountFromFen,
