@@ -62,7 +62,7 @@ describe('Prosòdia catalana de Matxa', () => {
     test('la versió web inclou tots dos mòduls abans dels guions que els fan servir', () => {
         const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
         expect(html.indexOf('jeropedagogia.js')).toBeGreaterThan(html.indexOf('hieroclosure.js'));
-        expect(html.indexOf('jeropedagogia.js')).toBeLessThan(html.indexOf('app.js'));
+        expect(html.indexOf('<script src="jeropedagogia.js')).toBeLessThan(html.indexOf('<script src="app.js'));
         expect(html.indexOf('prosodia.js')).toBeLessThan(html.indexOf('stockfishtv.js'));
     });
 });
