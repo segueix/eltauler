@@ -10,11 +10,11 @@ const base = (kind = 'center', ply = 8, rest = {}) => ({
 });
 
 describe('Biblioteca original de l’Art de la Guerra', () => {
-    test('12 famílies i 156 màximes, totes diferenciades', () => {
-        expect(Object.keys(A.BANK)).toHaveLength(12);
-        expect(A.CATALOG).toHaveLength(156);
-        expect(new Set(A.CATALOG.map(m => m.text)).size).toBe(156);
-        expect(new Set(A.CATALOG.map(m => m.id)).size).toBe(156);
+    test('16 famílies i 208 màximes, totes diferenciades', () => {
+        expect(Object.keys(A.BANK)).toHaveLength(16);
+        expect(A.CATALOG).toHaveLength(208);
+        expect(new Set(A.CATALOG.map(m => m.text)).size).toBe(208);
+        expect(new Set(A.CATALOG.map(m => m.id)).size).toBe(208);
         for (const family of Object.keys(A.BANK)) {
             expect(A.BANK[family]).toHaveLength(13);
             expect(A.LABELS[family]).toBeTruthy();

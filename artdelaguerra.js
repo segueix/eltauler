@@ -17,7 +17,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
     // Identificació per al prestatge de llibres de la TV (alterna amb
     // estratagemes.js).
     const BOOK_ID = 'art';
@@ -211,6 +211,68 @@
             "No hi ha avantatge segur en una variant que encara no s’ha comprovat.",
             "La jugada vistosa no necessita admiració; necessita verificació.",
             "La pressa escurça el pensament abans d’escurçar la partida."
+        ]),
+        // Famílies per als fets que només calcula maximesexercici.js (la TV no
+        // els emet): jugada tranquil·la, retirada, intercanvi i remat.
+        paciencia: Object.freeze([
+            "La jugada tranquil·la no anuncia res; per això pot preparar-ho tot.",
+            "Qui no té pressa pot triar el moment; qui en té, l’ha de patir.",
+            "Abans de colpejar, el general prudent col·loca cada força on podrà servir.",
+            "Una maniobra silenciosa canvia el terreny sense despertar l’enemic.",
+            "No cal amenaçar per avançar: n’hi ha prou de millorar allò que ja tens.",
+            "La força que encara no es veu és la que més costa de preveure.",
+            "El moviment discret d’avui pot ser la clau de la decisió de demà.",
+            "Quan no hi ha res a capturar, el temps és el recurs que cal administrar.",
+            "Esperar no és quedar-se quiet, sinó moure’s sense mostrar la intenció.",
+            "Qui prepara bé el terreny sovint no necessita lliurar tantes batalles.",
+            "Una peça ben situada treballa en silenci mentre les altres discuteixen.",
+            "La calma no és absència d’acció; és acció que encara no s’ha revelat.",
+            "Abans de buscar el cop, assegura’t que totes les forces hi podran arribar."
+        ]),
+        retirada: Object.freeze([
+            "Retirar-se a temps conserva les forces per a la batalla que importa.",
+            "Un pas enrere pot obrir el camí que el pas endavant tancava.",
+            "La peça que torna a casa no fuig si torna amb un propòsit.",
+            "No confonguis l’orgull de mantenir una posició amb la força de poder-la triar.",
+            "Reagrupar és convertir forces disperses en una sola voluntat.",
+            "Qui no sap recular acaba defensant llocs que ja no valen res.",
+            "Una retirada ordenada pot ser més difícil d’atacar que un avanç precipitat.",
+            "Allunyar-se del front també pot ser la manera de veure’l sencer.",
+            "Una posició avançada val poc si l’enemic la pot assetjar sense pagar res.",
+            "Retrocedir per tornar més fort no és cedir terreny, sinó escollir-lo.",
+            "El camí de tornada sovint és el que porta més lluny.",
+            "Una casella defensada a qualsevol preu pot costar més del que val.",
+            "La peça que recula pot deixar el pas lliure a una altra que esperava."
+        ]),
+        intercanvi: Object.freeze([
+            "Canviar forces iguals no és un empat: depèn de qui queda més ben situat.",
+            "Cada intercanvi simplifica el camp i fa més visibles els avantatges petits.",
+            "Abans de canviar, pregunta’t quina peça rival et feia més nosa.",
+            "Qui canvia els defensors de l’altre li buida la muralla sense assaltar-la.",
+            "Un intercanvi a temps pot apagar l’atac abans que s’encengui.",
+            "No es canvia per costum, sinó perquè el camp que en queda és més favorable.",
+            "Quan les forces disminueixen, cada casella dominada guanya valor.",
+            "La peça que s’ofereix a canvi pot ser la que l’enemic necessitava més.",
+            "Canviar l’atacant més perillós sovint val més que defensar-se’n tota l’estona.",
+            "Simplificar és un art: cal saber què es vol que quedi al tauler.",
+            "Un canvi de peces també és un canvi de plans.",
+            "Qui té avantatge sol buscar camps senzills; qui no en té, sovint els vol complicats.",
+            "Després de l’intercanvi, torna a comptar: el camp ja no és el mateix."
+        ]),
+        remat: Object.freeze([
+            "Quan el rei enemic té poques sortides, cada força ha de saber quina li toca tancar.",
+            "El cop final no és el més vistós, sinó el que no deixa cap escapatòria.",
+            "Abans de rematar, compta les sortides del rei; després, les teves forces.",
+            "La victòria no s’anuncia: es comprova casella per casella.",
+            "Abans de perseguir el rei, tanca-li les portes per on podria fugir.",
+            "Un rei envoltat dels seus propis soldats pot quedar presoner dins la seva fortalesa.",
+            "El darrer moviment només és possible si els anteriors han tancat bé el pas.",
+            "Les amenaces sobre el rei pesen més que qualsevol peça del tauler.",
+            "Quan el cor de l’exèrcit enemic tremola, no cal conquerir-ne les províncies.",
+            "Un escac sense continuació és soroll; un escac que tanca caselles és un pla.",
+            "Qui té el rei rival a l’abast no s’entreté a recollir botí.",
+            "Rematar demana precisió, no força: una sola casella oblidada ho canvia tot.",
+            "Cada peça que s’acosta al rei rival ha de tenir una feina, no només una presència."
         ])
     });
 
@@ -226,7 +288,11 @@
         peons: 'Avanç i coronació',
         estructura: 'Estructura i tensió',
         final: 'Precisió dels finals',
-        decisions: 'Decisions i oportunitats'
+        decisions: 'Decisions i oportunitats',
+        paciencia: 'Paciència i maniobra',
+        retirada: 'Retirada i reagrupament',
+        intercanvi: 'Intercanvis i simplificació',
+        remat: 'Remat i decisió'
     });
 
     // IDs efectius de tvCommentCandidates i de patrons.js. La relació és
@@ -247,7 +313,12 @@
         structure: 'estructura', blocked: 'estructura', tension: 'estructura',
         endgame: 'final', opposition: 'final', 'king-activity': 'final', 'queens-off': 'final',
         missed: 'decisions', hanging: 'decisions', material: 'decisions',
-        'capture-free': 'decisions', 'only-move': 'decisions'
+        'capture-free': 'decisions', 'only-move': 'decisions',
+        // Fets dels exercicis (maximesexercici.js), comprovats amb les regles.
+        // Un exercici no té cap urgència de narració: el mat, l'escapada de
+        // l'escac i la promoció hi arriben amb aquests noms, no amb els crítics.
+        'quiet-move': 'paciencia', retreat: 'retirada', exchange: 'intercanvi',
+        'mate-finish': 'remat', 'escape-check': 'defensa', 'promotion-step': 'peons'
     });
 
     // La màxima només complementa un fet; no retarda l'avís de mat,

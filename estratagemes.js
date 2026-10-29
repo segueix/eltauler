@@ -19,7 +19,7 @@
 })(typeof self !== 'undefined' ? self : this, function () {
     'use strict';
 
-    const VERSION = '1.0.0';
+    const VERSION = '1.1.0';
     const BOOK_ID = 'estratagemes';
     const BOOK_LABEL = 'Les 36 estratagemes';
     const ATTRIBUTION = 'Frase original inspirada en «Les 36 estratagemes», no una citació';
@@ -148,6 +148,11 @@
             'Una estructura de peons tocada fa trontollar tot l’edifici.',
             'Les debilitats d’avui són els objectius de demà.',
             'Qui afebleix els fonaments del rival no necessita atacar el teulat.'] },
+        boig: { n: 27, title: 'Fingir bogeria sense perdre el seny', texts: [
+            '«Fingir bogeria sense perdre el seny»: una jugada que sembla innocent pot amagar una intenció ben calculada.',
+            'Qui sembla no fer res pot estar preparant el moment exacte.',
+            'Deixar que el rival es confiï és, de vegades, la jugada més ben pensada.',
+            'La calma aparent desarma més que una amenaça declarada.'] },
         escala: { n: 28, title: 'Treure l’escala quan l’enemic és al terrat', texts: [
             '«Treure l’escala quan l’enemic és al terrat»: una peça lligada a la seva línia ja no és lliure de fugir.',
             'Una peça que no es pot moure és com un soldat que s’ha quedat sense escala per baixar.',
@@ -162,7 +167,12 @@
             '«Que l’hoste passi a ser l’amfitrió»: la peça que esperava a casa ara surt a dictar el ritme.',
             'Una peça que entra en joc canvia el repartiment de forces.',
             'Les peces que esperaven ordres poden passar a donar-les.',
-            'Prendre la iniciativa és canviar el paper de cadascú al tauler.'] }
+            'Prendre la iniciativa és canviar el paper de cadascú al tauler.'] },
+        retirada: { n: 36, title: 'Retirar-se és la millor opció', texts: [
+            '«Retirar-se és la millor opció»: una peça exposada que torna a lloc segur conserva tota la seva força.',
+            'Recular a temps no és perdre: és negar a l’enemic el seu objectiu.',
+            'Una força que es retira amb ordre pot tornar quan més convingui.',
+            'Quan una casella ja no aporta res, abandonar-la és guanyar llibertat.'] }
     });
 
     // Motius verificats (tvCommentCandidates i patrons.js) → estratagemes que
@@ -182,7 +192,10 @@
         'capture-free': ['cabra'], hanging: ['casa', 'cabra'], missed: ['casa'],
         'passed-new': ['nores'], majority: ['nores'],
         structure: ['bigues'], blocked: ['riba'], tension: ['riba', 'aigua'],
-        opposition: ['porta'], 'king-activity': ['hoste'], 'queens-off': ['llenya']
+        opposition: ['porta'], 'king-activity': ['hoste'], 'queens-off': ['llenya'],
+        // Fets dels exercicis (maximesexercici.js), comprovats amb les regles.
+        'quiet-move': ['mar', 'boig'], retreat: ['retirada'], exchange: ['deixaranar', 'llenya'],
+        'mate-finish': ['cap'], 'escape-check': ['cigala']
     });
 
     // La frase només complementa un fet: no retarda cap urgència.
