@@ -2111,6 +2111,12 @@
                 }
             }
         }
+        // Fase 4: evita encadenar els mateixos inicis, sense modificar el
+        // motiu, la prioritat ni el contingut factual dels candidats.
+        if (o.quality && typeof o.quality.preferVariety === 'function') {
+            try { text = o.quality.preferVariety(text, best.variants, mem.texts); }
+            catch (err) { /* la selecció inicial continua sent vàlida */ }
+        }
         const variantId = cand.variants.indexOf(text);
         const parts = leadFact ? [leadFact, text] : [text];
         // Si la jugada fa escac i el comentari no ho diu, s'afegeix a la frase.
@@ -2306,7 +2312,7 @@
             catch (err) { /* El comentari original continua sent vàlid. */ }
         }
         let chosen = tvSelectComment(candidates, memory, { ply: c.ply, color: c.move && c.move.color, tier: c.tier, prepared: c.prepared,
-            isCheck: !!(c.move && /\+$/.test(c.move.san) && !c.end) });
+            isCheck: !!(c.move && /\+$/.test(c.move.san) && !c.end), quality: c.quality });
         const urgent = chosen && KIND_PRIORITY[chosen.kind] >= 70;
         const mvq = c.move || {};
         const quiet = !mvq.captured && !/[+#]/.test(mvq.san || '') && !mvq.promotion && (mvq.flags || '').indexOf('k') === -1 && (mvq.flags || '').indexOf('q') === -1;
@@ -2356,12 +2362,14 @@
                 ChessCtor: ChessCtor, fenBefore: fenBefore, fenAfter: chess.fen(), move: mv, prevMove: prevMove,
                 before: prepared ? null : analysisAt(i), after: prepared ? null : analysisAt(i + 1),
                 tier: s.tier || 'mid', prepared: prepared, phrase: s.phrases ? s.phrases[i] : null, end: tvGameEnd(chess), ply: i, memory: memory,
-                expression: s.expression || null, narrative: s.narrative || null
+                expression: s.expression || null, narrative: s.narrative || null, quality: s.quality || null
             });
             memory = step.memory;
             rows.push({ ply: i, san: mv.san, color: mv.color, fen: chess.fen(), comment: step.comment ? step.comment.text : null,
                 kind: step.comment ? step.comment.kind : null, explanatory: !!(step.comment && step.comment.explanatory), extended: !!(step.comment && step.comment.extended),
-                key: step.comment ? step.comment.key : null, payload: step.comment ? step.comment.payload : null, speech: step.comment ? tvSpeechText(step.comment.text) : null,
+                key: step.comment ? step.comment.key : null, payload: step.comment ? step.comment.payload : null,
+                narrative: step.comment ? (step.comment.narrative || null) : null,
+                speech: step.comment ? tvSpeechText(step.comment.text) : null,
                 candidates: step.candidates.map(x => x.kind) });
             prevMove = mv;
         });
@@ -3141,7 +3149,7 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: fenBefore, fenAfter: fenAfter, move: mv, prevMove: prevMove,
                 before: before, after: after, tier: g.tier, prepared: !!prepared, phrase: prepared ? prepared.phrase : null,
-                end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative
+                end: end, ply: ply, memory: g.memory, expression: d.expression, narrative: d.narrative, quality: d.quality
             });
             return { ply: ply, fenAfter: fenAfter, end: end, chosen: step.comment, memory: step.memory,
                 resign: resign ? resign.state : undefined, decided: tvIsDecided(after) };
@@ -3205,7 +3213,7 @@
             const step = tvBroadcastStep({
                 ChessCtor: d.ChessCtor, fenBefore: entry.undo.fenBefore, fenAfter: entry.fen, move: entry.verbose,
                 prevMove: ply ? g.moves[ply - 1].verbose : null, before: before, after: after, tier: g.tier, prepared: false, phrase: null,
-                end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative
+                end: g.end, ply: ply, memory: entry.undo.memory, expression: d.expression, narrative: d.narrative, quality: d.quality
             });
             S.pendingUser = false;
             g.memory = step.memory;
@@ -4282,6 +4290,7 @@
             lozzaEngine: lozzaEngine,
             expression: root.ElTaulerExpressivitat || null,
             narrative: root.ElTaulerNarrativa || null,
+            quality: root.ElTaulerAuditoria || null,
             voice: voice,
             view: viewApi,
             getViewer: () => { try { return typeof bridge.getViewer === 'function' ? bridge.getViewer() : null; } catch (e) { return null; } },
