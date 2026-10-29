@@ -2796,8 +2796,8 @@
         t = t.replace(/½-½/g, 'taules').replace(/\b1-0\b/g, 'victòria de les blanques').replace(/\b0-1\b/g, 'victòria de les negres');
         t = t.replace(/[≈~·•→←↑↓«»"“”()[\]{}#+=*_|<>]/g, ' ');
         t = t.replace(/\bvs\b\.?/gi, 'contra');
-        // El text visible conserva Stockfish; en català es pronuncia «Stoc fix».
-        t = t.replace(/\bstockfish\b/gi, 'Stoc fix');
+        // El text visible conserva Stockfish; la veu diu «Stock fish».
+        t = t.replace(/\bstockfish\b/gi, 'Stock fish');
         return t.replace(/\s{2,}/g, ' ').replace(/\s+([,.:;!?])/g, '$1').trim();
     }
 
