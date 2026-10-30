@@ -21,8 +21,9 @@ function snapshot(id, extra = {}) {
 
 function harness(data = new Map()) {
     const nodes = new Map();
-    for (const id of ['untimed-grid', 'untimed-section-title', 'live-game-banner']) {
-        nodes.set(id, { innerHTML: '', style: {} });
+    for (const id of ['untimed-grid', 'untimed-section-title', 'untimed-scroll-hint', 'live-game-banner']) {
+        nodes.set(id, { innerHTML: '', style: {}, scrollWidth: 2000, clientWidth: 600, scrollLeft: 0,
+            classList: { toggle: jest.fn() } });
     }
     const jq = new Proxy({}, { get: () => () => jq });
     const context = vm.createContext({
@@ -107,6 +108,62 @@ test('recarregar al cap d’anys conserva totes les targetes i reprèn la triada
     expect(h.run('liveGameResumePending.playerColor')).toBe('b');
     expect(h.context.pendingFreeTimeControl).toBe('none');
     expect(h.context.startGame).toHaveBeenCalledWith(false);
+});
+
+test('tres o més partides es disposen d’antigues a recents i activen el carrusel', () => {
+    const games = [
+        snapshot('recent', { savedAt: 3000 }),
+        snapshot('old', { savedAt: 1000 }),
+        snapshot('middle', { savedAt: 2000 })
+    ];
+    const h = harness(new Map([[SAVED, JSON.stringify(games)]]));
+    h.context.renderUntimedGamesPanel();
+    const html = h.nodes.get('untimed-grid').innerHTML;
+    const order = Array.from(html.matchAll(/data-untimed-id="([^"]+)"/g)).map(m => m[1]);
+    expect(order).toEqual(['old', 'middle', 'recent']);
+    expect(h.nodes.get('untimed-grid').classList.toggle).toHaveBeenCalledWith('untimed-carousel', true);
+    expect(h.nodes.get('untimed-grid').scrollLeft).toBe(2000);
+    expect(h.nodes.get('untimed-scroll-hint').style.display).toBe('');
+});
+
+test('una jugada nova envia el tauler a la dreta; reobrir sense moure no el reordena', () => {
+    const games = [
+        snapshot('a', { savedAt: 1000 }),
+        snapshot('b', { savedAt: 2000 }),
+        snapshot('c', { savedAt: 3000 })
+    ];
+    const h = harness(new Map([[SAVED, JSON.stringify(games)]]));
+    const ids = () => Array.from(h.nodes.get('untimed-grid').innerHTML.matchAll(/data-untimed-id="([^"]+)"/g)).map(m => m[1]);
+    activate(h, 'a');
+    h.context.game.move('Nf3');
+    h.context.saveLiveGame();
+    h.run('liveGameActive = false; liveGameId = null;');
+    h.context.renderUntimedGamesPanel();
+    expect(ids()).toEqual(['b', 'c', 'a']);
+    const moved = h.context.loadUntimedGames().find(g => g.id === 'a');
+    expect(moved.lastMoveAt).toBeGreaterThan(3000);
+
+    activate(h, 'b');
+    h.context.saveLiveGame(); // sense cap jugada
+    h.run('liveGameActive = false; liveGameId = null;');
+    h.context.renderUntimedGamesPanel();
+    expect(ids()).toEqual(['b', 'c', 'a']);
+    expect(h.context.loadUntimedGames().find(g => g.id === 'b').lastMoveAt).toBe(2000);
+});
+
+test('amb una o dues partides no activa el desplaçament lateral', () => {
+    const h = harness(new Map([[SAVED, JSON.stringify([snapshot('a'), snapshot('b')])]]));
+    h.context.renderUntimedGamesPanel();
+    expect(h.nodes.get('untimed-grid').classList.toggle).toHaveBeenCalledWith('untimed-carousel', false);
+    expect(h.nodes.get('untimed-scroll-hint').style.display).toBe('none');
+});
+
+test('el carrusel deixa dos taulers visibles a escriptori i manté el desplaçament mòbil', () => {
+    const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+    expect(html).toContain('id="untimed-scroll-hint"');
+    expect(html).toContain('app.js?v=1.0.130');
+    expect(html).toMatch(/#untimed-grid\.untimed-carousel > \.daily-card \{[^}]*flex:\s*0 0 calc\(\(100% - 14px\) \/ 2\);/);
+    expect(html).toContain('body.device-mobile #untimed-grid.untimed-carousel > .daily-card { flex-basis: 82%; }');
 });
 
 test('migra la instantània antiga sense duplicar-la ni perdre les altres', () => {
