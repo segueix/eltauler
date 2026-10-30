@@ -152,6 +152,16 @@
     // Analista UCI independent per a les noves captures i defenses.
     // Cada moviment candidat es comprova amb searchmoves: no es pressuposa que
     // la millor jugada global sigui necessàriament la resposta de l'exercici.
+    // Interpreta valoracions UCI: el motor pot informar de cota inferior/superior,
+    // que no serveixen per decidir si una solució és equivalent a la millor.
+    function bulletUciScore(line) {
+        if (!line.startsWith('info ') || /\b(?:lowerbound|upperbound)\b/.test(line)) return null;
+        const score = line.match(/\bscore (cp|mate) (-?\d+)/);
+        if (!score) return null;
+        return score[1] === 'mate'
+            ? (Number(score[2]) > 0 ? 30000 : -30000)
+            : Number(score[2]);
+    }
     function createBulletEngine(WorkerCtor, url = 'stockfish-19-lite-single.js') {
         let worker = null, pending = null, ready = false, timer = null;
         function stop() {
@@ -182,11 +192,8 @@
                         return;
                     }
                     if (!pending) return;
-                    const score = line.match(/\\bscore (cp|mate) (-?\\d+)/);
-                    if (line.startsWith('info ') && score && !/\\bbound\\b/.test(line))
-                        pending.score = score[1] === 'mate'
-                            ? (Number(score[2]) > 0 ? 30000 : -30000)
-                            : Number(score[2]);
+                    const score = bulletUciScore(line);
+                    if (score !== null) pending.score = score;
                     if (line.startsWith('bestmove ')) {
                         const p = pending; pending = null; clearTimeout(timer); timer = null;
                         p.score === null ? p.reject(new Error('Anàlisi incompleta')) : p.resolve(p.score);
@@ -458,7 +465,7 @@
         const ranked = KINDS.filter(k => out[k].attempts >= 6).sort((a, b) => out[a].accuracy - out[b].accuracy);
         return { byKind: out, weakest: ranked.length > 1 && out[ranked[0]].accuracy < out[ranked[ranked.length - 1]].accuracy ? ranked[0] : null };
     }
-    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, generateMateTasks, createBulletEngine, generateStockfishTasks, normalizeGenerated, levelPool, practicePriority, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
+    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, generateMateTasks, bulletUciScore, createBulletEngine, generateStockfishTasks, normalizeGenerated, levelPool, practicePriority, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
 
     // UI integrada, sense alterar el ROC, les ratxes ni el rellotge d'una partida.
     let bridge = {}, bank = null, session = null, board = null, chess = null, selected = null;
