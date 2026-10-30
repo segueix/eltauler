@@ -192,7 +192,7 @@ describe('rellotge i primera decisió', () => {
         const js = fs.readFileSync(path.join(__dirname, '../bulletpractice.js'), 'utf8');
         expect(html).toContain('id="bp-start-overlay"');
         expect(html).toContain('id="bp-start-play"');
-        expect(html).toContain('bulletpractice.js?v=1.2.4');
+        expect(html).toContain('bulletpractice.js?v=1.2.5');
         expect(html).toContain('bulletpractice.css?v=1.2.1');
         expect(css).toContain('.bp-board-wrap.bp-awaiting-start #bp-board');
         expect(css).toContain('filter: blur(');
