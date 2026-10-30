@@ -156,6 +156,43 @@ describe('reproductor neuronal', () => {
         expect(sp.isSpeaking()).toBe(false);
     });
 
+    test('quan Matxa falla, Google ca-ES-Standard-B parla amb el mateix reproductor', async () => {
+        const client = { synthesize: jest.fn(async () => { throw new Error('matxa-offline'); }) };
+        const google = { available: () => true, synthesize: jest.fn(async () => 'blob:google-voice') };
+        const { sp, audio } = speaker(client, { googleClient: google });
+        const p = sp.speak('Escac al rei.', 'matxa:central:elia');
+        await jest.advanceTimersByTimeAsync(1);
+        expect(google.synthesize).toHaveBeenCalledWith('Escac al rei.', expect.objectContaining({ rate: undefined }));
+        expect(audio.created[0].src).toBe('blob:google-voice');
+        audio.created[0].end();
+        await expect(p).resolves.toEqual({ spoken: true, reason: 'end' });
+        expect(sp.available()).toBe(true);
+        const second = sp.speak('Una altra jugada.', 'matxa:central:elia');
+        await jest.advanceTimersByTimeAsync(1);
+        expect(client.synthesize).toHaveBeenCalledTimes(1); // el cooldown evita repetir Matxa
+        expect(audio.created[1].src).toBe('blob:google-voice');
+        audio.created[1].end();
+        await expect(second).resolves.toEqual({ spoken: true, reason: 'end' });
+    });
+
+    test('el client Google no exposa credencials i fixa la veu catalana', async () => {
+        const fetchFn = jest.fn(async () => ({
+            ok: true, headers: { get: () => 'audio/mpeg' },
+            blob: async () => new Blob(['mp3'], { type: 'audio/mpeg' })
+        }));
+        const google = V.createGoogleEmergencyClient({
+            fetch: fetchFn, createObjectURL: () => 'blob:cloud'
+        });
+        expect(V.GOOGLE_EMERGENCY_VOICE).toBe('ca-ES-Standard-B');
+        await expect(google.synthesize('Jugada brillant!', { rate: 1.1 })).resolves.toBe('blob:cloud');
+        const [url, options] = fetchFn.mock.calls[0];
+        expect(url).toBe('/api/google-tts');
+        expect(options.body).toContain('"voice":"ca-ES-Standard-B"');
+        expect(options.body).toContain('"languageCode":"ca-ES"');
+        expect(options.headers).not.toHaveProperty('Authorization');
+        expect(options.credentials).toBe('same-origin');
+    });
+
     test('servei caigut: falla de seguida, i durant un minut no s\'hi torna a provar', async () => {
         const client = { synthesize: async () => { throw new Error('down'); } };
         const { sp } = speaker(client);
