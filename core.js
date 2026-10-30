@@ -5458,6 +5458,8 @@
 
         // Varietat: finestra de proves recents que penalitza repetir tema.
         recentWindow: 6,
+        // El motiu concret reforça la selecció, mai per sobre dels filtres objectius.
+        subthemeMatchBoost: 0.5,
         // Una prova superada rebaixa el pes de la debilitat; una de fallada el puja.
         progress: { passDamp: 0.12, failBoost: 0.10, partialDamp: 0.04, minWeightFloor: 0.15 },
 
@@ -5571,6 +5573,28 @@
     const ANTIDOTE_COMPLEXITY_FAMILIES = ['missed_win', 'lost_advantage', 'turned_losing'];
 
     const ANTIDOTE_PHASES = ['opening', 'middlegame', 'endgame'];
+
+    // Subtemes validats de la taxonomia d'Antídot. No s'infereix una
+    // forquilla només per haver-se comès un error de tàctica genèrica.
+    const ANTIDOTE_SUBTHEME_IDS = Object.keys(ANTIDOTE_THEME_FAMILY);
+
+    function antidoteKnownSubtheme(value, family) {
+        if (typeof value !== 'string') return null;
+        if (!Object.prototype.hasOwnProperty.call(ANTIDOTE_THEME_FAMILY, value)) return null;
+        return family && ANTIDOTE_THEME_FAMILY[value] !== family ? null : value;
+    }
+
+    // Acceptem només etiquetes explícites i verificables ja desades. Els
+    // historials antics sense subtema continuen pesant a la seva categoria.
+    function antidoteEvidenceSubtheme(item, family) {
+        const obj = item && typeof item === 'object' ? item : {};
+        const candidates = [obj.antidoteSubtheme, obj.subtheme, obj.themeId];
+        for (const value of candidates) {
+            const subtheme = antidoteKnownSubtheme(value, family);
+            if (subtheme) return subtheme;
+        }
+        return null;
+    }
 
     function antidoteNum(v, fallback) {
         return (typeof v === 'number' && isFinite(v)) ? v : (fallback === undefined ? 0 : fallback);
@@ -5713,6 +5737,8 @@
             sampleGames: 0,
             sampleMoves: 0,
             weaknesses: weaknesses,
+            subthemes: {},
+            subthemeOccurrences: 0,
             phaseWeaknesses: { opening: 0, middlegame: 0, endgame: 0 },
             recentTests: []
         };
@@ -5756,7 +5782,7 @@
     // l'historial (com phaseStats del bessó): així el perfil pot mirar
     // centenars de partides sense carregar-ne cap revisió.
     function antidoteWeaknessStatsFromGame(entry) {
-        const stats = { moves: 0, categories: {}, phases: { opening: 0, middlegame: 0, endgame: 0 }, phaseMoves: { opening: 0, middlegame: 0, endgame: 0 } };
+        const stats = { moves: 0, categories: {}, subthemes: {}, phases: { opening: 0, middlegame: 0, endgame: 0 }, phaseMoves: { opening: 0, middlegame: 0, endgame: 0 } };
         if (!entry) return stats;
         const color = entry.playerColor;
         const reviews = Array.isArray(entry.moveReviews) ? entry.moveReviews : [];
@@ -5773,6 +5799,13 @@
             acc.n += 1;
             acc.severity += antidoteSeverityFromSwing(swing);
             stats.categories[category] = acc;
+            const subtheme = antidoteEvidenceSubtheme(r, category);
+            if (subtheme) {
+                const detail = stats.subthemes[subtheme] || { n: 0, severity: 0 };
+                detail.n += 1;
+                detail.severity += antidoteSeverityFromSwing(swing);
+                stats.subthemes[subtheme] = detail;
+            }
         });
         return stats;
     }
@@ -5784,6 +5817,8 @@
             return {
                 moves: Math.max(0, antidoteNum(stored.moves, 0)),
                 categories: stored.categories,
+                subthemes: stored.subthemes && typeof stored.subthemes === 'object' ? stored.subthemes
+                    : (Array.isArray(entry.moveReviews) && entry.moveReviews.length ? antidoteWeaknessStatsFromGame(entry).subthemes : {}),
                 phases: Object.assign({ opening: 0, middlegame: 0, endgame: 0 }, stored.phases || {}),
                 phaseMoves: Object.assign({ opening: 0, middlegame: 0, endgame: 0 }, stored.phaseMoves || {})
             };
@@ -5873,6 +5908,21 @@
         ANTIDOTE_WEAKNESS_IDS.forEach(id => {
             raw[id] = { occurrences: 0, severitySum: 0, lastSeen: null, testsPassed: 0, testsPartial: 0, testsFailed: 0 };
         });
+        const rawThemes = {};
+        const recordTheme = (id, n, severity, when, outcome) => {
+            const theme = antidoteKnownSubtheme(id);
+            if (!theme) return;
+            const rec = rawThemes[theme] || { occurrences: 0, severitySum: 0, lastSeen: null,
+                testsPassed: 0, testsPartial: 0, testsFailed: 0 };
+            const count = Math.max(0, antidoteNum(n, 0));
+            rec.occurrences += count;
+            rec.severitySum += Math.max(0, antidoteNum(severity, 0));
+            if (when && isFinite(when) && (!rec.lastSeen || when > rec.lastSeen)) rec.lastSeen = when;
+            if (outcome === 'passed') rec.testsPassed += 1;
+            else if (outcome === 'partial') rec.testsPartial += 1;
+            else if (outcome === 'failed') rec.testsFailed += 1;
+            rawThemes[theme] = rec;
+        };
         const phaseLoss = { opening: 0, middlegame: 0, endgame: 0 };
         const phaseMoves = { opening: 0, middlegame: 0, endgame: 0 };
 
@@ -5898,6 +5948,15 @@
                 raw[id].severitySum += Math.max(0, antidoteNum(acc.severity, 0));
                 if (played && (!raw[id].lastSeen || played > raw[id].lastSeen)) raw[id].lastSeen = played;
             });
+            if (stats.subthemes && typeof stats.subthemes === 'object') {
+                Object.keys(stats.subthemes).forEach(id => {
+                    const subtheme = antidoteKnownSubtheme(id);
+                    const data = stats.subthemes[id];
+                    if (!subtheme || !data || typeof data !== 'object') return;
+                    const n = Math.max(0, antidoteNum(data.n, 0));
+                    if (n > 0) recordTheme(subtheme, n, Math.max(0, antidoteNum(data.severity, 0)), played);
+                });
+            }
         });
 
         // Errades desades: reforcen les categories tàctiques i de material amb
@@ -5912,6 +5971,8 @@
             raw[id].severitySum += err.severity === 'high' ? 0.85 : 0.5;
             const when = Date.parse(err.date || '') || null;
             if (when && (!raw[id].lastSeen || when > raw[id].lastSeen)) raw[id].lastSeen = when;
+            const subtheme = antidoteEvidenceSubtheme(err, id);
+            if (subtheme) recordTheme(subtheme, 1, err.severity === 'high' ? 0.85 : 0.5, when);
         });
 
         // Proves ANTÍDOT anteriors: rendiment per categoria.
@@ -5924,6 +5985,7 @@
             const id = raw[t.theme] ? t.theme : antidoteThemeFamily(t.theme);
             if (!raw[id]) return;
             const outcome = t.firstResult || t.result;
+            const subtheme = antidoteEvidenceSubtheme(t, id);
             if (outcome === 'passed') raw[id].testsPassed += 1;
             else if (outcome === 'partial') raw[id].testsPartial += 1;
             else if (outcome === 'failed') {
@@ -5932,6 +5994,14 @@
                 raw[id].severitySum += antidoteClamp01(antidoteNum(t.severity, 0.6));
                 const when = antidoteNum(t.at, 0) || null;
                 if (when && (!raw[id].lastSeen || when > raw[id].lastSeen)) raw[id].lastSeen = when;
+            }
+            // Els encerts no són errors; només ajusten l'evolució del subtema.
+            if (subtheme && (outcome === 'passed' || outcome === 'partial' || outcome === 'failed')) {
+                const when = antidoteNum(t.at, 0) || null;
+                const severity = antidoteClamp01(antidoteNum(t.severity, 0.6));
+                recordTheme(subtheme, outcome === 'failed' ? 1 : 0,
+                    outcome === 'failed' ? severity : 0,
+                    outcome === 'failed' ? when : null, outcome);
             }
         });
 
@@ -5952,6 +6022,28 @@
             record.weight = antidoteApplyTestFeedback(base, record, cfg);
         });
 
+        // Perfil específic: només les evidències amb subtema conegut. Reutilitza
+        // les mateixes regles de gravetat, confiança i rendiment de les proves.
+        const totalSubthemeOccurrences = Object.keys(rawThemes)
+            .reduce((sum, id) => sum + rawThemes[id].occurrences, 0);
+        Object.keys(rawThemes).forEach(id => {
+            const r = rawThemes[id];
+            if (!r.occurrences && !r.testsPassed && !r.testsPartial && !r.testsFailed) return;
+            const record = antidoteEmptyWeakness();
+            record.occurrences = r.occurrences;
+            record.severity = r.occurrences ? antidoteClamp01(r.severitySum / r.occurrences) : 0;
+            record.lastSeen = r.lastSeen ? new Date(r.lastSeen).toISOString() : null;
+            record.confidence = antidoteConfidence(r.occurrences, cfg);
+            record.testsPassed = r.testsPassed;
+            record.testsPartial = r.testsPartial;
+            record.testsFailed = r.testsFailed;
+            const weight = antidoteWeaknessWeight(record,
+                { totalOccurrences: totalSubthemeOccurrences, now: now }, cfg);
+            record.weight = antidoteApplyTestFeedback(weight, record, cfg);
+            profile.subthemes[id] = record;
+        });
+        profile.subthemeOccurrences = totalSubthemeOccurrences;
+
         // Debilitat per fase: pèrdua mitjana de la fase comparada amb la global.
         const totalMoves = ANTIDOTE_PHASES.reduce((s, p) => s + phaseMoves[p], 0);
         const totalLoss = ANTIDOTE_PHASES.reduce((s, p) => s + phaseLoss[p], 0);
@@ -5965,7 +6057,9 @@
 
         profile.recentTests = tests
             .slice(-cfg.recentWindow)
-            .map(t => ({ theme: t && t.theme ? t.theme : null, result: t && t.result ? t.result : 'inconclusive' }))
+            .map(t => ({ theme: t && t.theme ? t.theme : null,
+                subtheme: antidoteEvidenceSubtheme(t, t && t.theme),
+                result: t && (t.firstResult || t.result) ? (t.firstResult || t.result) : 'inconclusive' }))
             .filter(t => t.theme);
         profile.totalOccurrences = totalOccurrences;
         return profile;
@@ -6002,6 +6096,30 @@
             })
             .filter(w => w.occurrences > 0 && w.weight > 0)
             .sort((a, b) => (b.weight - a.weight) || (b.occurrences - a.occurrences) || a.id.localeCompare(b.id))
+            .slice(0, n);
+    }
+
+    // Motifs concrets prioritzables. Per evitar sobreinterpretacions, no es
+    // mostra com a «debilitat» cap subtema amb només encerts, sense errors.
+    function antidoteTopSubthemes(profile, count) {
+        const n = Math.max(1, antidoteNum(count, 3));
+        const details = (profile && profile.subthemes) || {};
+        return Object.keys(details)
+            .filter(id => !!antidoteKnownSubtheme(id))
+            .map(id => {
+                const r = details[id] || {};
+                return { id: id, label: antidoteThemeLabel(id),
+                    family: ANTIDOTE_THEME_FAMILY[id],
+                    weight: antidoteClamp01(antidoteNum(r.weight, 0)),
+                    confidence: antidoteClamp01(antidoteNum(r.confidence, 0)),
+                    occurrences: Math.max(0, antidoteNum(r.occurrences, 0)),
+                    severity: antidoteClamp01(antidoteNum(r.severity, 0)),
+                    testsPassed: Math.max(0, antidoteNum(r.testsPassed, 0)),
+                    testsFailed: Math.max(0, antidoteNum(r.testsFailed, 0)) };
+            })
+            .filter(t => t.occurrences > 0 && t.weight > 0)
+            .sort((a, b) => (b.weight - a.weight) || (b.occurrences - a.occurrences)
+                || a.id.localeCompare(b.id))
             .slice(0, n);
     }
 
@@ -6073,6 +6191,7 @@
     // Coincidència amb el perfil: quant posa a prova aquesta candidata alguna
     // debilitat REAL del jugador. Retorna { match, themeId, family }.
     function antidoteWeaknessMatch(candidate, profile, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
         const cand = candidate || {};
         const themes = Array.isArray(cand.themes) ? cand.themes : [];
         const weaknesses = (profile && profile.weaknesses) || {};
@@ -6083,7 +6202,13 @@
             const record = weaknesses[family];
             const weight = antidoteClamp01(antidoteNum(record && record.weight, 0));
             const strength = antidoteClamp01(antidoteNum(t.strength, 0));
-            const match = strength * weight;
+            const detail = profile && profile.subthemes && profile.subthemes[t.id];
+            const evidence = detail && antidoteNum(detail.occurrences, 0) > 0
+                ? antidoteClamp01(antidoteNum(detail.weight, 0))
+                    * antidoteClamp01(antidoteNum(detail.confidence, 0))
+                    * (antidoteNum(cfg.subthemeMatchBoost, 0.5))
+                : 0;
+            const match = strength * antidoteClamp01(weight + evidence);
             if (match > best.match) best = { match: match, themeId: t.id, family: family };
         });
         // Categories «de resultat» (rematar, mantenir, no perdre el fil): no són
@@ -6102,7 +6227,7 @@
 
     // Varietat: penalitza repetir una categoria treballada fa poc, tret que
     // s'hi continuï fallant clarament.
-    function antidoteRepetitionPenalty(family, profile, config) {
+    function antidoteRepetitionPenalty(family, profile, config, subtheme) {
         const cfg = config || ANTIDOTE_CONFIG;
         if (!family) return 0;
         const recent = (profile && Array.isArray(profile.recentTests)) ? profile.recentTests : [];
@@ -6112,7 +6237,13 @@
         if (!sameFamily.length) return 0;
         const stillFailing = sameFamily.some(t => t.result === 'failed');
         const share = sameFamily.length / window.length;
-        return stillFailing ? share * 0.25 : share;
+        const familyPenalty = stillFailing ? share * 0.25 : share;
+        const matchedSubtheme = antidoteKnownSubtheme(subtheme, family);
+        if (!matchedSubtheme) return familyPenalty;
+        const sameMotif = window.filter(t => t.subtheme === matchedSubtheme);
+        const motifFailing = sameMotif.some(t => t.result === 'failed');
+        const motifPenalty = sameMotif.length / window.length * (motifFailing ? 0.08 : 0.25);
+        return antidoteClamp01(familyPenalty + motifPenalty);
     }
 
     // Puntuació final d'una candidata. Documentada i centralitzada: la qualitat
@@ -6139,7 +6270,7 @@
         const target = antidoteTargetComplexity(ctx.playerElo);
         const complexity = antidoteClamp01(antidoteNum(cand.complexity, 0));
         const difficultyFit = antidoteClamp01(1 - Math.abs(complexity - target));
-        const repetition = antidoteRepetitionPenalty(weaknessMatch.family, profile, cfg);
+        const repetition = antidoteRepetitionPenalty(weaknessMatch.family, profile, cfg, weaknessMatch.themeId);
         const novelty = antidoteClamp01(antidoteNum(cand.novelty, 1 - repetition));
         const s = cfg.score;
         const components = {
@@ -8910,6 +9041,9 @@
         buildAntidoteProfile,
         antidoteProfileIsThin,
         antidoteTopWeaknesses,
+        antidoteTopSubthemes,
+        antidoteKnownSubtheme,
+        antidoteEvidenceSubtheme,
         antidoteConfidenceLabel,
         antidoteCandidateGuard,
         antidoteTargetComplexity,
