@@ -21,7 +21,7 @@ describe('disposició dels jeroglífics', () => {
         const src = fs.readFileSync(path.join(__dirname, '../boardexperience.js'), 'utf8');
         expect(html).toContain('id="myBoard-broadcast-home"');
         expect(html).toContain('body.device-desktop #game-screen.active .game-board-column > #myBoard-broadcast');
-        expect(html).toMatch(/\.game-board-column > #myBoard-broadcast \{[^}]*order:\\s*2;/);
+        expect(html).toMatch(/\.game-board-column > #myBoard-broadcast \{[^}]*order:\s*2;/);
         expect(html).toContain('boardexperience.js?v=1.0.5');
         expect(src).toContain("column.appendChild(host)");
         expect(src).toContain("home.insertAdjacentElement('afterend', host)");
