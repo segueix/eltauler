@@ -9,22 +9,25 @@ part de la Web Speech API d'Android: cal fer la síntesi per una API autenticada
 
 1. Activa **Cloud Text-to-Speech API** en un projecte de Google Cloud amb
    facturació i crea una credencial autoritzada per a aquesta API.
-2. Desplega El Tauler a **Cloudflare Pages** amb el directori `functions/`
-   inclòs. La funció `functions/api/google-tts.js` queda disponible a
-   `/api/google-tts`. **GitHub Pages no executa funcions de servidor.**
-3. A Cloudflare Pages → Settings → Variables and Secrets crea
-   `GOOGLE_TTS_API_KEY` com a **secret**, no com a variable pública.
-   No copiïs aquesta clau a `index.html`, `veuneural.js` ni al repositori.
-4. **Abans de posar-lo en producció**, estableix una regla de limitació de
-   peticions/cost al domini i concretament a `/api/google-tts`. La funció
-   permet integrar-hi opcionalment un binding
+2. Com que **El Tauler es publica amb GitHub Pages**, crea un
+   **Cloudflare Worker** per interceptar només la ruta
+   `eltauler.cat/api/google-tts` (el DNS ha de passar per Cloudflare).
+   El repositori ja inclou `cloudflare/google-tts-worker.js` i
+   `wrangler-google-tts.toml`, que importen la funció protegida
+   `functions/api/google-tts.js`.
+3. Configura el secret `GOOGLE_TTS_API_KEY` al Worker, mai al client.
+   Amb Wrangler: `npx wrangler secret put GOOGLE_TTS_API_KEY --config wrangler-google-tts.toml`.
+   Per desplegar el Worker un cop configurat el secret i els límits:
+   `npx wrangler deploy --config wrangler-google-tts.toml`.
+4. **Abans de publicar l'endpoint**, configura una regla Cloudflare de
+   limitació de peticions a `/api/google-tts` i pressupostos/alertes de Google.
+   La funció també accepta un binding opcional
    `GOOGLE_TTS_RATE_LIMITER` compatible amb `limit({ key })`.
-   Configura també pressupostos i alertes a Google Cloud.
 
-Si el lloc es publica només amb GitHub Pages, cal desplegar un proxy equivalent
-darrere el mateix domini o canviar a un allotjament que executi la funció.
-Sense això la reserva de Google no podrà sonar: **el codi no inventa ni
-emula aquesta veu**, ni torna a eSpeak ni al sistema.
+Alternativament, amb Cloudflare Pages es pot desplegar la carpeta `functions/`
+com a Pages Function. **GitHub Pages per si sol no executa cap backend.**
+Sense la ruta i el secret de servidor, la reserva Google no podrà sonar:
+**el codi no inventa aquesta veu ni torna a eSpeak o al sistema**.
 
 ## Música i privadesa
 
