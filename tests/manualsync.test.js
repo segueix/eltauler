@@ -267,3 +267,72 @@ test('una partida activa demana tornar a la portada abans de sincronitzar', asyn
     expect(await a.sync.syncNow()).toBe(false);
     expect(remote.reads).toBe(0);
 });
+
+
+test('els increments independents de dos dispositius se sumen una sola vegada', async () => {
+    const json = JSON.stringify;
+    const start = {
+        chess_totalGamesPlayed:'10', chess_totalWins:'5', chess_totalStars:'40',
+        chess_growthStats:json({tasksCompleted:3,openingDrillsCompleted:1}),
+        chess_tacticsStats:json({solved:4,attempts:5,best:8}),
+        eltauler_hieroglyphic_stats:json({solved:3,personalSolved:2,themes:{mate:2},solvedFens:['base']}),
+        chess_timeControlElos:json({'3+2':{elo:900,games:6,wins:2,draws:1,losses:3}}),
+        chess_gameHistory:json([{id:'initial',moves:['e4']}])
+    };
+    const remote = server(start);
+    const a = device(remote);
+    const b = device(remote);
+    // Tots dos reben el mateix punt de partida i conserven la base confirmada.
+    expect(await a.sync.syncNow()).toBe(true);
+    expect(await b.sync.syncNow()).toBe(true);
+    a.set('chess_totalGamesPlayed','12');
+    a.set('chess_totalWins','7');
+    a.set('chess_totalStars','45');
+    a.set('chess_growthStats',{tasksCompleted:5,openingDrillsCompleted:2});
+    a.set('chess_tacticsStats',{solved:6,attempts:8,best:9});
+    a.set('eltauler_hieroglyphic_stats',{solved:5,personalSolved:4,themes:{mate:3},solvedFens:['base','a']});
+    a.set('chess_timeControlElos',{'3+2':{elo:930,games:8,wins:4,draws:1,losses:3}});
+    a.set('chess_gameHistory',[{id:'initial',moves:['e4']},{id:'game-a',moves:['d4']}]);
+    b.set('chess_totalGamesPlayed','13');
+    b.set('chess_totalWins','6');
+    b.set('chess_totalStars','44');
+    b.set('chess_growthStats',{tasksCompleted:6,openingDrillsCompleted:4});
+    b.set('chess_tacticsStats',{solved:7,attempts:9,best:10});
+    b.set('eltauler_hieroglyphic_stats',{solved:6,personalSolved:3,themes:{mate:4},solvedFens:['base','b']});
+    b.set('chess_timeControlElos',{'3+2':{elo:940,games:9,wins:3,draws:2,losses:4}});
+    b.set('chess_gameHistory',[{id:'initial',moves:['e4']},{id:'game-b',moves:['c4']}]);
+    await a.sync.syncNow();
+    await b.sync.syncNow();
+    expect(remote.doc.data.chess_totalGamesPlayed).toBe('15');
+    expect(remote.doc.data.chess_totalWins).toBe('8');
+    expect(remote.doc.data.chess_totalStars).toBe('49');
+    expect(JSON.parse(remote.doc.data.chess_growthStats).tasksCompleted).toBe(8);
+    expect(JSON.parse(remote.doc.data.chess_growthStats).openingDrillsCompleted).toBe(5);
+    expect(JSON.parse(remote.doc.data.chess_tacticsStats)).toMatchObject({solved:9,attempts:12,best:10});
+    expect(JSON.parse(remote.doc.data.eltauler_hieroglyphic_stats)).toMatchObject({
+        solved:8,personalSolved:5,themes:{mate:5}
+    });
+    expect(JSON.parse(remote.doc.data.eltauler_hieroglyphic_stats).solvedFens.sort()).toEqual(['a','b','base']);
+    expect(JSON.parse(remote.doc.data.chess_timeControlElos)['3+2']).toMatchObject({
+        games:11,wins:5,draws:2,losses:4
+    });
+    expect(idsHistory(remote.doc.data)).toEqual(['game-a','game-b','initial']);
+    // Una segona pujada sense avenços NO afegeix res.
+    const last = clone(remote.doc.data);
+    await a.sync.syncNow();
+    await b.sync.syncNow();
+    expect(remote.doc.data).toEqual(last);
+});
+function idsHistory(data) {
+    return JSON.parse(data.chess_gameHistory || '[]').map(x=>x.id).sort();
+}
+
+test('primera sincronització sense base evita duplicar comptadors antics', async () => {
+    const remote = server({chess_totalGamesPlayed:'10',chess_totalStars:'15'});
+    const a = device(remote,{chess_totalGamesPlayed:'8',chess_totalStars:'12'});
+    await a.sync.syncNow();
+    expect(a.read().chess_totalGamesPlayed).toBe('10');
+    expect(a.read().chess_totalStars).toBe('15');
+    await a.sync.syncNow();
+    expect(remote.doc.data.chess_totalGamesPlayed).toBe('10');
+});
