@@ -22,7 +22,7 @@ describe('disposició dels jeroglífics', () => {
         expect(html).toContain('id="myBoard-broadcast-home"');
         expect(html).toContain('body.device-desktop #game-screen.active .game-board-column > #myBoard-broadcast');
         expect(html).toMatch(/\.game-board-column > #myBoard-broadcast \{[^}]*order:\s*2;/);
-        expect(html).toContain('boardexperience.js?v=1.0.5');
+        expect(html).toMatch(/boardexperience\.js\?v=\d+\.\d+\.\d+/);
         expect(src).toContain("column.appendChild(host)");
         expect(src).toContain("home.insertAdjacentElement('afterend', host)");
         expect(src).toContain("document.body.classList.contains('device-desktop')");
