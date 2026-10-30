@@ -30476,6 +30476,19 @@ function makeAntidoteEngineMove() {
                 engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000
             );
             if (settled) return;
+            // Una segona passada, molt limitada i només en ritmes prou lents,
+            // comprova si una captura o un escac temptadors serien una errada.
+            // Si falla o s'esgota el temps, manté la selecció original intacta.
+            if (!analysis.timedOut) {
+                try {
+                    await enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts,
+                        () => !settled && generation === gameGeneration && token === antidoteSearchToken
+                            && isAntidoteMode() && game && game.fen() === fen);
+                } catch (e) {
+                    if (DEBUG_ANTIDOTE) console.warn('[Antídot] sense segon anàlisi:', e);
+                }
+            }
+            if (settled) return;
             clearTimeout(watchdog);
             if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
             antidoteState.searching = false;
@@ -30497,6 +30510,88 @@ function makeAntidoteEngineMove() {
     };
     void run();
     return true;
+}
+
+// La millor jugada del rival es calcula primer, amb els filtres objectius.
+// Només després s'investiguen fins a 2 respostes humanes temptadores. El joc
+// de l'usuari no rep cap pista: aquestes dades es conserven fins a la resposta.
+async function enrichAntidoteProbableReplies(engine, fen, analysis, deviceOpts, isCurrent) {
+    const core = ElTaulerCore;
+    const cfg = core.ANTIDOTE_CONFIG;
+    const opts = cfg.probableReply;
+    if (!analysis || !Array.isArray(analysis.alternatives)
+        || analysis.alternatives.length < 1 || !opts || !isCurrent()
+        || !engine || engine !== antidoteEngine || analysis.timedOut) return;
+    // Sense rellotge: 2 comprovacions. Ràpides/clàssiques: només una.
+    // Bullet i blitz no pateixen aquest cost addicional.
+    const pace = deviceOpts && deviceOpts.timeControlKind;
+    if (pace === 'bullet' || pace === 'blitz') return;
+    const maxProbes = pace === 'none' && !(deviceOpts && deviceOpts.lowPower)
+        ? Math.min(2, opts.maxProbes) : 1;
+    const engineMoveTimeMs = (deviceOpts && (deviceOpts.mobile || deviceOpts.lowPower))
+        ? Math.min(240, opts.moveTimeMs) : opts.moveTimeMs;
+    const alternatives = analysis.alternatives.filter(a => a && a.move
+        && a.evalType !== 'mate' && core.antidoteScoreValue(a) !== null);
+    if (!alternatives.length) return;
+    const bestValue = core.antidoteScoreValue(alternatives[0]);
+    const profile = antidoteState && antidoteState.profile;
+    if (!profile || !bestValue && bestValue !== 0) return;
+    const detectors = getAntidoteDetectors();
+    if (!detectors) return;
+    const playerElo = Math.round(userELO || currentElo || 800);
+    const phase = core.phaseFromFen(fen);
+    const possible = alternatives.map((alt, index) => {
+        let info;
+        try { info = detectors.classifyAntidoteCandidate(fen, alt.move, alt.pv || []); }
+        catch (e) { return null; }
+        if (!info || !info.san) return null;
+        const candidate = {
+            move: alt.move, eval: alt.eval, evalType: alt.evalType,
+            themes: info.themes, complexity: info.complexity,
+            materialLoss: info.materialLoss
+        };
+        const score = core.scoreAntidoteCandidate(candidate, profile,
+            { bestValue, playerElo, phase });
+        if (!score.allowed || !score.themeId
+            || score.themeStrength < cfg.response.minThemeStrength
+            || !(score.components && score.components.weaknessMatch > 0)) return null;
+        const replies = core.antidoteTemptingReplies(fen, alt.move, alt.pv,
+            playerElo, Chess).slice(0, 1);
+        if (!replies.length) return null;
+        return { alt, score, index, reply: replies[0] };
+    }).filter(Boolean).sort((a, b) => (b.score.finalScore - a.score.finalScore) || a.index - b.index);
+    if (!possible.length) return;
+
+    const verified = Object.create(null);
+    let attempted = 0;
+    for (const pick of possible.slice(0, Math.min(opts.maxMainCandidates, possible.length))) {
+        if (!isCurrent() || engine !== antidoteEngine || attempted >= maxProbes) break;
+        let after;
+        try {
+            const chess = new Chess(fen);
+            const mv = pick.alt.move;
+            if (!chess.move({ from: mv.slice(0, 2), to: mv.slice(2, 4),
+                promotion: mv[4] || 'q' })) continue;
+            const uci = pick.reply.move;
+            if (!chess.move({ from: uci.slice(0, 2), to: uci.slice(2, 4),
+                promotion: uci[4] || 'q' })) continue;
+            if (chess.game_over()) continue; // Mat/taules requereixen valoració especial.
+            after = chess.fen();
+        } catch (e) { continue; }
+        attempted++;
+        const child = await analyzePositionEnrichedTimed(engine, after,
+            12, 1, engineMoveTimeMs, engineMoveTimeMs + opts.timeoutExtraMs);
+        if (!isCurrent()) return;
+        if (child.timedOut) {
+            // El 'bestmove' antic podria arribar després del timeout i contaminar
+            // la següent cerca. No es torna a fer servir aquest worker.
+            releaseAntidoteEngine();
+            break;
+        }
+        const risk = core.antidoteVerifyProbableReply(pick.reply, pick.alt, child);
+        if (risk) verified[pick.alt.move] = risk;
+    }
+    if (isCurrent()) analysis.probableReplies = verified;
 }
 
 // Converteix el MultiPV cru en candidates classificades, tria la millor
@@ -30529,7 +30624,8 @@ function applyAntidoteAnalysis(analysis, fen, searchStartedAt, deviceOpts) {
             pv: Array.isArray(alt.pv) ? alt.pv : [],
             themes: info.themes,
             complexity: info.complexity,
-            materialLoss: info.materialLoss
+            materialLoss: info.materialLoss,
+            probableReply: analysis.probableReplies && analysis.probableReplies[alt.move] || null
         });
     });
     if (!candidates.length) return false;
@@ -30847,6 +30943,11 @@ function showAntidoteSummary(resultLabel, finalPrecision, entry) {
                 + '</strong> i tu vas respondre <strong>' + escapeHtml(played) + '</strong>'
                 + (bestReply ? '. La millor resposta era <strong>' + escapeHtml(bestReply) + '</strong>' : '')
                 + ' (' + escapeHtml(lossText) + ').</div>'
+                + (t.predictedReply && t.result !== 'inconclusive'
+                    ? '<div class="antidote-test-moves">Resposta temptadora analitzada: <strong>'
+                        + escapeHtml(t.predictedReplySan || t.predictedReply) + '</strong>. '
+                        + (t.predictedMatch ? 'L’has jugada.' : 'No l’has jugada.')
+                        + '</div>' : '')
                 + (t.sourceFen ? '<button type="button" class="btn btn-secondary antidote-test-open">Obre la posició</button>' : '')
                 + '</div>');
         });
@@ -30858,6 +30959,11 @@ function showAntidoteSummary(resultLabel, finalPrecision, entry) {
     });
 
     const evoBox = $('#antidote-summary-evolution').empty();
+    if (summary.predictions > 0) {
+        evoBox.append('<div class="antidote-evolution-line"><strong>Respostes temptadores verificades:</strong> '
+            + summary.predictionMatches + ' de ' + summary.predictions
+            + ' han coincidit amb les teves jugades. Són indicis, no percentatges de probabilitat.</div>');
+    }
     if (evolution) {
         evoBox.append('<p class="antidote-evolution-text">' + escapeHtml(evolution.text) + '</p>');
         if (evolution.improved.length) {
