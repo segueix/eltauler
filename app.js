@@ -29354,6 +29354,13 @@ function initSoundSettingsUi() {
 // Configuració → Veus de lectura: veu, música de fons, totes dues o cap
 // (musicafons.js, preferència del dispositiu).
 function voiceMusicApi() { return window.ElTaulerMusicaFons && window.ElTaulerMusicaFons.current(); }
+// Partida amb rellotge en curs: cada segon compta, així que no hi ha ni veu ni
+// música de fons (tampoc d'altres funcions de l'app). En acabar la partida, o en
+// sortir-ne, tot torna a sonar com sempre.
+function timedGameInProgress() {
+    return !!(gameClock && gameClock.enabled && game && !game.game_over()
+        && gameOverHandledGen !== gameGeneration && $('#game-screen').is(':visible'));
+}
 function refreshVoiceMusicSettingsUi() {
     const coord = voiceMusicApi();
     const mode = document.getElementById('voice-music-mode');
@@ -29377,6 +29384,8 @@ function refreshVoiceMusicSettingsUi() {
     }
 }
 function initVoiceMusicSettingsUi() {
+    const coord = voiceMusicApi();
+    if (coord && typeof coord.setQuietCheck === 'function') coord.setQuietCheck(timedGameInProgress);
     $('#voice-music-mode').off('change').on('change', function () {
         const coord = voiceMusicApi();
         if (!coord) return;

@@ -79,6 +79,7 @@
             + '<label class="sftv-speed-label board-broadcast-speed" hidden>Ritme <select aria-label="Ritme de la demostració"></select></label>'
             + '<p class="board-broadcast-caption" aria-live="polite"></p>';
         const caption = host.querySelector('.board-broadcast-caption'), speedRow = host.querySelector('.board-broadcast-speed');
+        const audioPanel = host.querySelector('.board-broadcast-audio');
         const speed = speedRow.querySelector('select'), frequency = host.querySelector('.board-broadcast-frequency select');
         Object.entries(TV.TV_CONFIG.SPEEDS).forEach(([value, p]) => { const opt = document.createElement('option'); opt.value = value; opt.textContent = p.label; speed.appendChild(opt); });
         speed.value = prefs().speed; frequency.value = prefs().frequency === 'key' ? 'key' : 'all';
@@ -117,6 +118,8 @@
         function refresh() {
             if (disposed) return;
             const c = current(); host.hidden = !!c.disabled; speedRow.hidden = !c.pace || !!c.timed;
+            // Partida amb rellotge: sense veu ni ràdio (els comentaris queden escrits).
+            audioPanel.hidden = !!c.timed;
             audio.render(); paint();
         }
         function sync(target) {
@@ -144,7 +147,7 @@
                     if (comment) {
                         caption.textContent = comment.text;
                         nextAt = Date.now() + Math.max(TV.tvMoveDelayMs(prefs().speed, { tier: 'advanced', random: Math.random() }), TV.tvReadingTimeMs(comment.text, 'advanced'));
-                        if (voice.isOn() && (prefs().frequency !== 'key' || comment.important)) {
+                        if (!c.timed && voice.isOn() && (prefs().frequency !== 'key' || comment.important)) {
                             stopAll(id); if (env.beforeVoice) env.beforeVoice();
                             speech = narrator.speak(comment.speech, { maxWaitMs: TV.tvSpeechMaxWaitMs(comment.speech) });
                             const activeSpeech = speech;
@@ -213,7 +216,7 @@
         // Llegeix un text que no és cap jugada (p. ex. la màxima d'un exercici)
         // amb la mateixa veu i només si «Veu i ràdio» la té activada.
         function say(text) {
-            if (disposed || !text || !voice.isOn() || !visible(el)) return Promise.resolve({ spoken: false, reason: 'off' });
+            if (disposed || !text || !voice.isOn() || !visible(el) || current().timed) return Promise.resolve({ spoken: false, reason: 'off' });
             suspended = false; cancelPreview(); stopAll(id); if (env.beforeVoice) env.beforeVoice();
             voice.unlock();
             const words = TV.tvSpeechText(text);

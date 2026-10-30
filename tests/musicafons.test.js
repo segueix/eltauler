@@ -207,6 +207,40 @@ describe('la música acompanya la veu a tota l’app', () => {
     });
 });
 
+describe('partides amb rellotge: ni veu ni música', () => {
+    test('mentre dura no sona la música, la veu queda silenciada i en acabar tot torna', () => {
+        const { c, player, coord } = setup({ page: 'game-screen' });
+        let timed = false;
+        coord.setQuietCheck(() => timed);
+        const a = coord.begin();
+        expect(player.active).toBe(true);
+        expect(coord.voiceEnabled()).toBe(true);
+        // Comença una partida amb rellotge: la música s'atura al moment (al pols següent).
+        timed = true;
+        c.advance(1000);
+        expect(player.active).toBe(false);
+        expect(player.fades).toBe(1);
+        expect(coord.voiceEnabled()).toBe(false);
+        a();
+        coord.begin({ muted: true });
+        expect(player.active).toBe(false);
+        // S'acaba la partida: la veu i la música tornen amb la veu següent.
+        timed = false;
+        c.advance(1000);
+        expect(coord.voiceEnabled()).toBe(true);
+        coord.begin();
+        expect(player.active).toBe(true);
+    });
+    test('amb la veu apagada per la partida, speechSynthesis no parla de debò', () => {
+        const s = setup(), sy = { speaking: false, pending: false, spoken: [], speak: jest.fn(function (u) { this.spoken.push(u); }), cancel: jest.fn() };
+        s.coord.setQuietCheck(() => true);
+        M.hookSpeechSynthesis(sy, s.coord, { setTimeout: s.c.setTimeout, clearTimeout: s.c.clearTimeout, fire: () => {} });
+        sy.speak({ text: 'Escac', rate: 1, addEventListener() {} });
+        expect(sy.spoken).toHaveLength(0);
+        expect(s.player.active).toBe(false);
+    });
+});
+
 describe('veu del dispositiu (speechSynthesis)', () => {
     function utterance(text) {
         const listeners = {};
