@@ -22531,7 +22531,8 @@ async function hgManualGenerateBurst(opts = {}) {
     const setProg = (p) => {
         const shown = Math.min(hgNewCount(), goal);
         const time = p ? ' · ' + hgClock(p.elapsedMs) : '';
-        hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `Buscant combinacions… ${shown}/${goal}${time}`, true);
+        // L'etiqueta d'estat ja diu «Buscant combinacions…»: aquí, només xifres.
+        hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `${shown}/${goal}${time}`, true);
         const statusEl = document.getElementById('hg-banner-status');
         if (statusEl) statusEl.textContent = 'Buscant combinacions…';
     };

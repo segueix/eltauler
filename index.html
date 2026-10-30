@@ -5950,7 +5950,10 @@
             border-radius: 999px; border: 1px solid rgba(255,255,255,0.28); background: rgba(255,255,255,0.12);
             color: #fff; font-family: var(--hd-font); font-size: 0.76rem; font-weight: 700; cursor: pointer;
         }
-        #start-screen .hg-banner-progress { flex: 1 1 140px; }
+        /* La barra de progrés va en una fila pròpia, sota els botons: compartint fila
+           al mòbil, la barra quedava a 0 px i el text trepitjava «Opcions». */
+        #start-screen .hg-banner-progress { order: 10; flex: 1 1 100%; min-width: 0; }
+        #start-screen .hg-banner-progress-text { overflow: hidden; text-overflow: ellipsis; min-width: 0; }
         #start-screen .hg-banner-advanced { margin-left: auto; padding: 0; border: 0; background: none; }
         #start-screen .hg-banner-advanced[open] { flex-basis: 100%; margin-left: 0; }
         #start-screen .hg-banner-advanced summary { width: max-content; list-style: none; user-select: none; }
@@ -9495,7 +9498,7 @@
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.65';
+        window.APP_VERSION = '1.0.66';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
@@ -9506,7 +9509,7 @@
     <script src="boardexperience.js?v=1.0.3"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.4"></script>
-    <script src="app.js?v=1.0.127"></script>
+    <script src="app.js?v=1.0.128"></script>
 
     <!-- Service Worker Registration -->
     <script>

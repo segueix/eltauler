@@ -72,7 +72,7 @@ describe('banc de lectura immediata', () => {
         expect(new Set(deck.map(t => t.fen.split(' ')[1])).size).toBe(2);
         expect(deck.filter(t => t.probe)).toHaveLength(mode === 'radar' ? 8 : mode === 'sprint' ? 3 : 0);
     });
-    test('repetició espaiada: els errors vencen abans i els encerts ràpids s'ajornen', () => {
+    test("repetició espaiada: els errors vencen abans i els encerts ràpids s'ajornen", () => {
         const now = Date.now();
         const progress = { sessions: [
             { at: now - 12 * 3600000, rows: [
@@ -180,7 +180,7 @@ describe('rellotge i primera decisió', () => {
         const js = fs.readFileSync(path.join(__dirname, '../bulletpractice.js'), 'utf8');
         expect(html).toContain('id="bp-start-overlay"');
         expect(html).toContain('id="bp-start-play"');
-        expect(html).toContain('bulletpractice.js?v=1.2.3');
+        expect(html).toContain('bulletpractice.js?v=1.2.4');
         expect(html).toContain('bulletpractice.css?v=1.2.1');
         expect(css).toContain('.bp-board-wrap.bp-awaiting-start #bp-board');
         expect(css).toContain('filter: blur(');
