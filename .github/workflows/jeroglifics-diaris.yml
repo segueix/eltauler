@@ -1,6 +1,12 @@
 name: Genera jeroglífics compartits (2 cops al dia)
 
 on:
+  # Primera execució en activar o modificar aquesta acció a main.
+  # Els commits diaris només canvien la reserva, de manera que no hi ha bucle.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/jeroglifics-diaris.yml'
   # UTC: 06:17 i 18:17 = 07:17/19:17 a l'hivern, 08:17/20:17 a l'estiu (Catalunya).
   # Evitem el minut 0, que GitHub pot retardar quan hi ha massa execucions.
   schedule:
