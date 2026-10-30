@@ -19,10 +19,11 @@ part de la Web Speech API d'Android: cal fer la síntesi per una API autenticada
    Amb Wrangler: `npx wrangler secret put GOOGLE_TTS_API_KEY --config wrangler-google-tts.toml`.
    Per desplegar el Worker un cop configurat el secret i els límits:
    `npx wrangler deploy --config wrangler-google-tts.toml`.
-4. **Abans de publicar l'endpoint**, configura una regla Cloudflare de
-   limitació de peticions a `/api/google-tts` i pressupostos/alertes de Google.
-   La funció també accepta un binding opcional
-   `GOOGLE_TTS_RATE_LIMITER` compatible amb `limit({ key })`.
+4. **Abans de publicar l'endpoint**, activa el binding
+   `GOOGLE_TTS_RATE_LIMITER` del fitxer Wrangler (20 fragments/minut i IP per
+   ubicació Cloudflare), una regla WAF per a `/api/google-tts` i les alertes
+   de despesa a Google. Si falta el limitador, la funció retorna 503 i no
+   crida Google.
 
 Alternativament, amb Cloudflare Pages es pot desplegar la carpeta `functions/`
 com a Pages Function. **GitHub Pages per si sol no executa cap backend.**
