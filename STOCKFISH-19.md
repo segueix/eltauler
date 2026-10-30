@@ -26,12 +26,29 @@ dos enllaços).
   exactament una línia de tres jugades pròpies i dues rèpliques, amb
   un final tàctic verificable i alternatives controlades.
 - Fonts de posicions: tàctiques de partides personals, variants de posicions
-  reals i **partides entre dues instàncies lògiques de Stockfish 19** (mateix
-  motor alternant els dos colors). El segon camí de l'autojoc explora algunes
-  alternatives MultiPV de qualitat raonable perquè apareguin oportunitats
-  tàctiques; la selecció d'una alternativa no prova que hi hagi un jeroglífic.
-- En mòbils modestos es redueix la llargada de l'autojoc, el temps de cerca
-  i el nombre de posicions candidates. El generador respecta la cancel·lació,
+  reals i **mineria per autojoc**, independent de les partides de l'usuari.
+  Les dues fonts s'alternen a cada intent, i les posicions de partides que ja
+  s'han provat sense èxit no es tornen a provar (`eltauler_cloud_hgTried`).
+- Mineria per autojoc (com els bancs de problemes): Stockfish 19 juga
+  partides senceres a profunditat 10 (8 en mòbils modestos), amb una obertura
+  variada i la millor jugada després. Cada 1-2 jugades prova, en branques a
+  part, fins a tres errors triats entre les seves jugades MultiPV (perden
+  entre 2,5 i 9 peons; mai jugades il·legals), i la partida principal
+  continua equilibrada. Les posicions on el bàndol que mou té una sola jugada
+  guanyadora (≥ +3 peons, la segona < +2, diferència ≥ 1,5) i on la
+  combinació es tanca a la tercera jugada dins la variant es desen com a
+  llavors en aquest aparell (`eltauler_cloud_hgSeeds`, fins a 60). Primer es
+  certifiquen les que la mateixa partida ja demostrava. Mesurat amb
+  Stockfish 19 real: ~6 % de les llavors acaben en jeroglífic; segons la
+  sort, entre un cada mig minut i un cada pocs minuts d'autojoc.
+- Certificació d'una llavor: variant principal a profunditat 14 i, dins
+  seu, les finestres de cinc mitges jugades on el guany es materialitza just
+  a la tercera jugada (comprovació sense motor de `hieroclosure.js`). Si la
+  combinació és més llarga, el jeroglífic comença més endavant. Només
+  aquestes finestres passen la verificació completa a profunditat 16; cada
+  llavor es prova un sol cop.
+- En mòbils modestos es redueix la profunditat i la durada de l'autojoc, el
+  temps de cerca i el nombre de posicions candidates. El generador respecta la cancel·lació,
   les preferències de generació en segon pla, els duplicats i les
   verificacions existents. El fitxer JavaScript i el WASM de Stockfish 19
   es desen en una memòria cau persistent amb el seu nom propi, sense

@@ -20093,9 +20093,9 @@ function loadHieroglyphicHistory() {
     return Array.isArray(list) ? list : [];
 }
 function saveHieroglyphicHistory(list) {
-    // L'historial de jeroglífics manté només els 10 últims per no inflar les dades
-    // sincronitzades (i perquè la secció en mostra 10 com a màxim).
-    const cap = (typeof HG_HISTORY_MAX === 'number') ? HG_HISTORY_MAX : 10;
+    // L'historial de jeroglífics conserva els 100 més recents (del més nou al més
+    // antic); la fusió amb el núvol també es queda els més recents.
+    const cap = (typeof HG_HISTORY_MAX === 'number') ? HG_HISTORY_MAX : 100;
     writeJsonStorage(HIERO_HISTORY_KEY, (list || []).slice(0, cap));
     // Notifica la sincronització al núvol perquè l'historial viatgi entre aparells.
     try { if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave(); } catch (e) {}
@@ -21183,7 +21183,8 @@ async function stampHieroglyphicFinalMotif(candidate, opts = {}) {
 async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = {}) {
     const recent = new Set((hieroglyphicStats.generatedFens || []).slice(-8));
     const exclude = opts.excludeFens instanceof Set ? opts.excludeFens : new Set(opts.excludeFens || []);
-    const pool = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic' && !exclude.has(c.fen));
+    const excluded = (fen) => exclude.has(fen) || exclude.has(ElTaulerCore.puzzleFenKey(fen));
+    const pool = (candidates || []).filter(c => c && c.source === 'gameHistory.tactic' && !excluded(c.fen));
     const fresh = pool.filter(c => !recent.has(c.fen));
     const tacticCandidates = (fresh.length ? fresh : pool).slice();
     for (let i = tacticCandidates.length - 1; i > 0; i--) {
@@ -21191,6 +21192,7 @@ async function chooseStockfishValidatedHieroglyphicCandidate(candidates, opts = 
         [tacticCandidates[i], tacticCandidates[j]] = [tacticCandidates[j], tacticCandidates[i]];
     }
     for (const candidate of tacticCandidates.slice(0, opts.maxCandidates || 8)) {
+        if (typeof opts.onTried === 'function') opts.onTried(candidate.fen);
         const validated = await closeHieroglyphicCandidateWithStockfish(candidate, opts);
         // Filtre de FINAL TÀCTIC obligatori: només acceptem el candidat si acaba
         // en un motiu permès i clar (i, si l'usuari n'ha triat un, que coincideixi).
@@ -21237,9 +21239,12 @@ async function tryBuildAdaptedHieroglyphicFromGameEntry(entry, opts = {}) {
     const shouldAbort = opts.shouldAbort || null;
     const requiredMotif = opts.requiredFinalMotif && opts.requiredFinalMotif !== 'any' ? opts.requiredFinalMotif : null;
     const exclude = opts.excludeFens instanceof Set ? opts.excludeFens : new Set(opts.excludeFens || []);
-    const fens = extractGameEntryCandidateFens(entry, opts.maxCandidates || 12).filter(x => !exclude.has(x.fen));
+    const fens = extractGameEntryCandidateFens(entry, opts.scanFens || 12)
+        .filter(x => !exclude.has(x.fen) && !exclude.has(ElTaulerCore.puzzleFenKey(x.fen)))
+        .slice(0, opts.maxCandidates || 12);
     for (const { fen, moveNumber } of fens) {
         if (shouldAbort && shouldAbort()) return null;
+        if (typeof opts.onTried === 'function') opts.onTried(fen);
         const prepared = await prepareBestLineExercise(fen, { playerMoves: 3, gapCp: opts.minGapCp || 80, depth: opts.depth || 14, shouldAbort, engine: 'hiero' });
         if (!prepared || !prepared.step1) continue;
         const line = prepared.fullSequence || [];
@@ -21660,7 +21665,7 @@ function renderHieroglyphicPanel() {
     // diferent cada cop (el botó canviaria de fila sota el dit). En lloc d'amagar-lo
     // el marquem com "En curs" i el deixem al seu lloc.
     const activeFen = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.fen;
-    // Historial propi de jeroglífics: només els 10 últims, ordenats per data del més
+    // Historial propi de jeroglífics: els 10 últims, ordenats per data del més
     // recent al més antic (per solvedAt/finishedAt/updatedAt/createdAt).
     const history = loadHieroglyphicHistory().slice().sort((a, b) => {
         const da = (a && (a.solvedAt || a.finishedAt || a.ts || a.createdAt)) || 0;
@@ -21669,7 +21674,7 @@ function renderHieroglyphicPanel() {
     });
     let html = '<div class="hg-history-title">Historial de jeroglífics</div>';
     if (history.length) {
-        history.slice(0, HG_HISTORY_MAX).forEach(e => {
+        history.slice(0, HG_HISTORY_PANEL).forEach(e => {
             const isActive = !!activeFen && e.fen === activeFen;
             const isNew = !e.solved;
             const cleanSolved = hieroglyphicEntryCleanSolved(e);
@@ -21720,11 +21725,12 @@ function refillHieroglyphicQueue() { hieroglyphicUpNext = []; }
 // ═══════════════════════════════════════════════════════════════════════════
 const HG_STATE_KEY = 'eltauler_hieroglyphics_state';
 const HG_LOCK_TTL_MS = 30000;      // durada del bloqueig de generació
-const HG_HISTORY_MAX = 10;         // l'historial en manté només els 10 últims
+const HG_HISTORY_MAX = 100;        // l'historial desat conserva els 100 més recents
+const HG_HISTORY_PANEL = 10;       // el plafó de l'exercici en mostra els 10 últims
 let hgState = null;
 let hgGenerating = false;          // guarda contra dues generacions locals alhora
 let hgLightMode = false;           // mode lleuger (mòbils modestos)
-const hgRuntime = { lastDurationMs: 0, slowGenerations: 0, workerErrors: 0 };
+const hgRuntime = { lastDurationMs: 0, slowGenerations: 0, workerErrors: 0, turn: 0 };
 
 function hgDefaultState() {
     return {
@@ -21870,65 +21876,185 @@ function hgUserInSection() {
     return !!hieroglyphicExerciseActive || (currentBundleSource === 'bestline' && $('#game-screen').hasClass('active'));
 }
 
-// ── Generació d'UN jeroglífic (partides → variants → auto-joc del motor) ─────
-// Genera una posició de mig-joc jugant moviments legals a l'atzar (barats, sense
-// motor) amb biaix cap a captures perquè surtin posicions més tàctiques; la
-// validació pesada (gap ≥120cp en 3 jugades + final tàctic clar) la fa Stockfish
-// via prepareBestLineExercise. Prova unes quantes llavors abans de rendir-se.
-// Stockfish 19 juga contra si mateix. MultiPV introdueix errors plausibles
-// (mai moviments il·legals) per revelar oportunitats tàctiques certificables.
-async function hgSelfPlaySeedFens(shouldAbort) {
-    if (typeof Chess === 'undefined') return [];
-    const g = new Chess(), seeds = [], lowEnd = hgIsLowEndDevice();
-    const maxPlies = lowEnd ? 14 : 22, started = Date.now();
-    for (let ply = 0; ply < maxPlies; ply++) {
-        if ((shouldAbort && shouldAbort()) || g.game_over() || Date.now() - started > (lowEnd ? 12000 : 20000)) break;
-        const a = await analyzeHieroFenRobust(g.fen(), lowEnd ? 7 : 9, 3, lowEnd ? 350 : 550, shouldAbort);
+// ── Generació d'UN jeroglífic (partides → variants → autojoc del motor) ──────
+// L'autojoc no depèn de les partides de l'usuari: Stockfish 19 juga partides
+// senceres a poca profunditat, amb errors puntuals triats entre les seves
+// jugades MultiPV (mai il·legals), i es guarden les posicions on el rival té
+// UNA sola jugada guanyadora (ElTaulerCore.hieroMiningSeed). Aquestes llavors es
+// desen en aquest aparell i, a cada cicle, se'n certifiquen unes quantes amb la
+// validació completa (tres jugades úniques i final tàctic verificat). Així la
+// feina de minar no es perd si la generació s'interromp.
+const HG_SEEDS_KEY = 'eltauler_cloud_hgSeeds';   // prefix cloud_: no viatja al núvol
+const HG_SEEDS_MAX = 60;
+const hgFenKey = (fen) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(fen) : fen; } catch (e) { return fen; } };
+function hgLoadSeeds() {
+    const list = readJsonStorage(HG_SEEDS_KEY, []);
+    return Array.isArray(list) ? list.filter(x => x && typeof x.fen === 'string') : [];
+}
+function hgSaveSeeds(list) { writeJsonStorage(HG_SEEDS_KEY, (list || []).slice(0, HG_SEEDS_MAX)); }
+function hgSeedCount() { return hgLoadSeeds().length; }
+// Posicions de les partides ja provades sense èxit en aquest aparell: no es
+// tornen a provar a cada cicle (abans el generador s'hi quedava encallat i mai no
+// arribava a l'autojoc).
+const HG_TRIED_KEY = 'eltauler_cloud_hgTried';
+const HG_TRIED_MAX = 600;
+function hgLoadTried() {
+    const list = readJsonStorage(HG_TRIED_KEY, []);
+    return Array.isArray(list) ? list.filter(x => typeof x === 'string') : [];
+}
+function hgRememberTried(fen) {
+    const key = hgFenKey(fen);
+    if (!key) return;
+    const list = hgLoadTried().filter(x => x !== key);
+    list.push(key);
+    writeJsonStorage(HG_TRIED_KEY, list.slice(-HG_TRIED_MAX));
+}
+// Juga una partida d'autojoc i desa les llavors que hi troba. Torna quantes n'ha afegit.
+// La partida principal va per la millor jugada (amb una obertura variada); quan
+// toca, s'hi proven en branques un o dos errors MultiPV i la posició que en
+// resulta (amb la seva anàlisi) és una llavor candidata. Cada llavor es puntua
+// sense més motor: primer les que la mateixa partida ja demostrava (tres
+// jugades úniques i combinació tancada a la tercera), després les que es tanquen
+// dins la variant principal.
+async function hgMineSelfPlayGame(shouldAbort, opts = {}) {
+    if (typeof Chess === 'undefined' || !await ensureHieroStockfish()) return 0;
+    const lowEnd = hgIsLowEndDevice();
+    const depth = lowEnd ? 8 : 10, moveTimeMs = lowEnd ? 250 : 400;
+    const deadline = Date.now() + (opts.budgetMs || (lowEnd ? 30000 : 50000));
+    const known = opts.excludeFens instanceof Set ? opts.excludeFens : hgAllKnownFens();
+    const cfg = ElTaulerCore.HIERO_MINING;
+    const play = (game, u) => !!(u && game.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined }));
+    const g = new Chess(), state = {}, record = [], branches = [];
+    for (let ply = 0; ply < 120; ply++) {
+        if ((shouldAbort && shouldAbort()) || g.game_over() || Date.now() > deadline) break;
+        const a = await analyzeHieroFenRobust(g.fen(), depth, 5, moveTimeMs, shouldAbort);
         if (!a || !a.bestMove || !a.bestMove.move) break;
-        const best = a.bestMove;
-        const near = (a.alternatives || []).filter(c => c && c.move && c.evalType === 'cp' &&
-            best.evalType === 'cp' && Number.isFinite(c.eval) && Number.isFinite(best.eval) &&
-            best.eval - c.eval >= 0 && best.eval - c.eval <= 240);
-        const explore = ply >= 5 && ply % 3 === 1 && near.length > 1;
-        const chosen = explore ? near[Math.min(near.length - 1, (ply % 2) + 1)] : best;
-        const u = chosen.move;
-        const mv = g.move({from:u.slice(0,2),to:u.slice(2,4),promotion:u.length>4?u[4]:undefined});
-        if (!mv) break;
-        if (ply >= 8 && !g.game_over()) {
-            const pieces = (g.fen().split(' ')[0].match(/[a-z]/gi)||[]).length;
-            if (pieces >= 8) {
-                const loss = chosen.evalType === 'cp' && best.evalType === 'cp' ? Math.max(0, best.eval-chosen.eval) : 0;
-                seeds.push({fen:g.fen(), interest:loss+(mv.captured?80:0)+(mv.san.includes('+')?50:0)+ply});
+        const alternatives = (a.alternatives && a.alternatives.length) ? a.alternatives : [a.bestMove];
+        const choice = ElTaulerCore.hieroMiningChoose(alternatives, ply, state);
+        let u = choice && choice.move;
+        if (choice && choice.error) {
+            // Branques: l'error es juga apart i la partida continua amb la millor.
+            for (const bad of ElTaulerCore.hieroMiningBadMoves(alternatives).slice(0, cfg.branchesPerError)) {
+                if ((shouldAbort && shouldAbort()) || Date.now() > deadline) break;
+                const b = new Chess(g.fen());
+                if (!play(b, bad.move) || b.game_over()) continue;
+                const an = await analyzeHieroFenRobust(b.fen(), depth, 3, moveTimeMs, shouldAbort);
+                if (an && an.bestMove && an.bestMove.move)
+                    branches.push({ fen: b.fen(), alternatives: (an.alternatives && an.alternatives.length) ? an.alternatives : [an.bestMove] });
             }
+            u = alternatives[0].move;
+        }
+        const row = { fen: g.fen(), alternatives, move: u || null };
+        record.push(row);
+        if (!play(g, u)) { row.move = null; break; }
+    }
+    const pool = hgLoadSeeds(), inPool = new Set(pool.map(x => hgFenKey(x.fen)));
+    let added = 0;
+    const consider = (fen, alternatives, strength, gameLine) => {
+        const pieces = (fen.split(' ')[0].match(/[a-z]/gi) || []).length;
+        const seed = ElTaulerCore.hieroMiningSeed(alternatives, pieces);
+        const key = hgFenKey(fen);
+        if (!seed || known.has(key) || inPool.has(key)) return;
+        const gameCloses = strength === 2 && hgClosureWindows(fen, gameLine, 0).length > 0;
+        const closes = gameCloses || hgClosureWindows(fen, (alternatives[0] && alternatives[0].pv) || []).length > 0;
+        // Les que no es tanquen enlloc gairebé mai no surten: no es guarden.
+        if (!closes && strength !== 2) return;
+        pool.push({ fen, gap: seed.gap, bestCp: seed.bestCp, closes, line: gameCloses ? gameLine : null,
+            priority: (strength === 2 ? 2 : 0) + (closes ? 1 : 0), at: Date.now() });
+        inPool.add(key);
+        added++;
+    };
+    for (let p = cfg.seedFromPly; p < record.length; p++) {
+        consider(record[p].fen, record[p].alternatives, ElTaulerCore.hieroMiningSeedStrength(record, p),
+            record.slice(p, p + 5).map(r => r.move).filter(Boolean));
+    }
+    branches.forEach(br => consider(br.fen, br.alternatives, 0, []));
+    pool.sort((x, y) => (y.priority || 0) - (x.priority || 0) || (y.gap || 0) - (x.gap || 0));
+    hgSaveSeeds(pool);
+    return added;
+}
+// Finestres de cinc mitges jugades dins la variant principal d'una llavor on la
+// combinació es tanca JUST a la tercera jugada del jugador (mat, o guany de
+// material ja materialitzat davant de qualsevol rèplica). És una comprovació
+// barata, sense motor (ElTaulerHieroClosure.inspect): el motor només es fa
+// servir per certificar les finestres que ja acaben bé. Si la combinació és més
+// llarga que tres jugades, el jeroglífic comença més endavant dins la variant.
+function hgClosureWindows(fen, pv, maxStart = 8) {
+    const out = [];
+    if (!window.ElTaulerHieroClosure || !Array.isArray(pv)) return out;
+    const inspector = window.ElTaulerHieroClosure.createVerifier(Chess);
+    let g;
+    try { g = new Chess(fen); } catch (e) { return out; }
+    for (let start = 0; start + 5 <= pv.length && start <= maxStart; start += 2) {
+        if (start > 0) {
+            const ok = [pv[start - 2], pv[start - 1]].every(u => typeof u === 'string'
+                && g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined }));
+            if (!ok || g.game_over()) break;
+        }
+        const line = pv.slice(start, start + 5);
+        const cand = { fen: g.fen(), solutionMoves: [line[0], line[2], line[4]], replyMoves: [line[1], line[3]] };
+        if (inspector.inspect(cand)) out.push(cand);
+    }
+    return out;
+}
+// Certifica una finestra amb la validació completa (SF19 a profunditat 16: cada
+// jugada del jugador única, rèpliques òptimes, final concloent) i hi afegeix el
+// motiu tàctic del final.
+async function hgCertifyWindow(win, evalCp, shouldAbort) {
+    const line = window.ElTaulerHieroClosure.lineOf(win);
+    const info = classifyPuzzleFinalMotif(win.fen, line, { finalEval: evalCp });
+    if (!info || info.motif === 'none' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1 || info.confidence === 'low') return null;
+    let firstSan = null;
+    try { const g = new Chess(win.fen); const m = g.move({ from: line[0].slice(0, 2), to: line[0].slice(2, 4), promotion: line[0].length > 4 ? line[0][4] : undefined }); firstSan = m ? m.san : null; } catch (e) {}
+    const prepared = { step1: { playerMoveSan: firstSan, playerMovePv: line, evalBefore: evalCp } };
+    return verifyHieroglyphicConclusion(hgSelfPlayCandidate(win.fen, prepared, line, info, win.solutionMoves, win.replyMoves), { shouldAbort });
+}
+// Validació d'una llavor: primer la línia de la mateixa partida minada (si ja
+// es tancava bé), després la variant principal profunda; per cada finestra que
+// es tanca bé, la certificació completa.
+async function hgCertifySeed(seed, shouldAbort) {
+    const fen = typeof seed === 'string' ? seed : seed && seed.fen;
+    if (!fen) return null;
+    if (seed && Array.isArray(seed.line)) {
+        for (const win of hgClosureWindows(fen, seed.line, 0)) {
+            if (shouldAbort && shouldAbort()) return null;
+            const cand = await hgCertifyWindow(win, seed.bestCp || ElTaulerCore.HIERO_MINING.seedMinCp, shouldAbort);
+            if (cand) return cand;
         }
     }
-    return seeds.sort((a,b)=>b.interest-a.interest).slice(0,lowEnd?2:4).map(s=>s.fen);
-}
-async function hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens = new Set()) {
-    if (typeof Chess === 'undefined' || !await ensureHieroStockfish()) return null;
-    const key = fen => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(fen) : fen; } catch(e) { return fen; } };
-    const games = hgIsLowEndDevice() ? 1 : 2;
-    for (let gameIndex=0; gameIndex<games; gameIndex++) {
+    const deep = await analyzeHieroFenRobust(fen, 14, 1, 4000, shouldAbort);
+    const best = deep && deep.bestMove;
+    if (!best || !Array.isArray(best.pv)) return null;
+    const evalCp = ElTaulerCore.hieroMiningCp(best);
+    if (evalCp === null || evalCp < ElTaulerCore.HIERO_MINING.seedMinCp) return null;
+    for (const win of hgClosureWindows(fen, best.pv)) {
         if (shouldAbort && shouldAbort()) return null;
-        const fens = await hgSelfPlaySeedFens(shouldAbort);
-        for (const fen of fens) {
-            if ((shouldAbort && shouldAbort()) || excludeFens.has(key(fen))) continue;
-            const prepared = await prepareBestLineExercise(fen, {playerMoves:3,gapCp:120,depth:15,shouldAbort,engine:'hiero'});
-            if (!prepared || !prepared.step1) continue;
-            const line = prepared.fullSequence || [];
-            const info = classifyPuzzleFinalMotif(fen,line,{finalEval:prepared.step1.evalBefore});
-            if (!info || info.motif === 'none' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1 || info.confidence === 'low') continue;
-            const solution = [], replies = [];
-            for (let i=1;i<=(prepared.totalSteps||3);i++) {
-                const step=prepared['step'+i];
-                if (step && step.playerMove) solution.push(step.playerMove);
-                const reply=i===1?prepared.opponentMove:(i===2?prepared.opponentMove2:null);
-                if (reply && reply.move) replies.push(reply.move);
-            }
-            if (solution.length !== 3 || replies.length !== 2) continue;
-            const verified=await verifyHieroglyphicConclusion(
-                hgSelfPlayCandidate(fen,prepared,line,info,solution,replies),{shouldAbort});
-            if (verified) return verified;
+        const cand = await hgCertifyWindow(win, evalCp, shouldAbort);
+        if (cand) return cand;
+    }
+    return null;
+}
+// Certifica llavors de la reserva (i, si és buida, en mina una partida nova).
+async function hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens = new Set(), diag = null) {
+    if (typeof Chess === 'undefined' || !await ensureHieroStockfish()) return null;
+    const tries = hgIsLowEndDevice() ? 2 : 4;
+    for (let round = 0; round < 2; round++) {
+        if (shouldAbort && shouldAbort()) return null;
+        let pool = hgLoadSeeds().filter(x => !excludeFens.has(hgFenKey(x.fen)));
+        if (!pool.length) {
+            const added = await hgMineSelfPlayGame(shouldAbort, { excludeFens });
+            if (diag) { diag.seedsMined = (diag.seedsMined || 0) + added; diag.gamesMined = (diag.gamesMined || 0) + 1; }
+            pool = hgLoadSeeds().filter(x => !excludeFens.has(hgFenKey(x.fen)));
+            if (!pool.length) continue;
+        }
+        for (let i = 0; i < tries && pool.length; i++) {
+            if (shouldAbort && shouldAbort()) return null;
+            const seed = pool.shift();
+            // Una llavor es prova un sol cop: surti o no, es treu de la reserva.
+            hgSaveSeeds(hgLoadSeeds().filter(x => x.fen !== seed.fen));
+            if (diag) diag.seedsTried = (diag.seedsTried || 0) + 1;
+            const cand = await hgCertifySeed(seed, shouldAbort);
+            if (cand) return cand;
         }
     }
     return null;
@@ -21954,6 +22080,7 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
     const diag = {
         reason: null, engine: false, candidates: 0,
         gameRealFresh: 0, variantsTried: 0, selfPlayTried: false,
+        seedsMined: 0, gamesMined: 0, seedsTried: 0,
         aborted: false, error: null
     };
     hgLastGenDiag = diag;
@@ -21963,28 +22090,45 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
         const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
         try { diag.engine = await ensureHieroStockfish(); } catch (e) { diag.engine = false; }
         let cand = null;
-        // PRIORITAT 1 — game_real: la tàctica que ja va aparèixer a la partida.
-        try {
-            const candidates = collectPersonalHieroglyphicCandidates(null);
-            diag.candidates = candidates.length;
-            diag.gameRealFresh = candidates.filter(c => c && c.source === 'gameHistory.tactic' && !excludeFens.has(norm(c.fen))).length;
-            cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, { excludeFens, shouldAbort });
-        } catch (e) { diag.error = String((e && e.message) || e); }
-        // PRIORITAT 2 — game_variant: una variant legal amagada d'una FEN real.
-        if (!cand && !(shouldAbort && shouldAbort())) {
-            const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-6).reverse() : [];
-            for (const entry of recentGames) {
-                diag.variantsTried++;
-                try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, { excludeFens, shouldAbort }); } catch (e) {}
-                if (cand) break;
-                if (shouldAbort && shouldAbort()) break;
-            }
-        }
-        // PRIORITAT 3 — auto-joc del motor (només si les partides no donen res).
-        if (!cand && opts.allowSelfPlay !== false && !(shouldAbort && shouldAbort())) {
+        // Les posicions de partides ja provades no es tornen a provar.
+        const gameExclude = new Set(excludeFens);
+        hgLoadTried().forEach(k => gameExclude.add(k));
+        const onTried = (fen) => hgRememberTried(fen);
+        // Les partides pròpies i l'autojoc s'alternen: cap font no pot bloquejar
+        // l'altra, i sense partides (o amb totes ja provades) l'autojoc genera igual.
+        const selfPlayFirst = opts.allowSelfPlay !== false && (hgRuntime.turn++ % 2 === 1);
+        const fromSelfPlay = async () => {
+            if (cand || opts.allowSelfPlay === false || (shouldAbort && shouldAbort())) return;
             diag.selfPlayTried = true;
-            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
-        }
+            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens, diag); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
+        };
+        const fromGames = async () => {
+            if (cand || (shouldAbort && shouldAbort())) return;
+            // PRIORITAT 1 — game_real: la tàctica que ja va aparèixer a la partida.
+            try {
+                const candidates = collectPersonalHieroglyphicCandidates(null);
+                diag.candidates = candidates.length;
+                diag.gameRealFresh = candidates.filter(c => c && c.source === 'gameHistory.tactic' && !gameExclude.has(norm(c.fen))).length;
+                cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, { excludeFens: gameExclude, shouldAbort, onTried, maxCandidates: 4 });
+            } catch (e) { diag.error = String((e && e.message) || e); }
+            // PRIORITAT 2 — game_variant: una variant legal amagada d'una FEN real
+            // (unes quantes posicions per cicle; la resta, als cicles següents).
+            if (!cand && !(shouldAbort && shouldAbort())) {
+                const recentGames = Array.isArray(gameHistory) ? gameHistory.slice(-6).reverse() : [];
+                let budget = 4;
+                for (const entry of recentGames) {
+                    if (budget <= 0) break;
+                    diag.variantsTried++;
+                    let tried = 0;
+                    try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, { excludeFens: gameExclude, shouldAbort, maxCandidates: budget, scanFens: 40, onTried: (fen) => { tried++; onTried(fen); gameExclude.add(norm(fen)); } }); } catch (e) {}
+                    budget -= tried;
+                    if (cand) break;
+                    if (shouldAbort && shouldAbort()) break;
+                }
+            }
+        };
+        if (selfPlayFirst) { await fromSelfPlay(); await fromGames(); }
+        else { await fromGames(); await fromSelfPlay(); }
         if (shouldAbort && shouldAbort()) diag.aborted = true;
         if (cand && !hasVerifiedHieroglyphicConclusion(cand)) cand = null;
         if (cand && excludeFens.has(norm(cand.fen))) { cand = null; diag.reason = 'duplicate'; }
@@ -22003,7 +22147,9 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
         return cand;
     } finally {
         hgRuntime.lastDurationMs = Date.now() - started;
-        if (hgRuntime.lastDurationMs > 5000) hgRuntime.slowGenerations++;
+        // La mineria per autojoc dura uns quants segons per naturalesa: només és
+        // «lenta» (i activa el mode lleuger) si passa del minut.
+        if (hgRuntime.lastDurationMs > 60000) hgRuntime.slowGenerations++;
         hgGenerating = false;
     }
 }
@@ -22017,7 +22163,10 @@ function hgGenReasonText(diag) {
         case 'no_games': return 'Encara no tens partides d\'on treure jeroglífics. Juga\'n unes quantes primer.';
         case 'validation_rejected': return 'Hi havia posicions candidates de les teves partides, però cap ha acabat en un final tàctic prou clar per fer-ne un jeroglífic.';
         case 'all_known': return 'Ja tens preparats o resolts tots els jeroglífics de les teves partides recents; no en queda cap de nou.';
-        case 'selfplay_empty': return 'L\'auto-joc del motor no ha trobat cap combinació tàctica prou neta aquest cop.';
+        case 'selfplay_empty': {
+            const seeds = (typeof hgSeedCount === 'function') ? hgSeedCount() : 0;
+            return 'L\'autojoc del motor encara no ha trobat cap combinació prou neta' + (seeds ? ` (en té ${seeds} més per comprovar)` : '') + '. Continua buscant-ne en segon pla; torna-ho a provar d\'aquí a una estona.';
+        }
         case 'no_candidates': return 'No hi ha cap posició adequada per convertir en jeroglífic ara mateix.';
         case 'stalled': return 'La generació sembla encallada (el motor no respon a temps). Recarrega la pàgina i torna-ho a provar.';
         case 'aborted': return 'Generació interrompuda.';
@@ -22126,6 +22275,8 @@ async function hgTick(shouldAbortOuter) {
         if (document.visibilityState !== 'visible') return;
         if (hgUserInSection()) return;
         if (!isIdleForHieroglyphicPrep()) return;
+        // Ja n'hi ha una en marxa (aquest mateix cicle torna cada pocs segons).
+        if (hgGenerating || hgManualBurstRunning) return;
         const target = hgDeviceTarget();
         const newCount = hgNewCount();
         if (newCount >= target) { renderHieroglyphicBanner(); return; }
@@ -22142,7 +22293,9 @@ async function hgTick(shouldAbortOuter) {
         renderHieroglyphicBanner();
         const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHieroglyphicPrep();
         let cand = null;
-        try { cand = await hgGenerateOne(shouldAbort, { allowSelfPlay: !hgLightMode || newCount === 0 }); } catch (e) { hgRuntime.workerErrors++; }
+        // L'autojoc no depèn de les partides i és barat (també en mode lleuger, amb
+        // menys profunditat): sempre hi pot ajudar.
+        try { cand = await hgGenerateOne(shouldAbort, { allowSelfPlay: true }); } catch (e) { hgRuntime.workerErrors++; }
         hgEnsureState();
         if (cand && !hgAllKnownFens().has((() => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(cand.fen) : cand.fen; } catch (e) { return cand.fen; } })())) {
             hgState.queue.push(hgToQueueItem(cand, 'background'));
@@ -22409,8 +22562,8 @@ async function openHieroglyphicsFromBanner() {
     renderHieroglyphicBanner();
 }
 // Modal d'historial de jeroglífics: SEMPRE accessible des del menú (no depèn de
-// jugar-ne cap ni del calibratge). Mostra els 10 últims, del més recent al més
-// antic, amb botó "Reveure" per tornar-los a jugar.
+// jugar-ne cap ni del calibratge). Mostra tot l'historial desat (fins a 100), del
+// més recent al més antic, amb botó "Reveure" per tornar-los a jugar.
 function showHieroglyphicHistoryModal() {
     $('#hg-history-modal').remove();
     const history = loadHieroglyphicHistory().slice().sort((a, b) => {

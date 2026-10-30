@@ -162,7 +162,15 @@ Conduir amb Playwright + Chromium preinstal·lat
     en carregar. Si la FEN de l'ítem és a l'historial
     (`eltauler_hieroglyphic_history`) com a resolta, també es descarta. Els
     jeroglífics d'obertura: `startOpeningTheoryHieroglyphic()` i l'exercici
-    és a `currentOpeningHieroglyphic`.
+    és a `currentOpeningHieroglyphic`. **Autojoc** (independent de les
+    partides): `hgMineSelfPlayGame(() => false)` mina una partida i desa
+    llavors a `eltauler_cloud_hgSeeds`; `hgGenerateFromSelfPlaySeed(() => false,
+    new Set(), diag)` en certifica (Stockfish 19 real funciona al Chromium
+    headless; ~6 % de les llavors acaben en jeroglífic). Les posicions de
+    partides ja provades són a `eltauler_cloud_hgTried`. Per veure la
+    generació en segon pla, quedar-se a l'inici uns minuts i mirar
+    `hgNewCount()` i `hgLastGenDiag`; el Chromium de l'entorn té 4 nuclis i va
+    en «mode lleuger» (profunditat 8, cua de 2).
 
 ## Fluxos útils
 

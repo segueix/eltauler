@@ -2954,6 +2954,97 @@
     // Metadades d'ORIGEN d'una VARIANT LEGAL treta d'una FEN real d'una partida.
     // PUR: no modifica ni la partida ni el candidat; només retorna els camps a
     // enganxar (origin 'game_variant' + traçabilitat a la partida original).
+    // ── Mineria de jeroglífics per autojoc (independent de les partides) ──
+    // Com als bancs de problemes: el motor juga partides senceres a poca
+    // profunditat i, sovint, prova en una BRANCA un error triat entre les seves
+    // jugades MultiPV (perd entre 1,5 i 7 peons). Després d'un error, el rival
+    // sol tenir UNA sola jugada que guanya: aquestes posicions són les llavors
+    // dels jeroglífics (la validació completa es fa després). La partida
+    // principal continua amb la millor jugada i es manté equilibrada, així que
+    // en surten desenes de llavors.
+    const HIERO_MINING = {
+        openingPlies: 8, openingWindowCp: 40,
+        firstErrorPly: [9, 12], errorEvery: [1, 2], errorLossCp: [250, 900], branchesPerError: 3,
+        seedFromPly: 10, seedMinCp: 300, seedSecondMaxCp: 200, seedGapCp: 150, seedMinPieces: 8
+    };
+    // Avaluació en centipeons des del bàndol que mou (un mat val ~10000).
+    function hieroMiningCp(a) {
+        if (!a || !Number.isFinite(a.eval)) return null;
+        if (a.evalType === 'mate') return a.eval > 0 ? 10000 - a.eval * 10 : -10000 - a.eval * 10;
+        return a.eval;
+    }
+    // La posició és una llavor? Una jugada guanya clarament i la segona no.
+    function hieroMiningSeed(alternatives, pieces, cfg = HIERO_MINING) {
+        const list = (Array.isArray(alternatives) ? alternatives : []).filter(a => a && a.move && hieroMiningCp(a) !== null);
+        if (list.length < 2 || (Number.isFinite(pieces) && pieces < cfg.seedMinPieces)) return null;
+        const best = hieroMiningCp(list[0]), second = hieroMiningCp(list[1]);
+        if (best < cfg.seedMinCp || second >= cfg.seedSecondMaxCp || best - second < cfg.seedGapCp) return null;
+        // Un mat en 1 o en 2 s'acaba abans de les tres jugades del jeroglífic.
+        if (list[0].evalType === 'mate' && list[0].eval <= 2) return null;
+        return { move: list[0].move, bestCp: best, secondCp: second, gap: best - second };
+    }
+    // Una jugada del jugador és prou única (mateixa regla que la verificació,
+    // aquí sobre l'anàlisi ràpida de la mineria): guanya clar i la segona no;
+    // en un mat, cap altra jugada no fa mat.
+    function hieroMiningStepUnique(alternatives) {
+        const list = (Array.isArray(alternatives) ? alternatives : []).filter(a => a && a.move && hieroMiningCp(a) !== null);
+        if (!list.length) return false;
+        const [best, second] = list;
+        if (best.evalType === 'mate') return best.eval > 0 && !(second && second.evalType === 'mate' && second.eval > 0);
+        if (best.eval < 300) return false;
+        if (!second) return true;
+        if (second.evalType === 'mate') return second.eval < 0;
+        return second.eval < 200 && best.eval - second.eval >= 150;
+    }
+    // Força d'una llavor segons la partida minada: record[p] = { alternatives, move }.
+    // 2 = les tres jugades del jugador hi eren úniques i el rival hi va respondre
+    // amb la millor jugada; 1 = només la primera; 0 = no és llavor.
+    function hieroMiningSeedStrength(record, p) {
+        const at = (i) => record && record[i];
+        if (!at(p) || !hieroMiningSeed(at(p).alternatives)) return 0;
+        for (let k = 0; k < 5; k++) {
+            const row = at(p + k);
+            if (!row || !row.move) return 1;
+            const best = (row.alternatives || []).find(a => a && a.move);
+            if (!best || best.move !== row.move) return 1;
+            if (k % 2 === 0 && !hieroMiningStepUnique(row.alternatives)) return 1;
+        }
+        return 2;
+    }
+    // Errors possibles d'una posició (de la jugada que perd menys a la que més).
+    function hieroMiningBadMoves(alternatives, cfg = HIERO_MINING) {
+        const list = (Array.isArray(alternatives) ? alternatives : []).filter(a => a && a.move && hieroMiningCp(a) !== null);
+        if (!list.length) return [];
+        const bestCp = hieroMiningCp(list[0]);
+        return list.filter(a => {
+            const loss = bestCp - hieroMiningCp(a);
+            return loss >= cfg.errorLossCp[0] && loss <= cfg.errorLossCp[1];
+        });
+    }
+    const miningRange = (range, random) => range[0] + Math.floor(random() * (range[1] - range[0] + 1));
+    // Tria la jugada de l'autojoc. state = { nextErrorPly } (es manté entre jugades).
+    // Obertura variada (qualsevol jugada a 40 cp de la millor), després la millor
+    // jugada i, quan toca, un error de 150-700 cp.
+    function hieroMiningChoose(alternatives, ply, state, random = Math.random, cfg = HIERO_MINING) {
+        const list = (Array.isArray(alternatives) ? alternatives : []).filter(a => a && a.move && hieroMiningCp(a) !== null);
+        if (!list.length) return null;
+        const st = state || {};
+        if (!Number.isFinite(st.nextErrorPly)) st.nextErrorPly = miningRange(cfg.firstErrorPly, random);
+        const best = list[0], bestCp = hieroMiningCp(best);
+        if (ply < cfg.openingPlies) {
+            const near = list.filter(a => bestCp - hieroMiningCp(a) <= cfg.openingWindowCp);
+            return { move: near[Math.floor(random() * near.length)].move, error: false };
+        }
+        if (ply >= st.nextErrorPly) {
+            const bad = hieroMiningBadMoves(list, cfg);
+            if (bad.length) {
+                st.nextErrorPly = ply + miningRange(cfg.errorEvery, random);
+                return { move: bad[Math.floor(random() * bad.length)].move, error: true };
+            }
+        }
+        return { move: best.move, error: false };
+    }
+
     function hieroglyphicVariantMeta(entry, fen, moveNumber) {
         return {
             origin: 'game_variant',
@@ -8316,6 +8407,37 @@
         if (limit && result.length > limit) return result.slice(-limit);
         return result;
     }
+    // Historial de jeroglífics: l'app el desa del més recent al més antic. Es
+    // fusiona per FEN (dos aparells poden donar ids diferents al mateix
+    // jeroglífic), guanya l'intent més recent, la marca «resolt sense errors»
+    // no es perd mai i es conserven els més RECENTS (abans es tallava per la
+    // cua de la llista i es quedaven els més antics).
+    const HIERO_HISTORY_SYNC_LIMIT = 100;
+    function hieroHistoryTime(e) {
+        return Number(e && (e.solvedAt || e.finishedAt || e.ts || e.createdAt)) || 0;
+    }
+    function syncMergeHieroglyphicHistory(local, cloud, limit = HIERO_HISTORY_SYNC_LIMIT) {
+        const byKey = new Map();
+        const add = (e) => {
+            if (!e || typeof e !== 'object') return;
+            const key = e.fen ? 'fen:' + e.fen : syncEntryKey(e);
+            const prev = byKey.get(key);
+            if (!prev) { byKey.set(key, e); return; }
+            const newer = hieroHistoryTime(e) >= hieroHistoryTime(prev) ? e : prev;
+            const older = newer === e ? prev : e;
+            const created = [Number(prev.createdAt) || 0, Number(e.createdAt) || 0].filter(Boolean);
+            byKey.set(key, Object.assign({}, older, newer, {
+                id: older.id || newer.id,
+                cleanSolved: !!(prev.cleanSolved || e.cleanSolved || (prev.solved && prev.firstTry) || (e.solved && e.firstTry)),
+                createdAt: created.length ? Math.min(...created) : (newer.createdAt || older.createdAt || null)
+            }));
+        };
+        (Array.isArray(cloud) ? cloud : []).forEach(add);
+        (Array.isArray(local) ? local : []).forEach(add);
+        return Array.from(byKey.values())
+            .sort((a, b) => hieroHistoryTime(b) - hieroHistoryTime(a))
+            .slice(0, limit);
+    }
     function syncMergeHieroglyphicState(local, cloud) {
         const l = local && typeof local === 'object' ? local : {};
         const c = cloud && typeof cloud === 'object' ? cloud : {};
@@ -8367,10 +8489,8 @@
         const arrayKeys = [
             'chess_gameHistory', 'chess_importedGameHistory', 'chess_reviewHistory',
             'chess_savedErrors', 'chess_recentErrors', 'chess_eloHistory',
-            'chess_puzzles', 'chess_triaHistory', 'eltauler_hieroglyphic_history',
-            'eltauler_growth_task_history', 'chess_preparedExerciseHistory',
-            'chess_recentGames', 'chess_calibrationGames', 'eltauler_recent_hieroglyphics',
-            'eltauler_recent_human_plans'
+            'chess_puzzles', 'chess_triaHistory', 'chess_preparedExerciseHistory',
+            'chess_recentGames', 'chess_calibrationGames', 'eltauler_recent_human_plans'
         ];
         arrayKeys.forEach(key => {
             const a = syncParse(local[key]), b = syncParse(cloud[key]);
@@ -8378,11 +8498,19 @@
             if (!Array.isArray(a) || !Array.isArray(b)) {
                 merged[key] = JSON.stringify(Array.isArray(a) ? a : b); return;
             }
-            const limit = key === 'eltauler_growth_task_history' ? 20
-                : key === 'eltauler_hieroglyphic_history' ? 10
-                : key === 'chess_recentGames' ? 50
-                : key === 'eltauler_recent_hieroglyphics' || key === 'eltauler_recent_human_plans' ? 30 : null;
+            const limit = key === 'chess_recentGames' ? 50
+                : key === 'eltauler_recent_human_plans' ? 30 : null;
             merged[key] = JSON.stringify(syncUnionEntries(a, b, limit));
+        });
+        // Llistes que l'app desa del més recent al més antic: es conserven els
+        // primers (els més nous), no els últims.
+        const newestFirstKeys = { 'eltauler_growth_task_history': 20, 'eltauler_recent_hieroglyphics': 30 };
+        Object.keys(newestFirstKeys).forEach(key => {
+            const a = syncParse(local[key]), b = syncParse(cloud[key]);
+            if (!Array.isArray(a) && !Array.isArray(b)) return;
+            const time = e => Number(e && (e.timestamp || e.ts || e.createdAt)) || 0;
+            const all = syncUnionEntries(a, b).sort((x, y) => time(y) - time(x));
+            merged[key] = JSON.stringify(all.slice(0, newestFirstKeys[key]));
         });
         const setKeys = ['chess_completedOpenings', 'chess_unlockedBadges', 'chess_eloMilestones'];
         setKeys.forEach(key => {
@@ -8395,6 +8523,12 @@
             const b = syncParse(cloud['chess_triaProgress']);
             if ((a && a.entries) || (b && b.entries))
                 merged['chess_triaProgress'] = JSON.stringify(syncMergeTriaProgress(a, b));
+        }
+        if ('eltauler_hieroglyphic_history' in local || 'eltauler_hieroglyphic_history' in cloud) {
+            const a = syncParse(local['eltauler_hieroglyphic_history']);
+            const b = syncParse(cloud['eltauler_hieroglyphic_history']);
+            if (Array.isArray(a) || Array.isArray(b))
+                merged['eltauler_hieroglyphic_history'] = JSON.stringify(syncMergeHieroglyphicHistory(a, b));
         }
         if ('eltauler_hieroglyphics_state' in local || 'eltauler_hieroglyphics_state' in cloud) {
             const a = syncParse(local['eltauler_hieroglyphics_state']);
@@ -8814,6 +8948,7 @@
         createHieroglyphicMotifHelpers,
         hieroglyphicMeetsFinalMotifCriteria,
         hieroglyphicVariantMeta,
+        HIERO_MINING, hieroMiningCp, hieroMiningSeed, hieroMiningChoose, hieroMiningStepUnique, hieroMiningSeedStrength, hieroMiningBadMoves,
         puzzleDifficulty,
         puzzleRatingEstimate,
         puzzleExplanation,
@@ -9031,6 +9166,7 @@
         dailyUsesCarousel,
         dailyPickVersion,
         dailyMergeGames,
-        mergeSyncSnapshots
+        mergeSyncSnapshots,
+        syncMergeHieroglyphicHistory
     };
 });
