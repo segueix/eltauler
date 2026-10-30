@@ -1,0 +1,6 @@
+name = "eltauler-google-tts"
+main = "cloudflare/google-tts-worker.js"
+compatibility_date = "2026-10-01"
+# La web principal segueix allotjada a GitHub Pages. Només aquesta ruta passa
+# pel Worker. Cal que el DNS del domini estigui proxyat per Cloudflare.
+route = { pattern = "eltauler.cat/api/google-tts", zone_name = "eltauler.cat" }
