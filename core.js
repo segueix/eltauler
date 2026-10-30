@@ -6191,6 +6191,7 @@
     // Coincidència amb el perfil: quant posa a prova aquesta candidata alguna
     // debilitat REAL del jugador. Retorna { match, themeId, family }.
     function antidoteWeaknessMatch(candidate, profile, config) {
+        const cfg = config || ANTIDOTE_CONFIG;
         const cand = candidate || {};
         const themes = Array.isArray(cand.themes) ? cand.themes : [];
         const weaknesses = (profile && profile.weaknesses) || {};
