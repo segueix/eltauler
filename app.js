@@ -2417,7 +2417,9 @@ function boardExperienceContext(id, fen) {
         const competitive = isCalibrationGame || !!timedCalibrationTcId || currentGameMode === 'league';
         return { chess: game, key: game, timed: gameClock.enabled, silent: reviewing,
             playerColor: !exercise && !competitive ? playerColor : null,
-            pace: exercise && !gameClock.enabled, disabled: reviewing };
+            pace: exercise && !gameClock.enabled, disabled: reviewing,
+            // La narració general no ha de competir amb la veu de l'entrenador Antídot.
+            ...(currentGameMode === 'antidote' && antidoteVoiceEnabled ? { silent: true } : {}) };
     }
     if (id === 'opening-board') {
         const matches = g => g && typeof fen === 'string' && g.fen().split(' ')[0] === fen.split(' ')[0];
@@ -2456,8 +2458,8 @@ function initGameNarration() {
     if (screen) new MutationObserver(() => {
         if (getCurrentScreen() !== 'history-screen' && HISTORY_TV.player && HISTORY_TV.player.state().open) closeHistoryTv();
     }).observe(screen, { attributes: true, attributeFilter: ['class', 'style'] });
-    document.addEventListener('visibilitychange', () => { if (document.hidden) { stopGameNarration(); stopHistoryPlayback(); stopTvPlayback(); } });
-    window.addEventListener('pagehide', () => { stopGameNarration(); stopHistoryPlayback(); stopTvPlayback(); });
+    document.addEventListener('visibilitychange', () => { if (document.hidden) { stopGameNarration(); stopHistoryPlayback(); stopTvPlayback(); stopAntidoteVoice(); } });
+    window.addEventListener('pagehide', () => { stopGameNarration(); stopHistoryPlayback(); stopTvPlayback(); stopAntidoteVoice(); });
 }
 
 function getCoachDiagnosisText() {
@@ -24008,6 +24010,9 @@ function setupEvents() {
     $('#antidote-scan-toggle').off('change').on('change', function () {
         saveAntidoteScanPreference(this.checked);
     });
+    $('#antidote-voice-toggle').off('change').on('change', function () {
+        saveAntidoteVoicePreference(this.checked);
+    });
 
     // Tres camins: bàner, vot (des de la targeta o des de la fila) i navegació.
     $('#btn-tria-banner').off('click').on('click', () => openTriaTest());
@@ -28662,6 +28667,7 @@ async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     liveGameId = liveResume && liveResume.id
         ? liveResume.id : 'untimed_' + Date.now() + '_' + Math.random().toString(36).slice(2, 10);
     antidoteState = null;
+    stopAntidoteVoice();
     antidoteSearchToken++;   // invalida qualsevol cerca Antídot encara viva
     antidoteLiveSticky = false;
     antidoteMoveHistory = [];
@@ -29906,6 +29912,7 @@ const DEBUG_ANTIDOTE = false;
 const ANTIDOTE_PROGRESS_KEY = 'chess_antidoteProgress';
 const ANTIDOTE_NOTICES_KEY = 'eltauler_antidote_notices';
 const ANTIDOTE_SCAN_KEY = 'eltauler_antidote_scan';
+const ANTIDOTE_VOICE_KEY = 'eltauler_antidote_veu';
 
 let antidotePlayPending = null;   // petició d'inici (es consumeix a startGame)
 let antidoteState = null;         // estat de la partida Antídot en curs
@@ -29915,6 +29922,9 @@ let antidoteProgress = null;      // progrés acumulat entre partides
 let antidoteSearchToken = 0;      // invalida cerques d'una partida anterior
 let antidoteNoticesEnabled = true;   // explicació DESPRÉS de respondre
 let antidoteScanEnabled = true;      // consigna d'escaneig durant el torn
+let antidoteVoiceEnabled = false;     // comentaris curts de veu DESPRÉS de moure
+let antidoteVoiceActive = false;
+let antidoteVoiceToken = 0;
 // Hi ha un missatge esperant que el tanquin? Mentre sigui cert, cap missatge
 // ambient no el pot substituir: la persona el llegeix i el tanca quan vol.
 let antidoteLiveSticky = false;
@@ -29992,6 +30002,11 @@ function loadAntidoteNoticesPreference() {
         const raw = localStorage.getItem(ANTIDOTE_SCAN_KEY);
         antidoteScanEnabled = raw === null ? true : raw === '1';
     } catch (e) { antidoteScanEnabled = true; }
+    try {
+        antidoteVoiceEnabled = localStorage.getItem(ANTIDOTE_VOICE_KEY) === '1';
+    } catch (e) { antidoteVoiceEnabled = false; }
+    const voiceToggle = document.getElementById('antidote-voice-toggle');
+    if (voiceToggle) voiceToggle.checked = antidoteVoiceEnabled;
     const toggle = document.getElementById('antidote-notices-toggle');
     if (toggle) toggle.checked = antidoteNoticesEnabled;
     const scanToggle = document.getElementById('antidote-scan-toggle');
@@ -30010,6 +30025,54 @@ function saveAntidoteScanPreference(enabled) {
     try { localStorage.setItem(ANTIDOTE_SCAN_KEY, antidoteScanEnabled ? '1' : '0'); } catch (e) {}
     if (!antidoteScanEnabled && !antidoteNoticesEnabled) hideAntidoteLivePanel();
     else if (!antidoteScanEnabled) hideAntidoteLivePanel();
+}
+
+// La locució és opcional i no es fa mai abans de respondre. L'únic text
+// pronunciat prové de Core.antidoteResultFeedback(...).speech, ja verificat.
+function stopAntidoteVoice() {
+    antidoteVoiceToken++;
+    if (!antidoteVoiceActive) return;
+    antidoteVoiceActive = false;
+    try {
+        if (neuralTtsAvailable()) window.ElTaulerVeuNeural.sharedSpeaker().stop();
+    } catch (e) {}
+}
+
+function saveAntidoteVoicePreference(enabled) {
+    antidoteVoiceEnabled = !!enabled;
+    try { localStorage.setItem(ANTIDOTE_VOICE_KEY, antidoteVoiceEnabled ? '1' : '0'); } catch (e) {}
+    if (!antidoteVoiceEnabled) stopAntidoteVoice();
+    else {
+        // El clic és un gest explícit: prepara l'àudio per a Android i Chrome.
+        try { if (neuralTtsAvailable()) window.ElTaulerVeuNeural.sharedSpeaker().unlock(); } catch (e) {}
+    }
+    renderGameNarrationControls();
+}
+
+function speakAntidoteFeedback(comment) {
+    if (!antidoteVoiceEnabled || !isAntidoteMode() || !comment || !comment.speech) return;
+    if (document.hidden || timedGameInProgress() || !$('#game-screen').is(':visible')) return;
+    const coord = voiceMusicApi();
+    if (coord && !coord.prefs().voice) return; // Respecta «Només música» i «Sense veu».
+    if (!neuralTtsAvailable()) return;         // Mai Web Speech ni eSpeak.
+    const preset = getEffectiveReviewTtsPreset();
+    if (!preset || !isNeuralTtsVoice(preset.voiceURI)) return;
+    const speaker = window.ElTaulerVeuNeural.sharedSpeaker();
+    if (!speaker.available()) return;
+    // La narració ordinària del tauler queda silenciada quan Antídot parla.
+    stopGameNarration('training');
+    stopAntidoteVoice();
+    const token = ++antidoteVoiceToken;
+    const words = speakableChessText(comment.speech);
+    if (!words) return;
+    antidoteVoiceActive = true;
+    Promise.resolve(speaker.speak(words, preset.voiceURI, {
+        rate: preset.rate || 1,
+        effects: preset.matxaEffects,
+        maxWaitMs: 14000
+    })).catch(() => {}).then(() => {
+        if (antidoteVoiceToken === token) antidoteVoiceActive = false;
+    });
 }
 
 // ANTIDOTE_LIVE_FEEDBACK_V1
@@ -30083,6 +30146,7 @@ function hideAntidoteLivePanel() {
 // Tancament MANUAL del missatge. Un cop tancat, si torna a ser el teu torn es
 // recupera la consigna d'escaneig perquè el panell no quedi buit.
 function dismissAntidoteLiveComment() {
+    stopAntidoteVoice();
     antidoteLiveSticky = false;
     hideAntidoteLivePanel();
     if (isAntidoteMode() && game && !game.game_over() && game.turn() === playerColor) {
@@ -30247,6 +30311,8 @@ function openAntidoteIntro() {
 }
 
 function startAntidoteGame(profileOverride) {
+    // S'executa des del botó «Comença la prova»: activa el context d'àudio.
+    try { if (antidoteVoiceEnabled && neuralTtsAvailable()) window.ElTaulerVeuNeural.sharedSpeaker().unlock(); } catch (e) {}
     const pending = antidotePlayPending || {};
     const profile = profileOverride || pending.profile || buildCurrentAntidoteProfile();
     antidotePlayPending = {
@@ -30497,13 +30563,14 @@ function antidoteResolvePendingTest(context) {
 // el moment en què això ensenya alguna cosa. El panell el manté llegible i el
 // toast només n'és el resum curt.
 function showAntidoteMoveNotice(test) {
-    if (!antidoteNoticesEnabled || !test) return;
+    if (!test) return;
     const comment = ElTaulerCore.antidoteResultFeedback(test);
     // STICKY: es queda fins que la persona el tanca. Sense això, la crida a
     // makeEngineMove() que ve tot seguit l'esborrava abans de pintar-se, i
     // encara que es pintés s'esvaïa sol al torn següent. El toast s'ha tret:
     // duplicava aquest mateix text i desapareixia als pocs segons.
-    setAntidoteLiveComment(comment, true);
+    if (antidoteNoticesEnabled) setAntidoteLiveComment(comment, true);
+    speakAntidoteFeedback(comment);
 }
 
 

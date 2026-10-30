@@ -6467,7 +6467,7 @@
         return {
             kind: 'scan',
             title: '🧬 El teu torn',
-            text: 'Abans de decidir, mira la posició sencera: què ha canviat amb l’última jugada i què prepara el rival.',
+            text: 'Mira què ha canviat. Què amenaça el rival?',
             guide: ANTIDOTE_SCAN_STEPS
         };
     }
@@ -6477,8 +6477,8 @@
         return {
             kind: 'thinking',
             title: '🧬 El rival tria la jugada',
-            text: 'Stockfish compara diverses jugades fortes i es queda la que et farà treballar més.',
-            guide: 'Sempre serà una jugada objectivament bona: el que canvia és el valor d’entrenament.'
+            text: 'El rival prepara la resposta.',
+            guide: ''
         };
     }
 
@@ -6502,6 +6502,19 @@
 
     // Explicació DESPRÉS de la resposta: aquí sí que es diu el tema, la millor
     // jugada i la pauta, perquè la decisió ja s'ha pres i és quan s'aprèn.
+    // Text breu per escoltar. Només es construeix DESPRÉS de la resposta;
+    // no suggereix temes ni jugades en el torn previ i mai inventa variants.
+    function antidoteVoiceFeedback(test) {
+        const t = test || {};
+        const best = t.bestResponseSan || t.bestResponse || null;
+        const response = best ? ' Era millor jugar ' + best + '.' : '';
+        if (t.result === 'passed') return 'Ben jugat. Prova superada.';
+        if (t.result === 'partial') return 'Resposta millorable.' + response;
+        if (t.result === 'failed') return 'Revisa aquesta jugada.' + response;
+        return null;
+    }
+
+    // Missatge breu en directe, amb la pauta completa separada per al repàs.
     function antidoteResultFeedback(test) {
         const t = test || {};
         const themeLabel = antidoteWeaknessLabel(t.theme);
@@ -6510,15 +6523,17 @@
         const best = t.bestResponseSan || t.bestResponse || null;
         const loss = (typeof t.responseCpLoss === 'number' && isFinite(t.responseCpLoss))
             ? Math.round(t.responseCpLoss) : null;
-        const lesson = 'La propera vegada: ' + antidoteGuidanceForTheme(t.theme);
+        const lesson = 'Per practicar: ' + antidoteGuidanceForTheme(t.theme);
+        const speech = antidoteVoiceFeedback(t);
 
         if (t.result === 'passed') {
             return {
                 kind: 'success',
                 title: '✅ Prova superada · ' + focus,
-                text: 'Has vist el problema tu sol i la teva resposta ha mantingut la posició sota control'
+                text: 'Bona jugada. Has resolt la prova'
                     + ((loss !== null && loss > 0) ? ' (només ' + loss + ' centpeons cedits).' : '.'),
                 guide: lesson,
+                speech: speech,
                 toast: 'Prova superada',
                 toastKind: 'success'
             };
@@ -6527,9 +6542,9 @@
             return {
                 kind: 'partial',
                 title: '🟡 Prova parcial · ' + focus,
-                text: 'Has vist una part del problema, però hi havia una resposta més precisa'
-                    + (best ? ': ' + best + '.' : '.'),
+                text: 'Resposta millorable.' + (best ? ' Era millor jugar ' + best + '.' : ''),
                 guide: lesson,
+                speech: speech,
                 toast: 'Ho has defensat parcialment',
                 toastKind: 'info'
             };
@@ -6537,11 +6552,11 @@
         if (t.result === 'failed') {
             return {
                 kind: 'failed',
-                title: '🔴 Patró repetit · ' + focus,
-                text: 'Aquesta era la situació que el rival buscava, i ha tornat a passar'
-                    + (best ? '. La resposta era ' + best + '.' : '.')
-                    + ' La posició queda disponible al repàs de les teves fallades.',
+                title: '🔴 Prova fallada · ' + focus,
+                text: 'Revisa aquesta jugada.' + (best ? ' Era millor jugar ' + best + '.' : '')
+                    + ' La posició és al teu repàs.',
                 guide: lesson,
+                speech: speech,
                 toast: 'Aquest patró tornarà al teu entrenament',
                 toastKind: 'warn'
             };
@@ -6549,8 +6564,9 @@
         return {
             kind: 'info',
             title: '🧬 Sense conclusió · ' + focus,
-            text: 'Aquí no es pot mesurar amb prou seguretat si el patró s’ha resolt.',
+            text: 'No hi ha prou dades per valorar aquesta resposta.',
             guide: 'No compta ni com a encert ni com a fallada.',
+            speech: null,
             toast: null,
             toastKind: 'info'
         };
@@ -8912,6 +8928,7 @@
         antidoteThinkingPrompt,
         antidoteGuidanceForTheme,
         antidoteResultFeedback,
+        antidoteVoiceFeedback,
         antidoteSerializeTest,
         antidoteSerializeGame,
         antidoteRestoreGame,
