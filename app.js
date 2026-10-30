@@ -11080,6 +11080,15 @@ function registerMoveReview(swing, analysisData = {}) {
         multipvBefore: analysisData.multipvBefore || null,
         forcingInfo: forcingInfo
     });
+    // Les errades noves que ofereixen una prova geomètrica clara d'un motiu
+    // alimenten el perfil fi. Les altres només compten a la categoria general.
+    if (quality !== 'excel' && quality !== 'good' && cpLoss >= 50) {
+        const review = currentReview[currentReview.length - 1];
+        const category = ElTaulerCore.antidoteReviewCategory(review, review.color);
+        review.antidoteSubtheme = classifyAntidoteErrorMotif(
+            beforeFen, analysisData.bestMove, category
+        );
+    }
 }
 
 function summarizeReview(entries) {
@@ -30226,6 +30235,46 @@ function saveAntidoteProgress() {
     try { localStorage.setItem(ANTIDOTE_PROGRESS_KEY, JSON.stringify(antidoteProgress)); } catch (e) {}
 }
 
+// Una etiqueta subtemàtica només s'infereix si una jugada alternativa
+// comprovada amb chess.js CREA clarament el motiu (sense PV conjectural).
+// Mai no s'utilitza un detector fluix per etiquetar una debilitat.
+const ANTIDOTE_EVIDENCE_MOTIFS = new Set(['fork', 'pin', 'skewer', 'promotion']);
+const antidoteErrorMotifCache = new Map();
+function classifyAntidoteErrorMotif(fen, bestMove, category) {
+    if (!fen || !category || typeof bestMove !== 'string'
+        || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(bestMove)) return null;
+    const cacheKey = fen + '|' + bestMove + '|' + category;
+    if (antidoteErrorMotifCache.has(cacheKey)) return antidoteErrorMotifCache.get(cacheKey);
+    let chosen = null;
+    try {
+        const detectors = getAntidoteDetectors();
+        const result = detectors && detectors.classifyAntidoteCandidate(fen, bestMove, []);
+        if (result && result.san && Array.isArray(result.themes)) {
+            const valid = result.themes
+                .filter(t => t && ANTIDOTE_EVIDENCE_MOTIFS.has(t.id)
+                    && t.triggerPly === 1 && t.strength >= 0.78
+                    && ElTaulerCore.antidoteThemeFamily(t.id) === category)
+                .sort((a, b) => b.strength - a.strength);
+            chosen = valid.length ? valid[0].id : null;
+        }
+    } catch (e) {}
+    if (antidoteErrorMotifCache.size >= 160) antidoteErrorMotifCache.clear();
+    antidoteErrorMotifCache.set(cacheKey, chosen);
+    return chosen;
+}
+
+function antidoteEnrichSavedError(error) {
+    if (!error || typeof error !== 'object') return error;
+    if (ElTaulerCore.antidoteEvidenceSubtheme(error)) return error;
+    // Les errades antigues no porten el motiu. Només classifiquem jugades
+    // alternatives vàlides i els motius estrictes que poden provar-se.
+    const category = (error.antidoteCategory && ElTaulerCore.ANTIDOTE_WEAKNESS_IDS.includes(error.antidoteCategory))
+        ? error.antidoteCategory
+        : (error.severity === 'high' ? 'lost_material' : 'missed_tactic');
+    const subtheme = classifyAntidoteErrorMotif(error.fen, error.bestMove, category);
+    return subtheme ? Object.assign({}, error, { antidoteSubtheme: subtheme }) : error;
+}
+
 // ── Perfil de debilitats ────────────────────────────────────────────────────
 // Es construeix del que JA existeix: els resums lleugers de l'historial (com fa
 // el Bessó), la biblioteca d'errades desades i les proves Antídot anteriors.
@@ -30234,8 +30283,13 @@ function buildCurrentAntidoteProfile() {
     let games = [];
     let errors = [];
     let tests = [];
-    try { games = Array.isArray(gameHistory) ? gameHistory.slice(-60) : []; } catch (e) { games = []; }
-    try { errors = Array.isArray(savedErrors) ? savedErrors.slice(-80) : []; } catch (e) { errors = []; }
+    try {
+        games = Array.isArray(gameHistory)
+            ? gameHistory.filter(e => e && !historyEntryIsImported(e)).slice(-60) : [];
+    } catch (e) { games = []; }
+    try {
+        errors = Array.isArray(savedErrors) ? savedErrors.slice(-80).map(antidoteEnrichSavedError) : [];
+    } catch (e) { errors = []; }
     try { tests = ElTaulerCore.antidoteTestsFromHistory(games); } catch (e) { tests = []; }
     try {
         return ElTaulerCore.buildAntidoteProfile({
@@ -30275,6 +30329,7 @@ function openAntidoteIntro() {
     const profile = buildCurrentAntidoteProfile();
     const thin = ElTaulerCore.antidoteProfileIsThin(profile);
     const top = ElTaulerCore.antidoteTopWeaknesses(profile, 3);
+    const concrete = ElTaulerCore.antidoteTopSubthemes(profile, 4);
     antidotePlayPending = null;
 
     const modal = $('#antidote-modal');
@@ -30297,6 +30352,22 @@ function openAntidoteIntro() {
                 + '<span class="antidote-weakness-conf">' + escapeHtml(ElTaulerCore.antidoteConfidenceLabel(w.confidence)) + '</span>'
                 + '</li>');
         });
+    }
+    // Indicadors específics separats dels grups generals; cap diagnòstic
+    // categòric amb una mostra única. El detall és visible abans d'entrenar,
+    // mai durant el torn en què s'ha de descobrir el motiu.
+    if (concrete.length) {
+        list.append('<li class="antidote-weakness antidote-weakness-empty"><strong>Patrons concrets observats</strong> (indicis segons les mostres)</li>');
+        concrete.forEach(t => {
+            const evidence = t.occurrences === 1 ? '1 ocasió' : t.occurrences + ' ocasions';
+            list.append('<li class="antidote-weakness">'
+                + '<span class="antidote-weakness-name">' + escapeHtml(t.label) + '</span>'
+                + '<span class="antidote-weakness-bar"><span style="width:' + Math.max(6, Math.round(t.weight * 100)) + '%"></span></span>'
+                + '<span class="antidote-weakness-conf">' + escapeHtml(evidence + ' · ' + ElTaulerCore.antidoteConfidenceLabel(t.confidence)) + '</span>'
+                + '</li>');
+        });
+    } else if (!thin) {
+        list.append('<li class="antidote-weakness antidote-weakness-empty">Encara no hi ha prou proves per distingir forquilles, clavades o altres patrons. Les properes partides ho afinaran.</li>');
     }
 
     // Color i rellotge escollits (els mateixos que qualsevol partida nova).
@@ -30470,7 +30541,8 @@ function applyAntidoteAnalysis(analysis, fen, searchStartedAt, deviceOpts) {
     // per repetició també actua jugada a jugada i el rival no insisteix sempre
     // en la mateixa debilitat.
     const recent = (antidoteState.profile.recentTests || [])
-        .concat(antidoteState.tests.map(t => ({ theme: t.theme, result: t.result })))
+        .concat(antidoteState.tests.map(t => ({ theme: t.theme, subtheme: t.subtheme,
+            result: t.firstResult || t.result })))
         .slice(-ElTaulerCore.ANTIDOTE_CONFIG.recentWindow);
     const scoringProfile = Object.assign({}, antidoteState.profile, { recentTests: recent });
     const selection = ElTaulerCore.chooseAntidoteCandidate(candidates, scoringProfile, {
@@ -30873,6 +30945,7 @@ function practiceAntidoteFailures(failedTests) {
             playerMove: t.playerResponse || null,
             bestMovePv: Array.isArray(t.expectedPv) ? t.expectedPv.slice(0, 4) : [],
             antidoteCategory: t.theme,
+            antidoteSubtheme: t.subtheme || null,
             srsReps: 0,
             srsInterval: 0,
             srsDue: Date.now()
