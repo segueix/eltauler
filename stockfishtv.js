@@ -2855,7 +2855,7 @@
         const actualNeuralId = opts => (dualEnabled() && opts &&
             (opts.voiceId === TV_DUO.presenter || opts.voiceId === TV_DUO.analyst))
             ? opts.voiceId : neuralId();
-        const synthSupported = !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
+        const synthSupported = e.allowSystemVoice !== false && !!(synth && typeof synth.speak === 'function' && typeof Utter === 'function');
         const supported = synthSupported || !!neural;
         let pref = typeof e.loadPref === 'function' ? e.loadPref() : null;
         if (pref !== 'on' && pref !== 'off') pref = null;
@@ -4909,6 +4909,7 @@
         if (controller) return controller;
         if (typeof root.Chess !== 'function') return null;
         voice = createTvVoice({
+            allowSystemVoice: false,
             speechSynthesis: root.speechSynthesis,
             SpeechSynthesisUtterance: root.SpeechSynthesisUtterance,
             neural: (root.ElTaulerVeuNeural && typeof root.Audio === 'function') ? root.ElTaulerVeuNeural.sharedSpeaker() : null,
