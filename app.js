@@ -1910,7 +1910,8 @@ function getDefaultReviewTtsPresetId() {
     try {
         const saved = localStorage.getItem(REVIEW_TTS_DEFAULT_KEY);
         // Migra també el perfil automàtic desat abans d'introduir Matxa.
-        return !saved || saved === 'default' ? fallback : saved;
+        return !saved || saved === 'default' || !allReviewTtsPresets().some(p => p.id === saved)
+            ? fallback : saved;
     }
     catch (e) { return fallback; }
 }
