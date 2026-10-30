@@ -120,11 +120,48 @@
         const n = clamp(Math.round(level || 1), 1, 5), cap = LEVEL_CAP[n], floor = n > 1 ? LEVEL_CAP[n - 1] - 250 : 0;
         return bank.filter(t => t.rating <= cap && t.rating >= floor);
     }
-    function makeDeck(bank, mode, recent = [], random = Math.random, level = 1) {
+    // Revisió espaiada: els errors reapareixen aviat; els encerts ràpids
+    // s'allunyen progressivament. No s'eliminen mai del repertori.
+    function practicePriority(progress, now = Date.now()) {
+        const history = new Map();
+        const sessions = (progress && Array.isArray(progress.sessions) ? progress.sessions : []);
+        sessions.slice().sort((a, b) => a.at - b.at).forEach(s => {
+            (s.rows || []).forEach(r => {
+                if (!r.taskId) return;
+                const old = history.get(r.taskId) || { seen: 0, streak: 0, due: 0, last: 0, errors: 0 };
+                old.seen++;
+                old.last = s.at;
+                if (!r.correct) {
+                    old.streak = 0;
+                    old.errors++;
+                    old.due = s.at + 8 * 3600000;
+                } else {
+                    const fast = r.reactionMs <= r.targetMs * 0.65;
+                    old.streak = fast ? old.streak + 1 : Math.max(1, old.streak);
+                    const days = fast ? Math.min(60, Math.pow(2, Math.min(6, old.streak - 1))) : 1;
+                    old.due = s.at + days * 86400000;
+                }
+                history.set(r.taskId, old);
+            });
+        });
+        return task => {
+            const h = history.get(task.id);
+            if (!h) return 2; // novetats per davant de les repeticions dominades
+            if (h.due > now) return -10;
+            if (h.errors && h.streak === 0) return 5;
+            return 1 + Math.min(1, (now - h.due) / 86400000);
+        };
+    }
+    function makeDeck(bank, mode, recent = [], random = Math.random, level = 1, progress = null) {
         const m = MODES[mode] ? mode : 'scan', count = MODES[m].count, recentSet = new Set(recent);
         let pool = levelPool(bank, level);
         if (new Set(pool.map(t => t.family)).size < count) pool = bank;
-        const ordered = shuffled(pool, random).sort((a, b) => Number(recentSet.has(a.id)) - Number(recentSet.has(b.id)));
+        const priority = practicePriority(progress);
+        const ordered = shuffled(pool, random).sort((a, b) => {
+            const ap = priority(a) - (recentSet.has(a.id) ? 20 : 0);
+            const bp = priority(b) - (recentSet.has(b.id) ? 20 : 0);
+            return bp - ap;
+        });
         const used = new Set(), deck = [];
         // Alterna objectius i colors, i evita les dues versions del mateix patró en una sèrie.
         for (let i = 0; i < count; i++) {
@@ -282,7 +319,7 @@
         const ranked = KINDS.filter(k => out[k].attempts >= 6).sort((a, b) => out[a].accuracy - out[b].accuracy);
         return { byKind: out, weakest: ranked.length > 1 && out[ranked[0]].accuracy < out[ranked[ranked.length - 1]].accuracy ? ranked[0] : null };
     }
-    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, levelPool, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
+    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, levelPool, practicePriority, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
 
     // UI integrada, sense alterar el ROC, les ratxes ni el rellotge d'una partida.
     let bridge = {}, bank = null, session = null, board = null, chess = null, selected = null;
@@ -498,7 +535,7 @@
         if (modeOverride && MODES[modeOverride]) el('mode').value = modeOverride;
         const { mode, seconds } = controls(), p = load(), recent = p.sessions.slice(-4).flatMap(s => s.rows.map(r => r.taskId));
         const level = suggestedLevel(p, mode, seconds);
-        session = createSession({ mode, seconds, level, deck: makeDeck(bank, mode, recent, Math.random, level) });
+        session = createSession({ mode, seconds, level, deck: makeDeck(bank, mode, recent, Math.random, level, p) });
         recordBefore = records(p)[seconds];
         savedId = null; sessionAt = Date.now(); sessionId = sessionAt + '-' + Math.random().toString(36).slice(2);
         setView('practice'); el('storage').textContent = ''; next();
