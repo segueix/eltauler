@@ -19,13 +19,13 @@ export async function onRequestPost({ request, env }) {
     if (body.voice !== 'ca-ES-Standard-B' || body.languageCode !== 'ca-ES') return fail(400, 'Veu no admesa');
     const speakingRate = typeof body.speakingRate === 'number' && Number.isFinite(body.speakingRate)
         ? Math.max(0.8, Math.min(1.2, body.speakingRate)) : 1;
-    if (env.GOOGLE_TTS_RATE_LIMITER) {
-        const cf = request.cf || {};
-        const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
-        const key = (cf.country || 'xx') + ':' + ip;
-        const r = await env.GOOGLE_TTS_RATE_LIMITER.limit({ key });
-        if (!r.success) return fail(429, 'Massa peticions');
-    }
+    // Sense limitador no es consumeix cap quota facturable de Google.
+    if (!env.GOOGLE_TTS_RATE_LIMITER) return fail(503, 'Falta el limitador de peticions');
+    const cf = request.cf || {};
+    const ip = request.headers.get('CF-Connecting-IP') || 'unknown';
+    const key = (cf.country || 'xx') + ':' + ip;
+    const r = await env.GOOGLE_TTS_RATE_LIMITER.limit({ key });
+    if (!r.success) return fail(429, 'Massa peticions');
     const google = await fetch(
         'https://texttospeech.googleapis.com/v1/text:synthesize?key=' + encodeURIComponent(env.GOOGLE_TTS_API_KEY),
         { method: 'POST', headers: { 'content-type': 'application/json' },
