@@ -1721,10 +1721,8 @@ function buildHistoryReviewText(entry) {
 }
 
 
-// Lectura de les ressenyes. Amb una veu del dispositiu és LOCAL (Web Speech
-// API, cap text surt de l'app). Amb una veu neuronal Matxa (veuneural.js) el
-// text s'envia al servei en línia del BSC i, si no respon, es torna a la veu
-// del dispositiu.
+// Lectura en català: Matxa com a veu principal i Google Cloud Text-to-Speech
+// ca-ES-Standard-B d'emergència a través d'un servei segur. Cap veu local/eSpeak.
 const REVIEW_TTS_STATE = {
     voicesReady: false,
     isSpeaking: false,
@@ -2262,7 +2260,7 @@ function ensureHistoryTv() {
         getNeuralEffects: () => { const v = defaultNeuralTtsVoice(); return v ? v.effects : null; },
         updateNeuralSettings: updateNeuralTtsSettings
     };
-    HISTORY_TV.voice = TV.createTvVoice({ ...bridge, speechSynthesis: window.speechSynthesis,
+    HISTORY_TV.voice = TV.createTvVoice({ ...bridge, allowSystemVoice: false, speechSynthesis: window.speechSynthesis,
         SpeechSynthesisUtterance: window.SpeechSynthesisUtterance,
         neural: window.ElTaulerVeuNeural ? window.ElTaulerVeuNeural.sharedSpeaker() : null,
         loadPref: () => historyTvPrefs().voice, savePref: voice => historyTvPrefs({ voice }),
@@ -2470,7 +2468,7 @@ function getCoachDiagnosisText() {
 }
 
 function speakCoachDiagnosis() {
-    if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
+    if (!reviewTtsSupported()) { showToast('La veu en línia no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
     if (resumeReviewTtsIfPaused()) return;
     const text = getCoachDiagnosisText();
     if (!text) { showToast('Encara no hi ha diagnòstic per llegir.', 'warn'); updateReviewTtsButtons(); return; }
@@ -2478,25 +2476,15 @@ function speakCoachDiagnosis() {
 }
 
 function speakCurrentReview() {
-    if (!reviewTtsSupported()) { showToast('La lectura local no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
+    if (!reviewTtsSupported()) { showToast('La veu en línia no està disponible en aquest navegador.', 'warn'); updateReviewTtsButtons(); return; }
     if (!historyReplay || !historyReplay.entry) { showToast('Selecciona una partida primer.', 'warn'); updateReviewTtsButtons(); return; }
     if (resumeReviewTtsIfPaused()) return;
     beginReviewTts(buildHistoryReviewText(historyReplay.entry), 'history');
 }
 
 function initReviewTts() {
-    if (!reviewTtsSupported()) { updateReviewTtsButtons(); return; }
-    try {
-        const prev = window.speechSynthesis.onvoiceschanged;
-        window.speechSynthesis.onvoiceschanged = event => {
-            REVIEW_TTS_STATE.voicesReady = true;
-            if (typeof prev === 'function') { try { prev.call(window.speechSynthesis, event); } catch (e) {} }
-            updateReviewTtsButtons();
-            refreshReviewTtsSettingsUi();
-        };
-        window.speechSynthesis.getVoices();
-    } catch (e) {}
     updateReviewTtsButtons();
+    refreshReviewTtsSettingsUi();
 }
 
 // Exporta el text generat de la ressenya. La baixada clàssica via <a download>
@@ -35915,26 +35903,9 @@ function renderGameDebrief(targetEntry) {
 
 /* --------------------- Veu (TTS en català, opcional) --------------------- */
 
-function initCoachVoice() {
-    if (!('speechSynthesis' in window)) return;
-    const pickVoice = () => {
-        try {
-            const voices = window.speechSynthesis.getVoices() || [];
-            coachCatalanVoice = voices.find(v => /^ca([-_]|$)/i.test(v.lang || '')) || null;
-        } catch (e) { coachCatalanVoice = null; }
-        updateCoachSpeakButtons();
-    };
-    pickVoice();
-    try { window.speechSynthesis.addEventListener('voiceschanged', pickVoice); } catch (e) {}
-}
-
-function isCoachTtsAvailable() {
-    return ('speechSynthesis' in window) && !!coachCatalanVoice;
-}
-
-function updateCoachSpeakButtons() {
-    $('.coach-speak-btn').toggle(isCoachTtsAvailable());
-}
+function initCoachVoice() { updateCoachSpeakButtons(); }
+function isCoachTtsAvailable() { return reviewTtsSupported(); }
+function updateCoachSpeakButtons() { $('.coach-speak-btn').toggle(isCoachTtsAvailable()); }
 
 // TIER 4 — converteix la notació d'escacs a paraules perquè el TTS la llegeixi bé.
 function speakableChessText(text) {
@@ -35964,14 +35935,7 @@ function speakableChessText(text) {
 
 function speakCoachText(text) {
     if (!isCoachTtsAvailable() || !text) return;
-    try {
-        window.speechSynthesis.cancel();
-        const utterance = new SpeechSynthesisUtterance(speakableChessText(text));
-        utterance.voice = coachCatalanVoice;
-        utterance.lang = coachCatalanVoice.lang || 'ca-ES';
-        utterance.rate = 0.95;
-        window.speechSynthesis.speak(utterance);
-    } catch (e) { console.warn('TTS no disponible', e); }
+    beginReviewTts(speakableChessText(text), 'coach');
 }
 
 /* --------------------- Pla diari de l'entrenador --------------------- */
