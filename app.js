@@ -10470,18 +10470,11 @@ async function prepareBestLineExercise(fen, opts = {}) {
     const depth = opts.depth || 15;
     const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
 
-    const hiero = opts.engine === 'hiero';
-    const analyze = hiero ? analyzeHieroFenRobust : analyzeFenRobust;
-    if (hiero) {
-        if (!await ensureHieroStockfish()) return null;
-    } else {
-        if (!stockfish) { ensureStockfish(); await new Promise(r => setTimeout(r, 300)); }
-        let waitCount = 0;
-        while (!stockfishReady && waitCount < 20) { await new Promise(r => setTimeout(r, 100)); waitCount++; }
-        if (!stockfishReady) return null;
-    }
+    // Aquest preparador només és utilitzat pel generador de jeroglífics:
+    // Stockfish 19 és obligatori, sense cap camí de retorn al motor antic.
+    if (!await ensureHieroStockfish()) return null;
+    const analyze = analyzeHieroFenRobust;
     try {
-        if (!hiero) { try { stockfish.postMessage('stop'); } catch (e) {} }
         const steps = [];          // metadades per pas (gap, eval…)
         const playerStepData = [];  // objectes compatibles amb el playback (step1/2/3)
         const opponentMoves = [];   // rèpliques del rival (opponentMove/opponentMove2)
