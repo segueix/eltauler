@@ -9,8 +9,9 @@
 // servir quan la cua és buida: així sempre n'hi ha un a punt a l'instant, sense
 // dependre de les partides de l'usuari ni de la potència del mòbil.
 //
-// Ús:  node scripts/mine-hieroglyphics.js [--minutes 30] [--pages 3] [--max 80]
-//      --pages: pàgines en paral·lel (cada una amb el seu Stockfish d'un fil).
+// Ús: node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 240
+// --add: jeroglífics NOUS per execució; --max: capacitat de la reserva pública.
+// Les novetats entren al davant i els més antics es retiren en superar --max.
 // Requisits: Playwright amb Chromium. Els fitxers de CDN (jQuery, chess.js,
 // chessboard.js) es baixen una vegada a .cache/cdn amb el fetch de Node (en un
 // entorn amb proxy: NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=...).
@@ -26,7 +27,14 @@ const OUT = path.join(ROOT, 'jeroglifics-reserva.js');
 const CACHE = path.join(ROOT, '.cache', 'cdn');
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf('--' + name); return i >= 0 ? Number(args[i + 1]) : def; };
-const MINUTES = opt('minutes', 30), PAGES = opt('pages', 3), MAX = opt('max', 80);
+const MINUTES = opt('minutes', 28), PAGES = opt('pages', 3);
+const ADD = opt('add', 3), MAX = opt('max', 240);
+if (!Number.isInteger(ADD) || ADD < 1 || ADD > 12 ||
+    !Number.isInteger(MAX) || MAX < ADD ||
+    !Number.isInteger(PAGES) || PAGES < 1 || PAGES > 8 ||
+    !Number.isFinite(MINUTES) || MINUTES <= 0 || MINUTES > 120) {
+    throw new Error('Paràmetres invàlids: --add 1..12, --max >= add, --pages 1..8, --minutes 0..120.');
+}
 const CDN = {
     'jquery-3.6.0.min.js': 'https://code.jquery.com/jquery-3.6.0.min.js',
     'chess.min.js': 'https://cdnjs.cloudflare.com/ajax/libs/chess.js/0.10.3/chess.min.js',
@@ -59,6 +67,24 @@ ${END}
 `;
     fs.writeFileSync(OUT, src);
 }
+function reserveFenKey(fen) {
+    return typeof fen === 'string' ? fen.split(' ').slice(0, 4).join(' ') : '';
+}
+// Inserció atòmica: posició única, verificació obligatòria i rotació limitada.
+// Les posicions més noves van al davant perquè tothom pugui jugar les del dia.
+function addToPublicReserve(previous, item, capacity, publishedAt) {
+    if (!item || !item.fen || !sound(item)) return null;
+    const key = reserveFenKey(item.fen);
+    if (!key || previous.some(x => reserveFenKey(x.fen) === key)) return null;
+    const id = 'hgr_' + key.replace(/[^a-zA-Z0-9]/g, '').slice(0, 40);
+    const normalized = Object.assign({}, item, {
+        id, deviceCreated: null, createdAt: 0, updatedAt: 0,
+        startedAt: null, solvedAt: null, attempts: 0, status: 'new',
+        source: 'reserve', publishedAt
+    });
+    return [normalized].concat(previous).slice(0, capacity);
+}
+
 // Comprovació independent del navegador: línia legal i prova vàlida.
 function sound(item) {
     try {
@@ -94,13 +120,14 @@ async function main() {
     await ensureCdn();
     const server = await serve();
     const base = 'http://127.0.0.1:' + server.address().port;
-    const reserve = readReserve().filter(sound);
-    const known = new Set(reserve.map(x => x.fen.split(' ').slice(0, 4).join(' ')));
+    let reserve = readReserve().filter(sound).slice(0, MAX);
+    const known = new Set(reserve.map(x => reserveFenKey(x.fen)));
+    let added = 0;
     const deadline = Date.now() + MINUTES * 60000;
     const launch = { args: [] };
     if (fs.existsSync('/opt/pw-browsers/chromium')) launch.executablePath = '/opt/pw-browsers/chromium';
     const browser = await chromium.launch(launch);
-    console.log(`Reserva actual: ${reserve.length}. Minant ${MINUTES} min amb ${PAGES} pàgines…`);
+    console.log(`Reserva actual: ${reserve.length}. Objectiu: +${ADD}; màxim ${MINUTES} min amb ${PAGES} pàgines…`);
     const worker = async (n) => {
         const ctx = await browser.newContext({ serviceWorkers: 'block' });
         await ctx.route(/^https?:\/\/(?!127\.0\.0\.1)/, r => r.abort());
@@ -117,7 +144,7 @@ async function main() {
         const page = await ctx.newPage();
         await page.goto(base + '/index.html');
         await page.waitForFunction(() => typeof hgGenerateFromSelfPlaySeed === 'function', null, { timeout: 60000 });
-        while (Date.now() < deadline && reserve.length < MAX) {
+        while (Date.now() < deadline && added < ADD) {
             const item = await page.evaluate(async (knownList) => {
                 const exclude = new Set(knownList);
                 const cand = await hgGenerateFromSelfPlaySeed(() => false, exclude, {});
@@ -126,14 +153,15 @@ async function main() {
                 return it;
             }, Array.from(known));
             if (!item) continue;
-            const key = item.fen.split(' ').slice(0, 4).join(' ');
-            if (known.has(key) || !sound(item)) continue;
+            const key = reserveFenKey(item.fen);
+            if (known.has(key) || added >= ADD) continue;
+            const next = addToPublicReserve(reserve, item, MAX, Date.now());
+            if (!next) continue;
             known.add(key);
-            // Camps propis de l'aparell fora; identificador estable.
-            Object.assign(item, { id: 'hgr_' + key.replace(/[^a-zA-Z0-9]/g, '').slice(0, 40), deviceCreated: null, createdAt: 0, updatedAt: 0, startedAt: null, solvedAt: null, attempts: 0, status: 'new' });
-            reserve.push(item);
+            reserve = next;
+            added++;
             writeReserve(reserve);
-            console.log(`[pàgina ${n}] ${reserve.length}: ${item.finalMotif} · ${item.sanLine.join(' ')} · ${item.fen}`);
+            console.log(`[pàgina ${n}] +${added}/${ADD}: ${item.finalMotif} · ${item.sanLine.join(' ')} · ${item.fen}`);
         }
         await ctx.close();
     };
@@ -141,8 +169,13 @@ async function main() {
     await browser.close();
     server.close();
     writeReserve(reserve);
-    console.log(`Fet: ${reserve.length} jeroglífics a ${path.relative(ROOT, OUT)}.`);
+    console.log(`Fet: +${added}/${ADD} nous, ${reserve.length} disponibles a ${path.relative(ROOT, OUT)}.`);
+    if (added < ADD) console.warn(`AVÍS: només ${added} de ${ADD}; mai no publiquem problemes sense verificar.`);
+    if (process.env.GITHUB_STEP_SUMMARY) {
+        fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+            `### Reserva pública de jeroglífics\nNous verificats: **${added}/${ADD}**. Reserva: **${reserve.length}**.\n`);
+    }
 }
 
 if (require.main === module) main().catch(err => { console.error(err); process.exit(1); });
-module.exports = { readReserve, sound };
+module.exports = { readReserve, sound, reserveFenKey, addToPublicReserve };
