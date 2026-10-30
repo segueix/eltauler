@@ -264,3 +264,48 @@ test('si la partida minada ja contenia la combinació, es verifica sense anàlis
     expect(H.matches(cert)).toBe(true);
     expect(engine.mock.calls.some(c => c[1] === 14)).toBe(false);
 });
+
+test('la reserva minada per endavant garanteix un jeroglífic nou a punt, sense repetir-ne cap de conegut', async () => {
+    const app = setup();
+    const chosen = await app.run('chooseStockfishValidatedHieroglyphicCandidate([candidate])');
+    app.context.chosen = chosen;
+    const item = app.run("hgToQueueItem(chosen, 'reserve')");
+    const broken = Object.assign(JSON.parse(JSON.stringify(item)), { fen: '8/8/8/8/8/8/8/K6k w - - 0 1' });
+    const state = { queue: [], updatedAt: 0 };
+    const known = new Set();
+    const ctx = vm.createContext({
+        window: { ElTaulerHieroReserve: [broken, item] }, hgState: state,
+        hgEnsureState: () => state, hgAllKnownFens: () => new Set(known), hieroglyphicStats: { solvedFens: [] },
+        hgFenKey: f => Core.puzzleFenKey(f), hasVerifiedHieroglyphicConclusion: c => H.matches(c),
+        hgDeviceId: () => 'aparell', hgPruneQueue: () => {}, hgSaveState: jest.fn(), renderHieroglyphicBanner: () => {}
+    });
+    vm.runInContext(between('function hgReserveItems(', '// Certifica llavors de la reserva'), ctx);
+    expect(vm.runInContext('hgTopUpFromReserve(1)', ctx)).toBe(1);
+    expect(state.queue).toHaveLength(1);
+    expect(state.queue[0].fen).toBe(candidate.fen);
+    expect(state.queue[0].source).toBe('reserve');
+    expect(state.queue[0].status).toBe('new');
+    expect(H.matches(state.queue[0])).toBe(true);
+    // Ja és a la cua (o a l'historial, o resolt): no se'n torna a treure.
+    known.add(Core.puzzleFenKey(candidate.fen));
+    expect(vm.runInContext('hgTopUpFromReserve(1)', ctx)).toBe(0);
+    known.clear();
+    ctx.hieroglyphicStats.solvedFens = [candidate.fen];
+    expect(vm.runInContext('hgTopUpFromReserve(1)', ctx)).toBe(0);
+});
+
+test('tots els jeroglífics de la reserva tenen una línia legal i la prova vàlida', () => {
+    const reserve = require('../jeroglifics-reserva.js');
+    const { sound } = require('../scripts/mine-hieroglyphics.js');
+    expect(Array.isArray(reserve)).toBe(true);
+    const keys = new Set();
+    for (const item of reserve) {
+        expect(sound(item)).toBe(true);
+        expect(item.solutionMoves).toHaveLength(3);
+        expect(item.replyMoves).toHaveLength(2);
+        expect(item.origin).toBe('engine_selfplay');
+        const key = Core.puzzleFenKey(item.fen);
+        expect(keys.has(key)).toBe(false);
+        keys.add(key);
+    }
+});

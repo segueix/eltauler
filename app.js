@@ -21919,7 +21919,9 @@ function hgRememberTried(fen) {
 async function hgMineSelfPlayGame(shouldAbort, opts = {}) {
     if (typeof Chess === 'undefined' || !await ensureHieroStockfish()) return 0;
     const lowEnd = hgIsLowEndDevice();
-    const depth = lowEnd ? 8 : 10, moveTimeMs = lowEnd ? 250 : 400;
+    // Profunditat 10 també en mode lleuger: a profunditat 8 gairebé cap llavor no
+    // aguanta la comprovació (mesurat: 0 de 20); el temps màxim protegeix el mòbil.
+    const depth = 10, moveTimeMs = lowEnd ? 300 : 400;
     const deadline = Date.now() + (opts.budgetMs || (lowEnd ? 30000 : 50000));
     const known = opts.excludeFens instanceof Set ? opts.excludeFens : hgAllKnownFens();
     const cfg = ElTaulerCore.HIERO_MINING;
@@ -22033,6 +22035,34 @@ async function hgCertifySeed(seed, shouldAbort) {
         if (cand) return cand;
     }
     return null;
+}
+// Reserva minada per endavant amb el mateix autojoc i la mateixa verificació
+// (jeroglifics-reserva.js, scripts/mine-hieroglyphics.js). Garanteix que hi hagi
+// sempre almenys un jeroglífic nou a punt, a l'instant, encara que l'aparell sigui
+// lent o no hi hagi partides; la resta de la cua l'omple el generador de l'aparell.
+function hgReserveItems() {
+    const list = typeof window !== 'undefined' && window.ElTaulerHieroReserve;
+    return Array.isArray(list) ? list : [];
+}
+function hgTopUpFromReserve(want = 1) {
+    hgEnsureState();
+    const known = hgAllKnownFens();
+    (hieroglyphicStats.solvedFens || []).forEach(f => known.add(hgFenKey(f)));
+    let added = 0;
+    for (const it of hgReserveItems()) {
+        if (added >= want) break;
+        const key = hgFenKey(it && it.fen);
+        if (!key || known.has(key) || !hasVerifiedHieroglyphicConclusion(it)) continue;
+        const now = Date.now();
+        hgState.queue.push(Object.assign(JSON.parse(JSON.stringify(it)), {
+            id: 'hg_' + now.toString(36) + Math.random().toString(36).slice(2, 8),
+            createdAt: now, updatedAt: now, deviceCreated: hgDeviceId(), source: 'reserve', status: 'new'
+        }));
+        known.add(key);
+        added++;
+    }
+    if (added) { hgPruneQueue(); hgState.updatedAt = Date.now(); hgSaveState({ flush: true }); renderHieroglyphicBanner(); }
+    return added;
 }
 // Certifica llavors de la reserva (i, si és buida, en mina una partida nova).
 async function hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens = new Set(), diag = null) {
@@ -22278,6 +22308,8 @@ async function hgTick(shouldAbortOuter) {
         // Ja n'hi ha una en marxa (aquest mateix cicle torna cada pocs segons).
         if (hgGenerating || hgManualBurstRunning) return;
         const target = hgDeviceTarget();
+        // Sempre n'hi ha d'haver almenys un a punt: si la cua és buida, de la reserva.
+        if (hgNewCount() === 0) hgTopUpFromReserve(1);
         const newCount = hgNewCount();
         if (newCount >= target) { renderHieroglyphicBanner(); return; }
         // Mode lleuger: només ajuda quan la cua global és 0 o 1.
@@ -22395,6 +22427,7 @@ function renderHieroglyphicBanner() {
     const generating = hgState.generation.active || hgGenerating || hgManualBurstRunning;
     let status = 'Preparats';
     if (hgState.settings.enabled === false) status = 'Desactivat';
+    else if (hgManualBurstRunning) status = 'Buscant combinacions…';
     else if (generating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
     else if (hgCloudSyncing()) status = 'Sincronitzant…';
     else if (!hgBackgroundEnabled()) status = 'Generació manual';
@@ -22418,6 +22451,7 @@ function renderHieroglyphicBanner() {
 // l'objectiu del dispositiu.
 let hgManualBurstRunning = false;
 let hgManualBurstAbort = false;
+let hgPendingAutoPlay = false;     // s'ha demanat obrir-lo en acabar la cerca en curs
 
 function hgSetBannerProgress(fraction, label, working) {
     const wrap = document.getElementById('hg-banner-progress');
@@ -22436,89 +22470,112 @@ function hgSetBannerProgress(fraction, label, working) {
     if (txt) txt.textContent = (label !== null && label !== undefined) ? label : (pct + '%');
 }
 
-async function hgManualGenerateBurst() {
+// Bucle comú de generació sota demanda («Generar ara» i obrir la secció amb la
+// cua buida). No es rendeix al primer intent sense resultat: l'autojoc només
+// troba una combinació neta en una part de les posicions, així que continua
+// fins a tenir `goal` jeroglífics nous, fins que l'usuari l'atura o fins al temps
+// màxim. Si ja hi ha una generació en marxa (la de segon pla, que omple la
+// mateixa cua), l'espera en lloc de fallar amb «ocupat».
+const HG_ON_DEMAND_MAX_MS = 8 * 60000;
+async function hgRunUntil(goal, opts = {}) {
+    const started = Date.now(), startCount = hgNewCount();
+    const stop = () => !!(opts.shouldStop && opts.shouldStop());
+    const result = (extra) => Object.assign({ made: Math.max(0, hgNewCount() - startCount), attempts, diag: lastDiag }, extra);
+    let attempts = 0, lastDiag = null;
+    const progress = () => { if (typeof opts.onProgress === 'function') { try { opts.onProgress({ elapsedMs: Date.now() - started, attempts, count: hgNewCount() }); } catch (e) {} } };
+    while (hgNewCount() < goal) {
+        if (stop()) return result({ aborted: true });
+        if (Date.now() - started > (opts.maxMs || HG_ON_DEMAND_MAX_MS)) return result({ timedOut: true });
+        if (hgGenerating) {
+            await new Promise(r => setTimeout(r, 400));
+        } else {
+            attempts++;
+            let cand = null;
+            try { cand = await hgGenerateOne(stop, { allowSelfPlay: true }); } catch (e) { cand = null; }
+            lastDiag = hgLastGenDiag;
+            if (cand && !hgAllKnownFens().has(hgFenKey(cand.fen))) {
+                hgEnsureState();
+                hgState.queue.push(hgToQueueItem(cand, 'manual'));
+                hgState.generation.lastSuccessAt = Date.now();
+                hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
+                hgState.generation.lastError = null;
+                hgPruneQueue();
+                hgState.updatedAt = Date.now();
+                hgSaveState();
+            } else if (lastDiag && lastDiag.reason === 'no_engine') {
+                // Sense motor no té cap sentit continuar provant.
+                return result({ failed: true });
+            }
+        }
+        progress();
+        renderHieroglyphicBanner();
+    }
+    return result({ done: true });
+}
+const hgClock = (ms) => { const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0'); };
+
+// opts.goal: quants n'hi ha d'haver de nous en acabar (per defecte, l'objectiu
+// de l'aparell, i almenys un més dels que ja hi ha). opts.autoPlay: en acabar
+// bé, obre el jeroglífic (si l'usuari encara és a l'inici).
+async function hgManualGenerateBurst(opts = {}) {
     // Segon clic mentre corre = cancel·la la tanda.
-    if (hgManualBurstRunning) { hgManualBurstAbort = true; return; }
+    if (hgManualBurstRunning) { hgManualBurstAbort = true; return null; }
     hgManualBurstRunning = true;
     hgManualBurstAbort = false;
     const btn = document.getElementById('btn-hieroglyphic-generate');
     if (btn) { btn.classList.add('is-generating'); btn.textContent = '✋ Atura'; }
     hgEnsureState();
-    const target = Math.max(1, hgDeviceTarget());
     const startCount = hgNewCount();
     // Si la cua ja és plena, genera'n almenys un extra perquè el botó sempre faci alguna cosa.
-    const goal = Math.max(target, startCount + 1);
-    const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
-    let lastCount = startCount;
-    let lastProgressAt = Date.now();
-    let failDiag = null;
-    const STALL_MS = 30000;   // si en 30 s no avança res (ni el fons), ho donem per encallat
-    const setProg = () => {
+    const goal = opts.goal || Math.max(Math.max(1, hgDeviceTarget()), startCount + 1);
+    const setProg = (p) => {
         const shown = Math.min(hgNewCount(), goal);
-        hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `Generant… ${shown}/${goal}`, true);
+        const time = p ? ' · ' + hgClock(p.elapsedMs) : '';
+        hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `Buscant combinacions… ${shown}/${goal}${time}`, true);
+        const statusEl = document.getElementById('hg-banner-status');
+        if (statusEl) statusEl.textContent = 'Buscant combinacions…';
     };
-    setProg();
+    setProg(null);
+    // El rellotge de la barra avança encara que un intent duri una estona.
+    const t0 = Date.now();
+    const ticker = setInterval(() => { if (hgManualBurstRunning) setProg({ elapsedMs: Date.now() - t0 }); }, 1000);
+    let res = null;
     try {
-        while (!hgManualBurstAbort && hgNewCount() < goal) {
-            if (hgGenerating) {
-                // Ja hi ha una generació en marxa (típicament la de segon pla, que
-                // omple la MATEIXA cua). En comptes de fallar amb "busy", espera-la:
-                // el seu resultat també ens acosta a l'objectiu.
-                await new Promise(r => setTimeout(r, 400));
-            } else {
-                let cand = null;
-                try { cand = await hgGenerateOne(() => hgManualBurstAbort, { allowSelfPlay: true }); }
-                catch (e) { cand = null; }
-                if (hgManualBurstAbort) break;
-                if (cand && !hgAllKnownFens().has(norm(cand.fen))) {
-                    hgEnsureState();
-                    hgState.queue.push(hgToQueueItem(cand, 'manual'));
-                    hgState.generation.lastSuccessAt = Date.now();
-                    hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
-                    hgState.generation.lastError = null;
-                    hgPruneQueue();
-                    hgState.updatedAt = Date.now();
-                    // Desa a disc a cada un (per no perdre'n cap), però NO forcem la
-                    // pujada al núvol dins del bucle: es fa una sola vegada al final
-                    // (evita que l'estat parpellegi a "Sincronitzant…" a cada puzzle).
-                    hgSaveState();
-                } else if (!hgGenerating) {
-                    // La NOSTRA generació no ha donat res i ningú més està generant:
-                    // guarda el motiu concret i atura (esperar no serviria de res).
-                    failDiag = hgLastGenDiag;
-                    break;
-                }
-            }
-            // Progrés real per la cua (compta també el que afegeix el segon pla).
-            const now = hgNewCount();
-            if (now > lastCount) { lastCount = now; lastProgressAt = Date.now(); }
-            else if (Date.now() - lastProgressAt > STALL_MS) { failDiag = failDiag || hgLastGenDiag || { reason: 'stalled' }; break; }
-            setProg();
-            renderHieroglyphicBanner();
-        }
+        // Si l'usuari ha demanat obrir-ne un i ja n'hi ha, no cal esperar la resta.
+        const wantsOne = () => (opts.autoPlay || hgPendingAutoPlay) && hgNewCount() > 0;
+        res = await hgRunUntil(goal, { shouldStop: () => hgManualBurstAbort || wantsOne(), onProgress: setProg });
+        if (res && res.aborted && !hgManualBurstAbort && wantsOne()) res = Object.assign({}, res, { aborted: false, done: true });
     } finally {
-        const aborted = hgManualBurstAbort;
-        const made = Math.max(0, hgNewCount() - startCount);
+        clearInterval(ticker);
+        const made = res ? res.made : Math.max(0, hgNewCount() - startCount);
         // Una sola pujada al núvol al final, si s'ha generat res de nou.
         if (made > 0) { try { hgSaveState({ flush: true }); } catch (e) {} }
         hgManualBurstRunning = false;
         hgManualBurstAbort = false;
-        // Mostra breument el 100% quan s'ha completat, i després amaga la barra.
-        if (!aborted && made > 0) hgSetBannerProgress(Math.min(1, hgNewCount() / goal), '100%', false);
+        if (res && res.done) hgSetBannerProgress(1, '100%', false);
         setTimeout(() => { if (!hgManualBurstRunning) hgSetBannerProgress(null); }, 900);
         if (btn) { btn.classList.remove('is-generating'); btn.textContent = '⚡ Generar ara'; }
         renderHieroglyphicBanner();
-        if (aborted) {
+        const autoPlay = opts.autoPlay || hgPendingAutoPlay;
+        hgPendingAutoPlay = false;
+        if (res && res.done && autoPlay) {
+            // Encara és a l'inici: obre'l directament. Si ja és en una altra
+            // pantalla, només l'avisa (no l'interrompem).
+            if ($('#start-screen').is(':visible')) void openHieroglyphicsFromBanner();
+            else showToast('Ja tens un jeroglífic nou a punt.', 'success');
+        } else if (res && res.aborted) {
             showToast(made > 0 ? `Generació aturada (${made} de nou${made === 1 ? '' : 's'}).` : 'Generació aturada.', 'info');
         } else if (made > 0) {
             showToast(made === 1 ? 'S\'ha generat 1 jeroglífic nou.' : `S'han generat ${made} jeroglífics nous.`, 'success');
-        } else {
-            // Cap generat: explica el MOTIU concret (diagnòstic de l'últim intent real).
-            const diag = failDiag || hgLastGenDiag;
-            try { console.warn('[HG] Generació manual sense resultat:', diag); } catch (e) {}
-            showToast('No s\'ha pogut generar: ' + hgGenReasonText(diag), 'warn');
+        } else if (res) {
+            const diag = res.diag || hgLastGenDiag;
+            try { console.warn('[HG] Generació sota demanda sense resultat:', res, diag); } catch (e) {}
+            showToast(res.timedOut
+                ? `Després de ${Math.round(HG_ON_DEMAND_MAX_MS / 60000)} minuts no ha sortit cap combinació prou neta. La generació continua en segon pla mentre ets a l’app.`
+                : 'No s\'ha pogut generar: ' + hgGenReasonText(diag), 'warn');
         }
     }
+    return res;
 }
 
 // Entrada a la secció des del bàner (o des de qualsevol accés a jeroglífics):
@@ -22529,36 +22586,24 @@ async function openHieroglyphicsFromBanner() {
     if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
     const pref = hieroglyphicPreferredFinalMotif || 'any';
     // 1) Serveix un jeroglífic JUGABLE de la cua (descartant els malmesos).
-    const chosen = hgConsumePlayable(pref);
+    let chosen = hgConsumePlayable(pref);
+    // Cua buida: un de la reserva minada per endavant, a l'instant.
+    if (!chosen && hgTopUpFromReserve(1)) chosen = hgConsumePlayable(pref);
     if (chosen) { await startPersonalHieroglyphicFromLastGame(null, chosen); return; }
     // 2) Rebost antic en memòria (compatibilitat).
     if (Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length) {
         await startPersonalHieroglyphicFromLastGame(null); return;
     }
-    // 3) Un jeroglífic pendent de l'historial (per no deixar l'usuari sense res).
+    // 3) Cap de nou a punt: se'n busca un sota demanda, amb el progrés a la
+    //    barra del bàner (es pot aturar). Quan surt, s'obre sol.
+    if (hgManualBurstRunning) { showToast('Ja s’està buscant un jeroglífic: s’obrirà sol quan estigui a punt.', 'info'); hgPendingAutoPlay = true; return; }
+    showToast('Buscant un jeroglífic nou… Pot trigar una estona; s’obrirà sol.', 'info');
+    const res = await hgManualGenerateBurst({ goal: hgNewCount() + 1, autoPlay: true });
+    if (res && res.done) return;
+    // 4) No n'ha sortit cap (aturat o temps esgotat): un de pendent de l'historial, o l'historial.
     const retry = retryableHieroglyphicHistory()[0];
-    // 4) Genera'n un de nou de manera prioritària.
-    const statusEl = document.getElementById('hg-banner-status');
-    if (statusEl) statusEl.textContent = 'Preparant el primer jeroglífic…';
-    showToast('Preparant el primer jeroglífic…', 'info');
-    let cand = null;
-    try { cand = await hgGenerateOne(() => false, { allowSelfPlay: true }); } catch (e) {}
-    if (cand) {
-        hgEnsureState();
-        const item = hgToQueueItem(cand, 'manual');
-        hgState.queue.push(item);
-        hgPruneQueue();
-        hgState.updatedAt = Date.now();
-        hgSaveState({ flush: true });
-        const pick = hgConsumePlayable(cand.finalMotif || 'any') || hgQueueItemToChosen(item);
-        await startPersonalHieroglyphicFromLastGame(null, pick);
-        return;
-    }
-    if (retry) { retryHieroglyphicFromHistory(retry.id); return; }
-    // 5) Sense res per jugar: obre l'historial (sempre accessible) i informa.
-    const hasGames = Array.isArray(gameHistory) && gameHistory.length > 0;
-    showToast(hasGames ? 'No he pogut preparar cap jeroglífic ara mateix. Aquí tens l’historial mentrestant.' : 'Juga unes quantes partides i podré crear jeroglífics a partir dels teus moments clau.', 'warn');
-    showHieroglyphicHistoryModal();
+    if (retry && !(res && res.aborted)) { retryHieroglyphicFromHistory(retry.id); return; }
+    if (!(res && res.aborted)) showHieroglyphicHistoryModal();
     renderHieroglyphicBanner();
 }
 // Modal d'historial de jeroglífics: SEMPRE accessible des del menú (no depèn de
