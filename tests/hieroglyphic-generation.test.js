@@ -111,3 +111,27 @@ test('la creació de jeroglífics té motor SF19 independent i sense fallback an
     expect(selfplay).not.toContain('hgRandomSeedFen');
     expect(selfplay).not.toContain("new Worker(STOCKFISH_URL)");
 });
+
+test('l’autojoc de Stockfish produeix FENs de partides legals sense inventar posicions', async () => {
+    const mockEngine = jest.fn(async fen => {
+        const g = new Chess(fen);
+        const legal = g.moves({ verbose: true });
+        const m = legal.find(x => x.piece === 'p' && !x.captured) || legal[0];
+        if (!m) return null;
+        const u = m.from + m.to + (m.promotion || '');
+        return { bestMove: { move: u, eval: 15, evalType: 'cp' },
+            alternatives: [{ move: u, eval: 15, evalType: 'cp' }] };
+    });
+    const ctx = vm.createContext({
+        Chess, hgIsLowEndDevice: () => true, analyzeHieroFenRobust: mockEngine
+    });
+    vm.runInContext(between('async function hgSelfPlaySeedFens(', 'async function hgGenerateFromSelfPlaySeed('), ctx);
+    const fens = await vm.runInContext('hgSelfPlaySeedFens(() => false)', ctx);
+    expect(mockEngine.mock.calls.length).toBeGreaterThanOrEqual(10);
+    expect(fens.length).toBeGreaterThan(0);
+    expect(fens.length).toBeLessThanOrEqual(2);
+    for (const fen of fens) {
+        expect(new Chess().load(fen)).toBe(true);
+        expect(fen).not.toBe(new Chess().fen());
+    }
+});
