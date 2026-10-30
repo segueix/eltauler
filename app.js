@@ -21987,7 +21987,7 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
             if (diag.aborted) diag.reason = 'aborted';
             else if (!diag.engine) diag.reason = 'no_engine';
             else if (diag.error) diag.reason = 'error';
-            else if (diag.candidates === 0 && (!Array.isArray(gameHistory) || gameHistory.length === 0)) diag.reason = 'no_games';
+            else if (!diag.selfPlayTried && diag.candidates === 0 && (!Array.isArray(gameHistory) || gameHistory.length === 0)) diag.reason = 'no_games';
             else if (diag.gameRealFresh > 0) diag.reason = 'validation_rejected';
             else if (diag.candidates > 0 && diag.gameRealFresh === 0) diag.reason = 'all_known';
             else if (diag.selfPlayTried) diag.reason = 'selfplay_empty';
