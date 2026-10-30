@@ -8368,7 +8368,9 @@
             'chess_gameHistory', 'chess_importedGameHistory', 'chess_reviewHistory',
             'chess_savedErrors', 'chess_recentErrors', 'chess_eloHistory',
             'chess_puzzles', 'chess_triaHistory', 'eltauler_hieroglyphic_history',
-            'eltauler_growth_task_history', 'chess_preparedExerciseHistory'
+            'eltauler_growth_task_history', 'chess_preparedExerciseHistory',
+            'chess_recentGames', 'chess_calibrationGames', 'eltauler_recent_hieroglyphics',
+            'eltauler_recent_human_plans'
         ];
         arrayKeys.forEach(key => {
             const a = syncParse(local[key]), b = syncParse(cloud[key]);
@@ -8377,7 +8379,9 @@
                 merged[key] = JSON.stringify(Array.isArray(a) ? a : b); return;
             }
             const limit = key === 'eltauler_growth_task_history' ? 20
-                : key === 'eltauler_hieroglyphic_history' ? 10 : null;
+                : key === 'eltauler_hieroglyphic_history' ? 10
+                : key === 'chess_recentGames' ? 50
+                : key === 'eltauler_recent_hieroglyphics' || key === 'eltauler_recent_human_plans' ? 30 : null;
             merged[key] = JSON.stringify(syncUnionEntries(a, b, limit));
         });
         const setKeys = ['chess_completedOpenings', 'chess_unlockedBadges', 'chess_eloMilestones'];
