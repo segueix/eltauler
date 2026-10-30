@@ -5428,7 +5428,8 @@
             phase: 20,
             difficulty: 15,
             novelty: 12,
-            repetition: 20
+            repetition: 20,
+            probableReply: 12
         },
         tieBandScore: 6,          // candidates «pràcticament empatades»
 
@@ -5460,6 +5461,17 @@
         recentWindow: 6,
         // El motiu concret reforça la selecció, mai per sobre dels filtres objectius.
         subthemeMatchBoost: 0.5,
+        // Segona passada limitada de Stockfish 19: no és una probabilitat
+        // estadística, sinó una resposta TEMPTADORA verificada pel motor.
+        probableReply: {
+            minPlausibility: 0.62,
+            minLossCp: 140,
+            minDepth: 7,
+            maxMainCandidates: 2,
+            maxProbes: 2,
+            moveTimeMs: 330,
+            timeoutExtraMs: 1000
+        },
         // Una prova superada rebaixa el pes de la debilitat; una de fallada el puja.
         progress: { passDamp: 0.12, failBoost: 0.10, partialDamp: 0.04, minWeightFloor: 0.15 },
 
@@ -6225,6 +6237,94 @@
         return best;
     }
 
+    // ----------------------------------------------------------------------
+    //  Respostes humanes temptadores i comprovació independent del motor
+    // ----------------------------------------------------------------------
+    // Sense dades empíriques de freqüències per jugada, no hi ha percentatges
+    // legítims. Aquesta heurística només proposa captures, escacs i altres
+    // decisions naturals; Stockfish ha de verificar la pèrdua en centipeons.
+    // En posicions sense un atractiu clar NO es prediu cap errada.
+    function antidoteTemptingReplies(fen, enemyMoveUci, expectedPv, elo, ChessCtor, config) {
+        const cfg = (config || ANTIDOTE_CONFIG).probableReply;
+        if (!cfg || typeof ChessCtor !== 'function' || !fen
+            || typeof enemyMoveUci !== 'string' || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(enemyMoveUci)) return [];
+        let board, moved;
+        try {
+            board = new ChessCtor(fen);
+            moved = board.move({
+                from: enemyMoveUci.slice(0, 2), to: enemyMoveUci.slice(2, 4),
+                promotion: enemyMoveUci[4] || 'q'
+            });
+        } catch (e) { return []; }
+        if (!moved || board.game_over()) return [];
+        const pv = Array.isArray(expectedPv) ? expectedPv : [];
+        const bestReply = pv[0] === enemyMoveUci ? (pv[1] || null) : null;
+        let replies = [];
+        try { replies = board.moves({ verbose: true }); } catch (e) { return []; }
+        const e = antidoteNum(elo, 1200);
+        const scored = replies.map(m => {
+            const uci = m.from + m.to + (m.promotion || '');
+            if (uci === bestReply || !/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(uci)) return null;
+            const capture = !!m.captured;
+            const check = /[+#]/.test(m.san || '');
+            const castle = !!(m.flags && /[kq]/.test(m.flags));
+            const promotion = !!m.promotion;
+            // Evita imaginar errors «probables» en moviments aleatoris.
+            let plausibility = 0;
+            let cue = null;
+            if (promotion) { plausibility = 0.95; cue = 'promoció'; }
+            else if (check) { plausibility = 0.88; cue = 'escac'; }
+            else if (capture) {
+                const values = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+                const target = values[m.captured] || 1;
+                const actor = values[m.piece] || 1;
+                // Captures de material aparentment avantatjoses o iguals.
+                plausibility = 0.72 + (target >= actor ? 0.1 : -0.05);
+                cue = 'captura';
+            } else if (castle) { plausibility = 0.65; cue = 'enroc'; }
+            else if ((m.piece === 'n' || m.piece === 'b')
+                && /^[a-h][18]$/.test(m.from) && e < 1300) {
+                plausibility = 0.63; cue = 'desenvolupament';
+            } else if (m.piece === 'p' && /[de][3456]/.test(m.to) && e < 1100) {
+                plausibility = 0.63; cue = 'peó central';
+            }
+            if (plausibility < cfg.minPlausibility) return null;
+            return { move: uci, san: m.san, plausibility: antidoteClamp01(plausibility), cue: cue };
+        }).filter(Boolean);
+        scored.sort((a, b) => (b.plausibility - a.plausibility) || a.move.localeCompare(b.move));
+        return scored;
+    }
+
+    // Avaluacions amb la MATEIXA perspectiva del rival: abans del seu moviment
+    // i després de la resposta del jugador. No s'accepten mats, profunditat
+    // insuficient, dades invàlides o cerques expirades.
+    function antidoteVerifyProbableReply(reply, rootCandidate, childAnalysis, config) {
+        const cfg = (config || ANTIDOTE_CONFIG).probableReply;
+        const base = rootCandidate || {};
+        if (!cfg || !reply || !base || !childAnalysis || childAnalysis.timedOut
+            || (base.evalType && base.evalType !== 'cp')
+            || antidoteNum(reply.plausibility, 0) < cfg.minPlausibility
+            || antidoteNum(childAnalysis.depth, 0) < cfg.minDepth) return null;
+        const first = Array.isArray(childAnalysis.alternatives) ? childAnalysis.alternatives[0] : null;
+        if (!first || (first.evalType && first.evalType !== 'cp')) return null;
+        const before = antidoteScoreValue(base);
+        const after = antidoteScoreValue(first);
+        if (before === null || after === null || antidoteIsMateValue(before)
+            || antidoteIsMateValue(after)) return null;
+        // El bàndol avaluat torna a ser el rival després de la resposta.
+        const loss = Math.round(after - before);
+        if (!isFinite(loss) || loss < cfg.minLossCp) return null;
+        return {
+            move: reply.move,
+            san: reply.san || reply.move,
+            cue: reply.cue || 'resposta natural',
+            plausibility: antidoteClamp01(reply.plausibility),
+            cpLoss: loss,
+            depth: Math.round(childAnalysis.depth),
+            verified: true
+        };
+    }
+
     // Varietat: penalitza repetir una categoria treballada fa poc, tret que
     // s'hi continuï fallant clarament.
     function antidoteRepetitionPenalty(family, profile, config, subtheme) {
@@ -6272,6 +6372,14 @@
         const difficultyFit = antidoteClamp01(1 - Math.abs(complexity - target));
         const repetition = antidoteRepetitionPenalty(weaknessMatch.family, profile, cfg, weaknessMatch.themeId);
         const novelty = antidoteClamp01(antidoteNum(cand.novelty, 1 - repetition));
+        // El bonus només afavoreix candidates amb debilitat ja observada i
+        // amb una resposta humana comprovat com a error pel segon anàlisi.
+        const risk = cand.probableReply;
+        const probableReply = weaknessMatch.match > 0 && risk && risk.verified === true
+            && antidoteNum(risk.cpLoss, 0) >= cfg.probableReply.minLossCp
+            ? antidoteClamp01(antidoteNum(risk.plausibility, 0))
+                * antidoteClamp01(antidoteNum(risk.cpLoss, 0) / 300)
+            : 0;
         const s = cfg.score;
         const components = {
             objectiveSafety: guard.objectiveSafety,
@@ -6279,6 +6387,7 @@
             phaseMatch: phaseMatch,
             difficultyFit: difficultyFit,
             novelty: novelty,
+            probableReply: probableReply,
             repetitionPenalty: repetition
         };
         const finalScore =
@@ -6287,6 +6396,7 @@
             + components.phaseMatch * s.phase
             + components.difficultyFit * s.difficulty
             + components.novelty * s.novelty
+            + components.probableReply * (s.probableReply || 0)
             - components.repetitionPenalty * s.repetition;
         return {
             move: cand.move || null,
@@ -6378,6 +6488,8 @@
             finalScore: chosen.score.finalScore,
             components: chosen.score.components,
             pv: Array.isArray(chosen.candidate.pv) ? chosen.candidate.pv : [],
+            probableReply: hasTest && chosen.candidate.probableReply
+                ? chosen.candidate.probableReply : null,
             test: hasTest
         };
     }
@@ -6410,6 +6522,10 @@
             bestResponse: null,
             bestResponseSan: null,
             responseCpLoss: null,
+            predictedReply: sel.probableReply ? sel.probableReply.move : null,
+            predictedReplySan: sel.probableReply ? sel.probableReply.san : null,
+            predictedCpLoss: sel.probableReply ? sel.probableReply.cpLoss : null,
+            predictedMatch: false,
             result: 'pending',
             severity: antidoteClamp01(antidoteNum(sel.themeStrength, 0.5)),
             at: antidoteNum(ctx.now, Date.now()) || Date.now()
@@ -6427,6 +6543,9 @@
         out.playerResponseSan = r.playerMoveSan || null;
         out.bestResponse = r.bestMove || null;
         out.bestResponseSan = r.bestMoveSan || null;
+        // La predicció només es contrasta quan ja s'ha fet la jugada.
+        out.predictedMatch = !!(out.predictedReply && r.playerMove
+            && out.predictedReply === r.playerMove);
 
         const cpLoss = (typeof r.cpLoss === 'number' && isFinite(r.cpLoss)) ? Math.max(0, r.cpLoss) : null;
         out.responseCpLoss = cpLoss;
@@ -6460,13 +6579,18 @@
     // Resum d'una partida ANTÍDOT.
     function antidoteGameSummary(tests) {
         const list = Array.isArray(tests) ? tests : [];
-        const summary = { total: 0, passed: 0, partial: 0, failed: 0, inconclusive: 0, themes: {} };
+        const summary = { total: 0, passed: 0, partial: 0, failed: 0, inconclusive: 0,
+            predictions: 0, predictionMatches: 0, themes: {} };
         list.forEach(t => {
             if (!t || !t.theme) return;
             summary.total += 1;
             const result = t.result === 'passed' || t.result === 'partial' || t.result === 'failed'
                 ? t.result : 'inconclusive';
             summary[result] += 1;
+            if (t.predictedReply && result !== 'inconclusive') {
+                summary.predictions += 1;
+                if (t.predictedMatch) summary.predictionMatches += 1;
+            }
             const acc = summary.themes[t.theme] || { total: 0, passed: 0, partial: 0, failed: 0, inconclusive: 0 };
             acc.total += 1;
             acc[result] += 1;
@@ -6685,7 +6809,8 @@
                 kind: 'failed',
                 title: '🔴 Prova fallada · ' + focus,
                 text: 'Revisa aquesta jugada.' + (best ? ' Era millor jugar ' + best + '.' : '')
-                    + ' La posició és al teu repàs.',
+                    + ' La posició és al teu repàs.'
+                    + (t.predictedMatch ? ' Era una de les respostes temptadores comprovades abans de moure.' : ''),
                 guide: lesson,
                 speech: speech,
                 toast: 'Aquest patró tornarà al teu entrenament',
@@ -6728,6 +6853,11 @@
             bestResponse: test.bestResponse || null,
             bestResponseSan: test.bestResponseSan || null,
             responseCpLoss: (typeof test.responseCpLoss === 'number') ? Math.round(test.responseCpLoss) : null,
+            predictedReply: /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(test.predictedReply || '') ? test.predictedReply : null,
+            predictedReplySan: test.predictedReplySan || null,
+            predictedCpLoss: typeof test.predictedCpLoss === 'number' && isFinite(test.predictedCpLoss)
+                ? Math.round(test.predictedCpLoss) : null,
+            predictedMatch: !!test.predictedMatch,
             result: test.result || 'inconclusive',
             // Resultat del PRIMER intent i marca de repetició: el resum ensenya
             // com ha acabat, però el perfil es queda amb com va començar.
@@ -9048,6 +9178,8 @@
         antidoteCandidateGuard,
         antidoteTargetComplexity,
         antidoteWeaknessMatch,
+        antidoteTemptingReplies,
+        antidoteVerifyProbableReply,
         antidoteRepetitionPenalty,
         scoreAntidoteCandidate,
         chooseAntidoteCandidate,
