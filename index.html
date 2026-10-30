@@ -8748,6 +8748,20 @@
             .antidote-stat-theme-bar > span { display:block; height:100%; background:linear-gradient(90deg,#7b68b8,#b9a6ff); }
             .antidote-stat-theme-pct { text-align:right; font-weight:700; }
             .antidote-stat-note { margin-top:10px; font-size:0.8rem; color:var(--text-secondary); }
+            .antidote-real-progress { margin-top:15px; padding-top:12px; border-top:1px solid rgba(155,142,207,.25); }
+            .antidote-real-progress h4 { margin:0 0 10px; font-size:.98rem; }
+            .antidote-progress-list { display:flex; flex-direction:column; gap:10px; }
+            .antidote-progress-row { padding:10px 12px; border-radius:10px; background:rgba(125,106,184,.08); border:1px solid rgba(125,106,184,.22); }
+            .antidote-progress-heading { display:flex; flex-wrap:wrap; gap:8px; justify-content:space-between; font-size:.84rem; }
+            .antidote-progress-status { font-weight:700; }
+            .antidote-progress-context, .antidote-progress-foot { font-size:.76rem; color:var(--text-secondary); margin-top:4px; }
+            .antidote-progress-pair { display:grid; grid-template-columns:75px minmax(0,1fr); gap:8px; align-items:center; margin-top:5px; font-size:.76rem; }
+            .antidote-progress-bar { height:7px; border-radius:5px; overflow:hidden; background:rgba(150,142,169,.23); }
+            .antidote-progress-bar > span { display:block; height:100%; background:#9680c9; }
+            .antidote-progress-pair:nth-last-of-type(2) .antidote-progress-bar > span { background:#717785; }
+            body.epaper-mode .antidote-progress-row { background:#f2f2f2; border-color:#cfcfcf; }
+            body.epaper-mode .antidote-progress-bar { background:#ddd; }
+            body.epaper-mode .antidote-progress-bar > span { background:#666; }
             @media (max-width: 420px) {
                 .antidote-stat-theme { grid-template-columns: minmax(0,1fr) 60px 44px; }
             }
@@ -9589,6 +9603,7 @@
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
     <script src="core.js?v=1.0.43"></script>
+    <script src="antidoteprogress.js?v=1.0.0"></script>
     <script src="hieroclosure.js?v=1.2.0"></script>
     <script src="jeroglifics-reserva.js?v=1.0.0"></script>
     <script src="reviewsacrifices.js?v=1.0.0"></script>
@@ -9614,7 +9629,7 @@
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.75';
+        window.APP_VERSION = '1.0.76';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
@@ -9625,7 +9640,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.136"></script>
+    <script src="app.js?v=1.0.137"></script>
 
     <!-- Service Worker Registration -->
     <script>

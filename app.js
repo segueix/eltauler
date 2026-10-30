@@ -30977,6 +30977,10 @@ function showAntidoteSummary(resultLabel, finalPrecision, entry) {
         }
     }
 
+    const longTerm = currentAntidoteRealProgress();
+    evoBox.append('<div class="antidote-real-progress"><h4>Progrés real entre partides</h4>'
+        + antidoteRealProgressHtml(longTerm, 3) + '</div>');
+
     const failed = judged.filter(t => t.result === 'failed' || t.result === 'partial');
     $('#btn-antidote-practice').toggle(failed.length > 0).off('click').on('click', () => {
         modal.hide();
@@ -31103,34 +31107,84 @@ function startAntidotePracticeFromTest(test) {
 }
 
 // ── Estadístiques ───────────────────────────────────────────────────────────
+// Càlcul en viu a partir de l'historial propi: un segon dispositiu que hagi
+// sincronitzat l'historial obté la mateixa evolució, sense sumar comptadors.
+function currentAntidoteRealProgress() {
+    if (!window.ElTaulerAntidoteProgress) return null;
+    try {
+        const owned = (Array.isArray(gameHistory) ? gameHistory : [])
+            .filter(e => e && !historyEntryIsImported(e));
+        return window.ElTaulerAntidoteProgress.analyze(owned);
+    } catch (e) { console.warn('[Antídot] seguiment del progrés no disponible', e); return null; }
+}
+
+function antidoteRealProgressHtml(report, maxRows) {
+    if (!report) return '<p class="antidote-stat-note">No es pot calcular el seguiment en aquest dispositiu.</p>';
+    const seen = report.rows.filter(r => r.status !== 'insuficient');
+    if (!seen.length) {
+        return '<p class="antidote-stat-note">Encara no hi ha prou proves comparables. Calen almenys 4 decisions per període i 2 partides diferents a cada període, del mateix tema, fase i ritme. Les repetides i les inconclusives no compten.</p>';
+    }
+    const names = {
+        'millora': 'Millora consistent',
+        'retrocess': 'Retrocés observat',
+        'indici-millora': 'Indici de millora',
+        'indici-retrocess': 'Indici de retrocés',
+        'sense-canvi-clar': 'Sense canvi clar'
+    };
+    const rows = seen.slice(0, maxRows || 6).map(r => {
+        const label = ElTaulerCore.antidoteWeaknessLabel(r.theme);
+        const sign = r.delta > 0 ? '+' : '';
+        const trend = names[r.status] || 'Sense conclusió';
+        return '<div class="antidote-progress-row">'
+            + '<div class="antidote-progress-heading"><strong>' + escapeHtml(label) + '</strong>'
+            + '<span class="antidote-progress-status">' + escapeHtml(trend) + '</span></div>'
+            + '<div class="antidote-progress-context">' + escapeHtml(r.context) + '</div>'
+            + '<div class="antidote-progress-pair"><span>Abans ' + r.previousRate + '%</span>'
+            + '<div class="antidote-progress-bar"><span style="width:' + r.previousRate + '%"></span></div></div>'
+            + '<div class="antidote-progress-pair"><span>Ara ' + r.recentRate + '%</span>'
+            + '<div class="antidote-progress-bar"><span style="width:' + r.recentRate + '%"></span></div></div>'
+            + '<div class="antidote-progress-foot">' + sign + r.delta
+            + ' punts · ' + r.n + ' proves abans i ' + r.n + ' després · '
+            + r.previousGames + ' i ' + r.recentGames + ' partides</div></div>';
+    }).join('');
+    return '<div class="antidote-progress-list">' + rows + '</div>'
+        + '<p class="antidote-stat-note">Comparació de primers intents en condicions semblants. Una diferència observada no garanteix una millora futura ni és una estimació d’ELO.'
+        + (report.rows.length > seen.length ? ' Hi ha ' + (report.rows.length - seen.length) + ' contextos amb mostres insuficients.' : '')
+        + '</p>';
+}
+
 function renderAntidoteStats() {
     const box = $('#antidote-stats');
     if (!box.length) return;
+    const owned = (Array.isArray(gameHistory) ? gameHistory : [])
+        .filter(e => e && !historyEntryIsImported(e));
     let stats;
-    try {
-        stats = ElTaulerCore.antidoteStatsFromHistory(
-            (Array.isArray(gameHistory) ? gameHistory : []).concat(
-                Array.isArray(importedGameHistory) ? importedGameHistory : []));
-    } catch (e) { stats = null; }
+    try { stats = ElTaulerCore.antidoteStatsFromHistory(owned); }
+    catch (e) { stats = null; }
     if (!stats || !stats.games) {
         box.html('<div class="antidote-stats-empty">Encara no has jugat cap partida contra el Rival Antídot.</div>');
         return;
     }
+    const real = currentAntidoteRealProgress();
     const themeRows = stats.themes.slice(0, 5).map(t =>
         '<div class="antidote-stat-theme"><span>' + escapeHtml(t.label) + '</span>'
         + '<span class="antidote-stat-theme-bar"><span style="width:' + Math.max(4, t.successRate) + '%"></span></span>'
         + '<span class="antidote-stat-theme-pct">' + t.successRate + '%</span></div>').join('');
+    const realBest = real && real.mostImproved;
     box.html(
         '<div class="stats-grid antidote-stats-grid">'
         + '<div class="stat-card"><div class="stat-card-value">' + stats.games + '</div><div class="stat-card-label">Partides jugades</div></div>'
         + '<div class="stat-card"><div class="stat-card-value">' + stats.passed + '</div><div class="stat-card-label">Proves superades</div></div>'
-        + '<div class="stat-card"><div class="stat-card-value">' + (stats.successRate === null ? '—' : stats.successRate + '%') + '</div><div class="stat-card-label">Percentatge d\'èxit</div></div>'
+        + '<div class="stat-card"><div class="stat-card-value">' + (stats.successRate === null ? '—' : stats.successRate + '%') + '</div><div class="stat-card-label">Percentatge d\'èxit acumulat</div></div>'
         + '<div class="stat-card"><div class="stat-card-value">' + stats.tests + '</div><div class="stat-card-label">Proves generades</div></div>'
         + '</div>'
         + (themeRows ? '<div class="antidote-stat-themes">' + themeRows + '</div>' : '')
         + '<div class="antidote-stat-note">'
-        + (stats.mostWorked ? 'Debilitat més treballada: <strong>' + escapeHtml(stats.mostWorked.label) + '</strong>. ' : '')
-        + (stats.mostImproved ? 'Amb més millora: <strong>' + escapeHtml(stats.mostImproved.label) + '</strong>.' : '')
+        + (stats.mostWorked ? 'Tema més treballat: <strong>' + escapeHtml(stats.mostWorked.label) + '</strong>. ' : '')
+        + (realBest ? 'Millora consistent observada: <strong>' + escapeHtml(ElTaulerCore.antidoteWeaknessLabel(realBest.theme))
+            + '</strong> (' + escapeHtml(realBest.context) + ').' : 'No s’ha confirmat cap millora consistent en les mostres comparables.')
+        + '</div><div class="antidote-real-progress"><h4>Seguiment del progrés real</h4>'
+        + antidoteRealProgressHtml(real, 8)
         + '</div>');
 }
 
