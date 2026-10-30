@@ -5428,6 +5428,15 @@
 
         #game-board-stage > .game-clocks { width:100%; margin:0 auto 8px; }
         #myBoard-broadcast { grid-column:1 / -1; }
+        body.device-desktop #game-screen.active .game-board-column > #myBoard-broadcast {
+            order: 2;
+            width: 100%;
+            margin: 0 0 12px;
+            box-sizing: border-box;
+        }
+        body.device-desktop #game-screen.active .game-board-column > #hieroglyphic-panel:not([style*="display:none"]) {
+            margin-bottom: 8px;
+        }
 
         /* Controls del tauler (tocar / arrossegar) */
         body.control-tap #myBoard { touch-action: manipulation; }
@@ -9352,6 +9361,9 @@
                 puguis provar una de millor. La <strong>Norma</strong> resumeix el principi que cal aplicar.
             </div>
 
+            <!-- Punt de retorn de Veu i ràdio a mòbil. A ordinador el mateix
+                 element s'insereix sota la descripció, sense duplicar controls. -->
+            <span id="myBoard-broadcast-home" hidden></span>
             <div id="myBoard-broadcast"></div>
 
         </div>
@@ -9534,7 +9546,7 @@
     </script>
     <script src="gamebroadcast.js?v=1.1.0"></script>
     <script src="historytv.js?v=1.0.1"></script>
-    <script src="boardexperience.js?v=1.0.4"></script>
+    <script src="boardexperience.js?v=1.0.5"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.5"></script>
     <script src="app.js?v=1.0.129"></script>
