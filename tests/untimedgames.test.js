@@ -126,6 +126,29 @@ test('tres o més partides es disposen d’antigues a recents i activen el carru
     expect(h.nodes.get('untimed-scroll-hint').style.display).toBe('');
 });
 
+test('aurèola daurada només al tauler que espera la jugada del jugador', () => {
+    const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
+    expect(html).toContain('#untimed-grid .daily-card-turn .daily-mini');
+    expect(html).toContain('@keyframes untimed-board-halo');
+    expect(html).toContain('animation: untimed-board-halo 2.8s ease-in-out infinite');
+    expect(html).toContain('@media (prefers-reduced-motion: reduce)');
+
+    const h = harness(new Map([[SAVED, JSON.stringify([
+        snapshot('white-turn', { moves: ['e4', 'e5'], playerColor: 'w' }),
+        snapshot('black-turn', { moves: ['e4', 'e5'], playerColor: 'b' })
+    ])]]));
+    h.context.renderUntimedGamesPanel();
+    const cards = [...h.nodes.get('untimed-grid').innerHTML.matchAll(
+        /<div class="daily-card ([^"]*)" data-untimed-id="([^"]+)"/g
+    )].map(m => ({ classes: m[1], id: m[2] }));
+    expect(cards).toHaveLength(2);
+    // La classe es determina pel torn real, no per la data o l'ordre del carrusel.
+    const white = cards.find(c => c.id === 'white-turn');
+    const black = cards.find(c => c.id === 'black-turn');
+    expect(white.classes).toContain('daily-card-turn');
+    expect(black.classes).not.toContain('daily-card-turn');
+});
+
 test('una jugada nova envia el tauler a la dreta; reobrir sense moure no el reordena', () => {
     const games = [
         snapshot('a', { savedAt: 1000 }),
