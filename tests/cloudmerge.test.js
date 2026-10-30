@@ -222,3 +222,52 @@ describe('mergeSyncSnapshots (instantànies clau→text senceres)', () => {
         expect('chess_dailyGames' in m2).toBe(false);
     });
 });
+
+
+describe('fusió additiva dels històrics i progressos independents', () => {
+    const obj = value => JSON.stringify(value);
+    const history = data => JSON.parse(data['chess_gameHistory'] || '[]');
+
+    test('partides i ressenyes dels dos aparells es conserven, amb una sola entrada per id', () => {
+        const local = {
+            chess_gameHistory: obj([{id:'a',moves:['e4','e5','Nf3'],revision:3,reviewedMoves:2},{id:'b',moves:['d4']}]),
+            chess_reviewHistory: obj([{id:'r1',date:'2026-10-20'}]),
+            chess_completedOpenings: obj(['C20','B12']),
+            chess_unlockedBadges: obj(['first_win']),
+            chess_savedErrors: obj([{fen:'pos1',playerMove:'e2e4'}])
+        };
+        const cloud = {
+            chess_gameHistory: obj([{id:'a',moves:['e4'],revision:1},{id:'c',moves:['c4']}]),
+            chess_reviewHistory: obj([{id:'r2',date:'2026-10-21'}]),
+            chess_completedOpenings: obj(['C20','D40']),
+            chess_unlockedBadges: obj(['first_win','tactics']),
+            chess_savedErrors: obj([{fen:'pos2',playerMove:'d2d4'}])
+        };
+        const both = Core.mergeSyncSnapshots(local,cloud);
+        expect(history(both).map(x=>x.id).sort()).toEqual(['a','b','c']);
+        expect(history(both).find(x=>x.id==='a').moves).toHaveLength(3);
+        expect(JSON.parse(both.chess_reviewHistory)).toHaveLength(2);
+        expect(JSON.parse(both.chess_completedOpenings).sort()).toEqual(['B12','C20','D40']);
+        expect(JSON.parse(both.chess_unlockedBadges).sort()).toEqual(['first_win','tactics']);
+        expect(JSON.parse(both.chess_savedErrors)).toHaveLength(2);
+        expect(Core.mergeSyncSnapshots(both,both)).toEqual(both);
+    });
+
+    test('els jeroglífics preparats i el progrés dels tests Tria no se substitueixen', () => {
+        const a = { eltauler_hieroglyphics_state: obj({queue:[{id:'one',fen:'fen-a',status:'new',updatedAt:1}],
+            history:[{id:'sol1',fen:'fen-s'}]}),
+            chess_triaProgress:obj({version:1,entries:{position1:{status:'mastered',attempts:2,lastAt:20}}}) };
+        const b = { eltauler_hieroglyphics_state: obj({queue:[{id:'two',fen:'fen-b',status:'new',updatedAt:2},
+            {id:'one',fen:'fen-a',status:'solved',updatedAt:3}],history:[{id:'sol2',fen:'fen-t'}]}),
+            chess_triaProgress:obj({version:1,entries:{position1:{status:'pending',attempts:1,lastAt:10},
+                position2:{status:'pending',attempts:1,lastAt:15}}}) };
+        const merged = Core.mergeSyncSnapshots(a,b);
+        const state = JSON.parse(merged.eltauler_hieroglyphics_state);
+        expect(state.queue.map(x=>x.id).sort()).toEqual(['one','two']);
+        expect(state.queue.find(x=>x.id==='one').status).toBe('solved');
+        expect(state.history).toHaveLength(2);
+        const tria = JSON.parse(merged.chess_triaProgress);
+        expect(Object.keys(tria.entries).sort()).toEqual(['position1','position2']);
+        expect(tria.entries.position1.status).toBe('mastered');
+    });
+});
