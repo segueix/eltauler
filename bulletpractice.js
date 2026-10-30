@@ -111,6 +111,11 @@
         (Array.isArray(real) ? real : []).forEach(entry => { const task = realTask(entry); if (task) bank.push(task); });
         return bank;
     }
+    function generatedId(fen) {
+        let h = 2166136261;
+        for (let i = 0; i < fen.length; i++) h = Math.imul(h ^ fen.charCodeAt(i), 16777619);
+        return 'gen-' + (h >>> 0).toString(36);
+    }
     // Generació local acotada: es reprodueixen jugades legals des de problemes
     // reals i només s'accepten posicions amb mat en una comprovat exhaustivament.
     // No es fa passar una captura no analitzada pel motor com a exercici verificat.
@@ -137,7 +142,7 @@
             const answers = solutions(Chess, task);
             if (!answers.length) continue;
             // Amb mat en una, la llista inclou tots els mats legals: mai falsos errors.
-            const id = 'gen-' + fen.split(' ').slice(0, 4).join('|');
+            const id = generatedId(fen);
             const candidate = { id, family: id, kind: 'mate', fen, answers,
                 rating: Math.max(600, Math.min(1950, origin.rating)), generated: true };
             seen.add(fen); result.push(candidate);
@@ -154,7 +159,7 @@
                 if (c.game_over() || c.in_check()) continue;
                 const answers = solutions(Chess, { kind: 'mate', fen: item.fen });
                 if (!answers.length || seen.has(item.fen)) continue;
-                const id = 'gen-' + item.fen.split(' ').slice(0, 4).join('|');
+                const id = generatedId(item.fen);
                 out.push({ id, family: id, fen: item.fen, kind: 'mate', answers,
                     rating: Number.isFinite(item.rating) ? clamp(item.rating, 600, 1950) : 1100, generated: true });
                 seen.add(item.fen);
