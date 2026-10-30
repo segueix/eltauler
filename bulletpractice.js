@@ -149,6 +149,85 @@
         }
         return result;
     }
+    // Analista UCI independent per a les noves captures i defenses.
+    // Cada moviment candidat es comprova amb searchmoves: no es pressuposa que
+    // la millor jugada global sigui necessàriament la resposta de l'exercici.
+    function createBulletEngine(WorkerCtor, url = 'stockfish-19-lite-single.js') {
+        let worker = null, pending = null, ready = false, timer = null;
+        function stop() {
+            if (timer) clearTimeout(timer);
+            if (pending) { pending.reject(new Error('Motor interromput')); pending = null; }
+            if (worker) { worker.terminate(); worker = null; }
+            ready = false;
+        }
+        function send(s) { worker.postMessage(s); }
+        function request(fen, move, depth = 10) {
+            if (!worker || !ready || pending) return Promise.reject(new Error('Motor no preparat'));
+            return new Promise((resolve, reject) => {
+                pending = { resolve, reject, score: null };
+                timer = setTimeout(() => { stop(); }, 12000);
+                send('position fen ' + fen);
+                send('go depth ' + depth + ' searchmoves ' + move);
+            });
+        }
+        function init() {
+            return new Promise((resolve, reject) => {
+                try { worker = new WorkerCtor(url); } catch (e) { reject(e); return; }
+                const initTimeout = setTimeout(() => { stop(); reject(new Error('Stockfish 19 no respon')); }, 15000);
+                worker.onerror = () => { clearTimeout(initTimeout); stop(); reject(new Error('Stockfish 19 no disponible')); };
+                worker.onmessage = e => {
+                    const line = String(e.data || '');
+                    if (!ready) {
+                        if (line.trim() === 'uciok') { ready = true; clearTimeout(initTimeout); send('setoption name Threads value 1'); send('setoption name Hash value 8'); send('isready'); resolve(); }
+                        return;
+                    }
+                    if (!pending) return;
+                    const score = line.match(/\\bscore (cp|mate) (-?\\d+)/);
+                    if (line.startsWith('info ') && score && !/\\bbound\\b/.test(line))
+                        pending.score = score[1] === 'mate'
+                            ? (Number(score[2]) > 0 ? 30000 : -30000)
+                            : Number(score[2]);
+                    if (line.startsWith('bestmove ')) {
+                        const p = pending; pending = null; clearTimeout(timer); timer = null;
+                        p.score === null ? p.reject(new Error('Anàlisi incompleta')) : p.resolve(p.score);
+                    }
+                };
+                send('uci');
+            });
+        }
+        return { init, request, stop };
+    }
+    async function generateStockfishTasks(Chess, bank, engine, limit = 3, random = Math.random) {
+        const accepted = [], seen = new Set(bank.map(t => t.fen));
+        // Posicions a partir de partides reals: una resposta ja coneguda
+        // proporciona el punt de partida, després es generen continuacions.
+        const sources = bank.filter(t => t.puzzle && (t.kind === 'capture' || t.kind === 'escape'));
+        for (let attempt = 0; attempt < Math.min(24, limit * 10) && accepted.length < limit; attempt++) {
+            const src = sources[Math.floor(random() * sources.length)];
+            if (!src) break;
+            const game = new Chess(src.fen);
+            for (let k = 0, n = Math.floor(random() * 4); k < n; k++) {
+                const moves = game.moves({ verbose: true }); if (!moves.length) break;
+                game.move(moves[Math.floor(random() * moves.length)]);
+            }
+            const fen = game.fen(), kind = game.in_check() ? 'escape' : 'capture';
+            if (seen.has(fen) || game.game_over()) continue;
+            seen.add(fen);
+            const rule = solutions(Chess, { fen, kind });
+            if (!rule.length || rule.length > 5) continue;
+            let scores = [];
+            try { for (const move of rule) scores.push(await engine.request(fen, move, 10)); }
+            catch (_) { break; }
+            const best = Math.max(...scores);
+            // Moviments allunyats >0,7 peons de la millor resposta
+            // NO són vàlids, encara que compleixin l'objectiu superficial.
+            const answers = rule.filter((_, i) => scores[i] >= best - 70 && scores[i] > -150);
+            if (!answers.length || (kind === 'capture' && best < 100)) continue;
+            const id = generatedId(fen);
+            accepted.push({ id, family: id, fen, kind, answers, rating: clamp(src.rating, 600, 1950), generated: true, verifiedSF19: true });
+        }
+        return accepted;
+    }
     function normalizeGenerated(Chess, data) {
         if (!Array.isArray(data)) return [];
         const seen = new Set(), out = [];
@@ -375,7 +454,7 @@
         const ranked = KINDS.filter(k => out[k].attempts >= 6).sort((a, b) => out[a].accuracy - out[b].accuracy);
         return { byKind: out, weakest: ranked.length > 1 && out[ranked[0]].accuracy < out[ranked[ranked.length - 1]].accuracy ? ranked[0] : null };
     }
-    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, generateMateTasks, normalizeGenerated, levelPool, practicePriority, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
+    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, generateMateTasks, createBulletEngine, generateStockfishTasks, normalizeGenerated, levelPool, practicePriority, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
 
     // UI integrada, sense alterar el ROC, les ratxes ni el rellotge d'una partida.
     let bridge = {}, bank = null, session = null, board = null, chess = null, selected = null;
