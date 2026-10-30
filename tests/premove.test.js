@@ -143,3 +143,55 @@ describe('premoveMatchesLegalMove', () => {
         expect(Core.premoveMatchesLegalMove(legalMovesFrom(START_FEN, 'e2'), { from: 'e2' })).toBe(false);
     });
 });
+
+
+describe('selecció visual en mode Toc a l’ordinador', () => {
+    const fs = require('fs'), vm = require('vm'), path = require('path');
+    const appSource = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+    const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
+
+    test('el marc blau només s’aplica a ordinador en mode Toc i guanya al ressaltat antic', () => {
+        const rule = /body\.device-desktop\.control-tap \.square-55d63\.tap-selected\s*\{([^}]+)\}/.exec(html);
+        expect(rule).not.toBeNull();
+        expect(rule[1]).toMatch(/outline:\s*3px solid #1687e8 !important/);
+        expect(rule[1]).toMatch(/box-shadow:\s*inset 0 0 0 3px #1687e8 !important/);
+        expect(html.indexOf(rule[0])).toBeGreaterThan(html.indexOf('.square-55d63.engine-move,'));
+        expect(html).toContain('body.control-tap #myBoard');
+    });
+
+    test('marca la peça seleccionada i els destins legals; el marc es recupera després del resize', () => {
+        const start = appSource.indexOf('function highlightTapSelection(');
+        const end = appSource.indexOf('function highlightTvTapSelection(', start);
+        expect(start).toBeGreaterThan(-1);
+        expect(end).toBeGreaterThan(start);
+        const classes = new Map();
+        const add = (square, className) => {
+            const tags = classes.get(square) || new Set();
+            tags.add(className); classes.set(square, tags);
+        };
+        const clear = () => { for (const tags of classes.values()) { tags.delete('tap-selected'); tags.delete('tap-move'); } };
+        const context = vm.createContext({
+            game: new Chess(), controlMode: 'tap', tapSelectedSquare: 'e2', playerColor: 'w',
+            premoveAllowed: () => false,
+            getMainBoardSquare: square => ({ addClass: cls => add(square, cls) }),
+            $: () => ({ removeClass: () => clear() }),
+            clearTapSelection: () => { context.tapSelectedSquare = null; clear(); }
+        });
+        vm.runInContext(appSource.slice(start, end), context);
+        expect(vm.runInContext("highlightTapSelection('e2')", context)).toBe(true);
+        expect(classes.get('e2').has('tap-selected')).toBe(true);
+        expect(classes.get('e3').has('tap-move')).toBe(true);
+        expect(classes.get('e4').has('tap-move')).toBe(true);
+        // chessboard.js crea nodes nous quan es redimensiona.
+        classes.clear();
+        vm.runInContext('reapplyMainTapSelection()', context);
+        expect(classes.get('e2').has('tap-selected')).toBe(true);
+        context.controlMode = 'drag';
+        classes.clear();
+        vm.runInContext('reapplyMainTapSelection()', context);
+        expect(classes.size).toBe(0);
+        // Només hi ha aquesta restauració al resize del tauler principal.
+        expect(appSource).toContain('reapplyEngineMoveHighlight();\n        // En mode «Toc»');
+        expect(appSource).toContain('reapplyMainTapSelection();');
+    });
+});
