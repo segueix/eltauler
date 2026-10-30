@@ -5,6 +5,36 @@ const bank = B.buildBank(Chess, REAL);
 const seeds = bank.filter(t => !t.puzzle);
 const move = u => ({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u[4] });
 
+describe('Stockfish 19 per generar exercicis Bullet', () => {
+    test('interpreta les valoracions UCI i rebutja les cotes no exactes', () => {
+        expect(B.bulletUciScore('info depth 10 score cp 137 nodes 400 pv e2e4')).toBe(137);
+        expect(B.bulletUciScore('info depth 10 score cp -65 nodes 500 pv d2d4')).toBe(-65);
+        expect(B.bulletUciScore('info depth 10 score mate 2 pv h5f7')).toBe(30000);
+        expect(B.bulletUciScore('info depth 10 score mate -3 pv h7h6')).toBe(-30000);
+        expect(B.bulletUciScore('info depth 10 score cp 100 lowerbound pv e2e4')).toBeNull();
+        expect(B.bulletUciScore('info depth 10 score cp 100 upperbound pv e2e4')).toBeNull();
+        expect(B.bulletUciScore('bestmove e2e4')).toBeNull();
+    });
+    test('el worker independent retorna la valoració per searchmoves', async () => {
+        class FakeWorker {
+            constructor() { this.commands = []; }
+            postMessage(cmd) {
+                this.commands.push(cmd);
+                if (cmd === 'uci') this.onmessage({ data: 'uciok' });
+                if (cmd.startsWith('go depth ')) {
+                    this.onmessage({ data: 'info depth 10 score cp 180 nodes 600 pv e2e4' });
+                    this.onmessage({ data: 'bestmove e2e4' });
+                }
+            }
+            terminate() { this.terminated = true; }
+        }
+        const engine = B.createBulletEngine(FakeWorker);
+        await engine.init();
+        await expect(engine.request(new Chess().fen(), 'e2e4', 10)).resolves.toBe(180);
+        engine.stop();
+    });
+});
+
 describe('banc de lectura immediata', () => {
     test.each(bank.map(t => [t.id, t]))('%s: posició legal, objectiu resoluble i totes les alternatives acceptades', (_, task) => {
         const c = new Chess(task.fen), p = task.fen.split(' ');
