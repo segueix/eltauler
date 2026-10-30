@@ -5,6 +5,7 @@ const APP_VERSION = window.APP_VERSION || 'dev';
 const STOCKFISH_URL = `stockfish.js?v=${APP_VERSION}`;
 // Exclusiu dels jeroglífics; mai no recau al Stockfish antic.
 const HIERO_STOCKFISH_URL = `stockfish-19-lite-single.js?v=${APP_VERSION}`;
+const ANTIDOTE_STOCKFISH_URL = HIERO_STOCKFISH_URL;
 const DEBUG_ENRICHED_ANALYSIS = false;
 
 const DEBUG_WEAK_AI = false;
@@ -29931,25 +29932,51 @@ function getAntidoteDetectors() {
     return antidoteDetectors;
 }
 
+// Motor Stockfish 19 independent dels altres modes.
+let antidoteEngineReadyPromise = null;
 function ensureAntidoteEngine() {
     if (antidoteEngine) return antidoteEngine;
-    const worker = createStockfishWorker();
-    if (!worker) return null;
+    let worker;
+    try { worker = new Worker(ANTIDOTE_STOCKFISH_URL); }
+    catch (e) { console.warn('[Antídot] Stockfish 19 no disponible', e); return null; }
     antidoteEngine = worker;
-    try {
-        worker.postMessage('uci');
-        // El rival Antídot juga jugades FORTES: cap límit d'ELO al seu motor.
-        worker.postMessage('setoption name UCI_LimitStrength value false');
-        worker.postMessage('ucinewgame');
-    } catch (e) {}
+    antidoteEngineReadyPromise = new Promise(resolve => {
+        let finished = false;
+        const finish = ok => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            try {
+                worker.removeEventListener('message', onMessage);
+                worker.removeEventListener('error', onError);
+            } catch (e) {}
+            if (!ok && antidoteEngine === worker) releaseAntidoteEngine();
+            resolve(ok);
+        };
+        const onMessage = e => {
+            if (typeof e.data === 'string' && e.data.trim() === 'readyok') finish(true);
+        };
+        const onError = () => finish(false);
+        const timer = setTimeout(() => finish(false), 15000);
+        worker.addEventListener('message', onMessage);
+        worker.addEventListener('error', onError);
+        try {
+            worker.postMessage('uci');
+            worker.postMessage('setoption name UCI_LimitStrength value false');
+            worker.postMessage('ucinewgame');
+            worker.postMessage('isready');
+        } catch (e) { finish(false); }
+    });
     return antidoteEngine;
 }
 
 function releaseAntidoteEngine() {
-    if (!antidoteEngine) return;
-    try { antidoteEngine.postMessage('stop'); } catch (e) {}
-    try { antidoteEngine.terminate(); } catch (e) {}
+    const worker = antidoteEngine;
     antidoteEngine = null;
+    antidoteEngineReadyPromise = null;
+    if (!worker) return;
+    try { worker.postMessage('stop'); } catch (e) {}
+    try { worker.terminate(); } catch (e) {}
 }
 
 // ── Preferències del comentari en viu (Configuració) ────────────────────────
@@ -30281,49 +30308,57 @@ function makeAntidoteEngineMove() {
     if (clockBudget !== null) budget.moveTimeMs = Math.min(budget.moveTimeMs, clockBudget);
     const searchStartedAt = nowMs();
 
-    const bail = (reason) => {
+    let settled = false;
+    let watchdog = null;
+    const bail = reason => {
+        if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
         antidoteState.searching = false;
         antidoteState.fallbacks += 1;
-        if (generation !== gameGeneration || token !== antidoteSearchToken) return;
-        if (DEBUG_ANTIDOTE) console.warn('[Antídot] fallback:', reason);
+        clearTimeout(watchdog);
+        // Descartar el worker impedeix reaprofitar missatges UCI d'una cerca avortada.
+        releaseAntidoteEngine();
+        if (DEBUG_ANTIDOTE) console.warn('[Antídot] Stockfish 19 fallback:', reason);
         isEngineThinking = false;
-        // Cerca normal amb el worker compartit: la partida no s'atura mai.
+        if (!game || game.game_over() || game.turn() === playerColor || game.fen() !== fen) return;
+        // Recuperació d'emergència, només si Stockfish 19 ha fallat.
         makeEngineMove(true);
     };
 
-    let settled = false;
-    const watchdog = setTimeout(() => {
-        if (settled) return;
-        settled = true;
-        try { engine.postMessage('stop'); } catch (e) {}
-        bail('watchdog');
-    }, budget.moveTimeMs + 7000);
-
-    analyzePositionEnrichedTimed(engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000)
-        .then(analysis => {
+    const run = async () => {
+        try {
+            const ready = await (antidoteEngineReadyPromise || Promise.resolve(false));
+            if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
+            if (!ready || engine !== antidoteEngine) { bail('uci-not-ready'); return; }
+            // El temps de cerca comença quan el WASM ja està carregat.
+            watchdog = setTimeout(() => {
+                if (settled) return;
+                settled = true;
+                bail('watchdog');
+            }, budget.moveTimeMs + 7000);
+            const analysis = await analyzePositionEnrichedTimed(
+                engine, fen, budget.depth, multiPv, budget.moveTimeMs, budget.moveTimeMs + 4000
+            );
             if (settled) return;
-            settled = true;
             clearTimeout(watchdog);
+            if (generation !== gameGeneration || token !== antidoteSearchToken || !isAntidoteMode()) return;
             antidoteState.searching = false;
-            // Partida nova (o canvi de pantalla) mentre el motor pensava: la
-            // cerca ja no val per a res i startGame ja ha netejat l'estat.
-            if (generation !== gameGeneration || token !== antidoteSearchToken) return;
-            // La posició ha canviat mentre el motor pensava (rendició, bandera,
-            // final de partida): no s'hi juga res, però el senyal de «pensant»
-            // s'ha d'apagar perquè la partida no quedi mai encallada.
             if (!game || game.game_over() || game.turn() === playerColor || game.fen() !== fen) {
                 isEngineThinking = false;
+                settled = true;
                 return;
             }
-            const applied = applyAntidoteAnalysis(analysis, fen, searchStartedAt, deviceOpts);
+            let applied = false;
+            try { applied = applyAntidoteAnalysis(analysis, fen, searchStartedAt, deviceOpts); }
+            catch (e) { if (DEBUG_ANTIDOTE) console.warn('[Antídot] anàlisi invàlida', e); }
+            settled = true;
             if (!applied) bail('no-candidate');
-        })
-        .catch(err => {
+        } catch (err) {
             if (settled) return;
             settled = true;
-            clearTimeout(watchdog);
             bail(err && err.message ? err.message : 'error');
-        });
+        }
+    };
+    void run();
     return true;
 }
 
