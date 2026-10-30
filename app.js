@@ -22191,9 +22191,15 @@ function hgQueueItemToChosen(item) {
 function hgPruneQueue() {
     const s = hgEnsureState().settings;
     const max = s.maxQueueSize || 10;
-    // Si en sobren, elimina els més antics que encara siguin "new".
+    // Si en sobren, elimina el de creació més antiga. No escombrem les
+    // novetats compartides només perquè han entrat al davant de la cua.
     while (hgState.queue.filter(it => it.status === 'new').length > max) {
-        const idx = hgState.queue.findIndex(it => it.status === 'new');
+        let idx = -1, oldest = Infinity;
+        hgState.queue.forEach((it, i) => {
+            if (it.status !== 'new') return;
+            const at = Number(it.createdAt) || 0;
+            if (idx < 0 || at < oldest) { idx = i; oldest = at; }
+        });
         if (idx < 0) break;
         hgState.queue.splice(idx, 1);
     }
