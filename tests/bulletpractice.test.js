@@ -84,6 +84,19 @@ describe('banc de lectura immediata', () => {
         expect(priority({ id: 'error' })).toBeGreaterThan(priority({ id: 'nou' }));
         expect(priority({ id: 'nou' })).toBeGreaterThan(priority({ id: 'dominat' }));
     });
+    test('generació segura: mats verificats i dades persistides revalidades', () => {
+        let seed = 20261030;
+        const random = () => ((seed = seed * 16807 % 2147483647) - 1) / 2147483646;
+        const generated = B.generateMateTasks(Chess, bank, random, 10);
+        expect(generated.length).toBeLessThanOrEqual(10);
+        for (const task of generated) {
+            expect(task.generated).toBe(true);
+            expect(task.answers).toEqual(B.solutions(Chess, task));
+        }
+        const restored = B.normalizeGenerated(Chess, generated.map(t => ({ fen: t.fen, rating: t.rating })));
+        expect(restored.map(t => t.fen)).toEqual(generated.map(t => t.fen));
+        expect(B.normalizeGenerated(Chess, [{ fen: 'invalid' }])).toEqual([]);
+    });
     test('evita posicions recents quan queden alternatives', () => {
         const deck = B.makeDeck(bank, 'scan', [], () => .5);
         const fresh = B.makeDeck(bank, 'scan', deck.map(t => t.id), () => .5);
