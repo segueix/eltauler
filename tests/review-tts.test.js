@@ -33,7 +33,7 @@ function setup({ saved, presets = [], voices = [CA_AD, CA_ES], available = true,
     return { run: code => vm.runInContext(code, context), synth, speaker };
 }
 
-describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
+describe('perfil Matxa i emergència Google sense cap veu del sistema', () => {
     test('els controls de TV copien el perfil base una vegada i desen els quatre ajustos', () => {
         const app = setup({ saved: 'matxa-radio' });
         app.run("updateNeuralTtsSettings({ effects: { intensity: 0.8 } })");
@@ -62,7 +62,7 @@ describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
 
     test('només hi ha un perfil base Matxa, el de Ràdio', () => {
         const app = setup();
-        expect(app.run('builtinReviewTtsPresets().map(p => p.id)')).toEqual(['matxa', 'system-ca-es']);
+        expect(app.run('builtinReviewTtsPresets().map(p => p.id)')).toEqual(['matxa']);
         expect(app.run('builtinReviewTtsPresets()[0].name')).toBe('Matxa · Elia · Ràdio');
     });
 
@@ -77,11 +77,10 @@ describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
         expect(app.run('defaultNeuralTtsVoice().rate')).toBe(0.81);
     });
 
-    test('els ajustos de TV no modifiquen cap perfil del sistema', () => {
+    test('una antiga preferència de veu local desapareix i es migra a Matxa', () => {
         const app = setup({ saved: 'system-ca-es' });
-        expect(app.run("updateNeuralTtsSettings({ rate: 1.1, effects: { volume: 0.2 } })")).toBeNull();
-        expect(app.run('readReviewTtsPresets()')).toEqual([]);
-        expect(app.run('getDefaultReviewTtsPresetId()')).toBe('system-ca-es');
+        expect(app.run('getDefaultReviewTtsPresetId()')).toBe('matxa');
+        expect(app.run('getEffectiveReviewTtsPreset().voiceURI')).toBe('matxa:central:elia');
     });
 
     test.each(['matxa', 'matxa-warm', 'matxa-radio'])('el perfil base desat %s arriba com a Ràdio a les ressenyes i al pont de TV', saved => {
@@ -98,11 +97,12 @@ describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
         expect(app.run('defaultNeuralTtsVoice().effects')).toEqual({ profile: 'radio', intensity: 0.3, clarity: 0.8, volume: 0, eq: FLAT });
     });
 
-    test.each([true, false])('la ressenya diu peó i peons amb Matxa disponible: %s', available => {
+    test.each([true, false])('la ressenya no recorre mai a Web Speech: Matxa disponible %s', available => {
         const app = setup({ available });
         app.run("beginReviewTts('El pawn defensa dos pawns.', 'settings')");
-        const text = available ? app.speaker.speak.mock.calls[0][0] : app.synth.speak.mock.calls[0][0].text;
-        expect(text).toBe('El peó defensa dos peons.');
+        if (available) expect(app.speaker.speak.mock.calls[0][0]).toBe('El peó defensa dos peons.');
+        else expect(app.speaker.speak).not.toHaveBeenCalled();
+        expect(app.synth.speak).not.toHaveBeenCalled();
     });
 
     test('la lectura de l’entrenador també normalitza els noms', () => {
@@ -123,10 +123,10 @@ describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
         expect(app.run('getEffectiveReviewTtsPreset().rate')).toBe(0.8);
     });
 
-    test('respecta una veu explícita desada', () => {
-        const app = setup({ saved: 'personal', presets: [{ id: 'personal', name: 'Personal', voiceURI: CA_ES.voiceURI }] });
-        expect(app.run('getEffectiveReviewTtsPreset().voiceURI')).toBe(CA_ES.voiceURI);
-        expect(app.run('defaultNeuralTtsVoice()')).toBeNull();
+    test('un perfil antic d’eSpeak o del sistema ja no es pot seleccionar', () => {
+        const app = setup({ saved: 'personal', presets: [{ id: 'personal', name: 'eSpeak (Catalan)', voiceURI: CA_ES.voiceURI }] });
+        expect(app.run('readReviewTtsPresets()')).toEqual([]);
+        expect(app.run('getEffectiveReviewTtsPreset().voiceURI')).toBe('matxa:central:elia');
     });
 
     test('llegeix amb Elia si el servei respon', async () => {
@@ -137,25 +137,20 @@ describe('perfil de lectura Matxa i alternativa catalana del sistema', () => {
         expect(app.synth.speak).not.toHaveBeenCalled();
     });
 
-    test('si Matxa falla, repeteix el fragment amb ca-ES encara que ca-AD aparegui primer', async () => {
+    test('si Matxa i Google fallen, no es pronuncia res amb eSpeak ni el sistema', async () => {
         const app = setup({ result: { spoken: false, reason: 'network' } });
         app.run("beginReviewTts('Bon dia.', 'settings')");
         await Promise.resolve();
-        expect(app.synth.speak).toHaveBeenCalledTimes(1);
-        expect(app.synth.speak.mock.calls[0][0]).toMatchObject({ text: 'Bon dia.', voice: CA_ES, lang: 'ca-ES' });
+        await Promise.resolve();
+        expect(app.synth.speak).not.toHaveBeenCalled();
+        expect(app.run('REVIEW_TTS_STATE.isSpeaking')).toBe(false);
     });
 
-    test.each([{ available: false }, { neural: false }, { saved: 'system-ca-es' }])('fa servir el sistema directament quan correspon: %j', options => {
+    test.each([{ available: false }, { neural: false }, { saved: 'system-ca-es' }])('no es recupera mai una veu local: %j', options => {
         const app = setup(options);
         app.run("beginReviewTts('Bon dia.', 'settings')");
-        expect(app.speaker.speak).not.toHaveBeenCalled();
-        expect(app.synth.speak.mock.calls[0][0]).toMatchObject({ voice: CA_ES, lang: 'ca-ES' });
-    });
-
-    test('amb veus encara no carregades demana ca-ES al navegador', () => {
-        const app = setup({ voices: [], available: false });
-        app.run("beginReviewTts('Bon dia.', 'settings')");
-        expect(app.synth.speak.mock.calls[0][0].lang).toBe('ca-ES');
+        expect(app.synth.speak).not.toHaveBeenCalled();
+        if (options.available === false || options.neural === false) expect(app.speaker.speak).not.toHaveBeenCalled();
     });
 
     test('aturar la lectura evita una alternativa tardana després de la fallada neuronal', async () => {
