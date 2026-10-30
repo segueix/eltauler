@@ -3,6 +3,8 @@
 
 const APP_VERSION = window.APP_VERSION || 'dev';
 const STOCKFISH_URL = `stockfish.js?v=${APP_VERSION}`;
+// Exclusiu dels jeroglífics; mai no recau al Stockfish antic.
+const HIERO_STOCKFISH_URL = `stockfish-19-lite-single.js?v=${APP_VERSION}`;
 const DEBUG_ENRICHED_ANALYSIS = false;
 
 const DEBUG_WEAK_AI = false;
@@ -9743,6 +9745,90 @@ async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000,
     return null;
 }
 
+
+// Motor independent per generar i certificar jeroglífics amb Stockfish 19.
+// La cua impedeix que MultiPV / bestmove de dues cerques es contaminin.
+let hieroStockfish = null;
+let hieroReadyPromise = null;
+let hieroAnalysisQueue = Promise.resolve();
+function disposeHieroStockfish() {
+    const worker = hieroStockfish;
+    hieroStockfish = null;
+    hieroReadyPromise = null;
+    try { if (worker) worker.terminate(); } catch (e) {}
+}
+async function ensureHieroStockfish() {
+    if (hieroReadyPromise) return hieroReadyPromise;
+    if (hieroStockfish) return true;
+    let worker;
+    try { worker = new Worker(HIERO_STOCKFISH_URL); }
+    catch (e) { console.warn('[Jeroglífics] Stockfish 19 no disponible', e); return false; }
+    hieroStockfish = worker;
+    const pending = new Promise(resolve => {
+        let finished = false;
+        const finish = ok => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            try { worker.removeEventListener('message', onMessage); worker.removeEventListener('error', onError); } catch (e) {}
+            if (!ok && hieroStockfish === worker) disposeHieroStockfish();
+            resolve(ok);
+        };
+        const onMessage = e => { if (typeof e.data === 'string' && e.data.trim() === 'readyok') finish(true); };
+        const onError = () => finish(false);
+        const timer = setTimeout(() => finish(false), 15000);
+        worker.addEventListener('message', onMessage);
+        worker.addEventListener('error', onError);
+        try { worker.postMessage('uci'); worker.postMessage('isready'); } catch (e) { finish(false); }
+    });
+    hieroReadyPromise = pending;
+    const ok = await pending;
+    if (hieroReadyPromise === pending) hieroReadyPromise = null;
+    return ok;
+}
+function waitHieroStockfishReady(worker, timeoutMs = 5000) {
+    return new Promise(resolve => {
+        let finished = false;
+        const finish = ok => {
+            if (finished) return;
+            finished = true;
+            clearTimeout(timer);
+            try { worker.removeEventListener('message', onMessage); worker.removeEventListener('error', onError); } catch (e) {}
+            resolve(ok);
+        };
+        const onMessage = e => { if (typeof e.data === 'string' && e.data.trim() === 'readyok') finish(true); };
+        const onError = () => finish(false);
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        worker.addEventListener('message', onMessage);
+        worker.addEventListener('error', onError);
+        try { worker.postMessage('isready'); } catch (e) { finish(false); }
+    });
+}
+function analyzeHieroFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null) {
+    const run = async () => {
+        for (let attempt = 0; attempt < 2; attempt++) {
+            if (shouldAbort && shouldAbort()) return null;
+            if (!await ensureHieroStockfish()) return null;
+            const worker = hieroStockfish;
+            if (!worker) return null;
+            try { worker.postMessage('stop'); } catch (e) { disposeHieroStockfish(); continue; }
+            if (!await waitHieroStockfishReady(worker)) { disposeHieroStockfish(); continue; }
+            if (shouldAbort && shouldAbort()) return null;
+            try {
+                const result = await analyzePositionEnrichedTimed(worker, fen, depth, multiPv, moveTimeMs, moveTimeMs + 5000);
+                if (shouldAbort && shouldAbort()) return null;
+                if (result && result.bestMove && uciToSanForFen(fen, result.bestMove.move)) return result;
+            } catch (e) { console.warn('[Jeroglífics] Error analitzant amb SF19', e); }
+            disposeHieroStockfish();
+        }
+        return null;
+    };
+    const task = hieroAnalysisQueue.then(run, run);
+    hieroAnalysisQueue = task.then(() => {}, () => {});
+    return task;
+}
+if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHieroStockfish);
+
 // ── FASE C — Re-anàlisi profunda per a la ressenya ───────────────────────────
 // Driu el motor sobre les posicions clau d'una partida a més profunditat i
 // ENRIQUEIX els moveReviews: millor jugada + línia, refutació concreta, i les
@@ -10384,13 +10470,11 @@ async function prepareBestLineExercise(fen, opts = {}) {
     const depth = opts.depth || 15;
     const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
 
-    if (!stockfish) { ensureStockfish(); await new Promise(r => setTimeout(r, 300)); }
-    let waitCount = 0;
-    while (!stockfishReady && waitCount < 20) { await new Promise(r => setTimeout(r, 100)); waitCount++; }
-    if (!stockfishReady) return null;
-
+    // Aquest preparador només és utilitzat pel generador de jeroglífics:
+    // Stockfish 19 és obligatori, sense cap camí de retorn al motor antic.
+    if (!await ensureHieroStockfish()) return null;
+    const analyze = analyzeHieroFenRobust;
     try {
-        try { stockfish.postMessage('stop'); } catch (e) {}
         const steps = [];          // metadades per pas (gap, eval…)
         const playerStepData = [];  // objectes compatibles amb el playback (step1/2/3)
         const opponentMoves = [];   // rèpliques del rival (opponentMove/opponentMove2)
@@ -10402,7 +10486,7 @@ async function prepareBestLineExercise(fen, opts = {}) {
         for (let i = 0; i < playerMoves; i++) {
             if (shouldAbort()) return null;
             // Pas del jugador: MultiPV 3 per poder mesurar el gap amb la 2a opció.
-            const a = await analyzeFenRobust(curFen, depth, 3, 8000, shouldAbort);
+            const a = await analyze(curFen, depth, 3, 8000, shouldAbort);
             if (!a || !a.bestMove || !a.bestMove.move) return null;
             // gapCp>0: exigeix que la millor superi la 2a per un marge. gapCp<=0:
             // mode "3 millors jugades fixes" sense filtre (sempre accepta la millor).
@@ -10434,7 +10518,7 @@ async function prepareBestLineExercise(fen, opts = {}) {
             // Rèplica del rival (millor jugada) si encara queden jugades del jugador.
             if (i < playerMoves - 1) {
                 if (shouldAbort()) return null;
-                const o = await analyzeFenRobust(curFen, depth, 1, 8000, shouldAbort);
+                const o = await analyze(curFen, depth, 1, 8000, shouldAbort);
                 if (!o || !o.bestMove || !o.bestMove.move) return null;
                 const oMove = o.bestMove.move;
                 const oSan = uciToSan(curFen, oMove);
@@ -20942,7 +21026,7 @@ function sameUciMove(a, b) {
 }
 async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
     if (!candidate || candidate.source !== 'gameHistory.tactic') return null;
-    if (!ensureStockfish()) return null;
+    if (!await ensureHieroStockfish()) return null;
     const line = buildHieroglyphicLineFromCandidate(candidate);
     // Exigim 3 jugades del jugador: un jeroglífic és "en 3 passos". Si la línia
     // real de la tàctica és més curta, deixem que el camí de reserva
@@ -20955,7 +21039,7 @@ async function validateHieroglyphicTacticWithStockfish(candidate, opts = {}) {
     const stepEvals = [];
     const stepPvs = [];
     for (let i = 0; i < solution.length; i++) {
-        const analysis = await analyzeFenRobust(curFen, opts.depth || 14, 3, opts.moveTimeMs || 5000, opts.shouldAbort || null);
+        const analysis = await analyzeHieroFenRobust(curFen, opts.depth || 14, 3, opts.moveTimeMs || 5000, opts.shouldAbort || null);
         const best = analysis && analysis.bestMove && analysis.bestMove.move;
         if (!best || !sameUciMove(best, solution[i])) return null;
         const alternatives = analysis.alternatives || [];
@@ -21035,7 +21119,8 @@ async function closeHieroglyphicCandidateWithStockfish(candidate, opts = {}) {
             playerMoves,
             gapCp: opts.minGapCp || 80,
             depth: opts.depth || 14,
-            shouldAbort
+            shouldAbort,
+            engine: 'hiero'
         });
         const closed = candidateFromPreparedBestLine(candidate, prepared);
         if (closed) return closed;
@@ -21049,7 +21134,7 @@ async function closeHieroglyphicCandidateWithStockfish(candidate, opts = {}) {
 // un final clar i verificable.
 async function verifyHieroglyphicConclusion(candidate, opts = {}) {
     if (!window.ElTaulerHieroClosure) return null;
-    const verifier = window.ElTaulerHieroClosure.createVerifier(Chess, analyzeFenRobust);
+    const verifier = window.ElTaulerHieroClosure.createVerifier(Chess, analyzeHieroFenRobust);
     return verifier.verify(candidate, opts);
 }
 function hasVerifiedHieroglyphicConclusion(candidate) {
@@ -21141,7 +21226,7 @@ async function tryBuildAdaptedHieroglyphicFromGameEntry(entry, opts = {}) {
     const fens = extractGameEntryCandidateFens(entry, opts.maxCandidates || 12).filter(x => !exclude.has(x.fen));
     for (const { fen, moveNumber } of fens) {
         if (shouldAbort && shouldAbort()) return null;
-        const prepared = await prepareBestLineExercise(fen, { playerMoves: 3, gapCp: opts.minGapCp || 80, depth: opts.depth || 14, shouldAbort });
+        const prepared = await prepareBestLineExercise(fen, { playerMoves: 3, gapCp: opts.minGapCp || 80, depth: opts.depth || 14, shouldAbort, engine: 'hiero' });
         if (!prepared || !prepared.step1) continue;
         const line = prepared.fullSequence || [];
         const info = classifyPuzzleFinalMotif(fen, line, { finalEval: prepared.step1.evalBefore });
@@ -21516,12 +21601,14 @@ if (typeof window !== 'undefined') window.retryHieroglyphicFromHistory = retryHi
 const HIERO_ORIGIN_LABELS = {
     game_real: 'Extret de la teva partida',
     game_variant: 'Variant amagada de la teva partida',
-    composition: 'Composició tàctica'
+    composition: 'Composició tàctica',
+    engine_selfplay: 'Partida automàtica Stockfish 19'
 };
 const HIERO_ORIGIN_NOTES = {
     game_real: 'Aquest jeroglífic surt d’una posició real de la teva partida.',
     game_variant: 'Aquesta combinació no va passar a la partida, però era una variant legal amagada.',
-    composition: 'No hi havia cap motiu clar a les teves partides recents; t’he preparat una composició tàctica.'
+    composition: 'No hi havia cap motiu clar a les teves partides recents; t’he preparat una composició tàctica.',
+    engine_selfplay: 'Posició descoberta en una partida entre dues instàncies de Stockfish 19 i validada amb anàlisi profunda.'
 };
 function hieroglyphicOriginLabel(origin) { return HIERO_ORIGIN_LABELS[origin] || HIERO_ORIGIN_LABELS.game_real; }
 function hieroglyphicOriginNote(origin) { return HIERO_ORIGIN_NOTES[origin] || HIERO_ORIGIN_NOTES.game_real; }
@@ -21774,48 +21861,61 @@ function hgUserInSection() {
 // motor) amb biaix cap a captures perquè surtin posicions més tàctiques; la
 // validació pesada (gap ≥120cp en 3 jugades + final tàctic clar) la fa Stockfish
 // via prepareBestLineExercise. Prova unes quantes llavors abans de rendir-se.
-function hgRandomSeedFen() {
-    if (typeof Chess === 'undefined') return null;
-    const g = new Chess();
-    const targetPlies = 10 + Math.floor(Math.random() * 14); // 10..23
-    for (let i = 0; i < targetPlies; i++) {
-        if (g.game_over()) break;
-        const legal = g.moves({ verbose: true });
-        if (!legal.length) break;
-        const captures = legal.filter(m => m.captured || m.flags.indexOf('e') !== -1);
-        const pool = (captures.length && Math.random() < 0.45) ? captures : legal;
-        const r = pool[Math.floor(Math.random() * pool.length)];
-        if (!g.move({ from: r.from, to: r.to, promotion: r.promotion || undefined })) break;
-    }
-    if (g.game_over()) return null;
-    // Ha de quedar prou material per a una combinació de 3 jugades.
-    const pieces = (g.fen().split(' ')[0].match(/[a-z]/gi) || []).length;
-    if (pieces < 8) return null;
-    return g.fen();
-}
-async function hgGenerateFromSelfPlaySeed(shouldAbort) {
-    if (typeof Chess === 'undefined') return null;
-    try { if (typeof ensureStockfish === 'function') ensureStockfish(); } catch (e) {}
-    const maxSeeds = 4;
-    for (let attempt = 0; attempt < maxSeeds; attempt++) {
-        if (shouldAbort && shouldAbort()) return null;
-        const fen = hgRandomSeedFen();
-        if (!fen) continue;
-        const prepared = await prepareBestLineExercise(fen, { playerMoves: 3, gapCp: 120, depth: 13, shouldAbort });
-        if (!prepared || !prepared.step1) continue;
-        const line = prepared.fullSequence || [];
-        const info = classifyPuzzleFinalMotif(fen, line, { finalEval: prepared.step1.evalBefore });
-        if (!info || info.motif === 'none' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1 || info.confidence === 'low') continue;
-        const solution = []; const replies = [];
-        for (let i = 1; i <= (prepared.totalSteps || 3); i++) {
-            const step = prepared['step' + i];
-            if (step && step.playerMove) solution.push(step.playerMove);
-            const reply = i === 1 ? prepared.opponentMove : (i === 2 ? prepared.opponentMove2 : null);
-            if (reply && reply.move) replies.push(reply.move);
+// Stockfish 19 juga contra si mateix. MultiPV introdueix errors plausibles
+// (mai moviments il·legals) per revelar oportunitats tàctiques certificables.
+async function hgSelfPlaySeedFens(shouldAbort) {
+    if (typeof Chess === 'undefined') return [];
+    const g = new Chess(), seeds = [], lowEnd = hgIsLowEndDevice();
+    const maxPlies = lowEnd ? 14 : 22, started = Date.now();
+    for (let ply = 0; ply < maxPlies; ply++) {
+        if ((shouldAbort && shouldAbort()) || g.game_over() || Date.now() - started > (lowEnd ? 12000 : 20000)) break;
+        const a = await analyzeHieroFenRobust(g.fen(), lowEnd ? 7 : 9, 3, lowEnd ? 350 : 550, shouldAbort);
+        if (!a || !a.bestMove || !a.bestMove.move) break;
+        const best = a.bestMove;
+        const near = (a.alternatives || []).filter(c => c && c.move && c.evalType === 'cp' &&
+            best.evalType === 'cp' && Number.isFinite(c.eval) && Number.isFinite(best.eval) &&
+            best.eval - c.eval >= 0 && best.eval - c.eval <= 240);
+        const explore = ply >= 5 && ply % 3 === 1 && near.length > 1;
+        const chosen = explore ? near[Math.min(near.length - 1, (ply % 2) + 1)] : best;
+        const u = chosen.move;
+        const mv = g.move({from:u.slice(0,2),to:u.slice(2,4),promotion:u.length>4?u[4]:undefined});
+        if (!mv) break;
+        if (ply >= 8 && !g.game_over()) {
+            const pieces = (g.fen().split(' ')[0].match(/[a-z]/gi)||[]).length;
+            if (pieces >= 8) {
+                const loss = chosen.evalType === 'cp' && best.evalType === 'cp' ? Math.max(0, best.eval-chosen.eval) : 0;
+                seeds.push({fen:g.fen(), interest:loss+(mv.captured?80:0)+(mv.san.includes('+')?50:0)+ply});
+            }
         }
-        if (solution.length < 3 || replies.length < 2) continue; // sempre tres jugades
-        const verified = await verifyHieroglyphicConclusion(hgSelfPlayCandidate(fen, prepared, line, info, solution, replies), { shouldAbort });
-        if (verified) return verified;
+    }
+    return seeds.sort((a,b)=>b.interest-a.interest).slice(0,lowEnd?2:4).map(s=>s.fen);
+}
+async function hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens = new Set()) {
+    if (typeof Chess === 'undefined' || !await ensureHieroStockfish()) return null;
+    const key = fen => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(fen) : fen; } catch(e) { return fen; } };
+    const games = hgIsLowEndDevice() ? 1 : 2;
+    for (let gameIndex=0; gameIndex<games; gameIndex++) {
+        if (shouldAbort && shouldAbort()) return null;
+        const fens = await hgSelfPlaySeedFens(shouldAbort);
+        for (const fen of fens) {
+            if ((shouldAbort && shouldAbort()) || excludeFens.has(key(fen))) continue;
+            const prepared = await prepareBestLineExercise(fen, {playerMoves:3,gapCp:120,depth:15,shouldAbort,engine:'hiero'});
+            if (!prepared || !prepared.step1) continue;
+            const line = prepared.fullSequence || [];
+            const info = classifyPuzzleFinalMotif(fen,line,{finalEval:prepared.step1.evalBefore});
+            if (!info || info.motif === 'none' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1 || info.confidence === 'low') continue;
+            const solution = [], replies = [];
+            for (let i=1;i<=(prepared.totalSteps||3);i++) {
+                const step=prepared['step'+i];
+                if (step && step.playerMove) solution.push(step.playerMove);
+                const reply=i===1?prepared.opponentMove:(i===2?prepared.opponentMove2:null);
+                if (reply && reply.move) replies.push(reply.move);
+            }
+            if (solution.length !== 3 || replies.length !== 2) continue;
+            const verified=await verifyHieroglyphicConclusion(
+                hgSelfPlayCandidate(fen,prepared,line,info,solution,replies),{shouldAbort});
+            if (verified) return verified;
+        }
     }
     return null;
 }
@@ -21825,7 +21925,7 @@ function hgSelfPlayCandidate(fen, prepared, line, info, solution, replies) {
         pv: prepared.step1.playerMovePv || line, lineUci: line,
         solutionMoves: solution.slice(0, 3), replyMoves: replies.slice(0, Math.max(0, solution.length - 1)),
         evalBefore: prepared.step1.evalBefore ?? null,
-        source: 'gameHistory.tactic', origin: 'composition', stockfishValidated: true,
+        source: 'engine.selfplay', origin: 'engine_selfplay', stockfishValidated: true,
         finalMotif: info.motif, finalMotifs: info.motifs, finalMotifLabel: HIERO_FINAL_MOTIF_LABELS[info.motif] || null,
         finalMotifReason: info.reason, theme: info.motif, tacticKind: HIERO_FINAL_MOTIF_LABELS[info.motif] || null
     };
@@ -21847,7 +21947,7 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
     try {
         const excludeFens = hgAllKnownFens();
         const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
-        try { diag.engine = (typeof ensureStockfish === 'function') ? !!ensureStockfish() : true; } catch (e) { diag.engine = false; }
+        try { diag.engine = await ensureHieroStockfish(); } catch (e) { diag.engine = false; }
         let cand = null;
         // PRIORITAT 1 — game_real: la tàctica que ja va aparèixer a la partida.
         try {
@@ -21869,7 +21969,7 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
         // PRIORITAT 3 — auto-joc del motor (només si les partides no donen res).
         if (!cand && opts.allowSelfPlay !== false && !(shouldAbort && shouldAbort())) {
             diag.selfPlayTried = true;
-            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
+            try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens); } catch (e) { diag.error = diag.error || String((e && e.message) || e); }
         }
         if (shouldAbort && shouldAbort()) diag.aborted = true;
         if (cand && !hasVerifiedHieroglyphicConclusion(cand)) cand = null;
@@ -21880,7 +21980,7 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
             if (diag.aborted) diag.reason = 'aborted';
             else if (!diag.engine) diag.reason = 'no_engine';
             else if (diag.error) diag.reason = 'error';
-            else if (diag.candidates === 0 && (!Array.isArray(gameHistory) || gameHistory.length === 0)) diag.reason = 'no_games';
+            else if (!diag.selfPlayTried && diag.candidates === 0 && (!Array.isArray(gameHistory) || gameHistory.length === 0)) diag.reason = 'no_games';
             else if (diag.gameRealFresh > 0) diag.reason = 'validation_rejected';
             else if (diag.candidates > 0 && diag.gameRealFresh === 0) diag.reason = 'all_known';
             else if (diag.selfPlayTried) diag.reason = 'selfplay_empty';
