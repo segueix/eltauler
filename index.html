@@ -1591,6 +1591,35 @@
             padding-bottom: 4px; scrollbar-width: none;
         }
         .daily-grid.daily-carousel::-webkit-scrollbar { display: none; }
+        /* Partides sense rellotge: a partir de tres taulers, finestra lateral
+           amb dues targetes visibles a l'ordinador i totes les altres en fila. */
+        #untimed-grid.untimed-carousel {
+            display: flex;
+            gap: 14px;
+            overflow-x: auto;
+            overflow-y: hidden;
+            padding: 2px 2px 12px;
+            scroll-snap-type: x proximity;
+            -webkit-overflow-scrolling: touch;
+            scrollbar-width: thin;
+            scrollbar-color: var(--accent-gold) transparent;
+        }
+        #untimed-grid.untimed-carousel > .daily-card {
+            flex: 0 0 calc((100% - 14px) / 2);
+            min-width: 0;
+            box-sizing: border-box;
+            scroll-snap-align: end;
+        }
+        #untimed-grid.untimed-carousel::-webkit-scrollbar { height: 7px; }
+        #untimed-grid.untimed-carousel::-webkit-scrollbar-thumb {
+            background: var(--accent-gold);
+            border-radius: 10px;
+        }
+        /* En mòbil un tauler prou gran per jugar-hi; la següent targeta
+           queda entrevisible per indicar que es pot lliscar. */
+        body.device-mobile #untimed-grid.untimed-carousel > .daily-card { flex-basis: 82%; }
+        #untimed-scroll-hint { font-size: 0.71rem; font-weight: 600; letter-spacing: 0; text-transform: none; }
+
         .daily-grid.daily-carousel .daily-card {
             flex: 0 0 78%; scroll-snap-align: center; min-width: 0;
         }
@@ -6527,8 +6556,11 @@
                             <button type="button" class="btn btn-secondary" id="btn-live-game-discard">Descarta-la</button>
                         </div>
                     </div>
-                    <div class="daily-section-title" id="untimed-section-title" style="display:none;">Partides sense rellotge</div>
-                    <div class="daily-grid" id="untimed-grid" aria-label="Partides sense rellotge desades"></div>
+                    <div class="daily-section-title" id="untimed-section-title" style="display:none;">
+                        Partides sense rellotge
+                        <span id="untimed-scroll-hint" style="display:none;">← Antigues · Recents →</span>
+                    </div>
+                    <div class="daily-grid" id="untimed-grid" role="region" tabindex="0" aria-label="Partides sense rellotge, ordenades d'antigues a recents; desplaça't horitzontalment per veure-les"></div>
                     <!-- Partides diàries (ritme «24h») en curs: miniatures amb l'estat
                          del tauler, el temps que queda i el botó de jugar. Es pinta
                          des d'app.js i, buida, no ocupa lloc. -->
@@ -9564,7 +9596,7 @@
     <script src="boardexperience.js?v=1.0.5"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.129"></script>
+    <script src="app.js?v=1.0.130"></script>
 
     <!-- Service Worker Registration -->
     <script>
