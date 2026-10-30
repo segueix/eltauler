@@ -65,3 +65,29 @@ dos enllaços).
   verificacions existents. El fitxer JavaScript i el WASM de Stockfish 19
   es desen en una memòria cau persistent amb el seu nom propi, sense
   substitució per `stockfish.js` en cas de manca de connexió.
+
+## Sis jeroglífics compartits al dia (objectiu)
+
+El workflow `.github/workflows/jeroglifics-diaris.yml` s'executa cada dia a
+les **06:17 i 18:17 UTC** (07:17 i 19:17 a l'hivern de Catalunya; 08:17 i
+20:17 a l'estiu). Cada execució cerca **fins a tres nous jeroglífics** amb
+Stockfish 19 i els verifica amb `hieroclosure.js` abans de publicar-los.
+
+- Càlcul: `node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 240`.
+- Els tres nous van al principi de `jeroglifics-reserva.js`, de manera que
+  tots els usuaris de la PWA els poden rebre quan tornen a carregar-la; es
+  conserva una reserva rotativa de fins a 240 posicions.
+- El generador s'atura quan ha trobat les tres posicions o quan s'acaba el
+  temps límit. Com que és probabilístic, **no hi ha garantia matemàtica de
+  trobar-ne tres a cada execució**: les posicions no verificades no es publiquen.
+- El workflow confirma la reserva a `main` i activa explícitament
+  `desplega-web.yml`. Un push fet amb el `GITHUB_TOKEN` no activa per si
+  mateix els altres workflows amb trigger `push`.
+- La web prefereix les posicions verificades de la reserva abans de generar
+  localment: el mòbil pot continuar generant-ne de personalitzades quan calgui.
+- El repositori és **privat**: l'execució consumeix quota de GitHub Actions.
+  Si esgotem el pressupost o les execucions programades es retarden, pot
+  arribar menys de sis jeroglífics en un dia.
+
+Es pot iniciar un torn manualment des de **Actions → Genera jeroglífics
+compartits (2 cops al dia) → Run workflow**, sense canviar-ne els horaris.
