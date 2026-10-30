@@ -97,6 +97,18 @@ describe('banc de lectura immediata', () => {
         expect(restored.map(t => t.fen)).toEqual(generated.map(t => t.fen));
         expect(B.normalizeGenerated(Chess, [{ fen: 'invalid' }])).toEqual([]);
     });
+    test('captura o defensa validada per Stockfish 19 persisteix sense perdre les respostes', () => {
+        const t = bank.find(x => x.kind === 'capture' && x.answers.length);
+        const restored = B.normalizeGenerated(Chess, [{
+            fen: t.fen, rating: 1100, kind: 'capture', verifiedSF19: true, answers: t.answers
+        }]);
+        expect(restored).toHaveLength(1);
+        expect(restored[0].kind).toBe('capture');
+        expect(restored[0].answers).toEqual(t.answers);
+        expect(B.normalizeGenerated(Chess, [{
+            fen: t.fen, kind: 'capture', verifiedSF19: true, answers: ['a1a1']
+        }])).toHaveLength(0);
+    });
     test('evita posicions recents quan queden alternatives', () => {
         const deck = B.makeDeck(bank, 'scan', [], () => .5);
         const fresh = B.makeDeck(bank, 'scan', deck.map(t => t.id), () => .5);
