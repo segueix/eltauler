@@ -105,33 +105,162 @@ test('la creació de jeroglífics té motor SF19 independent i sense fallback an
     const generator = between('async function hgGenerateOne(', '// Text llegible del motiu');
     expect(generator).toContain('await ensureHieroStockfish()');
     expect(generator).not.toContain('ensureStockfish()');
-    const selfplay = between('async function hgSelfPlaySeedFens(', 'function hgSelfPlayCandidate(');
+    const selfplay = between('async function hgMineSelfPlayGame(', 'function hgSelfPlayCandidate(');
     expect(selfplay).toContain('await analyzeHieroFenRobust(');
-    expect(selfplay).toContain("engine:'hiero'");
+    expect(selfplay).toContain('verifyHieroglyphicConclusion(');
     expect(selfplay).not.toContain('hgRandomSeedFen');
     expect(selfplay).not.toContain("new Worker(STOCKFISH_URL)");
 });
 
-test('l’autojoc de Stockfish produeix FENs de partides legals sense inventar posicions', async () => {
-    const mockEngine = jest.fn(async fen => {
+// Context per a l'autojoc: motor simulat, emmagatzematge en memòria.
+function selfPlayContext(engine, extra = {}) {
+    const store = {};
+    const ctx = vm.createContext(Object.assign({
+        Chess, ElTaulerCore: Core, window: { ElTaulerHieroClosure: H },
+        HIERO_ALLOWED_FINAL_MOTIFS: Core.HIERO_ALLOWED_FINAL_MOTIFS, HIERO_FINAL_MOTIF_LABELS: Core.HIERO_FINAL_MOTIF_LABELS,
+        classifyPuzzleFinalMotif: Core.createHieroglyphicMotifHelpers(Chess).classifyPuzzleFinalMotif,
+        hgIsLowEndDevice: () => false, ensureHieroStockfish: async () => true, analyzeHieroFenRobust: engine,
+        hgAllKnownFens: () => new Set(),
+        readJsonStorage: (k, d) => (k in store ? JSON.parse(store[k]) : d),
+        writeJsonStorage: (k, v) => { store[k] = JSON.stringify(v); }
+    }, extra));
+    vm.runInContext(between('const HG_SEEDS_KEY', 'async function hgGenerateFromSelfPlaySeed(')
+        + between('function hgSelfPlayCandidate(', '// Diagnòstic de l\'últim intent')
+        + between('async function verifyHieroglyphicConclusion(', 'function hasVerifiedHieroglyphicConclusion('), ctx);
+    return { ctx, store, run: code => vm.runInContext(code, ctx) };
+}
+
+test('l’autojoc juga partides legals i desa com a llavors les posicions amb una sola jugada guanyadora', async () => {
+    // Motor simulat: totes les jugades legals ordenades; a partir de la jugada 20
+    // diu que la primera guanya clarament i la resta no (una «llavor»).
+    let calls = 0;
+    const engine = jest.fn(async fen => {
+        calls++;
         const g = new Chess(fen);
-        const legal = g.moves({ verbose: true });
-        const m = legal.find(x => x.piece === 'p' && !x.captured) || legal[0];
-        if (!m) return null;
-        const u = m.from + m.to + (m.promotion || '');
-        return { bestMove: { move: u, eval: 15, evalType: 'cp' },
-            alternatives: [{ move: u, eval: 15, evalType: 'cp' }] };
+        const legal = g.moves({ verbose: true }).slice(0, 5);
+        if (!legal.length) return null;
+        const winning = calls > 20 && calls % 7 === 0;
+        const alternatives = legal.map((m, i) => ({ move: m.from + m.to + (m.promotion || ''), evalType: 'cp',
+            eval: winning ? (i === 0 ? 450 : 20 - i) : 30 - i * 60, pv: [m.from + m.to + (m.promotion || '')] }));
+        return { bestMove: alternatives[0], alternatives };
     });
-    const ctx = vm.createContext({
-        Chess, hgIsLowEndDevice: () => true, analyzeHieroFenRobust: mockEngine
-    });
-    vm.runInContext(between('async function hgSelfPlaySeedFens(', 'async function hgGenerateFromSelfPlaySeed('), ctx);
-    const fens = await vm.runInContext('hgSelfPlaySeedFens(() => false)', ctx);
-    expect(mockEngine.mock.calls.length).toBeGreaterThanOrEqual(10);
-    expect(fens.length).toBeGreaterThan(0);
-    expect(fens.length).toBeLessThanOrEqual(2);
-    for (const fen of fens) {
-        expect(new Chess().load(fen)).toBe(true);
-        expect(fen).not.toBe(new Chess().fen());
+    const app = selfPlayContext(engine);
+    // Sense cap combinació que es tanqui a la tercera jugada, no es guarda res.
+    expect(await app.run('hgMineSelfPlayGame(() => false, { budgetMs: 60000 })')).toBe(0);
+    // Amb variants que sí que es tanquen (la comprovació real és a un altre test).
+    calls = 0;
+    app.run('hgClosureWindows = () => [{}]');
+    const added = await app.run('hgMineSelfPlayGame(() => false, { budgetMs: 60000 })');
+    expect(engine.mock.calls.length).toBeGreaterThan(30);
+    expect(added).toBeGreaterThan(0);
+    const seeds = app.run('hgLoadSeeds()');
+    expect(seeds).toHaveLength(added);
+    for (const seed of seeds) {
+        expect(new Chess().load(seed.fen)).toBe(true);
+        expect(seed.bestCp).toBe(450);
     }
+    // Una llavor ja coneguda no es torna a desar.
+    expect(await app.run('hgMineSelfPlayGame(() => false, { budgetMs: 60000, excludeFens: new Set(hgLoadSeeds().map(x => hgFenKey(x.fen))) })')).toBeGreaterThanOrEqual(0);
+    const again = app.run('hgLoadSeeds()');
+    expect(new Set(again.map(x => x.fen)).size).toBe(again.length);
+});
+
+test('les finestres de la variant principal acaben JUST a la tercera jugada', () => {
+    const app = selfPlayContext(async () => null);
+    app.ctx.line = H.lineOf(candidate);
+    app.ctx.fen = candidate.fen;
+    const wins = app.run('hgClosureWindows(fen, line)');
+    expect(wins).toHaveLength(1);
+    expect(wins[0].solutionMoves).toEqual(['d3d8', 'd2g5', 'g5d8']);
+    // Una variant que s'acaba abans no fa jeroglífic.
+    expect(app.run('hgClosureWindows(fen, line.slice(0, 4))')).toHaveLength(0);
+    // Una variant tranquil·la tampoc.
+    app.ctx.quiet = ['e2e4', 'e7e5', 'g1f3', 'b8c6', 'f1b5', 'a7a6'];
+    expect(app.run('hgClosureWindows(new Chess().fen(), quiet)')).toHaveLength(0);
+});
+
+test('una llavor es certifica amb la variant profunda i la validació completa', async () => {
+    const line = H.lineOf(candidate);
+    const engine = jest.fn(async (fen, depth, multiPv) => {
+        if (fen === candidate.fen && multiPv === 1) return { bestMove: { move: 'd3d8', eval: 3, evalType: 'mate', depth: 16, pv: line } };
+        return byFen[fen] || null;
+    });
+    const app = selfPlayContext(engine);
+    app.ctx.fen = candidate.fen;
+    const cert = await app.run('hgCertifySeed(fen, () => false)');
+    expect(H.matches(cert)).toBe(true);
+    expect(cert.solutionMoves).toEqual(['d3d8', 'd2g5', 'g5d8']);
+    expect(cert.origin).toBe('engine_selfplay');
+    expect(cert.finalMotif).toBe('mate');
+});
+
+test('cada llavor es prova un sol cop i, si la reserva és buida, se’n mina una partida', async () => {
+    const app = selfPlayContext(async () => null);
+    // La primera partida minada dona dues llavors; la segona, cap.
+    app.ctx.hgMineSelfPlayGame = jest.fn(async () => {
+        if (app.ctx.hgMineSelfPlayGame.mock.calls.length > 1) return 0;
+        app.run("hgSaveSeeds([{ fen: '8/8/8/8/8/8/8/K6k w - - 0 1', gap: 400 }, { fen: '8/8/8/8/8/8/8/K5k1 w - - 0 1', gap: 300 }])");
+        return 2;
+    });
+    vm.runInContext(between('async function hgGenerateFromSelfPlaySeed(', 'function hgSelfPlayCandidate('), app.ctx);
+    app.ctx.hgCertifySeed = jest.fn(async () => null);
+    const diag = {};
+    app.ctx.diag = diag;
+    expect(await app.run('hgGenerateFromSelfPlaySeed(() => false, new Set(), diag)')).toBeNull();
+    expect(app.ctx.hgMineSelfPlayGame).toHaveBeenCalled();
+    expect(app.ctx.hgCertifySeed.mock.calls.map(c => c[0].fen)).toEqual(['8/8/8/8/8/8/8/K6k w - - 0 1', '8/8/8/8/8/8/8/K5k1 w - - 0 1']);
+    expect(app.run('hgLoadSeeds()')).toHaveLength(0);
+    expect(diag.seedsTried).toBe(2);
+    expect(diag.seedsMined).toBe(2);
+});
+
+test('la força d’una llavor es llegeix de la mateixa partida minada', () => {
+    const win = (move) => [{ move, eval: 500, evalType: 'cp' }, { move: 'x', eval: 50, evalType: 'cp' }];
+    const reply = (move) => [{ move, eval: -500, evalType: 'cp' }];
+    const record = [
+        { alternatives: win('a'), move: 'a' }, { alternatives: reply('b'), move: 'b' },
+        { alternatives: win('c'), move: 'c' }, { alternatives: reply('d'), move: 'd' },
+        { alternatives: win('e'), move: 'e' }
+    ];
+    expect(Core.hieroMiningSeedStrength(record, 0)).toBe(2);
+    // La segona jugada del jugador tenia una alternativa que també guanyava.
+    const ambiguous = record.slice();
+    ambiguous[2] = { alternatives: [{ move: 'c', eval: 755, evalType: 'cp' }, { move: 'z', eval: 752, evalType: 'cp' }], move: 'c' };
+    expect(Core.hieroMiningSeedStrength(ambiguous, 0)).toBe(1);
+    // El rival no va respondre amb la seva millor jugada (error injectat).
+    const blunder = record.slice();
+    blunder[1] = { alternatives: reply('b'), move: 'q' };
+    expect(Core.hieroMiningSeedStrength(blunder, 0)).toBe(1);
+    expect(Core.hieroMiningSeedStrength(record, 1)).toBe(0);
+    // Mat: cap altra jugada no fa mat.
+    expect(Core.hieroMiningStepUnique([{ move: 'a', eval: 3, evalType: 'mate' }, { move: 'b', eval: 4, evalType: 'mate' }])).toBe(false);
+    expect(Core.hieroMiningStepUnique([{ move: 'a', eval: 3, evalType: 'mate' }, { move: 'b', eval: 150, evalType: 'cp' }])).toBe(true);
+});
+
+test('la mineria tria jugades legals de MultiPV: obertura variada, i errors de 2,5 a 9 peons quan toca', () => {
+    const alts = [{ move: 'a', eval: 30, evalType: 'cp' }, { move: 'b', eval: 10, evalType: 'cp' },
+        { move: 'c', eval: -250, evalType: 'cp' }, { move: 'd', eval: -1000, evalType: 'cp' }];
+    const state = {};
+    const seq = [0.0, 0.99];   // el primer valor fixa quan tocarà el primer error
+    const random = () => (seq.length ? seq.shift() : 0);
+    expect(Core.hieroMiningChoose(alts, 2, state, random).move).toBe('b');      // dins de 40 cp
+    state.nextErrorPly = 12;
+    expect(Core.hieroMiningChoose(alts, 11, state, () => 0).move).toBe('a');    // encara no toca
+    const err = Core.hieroMiningChoose(alts, 12, state, () => 0);
+    expect(err).toEqual({ move: 'c', error: true });                            // perd 280 cp, no 1030
+    expect(state.nextErrorPly).toBeGreaterThanOrEqual(13);
+    expect(Core.hieroMiningBadMoves(alts).map(a => a.move)).toEqual(['c']);
+    expect(Core.hieroMiningSeed(alts, 20)).toBeNull();
+    expect(Core.hieroMiningSeed([{ move: 'a', eval: 2, evalType: 'mate' }, { move: 'b', eval: 0, evalType: 'cp' }], 20)).toBeNull();
+    expect(Core.hieroMiningSeed([{ move: 'a', eval: 4, evalType: 'mate' }, { move: 'b', eval: 0, evalType: 'cp' }], 20)).not.toBeNull();
+    expect(Core.hieroMiningSeed([{ move: 'a', eval: 450, evalType: 'cp' }, { move: 'b', eval: 20, evalType: 'cp' }], 5)).toBeNull();
+});
+
+test('si la partida minada ja contenia la combinació, es verifica sense anàlisi profunda prèvia', async () => {
+    const engine = jest.fn(async (fen, depth) => (depth === 14 ? null : byFen[fen] || null));
+    const app = selfPlayContext(engine);
+    app.ctx.seed = { fen: candidate.fen, bestCp: 9970, line: H.lineOf(candidate) };
+    const cert = await app.run('hgCertifySeed(seed, () => false)');
+    expect(H.matches(cert)).toBe(true);
+    expect(engine.mock.calls.some(c => c[1] === 14)).toBe(false);
 });
