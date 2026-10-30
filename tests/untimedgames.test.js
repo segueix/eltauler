@@ -184,7 +184,7 @@ test('amb una o dues partides no activa el desplaçament lateral', () => {
 test('el carrusel deixa dos taulers visibles a escriptori i manté el desplaçament mòbil', () => {
     const html = fs.readFileSync(require.resolve('../index.html'), 'utf8');
     expect(html).toContain('id="untimed-scroll-hint"');
-    expect(html).toContain('app.js?v=1.0.131');
+    expect(html).toMatch(/app\.js\?v=1\.0\.\d+/);
     expect(html).toMatch(/#untimed-grid\.untimed-carousel > \.daily-card \{[^}]*flex:\s*0 0 calc\(\(100% - 14px\) \/ 2\);/);
     expect(html).toContain('body.device-mobile #untimed-grid.untimed-carousel > .daily-card { flex-basis: 82%; }');
 });

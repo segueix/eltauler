@@ -1,0 +1,76 @@
+name: Genera jeroglífics compartits (2 cops al dia)
+
+on:
+  # Primera execució en activar o modificar aquesta acció a main.
+  # Els commits diaris només canvien la reserva, de manera que no hi ha bucle.
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/jeroglifics-diaris.yml'
+  # UTC: 06:17 i 18:17 = 07:17/19:17 a l'hivern, 08:17/20:17 a l'estiu (Catalunya).
+  # Evitem el minut 0, que GitHub pot retardar quan hi ha massa execucions.
+  schedule:
+    - cron: '17 6,18 * * *'
+  workflow_dispatch:
+
+# El push fet amb GITHUB_TOKEN NO activa els altres workflows de push.
+# Cal autoritzar i disparar explícitament la publicació de GitHub Pages.
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: generacio-jeroglifics-compartits
+  cancel-in-progress: false
+
+jobs:
+  genera-i-publica:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Baixa la branca principal
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+
+      - name: Configura Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+
+      - name: Instal·la l'aplicació
+        run: npm ci
+
+      - name: Instal·la Playwright i Chromium
+        run: |
+          npm install --no-save --package-lock=false playwright@1.56.1
+          npx playwright install --with-deps chromium
+
+      - name: Mina fins a tres jeroglífics nous amb Stockfish 19
+        run: node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 240
+
+      - name: Confirma la reserva al repositori
+        id: publish
+        shell: bash
+        run: |
+          git add jeroglifics-reserva.js
+          if git diff --cached --quiet; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::No s'ha trobat cap jeroglífic nou verificat en aquesta execució."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: incorpora els nous jeroglífics compartits"
+          # Si main ha avançat mentre minàvem, conservem també els altres canvis.
+          git pull --rebase origin main
+          git push origin HEAD:main
+          echo "published=true" >> "$GITHUB_OUTPUT"
+
+      - name: Publica el nou banc a GitHub Pages
+        if: steps.publish.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run desplega-web.yml --ref main

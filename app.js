@@ -21974,19 +21974,28 @@ function hgTopUpFromReserve(want = 1) {
     const known = hgAllKnownFens();
     (hieroglyphicStats.solvedFens || []).forEach(f => known.add(hgFenKey(f)));
     let added = 0;
+    const freshlyPublished = [];
     for (const it of hgReserveItems()) {
         if (added >= want) break;
         const key = hgFenKey(it && it.fen);
         if (!key || known.has(key) || !hasVerifiedHieroglyphicConclusion(it)) continue;
         const now = Date.now();
-        hgState.queue.push(Object.assign(JSON.parse(JSON.stringify(it)), {
+        freshlyPublished.push(Object.assign(JSON.parse(JSON.stringify(it)), {
             id: 'hg_' + now.toString(36) + Math.random().toString(36).slice(2, 8),
             createdAt: now, updatedAt: now, deviceCreated: hgDeviceId(), source: 'reserve', status: 'new'
         }));
         known.add(key);
         added++;
     }
-    if (added) { hgPruneQueue(); hgState.updatedAt = Date.now(); hgSaveState({ flush: true }); renderHieroglyphicBanner(); }
+    if (added) {
+        // Els exercicis comuns acabats de publicar tenen prioritat sobre la cua
+        // local, sense perdre'n cap: els nous queden al davant en ordre original.
+        hgState.queue = freshlyPublished.concat(hgState.queue);
+        hgPruneQueue();
+        hgState.updatedAt = Date.now();
+        hgSaveState({ flush: true });
+        renderHieroglyphicBanner();
+    }
     return added;
 }
 // Certifica llavors de la reserva (i, si és buida, en mina una partida nova).
@@ -22182,9 +22191,15 @@ function hgQueueItemToChosen(item) {
 function hgPruneQueue() {
     const s = hgEnsureState().settings;
     const max = s.maxQueueSize || 10;
-    // Si en sobren, elimina els més antics que encara siguin "new".
+    // Si en sobren, elimina el de creació més antiga. No escombrem les
+    // novetats compartides només perquè han entrat al davant de la cua.
     while (hgState.queue.filter(it => it.status === 'new').length > max) {
-        const idx = hgState.queue.findIndex(it => it.status === 'new');
+        let idx = -1, oldest = Infinity;
+        hgState.queue.forEach((it, i) => {
+            if (it.status !== 'new') return;
+            const at = Number(it.createdAt) || 0;
+            if (idx < 0 || at < oldest) { idx = i; oldest = at; }
+        });
         if (idx < 0) break;
         hgState.queue.splice(idx, 1);
     }
@@ -22233,8 +22248,9 @@ async function hgTick(shouldAbortOuter) {
         // Ja n'hi ha una en marxa (aquest mateix cicle torna cada pocs segons).
         if (hgGenerating || hgManualBurstRunning) return;
         const target = hgDeviceTarget();
-        // Sempre n'hi ha d'haver almenys un a punt: si la cua és buida, de la reserva.
-        if (hgNewCount() === 0) hgTopUpFromReserve(1);
+        // Primer omplim la cua amb els jeroglífics comuns ja calculats a
+        // GitHub. Només gastem CPU/bateria del dispositiu si no n'hi ha prou.
+        if (hgNewCount() < target) hgTopUpFromReserve(target - hgNewCount());
         const newCount = hgNewCount();
         if (newCount >= target) { renderHieroglyphicBanner(); return; }
         // Mode lleuger: només ajuda quan la cua global és 0 o 1.
@@ -22511,6 +22527,19 @@ async function hgManualGenerateBurst(opts = {}) {
 async function openHieroglyphicsFromBanner() {
     if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
     const pref = hieroglyphicPreferredFinalMotif || 'any';
+    // Si hi ha novetats publicades en les darreres 24 h, prioritza-les
+    // també quan aquest aparell ja tenia una cua antiga plena. Això permet
+    // oferir els sis jeroglífics compartits del dia a tots els dispositius.
+    const hasRecentReserve = hgReserveItems().some(it =>
+        Number(it.publishedAt) > Date.now() - 24 * 60 * 60 * 1000);
+    if (hasRecentReserve) {
+        const known = hgAllKnownFens();
+        const needsNewDaily = hgReserveItems().some(it =>
+            Number(it.publishedAt) > Date.now() - 24 * 60 * 60 * 1000 &&
+            !known.has(hgFenKey(it.fen)) &&
+            !(hieroglyphicStats.solvedFens || []).includes(it.fen));
+        if (needsNewDaily) hgTopUpFromReserve(1);
+    }
     // 1) Serveix un jeroglífic JUGABLE de la cua (descartant els malmesos).
     let chosen = hgConsumePlayable(pref);
     // Cua buida: un de la reserva minada per endavant, a l'instant.
