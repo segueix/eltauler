@@ -356,6 +356,41 @@
         return { synthesize: synthesize, _sessions: sessions };
     }
 
+    // Google Cloud TTS: només servei intermedi al mateix origen, MAI una clau
+    // de Google al navegador. Aquesta veu és d'emergència, no substitueix Matxa.
+    const GOOGLE_EMERGENCY_VOICE = 'ca-ES-Standard-B';
+    const GOOGLE_EMERGENCY_PATH = '/api/google-tts';
+    function createGoogleEmergencyClient(env) {
+        const e = env || {};
+        const doFetch = e.fetch || (root && root.fetch && root.fetch.bind(root));
+        const makeUrl = e.createObjectURL || (root && root.URL && root.URL.createObjectURL && root.URL.createObjectURL.bind(root.URL));
+        const endpoint = e.endpoint || GOOGLE_EMERGENCY_PATH;
+        return {
+            available: () => !!(doFetch && makeUrl),
+            async synthesize(text, opts) {
+                if (!doFetch || !makeUrl) throw new Error('google-unavailable');
+                const clean = String(text || '').trim().slice(0, 480);
+                if (!clean) throw new Error('google-empty');
+                const o = opts || {};
+                const resp = await doFetch(endpoint, {
+                    method: 'POST', credentials: 'same-origin',
+                    headers: { 'content-type': 'application/json' },
+                    body: JSON.stringify({
+                        text: clean, languageCode: 'ca-ES', voice: GOOGLE_EMERGENCY_VOICE,
+                        speakingRate: Math.max(0.8, Math.min(1.2, Number(o.rate) || 1))
+                    }),
+                    signal: o.signal
+                });
+                if (!resp.ok) throw new Error('google-' + resp.status);
+                const type = resp.headers && resp.headers.get ? resp.headers.get('content-type') : '';
+                if (!/^audio\/(mpeg|mp3)(?:;|$)/i.test(type || '')) throw new Error('google-format');
+                const bytes = await resp.blob();
+                if (bytes.size > 1024 * 1024 || bytes.size < 1) throw new Error('google-size');
+                return makeUrl(bytes);
+            }
+        };
+    }
+
     // ------------------------------------------------------------------
     // Reproductor: una sola locució viva, amb temps màxim i memòria cau
     // ------------------------------------------------------------------
@@ -364,6 +399,8 @@
     function createNeuralSpeaker(env) {
         const e = env || {};
         const client = e.client || createMatxaClient({});
+        const google = e.googleClient || (root && root.document ? createGoogleEmergencyClient({}) : null);
+        const emergencyReady = () => !!(google && (!google.available || google.available()) && isOnline());
         const setT = e.setTimeout || ((fn, ms) => setTimeout(fn, ms));
         const clearT = e.clearTimeout || ((id) => clearTimeout(id));
         const now = e.now || (() => Date.now());
@@ -420,11 +457,14 @@
             clearT(entry.timer);
             if (entry.audio) { try { entry.audio.onended = null; entry.audio.onerror = null; entry.audio.pause(); } catch (err) {} }
             if (entry.effects) { try { entry.effects.disconnect(); } catch (err) {} }
+            if (entry.googleController) { try { entry.googleController.abort(); } catch (err) {} }
+            if (entry.googleSrc) releaseSrc(entry.googleSrc);
             entry.resolve({ spoken: spoken, reason: reason });
         }
 
         const api = {
-            available() { return isOnline() && now() >= cooldownUntil; },
+            available() { return isOnline() && (now() >= cooldownUntil || emergencyReady()); },
+            emergencyAvailable: emergencyReady,
             // La TV que espera Matxa hi torna a provar abans que s'acabi la
             // pausa d'un minut (opció force de speak).
             online() { return isOnline(); },
@@ -446,8 +486,16 @@
                     const entry = { resolve: resolve, timer: null, audio: null };
                     current = entry;
                     entry.timer = setT(() => finish(entry, false, 'timeout'), o.maxWaitMs || 30000);
-                    source(text, voiceId, o).then((src) => {
-                        if (current !== entry) return;
+                    const tryMatxa = now() >= cooldownUntil || !!o.force;
+                    const matxa = tryMatxa ? source(text, voiceId, o) : Promise.reject(new Error('matxa-cooldown'));
+                    matxa.catch(err => {
+                        if (current !== entry || !emergencyReady()) throw err;
+                        const controller = typeof AbortController === 'function' ? new AbortController() : null;
+                        entry.googleController = controller;
+                        return google.synthesize(text, { rate: o.rate, signal: controller ? controller.signal : undefined })
+                            .then(src => { entry.googleSrc = src; return src; });
+                    }).then((src) => {
+                        if (current !== entry) { if (entry.googleSrc) releaseSrc(entry.googleSrc); return; }
                         let audio;
                         try { audio = createAudio(src); } catch (err) { finish(entry, false, 'audio-error'); return; }
                         try { entry.effects = audioEffects.attach(audio, o.effects); }
@@ -501,6 +549,9 @@
         padWavStart,
         parseSse,
         createMatxaClient,
+        GOOGLE_EMERGENCY_VOICE,
+        GOOGLE_EMERGENCY_PATH,
+        createGoogleEmergencyClient,
         createNeuralSpeaker,
         sharedSpeaker
     };
