@@ -72,6 +72,18 @@ describe('banc de lectura immediata', () => {
         expect(new Set(deck.map(t => t.fen.split(' ')[1])).size).toBe(2);
         expect(deck.filter(t => t.probe)).toHaveLength(mode === 'radar' ? 8 : mode === 'sprint' ? 3 : 0);
     });
+    test('repetició espaiada: els errors vencen abans i els encerts ràpids s'ajornen', () => {
+        const now = Date.now();
+        const progress = { sessions: [
+            { at: now - 2 * 86400000, rows: [
+                { taskId: 'error', correct: false, reactionMs: 4500, targetMs: 5000 },
+                { taskId: 'dominat', correct: true, reactionMs: 1000, targetMs: 5000 }
+            ] }
+        ] };
+        const priority = B.practicePriority(progress, now);
+        expect(priority({ id: 'error' })).toBeGreaterThan(priority({ id: 'nou' }));
+        expect(priority({ id: 'nou' })).toBeGreaterThan(priority({ id: 'dominat' }));
+    });
     test('evita posicions recents quan queden alternatives', () => {
         const deck = B.makeDeck(bank, 'scan', [], () => .5);
         const fresh = B.makeDeck(bank, 'scan', deck.map(t => t.id), () => .5);
