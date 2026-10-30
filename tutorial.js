@@ -268,7 +268,7 @@
                 { id: 'vista', icon: 'ic-scope', title: 'Joc vista', action: 'positional', cta: 'Juga-hi',
                   text: 'Per aprendre a jugar «en present». Tries quantes <strong>jugades vista</strong> té el rival (de zero a deu) i cada jugada teva rep un <strong>índex Stockfish</strong>: si no és de les bones, es desfà sola perquè en provis una altra. El botó <strong>Norma</strong> et recorda un principi per a la decisió que tens al davant. No puntua ELO.' },
                 { id: 'antidot', icon: '🧬', title: 'Rival Antídot', action: 'antidote', cta: 'Juga-hi',
-                  text: 'Stockfish a força màxima que, entre les jugades bones, tria la que més posa a prova les <strong>teves debilitats</strong> (les que surten de les teves errades desades). Durant la partida no et diu què s\'examina; després de cada resposta t\'ho explica. Entra a l\'historial però no puntua ELO.' },
+                  text: 'Stockfish 19 tria jugades fortes que posen a prova les <strong>teves debilitats</strong>. No revela el tema abans de moure; després dona una explicació breu i, si ho actives a Configuració, també la llegeix en català. No parla amb rellotge. Entra a l\'historial però no puntua ELO.' },
                 { id: 'lliga', icon: 'ic-trophy', title: 'Lliga', action: 'league', cta: 'Vés a la lliga',
                   text: 'Una temporada de <strong>9 jornades</strong> contra rivals simulats al voltant del teu nivell, amb classificació. La lliga es genera amb el ritme que tens triat i el manté fins al final. Abandonar una partida de lliga des del botó de casa compta com a derrota.' }
             ]
