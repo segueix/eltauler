@@ -223,6 +223,12 @@
     const hg = parseCounterJson(data['eltauler_hieroglyphic_stats']);
     const themes = hg.themes && typeof hg.themes === 'object' ? hg.themes : {};
     Object.keys(themes).forEach(theme => add('eltauler_hieroglyphic_stats|themes|' + theme, themes[theme]));
+    const tria = parseCounterJson(data['chess_triaProgress']);
+    const triaEntries = tria.entries && typeof tria.entries === 'object' ? tria.entries : {};
+    Object.keys(triaEntries).forEach(id => {
+      if (!triaEntries[id] || typeof triaEntries[id] !== 'object') return;
+      ['attempts', 'wrong'].forEach(field => add('chess_triaProgress|entries|' + id + '|' + field, triaEntries[id][field]));
+    });
     const ant = parseCounterJson(data['chess_antidoteProgress']);
     const antThemes = ant.themes && typeof ant.themes === 'object' ? ant.themes : {};
     Object.keys(antThemes).forEach(theme => {
