@@ -167,6 +167,150 @@
     } catch (e) { return null; }
   }
 
+
+  // Per sumar increments reals sense comptar dues vegades el mateix progrés,
+  // guardem el valor que aquest aparell va compartir en l'últim clic. A i B
+  // poden partir de 10: si A fa +2 i B fa +3, l'estat final és 15, no 13/25.
+  // Sense base (primera sincronització antiga) no es poden saber increments
+  // independents: triem el màxim, sense inventar sessions ni duplicar mèrits.
+  const ROOT_COUNTERS = ['chess_totalGamesPlayed', 'chess_totalWins', 'chess_totalStars'];
+  const GROWTH_COUNTERS = [
+    'tasksRecommended', 'tasksStarted', 'tasksCompleted', 'personalErrorsConverted',
+    'srsCompleted', 'weaknessSessionsCompleted', 'openingDrillsCompleted',
+    'mateDrillsCompleted', 'triaTestsCompleted', 'openingHieroCompleted',
+    'timedGamesPlayed', 'antidoteGamesPlayed', 'positionalGamesPlayed'
+  ];
+  const SESSION_COUNTERS = [
+    'gamesPlayed', 'gamesWon', 'bundlesSolved', 'bundlesSolvedLow',
+    'bundlesSolvedMed', 'bundlesSolvedHigh', 'blackWins', 'leagueGamesPlayed',
+    'freeGamesPlayed', 'timedGamesPlayed', 'timedGamesWon', 'antidoteGamesPlayed',
+    'antidoteGamesWon', 'positionalGamesPlayed', 'triaTests', 'hieroSolved',
+    'openingHieroSolved'
+  ];
+  const OBJECT_COUNTERS = {
+    'chess_growthStats': GROWTH_COUNTERS,
+    'chess_tacticsStats': ['solved', 'attempts'],
+    'eltauler_hieroglyphic_stats': ['solved', 'personalSolved'],
+    'chess_antidoteProgress': ['games', 'passed', 'partial', 'failed', 'total'],
+    'chess_sessionStats': SESSION_COUNTERS
+  };
+  const TIME_CONTROL_COUNTERS = ['games', 'wins', 'draws', 'losses'];
+  const ANTI_THEME_COUNTERS = ['total', 'passed', 'partial', 'failed'];
+  function parseCounterJson(raw) {
+    try { const val = JSON.parse(raw); return val && typeof val === 'object' && !Array.isArray(val) ? val : {}; }
+    catch (e) { return {}; }
+  }
+  function counterNumber(n) {
+    const v = typeof n === 'number' ? n : (typeof n === 'string' && n.trim() ? Number(n) : NaN);
+    return Number.isSafeInteger(v) && v >= 0 ? v : null;
+  }
+  function counterSnapshot(data) {
+    const out = {};
+    const add = (name, value) => {
+      const n = counterNumber(value);
+      if (n !== null) out[name] = n;
+    };
+    ROOT_COUNTERS.forEach(k => add(k, data[k]));
+    Object.keys(OBJECT_COUNTERS).forEach(k => {
+      const o = parseCounterJson(data[k]);
+      OBJECT_COUNTERS[k].forEach(field => add(k + '|' + field, o[field]));
+    });
+    const t = parseCounterJson(data['chess_timeControlElos']);
+    Object.keys(t).forEach(tc => {
+      if (!t[tc] || typeof t[tc] !== 'object') return;
+      TIME_CONTROL_COUNTERS.forEach(field => add('chess_timeControlElos|' + tc + '|' + field, t[tc][field]));
+    });
+    const hg = parseCounterJson(data['eltauler_hieroglyphic_stats']);
+    const themes = hg.themes && typeof hg.themes === 'object' ? hg.themes : {};
+    Object.keys(themes).forEach(theme => add('eltauler_hieroglyphic_stats|themes|' + theme, themes[theme]));
+    const tria = parseCounterJson(data['chess_triaProgress']);
+    const triaEntries = tria.entries && typeof tria.entries === 'object' ? tria.entries : {};
+    Object.keys(triaEntries).forEach(id => {
+      if (!triaEntries[id] || typeof triaEntries[id] !== 'object') return;
+      ['attempts', 'wrong'].forEach(field => add('chess_triaProgress|entries|' + id + '|' + field, triaEntries[id][field]));
+    });
+    const ant = parseCounterJson(data['chess_antidoteProgress']);
+    const antThemes = ant.themes && typeof ant.themes === 'object' ? ant.themes : {};
+    Object.keys(antThemes).forEach(theme => {
+      const stats = antThemes[theme] || {};
+      ANTI_THEME_COUNTERS.forEach(field => add('chess_antidoteProgress|themes|' + theme + '|' + field, stats[field]));
+    });
+    return out;
+  }
+  function readCounterBaseline() {
+    try {
+      const saved = JSON.parse(localStorage.getItem(BASELINE_KEY) || 'null');
+      return saved && currentUser && saved.uid === currentUser.uid &&
+        saved.counters && typeof saved.counters === 'object' ? saved.counters : {};
+    } catch (e) { return {}; }
+  }
+  function setMergedCounter(merged, key, value) {
+    const parts = key.split('|');
+    if (parts.length === 1) { merged[key] = String(value); return; }
+    const storageKey = parts.shift();
+    const obj = parseCounterJson(merged[storageKey]);
+    let current = obj;
+    while (parts.length > 1) {
+      const field = parts.shift();
+      current[field] = current[field] && typeof current[field] === 'object'
+        ? Object.assign({}, current[field]) : {};
+      current = current[field];
+    }
+    current[parts[0]] = value;
+    merged[storageKey] = JSON.stringify(obj);
+  }
+  function mergeCounterProgress(local, cloud, merged, base) {
+    const left = counterSnapshot(local), right = counterSnapshot(cloud);
+    const keys = new Set(Object.keys(left).concat(Object.keys(right)));
+    const localDay = local['chess_sessionStatsDate'], cloudDay = cloud['chess_sessionStatsDate'];
+    if (localDay && cloudDay && localDay !== cloudDay) {
+      const fromLocal = localDay > cloudDay;
+      merged['chess_sessionStatsDate'] = fromLocal ? localDay : cloudDay;
+      merged['chess_sessionStats'] = fromLocal ? local['chess_sessionStats'] : cloud['chess_sessionStats'];
+    }
+    keys.forEach(path => {
+      if (path.startsWith('chess_sessionStats|') &&
+          localDay !== cloudDay && (localDay || cloudDay)) return;
+      const a = left[path], b = right[path], initial = base && base[path];
+      if (a === undefined && b === undefined) return;
+      if (a === undefined) { setMergedCounter(merged, path, b); return; }
+      if (b === undefined) { setMergedCounter(merged, path, a); return; }
+      const value = initial === undefined ? Math.max(a, b)
+        : b + Math.max(0, a - initial);
+      setMergedCounter(merged, path, Math.min(Number.MAX_SAFE_INTEGER, value));
+    });
+    // Valors que descriuen màxims i no fets independents: MAI no se sumen.
+    for (const [key, fields] of Object.entries({
+      'chess_tacticsStats': ['best'],
+      'eltauler_hieroglyphic_stats': ['bestStreak']
+    })) {
+      const a = parseCounterJson(local[key]), b = parseCounterJson(cloud[key]);
+      fields.forEach(field => {
+        const x = counterNumber(a[field]), y = counterNumber(b[field]);
+        if (x !== null || y !== null)
+          setMergedCounter(merged, key + '|' + field, Math.max(x || 0, y || 0));
+      });
+    }
+    const a = parseCounterJson(local['chess_sessionStats']);
+    const b = parseCounterJson(cloud['chess_sessionStats']);
+    if (localDay && localDay === cloudDay) {
+      const precision = Object.assign({}, b.bestPrecisionByTc || {});
+      Object.keys(a.bestPrecisionByTc || {}).forEach(k => {
+        precision[k] = Math.max(Number(precision[k]) || 0, Number(a.bestPrecisionByTc[k]) || 0);
+      });
+      const obj = parseCounterJson(merged['chess_sessionStats']);
+      obj.bestPrecisionByTc = precision;
+      merged['chess_sessionStats'] = JSON.stringify(obj);
+    }
+    const antL = parseCounterJson(local['chess_antidoteProgress']);
+    const antC = parseCounterJson(cloud['chess_antidoteProgress']);
+    if (Array.isArray(antL.seenTestIds) || Array.isArray(antC.seenTestIds)) {
+      const obj = parseCounterJson(merged['chess_antidoteProgress']);
+      obj.seenTestIds = Array.from(new Set((antC.seenTestIds || []).concat(antL.seenTestIds || []))).slice(-400);
+      merged['chess_antidoteProgress'] = JSON.stringify(obj);
+    }
+  }
+
   function mergeForManualSync(local, cloudDoc) {
     const cloud = cloudDoc && cloudDoc.data && typeof cloudDoc.data === 'object' ? cloudDoc.data : {};
     const baseline = readBaseline();
@@ -187,7 +331,11 @@
     }
     const core = window.ElTaulerCore;
     if (!core || typeof core.mergeSyncSnapshots !== 'function') throw new Error('Recarrega la pàgina abans de sincronitzar.');
-    return core.mergeSyncSnapshots(local, core.mergeSyncSnapshots(cloud, preferred));
+    const combined = core.mergeSyncSnapshots(local, core.mergeSyncSnapshots(cloud, preferred));
+    // El nucli uneix historials; aquí afegim només el progrés nou des de
+    // l'última base compartida (l'Elo i les preferències continuen sent valors).
+    mergeCounterProgress(local, cloud, combined, readCounterBaseline());
+    return combined;
   }
 
   // Conserva també qualsevol canvi fet DURANT la petició (p. ex. una partida
@@ -199,8 +347,12 @@
       if (Object.prototype.hasOwnProperty.call(latest, k)) next[k] = latest[k];
       else delete next[k];
     });
-    return window.ElTaulerCore.mergeSyncSnapshots(latest,
+    const merged = window.ElTaulerCore.mergeSyncSnapshots(latest,
       window.ElTaulerCore.mergeSyncSnapshots(shared, next));
+    // Si una partida incrementa estadístiques MENTRE s'està pujant, conserva
+    // l'increment local com a pendent; no torna a enviar-lo automàticament.
+    mergeCounterProgress(latest, shared, merged, counterSnapshot(before));
+    return merged;
   }
 
   function applySnapshot(data) {
@@ -308,7 +460,9 @@
     }
     const effective = includeChangesDuringSync(result.local, collectSnapshot(), result.data);
     applySnapshot(effective);
-    localStorage.setItem(BASELINE_KEY, JSON.stringify({ uid: currentUser.uid, hashes: keyHashes(result.data) }));
+    localStorage.setItem(BASELINE_KEY, JSON.stringify({
+      uid: currentUser.uid, hashes: keyHashes(result.data), counters: counterSnapshot(result.data)
+    }));
     lastObservedHash = snapshotHash(effective);
     setLastSyncedAt(result.updatedAt);
     setLocalChangeAt(result.updatedAt);
