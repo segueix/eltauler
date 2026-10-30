@@ -111,6 +111,57 @@
         (Array.isArray(real) ? real : []).forEach(entry => { const task = realTask(entry); if (task) bank.push(task); });
         return bank;
     }
+    // Generació local acotada: es reprodueixen jugades legals des de problemes
+    // reals i només s'accepten posicions amb mat en una comprovat exhaustivament.
+    // No es fa passar una captura no analitzada pel motor com a exercici verificat.
+    function generateMateTasks(Chess, sources, random = Math.random, limit = 8) {
+        const result = [], seen = new Set((sources || []).map(t => t.fen));
+        const base = (sources || []).filter(t => t.kind === 'mate' && t.answers.length);
+        if (!base.length) return result;
+        const attempts = Math.min(200, Math.max(0, limit) * 15);
+        for (let i = 0; i < attempts && result.length < limit; i++) {
+            const origin = base[Math.floor(random() * base.length)];
+            const game = new Chess(origin.fen);
+            // Una continuació curta altera realment la posició, no només els colors.
+            const turns = 1 + Math.floor(random() * 5);
+            for (let j = 0; j < turns; j++) {
+                const options = game.moves({ verbose: true });
+                if (!options.length) break;
+                const pick = options[Math.floor(random() * options.length)];
+                game.move(pick);
+            }
+            if (game.game_over() || game.in_check()) continue;
+            const fen = game.fen();
+            if (seen.has(fen)) continue;
+            const task = { kind: 'mate', fen };
+            const answers = solutions(Chess, task);
+            if (!answers.length) continue;
+            // Amb mat en una, la llista inclou tots els mats legals: mai falsos errors.
+            const id = 'gen-' + fen.split(' ').slice(0, 4).join('|');
+            const candidate = { id, family: id, kind: 'mate', fen, answers,
+                rating: Math.max(600, Math.min(1950, origin.rating)), generated: true };
+            seen.add(fen); result.push(candidate);
+        }
+        return result;
+    }
+    function normalizeGenerated(Chess, data) {
+        if (!Array.isArray(data)) return [];
+        const seen = new Set(), out = [];
+        for (const item of data.slice(-250)) {
+            if (!item || typeof item.fen !== 'string' || item.fen.length > 140) continue;
+            try {
+                const c = new Chess(item.fen);
+                if (c.game_over() || c.in_check()) continue;
+                const answers = solutions(Chess, { kind: 'mate', fen: item.fen });
+                if (!answers.length || seen.has(item.fen)) continue;
+                const id = 'gen-' + item.fen.split(' ').slice(0, 4).join('|');
+                out.push({ id, family: id, fen: item.fen, kind: 'mate', answers,
+                    rating: Number.isFinite(item.rating) ? clamp(item.rating, 600, 1950) : 1100, generated: true });
+                seen.add(item.fen);
+            } catch (_) { /* dades antigues o corruptes */ }
+        }
+        return out;
+    }
     function shuffled(items, random = Math.random) {
         const out = items.slice();
         for (let i = out.length - 1; i > 0; i--) { const j = Math.floor(random() * (i + 1)); [out[i], out[j]] = [out[j], out[i]]; }
@@ -319,10 +370,12 @@
         const ranked = KINDS.filter(k => out[k].attempts >= 6).sort((a, b) => out[a].accuracy - out[b].accuracy);
         return { byKind: out, weakest: ranked.length > 1 && out[ranked[0]].accuracy < out[ranked[ranked.length - 1]].accuracy ? ranked[0] : null };
     }
-    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, levelPool, practicePriority, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
+    const api = { KEY, MODES, GOALS, KINDS, SEEDS, LEVEL_CAP, PENALTY_MS, RUSH_GOAL, ROUTINE, mirrorFen, solutions, realTask, buildBank, generateMateTasks, normalizeGenerated, levelPool, practicePriority, makeDeck, targetMs, clockChoices, createSession, summary, mean, normalizeProgress, suggestedLevel, records, dayKey, planToday, streak, activeDays, phase, kindStats };
 
     // UI integrada, sense alterar el ROC, les ratxes ni el rellotge d'una partida.
     let bridge = {}, bank = null, session = null, board = null, chess = null, selected = null;
+    const GEN_KEY = 'chess_bullet_generated_v1';
+    let generationScheduled = false;
     let timer = null, frame = null, flashTimer = null, openingToken = 0, savedId = null, sessionAt = 0, sessionId = '', initialized = false;
     let cancelPieceWaits = [];
     let reviewMove = null, lastRow = null, dragAt = -Infinity, dragSquare = null, recordBefore = null;
@@ -529,6 +582,32 @@
         const fraction = s.mode === 'rush' ? s.clockMs / (s.seconds * 1000) : s.leftMs / (s.limitMs || 1);
         el('meter').style.width = s.status === 'running' ? (100 * fraction) + '%' : '0%';
     }
+    function addGenerated() {
+        if (!bank || !window.Chess) return;
+        try {
+            const old = normalizeGenerated(window.Chess, JSON.parse(localStorage.getItem(GEN_KEY) || '[]'));
+            const known = new Set(bank.map(t => t.fen));
+            old.forEach(t => { if (!known.has(t.fen)) { bank.push(t); known.add(t.fen); } });
+        } catch (_) { /* navegador sense emmagatzematge */ }
+    }
+    function scheduleGeneration() {
+        if (generationScheduled || !bank || !window.Chess) return;
+        generationScheduled = true;
+        // Fora del temps de reacció, sense treball intensiu durant la partida.
+        setTimeout(() => {
+            generationScheduled = false;
+            if (session && ['running', 'ready', 'recall'].includes(session.state().status)) return;
+            const fresh = generateMateTasks(window.Chess, bank, Math.random, 6);
+            if (!fresh.length) return;
+            const known = new Set(bank.map(t => t.fen));
+            fresh.forEach(t => { if (!known.has(t.fen)) { bank.push(t); known.add(t.fen); } });
+            try {
+                const stored = normalizeGenerated(window.Chess, JSON.parse(localStorage.getItem(GEN_KEY) || '[]'));
+                const unique = new Map(stored.concat(fresh).map(t => [t.fen, { fen: t.fen, rating: t.rating }]));
+                localStorage.setItem(GEN_KEY, JSON.stringify([...unique.values()].slice(-250)));
+            } catch (_) { /* el banc original continua disponible */ }
+        }, 150);
+    }
     function start(modeOverride) {
         clearTimers(); hideStartOverlay(); destroyBoard();
         if (!bank) { el('storage').textContent = 'S’estan preparant els exercicis. Torna-ho a provar en un moment.'; return; }
@@ -653,6 +732,7 @@
         board.position(chess.fen(), false); paintMarks();
     }
     function results() {
+        scheduleGeneration();
         clearTimers(); hideStartOverlay(); save(); destroyBoard(); setView('results');
         const s = session.state(), a = summary(s.rows), rush = s.mode === 'rush';
         el('result-title').textContent = s.status === 'done' ? (rush ? 'Contrarellotge acabada' : 'Sèrie acabada') : 'Sèrie interrompuda';
@@ -695,7 +775,7 @@
         if (!bank) {
             el('start').disabled = true; el('plan-go').disabled = true; el('storage').textContent = 'Preparant les posicions…';
             // Preparació fora del rellotge i després de pintar la pantalla.
-            setTimeout(() => { try { bank = buildBank(window.Chess, window.ElTaulerBulletBank); el('storage').textContent = ''; el('start').disabled = false; el('plan-go').disabled = false; }
+            setTimeout(() => { try { bank = buildBank(window.Chess, window.ElTaulerBulletBank); addGenerated(); el('storage').textContent = ''; el('start').disabled = false; el('plan-go').disabled = false; }
                 catch (e) { el('storage').textContent = 'No s’han pogut preparar els exercicis. Torna a obrir aquesta secció.'; console.warn('[Bullet]', e); } }, 0);
         }
     }
