@@ -23,6 +23,7 @@ function setup() {
         HIERO_ALLOWED_FINAL_MOTIFS: Core.HIERO_ALLOWED_FINAL_MOTIFS, HIERO_FINAL_MOTIF_LABELS: Core.HIERO_FINAL_MOTIF_LABELS,
         classifyPuzzleFinalMotif: Core.createHieroglyphicMotifHelpers(Chess).classifyPuzzleFinalMotif,
         analyzeFenRobust: jest.fn(async fen => byFen[fen] || null),
+        analyzeHieroFenRobust: jest.fn(async fen => byFen[fen] || null),
         closeHieroglyphicCandidateWithStockfish: async c => ({ ...c }), hieroglyphicStats: { generatedFens: [] },
         hgDeviceId: () => 'test-device', hieroglyphicDifficultyPercent: () => 50,
         parseFenPosition: () => null, analyzePvThreats: () => null,
@@ -94,4 +95,19 @@ test('el generador mai no publica un mat en 1 o en 2', async () => {
         step1: { playerMove: 'd3d8' }, opponentMove: { move: 'e8d8' }, step2: { playerMove: 'd2g5' }, opponentMove2: { move: 'd8c7' }, step3: { playerMove: 'g5d8' } };
     const closed = app.run('candidateFromPreparedBestLine(candidate, prepared)');
     expect(closed.solutionMoves).toEqual(['d3d8', 'd2g5', 'g5d8']); expect(closed.replyMoves).toEqual(['e8d8', 'd8c7']);
+});
+
+test('la creació de jeroglífics té motor SF19 independent i sense fallback antic', () => {
+    expect(source).toContain('const HIERO_STOCKFISH_URL = `stockfish-19-lite-single.js?v=${APP_VERSION}`;');
+    expect(source).toContain('new Worker(HIERO_STOCKFISH_URL)');
+    expect(source).toContain('hieroAnalysisQueue.then(run, run)');
+    expect(source).toContain('createVerifier(Chess, analyzeHieroFenRobust)');
+    const generator = between('async function hgGenerateOne(', '// Text llegible del motiu');
+    expect(generator).toContain('await ensureHieroStockfish()');
+    expect(generator).not.toContain('ensureStockfish()');
+    const selfplay = between('async function hgSelfPlaySeedFens(', 'function hgSelfPlayCandidate(');
+    expect(selfplay).toContain('await analyzeHieroFenRobust(');
+    expect(selfplay).toContain("engine:'hiero'");
+    expect(selfplay).not.toContain('hgRandomSeedFen');
+    expect(selfplay).not.toContain("new Worker(STOCKFISH_URL)");
 });
