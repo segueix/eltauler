@@ -2064,6 +2064,7 @@ function previewCurrentReviewTtsPreset() {
 }
 
 function setReviewTtsStatus(text) {
+    if (typeof document === 'undefined') return;
     ['history-tts-status', 'coach-tts-status'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.textContent = text || '';
