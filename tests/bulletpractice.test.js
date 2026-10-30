@@ -75,7 +75,7 @@ describe('banc de lectura immediata', () => {
     test('repetició espaiada: els errors vencen abans i els encerts ràpids s'ajornen', () => {
         const now = Date.now();
         const progress = { sessions: [
-            { at: now - 2 * 86400000, rows: [
+            { at: now - 12 * 3600000, rows: [
                 { taskId: 'error', correct: false, reactionMs: 4500, targetMs: 5000 },
                 { taskId: 'dominat', correct: true, reactionMs: 1000, targetMs: 5000 }
             ] }
@@ -167,7 +167,7 @@ describe('rellotge i primera decisió', () => {
         const js = fs.readFileSync(path.join(__dirname, '../bulletpractice.js'), 'utf8');
         expect(html).toContain('id="bp-start-overlay"');
         expect(html).toContain('id="bp-start-play"');
-        expect(html).toContain('bulletpractice.js?v=1.2.2');
+        expect(html).toContain('bulletpractice.js?v=1.2.3');
         expect(html).toContain('bulletpractice.css?v=1.2.1');
         expect(css).toContain('.bp-board-wrap.bp-awaiting-start #bp-board');
         expect(css).toContain('filter: blur(');
