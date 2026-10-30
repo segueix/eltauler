@@ -50,7 +50,7 @@ test('fa servir exactament la veu catalana femenina, i només retorna MP3', asyn
     const res = await post({ request: request({
         text: 'Bon dia', voice: 'ca-ES-Standard-B', languageCode: 'ca-ES',
         speakingRate: 1
-    }), env: { GOOGLE_TTS_API_KEY: 'secret' } });
+    }), env: { GOOGLE_TTS_API_KEY: 'secret', GOOGLE_TTS_RATE_LIMITER: { limit: async () => ({ success: true }) } } });
     expect(res.status).toBe(200);
     expect(res.headers.get('content-type')).toBe('audio/mpeg');
     expect(res.headers.get('cache-control')).toBe('no-store');
@@ -58,6 +58,16 @@ test('fa servir exactament la veu catalana femenina, i només retorna MP3', asyn
     expect(url).toContain('text:synthesize?key=secret');
     expect(JSON.parse(opts.body).voice).toEqual({ languageCode: 'ca-ES', name: 'ca-ES-Standard-B' });
     expect(await res.text()).toBe('MP3');
+});
+
+test('sense limitador la funció no factura síntesi', async () => {
+    const upstream = jest.fn();
+    const post = handler(upstream);
+    const res = await post({ request: request({
+        text: 'Bon dia', voice: 'ca-ES-Standard-B', languageCode: 'ca-ES'
+    }), env: { GOOGLE_TTS_API_KEY: 'secret' } });
+    expect(res.status).toBe(503);
+    expect(upstream).not.toHaveBeenCalled();
 });
 
 test('aplica el limitador de peticions si està configurat', async () => {
