@@ -8270,6 +8270,144 @@
     //   - chess_maxStreak: el màxim de tots dos costats i de la ratxa triada.
     // Les dues instantànies són mapes clau→text (com viuen a localStorage) i
     // el resultat també: qualsevol valor illegible es deixa com el del núvol.
+
+    // Fusió d'historials i col·leccions: sumar informació vol dir UNIR els
+    // registres identificables, no concatenar-los cegament ni duplicar punts.
+    function syncParse(value) {
+        if (typeof value !== 'string') return null;
+        try { return JSON.parse(value); } catch (e) { return null; }
+    }
+    function syncEntryKey(entry) {
+        if (entry === null || typeof entry !== 'object') return JSON.stringify(entry);
+        if (entry.id !== undefined && entry.id !== null) return 'id:' + String(entry.id);
+        if (entry.gameId && (entry.fen || entry.moveNumber)) {
+            return 'game:' + entry.gameId + ':' + (entry.fen || '') + ':' + (entry.moveNumber || '');
+        }
+        if (entry.fen) return 'fen:' + entry.fen + ':' + (entry.playerMove || entry.bestMove || entry.theme || '');
+        if (entry.ts && entry.type) return 'at:' + entry.ts + ':' + entry.type;
+        if (entry.date && (entry.elo !== undefined || entry.rating !== undefined))
+            return 'date:' + entry.date + ':' + (entry.elo ?? entry.rating);
+        return 'value:' + JSON.stringify(entry);
+    }
+    function syncBestEntry(first, second) {
+        if (!first || typeof first !== 'object' || !second || typeof second !== 'object') return second;
+        const countMoves = e => Array.isArray(e.movesSan) ? e.movesSan.length
+            : Array.isArray(e.moves) ? e.moves.length : 0;
+        const firstRevision = Math.max(countMoves(first), Number(first.revision) || 0);
+        const secondRevision = Math.max(countMoves(second), Number(second.revision) || 0);
+        if (firstRevision !== secondRevision) return firstRevision > secondRevision ? first : second;
+        const a = Number(first.reviewedMoves) || 0, b = Number(second.reviewedMoves) || 0;
+        if (a !== b) return a > b ? first : second;
+        const ts = x => Number(x.updatedAt || x.savedAt || x.finishedAt || x.ts || 0);
+        if (ts(first) !== ts(second)) return ts(first) > ts(second) ? first : second;
+        return second; // preferència determinista pel registre del núvol
+    }
+    function syncUnionEntries(local, cloud, limit) {
+        const byKey = new Map();
+        (Array.isArray(cloud) ? cloud : []).forEach(item => {
+            if (item !== null && item !== undefined) byKey.set(syncEntryKey(item), item);
+        });
+        (Array.isArray(local) ? local : []).forEach(item => {
+            if (item === null || item === undefined) return;
+            const key = syncEntryKey(item);
+            byKey.set(key, byKey.has(key) ? syncBestEntry(item, byKey.get(key)) : item);
+        });
+        const result = Array.from(byKey.values());
+        if (limit && result.length > limit) return result.slice(-limit);
+        return result;
+    }
+    function syncMergeHieroglyphicState(local, cloud) {
+        const l = local && typeof local === 'object' ? local : {};
+        const c = cloud && typeof cloud === 'object' ? cloud : {};
+        const merged = Object.assign({}, l, c);
+        const ranks = { new: 1, started: 2, skipped: 3, failed: 4, solved: 5 };
+        const pick = (a, b) => {
+            if (!a) return b;
+            if (!b) return a;
+            const x = ranks[a.status] || 0, y = ranks[b.status] || 0;
+            return x === y ? ((Number(a.updatedAt) || 0) > (Number(b.updatedAt) || 0) ? a : b)
+                : x > y ? a : b;
+        };
+        const map = new Map();
+        for (const entry of (Array.isArray(c.queue) ? c.queue : []).concat(Array.isArray(l.queue) ? l.queue : [])) {
+            if (!entry || !entry.fen) continue;
+            const key = entry.id || (entry.fen + ':' + (entry.solutionMoves || []).join(','));
+            map.set(key, pick(map.get(key), entry));
+        }
+        merged.queue = Array.from(map.values());
+        merged.history = syncUnionEntries(l.history, c.history, 50);
+        merged.settings = Object.assign({}, l.settings || {}, c.settings || {});
+        merged.generation = Object.assign({}, l.generation || {}, c.generation || {});
+        merged.updatedAt = Math.max(Number(l.updatedAt) || 0, Number(c.updatedAt) || 0);
+        return merged;
+    }
+    function syncMergeTriaProgress(local, cloud) {
+        const l = local && typeof local === 'object' ? local : {};
+        const c = cloud && typeof cloud === 'object' ? cloud : {};
+        const entries = Object.assign({}, c.entries || {});
+        Object.keys(l.entries || {}).forEach(key => {
+            const a = l.entries[key], b = entries[key];
+            if (!b) { entries[key] = a; return; }
+            if (!a) return;
+            const mastered = a.status === 'mastered' || b.status === 'mastered';
+            const rank = x => Number(x.lastAt) || 0;
+            entries[key] = Object.assign({}, rank(a) > rank(b) ? b : a, rank(a) > rank(b) ? a : b, {
+                status: mastered ? 'mastered' : 'pending',
+                attempts: Math.max(Number(a.attempts) || 0, Number(b.attempts) || 0),
+                wrong: Math.max(Number(a.wrong) || 0, Number(b.wrong) || 0),
+                firstAt: Math.min(Number(a.firstAt) || Infinity, Number(b.firstAt) || Infinity),
+                lastAt: Math.max(rank(a), rank(b)),
+                masteredAt: a.masteredAt || b.masteredAt || null
+            });
+            if (!Number.isFinite(entries[key].firstAt)) entries[key].firstAt = 0;
+        });
+        return { version: Math.max(Number(l.version) || 0, Number(c.version) || 0, 1), entries };
+    }
+    function syncMergeCollections(local, cloud, merged) {
+        const arrayKeys = [
+            'chess_gameHistory', 'chess_importedGameHistory', 'chess_reviewHistory',
+            'chess_savedErrors', 'chess_recentErrors', 'chess_eloHistory',
+            'chess_puzzles', 'chess_triaHistory', 'eltauler_hieroglyphic_history',
+            'eltauler_growth_task_history', 'chess_preparedExerciseHistory'
+        ];
+        arrayKeys.forEach(key => {
+            const a = syncParse(local[key]), b = syncParse(cloud[key]);
+            if (!Array.isArray(a) && !Array.isArray(b)) return;
+            if (!Array.isArray(a) || !Array.isArray(b)) {
+                merged[key] = JSON.stringify(Array.isArray(a) ? a : b); return;
+            }
+            const limit = key === 'eltauler_growth_task_history' ? 20
+                : key === 'eltauler_hieroglyphic_history' ? 10 : null;
+            merged[key] = JSON.stringify(syncUnionEntries(a, b, limit));
+        });
+        const setKeys = ['chess_completedOpenings', 'chess_unlockedBadges', 'chess_eloMilestones'];
+        setKeys.forEach(key => {
+            const a = syncParse(local[key]), b = syncParse(cloud[key]);
+            if (!Array.isArray(a) && !Array.isArray(b)) return;
+            merged[key] = JSON.stringify(syncUnionEntries(a, b));
+        });
+        if ('chess_triaProgress' in local || 'chess_triaProgress' in cloud) {
+            const a = syncParse(local['chess_triaProgress']);
+            const b = syncParse(cloud['chess_triaProgress']);
+            if ((a && a.entries) || (b && b.entries))
+                merged['chess_triaProgress'] = JSON.stringify(syncMergeTriaProgress(a, b));
+        }
+        if ('eltauler_hieroglyphics_state' in local || 'eltauler_hieroglyphics_state' in cloud) {
+            const a = syncParse(local['eltauler_hieroglyphics_state']);
+            const b = syncParse(cloud['eltauler_hieroglyphics_state']);
+            if (a || b) merged['eltauler_hieroglyphics_state'] = JSON.stringify(syncMergeHieroglyphicState(a, b));
+        }
+        if ('eltauler_hieroglyphic_stats' in local || 'eltauler_hieroglyphic_stats' in cloud) {
+            const a = syncParse(local['eltauler_hieroglyphic_stats']) || {};
+            const b = syncParse(cloud['eltauler_hieroglyphic_stats']) || {};
+            const mergedStats = Object.assign({}, a, b);
+            for (const k of ['solvedFens', 'generatedFens'])
+                mergedStats[k] = syncUnionEntries(a[k], b[k], k === 'generatedFens' ? 100 : 500);
+            mergedStats.bestStreak = Math.max(Number(a.bestStreak)||0, Number(b.bestStreak)||0);
+            merged['eltauler_hieroglyphic_stats'] = JSON.stringify(mergedStats);
+        }
+    }
+
     function mergeSyncSnapshots(localData, cloudData) {
         const local = (localData && typeof localData === 'object') ? localData : {};
         const cloud = (cloudData && typeof cloudData === 'object') ? cloudData : {};
@@ -8301,6 +8439,9 @@
             merged[untimedKey] = JSON.stringify(untimedMergeGames(
                 parse(local[untimedKey], []), parse(cloud[untimedKey], []), removed));
         }
+
+        // Unim històrics i progrés identificable; no sumem mai registres repetits.
+        syncMergeCollections(local, cloud, merged);
 
         // Ratxa de pràctica
         try {
