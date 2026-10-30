@@ -1,7 +1,7 @@
 // Service Worker per El Tauler PWA
 // ================================
 // VERSIÓ: canviar el número forçarà la substitució de qualsevol SW antic.
-const SW_VERSION = '3.9.192';
+const SW_VERSION = '3.9.193';
 const CACHE_NAME = `eltauler-${SW_VERSION}`;
 // Cau PERSISTENT per al motor (Stockfish, 1,5 MB): NO es purga en canviar de
 // versió del SW, perquè el motor estigui sempre disponible OFFLINE sense haver de
@@ -103,7 +103,9 @@ self.addEventListener('install', (event) => {
       // Escalfa la cau del motor (si encara no hi és) perquè Stockfish funcioni
       // offline tan aviat com sigui possible.
       .then(() => caches.open(ENGINE_CACHE).then((c) =>
-        c.match('stockfish.js', { ignoreSearch: true }).then((hit) => hit ? null : c.add('stockfish.js').catch(() => {}))
+        Promise.all(['stockfish.js', 'stockfish-19-lite-single.js', 'stockfish-19-lite-single.wasm'].map(
+          (name) => c.match(name, { ignoreSearch: true }).then((hit) => hit ? null : c.add(name).catch(() => {}))
+        ))
       ).catch(() => {}))
       .then(() => {
         console.log(`[SW] Instal·lació completada. Activant immediatament...`);
@@ -159,7 +161,7 @@ self.addEventListener('fetch', (event) => {
 
   // Motors Stockfish i Lozza: cache-first des de la cau persistent, perquè funcionin
   // OFFLINE encara que s'hagi actualitzat el SW (no es torna a baixar 1,5 MB).
-  if (/\/(stockfish|lozza)\.js(?:\?|$)/.test(url)) {
+  if (/\/(?:stockfish(?:-19-lite-single)?\.js|stockfish-19-lite-single\.wasm|lozza\.js)(?:\?|$)/.test(url)) {
     event.respondWith(engineCacheFirst(event.request));
     return;
   }
@@ -222,7 +224,8 @@ async function engineCacheFirst(request) {
     return res;
   } catch (err) {
     // 3) Sense xarxa: serveix una versió emmagatzemada del motor sol·licitat.
-    const engineName = new URL(request.url).pathname.endsWith('/lozza.js') ? 'lozza.js' : 'stockfish.js';
+    // Mai no substitueix Stockfish 19 pel motor antic; mateix fitxer exacte.
+    const engineName = new URL(request.url).pathname.split('/').pop();
     const any = await cache.match(request, { ignoreSearch: true })
       || await cache.match(engineName, { ignoreSearch: true });
     if (any) return any;
