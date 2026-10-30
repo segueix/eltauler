@@ -29448,16 +29448,26 @@ function noteUntimedLocalChange() {
     if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave();
 }
 
+function untimedLastMoveAt(snap) {
+    return Number.isFinite(snap.lastMoveAt) ? snap.lastMoveAt
+        : Number.isFinite(snap.savedAt) ? snap.savedAt : 0;
+}
+
 function saveUntimedSnapshot(snap) {
     if (Object.prototype.hasOwnProperty.call(loadUntimedRemovals(), snap.id)) {
         throw new Error('Aquesta partida ja s’ha acabat o descartat.');
     }
     const previous = loadUntimedGames();
     const old = previous.find(entry => entry.id === snap.id);
-    // Només canviar de posició incrementa la revisió. Obrir una còpia antiga
-    // o tornar-la a desar no la fa més nova que les jugades de l'altre aparell.
-    snap.revision = old ? ElTaulerCore.untimedGameRevision(old)
-        + (JSON.stringify(old.moves) === JSON.stringify(snap.moves) ? 0 : 1)
+    // La graella s'ordena per la DARRERA JUGADA real, no per l'última
+    // obertura de la partida. Així reprendre-la i sortir sense moure no la
+    // desplaça cap a la dreta, ni tampoc canvia la revisió per al núvol.
+    const positionChanged = !!old && JSON.stringify(old.moves) !== JSON.stringify(snap.moves);
+    snap.lastMoveAt = positionChanged ? snap.savedAt
+        : old ? untimedLastMoveAt(old)
+        : Number.isFinite(snap.lastMoveAt) ? snap.lastMoveAt
+        : snap.moves.length ? snap.savedAt : (snap.startedAt || snap.savedAt);
+    snap.revision = old ? ElTaulerCore.untimedGameRevision(old) + (positionChanged ? 1 : 0)
         : ElTaulerCore.untimedGameRevision(snap);
     const games = previous.filter(entry => entry.id !== snap.id);
     games.push(snap);
@@ -29512,7 +29522,10 @@ function renderUntimedGamesPanel() {
     if (!grid) return;
     const cards = loadUntimedGames().filter(snap => !liveGameActive || snap.id !== liveGameId)
         .map(snap => ({ snap, info: ElTaulerCore.liveGameResumeInfo(snap, Date.now(), Chess) }))
-        .filter(card => card.info).sort((a, b) => b.snap.savedAt - a.snap.savedAt);
+        .filter(card => card.info).sort((a, b) =>
+            untimedLastMoveAt(a.snap) - untimedLastMoveAt(b.snap)
+            || (a.snap.startedAt || 0) - (b.snap.startedAt || 0)
+            || a.snap.id.localeCompare(b.snap.id));
     grid.innerHTML = cards.map(({ snap, info }) => {
         const mode = info.calibration ? 'Calibratge' : info.modeLabel;
         const color = info.playerColor === 'b' ? 'Negres' : 'Blanques';
@@ -29526,6 +29539,13 @@ function renderUntimedGamesPanel() {
             <button class="btn btn-secondary untimed-card-discard" type="button">Descarta</button>
         </div>`;
     }).join('');
+    const scrollable = cards.length > 2;
+    grid.classList.toggle('untimed-carousel', scrollable);
+    // Mostrar la dreta: els dos taulers amb les jugades més recents.
+    // No s'amaguen ni es perden els anteriors; es recuperen desplaçant a l'esquerra.
+    if (scrollable) grid.scrollLeft = grid.scrollWidth;
+    const hint = document.getElementById('untimed-scroll-hint');
+    if (hint) hint.style.display = scrollable ? '' : 'none';
     const title = document.getElementById('untimed-section-title');
     if (title) title.style.display = cards.length ? '' : 'none';
 }
