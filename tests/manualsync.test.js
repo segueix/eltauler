@@ -336,3 +336,40 @@ test('primera sincronització sense base evita duplicar comptadors antics', asyn
     await a.sync.syncNow();
     expect(remote.doc.data.chess_totalGamesPlayed).toBe('10');
 });
+
+
+test('els intents de Tria s’acumulen i una resposta dominada no es torna pendent', async () => {
+    const base = {chess_triaProgress:JSON.stringify({version:1,entries:{
+        'g1:e4':{status:'pending',attempts:1,wrong:1,firstAt:100,lastAt:200}
+    }})};
+    const remote = server(base), a=device(remote), b=device(remote);
+    await a.sync.syncNow();
+    await b.sync.syncNow();
+    a.set('chess_triaProgress',{version:1,entries:{
+        'g1:e4':{status:'mastered',attempts:3,wrong:2,firstAt:100,lastAt:300,masteredAt:300}
+    }});
+    b.set('chess_triaProgress',{version:1,entries:{
+        'g1:e4':{status:'pending',attempts:2,wrong:2,firstAt:100,lastAt:250},
+        'g2:d4':{status:'mastered',attempts:1,wrong:0,firstAt:230,lastAt:270,masteredAt:270}
+    }});
+    await a.sync.syncNow();
+    await b.sync.syncNow();
+    const progress = JSON.parse(remote.doc.data.chess_triaProgress);
+    expect(progress.entries['g1:e4']).toMatchObject({status:'mastered',attempts:4,wrong:3});
+    expect(progress.entries['g2:d4'].status).toBe('mastered');
+    await a.sync.syncNow();
+    await b.sync.syncNow();
+    expect(JSON.parse(remote.doc.data.chess_triaProgress).entries['g1:e4'].attempts).toBe(4);
+});
+
+test('increments simultanis de dispositius diferents mantenen els dos deltes després de reintents', async () => {
+    const remote = server({chess_totalGamesPlayed:'20'});
+    const a=device(remote), b=device(remote);
+    await a.sync.syncNow(); await b.sync.syncNow();
+    a.set('chess_totalGamesPlayed','21');
+    b.set('chess_totalGamesPlayed','22');
+    await Promise.all([a.sync.syncNow(),b.sync.syncNow()]);
+    expect(remote.doc.data.chess_totalGamesPlayed).toBe('23');
+    await a.sync.syncNow(); await b.sync.syncNow();
+    expect(remote.doc.data.chess_totalGamesPlayed).toBe('23');
+});
