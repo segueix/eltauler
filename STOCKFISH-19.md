@@ -30,7 +30,7 @@ dos enllaços).
   Les dues fonts s'alternen a cada intent, i les posicions de partides que ja
   s'han provat sense èxit no es tornen a provar (`eltauler_cloud_hgTried`).
 - Mineria per autojoc (com els bancs de problemes): Stockfish 19 juga
-  partides senceres a profunditat 10 (8 en mòbils modestos), amb una obertura
+  partides senceres a profunditat 10, amb una obertura
   variada i la millor jugada després. Cada 1-2 jugades prova, en branques a
   part, fins a tres errors triats entre les seves jugades MultiPV (perden
   entre 2,5 i 9 peons; mai jugades il·legals), i la partida principal
@@ -47,7 +47,19 @@ dos enllaços).
   combinació és més llarga, el jeroglífic comença més endavant. Només
   aquestes finestres passen la verificació completa a profunditat 16; cada
   llavor es prova un sol cop.
-- En mòbils modestos es redueix la profunditat i la durada de l'autojoc, el
+- **Reserva minada per endavant** (`jeroglifics-reserva.js`): el mateix
+  autojoc i la mateixa verificació, executats amb
+  `node scripts/mine-hieroglyphics.js [--minutes 30] [--pages 3]` (Playwright,
+  diverses pàgines en paral·lel). Quan la cua és buida, l'app en treu un de
+  la reserva a l'instant (mai un de ja jugat, a la cua o resolt), i el
+  generador de l'aparell omple la resta. Un test comprova que tota la reserva
+  té la línia legal i la prova vàlida.
+- «Generar ara» i obrir la secció amb la cua buida fan servir el mateix bucle
+  sota demanda: espera la generació en curs en lloc de fallar, no es rendeix
+  al primer intent sense resultat, mostra el temps a la barra, es pot aturar
+  i acaba als 8 minuts; si s'ha demanat obrir-ne un, s'obre tan bon punt n'hi
+  ha.
+- En mòbils modestos es redueix la durada de l'autojoc, el
   temps de cerca i el nombre de posicions candidates. El generador respecta la cancel·lació,
   les preferències de generació en segon pla, els duplicats i les
   verificacions existents. El fitxer JavaScript i el WASM de Stockfish 19

@@ -170,7 +170,12 @@ Conduir amb Playwright + Chromium preinstal·lat
     partides ja provades són a `eltauler_cloud_hgTried`. Per veure la
     generació en segon pla, quedar-se a l'inici uns minuts i mirar
     `hgNewCount()` i `hgLastGenDiag`; el Chromium de l'entorn té 4 nuclis i va
-    en «mode lleuger» (profunditat 8, cua de 2).
+    en «mode lleuger» (cua de 2). La reserva (`window.ElTaulerHieroReserve`,
+    `jeroglifics-reserva.js`) dona un jeroglífic a l'instant amb la cua buida;
+    per provar la generació real sense reserva, buidar-la en carregar la
+    pàgina (`window.ElTaulerHieroReserve.length = 0`).
+    Per ampliar-la: `node scripts/mine-hieroglyphics.js --minutes 30 --pages 3`
+    (els CDN es copien a `.cache/cdn`).
 
 ## Fluxos útils
 
