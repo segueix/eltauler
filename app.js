@@ -1745,11 +1745,12 @@ const REVIEW_TTS_STATE = {
 const REVIEW_TTS_PRESETS_KEY = 'eltauler_tts_presets';
 const REVIEW_TTS_DEFAULT_KEY = 'eltauler_tts_default_preset';
 const REVIEW_TTS_MODE_KEY = 'eltauler_tts_mode';
-const DEFAULT_REVIEW_TTS_PRESET = { id: 'system-ca-es', name: 'Català (Espanya) · sistema', voiceURI: 'system:ca-ES', pitch: 1, rate: 0.95, expressivity: 0.5, cadence: 0.5, builtin: true };
 // Perfil base amb veu NEURONAL (Matxa, BSC): molt més natural que les veus del
 // sistema. És el perfil per defecte mentre l'usuari no n'hagi triat cap altre.
 // Ràdio és l'únic perfil de so de Matxa (amb equalitzador a la Configuració).
 const NEURAL_REVIEW_TTS_PRESET = { id: 'matxa', name: 'Matxa · Elia · Ràdio', voiceURI: 'matxa:central:elia', pitch: 1, rate: 1, expressivity: 0.5, cadence: 0.5, matxaEffects: { profile: 'radio' }, builtin: true };
+// Compatibilitat amb referències internes; mai no és una veu local.
+const DEFAULT_REVIEW_TTS_PRESET = NEURAL_REVIEW_TTS_PRESET;
 
 function neuralTtsAvailable() {
     return typeof window !== 'undefined' && !!window.ElTaulerVeuNeural && typeof window.Audio === 'function';
@@ -1758,7 +1759,7 @@ function isNeuralTtsVoice(voiceURI) {
     return neuralTtsAvailable() && window.ElTaulerVeuNeural.isNeuralVoiceId(voiceURI);
 }
 function builtinReviewTtsPresets() {
-    return neuralTtsAvailable() ? [NEURAL_REVIEW_TTS_PRESET, DEFAULT_REVIEW_TTS_PRESET] : [DEFAULT_REVIEW_TTS_PRESET];
+    return [NEURAL_REVIEW_TTS_PRESET];
 }
 // Veu neuronal del perfil per defecte (la fa servir Stockfish TV), o null.
 function defaultNeuralTtsVoice() {
@@ -1791,9 +1792,7 @@ function updateNeuralTtsSettings(changes) {
 }
 
 function reviewTtsSupported() {
-    return typeof window !== 'undefined'
-        && 'speechSynthesis' in window
-        && typeof window.SpeechSynthesisUtterance === 'function';
+    return neuralTtsAvailable();
 }
 
 function normalizeTextForCatalanTTS(text) {
@@ -1878,27 +1877,15 @@ function ttsProsodyForFragment(fragment, preset) {
 }
 
 
-function getCatalanSpeechVoice() {
-    if (!reviewTtsSupported()) return null;
-    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
-    return voices.find(v => /^ca[-_]ES$/i.test(v.lang || ''))
-        || voices.find(v => /^ca([_-]|$)/i.test(v.lang || ''))
-        || voices.find(v => /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
-        || null;
-}
-
-function getSpeechVoiceByURI(voiceURI) {
-    if (!reviewTtsSupported() || !voiceURI) return null;
-    const voices = window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [];
-    return voices.find(v => v.voiceURI === voiceURI) || null;
-}
-
 function readReviewTtsPresets() {
     try {
         const arr = JSON.parse(localStorage.getItem(REVIEW_TTS_PRESETS_KEY) || '[]');
         // Els perfils antics sense veu concreta feien servir «Automàtica».
-        return Array.isArray(arr) ? arr.filter(p => p && p.id && p.name).map(p => (
-            p.voiceURI ? p : { ...p, voiceURI: builtinReviewTtsPresets()[0].voiceURI }
+        // Els perfils de Web Speech del sistema (inclòs eSpeak) ja no es poden
+        // recuperar ni triar. Els perfils Matxa personals es conserven.
+        return Array.isArray(arr) ? arr.filter(p => p && p.id && p.name
+            && (!p.voiceURI || /^matxa:/.test(p.voiceURI))).map(p => (
+            p.voiceURI ? p : { ...p, voiceURI: NEURAL_REVIEW_TTS_PRESET.voiceURI }
         )) : [];
     } catch (e) { return []; }
 }
@@ -2040,14 +2027,8 @@ function refreshReviewTtsSettingsUi() {
             window.ElTaulerVeuNeural.MATXA_VOICES.forEach(v => group.append($('<option></option>').val(v.id).text(`${v.name} (${v.accentLabel})`)));
             voiceSelect.append(group);
         }
-        const local = $('<optgroup></optgroup>').attr('label', 'Veus del dispositiu');
-        local.append($('<option></option>').val(DEFAULT_REVIEW_TTS_PRESET.voiceURI).text('Català (Espanya) · sistema'));
-        if (reviewTtsSupported()) {
-            (window.speechSynthesis.getVoices ? window.speechSynthesis.getVoices() : [])
-                .filter(v => /^ca([_-]|$)/i.test(v.lang || '') || /catal[aà]|catalan/i.test((v.name || '') + ' ' + (v.lang || '')))
-                .forEach(v => local.append($('<option></option>').val(v.voiceURI).text(v.name || 'Català')));
-        }
-        voiceSelect.append(local);
+        // Sense eSpeak ni veus locals. Google Cloud és únicament d'emergència,
+        // no una opció de Web Speech (requereix un proxy segur).
         voiceSelect.val(current);
     }
     applyReviewTtsPresetToSettings(getReviewTtsPresetById(presetSelect.val() || selected));
@@ -2109,15 +2090,10 @@ function updateReviewTtsButtons() {
         const playLabel = REVIEW_TTS_STATE.isPaused ? 'Reprèn' : (REVIEW_TTS_STATE.isSpeaking ? 'Llegint…' : 'Escolta');
         playBtn.html(`<svg class="btn-ic" aria-hidden="true"><use href="#ic-play"/></svg>${playLabel}`);
     });
-    if (!supported) setReviewTtsStatus('Lectura local no disponible en aquest navegador.');
-    else if (REVIEW_TTS_STATE.isSpeaking && REVIEW_TTS_STATE.neuralActive) setReviewTtsStatus('Llegint amb la veu neuronal Matxa (en línia).');
-    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Llegint amb la veu local en català.');
+    if (!supported) setReviewTtsStatus('Cal un navegador amb reproducció d’àudio.');
+    else if (REVIEW_TTS_STATE.isSpeaking) setReviewTtsStatus('Lectura amb Matxa o Google Cloud de reserva, amb música de fons si està activada.');
     else if (REVIEW_TTS_STATE.isPaused) setReviewTtsStatus('Lectura pausada.');
-    else if (defaultNeuralTtsVoice()) setReviewTtsStatus('Veu: ' + window.ElTaulerVeuNeural.voiceLabel(defaultNeuralTtsVoice().id) + '. Si falla, es farà servir el català del sistema.');
-    else {
-        const caVoice = getCatalanSpeechVoice();
-        setReviewTtsStatus(caVoice ? 'Veu local: català' : 'No he trobat cap veu en català; provaré amb la veu del dispositiu.');
-    }
+    else setReviewTtsStatus('Veu principal Matxa. Emergència: Google ca-ES-Standard-B, si el servei segur està configurat.');
 }
 
 function resetReviewTtsState(keepPaused = false) {
@@ -2136,7 +2112,6 @@ function stopReviewTts() {
     if (!reviewTtsSupported()) return;
     REVIEW_TTS_STATE.stopRequested = true;
     if (REVIEW_TTS_STATE.pauseTimer) { clearTimeout(REVIEW_TTS_STATE.pauseTimer); REVIEW_TTS_STATE.pauseTimer = null; }
-    try { window.speechSynthesis.cancel(); } catch (e) {}
     REVIEW_TTS_STATE.neuralToken++;
     REVIEW_TTS_STATE.neuralActive = false;
     try { if (neuralTtsAvailable()) window.ElTaulerVeuNeural.sharedSpeaker().stop(); } catch (e) {}
@@ -2156,59 +2131,25 @@ function pauseReviewTts() {
             window.ElTaulerVeuNeural.sharedSpeaker().pause();
             REVIEW_TTS_STATE.isPaused = true;
             REVIEW_TTS_STATE.isSpeaking = false;
-        } else if (window.speechSynthesis.speaking && !window.speechSynthesis.paused) {
-            window.speechSynthesis.pause();
-            REVIEW_TTS_STATE.isPaused = true;
-            REVIEW_TTS_STATE.isSpeaking = false;
         }
     } catch (e) {}
     updateReviewTtsButtons();
 }
 
 function speakReviewTtsChunk() {
-    if (!reviewTtsSupported()) return;
-    if (REVIEW_TTS_STATE.stopRequested) return;
+    if (!reviewTtsSupported() || REVIEW_TTS_STATE.stopRequested) return;
     const chunk = REVIEW_TTS_STATE.chunks[REVIEW_TTS_STATE.chunkIndex];
     if (!chunk) { resetReviewTtsState(false); updateReviewTtsButtons(); return; }
-    if (speakReviewTtsChunkNeural(chunk)) return;
-    REVIEW_TTS_STATE.neuralActive = false;
-    const utterance = new SpeechSynthesisUtterance(chunk.text || String(chunk));
-    const preset = REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET;
-    const voice = getSpeechVoiceByURI(preset.voiceURI) || getCatalanSpeechVoice();
-    utterance.lang = voice ? (voice.lang || 'ca-ES') : 'ca-ES';
-    if (voice) utterance.voice = voice;
-    const prosody = ttsProsodyForFragment(chunk, preset);
-    utterance.rate = prosody.rate;
-    utterance.pitch = prosody.pitch;
-    utterance.onstart = () => {
-        REVIEW_TTS_STATE.isSpeaking = true;
-        REVIEW_TTS_STATE.isPaused = false;
-        updateReviewTtsButtons();
-    };
-    utterance.onend = () => {
-        if (REVIEW_TTS_STATE.stopRequested) return;
-        REVIEW_TTS_STATE.chunkIndex += 1;
-        if (REVIEW_TTS_STATE.chunkIndex < REVIEW_TTS_STATE.chunks.length) {
-            const cadence = clampTts((REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET).cadence ?? 0.5, 0, 1);
-            const delay = Math.round((chunk.pauseBase || 0) * cadence);
-            REVIEW_TTS_STATE.pauseTimer = setTimeout(speakReviewTtsChunk, delay);
-        } else {
-            resetReviewTtsState(false);
-            updateReviewTtsButtons();
-        }
-    };
-    utterance.onerror = () => {
+    // Només Matxa i la seva reserva Google Cloud; MAI Web Speech/eSpeak.
+    if (!speakReviewTtsChunkNeural(chunk)) {
+        REVIEW_TTS_STATE.neuralActive = false;
         resetReviewTtsState(false);
-        setReviewTtsStatus("No s\'ha pogut completar la lectura local.");
-        updateReviewTtsButtons();
-    };
-    REVIEW_TTS_STATE.utterance = utterance;
-    try { window.speechSynthesis.speak(utterance); } catch (e) { showToast("No s\'ha pogut iniciar la lectura local.", 'warn'); }
-    updateReviewTtsButtons();
+        setReviewTtsStatus('Cap veu en línia disponible. Comprova Matxa o la configuració de Google Cloud.');
+    }
 }
 
-// Fragment llegit amb la veu neuronal del perfil (si n'és una i el servei
-// respon). Retorna false perquè el fragment es llegeixi amb la veu local.
+// Un únic reproductor per a Matxa i la reserva Google Cloud, que comparteixen
+// la gestió de música de fons i la cancel·lació.
 function speakReviewTtsChunkNeural(chunk) {
     const preset = REVIEW_TTS_STATE.activePreset || DEFAULT_REVIEW_TTS_PRESET;
     if (!isNeuralTtsVoice(preset.voiceURI) || REVIEW_TTS_STATE.neuralFailed) return false;
@@ -2237,11 +2178,12 @@ function speakReviewTtsChunkNeural(chunk) {
             return;
         }
         if (r && r.reason === 'stopped') return;
-        // El servei no respon: la resta es llegeix amb la veu del dispositiu.
+        // Ambdues veus en línia han fallat: no recórrer a Web Speech/eSpeak.
         REVIEW_TTS_STATE.neuralFailed = true;
         REVIEW_TTS_STATE.neuralActive = false;
-        showToast('La veu neuronal Matxa no respon ara mateix: continuo amb la veu del dispositiu.', 'warn');
-        speakReviewTtsChunk();
+        resetReviewTtsState(false);
+        setReviewTtsStatus('Matxa i Google Cloud no disponibles; cap veu del sistema.');
+        updateReviewTtsButtons();
     });
     updateReviewTtsButtons();
     return true;
@@ -2256,14 +2198,7 @@ function resumeReviewTtsIfPaused() {
         updateReviewTtsButtons();
         return true;
     }
-    try {
-        if (window.speechSynthesis.paused) window.speechSynthesis.resume();
-        else speakReviewTtsChunk();
-    } catch (e) { speakReviewTtsChunk(); }
-    REVIEW_TTS_STATE.isPaused = false;
-    REVIEW_TTS_STATE.isSpeaking = true;
-    updateReviewTtsButtons();
-    return true;
+    return false;
 }
 
 function beginReviewTts(rawText, source, presetOverride = null) {
