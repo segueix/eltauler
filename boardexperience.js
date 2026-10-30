@@ -104,6 +104,7 @@
         frequency.onchange = () => prefs({ frequency: frequency.value });
         function current() { return context(board && board.fen ? board.fen() : config.position) || {}; }
         voice = TV.createTvVoice(Object.assign({}, env.bridge, {
+            allowSystemVoice: false,
             speechSynthesis: root.speechSynthesis, SpeechSynthesisUtterance: root.SpeechSynthesisUtterance,
             neural: root.ElTaulerVeuNeural ? root.ElTaulerVeuNeural.sharedSpeaker() : null,
             loadPref: () => prefs().voice, savePref: voice => prefs({ voice }),
