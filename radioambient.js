@@ -1,4 +1,5 @@
-// Música de fons original generada al dispositiu, exclusiva de Matxa Ràdio a la TV.
+// Música de fons original generada al dispositiu: la de Matxa Ràdio a la TV i
+// la que acompanya la veu a tota l'app (musicafons.js).
 (function (root, factory) {
     const api = factory(root);
     if (typeof module !== 'undefined' && module.exports) module.exports = api;
@@ -28,7 +29,12 @@
         { id: 'oriental', name: 'Jardí oriental', description: 'koto, flauta de bambú i campana de temple en escala pentatònica japonesa' },
         { id: 'bossa', name: 'Bossa del tauler', description: 'guitarra de niló, flauta i percussió de bossa nova' },
         { id: 'vals', name: 'Vals de la capsa de música', description: 'capsa de música, pizzicato i cordes en tres temps' },
-        { id: 'capvespre', name: 'Capvespre', description: 'arpa, cordes i campanetes en calma' }
+        { id: 'capvespre', name: 'Capvespre', description: 'arpa, cordes i campanetes en calma' },
+        { id: 'havanera', name: 'Havanera del port', description: 'acordió, guitarra i baix amb el ritme d’havanera' },
+        { id: 'celta', name: 'Dansa celta', description: 'xiulet, arpa, bordó i bodhran en sis per vuit' },
+        { id: 'nocturn', name: 'Nocturn', description: 'piano en arpegis i cordes suaus' },
+        { id: 'marimba', name: 'Illa de marimba', description: 'marimba, steel drum, baix i maraca de calipso' },
+        { id: 'lofi', name: 'Estudi lo-fi', description: 'piano elèctric, bateria mandrosa i cruixit de vinil' }
     ];
     function melodyId(id) { return MELODIES.some(m => m.id === id) ? id : MELODIES[0].id; }
     function melodyInfo(id) { return MELODIES.find(m => m.id === melodyId(id)); }
@@ -269,6 +275,39 @@
                 data[j] += (1 - atk) * env * (sin1(f * i) + nz * lp);
             }
         }
+        // Acordió: dues llengüetes desafinades (musette) amb molts harmònics i
+        // una manxa que respira.
+        function reed(start, midi, dur, vel, o) {
+            const p = o || {};
+            const f = midiHz(midi) / sr, cents = (p.detune === undefined ? 7 : p.detune) / 1200 * 0.693;
+            const aN = Math.round((p.attack || 0.05) * sr), hold = Math.round(dur * sr), n = hold + Math.round(0.5 * sr);
+            const kR = decay(p.release || 0.08), sw = 1.3 / sr;
+            let j = at(start), rel = vel * (p.gain || 0.05), pa = 0, pb = 0.21;
+            for (let i = 0; i < n; i++, j++) {
+                if (j >= length) j -= length;
+                const attack = i < aN ? (1 - Math.cos(Math.PI * i / aN)) / 2 : 1;
+                if (i > hold) rel *= kR;
+                pa += f * (1 + cents); pb += f * (1 - cents);
+                const a1 = sin1(pa), ca = 2 * sin1(pa + 0.25), a2 = ca * a1, a3 = ca * a2 - a1, a4 = ca * a3 - a2;
+                const b1 = sin1(pb), cb = 2 * sin1(pb + 0.25), b2 = cb * b1, b3 = cb * b2 - b1;
+                const swell = 1 - 0.08 * sin1(sw * i);
+                data[j] += attack * rel * swell * (a1 + 0.55 * a2 + 0.4 * a3 + 0.22 * a4 + b1 + 0.5 * b2 + 0.35 * b3);
+            }
+        }
+        // Cruixit de vinil: un fil de soroll i petits espetecs a l'atzar.
+        function crackle(start, dur, level) {
+            const n = Math.round(dur * sr), kC = decay(0.0012);
+            let j = at(start), lp = 0, hp = 0, prev = 0, click = 0;
+            for (let i = 0; i < n; i++, j++) {
+                if (j >= length) j -= length;
+                const r = random();
+                if (r < 7 / sr) click = (random() < 0.5 ? -1 : 1) * (0.4 + 0.6 * random());
+                click *= kC;
+                lp += 0.35 * ((random() * 2 - 1) - lp);
+                hp = 0.9 * (hp + lp - prev); prev = lp;
+                data[j] += level * (0.25 * hp + click);
+            }
+        }
         // Marge fix: el pic queda per sota de 0,72 i el volum mitjà és el de
         // la sintonia suau, perquè totes les melodies sonin igual de fort.
         function finish(targetRms) {
@@ -280,7 +319,7 @@
             for (let i = 0; i < length; i++) data[i] *= k;
             return data;
         }
-        return { sr, length, data, epiano, pad, strings, bass, vibes, kick, brush, pluck, flute, struck, block, finish };
+        return { sr, length, data, epiano, pad, strings, bass, vibes, kick, brush, pluck, flute, struck, block, reed, crackle, finish };
     }
 
     function themeScore(syn) {
@@ -508,8 +547,250 @@
         return TARGET_RMS;
     }
 
-    const SCORES = { theme: themeScore, oriental: orientalScore, bossa: bossaScore, vals: valsScore, capvespre: capvespreScore };
-    const INSTRUMENTS = ['epiano', 'pad', 'strings', 'bass', 'vibes', 'kick', 'brush', 'pluck', 'flute', 'struck', 'block'];
+    // ── Havanera del port ────────────────────────────────────────────────
+    // Dos per quatre a 75 ppm amb el ritme d'havanera al baix (corxera amb
+    // punt, semicorxera i dues corxeres), guitarra als contratemps, acordió a
+    // la melodia i un coixí d'acordió molt suau. Vint compassos de 1,6 s en
+    // re menor.
+    const HAVANERA = {
+        beat: 0.8,
+        harmony: {
+            Dm: { bass: [38, 45], notes: [57, 62, 65] },
+            A7: { bass: [45, 40], notes: [55, 61, 64] },
+            D7: { bass: [38, 45], notes: [57, 60, 66] },
+            Gm: { bass: [43, 50], notes: [55, 58, 62] }
+        },
+        chords: ['Dm', 'Dm', 'A7', 'A7', 'A7', 'A7', 'Dm', 'Dm', 'D7', 'D7',
+            'Gm', 'Gm', 'Dm', 'Dm', 'A7', 'A7', 'Gm', 'A7', 'Dm', 'A7'],
+        // [compàs, temps, nota, durada en temps]
+        melody: [
+            [0, 0, 69, 0.75], [0, 0.75, 70, 0.25], [0, 1, 69, 0.5], [0, 1.5, 67, 0.5], [1, 0, 65, 1], [1, 1, 62, 1],
+            [2, 0, 64, 0.75], [2, 0.75, 65, 0.25], [2, 1, 67, 0.5], [2, 1.5, 69, 0.5], [3, 0, 73, 1.5], [3, 1.5, 69, 0.5],
+            [4, 0, 70, 1 / 3], [4, 1 / 3, 69, 1 / 3], [4, 2 / 3, 67, 1 / 3], [4, 1, 69, 1], [5, 0, 64, 1], [5, 1, 61, 1],
+            [6, 0, 62, 0.75], [6, 0.75, 64, 0.25], [6, 1, 65, 0.5], [6, 1.5, 69, 0.5], [7, 0, 74, 2],
+            [8, 0, 72, 0.75], [8, 0.75, 74, 0.25], [8, 1, 72, 0.5], [8, 1.5, 69, 0.5], [9, 0, 66, 1], [9, 1, 69, 1],
+            [10, 0, 70, 0.75], [10, 0.75, 69, 0.25], [10, 1, 67, 0.5], [10, 1.5, 70, 0.5], [11, 0, 74, 1.5], [11, 1.5, 70, 0.5],
+            [12, 0, 69, 0.75], [12, 0.75, 70, 0.25], [12, 1, 69, 0.5], [12, 1.5, 65, 0.5], [13, 0, 62, 1], [13, 1, 65, 1],
+            [14, 0, 64, 1 / 3], [14, 1 / 3, 65, 1 / 3], [14, 2 / 3, 67, 1 / 3], [14, 1, 69, 0.5], [14, 1.5, 73, 0.5],
+            [15, 0, 76, 1.5], [15, 1.5, 73, 0.5], [16, 0, 74, 0.75], [16, 0.75, 70, 0.25], [16, 1, 67, 1],
+            [17, 0, 69, 0.75], [17, 0.75, 67, 0.25], [17, 1, 64, 1], [18, 0, 62, 2],
+            [19, 0, 61, 0.5], [19, 0.5, 64, 0.5], [19, 1, 67, 0.5], [19, 1.5, 69, 0.5]
+        ]
+    };
+    function havaneraScore(syn) {
+        const beat = HAVANERA.beat, bar = beat * 2;
+        const guitar = { decay: 0.45, partials: [1, 0.5, 0.28, 0.14], damp: 1.2, gain: 0.1, attack: 0.004 };
+        const thumb = { decay: 0.7, partials: [1, 0.7, 0.45, 0.25], damp: 0.9, gain: 0.08, attack: 0.004 };
+        HAVANERA.chords.forEach((name, b) => {
+            const t0 = b * bar, chord = HAVANERA.harmony[name], [root, fifth] = chord.bass;
+            // Ritme d'havanera al baix.
+            [[0, root, 1], [0.75, root, 0.55], [1, fifth, 0.8], [1.5, fifth, 0.6]].forEach(([t, n, v]) => {
+                syn.pluck(t0 + t * beat, n + 12, v, thumb);
+                syn.bass(t0 + t * beat, n, v * 0.2, 0.35);
+            });
+            [1, 1.5].forEach(t => chord.notes.forEach((n, k) => syn.pluck(t0 + t * beat + k * 0.01, n + 12, t === 1 ? 0.6 : 0.45, guitar)));
+            chord.notes.forEach(n => syn.reed(t0, n, bar, 0.35, { gain: 0.012, attack: 0.25, release: 0.2, detune: 5 }));
+            // Pandereta discreta als contratemps.
+            syn.brush(t0 + 0.75 * beat, 0.3, 0.03, true);
+            syn.brush(t0 + 1.5 * beat, 0.4, 0.03, true);
+        });
+        HAVANERA.melody.forEach(([b, t, n, d]) => syn.reed(b * bar + t * beat, n + 12, d * beat - 0.04, 1,
+            { gain: 0.04, attack: 0.04, release: 0.1 }));
+        return TARGET_RMS;
+    }
+
+    // ── Dansa celta ──────────────────────────────────────────────────────
+    // Sis per vuit (60 negres amb punt per minut): xiulet irlandès a la
+    // melodia, arpa en arpegis de corxeres, bordó de re-la i bodhran.
+    // Setze compassos de 2 s en re major.
+    const CELTA = {
+        beat: 1,
+        arps: {
+            D: [50, 57, 62, 66, 62, 57], G: [43, 50, 55, 59, 55, 50], A: [45, 52, 57, 61, 57, 52],
+            Em: [52, 59, 64, 67, 64, 59], Bm: [47, 54, 59, 62, 59, 54]
+        },
+        chords: ['D', 'G', 'D', 'A', 'D', 'G', 'Em', 'A', 'Bm', 'G', 'D', 'A', 'Bm', 'G', 'A', 'A'],
+        // [compàs, corxera, nota, durada en corxeres]
+        whistle: [
+            [0, 0, 74, 2], [0, 2, 78, 1], [0, 3, 81, 2], [0, 5, 78, 1], [1, 0, 79, 1], [1, 1, 78, 1], [1, 2, 76, 1], [1, 3, 74, 3],
+            [2, 0, 78, 2], [2, 2, 81, 1], [2, 3, 86, 2], [2, 5, 83, 1], [3, 0, 81, 3], [3, 3, 76, 2], [3, 5, 78, 1],
+            [4, 0, 74, 2], [4, 2, 78, 1], [4, 3, 81, 2], [4, 5, 83, 1], [5, 0, 86, 1], [5, 1, 83, 1], [5, 2, 79, 1], [5, 3, 83, 2], [5, 5, 81, 1],
+            [6, 0, 79, 2], [6, 2, 78, 1], [6, 3, 76, 2], [6, 5, 79, 1], [7, 0, 76, 3], [7, 3, 73, 2], [7, 5, 76, 1],
+            [8, 0, 78, 2], [8, 2, 74, 1], [8, 3, 71, 2], [8, 5, 74, 1], [9, 0, 79, 2], [9, 2, 83, 1], [9, 3, 86, 3],
+            [10, 0, 81, 2], [10, 2, 78, 1], [10, 3, 74, 2], [10, 5, 78, 1], [11, 0, 76, 3], [11, 3, 81, 3],
+            [12, 0, 83, 2], [12, 2, 81, 1], [12, 3, 78, 2], [12, 5, 74, 1], [13, 0, 79, 1], [13, 1, 81, 1], [13, 2, 83, 1], [13, 3, 86, 2], [13, 5, 83, 1],
+            [14, 0, 81, 2], [14, 2, 79, 1], [14, 3, 76, 2], [14, 5, 73, 1], [15, 0, 76, 3], [15, 3, 69, 1], [15, 4, 71, 1], [15, 5, 73, 1]
+        ]
+    };
+    function celtaScore(syn) {
+        const bar = CELTA.beat * 2, eighth = bar / 6;
+        const harp = { decay: 1.2, partials: [1, 0.4, 0.2, 0.08], damp: 1.3, gain: 0.1, attack: 0.003 };
+        CELTA.chords.forEach((name, b) => {
+            const t0 = b * bar;
+            CELTA.arps[name].forEach((n, k) => syn.pluck(t0 + k * eighth, n + 12, k % 3 === 0 ? 0.85 : 0.6, harp));
+            // Bordó de re-la que no s'atura mai (com una gaita llunyana).
+            syn.reed(t0, 50, bar, 0.5, { gain: 0.01, attack: 0.6, release: 0.5, detune: 3 });
+            syn.reed(t0, 57, bar, 0.5, { gain: 0.008, attack: 0.6, release: 0.5, detune: 3 });
+            // Bodhran: cop greu als dos temps i fregats suaus entremig.
+            syn.block(t0, 1, 95, 0.12, 0.45);
+            syn.block(t0 + 3 * eighth, 0.75, 105, 0.1, 0.45);
+            [2, 5].forEach(e => syn.block(t0 + e * eighth, 0.35, 180, 0.05, 0.6));
+        });
+        CELTA.whistle.forEach(([b, e, n, d], k) => syn.flute(b * bar + e * eighth, n, d * eighth - 0.03, 1,
+            { breath: 0.12, vib: d >= 3 ? 0.22 : 0.08, vibRate: 5.8, attack: 0.03, gain: 0.075, release: 0.08,
+                slide: d >= 2 && k % 3 === 0 ? -70 : 0 }));
+        return TARGET_RMS;
+    }
+
+    // ── Nocturn ──────────────────────────────────────────────────────────
+    // Piano a 60 ppm: la mà esquerra en arpegis de corxeres i la dreta
+    // cantant, amb un coixí de cordes molt suau. Vuit compassos de 4 s en
+    // la♭ major: La♭ · Fa m · Re♭ · Mi♭7 · La♭ · Do m · Si♭ m7 · Mi♭7.
+    const NOCTURN = {
+        beat: 1,
+        chords: [
+            { root: 44, arp: [51, 56, 60, 63, 68, 63, 60, 56], pad: [60, 63, 68] },
+            { root: 41, arp: [48, 53, 56, 60, 65, 60, 56, 53], pad: [60, 65, 68] },
+            { root: 37, arp: [49, 53, 56, 61, 65, 61, 56, 53], pad: [61, 65, 68] },
+            { root: 39, arp: [46, 51, 55, 58, 61, 58, 55, 51], pad: [58, 61, 67] },
+            { root: 44, arp: [51, 56, 60, 63, 68, 63, 60, 56], pad: [60, 63, 68] },
+            { root: 48, arp: [48, 55, 60, 63, 67, 63, 60, 55], pad: [60, 63, 67] },
+            { root: 46, arp: [49, 53, 56, 61, 65, 61, 56, 53], pad: [61, 65, 68] },
+            { root: 39, arp: [46, 51, 55, 61, 63, 61, 55, 51], pad: [58, 61, 67] }
+        ],
+        // [compàs, temps, nota, durada en temps]
+        melody: [
+            [0, 0, 75, 1.5], [0, 1.5, 77, 0.5], [0, 2, 75, 1], [0, 3, 72, 1],
+            [1, 0, 77, 2], [1, 2, 80, 1], [1, 3, 77, 1],
+            [2, 0, 77, 1.5], [2, 1.5, 75, 0.5], [2, 2, 73, 1], [2, 3, 72, 1],
+            [3, 0, 70, 2], [3, 2, 67, 1], [3, 3, 70, 1],
+            [4, 0, 72, 1.5], [4, 1.5, 75, 0.5], [4, 2, 80, 1.5], [4, 3.5, 79, 0.5],
+            [5, 0, 79, 2], [5, 2, 75, 1], [5, 3, 72, 1],
+            [6, 0, 73, 1], [6, 1, 77, 1], [6, 2, 80, 1], [6, 3, 77, 0.5], [6, 3.5, 73, 0.5],
+            [7, 0, 72, 1.5], [7, 1.5, 70, 0.5], [7, 2, 67, 1], [7, 3, 70, 1]
+        ]
+    };
+    function nocturnScore(syn) {
+        const beat = NOCTURN.beat, bar = beat * 4, eighth = beat / 2;
+        const piano = { decay: 2, partials: [1, 0.55, 0.32, 0.22, 0.14, 0.09, 0.05], damp: 0.7, gain: 0.1, attack: 0.005 };
+        NOCTURN.chords.forEach((chord, b) => {
+            const t0 = b * bar;
+            syn.pluck(t0, chord.root, 0.8, Object.assign({}, piano, { decay: 2.6, gain: 0.08 }));
+            chord.arp.forEach((n, k) => syn.pluck(t0 + k * eighth, n + 12, k === 0 ? 0.7 : 0.5, piano));
+            chord.pad.forEach(n => syn.strings(t0, n, bar, 0.006, 1.6));
+        });
+                // La mà dreta, una octava amunt i amb menys parcials (cap per sobre
+        // de Nyquist).
+        NOCTURN.melody.forEach(([b, t, n, d]) => syn.pluck(b * bar + t * beat, n + 12, 0.95,
+            Object.assign({}, piano, { partials: [1, 0.5, 0.25, 0.12], decay: 1.4 + 0.4 * d, gain: 0.15, attack: 0.008 })));
+        return TARGET_RMS;
+    }
+
+    // ── Illa de marimba ──────────────────────────────────────────────────
+    // Calipso a 120 ppm: marimba en ostinato de corxeres, steel drum a la
+    // melodia, baix pinçat, maraca i bombo suau. Setze compassos de 2 s en
+    // fa major.
+    const MARIMBA = {
+        beat: 0.5,
+        harmony: {
+            F: { root: 41, notes: [65, 69, 72] }, Bb: { root: 46, notes: [65, 70, 74] },
+            C7: { root: 48, notes: [64, 67, 70] }, Dm: { root: 50, notes: [62, 65, 69] }, Gm: { root: 43, notes: [62, 67, 70] }
+        },
+        chords: ['F', 'Bb', 'C7', 'F', 'F', 'Bb', 'C7', 'F', 'Bb', 'F', 'C7', 'F', 'Dm', 'Gm', 'C7', 'F'],
+        ostinato: [0, 2, 1, 2, 0, 2, 1, 2],
+        // [compàs, corxera, nota, durada en corxeres]
+        melody: [
+            [0, 0, 81, 1], [0, 1, 84, 2], [0, 3, 81, 1], [0, 4, 77, 2], [0, 6, 79, 2],
+            [1, 0, 82, 1], [1, 1, 86, 2], [1, 3, 82, 1], [1, 4, 77, 2], [1, 6, 74, 2],
+            [2, 0, 76, 1], [2, 1, 79, 2], [2, 3, 82, 1], [2, 4, 81, 2], [2, 6, 79, 2],
+            [3, 0, 77, 3], [3, 3, 72, 1], [3, 4, 74, 1], [3, 5, 76, 1], [3, 6, 77, 2],
+            [4, 0, 81, 1], [4, 1, 84, 2], [4, 3, 86, 1], [4, 4, 84, 2], [4, 6, 81, 2],
+            [5, 0, 82, 1], [5, 1, 86, 2], [5, 3, 89, 1], [5, 4, 86, 2], [5, 6, 82, 2],
+            [6, 0, 84, 1], [6, 1, 82, 2], [6, 3, 79, 1], [6, 4, 76, 2], [6, 6, 79, 2],
+            [7, 0, 77, 4], [7, 5, 81, 1], [7, 6, 84, 2],
+            [8, 0, 86, 1], [8, 1, 82, 2], [8, 3, 86, 1], [8, 4, 89, 2], [8, 6, 86, 2],
+            [9, 0, 84, 1], [9, 1, 81, 2], [9, 3, 77, 1], [9, 4, 81, 2], [9, 6, 84, 2],
+            [10, 0, 82, 1], [10, 1, 79, 2], [10, 3, 76, 1], [10, 4, 79, 2], [10, 6, 82, 2],
+            [11, 0, 81, 3], [11, 3, 77, 1], [11, 4, 72, 4],
+            [12, 0, 74, 1], [12, 1, 77, 2], [12, 3, 81, 1], [12, 4, 86, 2], [12, 6, 84, 2],
+            [13, 0, 82, 1], [13, 1, 79, 2], [13, 3, 74, 1], [13, 4, 79, 2], [13, 6, 82, 2],
+            [14, 0, 84, 1], [14, 1, 82, 2], [14, 3, 79, 1], [14, 4, 76, 2], [14, 6, 72, 2],
+            [15, 0, 77, 4], [15, 4, 76, 1], [15, 5, 77, 1], [15, 6, 79, 2]
+        ]
+    };
+    function marimbaScore(syn) {
+        const beat = MARIMBA.beat, bar = beat * 4, eighth = beat / 2;
+        const thumb = { decay: 0.6, partials: [1, 0.55, 0.3, 0.12], damp: 1, gain: 0.13, attack: 0.004 };
+        MARIMBA.chords.forEach((name, b) => {
+            const t0 = b * bar, chord = MARIMBA.harmony[name];
+            // Marimba: barres de fusta (parcials 1 · 4 · 10) que s'apaguen de pressa.
+            MARIMBA.ostinato.forEach((idx, e) => syn.struck(t0 + e * eighth, chord.notes[idx], e % 2 ? 0.6 : 0.85,
+                [1, 3.98, 9.9], [1, 0.22, 0.05], [0.5, 0.12, 0.04], { gain: 0.11 }));
+            [[0, 0, 1], [1.5, 0, 0.7], [2, 7, 0.85], [3, 0, 0.7]].forEach(([t, iv, v]) => {
+                syn.pluck(t0 + t * beat, chord.root + iv + 12, v, thumb);
+                syn.bass(t0 + t * beat, chord.root + iv, v * 0.35, 0.35);
+            });
+            syn.kick(t0, 0.7, 52);
+            syn.kick(t0 + 2 * beat, 0.55, 52);
+            for (let s16 = 0; s16 < 8; s16++) syn.brush(t0 + s16 * eighth, s16 % 2 ? 0.25 : 0.4, 0.016, true);
+            [1, 3].forEach(t => syn.block(t0 + t * beat + eighth, 0.35, 1500, 0.012, 0.5));
+        });
+        // Steel drum: parcials gairebé harmònics amb una mica de trèmolo.
+        MARIMBA.melody.forEach(([b, e, n, d]) => syn.struck(b * bar + e * eighth, n, 1, [1, 2.0, 3.01, 4.16],
+            [1, 0.5, 0.22, 0.1], [0.5 + 0.12 * d, 0.35, 0.22, 0.14], { gain: 0.1, trem: 6 }));
+        return TARGET_RMS;
+    }
+
+    // ── Estudi lo-fi ─────────────────────────────────────────────────────
+    // Hip-hop tranquil a 90 ppm: acords de piano elèctric endarrerits, baix
+    // rodó, bombo i caixa mandrosos, xarleston amb swing, un vibràfon
+    // espaiat i el cruixit d'un vinil. Dotze compassos (2,67 s) en mi♭:
+    // Mi♭7M(9) · Do m9 · Fa m9 · Si♭13, tres voltes.
+    const LOFI = {
+        beat: 2 / 3,
+        swing: 0.09,
+        chords: [
+            { root: 39, notes: [55, 58, 62, 65] },   // Mi♭7M(9)
+            { root: 36, notes: [58, 62, 63, 67] },   // Do m9
+            { root: 41, notes: [56, 60, 63, 67] },   // Fa m9
+            { root: 46, notes: [56, 60, 62, 67] }    // Si♭13
+        ],
+        // [compàs, temps, nota, durada en temps]
+        melody: [
+            [0, 0.5, 79, 1], [0, 1.5, 82, 1], [0, 2.5, 84, 1.5], [1, 1, 82, 1], [1, 2, 79, 2],
+            [2, 0.5, 77, 1], [2, 1.5, 79, 1], [2, 2.5, 75, 1.5], [3, 2, 74, 1], [3, 3, 77, 1],
+            [4, 0.5, 79, 1], [4, 1.5, 82, 1], [4, 2.5, 87, 1.5], [5, 1, 84, 1], [5, 2, 82, 2],
+            [6, 0.5, 84, 1], [6, 1.5, 82, 1], [6, 2.5, 79, 1.5], [7, 2, 77, 2],
+            [8, 0, 75, 1], [8, 1, 79, 1], [8, 2, 82, 1], [8, 3, 84, 1], [9, 0.5, 87, 1.5], [9, 2, 84, 2],
+            [10, 0.5, 82, 1], [10, 1.5, 79, 1], [10, 2.5, 77, 1.5], [11, 1, 79, 1], [11, 2, 77, 1], [11, 3, 74, 1]
+        ]
+    };
+    function lofiScore(syn) {
+        const beat = LOFI.beat, bar = beat * 4, sw = LOFI.swing;
+        for (let b = 0; b < 12; b++) {
+            const t0 = b * bar, chord = LOFI.chords[b % 4];
+            chord.notes.forEach((n, k) => {
+                syn.epiano(t0 + 0.03 + k * 0.018, n + 12, 0.7);
+                syn.epiano(t0 + 2.5 * beat + sw + k * 0.012, n + 12, 0.4);
+                syn.pad(t0, n, bar, 0.009, 0.5);
+            });
+            syn.bass(t0, chord.root, 1, 0.9);
+            syn.bass(t0 + 2.5 * beat + sw, chord.root + 7, 0.6, 0.5);
+            syn.kick(t0, 1, 50);
+            syn.kick(t0 + 2.5 * beat + sw, 0.75, 50);
+            if (b % 2) syn.kick(t0 + 1.75 * beat, 0.45, 50);
+            // Caixa (escombreta greu amb una mica de cos) als temps dos i quatre.
+            [1, 3].forEach(t => { syn.brush(t0 + t * beat + 0.02, 0.9, 0.11, false); syn.block(t0 + t * beat + 0.02, 0.4, 190, 0.05, 0.4); });
+            for (let e = 0; e < 8; e++) syn.brush(t0 + e * beat / 2 + (e % 2 ? sw : 0), e % 2 ? 0.3 : 0.45, 0.02, true);
+        }
+        LOFI.melody.forEach(([b, t, n, d]) => syn.vibes(b * bar + t * beat + sw * (t % 1 ? 1 : 0), n, d * beat));
+        syn.crackle(0, MELODY_SECONDS, 0.05);
+        return TARGET_RMS;
+    }
+
+    const SCORES = { theme: themeScore, oriental: orientalScore, bossa: bossaScore, vals: valsScore, capvespre: capvespreScore,
+        havanera: havaneraScore, celta: celtaScore, nocturn: nocturnScore, marimba: marimbaScore, lofi: lofiScore };
+    const INSTRUMENTS = ['epiano', 'pad', 'strings', 'bass', 'vibes', 'kick', 'brush', 'pluck', 'flute', 'struck', 'block', 'reed', 'crackle'];
     // Mostres d'una melodia (Float32Array, 32 s, a `sampleRate`). No hi ha
     // enregistraments, veus ni xarxa: tot es calcula aquí.
     function samples(melody, sampleRate = 22050, random = Math.random) {
@@ -546,6 +827,21 @@
     const DUCK = 0.45;
     // Només es guarda la melodia que sona (cada una ocupa uns 2,8 MB).
     let cache = null;
+    // Interruptor general de la música (Configuració › Veus de lectura): si
+    // s'apaga, cap reproductor no sona. Els reproductors vius es registren
+    // perquè el canvi s'apliqui al moment.
+    let allowed = true;
+    const players = new Set();
+    function setAllowed(value) {
+        allowed = !!value;
+        players.forEach(p => { try { p._reconcile(true); } catch (err) {} });
+    }
+    function isAllowed() { return allowed; }
+    // Algun reproductor (llevat de `except`) sona ara mateix?
+    function othersPlaying(except) {
+        for (const p of players) if (p !== except && p.status() === 'playing') return true;
+        return false;
+    }
     // env = { createContext, random, sync, onChange(),
     //         generate(melody, sampleRate, random, opts) → Promise }
     // Amb `sync` (o una font d'atzar pròpia) la melodia es genera de cop.
@@ -596,8 +892,9 @@
             }
             return null;
         }
-        function reconcile() {
-            if (!active || wanted.sound === 'off' || wanted.volume === 0) { stopSource(); return; }
+        // fadeOut: en apagar-se, el bucle s'esvaeix en mig segon.
+        function reconcile(fadeOut) {
+            if (!allowed || !active || wanted.sound === 'off' || wanted.volume === 0) { stopSource(!!fadeOut); return; }
             if (failed || !context || context.state !== 'running') return;
             try {
                 if (!current || current.melody !== melody) {
@@ -631,11 +928,12 @@
         const api = {
             // raw = { sound, volume, melody }: la melodia la tria qui crida
             // (una per partida); si falta, es manté l'anterior.
-            update(raw, enabled) {
+            // opts.fade: si s'atura, s'esvaeix en lloc de tallar-se.
+            update(raw, enabled, opts) {
                 wanted = normalize(raw);
                 if (raw && raw.melody) melody = melodyId(raw.melody);
                 active = !!enabled;
-                reconcile();
+                reconcile(!!(opts && opts.fade));
             },
             // La veu comença (true) o acaba (false) de parlar: el fons baixa de
             // pressa i torna a pujar suaument, sense tocar el bucle.
@@ -648,7 +946,7 @@
             },
             // Només crea o reprèn el context des d'una acció autoritzada de la UI.
             unlock() {
-                if (!active || wanted.sound === 'off' || wanted.volume === 0 || !supported) return;
+                if (!allowed || !active || wanted.sound === 'off' || wanted.volume === 0 || !supported) return;
                 try {
                     failed = false;
                     if (!context || context.state === 'closed') context = env.createContext ? env.createContext() : new Ctor();
@@ -659,24 +957,28 @@
                 } catch (err) { failed = true; stopSource(); }
             },
             status() {
-                if (!active || wanted.sound === 'off' || wanted.volume === 0) return 'off';
+                if (!allowed || !active || wanted.sound === 'off' || wanted.volume === 0) return 'off';
                 if (!supported || failed) return 'unavailable';
                 return current && context && context.state === 'running' ? 'playing' : 'waiting';
             },
             // Melodia de la partida i melodia que sona de debò ara mateix.
             melody() { return melody; },
             playing() { return current ? current.melody : null; },
+            _reconcile: reconcile,
             dispose() {
+                players.delete(api);
                 active = false; pending = null; stopSource();
                 cachedBuffer = null; cachedMelody = null;
                 const ctx = context; context = null;
                 try { if (ctx && ctx.close) Promise.resolve(ctx.close()).catch(() => {}); } catch (err) {}
             }
         };
+        players.add(api);
         return api;
     }
-    return { normalize, canPlay, samples, samplesAsync, createPlayer, pickMelody, melodyId, melodyInfo,
+    return { normalize, setAllowed, isAllowed, othersPlaying, canPlay, samples, samplesAsync, createPlayer, pickMelody, melodyId, melodyInfo,
         MELODIES, LEVEL, DUCK, TARGET_RMS, THEME_SECONDS, MELODY_SECONDS,
         // Partitures, per als tests.
-        _scores: { theme: THEME, oriental: ORIENTAL, bossa: BOSSA, vals: VALS, capvespre: CAPVESPRE } };
+        _scores: { theme: THEME, oriental: ORIENTAL, bossa: BOSSA, vals: VALS, capvespre: CAPVESPRE,
+            havanera: HAVANERA, celta: CELTA, nocturn: NOCTURN, marimba: MARIMBA, lofi: LOFI } };
 });

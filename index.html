@@ -6998,7 +6998,7 @@
                             <output id="sftv-radio-volume-value" for="sftv-radio-volume">20%</output>
                         </label>
                     </div>
-                    <p class="setting-help">Canvia al moment i es desa per a Stockfish vs Lozza TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. A cada partida sona una de les cinc melodies, triada a l’atzar: Sintonia suau, Jardí oriental, Bossa del tauler, Vals de la capsa de música i Capvespre. Totes es generen al dispositiu.</p>
+                    <p class="setting-help">Canvia al moment i es desa per a Stockfish vs Lozza TV. Sona mentre la veu Matxa Ràdio està activada, baixa sola quan parla la veu i s’atura en pausar o sortir. A cada partida sona una de les deu melodies, triada a l’atzar. Totes es generen al dispositiu. Si aquí no hi ha música, la de tota l’app (Configuració › Veus de lectura) acompanya igualment la veu; si allà l’apagues, tampoc no sona aquesta.</p>
                     <p class="setting-help" id="sftv-radio-status" role="status"></p>
                 </fieldset>
             </details>
@@ -7280,6 +7280,24 @@
 
             <div class="settings-panel">
                 <div class="settings-title">🔊 Veus de lectura</div>
+                <div class="setting-row">
+                    <div class="setting-label">Veu i música</div>
+                    <select id="voice-music-mode" class="select-control">
+                        <option value="both">Veu i música de fons</option>
+                        <option value="voice">Només la veu</option>
+                        <option value="music">Només la música</option>
+                        <option value="none">Sense veu ni música</option>
+                    </select>
+                </div>
+                <div class="setting-row" id="voice-music-volume-row">
+                    <div class="setting-label">Volum de la música</div>
+                    <div class="font-size-control">
+                        <input type="range" id="voice-music-volume" min="0" max="100" step="1" value="20" style="accent-color:var(--accent);touch-action:none;">
+                        <span id="voice-music-volume-value">20%</span>
+                    </div>
+                </div>
+                <div class="setting-help" id="voice-music-help" style="margin-bottom:10px;">Cada cop que comença a parlar una veu (ressenyes, diagnòstics, entrenador, Stockfish TV, historial...), sona de fons una de les deu melodies, triada a l’atzar: Sintonia suau, Jardí oriental, Bossa del tauler, Vals de la capsa de música, Capvespre, Havanera del port, Dansa celta, Nocturn, Illa de marimba i Estudi lo-fi. Baixa sola mentre parla la veu i s’apaga quan fa una estona que calla. Amb «Només la música», les lectures continuen en silenci i només se sent la melodia. Totes es generen al dispositiu i l’opció es desa en aquest navegador.</div>
+                <div class="setting-help" id="voice-music-status" role="status" style="margin-bottom:10px;"></div>
                 <div class="setting-help" style="margin-bottom:10px;">Crea perfils per llegir ressenyes, diagnòstics i els comentaris de Stockfish TV: tria la veu, el timbre i la velocitat. Els perfils es desen només al teu navegador.</div>
                 <div class="setting-help" style="margin-bottom:10px;">🎙️ <strong>Veus neuronals Matxa</strong> (BSC, projecte Aina), amb accent central, nord-occidental, valencià i balear. Funcionen <strong>en línia</strong>: el text que es llegeix s'envia al servei del BSC. Si fallen, es fa servir la veu en català del dispositiu (a Stockfish TV, la partida s'atura fins que Matxa torna). El so de Matxa és sempre el perfil Ràdio, amb un equalitzador de cinc bandes per ajustar-ne el to.</div>
                 <div class="setting-row">
@@ -9459,7 +9477,8 @@
     <script src="sons.js?v=1.0.0"></script>
     <script src="tutorial.js?v=1.0.5"></script>
     <script src="veuneural.js?v=1.2.1"></script>
-    <script src="radioambient.js?v=2.0.0"></script>
+    <script src="radioambient.js?v=2.1.0"></script>
+    <script src="musicafons.js?v=1.0.0"></script>
     <script src="expressivitat.js?v=1.0.1"></script>
     <script src="narrativa.js?v=2.1.0"></script>
     <script src="artdelaguerra.js?v=1.2.0"></script>
@@ -9470,12 +9489,12 @@
     <script src="tvintro.js?v=1.0.0"></script>
     <script src="tvleague.js?v=1.0.0"></script>
     <script src="tvleague-ui.js?v=1.0.0"></script>
-    <script src="stockfishtv.js?v=2.10.4"></script>
+    <script src="stockfishtv.js?v=2.10.5"></script>
     <script src="gamestore.js?v=1.0.0"></script>
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.61';
+        window.APP_VERSION = '1.0.62';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
@@ -9486,7 +9505,7 @@
     <script src="boardexperience.js?v=1.0.3"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.2"></script>
-    <script src="app.js?v=1.0.124"></script>
+    <script src="app.js?v=1.0.125"></script>
 
     <!-- Service Worker Registration -->
     <script>

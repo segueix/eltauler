@@ -29152,8 +29152,50 @@ function initSoundSettingsUi() {
     });
     refreshSoundSettingsUi();
 }
+// Configuració → Veus de lectura: veu, música de fons, totes dues o cap
+// (musicafons.js, preferència del dispositiu).
+function voiceMusicApi() { return window.ElTaulerMusicaFons && window.ElTaulerMusicaFons.current(); }
+function refreshVoiceMusicSettingsUi() {
+    const coord = voiceMusicApi();
+    const mode = document.getElementById('voice-music-mode');
+    const volume = document.getElementById('voice-music-volume');
+    const value = document.getElementById('voice-music-volume-value');
+    const row = document.getElementById('voice-music-volume-row');
+    const status = document.getElementById('voice-music-status');
+    if (mode) { mode.value = coord ? coord.mode() : 'both'; mode.disabled = !coord; }
+    const prefs = coord ? coord.prefs() : { music: true, volume: 20 };
+    if (volume) { volume.value = prefs.volume; volume.disabled = !coord || !prefs.music; }
+    if (value) value.textContent = prefs.volume + '%';
+    if (row) row.style.opacity = prefs.music ? '' : '0.5';
+    if (status) {
+        const R = window.ElTaulerRadioAmbient;
+        const playing = coord && coord.playing();
+        const st = coord ? coord.status() : 'off';
+        status.textContent = st === 'unavailable'
+            ? 'La música de fons no està disponible en aquest navegador.'
+            : (st === 'playing' && playing && R ? 'Ara sona: ' + R.melodyInfo(playing).name + ' (' + R.melodyInfo(playing).description + ').' : '');
+        status.style.display = status.textContent ? '' : 'none';
+    }
+}
+function initVoiceMusicSettingsUi() {
+    $('#voice-music-mode').off('change').on('change', function () {
+        const coord = voiceMusicApi();
+        if (!coord) return;
+        coord.setMode(this.value);
+        refreshVoiceMusicSettingsUi();
+    });
+    $('#voice-music-volume').off('input change').on('input change', function () {
+        const coord = voiceMusicApi();
+        if (!coord) return;
+        coord.setPrefs({ volume: Number(this.value) });
+        refreshVoiceMusicSettingsUi();
+    });
+    window.addEventListener('eltauler-musicafons', () => { try { refreshVoiceMusicSettingsUi(); } catch (e) {} });
+    refreshVoiceMusicSettingsUi();
+}
 function refreshDeviceSettingsUi() {
     try { refreshSoundSettingsUi(); } catch (e) {}
+    try { refreshVoiceMusicSettingsUi(); } catch (e) {}
     try { refreshDailyNotifyToggle(); } catch (e) {}
 }
 
@@ -37259,7 +37301,7 @@ $(document).ready(() => {
     try { initDailyGames(); } catch (e) { console.warn('[Daily] init', e); }
     // Preferències del dispositiu (sons, vibració, avisos diaris) i partida en viu.
     try { initLiveGameUi(); } catch (e) { console.warn('[LiveGame] init', e); }
-    try { initSoundSettingsUi(); initDailyNotifySettingsUi(); } catch (e) { console.warn('[Dispositiu] init', e); }
+    try { initSoundSettingsUi(); initDailyNotifySettingsUi(); initVoiceMusicSettingsUi(); } catch (e) { console.warn('[Dispositiu] init', e); }
     // Tutorials: «Aprèn a jugar» i «Guia d'El Tauler» (tutorial.js).
     try { if (window.ElTaulerTutorial) window.ElTaulerTutorial.init(); } catch (e) { console.warn('[Tutorial] init', e); }
     try { if (window.ElTaulerBulletPractice) window.ElTaulerBulletPractice.init({ navPush, goBack: navGoBack, beforeOpen: () => { if (window.ElTaulerBoardExperience) window.ElTaulerBoardExperience.stopAll(); } }); } catch (e) { console.warn('[Bullet] init', e); }
