@@ -1,4 +1,4 @@
-# Stockfish 19 (motor únic de Stockfish vs Lozza TV)
+# Stockfish 19 (TV, jeroglífics i Rival Antídot)
 
 `stockfish-19-lite-single.js` i `stockfish-19-lite-single.wasm` són la versió
 **lite d'un sol fil** de [Stockfish.js 19](https://github.com/nmrugg/stockfish.js)
@@ -17,9 +17,11 @@ dos enllaços).
   `UCI_LimitStrength` i `UCI_Elo` 1320–3190, que Stockfish calibra amb l'Elo
   CCRL de partides ràpides entre motors.
 - On es fa servir: Stockfish 19 és l'única versió de Stockfish a
-  **Stockfish vs Lozza TV** i al **generador de jeroglífics**. Cap de les
-  dues seccions no retorna al Stockfish antic si el motor nou falla.
-  La resta de l'app continua utilitzant el motor que tenia.
+  **Stockfish vs Lozza TV**, al **generador de jeroglífics** i al
+  **Rival Antídot**. Ni la TV ni els jeroglífics recauen al motor antic.
+  Antídot usa un worker propi; només si Stockfish 19 falla recau al motor
+  ordinari per no bloquejar la partida. La resta de l'app conserva el motor.
+
 - Els jeroglífics tenen un *worker* Stockfish 19 independent del motor de
   les partides i de la TV. Les anàlisis MultiPV es fan en cua per evitar
   respostes barrejades; les combinacions només s'accepten quan es valida
@@ -91,3 +93,12 @@ Stockfish 19 i els verifica amb `hieroclosure.js` abans de publicar-los.
 
 Es pot iniciar un torn manualment des de **Actions → Genera jeroglífics
 compartits (2 cops al dia) → Run workflow**, sense canviar-ne els horaris.
+
+## Antídot amb Stockfish 19
+
+- Fa servir `stockfish-19-lite-single.js` i el seu WASM, en un *worker* dedicat.
+- Espera `readyok` després d'`uci` i `isready` abans de la primera cerca.
+- Conserva MultiPV, detecció de patrons i selecció segons el perfil de debilitats.
+- La finestra de cerca comença després de carregar WASM. La cancel·lació invalida
+  la cerca i els errors alliberen el worker per evitar respostes antigues.
+- El motor `stockfish.js` no canvia per a la resta de partides.
