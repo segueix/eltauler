@@ -131,7 +131,8 @@ describe('embolcall del tauler de chessboard.js', () => {
         const elements = { myBoard: boardEl };
         const sandbox = {
             document: { hidden: false, getElementById: id => elements[id] || null, createElement: () => fakeElement(),
-                querySelectorAll: () => [], addEventListener() {} },
+                querySelector: () => null, querySelectorAll: () => [], addEventListener() {},
+                body: { classList: { contains: () => false } } },
             MutationObserver: class { observe() {} disconnect() {} },
             localStorage: { getItem: () => null, setItem() {} },
             getComputedStyle: () => ({ display: 'block' }), addEventListener() {},
