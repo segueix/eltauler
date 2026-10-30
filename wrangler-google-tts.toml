@@ -4,3 +4,9 @@ compatibility_date = "2026-10-01"
 # La web principal segueix allotjada a GitHub Pages. Només aquesta ruta passa
 # pel Worker. Cal que el DNS del domini estigui proxyat per Cloudflare.
 route = { pattern = "eltauler.cat/api/google-tts", zone_name = "eltauler.cat" }
+
+# Límit orientatiu: 20 fragments/minut i IP per ubicació de Cloudflare.
+[[ratelimits]]
+name = "GOOGLE_TTS_RATE_LIMITER"
+namespace_id = "20261030"
+simple = { limit = 20, period = 60 }
