@@ -140,23 +140,44 @@
     return data;
   }
 
+  // Camps interns que l'app reescriu sola en segon pla i que no són progrés de
+  // l'usuari: no han de fer aparèixer «Canvis pendents». El generador de
+  // jeroglífics desa cada pocs segons el seu bloqueig, l'hora de l'últim intent
+  // i si està generant; abans, l'estat tornava a «pendent» just després de
+  // sincronitzar i semblava que les dades no se sincronitzaven mai.
+  const VOLATILE_FIELDS = {
+    'eltauler_hieroglyphics_state': ['generation', 'generationLock', 'updatedAt']
+  };
+  function comparableValue(k, v) {
+    const fields = VOLATILE_FIELDS[k];
+    if (!fields || typeof v !== 'string') return v;
+    try {
+      const obj = JSON.parse(v);
+      if (!obj || typeof obj !== 'object') return v;
+      fields.forEach(function (f) { delete obj[f]; });
+      return JSON.stringify(obj);
+    } catch (e) { return v; }
+  }
+
   // Hash barat i estable d'una instantània (ordena les claus). Distingeix els
   // canvis locals pendents de l'estat que ja s'ha compartit amb el servidor.
+  function hashString(str, h) {
+    for (let j = 0; j < str.length; j++) h = ((h << 5) + h + str.charCodeAt(j)) | 0;
+    return h;
+  }
   function snapshotHash(data) {
     const keys = Object.keys(data).sort();
     let h = 5381;
-    for (let i = 0; i < keys.length; i++) {
-      const s = keys[i] + '=' + data[keys[i]] + '\u0001';
-      for (let j = 0; j < s.length; j++) h = ((h << 5) + h + s.charCodeAt(j)) | 0;
-    }
+    for (let i = 0; i < keys.length; i++) h = hashString(keys[i] + '=' + comparableValue(keys[i], data[keys[i]]) + '\u0001', h);
     return String(h >>> 0);
   }
+  function valueHash(k, v) { return String(hashString('value=' + comparableValue(k, v) + '\u0001', 5381) >>> 0); }
 
   // Un resum per clau de l'últim estat compartit permet distingir els canvis
   // locals reals de les dades velles d'un aparell que feia dies que no s'obria.
   function keyHashes(data) {
     const hashes = {};
-    Object.keys(data).sort().forEach(function (k) { hashes[k] = snapshotHash({ value: data[k] }); });
+    Object.keys(data).sort().forEach(function (k) { hashes[k] = valueHash(k, data[k]); });
     return hashes;
   }
 
@@ -460,16 +481,29 @@
     }
     const effective = includeChangesDuringSync(result.local, collectSnapshot(), result.data);
     applySnapshot(effective);
-    localStorage.setItem(BASELINE_KEY, JSON.stringify({
-      uid: currentUser.uid, hashes: keyHashes(result.data), counters: counterSnapshot(result.data)
-    }));
-    lastObservedHash = snapshotHash(effective);
     setLastSyncedAt(result.updatedAt);
     setLocalChangeAt(result.updatedAt);
     // La recàrrega de l'app encara no pot aplicar venciments sobre dades velles.
     reloadApp();
+    // En recarregar-se, l'app torna a desar algunes claus a la seva manera
+    // (p. ex. l'historial d'ELO normalitzat). És una conseqüència directa de les
+    // dades sincronitzades, no un canvi de l'usuari: forma part de l'estat
+    // compartit. Els canvis fets DURANT la petició continuen sent pendents.
+    const afterReload = collectSnapshot();
+    const hashes = keyHashes(result.data);
+    new Set(Object.keys(effective).concat(Object.keys(afterReload))).forEach(function (k) {
+      if (effective[k] === afterReload[k]) return;
+      if (Object.prototype.hasOwnProperty.call(afterReload, k)) hashes[k] = valueHash(k, afterReload[k]);
+      else delete hashes[k];
+    });
+    localStorage.setItem(BASELINE_KEY, JSON.stringify({
+      uid: currentUser.uid, hashes: hashes, counters: counterSnapshot(result.data)
+    }));
+    lastObservedHash = snapshotHash(afterReload);
     setReconciled();
-    const unchanged = snapshotHash(collectSnapshot()) === snapshotHash(result.data);
+    const current = keyHashes(afterReload);
+    const unchanged = Object.keys(hashes).length === Object.keys(current).length
+      && Object.keys(current).every(function (k) { return hashes[k] === current[k]; });
     setStatus({ state: unchanged ? 'synced' : 'pending', error: null });
     if (typeof window.onCloudSyncReady === 'function') {
       try { window.onCloudSyncReady(currentUser.email || currentUser.displayName || ''); } catch (e) {}

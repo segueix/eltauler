@@ -373,3 +373,35 @@ test('increments simultanis de dispositius diferents mantenen els dos deltes des
     await a.sync.syncNow(); await b.sync.syncNow();
     expect(remote.doc.data.chess_totalGamesPlayed).toBe('23');
 });
+
+describe('«Canvis pendents» només quan hi ha canvis de debò', () => {
+    const HG = 'eltauler_hieroglyphics_state';
+    const hgState = (extra = {}) => JSON.stringify(Object.assign({ version: 1, queue: [{ id: 'q1', fen: '8/8/8/8/8/8/8/K6k w - - 0 1', status: 'new' }],
+        settings: { enabled: true }, generation: { active: false, lastAttemptAt: 1 }, generationLock: { deviceId: null }, updatedAt: 1 }, extra));
+    test('el generador de jeroglífics desant el seu bloqueig en segon pla no torna l’estat a pendent', async () => {
+        const remote = server();
+        const a = device(remote, { [HG]: hgState(), chess_userELO: '1200' });
+        expect(await a.sync.syncNow()).toBe(true);
+        expect(a.sync.getStatus().state).toBe('synced');
+        // L'app reescriu el mateix objecte desat amb el bloqueig i l'hora de l'intent.
+        const stored = JSON.parse(a.values.get(HG));
+        a.set(HG, Object.assign({}, stored, { generation: { active: true, lastAttemptAt: 99 }, generationLock: { deviceId: 'a', expiresAt: 5 }, updatedAt: 99 }));
+        expect(a.sync.getStatus().state).toBe('synced');
+        // Un jeroglífic nou a la cua sí que és un canvi per compartir.
+        a.set(HG, Object.assign({}, stored, { queue: stored.queue.concat([{ id: 'q2', fen: '8/8/8/8/8/8/8/K5k1 w - - 0 1', status: 'new' }]) }));
+        expect(a.sync.getStatus().state).toBe('pending');
+    });
+    test('el que l’app torna a desar en recarregar-se després de sincronitzar no queda pendent', async () => {
+        const remote = server({ chess_eloHistory: JSON.stringify([{ date: '2026-10-29', elo: 1180 }]) });
+        const a = device(remote, { chess_userELO: '1200' });
+        // En recarregar, l'app normalitza l'historial d'ELO (hi afegeix el d'avui).
+        a.window.reloadAppStateFromStorage = jest.fn(() => {
+            a.values.set('chess_eloHistory', JSON.stringify([{ date: '2026-10-29', elo: 1180 }, { date: '2026-10-30', elo: 1200 }]));
+        });
+        expect(await a.sync.syncNow()).toBe(true);
+        expect(a.sync.getStatus().state).toBe('synced');
+        // I un canvi real posterior sí que torna a pendent.
+        a.set('chess_userELO', '1210');
+        expect(a.sync.getStatus().state).toBe('pending');
+    });
+});
