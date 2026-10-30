@@ -72,6 +72,23 @@
             const wrap = el.closest('.board-container, .history-board') || el;
             wrap.insertAdjacentElement('afterend', host);
         }
+        // La veu i la ràdio comparteixen la columna del tauler a escriptori,
+        // sota la descripció del jeroglífic. A mòbil es conserva la ubicació
+        // original després dels controls; es mou el MATEIX node, sense reiniciar-lo.
+        function placeBroadcast() {
+            if (id !== 'myBoard') return;
+            const column = document.querySelector('#game-screen > .game-board-column');
+            const home = document.getElementById('myBoard-broadcast-home');
+            if (!column || !home) return;
+            if (document.body.classList.contains('device-desktop')) {
+                if (host.parentElement !== column) column.appendChild(host);
+            } else if (host.previousElementSibling !== home) {
+                home.insertAdjacentElement('afterend', host);
+            }
+        }
+        const layoutObserver = id === 'myBoard' ? new MutationObserver(placeBroadcast) : null;
+        if (layoutObserver) layoutObserver.observe(document.body, { attributes: true, attributeFilter: ['class'] });
+        placeBroadcast();
         host.className = 'board-broadcast';
         host.innerHTML = '<details class="board-broadcast-audio"><summary>Veu i ràdio</summary><div class="board-broadcast-host"></div>'
             + '<label class="board-broadcast-frequency">Comentaris <select aria-label="Freqüència dels comentaris"><option value="all">Cada jugada</option><option value="key">Moments clau</option></select></label>'
@@ -117,6 +134,7 @@
         }
         function refresh() {
             if (disposed) return;
+            placeBroadcast();
             const c = current(); host.hidden = !!c.disabled; speedRow.hidden = !c.pace || !!c.timed;
             // Partida amb rellotge: sense veu ni ràdio (els comentaris queden escrits).
             audioPanel.hidden = !!c.timed;
@@ -190,7 +208,7 @@
         board.resize = (...args) => { const out = resize(...args); paint(); return out; };
         const observer = new MutationObserver(paint);
         observer.observe(el, { childList: true, subtree: true, attributes: true, attributeFilter: ['class'] });
-        function dispose() { if (disposed) return; stop(); disposed = true; observer.disconnect(); host.textContent = ''; sessions.delete(id); }
+        function dispose() { if (disposed) return; stop(); disposed = true; observer.disconnect(); if (layoutObserver) layoutObserver.disconnect(); host.textContent = ''; sessions.delete(id); }
         board.destroy = () => { dispose(); return destroy(); };
         function wait(ms, expected) {
             return new Promise(resolve => {
