@@ -50,7 +50,9 @@
 
     // env = { ambient (radioambient.js), createPlayer(), random, now,
     //         setTimeout, clearTimeout, isHidden(), pageKey(), loadPrefs(),
-    //         savePrefs(p), onChange() }
+    //         savePrefs(p), onChange(), isQuiet() }
+    // isQuiet(): moment en què no hi ha d'haver ni veu ni música (p. ex. una
+    // partida amb rellotge en curs); també es pot fixar amb setQuietCheck().
     // pageKey(): la pàgina que es veu (null si no se sap). Canviar de pàgina
     // atura la música i la pàgina nova en triarà una altra.
     function createCoordinator(env) {
@@ -62,6 +64,8 @@
         const random = e.random || Math.random;
         const hidden = e.isHidden || (() => false);
         const pageKey = e.pageKey || (() => null);
+        let quietCheck = typeof e.isQuiet === 'function' ? e.isQuiet : null;
+        const quiet = () => !!(quietCheck && safe(quietCheck));
         let page, pageMelody = null;
         let prefs = normalizePrefs(e.loadPrefs ? safe(e.loadPrefs) : null);
         let player = null, session = false, melody = null, lastVoice = -Infinity, timer = null, seq = 0, signature = '';
@@ -93,7 +97,7 @@
             if (talking) lastVoice = t;
             const key = safe(pageKey);
             if (key !== page) { page = key; pageMelody = null; session = false; }
-            if (!prefs.music) session = false;
+            if (!prefs.music || quiet()) session = false;
             else if (!session && talkingHere()) {
                 session = true;
                 // Fora d'una pàgina coneguda, cada tanda de veu en tria una de nova.
@@ -125,7 +129,10 @@
         const api = {
             prefs: () => Object.assign({}, prefs),
             mode: () => modeOf(prefs),
-            voiceEnabled: () => prefs.voice,
+            voiceEnabled: () => prefs.voice && !quiet(),
+            quiet,
+            // fn() → true quan no hi ha d'haver ni veu ni música.
+            setQuietCheck(fn) { quietCheck = typeof fn === 'function' ? fn : null; evaluate(); },
             musicEnabled: () => prefs.music,
             setPrefs(next) {
                 prefs = normalizePrefs(Object.assign({}, prefs, next || {}));
