@@ -63,21 +63,21 @@ describe('Rival Antídot: seguiment del progrés real', () => {
     test('no mescla rellotge, fase, ni categories diferents', () => {
         const games = sixGames('failed', 'passed');
         games.slice(3).forEach(g => { g.timeControl = '3+2'; });
-        const separate = P.analyze(games);
+        let separate = P.analyze(games);
         expect(separate.compared).toBe(2);
         expect(separate.improved).toHaveLength(0);
         expect(separate.regressed).toHaveLength(0);
         expect(separate.rows.every(r => r.status === 'sense-canvi-clar')).toBe(true);
         games.forEach(g => { g.timeControl = 'none'; });
         games.slice(3).forEach(g => { g.antidote.tests.forEach(t => { t.phase = 'endgame'; }); });
-        const separate = P.analyze(games);
+        separate = P.analyze(games);
         expect(separate.compared).toBe(2);
         expect(separate.improved).toHaveLength(0);
         expect(separate.regressed).toHaveLength(0);
         expect(separate.rows.every(r => r.status === 'sense-canvi-clar')).toBe(true);
         games.forEach(g => { g.antidote.tests.forEach(t => { t.phase = 'middlegame'; }); });
         games.slice(3).forEach(g => { g.antidote.tests.forEach(t => { t.theme = 'king_safety'; }); });
-        const separate = P.analyze(games);
+        separate = P.analyze(games);
         expect(separate.compared).toBe(2);
         expect(separate.improved).toHaveLength(0);
         expect(separate.regressed).toHaveLength(0);
