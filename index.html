@@ -5773,6 +5773,13 @@
 
         /* Seccions: punt de color + títol + filet */
         #start-screen .home-sections { display: flex; flex-direction: column; gap: 6px; }
+        #start-screen .home-col { display: contents; }
+        #start-screen .home-sec--juga { order: 1; }
+        #start-screen .home-sec--avui { order: 2; }
+        #start-screen .home-sec--entrena { order: 3; }
+        #start-screen .home-sec--comunitat { order: 4; }
+        #start-screen .home-sec--apren { order: 5; }
+        #start-screen .home-sec--final { order: 6; }
         #start-screen .home-sec { display: flex; flex-direction: column; gap: 10px; min-width: 0; animation: fadeInUp 0.34s ease both; }
         #start-screen .home-sec:nth-child(2) { animation-delay: 0.04s; }
         #start-screen .home-sec:nth-child(3) { animation-delay: 0.08s; }
@@ -6061,20 +6068,16 @@
         #start-screen .learn-hint { text-align: center; }
         #start-screen .sync-container { justify-content: center; text-align: center; margin-top: 18px; }
 
-        /* Ordinador: dues columnes de contingut i una lateral. A l'esquerra,
-           Juga i Entrena (el que es fa); a la dreta, Avui (missions i pla), que
-           acostuma a ser llarg i així no deixa forats. A sota, Comunitat al
-           costat d'Aprèn i, al final, Progrés i ajustos a tota l'amplada. */
+        /* Ordinador: dues columnes independents. A l'esquerra (2/3), Juga, Entrena
+           i Comunitat; a la dreta (1/3), Avui (missions i pla, que acostuma a ser
+           llarg) i Aprèn. Cada columna s'apila sola: abans eren files d'una
+           graella compartida i la columna llarga estirava les files de l'altra,
+           deixant grans forats. Progrés i ajustos tanca a tota l'amplada. */
         body.device-desktop #start-screen .home-sections {
-            display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px 22px; align-items: start;
-            grid-template-areas: "juga juga avui" "entrena entrena avui" "comunitat comunitat apren" "final final final";
+            display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 6px 22px; align-items: start;
         }
-        body.device-desktop #start-screen .home-sec--juga { grid-area: juga; }
-        body.device-desktop #start-screen .home-sec--avui { grid-area: avui; }
-        body.device-desktop #start-screen .home-sec--entrena { grid-area: entrena; }
-        body.device-desktop #start-screen .home-sec--comunitat { grid-area: comunitat; }
-        body.device-desktop #start-screen .home-sec--apren { grid-area: apren; }
-        body.device-desktop #start-screen .home-sec--final { grid-area: final; }
+        body.device-desktop #start-screen .home-col { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+        body.device-desktop #start-screen .home-sec--final { grid-column: 1 / -1; }
         body.device-desktop #start-screen .home-sec--entrena { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
         body.device-desktop #start-screen .home-sec--entrena > .home-sec-head,
         body.device-desktop #start-screen .home-sec--entrena > .home-tiles { grid-column: 1 / -1; }
@@ -6456,6 +6459,10 @@
             </div>
 
             <div class="home-sections">
+                <!-- Ordinador: dues columnes independents (cap fila compartida, cap
+                     forat). Al mòbil els contenidors no compten (display: contents) i
+                     l'ordre de les seccions el fixa la propietat order. -->
+                <div class="home-col home-col--main">
                 <!-- JUGA: l'acció principal de l'app, sempre a dalt de tot -->
                 <section class="home-sec home-sec--juga" aria-labelledby="home-sec-juga">
                     <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-juga">Juga</h2></div>
@@ -6551,60 +6558,6 @@
                         <div class="league-banner-actions">
                             <button class="btn btn-primary" id="btn-league-banner-play"><svg class="btn-ic" aria-hidden="true"><use href="#ic-target"/></svg>Jugar ara</button>
                         </div>
-                    </div>
-                </section>
-
-                <!-- AVUI: suggeriment del dia, missions i entrenador -->
-                <section class="home-sec home-sec--avui" aria-labelledby="home-sec-avui">
-                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-avui">Avui</h2></div>
-                    <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
-                    <div class="engagement-banner" id="engagement-banner" style="display:none;">
-                        <span class="eng-icon">💡</span>
-                        <span class="eng-text"></span>
-                        <button class="btn eng-cta" data-eng-action="play"></button>
-                    </div>
-                    <div class="missions-panel">
-                        <div class="missions-header">
-                            <div class="missions-title"><svg class="missions-ic" aria-hidden="true"><use href="#ic-flag"/></svg>Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
-                            <button class="badges-btn" id="btn-badges"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Trofeus</button>
-                        </div>
-                        <div id="missions-list"></div>
-                    </div>
-                    <div class="coach-banner" id="home-coach-banner" style="display:none;">
-                        <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
-                            <span class="coach-banner-ic" aria-hidden="true"><svg><use href="#ic-bulb"/></svg></span>
-                            <span class="coach-banner-text">
-                                <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
-                                <span class="coach-banner-sub" id="home-coach-text">—</span>
-                            </span>
-                            <span class="coach-banner-cta">Veure ›</span>
-                        </button>
-                        <div class="coach-banner-foot">
-                            <label for="home-coach-style">Estil</label>
-                            <select id="home-coach-style" class="select-control">
-                                <option value="casual">Casual</option>
-                                <option value="balanced">Equilibrada</option>
-                                <option value="technical">Tècnica</option>
-                            </select>
-                            <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
-                        </div>
-                    </div>
-                    <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
-                        <div class="coach-kicker">
-                            <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
-                            <span class="coach-kicker-right">
-                                <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
-                                <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
-                            </span>
-                        </div>
-                        <div class="coach-plan-summary" id="weekly-plan-summary"></div>
-                        <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
-                        <div class="coach-plan-progress" id="weekly-plan-progress">
-                            <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
-                            <span class="coach-plan-progress-label">0/0 passos</span>
-                        </div>
-                        <div id="weekly-plan-list"></div>
-                        <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
                     </div>
                 </section>
 
@@ -6731,6 +6684,63 @@
                     </button>
                 </section>
 
+                </div>
+                <div class="home-col home-col--side">
+
+                <!-- AVUI: suggeriment del dia, missions i entrenador -->
+                <section class="home-sec home-sec--avui" aria-labelledby="home-sec-avui">
+                    <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-avui">Avui</h2></div>
+                    <!-- Suggeriment contextual del dia (es mostra quan hi ha res a dir) -->
+                    <div class="engagement-banner" id="engagement-banner" style="display:none;">
+                        <span class="eng-icon">💡</span>
+                        <span class="eng-text"></span>
+                        <button class="btn eng-cta" data-eng-action="play"></button>
+                    </div>
+                    <div class="missions-panel">
+                        <div class="missions-header">
+                            <div class="missions-title"><svg class="missions-ic" aria-hidden="true"><use href="#ic-flag"/></svg>Missions diàries <span class="missions-count" id="missions-count">0/0</span></div>
+                            <button class="badges-btn" id="btn-badges"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trophy"/></svg>Trofeus</button>
+                        </div>
+                        <div id="missions-list"></div>
+                    </div>
+                    <div class="coach-banner" id="home-coach-banner" style="display:none;">
+                        <button class="coach-banner-main" id="btn-home-coach" type="button" aria-label="Veure el diagnòstic de l'entrenador">
+                            <span class="coach-banner-ic" aria-hidden="true"><svg><use href="#ic-bulb"/></svg></span>
+                            <span class="coach-banner-text">
+                                <span class="coach-banner-title">Diagnòstic de l'entrenador</span>
+                                <span class="coach-banner-sub" id="home-coach-text">—</span>
+                            </span>
+                            <span class="coach-banner-cta">Veure ›</span>
+                        </button>
+                        <div class="coach-banner-foot">
+                            <label for="home-coach-style">Estil</label>
+                            <select id="home-coach-style" class="select-control">
+                                <option value="casual">Casual</option>
+                                <option value="balanced">Equilibrada</option>
+                                <option value="technical">Tècnica</option>
+                            </select>
+                            <button type="button" id="btn-home-coach-refresh" class="coach-refresh-btn" title="Regenera el diagnòstic d'avui" aria-label="Regenera el diagnòstic">↻</button>
+                        </div>
+                    </div>
+                    <div class="coach-panel" id="weekly-plan-panel" style="display:none;">
+                        <div class="coach-kicker">
+                            <span><svg class="coach-ic" aria-hidden="true"><use href="#ic-cap"/></svg>El pla de l'entrenador</span>
+                            <span class="coach-kicker-right">
+                                <span class="plan-streak" id="plan-streak" style="display:none;" title="Dies seguits completant el pla">🔥</span>
+                                <span class="plan-countdown" id="plan-countdown" title="Temps fins al nou pla d'entrenament">⏳ --:--:--</span>
+                            </span>
+                        </div>
+                        <div class="coach-plan-summary" id="weekly-plan-summary"></div>
+                        <button class="coach-plan-toggle" id="btn-plan-summary-toggle" type="button" aria-expanded="false">[Continuar llegint]</button>
+                        <div class="coach-plan-progress" id="weekly-plan-progress">
+                            <div class="coach-plan-progress-bar"><div class="coach-plan-progress-fill"></div></div>
+                            <span class="coach-plan-progress-label">0/0 passos</span>
+                        </div>
+                        <div id="weekly-plan-list"></div>
+                        <div class="coach-plan-done" id="weekly-plan-done" style="display:none;"></div>
+                    </div>
+                </section>
+
                 <!-- APRÈN: Stockfish TV i el tutorial d'escacs -->
                 <section class="home-sec home-sec--apren" aria-labelledby="home-sec-apren">
                     <div class="home-sec-head"><span class="home-sec-dot" aria-hidden="true"></span><h2 class="home-sec-title" id="home-sec-apren">Aprèn</h2></div>
@@ -6753,6 +6763,8 @@
                         <span class="hb-cta" id="tutorial-banner-cta">Comença ›</span>
                     </button>
                 </section>
+
+                </div>
 
                 <!-- PROGRÉS I AJUSTOS: historial i estadístiques; la configuració i
                      la guia d'ús (el manual) tanquen la pàgina. -->
@@ -9538,7 +9550,7 @@
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.67';
+        window.APP_VERSION = '1.0.68';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
