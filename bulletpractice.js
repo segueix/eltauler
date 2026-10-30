@@ -235,12 +235,16 @@
             if (!item || typeof item.fen !== 'string' || item.fen.length > 140) continue;
             try {
                 const c = new Chess(item.fen);
-                if (c.game_over() || c.in_check()) continue;
-                const answers = solutions(Chess, { kind: 'mate', fen: item.fen });
-                if (!answers.length || seen.has(item.fen)) continue;
+                if (c.game_over() || seen.has(item.fen)) continue;
+                const kind = item.verifiedSF19 && ['capture', 'escape'].includes(item.kind) ? item.kind : 'mate';
+                if (kind === 'mate' && c.in_check()) continue;
+                const all = solutions(Chess, { kind, fen: item.fen });
+                const answers = kind === 'mate' ? all : (Array.isArray(item.answers) ? item.answers.filter(u => all.includes(u)) : []);
+                if (!answers.length || (kind !== 'mate' && answers.length !== item.answers.length)) continue;
                 const id = generatedId(item.fen);
-                out.push({ id, family: id, fen: item.fen, kind: 'mate', answers,
-                    rating: Number.isFinite(item.rating) ? clamp(item.rating, 600, 1950) : 1100, generated: true });
+                out.push({ id, family: id, fen: item.fen, kind, answers,
+                    rating: Number.isFinite(item.rating) ? clamp(item.rating, 600, 1950) : 1100,
+                    generated: true, verifiedSF19: kind !== 'mate' });
                 seen.add(item.fen);
             } catch (_) { /* dades antigues o corruptes */ }
         }
@@ -674,22 +678,34 @@
             old.forEach(t => { if (!known.has(t.fen)) { bank.push(t); known.add(t.fen); } });
         } catch (_) { /* navegador sense emmagatzematge */ }
     }
+    function storeGenerated(fresh) {
+        const known = new Set(bank.map(t => t.fen));
+        fresh.forEach(t => { if (!known.has(t.fen)) { bank.push(t); known.add(t.fen); } });
+        try {
+            const stored = normalizeGenerated(window.Chess, JSON.parse(localStorage.getItem(GEN_KEY) || '[]'));
+            const unique = new Map(stored.concat(fresh).map(t => [t.fen, {
+                fen: t.fen, rating: t.rating, kind: t.kind, verifiedSF19: !!t.verifiedSF19,
+                ...(t.verifiedSF19 ? { answers: t.answers } : {})
+            }]));
+            localStorage.setItem(GEN_KEY, JSON.stringify([...unique.values()].slice(-250)));
+        } catch (_) { /* el banc original continua disponible */ }
+    }
     function scheduleGeneration() {
         if (generationScheduled || !bank || !window.Chess) return;
         generationScheduled = true;
-        // Fora del temps de reacció, sense treball intensiu durant la partida.
-        setTimeout(() => {
-            generationScheduled = false;
-            if (session && ['running', 'ready', 'recall'].includes(session.state().status)) return;
-            const fresh = generateMateTasks(window.Chess, bank, Math.random, 6);
-            if (!fresh.length) return;
-            const known = new Set(bank.map(t => t.fen));
-            fresh.forEach(t => { if (!known.has(t.fen)) { bank.push(t); known.add(t.fen); } });
+        setTimeout(async () => {
+            let engine = null;
             try {
-                const stored = normalizeGenerated(window.Chess, JSON.parse(localStorage.getItem(GEN_KEY) || '[]'));
-                const unique = new Map(stored.concat(fresh).map(t => [t.fen, { fen: t.fen, rating: t.rating }]));
-                localStorage.setItem(GEN_KEY, JSON.stringify([...unique.values()].slice(-250)));
-            } catch (_) { /* el banc original continua disponible */ }
+                if (session && ['running', 'ready', 'recall'].includes(session.state().status)) return;
+                const mates = generateMateTasks(window.Chess, bank, Math.random, 5);
+                if (mates.length) storeGenerated(mates);
+                if (typeof Worker === 'undefined') return;
+                engine = createBulletEngine(Worker);
+                await engine.init();
+                const tactical = await generateStockfishTasks(window.Chess, bank, engine, 2);
+                if (tactical.length) storeGenerated(tactical);
+            } catch (_) { /* si el motor falla, mantenim els exercicis ja validats */ }
+            finally { if (engine) engine.stop(); generationScheduled = false; }
         }, 150);
     }
     function start(modeOverride) {
