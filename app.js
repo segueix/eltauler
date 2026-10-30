@@ -2908,6 +2908,9 @@ function resizeBoardToViewport() {
         // la marca de l'última jugada perquè no desaparegui (sobretot al primer
         // moviment, mentre el layout encara s'estabilitza en carregar).
         reapplyEngineMoveHighlight();
+        // En mode «Toc», resize() també recrea la casella seleccionada.
+        // La recuperem perquè el marc blau no desaparegui abans de moure.
+        reapplyMainTapSelection();
     }
 }
 
@@ -3100,13 +3103,24 @@ function highlightTapSelection(square) {
     const moves = game ? game.moves({ square: square, verbose: true }) : [];
     if (moves.length === 0) return false;
 
-    const sel = $(`#myBoard .square-55d63[data-square='${square}']`);
-    sel.addClass('tap-selected');
-
-    for (const mv of moves) {
-        $(`#myBoard .square-55d63[data-square='${mv.to}']`).addClass('tap-move');
-    }
+    // La classe square-e2 és estable encara que el tauler s'orienti amb negres;
+    // data-square pot referir-se a una casella visual diferent.
+    getMainBoardSquare(square).addClass('tap-selected');
+    for (const mv of moves) getMainBoardSquare(mv.to).addClass('tap-move');
     return true;
+}
+
+// Reaplica la selecció després d'un redibuix de chessboard.js. No modifica
+// tapSelectedSquare i no marca peces quan el mode Toc està desactivat.
+function reapplyMainTapSelection() {
+    if (controlMode !== 'tap' || !tapSelectedSquare || !game || game.game_over()) return;
+    const piece = game.get(tapSelectedSquare);
+    const premoving = premoveAllowed();
+    const color = premoving ? playerColor : game.turn();
+    if (!piece || piece.color !== color ||
+        !(premoving ? highlightPremoveSelection(tapSelectedSquare) : highlightTapSelection(tapSelectedSquare))) {
+        clearTapSelection();
+    }
 }
 
 function highlightTvTapSelection(square) {
