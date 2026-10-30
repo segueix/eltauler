@@ -5397,6 +5397,30 @@
             grid-row: 1 / span 3;
             margin-bottom: 0;
         }
+        /* Manté la descripció del jeroglífic immediatament sota el tauler,
+           sense esperar que acabi la columna lateral de l'historial. */
+        body.device-desktop #game-screen.active > .game-board-column {
+            grid-column: 1;
+            grid-row: 1 / span 3;
+            display: flex;
+            flex-direction: column;
+            min-width: 0;
+            align-self: start;
+        }
+        body.device-desktop #game-screen.active .game-board-column > .board-container {
+            order: -1;
+            grid-column: auto;
+            grid-row: auto;
+            width: 100%;
+        }
+        body.device-desktop #game-screen.active .game-board-column > #hieroglyphic-panel {
+            margin-top: 10px;
+            box-sizing: border-box;
+            width: 100%;
+        }
+        /* En mòbil la columna virtual desapareix: es conserva el panell
+           descriptiu abans del tauler, tal com funcionava originalment. */
+        body.device-mobile #game-screen > .game-board-column { display: contents; }
         body.device-desktop .controls {
             grid-column: 2;
             grid-row: 3;
@@ -9166,10 +9190,13 @@
                 <div class="norma-cycle" id="norma-cycle"></div>
             </div>
 
-            <div id="hieroglyphic-panel" class="hg-panel" style="display:none;"></div>
             <div id="hieroglyphic-history-panel" class="hg-panel" style="display:none;"></div>
 
-            <div class="board-container" id="game-board-stage">
+            <!-- La descripció i el tauler comparteixen columna a escriptori.
+                 A mòbil, display:contents conserva la disposició anterior. -->
+            <div class="game-board-column">
+                <div id="hieroglyphic-panel" class="hg-panel" style="display:none;"></div>
+                <div class="board-container" id="game-board-stage">
                 <!-- Rellotge i tauler sempre junts, també en mòbil. -->
                 <div class="game-clocks" id="game-clocks" style="display:none;">
                     <div class="clock-pill"><span class="clock-tag">Tu</span><span class="clock-time" id="clock-you">5:00</span></div>
@@ -9249,6 +9276,7 @@
                     </svg>
                 </div>
             </div>
+            </div><!-- /game-board-column -->
 
             <div class="controls">
                 <div class="status-row">
