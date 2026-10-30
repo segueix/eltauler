@@ -1,7 +1,10 @@
 // Veu i música de fons a tota l'app. Quan comença a parlar una veu (Matxa o
 // la del dispositiu), sigui on sigui (ressenyes, entrenador, TV, historial,
 // taulers...), sona una de les melodies de radioambient.js: baixa mentre la
-// veu parla i s'esvaeix quan fa una estona que calla. A Configuració es tria
+// veu parla i s'atura quan es canvia de pàgina (tàctiques, un error, una
+// partida...: una sola melodia per visita, encara que la veu calli entre
+// exercici i exercici) o, fora d'una pàgina coneguda, quan fa una estona que
+// calla. A Configuració es tria
 // si se sent la veu, la música, totes dues o cap. Amb la veu apagada, les
 // locucions es «fan» en silenci (amb la durada que tindrien) perquè les
 // funcions que esperen que la veu acabi continuïn igual i la música soni.
@@ -17,6 +20,10 @@
     // La música continua aquesta estona després de l'última locució (els
     // silencis entre comentaris de la TV o entre fragments d'una ressenya).
     const LINGER_MS = 20000;
+    // Dins d'una pàgina, la melodia continua entre locucions; només s'apaga
+    // si fa molta estona que no parla ningú (i torna la mateixa si la veu hi
+    // torna sense haver canviat de pàgina).
+    const PAGE_IDLE_MS = 15 * 60000;
     const TICK_MS = 1000;
     const clamp = (v, lo, hi) => Math.max(lo, Math.min(hi, v));
     const isNum = (v) => typeof v === 'number' && Number.isFinite(v);
@@ -42,8 +49,10 @@
     }
 
     // env = { ambient (radioambient.js), createPlayer(), random, now,
-    //         setTimeout, clearTimeout, isHidden(), loadPrefs(), savePrefs(p),
-    //         onChange() }
+    //         setTimeout, clearTimeout, isHidden(), pageKey(), loadPrefs(),
+    //         savePrefs(p), onChange() }
+    // pageKey(): la pàgina que es veu (null si no se sap). Canviar de pàgina
+    // atura la música i la pàgina nova en triarà una altra.
     function createCoordinator(env) {
         const e = env || {};
         const ambient = e.ambient || null;
@@ -52,6 +61,8 @@
         const clearT = e.clearTimeout || ((id) => clearTimeout(id));
         const random = e.random || Math.random;
         const hidden = e.isHidden || (() => false);
+        const pageKey = e.pageKey || (() => null);
+        let page, pageMelody = null;
         let prefs = normalizePrefs(e.loadPrefs ? safe(e.loadPrefs) : null);
         let player = null, session = false, melody = null, lastVoice = -Infinity, timer = null, seq = 0, signature = '';
         const voices = new Map();
@@ -67,6 +78,11 @@
             for (const v of voices.values()) if (!v.muted) return true;
             return false;
         }
+        // Només les veus que han començat en aquesta pàgina engeguen la música.
+        function talkingHere() {
+            for (const v of voices.values()) if (v.page === page) return true;
+            return false;
+        }
         function pick() {
             if (ambient && ambient.pickMelody) return ambient.pickMelody(random, melody);
             return melody;
@@ -75,14 +91,21 @@
             ticks.forEach(fn => { try { fn(); } catch (err) {} });
             const t = now(), talking = voices.size > 0;
             if (talking) lastVoice = t;
-            if (!prefs.music || hidden()) session = false;
-            else if (talking && !session) { session = true; melody = pick(); }
-            else if (session && !talking && t - lastVoice >= LINGER_MS) session = false;
+            const key = safe(pageKey);
+            if (key !== page) { page = key; pageMelody = null; session = false; }
+            if (!prefs.music) session = false;
+            else if (!session && talkingHere()) {
+                session = true;
+                // Fora d'una pàgina coneguda, cada tanda de veu en tria una de nova.
+                if (!pageMelody || !page) pageMelody = pick();
+                melody = pageMelody;
+            } else if (session && !talking && t - lastVoice >= (page ? PAGE_IDLE_MS : LINGER_MS)) session = false;
             const p = session || player ? ensurePlayer() : null;
             if (p) {
                 // Si la TV ja fa sonar la seva música de Matxa Ràdio, s'hi deixa pas.
                 const yieldTo = session && !!(ambient && ambient.othersPlaying && ambient.othersPlaying(p));
-                const on = session && !yieldTo;
+                // Amb la pestanya amagada calla, però la visita continua.
+                const on = session && !yieldTo && !hidden();
                 try {
                     p.update({ sound: 'music', volume: prefs.volume, melody }, on, { fade: true });
                     if (p.duck) p.duck(talking && audible());
@@ -116,7 +139,7 @@
             // opts.muted: locució silenciada (no cal abaixar la música).
             begin(opts) {
                 const id = ++seq;
-                voices.set(id, { muted: !!(opts && opts.muted) });
+                voices.set(id, { muted: !!(opts && opts.muted), page: safe(pageKey) });
                 evaluate();
                 let done = false;
                 return () => { if (done) return; done = true; voices.delete(id); evaluate(); };
@@ -280,6 +303,17 @@
         return true;
     }
 
+    // Pantalles de l'app (index.html): la que es veu és la pàgina actual.
+    const SCREENS = '#start-screen, #game-screen, .screen-anim[id$="-screen"]';
+    function visiblePage(doc) {
+        const ids = [];
+        doc.querySelectorAll(SCREENS).forEach(el => {
+            const view = doc.defaultView;
+            if (!el.hidden && view && view.getComputedStyle(el).display !== 'none') ids.push(el.id);
+        });
+        return ids.length ? ids.join('+') : null;
+    }
+
     // Arrencada al navegador.
     let installed = null;
     function install(w) {
@@ -293,6 +327,7 @@
             ambient,
             createPlayer: ambient && Ctor ? () => ambient.createPlayer({ createContext: getContext, onChange: () => coord.refresh() }) : null,
             isHidden: () => w.document.visibilityState === 'hidden',
+            pageKey: () => visiblePage(w.document),
             loadPrefs: () => { const raw = storage && storage.getItem(STORAGE_KEY); return raw ? JSON.parse(raw) : null; },
             savePrefs: (p) => { if (storage) storage.setItem(STORAGE_KEY, JSON.stringify(p)); },
             onChange: () => { try { w.dispatchEvent(new w.CustomEvent('eltauler-musicafons')); } catch (err) {} }
@@ -313,11 +348,19 @@
         try { w.document.addEventListener('visibilitychange', () => coord.refresh()); } catch (err) {}
         try { hookSpeechSynthesis(w.speechSynthesis, coord); } catch (err) {}
         try { hookNeural(w.ElTaulerVeuNeural, coord); } catch (err) {}
+        // En canviar de pàgina (show/hide de les pantalles), la música s'atura al moment.
+        const watchScreens = () => {
+            if (typeof w.MutationObserver !== 'function') return;
+            const observer = new w.MutationObserver(() => coord.refresh());
+            w.document.querySelectorAll(SCREENS).forEach(el => observer.observe(el, { attributes: true, attributeFilter: ['style', 'class', 'hidden'] }));
+        };
+        if (w.document.readyState === 'loading') w.document.addEventListener('DOMContentLoaded', watchScreens);
+        else watchScreens();
         return coord;
     }
     const current = () => installed;
     const api = {
-        STORAGE_KEY, MODES, LINGER_MS, TICK_MS,
+        STORAGE_KEY, MODES, LINGER_MS, PAGE_IDLE_MS, TICK_MS, visiblePage,
         normalizePrefs, modeOf, withMode, estimateSpeechMs,
         createCoordinator, hookSpeechSynthesis, wrapSpeaker, hookNeural, install, current,
         // Dreceres per a la resta de l'app (sense instal·lar, tot encès).

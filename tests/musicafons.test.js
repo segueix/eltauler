@@ -43,10 +43,10 @@ function setup(over = {}) {
         setAllowed: jest.fn(),
         othersPlaying: jest.fn(() => others)
     };
-    let hidden = false;
+    let hidden = false, page = over.page === undefined ? null : over.page;
     const coord = M.createCoordinator({ ambient, createPlayer: () => player, now: c.now, setTimeout: c.setTimeout, clearTimeout: c.clearTimeout,
-        isHidden: () => hidden, loadPrefs: () => stored, savePrefs: p => { stored = p; } });
-    return { c, player, ambient, coord, saved: () => stored, setHidden: v => { hidden = v; }, setOthers: v => { others = v; } };
+        isHidden: () => hidden, pageKey: () => page, loadPrefs: () => stored, savePrefs: p => { stored = p; } });
+    return { c, player, ambient, coord, saved: () => stored, setHidden: v => { hidden = v; }, setOthers: v => { others = v; }, setPage: v => { page = v; } };
 }
 
 describe('preferències de veu i música', () => {
@@ -139,6 +139,52 @@ describe('la música acompanya la veu a tota l’app', () => {
         coord.begin();
         setHidden(true); coord.refresh();
         expect(player.active).toBe(false);
+    });
+    test('tàctiques: una sola melodia mentre no es canvia de pàgina, encara que la veu calli', () => {
+        const { c, player, coord } = setup({ page: 'game-screen' });
+        const a = coord.begin(); c.advance(2000); a();
+        expect(player.melody).toBe('theme');
+        // Entre exercici i exercici la veu calla una bona estona.
+        c.advance(5 * 60000);
+        expect(player.active).toBe(true);
+        const b = coord.begin(); c.advance(2000); b();
+        expect(player.active).toBe(true);
+        expect(player.melody).toBe('theme');
+        expect(player.fades).toBe(0);
+    });
+    test('en tornar a l’inici o canviar de pàgina la música s’atura i la pàgina nova en tria una altra', () => {
+        const { c, player, coord, setPage } = setup({ page: 'game-screen' });
+        const a = coord.begin(); c.advance(2000);
+        setPage('start-screen'); coord.refresh();
+        expect(player.active).toBe(false);
+        expect(player.fades).toBe(1);
+        // La veu que ja parlava no la torna a engegar a la pàgina nova.
+        c.advance(3000);
+        expect(player.active).toBe(false);
+        a(); c.advance(60000);
+        expect(player.active).toBe(false);
+        setPage('opening-screen'); coord.refresh();
+        coord.begin();
+        expect(player.active).toBe(true);
+        expect(player.melody).toBe('lofi');
+    });
+    test('si fa molta estona que no parla ningú a la pàgina, calla; si hi torna, la mateixa melodia', () => {
+        const { c, player, coord } = setup({ page: 'game-screen' });
+        const a = coord.begin(); a();
+        c.advance(M.PAGE_IDLE_MS + 1000);
+        expect(player.active).toBe(false);
+        coord.begin();
+        expect(player.active).toBe(true);
+        expect(player.melody).toBe('theme');
+    });
+    test('la pestanya amagada fa callar la música, però en tornar continua la mateixa', () => {
+        const { player, coord, setHidden } = setup({ page: 'game-screen' });
+        const a = coord.begin(); a();
+        setHidden(true); coord.refresh();
+        expect(player.active).toBe(false);
+        setHidden(false); coord.refresh();
+        expect(player.active).toBe(true);
+        expect(player.melody).toBe('theme');
     });
     test('si la TV ja fa sonar la seva música de Matxa Ràdio, s’hi deixa pas', () => {
         const { c, player, coord, setOthers } = setup();
