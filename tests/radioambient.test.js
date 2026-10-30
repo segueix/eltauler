@@ -38,9 +38,12 @@ describe('preferències i activació exclusives de Matxa Ràdio', () => {
     });
 });
 
-describe('cinc melodies, una a l’atzar a cada partida', () => {
-    test('la sintonia suau i quatre melodies noves, una d’estil oriental', () => {
-        expect(R.MELODIES.map(m => m.id)).toEqual(['theme', 'oriental', 'bossa', 'vals', 'capvespre']);
+describe('deu melodies, una a l’atzar a cada partida', () => {
+    test('la sintonia suau i nou melodies més, cadascuna d’un estil', () => {
+        expect(R.MELODIES.map(m => m.id)).toEqual(['theme', 'oriental', 'bossa', 'vals', 'capvespre',
+            'havanera', 'celta', 'nocturn', 'marimba', 'lofi']);
+        expect(new Set(R.MELODIES.map(m => m.name)).size).toBe(10);
+        expect(R.melodyInfo('havanera').name).toBe('Havanera del port');
         expect(R.melodyInfo('oriental').name).toBe('Jardí oriental');
         expect(R.melodyId('studio')).toBe('theme');
         expect(R.MELODY_SECONDS).toBe(32);
@@ -61,8 +64,29 @@ describe('cinc melodies, una a l’atzar a cada partida', () => {
             seen.add(next); previous = next;
         }
         expect([...seen].sort()).toEqual(R.MELODIES.map(m => m.id).sort());
-        expect(R.pickMelody(() => 0.999, null)).toBe('capvespre');
+        expect(R.pickMelody(() => 0.999, null)).toBe('lofi');
         expect(R.pickMelody(() => 0, 'theme')).toBe('oriental');
+    });
+
+    test('l’havanera porta el ritme d’havanera al baix i la celta va en sis per vuit', () => {
+        const { harmony, chords, melody } = R._scores.havanera;
+        expect(chords).toHaveLength(20);
+        expect(chords.every(c => harmony[c])).toBe(true);
+        // 20 compassos de dos temps de 0,8 s: 32 s exactes.
+        expect(chords.length * 2 * R._scores.havanera.beat).toBeCloseTo(32);
+        melody.forEach(([, t, , d]) => expect(t + d).toBeLessThanOrEqual(2.0001));
+        const celta = R._scores.celta;
+        expect(celta.chords.length * 2 * celta.beat).toBeCloseTo(32);
+        celta.whistle.forEach(([, e, , d]) => expect(e + d).toBeLessThanOrEqual(6));
+    });
+    test('les partitures noves omplen exactament els 32 s del bucle', () => {
+        const { nocturn, marimba, lofi } = R._scores;
+        expect(nocturn.chords.length * 4 * nocturn.beat).toBeCloseTo(32);
+        expect(marimba.chords.length * 4 * marimba.beat).toBeCloseTo(32);
+        expect(12 * 4 * lofi.beat).toBeCloseTo(32);
+        nocturn.melody.forEach(([b]) => expect(b).toBeLessThan(nocturn.chords.length));
+        marimba.melody.forEach(([b, e, , d]) => { expect(b).toBeLessThan(16); expect(e + d).toBeLessThanOrEqual(8); });
+        lofi.melody.forEach(([b, t, , d]) => { expect(b).toBeLessThan(12); expect(t + d).toBeLessThanOrEqual(4); });
     });
 
     describe.each(R.MELODIES.map(m => m.id))('%s', melody => {
@@ -236,6 +260,36 @@ describe('reproducció sense xarxa', () => {
         player.update({ sound: 'music' }, true); player.unlock();
         await flush();
         expect(player.status()).toBe('unavailable');
+    });
+    test('l’interruptor general de la música atura tots els reproductors i els deixa tornar', () => {
+        // Mòdul nou: cap reproductor d'altres proves al registre.
+        let R;
+        jest.isolateModules(() => { R = require('../radioambient'); });
+        const ctx = context(), player = R.createPlayer({ createContext: () => ctx, sync: true });
+        player.update({ sound: 'music', volume: 30, melody: 'lofi' }, true); player.unlock();
+        expect(player.status()).toBe('playing');
+        expect(R.othersPlaying(null)).toBe(true);
+        expect(R.othersPlaying(player)).toBe(false);
+        R.setAllowed(false);
+        // S'esvaeix en mig segon, no es talla.
+        expect(ctx.sources[0].stop).toHaveBeenCalledWith(1.6);
+        expect(player.status()).toBe('off');
+        player.unlock();
+        expect(ctx.sources).toHaveLength(1);
+        R.setAllowed(true);
+        player.update({ sound: 'music', volume: 30 }, true);
+        expect(ctx.sources).toHaveLength(2);
+        expect(player.status()).toBe('playing');
+        player.dispose();
+        expect(R.othersPlaying(null)).toBe(false);
+    });
+    test('apagar amb fade esvaeix el bucle', () => {
+        const ctx = context(), player = R.createPlayer({ createContext: () => ctx, sync: true });
+        player.update({ sound: 'music', volume: 30, melody: 'theme' }, true); player.unlock();
+        player.update({ sound: 'music', volume: 30 }, false, { fade: true });
+        expect(ctx.gains[0].gain.setTargetAtTime).toHaveBeenLastCalledWith(0, 1, 0.12);
+        expect(ctx.sources[0].stop).toHaveBeenCalledWith(1.6);
+        player.dispose();
     });
     test('un navegador sense Web Audio no llança errors', () => {
         const player = R.createPlayer();

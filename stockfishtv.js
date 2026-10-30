@@ -4451,6 +4451,7 @@
             } else if (status === 'blocked' && on) text = 'El navegador ha aturat la veu: toca el botó de veu per tornar-la a activar.';
             else if (on && voice.neuralUnavailable() && typeof voice.holdsForNeural === 'function' && voice.holdsForNeural()) text = 'La veu neuronal Matxa no respon ara mateix: la partida s’atura fins que torni.';
             else if (on && voice.neuralUnavailable() && voice.engine() === 'system') text = 'La veu neuronal Matxa no respon ara mateix: es llegeix amb la veu del dispositiu.';
+            else if (on && root.ElTaulerMusicaFons && !root.ElTaulerMusicaFons.voiceEnabled()) text = 'La veu està silenciada a Configuració › Veus de lectura: els comentaris continuen en silenci.';
             else if (on && voice.engine()) {
                 const duo = prefix === 'sftv' && tvNormalizePrefs(loadPrefsRaw()).duo &&
                     voice.engine() === 'neural';
