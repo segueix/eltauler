@@ -49,7 +49,7 @@ jobs:
           npx playwright install --with-deps chromium
 
       - name: Mina fins a tres jeroglífics nous amb Stockfish 19
-        run: node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 240
+        run: node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 1000
 
       - name: Confirma la reserva al repositori
         id: publish

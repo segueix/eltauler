@@ -735,7 +735,8 @@ const NAVIGATION_SCREEN_IDS = [
     'settings-screen',
     'ranking-screen',
     'explorer-screen',
-    'tria-screen'
+    'tria-screen',
+    'hg-history-screen'
 ];
 let navStack = [];
 let lastNavigationScreen = null;
@@ -887,6 +888,8 @@ function navGoBack() {
     } else if (current === 'bullet-screen') {
         if (window.ElTaulerBulletPractice) window.ElTaulerBulletPractice.close();
         $('#start-screen').show();
+    } else if (current === 'hg-history-screen') {
+        closeHieroglyphicHistoryScreen();
     } else if (current === 'sftv-screen') {
         // Stockfish TV: atura el seu motor, els temporitzadors i la veu.
         if (window.ElTaulerStockfishTV && typeof window.ElTaulerStockfishTV.closeScreen === 'function') window.ElTaulerStockfishTV.closeScreen();
@@ -20090,7 +20093,7 @@ function hieroglyphicEntryPlayable(entry) {
 }
 function retryableHieroglyphicHistory() {
     return sortHieroglyphicHistoryForReview(loadHieroglyphicHistory())
-        .filter(e => hieroglyphicEntryPlayable(e) && (!e.solved || !hieroglyphicEntryCleanSolved(e)));
+        .filter(e => !e.deleted && hieroglyphicEntryPlayable(e) && (!e.solved || !hieroglyphicEntryCleanSolved(e)));
 }
 function positionHieroglyphicPanelForViewport() {
     const panel = $('#hieroglyphic-panel');
@@ -20150,7 +20153,11 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
     if (!puzzle || !puzzle.fen) return;
     const list = loadHieroglyphicHistory();
     const existing = list.find(e => e && e.fen === puzzle.fen);
-    if (existing && keepIfExists) return; // ja és a l'historial: no el sobreescrivim en regenerar
+    // Ja és a l'historial: no el sobreescrivim en regenerar (sí que el recuperem
+    // si s'havia eliminat i es torna a jugar, p. ex. des d'un enllaç compartit).
+    if (existing && keepIfExists && !existing.deleted) return;
+    const cleanNow = !!solved && (currentHieroglyphicWrongMoves === 0);
+    const wasSaved = !!(existing && existing.saved && !existing.deleted);
     const entry = {
         id: (existing && existing.id) || puzzle.id || ('hg_' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6)),
         fen: puzzle.fen,
@@ -20171,6 +20178,7 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
         sourceFen: puzzle.sourceFen || (existing && existing.sourceFen) || puzzle.fen,
         sourceMoveNumber: puzzle.sourceMoveNumber ?? (existing && existing.sourceMoveNumber) ?? null,
         adaptationNote: puzzle.adaptationNote || (existing && existing.adaptationNote) || null,
+        source: puzzle.source || (existing && existing.source) || null,
         moves: (Array.isArray(puzzle.solutionMoves) && puzzle.solutionMoves.length) || 3,
         difficultyPercent: hieroglyphicDifficultyPercent(puzzle),
         solved: !!solved,
@@ -20178,6 +20186,11 @@ function upsertHieroglyphicHistory({ solved = false, keepIfExists = false } = {}
         // Marca permanent: cert si en aquest o en algun intent anterior s'ha resolt sense errors.
         cleanSolved: hieroglyphicEntryCleanSolved(existing) || (!!solved && (currentHieroglyphicWrongMoves === 0)),
         wrongMoves: currentHieroglyphicWrongMoves || 0,
+        // Resolt a la primera: s'elimina directament de l'historial tret que el
+        // jugador el guardi des de la finestra final (botó «Guardar»). Els que ja
+        // estaven guardats es conserven.
+        saved: wasSaved,
+        deleted: cleanNow && !wasSaved,
         createdAt: (existing && (existing.createdAt || existing.ts)) || Date.now(),
         ts: Date.now()
     };
@@ -21504,12 +21517,14 @@ async function startPersonalHieroglyphicFromLastGame(entry = null, presetPuzzle 
             sourceGameId: chosen.sourceGameId || chosen.entryId || null,
             sourceFen: chosen.sourceFen || chosen.fen,
             sourceMoveNumber: chosen.sourceMoveNumber ?? chosen.moveNumber ?? null,
-            adaptationNote: chosen.adaptationNote || null
+            adaptationNote: chosen.adaptationNote || null,
+            source: chosen.source || null
         };
         currentHieroglyphicWrongMoves = 0;
         // Registra el jeroglífic generat a l'historial sincronitzat (pendent fins resoldre'l).
         upsertHieroglyphicHistory({ solved: false, keepIfExists: true });
         $('#bundle-modal').remove();
+        $('#hg-history-screen').hide();
         setHieroglyphicGenerating(false);
         refreshJeroglificButton();
         startGame(true, seq.initialFen);
@@ -21546,7 +21561,8 @@ function retryHieroglyphicFromHistory(id) {
         sourceGameId: entry.sourceGameId || null,
         sourceFen: entry.sourceFen || entry.fen,
         sourceMoveNumber: entry.sourceMoveNumber ?? null,
-        adaptationNote: entry.adaptationNote || null
+        adaptationNote: entry.adaptationNote || null,
+        source: entry.source || null
     };
     startPersonalHieroglyphicFromLastGame(null, chosen);
 }
@@ -21558,13 +21574,15 @@ const HIERO_ORIGIN_LABELS = {
     game_real: 'Extret de la teva partida',
     game_variant: 'Variant amagada de la teva partida',
     composition: 'Composició tàctica',
-    engine_selfplay: 'Partida automàtica Stockfish 19'
+    engine_selfplay: 'Partida automàtica Stockfish 19',
+    shared: 'Jeroglífic compartit'
 };
 const HIERO_ORIGIN_NOTES = {
     game_real: 'Aquest jeroglífic surt d’una posició real de la teva partida.',
     game_variant: 'Aquesta combinació no va passar a la partida, però era una variant legal amagada.',
     composition: 'No hi havia cap motiu clar a les teves partides recents; t’he preparat una composició tàctica.',
-    engine_selfplay: 'Posició descoberta en una partida entre dues instàncies de Stockfish 19 i validada amb anàlisi profunda.'
+    engine_selfplay: 'Posició descoberta en una partida entre dues instàncies de Stockfish 19 i validada amb anàlisi profunda.',
+    shared: 'T’han enviat aquest jeroglífic amb un enllaç d’eltauler.cat; la solució s’ha tornat a comprovar amb Stockfish.'
 };
 function hieroglyphicOriginLabel(origin) { return HIERO_ORIGIN_LABELS[origin] || HIERO_ORIGIN_LABELS.game_real; }
 function hieroglyphicOriginNote(origin) { return HIERO_ORIGIN_NOTES[origin] || HIERO_ORIGIN_NOTES.game_real; }
@@ -21588,7 +21606,8 @@ function renderHieroglyphicPanel() {
     // variant, composició = composició).
     const origin = (currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.origin) || 'game_real';
     const finalLabel = hieroglyphicFinalLabel(currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.finalMotif);
-    let tags = `<span class="hg-tag hg-tag-origin hg-origin-${origin}">${escapeHtml(hieroglyphicOriginLabel(origin))}</span>`;
+    let tags = hieroglyphicOriginMarkHtml(currentHieroglyphicPuzzle || { origin }, 'hg-tag');
+    if (origin !== 'shared') tags += `<span class="hg-tag hg-tag-origin hg-origin-${origin}">${escapeHtml(hieroglyphicOriginLabel(origin))}</span>`;
     if (finalLabel) tags += `<span class="hg-tag hg-tag-final">Final: ${escapeHtml(finalLabel)}</span>`;
     panel.html(
         `<div class="hg-comment">${HG_ICON_SVG} Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`
@@ -21604,12 +21623,12 @@ function renderHieroglyphicPanel() {
     const activeFen = currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.fen;
     // Historial propi de jeroglífics: els 10 últims, ordenats per data del més
     // recent al més antic (per solvedAt/finishedAt/updatedAt/createdAt).
-    const history = loadHieroglyphicHistory().slice().sort((a, b) => {
+    const history = visibleHieroglyphicHistory().sort((a, b) => {
         const da = (a && (a.solvedAt || a.finishedAt || a.ts || a.createdAt)) || 0;
         const db = (b && (b.solvedAt || b.finishedAt || b.ts || b.createdAt)) || 0;
         return db - da;
     });
-    let html = '<div class="hg-history-title">Historial de jeroglífics</div>';
+    let html = '<div class="hg-history-title">Historial de jeroglífics <button type="button" class="hg-history-open" id="hg-history-open-full">Veure-ho tot ›</button></div>';
     if (history.length) {
         history.slice(0, HG_HISTORY_PANEL).forEach(e => {
             const isActive = !!activeFen && e.fen === activeFen;
@@ -21617,7 +21636,7 @@ function renderHieroglyphicPanel() {
             const cleanSolved = hieroglyphicEntryCleanSolved(e);
             const markIcon = isActive ? '▶️' : (e.solved ? (cleanSolved ? '✅' : '☑️') : '⏳');
             const markText = isActive ? 'És el jeroglífic que estàs jugant ara' : (e.solved ? (cleanSolved ? 'Resolt sense errors' : 'Resolt amb errades') : 'Pendent de resoldre');
-            const cls = `${e.solved ? (cleanSolved ? 'hg-first hg-clean' : 'hg-ok') : 'hg-pending'}${isActive ? ' hg-active' : ''}`;
+            const cls = `${e.solved ? (cleanSolved ? 'hg-first hg-clean' : 'hg-ok') : 'hg-pending'}${isActive ? ' hg-active' : ''} hg-row-origin--${hieroglyphicOriginKind(e)}`;
             const kind = e.tacticKind || e.theme || 'Jeroglífic';
             const dateText = formatHieroglyphicDate(e.createdAt || e.ts);
             const badge = hieroglyphicDifficultyBadge(e);
@@ -21628,7 +21647,7 @@ function renderHieroglyphicPanel() {
             const badgeHtml = isActive ? '<span class="hg-new-badge hg-active-badge">En curs</span>' : (isNew ? '<span class="hg-new-badge">Nou</span>' : '');
             html += `<div class="hg-history-row ${cls}">`
                 + `<span class="hg-h-mark-ic" title="${escapeHtml(markText)}" aria-label="${escapeHtml(markText)}">${markIcon}</span>`
-                + `<span class="hg-h-kind">${badgeHtml}<span class="hg-h-kind-text">${escapeHtml(String(kind))}</span></span>`
+                + `<span class="hg-h-kind">${badgeHtml}<span class="hg-h-origin-dot hg-h-origin-dot--${hieroglyphicOriginKind(e)}" title="${escapeHtml(hieroglyphicOriginMark(e).label)}"></span><span class="hg-h-kind-text">${escapeHtml(String(kind))}</span></span>`
                 + `<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>`
                 + `<span class="hg-h-date">${escapeHtml(dateText)}</span>`
                 + `<button class="hg-h-action${isNew && !isActive && playable ? ' hg-h-action-new' : ''} hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="${escapeHtml(actionLabel)}" aria-label="${escapeHtml(actionLabel)}"${playable ? '' : ' disabled'}><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${actionIcon}"/></svg></button>`
@@ -21641,6 +21660,7 @@ function renderHieroglyphicPanel() {
     historyPanel.find('.hg-h-retry').off('click').on('click', function () {
         retryHieroglyphicFromHistory($(this).attr('data-hg-id'));
     });
+    historyPanel.find('#hg-history-open-full').off('click').on('click', () => openHieroglyphicHistoryScreen({ fromGame: true }));
 }
 
 // Els jeroglífics d'obertura curats queden desactivats: ara el mode 🔮 només
@@ -21740,6 +21760,9 @@ function hgAllKnownFens() {
     const norm = (f) => { try { return ElTaulerCore.puzzleFenKey ? ElTaulerCore.puzzleFenKey(f) : f; } catch (e) { return f; } };
     hgEnsureState().queue.forEach(it => { if (it && it.fen) set.add(norm(it.fen)); });
     try { loadHieroglyphicHistory().forEach(e => { if (e && e.fen) set.add(norm(e.fen)); }); } catch (e) {}
+    // Els resolts que ja no són a l'historial (eliminats o fora dels 100 més
+    // recents) tampoc no s'han de tornar a generar.
+    try { ((hieroglyphicStats && hieroglyphicStats.solvedFens) || []).forEach(f => { if (f) set.add(norm(f)); }); } catch (e) {}
     return set;
 }
 // Treu de la cua els jeroglífics que ja s'han resolt (apareixen a l'historial):
@@ -21756,8 +21779,71 @@ function hgPurgeStale() {
         return !solved.has(norm(it.fen));
     });
 }
+// Jeroglífics nous: els de la cua d'aquest compte (partides, autojoc de
+// l'aparell) més TOTS els del banc diari de GitHub que encara no s'han jugat.
+// Els diaris s'acumulen: no es copien a la cua (que se sincronitza i té límit),
+// sinó que es llegeixen del banc i es descarten només quan ja s'han jugat.
 function hgNewCount() {
-    return hgEnsureState().queue.filter(it => it && it.status === 'new').length;
+    return hgEnsureState().queue.filter(it => it && it.status === 'new').length + hgReserveFresh().length;
+}
+// Empremta curta (FNV-1a de 32 bits) d'una posició: la llista de vistos ha de
+// viatjar al núvol i ha de poder créixer amb el banc diari sense pesar massa.
+function hgSeenHash(fen) {
+    const key = hgFenKey(fen) || '';
+    let h = 0x811c9dc5;
+    for (let i = 0; i < key.length; i++) { h ^= key.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+    return ('0000000' + h.toString(16)).slice(-8);
+}
+const HG_SEEN_MAX = 3000;
+function hgSeenSet() {
+    const list = (hieroglyphicStats && Array.isArray(hieroglyphicStats.seenKeys)) ? hieroglyphicStats.seenKeys : [];
+    return new Set(list);
+}
+function hgMarkSeen(fen) {
+    if (!fen || !hieroglyphicStats) return;
+    const h = hgSeenHash(fen);
+    if (!Array.isArray(hieroglyphicStats.seenKeys)) hieroglyphicStats.seenKeys = [];
+    if (hieroglyphicStats.seenKeys.indexOf(h) !== -1) return;
+    hieroglyphicStats.seenKeys.push(h);
+    hieroglyphicStats.seenKeys = hieroglyphicStats.seenKeys.slice(-HG_SEEN_MAX);
+    saveHieroglyphicStats();
+}
+// La prova de cada element del banc només es comprova una vegada per sessió.
+const hgReserveProofCache = new Map();
+function hgReserveFresh() {
+    const list = hgReserveItems();
+    if (!list.length) return [];
+    const known = hgAllKnownFens();
+    const seen = hgSeenSet();
+    return list.filter(it => {
+        if (!it || !it.fen) return false;
+        const cacheKey = it.id || it.fen;
+        if (!hgReserveProofCache.has(cacheKey)) hgReserveProofCache.set(cacheKey, hasVerifiedHieroglyphicConclusion(it));
+        if (!hgReserveProofCache.get(cacheKey)) return false;
+        return !known.has(hgFenKey(it.fen)) && !seen.has(hgSeenHash(it.fen));
+    });
+}
+// Origen visible: de partida del jugador (les teves partides), auto-generat
+// (partides internes de Stockfish: el banc diari o l'autojoc de l'aparell) o
+// compartit per un enllaç.
+function hieroglyphicOriginKind(entry) {
+    const origin = entry && entry.origin;
+    if (entry && entry.source === 'shared') return 'shared';
+    if (origin === 'game_real' || origin === 'game_variant') return 'player';
+    if (!origin) return 'player';
+    return 'auto';
+}
+function hieroglyphicOriginMark(entry) {
+    const kind = hieroglyphicOriginKind(entry);
+    if (kind === 'shared') return { kind, label: 'Compartit', detail: 'T’han passat aquest jeroglífic amb un enllaç' };
+    if (kind === 'player') return { kind, label: 'Partida del jugador', detail: (entry && entry.origin === 'game_variant') ? 'Variant amagada d’una partida teva' : 'Posició d’una partida teva' };
+    const daily = entry && entry.source === 'reserve';
+    return { kind, label: 'Auto-generat', detail: daily ? 'Partida interna de Stockfish · banc diari' : 'Partida interna de Stockfish · aquest aparell' };
+}
+function hieroglyphicOriginMarkHtml(entry, extraClass = '') {
+    const m = hieroglyphicOriginMark(entry);
+    const glyph = m.kind === 'player' ? '♟' : (m.kind === 'shared' ? '↗' : '⚙');
+    return `<span class="hg-origin-mark hg-origin-mark--${m.kind}${extraClass ? ' ' + extraClass : ''}" title="${escapeHtml(m.detail)}"><span class="hg-origin-glyph" aria-hidden="true">${glyph}&#xFE0E;</span>${escapeHtml(m.label)}</span>`;
 }
 // ── Detecció de dispositiu modest i mode lleuger ────────────────────────────
 function hgIsLowEndDevice() {
@@ -21973,42 +22059,14 @@ async function hgCertifySeed(seed, shouldAbort) {
     }
     return null;
 }
-// Reserva minada per endavant amb el mateix autojoc i la mateixa verificació
-// (jeroglifics-reserva.js, scripts/mine-hieroglyphics.js). Garanteix que hi hagi
-// sempre almenys un jeroglífic nou a punt, a l'instant, encara que l'aparell sigui
-// lent o no hi hagi partides; la resta de la cua l'omple el generador de l'aparell.
+// Banc diari minat a GitHub amb el mateix autojoc i la mateixa verificació
+// (jeroglifics-reserva.js, scripts/mine-hieroglyphics.js). Els nous de cada dia
+// s'hi van acumulant i tots compten com a nous fins que es juguen (hgReserveFresh):
+// sempre n'hi ha a punt a l'instant, encara que l'aparell sigui lent o no hi hagi
+// partides; la resta l'omplen les partides i l'autojoc de l'aparell.
 function hgReserveItems() {
     const list = typeof window !== 'undefined' && window.ElTaulerHieroReserve;
     return Array.isArray(list) ? list : [];
-}
-function hgTopUpFromReserve(want = 1) {
-    hgEnsureState();
-    const known = hgAllKnownFens();
-    (hieroglyphicStats.solvedFens || []).forEach(f => known.add(hgFenKey(f)));
-    let added = 0;
-    const freshlyPublished = [];
-    for (const it of hgReserveItems()) {
-        if (added >= want) break;
-        const key = hgFenKey(it && it.fen);
-        if (!key || known.has(key) || !hasVerifiedHieroglyphicConclusion(it)) continue;
-        const now = Date.now();
-        freshlyPublished.push(Object.assign(JSON.parse(JSON.stringify(it)), {
-            id: 'hg_' + now.toString(36) + Math.random().toString(36).slice(2, 8),
-            createdAt: now, updatedAt: now, deviceCreated: hgDeviceId(), source: 'reserve', status: 'new'
-        }));
-        known.add(key);
-        added++;
-    }
-    if (added) {
-        // Els exercicis comuns acabats de publicar tenen prioritat sobre la cua
-        // local, sense perdre'n cap: els nous queden al davant en ordre original.
-        hgState.queue = freshlyPublished.concat(hgState.queue);
-        hgPruneQueue();
-        hgState.updatedAt = Date.now();
-        hgSaveState({ flush: true });
-        renderHieroglyphicBanner();
-    }
-    return added;
 }
 // Certifica llavors de la reserva (i, si és buida, en mina una partida nova).
 async function hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens = new Set(), diag = null) {
@@ -22197,48 +22255,89 @@ function hgQueueItemToChosen(item) {
         finalMotifLabel: item.finalMotifLabel || null, origin: item.origin || 'game_real',
         sourceGameId: item.sourceGameId || null, sourceFen: item.sourceFen || item.fen,
         sourceMoveNumber: item.sourceMoveNumber ?? null, adaptationNote: item.adaptationNote || null,
+        source: item.source || null, publishedAt: item.publishedAt || null,
         lineUci: item.line
     };
 }
+// La cua pot acumular jeroglífics de partides i de l'autojoc. Té un límit
+// perquè viatja al núvol: si en sobren, primer surten els auto-generats més
+// antics; els de les partides del jugador només quan ja no en queda cap altre.
+const HG_QUEUE_CAP = 30;
 function hgPruneQueue() {
-    const s = hgEnsureState().settings;
-    const max = s.maxQueueSize || 10;
-    // Si en sobren, elimina el de creació més antiga. No escombrem les
-    // novetats compartides només perquè han entrat al davant de la cua.
+    const max = HG_QUEUE_CAP;
     while (hgState.queue.filter(it => it.status === 'new').length > max) {
-        let idx = -1, oldest = Infinity;
+        let idx = -1, oldest = Infinity, oldestRank = -1;
         hgState.queue.forEach((it, i) => {
             if (it.status !== 'new') return;
+            const rank = hieroglyphicOriginKind(it) === 'player' ? 0 : 1;
             const at = Number(it.createdAt) || 0;
-            if (idx < 0 || at < oldest) { idx = i; oldest = at; }
+            if (idx < 0 || rank > oldestRank || (rank === oldestRank && at < oldest)) { idx = i; oldest = at; oldestRank = rank; }
         });
         if (idx < 0) break;
         hgState.queue.splice(idx, 1);
     }
 }
-// Treu el pròxim jeroglífic nou de la cua (respectant la preferència de final).
-function hgConsumeNext(pref) {
+// Afegeix un candidat validat a la cua (si no és conegut). Torna si l'ha afegit.
+function hgAddToQueue(cand, sourceTag) {
+    if (!cand || !cand.fen || !hasVerifiedHieroglyphicConclusion(cand)) return false;
+    hgEnsureState();
+    if (hgAllKnownFens().has(hgFenKey(cand.fen))) return false;
+    hgState.queue.push(hgToQueueItem(cand, sourceTag));
+    hgState.generation.lastSuccessAt = Date.now();
+    hgState.generation.generatedThisSession = (hgState.generation.generatedThisSession || 0) + 1;
+    hgState.generation.lastError = null;
+    hgPruneQueue();
+    hgState.updatedAt = Date.now();
+    hgSaveState({ flush: true });
+    renderHieroglyphicBanner();
+    return true;
+}
+// Tots els jeroglífics nous disponibles (cua + banc diari pendent), en l'ordre en
+// què s'ofereixen: primer els de les partides del jugador i, dins de cada grup,
+// els més recents (els diaris d'avui abans que els de fa dies).
+function hgNewEntries(opts = {}) {
+    hgEnsureState();
+    const exclude = opts.excludeFen ? hgFenKey(opts.excludeFen) : null;
+    const out = [];
+    hgState.queue.forEach(it => { if (it && it.status === 'new' && it.fen) out.push({ item: it, fromQueue: true }); });
+    hgReserveFresh().forEach(it => out.push({ item: it, fromQueue: false }));
+    const rank = e => (hieroglyphicOriginKind(e.item) === 'player' ? 0 : 1);
+    const time = e => Number(e.item.publishedAt || e.item.createdAt) || 0;
+    return out.filter(e => !exclude || hgFenKey(e.item.fen) !== exclude)
+        .sort((a, b) => rank(a) - rank(b) || time(b) - time(a));
+}
+// Treu el pròxim jeroglífic nou (respectant la preferència de final).
+function hgConsumeNext(pref, opts = {}) {
     hgEnsureState();
     hgPurgeStale();
     const want = pref || hieroglyphicPreferredFinalMotif || 'any';
     // La preferència de final és un ORDRE SUAU, no un bloqueig: si hi ha un
-    // jeroglífic nou del motiu demanat, se serveix aquell; si no, se serveix
-    // qualsevol jeroglífic nou (el comptador del bàner en promet accés).
-    let idx = hgState.queue.findIndex(it => it.status === 'new' && (want === 'any' || it.finalType === want || (Array.isArray(it.finalMotifs) && it.finalMotifs.indexOf(want) !== -1)));
-    if (idx < 0) idx = hgState.queue.findIndex(it => it.status === 'new');
-    if (idx < 0) return null;
-    const item = hgState.queue.splice(idx, 1)[0];
-    hgState.updatedAt = Date.now();
-    hgSaveState({ flush: true });
+    // jeroglífic nou del motiu demanat, se serveix aquell; si no, qualsevol.
+    const matches = it => want === 'any' || it.finalType === want || (Array.isArray(it.finalMotifs) && it.finalMotifs.indexOf(want) !== -1);
+    const list = hgNewEntries(opts);
+    const pick = list.find(e => matches(e.item)) || list[0];
+    if (!pick) return null;
+    let item = pick.item;
+    if (pick.fromQueue) {
+        const idx = hgState.queue.indexOf(item);
+        if (idx >= 0) hgState.queue.splice(idx, 1);
+        hgState.updatedAt = Date.now();
+        hgSaveState({ flush: true });
+    } else {
+        // Del banc diari: se'n fa una còpia (el banc és compartit i no es toca).
+        item = Object.assign(JSON.parse(JSON.stringify(item)), { source: 'reserve', status: 'new' });
+    }
+    // Un cop servit ja no és nou enlloc (tampoc quan surti de l'historial).
+    hgMarkSeen(item.fen);
     renderHieroglyphicBanner();
     return hgQueueItemToChosen(item);
 }
 // Treu de la cua el pròxim jeroglífic nou que sí que es pot construir en un
 // exercici jugable. Descarta els que no es puguin reconstruir (dades incompletes
 // o línia il·legal) perquè un jeroglífic malmès no bloquegi mai l'accés.
-function hgConsumePlayable(pref) {
+function hgConsumePlayable(pref, opts = {}) {
     for (let guard = 0; guard < 15; guard++) {
-        const chosen = hgConsumeNext(pref);
+        const chosen = hgConsumeNext(pref, opts);
         if (!chosen) return null;
         try { if (buildHieroglyphicBundleSequence(chosen)) return chosen; } catch (e) {}
         // Aquest ítem no és jugable: ja s'ha tret de la cua; prova el següent.
@@ -22260,9 +22359,8 @@ async function hgTick(shouldAbortOuter) {
         // Ja n'hi ha una en marxa (aquest mateix cicle torna cada pocs segons).
         if (hgGenerating || hgManualBurstRunning) return;
         const target = hgDeviceTarget();
-        // Primer omplim la cua amb els jeroglífics comuns ja calculats a
-        // GitHub. Només gastem CPU/bateria del dispositiu si no n'hi ha prou.
-        if (hgNewCount() < target) hgTopUpFromReserve(target - hgNewCount());
+        // Els jeroglífics comuns ja calculats a GitHub compten com a nous (vegeu
+        // hgReserveFresh): només gastem CPU/bateria si no n'hi ha prou.
         const newCount = hgNewCount();
         if (newCount >= target) { renderHieroglyphicBanner(); return; }
         // Mode lleuger: només ajuda quan la cua global és 0 o 1.
@@ -22301,6 +22399,139 @@ async function hgTick(shouldAbortOuter) {
     } catch (e) {
         try { hgReleaseLock(); hgSaveState(); } catch (_) {}
         console.warn('[HG] tick error', e);
+    }
+}
+
+// ── Passada de creació després de cada partida del jugador ──────────────────
+// En acabar una partida es desa el seu id; quan l'usuari torna a una pantalla
+// tranquil·la, se'n busquen jeroglífics (tàctiques reals i variants amagades),
+// encara que la cua ja sigui plena. Si la passada s'interromp (l'usuari torna a
+// jugar), es reprèn després sense repetir posicions ja provades.
+const HG_POSTGAME_KEY = 'eltauler_cloud_hgPostGame';   // per aparell (no viatja al núvol)
+const HG_POSTGAME_PER_GAME = 2;
+let hgPostGameRunning = false;
+function hgQueuePostGamePass(entry) {
+    if (!entry || !entry.id) return;
+    const list = readJsonStorage(HG_POSTGAME_KEY, []);
+    const ids = (Array.isArray(list) ? list : []).filter(x => typeof x === 'string' && x !== entry.id);
+    ids.push(entry.id);
+    writeJsonStorage(HG_POSTGAME_KEY, ids.slice(-5));
+}
+function hgPendingPostGameIds() {
+    const list = readJsonStorage(HG_POSTGAME_KEY, []);
+    return Array.isArray(list) ? list.filter(x => typeof x === 'string') : [];
+}
+async function hgGenerateFromGameEntry(entry, shouldAbort) {
+    if (hgGenerating) return null;
+    hgGenerating = true;
+    try {
+        if (!await ensureHieroStockfish()) return null;
+        const exclude = hgAllKnownFens();
+        hgLoadTried().forEach(k => exclude.add(k));
+        const onTried = (fen) => { hgRememberTried(fen); exclude.add(hgFenKey(fen)); };
+        let cand = null;
+        try {
+            const candidates = collectPersonalHieroglyphicCandidates(entry);
+            cand = await chooseStockfishValidatedHieroglyphicCandidate(candidates, { excludeFens: exclude, shouldAbort, onTried, maxCandidates: 6 });
+        } catch (e) {}
+        if (!cand && !(shouldAbort && shouldAbort())) {
+            try { cand = await tryBuildAdaptedHieroglyphicFromGameEntry(entry, { excludeFens: exclude, shouldAbort, maxCandidates: 6, scanFens: 60, onTried }); } catch (e) {}
+        }
+        return (cand && hasVerifiedHieroglyphicConclusion(cand)) ? cand : null;
+    } finally {
+        hgGenerating = false;
+    }
+}
+async function hgPostGameTick(shouldAbortOuter) {
+    if (hgPostGameRunning || hgGenerating || hgManualBurstRunning) return false;
+    const ids = hgPendingPostGameIds();
+    if (!ids.length) return false;
+    if (hgEnsureState().settings.enabled === false) return false;
+    if (document.visibilityState !== 'visible' || hgUserInSection() || !isIdleForHieroglyphicPrep()) return false;
+    const id = ids[0];
+    const drop = () => writeJsonStorage(HG_POSTGAME_KEY, hgPendingPostGameIds().filter(x => x !== id));
+    const entry = Array.isArray(gameHistory) ? gameHistory.find(e => e && e.id === id) : null;
+    if (!entry) { drop(); return false; }
+    hgPostGameRunning = true;
+    const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHieroglyphicPrep();
+    let made = 0, aborted = false;
+    try {
+        renderHieroglyphicBanner();
+        for (let i = 0; i < HG_POSTGAME_PER_GAME; i++) {
+            const cand = await hgGenerateFromGameEntry(entry, shouldAbort);
+            if (shouldAbort()) aborted = true;
+            if (cand && hgAddToQueue(cand, 'postgame')) made++;
+            if (!cand || aborted) break;
+        }
+    } catch (e) {
+        console.warn('[HG] passada post-partida', e);
+    } finally {
+        hgPostGameRunning = false;
+    }
+    if (!aborted) drop();
+    if (made && $('#start-screen').is(':visible')) {
+        showToast(made === 1 ? 'Nou jeroglífic a punt, tret de la teva última partida.' : 'Nous jeroglífics a punt, trets de la teva última partida.', 'success');
+    }
+    renderHieroglyphicBanner();
+    return true;
+}
+
+// ── Partides internes periòdiques (autojoc) mentre s'utilitza l'app ─────────
+// Quan el jugador ja porta una estona fent servir l'app (sobretot al mòbil, que
+// no té tanta reserva), l'aparell juga de tant en tant una partida interna de
+// Stockfish contra si mateix i en certifica jeroglífics nous, encara que en
+// quedin de pendents. Mai mentre es juga o es resol, ni amb la bateria baixa.
+const HG_SELFPLAY_AFTER_MS = 4 * 60000;      // ús mínim abans de la primera
+const HG_SELFPLAY_EVERY_MS = 10 * 60000;     // interval entre partides internes
+const HG_SELFPLAY_EVERY_LOWEND_MS = 15 * 60000;
+const HG_SELFPLAY_QUEUE_CAP = 12;            // auto-generats de l'aparell pendents com a màxim
+const hgUsage = { activeMs: 0, lastAt: 0, lastSelfPlayAt: 0, running: false };
+function hgTrackUsage() {
+    const now = Date.now();
+    if (document.visibilityState === 'visible' && hgUsage.lastAt && now - hgUsage.lastAt < 15000) hgUsage.activeMs += now - hgUsage.lastAt;
+    hgUsage.lastAt = document.visibilityState === 'visible' ? now : 0;
+}
+async function hgLowBattery() {
+    try {
+        if (!navigator.getBattery) return false;
+        const b = await navigator.getBattery();
+        return !!(b && !b.charging && typeof b.level === 'number' && b.level < 0.2);
+    } catch (e) { return false; }
+}
+function hgDeviceAutoPendingCount() {
+    return hgEnsureState().queue.filter(it => it && it.status === 'new' && hieroglyphicOriginKind(it) === 'auto').length;
+}
+async function hgSelfPlayPeriodicTick(shouldAbortOuter) {
+    if (hgUsage.running || hgGenerating || hgManualBurstRunning || hgPostGameRunning) return false;
+    if (!hgBackgroundEnabled()) return false;
+    if (hgUsage.activeMs < HG_SELFPLAY_AFTER_MS) return false;
+    const every = hgIsLowEndDevice() ? HG_SELFPLAY_EVERY_LOWEND_MS : HG_SELFPLAY_EVERY_MS;
+    if (hgUsage.lastSelfPlayAt && Date.now() - hgUsage.lastSelfPlayAt < every) return false;
+    if (hgDeviceAutoPendingCount() >= HG_SELFPLAY_QUEUE_CAP) return false;
+    if (document.visibilityState !== 'visible' || hgUserInSection() || !isIdleForHieroglyphicPrep()) return false;
+    if (hgLockHeldByOther()) return false;
+    hgUsage.running = true;
+    hgUsage.lastSelfPlayAt = Date.now();
+    let aborted = false;
+    try {
+        if (await hgLowBattery()) return false;
+        hgGenerating = true;
+        hgState.generation.active = true;
+        renderHieroglyphicBanner();
+        const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHieroglyphicPrep();
+        let cand = null;
+        try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort, hgAllKnownFens(), {}); } catch (e) { hgRuntime.workerErrors++; }
+        aborted = shouldAbort();
+        hgGenerating = false;
+        if (cand) hgAddToQueue(cand, 'selfplay');
+        return true;
+    } finally {
+        hgGenerating = false;
+        hgUsage.running = false;
+        try { hgState.generation.active = false; } catch (e) {}
+        // Si l'ha interromput l'usuari, es torna a provar d'aquí a un minut.
+        if (aborted) hgUsage.lastSelfPlayAt = Date.now() - every + 60000;
+        renderHieroglyphicBanner();
     }
 }
 
@@ -22367,18 +22598,14 @@ function renderHieroglyphicBanner() {
     if (!banner) return;
     hgEnsureState();
     const newCount = hgNewCount();
-    const countEl = document.getElementById('hg-banner-count');
     const statusEl = document.getElementById('hg-banner-status');
-    // Comptador
-    if (countEl) {
-        countEl.textContent = newCount === 0 ? '0 nous · preparant-ne un…'
-            : (newCount === 1 ? '1 nou esperant' : `${newCount} nous esperant`);
-    }
+    // La caràtula no diu QUANTS n'hi ha de nous (el banc diari s'acumula): només
+    // si n'hi ha de nous a punt o si se n'està preparant un.
     // Estat curt. La generació ACTIVA té prioritat sobre "Sincronitzant…": abans,
     // com que cada jeroglífic desat dispara una pujada al núvol, l'estat quedava
     // gairebé sempre en "Sincronitzant…" i amagava que s'estava generant.
     const generating = hgState.generation.active || hgGenerating || hgManualBurstRunning;
-    let status = 'Preparats';
+    let status = newCount > 0 ? 'Nous a punt' : 'Preparats';
     if (hgState.settings.enabled === false) status = 'Desactivat';
     else if (hgManualBurstRunning) status = 'Buscant combinacions…';
     else if (generating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
@@ -22482,10 +22709,9 @@ async function hgManualGenerateBurst(opts = {}) {
     // Si la cua ja és plena, genera'n almenys un extra perquè el botó sempre faci alguna cosa.
     const goal = opts.goal || Math.max(Math.max(1, hgDeviceTarget()), startCount + 1);
     const setProg = (p) => {
-        const shown = Math.min(hgNewCount(), goal);
-        const time = p ? ' · ' + hgClock(p.elapsedMs) : '';
-        // L'etiqueta d'estat ja diu «Buscant combinacions…»: aquí, només xifres.
-        hgSetBannerProgress(Math.min(1, hgNewCount() / goal), `${shown}/${goal}${time}`, true);
+        // Sense comptadors de jeroglífics a la caràtula: només el temps de cerca.
+        const time = p ? hgClock(p.elapsedMs) : '0:00';
+        hgSetBannerProgress(Math.min(1, Math.max(0, hgNewCount() - startCount) / Math.max(1, goal - startCount)), time, true);
         const statusEl = document.getElementById('hg-banner-status');
         if (statusEl) statusEl.textContent = 'Buscant combinacions…';
     };
@@ -22532,90 +22758,247 @@ async function hgManualGenerateBurst(opts = {}) {
     return res;
 }
 
-// Entrada a la secció des del bàner (o des de qualsevol accés a jeroglífics):
-// si hi ha jeroglífics nous a la cua, en serveix un a l'instant; si no, en
-// prepara un de manera PRIORITÀRIA (encara que la generació en segon pla estigui
-// desactivada, perquè és una petició explícita de l'usuari).
-async function openHieroglyphicsFromBanner() {
-    if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
+// Entrada a la secció des del bàner (o des de qualsevol accés a jeroglífics) i
+// botó «Un altre jeroglífic» de la finestra final. Ordre de prioritat:
+//   1) nous (partides del jugador, autojoc de l'aparell i banc diari acumulat);
+//   2) començats i no resolts;
+//   3) resolts no a la primera (a mitges);
+//   4) resolts a la primera (els guardats).
+// Si no n'hi ha cap, se'n busca un de nou sota demanda (encara que la generació
+// en segon pla estigui desactivada, perquè és una petició explícita de l'usuari).
+async function hgPlayNext(opts = {}) {
     const pref = hieroglyphicPreferredFinalMotif || 'any';
-    // Si hi ha novetats publicades en les darreres 24 h, prioritza-les
-    // també quan aquest aparell ja tenia una cua antiga plena. Això permet
-    // oferir els sis jeroglífics compartits del dia a tots els dispositius.
-    const hasRecentReserve = hgReserveItems().some(it =>
-        Number(it.publishedAt) > Date.now() - 24 * 60 * 60 * 1000);
-    if (hasRecentReserve) {
-        const known = hgAllKnownFens();
-        const needsNewDaily = hgReserveItems().some(it =>
-            Number(it.publishedAt) > Date.now() - 24 * 60 * 60 * 1000 &&
-            !known.has(hgFenKey(it.fen)) &&
-            !(hieroglyphicStats.solvedFens || []).includes(it.fen));
-        if (needsNewDaily) hgTopUpFromReserve(1);
-    }
-    // 1) Serveix un jeroglífic JUGABLE de la cua (descartant els malmesos).
-    let chosen = hgConsumePlayable(pref);
-    // Cua buida: un de la reserva minada per endavant, a l'instant.
-    if (!chosen && hgTopUpFromReserve(1)) chosen = hgConsumePlayable(pref);
-    if (chosen) { await startPersonalHieroglyphicFromLastGame(null, chosen); return; }
-    // 2) Rebost antic en memòria (compatibilitat).
+    const excludeFen = opts.excludeFen || null;
+    // 1) Un jeroglífic nou JUGABLE (descartant els malmesos).
+    const chosen = hgConsumePlayable(pref, { excludeFen });
+    if (chosen) { await startPersonalHieroglyphicFromLastGame(null, chosen); return true; }
+    // Rebost antic en memòria (compatibilitat).
     if (Array.isArray(personalHieroglyphicPool) && personalHieroglyphicPool.length) {
-        await startPersonalHieroglyphicFromLastGame(null); return;
+        await startPersonalHieroglyphicFromLastGame(null); return true;
     }
-    // 3) Cap de nou a punt: se'n busca un sota demanda, amb el progrés a la
-    //    barra del bàner (es pot aturar). Quan surt, s'obre sol.
-    if (hgManualBurstRunning) { showToast('Ja s’està buscant un jeroglífic: s’obrirà sol quan estigui a punt.', 'info'); hgPendingAutoPlay = true; return; }
+    // 2–4) Ja els ha jugat tots: un de l'historial segons la prioritat.
+    const fromHistory = hgPickFromHistory({ excludeFen });
+    if (fromHistory) {
+        const st = hieroglyphicHistoryStatus(fromHistory);
+        showToast(st === 'pending' ? 'Ja has jugat tots els nous: reprens un que tenies pendent.'
+            : (st === 'half' ? 'Ja has resolt tots els nous: et proposo un que vas resoldre a mitges.'
+                : 'Ja has resolt tots els nous: repassa un dels que vas resoldre a la primera.'), 'info');
+        retryHieroglyphicFromHistory(fromHistory.id);
+        return true;
+    }
+    // Cap a l'historial tampoc: se'n busca un sota demanda, amb el progrés a la
+    // barra del bàner (es pot aturar). Quan surt, s'obre sol.
+    if (opts.fromOverlay) goToHomeScreen();
+    if (hgManualBurstRunning) { showToast('Ja s’està buscant un jeroglífic: s’obrirà sol quan estigui a punt.', 'info'); hgPendingAutoPlay = true; return false; }
     showToast('Buscant un jeroglífic nou… Pot trigar una estona; s’obrirà sol.', 'info');
     const res = await hgManualGenerateBurst({ goal: hgNewCount() + 1, autoPlay: true });
-    if (res && res.done) return;
-    // 4) No n'ha sortit cap (aturat o temps esgotat): un de pendent de l'historial, o l'historial.
-    const retry = retryableHieroglyphicHistory()[0];
-    if (retry && !(res && res.aborted)) { retryHieroglyphicFromHistory(retry.id); return; }
-    if (!(res && res.aborted)) showHieroglyphicHistoryModal();
+    if (!(res && res.done) && !(res && res.aborted)) openHieroglyphicHistoryScreen();
     renderHieroglyphicBanner();
+    return !!(res && res.done);
 }
-// Modal d'historial de jeroglífics: SEMPRE accessible des del menú (no depèn de
-// jugar-ne cap ni del calibratge). Mostra tot l'historial desat (fins a 100), del
-// més recent al més antic, amb botó "Reveure" per tornar-los a jugar.
-function showHieroglyphicHistoryModal() {
-    $('#hg-history-modal').remove();
-    const history = loadHieroglyphicHistory().slice().sort((a, b) => {
-        const da = (a && (a.solvedAt || a.finishedAt || a.ts || a.createdAt)) || 0;
-        const db = (b && (b.solvedAt || b.finishedAt || b.ts || b.createdAt)) || 0;
-        return db - da;
-    }).slice(0, HG_HISTORY_MAX);
-    let html = '<div class="modal-overlay" id="hg-history-modal" style="display:flex;"><div class="modal-content">';
-    html += `<div class="modal-title">${HG_ICON_SVG} Historial de jeroglífics</div>`;
-    if (!history.length) {
-        html += '<div class="bundle-empty">Encara no tens jeroglífics a l’historial. Quan en resolguis, en saltis o en fallis algun, apareixerà aquí.</div>';
-    } else {
-        html += '<div class="hg-modal-list">';
-        history.forEach(e => {
-            const solved = !!e.solved;
-            const clean = hieroglyphicEntryCleanSolved(e);
-            const resultIcon = solved ? (clean ? '✅' : '☑️') : '⏳';
-            const resultText = solved ? (clean ? 'Resolt sense errors' : 'Resolt amb errades') : 'Pendent';
-            const kind = e.finalMotifLabel || e.tacticKind || (e.finalMotif ? (HIERO_FINAL_MOTIF_LABELS[e.finalMotif] || e.finalMotif) : (e.theme || 'Jeroglífic'));
-            const attempts = (typeof e.wrongMoves === 'number') ? (e.wrongMoves + (solved ? 1 : 0)) : null;
-            const dateText = formatHieroglyphicDate(e.solvedAt || e.finishedAt || e.ts || e.createdAt);
-            html += '<div class="hg-modal-row">';
-            html += `<span class="hg-modal-ic" title="${escapeHtml(resultText)}" aria-label="${escapeHtml(resultText)}">${resultIcon}</span>`;
-            html += '<span class="hg-modal-info">';
-            html += `<span class="hg-modal-kind">${escapeHtml(String(kind))}</span>`;
-            const playable = hieroglyphicEntryPlayable(e);
-            html += `<span class="hg-modal-sub">${escapeHtml(resultText)}${attempts !== null ? ` · ${attempts} intent${attempts === 1 ? '' : 's'}` : ''} · ${escapeHtml(dateText)}${playable ? '' : ' · format antic (menys de 3 jugades)'}</span>`;
-            html += '</span>';
-            html += `<button class="btn btn-secondary hg-modal-replay" data-hg-id="${escapeHtml(String(e.id))}"${playable ? '' : ' disabled title="Jeroglífic antic de menys de tres jugades"'}>Reveure</button>`;
-            html += '</div>';
-        });
-        html += '</div>';
+async function openHieroglyphicsFromBanner() {
+    if (typeof guardCalibrationAccess === 'function' && !guardCalibrationAccess()) return;
+    await hgPlayNext();
+}
+// ── Historial de jeroglífics: estat de cada entrada ─────────────────────────
+// pending: començat i encara no resolt · half: resolt no a la primera (amb
+// errades) · clean: resolt a la primera. Les entrades eliminades queden com a
+// marca (deleted) perquè la sincronització no les faci reaparèixer.
+function hieroglyphicHistoryStatus(entry) {
+    if (!entry || !entry.solved) return 'pending';
+    return hieroglyphicEntryCleanSolved(entry) ? 'clean' : 'half';
+}
+function visibleHieroglyphicHistory() {
+    return loadHieroglyphicHistory().filter(e => e && e.fen && !e.deleted);
+}
+function hgPickFromHistory(opts = {}) {
+    const exclude = opts.excludeFen ? hgFenKey(opts.excludeFen) : null;
+    const list = visibleHieroglyphicHistory().filter(e => hieroglyphicEntryPlayable(e) && (!exclude || hgFenKey(e.fen) !== exclude));
+    // Dins de cada grup, el que fa més temps que no es juga (així van rotant).
+    const byOldest = (a, b) => (Number(a.ts || a.createdAt) || 0) - (Number(b.ts || b.createdAt) || 0);
+    for (const st of ['pending', 'half', 'clean']) {
+        const group = list.filter(e => hieroglyphicHistoryStatus(e) === st).sort(byOldest);
+        if (group.length) return group[0];
     }
-    html += '<button class="close-modal" onclick="$(\'#hg-history-modal\').remove()">Tancar</button></div></div>';
-    $('body').append(html);
-    $('#hg-history-modal .hg-modal-replay').off('click').on('click', function () {
-        const id = $(this).attr('data-hg-id');
-        $('#hg-history-modal').remove();
-        retryHieroglyphicFromHistory(id);
+    return null;
+}
+// Canvia les marques d'una entrada de l'historial (eliminar / guardar). Sempre
+// amb dades explícites i hora nova perquè la fusió amb el núvol les respecti.
+function setHieroglyphicHistoryFlags(fen, flags = {}) {
+    if (!fen) return null;
+    const list = loadHieroglyphicHistory();
+    const idx = list.findIndex(e => e && e.fen === fen);
+    if (idx < 0) return null;
+    const entry = Object.assign({}, list[idx], flags, { ts: Date.now() });
+    entry.deleted = !!entry.deleted;
+    entry.saved = !!entry.saved;
+    list.splice(idx, 1);
+    list.unshift(entry);
+    saveHieroglyphicHistory(list);
+    return entry;
+}
+function deleteHieroglyphicFromHistory(fen) {
+    const entry = setHieroglyphicHistoryFlags(fen, { deleted: true, saved: false });
+    if (entry) hgMarkSeen(entry.fen);
+    return entry;
+}
+function saveHieroglyphicInHistory(fen) {
+    return setHieroglyphicHistoryFlags(fen, { deleted: false, saved: true });
+}
+// Compatibilitat: abans l'historial era una finestra flotant.
+function showHieroglyphicHistoryModal() { openHieroglyphicHistoryScreen(); }
+
+// ── Pantalla d'historial de jeroglífics ─────────────────────────────────────
+// Pantalla completa (no una finestra flotant) amb tres apartats: per resoldre,
+// resolts a mitges i resolts a la primera. Cada fitxa mostra la posició en
+// miniatura, la marca d'origen (partida del jugador o auto-generat, cadascun
+// amb el seu color) i les accions: jugar/rejugar, compartir i eliminar.
+const HGH_PAGE = 24;
+const HGH_SECTIONS = [
+    { id: 'pending', title: 'Per resoldre', icon: '⏳', desc: 'Els has començat però encara no els has resolt.' },
+    { id: 'half', title: 'Resolts a mitges', icon: '☑️', desc: 'Te n’has sortit amb alguna errada: val la pena rejugar-los.' },
+    { id: 'clean', title: 'Resolts a la primera', icon: '✅', desc: 'Resolts sense cap errada i guardats a l’historial.' }
+];
+const hghView = { status: 'all', origin: 'all', shown: {} };
+const HGH_PIECE_GLYPHS = { k: '♚', q: '♛', r: '♜', b: '♝', n: '♞', p: '♟' };
+function hieroglyphicMiniBoardHtml(fen) {
+    const parts = String(fen || '').split(' ');
+    const rows = (parts[0] || '').split('/');
+    if (rows.length !== 8) return '';
+    const flip = parts[1] === 'b';   // el bàndol que juga, a baix
+    const grid = rows.map(r => {
+        const out = [];
+        for (const ch of r) {
+            if (/\d/.test(ch)) { for (let i = 0; i < Number(ch); i++) out.push(null); }
+            else out.push(ch);
+        }
+        return out;
     });
+    let html = `<div class="hgh-mini" role="img" aria-label="Posició inicial: juguen ${flip ? 'les negres' : 'les blanques'}">`;
+    for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+            const rr = flip ? 7 - r : r, cc = flip ? 7 - c : c;
+            const p = (grid[rr] || [])[cc] || null;
+            const dark = (rr + cc) % 2 === 1;
+            const piece = p ? `<span class="hgh-pc ${p === p.toUpperCase() ? 'w' : 'b'}">${HGH_PIECE_GLYPHS[p.toLowerCase()] || ''}&#xFE0E;</span>` : '';
+            html += `<span class="hgh-sq${dark ? ' d' : ''}">${piece}</span>`;
+        }
+    }
+    return html + '</div>';
+}
+function openHieroglyphicHistoryScreen(opts = {}) {
+    if (opts.fromGame || $('#game-screen').hasClass('active')) {
+        $('.bundle-success-overlay').hide();
+        if (returnToMainMenuImmediate() === false) return;
+    }
+    $('#start-screen').hide();
+    $('#hg-history-screen').show();
+    if (navStack[navStack.length - 1] !== 'hg-history-screen') navPush('hg-history-screen');
+    hghView.shown = {};
+    renderHieroglyphicHistoryScreen();
+}
+function closeHieroglyphicHistoryScreen() {
+    $('#hg-history-screen').hide();
+    $('#start-screen').show();
+    try { renderHieroglyphicBanner(); } catch (e) {}
+}
+function hieroglyphicEntryTitle(e) {
+    const final = hieroglyphicFinalLabel(e && e.finalMotif);
+    if (final) return 'Final: ' + final;
+    return (e && (e.finalMotifLabel || e.tacticKind || e.theme)) || 'Jeroglífic';
+}
+function hieroglyphicHistoryCardHtml(e) {
+    const st = hieroglyphicHistoryStatus(e);
+    const sec = HGH_SECTIONS.find(x => x.id === st);
+    const kind = hieroglyphicOriginKind(e);
+    const playable = hieroglyphicEntryPlayable(e);
+    const side = String(e.fen).split(' ')[1] === 'b' ? 'Juguen negres' : 'Juguen blanques';
+    const wrong = Number(e.wrongMoves) || 0;
+    const meta = [side];
+    if (st === 'half') meta.push(`${wrong} ${wrong === 1 ? 'errada' : 'errades'}`);
+    meta.push(formatHieroglyphicDate(e.ts || e.createdAt));
+    const badge = hieroglyphicDifficultyBadge(e);
+    const id = escapeHtml(String(e.id));
+    const playLabel = st === 'pending' ? 'Resol-lo' : 'Rejuga';
+    return `<article class="hgh-card hgh-card--${st} hgh-card--${kind}">`
+        + `<div class="hgh-card-board">${hieroglyphicMiniBoardHtml(e.fen)}</div>`
+        + '<div class="hgh-card-body">'
+        + `<div class="hgh-card-top">${hieroglyphicOriginMarkHtml(e)}<span class="hgh-state hgh-state--${st}">${sec ? sec.icon : ''} ${escapeHtml(sec ? sec.title.replace('Per resoldre', 'No resolt').replace('Resolts', 'Resolt') : '')}</span></div>`
+        + `<div class="hgh-card-title">${escapeHtml(hieroglyphicEntryTitle(e))}</div>`
+        + `<div class="hgh-card-meta">${escapeHtml(meta.join(' · '))}<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span></div>`
+        + (playable ? '' : '<div class="hgh-card-meta">Format antic (menys de tres jugades): ja no es pot jugar.</div>')
+        + '<div class="hgh-card-actions">'
+        + `<button type="button" class="btn btn-primary hgh-act-play" data-hgh-act="play" data-hgh-id="${id}"${playable ? '' : ' disabled'}><svg class="btn-ic" aria-hidden="true"><use href="#${st === 'pending' ? 'ic-hg-play' : 'ic-hg-replay'}"/></svg>${playLabel}</button>`
+        + `<button type="button" class="hgh-icon-btn hgh-icon-btn--wa" data-hgh-act="wa" data-hgh-id="${id}" title="Compartir per WhatsApp" aria-label="Compartir per WhatsApp"${playable ? '' : ' disabled'}><svg aria-hidden="true"><use href="#ic-whatsapp"/></svg></button>`
+        + `<button type="button" class="hgh-icon-btn" data-hgh-act="share" data-hgh-id="${id}" title="Compartir per missatgeria" aria-label="Compartir per missatgeria"${playable ? '' : ' disabled'}><svg aria-hidden="true"><use href="#ic-share"/></svg></button>`
+        + `<button type="button" class="hgh-icon-btn hgh-icon-btn--danger" data-hgh-act="delete" data-hgh-id="${id}" title="Eliminar de l’historial" aria-label="Eliminar de l’historial"><svg aria-hidden="true"><use href="#ic-trash"/></svg></button>`
+        + '</div></div></article>';
+}
+function renderHieroglyphicHistoryScreen() {
+    const root = $('#hg-history-screen');
+    if (!root.length) return;
+    const all = visibleHieroglyphicHistory().sort((a, b) => (Number(b.ts || b.createdAt) || 0) - (Number(a.ts || a.createdAt) || 0));
+    const originOk = e => hghView.origin === 'all' || hieroglyphicOriginKind(e) === hghView.origin;
+    const groups = { pending: [], half: [], clean: [] };
+    all.forEach(e => { if (originOk(e)) groups[hieroglyphicHistoryStatus(e)].push(e); });
+    // Resum: tres rajoles que també fan de filtre.
+    $('#hgh-summary').html(HGH_SECTIONS.map(sec => `<button type="button" class="hgh-tile hgh-tile--${sec.id}${hghView.status === sec.id ? ' is-active' : ''}" data-hgh-status="${sec.id}" aria-pressed="${hghView.status === sec.id}">`
+        + `<span class="hgh-tile-num">${groups[sec.id].length}</span><span class="hgh-tile-label">${sec.icon} ${escapeHtml(sec.title)}</span></button>`).join(''));
+    const hasNew = hgNewCount() > 0;
+    $('#hgh-cta').html(`<div class="hgh-cta-text"><strong>${hasNew ? 'Tens jeroglífics nous a punt' : 'Ara mateix no en tens cap de nou'}</strong>`
+        + `<span>${hasNew ? 'N’hi ha de les teves partides, de partides internes de l’aparell i del banc diari, que es va acumulant.' : 'Se’n preparen després de cada partida i amb partides internes mentre fas servir l’app. Mentrestant, et proposarem els que tens a mitges.'}</span></div>`
+        + `<button type="button" class="btn btn-primary" id="hgh-play-next">${HG_ICON_SVG} ${hasNew ? 'Juga’n un de nou' : 'Juga’n un'}</button>`);
+    root.find('[data-hgh-filter-status]').each(function () { const on = $(this).attr('data-hgh-filter-status') === hghView.status; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
+    root.find('[data-hgh-filter-origin]').each(function () { const on = $(this).attr('data-hgh-filter-origin') === hghView.origin; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
+    const sections = hghView.status === 'all' ? HGH_SECTIONS : HGH_SECTIONS.filter(x => x.id === hghView.status);
+    let html = '';
+    sections.forEach(sec => {
+        const items = groups[sec.id];
+        const shown = hghView.shown[sec.id] || HGH_PAGE;
+        html += `<section class="hgh-section hgh-section--${sec.id}">`
+            + `<div class="hgh-section-head"><h2>${sec.icon} ${escapeHtml(sec.title)} <span class="hgh-section-count">${items.length}</span></h2><p>${escapeHtml(sec.desc)}</p></div>`;
+        if (!items.length) {
+            const empty = sec.id === 'pending' ? 'No en tens cap a mig fer.'
+                : (sec.id === 'half' ? 'Cap jeroglífic resolt a mitges.' : 'Encara no n’has guardat cap de resolt a la primera (en acabar-ne un, toca «Guardar»).');
+            html += `<div class="hgh-empty">${escapeHtml(empty)}</div>`;
+        } else {
+            html += '<div class="hgh-grid">' + items.slice(0, shown).map(hieroglyphicHistoryCardHtml).join('') + '</div>';
+            if (items.length > shown) html += `<button type="button" class="btn btn-secondary hgh-more" data-hgh-more="${sec.id}">Mostra’n més (${items.length - shown})</button>`;
+        }
+        html += '</section>';
+    });
+    $('#hgh-list').html(html);
+    // Esdeveniments (delegats, un sol cop per render).
+    root.off('click.hgh')
+        .on('click.hgh', '[data-hgh-status]', function () {
+            const st = $(this).attr('data-hgh-status');
+            hghView.status = hghView.status === st ? 'all' : st;
+            renderHieroglyphicHistoryScreen();
+        })
+        .on('click.hgh', '[data-hgh-filter-status]', function () { hghView.status = $(this).attr('data-hgh-filter-status'); renderHieroglyphicHistoryScreen(); })
+        .on('click.hgh', '[data-hgh-filter-origin]', function () { hghView.origin = $(this).attr('data-hgh-filter-origin'); renderHieroglyphicHistoryScreen(); })
+        .on('click.hgh', '[data-hgh-more]', function () { const k = $(this).attr('data-hgh-more'); hghView.shown[k] = (hghView.shown[k] || HGH_PAGE) + HGH_PAGE; renderHieroglyphicHistoryScreen(); })
+        .on('click.hgh', '#hgh-play-next', () => { $('#hg-history-screen').hide(); void openHieroglyphicsFromBanner(); })
+        .on('click.hgh', '#hgh-home', () => navGoBack())
+        .on('click.hgh', '[data-hgh-act]', function () {
+            const act = $(this).attr('data-hgh-act');
+            const entry = loadHieroglyphicHistory().find(e => e && String(e.id) === $(this).attr('data-hgh-id'));
+            if (!entry) return;
+            const st = hieroglyphicHistoryStatus(entry);
+            if (act === 'play') { $('#hg-history-screen').hide(); retryHieroglyphicFromHistory(entry.id); }
+            else if (act === 'wa' || act === 'share') shareHieroglyphic(entry, { channel: act === 'wa' ? 'whatsapp' : 'native', firstTry: st === 'clean', wrong: st === 'half' ? (Number(entry.wrongMoves) || 0) : 0 });
+            else if (act === 'delete') {
+                showAppConfirm('Vols eliminar aquest jeroglífic de l’historial? No el tornaràs a veure com a nou.', () => {
+                    deleteHieroglyphicFromHistory(entry.fen);
+                    renderHieroglyphicHistoryScreen();
+                    showToast('Jeroglífic eliminat de l’historial.', 'info');
+                });
+            }
+        });
+}
+if (typeof window !== 'undefined') {
+    window.openHieroglyphicHistoryScreen = openHieroglyphicHistoryScreen;
+    window.hgPlayNext = hgPlayNext;
 }
 if (typeof window !== 'undefined') {
     window.openHieroglyphicsFromBanner = openHieroglyphicsFromBanner;
@@ -27172,18 +27555,174 @@ function showHieroglyphicBundleOverlay() {
         overlay.find('.bundle-success-title').after(box);
     }
     overlay.find('.bundle-success-remaining').text(`Resoltes: ${hieroglyphicStats.solved || 0} · Ratxa: ${hieroglyphicStats.currentStreak || 0} · Rècord: ${hieroglyphicStats.bestStreak || 0}`).show();
-    // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
+    renderHieroglyphicResultActions(overlay);
     overlay.find('#btn-bundle-random-again').hide();
     wireContinueSolvedFenButton(overlay);
     overlay.css('display', 'flex');
     wireNavTrio(overlay, {
-        sectionLabel: `${HG_ICON_SVG} Jeroglífics`,
-        sectionDisabled: !hasNext,
-        onSection: () => {
-            if (jeroglificsReady()) void startBestLineExercise();
-            else goToHomeScreen();
-        }
+        sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial',
+        sectionDisabled: false,
+        onSection: () => openHieroglyphicHistoryScreen({ fromGame: true })
     });
+}
+
+// Botons de la finestra final d'un jeroglífic:
+//   · a la primera → «Guardar» (si no es guarda, ja s'ha eliminat de l'historial);
+//   · a mitges (amb errades) → «Rejugar» i «Eliminar»;
+//   · sempre → «Un altre jeroglífic» (nous, després a mitges, després a la
+//     primera) i compartir-lo per WhatsApp o qualsevol missatgeria.
+function renderHieroglyphicResultActions(overlay) {
+    overlay.find('.hg-result-extra').remove();
+    const puzzle = currentHieroglyphicPuzzle;
+    if (!puzzle || !puzzle.fen) return;
+    const wrong = currentHieroglyphicWrongMoves || 0;
+    const firstTry = wrong === 0;
+    const entry = loadHieroglyphicHistory().find(e => e && e.fen === puzzle.fen) || null;
+    overlay.find('.bundle-success-title').text(firstTry ? 'Jeroglífic resolt a la primera ⚡ (+1 ★)' : 'Jeroglífic resolt a mitges (+1 ★)');
+    overlay.find('.bundle-success-icon').text(firstTry ? '✅' : '☑️');
+    const box = $('<div class="hg-result-extra"></div>');
+    const mark = hieroglyphicOriginMark(puzzle);
+    box.append($(`<div class="hg-result-origin">${hieroglyphicOriginMarkHtml(puzzle)}<span class="hg-result-origin-detail"></span></div>`)
+        .find('.hg-result-origin-detail').text(mark.detail).end());
+    const note = $('<div class="hg-result-note"></div>');
+    box.append(note);
+    const row = $('<div class="hg-result-row"></div>');
+    box.append(row);
+    if (firstTry) {
+        const saveBtn = $('<button type="button" class="btn btn-secondary hg-result-btn hg-result-save"></button>');
+        const paint = (saved) => {
+            saveBtn.toggleClass('is-saved', saved).html(saved
+                ? '<svg class="btn-ic" aria-hidden="true"><use href="#ic-check"/></svg>Guardat'
+                : '<svg class="btn-ic" aria-hidden="true"><use href="#ic-bookmark"/></svg>Guardar');
+            saveBtn.attr('aria-pressed', saved ? 'true' : 'false');
+            note.text(saved
+                ? 'Queda guardat a l’historial com a resolt a la primera. Torna a tocar el botó per treure’l.'
+                : 'L’has resolt a la primera: si no el guardes, s’elimina de l’historial.');
+        };
+        paint(!!(entry && entry.saved && !entry.deleted));
+        saveBtn.on('click', () => {
+            const cur = loadHieroglyphicHistory().find(e => e && e.fen === puzzle.fen);
+            const nowSaved = !(cur && cur.saved && !cur.deleted);
+            if (nowSaved) saveHieroglyphicInHistory(puzzle.fen); else deleteHieroglyphicFromHistory(puzzle.fen);
+            paint(nowSaved);
+            showToast(nowSaved ? 'Jeroglífic guardat a l’historial.' : 'Jeroglífic tret de l’historial.', nowSaved ? 'success' : 'info');
+            renderHieroglyphicPanel();
+        });
+        row.append(saveBtn);
+    } else {
+        note.text(`Te n’has sortit amb ${wrong} ${wrong === 1 ? 'errada' : 'errades'}. Queda a l’historial com a resolt a mitges: el pots rejugar o eliminar.`);
+        const replayBtn = $('<button type="button" class="btn btn-primary hg-result-btn hg-result-replay"><svg class="btn-ic" aria-hidden="true"><use href="#ic-hg-replay"/></svg>Rejugar</button>');
+        const delBtn = $('<button type="button" class="btn btn-secondary hg-result-btn hg-result-delete"><svg class="btn-ic" aria-hidden="true"><use href="#ic-trash"/></svg>Eliminar</button>');
+        replayBtn.on('click', () => {
+            const cur = loadHieroglyphicHistory().find(e => e && e.fen === puzzle.fen);
+            if (!cur) { showToast('No s’ha pogut recuperar aquest jeroglífic.', 'warn'); return; }
+            overlay.hide();
+            retryHieroglyphicFromHistory(cur.id);
+        });
+        delBtn.on('click', () => {
+            deleteHieroglyphicFromHistory(puzzle.fen);
+            replayBtn.prop('disabled', true);
+            delBtn.prop('disabled', true).html('<svg class="btn-ic" aria-hidden="true"><use href="#ic-check"/></svg>Eliminat');
+            note.text('Eliminat de l’historial.');
+            renderHieroglyphicPanel();
+        });
+        row.append(replayBtn, delBtn);
+    }
+    const nextBtn = $('<button type="button" class="btn btn-primary hg-result-btn hg-result-next"></button>');
+    nextBtn.html(`${HG_ICON_SVG} Un altre jeroglífic`);
+    nextBtn.on('click', () => {
+        overlay.hide();
+        void hgPlayNext({ excludeFen: puzzle.fen, fromOverlay: true });
+    });
+    row.append(nextBtn);
+    const share = $('<div class="hg-result-share"><span class="hg-result-share-label">Comparteix-lo:</span></div>');
+    const wa = $('<button type="button" class="btn hg-share-btn hg-share-wa"><svg class="btn-ic" aria-hidden="true"><use href="#ic-whatsapp"/></svg>WhatsApp</button>');
+    const other = $('<button type="button" class="btn hg-share-btn hg-share-native"><svg class="btn-ic" aria-hidden="true"><use href="#ic-share"/></svg>Missatgeria</button>');
+    wa.on('click', () => shareHieroglyphic(puzzle, { channel: 'whatsapp', firstTry, wrong }));
+    other.on('click', () => shareHieroglyphic(puzzle, { channel: 'native', firstTry, wrong }));
+    share.append(wa, other);
+    box.append(share);
+    const anchor = overlay.find('.bundle-success-remaining').first();
+    if (anchor.length) anchor.after(box); else overlay.find('.bundle-success-content').append(box);
+}
+
+// ── Compartir jeroglífics (eltauler.cat) ───────────────────────────────────
+// L'enllaç porta la posició i les cinc mitges jugades; qui l'obre juga el mateix
+// jeroglífic (la prova es torna a comprovar amb Stockfish al seu aparell).
+const HG_SHARE_ORIGIN = 'https://eltauler.cat/';
+function hieroglyphicShareUrl(puzzle) {
+    if (!puzzle || !puzzle.fen) return HG_SHARE_ORIGIN;
+    const sol = Array.isArray(puzzle.solutionMoves) ? puzzle.solutionMoves : [];
+    const rep = Array.isArray(puzzle.replyMoves) ? puzzle.replyMoves : [];
+    const line = [];
+    for (let i = 0; i < sol.length; i++) { line.push(sol[i]); if (rep[i]) line.push(rep[i]); }
+    const params = new URLSearchParams();
+    params.set('mode', 'jeroglific');
+    params.set('fen', puzzle.fen);
+    params.set('linia', line.join('.'));
+    return HG_SHARE_ORIGIN + '?' + params.toString();
+}
+function hieroglyphicShareText(puzzle, opts = {}) {
+    let side = 'les blanques';
+    try { side = String(puzzle.fen).split(' ')[1] === 'b' ? 'les negres' : 'les blanques'; } catch (e) {}
+    const final = hieroglyphicFinalLabel(puzzle && puzzle.finalMotif);
+    const head = opts.firstTry
+        ? '🧩 He resolt a la primera aquest jeroglífic d’escacs a El Tauler.'
+        : (opts.wrong ? `🧩 He desxifrat aquest jeroglífic d’escacs a El Tauler (amb ${opts.wrong} ${opts.wrong === 1 ? 'errada' : 'errades'}).` : '🧩 Prova aquest jeroglífic d’escacs a El Tauler.');
+    return `${head} Juguen ${side}: troba les 3 millors jugades${final ? ` (acaba en ${final.toLowerCase()})` : ''}. T’hi atreveixes?`;
+}
+async function shareHieroglyphic(puzzle, opts = {}) {
+    if (!puzzle || !puzzle.fen) return;
+    const url = hieroglyphicShareUrl(puzzle);
+    const text = hieroglyphicShareText(puzzle, opts);
+    if (opts.channel === 'whatsapp') {
+        const wa = 'https://wa.me/?text=' + encodeURIComponent(text + '\n' + url);
+        const win = window.open(wa, '_blank', 'noopener');
+        if (!win) window.location.href = wa;
+        return;
+    }
+    if (navigator.share) {
+        try { await navigator.share({ title: 'Jeroglífic d’escacs · El Tauler', text, url }); return; }
+        catch (e) { if (e && e.name === 'AbortError') return; }
+    }
+    try {
+        await navigator.clipboard.writeText(text + '\n' + url);
+        showToast('Enllaç copiat: enganxa’l al xat que vulguis.', 'success');
+    } catch (e) {
+        showToast('Copia aquest enllaç per compartir-lo: ' + url, 'info', 12000);
+    }
+}
+// Enllaç rebut (?mode=jeroglific&fen=…&linia=…): reconstrueix el jeroglífic i
+// l'obre. Si la línia no és legal o no són tres jugades, avisa i no fa res.
+function sharedHieroglyphicFromParams(params) {
+    try {
+        const fen = params.get('fen');
+        const line = String(params.get('linia') || '').split('.').filter(Boolean);
+        if (!fen || line.length !== 5 || !line.every(u => /^[a-h][1-8][a-h][1-8][qrbn]?$/.test(u))) return null;
+        const g = new Chess(fen);
+        if (!line.every(u => g.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined }))) return null;
+        return {
+            id: 'hgs_' + hgSeenHash(fen) + hgSeenHash(line.join('')),
+            fen, bestMove: line[0], solutionMoves: [line[0], line[2], line[4]], replyMoves: [line[1], line[3]],
+            lineUci: line, origin: 'shared', source: 'shared'
+        };
+    } catch (e) { return null; }
+}
+function openSharedHieroglyphic(chosen) {
+    if (!chosen) { showToast('L’enllaç del jeroglífic no és vàlid.', 'warn'); return; }
+    const known = loadHieroglyphicHistory().find(e => e && e.fen === chosen.fen && hieroglyphicEntryPlayable(e) && e.conclusion);
+    if (known) { retryHieroglyphicFromHistory(known.id); return; }
+    // El tipus de final (mat, forquilla…) es dedueix de la línia, sense motor.
+    try {
+        const info = classifyPuzzleFinalMotif(chosen.fen, chosen.lineUci, {});
+        if (info && info.motif && info.motif !== 'none') {
+            chosen.finalMotif = info.motif;
+            chosen.finalMotifs = info.motifs || null;
+            chosen.finalMotifLabel = HIERO_FINAL_MOTIF_LABELS[info.motif] || null;
+            chosen.tacticKind = chosen.finalMotifLabel;
+        }
+    } catch (e) {}
+    void startPersonalHieroglyphicFromLastGame(null, chosen);
 }
 
 /* ===================== BANNER D'INCENTIU ===================== */
@@ -32692,6 +33231,7 @@ function returnToMainMenuImmediate() {
 // Torna a la pàgina principal des de qualsevol pantalla (també amaga les
 // pantalles que returnToMainMenuImmediate no gestiona).
 function goToHomeScreen() {
+    $('#hg-history-screen').hide();
     $('#opening-screen').hide();
     $('#history-screen').hide();
     $('#ranking-screen').hide();
@@ -32805,7 +33345,8 @@ function wireContinueSolvedFenButton(overlay) {
 }
 
 function handleBundleSuccess() {
-    $('#bundle-success-overlay .hiero-conclusion').remove();
+    $('#bundle-success-overlay .hiero-conclusion, #bundle-success-overlay .hg-result-extra').remove();
+    $('#bundle-success-overlay .bundle-success-icon').text('✅');
     $('.bundle-run-streak').remove();
     const runSection = exerciseRunSection();
     if (runSection) {
@@ -34174,7 +34715,12 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // que alimenten la biblioteca d'errors (són jugades reals de l'usuari).
     // El repte del bessó tampoc no s'hi desa: evita el bucle de retroalimentació
     // (el bessó aprèn de les teves partides REALS, no de les que hi jugues en contra).
-    if (!isExplorerMode && !isBessoMode) recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors });
+    if (!isExplorerMode && !isBessoMode) {
+        recordGameHistory(msg, finalPrecision, reviewCounts, { severeErrors });
+        // Passada de creació de jeroglífics sobre aquesta partida (en segon pla,
+        // quan l'usuari torni a una pantalla tranquil·la).
+        if (!blunderMode) { try { hgQueuePostGamePass(gameHistory[gameHistory.length - 1]); } catch (e) {} }
+    }
     // Rival Antídot: el progrés acumulat s'actualitza un cop desada la partida
     // (les proves ja viatgen dins de l'entrada de l'historial).
     if (isAntidoteGameMode) commitAntidoteProgress();
@@ -37696,6 +38242,7 @@ function waitForBackgroundPrepToYield(timeoutMs = 1500) {
 }
 
 async function backgroundPrepTick() {
+    try { hgTrackUsage(); } catch (e) {}
     try { refillHieroglyphicQueue(); } catch (e) {}
     try { if (typeof renderHieroglyphicBanner === 'function') renderHieroglyphicBanner(); } catch (e) {}
     if (backgroundPrepPromise) return;
@@ -37706,6 +38253,8 @@ async function backgroundPrepTick() {
     //    dispositius, objectius per aparell i mode lleuger (vegeu hgTick). Si acaba de
     //    generar-ne un i encara no s'ha arribat a l'objectiu, torna aviat per continuar.
     if (isIdleForHieroglyphicPrep()) {
+        // Primer, la passada pendent sobre l'última partida del jugador.
+        try { if (await hgPostGameTick(() => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep())) return; } catch (e) {}
         const beforeNew = (typeof hgNewCount === 'function') ? hgNewCount() : 0;
         try { await hgTick(() => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep()); } catch (e) {}
         const afterNew = (typeof hgNewCount === 'function') ? hgNewCount() : 0;
@@ -37714,6 +38263,8 @@ async function backgroundPrepTick() {
             setTimeout(backgroundPrepTick, 800);
             return;
         }
+        // Partida interna periòdica (autojoc) després d'una estona d'ús.
+        try { if (await hgSelfPlayPeriodicTick(() => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep())) return; } catch (e) {}
         if (afterNew > 0) return;
     }
 
@@ -37765,6 +38316,11 @@ $(document).ready(() => {
     const __mode = (!__customId && !__deepCatalans) ? modeFromUrl() : '';
     // Enllaç d'una notificació de partida diària: ?mode=daily&daily=<id>.
     const __dailyId = (__mode === 'daily') ? dailyGameIdFromUrl() : '';
+    // Jeroglífic compartit: ?mode=jeroglific&fen=<FEN>&linia=<5 mitges jugades UCI>.
+    let __sharedHiero = null;
+    if (__mode === 'jeroglific') {
+        try { __sharedHiero = sharedHieroglyphicFromParams(new URLSearchParams(window.location.search)); } catch (e) { __sharedHiero = null; }
+    }
     history.replaceState(
         { screen: (__customId || __deepCatalans) ? 'catalans-screen' : 'start-screen', customId: __customId || null },
         '',
@@ -37840,6 +38396,7 @@ $(document).ready(() => {
             else if (__mode === 'tutorial' && window.ElTaulerTutorial) window.ElTaulerTutorial.open();
             else if (__mode === 'guide' && window.ElTaulerTutorial) window.ElTaulerTutorial.openGuide();
             else if (__mode === 'tv' && window.ElTaulerStockfishTV) window.ElTaulerStockfishTV.open();
+            else if (__mode === 'jeroglific') openSharedHieroglyphic(__sharedHiero);
         }, 0);
     }
     if (!window.__boardResizeBound) {

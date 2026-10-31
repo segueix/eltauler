@@ -3722,6 +3722,134 @@
         }
         body.epaper-mode .hg-seed-note { color: #333 !important; background: #e6e6e6 !important; }
         /* Modal d'historial de jeroglífics */
+        /* ── Origen dels jeroglífics: partida del jugador vs auto-generat ── */
+        :root { --hg-player: #f0a640; --hg-player-bg: rgba(240, 166, 64, 0.16); --hg-auto: #3cc4b8; --hg-auto-bg: rgba(60, 196, 184, 0.15); --hg-shared: #e478b0; --hg-shared-bg: rgba(228, 120, 176, 0.16); }
+        body.day-mode { --hg-player: #9a5800; --hg-player-bg: rgba(196, 120, 20, 0.14); --hg-auto: #0d6f68; --hg-auto-bg: rgba(13, 128, 120, 0.12); --hg-shared: #9e2f66; --hg-shared-bg: rgba(170, 50, 110, 0.12); }
+        body.epaper-mode { --hg-player: #222; --hg-player-bg: #e8e8e8; --hg-auto: #555; --hg-auto-bg: #f6f6f6; --hg-shared: #444; --hg-shared-bg: #eee; }
+        .hg-origin-mark {
+            display: inline-flex; align-items: center; gap: 5px; padding: 2px 9px 2px 6px; border-radius: 999px;
+            font-size: 0.7rem; font-weight: 800; letter-spacing: 0.02em; white-space: nowrap; line-height: 1.5;
+            border: 1px solid currentColor;
+        }
+        .hg-origin-glyph { font-size: 0.82rem; line-height: 1; }
+        .hg-origin-mark--player { color: var(--hg-player); background: var(--hg-player-bg); }
+        .hg-origin-mark--auto { color: var(--hg-auto); background: var(--hg-auto-bg); border-style: dashed; }
+        .hg-origin-mark--shared { color: var(--hg-shared); background: var(--hg-shared-bg); }
+        .hg-panel .hg-tag.hg-origin-mark { padding: 2px 8px 2px 6px; font-size: 0.68rem; }
+        .hg-panel .hg-tag.hg-origin-mark--player { color: var(--hg-player); background: var(--hg-player-bg); border-color: currentColor; }
+        .hg-panel .hg-tag.hg-origin-mark--auto { color: var(--hg-auto); background: var(--hg-auto-bg); border-color: currentColor; }
+        .hg-panel .hg-tag.hg-origin-mark--shared { color: var(--hg-shared); background: var(--hg-shared-bg); border-color: currentColor; }
+        .hg-panel .hg-h-origin-dot { flex: 0 0 auto; width: 8px; height: 8px; border-radius: 50%; background: var(--hg-player); }
+        .hg-panel .hg-h-origin-dot--auto { background: transparent; border: 2px solid var(--hg-auto); width: 6px; height: 6px; }
+        .hg-panel .hg-h-origin-dot--shared { background: var(--hg-shared); }
+        .hg-panel .hg-history-row.hg-row-origin--player { box-shadow: inset 3px 0 0 var(--hg-player); padding-left: 6px; }
+        .hg-panel .hg-history-row.hg-row-origin--auto { box-shadow: inset 3px 0 0 var(--hg-auto); padding-left: 6px; }
+        .hg-panel .hg-history-row.hg-row-origin--shared { box-shadow: inset 3px 0 0 var(--hg-shared); padding-left: 6px; }
+        .hg-panel .hg-history-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+        .hg-history-open { background: none; border: 0; color: var(--accent-purple, #9c27b0); font: inherit; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; padding: 2px 0; }
+        /* ── Finestra final del jeroglífic ── */
+        .hg-result-extra { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 4px; text-align: left; }
+        .hg-result-origin { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }
+        .hg-result-origin-detail { font-size: 0.78rem; color: var(--text-secondary); }
+        .hg-result-note { font-size: 0.84rem; color: var(--text-primary); line-height: 1.4; }
+        .hg-result-row { display: flex; flex-wrap: wrap; gap: 8px; }
+        .hg-result-row .hg-result-btn { flex: 1 1 140px; width: auto !important; margin: 0 !important; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+        .hg-result-save.is-saved { border-color: var(--text-positive) !important; color: var(--text-positive) !important; }
+        .hg-result-delete:disabled, .hg-result-replay:disabled { opacity: 0.5; }
+        .hg-result-share { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; padding-top: 8px; border-top: 1px solid rgba(255,255,255,0.10); }
+        .hg-result-share-label { font-size: 0.8rem; color: var(--text-secondary); font-weight: 700; flex: 1 1 100%; }
+        .hg-result-share .hg-share-btn { flex: 1 1 130px; justify-content: center; }
+        .hg-share-btn { width: auto !important; margin: 0 !important; padding: 8px 14px !important; font-size: 0.86rem !important; display: inline-flex; align-items: center; gap: 6px; border-radius: 999px !important; background: rgba(255,255,255,0.08) !important; color: var(--text-primary) !important; border: 1px solid rgba(255,255,255,0.18) !important; }
+        .hg-share-wa { background: #1f9d55 !important; color: #fff !important; border-color: #1f9d55 !important; }
+        .hg-share-btn .btn-ic, .hg-result-btn .btn-ic { width: 18px; height: 18px; }
+        body.day-mode .hg-result-share { border-top-color: rgba(0,0,0,0.12); }
+        body.day-mode .hg-share-btn:not(.hg-share-wa) { background: rgba(0,0,0,0.05) !important; border-color: rgba(0,0,0,0.15) !important; }
+        body.epaper-mode .hg-share-wa { background: #ddd !important; color: #222 !important; border-color: #999 !important; }
+        /* ── Pantalla d'historial de jeroglífics ── */
+        #hg-history-screen { max-width: 1100px; margin: 0 auto; padding: 0 16px 24px; box-sizing: border-box; }
+        .hgh-subtitle { font-size: 0.9rem; color: var(--text-secondary); margin-top: 4px; }
+        .hgh-wrap { display: flex; flex-direction: column; gap: 16px; }
+        .hgh-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+        .hgh-tile {
+            display: flex; flex-direction: column; align-items: flex-start; gap: 2px; padding: 12px 14px; border-radius: 14px;
+            background: var(--bg-card); border: 1px solid rgba(255,255,255,0.08); color: var(--text-primary); cursor: pointer; text-align: left; font: inherit;
+            border-top: 4px solid var(--text-secondary);
+        }
+        .hgh-tile--pending { border-top-color: #8c7ae6; }
+        .hgh-tile--half { border-top-color: #f2994a; }
+        .hgh-tile--clean { border-top-color: #2ecc71; }
+        .hgh-tile.is-active { outline: 2px solid var(--accent-gold); outline-offset: 2px; }
+        .hgh-tile-num { font-size: 1.7rem; font-weight: 800; line-height: 1.1; }
+        .hgh-tile-label { font-size: 0.8rem; color: var(--text-secondary); font-weight: 700; }
+        .hgh-cta { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; padding: 14px 16px; border-radius: 14px;
+            background: linear-gradient(135deg, rgba(124, 77, 201, 0.30), rgba(124, 77, 201, 0.10)); border: 1px solid rgba(124, 77, 201, 0.35); }
+        .hgh-cta-text { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1 1 260px; }
+        .hgh-cta-text strong { color: var(--text-primary); font-size: 1rem; }
+        .hgh-cta-text span { color: var(--text-secondary); font-size: 0.84rem; line-height: 1.4; }
+        .hgh-cta .btn { width: auto !important; margin: 0 !important; display: inline-flex; align-items: center; gap: 6px; }
+        .hgh-filters { display: flex; flex-direction: column; gap: 8px; }
+        .hgh-filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
+        .hgh-chip { font: inherit; font-size: 0.82rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; cursor: pointer;
+            background: rgba(255,255,255,0.05); color: var(--text-secondary); border: 1px solid rgba(255,255,255,0.14); }
+        .hgh-chip.is-active { background: var(--text-primary); color: var(--bg-dark); border-color: transparent; }
+        .hgh-chip--player { color: var(--hg-player); border-color: var(--hg-player); }
+        .hgh-chip--auto { color: var(--hg-auto); border-color: var(--hg-auto); border-style: dashed; }
+        .hgh-chip--player.is-active { background: var(--hg-player); color: #1a1410; }
+        .hgh-chip--auto.is-active { background: var(--hg-auto); color: #0b1f1d; }
+        .hgh-section { display: flex; flex-direction: column; gap: 10px; }
+        .hgh-section-head h2 { margin: 6px 0 0; font-size: 1.08rem; color: var(--text-primary); display: flex; align-items: center; gap: 8px; }
+        .hgh-section-head p { margin: 2px 0 0; font-size: 0.82rem; color: var(--text-secondary); }
+        .hgh-section-count { font-size: 0.75rem; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: rgba(255,255,255,0.10); color: var(--text-secondary); }
+        .hgh-empty { font-size: 0.86rem; color: var(--text-secondary); padding: 12px 14px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.18); }
+        .hgh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
+        .hgh-card { display: flex; gap: 12px; padding: 10px; border-radius: 14px; background: var(--bg-card); border: 1px solid rgba(255,255,255,0.07); border-left: 5px solid var(--hg-player); min-width: 0; }
+        .hgh-card--auto { border-left: 5px dashed var(--hg-auto); }
+        .hgh-card--shared { border-left-color: var(--hg-shared); }
+        .hgh-card-board { flex: 0 0 auto; }
+        .hgh-mini { display: grid; grid-template-columns: repeat(8, 1fr); width: 104px; height: 104px; border-radius: 6px; overflow: hidden; box-shadow: 0 0 0 1px rgba(0,0,0,0.35); }
+        .hgh-sq { display: flex; align-items: center; justify-content: center; background: #ead9b5; }
+        .hgh-sq.d { background: #b08a5a; }
+        .hgh-pc { font-size: 11.5px; line-height: 1; font-family: 'Segoe UI Symbol', 'DejaVu Sans', 'Noto Sans Symbols2', sans-serif; }
+        .hgh-pc.w { color: #fff; text-shadow: 0 0 1px #000, 0 0 1px #000, 0 0 1px #000; }
+        .hgh-pc.b { color: #111; text-shadow: 0 0 1px rgba(255,255,255,0.5); }
+        .hgh-card-body { display: flex; flex-direction: column; gap: 5px; min-width: 0; flex: 1; }
+        .hgh-card-top { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+        .hgh-state { font-size: 0.7rem; font-weight: 800; padding: 2px 8px; border-radius: 999px; background: rgba(255,255,255,0.08); color: var(--text-secondary); white-space: nowrap; }
+        .hgh-state--half { color: #f2994a; background: rgba(242, 153, 74, 0.14); }
+        .hgh-state--clean { color: #2ecc71; background: rgba(46, 204, 113, 0.14); }
+        .hgh-state--pending { color: #a29bfe; background: rgba(140, 122, 230, 0.16); }
+        .hgh-card-title { font-weight: 800; font-size: 0.95rem; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hgh-card-meta { font-size: 0.76rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+        .hgh-card-meta .hg-h-diff { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
+        .hgh-card-meta .hg-h-diff-easy { background: #f2c94c; } .hgh-card-meta .hg-h-diff-medium { background: #f2994a; }
+        .hgh-card-meta .hg-h-diff-hard { background: #eb5757; } .hgh-card-meta .hg-h-diff-unknown { display: none; }
+        .hgh-card-actions { display: flex; align-items: center; gap: 6px; margin-top: auto; flex-wrap: nowrap; }
+        .hgh-card-actions .hgh-act-play { width: auto !important; margin: 0 !important; padding: 7px 12px !important; font-size: 0.84rem !important; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; flex: 0 0 auto; }
+        .hgh-icon-btn { flex: 0 0 auto; }
+        .hgh-card-actions .btn-ic { width: 16px; height: 16px; }
+        .hgh-icon-btn { width: 34px; height: 34px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
+            background: rgba(255,255,255,0.06); color: var(--text-primary); border: 1px solid rgba(255,255,255,0.16); }
+        .hgh-icon-btn svg { width: 17px; height: 17px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+        .hgh-icon-btn--wa { color: #25d366; border-color: rgba(37, 211, 102, 0.45); }
+        .hgh-icon-btn--danger { color: var(--text-negative); border-color: rgba(255, 111, 97, 0.40); }
+        .hgh-icon-btn:disabled, .hgh-act-play:disabled { opacity: 0.4; pointer-events: none; }
+        .hgh-more { align-self: center; width: auto !important; }
+        .hgh-foot { justify-content: center; }
+        body.day-mode .hgh-tile, body.day-mode .hgh-card { border-color: rgba(0,0,0,0.08); }
+        body.day-mode .hgh-chip { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.15); }
+        body.day-mode .hgh-icon-btn { background: rgba(0,0,0,0.04); border-color: rgba(0,0,0,0.15); }
+        body.day-mode .hgh-empty { border-color: rgba(0,0,0,0.18); }
+        body.epaper-mode .hgh-tile, body.epaper-mode .hgh-card, body.epaper-mode .hgh-cta { background: #fff !important; border-color: #bbb !important; }
+        body.epaper-mode .hgh-sq { background: #fff; } body.epaper-mode .hgh-sq.d { background: #bbb; }
+        @media (max-width: 520px) {
+            .hgh-summary { gap: 6px; }
+            .hgh-tile { padding: 10px; }
+            .hgh-tile-num { font-size: 1.4rem; }
+            .hgh-tile-label { font-size: 0.72rem; }
+            .hgh-grid { grid-template-columns: 1fr; }
+            .hgh-mini { width: 92px; height: 92px; }
+            .hgh-pc { font-size: 10px; }
+        }
         .hg-modal-list { display: flex; flex-direction: column; gap: 8px; margin: 4px 0 12px; max-height: 55vh; overflow-y: auto; }
         .hg-modal-row { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 10px; background: rgba(124, 77, 201, 0.10); border: 1px solid rgba(124, 77, 201, 0.20); }
         .hg-modal-ic { font-size: 1.15rem; flex-shrink: 0; }
@@ -6272,6 +6400,16 @@
         <symbol id="ic-skip-forward" viewBox="0 0 24 24">
             <polygon points="7 4.5 16.5 12 7 19.5 7 4.5"/>
         </symbol>
+        <symbol id="ic-check" viewBox="0 0 24 24">
+            <polyline points="4.5 12.5 9.5 17.5 19.5 6.5"/>
+        </symbol>
+        <symbol id="ic-bookmark" viewBox="0 0 24 24">
+            <path d="M6.5 3.5h11v17l-5.5-4-5.5 4z"/>
+        </symbol>
+        <symbol id="ic-whatsapp" viewBox="0 0 24 24">
+            <path d="M4 20l1.2-4.1A8.2 8.2 0 1 1 8.4 19z"/>
+            <path d="M9.2 8.6c.2-.5.6-.5.9-.5.3 0 .5.4.8 1.1.2.5-.4.9-.5 1.1.4.9 1.3 1.8 2.3 2.3.2-.1.6-.7 1.1-.5.7.3 1.1.5 1.1.8 0 .3 0 .7-.5.9-.6.3-1.4.4-2.4-.1-1.4-.6-2.7-1.9-3.3-3.3-.4-1-.1-1.5.5-1.8z"/>
+        </symbol>
         <symbol id="ic-trash" viewBox="0 0 24 24">
             <polyline points="3 6 5 6 21 6"/>
             <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/>
@@ -6628,7 +6766,6 @@
                                 <span class="hb-title hg-banner-title">Jeroglífics</span>
                                 <span class="hb-sub hg-banner-sub">Troba els 3 millors moviments</span>
                                 <span class="hg-banner-meta">
-                                    <span class="hg-banner-count" id="hg-banner-count">Preparant-ne un…</span>
                                     <span class="hg-banner-status" id="hg-banner-status">Preparats</span>
                                 </span>
                             </span>
@@ -6964,6 +7101,36 @@
             </details>
             <div class="game-buttons" id="bp-home-row">
                 <button class="btn btn-nav-home" id="bp-home" type="button" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+            </div>
+        </section>
+        <!-- HISTORIAL DE JEROGLÍFICS: pantalla completa amb els no resolts, els
+             resolts a mitges i els resolts a la primera (app.js, renderHieroglyphicHistoryScreen) -->
+        <section id="hg-history-screen" class="screen-anim" style="display:none;" aria-labelledby="hgh-title">
+            <div class="stats-header hgh-head">
+                <svg class="app-logo-svg" aria-hidden="true"><use href="#ic-puzzle-piece"/></svg>
+                <h1 id="hgh-title">Historial de jeroglífics</h1>
+                <div class="hgh-subtitle">Els que tens per resoldre, els que vas resoldre a mitges i els que vas encertar a la primera.</div>
+            </div>
+            <div class="hgh-wrap">
+                <div class="hgh-summary" id="hgh-summary"></div>
+                <div class="hgh-cta" id="hgh-cta"></div>
+                <div class="hgh-filters">
+                    <div class="hgh-filter-group" role="group" aria-label="Estat">
+                        <button type="button" class="hgh-chip" data-hgh-filter-status="all">Tots</button>
+                        <button type="button" class="hgh-chip" data-hgh-filter-status="pending">⏳ Per resoldre</button>
+                        <button type="button" class="hgh-chip" data-hgh-filter-status="half">☑️ A mitges</button>
+                        <button type="button" class="hgh-chip" data-hgh-filter-status="clean">✅ A la primera</button>
+                    </div>
+                    <div class="hgh-filter-group" role="group" aria-label="Origen">
+                        <button type="button" class="hgh-chip" data-hgh-filter-origin="all">Tots els orígens</button>
+                        <button type="button" class="hgh-chip hgh-chip--player" data-hgh-filter-origin="player">♟&#xFE0E; Partida del jugador</button>
+                        <button type="button" class="hgh-chip hgh-chip--auto" data-hgh-filter-origin="auto">⚙&#xFE0E; Auto-generats</button>
+                    </div>
+                </div>
+                <div id="hgh-list"></div>
+                <div class="game-buttons hgh-foot">
+                    <button class="btn btn-nav-home" id="hgh-home" type="button" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>
+                </div>
             </div>
         </section>
         <!-- APRÈN A JUGAR: lliçons d'escacs amb tauler interactiu (tutorial.js) -->
@@ -9602,7 +9769,7 @@
 
     <!-- App Logic -->
     <script src="obertures.js?v=1.0.3"></script>
-    <script src="core.js?v=1.0.43"></script>
+    <script src="core.js?v=1.0.44"></script>
     <script src="antidoteprogress.js?v=1.0.0"></script>
     <script src="hieroclosure.js?v=1.2.0"></script>
     <script src="jeroglifics-reserva.js?v=1.0.0"></script>
@@ -9629,7 +9796,7 @@
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.76';
+        window.APP_VERSION = '1.0.77';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
@@ -9640,7 +9807,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.137"></script>
+    <script src="app.js?v=1.0.138"></script>
 
     <!-- Service Worker Registration -->
     <script>

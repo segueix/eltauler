@@ -6,12 +6,14 @@
 // Stockfish 19 (hgGenerateFromSelfPlaySeed) i la mateixa verificació estricta
 // (tres jugades úniques, rèpliques òptimes i final concloent a profunditat 16).
 // Els jeroglífics que surten s'afegeixen a jeroglifics-reserva.js, que l'app fa
-// servir quan la cua és buida: així sempre n'hi ha un a punt a l'instant, sense
-// dependre de les partides de l'usuari ni de la potència del mòbil.
+// servir com a banc acumulat de jeroglífics nous: així sempre n'hi ha un a punt a
+// l'instant, sense dependre de les partides de l'usuari ni de la potència del mòbil.
 //
-// Ús: node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 240
+// Ús: node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 1000
 // --add: jeroglífics NOUS per execució; --max: capacitat de la reserva pública.
-// Les novetats entren al davant i els més antics es retiren en superar --max.
+// Les novetats entren al davant i s'hi van acumulant (a l'app, tots els que
+// l'usuari encara no ha jugat compten com a nous); només els més antics es
+// retiren en superar --max (uns mesos de jeroglífics diaris).
 // Requisits: Playwright amb Chromium. Els fitxers de CDN (jQuery, chess.js,
 // chessboard.js) es baixen una vegada a .cache/cdn amb el fetch de Node (en un
 // entorn amb proxy: NODE_USE_ENV_PROXY=1 NODE_EXTRA_CA_CERTS=...).
@@ -28,7 +30,7 @@ const CACHE = path.join(ROOT, '.cache', 'cdn');
 const args = process.argv.slice(2);
 const opt = (name, def) => { const i = args.indexOf('--' + name); return i >= 0 ? Number(args[i + 1]) : def; };
 const MINUTES = opt('minutes', 28), PAGES = opt('pages', 3);
-const ADD = opt('add', 3), MAX = opt('max', 240);
+const ADD = opt('add', 3), MAX = opt('max', 1000);
 if (!Number.isInteger(ADD) || ADD < 1 || ADD > 12 ||
     !Number.isInteger(MAX) || MAX < ADD ||
     !Number.isInteger(PAGES) || PAGES < 1 || PAGES > 8 ||
@@ -54,7 +56,7 @@ function writeReserve(list) {
     const body = 'const RESERVE = ' + JSON.stringify(list, null, 1) + ';';
     const src = `// Reserva de jeroglífics minats per autojoc de Stockfish 19 i verificats amb
 // la mateixa prova que el generador de l'app (hieroclosure.js). L'app la fa
-// servir quan la cua és buida. No s'edita a mà: es regenera amb
+// servir com a banc acumulat de nous. No s'edita a mà: es regenera amb
 // \`node scripts/mine-hieroglyphics.js\`.
 (function (root) {
     'use strict';
