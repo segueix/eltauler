@@ -23008,12 +23008,15 @@ function hieroglyphicHistoryCardHtml(e) {
         + `<div class="hgh-card-title">${escapeHtml(hieroglyphicEntryTitle(e))}</div>`
         + `<div class="hgh-card-meta">${escapeHtml(meta.join(' · '))}<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span></div>`
         + (playable ? '' : '<div class="hgh-card-meta">Format antic (menys de tres jugades): ja no es pot jugar.</div>')
+        + '</div>'
+        // Les accions ocupen tota l'amplada de la fitxa (sota el tauler i el text):
+        // així no se surten del requadre amb lletra gran o en pantalles estretes.
         + '<div class="hgh-card-actions">'
         + `<button type="button" class="btn btn-primary hgh-act-play" data-hgh-act="play" data-hgh-id="${id}"${playable ? '' : ' disabled'}><svg class="btn-ic" aria-hidden="true"><use href="#${st === 'pending' ? 'ic-hg-play' : 'ic-hg-replay'}"/></svg>${playLabel}</button>`
         + `<button type="button" class="hgh-icon-btn hgh-icon-btn--wa" data-hgh-act="wa" data-hgh-id="${id}" title="Compartir per WhatsApp" aria-label="Compartir per WhatsApp"${playable ? '' : ' disabled'}><svg aria-hidden="true"><use href="#ic-whatsapp"/></svg></button>`
         + `<button type="button" class="hgh-icon-btn" data-hgh-act="share" data-hgh-id="${id}" title="Compartir per missatgeria" aria-label="Compartir per missatgeria"${playable ? '' : ' disabled'}><svg aria-hidden="true"><use href="#ic-share"/></svg></button>`
         + `<button type="button" class="hgh-icon-btn hgh-icon-btn--danger" data-hgh-act="delete" data-hgh-id="${id}" title="Eliminar de l’historial" aria-label="Eliminar de l’historial"><svg aria-hidden="true"><use href="#ic-trash"/></svg></button>`
-        + '</div></div></article>';
+        + '</div></article>';
 }
 function renderHieroglyphicHistoryScreen() {
     const root = $('#hg-history-screen');
