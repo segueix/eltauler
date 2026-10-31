@@ -120,6 +120,7 @@ function selfPlayContext(engine, extra = {}) {
         HIERO_ALLOWED_FINAL_MOTIFS: Core.HIERO_ALLOWED_FINAL_MOTIFS, HIERO_FINAL_MOTIF_LABELS: Core.HIERO_FINAL_MOTIF_LABELS,
         classifyPuzzleFinalMotif: Core.createHieroglyphicMotifHelpers(Chess).classifyPuzzleFinalMotif,
         hgIsLowEndDevice: () => false, ensureHieroStockfish: async () => true, analyzeHieroFenRobust: engine,
+        perfProfile: () => require('../rendiment').profileFor('alta'),
         hgAllKnownFens: () => new Set(),
         readJsonStorage: (k, d) => (k in store ? JSON.parse(store[k]) : d),
         writeJsonStorage: (k, v) => { store[k] = JSON.stringify(v); }

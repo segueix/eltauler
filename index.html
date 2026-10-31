@@ -72,6 +72,7 @@
     <script src="fonscolors.js?v=1.1.0"></script>
     <!-- Manté el mòbil despert en qualsevol secció, inclosa Stockfish vs Lozza TV. -->
     <script src="pantallaactiva.js?v=1.0.0"></script>
+    <script src="rendiment.js?v=1.0.0"></script>
     <style>
         :root {
             --bg-dark: #1a1410;
@@ -3802,7 +3803,7 @@
         .hgh-section-count { font-size: 0.75rem; font-weight: 800; padding: 1px 8px; border-radius: 999px; background: rgba(255,255,255,0.10); color: var(--text-secondary); }
         .hgh-empty { font-size: 0.86rem; color: var(--text-secondary); padding: 12px 14px; border-radius: 12px; border: 1px dashed rgba(255,255,255,0.18); }
         .hgh-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 10px; }
-        .hgh-card { display: flex; gap: 12px; padding: 10px; border-radius: 14px; background: var(--bg-card); border: 1px solid rgba(255,255,255,0.07); border-left: 5px solid var(--hg-player); min-width: 0; }
+        .hgh-card { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 12px; row-gap: 10px; align-items: start; box-sizing: border-box; overflow: hidden; padding: 10px; border-radius: 14px; background: var(--bg-card); border: 1px solid rgba(255,255,255,0.07); border-left: 5px solid var(--hg-player); min-width: 0; }
         .hgh-card--auto { border-left: 5px dashed var(--hg-auto); }
         .hgh-card--shared { border-left-color: var(--hg-shared); }
         .hgh-card-board { flex: 0 0 auto; }
@@ -3818,13 +3819,13 @@
         .hgh-state--half { color: #f2994a; background: rgba(242, 153, 74, 0.14); }
         .hgh-state--clean { color: #2ecc71; background: rgba(46, 204, 113, 0.14); }
         .hgh-state--pending { color: #a29bfe; background: rgba(140, 122, 230, 0.16); }
-        .hgh-card-title { font-weight: 800; font-size: 0.95rem; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hgh-card-title { font-weight: 800; font-size: 0.95rem; color: var(--text-primary); overflow-wrap: anywhere; line-height: 1.25; }
         .hgh-card-meta { font-size: 0.76rem; color: var(--text-secondary); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
         .hgh-card-meta .hg-h-diff { width: 10px; height: 10px; border-radius: 2px; display: inline-block; }
         .hgh-card-meta .hg-h-diff-easy { background: #f2c94c; } .hgh-card-meta .hg-h-diff-medium { background: #f2994a; }
         .hgh-card-meta .hg-h-diff-hard { background: #eb5757; } .hgh-card-meta .hg-h-diff-unknown { display: none; }
-        .hgh-card-actions { display: flex; align-items: center; gap: 6px; margin-top: auto; flex-wrap: nowrap; }
-        .hgh-card-actions .hgh-act-play { width: auto !important; margin: 0 !important; padding: 7px 12px !important; font-size: 0.84rem !important; display: inline-flex; align-items: center; gap: 5px; white-space: nowrap; flex: 0 0 auto; }
+        .hgh-card-actions { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; min-width: 0; }
+        .hgh-card-actions .hgh-act-play { width: auto !important; margin: 0 !important; padding: 7px 12px !important; font-size: 0.84rem !important; display: inline-flex; align-items: center; justify-content: center; gap: 5px; white-space: nowrap; flex: 1 1 auto; min-width: 0; }
         .hgh-icon-btn { flex: 0 0 auto; }
         .hgh-card-actions .btn-ic { width: 16px; height: 16px; }
         .hgh-icon-btn { width: 34px; height: 34px; border-radius: 999px; display: inline-flex; align-items: center; justify-content: center; padding: 0; cursor: pointer;
@@ -7776,6 +7777,17 @@
                     </label>
                 </div>
                 <div class="setting-help">Prepara jeroglífics mentre ets al menú, historial, lliga o altres pantalles tranquil·les. En mòbils lents pot consumir bateria.</div>
+                <div class="setting-row">
+                    <label class="setting-label" for="perf-mode-select">Rendiment de l'aparell</label>
+                    <select id="perf-mode-select" class="select-control">
+                        <option value="auto">Automàtic</option>
+                        <option value="estalvi">Estalvi (gamma baixa)</option>
+                        <option value="equilibrat">Equilibrat (gamma mitjana)</option>
+                        <option value="maxim">Màxim (gamma alta)</option>
+                    </select>
+                </div>
+                <div class="setting-help">Quanta feina fa l'app en segon pla (jeroglífics, partides internes, exercicis). En automàtic s'adapta a la gamma del mòbil i s'atura sola si l'aparell va just, amb poca bateria o mentre toques la pantalla.</div>
+                <div class="setting-help" id="perf-mode-status" aria-live="polite"></div>
             </div>
 
             <div class="settings-panel">
@@ -9796,7 +9808,7 @@
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.77';
+        window.APP_VERSION = '1.0.79';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
@@ -9807,7 +9819,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.138"></script>
+    <script src="app.js?v=1.0.140"></script>
 
     <!-- Service Worker Registration -->
     <script>

@@ -193,6 +193,13 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   marca d'origen (partida del jugador / auto-generat / compartit), enllaç
   compartit a eltauler.cat que es pot reobrir, caràtula sense comptador i
   pantalla d'historial amb els tres estats.
+- **`rendiment.test.js`** — planificador de la feina en segon pla: classificació
+  en gamma baixa/mitjana/alta (nuclis, memòria, velocitat, mòbil o ordinador,
+  límits durs de memòria), perfils més prudents com més baixa és la gamma, una
+  sola feina pesada alhora en gamma baixa, pausa després d'un toc i entre
+  feines, app amagada i bateria baixa, pressió per bloquejos (sense comptar
+  dues vegades el mateix) o memòria, rebaixa de gamma que dura 24 h, tancament
+  dels motors inactius, modes forçats i integració a app.js i Configuració.
 - **`import.test.js`** — importació de partides externes (PGN): separació d'un
   fitxer amb diverses partides, lectura de capçaleres (amb cometes escapades),
   neteja del movetext (comentaris `{...}` i `;`, variants niades, NAGs, números

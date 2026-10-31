@@ -192,6 +192,21 @@ Conduir amb Playwright + Chromium preinstal·lat
     `game.turn()` del bàndol que juga i `!bundleAutoReplyPending` abans de cada
     jugada (si no, el toc cau durant la rèplica automàtica).
 
+16. **Planificador de fons** (`rendiment.js`, `perf()` a app.js): la gamma
+    surt de `navigator.hardwareConcurrency`, `navigator.deviceMemory`, si és
+    mòbil (`body.dataset.device`) i una prova de velocitat (al Chromium de
+    l'entorn fa ~2 ms, així que un context sense retocs surt de gamma
+    mitjana/alta). Per simular un mòbil de gamma baixa, en un `addInitScript`
+    redefinir `Navigator.prototype.deviceMemory` a 2 (amb 2 GB sempre és baixa)
+    i, per a la bateria, substituir `navigator.getBattery` per una promesa
+    d'un `EventTarget` amb `level` i `charging`. Estat: `perf().status()`
+    (`tier`, `detectedTier`, `reasons`, `paused`, `running`) i
+    `perfProfile()`; mode a `#perf-mode-select` (`eltauler_cloud_perfMode`).
+    Un bloqueig provocat amb un bucle de 1,5 s dins `page.evaluate` el
+    detecta el temporitzador de 250 ms (`perf().underPressure()`).
+    **Compte**: després de qualsevol clic, `canStart` diu «l’usuari està
+    interactuant» durant 0,8–4 s; en provar la generació de fons, esperar-ho.
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
