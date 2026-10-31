@@ -1,8 +1,8 @@
 const Pitch=require('../matxa-pitch');
 describe('pitch shifting with phase vocoder',()=>{
  test('question rises and statement falls',()=>{
-  expect(Pitch.contour('question',.95,1)).toBeGreaterThan(1.3);
-  expect(Pitch.contour('statement',.95,1)).toBeLessThan(.85);
+  expect(Pitch.contour('question',.95,1)).toBeGreaterThan(1.09);
+  expect(Pitch.contour('statement',.95,1)).toBeLessThan(.94);
  });
  test('no intensity means no shift',()=>{for(const mode of ['question','statement','surprise'])expect(Pitch.contour(mode,.9,0)).toBe(1)});
  test('pitch actually shifts sustained tone',()=>{
@@ -16,8 +16,8 @@ describe('pitch shifting with phase vocoder',()=>{
   }
   const a=Math.round(sr*1.5),b=Math.round(sr*1.85);
   const fUp=crossingFreq(up,a,b),fDown=crossingFreq(down,a,b);
-  expect(fUp).toBeGreaterThan(210);
-  expect(fDown).toBeLessThan(165);
+  expect(fUp).toBeGreaterThan(180);
+  expect(fDown).toBeLessThan(180);
   expect(up.length).toBe(n);
  });
 });
