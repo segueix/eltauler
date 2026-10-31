@@ -64,4 +64,21 @@ describe('disposició dels jeroglífics', () => {
         const handle = app.slice(app.indexOf('function handleBundleSuccess()'));
         expect(handle.slice(0, 400)).toContain("removeClass('hg-result-overlay')");
     });
+
+    test('historial de jeroglífics al mòbil: el botó d’anar a l’inici va al costat de «Juga’n un de nou»', () => {
+        const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+        const render = app.slice(app.indexOf('function renderHieroglyphicHistoryScreen()'));
+        const cta = render.slice(render.indexOf("$('#hgh-cta').html("), render.indexOf("root.find('[data-hgh-filter-status]')"));
+        // A la mateixa filera, la casa primer
+        expect(cta).toContain('<div class="hgh-cta-actions">');
+        expect(cta.indexOf('id="hgh-cta-home"')).toBeGreaterThan(cta.indexOf('hgh-cta-actions'));
+        expect(cta.indexOf('id="hgh-play-next"')).toBeGreaterThan(cta.indexOf('id="hgh-cta-home"'));
+        expect(cta).toContain('aria-label="Pàgina principal"');
+        expect(render).toContain("'#hgh-home, #hgh-cta-home', () => navGoBack()");
+        // Només al mòbil; allà el del peu s'amaga, i a l'ordinador queda el del peu
+        expect(html).toContain('.hgh-cta .hgh-cta-home { display: none; }');
+        expect(html).toMatch(/body\.device-mobile \.hgh-cta \.hgh-cta-home \{ display: inline-flex;/);
+        expect(html).toContain('body.device-mobile #hg-history-screen .hgh-foot { display: none; }');
+        expect(html).toContain('id="hgh-home"');
+    });
 });

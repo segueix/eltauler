@@ -3788,6 +3788,15 @@
         .hgh-cta-text strong { color: var(--text-primary); font-size: 1rem; }
         .hgh-cta-text span { color: var(--text-secondary); font-size: 0.84rem; line-height: 1.4; }
         .hgh-cta .btn { width: auto !important; margin: 0 !important; display: inline-flex; align-items: center; gap: 6px; }
+        .hgh-cta-actions { display: flex; align-items: stretch; gap: 8px; }
+        /* Botó d'anar a l'inici al costat de «Juga’n un de nou»: només al mòbil,
+           on el del peu quedava a sota de tota la llista. A l'ordinador hi ha el
+           del peu (#hgh-home). */
+        .hgh-cta .hgh-cta-home { display: none; }
+        body.device-mobile .hgh-cta-actions { flex: 1 1 100%; }
+        body.device-mobile .hgh-cta .hgh-cta-home { display: inline-flex; flex: 0 0 56px; justify-content: center; padding: 0; }
+        body.device-mobile .hgh-cta #hgh-play-next { flex: 1 1 auto; justify-content: center; }
+        body.device-mobile #hg-history-screen .hgh-foot { display: none; }
         .hgh-filters { display: flex; flex-direction: column; gap: 8px; }
         .hgh-filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
         .hgh-chip { font: inherit; font-size: 0.82rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; cursor: pointer;
@@ -9893,7 +9902,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.142"></script>
+    <script src="app.js?v=1.0.143"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 
