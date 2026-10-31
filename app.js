@@ -8,6 +8,57 @@ const HIERO_STOCKFISH_URL = `stockfish-19-lite-single.js?v=${APP_VERSION}`;
 const ANTIDOTE_STOCKFISH_URL = HIERO_STOCKFISH_URL;
 const DEBUG_ENRICHED_ANALYSIS = false;
 
+// ── Planificador de la feina en segon pla (rendiment.js) ─────────────────────
+// Decideix segons la gamma de l'aparell (baixa, mitjana, alta) i la pressió del
+// moment (bloquejos, memòria, bateria, interacció) quan es pot fer feina de fons
+// i quanta. Vegeu PLANIFICACIO-SEGON-PLA.md.
+let perfScheduler = null;
+function perf() {
+    if (perfScheduler) return perfScheduler;
+    try { if (window.ElTaulerRendiment) perfScheduler = window.ElTaulerRendiment.start(window); } catch (e) { perfScheduler = null; }
+    if (!perfScheduler) {
+        // Sense el mòdul: comportament permissiu d'abans (perfil «alta»).
+        const P = window.ElTaulerRendiment && window.ElTaulerRendiment.PROFILES;
+        const prof = (P && P.alta) || { bgTickMs: 4000, maxHeavyJobs: 2, gapMs: {}, strictIdleScreens: false, prepEnabled: true, openingGraphDelayMs: 4000, dailyMoveTimeMs: 4000,
+            hiero: { queueTarget: 6, mineMoveTimeMs: 400, mineBudgetMs: 50000, seedTries: 4, selfPlayAfterMs: 240000, selfPlayEveryMs: 600000, selfPlayQueueCap: 12, postGamePerGame: 2, hashMb: 16, idleReleaseMs: 300000 } };
+        perfScheduler = {
+            tier: () => 'alta', profile: () => prof, mode: () => 'auto', setMode: () => 'auto',
+            canStart: () => ({ ok: true, reason: '' }), begin: () => 1, end: () => {}, mustYield: () => false, busy: () => false,
+            enterPressure: () => {}, noteStall: () => {}, registerIdleResource: () => {}, releaseIdle: () => 0,
+            status: () => ({ mode: 'auto', modeLabel: 'Automàtic', tier: 'alta', tierLabel: 'Gamma alta', detectedTier: 'alta', detectedLabel: 'Gamma alta', reasons: [], paused: '', running: [] })
+        };
+    }
+    return perfScheduler;
+}
+function perfProfile() { return perf().profile(); }
+// Text de Configuració: gamma detectada, motius i estat actual.
+function renderPerfSettingsStatus() {
+    const el = document.getElementById('perf-mode-status');
+    if (!el) return;
+    const st = perf().status();
+    const parts = [];
+    parts.push(st.mode === 'auto'
+        ? `Detectat: ${st.detectedLabel}${st.penalty ? ' · rebaixat a ' + st.tierLabel.toLowerCase() + ' perquè l’aparell anava just' : ''}`
+        : `Forçat: ${st.tierLabel} (detectat: ${st.detectedLabel.toLowerCase()})`);
+    if (st.reasons && st.reasons.length) parts.push(st.reasons.join(', '));
+    const prof = perfProfile();
+    parts.push(`${prof.maxHeavyJobs === 1 ? 'una feina pesada' : prof.maxHeavyJobs + ' feines pesades'} alhora · cicle cada ${Math.round(prof.bgTickMs / 1000)} s · motor de jeroglífics de ${prof.hiero.hashMb} MB`);
+    if (st.paused) parts.push('Ara en pausa: ' + st.paused);
+    el.textContent = parts.join('. ') + '.';
+}
+function initPerfSettingsUi() {
+    const sel = document.getElementById('perf-mode-select');
+    if (!sel) return;
+    sel.value = perf().mode();
+    $(sel).off('change').on('change', function () {
+        perf().setMode(this.value);
+        renderPerfSettingsStatus();
+        try { renderHieroglyphicBanner(); } catch (e) {}
+    });
+    renderPerfSettingsStatus();
+    $('#btn-settings').on('click.perf', () => setTimeout(renderPerfSettingsStatus, 50));
+}
+
 const DEBUG_WEAK_AI = false;
 const WEAK_AI_CONFIG = {
     // Corba específica per ROC baixos: per sota del terra real d'UCI_Elo el motor no baixa més,
@@ -6965,7 +7016,8 @@ function computeDailyEngineMove(entry) {
             // Sostre de temps real: la cerca és en segon pla i no ha de penjar
             // l'app en un dispositiu lent; el rival "pensa" 3 hores de calendari,
             // no de CPU.
-            worker.postMessage(`go depth ${eloToSearchDepth(roc)} movetime 4000`);
+            // En gamma baixa, 2,5 s (vegeu rendiment.js).
+            worker.postMessage(`go depth ${eloToSearchDepth(roc)} movetime ${perfProfile().dailyMoveTimeMs || 4000}`);
         } catch (err) {
             if (!settled) {
                 settled = true;
@@ -9696,6 +9748,10 @@ async function analyzeFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000,
 let hieroStockfish = null;
 let hieroReadyPromise = null;
 let hieroAnalysisQueue = Promise.resolve();
+// Ús del motor: el planificador el tanca quan fa estona que no es fa servir
+// (en gamma baixa, als 45 s) i així no ocupa memòria durant les partides.
+let hieroLastUsedAt = 0;
+let hieroPendingAnalyses = 0;
 function disposeHieroStockfish() {
     const worker = hieroStockfish;
     hieroStockfish = null;
@@ -9709,6 +9765,7 @@ async function ensureHieroStockfish() {
     try { worker = new Worker(HIERO_STOCKFISH_URL); }
     catch (e) { console.warn('[Jeroglífics] Stockfish 19 no disponible', e); return false; }
     hieroStockfish = worker;
+    hieroLastUsedAt = Date.now();
     const pending = new Promise(resolve => {
         let finished = false;
         const finish = ok => {
@@ -9724,7 +9781,12 @@ async function ensureHieroStockfish() {
         const timer = setTimeout(() => finish(false), 15000);
         worker.addEventListener('message', onMessage);
         worker.addEventListener('error', onError);
-        try { worker.postMessage('uci'); worker.postMessage('isready'); } catch (e) { finish(false); }
+        try {
+            worker.postMessage('uci');
+            // Memòria de la taula de transposicions segons la gamma (8 MB en baixa).
+            worker.postMessage('setoption name Hash value ' + ((perfProfile().hiero && perfProfile().hiero.hashMb) || 16));
+            worker.postMessage('isready');
+        } catch (e) { finish(false); }
     });
     hieroReadyPromise = pending;
     const ok = await pending;
@@ -9768,8 +9830,11 @@ function analyzeHieroFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, 
         }
         return null;
     };
+    hieroPendingAnalyses++;
+    hieroLastUsedAt = Date.now();
     const task = hieroAnalysisQueue.then(run, run);
     hieroAnalysisQueue = task.then(() => {}, () => {});
+    task.then(() => {}, () => {}).then(() => { hieroPendingAnalyses = Math.max(0, hieroPendingAnalyses - 1); hieroLastUsedAt = Date.now(); });
     return task;
 }
 if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHieroStockfish);
@@ -21846,10 +21911,10 @@ function hieroglyphicOriginMarkHtml(entry, extraClass = '') {
     return `<span class="hg-origin-mark hg-origin-mark--${m.kind}${extraClass ? ' ' + extraClass : ''}" title="${escapeHtml(m.detail)}"><span class="hg-origin-glyph" aria-hidden="true">${glyph}&#xFE0E;</span>${escapeHtml(m.label)}</span>`;
 }
 // ── Detecció de dispositiu modest i mode lleuger ────────────────────────────
+// Gamma baixa segons el planificador (nuclis, memòria, velocitat mesurada i
+// pressió real); abans només es miraven els nuclis i la memòria.
 function hgIsLowEndDevice() {
-    const cores = navigator.hardwareConcurrency || 8;
-    const mem = navigator.deviceMemory;
-    return (cores <= 4) || (typeof mem === 'number' && mem <= 3);
+    return perf().tier() === 'baixa';
 }
 function hgUpdateLightMode() {
     hgLightMode = hgIsLowEndDevice() || hgRuntime.slowGenerations >= 2 || hgRuntime.workerErrors >= 2;
@@ -21859,9 +21924,9 @@ function hgDeviceTarget() {
     const s = hgEnsureState().settings;
     const global = s.targetQueueSize || 6;
     hgUpdateLightMode();
-    if (hgLightMode) return Math.min(s.lowEndMobileTargetQueueSize || 2, global);
-    if (deviceType === 'mobile') return Math.min(s.mobileTargetQueueSize || 3, global);
-    return Math.min(s.desktopTargetQueueSize || 6, global);
+    const byTier = perfProfile().hiero.queueTarget;
+    if (hgLightMode) return Math.min(s.lowEndMobileTargetQueueSize || 2, byTier, global);
+    return Math.min(byTier, global);
 }
 function hgBackgroundEnabled() {
     const s = hgEnsureState().settings;
@@ -21941,11 +22006,12 @@ function hgRememberTried(fen) {
 // dins la variant principal.
 async function hgMineSelfPlayGame(shouldAbort, opts = {}) {
     if (typeof Chess === 'undefined' || !await ensureHieroStockfish()) return 0;
-    const lowEnd = hgIsLowEndDevice();
-    // Profunditat 10 també en mode lleuger: a profunditat 8 gairebé cap llavor no
-    // aguanta la comprovació (mesurat: 0 de 20); el temps màxim protegeix el mòbil.
-    const depth = 10, moveTimeMs = lowEnd ? 300 : 400;
-    const deadline = Date.now() + (opts.budgetMs || (lowEnd ? 30000 : 50000));
+    const hp = perfProfile().hiero;
+    // Profunditat 10 també en gamma baixa: a profunditat 8 gairebé cap llavor no
+    // aguanta la comprovació (mesurat: 0 de 20); el temps per jugada i el pressupost
+    // de la partida (segons la gamma) protegeixen el mòbil.
+    const depth = 10, moveTimeMs = hp.mineMoveTimeMs || 400;
+    const deadline = Date.now() + (opts.budgetMs || hp.mineBudgetMs || 50000);
     const known = opts.excludeFens instanceof Set ? opts.excludeFens : hgAllKnownFens();
     const cfg = ElTaulerCore.HIERO_MINING;
     const play = (game, u) => !!(u && game.move({ from: u.slice(0, 2), to: u.slice(2, 4), promotion: u.length > 4 ? u[4] : undefined }));
@@ -22071,7 +22137,7 @@ function hgReserveItems() {
 // Certifica llavors de la reserva (i, si és buida, en mina una partida nova).
 async function hgGenerateFromSelfPlaySeed(shouldAbort, excludeFens = new Set(), diag = null) {
     if (typeof Chess === 'undefined' || !await ensureHieroStockfish()) return null;
-    const tries = hgIsLowEndDevice() ? 2 : 4;
+    const tries = perfProfile().hiero.seedTries || 4;
     for (let round = 0; round < 2; round++) {
         if (shouldAbort && shouldAbort()) return null;
         let pool = hgLoadSeeds().filter(x => !excludeFens.has(hgFenKey(x.fen)));
@@ -22111,6 +22177,8 @@ let hgLastGenDiag = null;
 async function hgGenerateOne(shouldAbort, opts = {}) {
     if (hgGenerating) { hgLastGenDiag = { reason: 'busy' }; return null; }
     hgGenerating = true;
+    // Ocupa un torn de feina pesada: mentre dura, la resta de feina de fons espera.
+    const perfToken = perf().begin('hiero', { force: true });
     const diag = {
         reason: null, engine: false, candidates: 0,
         gameRealFresh: 0, variantsTried: 0, selfPlayTried: false,
@@ -22183,7 +22251,11 @@ async function hgGenerateOne(shouldAbort, opts = {}) {
         hgRuntime.lastDurationMs = Date.now() - started;
         // La mineria per autojoc dura uns quants segons per naturalesa: només és
         // «lenta» (i activa el mode lleuger) si passa del minut.
-        if (hgRuntime.lastDurationMs > 60000) hgRuntime.slowGenerations++;
+        if (hgRuntime.lastDurationMs > 60000) {
+            hgRuntime.slowGenerations++;
+            try { perf().enterPressure('generació molt lenta'); } catch (e) {}
+        }
+        perf().end(perfToken);
         hgGenerating = false;
     }
 }
@@ -22355,9 +22427,11 @@ async function hgTick(shouldAbortOuter) {
         if (!hgBackgroundEnabled()) { renderHieroglyphicBanner(); return; }     // toggle OFF → només manual
         if (document.visibilityState !== 'visible') return;
         if (hgUserInSection()) return;
-        if (!isIdleForHieroglyphicPrep()) return;
+        if (!isIdleForHeavyBackground()) return;
         // Ja n'hi ha una en marxa (aquest mateix cicle torna cada pocs segons).
         if (hgGenerating || hgManualBurstRunning) return;
+        // Torn, pauses, bateria i pressió segons la gamma de l'aparell.
+        if (!perf().canStart('hiero').ok) { renderHieroglyphicBanner(); return; }
         const target = hgDeviceTarget();
         // Els jeroglífics comuns ja calculats a GitHub compten com a nous (vegeu
         // hgReserveFresh): només gastem CPU/bateria si no n'hi ha prou.
@@ -22374,7 +22448,7 @@ async function hgTick(shouldAbortOuter) {
         hgState.generation.lastAttemptAt = now;
         hgSaveState();
         renderHieroglyphicBanner();
-        const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHieroglyphicPrep();
+        const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHeavyBackground() || perf().mustYield();
         let cand = null;
         // L'autojoc no depèn de les partides i és barat (també en mode lleuger, amb
         // menys profunditat): sempre hi pot ajudar.
@@ -22408,7 +22482,6 @@ async function hgTick(shouldAbortOuter) {
 // encara que la cua ja sigui plena. Si la passada s'interromp (l'usuari torna a
 // jugar), es reprèn després sense repetir posicions ja provades.
 const HG_POSTGAME_KEY = 'eltauler_cloud_hgPostGame';   // per aparell (no viatja al núvol)
-const HG_POSTGAME_PER_GAME = 2;
 let hgPostGameRunning = false;
 function hgQueuePostGamePass(entry) {
     if (!entry || !entry.id) return;
@@ -22424,6 +22497,7 @@ function hgPendingPostGameIds() {
 async function hgGenerateFromGameEntry(entry, shouldAbort) {
     if (hgGenerating) return null;
     hgGenerating = true;
+    const perfToken = perf().begin('postgame', { force: true });
     try {
         if (!await ensureHieroStockfish()) return null;
         const exclude = hgAllKnownFens();
@@ -22439,6 +22513,7 @@ async function hgGenerateFromGameEntry(entry, shouldAbort) {
         }
         return (cand && hasVerifiedHieroglyphicConclusion(cand)) ? cand : null;
     } finally {
+        perf().end(perfToken);
         hgGenerating = false;
     }
 }
@@ -22447,17 +22522,19 @@ async function hgPostGameTick(shouldAbortOuter) {
     const ids = hgPendingPostGameIds();
     if (!ids.length) return false;
     if (hgEnsureState().settings.enabled === false) return false;
-    if (document.visibilityState !== 'visible' || hgUserInSection() || !isIdleForHieroglyphicPrep()) return false;
+    if (document.visibilityState !== 'visible' || hgUserInSection() || !isIdleForHeavyBackground()) return false;
+    if (!perf().canStart('postgame').ok) return false;
     const id = ids[0];
     const drop = () => writeJsonStorage(HG_POSTGAME_KEY, hgPendingPostGameIds().filter(x => x !== id));
     const entry = Array.isArray(gameHistory) ? gameHistory.find(e => e && e.id === id) : null;
     if (!entry) { drop(); return false; }
     hgPostGameRunning = true;
-    const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHieroglyphicPrep();
+    const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHeavyBackground() || perf().mustYield();
     let made = 0, aborted = false;
     try {
         renderHieroglyphicBanner();
-        for (let i = 0; i < HG_POSTGAME_PER_GAME; i++) {
+        const perGame = perfProfile().hiero.postGamePerGame || 1;
+        for (let i = 0; i < perGame; i++) {
             const cand = await hgGenerateFromGameEntry(entry, shouldAbort);
             if (shouldAbort()) aborted = true;
             if (cand && hgAddToQueue(cand, 'postgame')) made++;
@@ -22481,22 +22558,13 @@ async function hgPostGameTick(shouldAbortOuter) {
 // no té tanta reserva), l'aparell juga de tant en tant una partida interna de
 // Stockfish contra si mateix i en certifica jeroglífics nous, encara que en
 // quedin de pendents. Mai mentre es juga o es resol, ni amb la bateria baixa.
-const HG_SELFPLAY_AFTER_MS = 4 * 60000;      // ús mínim abans de la primera
-const HG_SELFPLAY_EVERY_MS = 10 * 60000;     // interval entre partides internes
-const HG_SELFPLAY_EVERY_LOWEND_MS = 15 * 60000;
-const HG_SELFPLAY_QUEUE_CAP = 12;            // auto-generats de l'aparell pendents com a màxim
+// Els temps (ús mínim abans de la primera, interval entre partides i màxim
+// d'auto-generats pendents) depenen de la gamma: vegeu rendiment.js.
 const hgUsage = { activeMs: 0, lastAt: 0, lastSelfPlayAt: 0, running: false };
 function hgTrackUsage() {
     const now = Date.now();
     if (document.visibilityState === 'visible' && hgUsage.lastAt && now - hgUsage.lastAt < 15000) hgUsage.activeMs += now - hgUsage.lastAt;
     hgUsage.lastAt = document.visibilityState === 'visible' ? now : 0;
-}
-async function hgLowBattery() {
-    try {
-        if (!navigator.getBattery) return false;
-        const b = await navigator.getBattery();
-        return !!(b && !b.charging && typeof b.level === 'number' && b.level < 0.2);
-    } catch (e) { return false; }
 }
 function hgDeviceAutoPendingCount() {
     return hgEnsureState().queue.filter(it => it && it.status === 'new' && hieroglyphicOriginKind(it) === 'auto').length;
@@ -22504,21 +22572,24 @@ function hgDeviceAutoPendingCount() {
 async function hgSelfPlayPeriodicTick(shouldAbortOuter) {
     if (hgUsage.running || hgGenerating || hgManualBurstRunning || hgPostGameRunning) return false;
     if (!hgBackgroundEnabled()) return false;
-    if (hgUsage.activeMs < HG_SELFPLAY_AFTER_MS) return false;
-    const every = hgIsLowEndDevice() ? HG_SELFPLAY_EVERY_LOWEND_MS : HG_SELFPLAY_EVERY_MS;
+    const hp = perfProfile().hiero;
+    if (hgUsage.activeMs < hp.selfPlayAfterMs) return false;
+    const every = hp.selfPlayEveryMs;
     if (hgUsage.lastSelfPlayAt && Date.now() - hgUsage.lastSelfPlayAt < every) return false;
-    if (hgDeviceAutoPendingCount() >= HG_SELFPLAY_QUEUE_CAP) return false;
-    if (document.visibilityState !== 'visible' || hgUserInSection() || !isIdleForHieroglyphicPrep()) return false;
+    if (hgDeviceAutoPendingCount() >= hp.selfPlayQueueCap) return false;
+    if (document.visibilityState !== 'visible' || hgUserInSection() || !isIdleForHeavyBackground()) return false;
     if (hgLockHeldByOther()) return false;
+    // Bateria baixa, pressió, interacció recent o una altra feina pesada: ara no.
+    const perfToken = perf().begin('selfplay');
+    if (!perfToken) return false;
     hgUsage.running = true;
     hgUsage.lastSelfPlayAt = Date.now();
     let aborted = false;
     try {
-        if (await hgLowBattery()) return false;
         hgGenerating = true;
         hgState.generation.active = true;
         renderHieroglyphicBanner();
-        const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHieroglyphicPrep();
+        const shouldAbort = () => (shouldAbortOuter && shouldAbortOuter()) || hgUserInSection() || document.visibilityState !== 'visible' || !isIdleForHeavyBackground() || perf().mustYield();
         let cand = null;
         try { cand = await hgGenerateFromSelfPlaySeed(shouldAbort, hgAllKnownFens(), {}); } catch (e) { hgRuntime.workerErrors++; }
         aborted = shouldAbort();
@@ -22526,6 +22597,7 @@ async function hgSelfPlayPeriodicTick(shouldAbortOuter) {
         if (cand) hgAddToQueue(cand, 'selfplay');
         return true;
     } finally {
+        perf().end(perfToken);
         hgGenerating = false;
         hgUsage.running = false;
         try { hgState.generation.active = false; } catch (e) {}
@@ -22590,6 +22662,14 @@ function hgOnCloudApplied() {
 }
 
 // ── Bàner de la pantalla inicial ────────────────────────────────────────────
+// Motiu curt de pausa del planificador (per al bàner), o '' si no n'hi ha.
+function perfPauseShort() {
+    try {
+        const st = perf().status();
+        if (!st.paused || st.paused === 'l’app no és visible') return '';
+        return st.paused === 'bateria baixa' ? 'En pausa (bateria baixa)' : 'En pausa (aparell ocupat)';
+    } catch (e) { return ''; }
+}
 function hgCloudSyncing() {
     try { const st = window.CloudSync && window.CloudSync.getStatus && window.CloudSync.getStatus(); return !!(st && st.state === 'syncing'); } catch (e) { return false; }
 }
@@ -22611,6 +22691,7 @@ function renderHieroglyphicBanner() {
     else if (generating) status = newCount > 0 ? 'Generant-ne més…' : 'Preparant-ne un…';
     else if (hgCloudSyncing()) status = 'Sincronitzant…';
     else if (!hgBackgroundEnabled()) status = 'Generació manual';
+    else if (newCount === 0 && perfPauseShort()) status = perfPauseShort();
     else if (hgLightMode) status = 'Mode lleuger';
     else if (newCount === 0) status = 'Preparant-ne un…';
     if (statusEl) statusEl.textContent = status;
@@ -25156,6 +25237,8 @@ function setupEvents() {
             renderHieroglyphicBanner();
         });
     }
+    // Configuració › Rendiment de l'aparell (planificador de la feina de fons).
+    initPerfSettingsUi();
     // Toggle de Configuració: generació de jeroglífics en segon pla.
     const $hgBgToggle = $('#hg-background-toggle');
     if ($hgBgToggle.length) {
@@ -29175,6 +29258,11 @@ function showPreparingBoard(fen) {
 
 async function startGame(isBundle, fen = null) {  // ← AFEGIR async
     stopGameNarration();
+    // Gamma baixa: durant la partida no hi ha d'haver dos motors a la memòria.
+    // El de jeroglífics es tanca si no fa res (es tornarà a obrir quan calgui).
+    try {
+        if (perf().tier() === 'baixa' && hieroStockfish && hieroPendingAnalyses === 0 && !hgGenerating && !hgManualBurstRunning) disposeHieroStockfish();
+    } catch (e) {}
     if (window.ElTaulerBoardExperience) window.ElTaulerBoardExperience.unlock('myBoard');
     // Si el mode "Sempre tinc sort" està actiu, estrena tauler i peces a l'atzar.
     clearEngineMoveTimers();
@@ -30857,7 +30945,7 @@ function antidoteDeviceOptions() {
     const device = document.body.dataset.device || 'desktop';
     return {
         mobile: device === 'mobile' || device === 'tablet',
-        lowPower: cores <= 2,
+        lowPower: cores <= 2 || perf().tier() === 'baixa',
         timeControlKind: antidoteTimeControlKind(gameClock.enabled ? getActiveTimeControlId() : 'none')
     };
 }
@@ -38204,6 +38292,13 @@ function isIdleForBackgroundPrep() {
 // partida ni fent un exercici/lliçó i que el motor no treballi per a l'usuari. Així
 // el rebost es continua omplint sigui quina sigui la pantalla secundària visible
 // (historial, obertures, etc.), no només al menú/estadístiques/ajustos.
+// Repòs per a la feina pesada de fons segons la gamma: en gamma baixa, només a
+// les pantalles tranquil·les (inici, estadístiques, ajustos), com la preparació
+// d'exercicis; en la resta, el repòs «ampli» dels jeroglífics.
+function isIdleForHeavyBackground() {
+    if (!isIdleForHieroglyphicPrep()) return false;
+    return !perfProfile().strictIdleScreens || isIdleForBackgroundPrep();
+}
 function isIdleForHieroglyphicPrep() {
     if ($('#game-screen').hasClass('active')) return false;
     // Stockfish TV ja té el seu motor calculant: no n'hi afegim un altre.
@@ -38252,19 +38347,20 @@ async function backgroundPrepTick() {
     //    màxim 1 jeroglífic per cicle en pantalles tranquil·les, amb bloqueig entre
     //    dispositius, objectius per aparell i mode lleuger (vegeu hgTick). Si acaba de
     //    generar-ne un i encara no s'ha arribat a l'objectiu, torna aviat per continuar.
-    if (isIdleForHieroglyphicPrep()) {
+    if (isIdleForHeavyBackground()) {
         // Primer, la passada pendent sobre l'última partida del jugador.
-        try { if (await hgPostGameTick(() => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep())) return; } catch (e) {}
+        try { if (await hgPostGameTick(() => backgroundPrepAbortRequested || !isIdleForHeavyBackground())) return; } catch (e) {}
         const beforeNew = (typeof hgNewCount === 'function') ? hgNewCount() : 0;
-        try { await hgTick(() => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep()); } catch (e) {}
+        try { await hgTick(() => backgroundPrepAbortRequested || !isIdleForHeavyBackground()); } catch (e) {}
         const afterNew = (typeof hgNewCount === 'function') ? hgNewCount() : 0;
         if (afterNew > beforeNew && afterNew < hgDeviceTarget()
-            && !backgroundPrepAbortRequested && isIdleForHieroglyphicPrep()) {
+            && !backgroundPrepAbortRequested && isIdleForHeavyBackground()) {
+            // Continuació ràpida; el planificador hi posa la pausa que toqui per gamma.
             setTimeout(backgroundPrepTick, 800);
             return;
         }
         // Partida interna periòdica (autojoc) després d'una estona d'ús.
-        try { if (await hgSelfPlayPeriodicTick(() => backgroundPrepAbortRequested || !isIdleForHieroglyphicPrep())) return; } catch (e) {}
+        try { if (await hgSelfPlayPeriodicTick(() => backgroundPrepAbortRequested || !isIdleForHeavyBackground())) return; } catch (e) {}
         if (afterNew > 0) return;
     }
 
@@ -38274,7 +38370,10 @@ async function backgroundPrepTick() {
     prunePreparedSequences();
     const next = getBackgroundPrepCandidates().find(f => !preparedSequences[f]);
     if (!next) return;
-    if (!ensureStockfish()) return;
+    // Torn de feina pesada: en gamma baixa i mitjana mai alhora que un jeroglífic.
+    const perfToken = perf().begin('prep');
+    if (!perfToken) return;
+    if (!ensureStockfish()) { perf().end(perfToken); return; }
     backgroundPrepAbortRequested = false;
     backgroundPrepProtected = false;
     backgroundPrepCurrentFen = next;
@@ -38282,7 +38381,7 @@ async function backgroundPrepTick() {
         try {
             const seq = await prepareBundleSequence(next, {
                 silent: true,
-                shouldAbort: () => backgroundPrepAbortRequested || (!backgroundPrepProtected && !isIdleForBackgroundPrep())
+                shouldAbort: () => backgroundPrepAbortRequested || (!backgroundPrepProtected && (!isIdleForBackgroundPrep() || perf().mustYield()))
             });
             if (seq) {
                 cachePreparedSequence(next, seq, 'background_' + getPreparedExerciseSource(next));
@@ -38291,19 +38390,21 @@ async function backgroundPrepTick() {
         } catch (e) {
             console.warn('[PrepBG] Error preparant en segon pla:', e);
         } finally {
+            perf().end(perfToken);
             backgroundPrepCurrentFen = null;
             backgroundPrepProtected = false;
             backgroundPrepPromise = null;
         }
     })();
     await backgroundPrepPromise;
-    // Si seguim en repòs i queda rebost per omplir, continua de seguida (omplim el
-    // rebost com més de pressa millor mentre l'usuari no necessiti el motor).
+    // Si seguim en repòs i queda rebost per omplir, continua aviat (la pausa entre
+    // exercicis la posa el planificador segons la gamma de l'aparell).
     if (!backgroundPrepAbortRequested) setTimeout(backgroundPrepTick, 600);
 }
 
 $(document).ready(() => {
     updateDeviceType();
+    perf();   // arrenca el planificador (mesura de velocitat, pressió, bateria)
     loadStorage();
     if (!isCalibrationActive()) {
         syncEngineEloFromUser();
@@ -38418,7 +38519,20 @@ $(document).ready(() => {
     loadPreparedExerciseHistory();
     loadPreparedSequences();
     setTimeout(backgroundPrepTick, 1200);
-    setInterval(backgroundPrepTick, 4000);
+    // Cicle de fons a l'interval de la gamma (8 s en baixa, 5 s en mitjana, 4 s
+    // en alta); es torna a programar sol i llegeix el perfil a cada volta, així
+    // que un canvi de mode o una rebaixa per pressió s'aplica de seguida.
+    (function scheduleBackgroundLoop() {
+        const ms = (perfProfile() && perfProfile().bgTickMs) || 4000;
+        setTimeout(() => { try { backgroundPrepTick(); } catch (e) {} scheduleBackgroundLoop(); }, ms);
+    })();
+    // Motor de jeroglífics (Stockfish 19): es tanca quan fa estona que no fa res.
+    perf().registerIdleResource({
+        name: 'hiero-sf19',
+        lastUsedAt: () => (hieroStockfish ? hieroLastUsedAt : 0),
+        busy: () => hieroPendingAnalyses > 0 || hgGenerating || hgManualBurstRunning || hgPostGameRunning || (hgUsage && hgUsage.running),
+        release: () => { if (!hieroStockfish) return false; disposeHieroStockfish(); console.log('[Rendiment] Motor de jeroglífics alliberat per inactivitat'); return true; }
+    });
     // Quan la pestanya torna a primer pla, reprèn la generació de seguida: els timers
     // es frenen molt en segon pla, així que no esperem el pròxim interval de 4s.
     document.addEventListener('visibilitychange', () => {
@@ -38427,5 +38541,5 @@ $(document).ready(() => {
 
     // Escalfa el graf d'obertures per posició en segon pla (detecció immune a
     // transposicions), perquè l'anàlisi de partides ja el tingui llest.
-    setTimeout(function () { try { prewarmOpeningPositionGraph(); } catch (e) {} }, 4000);
+    setTimeout(function () { try { prewarmOpeningPositionGraph(); } catch (e) {} }, (perfProfile().openingGraphDelayMs || 4000));
 });

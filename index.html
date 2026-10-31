@@ -72,6 +72,7 @@
     <script src="fonscolors.js?v=1.1.0"></script>
     <!-- Manté el mòbil despert en qualsevol secció, inclosa Stockfish vs Lozza TV. -->
     <script src="pantallaactiva.js?v=1.0.0"></script>
+    <script src="rendiment.js?v=1.0.0"></script>
     <style>
         :root {
             --bg-dark: #1a1410;
@@ -7776,6 +7777,17 @@
                     </label>
                 </div>
                 <div class="setting-help">Prepara jeroglífics mentre ets al menú, historial, lliga o altres pantalles tranquil·les. En mòbils lents pot consumir bateria.</div>
+                <div class="setting-row">
+                    <label class="setting-label" for="perf-mode-select">Rendiment de l'aparell</label>
+                    <select id="perf-mode-select" class="select-control">
+                        <option value="auto">Automàtic</option>
+                        <option value="estalvi">Estalvi (gamma baixa)</option>
+                        <option value="equilibrat">Equilibrat (gamma mitjana)</option>
+                        <option value="maxim">Màxim (gamma alta)</option>
+                    </select>
+                </div>
+                <div class="setting-help">Quanta feina fa l'app en segon pla (jeroglífics, partides internes, exercicis). En automàtic s'adapta a la gamma del mòbil i s'atura sola si l'aparell va just, amb poca bateria o mentre toques la pantalla.</div>
+                <div class="setting-help" id="perf-mode-status" aria-live="polite"></div>
             </div>
 
             <div class="settings-panel">
@@ -9796,7 +9808,7 @@
     <script src="redactor.js?v=1.0.6"></script>
     <script src="catalans.js?v=1.2.10"></script>
     <script>
-        window.APP_VERSION = '1.0.77';
+        window.APP_VERSION = '1.0.78';
         (function () {
             const tag = document.getElementById('app-version-tag');
             if (tag) tag.textContent = 'v' + window.APP_VERSION;
@@ -9807,7 +9819,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.138"></script>
+    <script src="app.js?v=1.0.139"></script>
 
     <!-- Service Worker Registration -->
     <script>
