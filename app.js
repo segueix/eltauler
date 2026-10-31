@@ -23042,11 +23042,11 @@ function renderHieroglyphicHistoryScreen() {
     const hasNew = hgNewCount() > 0;
     $('#hgh-cta').html(`<div class="hgh-cta-text"><strong>${hasNew ? 'Tens jeroglífics nous a punt' : 'Ara mateix no en tens cap de nou'}</strong>`
         + `<span>${hasNew ? 'N’hi ha de les teves partides, de partides internes de l’aparell i del banc diari, que es va acumulant.' : 'Se’n preparen després de cada partida i amb partides internes mentre fas servir l’app. Mentrestant, et proposarem els que tens a mitges.'}</span></div>`
-        // Al mòbil, el botó d'anar a l'inici va aquí, al costat de «Juga’n un de nou»
+        // Al mòbil, el botó d'anar a l'inici va aquí, a la dreta de «Juga’n un de nou»
         // (a l'ordinador és al peu de la pantalla, #hgh-home).
         + '<div class="hgh-cta-actions">'
-        + '<button type="button" class="btn btn-nav-home hgh-cta-home" id="hgh-cta-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>'
         + `<button type="button" class="btn btn-primary" id="hgh-play-next">${HG_ICON_SVG} ${hasNew ? 'Juga’n un de nou' : 'Juga’n un'}</button>`
+        + '<button type="button" class="btn btn-nav-home hgh-cta-home" id="hgh-cta-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>'
         + '</div>');
     root.find('[data-hgh-filter-status]').each(function () { const on = $(this).attr('data-hgh-filter-status') === hghView.status; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
     root.find('[data-hgh-filter-origin]').each(function () { const on = $(this).attr('data-hgh-filter-origin') === hghView.origin; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
