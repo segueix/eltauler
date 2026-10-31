@@ -8816,8 +8816,11 @@
             const a = syncParse(local['eltauler_hieroglyphic_stats']) || {};
             const b = syncParse(cloud['eltauler_hieroglyphic_stats']) || {};
             const mergedStats = Object.assign({}, a, b);
-            for (const k of ['solvedFens', 'generatedFens'])
-                mergedStats[k] = syncUnionEntries(a[k], b[k], k === 'generatedFens' ? 100 : 500);
+            // seenKeys: empremtes dels jeroglífics ja servits (també els del banc
+            // diari, que s'acumula); la unió evita que un aparell els torni a oferir.
+            const limits = { generatedFens: 100, solvedFens: 500, seenKeys: 3000 };
+            for (const k of ['solvedFens', 'generatedFens', 'seenKeys'])
+                if (k !== 'seenKeys' || Array.isArray(a[k]) || Array.isArray(b[k])) mergedStats[k] = syncUnionEntries(a[k], b[k], limits[k]);
             mergedStats.bestStreak = Math.max(Number(a.bestStreak)||0, Number(b.bestStreak)||0);
             merged['eltauler_hieroglyphic_stats'] = JSON.stringify(mergedStats);
         }

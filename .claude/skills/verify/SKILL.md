@@ -176,6 +176,21 @@ Conduir amb Playwright + Chromium preinstal·lat
     pàgina (`window.ElTaulerHieroReserve.length = 0`).
     Per ampliar-la: `node scripts/mine-hieroglyphics.js --minutes 30 --pages 3`
     (els CDN es copien a `.cache/cdn`).
+    **Col·lecció**: el banc diari NO es copia a la cua; tots els seus ítems no
+    jugats compten com a nous (`hgReserveFresh()`, `hgNewCount()`), i un cop
+    servits queden a `hieroglyphicStats.seenKeys`. `hgPlayNext({ excludeFen })`
+    serveix nous → pendents → a mitges → a la primera. Resolt a la primera =
+    entrada amb `deleted: true` fins que es toca «Guardar» (`.hg-result-save`);
+    a mitges = `.hg-result-replay` / `.hg-result-delete`; sempre `.hg-result-next`
+    i compartir (`.hg-share-wa`, `.hg-share-native`). L'historial és la pantalla
+    `#hg-history-screen` (`#btn-hieroglyphic-history`, filtres
+    `[data-hgh-filter-status]` i `[data-hgh-filter-origin]`). Enllaç compartit:
+    `?mode=jeroglific&fen=<FEN>&linia=<5 UCI separades per punts>`. Passada
+    post-partida: `hgQueuePostGamePass(entry)` + `hgPostGameTick(() => false)`;
+    autojoc periòdic: posar `hgUsage.activeMs` alt i cridar
+    `hgSelfPlayPeriodicTick(() => false)`. Per jugar-ne un amb el dit, esperar
+    `game.turn()` del bàndol que juga i `!bundleAutoReplyPending` abans de cada
+    jugada (si no, el toc cau durant la rèplica automàtica).
 
 ## Fluxos útils
 

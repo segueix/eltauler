@@ -1,6 +1,6 @@
 // Reserva de jeroglífics minats per autojoc de Stockfish 19 i verificats amb
 // la mateixa prova que el generador de l'app (hieroclosure.js). L'app la fa
-// servir quan la cua és buida. No s'edita a mà: es regenera amb
+// servir com a banc acumulat de nous. No s'edita a mà: es regenera amb
 // `node scripts/mine-hieroglyphics.js`.
 (function (root) {
     'use strict';

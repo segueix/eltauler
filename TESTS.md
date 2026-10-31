@@ -183,7 +183,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   reconstrucció i es juga en tres passos; la cua neteja els jeroglífics antics
   d'una sola jugada; el generador no publica mai un mat en 1 o en 2, i una línia
   de Stockfish que acaba a la segona jugada (`candidateFromPreparedBestLine`) es
-  descarta encara que faci mat.
+  descarta encara que faci mat. El banc diari de GitHub s'acumula: tots els
+  ítems no jugats compten com a nous sense copiar-se a la cua.
+- **`hieroglyphic-collection.test.js`** — la col·lecció de jeroglífics: ordre
+  dels nous (primer de les partides del jugador, després els més recents),
+  «Un altre jeroglífic» sense repetir l'actual, límit de la cua, prioritat de
+  l'historial (pendents → a mitges → a la primera), resolt a la primera
+  eliminat tret que es guardi, eliminació que la fusió amb el núvol respecta,
+  marca d'origen (partida del jugador / auto-generat / compartit), enllaç
+  compartit a eltauler.cat que es pot reobrir, caràtula sense comptador i
+  pantalla d'historial amb els tres estats.
 - **`import.test.js`** — importació de partides externes (PGN): separació d'un
   fitxer amb diverses partides, lectura de capçaleres (amb cometes escapades),
   neteja del movetext (comentaris `{...}` i `;`, variants niades, NAGs, números
