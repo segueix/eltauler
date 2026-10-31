@@ -5847,6 +5847,34 @@
         body.desktop-results .hg-result-row .hg-result-btn { flex: 1 1 160px; }
         body.desktop-results .hg-result-share .hg-share-btn { flex: 1 1 150px; }
         body.desktop-results .hg-result-share-label { flex-basis: 100%; }
+        /* Jeroglífic resolt al mòbil i a la tauleta. La finestra anava dins del
+           requadre del tauler (position: absolute) i, amb l'explicació de la
+           combinació i tots els botons, és molt més alta que el tauler: en
+           sortia per dalt (tallada i sense poder-hi arribar) i per baix, damunt
+           dels botons del panell del jeroglífic, que es veien a través. Ara
+           ocupa tota la pantalla amb el fons gairebé opac; si no hi cap, es
+           desplaça per dins començant per dalt (marges automàtics: centrada
+           quan hi cap). Els botons no parteixen les paraules («WhatsAp p»): si
+           no caben de costat, passen a la línia següent. La classe la posa
+           showHieroglyphicBundleOverlay() i la treu handleBundleSuccess(). */
+        body:not(.desktop-results) .bundle-success-overlay.hg-result-overlay {
+            position: fixed; inset: 0; z-index: 1000;
+            align-items: flex-start;
+            overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+            padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+                max(16px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+            background: rgba(8, 6, 4, 0.94);
+        }
+        body:not(.desktop-results) .hg-result-overlay .bundle-success-content {
+            margin: auto 0;
+            max-width: 460px;
+        }
+        body:not(.desktop-results) .hg-result-overlay .btn { overflow-wrap: normal; }
+        body:not(.desktop-results) .hg-result-overlay .hg-result-row .hg-result-btn,
+        body:not(.desktop-results) .hg-result-overlay .hg-result-share .hg-share-btn,
+        body:not(.desktop-results) .hg-result-overlay .nav-trio .btn:not(.btn-nav-home) {
+            flex: 1 1 auto;
+        }
         body.device-desktop #app-confirm-modal .modal-content,
         body.device-desktop #resign-modal .modal-content {
             max-width: clamp(380px, 44vw, 640px);
@@ -9865,7 +9893,7 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.141"></script>
+    <script src="app.js?v=1.0.142"></script>
     <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
     <script src="canviapp.js?v=1.0.0"></script>
 
