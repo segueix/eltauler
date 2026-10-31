@@ -193,6 +193,13 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   marca d'origen (partida del jugador / auto-generat / compartit), enllaç
   compartit a eltauler.cat que es pot reobrir, caràtula sense comptador i
   pantalla d'historial amb els tres estats.
+- **`hieroglyphic-keymotif.test.js`** — tema dels jeroglífics per la idea
+  tàctica: una forquilla, clavada, enfilada o descoberta de la primera o la
+  segona jugada mana quan la tercera captura una de les peces atacades (amb
+  posicions reals del banc diari); el rei davant d'una torre és una enfilada i
+  no una clavada; sense motiu lligat continua sent «guany de dama o torre»;
+  reetiquetatge del banc (`scripts/relabel-hieroglyphics.js`, també al workflow
+  diari) i migració única a l'app de la cua i l'historial, sense tocar la prova.
 - **`rendiment.test.js`** — planificador de la feina en segon pla: classificació
   en gamma baixa/mitjana/alta (nuclis, memòria, velocitat, mòbil o ordinador,
   límits durs de memòria), perfils més prudents com més baixa és la gamma, una

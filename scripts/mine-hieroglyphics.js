@@ -180,4 +180,4 @@ async function main() {
 }
 
 if (require.main === module) main().catch(err => { console.error(err); process.exit(1); });
-module.exports = { readReserve, sound, reserveFenKey, addToPublicReserve };
+module.exports = { readReserve, writeReserve, sound, reserveFenKey, addToPublicReserve };

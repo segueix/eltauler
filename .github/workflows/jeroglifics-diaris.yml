@@ -51,6 +51,11 @@ jobs:
       - name: Mina fins a tres jeroglífics nous amb Stockfish 19
         run: node scripts/mine-hieroglyphics.js --add 3 --minutes 28 --pages 3 --max 1000
 
+      - name: Reetiqueta el tema dels jeroglífics del banc
+        # Forquilla, clavada, enfilada o descoberta de la primera o la segona
+        # jugada (abans tot sortia com a «guany de dama o torre»). Idempotent.
+        run: node scripts/relabel-hieroglyphics.js
+
       - name: Confirma la reserva al repositori
         id: publish
         shell: bash

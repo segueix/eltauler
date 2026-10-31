@@ -19106,7 +19106,7 @@ const HIERO_STATS_KEY = 'eltauler_hieroglyphic_stats';
 // núvol amb la resta de dades, així queda disponible des de qualsevol aparell).
 const HIERO_HISTORY_KEY = 'eltauler_hieroglyphic_history';
 // Preferència de FINAL del jeroglífic (selector de la UI). Valors interns:
-// 'any' | 'mate' | 'check' | 'fork' | 'pin' | 'discovery' | 'promotion' | 'major_win'.
+// 'any' | 'mate' | 'check' | 'fork' | 'pin' | 'skewer' | 'discovery' | 'promotion' | 'major_win'.
 const HIERO_PREF_FINAL_KEY = 'eltauler_hieroglyphic_final_pref';
 let hieroglyphicPreferredFinalMotif = 'any';
 function loadHieroglyphicPreferredFinalMotif() {
@@ -21684,7 +21684,7 @@ function renderHieroglyphicPanel() {
     const finalLabel = hieroglyphicFinalLabel(currentHieroglyphicPuzzle && currentHieroglyphicPuzzle.finalMotif);
     let tags = hieroglyphicOriginMarkHtml(currentHieroglyphicPuzzle || { origin }, 'hg-tag');
     if (origin !== 'shared') tags += `<span class="hg-tag hg-tag-origin hg-origin-${origin}">${escapeHtml(hieroglyphicOriginLabel(origin))}</span>`;
-    if (finalLabel) tags += `<span class="hg-tag hg-tag-final">Final: ${escapeHtml(finalLabel)}</span>`;
+    if (finalLabel) tags += `<span class="hg-tag hg-tag-final">Tema: ${escapeHtml(finalLabel)}</span>`;
     panel.html(
         `<div class="hg-comment">${HG_ICON_SVG} Jeroglífic a resoldre en ${moves} moviment${moves === 1 ? '' : 's'}</div>`
         + `<div class="hg-tags">${tags}</div>`
@@ -22850,6 +22850,50 @@ async function hgManualGenerateBurst(opts = {}) {
     return res;
 }
 
+// ── Tema dels jeroglífics ja desats ────────────────────────────────────────
+// Abans el tema només mirava l'última jugada (que gairebé sempre cobra material:
+// «guany de dama o torre»); ara també reconeix la forquilla, la clavada, l'enfilada
+// o la descoberta de la primera o la segona jugada. Els jeroglífics de la cua i
+// de l'historial es reetiqueten una vegada (la prova no canvia).
+const HG_MOTIF_VERSION = 2;
+const HG_MOTIF_VERSION_KEY = 'eltauler_cloud_hgMotifVersion';
+function hgRelabelMotif(it) {
+    if (!it || !it.fen || !Array.isArray(it.solutionMoves) || it.solutionMoves.length !== 3 || !Array.isArray(it.replyMoves) || it.replyMoves.length < 2) return false;
+    if (it.finalMotif === 'mate' || it.finalMotif === 'promotion') return false;
+    let info = null;
+    try { info = classifyPuzzleFinalMotif(it.fen, window.ElTaulerHieroClosure.lineOf(it), { finalEval: typeof it.evalBefore === 'number' ? it.evalBefore : undefined }); } catch (e) { return false; }
+    if (!info || !info.motif || info.motif === 'none' || info.confidence === 'low' || HIERO_ALLOWED_FINAL_MOTIFS.indexOf(info.motif) === -1) return false;
+    if (info.motif === it.finalMotif) return false;
+    const oldMotif = it.finalMotif, oldLabel = oldMotif ? HIERO_FINAL_MOTIF_LABELS[oldMotif] : null;
+    it.finalMotif = info.motif;
+    it.finalMotifs = info.motifs;
+    it.finalMotifLabel = HIERO_FINAL_MOTIF_LABELS[info.motif] || null;
+    it.finalMotifReason = info.reason;
+    if ('finalType' in it) it.finalType = info.motif;
+    if (!it.theme || it.theme === oldMotif) it.theme = info.motif;
+    if (!it.tacticKind || it.tacticKind === oldLabel) it.tacticKind = it.finalMotifLabel;
+    return true;
+}
+function hgMigrateMotifLabels() {
+    let done = 0;
+    try { done = Number(localStorage.getItem(HG_MOTIF_VERSION_KEY)) || 0; } catch (e) {}
+    if (done >= HG_MOTIF_VERSION || !window.ElTaulerHieroClosure) return 0;
+    let changed = 0;
+    try {
+        hgEnsureState();
+        let qChanged = 0;
+        hgState.queue.forEach(it => { if (hgRelabelMotif(it)) qChanged++; });
+        if (qChanged) { hgState.updatedAt = Date.now(); hgSaveState(); }
+        const list = loadHieroglyphicHistory();
+        let hChanged = 0;
+        list.forEach(e => { if (hgRelabelMotif(e)) hChanged++; });
+        if (hChanged) saveHieroglyphicHistory(list);
+        changed = qChanged + hChanged;
+        localStorage.setItem(HG_MOTIF_VERSION_KEY, String(HG_MOTIF_VERSION));
+    } catch (e) { console.warn('[HG] reetiquetatge', e); }
+    return changed;
+}
+
 // Entrada a la secció des del bàner (o des de qualsevol accés a jeroglífics) i
 // botó «Un altre jeroglífic» de la finestra final. Ordre de prioritat:
 //   1) nous (partides del jugador, autojoc de l'aparell i banc diari acumulat);
@@ -22996,7 +23040,8 @@ function closeHieroglyphicHistoryScreen() {
 }
 function hieroglyphicEntryTitle(e) {
     const final = hieroglyphicFinalLabel(e && e.finalMotif);
-    if (final) return 'Final: ' + final;
+    // El tema és la idea tàctica (forquilla, enfilada…), no només l'última jugada.
+    if (final) return final.charAt(0).toUpperCase() + final.slice(1);
     return (e && (e.finalMotifLabel || e.tacticKind || e.theme)) || 'Jeroglífic';
 }
 function hieroglyphicHistoryCardHtml(e) {
@@ -25261,6 +25306,7 @@ function setupEvents() {
     }
     refreshJeroglificButton(); // actiu si hi ha un de nou o algun pendent per refer
     hgEnsureState();
+    try { hgMigrateMotifLabels(); } catch (e) {}
     renderHieroglyphicBanner();
     // Primer intent de generació poc després d'arrencar (si escau).
     setTimeout(() => { try { if (typeof backgroundPrepTick === 'function') backgroundPrepTick(); } catch (e) {} }, 1500);
