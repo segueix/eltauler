@@ -36,4 +36,32 @@ describe('disposició dels jeroglífics', () => {
         expect(html).toMatch(/\.game-board-column > \.board-container \{[^}]*order:\s*-1;/);
         expect(html).toContain('body.device-mobile #game-screen > .game-board-column { display: contents; }');
     });
+
+    // La finestra de jeroglífic resolt és molt més alta que el tauler: al mòbil
+    // sortia per dalt (tallada) i per baix (damunt del panell, que es veia a través).
+    test('al mòbil, la finestra de jeroglífic resolt ocupa la pantalla i es desplaça per dins', () => {
+        const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+        const rule = (sel) => {
+            const at = html.indexOf(sel + ' {');
+            expect(at).toBeGreaterThan(0);
+            return html.slice(at, html.indexOf('}', at));
+        };
+        const overlay = rule('body:not(.desktop-results) .bundle-success-overlay.hg-result-overlay');
+        expect(overlay).toMatch(/position:\s*fixed;\s*inset:\s*0/);
+        expect(overlay).toMatch(/align-items:\s*flex-start/);
+        expect(overlay).toMatch(/overflow-y:\s*auto/);
+        expect(overlay).toMatch(/background:\s*rgba\(8, 6, 4, 0\.9\d\)/);
+        // Centrada quan hi cap i, si no, començant per dalt (mai tallada per dalt)
+        expect(rule('body:not(.desktop-results) .hg-result-overlay .bundle-success-content')).toMatch(/margin:\s*auto 0/);
+        // Els botons no parteixen paraules
+        expect(rule('body:not(.desktop-results) .hg-result-overlay .btn')).toMatch(/overflow-wrap:\s*normal/);
+
+        const show = app.slice(app.indexOf('function showHieroglyphicBundleOverlay()'));
+        const body = show.slice(0, show.indexOf('\n}\n'));
+        expect(body).toContain("overlay.addClass('hg-result-overlay')");
+        expect(body).toContain('overlay.scrollTop(0)');
+        // La resta de resultats (tàctiques, repàs, repte diari...) no la porten
+        const handle = app.slice(app.indexOf('function handleBundleSuccess()'));
+        expect(handle.slice(0, 400)).toContain("removeClass('hg-result-overlay')");
+    });
 });

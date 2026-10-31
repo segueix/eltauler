@@ -23655,6 +23655,7 @@ function showHieroglyphicSuccessOverlay() {
         return;
     }
     overlay.find('.bundle-success-title').text('Jeroglífic fet ✅');
+    overlay.removeClass('hg-result-overlay');
     overlay.find('.bundle-success-remaining').text('').hide();
     overlay.find('.bundle-run-streak').remove();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
@@ -27655,7 +27656,11 @@ function showHieroglyphicBundleOverlay() {
     renderHieroglyphicResultActions(overlay);
     overlay.find('#btn-bundle-random-again').hide();
     wireContinueSolvedFenButton(overlay);
+    // Al mòbil i a la tauleta no cap damunt del tauler: ocupa tota la pantalla i
+    // es desplaça per dins, començant per dalt (vegeu .hg-result-overlay a index.html).
+    overlay.addClass('hg-result-overlay');
     overlay.css('display', 'flex');
+    overlay.scrollTop(0);
     wireNavTrio(overlay, {
         sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial',
         sectionDisabled: false,
@@ -33448,6 +33453,7 @@ function wireContinueSolvedFenButton(overlay) {
 
 function handleBundleSuccess() {
     $('#bundle-success-overlay .hiero-conclusion, #bundle-success-overlay .hg-result-extra').remove();
+    $('#bundle-success-overlay').removeClass('hg-result-overlay');
     $('#bundle-success-overlay .bundle-success-icon').text('✅');
     $('.bundle-run-streak').remove();
     const runSection = exerciseRunSection();

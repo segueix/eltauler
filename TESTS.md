@@ -193,6 +193,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   marca d'origen (partida del jugador / auto-generat / compartit), enllaç
   compartit a eltauler.cat que es pot reobrir, caràtula sense comptador i
   pantalla d'historial amb els tres estats.
+- **`hieroglyph-layout.test.js`** — la disposició dels jeroglífics: descripció
+  i tauler a la mateixa columna, veu i ràdio sota la descripció a l'ordinador, i
+  la **finestra de jeroglífic resolt al mòbil i a la tauleta**: ocupa tota la
+  pantalla (`position: fixed`) amb el fons gairebé opac i es desplaça per dins
+  començant per dalt, en lloc d'anar dins del requadre del tauler, d'on sortia
+  per dalt (tallada) i per baix (damunt del panell del jeroglífic). Els botons
+  no parteixen paraules. La classe `hg-result-overlay` la posa
+  `showHieroglyphicBundleOverlay()` i la treu `handleBundleSuccess()`, perquè
+  els altres resultats continuïn damunt del tauler. Verificat també amb
+  Playwright a 393 × 800 (lletra al 100 % i al 135 %), 360 × 640 i 820 × 1180:
+  la finestra comença a 12 px de dalt i fent scroll s'arriba als botons de
+  navegació; a l'ordinador (1280 × 800) no canvia res.
 - **`rendiment.test.js`** — planificador de la feina en segon pla: classificació
   en gamma baixa/mitjana/alta (nuclis, memòria, velocitat, mòbil o ordinador,
   límits durs de memòria), perfils més prudents com més baixa és la gamma, una
