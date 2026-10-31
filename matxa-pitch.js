@@ -1,15 +1,15 @@
 /* Pitch shifter de vocoder de fase (STFT). Mateixa durada, contorn F0 variable.
- * Experimental: preserva el ritme, no garanteix la preservació dels formants.
+ * Experimental: preserva el ritme i compensa aproximadament l'embolcall espectral;\n * no equival a un model TTS amb control prosòdic ni garanteix tots els formants.
  */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.ElTaulerPitch=api;})(typeof self!=='undefined'?self:this,function(){
 'use strict';
 function contour(mode,x,intensity){
  x=Math.max(0,Math.min(1,x));const a=Math.max(0,Math.min(1,intensity));let st=0;
- if(mode==='question')st=-.4+7.0*Math.pow(Math.max(0,(x-.48)/.52),1.15);
- else if(mode==='statement')st=.5-5.5*Math.pow(Math.max(0,(x-.43)/.57),1.2);
- else if(mode==='surprise')st=2.5+3*Math.sin(Math.PI*x);
- else if(mode==='tense')st=.6+2*Math.sin(4*Math.PI*x);
- else if(mode==='finale')st=1.7-4.5*x;
+ if(mode==='question')st=-.2+2.3*Math.pow(Math.max(0,(x-.56)/.44),1.4);
+ else if(mode==='statement')st=.1-2.1*Math.pow(Math.max(0,(x-.48)/.52),1.3);
+ else if(mode==='surprise')st=.7+1.5*Math.sin(Math.PI*x);
+ else if(mode==='tense')st=.2+.9*Math.sin(4*Math.PI*x);
+ else if(mode==='finale')st=.6-1.9*x;
  return Math.pow(2,st*a/12);
 }
 function fft(re,im,inverse){
@@ -30,7 +30,7 @@ function process(input,sr,mode,intensity){
  const oldPhase=new Float64Array(half+1),sumPhase=new Float64Array(half+1);
  const re=new Float64Array(N),im=new Float64Array(N),magn=new Float64Array(half+1),freq=new Float64Array(half+1);
  const magnOut=new Float64Array(half+1),freqOut=new Float64Array(half+1),counts=new Float64Array(half+1);
- const expected=2*Math.PI*H/N;
+ const envelope=new Float64Array(half+1),prefix=new Float64Array(half+2);\n const expected=2*Math.PI*H/N;
  for(let start=-N/2;start<n;start+=H){
    const ratio=contour(mode,(start+N/2)/Math.max(1,n),intensity);
    re.fill(0);im.fill(0);magnOut.fill(0);freqOut.fill(0);counts.fill(0);
