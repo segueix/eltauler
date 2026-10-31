@@ -205,6 +205,11 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   Playwright a 393 × 800 (lletra al 100 % i al 135 %), 360 × 640 i 820 × 1180:
   la finestra comença a 12 px de dalt i fent scroll s'arriba als botons de
   navegació; a l'ordinador (1280 × 800) no canvia res.
+  També que, a l'**historial de jeroglífics al mòbil**, el botó d'anar a
+  l'inici és a la caixa de dalt, a l'esquerra de «Juga'n un de nou»
+  (`#hgh-cta-home`), i el del peu (`#hgh-home`) s'amaga; a l'ordinador queda el
+  del peu. Verificat amb Playwright a 393 × 800 (lletra al 100 % i al 135 %,
+  mateixa filera i alçada, sense desbordar) i a 1280 × 800.
 - **`rendiment.test.js`** — planificador de la feina en segon pla: classificació
   en gamma baixa/mitjana/alta (nuclis, memòria, velocitat, mòbil o ordinador,
   límits durs de memòria), perfils més prudents com més baixa és la gamma, una

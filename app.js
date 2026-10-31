@@ -23042,7 +23042,12 @@ function renderHieroglyphicHistoryScreen() {
     const hasNew = hgNewCount() > 0;
     $('#hgh-cta').html(`<div class="hgh-cta-text"><strong>${hasNew ? 'Tens jeroglífics nous a punt' : 'Ara mateix no en tens cap de nou'}</strong>`
         + `<span>${hasNew ? 'N’hi ha de les teves partides, de partides internes de l’aparell i del banc diari, que es va acumulant.' : 'Se’n preparen després de cada partida i amb partides internes mentre fas servir l’app. Mentrestant, et proposarem els que tens a mitges.'}</span></div>`
-        + `<button type="button" class="btn btn-primary" id="hgh-play-next">${HG_ICON_SVG} ${hasNew ? 'Juga’n un de nou' : 'Juga’n un'}</button>`);
+        // Al mòbil, el botó d'anar a l'inici va aquí, al costat de «Juga’n un de nou»
+        // (a l'ordinador és al peu de la pantalla, #hgh-home).
+        + '<div class="hgh-cta-actions">'
+        + '<button type="button" class="btn btn-nav-home hgh-cta-home" id="hgh-cta-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>'
+        + `<button type="button" class="btn btn-primary" id="hgh-play-next">${HG_ICON_SVG} ${hasNew ? 'Juga’n un de nou' : 'Juga’n un'}</button>`
+        + '</div>');
     root.find('[data-hgh-filter-status]').each(function () { const on = $(this).attr('data-hgh-filter-status') === hghView.status; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
     root.find('[data-hgh-filter-origin]').each(function () { const on = $(this).attr('data-hgh-filter-origin') === hghView.origin; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
     const sections = hghView.status === 'all' ? HGH_SECTIONS : HGH_SECTIONS.filter(x => x.id === hghView.status);
@@ -23074,7 +23079,7 @@ function renderHieroglyphicHistoryScreen() {
         .on('click.hgh', '[data-hgh-filter-origin]', function () { hghView.origin = $(this).attr('data-hgh-filter-origin'); renderHieroglyphicHistoryScreen(); })
         .on('click.hgh', '[data-hgh-more]', function () { const k = $(this).attr('data-hgh-more'); hghView.shown[k] = (hghView.shown[k] || HGH_PAGE) + HGH_PAGE; renderHieroglyphicHistoryScreen(); })
         .on('click.hgh', '#hgh-play-next', () => { $('#hg-history-screen').hide(); void openHieroglyphicsFromBanner(); })
-        .on('click.hgh', '#hgh-home', () => navGoBack())
+        .on('click.hgh', '#hgh-home, #hgh-cta-home', () => navGoBack())
         .on('click.hgh', '[data-hgh-act]', function () {
             const act = $(this).attr('data-hgh-act');
             const entry = loadHieroglyphicHistory().find(e => e && String(e.id) === $(this).attr('data-hgh-id'));
