@@ -722,7 +722,18 @@ function applyDeviceType(type) {
     document.body.classList.add(`device-${type}`);
 }
 
+// Finestres de resultat amples «d'ordinador»: a l'ordinador i també en un
+// portàtil tàctil de pantalla ampla (que es detecta com a tauleta), però mai en
+// tauletes ni mòbils de debò (sense ratolí ni trackpad).
+function updateDesktopResultClass() {
+    let wide = deviceType === 'desktop';
+    if (!wide && deviceType !== 'mobile') {
+        try { wide = window.matchMedia('(min-width: 1100px) and (hover: hover) and (pointer: fine)').matches; } catch (e) {}
+    }
+    document.body.classList.toggle('desktop-results', !!wide);
+}
 function updateDeviceType() {
+    try { setTimeout(updateDesktopResultClass, 0); } catch (e) {}
     const detected = detectDeviceType();
     if (detected !== deviceType) {
         applyDeviceType(detected);
