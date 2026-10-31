@@ -629,8 +629,29 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   totes les narracions no pot entrar en bucle. Aquell bucle deixava les
   partides sense rellotge visible ni peces mòbils i tallava «Reprodueix» a
   l'historial.
+- **`canviapp.test.js`** — el **pas a Remigi lliscant el dit** (`canviapp.js`,
+  la mateixa animació que Segueix! fa servir per anar a Segueix! Música): la
+  zona on ha de començar el gest (fora de les vores i de la capçalera), quan és
+  horitzontal (|dx| > 1,8·|dy| passats 12 px), el llindar (35 % de l'ample,
+  mínim 110 px), com entra el panell, que va a `/remigi/`, que l'avís de la mà
+  surt tres vegades amb una clau que no topa amb la de Remigi (comparteixen
+  domini i localStorage), que `index.html` carrega el CSS i l'script després
+  d'`app.js`, i que els oients del dit són passius (no frenen el desplaçament).
 
 ## Verificació al navegador
+
+### Pas a Remigi lliscant el dit
+
+Amb Playwright + Chromium sobre l'app REAL (vegeu `.claude/skills/verify`), en un
+context de mòbil (390 × 844, `hasTouch`, `isMobile`) i amb gestos tàctils reals
+per CDP (`Input.dispatchTouchEvent`), servint `/remigi/` amb una pàgina local:
+lliscar cap a l'esquerra o cap a la dreta pel mig de la portada obre Remigi; un
+gest curt, vertical o des de la vora no fa res; a mitges, el panell «Remigi»
+entra des del costat contrari seguint el dit, diu «Deixa anar per anar-hi»
+passat el llindar i se'n torna si es deixa anar abans; a Configuració (una altra
+pantalla) o amb una finestra oberta no canvia d'app; l'avís de la mà surt la
+primera vegada (sense tapar res, `pointer-events: none`) i a la quarta ja no, i
+a l'ordinador mai.
 
 ### Reflexos bullet
 

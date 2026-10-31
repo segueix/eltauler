@@ -207,6 +207,20 @@ Conduir amb Playwright + Chromium preinstal·lat
     **Compte**: després de qualsevol clic, `canStart` diu «l’usuari està
     interactuant» durant 0,8–4 s; en provar la generació de fons, esperar-ho.
 
+17. **Pas a Remigi lliscant el dit** (`canviapp.js` + `canviapp.css`): només
+    al mòbil (`max-width: 768px`) i a la portada (`#start-screen` visible, cap
+    `.modal-overlay` oberta). Cal un context `hasTouch: true, isMobile: true` i
+    gestos reals per CDP (`Input.dispatchTouchEvent` touchStart → uns quants
+    touchMove de 16 ms → touchEnd); `page.touchscreen` només fa tocs. El
+    gest ha de començar entre el 12 % i el 88 % de l'ample i el 15 % i el 88 %
+    de l'alt, i arribar al 35 % de l'ample: **Chrome fon l'últim touchMove amb
+    el touchEnd**, així que la lliscada ha de passar el llindar abans de
+    l'últim pas. `/remigi/` no existeix al repo (el posa el desplegament):
+    servir-lo amb `page.route('**/remigi/', …)`. El panell és `.app-switch`
+    (`is-active`, `is-ready` passat el llindar) i l'avís de la mà,
+    `.app-switch-hint` (comptador a `eltauler_app_switch_hint_v1`; posar-hi
+    `3` perquè no surti).
+
 ## Fluxos útils
 
 - **Final de partida real per la UI**: `#btn-new-game` → `#btn-resign` →
