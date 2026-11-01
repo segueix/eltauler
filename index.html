@@ -3788,6 +3788,15 @@
         .hgh-cta-text strong { color: var(--text-primary); font-size: 1rem; }
         .hgh-cta-text span { color: var(--text-secondary); font-size: 0.84rem; line-height: 1.4; }
         .hgh-cta .btn { width: auto !important; margin: 0 !important; display: inline-flex; align-items: center; gap: 6px; }
+        .hgh-cta-actions { display: flex; align-items: stretch; gap: 8px; }
+        /* Botó d'anar a l'inici a la dreta de «Juga’n un de nou»: només al mòbil,
+           on el del peu quedava a sota de tota la llista. A l'ordinador hi ha el
+           del peu (#hgh-home). */
+        .hgh-cta .hgh-cta-home { display: none; }
+        body.device-mobile .hgh-cta-actions { flex: 1 1 100%; }
+        body.device-mobile .hgh-cta .hgh-cta-home { display: inline-flex; flex: 0 0 56px; justify-content: center; padding: 0; }
+        body.device-mobile .hgh-cta #hgh-play-next { flex: 1 1 auto; justify-content: center; }
+        body.device-mobile #hg-history-screen .hgh-foot { display: none; }
         .hgh-filters { display: flex; flex-direction: column; gap: 8px; }
         .hgh-filter-group { display: flex; flex-wrap: wrap; gap: 6px; }
         .hgh-chip { font: inherit; font-size: 0.82rem; font-weight: 700; padding: 6px 12px; border-radius: 999px; cursor: pointer;
@@ -5847,6 +5856,34 @@
         body.desktop-results .hg-result-row .hg-result-btn { flex: 1 1 160px; }
         body.desktop-results .hg-result-share .hg-share-btn { flex: 1 1 150px; }
         body.desktop-results .hg-result-share-label { flex-basis: 100%; }
+        /* Jeroglífic resolt al mòbil i a la tauleta. La finestra anava dins del
+           requadre del tauler (position: absolute) i, amb l'explicació de la
+           combinació i tots els botons, és molt més alta que el tauler: en
+           sortia per dalt (tallada i sense poder-hi arribar) i per baix, damunt
+           dels botons del panell del jeroglífic, que es veien a través. Ara
+           ocupa tota la pantalla amb el fons gairebé opac; si no hi cap, es
+           desplaça per dins començant per dalt (marges automàtics: centrada
+           quan hi cap). Els botons no parteixen les paraules («WhatsAp p»): si
+           no caben de costat, passen a la línia següent. La classe la posa
+           showHieroglyphicBundleOverlay() i la treu handleBundleSuccess(). */
+        body:not(.desktop-results) .bundle-success-overlay.hg-result-overlay {
+            position: fixed; inset: 0; z-index: 1000;
+            align-items: flex-start;
+            overflow-y: auto; overscroll-behavior: contain; -webkit-overflow-scrolling: touch;
+            padding: max(12px, env(safe-area-inset-top, 0px)) max(12px, env(safe-area-inset-right, 0px))
+                max(16px, env(safe-area-inset-bottom, 0px)) max(12px, env(safe-area-inset-left, 0px));
+            background: rgba(8, 6, 4, 0.94);
+        }
+        body:not(.desktop-results) .hg-result-overlay .bundle-success-content {
+            margin: auto 0;
+            max-width: 460px;
+        }
+        body:not(.desktop-results) .hg-result-overlay .btn { overflow-wrap: normal; }
+        body:not(.desktop-results) .hg-result-overlay .hg-result-row .hg-result-btn,
+        body:not(.desktop-results) .hg-result-overlay .hg-result-share .hg-share-btn,
+        body:not(.desktop-results) .hg-result-overlay .nav-trio .btn:not(.btn-nav-home) {
+            flex: 1 1 auto;
+        }
         body.device-desktop #app-confirm-modal .modal-content,
         body.device-desktop #resign-modal .modal-content {
             max-width: clamp(380px, 44vw, 640px);
@@ -6382,6 +6419,7 @@
         body.epaper-mode #start-screen .engagement-banner .eng-cta { background: #222 !important; color: #fff !important; }
     </style>
     <link rel="stylesheet" href="bulletpractice.css?v=1.2.1">
+    <link rel="stylesheet" href="canviapp.css?v=1.0.0">
 </head>
 <body>
     <!-- Conjunt d'icones de menú (line-icons monocromes, hereten el color del text via currentColor) -->
@@ -7652,6 +7690,7 @@
                         <strong id="tts-matxa-profile">Ràdio</strong>
                     </div>
                     <div class="setting-help" id="tts-matxa-help">Veu present i volum uniforme, com a la ràdio. Ajusta el to amb l’equalitzador.</div>
+                    <div class="setting-help"><a href="laboratori-veu.html" style="color:var(--accent);font-weight:700">🎙 Obre el laboratori de veu Matxa: escriu text i practica</a></div>
                     <div class="setting-row">
                         <label class="setting-label" for="tts-matxa-intensity-range">Intensitat del filtre</label>
                         <div class="font-size-control">
@@ -9865,7 +9904,9 @@
     <script src="boardexperience.js?v=1.0.6"></script>
     <script src="bulletbank.js?v=1.0.0"></script>
     <script src="bulletpractice.js?v=1.2.6"></script>
-    <script src="app.js?v=1.0.142"></script>
+    <script src="app.js?v=1.0.145"></script>
+    <!-- Pas a Remigi lliscant el dit pel mig de la portada (mòbil) -->
+    <script src="canviapp.js?v=1.0.0"></script>
 
     <!-- Service Worker Registration -->
     <script>

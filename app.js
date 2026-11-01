@@ -23087,7 +23087,12 @@ function renderHieroglyphicHistoryScreen() {
     const hasNew = hgNewCount() > 0;
     $('#hgh-cta').html(`<div class="hgh-cta-text"><strong>${hasNew ? 'Tens jeroglífics nous a punt' : 'Ara mateix no en tens cap de nou'}</strong>`
         + `<span>${hasNew ? 'N’hi ha de les teves partides, de partides internes de l’aparell i del banc diari, que es va acumulant.' : 'Se’n preparen després de cada partida i amb partides internes mentre fas servir l’app. Mentrestant, et proposarem els que tens a mitges.'}</span></div>`
-        + `<button type="button" class="btn btn-primary" id="hgh-play-next">${HG_ICON_SVG} ${hasNew ? 'Juga’n un de nou' : 'Juga’n un'}</button>`);
+        // Al mòbil, el botó d'anar a l'inici va aquí, a la dreta de «Juga’n un de nou»
+        // (a l'ordinador és al peu de la pantalla, #hgh-home).
+        + '<div class="hgh-cta-actions">'
+        + `<button type="button" class="btn btn-primary" id="hgh-play-next">${HG_ICON_SVG} ${hasNew ? 'Juga’n un de nou' : 'Juga’n un'}</button>`
+        + '<button type="button" class="btn btn-nav-home hgh-cta-home" id="hgh-cta-home" aria-label="Pàgina principal" title="Pàgina principal"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg></button>'
+        + '</div>');
     root.find('[data-hgh-filter-status]').each(function () { const on = $(this).attr('data-hgh-filter-status') === hghView.status; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
     root.find('[data-hgh-filter-origin]').each(function () { const on = $(this).attr('data-hgh-filter-origin') === hghView.origin; $(this).toggleClass('is-active', on).attr('aria-pressed', on ? 'true' : 'false'); });
     const sections = hghView.status === 'all' ? HGH_SECTIONS : HGH_SECTIONS.filter(x => x.id === hghView.status);
@@ -23119,7 +23124,7 @@ function renderHieroglyphicHistoryScreen() {
         .on('click.hgh', '[data-hgh-filter-origin]', function () { hghView.origin = $(this).attr('data-hgh-filter-origin'); renderHieroglyphicHistoryScreen(); })
         .on('click.hgh', '[data-hgh-more]', function () { const k = $(this).attr('data-hgh-more'); hghView.shown[k] = (hghView.shown[k] || HGH_PAGE) + HGH_PAGE; renderHieroglyphicHistoryScreen(); })
         .on('click.hgh', '#hgh-play-next', () => { $('#hg-history-screen').hide(); void openHieroglyphicsFromBanner(); })
-        .on('click.hgh', '#hgh-home', () => navGoBack())
+        .on('click.hgh', '#hgh-home, #hgh-cta-home', () => navGoBack())
         .on('click.hgh', '[data-hgh-act]', function () {
             const act = $(this).attr('data-hgh-act');
             const entry = loadHieroglyphicHistory().find(e => e && String(e.id) === $(this).attr('data-hgh-id'));
@@ -23700,6 +23705,7 @@ function showHieroglyphicSuccessOverlay() {
         return;
     }
     overlay.find('.bundle-success-title').text('Jeroglífic fet ✅');
+    overlay.removeClass('hg-result-overlay');
     overlay.find('.bundle-success-remaining').text('').hide();
     overlay.find('.bundle-run-streak').remove();
     // El botó de secció (🔮 Jeroglífics) ja llança el següent jeroglífic.
@@ -27701,7 +27707,11 @@ function showHieroglyphicBundleOverlay() {
     renderHieroglyphicResultActions(overlay);
     overlay.find('#btn-bundle-random-again').hide();
     wireContinueSolvedFenButton(overlay);
+    // Al mòbil i a la tauleta no cap damunt del tauler: ocupa tota la pantalla i
+    // es desplaça per dins, començant per dalt (vegeu .hg-result-overlay a index.html).
+    overlay.addClass('hg-result-overlay');
     overlay.css('display', 'flex');
+    overlay.scrollTop(0);
     wireNavTrio(overlay, {
         sectionLabel: '<svg class="btn-ic" aria-hidden="true"><use href="#ic-history"/></svg>Historial',
         sectionDisabled: false,
@@ -33494,6 +33504,7 @@ function wireContinueSolvedFenButton(overlay) {
 
 function handleBundleSuccess() {
     $('#bundle-success-overlay .hiero-conclusion, #bundle-success-overlay .hg-result-extra').remove();
+    $('#bundle-success-overlay').removeClass('hg-result-overlay');
     $('#bundle-success-overlay .bundle-success-icon').text('✅');
     $('.bundle-run-streak').remove();
     const runSection = exerciseRunSection();
