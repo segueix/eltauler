@@ -20116,15 +20116,26 @@ function saveHieroglyphicHistory(list) {
     // Notifica la sincronització al núvol perquè l'historial viatgi entre aparells.
     try { if (window.CloudSync && typeof window.CloudSync.onLocalSave === 'function') window.CloudSync.onLocalSave(); } catch (e) {}
 }
+// Estimació tàctica estable, també per a les reserves antigues sense percentatge.
+// No és un Elo de jugador: indica la complexitat relativa de l'exercici.
 function hieroglyphicDifficultyPercent(source = {}) {
     if (typeof source.difficultyPercent === 'number' && Number.isFinite(source.difficultyPercent)) {
         return Math.max(1, Math.min(100, Math.round(source.difficultyPercent)));
     }
-    const swing = Math.abs(Number(source.swing ?? source.cpLoss ?? 0));
-    if (swing > 0) return Math.max(10, Math.min(100, Math.round((swing / 900) * 100)));
-    const rating = Number(source.ratingEstimate || 0);
-    if (rating > 0) return Math.max(10, Math.min(100, Math.round(((rating - 800) / 1400) * 100)));
-    return null;
+    const rating = Number(source.ratingEstimate);
+    if (Number.isFinite(rating) && rating > 0) return Math.max(10, Math.min(100, Math.round(((rating - 800) / 1400) * 100)));
+    const conclusion = source.conclusion || {};
+    const solutions = Array.isArray(source.solutionMoves) ? source.solutionMoves.length : 0;
+    const sacrifices = Array.isArray(conclusion.sacrifices) ? conclusion.sacrifices.length : 0;
+    const alternatives = Number(conclusion.checkedAlternatives) || 0;
+    const replies = Number(conclusion.checkedReplies) || 0;
+    const theme = String(source.finalMotif || source.theme || source.finalType || '').toLowerCase();
+    const complex = /sacrifice|deflection|interference|discovered|zwischenzug|mate|desviaci|interfer|descobert/.test(theme);
+    const simple = /major_win|fork|pin/.test(theme);
+    const percent = 24 + Math.max(0, solutions - 1) * 6 + Math.min(24, sacrifices * 13)
+        + Math.min(13, Math.round(alternatives / 7)) + Math.min(7, Math.round(replies / 7))
+        + (complex ? 12 : 0) - (simple && !sacrifices ? 7 : 0);
+    return Math.max(10, Math.min(95, percent));
 }
 function formatHieroglyphicDate(ts) {
     const date = new Date(ts || Date.now());
@@ -20800,6 +20811,7 @@ function renderHieroglyphicExerciseNote(loading = false, statusText = '') {
     const extra = statusText ? `<div class="maxim-text" style="opacity:0.78; font-size:0.82rem; margin-top:8px; color:var(--accent-pink);">${escapeHtml(statusText)}</div>` : '';
     noteEl.innerHTML = `<div class="opening-maxim-box hieroglyphic-clue">
         <div class="maxim-title">${getHieroglyphicTitle()}</div>
+        ${currentHieroglyphicPuzzle ? `<div class="maxim-text" style="font-size:0.8rem; margin-top:4px; opacity:0.82;">${escapeHtml(hieroglyphicDifficultyBadge(currentHieroglyphicPuzzle).label)} · ${hieroglyphicDifficultyPercent(currentHieroglyphicPuzzle)}%</div>` : ''}
         <div class="maxim-voice">${voice.name}, ${voice.work}${loadingTag}</div>
         <div class="maxim-text">"${escapeHtml(hieroglyphicClue || '')}"</div>
         <div class="maxim-text" style="opacity:0.7; font-size:0.82rem; margin-top:8px;">Pista ${level}/3 · Pas ${(hieroglyphicStep || 0) + 1}/${Math.max(1, hieroglyphicSolutionUci.length || 1)} · Troba la millor jugada. Tens ${Math.max(0, 3 - hieroglyphicAttempts)} intents.</div>
@@ -21724,7 +21736,7 @@ function renderHieroglyphicPanel() {
             html += `<div class="hg-history-row ${cls}">`
                 + `<span class="hg-h-mark-ic" title="${escapeHtml(markText)}" aria-label="${escapeHtml(markText)}">${markIcon}</span>`
                 + `<span class="hg-h-kind">${badgeHtml}<span class="hg-h-origin-dot hg-h-origin-dot--${hieroglyphicOriginKind(e)}" title="${escapeHtml(hieroglyphicOriginMark(e).label)}"></span><span class="hg-h-kind-text">${escapeHtml(String(kind))}</span></span>`
-                + `<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}"></span>`
+                + `<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}">${escapeHtml(badge.label)} · ${hieroglyphicDifficultyPercent(e)}%</span>`
                 + `<span class="hg-h-date">${escapeHtml(dateText)}</span>`
                 + `<button class="hg-h-action${isNew && !isActive && playable ? ' hg-h-action-new' : ''} hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="${escapeHtml(actionLabel)}" aria-label="${escapeHtml(actionLabel)}"${playable ? '' : ' disabled'}><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${actionIcon}"/></svg></button>`
                 + '</div>';
