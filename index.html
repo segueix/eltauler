@@ -871,6 +871,7 @@
             padding: 10px 12px;
             margin-bottom: 12px;
             text-align: left;
+            box-sizing: border-box; min-width: 0; max-width: 100%;
         }
         body.device-mobile .hg-panel { margin-left: 8px; margin-right: 8px; }
         /* A mòbil l'historial va a baix de tot (sota els botons): el separem visualment. */
@@ -911,10 +912,13 @@
         .hg-panel .hg-history-empty {
             font-size: 0.82rem; color: var(--text-secondary); line-height: 1.4;
         }
+        /* Tres columnes estables: estat | nom i metadades | acció.
+           La data i la dificultat ocupen una segona línia i poden passar a dues. */
         .hg-panel .hg-history-row {
-            display: flex; align-items: center; gap: 9px;
-            padding: 6px 0; border-top: 1px solid rgba(124, 77, 201, 0.18);
-            font-size: 0.82rem; flex-wrap: nowrap;
+            display: grid; grid-template-columns: 24px minmax(0, 1fr) 34px;
+            align-items: center; column-gap: 8px; row-gap: 0;
+            padding: 9px 6px; border-top: 1px solid rgba(124, 77, 201, 0.18);
+            font-size: 0.82rem; min-width: 0;
         }
         .hg-panel .hg-history-row:first-of-type { border-top: none; }
         /* Resolt sense errors en algun intent: marca de correcta (✅) i tot el fet en verd. */
@@ -926,13 +930,23 @@
         .hg-panel .hg-history-row.hg-active { background: rgba(124, 77, 201, 0.14); border-radius: 6px; padding-left: 4px; padding-right: 4px; }
         .hg-panel .hg-new-badge.hg-active-badge { background: var(--accent-blue, #1f5fa8); }
         .hg-panel .hg-h-mark-ic {
-            flex: 0 0 auto; font-size: 0.95rem; line-height: 1; width: 1.15em; text-align: center;
+            justify-self: center; font-size: 0.95rem; line-height: 1;
+            width: 24px; text-align: center;
         }
+        .hg-panel .hg-h-main { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
         .hg-panel .hg-h-kind {
-            flex: 1 1 auto; min-width: 0; color: var(--text-primary);
-            display: inline-flex; align-items: center; gap: 6px;
+            display: flex; align-items: center; gap: 6px; min-width: 0;
+            color: var(--text-primary);
         }
-        .hg-panel .hg-h-kind-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .hg-panel .hg-h-kind-text {
+            flex: 1 1 auto; min-width: 0; line-height: 1.25;
+            display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+            overflow: hidden; overflow-wrap: anywhere;
+        }
+        .hg-panel .hg-h-meta {
+            display: flex; align-items: center; flex-wrap: wrap;
+            gap: 5px 8px; min-width: 0;
+        }
         .hg-panel .hg-new-badge {
             flex: 0 0 auto;
             display: inline-flex; align-items: center; padding: 1px 6px; border-radius: 999px;
@@ -940,23 +954,28 @@
             font-weight: 800; text-transform: uppercase; letter-spacing: 0.04em;
         }
         .hg-panel .hg-h-diff {
-            flex: 0 0 auto;
-            width: 10px; height: 10px; border-radius: 2px; display: inline-block;
+            flex: 0 1 auto; display: inline-flex; align-items: center;
+            width: auto; height: auto; max-width: 100%; min-width: 0;
+            border-radius: 6px; padding: 3px 7px; box-sizing: border-box;
+            font-size: 0.72rem; line-height: 1.25; font-weight: 700;
+            color: #231a0e; white-space: normal; overflow-wrap: anywhere;
             box-shadow: 0 0 0 1px rgba(0,0,0,0.12);
         }
         .hg-panel .hg-h-diff-easy { background: #f2c94c; }
         .hg-panel .hg-h-diff-medium { background: #f2994a; }
         .hg-panel .hg-h-diff-hard { background: #eb5757; }
         .hg-panel .hg-h-diff-unknown {
-            background: transparent; border: 1px dashed var(--text-secondary); box-shadow: none;
+            background: transparent; border: 1px dashed var(--text-secondary);
+            color: var(--text-secondary); box-shadow: none;
         }
         .hg-panel .hg-h-date {
-            flex: 0 0 auto; color: var(--text-secondary); white-space: nowrap; font-size: 0.76rem;
+            color: var(--text-secondary); white-space: nowrap; font-size: 0.76rem;
+            line-height: 1.3;
         }
         .hg-panel .hg-h-action {
-            flex: 0 0 auto;
+            justify-self: end; flex: 0 0 auto;
             display: inline-flex; align-items: center; justify-content: center;
-            width: 28px; height: 28px; padding: 0; border-radius: 999px;
+            width: 34px; height: 34px; padding: 0; border-radius: 999px;
             border: 1px solid rgba(124, 77, 201, 0.45);
             background: transparent; color: var(--accent-purple, #7c4dc9);
             cursor: pointer;
@@ -3746,8 +3765,8 @@
         .hg-panel .hg-history-row.hg-row-origin--player { box-shadow: inset 3px 0 0 var(--hg-player); padding-left: 6px; }
         .hg-panel .hg-history-row.hg-row-origin--auto { box-shadow: inset 3px 0 0 var(--hg-auto); padding-left: 6px; }
         .hg-panel .hg-history-row.hg-row-origin--shared { box-shadow: inset 3px 0 0 var(--hg-shared); padding-left: 6px; }
-        .hg-panel .hg-history-title { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
-        .hg-history-open { background: none; border: 0; color: var(--accent-purple, #9c27b0); font: inherit; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; padding: 2px 0; }
+        .hg-panel .hg-history-title { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 6px 8px; }
+        .hg-history-open { white-space: nowrap; margin-left: auto; background: none; border: 0; color: var(--accent-purple, #9c27b0); font: inherit; font-weight: 700; text-transform: none; letter-spacing: 0; cursor: pointer; padding: 2px 0; }
         /* ── Finestra final del jeroglífic ── */
         .hg-result-extra { display: flex; flex-direction: column; gap: 10px; margin: 10px 0 4px; text-align: left; }
         .hg-result-origin { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

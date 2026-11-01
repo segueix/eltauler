@@ -81,4 +81,25 @@ describe('disposició dels jeroglífics', () => {
         expect(html).toContain('body.device-mobile #hg-history-screen .hgh-foot { display: none; }');
         expect(html).toContain('id="hgh-home"');
     });
+    test('el resum de l’historial separa títol, data i dificultat sense superposicions', () => {
+        const app = fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8');
+        const render = app.slice(app.indexOf('function renderHieroglyphicPanel()'), app.indexOf('// Els jeroglífics d\\'obertura curats'));
+        expect(render).toContain('class="hg-h-main"');
+        expect(render).toContain('class="hg-h-meta"');
+        expect(render.indexOf('class="hg-h-date"')).toBeLessThan(render.indexOf('class="hg-h-diff hg-h-diff-'));
+        expect(render).toContain("'<\/span><\/span>'");
+        const row = html.match(/\\.hg-panel \\.hg-history-row \\{([^}]*)\\}/)[1];
+        expect(row).toMatch(/display:\\s*grid/);
+        expect(row).toContain('minmax(0, 1fr)');
+        const main = html.match(/\\.hg-panel \\.hg-h-main \\{([^}]*)\\}/)[1];
+        expect(main).toContain('flex-direction: column');
+        const meta = html.match(/\\.hg-panel \\.hg-h-meta \\{([^}]*)\\}/)[1];
+        expect(meta).toContain('flex-wrap: wrap');
+        const diff = html.match(/\\.hg-panel \\.hg-h-diff \\{([^}]*)\\}/)[1];
+        expect(diff).toMatch(/width:\\s*auto/);
+        expect(diff).toMatch(/height:\\s*auto/);
+        expect(diff).toMatch(/white-space:\\s*normal/);
+        expect(html).toMatch(/\\.hg-history-open \\{[^}]*white-space:\\s*nowrap/);
+    });
+
 });

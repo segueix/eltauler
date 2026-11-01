@@ -21735,9 +21735,12 @@ function renderHieroglyphicPanel() {
             const badgeHtml = isActive ? '<span class="hg-new-badge hg-active-badge">En curs</span>' : (isNew ? '<span class="hg-new-badge">Nou</span>' : '');
             html += `<div class="hg-history-row ${cls}">`
                 + `<span class="hg-h-mark-ic" title="${escapeHtml(markText)}" aria-label="${escapeHtml(markText)}">${markIcon}</span>`
+                + '<span class="hg-h-main">'
                 + `<span class="hg-h-kind">${badgeHtml}<span class="hg-h-origin-dot hg-h-origin-dot--${hieroglyphicOriginKind(e)}" title="${escapeHtml(hieroglyphicOriginMark(e).label)}"></span><span class="hg-h-kind-text">${escapeHtml(String(kind))}</span></span>`
-                + `<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}">${escapeHtml(badge.label)} · ${hieroglyphicDifficultyPercent(e)}%</span>`
+                + '<span class="hg-h-meta">'
                 + `<span class="hg-h-date">${escapeHtml(dateText)}</span>`
+                + `<span class="hg-h-diff hg-h-diff-${badge.level}" title="${escapeHtml(badge.title)}" aria-label="${escapeHtml(badge.title)}">${escapeHtml(badge.label)} · ${hieroglyphicDifficultyPercent(e)}%</span>`
+                + '</span></span>'
                 + `<button class="hg-h-action${isNew && !isActive && playable ? ' hg-h-action-new' : ''} hg-h-retry" data-hg-id="${escapeHtml(String(e.id))}" title="${escapeHtml(actionLabel)}" aria-label="${escapeHtml(actionLabel)}"${playable ? '' : ' disabled'}><svg viewBox="0 0 24 24" aria-hidden="true"><use href="#${actionIcon}"/></svg></button>`
                 + '</div>';
         });
