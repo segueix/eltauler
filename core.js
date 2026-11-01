@@ -2537,7 +2537,7 @@
     // Finals acceptats (l'ordre no és de prioritat; la prioritat viu a
     // HIERO_MOTIF_PRIORITY). 'none' MAI no s'aprova.
     const HIERO_ALLOWED_FINAL_MOTIFS = [
-        'mate', 'check', 'fork', 'pin', 'discovery', 'promotion', 'major_win'
+        'mate', 'check', 'fork', 'pin', 'skewer', 'discovery', 'promotion', 'major_win'
     ];
     // Etiquetes en català visibles per a l'usuari.
     const HIERO_FINAL_MOTIF_LABELS = {
@@ -2545,13 +2545,14 @@
         check: 'escac',
         fork: 'forquilla',
         pin: 'clavada',
+        skewer: 'enfilada',
         discovery: 'descoberta',
         promotion: 'promoció',
         major_win: 'guany de dama o torre'
     };
     // Prioritat per triar el motiu PRINCIPAL quan n'hi ha diversos: el mat mana
     // sempre; després les imatges més nítides; l'escac és l'últim recurs.
-    const HIERO_MOTIF_PRIORITY = ['mate', 'promotion', 'fork', 'pin', 'discovery', 'major_win', 'check'];
+    const HIERO_MOTIF_PRIORITY = ['mate', 'promotion', 'fork', 'pin', 'skewer', 'discovery', 'major_win', 'check'];
     // Nom estructurat (anglès) de cada peça per als camps de dades (targets,
     // piece…) i nom en català per als textos visibles (reason).
     const HIERO_PIECE_NAMES = { p: 'pawn', n: 'knight', b: 'bishop', r: 'rook', q: 'queen', k: 'king' };
@@ -2726,9 +2727,14 @@
             else if (minors >= 2) confidence = opts.finalEvalClear ? 'medium' : 'low';
             else confidence = 'medium';
             const targetNames = targets.map(t => t.name);
-            const targetsCa = targets.map(t => HIERO_PIECE_NAMES_CA[t.type]);
+            // «la torre i la torre» → «les dues torres».
+            const PLURAL_CA = { r: 'les dues torres', n: 'els dos cavalls', b: 'els dos alfils' };
+            const seenT = {};
+            targets.forEach(t => { seenT[t.type] = (seenT[t.type] || 0) + 1; });
+            const targetsCa = [];
+            Object.keys(seenT).forEach(t => targetsCa.push(seenT[t] > 1 && PLURAL_CA[t] ? PLURAL_CA[t] : HIERO_PIECE_NAMES_CA[t]));
             return {
-                motif: 'fork', targets: targetNames, piece: HIERO_PIECE_NAMES[moved.type], square: to,
+                motif: 'fork', targets: targetNames, targetSquares: targets.map(t => t.square), piece: HIERO_PIECE_NAMES[moved.type], square: to,
                 confidence,
                 reason: `${cap(HIERO_PIECE_NAMES_CA[moved.type])} a ${to} ataca alhora ${targetsCa.join(' i ')}.`
             };
@@ -2762,6 +2768,12 @@
                         } else {
                             if (occ.color !== enemy) break;           // darrere hi ha peça pròpia: no clava res
                             const behind = { square: sq, type: occ.type };
+                            // Enfilada: la peça de davant val més (el rei o la
+                            // dama) i, quan s'aparta, cau la de darrere.
+                            if (pinned.type === 'k' || (pinned.type === 'q' && (behind.type === 'r' || behind.type === 'b' || behind.type === 'n'))) {
+                                if (pinned.type === 'q' && behind.type !== 'r' && isDefendedBy(board, behind.square, enemy)) break;
+                                return { motif: 'skewer', front: { square: pinned.square, piece: HIERO_PIECE_NAMES[pinned.type] }, behind: { square: behind.square, piece: HIERO_PIECE_NAMES[behind.type] }, pinned: { square: behind.square, piece: HIERO_PIECE_NAMES[behind.type] }, against: { square: pinned.square, piece: HIERO_PIECE_NAMES[pinned.type] }, piece: HIERO_PIECE_NAMES[moved.type], square: to, confidence: pinned.type === 'k' ? 'high' : 'medium', reason: `${cap(HIERO_PIECE_NAMES_CA[moved.type])} a ${to} fa una enfilada: ${HIERO_PIECE_NAMES_CA[pinned.type]} s'ha d'apartar i deixa al descobert ${HIERO_PIECE_NAMES_CA[behind.type]}.` };
+                            }
                             if (behind.type === 'k') {
                                 return { motif: 'pin', pinned: { square: pinned.square, piece: HIERO_PIECE_NAMES[pinned.type] }, against: { square: behind.square, piece: 'king' }, piece: HIERO_PIECE_NAMES[moved.type], square: to, confidence: 'high', reason: `${cap(HIERO_PIECE_NAMES_CA[moved.type])} a ${to} clava ${HIERO_PIECE_NAMES_CA[pinned.type]} contra el rei.` };
                             }
@@ -2837,6 +2849,42 @@
             return { motif: 'promotion', piece: 'pawn', square: fm.to, confidence: 'high', reason: `La jugada final corona un peó a ${fm.to}.` };
         }
 
+        // Motiu clau d'una jugada anterior del jugador lligat al desenllaç: la
+        // jugada final captura una de les peces que aquell motiu atacava.
+        //   · forquilla: la captura és a una de les caselles forquillades;
+        //   · clavada: la captura és la peça clavada o la que hi ha darrere;
+        //   · descoberta: la captura és l'objectiu destapat o, en un escac
+        //     descobert, la fa la peça que s'ha mogut o la que s'ha destapat.
+        // Es mira primer la segona jugada (la causa més immediata) i després la
+        // primera. El guany ja està demostrat pel tancament, així que una
+        // forquilla de peces menors no queda en confiança baixa.
+        const KEY_ORDINALS = ['Primera', 'Segona', 'Tercera'];
+        function detectLinkedKeyMotif(info) {
+            if (!info || !info.finalMove || !info.finalMove.captured) return null;
+            const final = info.finalMove, target = final.to;
+            const playerIdx = [];
+            info.moves.forEach((m, i) => { if (m.color === info.playerColor && i < info.lastPlayerIdx) playerIdx.push(i); });
+            for (let k = playerIdx.length - 1; k >= 0; k--) {
+                const m = info.moves[playerIdx[k]];
+                const label = `${KEY_ORDINALS[k] || 'Una'} jugada (${m.san})`;
+                const tail = ` La jugada final (${final.san}) en cobra el guany.`;
+                const fork = detectRealForkAfterFinalMove(m.beforeFen, m.uci, { finalEvalClear: true });
+                if (fork && Array.isArray(fork.targetSquares) && fork.targetSquares.indexOf(target) !== -1) {
+                    return Object.assign({}, fork, { confidence: fork.confidence === 'low' ? 'medium' : fork.confidence, keyPly: playerIdx[k], keySan: m.san, linked: true, reason: `${label}: ${fork.reason}${tail}` });
+                }
+                const pin = detectPinAfterFinalMove(m.beforeFen, m.uci);
+                if (pin && ((pin.pinned && pin.pinned.square === target) || (pin.against && pin.against.square === target))) {
+                    return Object.assign({}, pin, { keyPly: playerIdx[k], keySan: m.san, linked: true, reason: `${label}: ${pin.reason}${tail}` });
+                }
+                const disc = detectDiscoveryAfterFinalMove(m.beforeFen, m.uci);
+                if (disc && ((disc.target && disc.target.square === target)
+                    || (disc.isCheck && (final.from === m.to || (disc.discovered && final.from === disc.discovered.square))))) {
+                    return Object.assign({}, disc, { keyPly: playerIdx[k], keySan: m.san, linked: true, reason: `${label}: ${disc.reason}${tail}` });
+                }
+            }
+            return null;
+        }
+
         // Guany de dama o torre: la línia captura una q/r, o el material net que
         // guanya el bàndol que resol és com a mínim d'una torre (5 punts).
         function detectMajorWinMotif(initialFen, fullLineUci, opts = {}) {
@@ -2887,6 +2935,11 @@
             if (disc) detections.push(disc);
             const major = detectMajorWinMotif(initialFen, fullLineUci, opts);
             if (major) detections.push(major);
+            // La idea tàctica sol ser a la primera o la segona jugada (la tercera
+            // cobra el guany): si una forquilla, clavada o descoberta d'abans
+            // ataca la peça que la jugada final captura, aquest és el tema.
+            const keyMotif = detectLinkedKeyMotif(info);
+            if (keyMotif) detections.push(keyMotif);
             // Escac: només com a final vàlid si hi ha avantatge/marge clars o si
             // porta a guany material clar (que ja seria major_win). Mai decoratiu.
             if (isCheck && !isMate) {
@@ -2934,7 +2987,8 @@
             detectPinAfterFinalMove,
             detectDiscoveryAfterFinalMove,
             detectPromotionMotif,
-            detectMajorWinMotif
+            detectMajorWinMotif,
+            detectLinkedKeyMotif
         };
     }
 

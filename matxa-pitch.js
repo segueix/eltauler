@@ -1,5 +1,6 @@
 /* Pitch shifter de vocoder de fase (STFT). Mateixa durada, contorn F0 variable.
- * Experimental: preserva el ritme i compensa aproximadament l'embolcall espectral;\n * no equival a un model TTS amb control prosòdic ni garanteix tots els formants.
+ * Experimental: preserva el ritme i compensa aproximadament l'embolcall espectral;
+ * no equival a un model TTS amb control prosòdic ni garanteix tots els formants.
  */
 (function(root,factory){const api=factory();if(typeof module==='object'&&module.exports)module.exports=api;else root.ElTaulerPitch=api;})(typeof self!=='undefined'?self:this,function(){
 'use strict';
@@ -30,7 +31,8 @@ function process(input,sr,mode,intensity){
  const oldPhase=new Float64Array(half+1),sumPhase=new Float64Array(half+1);
  const re=new Float64Array(N),im=new Float64Array(N),magn=new Float64Array(half+1),freq=new Float64Array(half+1);
  const magnOut=new Float64Array(half+1),freqOut=new Float64Array(half+1),counts=new Float64Array(half+1);
- const envelope=new Float64Array(half+1),prefix=new Float64Array(half+2);\n const expected=2*Math.PI*H/N;
+ const envelope=new Float64Array(half+1),prefix=new Float64Array(half+2);
+ const expected=2*Math.PI*H/N;
  for(let start=-N/2;start<n;start+=H){
    const ratio=contour(mode,(start+N/2)/Math.max(1,n),intensity);
    re.fill(0);im.fill(0);magnOut.fill(0);freqOut.fill(0);counts.fill(0);
