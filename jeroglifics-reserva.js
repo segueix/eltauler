@@ -7,6 +7,336 @@
 // >>> RESERVA (generat) >>>
 const RESERVE = [
  {
+  "id": "hgr_3r1k21R2pp1p2Pp2p11p61p2P34B2P1b3PP16K1w",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "3r1k2/1R2pp1p/2Pp2p1/1p6/1p2P3/4B2P/1b3PP1/6K1 w - - 2 26",
+  "sideToMove": "w",
+  "line": [
+   "c6c7",
+   "d8c8",
+   "b7b8",
+   "f8e8",
+   "b8c8"
+  ],
+  "sanLine": [
+   "c7",
+   "Rc8",
+   "Rb8",
+   "Ke8",
+   "Rxc8+"
+  ],
+  "finalType": "pin",
+  "difficulty": 1,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "c6c7",
+  "bestMoveSan": "c7",
+  "solutionMoves": [
+   "c6c7",
+   "b7b8",
+   "b8c8"
+  ],
+  "replyMoves": [
+   "d8c8",
+   "f8e8"
+  ],
+  "theme": "pin",
+  "tacticKind": "clavada",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "3r1k2/1R2pp1p/2Pp2p1/1p6/1p2P3/4B2P/1b3PP1/6K1 w - - 2 26",
+   "line": [
+    "c6c7",
+    "d8c8",
+    "b7b8",
+    "f8e8",
+    "b8c8"
+   ],
+   "finalFen": "2R1k3/2P1pp1p/3p2p1/1p6/1p2P3/4B2P/1b3PP1/6K1 b - - 0 28",
+   "kind": "material",
+   "finalSan": "Rxc8+",
+   "gain": 5,
+   "checkedReplies": 1,
+   "checkedAlternatives": 22,
+   "explanation": "Rxc8+ culmina la combinació: el guany material ja s’ha produït i es conserven almenys 5 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Bc1",
+   "alternativeLine": [
+    "Bc1",
+    "Bxc1",
+    "Rxc8+",
+    "Kd7"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": 0
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": [
+    {
+     "kind": "refused",
+     "step": 2,
+     "offered": "r",
+     "offerUci": "b7b8",
+     "replyUci": "f8e8",
+     "captureUci": "c8b8",
+     "acceptedFen": "1r3k2/2P1pp1p/3p2p1/1p6/1p2P3/4B2P/1b3PP1/6K1 w - - 0 28",
+     "square": "b8",
+     "loss": 5,
+     "compensationKind": "material",
+     "checkedDepth": 18,
+     "captureEvalType": "cp",
+     "captureEval": 789
+    }
+   ]
+  },
+  "finalMotif": "pin",
+  "finalMotifs": [
+   "pin",
+   "major_win",
+   "check"
+  ],
+  "finalMotifLabel": "clavada",
+  "finalMotifReason": "Segona jugada (Rb8): La torre a b8 clava la torre contra el rei. La jugada final (Rxc8+) en cobra el guany.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "3r1k2/1R2pp1p/2Pp2p1/1p6/1p2P3/4B2P/1b3PP1/6K1 w - - 2 26",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": null,
+  "ratingEstimate": null,
+  "pv": [
+   "c6c7",
+   "d8c8",
+   "b7b8",
+   "f8e8",
+   "b8c8"
+  ],
+  "evalBefore": 480,
+  "publishedAt": 1793522020467
+ },
+ {
+  "id": "hgr_8p75k2KQqn4P787P8b",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "8/p7/5k2/KQqn4/P7/8/7P/8 b - - 1 55",
+  "sideToMove": "b",
+  "line": [
+   "c5c3",
+   "a5a6",
+   "d5c7",
+   "a6a7",
+   "c7b5"
+  ],
+  "sanLine": [
+   "Qc3+",
+   "Ka6",
+   "Nc7+",
+   "Kxa7",
+   "Nxb5+"
+  ],
+  "finalType": "fork",
+  "difficulty": 1,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "c5c3",
+  "bestMoveSan": "Qc3+",
+  "solutionMoves": [
+   "c5c3",
+   "d5c7",
+   "c7b5"
+  ],
+  "replyMoves": [
+   "a5a6",
+   "a6a7"
+  ],
+  "theme": "fork",
+  "tacticKind": "forquilla",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "8/p7/5k2/KQqn4/P7/8/7P/8 b - - 1 55",
+   "line": [
+    "c5c3",
+    "a5a6",
+    "d5c7",
+    "a6a7",
+    "c7b5"
+   ],
+   "finalFen": "8/K7/5k2/1n6/P7/2q5/7P/8 w - - 0 58",
+   "kind": "material",
+   "finalSan": "Nxb5+",
+   "gain": 5,
+   "checkedReplies": 6,
+   "checkedAlternatives": 30,
+   "explanation": "Nxb5+ culmina la combinació: el guany material ja s’ha produït i es conserven almenys 5 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Ke6",
+   "alternativeLine": [
+    "Ke6",
+    "Qb1",
+    "Nd5",
+    "Qg6+"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": 27
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": []
+  },
+  "finalMotif": "fork",
+  "finalMotifs": [
+   "fork",
+   "major_win",
+   "check"
+  ],
+  "finalMotifLabel": "forquilla",
+  "finalMotifReason": "Segona jugada (Nc7+): El cavall a c7 ataca alhora la dama i el rei. La jugada final (Nxb5+) en cobra el guany.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "8/p7/5k2/KQqn4/P7/8/7P/8 b - - 1 55",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": null,
+  "ratingEstimate": null,
+  "pv": [
+   "c5c3",
+   "a5a6",
+   "d5c7",
+   "a6a7",
+   "c7b5"
+  ],
+  "evalBefore": 691,
+  "publishedAt": 1793521954562
+ },
+ {
+  "id": "hgr_3k4Q1r1nR2p5p14p34N1P181P3P1K4q3w",
+  "createdAt": 0,
+  "updatedAt": 0,
+  "source": "reserve",
+  "fen": "3k4/Q1r1nR2/p5p1/4p3/4N1P1/8/1P3P1K/4q3 w - - 8 35",
+  "sideToMove": "w",
+  "line": [
+   "a7b8",
+   "d8d7",
+   "f7e7",
+   "d7e7",
+   "b8c7"
+  ],
+  "sanLine": [
+   "Qb8+",
+   "Kd7",
+   "Rxe7+",
+   "Kxe7",
+   "Qxc7+"
+  ],
+  "finalType": "skewer",
+  "difficulty": 1,
+  "status": "new",
+  "attempts": 0,
+  "startedAt": null,
+  "solvedAt": null,
+  "deviceCreated": null,
+  "bestMove": "a7b8",
+  "bestMoveSan": "Qb8+",
+  "solutionMoves": [
+   "a7b8",
+   "f7e7",
+   "b8c7"
+  ],
+  "replyMoves": [
+   "d8d7",
+   "d7e7"
+  ],
+  "theme": "skewer",
+  "tacticKind": "enfilada",
+  "playerMove": null,
+  "conclusion": {
+   "version": 1,
+   "fen": "3k4/Q1r1nR2/p5p1/4p3/4N1P1/8/1P3P1K/4q3 w - - 8 35",
+   "line": [
+    "a7b8",
+    "d8d7",
+    "f7e7",
+    "d7e7",
+    "b8c7"
+   ],
+   "finalFen": "8/2Q1k3/p5p1/4p3/4N1P1/8/1P3P1K/4q3 b - - 0 37",
+   "kind": "material",
+   "finalSan": "Qxc7+",
+   "gain": 3,
+   "checkedReplies": 3,
+   "checkedAlternatives": 28,
+   "explanation": "Qxc7+ culmina la combinació: el guany material ja s’ha produït i es conserven almenys 3 punts nets després de qualsevol resposta immediata legal. Stockfish confirma que la millor defensa no iguala la posició.",
+   "uniqueness": "Cap altra jugada legal culmina aquest guany material ara. Stockfish també descarta una altra continuació amb avantatge decisiu.",
+   "alternativeSan": "Qb6",
+   "alternativeLine": [
+    "Qb6",
+    "Qxe4",
+    "Qxc7+",
+    "Kf8"
+   ],
+   "alternativeEval": {
+    "type": "cp",
+    "value": 0
+   },
+   "minDepth": 14,
+   "requestedDepth": 16,
+   "sacrifices": [
+    {
+     "step": 2,
+     "offered": "r",
+     "offerUci": "f7e7",
+     "replyUci": "d7e7",
+     "square": "e7",
+     "loss": 2,
+     "kingInCheck": false,
+     "checkedDefenses": 2,
+     "compensationKind": "material",
+     "continuationType": "mate",
+     "continuationEval": 12
+    }
+   ]
+  },
+  "finalMotif": "skewer",
+  "finalMotifs": [
+   "skewer",
+   "major_win",
+   "check"
+  ],
+  "finalMotifLabel": "enfilada",
+  "finalMotifReason": "Segona jugada (Rxe7+): La torre a e7 fa una enfilada: el rei s'ha d'apartar i deixa al descobert la torre. La jugada final (Qxc7+) en cobra el guany.",
+  "origin": "engine_selfplay",
+  "sourceGameId": null,
+  "sourceFen": "3k4/Q1r1nR2/p5p1/4p3/4N1P1/8/1P3P1K/4q3 w - - 8 35",
+  "sourceMoveNumber": null,
+  "adaptationNote": null,
+  "difficultyPercent": null,
+  "ratingEstimate": null,
+  "pv": [
+   "a7b8",
+   "d8d7",
+   "f7e7",
+   "d7e7",
+   "b8c7"
+  ],
+  "evalBefore": 716,
+  "publishedAt": 1793521930254
+ },
+ {
   "id": "hgr_6k12q4p1p4p1r1rn41p1RQ36NP3R1PPK8w",
   "createdAt": 0,
   "updatedAt": 0,
@@ -153,7 +483,7 @@ const RESERVE = [
    "Ke7",
    "Rxd8"
   ],
-  "finalType": "major_win",
+  "finalType": "skewer",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -171,8 +501,8 @@ const RESERVE = [
    "h5g4",
    "f8e7"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "skewer",
+  "tacticKind": "enfilada",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -221,12 +551,13 @@ const RESERVE = [
     }
    ]
   },
-  "finalMotif": "major_win",
+  "finalMotif": "skewer",
   "finalMotifs": [
+   "skewer",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 8 punts nets de material a favor.",
+  "finalMotifLabel": "enfilada",
+  "finalMotifReason": "Segona jugada (Rxh8+): La torre a h8 fa una enfilada: el rei s'ha d'apartar i deixa al descobert la dama. La jugada final (Rxd8) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "r2q1k1r/1p4p1/4p1P1/pB1p3p/P5n1/2P4Q/5PP1/R3K2R w KQ - 1 23",
@@ -363,7 +694,7 @@ const RESERVE = [
    "Kf8",
    "Bxf7"
   ],
-  "finalType": "major_win",
+  "finalType": "pin",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -381,8 +712,8 @@ const RESERVE = [
    "c8c2",
    "g8f8"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "pin",
+  "tacticKind": "clavada",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -417,12 +748,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "pin",
   "finalMotifs": [
+   "pin",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 7 punts nets de material a favor.",
+  "finalMotifLabel": "clavada",
+  "finalMotifReason": "Segona jugada (Be6): L'alfil a e6 clava la torre contra el rei. La jugada final (Bxf7) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "2r3k1/p2nnrpp/1p2B3/3p4/8/6P1/PPP4P/3RR1K1 w - - 1 22",
@@ -559,7 +891,7 @@ const RESERVE = [
    "Rxb2",
    "Nxb2"
   ],
-  "finalType": "major_win",
+  "finalType": "skewer",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -577,8 +909,8 @@ const RESERVE = [
    "e2e3",
    "b1b2"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "skewer",
+  "tacticKind": "enfilada",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -613,12 +945,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "skewer",
   "finalMotifs": [
+   "skewer",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 5 punts nets de material a favor.",
+  "finalMotifLabel": "enfilada",
+  "finalMotifReason": "Primera jugada (Rf2+): La torre a f2 fa una enfilada: el rei s'ha d'apartar i deixa al descobert la torre. La jugada final (Nxb2) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "6k1/1p3pPp/8/3P1r2/2P1p2P/1N1n3b/1R2K3/1R6 b - - 0 32",
@@ -859,7 +1192,7 @@ const RESERVE = [
    "Kf3",
    "Rxd1"
   ],
-  "finalType": "major_win",
+  "finalType": "skewer",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -877,8 +1210,8 @@ const RESERVE = [
    "g1g2",
    "g2f3"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "skewer",
+  "tacticKind": "enfilada",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -913,12 +1246,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "skewer",
   "finalMotifs": [
+   "skewer",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 5 punts nets de material a favor.",
+  "finalMotifLabel": "enfilada",
+  "finalMotifReason": "Primera jugada (Rh1+): La torre a h1 fa una enfilada: el rei s'ha d'apartar i deixa al descobert la torre. La jugada final (Rxd1) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "7r/p4pk1/PpP1pbp1/6p1/2P3B1/4R1P1/5P1r/3R2K1 b - - 1 30",
@@ -1167,7 +1501,7 @@ const RESERVE = [
    "Rd5",
    "Nxf7"
   ],
-  "finalType": "major_win",
+  "finalType": "fork",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -1185,8 +1519,8 @@ const RESERVE = [
    "e7e8",
    "d7d5"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "fork",
+  "tacticKind": "forquilla",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -1221,12 +1555,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "fork",
   "finalMotifs": [
+   "fork",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 6 punts nets de material a favor.",
+  "finalMotifLabel": "forquilla",
+  "finalMotifReason": "Segona jugada (Ne5): El cavall a e5 ataca alhora les dues torres. La jugada final (Nxf7) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "8/1pnrkr2/2p1p1p1/2P3Pp/1p2RN1P/5P2/P7/2K1R3 w - - 1 34",
@@ -1477,7 +1812,7 @@ const RESERVE = [
    "Ke2",
    "Nxa1"
   ],
-  "finalType": "major_win",
+  "finalType": "fork",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -1495,8 +1830,8 @@ const RESERVE = [
    "b3c4",
    "e1e2"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "fork",
+  "tacticKind": "forquilla",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -1531,12 +1866,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "fork",
   "finalMotifs": [
+   "fork",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 5 punts nets de material a favor.",
+  "finalMotifLabel": "forquilla",
+  "finalMotifReason": "Segona jugada (Nc2+): El cavall a c2 ataca alhora el rei i la torre. La jugada final (Nxa1) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "rn1qk2r/pp2ppbp/4b1p1/2p5/1nBP4/1QN1PN2/PP3PPP/R1B1K2R b KQkq - 4 9",
@@ -1575,7 +1911,7 @@ const RESERVE = [
    "Kc6",
    "Rxe7"
   ],
-  "finalType": "major_win",
+  "finalType": "fork",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -1593,8 +1929,8 @@ const RESERVE = [
    "b8b7",
    "b7c6"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "fork",
+  "tacticKind": "forquilla",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -1629,12 +1965,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "fork",
   "finalMotifs": [
+   "fork",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 3 punts nets de material a favor.",
+  "finalMotifLabel": "forquilla",
+  "finalMotifReason": "Segona jugada (Rd7+): La torre a d7 ataca alhora l'alfil i el rei. La jugada final (Rxe7) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "1k6/1r2b1p1/p6p/B1p2Bp1/8/1R6/PPP2n1r/2KR4 w - - 5 38",
@@ -1672,7 +2009,7 @@ const RESERVE = [
    "Kd6",
    "Nxc3"
   ],
-  "finalType": "major_win",
+  "finalType": "fork",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -1690,8 +2027,8 @@ const RESERVE = [
    "f7e7",
    "e7d6"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "fork",
+  "tacticKind": "forquilla",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -1726,12 +2063,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "fork",
   "finalMotifs": [
+   "fork",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 3 punts nets de material a favor.",
+  "finalMotifLabel": "forquilla",
+  "finalMotifReason": "Segona jugada (Nd5+): El cavall a d5 ataca alhora el rei i l'alfil. La jugada final (Nxc3) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "8/3Rrkp1/p6p/5p2/5N1P/P1b3P1/5P2/6K1 w - - 9 47",
@@ -2171,7 +2509,7 @@ const RESERVE = [
    "Kh6",
    "Rxe1"
   ],
-  "finalType": "major_win",
+  "finalType": "discovery",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -2189,8 +2527,8 @@ const RESERVE = [
    "a1e1",
    "h7h6"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "discovery",
+  "tacticKind": "descoberta",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -2225,12 +2563,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "discovery",
   "finalMotifs": [
+   "discovery",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 5 punts nets de material a favor.",
+  "finalMotifLabel": "descoberta",
+  "finalMotifReason": "Segona jugada (Rg1+): En moure a g1 es destapa un escac descobert de l'alfil. La jugada final (Rxe1) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "8/5K1k/6R1/p1bB4/1p6/8/8/r7 w - - 15 51",
@@ -2592,7 +2931,7 @@ const RESERVE = [
    "O-O",
    "Bxb6"
   ],
-  "finalType": "major_win",
+  "finalType": "skewer",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -2610,8 +2949,8 @@ const RESERVE = [
    "c6b6",
    "e8g8"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "skewer",
+  "tacticKind": "enfilada",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -2662,12 +3001,13 @@ const RESERVE = [
     }
    ]
   },
-  "finalMotif": "major_win",
+  "finalMotif": "skewer",
   "finalMotifs": [
+   "skewer",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 9 punts nets de material a favor.",
+  "finalMotifLabel": "enfilada",
+  "finalMotifReason": "Segona jugada (Ba5): L'alfil a a5 fa una enfilada: la dama s'ha d'apartar i deixa al descobert la torre. La jugada final (Bxb6) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "3rk2r/pp3ppp/2q1pn2/1Nbp4/Q3P3/5N2/PP1B1PPP/5RK1 w k - 0 20",
@@ -3317,7 +3657,7 @@ const RESERVE = [
    "Kf6",
    "Rxg1"
   ],
-  "finalType": "major_win",
+  "finalType": "skewer",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -3335,8 +3675,8 @@ const RESERVE = [
    "h8g7",
    "g7f6"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "skewer",
+  "tacticKind": "enfilada",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -3371,12 +3711,13 @@ const RESERVE = [
    "requestedDepth": 16,
    "sacrifices": []
   },
-  "finalMotif": "major_win",
+  "finalMotif": "skewer",
   "finalMotifs": [
+   "skewer",
    "major_win"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 5 punts nets de material a favor.",
+  "finalMotifLabel": "enfilada",
+  "finalMotifReason": "Segona jugada (Rg8+): La torre a g8 fa una enfilada: el rei s'ha d'apartar i deixa al descobert la torre. La jugada final (Rxg1) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "7k/7p/4R3/5P1K/2B5/8/3b4/6r1 w - - 7 58",
@@ -3414,7 +3755,7 @@ const RESERVE = [
    "Kxh2",
    "Qxf2+"
   ],
-  "finalType": "major_win",
+  "finalType": "skewer",
   "difficulty": 1,
   "status": "new",
   "attempts": 0,
@@ -3432,8 +3773,8 @@ const RESERVE = [
    "f3f2",
    "g2h2"
   ],
-  "theme": "major_win",
-  "tacticKind": "guany de dama o torre",
+  "theme": "skewer",
+  "tacticKind": "enfilada",
   "playerMove": null,
   "conclusion": {
    "version": 1,
@@ -3482,13 +3823,14 @@ const RESERVE = [
     }
    ]
   },
-  "finalMotif": "major_win",
+  "finalMotif": "skewer",
   "finalMotifs": [
+   "skewer",
    "major_win",
    "check"
   ],
-  "finalMotifLabel": "guany de dama o torre",
-  "finalMotifReason": "La línia captura una peça major i acaba amb 4 punts nets de material a favor.",
+  "finalMotifLabel": "enfilada",
+  "finalMotifReason": "Segona jugada (Rh2+): La torre a h2 fa una enfilada: el rei s'ha d'apartar i deixa al descobert la dama. La jugada final (Qxf2+) en cobra el guany.",
   "origin": "engine_selfplay",
   "sourceGameId": null,
   "sourceFen": "1k6/p4NR1/5p2/pPp1p3/P1PpP3/2qP1Q2/6K1/2b4r b - - 23 52",
