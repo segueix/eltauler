@@ -86,6 +86,15 @@ describe('banc diari acumulat i ordre dels nous', () => {
         expect(app.run('hgNewEntries().map(e => e.item.id)')).toEqual([daily[0].id]);
     });
 
+    test('es pot servir un nou en concret pel seu FEN (des de l\'historial)', () => {
+        const daily = reserve.slice(0, 3);
+        const app = setup({ reserve: daily });
+        const chosen = app.run(`hgConsumeNext("any", { fen: ${JSON.stringify(daily[2].fen)} })`);
+        expect(chosen.fen).toBe(daily[2].fen);
+        expect(chosen.source).toBe('reserve');
+        expect(app.run('hgNewEntries().length')).toBe(2);
+    });
+
     test('«Un altre jeroglífic» no torna a servir el que s\'acaba de jugar', () => {
         const app = setup({ queue: [{ id: 'a', fen: FENS[0], status: 'new', origin: 'game_real', createdAt: 2 }] });
         expect(app.run(`hgConsumeNext("any", { excludeFen: ${JSON.stringify(FENS[0])} })`)).toBeNull();
@@ -214,6 +223,17 @@ describe('caràtula i finestra final', () => {
     test('la finestra final ofereix guardar, rejugar, eliminar, un altre i compartir', () => {
         const fn = between('function renderHieroglyphicResultActions(', '// ── Compartir jeroglífics');
         ['Guardar', 'Rejugar', 'Eliminar', 'Un altre jeroglífic', 'WhatsApp', 'Missatgeria'].forEach(t => expect(fn).toContain(t));
+    });
+    test('els jeroglífics es poden fer sense la partida de calibratge (també en una sessió nova)', () => {
+        const fn = between('async function openHieroglyphicsFromBanner(', '// ── Historial de jeroglífics: estat de cada entrada');
+        expect(fn).not.toContain('guardCalibrationAccess');
+        expect(fn).toContain('hgPlayNext');
+    });
+    test('l\'historial mostra els nous encara no jugats (també els del banc diari) i es poden triar', () => {
+        expect(html).toContain('data-hgh-filter-status="new"');
+        expect(source).toContain("{ id: 'new', title: 'Nous'");
+        expect(source).toMatch(/hgNewEntries\(\)\.forEach\(x => \{ if \(originOk\(x\.item\)\) groups\.new\.push\(x\.item\)/);
+        expect(source).toContain("hgConsumePlayable('any', { fen })");
     });
     test('després de cada partida es programa una passada de creació', () => {
         expect(source).toMatch(/recordGameHistory\(msg[^\n]*\n[\s\S]{0,300}hgQueuePostGamePass\(/);
