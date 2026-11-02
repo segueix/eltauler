@@ -1,6 +1,6 @@
 const { Chess } = require('chess.js');
 const {
-    parseInfo, legalEngineMove, engineMoveWithRetry
+    parseInfo, legalEngineMove, engineMoveWithRetry, certifiedMateByProof, validate
 } = require('../scripts/mine-mate-in-three');
 
 describe('Mineria de mat en tres · robustesa UCI', () => {
@@ -64,4 +64,28 @@ describe('Mineria de mat en tres · robustesa UCI', () => {
         expect(engine.reset).toHaveBeenCalledTimes(2);
         expect(chess.history()).toEqual([]);
     });
+    test('converteix un mat en tres verificat en jeroglífic publicable, sense variables indefinides', async () => {
+        // Posició de mat en tres ja present al banc de jeroglífics.
+        const fen='4r1k1/5p2/5PpQ/q2pn3/6pP/P3RrK1/8/7R w - - 0 33';
+        const proof={
+            first:'e3f3',nodes:99,
+            line:['e3f3','a5e1','h1e1','d5d4','h6g7'],
+            sanLine:['Rxf3','Qe1+','Rxe1','d4','Qg7#']
+        };
+        const { sound } = require('../scripts/mine-hieroglyphics');
+        const H = require('../hieroclosure');
+        const fallback=certifiedMateByProof(fen,proof);
+        expect(fallback).not.toBeNull();
+        expect(fallback.conclusion.kind).toBe('mate');
+        expect(H.matches(fallback)).toBe(true);
+        // Simula que la verificació MultiPV extra és inconclusiva: la
+        // demostració matemàtica de mat forçat continua sent publicable.
+        const engine={search:jest.fn(async()=>({best:null,bestMove:null,alternatives:[]}))};
+        const item=await validate(engine,fen,proof);
+        expect(item.bestMove).toBe(proof.first);
+        expect(item.finalMotif).toBe('mate');
+        expect(item.conclusion.proofMethod).toBe('exhaustive_mate_tree');
+        expect(sound(item)).toBe(true);
+    });
+
 });
