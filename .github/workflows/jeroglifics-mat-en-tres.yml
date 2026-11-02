@@ -1,0 +1,60 @@
+name: Genera mats en tres (Stockfish 19 vs Lozza)
+
+on:
+  workflow_dispatch:
+  # Nova acció independent: una tanda diària, separada de l'autojoc habitual.
+  schedule:
+    - cron: '43 9 * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+# La reserva és compartida amb l'acció de jeroglífics ja existent.
+# La mateixa clau impedeix que dues execucions l'escriguin alhora.
+concurrency:
+  group: generacio-jeroglifics-compartits
+  cancel-in-progress: false
+
+jobs:
+  mats-en-tres:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Baixa el repositori
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          persist-credentials: true
+      - name: Configura Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Instal·la dependències
+        run: npm ci
+      - name: Disputa tres partides i verifica mats forçats en tres
+        run: node scripts/mine-mate-in-three.js --games 3 --add 3 --minutes 26 --max 1000
+      - name: Comprova la reserva
+        run: npm test -- --runInBand tests/daily-hieroglyphics.test.js tests/hieroglyphic-generation.test.js
+      - name: Publica els mats verificats
+        id: publish
+        shell: bash
+        run: |
+          git add jeroglifics-reserva.js
+          if git diff --cached --quiet; then
+            echo "published=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::Tres partides disputades. Cap mat en tres validat per publicar."
+            exit 0
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "chore: afegeix mats en tres verificats entre motors"
+          git pull --rebase origin main
+          git push origin HEAD:main
+          echo "published=true" >> "$GITHUB_OUTPUT"
+      - name: Actualitza la web compartida
+        if: steps.publish.outputs.published == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh workflow run desplega-web.yml --ref main
