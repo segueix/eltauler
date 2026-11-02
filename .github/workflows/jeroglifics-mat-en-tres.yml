@@ -2,9 +2,11 @@ name: Genera mats en tres (Stockfish 19 vs Lozza)
 
 on:
   workflow_dispatch:
-  # Nova acció independent: una tanda diària, separada de l'autojoc habitual.
+  # Una tanda al dia, centrada entre les execucions habituals de 06:17 i 18:17 UTC.
+  # 12:23 UTC = 13:23 a l'hivern i 14:23 a l'estiu a Catalunya.
+  # Minut 23 per reduir la coincidència amb altres accions programades.
   schedule:
-    - cron: '43 9 * * *'
+    - cron: '23 12 * * *'
 
 permissions:
   contents: write
