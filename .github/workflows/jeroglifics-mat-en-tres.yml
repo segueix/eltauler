@@ -35,6 +35,14 @@ jobs:
         run: npm ci
       - name: Disputa tres partides i verifica mats forçats en tres
         run: node scripts/mine-mate-in-three.js --games 3 --add 3 --minutes 26 --max 1000
+      - name: Adjunta l'informe encara que no es publiqui cap mat
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: informe-mats-en-tres
+          path: reports/mat3-last-run.json
+          if-no-files-found: warn
+          retention-days: 30
       - name: Comprova la reserva
         run: npm test -- --runInBand tests/mine-mate-in-three.test.js tests/daily-hieroglyphics.test.js tests/hieroglyphic-generation.test.js
       - name: Publica els mats verificats
