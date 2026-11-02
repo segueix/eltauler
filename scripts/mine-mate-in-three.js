@@ -65,6 +65,13 @@ class Engine {
     async init() {let w=this.wait(s=>s==='uciok');this.send('uci');await w;
         w=this.wait(s=>s==='readyok');this.send('isready');await w;
         this.send('setoption name Hash value 32');}
+    async reset() {
+        // La UCI exigeix reiniciar la cerca entre partides i després d'un error.
+        this.send('ucinewgame');
+        const ready=this.wait(s=>s==='readyok');
+        this.send('isready');
+        await ready;
+    }
     async search(fen, {ms=500,depth=0,multi=1,skill=null}={}) {
         this.send('setoption name MultiPV value '+multi);
         if(skill!==null)this.send('setoption name Skill Level value '+skill);
@@ -79,8 +86,8 @@ class Engine {
         const fallback=Array.from(this.info.entries()).sort((a,b)=>b[0]-a[0])[0];
         const rows=complete?complete[1]:fallback?fallback[1]:new Map();
         const alternatives=Array.from(rows.values()).sort((a,b)=>a.rank-b.rank);
-        return {best:match&&UCI.test(match[1])?match[1]:null,alternatives,
-            bestMove:alternatives[0]||null, infos:this.info};
+        return {best:match&&UCI.test(match[1])?match[1]:null,rawBest:match?match[1]:null,
+            alternatives,bestMove:alternatives[0]||null,infos:this.info};
     }
     close(){this.dead=true;try{this.p.stdin.write('quit\n');this.p.kill();}catch(e){}}
 }
@@ -111,6 +118,31 @@ function mateProof(fen, plies=5, maxNodes=260000, maxMs=3200) {
         return wins.length===1?{first:wins[0],nodes}:null;
     }catch(e){return null;}
 }
+function legalEngineMove(chess, move) {
+    if(!UCI.test(move || ''))return false;
+    try {return !!play(new Chess(chess.fen()),move);}catch(e){return false;}
+}
+async function engineMoveWithRetry(engine,chess,opts,details) {
+    const fen=chess.fen();
+    for(let attempt=0;attempt<3;attempt++){
+        if(attempt)await engine.reset();
+        const params={...opts,ms:Math.round(opts.ms*Math.pow(2,attempt))};
+        const result=await engine.search(fen,params);
+        if(legalEngineMove(chess,result.best))return result.best;
+        console.warn('Motor sense jugada legal: '+engine.name+
+            ' | partida='+details.game+' ply='+details.ply+' intent='+(attempt+1)+
+            ' | FEN='+fen+' | bestmove='+String(result.rawBest)+
+            ' | PV='+String(result.alternatives[0]&&result.alternatives[0].move));
+        // Si la sortida UCI diu (none), no inventar una jugada arbitrària:
+        // només es pot recuperar una jugada calculada per aquest mateix motor.
+        if(attempt===2 && !result.best && result.alternatives[0] &&
+            legalEngineMove(chess,result.alternatives[0].move)) {
+            console.warn('Recuperada una jugada PV real de '+engine.name);
+            return result.alternatives[0].move;
+        }
+    }
+    return null;
+}
 const OPENINGS = [
     ['e2e4','e7e5','g1f3','b8c6'],
     ['d2d4','d7d5','c2c4','e7e6'],
@@ -119,15 +151,21 @@ const OPENINGS = [
 async function game(sf,lozza,index) {
     const chess=new Chess(), fens=[chess.fen()], moves=[];
     const sfColor=index===1?'b':'w', opening=OPENINGS[index];
+    await Promise.all([sf.reset(),lozza.reset()]);
     for(let ply=0;ply<MAX_PLIES && !chess.game_over() && remaining();ply++){
         const forced=opening[ply]; let move=forced;
         if(!move){
             const sfTurn=chess.turn()===sfColor;
-            const r=await (sfTurn?sf:lozza).search(chess.fen(),sfTurn?
-                {ms:SF_MS,multi:1,skill:20}:{ms:LOZZA_MS,depth:index%2?6:5,multi:1});
-            move=r.best;
+            move=await engineMoveWithRetry(sfTurn?sf:lozza,chess,sfTurn?
+                {ms:SF_MS,multi:1,skill:20}:{ms:LOZZA_MS,depth:index%2?6:5,multi:1},
+                {game:index+1,ply:ply+1});
         }
-        if(!play(chess,move))throw Error('Jugada il·legal de motor a la partida '+(index+1)+': '+move);
+        if(!legalEngineMove(chess,move)){
+            console.warn('Partida '+(index+1)+' interrompuda al ply '+(ply+1)+
+                ', després de 3 intents. Es descarta, però no es perd la resta de la tanda.');
+            return {moves,fens,sfColor,done:false,mate:false,incomplete:true};
+        }
+        play(chess,move);
         moves.push(move);fens.push(chess.fen());
     }
     console.log('Partida '+(index+1)+': '+moves.length+' semijugades, final: '+
@@ -197,8 +235,16 @@ async function main(){
         lozza=new Engine(path.join(ROOT,'lozza.js'),'Lozza 3.0');
         await Promise.all([sf.init(),lozza.init()]);
         const games=[];
-        for(let i=0;i<GAMES && remaining();i++)games.push(await game(sf,lozza,i));
-        if(games.length!==3){console.warn('No s’han pogut completar les tres partides dins del pressupost.');return;}
+        // Les partides amb fallades UCI no s'accepten com a completes.
+        // Reintentar amb una altra obertura sense perdre les partides ja fetes.
+        let attempts=0;
+        while(games.length<GAMES && attempts<GAMES*3 && remaining()){
+            const g=await game(sf,lozza,attempts%OPENINGS.length);
+            attempts++;
+            if(!g.incomplete)games.push(g);
+        }
+        if(games.length<GAMES)console.warn('Només '+games.length+'/'+GAMES+
+            ' partides completes. Es minen les disponibles; cap partida incompleta es publica.');
         // No descartar una partida que acaba en taules: pot contenir variants amb mat.
         const items=[];
         for(const g of games){items.push(...candidatesFrom(g));if(remaining())items.push(...await branches(sf,g));}
@@ -229,4 +275,4 @@ async function main(){
         '### Mats en tres · Stockfish contra Lozza\nPartides: **3**. Mats nous verificats: **'+added+'**. Cap candidat sense prova no es publica.\n');
 }
 if(require.main===module)main().catch(e=>{console.error('ERROR: '+e.stack);process.exitCode=1;});
-module.exports={parseInfo,mateProof,candidatesFrom};
+module.exports={parseInfo,mateProof,candidatesFrom,legalEngineMove,engineMoveWithRetry};
