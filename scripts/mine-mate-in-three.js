@@ -373,4 +373,4 @@ async function main(){
             +'Consulteu els comptadors anteriors per saber en quin filtre s\'han descartat.')+'\n');
 }
 if(require.main===module)main().catch(e=>{console.error('ERROR: '+e.stack);process.exitCode=1;});
-module.exports={parseInfo,mateProof,candidatesFrom,legalEngineMove,engineMoveWithRetry};
+module.exports={parseInfo,mateProof,candidatesFrom,legalEngineMove,engineMoveWithRetry,certifiedMateByProof,validate};
