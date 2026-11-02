@@ -93,7 +93,7 @@ class Engine {
 }
 // Mat forçat com a màxim en N semijugades: quantificadors existencial (atacant)
 // i universal (defensor). El pressupost evita bloquejar la tasca amb arbres enormes.
-function mateProof(fen, plies=5, maxNodes=260000, maxMs=3200) {
+function mateProof(fen, plies=5, maxNodes=400000, maxMs=5000) {
     const g = new Chess(fen), attacker = g.turn(), cache = new Map();
     const end=Date.now()+maxMs; let nodes=0;
     const solve = n => {
@@ -102,7 +102,13 @@ function mateProof(fen, plies=5, maxNodes=260000, maxMs=3200) {
         if(g.game_over() || n===0) return false;
         const k=g.fen()+'@'+n;
         if(cache.has(k)) return cache.get(k);
-        const atk=g.turn()===attacker, moves=g.moves({verbose:true});
+        const atk=g.turn()===attacker;
+        // Les jugades amb escac primer permeten demostrar més mats sense
+        // augmentar artificialment la força ni descartar les jugades tranquil·les.
+        const moves=g.moves({verbose:true}).sort((a,b)=>{
+            const priority=m=>(/[+#]/.test(m.san)?10:0)+(m.captured?2:0);
+            return priority(b)-priority(a);
+        });
         let result=!atk;
         for(const m of moves){g.move(m);const win=solve(n-1);g.undo();
             if(atk&&win){result=true;break;}
@@ -229,6 +235,8 @@ async function validate(sf,fen,first) {
 }
 async function main(){
     let sf,lozza;let added=0,checked=0,found=0;
+    const stats={games:0,candidates:0,finals:0,fastMate:0,highAdvantage:0,
+        proofCalls:0,proofPass:0,verifyCalls:0,verified:0,published:0};
     const reserve=readReserve().filter(sound).slice(0,MAX_RESERVE), known=new Set(reserve.map(x=>reserveFenKey(x.fen)));
     try {
         sf=new Engine(path.join(ROOT,'stockfish-19-lite-single.js'),'Stockfish 19');
@@ -243,6 +251,7 @@ async function main(){
             attempts++;
             if(!g.incomplete)games.push(g);
         }
+        stats.games=games.length;
         if(games.length<GAMES)console.warn('Només '+games.length+'/'+GAMES+
             ' partides completes. Es minen les disponibles; cap partida incompleta es publica.');
         // No descartar una partida que acaba en taules: pot contenir variants amb mat.
@@ -250,29 +259,57 @@ async function main(){
         for(const g of games){items.push(...candidatesFrom(g));if(remaining())items.push(...await branches(sf,g));}
         const candidates=[],seen=new Set();
         for(const x of items){const key=fenKey(x.fen);if(seen.has(key)||known.has(key))continue;seen.add(key);candidates.push(x);}
-        console.log('Posicions i branques candidates: '+candidates.length);
+        stats.candidates=candidates.length;
+        stats.finals=candidates.filter(x=>x.kind==='final').length;
+        console.log('Posicions i branques candidates: '+candidates.length+
+            ' | finals directes: '+stats.finals);
         for(const x of candidates){
             if(!remaining() || added>=MAX_NEW)break;
-            const a=await sf.search(x.fen,{ms:QUICK_MS,depth:18,multi:1,skill:20});
-            const best=a.bestMove;
-            if(!best || best.evalType!=='mate' || best.eval!==3)continue;
-            const proof=mateProof(x.fen);
+            // Un mat vist a la partida real no s'ha d'excloure per una cerca
+            // ràpida insuficient. La prova exhaustiva determina si és forçat.
+            let promising=x.kind==='final';
+            if(!promising){
+                const a=await sf.search(x.fen,{ms:Math.max(1000,QUICK_MS),depth:20,multi:1,skill:20});
+                const best=a.bestMove;
+                if(best && best.evalType==='mate' && best.eval>=3 && best.eval<=8){
+                    stats.fastMate++;promising=true;
+                }else if(best && best.evalType==='cp' && best.eval>=500){
+                    // Pot existir un mat en 3 encara no descobert a la cerca curta.
+                    stats.highAdvantage++;promising=true;
+                }
+            }
+            if(!promising)continue;
+            stats.proofCalls++;
+            const proof=mateProof(x.fen,5,x.kind==='final'?800000:400000,
+                x.kind==='final'?12000:5000);
             if(!proof)continue;
-            found++;
+            stats.proofPass++;found++;
+            stats.verifyCalls++;
             const item=await validate(sf,x.fen,proof.first);
             checked++;
             if(!item || !sound(item))continue;
+            stats.verified++;
             const next=addToPublicReserve(reserve,item,MAX_RESERVE,Date.now());
             if(!next)continue;
             reserve.splice(0,reserve.length,...next);
             known.add(reserveFenKey(item.fen));added++;
+            stats.published=added;
             writeReserve(reserve);
             console.log('MAT EN 3 VALIDAT ('+added+'/'+MAX_NEW+'): '+item.sanLine.join(' ')+' ['+x.kind+']');
         }
     } finally {if(sf)sf.close();if(lozza)lozza.close();}
+    console.log('Resultats detallats: '+JSON.stringify(stats));
     console.log('Acabat: '+added+' nous mats en 3; '+found+' demostracions; '+checked+' verificacions completes.');
+    if(!added)console.warn('CAP JEROGLÍFIC PUBLICAT: les partides han acabat, però cap posició ha superat tots els filtres. No és un error de desplegament.');
     if(process.env.GITHUB_STEP_SUMMARY)fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY,
-        '### Mats en tres · Stockfish contra Lozza\nPartides: **3**. Mats nous verificats: **'+added+'**. Cap candidat sense prova no es publica.\n');
+        '### Mats en tres · Stockfish contra Lozza\n'+
+        'Partides completes: **'+stats.games+'/3**. Posicions candidates: **'+stats.candidates+
+        '**. Finals amb mat: **'+stats.finals+'**. Proves exhaustives: **'+stats.proofCalls+
+        '**. Mats demostrats: **'+stats.proofPass+'**. Mats verificats: **'+stats.verified+
+        '**. Publicats: **'+added+'**.\n'+
+        (added?'Publicació sol·licitada en acabar el workflow.':
+            'Cap mat nou ha passat tots els filtres. No hi ha fitxer modificat ni desplegament. '
+            +'Consulteu els comptadors anteriors per saber en quin filtre s\'han descartat.')+'\n');
 }
 if(require.main===module)main().catch(e=>{console.error('ERROR: '+e.stack);process.exitCode=1;});
 module.exports={parseInfo,mateProof,candidatesFrom,legalEngineMove,engineMoveWithRetry};
