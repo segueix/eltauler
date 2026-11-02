@@ -36,7 +36,7 @@ jobs:
       - name: Disputa tres partides i verifica mats forçats en tres
         run: node scripts/mine-mate-in-three.js --games 3 --add 3 --minutes 26 --max 1000
       - name: Comprova la reserva
-        run: npm test -- --runInBand tests/daily-hieroglyphics.test.js tests/hieroglyphic-generation.test.js
+        run: npm test -- --runInBand tests/mine-mate-in-three.test.js tests/daily-hieroglyphics.test.js tests/hieroglyphic-generation.test.js
       - name: Publica els mats verificats
         id: publish
         shell: bash
