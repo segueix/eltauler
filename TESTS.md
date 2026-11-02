@@ -151,12 +151,24 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   que la rèplica del rival es fa encara que la marca prèvia es cancel·li (p.
   ex. en llegir una màxima en veu alta) o tardi més de 12 s.
 
-  Aquest rebost estàtic es regenera amb el mateix Stockfish que porta l'app:
+  **Resultat palpable** (`tacticStepVerdict`, `tacticTrimLine`): una segona
+  jugada només és un pas d'exercici si fa mat, porta a un mat curt (≤ 3) i únic
+  o guanya material net (≥ 2 peons) dins la línia del motor, mesurat en els
+  punts quiets de la PV. Una "millor jugada" tranquil·la (p. ex. amagar el rei
+  darrere els peons) es descarta: al banc la posició no hi entra i a la
+  preparació en viu (Revisa errors, Repàs) l'exercici es queda en un sol pas.
+  Totes les posicions del banc han de passar aquest filtre, i la preparació en
+  viu ha de fer servir Stockfish 19 (`analyzeExerciseFen`).
+
+  Aquest rebost estàtic es regenera amb Stockfish 19
+  (`stockfish-19-lite-single.js`) i descarta les posicions sense resultat
+  palpable (el script les llista perquè es treguin de `TACTICS_BANK`):
 
   ```bash
   node scripts/gen-tactics-solutions.js          # reescriu el bloc dins d'app.js
   node scripts/gen-tactics-solutions.js --dry    # només l'imprimeix
   node scripts/gen-tactics-solutions.js --only "fen1|fen2"   # resol només aquestes; la resta queda igual
+  node scripts/gen-tactics-solutions.js --check "fen1|fen2"  # només diu si passarien el filtre
   ```
 
 - **`puzzles.test.js`** — jeroglífics tàctics: validació pas a pas de la solució

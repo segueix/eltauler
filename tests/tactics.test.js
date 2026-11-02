@@ -258,3 +258,110 @@ describe('banc de tàctiques real (app.js)', () => {
         });
     });
 });
+
+// ============================================================================
+// Resultat palpable: la segona jugada ha de fer mat o guanyar material
+// ============================================================================
+describe('resultat palpable de la segona jugada (tacticStepVerdict)', () => {
+    // Posició del banc antic on Stockfish proposava Kb1 (rei darrere els peons)
+    // i després un avanç de peó: cap resultat a la vista.
+    const REI_AMAGAT = '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11';
+
+    test('una jugada tranquil·la del rei no és un pas d\'exercici', () => {
+        const v = Core.tacticStepVerdict(Chess, REI_AMAGAT, ['c1b1', 'a7a6', 'g2g4'], ['g2g4', 'b7b5'], { eval: 633, evalType: 'cp' });
+        expect(v.ok).toBe(false);
+        expect(v.stepGain).toBe(0);
+    });
+
+    test('la forquilla amb escac que guanya la torre sí que ho és', () => {
+        const v = Core.tacticStepVerdict(Chess, 'r5k1/6pp/8/8/8/5P2/6PP/3Q2K1 w - - 0 1',
+            ['d1d5', 'g8f8', 'd5a8'], ['d5a8', 'f8e7'], { eval: 7000, evalType: 'cp' });
+        expect(v).toMatchObject({ ok: true, kind: 'material' });
+        expect(v.stepGain).toBeGreaterThanOrEqual(2);
+    });
+
+    test('l\'escac i mat sempre és resultat palpable', () => {
+        const v = Core.tacticStepVerdict(Chess, '5r1k/6pp/7N/3Q4/8/8/6PP/6K1 w - - 0 1',
+            ['d5g8', 'f8g8', 'h6f7'], ['h6f7'], { eval: 1, evalType: 'mate' });
+        expect(v).toMatchObject({ ok: true, kind: 'mate' });
+    });
+
+    test('un mat curt només compta si és únic', () => {
+        // Posició amb dama i torre de més: moltes jugades fan mat aviat.
+        const fen = '6k1/5ppp/8/8/8/8/1Q3PPP/3R2K1 w - - 0 1';
+        const line = ['d1d7'];
+        const unic = Core.tacticStepVerdict(Chess, fen, line, ['d1d7'], { eval: 2, evalType: 'mate' },
+            { alternatives: [{ move: 'd1d7', eval: 2, evalType: 'mate' }, { move: 'h2h3', eval: 900, evalType: 'cp' }] });
+        expect(unic).toMatchObject({ ok: true, kind: 'mate' });
+        const diversos = Core.tacticStepVerdict(Chess, fen, line, ['d1d7'], { eval: 2, evalType: 'mate' },
+            { alternatives: [{ move: 'd1d7', eval: 2, evalType: 'mate' }, { move: 'b2b8', eval: 2, evalType: 'mate' }] });
+        expect(diversos.ok).toBe(false);
+    });
+
+    test('un canvi a mitges no compta com a guany (es mira el punt quiet)', () => {
+        // Cxe5 guanya un peó però la PV continua amb la recaptura: no arriba a 2.
+        const fen = 'r1bqkbnr/pppp1ppp/2n5/4p3/4P3/5N2/PPPP1PPP/RNBQKB1R w KQkq - 0 3';
+        const v = Core.tacticStepVerdict(Chess, fen, ['f3e5'], ['f3e5', 'c6e5', 'd2d4'], { eval: -150, evalType: 'cp' });
+        expect(v.ok).toBe(false);
+    });
+
+    test('tacticTrimLine conserva el primer pas i talla el que no té resultat', () => {
+        const line = ['c1b1', 'a7a6', 'g2g4', 'b7b5', 'h2h4'];
+        const t = Core.tacticTrimLine(Chess, REI_AMAGAT, line, [0, 1, 2].map(k => ({ pv: line.slice(2 * k) })));
+        expect(t.line).toEqual(['c1b1']);
+        expect(t.steps).toBe(1);
+    });
+});
+
+describe('banc de tàctiques: totes amb resultat palpable i Stockfish 19', () => {
+    const src = fs.readFileSync(path.join(__dirname, '..', 'app.js'), 'utf8');
+    const readList = (name) => {
+        const start = src.indexOf(`const ${name} = [`);
+        const end = src.indexOf('\n];', start);
+        return new Function(`${src.slice(start, end + 3)}\n;return ${name};`)();
+    };
+    const BANK_REAL = readList('TACTICS_BANK');
+    const SOLUTIONS = (() => {
+        const start = src.indexOf('const TACTICS_BANK_SOLUTIONS = ');
+        const end = src.indexOf('\n};', start);
+        return new Function(`${src.slice(start, end + 3)}\n;return TACTICS_BANK_SOLUTIONS;`)();
+    })();
+
+    test('la segona jugada de cada tàctica del banc fa mat o guanya material', () => {
+        BANK_REAL.forEach(fen => {
+            const sol = SOLUTIONS[fen];
+            const line = [sol.steps[0].move, sol.replies[0].move, sol.steps[1].move];
+            const v = Core.tacticStepVerdict(Chess, fen, line, sol.steps[1].pv,
+                { eval: sol.steps[1].eval, evalType: sol.steps[1].evalType },
+                { alternatives: sol.steps[1].alternatives });
+            expect({ fen, line: sol.sanLine.join(' '), ok: v.ok, reason: v.reason })
+                .toEqual({ fen, line: sol.sanLine.join(' '), ok: true, reason: v.reason });
+        });
+    });
+
+    test('cap tàctica del banc no amaga el rei com a segona jugada', () => {
+        BANK_REAL.forEach(fen => {
+            const san = SOLUTIONS[fen].sanLine[2] || '';
+            const quietKing = /^K/.test(san) && !/[x+#]/.test(san);
+            expect({ fen, san, quietKing }).toEqual({ fen, san, quietKing: false });
+        });
+    });
+
+    test('el rebost es genera amb Stockfish 19 i el filtre de resultat palpable', () => {
+        const gen = fs.readFileSync(path.join(__dirname, '..', 'scripts', 'gen-tactics-solutions.js'), 'utf8');
+        expect(gen).toMatch(/stockfish-19-lite-single\.js/);
+        expect(gen).not.toMatch(/require\(path\.join\(ROOT, 'stockfish\.js'\)\)/);
+        expect(gen).toMatch(/tacticStepVerdict/);
+    });
+
+    test('la preparació en viu fa servir Stockfish 19 i retalla la segona jugada sense resultat', () => {
+        const prep = src.slice(src.indexOf('async function prepareBundleSequence'), src.indexOf('async function prepareBundleSequence') + 12000);
+        expect(prep).not.toMatch(/await analyzeFenRobust\(/);
+        expect((prep.match(/await analyzeExerciseFen\(/g) || []).length).toBe(3);
+        expect(prep).toMatch(/ElTaulerCore\.tacticStepVerdict\(/);
+        const helper = src.slice(src.indexOf('async function analyzeExerciseFen'), src.indexOf('async function analyzeExerciseFen') + 800);
+        expect(helper).toMatch(/analyzeHieroFenRobust\(/);
+        // Les seqüències desades abans (motor ordinari, sense filtre) es descarten.
+        expect(src).toMatch(/&& seq\.engine === 'sf19'/);
+    });
+});
