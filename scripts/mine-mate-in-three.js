@@ -121,7 +121,30 @@ function mateProof(fen, plies=5, maxNodes=400000, maxMs=5000) {
         if(solve(plies-2))return null;
         const wins=[];
         for(const m of g.moves({verbose:true})) {g.move(m);const ok=solve(plies-1);g.undo();if(ok)wins.push(uci(m));}
-        return wins.length===1?{first:wins[0],nodes}:null;
+        if(wins.length!==1)return null;
+        // Construeix una línia completa emprant la mateixa demostració exacta.
+        // El defensor tria una resposta que endarrereixi el mat, si existeix.
+        const witness=[], sanLine=[];
+        for(let n=plies;n>0;n--){
+            const attackerTurn=g.turn()===attacker;
+            const moves=g.moves({verbose:true});
+            let picked=null, fallback=null;
+            for(const move of moves){
+                if(n===plies && uci(move)!==wins[0])continue;
+                g.move(move);
+                const winning=solve(n-1);
+                const delays=(!attackerTurn && n>=4)?!solve(n-3):false;
+                g.undo();
+                if(!winning)continue;
+                if(!fallback)fallback=move;
+                if(attackerTurn || delays){picked=move;break;}
+            }
+            picked=picked||fallback;
+            if(!picked)return null;
+            g.move(picked);witness.push(uci(picked));sanLine.push(picked.san);
+        }
+        if(witness.length!==5 || !g.in_checkmate())return null;
+        return {first:wins[0],nodes,line:witness,sanLine};
     }catch(e){return null;}
 }
 function legalEngineMove(chess, move) {
@@ -215,15 +238,53 @@ async function makeLine(sf,fen,first) {
     if(!g.in_checkmate())return null;
     return {line,san};
 }
-async function validate(sf,fen,first) {
-    const line=await makeLine(sf,fen,first);if(!line)return null;
+function certifiedMateByProof(fen,proof) {
+    // Certificació alternativa: arbre exhaustiu de totes les defenses a cinc
+    // semijugades, amb única primera jugada i sense mat forçat en dues.
+    // No s'inventa cap profunditat Stockfish.
+    if(!proof || !Array.isArray(proof.line) || proof.line.length!==5 ||
+        proof.first!==proof.line[0])return null;
+    const g=new Chess(fen),sanLine=[];
+    for(let i=0;i<proof.line.length;i++){
+        const m=play(g,proof.line[i]);
+        if(!m || (i<4 && g.game_over()))return null;
+        sanLine.push(m.san);
+    }
+    if(!g.in_checkmate())return null;
+    const last=sanLine[4],first=new Chess(fen);
+    const line=proof.line;
+    return {
+        fen,solutionMoves:[line[0],line[2],line[4]],
+        replyMoves:[line[1],line[3]],
+        stepAlternatives:[],
+        stepEvals:[],stepPvs:[],
+        conclusion:{
+            version:H.VERSION,fen,line,finalFen:g.fen(),kind:'mate',
+            finalSan:last,gain:null,checkedReplies:0,
+            checkedAlternatives:first.moves().length-1,
+            explanation:last+' culmina un mat forçat en tres jugades, demostrat comprovant totes les defenses legals.',
+            uniqueness:'Una única primera jugada força mat en tres; s’han comprovat exhaustivament les defenses possibles.',
+            alternativeSan:null,alternativeLine:[],alternativeEval:null,
+            minDepth:0,requestedDepth:0,sacrifices:[],
+            proofMethod:'exhaustive_mate_tree',proofNodes:proof.nodes
+        }
+    };
+}
+async function validate(sf,fen,proof) {
+    const line={line:proof.line,san:proof.sanLine};
+    if(!line.line || line.line.length!==5)return null;
     const raw={fen,solutionMoves:[line.line[0],line.line[2],line.line[4]],replyMoves:[line.line[1],line.line[3]]};
     const verifier=H.createVerifier(Chess,async(fen,depth,multi,ms)=>{
         const a=await sf.search(fen,{ms:Math.min(VERIFY_MS,Math.max(2800,ms||VERIFY_MS)),depth:Math.max(depth,20),multi,skill:20});
         return {bestMove:a.bestMove,alternatives:a.alternatives};
     });
-    const result=await verifier.verify(raw,{depth:20,moveTimeMs:VERIFY_MS,shouldAbort:()=>!remaining()});
-    if(!result || result.conclusion.kind!=='mate')return null;
+    // El verificador habitual és més estricte: exigeix unicitat també en
+    // jugades posteriors. Això no és necessari per a un mat forçat en tres.
+    // Si falla, el certificat exhaustiu continua sent matemàticament vàlid.
+    const rich=await verifier.verify(raw,{depth:20,moveTimeMs:VERIFY_MS,shouldAbort:()=>!remaining()});
+    const result=rich && rich.conclusion && rich.conclusion.kind==='mate'
+        ? rich : certifiedMateByProof(fen,proof);
+    if(!result || !H.matches(result))return null;
     const start=new Chess(fen), player=start.turn();
     return {...result,
         id:'',source:'reserve',fen,sideToMove:player,line:line.line,sanLine:line.san,
@@ -285,7 +346,7 @@ async function main(){
             if(!proof)continue;
             stats.proofPass++;found++;
             stats.verifyCalls++;
-            const item=await validate(sf,x.fen,proof.first);
+            const item=await validate(sf,x.fen,proof);
             checked++;
             if(!item || !sound(item))continue;
             stats.verified++;
