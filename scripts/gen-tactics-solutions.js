@@ -3,23 +3,33 @@
 // scripts/gen-tactics-solutions.js — rebost estàtic del banc de tàctiques
 // ============================================================================
 // Resol fora de línia la línia de cada posició del banc (TACTICS_BANK d'app.js)
-// amb el MATEIX Stockfish que carrega l'app (stockfish.js), a més profunditat
-// que la preparació en viu, i escriu el resultat dins d'app.js entre els marcadors
+// amb Stockfish 19 (stockfish-19-lite-single.js, el mateix que fan servir els
+// jeroglífics i la preparació d'exercicis de l'app), a més profunditat que la
+// preparació en viu, i escriu el resultat dins d'app.js entre els marcadors
 //
 //     // >>> TACTICS_BANK_SOLUTIONS (generat) >>>
 //     ...
 //     // <<< TACTICS_BANK_SOLUTIONS <<<
 //
+// Només es desen les tàctiques amb RESULTAT PALPABLE (core.js,
+// tacticStepVerdict): la segona jugada ha de fer mat, portar a un mat forçat o
+// guanyar material net dins la línia del motor. Les posicions on la "millor
+// jugada" és tranquil·la (amagar el rei darrere els peons, un avanç de peó...)
+// es descarten i el script les llista perquè es treguin del banc.
+//
 // Gràcies a aquest rebost un exercici de tàctiques arrenca a l'instant i la
 // secció continua funcionant encara que el motor no arrenqui al dispositiu.
 //
-// Ús:  node scripts/gen-tactics-solutions.js [--depth 18] [--dry] [--only fen1|fen2]
+// Ús:  node scripts/gen-tactics-solutions.js [--depth 20] [--dry] [--only fen1|fen2]
 //      --only: resol només aquestes posicions i conserva tal qual la resta del
 //      rebost (per afegir-ne de noves sense tornar a calcular les existents).
+//      --check fen1|fen2: només diu si aquestes posicions passarien el filtre.
 // ============================================================================
 const fs = require('fs');
 const path = require('path');
+const { spawn } = require('child_process');
 const { Chess } = require('chess.js');
+const Core = require('../core');
 
 const ROOT = path.join(__dirname, '..');
 const APP = path.join(ROOT, 'app.js');
@@ -27,10 +37,11 @@ const BEGIN = '// >>> TACTICS_BANK_SOLUTIONS (generat) >>>';
 const END = '// <<< TACTICS_BANK_SOLUTIONS <<<';
 
 const args = process.argv.slice(2);
-const DEPTH = Number(args[args.indexOf('--depth') + 1]) || 18;
-const MOVETIME_MS = 20000;
+const DEPTH = (args.includes('--depth') && Number(args[args.indexOf('--depth') + 1])) || 20;
+const MOVETIME_MS = 15000;
 const PV_KEEP = 8;
 const DRY = args.includes('--dry');
+const CHECK = args.includes('--check') ? String(args[args.indexOf('--check') + 1] || '').split('|').map(f => f.trim()).filter(Boolean) : null;
 const ONLY = args.includes('--only') ? String(args[args.indexOf('--only') + 1] || '').split('|').map(f => f.trim()).filter(Boolean) : null;
 
 function readSolutions(src) {
@@ -40,15 +51,27 @@ function readSolutions(src) {
     return new Function(`${src.slice(start, end + 3)}\n;return TACTICS_BANK_SOLUTIONS;`)();
 }
 
-// ── Motor: stockfish.js és un worker; a Node n'hi ha prou d'oferir postMessage ──
+// ── Motor: Stockfish 19 en un procés Node apart, parlant UCI per stdin/stdout ──
+const engine = spawn(process.execPath, [path.join(ROOT, 'stockfish-19-lite-single.js')], { cwd: ROOT, stdio: ['pipe', 'pipe', 'pipe'] });
 const listeners = [];
-global.postMessage = (m) => { listeners.forEach(fn => fn(String(m))); };
-require(path.join(ROOT, 'stockfish.js'));
-const send = (cmd) => global.onmessage({ data: cmd });
+let outBuf = '';
+engine.stdout.on('data', chunk => {
+    outBuf += chunk.toString();
+    let pos;
+    while ((pos = outBuf.indexOf('\n')) >= 0) {
+        const line = outBuf.slice(0, pos).trim();
+        outBuf = outBuf.slice(pos + 1);
+        listeners.slice().forEach(fn => fn(line));
+    }
+});
+engine.on('exit', code => { if (!exiting) { console.error('Stockfish 19 ha acabat (' + code + ')'); process.exit(1); } });
+let exiting = false;
+const send = (cmd) => engine.stdin.write(cmd + '\n');
 const onLine = (fn) => {
     listeners.push(fn);
     return () => { const i = listeners.indexOf(fn); if (i >= 0) listeners.splice(i, 1); };
 };
+const quit = (code) => { exiting = true; try { send('quit'); } catch (e) {} setTimeout(() => process.exit(code), 50); };
 
 const ready = () => new Promise(resolve => {
     const off = onLine(l => { if (l.indexOf('readyok') === 0) { off(); resolve(); } });
@@ -60,6 +83,7 @@ function parseInfo(line) {
     const info = { depth: null, multipv: 1, score: null, scoreType: 'cp', pv: [] };
     const d = line.match(/\bdepth (\d+)/); if (d) info.depth = parseInt(d[1], 10);
     const m = line.match(/\bmultipv (\d+)/); if (m) info.multipv = parseInt(m[1], 10);
+    if (/\b(?:lowerbound|upperbound)\b/.test(line)) return null;
     const cp = line.match(/\bscore cp (-?\d+)/); if (cp) { info.score = parseInt(cp[1], 10); info.scoreType = 'cp'; }
     const mate = line.match(/\bscore mate (-?\d+)/); if (mate) { info.score = parseInt(mate[1], 10); info.scoreType = 'mate'; }
     const pv = line.match(/ pv (.+)$/); if (pv) info.pv = pv[1].trim().split(/\s+/);
@@ -111,7 +135,7 @@ function readBankFens(src) {
     };
     const bank = readArray('TACTICS_BANK');
     const daily = readArray('DAILY_PUZZLE_BANK').map(p => (p && p.fen) || p).filter(Boolean);
-    return Array.from(new Set(bank.concat(daily)));
+    return { bank, all: Array.from(new Set(bank.concat(daily))) };
 }
 
 function serialize(solutions) {
@@ -141,62 +165,106 @@ function serialize(solutions) {
     return lines.join('\n');
 }
 
+// Resol la línia d'una posició: dues jugades del jugador amb la rèplica del
+// rival entremig (o menys, si la partida s'acaba abans).
+async function solveFen(fen) {
+    let probe;
+    try { probe = new Chess(fen); } catch (e) { probe = null; }
+    if (!probe || probe.game_over() || !probe.moves().length) {
+        process.stderr.write('  !! posició ja acabada o il·legible: no pot ser exercici\n');
+        return null;
+    }
+    const steps = [];
+    const replies = [];
+    const sanLine = [];
+    let curFen = fen;
+    for (let i = 0; i < 2; i++) {
+        const a = await analyze(curFen, 2);
+        if (!a.length || !a[0].move) { process.stderr.write('  !! sense millor jugada al pas ' + (i + 1) + '\n'); break; }
+        const r = applyUci(curFen, a[0].move);
+        if (!r) { process.stderr.write('  !! jugada il·legal ' + a[0].move + '\n'); break; }
+        process.stderr.write(`  pas${i + 1} ${a[0].move} (${r.san}) ${a[0].evalType} ${a[0].eval}\n`);
+        steps.push({
+            move: a[0].move, eval: a[0].eval, evalType: a[0].evalType,
+            pv: (a[0].pv || []).slice(0, PV_KEEP),
+            alternatives: a.filter(x => x && x.move).map(x => ({ move: x.move, eval: x.eval, evalType: x.evalType }))
+        });
+        sanLine.push(r.san);
+        curFen = r.fen;
+        if (r.over) { process.stderr.write('  ·· la línia acaba aquí (mat o taules)\n'); break; }
+        if (i === 1) break;
+
+        const o = await analyze(curFen, 1);
+        if (!o.length || !o[0].move) { process.stderr.write('  !! sense resposta del rival\n'); break; }
+        const ro = applyUci(curFen, o[0].move);
+        if (!ro) { process.stderr.write('  !! resposta il·legal ' + o[0].move + '\n'); break; }
+        process.stderr.write(`  rival ${o[0].move} (${ro.san})\n`);
+        replies.push({ move: o[0].move, eval: o[0].eval, evalType: o[0].evalType });
+        sanLine.push(ro.san);
+        curFen = ro.fen;
+        if (ro.over) { process.stderr.write('  ·· la línia acaba amb la resposta del rival\n'); break; }
+    }
+    if (!steps.length) { process.stderr.write('  !! cap pas jugable: es descarta\n'); return null; }
+    // Cada pas (llevat de l'últim) necessita la rèplica fixa del rival.
+    if (steps.length === 1) { replies.length = 0; sanLine.length = 1; }
+    return { totalSteps: steps.length, sanLine, steps, replies };
+}
+
+// Una tàctica del banc necessita dues jugades i que la segona tingui un
+// resultat palpable (mat o guany net de material dins la línia del motor).
+function tacticVerdict(fen, sol) {
+    if (!sol || sol.steps.length < 2 || !sol.replies.length) return { ok: false, reason: 'no té dues jugades del jugador' };
+    const line = [sol.steps[0].move, sol.replies[0].move, sol.steps[1].move];
+    const v = Core.tacticStepVerdict(Chess, fen, line, sol.steps[1].pv,
+        { eval: sol.steps[1].eval, evalType: sol.steps[1].evalType },
+        { alternatives: sol.steps[1].alternatives });
+    return v;
+}
+
 (async () => {
     const src = fs.readFileSync(APP, 'utf8');
-    const bankFens = readBankFens(src);
+    const banks = readBankFens(src);
+    const bankFens = banks.all;
+    const tacticsSet = new Set(banks.bank);
     if (!bankFens.length) { console.error('No s\'ha pogut llegir cap banc d\'app.js'); process.exit(1); }
-    const kept = ONLY ? readSolutions(src) : {};
-    const fens = ONLY || bankFens;
 
     send('uci');
     await ready();
+    send('setoption name Hash value 64');
+    await ready();
 
+    if (CHECK) {
+        for (const fen of CHECK) {
+            process.stderr.write('\n== ' + fen + '\n');
+            const sol = await solveFen(fen);
+            const v = tacticVerdict(fen, sol);
+            console.log(JSON.stringify({ fen, ok: !!v.ok, kind: v.kind || null, reason: v.reason, sanLine: sol ? sol.sanLine : null }));
+        }
+        quit(0);
+        return;
+    }
+
+    const kept = ONLY ? readSolutions(src) : {};
+    const fens = ONLY || bankFens;
     // Amb --only, l'ordre del rebost segueix el dels bancs i les posicions que
     // ja no hi són es deixen fora.
     const solutions = {};
+    const rejected = [];
     if (ONLY) bankFens.forEach(f => { if (kept[f] && !ONLY.includes(f)) solutions[f] = kept[f]; });
     for (const fen of fens) {
         process.stderr.write('\n== ' + fen + '\n');
-        let probe;
-        try { probe = new Chess(fen); } catch (e) { probe = null; }
-        if (!probe || probe.game_over() || !probe.moves().length) {
-            process.stderr.write('  !! posició ja acabada o il·legible: no pot ser exercici\n');
-            continue;
+        const sol = await solveFen(fen);
+        if (!sol) continue;
+        if (tacticsSet.has(fen)) {
+            const v = tacticVerdict(fen, sol);
+            if (!v.ok) {
+                process.stderr.write(`  XX sense resultat palpable (${v.reason}): es descarta\n`);
+                rejected.push({ fen, reason: v.reason, sanLine: sol.sanLine });
+                continue;
+            }
+            process.stderr.write(`  OK ${v.kind}: ${v.reason}\n`);
         }
-        const steps = [];
-        const replies = [];
-        const sanLine = [];
-        let curFen = fen;
-        for (let i = 0; i < 2; i++) {
-            const a = await analyze(curFen, 2);
-            if (!a.length || !a[0].move) { process.stderr.write('  !! sense millor jugada al pas ' + (i + 1) + '\n'); break; }
-            const r = applyUci(curFen, a[0].move);
-            if (!r) { process.stderr.write('  !! jugada il·legal ' + a[0].move + '\n'); break; }
-            process.stderr.write(`  pas${i + 1} ${a[0].move} (${r.san}) ${a[0].evalType} ${a[0].eval}\n`);
-            steps.push({
-                move: a[0].move, eval: a[0].eval, evalType: a[0].evalType,
-                pv: (a[0].pv || []).slice(0, PV_KEEP),
-                alternatives: a.filter(x => x && x.move).map(x => ({ move: x.move, eval: x.eval, evalType: x.evalType }))
-            });
-            sanLine.push(r.san);
-            curFen = r.fen;
-            if (r.over) { process.stderr.write('  ·· la línia acaba aquí (mat o taules)\n'); break; }
-            if (i === 1) break;
-
-            const o = await analyze(curFen, 1);
-            if (!o.length || !o[0].move) { process.stderr.write('  !! sense resposta del rival\n'); break; }
-            const ro = applyUci(curFen, o[0].move);
-            if (!ro) { process.stderr.write('  !! resposta il·legal ' + o[0].move + '\n'); break; }
-            process.stderr.write(`  rival ${o[0].move} (${ro.san})\n`);
-            replies.push({ move: o[0].move, eval: o[0].eval, evalType: o[0].evalType });
-            sanLine.push(ro.san);
-            curFen = ro.fen;
-            if (ro.over) { process.stderr.write('  ·· la línia acaba amb la resposta del rival\n'); break; }
-        }
-        if (!steps.length) { process.stderr.write('  !! cap pas jugable: es descarta\n'); continue; }
-        // Cada pas (llevat de l'últim) necessita la rèplica fixa del rival.
-        if (steps.length === 1) { replies.length = 0; sanLine.length = 1; }
-        solutions[fen] = { totalSteps: steps.length, sanLine, steps, replies };
+        solutions[fen] = sol;
     }
 
     if (ONLY) {
@@ -206,14 +274,18 @@ function serialize(solutions) {
         Object.keys(solutions).forEach(f => delete solutions[f]);
         Object.assign(solutions, ordered);
     }
+    if (rejected.length) {
+        process.stderr.write('\nPosicions del banc SENSE resultat palpable (cal treure-les de TACTICS_BANK):\n');
+        rejected.forEach(r => process.stderr.write(`  ${r.fen}   [${r.sanLine.join(' ')}] — ${r.reason}\n`));
+    }
     const block = serialize(solutions);
-    if (DRY) { console.log(block); process.exit(0); }
+    if (DRY) { console.log(block); quit(0); return; }
 
     const begin = src.indexOf(BEGIN);
     const end = src.indexOf(END);
-    if (begin < 0 || end < 0) { console.error('No s\'han trobat els marcadors a app.js'); process.exit(1); }
+    if (begin < 0 || end < 0) { console.error('No s\'han trobat els marcadors a app.js'); quit(1); return; }
     const patched = src.slice(0, begin + BEGIN.length) + '\n' + block + '\n' + src.slice(end);
     fs.writeFileSync(APP, patched);
     process.stderr.write(`\nEscrites ${Object.keys(solutions).length} posicions a app.js\n`);
-    process.exit(0);
+    quit(rejected.length ? 2 : 0);
 })();

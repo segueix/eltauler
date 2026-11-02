@@ -20,7 +20,16 @@ dos enllaços).
   **Stockfish vs Lozza TV**, al **generador de jeroglífics** i al
   **Rival Antídot**. Ni la TV ni els jeroglífics recauen al motor antic.
   Antídot usa un worker propi; només si Stockfish 19 falla recau al motor
-  ordinari per no bloquejar la partida. La resta de l'app conserva el motor.
+  ordinari per no bloquejar la partida.
+- **Exercicis amb línia** (Tàctiques, Revisa errors, Repàs intel·ligent):
+  la línia es prepara amb el worker de Stockfish 19 dels jeroglífics
+  (`analyzeExerciseFen`, a la mateixa cua) i només recau al motor ordinari si
+  SF19 no arrenca. La segona jugada del jugador només es conserva si té un
+  resultat palpable (`tacticStepVerdict` de `core.js`: mat, mat curt i únic o
+  guany net de material dins la PV); si no, l'exercici es queda en un sol pas.
+  El banc de Tàctiques i el seu rebost (`scripts/gen-tactics-solutions.js`)
+  també es calculen amb Stockfish 19 i amb el mateix filtre.
+  La resta de l'app conserva el motor.
 
 - Els jeroglífics tenen un *worker* Stockfish 19 independent del motor de
   les partides i de la TV. Les anàlisis MultiPV es fan en cua per evitar

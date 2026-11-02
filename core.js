@@ -1124,6 +1124,146 @@
     }
 
     // ----------------------------------------------------------------------
+    // Resultat palpable d'una línia tàctica (Tàctiques i Revisa errors).
+    // ----------------------------------------------------------------------
+    // Una jugada del jugador només és un pas d'exercici si porta a alguna cosa
+    // que es pugui veure: un mat forçat o un guany net de material dins la línia
+    // de Stockfish. Una "millor jugada" tranquil·la (amagar el rei darrere els
+    // peons, un desenvolupament, un avanç de peó...) pot ser la preferida del
+    // motor però no ensenya cap tàctica, i aquests passos es descarten.
+    //
+    // El material es mesura en punts de peó (P1 C3 A3 T5 D9) des del punt de
+    // vista del bàndol que juga l'exercici, en els moments "quiets" de la línia
+    // (quan la jugada següent ja no és una captura), perquè un canvi a mitges
+    // no compti com a guany.
+    const TACTIC_PIECE_VALUE = { p: 1, n: 3, b: 3, r: 5, q: 9, k: 0 };
+    const TACTIC_RESULT = {
+        MIN_GAIN: 2,            // guany net mínim (peons) del pas i de tota la línia
+        MIN_EVAL_CP: 100,       // el guany ha de deixar avantatge segons el motor
+        MATE_HORIZON: 3,        // un mat forçat curt (≤ 3) i únic compta com a resultat
+        SETTLE_PLIES: 5         // mitges jugades de la PV que es miren després del pas
+    };
+
+    function tacticMaterialBalance(game, color) {
+        let bal = 0;
+        const board = game.board();
+        for (const row of board) {
+            for (const sq of row) {
+                if (!sq) continue;
+                const v = TACTIC_PIECE_VALUE[sq.type] || 0;
+                bal += sq.color === color ? v : -v;
+            }
+        }
+        return bal;
+    }
+
+    function tacticApplyUci(game, uci) {
+        const raw = String(uci || '').trim().toLowerCase();
+        if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(raw)) return null;
+        try {
+            return game.move({ from: raw.slice(0, 2), to: raw.slice(2, 4), promotion: raw[4] || undefined }) || null;
+        } catch (e) { return null; }
+    }
+
+    function tacticIsCaptureUci(game, uci) {
+        const raw = String(uci || '').trim().toLowerCase();
+        if (!/^[a-h][1-8][a-h][1-8][qrbn]?$/.test(raw)) return false;
+        const moves = game.moves({ verbose: true });
+        const mv = moves.find(m => m.from === raw.slice(0, 2) && m.to === raw.slice(2, 4)
+            && (!raw[4] || m.promotion === raw[4]));
+        return !!(mv && (mv.captured || /e/.test(mv.flags)));
+    }
+
+    // Veredicte d'un pas: `line` és la línia jugada fins al pas inclòs
+    // [jugador, rival, jugador, ...] i `pv` la PV del motor que comença amb la
+    // jugada del pas. `stepEval` és l'avaluació del motor ABANS del pas, des del
+    // punt de vista del jugador ({ eval, evalType: 'cp'|'mate' }). Amb
+    // `opts.alternatives` (MultiPV del pas) un mat forçat només compta si cap
+    // altra jugada no porta també a un mat curt: si n'hi ha diverses, el pas és
+    // una jugada qualsevol d'una posició ja guanyada, no una tàctica a trobar.
+    // Retorna { ok, kind: 'mate'|'material'|null, stepGain, lineGain, reason }.
+    function tacticStepVerdict(ChessCtor, fen, line, pv, stepEval, opts = {}) {
+        const minGain = opts.minGain != null ? opts.minGain : TACTIC_RESULT.MIN_GAIN;
+        const minEvalCp = opts.minEvalCp != null ? opts.minEvalCp : TACTIC_RESULT.MIN_EVAL_CP;
+        const mateHorizon = opts.mateHorizon != null ? opts.mateHorizon : TACTIC_RESULT.MATE_HORIZON;
+        const settlePlies = opts.settlePlies != null ? opts.settlePlies : TACTIC_RESULT.SETTLE_PLIES;
+        const fail = (reason, extra = {}) => Object.assign({ ok: false, kind: null, stepGain: null, lineGain: null, reason }, extra);
+        if (typeof ChessCtor !== 'function' || !fen || !Array.isArray(line) || !line.length) return fail('sense dades');
+        let game;
+        try { game = new ChessCtor(fen); } catch (e) { return fail('FEN il·legible'); }
+        const color = game.turn();
+        const startBal = tacticMaterialBalance(game, color);
+        for (let i = 0; i < line.length - 1; i++) {
+            if (!tacticApplyUci(game, line[i])) return fail('línia il·legal');
+        }
+        if (game.turn() !== color) return fail('el pas no és del jugador');
+        const beforeBal = tacticMaterialBalance(game, color);
+        const stepMove = line[line.length - 1];
+        // El mat forçat (o el mat directe) és el resultat més palpable.
+        const ev = stepEval && typeof stepEval.eval === 'number' ? stepEval : null;
+        const probe = new ChessCtor(game.fen());
+        if (!tacticApplyUci(probe, stepMove)) return fail('jugada il·legal');
+        if (probe.in_checkmate()) return { ok: true, kind: 'mate', stepGain: null, lineGain: null, reason: 'escac i mat' };
+        if (ev && ev.evalType === 'mate' && ev.eval > 0 && ev.eval <= mateHorizon) {
+            const alts = Array.isArray(opts.alternatives) ? opts.alternatives : [];
+            const rival = alts.find(a => a && a.move && String(a.move).toLowerCase() !== String(stepMove).toLowerCase()
+                && a.evalType === 'mate' && a.eval > 0 && a.eval <= mateHorizon);
+            if (!rival) return { ok: true, kind: 'mate', stepGain: null, lineGain: null, reason: 'mat forçat en ' + ev.eval };
+        }
+        // Un mat llunyà, o amb diversos camins, només val si a més guanya material.
+        // Material en els punts quiets de la PV després del pas.
+        const seq = (Array.isArray(pv) && pv.length && String(pv[0]).toLowerCase() === String(stepMove).toLowerCase())
+            ? pv.slice(0, 1 + settlePlies)
+            : [stepMove];
+        const walk = new ChessCtor(game.fen());
+        let best = null;
+        for (let i = 0; i < seq.length; i++) {
+            if (!tacticApplyUci(walk, seq[i])) break;
+            // El mat dins la PV ja l'ha jutjat l'avaluació del pas (curt i únic).
+            if (walk.game_over()) break;
+            const next = seq[i + 1];
+            const quiet = !next || !tacticIsCaptureUci(walk, next);
+            if (quiet) {
+                const bal = tacticMaterialBalance(walk, color);
+                if (best === null || bal > best) best = bal;
+            }
+        }
+        if (best === null) best = tacticMaterialBalance(probe, color);
+        const stepGain = best - beforeBal;
+        const lineGain = best - startBal;
+        if (stepGain < minGain) return fail('el pas no guanya material', { stepGain, lineGain });
+        if (lineGain < minGain) return fail('la línia no guanya material net', { stepGain, lineGain });
+        if (ev && ev.evalType === 'cp' && ev.eval < minEvalCp) return fail('sense avantatge clar segons el motor', { stepGain, lineGain });
+        if (ev && ev.evalType === 'mate' && ev.eval < 0) return fail('el rival té mat', { stepGain, lineGain });
+        return { ok: true, kind: 'material', stepGain, lineGain, reason: 'guanya ' + stepGain + ' punts de material' };
+    }
+
+    // Retalla una línia d'exercici [j1, r1, j2, r2, j3] al darrer pas amb
+    // resultat palpable a partir del segon. `stepMeta[i]` porta la PV i
+    // l'avaluació del pas i+1 ({ pv, eval, evalType }). El primer pas sempre es
+    // conserva (és la jugada que calia trobar). Retorna { line, steps, verdicts }.
+    function tacticTrimLine(ChessCtor, fen, line, stepMeta = [], opts = {}) {
+        const moves = Array.isArray(line) ? line.filter(Boolean) : [];
+        if (!moves.length) return { line: [], steps: 0, verdicts: [] };
+        const verdicts = [];
+        let keep = 1;
+        const total = Math.ceil(moves.length / 2);
+        for (let k = 2; k <= total; k++) {
+            const upto = moves.slice(0, 2 * k - 1);
+            if (upto.length < 2 * k - 1) break;
+            const meta = stepMeta[k - 1] || {};
+            const v = tacticStepVerdict(ChessCtor, fen, upto, meta.pv || meta.playerMovePv || [],
+                (typeof meta.eval === 'number') ? { eval: meta.eval, evalType: meta.evalType || 'cp' }
+                    : (typeof meta.evalBefore === 'number' ? { eval: meta.evalBefore, evalType: meta.evalType || 'cp' } : null),
+                Object.assign({}, opts, { alternatives: meta.alternatives || [] }));
+            verdicts.push(v);
+            if (!v.ok) break;
+            keep = k;
+        }
+        return { line: moves.slice(0, 2 * keep - 1), steps: keep, verdicts };
+    }
+
+    // ----------------------------------------------------------------------
     // Tongada d'exercicis (Tàctiques, Repàs intel·ligent, Revisa errors).
     // ----------------------------------------------------------------------
     // Una tongada comença en entrar a la secció i continua amb «Un altre».
@@ -9296,6 +9436,9 @@
         puzzleInitPlay,
         puzzleSubmitMove,
         tacticsPickPool,
+        TACTIC_RESULT,
+        tacticStepVerdict,
+        tacticTrimLine,
         tacticsRecordSolved,
         exerciseRunStart,
         exerciseRunSolved,

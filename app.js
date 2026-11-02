@@ -9850,6 +9850,17 @@ function analyzeHieroFenRobust(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, 
 }
 if (typeof window !== 'undefined') window.addEventListener('pagehide', disposeHieroStockfish);
 
+// Preparació d'exercicis amb línia (Tàctiques, Revisa errors, Repàs
+// intel·ligent): es calcula amb Stockfish 19, el mateix motor que certifica els
+// jeroglífics. Només si el worker de SF19 no arrenca es recau al motor ordinari,
+// perquè la secció no es quedi mai sense exercici.
+async function analyzeExerciseFen(fen, depth = 15, multiPv = 1, moveTimeMs = 8000, shouldAbort = null) {
+    const viaSf19 = await analyzeHieroFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort);
+    if (viaSf19 || (shouldAbort && shouldAbort())) return viaSf19;
+    console.warn('[Bundle] Stockfish 19 no ha respost; es recau al motor ordinari');
+    return analyzeFenRobust(fen, depth, multiPv, moveTimeMs, shouldAbort);
+}
+
 // ── FASE C — Re-anàlisi profunda per a la ressenya ───────────────────────────
 // Driu el motor sobre les posicions clau d'una partida a més profunditat i
 // ENRIQUEIX els moveReviews: millor jugada + línia, refutació concreta, i les
@@ -10268,42 +10279,15 @@ async function prepareBundleSequence(fen, opts = {}) {
     const silent = !!opts.silent;
     const fast = opts.fast !== false;
     const shouldAbort = () => !!(opts.shouldAbort && opts.shouldAbort());
-    // Validació inicial més robusta
-    if (!stockfish) {
-        console.error('[Bundle] Stockfish no existeix');
-        ensureStockfish();
-        await new Promise(resolve => setTimeout(resolve, 500));
-    }
-    
-    if (!stockfish) {
-        console.error('[Bundle] No es pot inicialitzar Stockfish');
-        return null;
-    }
-    
-    // Esperar que Stockfish estigui llest
-    let waitCount = 0;
-    while (!stockfishReady && waitCount < 20) {
-        await new Promise(resolve => setTimeout(resolve, 100));
-        waitCount++;
-    }
-    
-    if (!stockfishReady) {
-        console.error('[Bundle] Stockfish no està llest després d\'esperar');
-        return null;
-    }
-    
     try {
-        // Neteja inicial més agressiva
-        stockfish.postMessage('stop');
-        stockfish.postMessage('setoption name MultiPV value 1');
         if (!fast) await new Promise(resolve => setTimeout(resolve, 300));
-        
-        console.log('[Bundle] Iniciant preparació seqüència per FEN:', fen);
+
+        console.log('[Bundle] Iniciant preparació seqüència per FEN (Stockfish 19):', fen);
 
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 1'); return null; }
         // 1. Analitzar posició inicial (Pas 1)
         console.log('[Bundle] Pas 1: Analitzant posició inicial...');
-        const step1Analysis = await analyzeFenRobust(fen, 15, 2, 8000, shouldAbort);
+        const step1Analysis = await analyzeExerciseFen(fen, 15, 2, 8000, shouldAbort);
 
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda després del pas 1'); return null; }
         if (!step1Analysis || !step1Analysis.bestMove || !step1Analysis.bestMove.move) {
@@ -10356,7 +10340,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 2'); return null; }
         // 3. Calcular millor resposta de l'oponent
         console.log('[Bundle] Pas 2: Analitzant resposta oponent...');
-        const opponentAnalysis = await analyzeFenRobust(afterPlayerFen, 15, 1, 8000, shouldAbort);
+        const opponentAnalysis = await analyzeExerciseFen(afterPlayerFen, 15, 1, 8000, shouldAbort);
 
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda després del pas 2'); return null; }
         if (!opponentAnalysis || !opponentAnalysis.bestMove || !opponentAnalysis.bestMove.move) {
@@ -10405,7 +10389,7 @@ async function prepareBundleSequence(fen, opts = {}) {
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda abans del pas 3'); return null; }
         // 5. Calcular millor segona jugada del jugador (Pas 3)
         console.log('[Bundle] Pas 3: Analitzant segona jugada jugador...');
-        const step2Analysis = await analyzeFenRobust(afterOpponentFen, 15, 2, 8000, shouldAbort);
+        const step2Analysis = await analyzeExerciseFen(afterOpponentFen, 15, 2, 8000, shouldAbort);
 
         if (shouldAbort()) { console.log('[Bundle] Preparació interrompuda després del pas 3'); return null; }
         if (!step2Analysis || !step2Analysis.bestMove || !step2Analysis.bestMove.move) {
@@ -10420,6 +10404,33 @@ async function prepareBundleSequence(fen, opts = {}) {
         const playerMove2San = uciToSan(afterOpponentFen, playerMove2);
         const playerMove2Pv = step2Analysis.bestMove.pv || [];
         const playerMove2Eval = step2Analysis.bestMove.eval || 0;
+        const playerMove2EvalType = step2Analysis.bestMove.evalType || 'cp';
+
+        // La segona jugada només forma part de l'exercici si té un resultat
+        // palpable (mat o guany net de material dins la línia de Stockfish 19).
+        // Una "millor jugada" tranquil·la —amagar el rei darrere els peons, un
+        // avanç de peó...— no ensenya res: l'exercici es queda en un sol pas.
+        const secondStepVerdict = ElTaulerCore.tacticStepVerdict(Chess, fen,
+            [playerMove1, opponentMove, playerMove2], playerMove2Pv,
+            { eval: playerMove2Eval, evalType: playerMove2EvalType },
+            { alternatives: step2Analysis.alternatives || [] });
+        if (!secondStepVerdict.ok) {
+            console.log('[Bundle] Segona jugada sense resultat palpable (' + secondStepVerdict.reason + '):',
+                playerMove2San, '→ exercici d\'un sol pas');
+            const single = buildBundleSequenceFromLine(fen, [playerMove1], {
+                stepMeta: [{
+                    playerMovePv: playerMove1Pv,
+                    evalBefore: playerMove1Eval,
+                    evalType: step1Analysis.bestMove.evalType || 'cp',
+                    alternatives: step1Analysis.alternatives || []
+                }]
+            });
+            if (single) {
+                single.engine = 'sf19';
+                single.secondStepRejected = { san: playerMove2San, reason: secondStepVerdict.reason };
+            }
+            return single;
+        }
         
         // 6. Analitzar context posicional de cada pas
         const positionStep1 = parseFenPosition(fen);
@@ -10458,13 +10469,16 @@ async function prepareBundleSequence(fen, opts = {}) {
                 playerMoveSan: playerMove2San,
                 playerMovePv: playerMove2Pv,
                 evalBefore: playerMove2Eval,
+                evalType: playerMove2EvalType,
                 alternatives: step2Analysis.alternatives || [],
                 position: positionStep2,
                 threats: threatsStep2
             },
             
             fullSequence: [playerMove1, opponentMove, playerMove2],
-            fullSequenceSan: [playerMove1San, opponentMoveSan, playerMove2San]
+            fullSequenceSan: [playerMove1San, opponentMoveSan, playerMove2San],
+            engine: 'sf19',
+            secondStepResult: { kind: secondStepVerdict.kind, reason: secondStepVerdict.reason }
         };
         
     } catch (error) {
@@ -27225,25 +27239,78 @@ const TACTICS_BANK = [
     // Totes les tàctiques tenen DUES jugades del jugador amb la rèplica del rival
     // entremig (vegeu TACTICS_BANK_SOLUTIONS). Els mats en una jugada (mat del
     // pastor, del passadís i del boig) ja no hi són: queden per al repte diari.
+    // La segona jugada sempre té un RESULTAT PALPABLE segons Stockfish 19 (mat,
+    // mat curt i únic o guany net de material: tacticStepVerdict de core.js).
+    // S'han tret del banc les posicions on la "millor jugada" era tranquil·la
+    // (Rb1 amagant el rei darrere els peons, c3, Ad3...).
     // Mat de la coç: Dg8+ Txg8 Cf7#.
     '5r1k/6pp/7N/3Q4/8/8/6PP/6K1 w - - 0 1',
     // Mat del passadís en dues: Td8+ Txd8 Txd8#.
     '2r3k1/5ppp/8/8/8/8/3R1PPP/3R2K1 w - - 0 1',
-    'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5',
-    '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11',
-    'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9',
-    'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4',
     'r2qkb1r/pp2nppp/3p4/2pNN1B1/2BnP3/3P4/PPP2PPP/R2bK2R w KQkq - 1 11',
-    'r4rk1/pp1n1ppp/2pb1q2/3p4/3P4/2NBPN2/PP3PPP/R2Q1RK1 w - - 0 12',
-    '3r1rk1/pp3ppp/2p5/2bq4/4nP2/2N1P3/PPQ3PP/R1B2RK1 b - - 0 16',
-    'r1b1k2r/ppppnppp/2n5/2b5/2B1P3/2P2N2/PP1q1PPP/RNBQ1RK1 w kq - 0 8',
-    '2kr3r/ppp2ppp/2n1b3/2b1p1q1/4P3/2NP1N2/PPP1QPPP/R1B2RK1 b - - 0 11',
-    '6k1/pp3ppp/8/8/8/1P3Q2/P4qPP/5RK1 w - - 0 1',
-    'r4rk1/1pp2ppp/p1np1q2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 9',
     // Forquilla de la dama amb escac: Dd5+ i Dxa8+.
     'r5k1/6pp/8/8/8/5P2/6PP/3Q2K1 w - - 0 1',
     // Negres: mat del passadís en dues, ...Td1+ Txd1 Txd1#.
-    '3r2k1/3r1ppp/8/8/8/8/5PPP/2R3K1 b - - 0 1'
+    '3r2k1/3r1ppp/8/8/8/8/5PPP/2R3K1 b - - 0 1',
+    // Problemes de dues jugades de la base oberta de Lichess (domini públic
+    // CC0, https://database.lichess.org/#puzzles), presos just després de la
+    // jugada del rival; Stockfish 19 hi troba les mateixes jugades.
+    // fork (Lichess 4syIL): Qa4+ b5 Qxg4
+    'r2qk2r/1p3ppp/p3p3/3nP3/6b1/5N2/PP2BPPP/R2Q1RK1 w kq - 1 15',
+    // fork (Lichess 2mSBI): Nf3+ Kg2 Nxd2
+    '6r1/6Rp/q1p1k2b/p2pnp1P/1p1P1P2/1P6/P2QNB1K/6R1 b - - 0 35',
+    // fork (Lichess 5cSmX): Qe5+ Kg8 Qxb8+
+    '1r5k/3b3p/6r1/3Q4/8/qN3P2/2P5/1K1R4 w - - 0 37',
+    // fork (Lichess 5J8ki): e6+ Kg8 Qg6+
+    'r2qrb2/pb1n1k2/1p5Q/3pP3/3p3P/6PB/PP3P2/R3R1K1 w - - 2 26',
+    // fork (Lichess 4wQlK): Qa4+ b5 Qxh4
+    'r3k2r/ppq1bpp1/4p3/3pP1Np/7n/1Q6/PP3PP1/R1BR2K1 w kq - 0 20',
+    // pin (Lichess 5NYtT): Rf3+ Kh2 Qe2+
+    '5r1k/1p5p/p3q3/3N4/3R2QP/P6K/1P6/8 b - - 1 37',
+    // pin (Lichess 1R359): Rf6+ Ke8 Qxg7
+    'r1bq3r/ppp1nkbQ/7R/3pPpp1/8/2P1P1P1/PP1N1PP1/R3K3 w Q - 1 18',
+    // skewer (Lichess 2urYM): Qb8+ Kd7 Qxg3
+    '8/p4p2/3k4/p1p5/2P1P3/5Pq1/4K2n/1Q6 w - - 0 41',
+    // skewer (Lichess 2v0ha): Be7+ Kc4 Bxa3
+    '3b4/1k3p2/2p1p3/2K1P2p/P2P4/B4P1P/8/8 b - - 19 61',
+    // skewer (Lichess 3JUSx): Bb5+ Ke3 Bxf1
+    '2r2b2/k4p2/3p2p1/3Pp1Pp/bN2P2P/P2K4/3B4/5R2 b - - 16 50',
+    // discoveredAttack (Lichess 2loan): Nxe3+ Kh1 Qg2#
+    '4k3/p5qp/7b/2N2p2/6n1/4PP2/PPPB1P1P/1R1R2K1 b - - 0 24',
+    // discoveredAttack (Lichess 0UzpQ): Nb6 Bb3 Qxd6
+    'r1bq2k1/pp1n1rpp/2pBpn2/8/2BP4/2N1P3/PP3PPP/R2QK2R b KQ - 0 10',
+    // discoveredAttack (Lichess 2xSUw): Bxa7+ Kxa7 Qxf5
+    '1k4r1/pp2bp2/8/4pq2/6r1/7R/PP3B1K/2R2Q2 w - - 0 30',
+    // discoveredAttack (Lichess 2gRIi): Ne7 Qxc7 Rxd2
+    '3r2k1/p1p2pp1/2Q4p/2Pnpq2/2P5/8/P2B1PPP/4R1K1 b - - 0 24',
+    // discoveredAttack (Lichess 1NM0K): Nxd5+ exd5 Rxc7#
+    '6k1/2R1n1rp/3p2pQ/p2Pp3/4P3/p1K5/Nr2bPP1/7R b - - 3 28',
+    // mateIn2 (Lichess 15o9a): Qa8+ Kh7 Qg8#
+    '7k/4Npp1/4p2p/8/7q/8/5nQ1/6K1 w - - 0 38',
+    // mateIn2 (Lichess 0r3qG): g5+ hxg5+ hxg5#
+    '8/3R2p1/5k1p/5P2/5KPP/8/2b5/4r3 w - - 4 51',
+    // mateIn2 (Lichess 437LZ): g4+ Kh4 Rxh6#
+    '8/8/1R5p/6pk/8/7P/r4rP1/6RK w - - 3 38',
+    // mateIn2 (Lichess 3hQMC): Rh8+ Kg6 Ne5#
+    '3R4/2p2Npk/p4n1p/P1K5/2P3PP/5r2/2b5/8 w - - 0 35',
+    // mateIn2 (Lichess 5vVYx): Rg1+ Kb2 a3#
+    '6k1/6r1/3p4/5P1R/pp6/1P6/P1P5/1K6 b - - 0 35',
+    // deflection (Lichess 0SK3g): Qg5+ Kh8 Qxf6+
+    'r1b2r2/pp3pkp/2np1n2/2q1p2p/4P1P1/5P2/PPPQ4/2KR1BNR w - - 0 15',
+    // deflection (Lichess 0I9f7): Rc8+ Rxc8 Qxd5
+    'k2rr3/pp3ppp/8/1P1qn3/3pQB2/5P2/P4P1P/2R2RK1 w - - 4 22',
+    // deflection (Lichess 4YreO): R6xd7+ Nxd7 Rxa8
+    'r2R4/pp1bk1p1/1npRpr1p/4p3/P1p1P3/2N3PB/1P3P1P/6K1 w - - 1 23',
+    // deflection (Lichess 30Zal): Rxd4+ Ke3 Kxc2
+    '8/8/4p1p1/2pp4/2rP1PP1/1kNK2P1/1PR5/8 b - - 1 32',
+    // attraction (Lichess 4IryV): Qxg6+ Kxg6 Bxe4+
+    'r7/ppp3k1/3b2qp/3n2pQ/4p3/4P1P1/PP1B2B1/5RK1 w - - 2 25',
+    // attraction (Lichess 2350Q): Bxf6+ Kxf6 Nd5+
+    'r4r2/1ppq1pk1/p2p1nn1/4p1B1/1bP1P3/2NPQ1P1/PP3P1P/1R3RK1 w - - 3 19',
+    // attraction (Lichess 0VHFU): Qxf1+ Kxf1 Bxg2+
+    '8/5k2/4r3/1pB2qp1/3Pb2p/4Q2P/6P1/5RK1 b - - 1 35',
+    // doubleCheck (Lichess 1XL2s): Nf3+ Kh1 Nxh4
+    '2r1k2r/1p3ppp/p3p3/2qpP3/3n1PPQ/N2B3P/PPP5/R4RK1 b k - 0 17'
 ];
 
 // Rebost estàtic del banc: la línia de cada posició ja ve resolta amb el MATEIX
@@ -27281,83 +27348,15 @@ const TACTICS_BANK_SOLUTIONS = {
             {
                 move: 'd2d8', eval: 2, evalType: 'mate',
                 pv: ['d2d8', 'c8d8', 'd1d8'],
-                alternatives: [{ move: 'd2d8', eval: 2, evalType: 'mate' }, { move: 'd2c2', eval: 766, evalType: 'cp' }]
+                alternatives: [{ move: 'd2d8', eval: 2, evalType: 'mate' }, { move: 'g2g4', eval: 662, evalType: 'cp' }]
             },
             {
                 move: 'd1d8', eval: 1, evalType: 'mate',
                 pv: ['d1d8'],
-                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'd1a1', eval: 0, evalType: 'cp' }]
+                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'd1c1', eval: -11, evalType: 'cp' }]
             }
         ],
         replies: [{ move: 'c8d8', eval: -1, evalType: 'mate' }]
-    },
-    'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5': {
-        totalSteps: 2,
-        sanLine: ['c3', 'O-O', 'O-O'],
-        steps: [
-            {
-                move: 'c2c3', eval: 69, evalType: 'cp',
-                pv: ['c2c3', 'e8g8', 'e1g1', 'd7d6', 'f1e1', 'a7a5', 'a2a4', 'c5b6'],
-                alternatives: [{ move: 'c2c3', eval: 69, evalType: 'cp' }, { move: 'e1g1', eval: 69, evalType: 'cp' }]
-            },
-            {
-                move: 'e1g1', eval: 71, evalType: 'cp',
-                pv: ['e1g1', 'c5b6', 'f1e1', 'd7d5', 'e4d5', 'f6d5', 'b2b4', 'c8e6'],
-                alternatives: [{ move: 'e1g1', eval: 71, evalType: 'cp' }, { move: 'a2a4', eval: 64, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'e8g8', eval: -3, evalType: 'cp' }]
-    },
-    '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11': {
-        totalSteps: 2,
-        sanLine: ['Kb1', 'a6', 'g4'],
-        steps: [
-            {
-                move: 'c1b1', eval: 578, evalType: 'cp',
-                pv: ['c1b1', 'h7h5', 'f1e2', 'a7a6', 'e3g5', 'f8e8', 'a2a3', 'd8a5'],
-                alternatives: [{ move: 'c1b1', eval: 578, evalType: 'cp' }, { move: 'f1e2', eval: 569, evalType: 'cp' }]
-            },
-            {
-                move: 'g2g4', eval: 633, evalType: 'cp',
-                pv: ['g2g4', 'b7b5', 'a2a3', 'f8e8', 'h1g1', 'c8b8', 'h2h4', 'h7h5'],
-                alternatives: [{ move: 'g2g4', eval: 633, evalType: 'cp' }, { move: 'a2a3', eval: 618, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'a7a6', eval: -572, evalType: 'cp' }]
-    },
-    'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9': {
-        totalSteps: 2,
-        sanLine: ['Nxd5', 'Bxd5', 'c4'],
-        steps: [
-            {
-                move: 'c3d5', eval: 1072, evalType: 'cp',
-                pv: ['c3d5', 'e6d5', 'c2c4', 'd5e6', 'a2a3', 'c5b6', 'b2b4', 'e5e4'],
-                alternatives: [{ move: 'c3d5', eval: 1072, evalType: 'cp' }, { move: 'b2b4', eval: 628, evalType: 'cp' }]
-            },
-            {
-                move: 'c2c4', eval: 1067, evalType: 'cp',
-                pv: ['c2c4', 'd5f3', 'g2f3', 'e8c8', 'f3c6', 'b7c6', 'd1a4', 'c8b7'],
-                alternatives: [{ move: 'c2c4', eval: 1067, evalType: 'cp' }, { move: 'c2c3', eval: 1041, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'e6d5', eval: -1049, evalType: 'cp' }]
-    },
-    'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4': {
-        totalSteps: 2,
-        sanLine: ['Bd3', 'h6', 'c4'],
-        steps: [
-            {
-                move: 'f1d3', eval: 132, evalType: 'cp',
-                pv: ['f1d3', 'b8d7', 'g1f3', 'g7g6', 'e1g1', 'f8g7', 'c2c4', 'e8g8'],
-                alternatives: [{ move: 'f1d3', eval: 132, evalType: 'cp' }, { move: 'b1c3', eval: 107, evalType: 'cp' }]
-            },
-            {
-                move: 'c2c4', eval: 152, evalType: 'cp',
-                pv: ['c2c4', 'b8d7', 'b1c3', 'g7g5', 'h2h4', 'g5g4', 'g1e2', 'f8g7'],
-                alternatives: [{ move: 'c2c4', eval: 152, evalType: 'cp' }, { move: 'g1e2', eval: 136, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'h7h6', eval: -98, evalType: 'cp' }]
     },
     'r2qkb1r/pp2nppp/3p4/2pNN1B1/2BnP3/3P4/PPP2PPP/R2bK2R w KQkq - 1 11': {
         totalSteps: 2,
@@ -27366,134 +27365,32 @@ const TACTICS_BANK_SOLUTIONS = {
             {
                 move: 'd5f6', eval: 2, evalType: 'mate',
                 pv: ['d5f6', 'g7f6', 'c4f7'],
-                alternatives: [{ move: 'd5f6', eval: 2, evalType: 'mate' }, { move: 'e5f7', eval: -1030, evalType: 'cp' }]
+                alternatives: [{ move: 'd5f6', eval: 2, evalType: 'mate' }, { move: 'e1d1', eval: -492, evalType: 'cp' }]
             },
             {
                 move: 'c4f7', eval: 1, evalType: 'mate',
                 pv: ['c4f7'],
-                alternatives: [{ move: 'c4f7', eval: 1, evalType: 'mate' }, { move: 'e5f7', eval: -1273, evalType: 'cp' }]
+                alternatives: [{ move: 'c4f7', eval: 1, evalType: 'mate' }, { move: 'e5f7', eval: -748, evalType: 'cp' }]
             }
         ],
         replies: [{ move: 'g7f6', eval: -1, evalType: 'mate' }]
-    },
-    'r4rk1/pp1n1ppp/2pb1q2/3p4/3P4/2NBPN2/PP3PPP/R2Q1RK1 w - - 0 12': {
-        totalSteps: 2,
-        sanLine: ['e4', 'dxe4', 'Nxe4'],
-        steps: [
-            {
-                move: 'e3e4', eval: 561, evalType: 'cp',
-                pv: ['e3e4', 'd5e4', 'c3e4', 'f6h6', 'f1e1', 'a8b8', 'e4d6', 'h6d6'],
-                alternatives: [{ move: 'e3e4', eval: 561, evalType: 'cp' }, { move: 'd1b3', eval: 561, evalType: 'cp' }]
-            },
-            {
-                move: 'c3e4', eval: 582, evalType: 'cp',
-                pv: ['c3e4', 'f6e7', 'd1b3', 'd7f6', 'a1e1', 'f6e4', 'e1e4', 'e7c7'],
-                alternatives: [{ move: 'c3e4', eval: 582, evalType: 'cp' }, { move: 'd3e4', eval: 511, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'd5e4', eval: -533, evalType: 'cp' }]
-    },
-    '3r1rk1/pp3ppp/2p5/2bq4/4nP2/2N1P3/PPQ3PP/R1B2RK1 b - - 0 16': {
-        totalSteps: 2,
-        sanLine: ['Nxc3', 'Qxc3', 'Rfe8'],
-        steps: [
-            {
-                move: 'e4c3', eval: 208, evalType: 'cp',
-                pv: ['e4c3', 'c2c3', 'a7a5', 'a2a3', 'f8e8', 'b2b4', 'c5b6', 'a3a4'],
-                alternatives: [{ move: 'e4c3', eval: 208, evalType: 'cp' }, { move: 'c5e3', eval: -352, evalType: 'cp' }]
-            },
-            {
-                move: 'f8e8', eval: 213, evalType: 'cp',
-                pv: ['f8e8', 'b2b4', 'c5e7', 'a1b1', 'd5a2', 'b1a1', 'e7b4', 'a1a2'],
-                alternatives: [{ move: 'f8e8', eval: 213, evalType: 'cp' }, { move: 'a7a5', eval: 213, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'c2c3', eval: -165, evalType: 'cp' }]
-    },
-    'r1b1k2r/ppppnppp/2n5/2b5/2B1P3/2P2N2/PP1q1PPP/RNBQ1RK1 w kq - 0 8': {
-        totalSteps: 2,
-        sanLine: ['Nbxd2', 'Bb6', 'Be2'],
-        steps: [
-            {
-                move: 'b1d2', eval: 1388, evalType: 'cp',
-                pv: ['b1d2', 'e8g8', 'b2b4', 'c5b6', 'c4b3', 'a7a6', 'd2c4', 'b6a7'],
-                alternatives: [{ move: 'b1d2', eval: 1388, evalType: 'cp' }, { move: 'c1d2', eval: 1362, evalType: 'cp' }]
-            },
-            {
-                move: 'c4e2', eval: 1384, evalType: 'cp',
-                pv: ['c4e2', 'a7a6', 'd2c4', 'b6a7', 'b2b4', 'd7d6', 'a2a4', 'c6d8'],
-                alternatives: [{ move: 'c4e2', eval: 1384, evalType: 'cp' }, { move: 'c4b3', eval: 1380, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'c5b6', eval: -1346, evalType: 'cp' }]
-    },
-    '2kr3r/ppp2ppp/2n1b3/2b1p1q1/4P3/2NP1N2/PPP1QPPP/R1B2RK1 b - - 0 11': {
-        totalSteps: 2,
-        sanLine: ['Qg6', 'Bd2', 'Kb8'],
-        steps: [
-            {
-                move: 'g5g6', eval: 0, evalType: 'cp',
-                pv: ['g5g6', 'f3h4', 'g6f6', 'h4f3'],
-                alternatives: [{ move: 'g5g6', eval: 0, evalType: 'cp' }, { move: 'g5e7', eval: -67, evalType: 'cp' }]
-            },
-            {
-                move: 'c8b8', eval: 9, evalType: 'cp',
-                pv: ['c8b8', 'g1h1', 'c5e7', 'd2e3', 'h7h6', 'a1d1', 'g6f6', 'f3d2'],
-                alternatives: [{ move: 'c8b8', eval: 9, evalType: 'cp' }, { move: 'c5e7', eval: 0, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'c1d2', eval: 37, evalType: 'cp' }]
-    },
-    '6k1/pp3ppp/8/8/8/1P3Q2/P4qPP/5RK1 w - - 0 1': {
-        totalSteps: 2,
-        sanLine: ['Rxf2', 'f6', 'Qd5+'],
-        steps: [
-            {
-                move: 'f1f2', eval: 5, evalType: 'mate',
-                pv: ['f1f2', 'f7f6', 'f3d5', 'g8f8', 'f2c2', 'h7h6', 'c2c7', 'g7g6'],
-                alternatives: [{ move: 'f1f2', eval: 5, evalType: 'mate' }, { move: 'g1f2', eval: 8, evalType: 'mate' }]
-            },
-            {
-                move: 'f3d5', eval: 4, evalType: 'mate',
-                pv: ['f3d5', 'g8f8', 'f2c2', 'h7h6', 'c2c7', 'g7g6', 'd5f7'],
-                alternatives: [{ move: 'f3d5', eval: 4, evalType: 'mate' }, { move: 'f2d2', eval: 5, evalType: 'mate' }]
-            }
-        ],
-        replies: [{ move: 'f7f6', eval: -4, evalType: 'mate' }]
-    },
-    'r4rk1/1pp2ppp/p1np1q2/2b1p3/2B1P1b1/2NP1N2/PPP2PPP/R1BQ1RK1 w - - 0 9': {
-        totalSteps: 2,
-        sanLine: ['Nd5', 'Qd8', 'c3'],
-        steps: [
-            {
-                move: 'c3d5', eval: 540, evalType: 'cp',
-                pv: ['c3d5', 'f6d8', 'h2h3', 'g4f3', 'd1f3', 'b7b5', 'c4b3', 'c6d4'],
-                alternatives: [{ move: 'c3d5', eval: 540, evalType: 'cp' }, { move: 'c1e3', eval: 429, evalType: 'cp' }]
-            },
-            {
-                move: 'c2c3', eval: 562, evalType: 'cp',
-                pv: ['c2c3', 'c6a5', 'b2b4', 'a5c4', 'b4c5', 'c7c6', 'd3c4', 'c6d5'],
-                alternatives: [{ move: 'c2c3', eval: 562, evalType: 'cp' }, { move: 'h2h3', eval: 548, evalType: 'cp' }]
-            }
-        ],
-        replies: [{ move: 'f6d8', eval: -505, evalType: 'cp' }]
     },
     'r5k1/6pp/8/8/8/5P2/6PP/3Q2K1 w - - 0 1': {
         totalSteps: 2,
         sanLine: ['Qd5+', 'Kf8', 'Qxa8+'],
         steps: [
             {
-                move: 'd1d5', eval: 6295, evalType: 'cp',
-                pv: ['d1d5', 'g8f8', 'd5a8', 'f8f7', 'a8d5', 'f7g6', 'd5e4', 'g6h6'],
-                alternatives: [{ move: 'd1d5', eval: 6295, evalType: 'cp' }, { move: 'h2h4', eval: 825, evalType: 'cp' }]
+                move: 'd1d5', eval: 1045, evalType: 'cp',
+                pv: ['d1d5', 'g8f8', 'd5a8', 'f8e7', 'a8c6', 'e7d8', 'g1f1', 'h7h6'],
+                alternatives: [{ move: 'd1d5', eval: 1045, evalType: 'cp' }, { move: 'g2g4', eval: 649, evalType: 'cp' }]
             },
             {
-                move: 'd5a8', eval: 7453, evalType: 'cp',
-                pv: ['d5a8', 'f8f7', 'a8d5', 'f7f6', 'd5h5', 'h7h6', 'h2h4', 'f6e7'],
-                alternatives: [{ move: 'd5a8', eval: 7453, evalType: 'cp' }, { move: 'd5f5', eval: 7453, evalType: 'cp' }]
+                move: 'd5a8', eval: 1100, evalType: 'cp',
+                pv: ['d5a8', 'f8f7', 'a8e4', 'h7h5', 'g1f1', 'h5h4', 'f1e2', 'g7g6'],
+                alternatives: [{ move: 'd5a8', eval: 1100, evalType: 'cp' }, { move: 'd5c5', eval: 974, evalType: 'cp' }]
             }
         ],
-        replies: [{ move: 'g8f8', eval: -6637, evalType: 'cp' }]
+        replies: [{ move: 'g8f8', eval: -1075, evalType: 'cp' }]
     },
     '3r2k1/3r1ppp/8/8/8/8/5PPP/2R3K1 b - - 0 1': {
         totalSteps: 2,
@@ -27502,15 +27399,491 @@ const TACTICS_BANK_SOLUTIONS = {
             {
                 move: 'd7d1', eval: 2, evalType: 'mate',
                 pv: ['d7d1', 'c1d1', 'd8d1'],
-                alternatives: [{ move: 'd7d1', eval: 2, evalType: 'mate' }, { move: 'd7c7', eval: 761, evalType: 'cp' }]
+                alternatives: [{ move: 'd7d1', eval: 2, evalType: 'mate' }, { move: 'g7g5', eval: 646, evalType: 'cp' }]
             },
             {
                 move: 'd8d1', eval: 1, evalType: 'mate',
                 pv: ['d8d1'],
-                alternatives: [{ move: 'd8d1', eval: 1, evalType: 'mate' }, { move: 'd8b8', eval: 9, evalType: 'cp' }]
+                alternatives: [{ move: 'd8d1', eval: 1, evalType: 'mate' }, { move: 'd8c8', eval: -2, evalType: 'cp' }]
             }
         ],
         replies: [{ move: 'c1d1', eval: -1, evalType: 'mate' }]
+    },
+    'r2qk2r/1p3ppp/p3p3/3nP3/6b1/5N2/PP2BPPP/R2Q1RK1 w kq - 1 15': {
+        totalSteps: 2,
+        sanLine: ['Qa4+', 'Qd7', 'Qxg4'],
+        steps: [
+            {
+                move: 'd1a4', eval: 602, evalType: 'cp',
+                pv: ['d1a4', 'd8d7', 'a4g4', 'e8g8', 'g4e4', 'g7g6', 'h2h4', 'a8c8'],
+                alternatives: [{ move: 'd1a4', eval: 602, evalType: 'cp' }, { move: 'd1d4', eval: 15, evalType: 'cp' }]
+            },
+            {
+                move: 'a4g4', eval: 608, evalType: 'cp',
+                pv: ['a4g4', 'e8g8', 'g4e4', 'a8c8', 'f1e1', 'd5e7', 'e2d3', 'g7g6'],
+                alternatives: [{ move: 'a4g4', eval: 608, evalType: 'cp' }, { move: 'a4a3', eval: 28, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd8d7', eval: -612, evalType: 'cp' }]
+    },
+    '6r1/6Rp/q1p1k2b/p2pnp1P/1p1P1P2/1P6/P2QNB1K/6R1 b - - 0 35': {
+        totalSteps: 2,
+        sanLine: ['Nf3+', 'Kh3', 'Nxd2'],
+        steps: [
+            {
+                move: 'e5f3', eval: 524, evalType: 'cp',
+                pv: ['e5f3', 'h2h3', 'f3d2', 'g7g8', 'd2e4', 'g1e1', 'e4f2', 'h3h2'],
+                alternatives: [{ move: 'e5f3', eval: 524, evalType: 'cp' }, { move: 'e5c4', eval: -521, evalType: 'cp' }]
+            },
+            {
+                move: 'f3d2', eval: 625, evalType: 'cp',
+                pv: ['f3d2', 'g7g8', 'd2e4', 'g8e8', 'e6f7', 'e8e4', 'f5e4', 'e2g3'],
+                alternatives: [{ move: 'f3d2', eval: 625, evalType: 'cp' }, { move: 'f3g1', eval: -465, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h2h3', eval: -591, evalType: 'cp' }]
+    },
+    '1r5k/3b3p/6r1/3Q4/8/qN3P2/2P5/1K1R4 w - - 0 37': {
+        totalSteps: 2,
+        sanLine: ['Qe5+', 'Kg8', 'Qxb8+'],
+        steps: [
+            {
+                move: 'd5e5', eval: 662, evalType: 'cp',
+                pv: ['d5e5', 'h8g8', 'e5b8', 'a3f8', 'b8f8', 'g8f8', 'd1d7', 'g6g3'],
+                alternatives: [{ move: 'd5e5', eval: 662, evalType: 'cp' }, { move: 'f3f4', eval: -613, evalType: 'cp' }]
+            },
+            {
+                move: 'e5b8', eval: 654, evalType: 'cp',
+                pv: ['e5b8', 'a3f8', 'b8f8', 'g8f8', 'd1d7', 'h7h5', 'b3d4', 'g6g1'],
+                alternatives: [{ move: 'e5b8', eval: 654, evalType: 'cp' }, { move: 'e5b2', eval: -743, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h8g8', eval: -655, evalType: 'cp' }]
+    },
+    'r2qrb2/pb1n1k2/1p5Q/3pP3/3p3P/6PB/PP3P2/R3R1K1 w - - 2 26': {
+        totalSteps: 2,
+        sanLine: ['e6+', 'Kg8', 'Qg6+'],
+        steps: [
+            {
+                move: 'e5e6', eval: 691, evalType: 'cp',
+                pv: ['e5e6', 'f7g8', 'h6g6', 'f8g7', 'e6d7', 'e8e7', 'h3e6', 'e7e6'],
+                alternatives: [{ move: 'e5e6', eval: 691, evalType: 'cp' }, { move: 'h6h7', eval: 133, evalType: 'cp' }]
+            },
+            {
+                move: 'h6g6', eval: 714, evalType: 'cp',
+                pv: ['h6g6', 'g8h8', 'e6d7', 'e8e7', 'h3f5', 'd4d3', 'g6f6', 'h8g8'],
+                alternatives: [{ move: 'h6g6', eval: 714, evalType: 'cp' }, { move: 'h6h5', eval: -68, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f7g8', eval: -752, evalType: 'cp' }]
+    },
+    'r3k2r/ppq1bpp1/4p3/3pP1Np/7n/1Q6/PP3PP1/R1BR2K1 w kq - 0 20': {
+        totalSteps: 2,
+        sanLine: ['Qa4+', 'b5', 'Qxh4'],
+        steps: [
+            {
+                move: 'b3a4', eval: 158, evalType: 'cp',
+                pv: ['b3a4', 'b7b5', 'a4h4', 'c7e5', 'g5f3', 'e7h4', 'f3e5', 'h4f6'],
+                alternatives: [{ move: 'b3a4', eval: 158, evalType: 'cp' }, { move: 'd1d3', eval: -244, evalType: 'cp' }]
+            },
+            {
+                move: 'a4h4', eval: 158, evalType: 'cp',
+                pv: ['a4h4', 'c7e5', 'a2a4', 'b5b4', 'g5f3', 'e7h4', 'f3e5', 'h4f6'],
+                alternatives: [{ move: 'a4h4', eval: 158, evalType: 'cp' }, { move: 'a4b5', eval: -206, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b7b5', eval: -192, evalType: 'cp' }]
+    },
+    '5r1k/1p5p/p3q3/3N4/3R2QP/P6K/1P6/8 b - - 1 37': {
+        totalSteps: 2,
+        sanLine: ['Rf3+', 'Kh2', 'Qe2+'],
+        steps: [
+            {
+                move: 'f8f3', eval: 474, evalType: 'cp',
+                pv: ['f8f3', 'h3h2', 'e6e2', 'g4g2', 'f3f2', 'd5f4', 'f2g2', 'f4g2'],
+                alternatives: [{ move: 'f8f3', eval: 474, evalType: 'cp' }, { move: 'e6f7', eval: -473, evalType: 'cp' }]
+            },
+            {
+                move: 'e6e2', eval: 489, evalType: 'cp',
+                pv: ['e6e2', 'g4g2', 'f3f2', 'd5e3', 'f2g2', 'e3g2', 'e2b2', 'd4d8'],
+                alternatives: [{ move: 'e6e2', eval: 489, evalType: 'cp' }, { move: 'e6e5', eval: -348, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h3h2', eval: -488, evalType: 'cp' }]
+    },
+    'r1bq3r/ppp1nkbQ/7R/3pPpp1/8/2P1P1P1/PP1N1PP1/R3K3 w Q - 1 18': {
+        totalSteps: 2,
+        sanLine: ['Rf6+', 'Ke8', 'Qxg7'],
+        steps: [
+            {
+                move: 'h6f6', eval: 406, evalType: 'cp',
+                pv: ['h6f6', 'f7e8', 'h7g7', 'e8d7', 'f6f7', 'h8e8', 'e1c1', 'b7b6'],
+                alternatives: [{ move: 'h6f6', eval: 406, evalType: 'cp' }, { move: 'h7h8', eval: -733, evalType: 'cp' }]
+            },
+            {
+                move: 'h7g7', eval: 422, evalType: 'cp',
+                pv: ['h7g7', 'e8d7', 'f6f7', 'b7b6', 'e1c1', 'h8e8', 'g7f6', 'c8a6'],
+                alternatives: [{ move: 'h7g7', eval: 422, evalType: 'cp' }, { move: 'f6h6', eval: -736, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'f7e8', eval: -409, evalType: 'cp' }]
+    },
+    '8/p4p2/3k4/p1p5/2P1P3/5Pq1/4K2n/1Q6 w - - 0 41': {
+        totalSteps: 2,
+        sanLine: ['Qb8+', 'Kc6', 'Qxg3'],
+        steps: [
+            {
+                move: 'b1b8', eval: 771, evalType: 'cp',
+                pv: ['b1b8', 'd6c6', 'b8g3', 'a5a4', 'g3b8', 'a7a6', 'b8a7', 'f7f6'],
+                alternatives: [{ move: 'b1b8', eval: 771, evalType: 'cp' }, { move: 'b1b7', eval: -474, evalType: 'cp' }]
+            },
+            {
+                move: 'b8g3', eval: 947, evalType: 'cp',
+                pv: ['b8g3', 'a5a4', 'g3h2', 'c6b7', 'h2e5', 'a7a6', 'e5e7', 'b7b8'],
+                alternatives: [{ move: 'b8g3', eval: 947, evalType: 'cp' }, { move: 'b8e8', eval: -273, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd6c6', eval: -888, evalType: 'cp' }]
+    },
+    '3b4/1k3p2/2p1p3/2K1P2p/P2P4/B4P1P/8/8 b - - 19 61': {
+        totalSteps: 2,
+        sanLine: ['Be7+', 'Kc4', 'Bxa3'],
+        steps: [
+            {
+                move: 'd8e7', eval: 547, evalType: 'cp',
+                pv: ['d8e7', 'c5c4', 'e7a3', 'f3f4', 'b7a6', 'c4d3', 'a3e7', 'd3e4'],
+                alternatives: [{ move: 'd8e7', eval: 547, evalType: 'cp' }, { move: 'b7c7', eval: -129, evalType: 'cp' }]
+            },
+            {
+                move: 'e7a3', eval: 589, evalType: 'cp',
+                pv: ['e7a3', 'c4d3', 'b7b6', 'd3e4', 'b6a5', 'e4d3', 'a5a4', 'd3c3'],
+                alternatives: [{ move: 'e7a3', eval: 589, evalType: 'cp' }, { move: 'e7d8', eval: -127, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c5c4', eval: -575, evalType: 'cp' }]
+    },
+    '2r2b2/k4p2/3p2p1/3Pp1Pp/bN2P2P/P2K4/3B4/5R2 b - - 16 50': {
+        totalSteps: 2,
+        sanLine: ['Bb5+', 'Ke3', 'Bxf1'],
+        steps: [
+            {
+                move: 'a4b5', eval: 538, evalType: 'cp',
+                pv: ['a4b5', 'd3e3', 'b5f1', 'e3f3', 'a7a8', 'a3a4', 'f1h3', 'd2e3'],
+                alternatives: [{ move: 'a4b5', eval: 538, evalType: 'cp' }, { move: 'f7f5', eval: 19, evalType: 'cp' }]
+            },
+            {
+                move: 'b5f1', eval: 566, evalType: 'cp',
+                pv: ['b5f1', 'a3a4', 'a7a8', 'e3f2', 'f1h3', 'f2e3', 'h3d7', 'b4a2'],
+                alternatives: [{ move: 'b5f1', eval: 566, evalType: 'cp' }, { move: 'f7f5', eval: 98, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3e3', eval: -570, evalType: 'cp' }]
+    },
+    '4k3/p5qp/7b/2N2p2/6n1/4PP2/PPPB1P1P/1R1R2K1 b - - 0 24': {
+        totalSteps: 2,
+        sanLine: ['Nxe3+', 'Kh1', 'Qg2#'],
+        steps: [
+            {
+                move: 'g4e3', eval: 2, evalType: 'mate',
+                pv: ['g4e3', 'g1h1', 'g7g2'],
+                alternatives: [{ move: 'g4e3', eval: 2, evalType: 'mate' }, { move: 'g4e5', eval: 5, evalType: 'cp' }]
+            },
+            {
+                move: 'g7g2', eval: 1, evalType: 'mate',
+                pv: ['g7g2'],
+                alternatives: [{ move: 'g7g2', eval: 1, evalType: 'mate' }, { move: 'e3d1', eval: 110, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g1h1', eval: -1, evalType: 'mate' }]
+    },
+    'r1bq2k1/pp1n1rpp/2pBpn2/8/2BP4/2N1P3/PP3PPP/R2QK2R b KQ - 0 10': {
+        totalSteps: 2,
+        sanLine: ['Nb6', 'Bb3', 'Qxd6'],
+        steps: [
+            {
+                move: 'd7b6', eval: 389, evalType: 'cp',
+                pv: ['d7b6', 'c4b3', 'd8d6', 'e3e4', 'd6e7', 'e1g1', 'f7f8', 'd1d2'],
+                alternatives: [{ move: 'd7b6', eval: 389, evalType: 'cp' }, { move: 'f6d5', eval: -417, evalType: 'cp' }]
+            },
+            {
+                move: 'd8d6', eval: 394, evalType: 'cp',
+                pv: ['d8d6', 'e3e4', 'd6e7', 'e1g1', 'f7f8', 'd1d3', 'g8h8', 'a2a4'],
+                alternatives: [{ move: 'd8d6', eval: 394, evalType: 'cp' }, { move: 'a7a5', eval: -292, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c4b3', eval: -372, evalType: 'cp' }]
+    },
+    '1k4r1/pp2bp2/8/4pq2/6r1/7R/PP3B1K/2R2Q2 w - - 0 30': {
+        totalSteps: 2,
+        sanLine: ['Bxa7+', 'Kxa7', 'Qxf5'],
+        steps: [
+            {
+                move: 'f2a7', eval: 589, evalType: 'cp',
+                pv: ['f2a7', 'b8a7', 'f1f5', 'e7b4', 'h2h1', 'a7b8', 'f5e5', 'b8a7'],
+                alternatives: [{ move: 'f2a7', eval: 589, evalType: 'cp' }, { move: 'f2g3', eval: -620, evalType: 'cp' }]
+            },
+            {
+                move: 'f1f5', eval: 640, evalType: 'cp',
+                pv: ['f1f5', 'f7f6', 'h2h1', 'g8g7', 'f5c2', 'g7g8', 'h3h7', 'g4d4'],
+                alternatives: [{ move: 'f1f5', eval: 640, evalType: 'cp' }, { move: 'f1f3', eval: -820, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b8a7', eval: -647, evalType: 'cp' }]
+    },
+    '3r2k1/p1p2pp1/2Q4p/2Pnpq2/2P5/8/P2B1PPP/4R1K1 b - - 0 24': {
+        totalSteps: 2,
+        sanLine: ['Ne7', 'Qxc7', 'Rxd2'],
+        steps: [
+            {
+                move: 'd5e7', eval: 532, evalType: 'cp',
+                pv: ['d5e7', 'c6c7', 'd8d2', 'e1f1', 'd2d7', 'c7b8', 'g8h7', 'h2h4'],
+                alternatives: [{ move: 'd5e7', eval: 532, evalType: 'cp' }, { move: 'f5c2', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'd8d2', eval: 552, evalType: 'cp',
+                pv: ['d8d2', 'e1f1', 'd2d7', 'c7b8', 'g8h7', 'h2h3', 'e5e4', 'b8e8'],
+                alternatives: [{ move: 'd8d2', eval: 552, evalType: 'cp' }, { move: 'e7c6', eval: -8, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'c6c7', eval: -546, evalType: 'cp' }]
+    },
+    '6k1/2R1n1rp/3p2pQ/p2Pp3/4P3/p1K5/Nr2bPP1/7R b - - 3 28': {
+        totalSteps: 2,
+        sanLine: ['Nxd5+', 'exd5', 'Rxc7#'],
+        steps: [
+            {
+                move: 'e7d5', eval: 2, evalType: 'mate',
+                pv: ['e7d5', 'e4d5', 'g7c7'],
+                alternatives: [{ move: 'e7d5', eval: 2, evalType: 'mate' }, { move: 'g7f7', eval: -236, evalType: 'cp' }]
+            },
+            {
+                move: 'g7c7', eval: 1, evalType: 'mate',
+                pv: ['g7c7'],
+                alternatives: [{ move: 'g7c7', eval: 1, evalType: 'mate' }, { move: 'b2b3', eval: -546, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e4d5', eval: -1, evalType: 'mate' }]
+    },
+    '7k/4Npp1/4p2p/8/7q/8/5nQ1/6K1 w - - 0 38': {
+        totalSteps: 2,
+        sanLine: ['Qa8+', 'Kh7', 'Qg8#'],
+        steps: [
+            {
+                move: 'g2a8', eval: 2, evalType: 'mate',
+                pv: ['g2a8', 'h8h7', 'a8g8'],
+                alternatives: [{ move: 'g2a8', eval: 2, evalType: 'mate' }, { move: 'g2b7', eval: -695, evalType: 'cp' }]
+            },
+            {
+                move: 'a8g8', eval: 1, evalType: 'mate',
+                pv: ['a8g8'],
+                alternatives: [{ move: 'a8g8', eval: 1, evalType: 'mate' }, { move: 'a8e8', eval: -435, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h8h7', eval: -1, evalType: 'mate' }]
+    },
+    '8/3R2p1/5k1p/5P2/5KPP/8/2b5/4r3 w - - 4 51': {
+        totalSteps: 2,
+        sanLine: ['g5+', 'hxg5+', 'hxg5#'],
+        steps: [
+            {
+                move: 'g4g5', eval: 2, evalType: 'mate',
+                pv: ['g4g5', 'h6g5', 'h4g5'],
+                alternatives: [{ move: 'g4g5', eval: 2, evalType: 'mate' }, { move: 'd7c7', eval: -179, evalType: 'cp' }]
+            },
+            {
+                move: 'h4g5', eval: 1, evalType: 'mate',
+                pv: ['h4g5'],
+                alternatives: [{ move: 'h4g5', eval: 1, evalType: 'mate' }, { move: 'f4f3', eval: -632, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h6g5', eval: -1, evalType: 'mate' }]
+    },
+    '8/8/1R5p/6pk/8/7P/r4rP1/6RK w - - 3 38': {
+        totalSteps: 2,
+        sanLine: ['g4+', 'Kh4', 'Rxh6#'],
+        steps: [
+            {
+                move: 'g2g4', eval: 2, evalType: 'mate',
+                pv: ['g2g4', 'h5h4', 'b6h6'],
+                alternatives: [{ move: 'g2g4', eval: 2, evalType: 'mate' }, { move: 'b6d6', eval: 3, evalType: 'cp' }]
+            },
+            {
+                move: 'b6h6', eval: 1, evalType: 'mate',
+                pv: ['b6h6'],
+                alternatives: [{ move: 'b6h6', eval: 1, evalType: 'mate' }, { move: 'g1b1', eval: -34, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h5h4', eval: -1, evalType: 'mate' }]
+    },
+    '3R4/2p2Npk/p4n1p/P1K5/2P3PP/5r2/2b5/8 w - - 0 35': {
+        totalSteps: 2,
+        sanLine: ['Rh8+', 'Kg6', 'Ne5#'],
+        steps: [
+            {
+                move: 'd8h8', eval: 2, evalType: 'mate',
+                pv: ['d8h8', 'h7g6', 'f7e5'],
+                alternatives: [{ move: 'd8h8', eval: 2, evalType: 'mate' }, { move: 'f7e5', eval: -431, evalType: 'cp' }]
+            },
+            {
+                move: 'f7e5', eval: 1, evalType: 'mate',
+                pv: ['f7e5'],
+                alternatives: [{ move: 'f7e5', eval: 1, evalType: 'mate' }, { move: 'f7d8', eval: -497, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'h7g6', eval: -1, evalType: 'mate' }]
+    },
+    '6k1/6r1/3p4/5P1R/pp6/1P6/P1P5/1K6 b - - 0 35': {
+        totalSteps: 2,
+        sanLine: ['Rg1+', 'Kb2', 'a3#'],
+        steps: [
+            {
+                move: 'g7g1', eval: 2, evalType: 'mate',
+                pv: ['g7g1', 'b1b2', 'a4a3'],
+                alternatives: [{ move: 'g7g1', eval: 2, evalType: 'mate' }, { move: 'a4b3', eval: -56, evalType: 'cp' }]
+            },
+            {
+                move: 'a4a3', eval: 1, evalType: 'mate',
+                pv: ['a4a3'],
+                alternatives: [{ move: 'a4a3', eval: 1, evalType: 'mate' }, { move: 'a4b3', eval: -48, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b1b2', eval: -1, evalType: 'mate' }]
+    },
+    'r1b2r2/pp3pkp/2np1n2/2q1p2p/4P1P1/5P2/PPPQ4/2KR1BNR w - - 0 15': {
+        totalSteps: 2,
+        sanLine: ['Qg5+', 'Kh8', 'Qxf6+'],
+        steps: [
+            {
+                move: 'd2g5', eval: 672, evalType: 'cp',
+                pv: ['d2g5', 'g7h8', 'g5f6', 'h8g8', 'h1h5', 'c5e3', 'c1b1', 'c8e6'],
+                alternatives: [{ move: 'd2g5', eval: 672, evalType: 'cp' }, { move: 'b2b4', eval: 0, evalType: 'cp' }]
+            },
+            {
+                move: 'g5f6', eval: 767, evalType: 'cp',
+                pv: ['g5f6', 'h8g8', 'f6g5', 'g8h8', 'g5h5', 'c5e3', 'c1b1', 'h8g7'],
+                alternatives: [{ move: 'g5f6', eval: 767, evalType: 'cp' }, { move: 'g5h6', eval: 92, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7h8', eval: -767, evalType: 'cp' }]
+    },
+    'k2rr3/pp3ppp/8/1P1qn3/3pQB2/5P2/P4P1P/2R2RK1 w - - 4 22': {
+        totalSteps: 2,
+        sanLine: ['Rc8+', 'Rxc8', 'Qxd5'],
+        steps: [
+            {
+                move: 'c1c8', eval: 492, evalType: 'cp',
+                pv: ['c1c8', 'd8c8', 'e4d5', 'c8d8', 'd5d8', 'e8d8', 'f4e5', 'b7b6'],
+                alternatives: [{ move: 'c1c8', eval: 492, evalType: 'cp' }, { move: 'e4d5', eval: -116, evalType: 'cp' }]
+            },
+            {
+                move: 'e4d5', eval: 512, evalType: 'cp',
+                pv: ['e4d5', 'c8d8', 'd5b3', 'f7f6', 'f4e5', 'e8e5', 'f1d1', 'f6f5'],
+                alternatives: [{ move: 'e4d5', eval: 512, evalType: 'cp' }, { move: 'f4e5', eval: -845, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd8c8', eval: -491, evalType: 'cp' }]
+    },
+    'r2R4/pp1bk1p1/1npRpr1p/4p3/P1p1P3/2N3PB/1P3P1P/6K1 w - - 1 23': {
+        totalSteps: 2,
+        sanLine: ['R6xd7+', 'Nxd7', 'Rxa8'],
+        steps: [
+            {
+                move: 'd6d7', eval: 433, evalType: 'cp',
+                pv: ['d6d7', 'b6d7', 'd8a8', 'a7a6', 'h3f1', 'e7d6', 'a4a5', 'f6f8'],
+                alternatives: [{ move: 'd6d7', eval: 433, evalType: 'cp' }, { move: 'd8a8', eval: -329, evalType: 'cp' }]
+            },
+            {
+                move: 'd8a8', eval: 454, evalType: 'cp',
+                pv: ['d8a8', 'a7a6', 'h3f1', 'f6f8', 'a8f8', 'd7f8', 'a4a5', 'e7d6'],
+                alternatives: [{ move: 'd8a8', eval: 454, evalType: 'cp' }, { move: 'd8d7', eval: -659, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'b6d7', eval: -444, evalType: 'cp' }]
+    },
+    '8/8/4p1p1/2pp4/2rP1PP1/1kNK2P1/1PR5/8 b - - 1 32': {
+        totalSteps: 2,
+        sanLine: ['Rxd4+', 'Ke2', 'Kxc2'],
+        steps: [
+            {
+                move: 'c4d4', eval: 549, evalType: 'cp',
+                pv: ['c4d4', 'd3e2', 'b3c2', 'g4g5', 'c2b2', 'c3d1', 'b2c2', 'd1f2'],
+                alternatives: [{ move: 'c4d4', eval: 549, evalType: 'cp' }, { move: 'e6e5', eval: -462, evalType: 'cp' }]
+            },
+            {
+                move: 'b3c2', eval: 645, evalType: 'cp',
+                pv: ['b3c2', 'c3b5', 'd4b4', 'b5c3', 'c2b2', 'f4f5', 'b2c3', 'f5g6'],
+                alternatives: [{ move: 'b3c2', eval: 645, evalType: 'cp' }, { move: 'g6g5', eval: -191, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'd3e2', eval: -632, evalType: 'cp' }]
+    },
+    'r7/ppp3k1/3b2qp/3n2pQ/4p3/4P1P1/PP1B2B1/5RK1 w - - 2 25': {
+        totalSteps: 2,
+        sanLine: ['Qxg6+', 'Kxg6', 'Bxe4+'],
+        steps: [
+            {
+                move: 'h5g6', eval: 524, evalType: 'cp',
+                pv: ['h5g6', 'g7g6', 'g2e4', 'g6g7', 'e4d5', 'd6e5', 'f1f7', 'g7g6'],
+                alternatives: [{ move: 'h5g6', eval: 524, evalType: 'cp' }, { move: 'h5g4', eval: -250, evalType: 'cp' }]
+            },
+            {
+                move: 'g2e4', eval: 526, evalType: 'cp',
+                pv: ['g2e4', 'g6g7', 'e4d5', 'd6e5', 'f1f7', 'g7g6', 'f7e7', 'e5b2'],
+                alternatives: [{ move: 'g2e4', eval: 526, evalType: 'cp' }, { move: 'g2h3', eval: -282, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7g6', eval: -513, evalType: 'cp' }]
+    },
+    'r4r2/1ppq1pk1/p2p1nn1/4p1B1/1bP1P3/2NPQ1P1/PP3P1P/1R3RK1 w - - 3 19': {
+        totalSteps: 2,
+        sanLine: ['Bxf6+', 'Kxf6', 'Nd5+'],
+        steps: [
+            {
+                move: 'g5f6', eval: 352, evalType: 'cp',
+                pv: ['g5f6', 'g7f6', 'c3d5', 'f6g7', 'd5b4', 'f8h8', 'f2f3', 'd7h3'],
+                alternatives: [{ move: 'g5f6', eval: 352, evalType: 'cp' }, { move: 'g5h6', eval: -83, evalType: 'cp' }]
+            },
+            {
+                move: 'c3d5', eval: 352, evalType: 'cp',
+                pv: ['c3d5', 'f6g7', 'd5b4', 'f7f5', 'e4f5', 'f8f5', 'f2f3', 'f5h5'],
+                alternatives: [{ move: 'c3d5', eval: 352, evalType: 'cp' }, { move: 'e3f3', eval: -151, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7f6', eval: -360, evalType: 'cp' }]
+    },
+    '8/5k2/4r3/1pB2qp1/3Pb2p/4Q2P/6P1/5RK1 b - - 1 35': {
+        totalSteps: 2,
+        sanLine: ['Qxf1+', 'Kxf1', 'Bxg2+'],
+        steps: [
+            {
+                move: 'f5f1', eval: 687, evalType: 'cp',
+                pv: ['f5f1', 'g1f1', 'e4g2', 'f1e2', 'e6e3', 'e2e3', 'g2h3', 'e3e4'],
+                alternatives: [{ move: 'f5f1', eval: 687, evalType: 'cp' }, { move: 'e4f3', eval: -598, evalType: 'cp' }]
+            },
+            {
+                move: 'e4g2', eval: 672, evalType: 'cp',
+                pv: ['e4g2', 'f1f2', 'e6e3', 'f2e3', 'g2h3', 'e3e4', 'f7g6', 'e4d5'],
+                alternatives: [{ move: 'e4g2', eval: 672, evalType: 'cp' }, { move: 'f7g6', eval: -551, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g1f1', eval: -679, evalType: 'cp' }]
+    },
+    '2r1k2r/1p3ppp/p3p3/2qpP3/3n1PPQ/N2B3P/PPP5/R4RK1 b k - 0 17': {
+        totalSteps: 2,
+        sanLine: ['Nf3+', 'Kh1', 'Nxh4'],
+        steps: [
+            {
+                move: 'd4f3', eval: 666, evalType: 'cp',
+                pv: ['d4f3', 'g1g2', 'f3h4', 'g2h2', 'c5e3', 'a1d1', 'e3b6', 'd1b1'],
+                alternatives: [{ move: 'd4f3', eval: 666, evalType: 'cp' }, { move: 'd4c2', eval: -122, evalType: 'cp' }]
+            },
+            {
+                move: 'f3h4', eval: 672, evalType: 'cp',
+                pv: ['f3h4', 'a1e1', 'c5b4', 'e1e2', 'e8d8', 'c2c3', 'c8c3', 'b2c3'],
+                alternatives: [{ move: 'f3h4', eval: 672, evalType: 'cp' }, { move: 'f3d2', eval: -467, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g1h1', eval: -699, evalType: 'cp' }]
     },
     'r1bqkbnr/pppp1ppp/2n5/4p3/2B1P3/5Q2/PPPP1PPP/RNB1K1NR w KQkq - 4 4': {
         totalSteps: 1,
@@ -27519,7 +27892,7 @@ const TACTICS_BANK_SOLUTIONS = {
             {
                 move: 'f3f7', eval: 1, evalType: 'mate',
                 pv: ['f3f7'],
-                alternatives: [{ move: 'f3f7', eval: 1, evalType: 'mate' }, { move: 'c4f7', eval: 277, evalType: 'cp' }]
+                alternatives: [{ move: 'f3f7', eval: 1, evalType: 'mate' }, { move: 'c4f7', eval: 222, evalType: 'cp' }]
             }
         ],
         replies: []
@@ -27531,27 +27904,95 @@ const TACTICS_BANK_SOLUTIONS = {
             {
                 move: 'd1d8', eval: 1, evalType: 'mate',
                 pv: ['d1d8'],
-                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'g1f1', eval: 769, evalType: 'cp' }]
+                alternatives: [{ move: 'd1d8', eval: 1, evalType: 'mate' }, { move: 'g2g4', eval: 681, evalType: 'cp' }]
             }
         ],
         replies: []
     },
-    '8/8/8/4k3/8/4K3/4P3/8 w - - 0 1': {
+    'r1bqk2r/pppp1ppp/2n2n2/2b1p3/2B1P3/3P1N2/PPP2PPP/RNBQK2R w KQkq - 0 5': {
         totalSteps: 2,
-        sanLine: ['Kf3', 'Kf5', 'e3'],
+        sanLine: ['c3', 'd6', 'O-O'],
         steps: [
             {
-                move: 'e3f3', eval: 9, evalType: 'cp',
-                pv: ['e3f3', 'e5f5', 'e2e4', 'f5e5', 'f3e3', 'e5d6', 'e3d4', 'd6e6'],
-                alternatives: [{ move: 'e3f3', eval: 9, evalType: 'cp' }, { move: 'e3d2', eval: 0, evalType: 'cp' }]
+                move: 'c2c3', eval: 19, evalType: 'cp',
+                pv: ['c2c3', 'd7d6', 'e1g1', 'e8g8', 'h2h3', 'a7a6', 'b1d2', 'h7h6'],
+                alternatives: [{ move: 'c2c3', eval: 19, evalType: 'cp' }, { move: 'b1c3', eval: 18, evalType: 'cp' }]
             },
             {
-                move: 'e2e3', eval: 0, evalType: 'cp',
-                pv: ['e2e3', 'f5e5', 'e3e4', 'e5d6', 'f3f4', 'd6e6', 'e4e5', 'e6d7'],
-                alternatives: [{ move: 'e2e3', eval: 0, evalType: 'cp' }, { move: 'e2e4', eval: 0, evalType: 'cp' }]
+                move: 'e1g1', eval: 27, evalType: 'cp',
+                pv: ['e1g1', 'e8g8', 'h2h3', 'a7a5', 'f1e1', 'h7h6', 'b1d2', 'c8e6'],
+                alternatives: [{ move: 'e1g1', eval: 27, evalType: 'cp' }, { move: 'a2a4', eval: 22, evalType: 'cp' }]
             }
         ],
-        replies: [{ move: 'e5f5', eval: 0, evalType: 'cp' }]
+        replies: [{ move: 'd7d6', eval: -24, evalType: 'cp' }]
+    },
+    '2rq1rk1/pp1bppbp/3p1np1/8/3NP3/2N1BP2/PPPQ2PP/2KR1B1R w - - 0 11': {
+        totalSteps: 2,
+        sanLine: ['Kb1', 'a6', 'h4'],
+        steps: [
+            {
+                move: 'c1b1', eval: 589, evalType: 'cp',
+                pv: ['c1b1', 'a7a6', 'c3d5', 'f6d5', 'e4d5', 'a6a5', 'f1d3', 'c8c5'],
+                alternatives: [{ move: 'c1b1', eval: 589, evalType: 'cp' }, { move: 'f1d3', eval: 587, evalType: 'cp' }]
+            },
+            {
+                move: 'h2h4', eval: 617, evalType: 'cp',
+                pv: ['h2h4', 'h7h5', 'c3d5', 'f6d5', 'e4d5', 'c8c5', 'd4b3', 'd7f5'],
+                alternatives: [{ move: 'h2h4', eval: 617, evalType: 'cp' }, { move: 'c3d5', eval: 613, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'a7a6', eval: -595, evalType: 'cp' }]
+    },
+    'r3k2r/ppp2ppp/2n1bn2/2bqp3/8/2NP1NP1/PPP1PPBP/R1BQ1RK1 w kq - 0 9': {
+        totalSteps: 2,
+        sanLine: ['Nxd5', 'Bxd5', 'c3'],
+        steps: [
+            {
+                move: 'c3d5', eval: 702, evalType: 'cp',
+                pv: ['c3d5', 'e6d5', 'c2c3', 'e8c8', 'g2h3', 'c8b8', 'f3h4', 'e5e4'],
+                alternatives: [{ move: 'c3d5', eval: 702, evalType: 'cp' }, { move: 'b2b4', eval: 617, evalType: 'cp' }]
+            },
+            {
+                move: 'c2c3', eval: 665, evalType: 'cp',
+                pv: ['c2c3', 'h7h5', 'h2h4', 'e5e4', 'c1f4', 'e4f3', 'e2f3', 'e8c8'],
+                alternatives: [{ move: 'c2c3', eval: 665, evalType: 'cp' }, { move: 'f3h4', eval: 650, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e6d5', eval: -674, evalType: 'cp' }]
+    },
+    '8/8/8/4k3/8/4K3/4P3/8 w - - 0 1': {
+        totalSteps: 2,
+        sanLine: ['Kf3', 'Kf5', 'Ke3'],
+        steps: [
+            {
+                move: 'e3f3', eval: 13, evalType: 'cp',
+                pv: ['e3f3', 'e5f5', 'f3e3', 'f5e5', 'e3d3', 'e5d5', 'e2e4', 'd5e5'],
+                alternatives: [{ move: 'e3f3', eval: 13, evalType: 'cp' }, { move: 'e3d3', eval: 13, evalType: 'cp' }]
+            },
+            {
+                move: 'f3e3', eval: 1, evalType: 'cp',
+                pv: ['f3e3', 'f5e5', 'e3f3', 'e5f5', 'e2e3', 'f5e5', 'e3e4', 'e5d6'],
+                alternatives: [{ move: 'f3e3', eval: 1, evalType: 'cp' }, { move: 'e2e3', eval: 1, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'e5f5', eval: -7, evalType: 'cp' }]
+    },
+    'rnbqkb1r/pp2pppp/3p1n2/2pP4/4P3/8/PPP2PPP/RNBQKBNR w KQkq - 0 4': {
+        totalSteps: 2,
+        sanLine: ['Bd3', 'g6', 'c4'],
+        steps: [
+            {
+                move: 'f1d3', eval: 81, evalType: 'cp',
+                pv: ['f1d3', 'g7g6', 'c2c4', 'e7e6', 'h2h3', 'f8g7', 'g1f3', 'e6d5'],
+                alternatives: [{ move: 'f1d3', eval: 81, evalType: 'cp' }, { move: 'b1c3', eval: 80, evalType: 'cp' }]
+            },
+            {
+                move: 'c2c4', eval: 76, evalType: 'cp',
+                pv: ['c2c4', 'f8g7', 'b1c3', 'e7e6', 'h2h3', 'e8g8', 'g1f3', 'e6d5'],
+                alternatives: [{ move: 'c2c4', eval: 76, evalType: 'cp' }, { move: 'h2h3', eval: 70, evalType: 'cp' }]
+            }
+        ],
+        replies: [{ move: 'g7g6', eval: -86, evalType: 'cp' }]
     }
 };
 // <<< TACTICS_BANK_SOLUTIONS <<<
@@ -27585,8 +28026,13 @@ function buildEmergencyBundleSequence(fen) {
     const err = Array.isArray(savedErrors) ? savedErrors.find(e => e && e.fen === fen) : null;
     if (!err) return null;
     const pv = Array.isArray(err.bestMovePv) ? err.bestMovePv.filter(Boolean) : [];
-    const line = pv.length ? pv : (err.bestMove ? [err.bestMove] : []);
+    let line = pv.length ? pv : (err.bestMove ? [err.bestMove] : []);
     if (!line.length) return null;
+    // Els passos següents al primer només es conserven si tenen un resultat
+    // palpable dins la mateixa línia desada (mat o guany net de material).
+    const trimmed = ElTaulerCore.tacticTrimLine(Chess, fen, line.slice(0, 5),
+        [0, 1, 2].map(k => ({ pv: line.slice(2 * k) })));
+    line = trimmed.line.length ? trimmed.line : line.slice(0, 1);
     const seq = buildBundleSequenceFromLine(fen, line, {
         stepMeta: [{ playerMovePv: pv, alternatives: [] }]
     });
@@ -38249,7 +38695,11 @@ function loadPreparedSequences() {
             // com el de dos: el que cal és que hi hagi tants passos com la
             // seqüència diu i la rèplica fixa del rival entre pas i pas.
             const totalSteps = (seq && seq.totalSteps) || 2;
+            // Només seqüències calculades amb Stockfish 19 i amb el filtre de
+            // resultat palpable: les antigues (motor ordinari, segona jugada
+            // sense comprovar) es descarten i es tornen a preparar.
             const wellFormed = !!(seq && seq.initialFen === fen && seq.step1
+                && seq.engine === 'sf19'
                 && Array.isArray(seq.fullSequence)
                 && seq.fullSequence.length >= (2 * totalSteps - 1)
                 && (totalSteps < 2 || (seq.step2 && seq.opponentMove))
