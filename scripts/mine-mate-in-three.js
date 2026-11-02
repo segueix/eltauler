@@ -292,10 +292,10 @@ async function validate(sf,fen,proof) {
         finalMotifs:['mate'],theme:'mate',tacticKind:'escac i mat',difficulty:75,difficultyPercent:75,
         status:'new',attempts:0,startedAt:null,solvedAt:null,deviceCreated:null,playerMove:null,
         origin:'stockfish19_lozza3_mate3',sourceGameId:null,sourceFen:fen,sourceMoveNumber:Number(fen.split(' ')[5]||1),
-        adaptationNote:null,pv:line.line,evalBefore:99999,ratingEstimate:null};
+        adaptationNote:null,pv:line.line,evalBefore:null,ratingEstimate:null};
 }
 async function main(){
-    let sf,lozza;let added=0,checked=0,found=0;
+    let sf,lozza;let added=0,checked=0,found=0,gameReports=[];
     const stats={games:0,candidates:0,finals:0,fastMate:0,highAdvantage:0,
         proofCalls:0,proofPass:0,verifyCalls:0,verified:0,published:0};
     const reserve=readReserve().filter(sound).slice(0,MAX_RESERVE), known=new Set(reserve.map(x=>reserveFenKey(x.fen)));
@@ -313,6 +313,8 @@ async function main(){
             if(!g.incomplete)games.push(g);
         }
         stats.games=games.length;
+        gameReports=games.map((g,i)=>({game:i+1,plies:g.moves.length,stockfishColor:g.sfColor,
+            checkmate:g.mate,terminated:g.done,uciMoves:g.moves}));
         if(games.length<GAMES)console.warn('Només '+games.length+'/'+GAMES+
             ' partides completes. Es minen les disponibles; cap partida incompleta es publica.');
         // No descartar una partida que acaba en taules: pot contenir variants amb mat.
@@ -359,6 +361,15 @@ async function main(){
             console.log('MAT EN 3 VALIDAT ('+added+'/'+MAX_NEW+'): '+item.sanLine.join(' ')+' ['+x.kind+']');
         }
     } finally {if(sf)sf.close();if(lozza)lozza.close();}
+    const reportPath=path.join(ROOT,'reports','mat3-last-run.json');
+    fs.mkdirSync(path.dirname(reportPath),{recursive:true});
+    fs.writeFileSync(reportPath,JSON.stringify({
+        generatedAt:new Date().toISOString(),
+        settings:{games:GAMES,stockfishMs:SF_MS,lozzaMs:LOZZA_MS,
+            lozzaDepths:[5,6],minutes:MINUTES,maxNew:MAX_NEW},
+        stats,games:gameReports
+    },null,2)+'\n');
+    console.log('Informe de diagnòstic: '+path.relative(ROOT,reportPath));
     console.log('Resultats detallats: '+JSON.stringify(stats));
     console.log('Acabat: '+added+' nous mats en 3; '+found+' demostracions; '+checked+' verificacions completes.');
     if(!added)console.warn('CAP JEROGLÍFIC PUBLICAT: les partides han acabat, però cap posició ha superat tots els filtres. No és un error de desplegament.');
