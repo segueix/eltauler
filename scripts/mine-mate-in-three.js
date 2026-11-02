@@ -288,7 +288,7 @@ async function validate(sf,fen,proof) {
     const start=new Chess(fen), player=start.turn();
     return {...result,
         id:'',source:'reserve',fen,sideToMove:player,line:line.line,sanLine:line.san,
-        bestMove:first,bestMoveSan:line.san[0],finalType:'mate',finalMotif:'mate',
+        bestMove:proof.first,bestMoveSan:line.san[0],finalType:'mate',finalMotif:'mate',
         finalMotifs:['mate'],theme:'mate',tacticKind:'escac i mat',difficulty:75,difficultyPercent:75,
         status:'new',attempts:0,startedAt:null,solvedAt:null,deviceCreated:null,playerMove:null,
         origin:'stockfish19_lozza3_mate3',sourceGameId:null,sourceFen:fen,sourceMoveNumber:Number(fen.split(' ')[5]||1),
