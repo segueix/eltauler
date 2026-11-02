@@ -305,7 +305,7 @@ test('tots els jeroglífics de la reserva tenen una línia legal i la prova vàl
         expect(sound(item)).toBe(true);
         expect(item.solutionMoves).toHaveLength(3);
         expect(item.replyMoves).toHaveLength(2);
-        expect(item.origin).toBe('engine_selfplay');
+        expect(['engine_selfplay', 'stockfish19_lozza3_mate3']).toContain(item.origin);
         const key = Core.puzzleFenKey(item.fen);
         expect(keys.has(key)).toBe(false);
         keys.add(key);
