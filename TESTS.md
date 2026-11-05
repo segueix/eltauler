@@ -71,6 +71,14 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   context aïllat): s'aplica de ROC 600 a 2400, també als nivells natius, i no
   s'aplica sense rellotge ni amb la partida decidida; la tirada real de
   `makeEngineMove` s'arma amb la freqüència de la taula i demana 16 línies.
+- **`clockelo.test.js`** — el rival gestiona el rellotge com la persona de
+  Lichess a qui s'assembla jugant (`clockEloForRoc`, `ANALISI_RELLOTGE.md`
+  §15). La correspondència passa pels punts mesurats, és monòtona, mai no dóna
+  una persona més forta que el ROC i per sota de les dades dóna el perfil més
+  fluix; a 1+0, l'efecte sobre el temps per jugada i les banderes a ROC 870,
+  ~1600 i ~1940. A l'app: el temps de reflexió i el tarannà fan servir la
+  persona equivalent, i la cerca i la revisió continuen amb el ROC (la força no
+  es mou).
 - **`premove.test.js`** — jugada anticipada de les partides amb rellotge.
   `premoveTargets` genera els destins marcables d'una peça quan el torn ENCARA
   és del rival (chess.js no en dóna cap, i per això calia un generador propi):

@@ -5151,6 +5151,46 @@
         const runway = Math.max(0, p.remainingMs) + 3 * Math.max(0, p.incMs || 0);
         return clampNum(1 - runway / Math.min(15000, base * 0.25), 0, 1);
     }
+    // ----------------------------------------------------------------------
+    // Amb quin nivell de persona gestiona el rellotge el rival (ANALISI §15)
+    // ----------------------------------------------------------------------
+    // El model de rellotge (HUMAN_CLOCK_STATS i tot el que en penja) està
+    // mesurat per ELO de Lichess, i fins ara hi entrava el ROC del rival com si
+    // fos el mateix número. No ho és: fent jugar el rival real a 7.800
+    // posicions de Lichess (§14), un rival de ROC ~1600 perd per jugada el
+    // mateix que una persona de Lichess de ~1025, i un de ROC ~1940 el mateix
+    // que una de ~1750; per sota de ROC ~1250 perd més que cap franja mesurada.
+    // El rival jugava, doncs, com una persona i gestionava el temps com una
+    // altra de més forta. Ara gestiona el rellotge com la persona a qui
+    // s'assembla jugant.
+    //
+    // Només per al TEMPS QUE S'HI PENSA i el tarannà de la partida: la cerca
+    // del motor continua amb el ROC (gameSearchBudgetMs), perquè donar-li més
+    // temps de cerca el faria més fort, i la força ha de quedar on és.
+    //
+    // Punts [ROC, ELO de Lichess equivalent]: els dos del mig són els mesurats
+    // (interval al 95%: 850-1300 i 1550-2100; la diferència entre ritmes curts
+    // i llargs hi cap dins, i per això n'hi ha una sola per a tots). ROC 1227 →
+    // 800 és un límit: la seva força queda per sota de les dades (< ~850) i
+    // qualsevol valor allà ja dóna el perfil de rellotge més fluix mesurat.
+    // ROC 200 → 200 només manté l'ordre entre els nivells sense dades. Per
+    // sobre de 1942 (fins al màxim, ROC 2000) es prolonga l'últim tram.
+    const ROC_CLOCK_ELO_POINTS = [[200, 200], [1227, 800], [1604, 1025], [1942, 1750]];
+    function clockEloForRoc(roc) {
+        const pts = ROC_CLOCK_ELO_POINTS;
+        const r = Number(roc);
+        if (!Number.isFinite(r)) return r;
+        if (r <= pts[0][0]) return r;
+        for (let i = 0; i < pts.length - 1; i++) {
+            const [x0, y0] = pts[i];
+            const [x1, y1] = pts[i + 1];
+            if (r <= x1) return Math.round(y0 + (y1 - y0) * (r - x0) / (x1 - x0));
+        }
+        const [x0, y0] = pts[pts.length - 2];
+        const [x1, y1] = pts[pts.length - 1];
+        return Math.round(Math.min(r, y1 + (y1 - y0) * (r - x1) / (x1 - x0)));
+    }
+
     // Temps de reflexió del rival a la partida. Als ritmes curts hi afegeix
     // retocs de naturalitat (més temps a les decisions difícils, menys a la
     // jugada única i a la recaptura, cap pensada llarga quan no toca), però la
@@ -9705,6 +9745,8 @@
         gameThinkTimeMs,
         gameSearchBudgetMs,
         gameReviewSearchBudgetMs,
+        ROC_CLOCK_ELO_POINTS,
+        clockEloForRoc,
         CLOCK_SLIP_EXCESS,
         CLOCK_SLIP_OPEN_CP,
         CLOCK_SLIP_MIN_WC_LOSS,

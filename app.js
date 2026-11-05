@@ -29588,6 +29588,10 @@ function computeHumanReplyDelayMs(moveUci = null) {
     const previous = game.history({ verbose: true }).slice(-1)[0];
     const thinkMs = ElTaulerCore.gameThinkTimeMs({
         ...ctx,
+        // El temps que s'hi pensa és el d'una persona de la seva força REAL
+        // (core.js: clockEloForRoc); la cerca, a makeEngineMove, continua amb
+        // el ROC i per això la força de joc no es mou.
+        elo: ElTaulerCore.clockEloForRoc(ctx.elo),
         forced: legal.length === 1,
         recapture: !!(chosen && chosen.captured && previous && previous.captured && chosen.to === previous.to),
         complexity: complexity.score,
@@ -30362,7 +30366,8 @@ blunderMode = isBundle;
     currentGameClockTemperament = (liveResume && typeof liveResume.clockTemperament === 'number' && !isNaN(liveResume.clockTemperament))
         ? liveResume.clockTemperament
         : (gameClock.enabled
-            ? ElTaulerCore.rollClockTemperament(currentGameTimeControlId, currentGameActiveStrengthElo)
+            ? ElTaulerCore.rollClockTemperament(currentGameTimeControlId,
+                ElTaulerCore.clockEloForRoc(currentGameActiveStrengthElo))
             : 1);
     updateEloDisplay();
     renderGameNarrationControls();
