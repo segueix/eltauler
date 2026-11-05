@@ -4374,14 +4374,15 @@
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
         .history-final-clock {
-            display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
-            margin-top: 9px; color: var(--text-primary);
+            display: grid; grid-template-columns: minmax(0, 1fr); gap: 6px;
+            width: 100%; margin-top: 9px; color: var(--text-primary);
         }
         .history-final-clock-title {
-            flex-basis: 100%; font-size: 0.75rem; font-weight: 700;
+            font-size: 0.75rem; font-weight: 700;
         }
         .history-clock-side {
-            display: inline-flex; flex-wrap: wrap; align-items: baseline;
+            display: flex; align-items: baseline; justify-content: space-between;
+            width: 100%; min-width: 0; box-sizing: border-box;
             gap: 4px 10px; padding: 6px 10px; border-radius: 8px;
             border: 1px solid; font-size: 0.75rem;
         }
