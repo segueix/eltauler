@@ -541,6 +541,9 @@ let lastEngineMoveAppliedTs = null;
 // l'usuari): el temps ja transcorregut (anàlisi + cerca real) es descompta
 // del temps de resposta humanitzat.
 let engineReplyStartTs = null;
+// La resposta en curs del rival ha d'acabar en una errada per pressió de
+// rellotge si la posició ho permet (es tira a makeEngineMove, vegeu core.js).
+let engineClockSlipArmed = false;
 // Jugada anticipada de l'usuari mentre pensa el rival. Al bullet, impedir tocar
 // el tauler durant cada resposta del motor obliga a pagar també el temps de
 // reacció i d'animació a cada jugada; una premove legal s'aplica tan bon punt
@@ -8024,9 +8027,32 @@ function chooseBeginnerMistakeMove(enriched, chessInstance, roc) {
     return selected;
 }
 
+// Errada per pressió de rellotge: entre les candidates del motor, una jugada
+// natural que perdi la partida oberta (criteri i dades a core.js). Retorna
+// null si la posició no és oberta o si cap candidata no ho és prou.
+function pickClockSlipMove(candidates, chessInstance) {
+    if (!chessInstance || !Array.isArray(candidates) || candidates.length < 2) return null;
+    const legal = {};
+    chessInstance.moves({ verbose: true }).forEach(m => { legal[`${m.from}${m.to}${m.promotion || ''}`] = m; });
+    // Atractiu i pèrdua de material només per a les que ja són errades greus.
+    const slip = ElTaulerCore.pickClockSlip(candidates.filter(c => c && legal[c.move]), {
+        appeal: move => humanMoveAppeal(legal[move]),
+        materialLoss: move => immediateMaterialLoss(move, chessInstance)
+    });
+    logWeakAiSelection(getActiveStrengthElo(), slip, 'clock-slip');
+    return slip;
+}
+
 function chooseHumanLikeMove(candidates, chessInstance = game, options = {}) {
     const activeRoc = getActiveStrengthElo();
     const floor = engineEloMin || 1350;
+    // Va just de temps i la tirada ha dit que aquesta se li escapa: passa
+    // davant de tota la resta, també als nivells on la força la regula el
+    // motor (UCI_Elo / Skill Level), perquè l'apuro no depèn del nivell.
+    if (options.clock && options.clockSlip) {
+        const slip = pickClockSlipMove(candidates, chessInstance);
+        if (slip) return slip;
+    }
     let nativeChoice = null;
     if (options.clock && options.engineBestMove && chessInstance) {
         const legal = chessInstance.moves({ verbose: true }).some(m => m.from + m.to + (m.promotion || '') === options.engineBestMove);
@@ -8042,7 +8068,10 @@ function chooseHumanLikeMove(candidates, chessInstance = game, options = {}) {
     }
     if (!candidates || candidates.length === 0) return null;
     const sorted = candidates.slice().sort((a, b) => b.score - a.score);
-    const roc = options.clock ? ElTaulerCore.timedSelectionLevel({ ...options.clock, elo: activeRoc }) : activeRoc;
+    // La pressió de rellotge ja no rebaixa el nivell: n'hi ha prou amb les
+    // errades mesurades de pickClockSlipMove (abans s'hi sumava una rebaixa
+    // de fins a 140 punts sense mesurar, només per sota de ROC 1350).
+    const roc = activeRoc;
     const normalized = Math.max(0.05, Math.min(1, roc / floor));
     const bestScore = sorted[0].score;
     // Sota el terra, afegim errors al rival natiu; no li corregim els que
@@ -32442,7 +32471,19 @@ function makeEngineMove(skipAntidote) {
     applyEngineEloStrength(getActiveStrengthElo());
     const requestedPv = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
     const shortClock = gameClock.enabled && ElTaulerCore.SHORT_CLOCK_LIMITS[getActiveTimeControlId()];
-    const multiPvValue = shortClock ? Math.min(8, requestedPv) : requestedPv;
+    // Errada per pressió de rellotge (dades reals, core.js): es tira ABANS de
+    // cercar perquè, si s'arma, cal demanar més línies al motor; una errada
+    // greu sol quedar fora de les cinc millors. El rellotge que compta és el
+    // de l'inici del torn (el que ja ha corregut l'anàlisi no l'ha pensat).
+    engineClockSlipArmed = false;
+    if (gameClock.enabled) {
+        const slipCtx = engineClockContext();
+        const chance = ElTaulerCore.clockSlipChance({ timeControlId: slipCtx.timeControlId,
+            remainingMs: slipCtx.remainingMs + engineReplyElapsedMs() });
+        engineClockSlipArmed = chance > 0 && Math.random() < chance;
+    }
+    const baseMultiPv = shortClock ? Math.min(8, requestedPv) : requestedPv;
+    const multiPvValue = engineClockSlipArmed ? Math.max(baseMultiPv, ElTaulerCore.CLOCK_SLIP_MULTIPV) : baseMultiPv;
     if (gameClock.enabled) engineMoveCandidateCollector = ElTaulerCore.createMoveCandidateCollector(
         Math.min(multiPvValue, game.moves().length));
     try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
@@ -33137,8 +33178,9 @@ function handleEngineMessage(rawMsg) {
             // (El Joc posicional també hi passa: la humanització treballa amb
             // l'ELO equivalent de les jugades vista, via getActiveStrengthElo.)
             const chosen = chooseHumanLikeMove(engineMoveCandidates, game, gameClock.enabled
-                ? { engineBestMove: fallbackMove, clock: engineClockContext(),
+                ? { engineBestMove: fallbackMove, clock: engineClockContext(), clockSlip: engineClockSlipArmed,
                     nativeStrength: !!(engineStrengthCaps.skill || (engineStrengthCaps.limit && engineStrengthCaps.elo)) } : {}) || { move: null };
+            engineClockSlipArmed = false;
             const moveStr = chosen.move || (gameClock.enabled ? fallbackMove : chooseFallbackMove(fallbackMove));
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);

@@ -648,3 +648,110 @@ totes les partides. Ara el rival no baixa del sòl físic del seu nivell (0,59 s
 a ROC 1300) i, amb el mateix rellotge, és ell qui cau. La comptabilitat del
 rellotge de l'usuari, en canvi, ja era bona: jugant a 0,6-0,9 s des que es veu
 la jugada, el rellotge cobra aquest temps més 15-30 ms de pintat del tauler.
+
+## 13. Amb el rellotge baix, el rival també s'equivoca més
+
+Fins aquí el rival gastava el rellotge com una persona, però jugava igual de bé
+amb 60 s que amb 3: l'única concessió era una rebaixa de fins a 140 punts, sense
+mesurar i només per sota de ROC 1350. A les partides de debò, anar just de temps
+fa equivocar-se. Aquesta secció mesura quant, i el rival ara ho reprodueix.
+
+### 13.1. D'on surten les dades
+
+Bolcat de Lichess 2026-06 llegit en flux: **10,2 milions de partides**, de les
+quals **400.000** de 30s, 1+0, 3+2 i 5+0 amb avaluació del motor a cada jugada.
+Per a cada jugada: el rellotge de qui mou en començar el torn i si és una
+**errada greu**, la mateixa definició que fa servir Lichess: una caiguda de 0,30
+o més de la probabilitat de guanyar (escala de −1 a 1). Una posició és
+**oberta** si l'avaluació de qui mou no passa de ±3 peons. Els scripts són a
+`scripts/rellotge-lichess/` i tornen a generar la taula del model.
+
+### 13.2. Tres maneres de mesurar-ho, i per què se'n fa servir la més baixa
+
+Dins una partida, el rellotge baixa alhora que la partida avança, i les
+partides complicades gasten temps i fan equivocar-se. Per separar-ho s'ha mesurat
+de tres maneres (sempre ajustant pel tram de jugada amb la taxa del rellotge
+còmode):
+
+1. **Entre partides** (jugades amb poc rellotge contra jugades del mateix tram
+   d'altres partides): barreja l'efecte del rellotge amb el de les partides
+   complicades. Només serveix d'orientació.
+2. **Cada jugador amb ell mateix** a la mateixa partida (Mantel-Haenszel, un
+   estrat per jugador i partida): elimina el nivell, l'estil i la complexitat de
+   la partida, però no el desgast de la mateixa partida.
+3. **Contra el rival al mateix tram de la mateixa partida**, quan el rival va
+   còmode: mateixa partida, mateixa fase, nivell semblant. Elimina el desgast,
+   però si de cas es queda curta (qui va just sol ser qui s'hi pensa més).
+
+Excés d'errades greus per jugada en posicions obertes, a 1+0, totes les franges:
+
+| segons que queden | 0-2 | 2-4 | 4-6 | 6-10 | 10-15 | 15-20 |
+|---|---|---|---|---|---|---|
+| amb ell mateix (2) | +8,7% | +6,9% | +6,1% | +5,5% | +4,1% | +3,5% |
+| contra el rival (3) | +4,8% | +2,5% | +3,1% | +2,9% | +2,1% | +1,8% |
+| **model** | **+4,8%** | **+2,9%** | **+2,9%** | **+2,9%** | **+2,1%** | **+1,8%** |
+
+Amb el rellotge còmode, la taxa d'errades greus en posicions obertes és del
+7,1% per jugada a 1+0 (5,8% a 3+2, 7,4% a 5+0, 8,3% a 30s); amb 6-10 s, doncs,
+és un ×1,4 (mesura 3) o un ×1,8 (mesura 2).
+El model fa servir la mesura 3, la més baixa, suavitzada perquè mai no augmenti
+en tenir més temps (agregant els trams veïns que la desordenen). És la mateixa
+política que la resta del document: el rival erra cap al costat prudent.
+
+### 13.3. Què se'n desprèn
+
+- **No depèn del nivell.** A 1+0 amb 6-10 s, l'excés va del +2,5% al +3,5%
+  entre totes les franges, de <1000 a ≥2200, sense cap tendència. Per això el
+  model no rep l'ELO: el mateix apuro fa equivocar-se igual de més a tothom
+  (com que els forts s'equivoquen menys de base, en proporció els afecta més).
+- **Només en posicions obertes.** Amb la partida ja decidida, la comparació amb
+  un mateix no hi troba excés (a 1+0, ×0,8-1,05): el que la comparació entre partides
+  hi veia era de partides diferents. El rival només s'equivoca per pressió
+  quan la partida encara és oberta.
+- **S'esvaeix per sobre de ~20 s** (30s: ~10 s; 3+2 i 5+0: ~30 s). A 3+2
+  l'increment el suavitza (+2,3% amb 0-6 s); a 5+0 dura més.
+- **No es pot traduir a «X punts de nivell».** La taxa d'errades greus d'una
+  franja a l'altra varia poc (a 1+0, del 8,9% de <1000 al 4,8% de ≥2200 en
+  totes les posicions); un excés del 3% equivaldria a baixar el rival molts
+  centenars de punts. Per això el model afegeix errades i no toca el nivell.
+
+### 13.4. Com ho fa el rival
+
+A `core.js`: `CLOCK_SLIP_EXCESS` (la taula), `clockSlipChance` i
+`pickClockSlip`. A `app.js`: la tirada de `makeEngineMove` i `pickClockSlipMove`.
+
+1. **Abans de cercar**, el rival tira el dau amb la probabilitat de la taula pels
+   segons que li queden. Si surt, l'errada queda armada i demana **16 línies** al
+   motor en lloc de 5-8: una errada greu sol quedar fora de les millors, i sense
+   veure-la no es pot triar. Conduint l'app a 1+0, amb 2-12 s de rellotge el
+   motor torna les 16 línies a profunditat 6-9.
+2. **Després de cercar**, si la posició és oberta, juga una candidata que perdi
+   ≥ 0,30 de probabilitat de guanyar, triada per atractiu humà (capturar,
+   fer escac, desenvolupar…). Mai una que deixi un mat forçat ni que pengi la
+   dama: també passen, però no s'han mesurat a part. Si cap candidata no ho és
+   prou, no inventa res i juga com sempre. Per tant, l'efecte real queda
+   **per sota** de la taula, mai per sobre.
+3. Passa davant de tota la resta de la tria, **a tots els nivells**: també als
+   que regula el motor (UCI_Elo / Skill Level), on fins ara el rellotge no hi
+   tenia cap efecte.
+4. La rebaixa de fins a 140 punts que hi havia per sota de ROC 1350 s'ha tret:
+   sumada a aquesta, hauria comptat l'apuro dues vegades.
+
+Magnitud, per no sobreestimar-la: a 1+0, en el tram final d'una partida
+(de 12 s a zero), les probabilitats que surten a l'app real (2,2% → 4,8% per
+jugada) sumen unes **0,3 errades greus de més per partida** en posicions
+obertes. És poc, i és el que fan les persones; el que canvia és que el rival
+ja no és infal·lible quan va just.
+
+### 13.5. Proves
+
+`clockslip.test.js`: la taula als centres dels trams; zero amb el rellotge
+còmode i als ritmes no mesurats; monotonia; que a 1+0 la taula quedi dins la
+forquilla de les mesures 2 i 3; independència del nivell; que només es triïn
+errades greus, mai un mat regalat ni la dama, per atractiu humà, només en
+posicions obertes i sense inventar-ne cap; que el càlcul car només es faci per
+a les errades greus; que a l'app s'apliqui a ROC 600-2400 (també als nivells
+natius) i no s'apliqui sense rellotge ni amb la partida decidida; i que la
+tirada de `makeEngineMove` s'armi amb la freqüència de la taula i demani 16
+línies. La prova de `shortclock.test.js` que validava la rebaixa de 140 punts ara
+comprova que, sense errada armada, la pressió ja no canvia la tria.

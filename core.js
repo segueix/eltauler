@@ -5214,12 +5214,104 @@
         const stage = Number(p.stage) === 2 ? 0.4 : 0.6;
         return Math.max(1, Math.floor(Math.min(total * stage, total - Math.max(0, p.elapsedMs || 0))));
     }
-    function timedSelectionLevel(params) {
+    // ----------------------------------------------------------------------
+    // Errades per pressió de rellotge (ANALISI_RELLOTGE.md §13)
+    // ----------------------------------------------------------------------
+    // Amb el rellotge baix, les persones s'equivoquen més. El que s'ha mesurat
+    // és l'EXCÉS d'errades greus per jugada (una caiguda de 0,30 o més de la
+    // probabilitat de guanyar, l'escala amb què Lichess marca una «errada
+    // greu») segons els segons que li queden a qui mou, comparat amb el seu
+    // rival al mateix tram de la mateixa partida quan aquest va còmode (mateixa
+    // partida, mateixa fase, nivell semblant). Tres troballes:
+    //  · l'excés absolut gairebé no depèn del nivell: el mateix apuro fa
+    //    equivocar-se igual de més un 1000 que un 2200;
+    //  · només hi és en posicions OBERTES (|avaluació| <= 3 peons): amb la
+    //    partida decidida, anar just de temps no fa equivocar-se més;
+    //  · per sobre de ~20 s (30s: ~10 s) l'efecte s'esvaeix.
+    // Punts [segons que queden, excés per jugada]: s'interpola entre punts, per
+    // sota del primer val el primer i a partir de l'últim és zero. Els ritmes
+    // de 10+0 i 15+10 no s'han mesurat: no s'hi aplica.
+    // Aquest efecte substitueix la rebaixa de fins a 140 punts que hi havia
+    // per sota de ROC 1350, que no estava mesurada i que sumada a aquesta
+    // l'hauria comptat dues vegades.
+    // Origen: bolcat de Lichess 2026-06, 10,2 M de partides llegides i 400.000
+    // amb avaluació. De les dues estimacions, la comparació amb el rival dóna
+    // la meitat de l'efecte que la comparació amb un mateix (que hi barreja el
+    // desgast de la partida); es fa servir aquesta, la més baixa, suavitzada
+    // perquè no pugi amb els segons. Taxa d'errades greus amb el rellotge
+    // còmode en posicions obertes, com a referència: 7,1% per jugada a 1+0
+    // (5,8% a 3+2, 7,4% a 5+0, 8,3% a 30s).
+    const CLOCK_SLIP_EXCESS = {
+        '30s': [[3, 0.034], [5, 0.024], [8, 0.024], [10, 0]],
+        '1+0': [[1, 0.048], [3, 0.029], [5, 0.029], [8, 0.029], [12.5, 0.021], [17.5, 0.018], [20, 0]],
+        '3+2': [[1.5, 0.023], [4.5, 0.023], [8, 0.018], [12.5, 0.016], [17.5, 0.014], [25, 0.012], [30, 0]],
+        '5+0': [[1.5, 0.045], [4.5, 0.033], [8, 0.033], [12.5, 0.022], [17.5, 0.022], [25, 0.017], [30, 0]]
+    };
+    // Una jugada «oberta»: el millor que té qui mou no passa de 3 peons.
+    const CLOCK_SLIP_OPEN_CP = 300;
+    // Caiguda mínima de la probabilitat de guanyar que compta com a errada greu.
+    const CLOCK_SLIP_MIN_WC_LOSS = 0.30;
+    // Línies que es demanen al motor quan l'errada és armada: una errada greu
+    // sol quedar fora de les cinc millors, i sense veure-la no es pot triar.
+    const CLOCK_SLIP_MULTIPV = 16;
+
+    // Probabilitat de guanyar a l'escala de Lichess, de -1 a 1 (cp des del
+    // punt de vista de qui mou).
+    function winningChances(cp) {
+        return 2 / (1 + Math.exp(-0.00368208 * clampNum(Number(cp) || 0, -10000, 10000))) - 1;
+    }
+
+    // Probabilitat que AQUESTA jugada del rival sigui una errada per pressió,
+    // si la posició és oberta. remainingMs: el que li queda en començar el torn.
+    function clockSlipChance(params) {
         const p = params || {};
-        const elo = clampNum(Number(p.elo) || 800, 200, 2600);
-        // La pressió només amplia suaument els errors de la capa de nivells
-        // baixos; als nivells UCI, el bestmove del motor ja regula la força.
-        return Math.max(200, elo - shortClockPressure(p) * 140 * clampNum((1350 - elo) / 1150, 0, 1));
+        const pts = CLOCK_SLIP_EXCESS[p.timeControlId];
+        if (!pts || !Number.isFinite(p.remainingMs)) return 0;
+        const sec = Math.max(0, p.remainingMs) / 1000;
+        if (sec <= pts[0][0]) return pts[0][1];
+        for (let i = 0; i < pts.length - 1; i++) {
+            const [x0, y0] = pts[i];
+            const [x1, y1] = pts[i + 1];
+            if (sec <= x1) return y0 + (y1 - y0) * (sec - x0) / (x1 - x0);
+        }
+        return 0;
+    }
+
+    // Tria l'errada entre les candidates del motor: una jugada que perdi com a
+    // mínim 0,30 de probabilitat de guanyar, preferint les que una persona amb
+    // pressa jugaria (atractiu humà). Només en posicions obertes (on s'ha
+    // mesurat). Mai no tria una jugada que deixi un mat forçat ni que pengi la
+    // dama: són errades que també passen, però no s'han mesurat a part i el
+    // model prefereix quedar-se curt. Retorna null si no n'hi ha cap.
+    //   candidates: [{ move, score (cp per a qui mou), appeal?, materialLoss? }]
+    //   opts.appeal(move), opts.materialLoss(move): si la candidata no els
+    //   porta, es calculen NOMÉS per a les que ja són errades greus (calcular
+    //   la pèrdua de material de setze línies costava fins a 0,25 s de rellotge).
+    function pickClockSlip(candidates, opts) {
+        const o = opts || {};
+        const random = typeof o.random === 'function' ? o.random : Math.random;
+        const list = (Array.isArray(candidates) ? candidates : [])
+            .filter(c => c && c.move && Number.isFinite(c.score));
+        if (list.length < 2) return null;
+        const best = list.reduce((a, c) => (c.score > a.score ? c : a), list[0]);
+        if (Math.abs(best.score) > CLOCK_SLIP_OPEN_CP) return null;
+        const bestWc = winningChances(best.score);
+        const lazy = (c, key) => (Number.isFinite(c[key]) ? c[key]
+            : (typeof o[key] === 'function' ? Number(o[key](c.move)) : undefined));
+        const pool = list
+            .filter(c => c.move !== best.move
+                && bestWc - winningChances(c.score) >= CLOCK_SLIP_MIN_WC_LOSS
+                && c.score > -9000)
+            .map(c => ({ ...c, appeal: lazy(c, 'appeal'), materialLoss: lazy(c, 'materialLoss') }))
+            .filter(c => !(Number(c.materialLoss) >= 8.5));
+        if (!pool.length) return null;
+        const weights = pool.map(c => Math.max(0.05, Number(c.appeal) || 1));
+        let roll = random() * weights.reduce((a, b) => a + b, 0);
+        for (let i = 0; i < pool.length; i++) {
+            roll -= weights[i];
+            if (roll <= 0) return pool[i];
+        }
+        return pool[pool.length - 1];
     }
     function nextHumanPace(params) {
         const p = params || {};
@@ -9613,7 +9705,13 @@
         gameThinkTimeMs,
         gameSearchBudgetMs,
         gameReviewSearchBudgetMs,
-        timedSelectionLevel,
+        CLOCK_SLIP_EXCESS,
+        CLOCK_SLIP_OPEN_CP,
+        CLOCK_SLIP_MIN_WC_LOSS,
+        CLOCK_SLIP_MULTIPV,
+        winningChances,
+        clockSlipChance,
+        pickClockSlip,
         nextHumanPace,
         createMoveCandidateCollector,
         visibleHumanReplyDelayMs,

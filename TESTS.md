@@ -59,6 +59,18 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   no s'encalla, que l'increment el treu dels apuros, i els pressupostos de
   cerca i revisió. Vegeu `ANALISI_RELLOTGE.md` §12: abans aquesta funció
   substituïa la gestió del rellotge per una reserva que no arribava mai a zero.
+- **`clockslip.test.js`** — errades del rival per pressió de rellotge
+  (`ANALISI_RELLOTGE.md` §13). La taula `CLOCK_SLIP_EXCESS` (mesurada amb
+  400.000 partides de Lichess) als centres dels trams, zero amb el rellotge
+  còmode i als ritmes no mesurats, monotonia, que a 1+0 quedi dins la forquilla
+  de les dues mesures (contra el rival i contra un mateix) i que no depengui
+  del nivell. `pickClockSlip`: només errades greus (≥ 0,30 de probabilitat de
+  guanyar), mai un mat regalat ni la dama, per atractiu humà, només en
+  posicions obertes i sense inventar-ne cap; la pèrdua de material només es
+  calcula per a les errades greus. A l'app (`chooseHumanLikeMove` real en un
+  context aïllat): s'aplica de ROC 600 a 2400, també als nivells natius, i no
+  s'aplica sense rellotge ni amb la partida decidida; la tirada real de
+  `makeEngineMove` s'arma amb la freqüència de la taula i demana 16 línies.
 - **`premove.test.js`** — jugada anticipada de les partides amb rellotge.
   `premoveTargets` genera els destins marcables d'una peça quan el torn ENCARA
   és del rival (chess.js no en dóna cap, i per això calia un generador propi):

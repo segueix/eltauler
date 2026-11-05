@@ -269,11 +269,17 @@ describe('precisió del rival coherent amb el nivell', () => {
             }
         }
     });
-    test('la pressió amplia suaument els errors, sense invertir l’ordre de nivells', () => {
-        const levels = [200, 400, 600, 800, 1000, 1250, 1600].map(elo => Core.timedSelectionLevel({ ...base, elo, remainingMs: 500 }));
-        expect(levels).toEqual(levels.slice().sort((a, b) => a - b));
-        expect(levels[0]).toBe(200); expect(levels[6]).toBe(1600);
-        expect(Core.timedSelectionLevel(base)).toBe(base.elo);
+    test('sense errada armada, la pressió ja no rebaixa el nivell (l’efecte és a clockslip.test.js)', () => {
+        // Abans una rebaixa sense mesurar (fins a 140 punts sota ROC 1350); ara
+        // la pressió només actua amb les errades mesurades de pickClockSlip.
+        for (const elo of [400, 1000, 1250]) {
+            const picks = remainingMs => {
+                const c = chooser(elo);
+                return Array.from({ length: 60 }, () =>
+                    c.chooseHumanLikeMove(candidates, c.game, { clock: { ...base, remainingMs }, engineBestMove: 'd2d4' }).move);
+            };
+            expect(picks(500)).toEqual(picks(45000));
+        }
     });
     test('mai compta una jugada no avaluada com a perfecta', () => {
         const ctx = vm.createContext({ totalEngineMoves: 0, goodEngineMoves: 0, updateAIPrecisionDisplay() {} });
