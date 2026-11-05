@@ -6,6 +6,11 @@ const source = fs.readFileSync(require.resolve('../app.js'), 'utf8');
 const base = { timeControlId: '1+0', remainingMs: 45000, incMs: 0, elo: 1000, moveNumber: 15,
     phase: 'middlegame', complexity: 0.5, clockTemperament: 1, random: () => 0.5 };
 function random(seed = 42) { let n = seed; return () => ((n = (Math.imul(n, 1664525) + 1013904223) >>> 0) / 4294967296); }
+// Sòl físic per jugada d'aquest nivell i ritme (el mateix que aplica el model).
+function humanFloorMs(timeControlId, elo) {
+    return Core.humanMoveFloorMs(Core.humanClockProfile(timeControlId, elo).spendMs,
+        Core.HUMAN_TIME_PROFILES[timeControlId].minMs);
+}
 function chooser(elo = 1000) {
     const context = vm.createContext({ ElTaulerCore: Core, Chess, game: new Chess(),
         ELO_MIN: 200, ELO_MAX: 2600, engineEloMin: 1350, DEBUG_WEAK_AI: false,
@@ -19,11 +24,21 @@ describe('ritme natural als tres rellotges curts', () => {
     test.each([['30s', 30000, 0], ['1+0', 60000, 0], ['3+2', 180000, 2000]])('%s: ritme variable, perceptible i acotat per nivell', (timeControlId, remainingMs, incMs) => {
         for (const elo of [200, 600, 1000, 1600, 2400]) {
             const rnd = random(elo);
-            const samples = Array.from({ length: 300 }, (_, i) => Core.gameThinkTimeMs({ ...base, timeControlId,
-                remainingMs, incMs, elo, complexity: (i % 10) / 10, random: rnd, clockTemperament: 3.2 }));
-            expect(Math.min(...samples)).toBeGreaterThanOrEqual(Core.SHORT_CLOCK_LIMITS[timeControlId].floor);
-            expect(Math.max(...samples)).toBeLessThanOrEqual(Core.SHORT_CLOCK_LIMITS[timeControlId].ceiling);
-            expect(new Set(samples).size).toBeGreaterThan(30);
+            const sample = clockTemperament => Array.from({ length: 300 }, (_, i) => Core.gameThinkTimeMs({ ...base,
+                timeControlId, remainingMs, incMs, elo, complexity: (i % 10) / 10, random: rnd, clockTemperament }));
+            // Fins i tot amb el tarannà més cremat possible: mai més de pressa
+            // que el sòl físic mesurat per al nivell, ni més enllà del sostre
+            // de pensada llarga del ritme.
+            for (const clockTemperament of [0.4, 1, 3.2]) {
+                const samples = sample(clockTemperament);
+                expect(Math.min(...samples)).toBeGreaterThanOrEqual(Math.floor(humanFloorMs(timeControlId, elo)));
+                expect(Math.max(...samples)).toBeLessThanOrEqual(Core.humanDeepThinkCeilingMs(timeControlId));
+            }
+            // En una partida normal, cap jugada no dura igual que l'anterior.
+            // (Amb el tarannà extrem, ~0,1% de partides, les jugades del migjoc
+            // topen totes amb el sostre del ritme: és la partida que es crema
+            // el rellotge i cau de bandera.)
+            expect(new Set(sample(1)).size).toBeGreaterThan(30);
         }
     });
     test('les decisions difícils reben més temps; les úniques i recaptures, menys', () => {
@@ -39,20 +54,39 @@ describe('ritme natural als tres rellotges curts', () => {
         expect(Core.gameThinkTimeMs(fast)).toBeLessThan(Core.gameThinkTimeMs(slow));
         expect(Core.gameSearchBudgetMs(fast)).toBeLessThan(Core.gameSearchBudgetMs(slow));
     });
-    test('s’accelera quan queda poc temps, fins i tot amb màxima propensió a encallar-se', () => {
+    test('en zona de pànic mou de seguida, sense encallar-s’hi i sense baixar del sòl humà', () => {
         const rnd = random(8);
         for (const timeControlId of Object.keys(Core.SHORT_CLOCK_LIMITS)) {
-            for (let i = 0; i < 100; i++) {
-                const think = Core.gameThinkTimeMs({ ...base, timeControlId, remainingMs: 2000,
-                    complexity: 1, deepThinkRate: 1, clockTemperament: 3.2, random: rnd });
-                expect(think).toBeGreaterThan(80);
-                expect(think).toBeLessThan(400);
+            for (const elo of [600, 1000, 1600, 2400]) {
+                const profile = Core.humanClockProfile(timeControlId, elo);
+                const remainingMs = 0.9 * Core.clockManagementSkill(elo).panicMoves * profile.spendMs;
+                for (let i = 0; i < 100; i++) {
+                    // Màxima propensió a encallar-se: amb l'aigua al coll no s'hi encalla.
+                    const think = Core.gameThinkTimeMs({ ...base, timeControlId, elo, remainingMs,
+                        complexity: 1, deepThinkRate: 1, clockTemperament: 3.2, random: rnd });
+                    expect(think).toBeLessThanOrEqual(Core.HUMAN_FLOOR_CAP_MS);
+                    expect(think).toBeLessThan(remainingMs);
+                    // ...però tampoc no mou més de pressa que una persona: abans
+                    // baixava fins a 0,12 s i per això no queia mai de bandera.
+                    expect(think).toBeGreaterThanOrEqual(Math.floor(humanFloorMs(timeControlId, elo)));
+                }
             }
         }
     });
-    test('l’increment dona marge real de reflexió', () => {
-        expect(Core.gameThinkTimeMs({ ...base, timeControlId: '3+2', remainingMs: 5000, incMs: 2000 }))
-            .toBeGreaterThan(Core.gameThinkTimeMs({ ...base, timeControlId: '3+2', remainingMs: 5000, incMs: 0 }));
+    test('l’increment dona marge real: amb poc temps, a 3+2 el rival se’n refà i sense increment cau', () => {
+        const play = incMs => {
+            const rnd = random(5);
+            let remainingMs = 5000;
+            for (let moveNumber = 30; moveNumber < 70; moveNumber++) {
+                const think = Core.gameThinkTimeMs({ ...base, timeControlId: '3+2', remainingMs, incMs,
+                    moveNumber, deepThinkRate: 0, random: rnd });
+                if (think >= remainingMs) return 'bandera';
+                remainingMs += incMs - think;
+            }
+            return 'viu';
+        };
+        expect(play(2000)).toBe('viu');
+        expect(play(0)).toBe('bandera');
     });
     test('ni la cerca mínima passa del temps restant; temps consumit es descompta una vegada', () => {
         for (const remainingMs of [2, 10, 40, 79, 120, 400]) {
@@ -77,6 +111,86 @@ describe('ritme natural als tres rellotges curts', () => {
             expect(Core.gameThinkTimeMs(p)).toBe(Core.humanThinkTimeMs(p));
             expect(Core.gameSearchBudgetMs(p)).toBe(Core.engineSearchBudgetMs(p));
             expect(Core.gameReviewSearchBudgetMs(p)).toBe(Core.moveReviewSearchBudgetMs(p));
+        }
+    });
+});
+
+// El rival dels ritmes curts juga amb gameThinkTimeMs, no amb humanThinkTimeMs.
+// Les proves de calibratge de humantime.test.js miren el model calibrat, i per
+// això no van veure que aquesta funció el substituïa per una reserva que no
+// arribava mai a zero: el rival de 30s, 1+0 i 3+2 no podia caure de bandera
+// (0% simulat) i, al bullet, l'usuari era l'únic que podia perdre per temps.
+// Aquí es tornen a passar les mateixes mesures per la funció que fa servir
+// l'app.
+describe('el rival dels ritmes curts gestiona el rellotge com una persona', () => {
+    const INC = { '30s': 0, '1+0': 0, '3+2': 2000 };
+    function simulate(timeControlId, elo, { games = 1500, maxMoves = 40, seed = 12345 } = {}) {
+        const rnd = random(seed);
+        const baseMs = Core.humanClockProfile(timeControlId, elo).baseMs;
+        const incMs = INC[timeControlId];
+        const alive = new Array(maxMoves + 1).fill(0);
+        const flags = new Array(maxMoves + 1).fill(0);
+        const leftSum = new Array(maxMoves + 1).fill(0);
+        let tauSum = 0, tauCount = 0;
+        for (let g = 0; g < games; g++) {
+            const clockTemperament = Core.rollClockTemperament(timeControlId, elo, rnd);
+            let remainingMs = baseMs;
+            for (let k = 1; k <= maxMoves; k++) {
+                alive[k]++;
+                const tau = Core.gameThinkTimeMs({ timeControlId, remainingMs, incMs, elo, complexity: 0.45,
+                    phase: k <= 10 ? 'opening' : 'middlegame', moveNumber: k, clockTemperament, random: rnd });
+                if (tau >= remainingMs) { flags[k]++; break; }
+                tauSum += tau; tauCount++;
+                remainingMs += incMs - tau;
+                leftSum[k] += remainingMs / baseMs;
+            }
+        }
+        let risk = 0;
+        for (let k = 1; k <= maxMoves; k++) if (alive[k]) risk += flags[k] / alive[k];
+        return {
+            // Risc de bandera acumulat (ANALISI_RELLOTGE.md §8): probabilitat de
+            // caure a la jugada k havent arribat viu a la k-1, sumada.
+            risk,
+            left: k => leftSum[k] / Math.max(1, alive[k] - flags[k]),
+            meanTau: tauSum / Math.max(1, tauCount)
+        };
+    }
+
+    // Risc mesurat al bolcat de Lichess (ANALISI_RELLOTGE.md §9) i el mínim que
+    // se n'exigeix. El model erra cap al costat prudent (els jugadors forts
+    // gairebé no s'encallen amb el rellotge just), però cap nivell no és immune.
+    test.each([[880, 1.27, 0.9], [1310, 0.74, 0.4], [1700, 0.43, 0.15], [2400, 0.14, 0.02]])(
+        '1+0 a ELO %i: el rival pot caure de bandera (mesurat %f)', (elo, measured, minimum) => {
+            const { risk } = simulate('1+0', elo);
+            expect(risk).toBeGreaterThan(minimum);
+            expect(risk).toBeLessThan(measured * 1.1);
+        });
+
+    test('1+0: com més fluix és el rival, més sovint cau de bandera', () => {
+        const risks = [880, 1310, 1700, 2400].map(elo => simulate('1+0', elo).risk);
+        for (let i = 1; i < risks.length; i++) expect(risks[i]).toBeLessThan(risks[i - 1]);
+    });
+
+    test.each([['30s', 900], ['30s', 1700], ['3+2', 900], ['3+2', 1700]])(
+        '%s a ELO %i: guanyar per temps també és possible', (timeControlId, elo) => {
+            expect(simulate(timeControlId, elo).risk).toBeGreaterThan(0.05);
+        });
+
+    test('1+0 a la franja més fluixa: el rellotge que queda segueix el mesurat', () => {
+        const measured = { 5: 89, 10: 68, 15: 46, 20: 29, 25: 20 };
+        const sim = simulate('1+0', 880, { maxMoves: 25 });
+        for (const [k, pct] of Object.entries(measured)) {
+            expect(Math.abs(sim.left(Number(k)) * 100 - pct)).toBeLessThanOrEqual(8);
+        }
+    });
+
+    test.each(Object.keys(INC))('%s: els segons per jugada són els mesurats a cada nivell', timeControlId => {
+        for (const elo of [900, 1400, 1800, 2200]) {
+            const p = Core.humanClockProfile(timeControlId, elo);
+            const sim = simulate(timeControlId, elo, { games: 400, maxMoves: Math.round(p.moves) });
+            const ratio = sim.meanTau / p.spendMs;
+            expect(ratio).toBeGreaterThan(0.78);
+            expect(ratio).toBeLessThan(1.22);
         }
     });
 });

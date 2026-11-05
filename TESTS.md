@@ -49,6 +49,16 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   sostre del ritme ni de la bandera, descompta el temps ja consumit des que
   l'usuari ha mogut i no mossega el temps que el model vol dedicar a una jugada
   normal.
+- **`shortclock.test.js`** — el rival als ritmes curts (30s, 1+0, 3+2), que
+  juga amb `gameThinkTimeMs` i no directament amb el model calibrat. Torna a
+  passar per AQUESTA funció les mesures de `humantime`: risc de bandera a cada
+  franja d'1+0 (cap nivell no és immune i mai no cau més que una persona),
+  bandera possible a 30s i 3+2, corba del rellotge que queda i segons per
+  jugada contra els mesurats. Comprova també que el rival mai no mou més de
+  pressa que el sòl físic del seu nivell, que amb el rellotge en zona de pànic
+  no s'encalla, que l'increment el treu dels apuros, i els pressupostos de
+  cerca i revisió. Vegeu `ANALISI_RELLOTGE.md` §12: abans aquesta funció
+  substituïa la gestió del rellotge per una reserva que no arribava mai a zero.
 - **`premove.test.js`** — jugada anticipada de les partides amb rellotge.
   `premoveTargets` genera els destins marcables d'una peça quan el torn ENCARA
   és del rival (chess.js no en dóna cap, i per això calia un generador propi):
