@@ -547,3 +547,104 @@ jugades de rutina van de 1,3 s a 6 s, i les quatre pensades llargues de la
 partida van costar 16,9 s, 34,5 s, 30,4 s i 29,7 s: totes per sota del sostre de
 60 s del ritme, quan abans qualsevol d'elles hauria pogut arribar als dos
 minuts.
+
+## 12. Als ritmes curts, el rival no podia perdre per temps
+
+Símptoma, tal com arribava: «per molt que jugui bé i ràpid, a les partides d'un
+minut no paro de perdre». La comptabilitat del rellotge de l'usuari era
+correcta —conduint l'app real a 1+0 i movent 0,6 s després de veure la jugada
+del rival, el rellotge cobrava 0,6 s més 15-30 ms de pintat—. El forat era al
+rival.
+
+### 12.1. Què passava
+
+Les seccions 8-11 descriuen `humanThinkTimeMs`, i les proves de calibratge
+(`humantime.test.js`) simulen aquesta funció. Però l'app no la cridava
+directament: passava per `gameThinkTimeMs`, que als ritmes de 30s, 1+0 i 3+2 la
+substituïa per una altra gestió del rellotge:
+
+- cada jugada podia gastar, com a molt, **el que quedava ÷ 14-20**: una reserva
+  geomètrica, que no arriba mai a zero;
+- el sòl per jugada **s'encongia amb el rellotge baix fins a 0,12 s** (a 1+0),
+  en lloc del sòl físic mesurat del nivell (0,41-0,74 s, §8);
+- el tarannà de la partida quedava retallat a [0,8 · 1,2], i les pensades
+  llargues desactivades.
+
+És l'error que la §7 ja havia corregit, reintroduït per una altra porta, i no el
+va veure cap prova perquè les de calibratge miraven una funció que, als ritmes
+curts, ja no decidia res. Simulant `gameThinkTimeMs` amb el mateix mètode de la
+§8, el risc de bandera del rival era **zero a tots els nivells**:
+
+| ritme | ELO | abans | ara | mesurat |
+|---|---|---|---|---|
+| 1+0 | 880 | 0% | 118% | 127% |
+| 1+0 | 1310 | 0% | 57% | 74% |
+| 1+0 | 1700 | 0% | 28% | 43% |
+| 1+0 | 2400 | 0% | 4,4% | 14% |
+| 30s | 900 | 0% | 172% | — |
+| 30s | 1700 | 0% | 45% | — |
+| 3+2 | 900 | 0% | 17,5% | 22% |
+| 3+2 | 1700 | 0% | 9,1% | — |
+
+I acumulava rellotge: a 1+0 i ELO 1310 arribava a la jugada 20 amb el 56% del
+temps (ara, 43%; el model calibrat, 44%). Les partides llargues les acabava
+movent a 0,1-0,3 s sense perdre força, cosa que cap persona no pot fer. Al
+ritme on la bandera és el desenllaç més freqüent (§4), l'únic que podia perdre
+per temps era l'usuari: per ràpid que jugués, si la partida s'allargava, la
+bandera queia al seu costat.
+
+### 12.2. L'arranjament
+
+`gameThinkTimeMs` conserva els retocs de naturalitat que hi havia (més temps a
+les decisions difícils a tots els nivells, menys a la jugada única i a la
+recaptura, una mica més per sota de 800), però ara els aplica com a factor
+DINS de `humanThinkTimeMs` (paràmetre `scale`, abans dels sostres i del sòl), de
+manera que la gestió del rellotge torna a ser la calibrada: el que queda, el sòl
+físic, el tarannà sencer i el pànic de cada nivell.
+
+Un sol canvi de comportament respecte del model calibrat: **cap pensada llarga
+quan el rival ja es veu en zona de pànic** (ni en una jugada única o una
+recaptura). Amb l'aigua al coll una persona mou, no s'encalla. La zona és la
+del seu nivell (`clockManagementSkill.panicMoves`): un jugador fluix se n'adona
+tard i per això cau més. Es va provar també de suprimir-les per sota d'un
+llindar fix (15 s a 1+0), i tornava a fer el rival dels nivells alts gairebé
+immune (0,3% a ELO 2400, contra el 14% mesurat).
+
+El risc queda una mica per sota del mesurat, sempre pel costat prudent, i la
+corba del rellotge que queda segueix la mesurada (1+0, ELO 880: 89/68/46/29/18%
+a les jugades 5/10/15/20/25, contra 89/68/46/29/20%).
+
+### 12.3. Les proves
+
+`shortclock.test.js` torna a fer, amb `gameThinkTimeMs`, les comprovacions que
+`humantime.test.js` fa amb el model calibrat: risc de bandera per franja d'1+0
+(amb un mínim per franja i mai per sobre del mesurat), bandera possible a 30s i
+3+2, corba del rellotge que queda i segons per jugada contra `spendMs`. Totes
+tretze fallen amb el codi anterior. Les tres proves que fixaven el comportament
+antic (sòl de 0,12-0,26 s, menys de 0,4 s per jugada amb 2 s al rellotge i
+l'increment comparat amb el sostre de pànic) s'han reescrit: ara exigeixen el
+sòl físic del nivell, que en zona de pànic no s'encalli i que l'increment el
+tregui dels apuros.
+
+### 12.4. Comprovat conduint l'app
+
+Chromium, 1+0, ROC 1300, l'usuari movent 0,7 s després de veure cada jugada del
+rival. A la mitja jugada 24 es posen tots dos rellotges a 12 s (un final
+apurat) i es deixa córrer la partida, tres vegades amb cada versió:
+
+| | rival: segons per jugada des dels 12 s | desenllaç |
+|---|---|---|
+| abans | 0,58 → 0,52 → 0,45 → 0,40 → 0,36 → 0,30 → 0,24 | bandera de l'**usuari** a les 3 partides; el rival en guardava 4,8 s |
+| ara | 4,79 (pensada llarga) → 0,88 → 0,87 → 0,73 → 0,61 → 0,59 → 0,59 … | bandera del **rival** a les 2 que van arribar-hi (l'altra, mat) |
+
+(A l'altra partida que va acabar en bandera, el rival va de 1,31 s a 0,72 s per
+jugada i, amb 4,7 s al rellotge —encara fora de la seva zona de pànic—, s'hi
+encalla 3,9 s: és la pensada llarga que fa caure tantes banderes a les
+partides de debò.)
+
+Abans, el rival es reservava sempre una fracció del que li quedava i anava
+accelerant sense fi; l'usuari, jugant a 0,72 s per jugada, perdia per temps
+totes les partides. Ara el rival no baixa del sòl físic del seu nivell (0,59 s
+a ROC 1300) i, amb el mateix rellotge, és ell qui cau. La comptabilitat del
+rellotge de l'usuari, en canvi, ja era bona: jugant a 0,6-0,9 s des que es veu
+la jugada, el rellotge cobra aquest temps més 15-30 ms de pintat del tauler.

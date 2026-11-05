@@ -4920,7 +4920,11 @@
 
         const M = eloComplexityTimeMultiplier(elo, complexity);
         const P = phaseTimeMultiplier(elo, phase);
-        const deterministic = tau0 * M * P;
+        // Retoc per jugada que ve de fora (gameThinkTimeMs: dificultat, jugada
+        // única, recaptura). S'aplica ABANS dels sostres i del sòl, de manera
+        // que la gestió del rellotge continua sent la d'aquest model.
+        const scale = typeof p.scale === 'number' && p.scale > 0 ? p.scale : 1;
+        const deterministic = tau0 * M * P * scale;
 
         const z = truncatedLogNormalFactor(profile.sigma, random);
         let tau = (1 - profile.noiseMix) * deterministic + profile.noiseMix * deterministic * z;
@@ -5129,13 +5133,15 @@
         return commands;
     }
 
-    // Ajust del model de rellotge per a partides curtes. Les estadístiques
-    // anteriors són una referència de ritme, no una quota de derrotes per temps:
-    // una pausa llarga ha de correspondre a una decisió difícil i tenir marge.
+    // Ritmes curts (30s, 1+0, 3+2): retocs de naturalitat damunt del model
+    // calibrat, i pressupostos de cerca i de revisió més estrets.
+    //   ceiling  referència del ritme per descartar mostres del ritme del
+    //            jugador que són pauses i no jugades (nextHumanPace).
+    //   review   sostre del temps de les dues revisions de la jugada humana.
     const SHORT_CLOCK_LIMITS = {
-        '30s': { floor: 220, ceiling: 2000, review: 80 },
-        '1+0': { floor: 260, ceiling: 3600, review: 120 },
-        '3+2': { floor: 320, ceiling: 8000, review: 200 }
+        '30s': { ceiling: 2000, review: 80 },
+        '1+0': { ceiling: 3600, review: 120 },
+        '3+2': { ceiling: 8000, review: 200 }
     };
     function shortClockPressure(p) {
         const limit = SHORT_CLOCK_LIMITS[p.timeControlId];
@@ -5145,33 +5151,48 @@
         const runway = Math.max(0, p.remainingMs) + 3 * Math.max(0, p.incMs || 0);
         return clampNum(1 - runway / Math.min(15000, base * 0.25), 0, 1);
     }
+    // Temps de reflexió del rival a la partida. Als ritmes curts hi afegeix
+    // retocs de naturalitat (més temps a les decisions difícils, menys a la
+    // jugada única i a la recaptura, cap pensada llarga quan no toca), però la
+    // GESTIÓ DEL RELLOTGE és la del model calibrat (humanThinkTimeMs): el que
+    // queda, el sòl físic per jugada i el tarannà de la partida.
+    //
+    // Abans aquesta funció la substituïa per una reserva geomètrica (cada
+    // jugada, com a molt el que quedava ÷ 14-20) amb un sòl que s'encongia
+    // fins a 0,12 s amb el rellotge baix i el tarannà retallat a [0,8 · 1,2].
+    // Una reserva així no arriba mai a zero: el rival de 30s, 1+0 i 3+2 NO
+    // podia caure de bandera (0% simulat, contra un risc mesurat del 14% al
+    // 127% a 1+0) i acabava les partides llargues movent a 0,1-0,3 s sense
+    // perdre força, cosa que cap persona no pot fer. Al bullet, on la bandera
+    // és el desenllaç més freqüent, l'usuari era l'únic que podia perdre per
+    // temps: per ràpid que jugués, una partida llarga l'acabava perdent ell.
+    // És el mateix error que ANALISI_RELLOTGE.md §7 ja havia corregit.
     function gameThinkTimeMs(params) {
         const p = params || {};
         const limit = SHORT_CLOCK_LIMITS[p.timeControlId];
         if (!limit || !Number.isFinite(p.remainingMs)) return humanThinkTimeMs(p);
-        const random = typeof p.random === 'function' ? p.random : Math.random;
         const complexity = clampNum(Number.isFinite(p.complexity) ? p.complexity : 0.5, 0, 1);
-        const pressure = shortClockPressure(p);
         const elo = clampNum(Number(p.elo) || 800, 200, 2600);
-        const skill = clampNum((elo - 200) / 2200, 0, 1);
-        // Reutilitza la corba per fase i nivell, sense les encallades aleatòries.
-        let target = humanThinkTimeMs({ ...p, complexity: 0.5, deepThinkRate: 0,
-            clockTemperament: clampNum(Number(p.clockTemperament) || 1, 0.8, 1.2), random });
-        target *= 0.78 + 0.52 * complexity;
+        // Les pauses es reparteixen per dificultat a TOTS els nivells (la
+        // matriu ELO–complexitat del model rep la neutra), amb mitjana ~1 per
+        // no moure el consum calibrat.
+        let scale = 0.78 + 0.52 * complexity;
         // També separa els nivells sota la primera àncora de les dades (~800).
-        target *= 1 + clampNum((800 - elo) / 600, 0, 1) * 0.12;
-        if (p.forced) target *= 0.55;
-        else if (p.recapture) target *= 0.72;
-        if (!p.forced && !p.recapture && complexity >= 0.65 && pressure === 0
-                && p.remainingMs > target * 12 && random() < 0.04 + 0.05 * skill) {
-            target *= 1.2 + 0.5 * random();
-        }
-        const floor = limit.floor * (1 - pressure * 0.55);
-        // Reserva repartida entre diverses jugades, en lloc de gastar el
-        // rellotge per reproduir artificialment una freqüència de banderes.
-        const allocation = Math.max(floor, p.remainingMs / (14 + 6 * skill) + 0.75 * Math.max(0, p.incMs || 0));
-        const cap = Math.min(limit.ceiling * (0.65 + 0.35 * complexity), allocation);
-        return Math.round(Math.max(0, Math.min(Math.max(floor, humanSoftCapMs(target, cap)), p.remainingMs + 100)));
+        scale *= 1 + clampNum((800 - elo) / 600, 0, 1) * 0.12;
+        if (p.forced) scale *= 0.55;
+        else if (p.recapture) scale *= 0.72;
+        // Cap pensada llarga en una jugada que no en demana (única o
+        // recaptura) ni quan el rival ja es veu en zona de pànic: amb l'aigua
+        // al coll una persona mou, no s'encalla. La zona és la del seu nivell
+        // (clockManagementSkill.panicMoves): un jugador fluix se n'adona tard,
+        // i per això cau més de bandera. Suprimir-les a partir d'un llindar
+        // fix (p. ex. 15 s a 1+0) tornava a fer immune el rival dels nivells
+        // alts (0,3% de risc de bandera a ELO 2400 contra el 14% mesurat).
+        const clock = humanClockProfile(p.timeControlId, elo);
+        const inTrouble = !!clock && p.remainingMs <= clockManagementSkill(elo).panicMoves * clock.spendMs;
+        const noDeepThink = p.forced || p.recapture || inTrouble;
+        return humanThinkTimeMs({ ...p, complexity: 0.5, scale,
+            ...(noDeepThink ? { deepThinkRate: 0 } : {}) });
     }
     function gameSearchBudgetMs(params) {
         const p = params || {};
