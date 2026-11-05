@@ -755,3 +755,109 @@ natius) i no s'apliqui sense rellotge ni amb la partida decidida; i que la
 tirada de `makeEngineMove` s'armi amb la freqüència de la taula i demani 16
 línies. La prova de `shortclock.test.js` que validava la rebaixa de 140 punts ara
 comprova que, sense errada armada, la pressió ja no canvia la tria.
+
+## 14. Amb el rellotge còmode: el rival contra persones del seu nivell
+
+La secció 13 afegeix les errades que fa l'apuro. Aquesta mira la base: amb el
+rellotge còmode, s'equivoca el rival com una persona del seu nivell? La
+resposta depèn de què vol dir «el seu nivell», i és el que decideix què se'n fa.
+
+### 14.1. Les persones
+
+Bolcat de Lichess 2026-06: 4,5 milions de partides llegides, **282.795 amb
+avaluació** dels sis ritmes de l'app. Jugades amb el rellotge còmode (30s: ≥10 s;
+1+0: ≥20 s; 3+2: ≥30 s; 5+0: ≥60 s; 10+0 i 15+10: ≥120 s) en posicions obertes
+(±3 peons). Percentatge d'errades greus (caiguda ≥ 0,30 de la probabilitat de
+guanyar):
+
+| ritme | <1000 | 1000-1399 | 1400-1799 | 1800-2199 | ≥2200 |
+|---|---|---|---|---|---|
+| 30s | 14,7% | 11,4% | 9,7% | 8,6% | 6,7% |
+| 1+0 | 10,7% | 8,8% | 7,6% | 6,5% | 5,0% |
+| 3+2 | 10,8% | 8,0% | 6,2% | 4,5% | 2,8% |
+| 5+0 | 12,5% | 8,9% | 6,9% | 5,3% | 3,4% |
+| 10+0 | 14,4% | 9,8% | 7,1% | 5,1% | 3,0% |
+| 15+10 | 13,4% | 8,6% | 5,9% | 3,9% | 2,2% |
+
+(Cada cel·la amb milers o centenars de milers de jugades, excepte 30s <1000:
+707. Els ELO mitjans de les franges són ~870, ~1225, ~1600, ~1970 i ~2350.)
+
+### 14.2. El rival a les mateixes posicions
+
+De cada ritme i franja s'ha guardat una mostra a l'atzar de 500 posicions
+(obertes, rellotge còmode) i s'hi ha fet jugar el **rival real** al Chromium,
+amb el mateix camí que `makeEngineMove`: força del motor (Skill Level),
+profunditat, línies MultiPV, pressupost de cerca del ritme amb el rellotge
+que tenia la persona i la tria final de `chooseHumanLikeMove`. El rival juga
+al **mateix ELO que la persona** que tenia el torn (ROC màxim 2000, així que la
+franja ≥2200 queda fora). Un Stockfish 19 a profunditat 12 jutja totes dues
+jugades amb `searchmoves`: mateixa posició, mateix nivell nominal, mateix
+jutge. En total, **7.800 posicions** (400 per cel·la als ritmes curts, 250 als
+llargs). El jutge coincideix bé amb les avaluacions de Lichess (taxes
+humanes a 1-2 punts de les de la taula de dalt).
+
+Tots els ritmes junts, rival menys persona:
+
+| ROC | errades greus (persona → rival) | diferència | pèrdua mitjana | jugada exacta |
+|---|---|---|---|---|
+| ~870 | 14,9% → 17,9% | +3,0 ± 1,9 | 0,137 → 0,174 | 40% → 22% |
+| ~1230 | 10,7% → 17,1% | +6,4 ± 1,9 | 0,115 → 0,166 | 43% → 24% |
+| ~1600 | 8,0% → 11,8% | +3,8 ± 1,6 | 0,090 → 0,125 | 49% → 31% |
+| ~1940 | 6,7% → 5,9% | −0,8 ± 1,4 | 0,079 → 0,083 | 50% → 41% |
+
+**De ROC 900 a 1650, el rival juga pitjor que una persona del seu mateix
+número d'ELO**: més errades greus, més pèrdua mitjana i molt menys sovint la
+jugada exacta. A ROC ~1940 va a la par. El patró hi és a cinc dels sis ritmes
+(a 30s, amb menys temps de cerca per a tothom, les diferències queden dins del
+soroll) i tant a l'obertura com després de la jugada 10: no és cosa de llibre
+d'obertures.
+
+### 14.3. Contra persones de la seva força real
+
+Si es busca, per a cada ROC, la finestra de 300 punts d'ELO de Lichess on les
+persones perden de mitjana el mateix per jugada (`match_equiv.py`):
+
+| rival | equival a Lichess | errades greus (rival / persones) | jugada exacta |
+|---|---|---|---|
+| ROC ~870 i ~1230 | per sota de ~800 (fora de les dades) | 17,9% i 17,1% / 14,8% a 700-1000 | 22-24% / 40% |
+| ROC ~1600 | 875-1175 | 11,8% (10,4-13,1) / 12,8% (11,3-14,4) | 31% / 43% |
+| ROC ~1940 | 1600-1900 | 5,9% (4,9-7,0) / 7,4% (5,9-8,5) | 41% / 50% |
+
+A força igual, **les errades greus del rival ja són les d'una persona**: els
+intervals es trepitgen. El que queda és una diferència d'estil: el rival
+encerta la jugada exacta un 10% menys sovint i ho compensa amb més imprecisions
+petites. És el que fa un motor rebaixat amb Skill Level: imprecís de mica en
+mica, on una persona sovint troba la bona i de tant en tant s'equivoca de debò.
+
+### 14.4. Què se n'ha fet: res a la força, i per què
+
+La diferència de 14.2 no és que el rival s'equivoqui malament: és que **l'escala
+ROC de l'app no és la de Lichess** als nivells baixos i mitjans. Un rival de
+ROC 1600 juga com un jugador de Lichess de ~1000; un de 1940, com un de ~1750.
+«Igualar-lo a Lichess» el faria centenars de punts més fort de ROC 900 a 1650.
+No s'ha fet, per tres motius:
+
+1. L'escala ROC és coherent amb ella mateixa: les puntuacions dels jugadors
+   surten de partides contra aquest mateix rival. Moure-la faria baixar de cop
+   les puntuacions de tothom en aquests nivells.
+2. Afectaria només els ritmes amb rellotge (on hi ha dades) i els deixaria en una
+   escala diferent de la de les partides sense rellotge.
+3. Per sota de ~800 de Lichess no hi ha dades per ancorar res.
+
+I a força igual no hi ha cap desajust significatiu en les errades greus que
+calgui corregir. L'estil (menys jugades exactes) es podria acostar al d'una
+persona —més jugades exactes i alguna errada greu més, a la mateixa pèrdua
+mitjana—, però no hi ha cap mesura de com afectaria els resultats de les
+partides, i sense mesura seria un ajust a cegues.
+
+### 14.5. Conseqüència per a la resta del document
+
+Les seccions 8-13 fan servir l'ELO de Lichess com si fos el ROC del rival (per
+exemple, el rival de ROC 1230 gestiona el rellotge com una persona de Lichess
+de 1230). Segons 14.3, per força de joc li tocaria el d'una persona de menys de
+~800 fins a ROC ~1300, de ~1000 a ROC 1600 i de ~1750 a ROC 1940: més temps per
+jugada i més banderes als nivells baixos i mitjans. No s'ha canviat. Si es fa,
+és una decisió a part que canviaria força el bullet d'aquests nivells, i s'hauria
+de calibrar amb la mateixa correspondència.
+
+Els scripts són a `scripts/rellotge-lichess/` (vegeu-ne el README).
