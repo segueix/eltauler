@@ -39,3 +39,11 @@ python3 -I match_equiv.py bench-short.jsonl bench-long.jsonl       # força equi
 
 `measure_comfort.py` i `bench.js` sortegen la mostra i el rival: els números
 canvien una mica d'una execució a una altra, dins dels intervals del document.
+
+## Correspondència ROC → Lichess per al rellotge (§15)
+
+```bash
+python3 -I equiv_groups.py bench-short.jsonl bench-long.jsonl   # amb interval per bootstrap
+```
+
+D'aquí surten els punts de `ROC_CLOCK_ELO_POINTS` a `core.js`.

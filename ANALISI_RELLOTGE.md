@@ -856,8 +856,83 @@ Les seccions 8-13 fan servir l'ELO de Lichess com si fos el ROC del rival (per
 exemple, el rival de ROC 1230 gestiona el rellotge com una persona de Lichess
 de 1230). Segons 14.3, per força de joc li tocaria el d'una persona de menys de
 ~800 fins a ROC ~1300, de ~1000 a ROC 1600 i de ~1750 a ROC 1940: més temps per
-jugada i més banderes als nivells baixos i mitjans. No s'ha canviat. Si es fa,
-és una decisió a part que canviaria força el bullet d'aquests nivells, i s'hauria
-de calibrar amb la mateixa correspondència.
+jugada i més banderes als nivells baixos i mitjans. S'ha fet a la secció 15.
 
 Els scripts són a `scripts/rellotge-lichess/` (vegeu-ne el README).
+
+## 15. El rival gestiona el rellotge com la persona a qui s'assembla jugant
+
+La secció 14 va deixar clar que el rival era un híbrid: un rival de ROC 1600
+**juga** com una persona de Lichess de ~1025, però **gestionava el temps** com
+una de 1600, perquè el model de rellotge (§8-13) prenia el ROC com si fos l'ELO
+de Lichess. Ara el temps que s'hi pensa i el tarannà de la partida surten de la
+persona equivalent per força de joc (`clockEloForRoc` a `core.js`).
+
+### 15.1. La correspondència
+
+Punts [ROC → ELO de Lichess] (pèrdua mitjana per jugada igual, §14.3), amb
+interval al 95% per bootstrap (`equiv_groups.py`):
+
+| ROC | Lichess equivalent | interval |
+|---|---|---|
+| ≤ 1227 | per sota de les dades (< ~850) | totes les rèpliques fora |
+| 1604 | 1025 | 850-1300 |
+| 1942 | 1750 | 1550-2100 |
+
+Entre punts s'interpola. Per sota de les dades el model ja no pot fer res més
+que posar el perfil de rellotge més fluix mesurat: ROC 1227 → 800 és un límit
+(qualsevol valor per sota de ~850 dóna aquest perfil), i ROC 200 → 200 només
+manté l'ordre entre els nivells sense dades. Per sobre de 1942 es prolonga
+l'últim tram fins al ROC màxim, 2000 (→ 1874): és l'única extrapolació, de 58
+punts.
+
+**Una sola correspondència per a tots els ritmes.** Per grups surt diferent
+(ritmes curts: ROC 1607 → ~1125 i 1948 → ~2050; llargs: 1598 → ~925 i
+1932 → ~1600), i té una explicació raonable (amb més temps les persones milloren
+més que el rival, que té la profunditat topada), però les diferències queden
+dins dels intervals (a ROC 1600: 875-1375 contra 850-1325). Per ritme sol, la
+mostra no dóna prou precisió.
+
+### 15.2. Què toca i què no
+
+- **Sí:** el temps de reflexió visible (`computeHumanReplyDelayMs` →
+  `gameThinkTimeMs`) i el tarannà que es tira en començar la partida. Hi passen
+  tots els modes amb rellotge: partida lliure, lliga, calibratge per ritme,
+  «Rejugar +5%», Rival Antídot i el llibre del Bessó.
+- **No:** la cerca del motor (`gameSearchBudgetMs`, revisió de la jugada de
+  l'usuari), que continua amb el ROC. Donar-li més temps de cerca el faria més
+  fort, i la força de joc ha de quedar exactament on era. Les errades per
+  pressió (§13) no depenen del nivell i tampoc no canvien.
+
+### 15.3. Què canvia
+
+Simulant el model (`gameThinkTimeMs`), percentatge de partides en què el rival
+cau abans de la jugada 30 i de la 40 si la partida hi arriba:
+
+| ritme | ROC | segons/jugada | rellotge a la j20 | bandera ≤ j30 | bandera ≤ j40 |
+|---|---|---|---|---|---|
+| 1+0 | 1230 | 1,65 → 1,87 | 41% → 30% | 16% → 34% | 46% → 70% |
+| 1+0 | 1600 | 1,50 → 1,81 | 51% → 34% | 6% → 26% | 28% → 65% |
+| 1+0 | 1940 | 1,39 → 1,46 | 56% → 52% | 4% → 6% | 18% → 23% |
+| 3+2 | 1600 | 4,72 → 5,12 | 72% → 64% | 4% → 9% | 9% → 17% |
+| 10+0 | 1600 | 7,60 → 8,53 | 76% → 71% | 1% → 2% | 4% → 7% |
+
+Per sota de ROC ~900 gairebé no canvia res: ja feien servir el perfil més
+fluix.
+
+Conduint l'app (Chromium, 1+0, ROC 1600, tots dos rellotges a 12 s a la mitja
+jugada 24 i l'usuari movent cada 0,72 s): el rival baixa fins a un mínim de
+**0,69 s** per jugada (abans, 0,53 s, el d'una persona de 1600) i cau de bandera
+a les dues partides.
+
+### 15.4. Proves
+
+`clockelo.test.js`: la correspondència passa pels punts mesurats, és monòtona
+i mai no dóna una persona més forta que el ROC, per sota de les dades dóna el
+perfil més fluix a tots els ritmes i el tram final no surt del rang; a 1+0, el
+rival de ROC ~1604 gestiona el temps exactament com una persona de 1025 i cau
+de bandera molt més, a ~1940 gairebé no canvia i a 870 canvia poc; a l'app,
+`computeHumanReplyDelayMs` demana el temps a la persona equivalent, el context
+que fan servir la cerca i la revisió continua portant el ROC, i el tarannà es
+tira per a la persona equivalent. Nou de les deu fallen amb el codi anterior
+(la que no, vigila que la cerca no canviï).
