@@ -11427,6 +11427,21 @@ function historyTimeControlLabel(entry) {
     return cfg ? cfg.label : null;
 }
 
+// Instantània independent del rellotge: no canvia quan comença una altra partida.
+function snapshotFinalClock() {
+    if (!gameClock.enabled) return null;
+    return {
+        white: Math.max(0, gameClock.white),
+        black: Math.max(0, gameClock.black)
+    };
+}
+
+function historyFinalClockLabel(entry) {
+    const clock = entry && entry.finalClock;
+    if (!clock || !Number.isFinite(clock.white) || !Number.isFinite(clock.black)) return null;
+    return `Rellotge final: blanques ${formatClock(clock.white)} · negres ${formatClock(clock.black)}`;
+}
+
 // Descripció de la partida en una sola frase natural (mode, ritme si en tenia i
 // color de les peces), en lloc d'encadenar etiquetes soltes amb "· amb blanques"
 // al final: "Amistosa Blitz 3+2 amb blanques", "Lliga amb negres"...
@@ -11434,7 +11449,9 @@ function describeHistoryGame(entry) {
     const mode = formatHistoryMode(entry.mode);
     const color = entry.playerColor === 'b' ? 'negres' : 'blanques';
     const tcLabel = historyTimeControlLabel(entry);
-    return tcLabel ? `${mode} ${tcLabel} amb ${color}` : `${mode} amb ${color}`;
+    const description = tcLabel ? `${mode} ${tcLabel} amb ${color}` : `${mode} amb ${color}`;
+    const finalClock = historyFinalClockLabel(entry);
+    return finalClock ? `${description} · ${finalClock}` : description;
 }
 
 const TV_LICHESS_CHANNELS = [
@@ -17487,6 +17504,7 @@ function recordGameHistory(resultLabel, finalPrecision, counts, options = {}) {
         // la revisió l'ensenya com a tipus de partida i el repte «Rejugar +5%»
         // el fa servir per posar rellotge a la fase que es rejuga.
         timeControl: currentGameTimeControlId || 'none',
+        finalClock: snapshotFinalClock(),
         opponent: currentOpponent || null,
         fen: game.fen(),
         pgn: game.pgn(),
