@@ -47,3 +47,23 @@ python3 -I equiv_groups.py bench-short.jsonl bench-long.jsonl   # amb interval p
 ```
 
 D'aquí surten els punts de `ROC_CLOCK_ELO_POINTS` a `core.js`.
+
+## Rival amb rellotge amb Stockfish 19: calibratge de la força (§16)
+
+```bash
+# Velocitat dels dos motors amb els pressupostos del rival
+node scripts/rellotge-lichess/speed.js sample.jsonl
+# Graella de nivells de Stockfish 19 (profunditat del ROC, com a l'app) a les
+# posicions de calibratge, i nivell que iguala el motor anterior per franja
+RIVAL_URL=stockfish-19-lite-single.js DEPTH_FROM_ROC=1 IDS=ids-cal.txt \
+  LEVELS='{"<1000":[250,400,550,700],"1000-1399":[300,450,600,750],"1400-1799":[950,1150,1300,1450],"1800-2199":[1650,1800,1923,2000]}' \
+  node scripts/rellotge-lichess/bench.js sample.jsonl grid.jsonl 30s,1+0,3+2,5+0,10+0,15+10 40 4 12
+python3 -I fit_sf19.py grid.jsonl bench-short.jsonl bench-long.jsonl
+# Validació amb posicions no usades, amb la taula de core.js tal com la fa servir l'app
+RIVAL_URL=stockfish-19-lite-single.js DEPTH_FROM_ROC=1 LEVEL_CORE=1 IDS=ids-val3.txt \
+  node scripts/rellotge-lichess/bench.js sample.jsonl val.jsonl 30s,1+0,3+2,5+0,10+0,15+10 40 4 12
+python3 -I paired.py val.jsonl roc bench-short.jsonl bench-long.jsonl
+```
+
+Els fitxers d'ids són llistes d'identificadors `ritme|franja|línia` de la
+mostra (40 per ritme i franja, disjunts entre calibratge i validació).

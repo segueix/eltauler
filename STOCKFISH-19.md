@@ -18,7 +18,9 @@ dos enllaços).
   CCRL de partides ràpides entre motors.
 - On es fa servir: Stockfish 19 és l'única versió de Stockfish a
   **Stockfish vs Lozza TV**, al **generador de jeroglífics** i al
-  **Rival Antídot**. Ni la TV ni els jeroglífics recauen al motor antic.
+  **Rival Antídot**. També cerca les jugades del **rival de les partides amb
+  rellotge** (worker propi, força calibrada perquè cada ROC jugui com abans;
+  vegeu `ANALISI_RELLOTGE.md` §16), que torna al motor ordinari si no arrenca. Ni la TV ni els jeroglífics recauen al motor antic.
   Antídot usa un worker propi; només si Stockfish 19 falla recau al motor
   ordinari per no bloquejar la partida.
 - **Exercicis amb línia** (Tàctiques, Revisa errors, Repàs intel·ligent):

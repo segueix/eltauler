@@ -5191,6 +5191,71 @@
         return Math.round(Math.min(r, y1 + (y1 - y0) * (r - x1) / (x1 - x0)));
     }
 
+    // ----------------------------------------------------------------------
+    // Rival de les partides amb rellotge amb Stockfish 19 (ANALISI §16)
+    // ----------------------------------------------------------------------
+    // A les partides amb rellotge el rival cerca amb Stockfish 19 (worker propi):
+    // amb el mateix temps arriba 2-3 jugades més enllà que el motor de la resta
+    // de l'app, i les errades per pressió, la dificultat que mou el temps de
+    // reflexió i les cerques de pocs mil·lisegons hi guanyen. Però al mateix
+    // nivell nominal també és més fort, i el ROC ha de continuar volent dir el
+    // mateix (les puntuacions per ritme i la correspondència de §14-15 en
+    // depenen). Aquesta taula és el nivell que es dóna a Stockfish 19 per a la
+    // FORÇA (UCI_Elo, línies i la tria de jugada) perquè jugui com el motor
+    // anterior a cada ROC, mesurat fent jugar tots dos rivals a les mateixes
+    // posicions reals i jutjant-los amb el mateix motor. La profunditat i el
+    // temps de cerca continuen sortint del ROC: rebaixar-los també el feia
+    // cercar a profunditat 6-8 als nivells baixos, menys que el motor anterior,
+    // i les candidates hi perdien fiabilitat. El temps de reflexió tampoc no
+    // canvia.
+    // Calibratge: 960 posicions reals (240 per franja, 40 per ritme), graella de
+    // quatre nivells per franja; a la franja més baixa, 480 posicions perquè la
+    // primera validació hi va sortir justa. Interval al 95% per bootstrap:
+    // 400-700, 300-750, 954-1414 i 1661-2000 (a ROC ~1947, Stockfish 19 al
+    // nivell 2000 encara empata amb el motor anterior: s'hi posa el mateix
+    // nivell). Validat després amb 960 posicions que no s'han fet servir. Per
+    // sota del primer punt (sense dades: no hi ha persones de menys de ~700 a
+    // la mostra) es redueix proporcionalment, i el mínim de l'app, 200, ho
+    // talla; per sobre de l'últim, el nivell és el ROC.
+    const TIMED_RIVAL_STRENGTH_POINTS = [[873, 574], [1223, 675], [1604, 1343], [1947, 1947]];
+    function timedRivalStrengthElo(roc) {
+        const pts = TIMED_RIVAL_STRENGTH_POINTS;
+        const r = Number(roc);
+        if (!Number.isFinite(r)) return r;
+        if (r <= pts[0][0]) return Math.round(pts[0][1] * r / pts[0][0]);
+        for (let i = 0; i < pts.length - 1; i++) {
+            const [x0, y0] = pts[i];
+            const [x1, y1] = pts[i + 1];
+            if (r <= x1) return Math.round(y0 + (y1 - y0) * (r - x0) / (x1 - x0));
+        }
+        const [x0, y0] = pts[pts.length - 2];
+        const [x1, y1] = pts[pts.length - 1];
+        return Math.round(Math.min(r, y1 + (y1 - y0) * (r - x1) / (x1 - x0)));
+    }
+
+    // Cerques del worker del rival: una cerca aturada (partida acabada, nova
+    // resposta) encara escup línies i el seu «bestmove» abans que comenci la
+    // següent, i no s'han de prendre per les de la nova. Estat: { active,
+    // skip } (skip = respostes pendents de cerques aturades, que s'ignoren).
+    function rivalSearchStart(state) {
+        const s = state || { active: false, skip: 0 };
+        return { needStop: !!s.active, state: { active: true, skip: s.skip + (s.active ? 1 : 0) } };
+    }
+    function rivalSearchStop(state) {
+        const s = state || { active: false, skip: 0 };
+        return { needStop: !!s.active, state: { active: false, skip: s.skip + (s.active ? 1 : 0) } };
+    }
+    function rivalSearchMessage(state, msg) {
+        const s = state || { active: false, skip: 0 };
+        const m = String(msg || '');
+        if (m.startsWith('bestmove')) {
+            if (s.skip > 0) return { forward: false, state: { active: s.active, skip: s.skip - 1 } };
+            return { forward: s.active, state: { active: false, skip: 0 } };
+        }
+        if (m.startsWith('info')) return { forward: s.active && s.skip === 0, state: s };
+        return { forward: false, state: s };
+    }
+
     // Temps de reflexió del rival a la partida. Als ritmes curts hi afegeix
     // retocs de naturalitat (més temps a les decisions difícils, menys a la
     // jugada única i a la recaptura, cap pensada llarga quan no toca), però la
@@ -9747,6 +9812,11 @@
         gameReviewSearchBudgetMs,
         ROC_CLOCK_ELO_POINTS,
         clockEloForRoc,
+        TIMED_RIVAL_STRENGTH_POINTS,
+        timedRivalStrengthElo,
+        rivalSearchStart,
+        rivalSearchStop,
+        rivalSearchMessage,
         CLOCK_SLIP_EXCESS,
         CLOCK_SLIP_OPEN_CP,
         CLOCK_SLIP_MIN_WC_LOSS,

@@ -79,6 +79,15 @@ de mòduls. Per poder-la provar sense refactoritzar-ho tot, la **lògica pura**
   ~1600 i ~1940. A l'app: el temps de reflexió i el tarannà fan servir la
   persona equivalent, i la cerca i la revisió continuen amb el ROC (la força no
   es mou).
+- **`sf19rival.test.js`** — el rival de les partides amb rellotge amb
+  Stockfish 19 (`ANALISI_RELLOTGE.md` §16). La taula de força calibrada
+  (`timedRivalStrengthElo`): punts, monotonia i mai més nivell que el ROC. El
+  filtre de cerques del worker propi (`rivalSearchStart/Stop/Message`): la cerca
+  viva passa, les aturades es descarten. A l'app (codi real en un context
+  aïllat): opcions del worker a part de les del motor principal, `readyok`,
+  aturada amb els temporitzadors, `makeEngineMove` amb Stockfish 19 (força
+  calibrada, profunditat i temps del ROC) i sense (motor de sempre), la tria
+  amb el nivell del motor que ha cercat i la preparació en començar la partida.
 - **`premove.test.js`** — jugada anticipada de les partides amb rellotge.
   `premoveTargets` genera els destins marcables d'una peça quan el torn ENCARA
   és del rival (chess.js no en dóna cap, i per això calia un generador propi):
