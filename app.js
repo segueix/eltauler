@@ -544,6 +544,9 @@ let engineReplyStartTs = null;
 // La resposta en curs del rival ha d'acabar en una errada per pressió de
 // rellotge si la posició ho permet (es tira a makeEngineMove, vegeu core.js).
 let engineClockSlipArmed = false;
+// Nivell de força i motor de la cerca en curs del rival (vegeu makeEngineMove).
+let engineSearchStrengthElo = null;
+let engineSearchUsesTimedRival = false;
 // Jugada anticipada de l'usuari mentre pensa el rival. Al bullet, impedir tocar
 // el tauler durant cada resposta del motor obliga a pagar també el temps de
 // reacció i d'animació a cada jugada; una premove legal s'aplica tan bon punt
@@ -4868,6 +4871,8 @@ function clearEngineMoveTimers() {
     if (engineMoveTimeout) { clearTimeout(engineMoveTimeout); engineMoveTimeout = null; }
     if (engineMoveApplyTimeout) { clearTimeout(engineMoveApplyTimeout); engineMoveApplyTimeout = null; }
     engineMoveApplyPending = false;
+    // La cerca del rival amb rellotge (worker propi) també s'atura.
+    if (typeof stopTimedRivalSearch === 'function') stopTimedRivalSearch();
 }
 
 /* Precisió que se li pot demanar avui: la mitjana de les DARRERES 10 PARTIDES
@@ -8044,7 +8049,9 @@ function pickClockSlipMove(candidates, chessInstance) {
 }
 
 function chooseHumanLikeMove(candidates, chessInstance = game, options = {}) {
-    const activeRoc = getActiveStrengthElo();
+    // strengthElo: el nivell amb què ha cercat el motor, quan no és el ROC
+    // (rival amb Stockfish 19 a les partides amb rellotge, core.js).
+    const activeRoc = Number.isFinite(options.strengthElo) ? options.strengthElo : getActiveStrengthElo();
     const floor = engineEloMin || 1350;
     // Va just de temps i la tirada ha dit que aquesta se li escapa: passa
     // davant de tota la resta, també als nivells on la força la regula el
@@ -9756,6 +9763,96 @@ function restartStockfishWorker() {
     stockfishReady = false;
     stockfishWarmupPromise = null;
     return ensureStockfish();
+}
+
+// Rival de les partides amb rellotge: Stockfish 19 en un worker propi (core.js
+// i ANALISI_RELLOTGE.md §16). Només hi cerca el rival; la revisió de les
+// jugades de l'usuari i la resta de l'app continuen amb `stockfish`. Les seves
+// opcions (UCI_Elo, Skill Level) es desen a part perquè no es barregin amb
+// les del motor principal. Si no arrenca, el rival torna al motor principal
+// amb la força de sempre.
+const TIMED_RIVAL_ENGINE_URL = HIERO_STOCKFISH_URL;
+let timedRivalEngine = null;
+let timedRivalCaps = {};
+let timedRivalReady = false;
+let timedRivalReadyWaiters = [];
+let timedRivalSearch = { active: false, skip: 0 };
+// La partida amb rellotge en curs juga amb Stockfish 19 (es decideix en començar).
+let timedRivalInUse = false;
+
+function disposeTimedRivalEngine() {
+    try { if (timedRivalEngine && timedRivalEngine.terminate) timedRivalEngine.terminate(); } catch (e) {}
+    timedRivalEngine = null;
+    timedRivalReady = false;
+    timedRivalCaps = {};
+    timedRivalSearch = { active: false, skip: 0 };
+    timedRivalInUse = false;
+    const waiters = timedRivalReadyWaiters; timedRivalReadyWaiters = [];
+    waiters.forEach(fn => fn(false));
+}
+
+function handleTimedRivalMessage(rawMsg) {
+    if (typeof rawMsg !== 'string') return;
+    const msg = rawMsg.trim();
+    if (msg.startsWith('option name ')) { timedRivalCaps = ElTaulerCore.engineStrengthOption(timedRivalCaps, msg); return; }
+    if (msg === 'uciok') { try { timedRivalEngine.postMessage('isready'); } catch (e) {} return; }
+    if (msg === 'readyok') {
+        timedRivalReady = true;
+        const waiters = timedRivalReadyWaiters; timedRivalReadyWaiters = [];
+        waiters.forEach(fn => fn(true));
+        return;
+    }
+    // Només les línies i el bestmove de la cerca viva arriben al circuit de
+    // sempre (handleEngineMessage): les d'una cerca aturada s'ignoren.
+    const routed = ElTaulerCore.rivalSearchMessage(timedRivalSearch, msg);
+    timedRivalSearch = routed.state;
+    if (routed.forward) handleEngineMessage(msg);
+}
+
+function ensureTimedRivalEngine() {
+    if (timedRivalEngine) return true;
+    try {
+        timedRivalEngine = new Worker(TIMED_RIVAL_ENGINE_URL);
+        timedRivalCaps = {};
+        timedRivalReady = false;
+        timedRivalSearch = { active: false, skip: 0 };
+        timedRivalEngine.onmessage = (e) => handleTimedRivalMessage(e.data);
+        timedRivalEngine.onerror = () => {
+            // Si cau a mitja cerca, la resposta la dona el motor principal:
+            // el rival no es pot quedar encallat amb el rellotge corrent.
+            const wasSearching = timedRivalSearch.active;
+            disposeTimedRivalEngine();
+            if (wasSearching && isEngineThinking && !engineMoveApplyPending) setTimeout(() => makeEngineMove(), 0);
+        };
+        timedRivalEngine.postMessage('uci');
+        return true;
+    } catch (e) {
+        timedRivalEngine = null;
+        return false;
+    }
+}
+
+function prewarmTimedRivalEngine(timeoutMs = 10000) {
+    if (timedRivalEngine && timedRivalReady) return Promise.resolve(true);
+    if (!ensureTimedRivalEngine()) return Promise.resolve(false);
+    return new Promise(resolve => {
+        let settled = false;
+        const finish = ok => { if (settled) return; settled = true; clearTimeout(timer); resolve(ok); };
+        const timer = setTimeout(() => finish(false), timeoutMs);
+        timedRivalReadyWaiters.push(finish);
+    });
+}
+
+// Atura la cerca viva del rival (si n'hi ha) i en descarta les respostes.
+function stopTimedRivalSearch() {
+    const r = ElTaulerCore.rivalSearchStop(timedRivalSearch);
+    timedRivalSearch = r.state;
+    if (r.needStop && timedRivalEngine) { try { timedRivalEngine.postMessage('stop'); } catch (e) {} }
+}
+
+// Motor que farà la cerca del rival en aquesta jugada.
+function timedRivalActive() {
+    return !!(gameClock.enabled && timedRivalInUse && timedRivalEngine && timedRivalReady);
 }
 
 // Anàlisi robusta per a la preparació d'exercicis: handshake previ, límit de temps,
@@ -25214,7 +25311,10 @@ function setupEvents() {
         refreshPlayClockChips();
         // El ritme diari no necessita el motor a l'instant: la resposta del
         // rival es cerca en segon pla (worker propi) quan vencen les 3 hores.
-        if (pendingFreeTimeControl !== 'none' && pendingFreeTimeControl !== DAILY_TC_ID) void prewarmStockfish();
+        if (pendingFreeTimeControl !== 'none' && pendingFreeTimeControl !== DAILY_TC_ID) {
+            void prewarmStockfish();
+            void prewarmTimedRivalEngine(); // rival amb rellotge: Stockfish 19
+        }
     });
     // Fitxes visuals del rellotge: escriuen el desplegable amagat i disparen el
     // seu change, de manera que tota la lògica existent continua igual.
@@ -25229,7 +25329,7 @@ function setupEvents() {
         // Canviar el ritme abans de començar rebaixa o apuja tota la graella al
         // nivell que el jugador té en aquell rellotge, així que cal repintar-la.
         if (setLeagueTimeControl($(this).val() || 'none')) {
-            if (getLeagueTimeControlId() !== 'none') void prewarmStockfish();
+            if (getLeagueTimeControlId() !== 'none') { void prewarmStockfish(); void prewarmTimedRivalEngine(); }
             renderLeague();
         }
         else renderLeagueTimeControl();
@@ -30336,6 +30436,23 @@ blunderMode = isBundle;
         timedGameEnginePending = false;
         updateStatus();
     }
+    // El rival de les partides amb rellotge cerca amb Stockfish 19 (ANALISI
+    // §16). Es prepara abans que corri el rellotge i es decideix per a TOTA la
+    // partida, de manera que la força no canviï de motor a mig joc; si no
+    // arrenca a temps, la partida es juga amb el motor de sempre.
+    timedRivalInUse = false;
+    if (clockApplies && getActiveTimeControlId() !== 'none') {
+        const startGeneration = gameGeneration;
+        const alreadyReady = !!(timedRivalEngine && timedRivalReady);
+        if (!alreadyReady) {
+            timedGameEnginePending = true;
+            $('#status').text("Preparant l'adversari...");
+        }
+        const rivalReady = alreadyReady || await prewarmTimedRivalEngine(10000);
+        if (startGeneration !== gameGeneration || !$('#game-screen').hasClass('active')) return;
+        timedRivalInUse = rivalReady;
+        if (!alreadyReady) { timedGameEnginePending = false; updateStatus(); }
+    }
     // Partida represa amb rellotge: els rellotges continuen on eren.
     if (liveResume && liveResume.clock && clockApplies) restoreGameClock(liveResume.clock);
     else initGameClock(clockApplies);
@@ -32453,6 +32570,20 @@ function makeEngineMove(skipAntidote) {
     isEngineThinking = true;
     $('#status').text("L'adversari pensa...");
 
+    // Partida amb rellotge: el rival cerca amb Stockfish 19 (worker propi) al
+    // nivell que el fa jugar com el motor anterior a cada ROC (core.js,
+    // ANALISI §16). Si no ha arrencat, el motor de sempre amb el ROC tal qual.
+    const useTimedRival = timedRivalActive();
+    const searchEngine = useTimedRival ? timedRivalEngine : stockfish;
+    const strengthElo = useTimedRival
+        ? Math.max(ELO_MIN, Math.min(ELO_MAX, ElTaulerCore.timedRivalStrengthElo(getActiveStrengthElo())))
+        : getActiveStrengthElo();
+    engineSearchStrengthElo = strengthElo;
+    engineSearchUsesTimedRival = useTimedRival;
+    // La profunditat continua sortint del ROC: Stockfish 19 ha d'aprofitar el
+    // temps de cerca per veure més lluny (candidates fiables per a les errades
+    // per pressió i per a la dificultat que mou el temps de reflexió); la força
+    // la regula la tria (UCI_Elo i la capa de nivells baixos) al nivell calibrat.
     const depth = getAIDepth();
     currentGameEngineDepth = depth;
     currentGameActiveStrengthElo = getActiveStrengthElo();
@@ -32471,10 +32602,22 @@ function makeEngineMove(skipAntidote) {
     // Partida de calibratge inicial: el rival s'adapta ABANS de cada resposta a
     // la qualitat de joc demostrada fins ara (com el calibratge per ritme).
     if (isCalibrationGame) updateCalibrationOpponentRoc();
+    // Una cerca anterior del rival encara viva s'atura i se n'ignoren les
+    // respostes (core.js: rivalSearchStart).
+    if (useTimedRival) {
+        const started = ElTaulerCore.rivalSearchStart(timedRivalSearch);
+        timedRivalSearch = started.state;
+        if (started.needStop) { try { searchEngine.postMessage('stop'); } catch (e) {} }
+    }
     // Reafirma la força en cada resposta amb les opcions que el binari
     // anuncia: UCI_Elo o Skill Level. La revisió entre torns usa força màxima.
-    applyEngineEloStrength(getActiveStrengthElo());
-    const requestedPv = getEngineMoveMultiPvValue(getActiveStrengthElo(), isCalibrationGame ? 7 : 5);
+    if (useTimedRival) {
+        ElTaulerCore.nativeStrengthCommands(timedRivalCaps, strengthElo, false)
+            .forEach(command => { try { searchEngine.postMessage(command); } catch (e) {} });
+    } else {
+        applyEngineEloStrength(getActiveStrengthElo());
+    }
+    const requestedPv = getEngineMoveMultiPvValue(strengthElo, isCalibrationGame ? 7 : 5);
     const shortClock = gameClock.enabled && ElTaulerCore.SHORT_CLOCK_LIMITS[getActiveTimeControlId()];
     // Errada per pressió de rellotge (dades reals, core.js): es tira ABANS de
     // cercar perquè, si s'arma, cal demanar més línies al motor; una errada
@@ -32491,7 +32634,7 @@ function makeEngineMove(skipAntidote) {
     const multiPvValue = engineClockSlipArmed ? Math.max(baseMultiPv, ElTaulerCore.CLOCK_SLIP_MULTIPV) : baseMultiPv;
     if (gameClock.enabled) engineMoveCandidateCollector = ElTaulerCore.createMoveCandidateCollector(
         Math.min(multiPvValue, game.moves().length));
-    try { stockfish.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
+    try { searchEngine.postMessage(`setoption name MultiPV value ${multiPvValue}`); } catch (e) {}
     // Sostre de temps REAL de la cerca (només amb rellotge). Mentre Stockfish
     // cerca, el rellotge del rival corre: la cerca és l'únic tros de la resposta
     // que no el mirava. I com més alt és el ROC pitjor, perquè la profunditat hi
@@ -32507,8 +32650,8 @@ function makeEngineMove(skipAntidote) {
     if (DEBUG_ENGINE_TIMING) {
         console.log('[engine search]', { depth, multiPvValue, searchBudgetMs, elapsed: engineReplyElapsedMs() });
     }
-    stockfish.postMessage(`position fen ${game.fen()}`);
-    stockfish.postMessage(searchBudgetMs === null
+    searchEngine.postMessage(`position fen ${game.fen()}`);
+    searchEngine.postMessage(searchBudgetMs === null
         ? `go depth ${depth}`
         : `go depth ${depth} movetime ${searchBudgetMs}`);
 }
@@ -33182,9 +33325,11 @@ function handleEngineMessage(rawMsg) {
             // durant el calibratge reflecteix la força real que el jugador trobarà després.
             // (El Joc posicional també hi passa: la humanització treballa amb
             // l'ELO equivalent de les jugades vista, via getActiveStrengthElo.)
+            const searchCaps = engineSearchUsesTimedRival ? timedRivalCaps : engineStrengthCaps;
             const chosen = chooseHumanLikeMove(engineMoveCandidates, game, gameClock.enabled
                 ? { engineBestMove: fallbackMove, clock: engineClockContext(), clockSlip: engineClockSlipArmed,
-                    nativeStrength: !!(engineStrengthCaps.skill || (engineStrengthCaps.limit && engineStrengthCaps.elo)) } : {}) || { move: null };
+                    strengthElo: engineSearchStrengthElo,
+                    nativeStrength: !!(searchCaps.skill || (searchCaps.limit && searchCaps.elo)) } : {}) || { move: null };
             engineClockSlipArmed = false;
             const moveStr = chosen.move || (gameClock.enabled ? fallbackMove : chooseFallbackMove(fallbackMove));
             const fromSq = moveStr.substring(0, 2);

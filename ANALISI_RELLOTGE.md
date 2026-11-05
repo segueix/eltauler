@@ -936,3 +936,122 @@ de bandera molt més, a ~1940 gairebé no canvia i a 870 canvia poc; a l'app,
 que fan servir la cerca i la revisió continua portant el ROC, i el tarannà es
 tira per a la persona equivalent. Nou de les deu fallen amb el codi anterior
 (la que no, vigila que la cerca no canviï).
+
+## 16. El rival de les partides amb rellotge cerca amb Stockfish 19
+
+### 16.1. Per què
+
+El model de temps (§8-15) surt de persones i no depèn del motor, però tot el
+que depèn de la cerca sí: les candidates entre les quals es tria l'errada per
+pressió (§13), la dificultat que allarga o escurça el temps de reflexió i la
+qualitat de les cerques de pocs mil·lisegons amb el rellotge gairebé a zero.
+Mesurat al mateix Chromium sobre 30 posicions reals de migjoc
+(`speed.js`):
+
+| temps de cerca | motor anterior (`stockfish.js`) | Stockfish 19 lite |
+|---|---|---|
+| 150 ms, 5 línies | profunditat ~7-8 | 10,8 |
+| 500 ms, 5 línies | 10,4 | 12,7 |
+| 1.500 ms, 5 línies | 12,8 | 15,1 |
+| nodes per segon | 200.000-320.000 | 490.000-650.000 |
+
+I l'avaluació és la d'una xarxa neuronal, molt més precisa.
+
+### 16.2. Què canvia i què no
+
+- **Només el rival de les partides amb rellotge**, en un worker propi
+  (`timedRivalEngine`). La revisió de les jugades de l'usuari, el rival de les
+  partides sense rellotge i la resta de l'app continuen amb el motor que ja
+  feien servir, i amb la seva escala.
+- Es prepara en començar la partida i es fixa per a **tota la partida**. Si no
+  arrenca a temps (10 s) o cau, la partida es juga amb el motor de sempre i la
+  força de sempre; si cau a mitja cerca, la resposta la dóna el motor de sempre.
+- Les respostes d'una cerca aturada (partida acabada, cerca nova) es descarten
+  i mai no es prenen per les de la següent (`rivalSearch*` a `core.js`).
+
+### 16.3. La força: cada ROC juga igual que abans
+
+Al mateix nivell nominal Stockfish 19 és més fort: a ROC ~1230 perd 0,110 per
+jugada contra el 0,190 del motor anterior a les mateixes posicions. Com que el
+ROC ha de continuar volent dir el mateix (les puntuacions per ritme i les
+correspondències de §14-15 en depenen), s'ha calibrat el nivell que se li dóna
+(`timedRivalStrengthElo`) amb l'arnès de §14: les dues versions del rival
+juguen les mateixes posicions reals al mateix ROC i un Stockfish 19 a
+profunditat 12 les jutja amb `searchmoves`.
+
+**Un primer intent, descartat.** Rebaixar el nivell rebaixava també la
+profunditat de cerca, que l'app treu del nivell: Stockfish 19 cercava a
+profunditat 6-8 en 30-65 ms als nivells baixos, menys que el motor anterior
+(8-11). La força quadrava, però era el contrari del que es buscava. Ara la
+**profunditat i el temps de cerca surten del ROC**, com abans, i la força la
+regula la tria: `UCI_Elo` / `UCI_LimitStrength` i, per sota de 1350, la capa de
+selecció de nivells baixos, al nivell calibrat.
+
+Calibratge (960 posicions, 240 per franja i 40 per ritme; graella de quatre
+nivells per franja; a la franja més baixa, 480 posicions):
+
+| ROC | nivell de Stockfish 19 | interval al 95% |
+|---|---|---|
+| 873 | 574 | 400-700 |
+| 1223 | 675 | 300-750 |
+| 1604 | 1343 | 954-1414 |
+| 1947 | 1947 | 1661-2000 |
+
+A ROC ~1947 Stockfish 19 al nivell 2000 encara empata amb el motor anterior, i
+s'hi posa el mateix ROC. Per sota de 873 (sense dades: no hi ha persones de
+menys de ~700 a la mostra) es redueix proporcionalment fins al mínim de l'app,
+200. Per sobre de 1947, el nivell és el ROC.
+
+**Validació amb posicions que no s'han fet servir** (960, de 40 per ritme i
+franja), pèrdua mitjana per jugada del rival anterior → Stockfish 19:
+
+| ROC | pèrdua | diferència | errades greus | jugada exacta |
+|---|---|---|---|---|
+| ~870 | 0,168 → 0,182 | +0,014 ± 0,035 | 17,1% → 18,8% | 23% → 21% |
+| ~1220 | 0,170 → 0,168 | −0,002 ± 0,031 | 17,1% → 16,7% | 25% → 22% |
+| ~1600 | 0,122 → 0,137 | +0,015 ± 0,028 | 9,2% → 12,1% | 35% → 28% |
+| ~1950 | 0,067 → 0,083 | +0,016 ± 0,019 | 3,8% → 5,4% | 42% → 39% |
+
+Totes les diferències queden dins de l'interval. Si de cas, Stockfish 19 surt
+un pèl més fluix, no més fort (el jutge també és Stockfish 19, de manera que
+si afavorís les jugades del seu motor, ho faria en l'altra direcció). I cerca a
+la mateixa profunditat o més, en la meitat de temps:
+
+| ROC | profunditat assolida (anterior → SF19) | temps de cerca |
+|---|---|---|
+| ~870 | 8,4 → 8,3 | 197 → 102 ms |
+| ~1220 | 10,9 → 11,0 | 711 → 386 ms |
+| ~1600 | 12,7 → 13,3 | 1.499 → 771 ms |
+| ~1950 | 13,2 → 14,3 | 2.325 → 1.126 ms |
+
+El temps de reflexió visible no canvia (és el del model de §8-15): si la cerca
+acaba abans, la jugada s'aplica igualment quan toca. Com que la força es
+conserva, la correspondència de §15 (ROC → Lichess per al rellotge) no s'ha de
+tocar.
+
+### 16.4. Límits
+
+- Les posicions de la mostra són sobretot del començament de la partida (la
+  jugada 7-16 de mitjana), les del rellotge còmode.
+- A les partides de lliga la profunditat surt d'una altra fórmula (la
+  diferència d'ELO amb el rival de la lliga); el calibratge s'ha fet amb la de
+  la partida lliure.
+- Per sota de ROC ~870 el nivell s'extrapola.
+- El rendiment al mòbil no s'ha mesurat aquí. Stockfish 19 ja corria al mòbil
+  per al Rival Antídot, els jeroglífics i la TV, i té la memòria cau pròpia.
+
+### 16.5. Proves
+
+`sf19rival.test.js`: la taula passa pels punts calibrats, és monòtona i mai no
+dóna més nivell que el ROC; el filtre de cerques deixa passar la cerca viva i
+descarta les aturades (també en començar-ne una amb una de viva i en aturar-la
+en acabar la partida); les opcions de Stockfish 19 es desen a part de les del
+motor principal; aturar els temporitzadors atura la cerca del rival; amb
+Stockfish 19, `makeEngineMove` envia tota la cerca al seu worker amb la força
+calibrada i la profunditat i el temps del ROC, i sense, fa servir el motor de
+sempre amb el ROC; la tria rep el nivell i la força nativa del motor que ha
+cercat; i en començar una partida amb rellotge es prepara Stockfish 19 per a
+tota la partida. Conduint l'app: a 1+0 les quatre cerques del rival van a
+Stockfish 19 amb `UCI_Elo` 1336 (ROC 1600) i la revisió al motor de sempre;
+sense rellotge, tot al motor de sempre; amb Stockfish 19 bloquejat, la partida
+d'1+0 es juga sencera amb el motor de sempre.

@@ -5,7 +5,13 @@
 // Ús (des de l'arrel del repo, amb els CDN a .cache/cdn com a scripts/mine-hieroglyphics.js):
 //   node scripts/rellotge-lichess/bench.js sample.jsonl sortida.jsonl <ritmes separats per comes> <per_cel·la> [slots] [profunditat_jutge]
 // El rival juga al MATEIX ELO que la persona que tenia el torn (ROC màxim 2000;
-// la franja >=2200 queda fora).
+// la franja >=2200 queda fora). Variables d'entorn:
+//   RIVAL_URL         motor del rival (per defecte stockfish.js; el de les
+//                     partides amb rellotge és stockfish-19-lite-single.js, §16)
+//   LEVELS            JSON {franja: [nivells]}: graella de nivells de força
+//   LEVEL_CORE=1      nivell = ElTaulerCore.timedRivalStrengthElo(ROC), com a l'app
+//   DEPTH_FROM_ROC=1  profunditat del ROC (com a l'app) en lloc del nivell
+//   IDS               fitxer amb els ids de posició permesos
 const http = require('http'), fs = require('fs'), path = require('path');
 const { chromium } = require('playwright');
 const ROOT = process.env.APP_ROOT || path.resolve(__dirname, '..', '..');
@@ -16,6 +22,10 @@ const PER_CELL = parseInt(PER_CELL_ARG, 10);
 const SLOTS = parseInt(SLOTS_ARG || '4', 10);
 const REF_DEPTH = parseInt(REF_DEPTH_ARG || '14', 10);
 const SKIP_BANDS = new Set(['>=2200']);
+const RIVAL_URL = process.env.RIVAL_URL || 'stockfish.js';
+// LEVELS: JSON {franja: [nivells]} o 'roc' (nivell = ROC). IDS: fitxer amb ids permesos (opcional).
+const LEVELS = process.env.LEVELS ? JSON.parse(process.env.LEVELS) : null;
+const IDS = process.env.IDS ? new Set(fs.readFileSync(process.env.IDS, 'utf8').trim().split('\n')) : null;
 
 function serve() {
     const types = { '.js': 'application/javascript', '.html': 'text/html', '.wasm': 'application/wasm', '.css': 'text/css', '.json': 'application/json' };
@@ -37,9 +47,15 @@ function serve() {
     all.forEach((r, i) => {
         r.id = `${r.tc}|${r.band}|${i}`;
         if (!TCS.includes(r.tc) || SKIP_BANDS.has(r.band)) return;
+        if (IDS && !IDS.has(r.id)) return;
         const k = r.tc + '|' + r.band;
         cells[k] = (cells[k] || 0) + 1;
-        if (cells[k] <= PER_CELL && !done.has(r.id)) todo.push(r);
+        if (cells[k] > PER_CELL) return;
+        const levels = process.env.LEVEL_CORE ? ['core'] : (LEVELS ? (LEVELS[r.band] || []) : [null]);
+        for (const lv of levels) {
+            const id = lv === null ? r.id : r.id + '@' + lv;
+            if (!done.has(id)) todo.push({ ...r, id, baseId: r.id, level: lv });
+        }
     });
     // Barreja l'ordre perquè els treballs llargs (ROC alt) es reparteixin.
     for (let i = todo.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [todo[i], todo[j]] = [todo[j], todo[i]]; }
@@ -63,7 +79,7 @@ function serve() {
     await page.goto(base + '/index.html');
     await page.waitForFunction(() => typeof chooseHumanLikeMove === 'function' && typeof $ === 'function', null, { timeout: 60000 });
     await page.waitForTimeout(1500);
-    await page.evaluate(({ slots, refDepth }) => {
+    await page.evaluate(({ slots, refDepth, rivalUrl, DEPTH_FROM_ROC }) => {
         const Core = ElTaulerCore;
         const SHORT = Core.SHORT_CLOCK_LIMITS;
         const INC = { '30s': 0, '1+0': 0, '3+2': 2000, '5+0': 0, '10+0': 0, '15+10': 10000 };
@@ -90,17 +106,21 @@ function serve() {
         window.__bench = { slots: [], refDepth };
         window.__benchInit = (async () => {
             for (let i = 0; i < slots; i++) {
-                window.__bench.slots.push({ rival: await initEngine('stockfish.js'), ref: await initEngine('stockfish-19-lite-single.js') });
+                window.__bench.slots.push({ rival: await initEngine(rivalUrl), ref: await initEngine('stockfish-19-lite-single.js') });
             }
         })();
         // Decisió del rival, tal com la fa makeEngineMove (rellotge còmode, sense errada per pressió).
         async function rivalMove(eng, rec, chess) {
             const roc = Math.max(ELO_MIN, Math.min(ELO_MAX, rec.elo));
-            currentRoc = roc;
+            const lvl = rec.level === 'core'
+                ? Math.max(ELO_MIN, Math.min(ELO_MAX, Core.timedRivalStrengthElo(roc)))
+                : (rec.level === null || rec.level === undefined ? roc : rec.level);
+            currentRoc = lvl;
             const fen = chess.fen();
-            const depth = Math.max(1, Math.min(15, eloToSearchDepth(roc) + (Math.floor(Math.random() * 3) - 1)));
-            Core.nativeStrengthCommands(eng.caps, roc, false).forEach(c => eng.send(c));
-            const requestedPv = getEngineMoveMultiPvValue(roc, 5);
+            const depthLevel = DEPTH_FROM_ROC ? roc : lvl;
+            const depth = Math.max(1, Math.min(15, eloToSearchDepth(depthLevel) + (Math.floor(Math.random() * 3) - 1)));
+            Core.nativeStrengthCommands(eng.caps, lvl, false).forEach(c => eng.send(c));
+            const requestedPv = getEngineMoveMultiPvValue(lvl, 5);
             const multiPv = SHORT[rec.tc] ? Math.min(8, requestedPv) : requestedPv;
             const legal = chess.moves().length;
             const collector = Core.createMoveCandidateCollector(Math.min(multiPv, legal));
@@ -128,7 +148,7 @@ function serve() {
             const ms = Math.round(performance.now() - t0);
             const chosen = chooseHumanLikeMove(collector.values(), chess, { engineBestMove: best, clock: ctx,
                 nativeStrength: !!(eng.caps.skill || (eng.caps.limit && eng.caps.elo)) }) || { move: best };
-            return { move: chosen.move || best, engineBest: best, depth, maxDepth, budget, ms, roc };
+            return { move: chosen.move || best, engineBest: best, depth, maxDepth, budget, ms, roc, level: lvl };
         }
         async function refScore(eng, fen, depth, uci) {
             let score = null;
@@ -157,12 +177,12 @@ function serve() {
             const root = await refScore(slot.ref, fen, d, null);
             const human = await refScore(slot.ref, fen, d, humanUci);
             const riv = rival.move === humanUci ? human : await refScore(slot.ref, fen, d, rival.move);
-            return { id: rec.id, tc: rec.tc, band: rec.band, elo: rec.elo, move: rec.move, sec: rec.sec, fen,
+            return { id: rec.id, baseId: rec.baseId || rec.id, level: rival.level, tc: rec.tc, band: rec.band, elo: rec.elo, move: rec.move, sec: rec.sec, fen,
                 humanUci, rivalUci: rival.move, engineBest: rival.engineBest, roc: rival.roc, depth: rival.depth,
                 maxDepth: rival.maxDepth, budget: rival.budget, ms: rival.ms,
                 root, human, rival: riv, lossLichess: rec.lossLichess, evalBefore: rec.evalBefore };
         };
-    }, { slots: SLOTS, refDepth: REF_DEPTH });
+    }, { slots: SLOTS, refDepth: REF_DEPTH, rivalUrl: RIVAL_URL, DEPTH_FROM_ROC: !!process.env.DEPTH_FROM_ROC });
     await page.evaluate(() => window.__benchInit);
     console.error('motors a punt');
     const out = fs.createWriteStream(OUT, { flags: 'a' });
