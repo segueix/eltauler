@@ -11442,15 +11442,24 @@ function historyFinalClockLabel(entry) {
     return `Rellotge final: blanques ${formatClock(clock.white)} · negres ${formatClock(clock.black)}`;
 }
 
+function historyFinalClockHtml(entry) {
+    if (!historyFinalClockLabel(entry)) return '';
+    return `<div class="history-final-clock" role="group" aria-label="Rellotge final">
+        <span class="history-final-clock-title">◷ Rellotge final</span>
+        <span class="history-clock-side history-clock-white"><span>Blanques</span><strong>${formatClock(entry.finalClock.white)}</strong></span>
+        <span class="history-clock-side history-clock-black"><span>Negres</span><strong>${formatClock(entry.finalClock.black)}</strong></span>
+    </div>`;
+}
+
 // Descripció de la partida en una sola frase natural (mode, ritme si en tenia i
 // color de les peces), en lloc d'encadenar etiquetes soltes amb "· amb blanques"
 // al final: "Amistosa Blitz 3+2 amb blanques", "Lliga amb negres"...
-function describeHistoryGame(entry) {
+function describeHistoryGame(entry, includeClock = true) {
     const mode = formatHistoryMode(entry.mode);
     const color = entry.playerColor === 'b' ? 'negres' : 'blanques';
     const tcLabel = historyTimeControlLabel(entry);
     const description = tcLabel ? `${mode} ${tcLabel} amb ${color}` : `${mode} amb ${color}`;
-    const finalClock = historyFinalClockLabel(entry);
+    const finalClock = includeClock ? historyFinalClockLabel(entry) : null;
     return finalClock ? `${description} · ${finalClock}` : description;
 }
 
@@ -12983,6 +12992,7 @@ function updateHistoryDetails(entry) {
     const precisionEl = $('#history-precision');
     const precisionPill = $('#history-precision-pill');
     const metaEl = $('#history-meta');
+    $('#history-final-clock').html(historyFinalClockHtml(entry));
     const breakdown = $('#history-breakdown');
     const reviewContent = $('#history-review-content');
     if (!entry) {
@@ -13019,7 +13029,7 @@ function updateHistoryDetails(entry) {
     if (detailImported && entry.importHeaders && entry.importHeaders.Event && entry.importHeaders.Event !== '?') {
         metaParts.push(entry.importHeaders.Event);
     }
-    metaParts.push(describeHistoryGame(entry), movesLabel);
+    metaParts.push(describeHistoryGame(entry, false), movesLabel);
     if (detailImported && entry.sourceFile) metaParts.push(`📄 ${entry.sourceFile}`);
     metaEl.text(metaParts.join(' · '));
 
@@ -17275,7 +17285,7 @@ function historyItemHtml(entry, activeId) {
             : entry.result;
         if (rawResult) metaParts.push(rawResult);
     }
-    metaParts.push(entry.label || '—', describeHistoryGame(entry), `${movesCount} jugades`);
+    metaParts.push(entry.label || '—', describeHistoryGame(entry, false), `${movesCount} jugades`);
     const meta = metaParts.join(' · ');
     return `
         <div class="history-item ${om.cls}${entry.id === activeId ? ' active' : ''}" data-history-id="${entry.id}" role="button" tabindex="0" title="Obre el detall i la revisió d'aquesta partida">
@@ -17283,6 +17293,7 @@ function historyItemHtml(entry, activeId) {
             <div class="history-item-main">
                 <div class="history-item-title">${escapeHtml(title)}</div>
                 <div class="history-item-meta">${escapeHtml(meta)}</div>
+                ${historyFinalClockHtml(entry)}
             </div>
             <div class="history-item-side">
                 <span class="history-prec-pill ${precisionPillClass(prec)}" title="Precisió de la partida">${prec === null ? '—' : `${prec}%`}</span>

@@ -4373,6 +4373,28 @@
             font-size: 0.72rem; color: var(--text-secondary);
             white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
         }
+        .history-final-clock {
+            display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+            margin-top: 9px; color: var(--text-primary);
+        }
+        .history-final-clock-title {
+            flex-basis: 100%; font-size: 0.75rem; font-weight: 700;
+        }
+        .history-clock-side {
+            display: inline-flex; flex-wrap: wrap; align-items: baseline;
+            gap: 4px 10px; padding: 6px 10px; border-radius: 8px;
+            border: 1px solid; font-size: 0.75rem;
+        }
+        .history-clock-side strong {
+            font-size: 1.1rem; font-weight: 800; font-variant-numeric: tabular-nums;
+            white-space: nowrap; line-height: 1.25;
+        }
+        .history-clock-white { background: #f4f1e8; color: #23262c; border-color: #b8b4a9; }
+        .history-clock-black { background: #252a34; color: #fff; border-color: #697384; }
+        #history-final-clock .history-clock-side { padding: 8px 14px; font-size: 0.85rem; }
+        #history-final-clock .history-clock-side strong { font-size: 1.45rem; }
+        body.epaper-mode .history-clock-white { background: #fff; color: #000; border-color: #000; }
+        body.epaper-mode .history-clock-black { background: #000; color: #fff; border-color: #000; }
         .history-item-side {
             flex: 0 0 auto;
             display: flex; flex-direction: column; align-items: flex-end; gap: 4px;
@@ -8152,6 +8174,7 @@
                                 <div class="history-detail-prec" id="history-precision-pill">Precisió <strong id="history-precision">—</strong></div>
                             </div>
                             <div class="history-detail-meta" id="history-meta">Selecciona una partida per veure'n els detalls.</div>
+                            <div id="history-final-clock"></div>
                         </div>
                         <div class="review-legend" id="history-breakdown"></div>
 
