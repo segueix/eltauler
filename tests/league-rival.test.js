@@ -107,6 +107,7 @@ describe('makeEngineMove a la lliga sense rellotge', () => {
             gameClock: { enabled: false }, getActiveTimeControlId: () => 'none',
             engineClockContext: () => clockCtx, engineReplyElapsedMs: () => 0, DEBUG_ENGINE_TIMING: false,
             engineMoveCandidateCollector: null,
+            leagueActiveMatch: null, tryLeagueBookMove: () => false,
             Math: Object.assign(Object.create(Math), { random: () => 0.0 })   // l'errada per pressió sortiria
         });
         vm.runInContext(fnSource('makeEngineMove'), ctx);

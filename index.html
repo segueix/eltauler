@@ -5544,6 +5544,55 @@
         .league-podium-1 { background: rgba(255, 215, 0, 0.14); }
         .league-podium-2 { background: rgba(192, 192, 192, 0.10); }
         .league-podium-3 { background: rgba(205, 127, 50, 0.10); }
+        /* Lliga: divisió, rival, rendiment, final de temporada i seccions plegables */
+        .league-division { color: var(--accent-gold); font-weight: 700; font-size: 0.9rem; margin-top: 2px; }
+        .league-next-detail, .league-perf { color: var(--text-secondary); margin-top: 4px; font-size: 0.86rem; line-height: 1.35; }
+        .league-next-detail:empty, .league-perf:empty, .league-division:empty { display: none; }
+        .league-tiebreak-note { margin-top: 6px; text-align: left; font-size: 0.78rem; }
+        .league-final {
+            margin-top: 12px; padding: 12px 14px; border-radius: 14px; text-align: left;
+            background: var(--bg-warm); border: 1px solid rgba(201, 162, 39, 0.35);
+        }
+        .league-final-title { font-weight: 800; color: var(--accent-gold); margin-bottom: 4px; }
+        .league-final-line { font-size: 0.9rem; color: var(--text-primary); margin-top: 2px; }
+        .league-final-move { font-weight: 700; }
+        .league-final-move.up { color: var(--text-positive); }
+        .league-final-move.down { color: var(--text-negative); }
+        .league-table .league-sb-cell { color: var(--text-secondary); font-size: 0.85rem; }
+        .league-more { margin-top: 10px; text-align: left; background: var(--bg-warm); border-radius: 12px; border: 1px solid rgba(201, 162, 39, 0.12); }
+        .league-more > summary { cursor: pointer; padding: 10px 12px; font-size: 0.88rem; font-weight: 700; color: var(--accent-gold); }
+        .league-more[open] > summary { border-bottom: 1px solid rgba(201, 162, 39, 0.12); }
+        .league-more > div { padding: 8px 12px 12px; font-size: 0.84rem; }
+        .league-round-block { margin-bottom: 8px; }
+        .league-round-block-title { font-weight: 700; color: var(--text-secondary); font-size: 0.78rem; margin-bottom: 2px; }
+        .league-round-game { display: flex; justify-content: space-between; gap: 8px; padding: 2px 0; }
+        .league-round-game .lrg-score { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+        .league-round-game.lrg-me { color: var(--accent-gold); }
+        .league-cross-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+        table.league-cross { border-collapse: collapse; font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+        table.league-cross th, table.league-cross td { padding: 4px 6px; text-align: center; border: 1px solid rgba(201, 162, 39, 0.12); white-space: nowrap; }
+        table.league-cross td.lc-name { text-align: left; }
+        table.league-cross td.lc-self { background: rgba(0,0,0,0.2); }
+        table.league-cross tr.lc-me td { color: var(--accent-gold); font-weight: 700; }
+        .league-rival-row { padding: 6px 0; border-bottom: 1px solid rgba(201, 162, 39, 0.08); }
+        .league-rival-row:last-child { border-bottom: none; }
+        .league-rival-name { font-weight: 700; }
+        .league-rival-meta { color: var(--text-secondary); font-size: 0.8rem; line-height: 1.35; }
+        .league-career-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; }
+        .league-career-row span:last-child { color: var(--text-secondary); white-space: nowrap; }
+        /* Lliga ràpida: compte enrere entre partida i partida */
+        .league-interlude { z-index: 1200; }
+        .league-interlude .li-card { max-width: 360px; }
+        .li-result { font-weight: 700; font-size: 0.95rem; color: var(--text-primary); margin-bottom: 10px; }
+        .li-label { color: var(--text-secondary); font-size: 0.85rem; }
+        .li-count { font-size: 4.2rem; font-weight: 800; line-height: 1; color: var(--accent-gold); font-variant-numeric: tabular-nums; margin: 4px 0 10px; }
+        .li-round { color: var(--text-secondary); font-size: 0.85rem; }
+        .li-opp { display: flex; align-items: center; justify-content: center; gap: 8px; margin-top: 4px; }
+        .li-opp-name { font-size: 1.3rem; font-weight: 800; }
+        .li-opp-meta, .li-me { color: var(--text-secondary); font-size: 0.85rem; margin-top: 4px; line-height: 1.35; }
+        .li-actions { display: flex; gap: 8px; margin-top: 14px; }
+        .li-actions .btn { flex: 1; padding: 10px; font-size: 0.88rem; }
+        .li-note { color: var(--text-secondary); font-size: 0.75rem; margin-top: 10px; }
 
         /* Lliga responsive mobile */
         table.league-table { min-width: 520px; }
@@ -8623,6 +8672,28 @@
             </div>
         </div>
 
+        <!-- Lliga de 30s i 1+0: entre partida i partida, compte enrere fins a la
+             següent jornada (app.js: showLeagueInterlude, LLIGA.md §8) -->
+        <div class="modal-overlay league-interlude" id="league-interlude" role="dialog" aria-modal="true" aria-labelledby="li-label">
+            <div class="modal-content li-card">
+                <div class="li-result" id="li-result">—</div>
+                <div class="li-label" id="li-label">Següent partida en</div>
+                <div class="li-count" id="li-count" aria-live="polite">30</div>
+                <div class="li-round" id="li-round">Jornada 2/9</div>
+                <div class="li-opp">
+                    <span class="li-opp-name" id="li-opp-name">—</span>
+                    <span class="league-badge li-opp-rank" id="li-opp-rank">#—</span>
+                </div>
+                <div class="li-opp-meta" id="li-opp-meta"></div>
+                <div class="li-me" id="li-me"></div>
+                <div class="li-actions">
+                    <button class="btn btn-primary" id="btn-li-play" type="button">Juga ara</button>
+                    <button class="btn btn-secondary" id="btn-li-home" type="button"><svg class="btn-ic" aria-hidden="true"><use href="#ic-home"/></svg>Anar a l'inici</button>
+                </div>
+                <div class="li-note">Lliga ràpida: les jornades s'encadenen fins al final de la temporada.</div>
+            </div>
+        </div>
+
         <div class="modal-overlay" id="promotion-modal">
             <div class="modal-content">
                 <div class="modal-title">👑 Corona el peó</div>
@@ -8749,8 +8820,11 @@
 
             <div class="league-meta">
                 <div class="league-name" id="league-name">—</div>
+                <div class="league-division" id="league-division"></div>
                 <div class="league-round" id="league-round">Jornada 1/9</div>
                 <div class="league-next" id="league-next">Proper rival: —</div>
+                <div class="league-next-detail" id="league-next-detail"></div>
+                <div class="league-perf" id="league-perf"></div>
                 <div class="setting-row" id="league-tc-row" style="margin-top:6px;">
                     <div class="setting-label">Rellotge</div>
                     <select id="league-tc-select" class="select-control">
@@ -8768,6 +8842,8 @@
                 <div class="league-note">Punts: Victòria 1 · Taules 0,5 · Derrota 0</div>
             </div>
 
+            <div class="league-final" id="league-final" style="display:none;"></div>
+
             <div class="league-table-wrap">
                 <table class="league-table">
                     <thead>
@@ -8778,14 +8854,33 @@
                             <th>PG</th>
                             <th>PP</th>
                             <th>PE</th>
+                            <th class="num" title="Sonneborn-Berger: punts dels rivals guanyats més la meitat dels empatats">SB</th>
                             <th>Punts</th>
                         </tr>
                     </thead>
                     <tbody id="league-table-body"></tbody>
                 </table>
             </div>
+            <div class="league-note league-tiebreak-note">Desempats: enfrontament directe, victòries i Sonneborn-Berger.</div>
 
             <div class="league-history" id="league-history"></div>
+
+            <details class="league-more" id="league-rounds-box">
+                <summary>Resultats de totes les jornades</summary>
+                <div id="league-rounds"></div>
+            </details>
+            <details class="league-more" id="league-cross-box">
+                <summary>Quadre d'enfrontaments</summary>
+                <div class="league-cross-wrap" id="league-cross"></div>
+            </details>
+            <details class="league-more" id="league-rivals-box">
+                <summary>Els rivals: estil i repertori</summary>
+                <div id="league-rivals"></div>
+            </details>
+            <details class="league-more" id="league-career-box">
+                <summary>Temporades anteriors</summary>
+                <div id="league-career"></div>
+            </details>
 
             <div class="menu-buttons" style="margin-top:16px;">
                 <button class="btn btn-primary" id="btn-league-play">Jugar</button>

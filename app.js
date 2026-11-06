@@ -4862,6 +4862,8 @@ let leagueActiveMatch = null;
 // Jornada que espera saber amb quina partida de l'historial es correspon.
 // Viu només entre applyLeagueAfterGame() i recordGameHistory().
 let leagueRoundAwaitingGame = null;
+// Canvi d'ELO de l'última partida de lliga (per a la pantalla entre partides).
+let lastLeagueEloChange = null;
 
 let currentGameMode = 'free';
 let currentOpponent = null;
@@ -5123,17 +5125,24 @@ function createNewLeague(force = false, options = {}) {
     ];
     shuffleArray(baseNames);
 
+    // Divisió de la temporada (LLIGA.md §6): la que diu la trajectòria del
+    // jugador; desplaça tota la graella de rivals.
+    const division = ElTaulerCore.leagueDivision(loadLeagueCareer().division);
+
     // Rivals repartits entre 200 punts per sota i 200 per sobre de la
     // referència (core.js: leagueOpponentOffsets, LLIGA.md §3), dins del rang
     // que el motor juga de debò (ROC 200-2000). El desplaçament es desa per
     // poder-los tornar a col·locar si el rellotge canvia abans de començar.
+    // Cada rival té un estil i un repertori d'obertures propis (§7).
     const offsets = ElTaulerCore.leagueOpponentOffsets();
+    const styles = ElTaulerCore.leagueBotStyles(9);
     const bots = [];
     for (let i = 0; i < 9; i++) {
         const name = baseNames[i] || `Rival${i + 1}`;
         const offset = offsets[i];
-        const elo = ElTaulerCore.leagueOpponentRating(baseRating, offset, ELO_MIN, ELO_MAX);
-        bots.push({ id: `bot${i + 1}`, name: name, elo: elo, offset: offset, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 });
+        const elo = ElTaulerCore.leagueOpponentRating(baseRating + division.shift, offset, ELO_MIN, ELO_MAX);
+        bots.push({ id: `bot${i + 1}`, name: name, elo: elo, offset: offset, style: styles[i],
+            repertoire: newLeagueBotRepertoire(), pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 });
     }
 
     const me = { id: 'me', name: 'Tu', elo: baseRating, pj: 0, pg: 0, pp: 0, pe: 0, pts: 0 };
@@ -5156,11 +5165,79 @@ function createNewLeague(force = false, options = {}) {
         timeControl: timeControlId,
         // Puntuació sobre la qual s'ha sortejat la graella (la del rellotge de
         // la temporada). Serveix per reajustar-la si el ritme encara canvia.
-        baseRating: baseRating
+        baseRating: baseRating,
+        // Divisió i desplaçament de la graella que comporta.
+        division: division.level,
+        divisionShift: division.shift,
+        // Color del jugador a cada jornada: alternats, 5 i 4 (§5).
+        colors: ElTaulerCore.leaguePlayerColors(),
+        // Tots els resultats de la temporada, també els dels rivals entre ells:
+        // { round, a, b, s } amb s = punts d'a. Serveixen per als desempats i el
+        // quadre d'enfrontaments.
+        results: []
     };
     leagueActiveMatch = null;
     saveStorage();
     return currentLeague;
+}
+
+/* ---- Trajectòria a la lliga: divisió i temporades acabades (LLIGA.md §6) ---- */
+const LEAGUE_CAREER_KEY = 'chess_leagueCareer';
+const LEAGUE_CAREER_MAX_SEASONS = 30;
+function loadLeagueCareer() {
+    let data = null;
+    try { data = JSON.parse(localStorage.getItem(LEAGUE_CAREER_KEY) || 'null'); } catch (e) { data = null; }
+    const division = (data && Number.isFinite(data.division)) ? ElTaulerCore.leagueDivision(data.division).level
+        : ElTaulerCore.LEAGUE_START_DIVISION;
+    const seasons = (data && Array.isArray(data.seasons)) ? data.seasons.filter(x => x && typeof x === 'object') : [];
+    return { division, seasons };
+}
+function saveLeagueCareer(career) {
+    try { localStorage.setItem(LEAGUE_CAREER_KEY, JSON.stringify(career)); } catch (e) {}
+}
+
+// Repertori d'un rival nou: noms d'obertures de la llista curada (no índexs,
+// perquè la llista pot créixer) per a les blanques i contra 1.e4 i 1.d4.
+function newLeagueBotRepertoire() {
+    let list = [];
+    try { list = CURATED_OPENINGS; } catch (e) { list = []; }
+    const idx = ElTaulerCore.leagueBotRepertoire(list);
+    const nameAt = i => (i !== null && list[i]) ? list[i].name : null;
+    return { white: nameAt(idx.white), blackE4: nameAt(idx.blackE4), blackD4: nameAt(idx.blackD4) };
+}
+function curatedOpeningByName(name) {
+    if (!name) return null;
+    let list = [];
+    try { list = CURATED_OPENINGS; } catch (e) { list = []; }
+    return list.find(o => o && o.name === name) || null;
+}
+// Les lligues desades abans de la personalitat dels rivals la reben en obrir-les.
+function ensureLeaguePersonality() {
+    if (!currentLeague || !Array.isArray(currentLeague.players)) return;
+    let changed = false;
+    const bots = currentLeague.players.filter(p => p && p.id !== 'me');
+    const missing = bots.filter(p => !p.style);
+    if (missing.length) {
+        const styles = ElTaulerCore.leagueBotStyles(missing.length);
+        missing.forEach((p, i) => { p.style = styles[i]; });
+        changed = true;
+    }
+    bots.forEach(p => {
+        if (!p.repertoire) { p.repertoire = newLeagueBotRepertoire(); changed = true; }
+    });
+    if (!Array.isArray(currentLeague.colors)) {
+        // Colors alternats des de la jornada en curs (les jugades ja no es toquen).
+        const fresh = ElTaulerCore.leaguePlayerColors();
+        currentLeague.colors = fresh;
+        changed = true;
+    }
+    if (!Array.isArray(currentLeague.results)) { currentLeague.results = []; changed = true; }
+    if (!Number.isFinite(currentLeague.division)) {
+        currentLeague.division = ElTaulerCore.LEAGUE_START_DIVISION;
+        currentLeague.divisionShift = 0;
+        changed = true;
+    }
+    if (changed) saveStorage();
 }
 
 function getLeaguePlayer(id) {
@@ -5187,7 +5264,7 @@ function syncLeagueUserRoc() {
     if (!isLeagueTimeControlLocked() && !leagueRoundUnderway()
             && typeof currentLeague.baseRating === 'number' && currentLeague.baseRating !== base) {
         currentLeague.players = ElTaulerCore.rebasedLeagueRatings(currentLeague.players,
-            currentLeague.baseRating, base, ELO_MIN, ELO_MAX);
+            currentLeague.baseRating, base, ELO_MIN, ELO_MAX, currentLeague.divisionShift || 0);
         currentLeague.baseRating = base;
         saveStorage();
     }
@@ -5219,7 +5296,8 @@ function setLeagueTimeControl(tcId) {
         : getCurrentUserLeagueRoc();
     currentLeague.timeControl = id;
     const newBase = getLeagueBaseRating(id);
-    currentLeague.players = ElTaulerCore.rebasedLeagueRatings(currentLeague.players, oldBase, newBase, ELO_MIN, ELO_MAX);
+    currentLeague.players = ElTaulerCore.rebasedLeagueRatings(currentLeague.players, oldBase, newBase, ELO_MIN, ELO_MAX,
+        currentLeague.divisionShift || 0);
     currentLeague.baseRating = newBase;
     saveStorage();
     return true;
@@ -5238,13 +5316,13 @@ function formatPts(v) {
     return (Math.round(v * 10) / 10).toFixed(1).replace('.', ',');
 }
 
-function leagueSort(players) {
-    return players.slice().sort((a, b) => {
-        if (b.pts !== a.pts) return b.pts - a.pts;
-        if (b.pg !== a.pg) return b.pg - a.pg;
-        if (b.elo !== a.elo) return b.elo - a.elo;
-        return a.name.localeCompare(b.name);
-    });
+// Classificació amb els desempats de lliga (core.js: leagueStandings, LLIGA.md
+// §5): punts, enfrontament directe, victòries i Sonneborn-Berger. extraResults:
+// resultats hipotètics (p. ex. «si guanyes»). Les lligues velles sense
+// resultats desats desempaten per victòries i ROC, com abans.
+function leagueSort(players, extraResults = []) {
+    const results = (currentLeague && Array.isArray(currentLeague.results)) ? currentLeague.results : [];
+    return ElTaulerCore.leagueStandings(players, results.concat(extraResults));
 }
 
 function getMyOpponentForRound(roundIndex) {
@@ -5262,8 +5340,8 @@ function cloneLeaguePlayers() {
     return currentLeague.players.map(p => ({ ...p }));
 }
 
-function findPlayerRank(players, id) {
-    const sorted = leagueSort(players);
+function findPlayerRank(players, id, extraResults = []) {
+    const sorted = leagueSort(players, extraResults);
     const idx = sorted.findIndex(p => p.id === id);
     return idx >= 0 ? idx + 1 : null;
 }
@@ -5278,7 +5356,7 @@ function simulateRankAfterWin(opponentId) {
     me.pj++; me.pg++; me.pts += 1;
     opp.pj++; opp.pp++;
 
-    return findPlayerRank(playersCopy, 'me');
+    return findPlayerRank(playersCopy, 'me', [{ round: currentLeague.currentRound, a: 'me', b: opponentId, s: 1 }]);
 }
 
 function isLeagueUnlocked() {
@@ -5387,24 +5465,34 @@ function renderLeagueTimeControl() {
 
 function renderLeague() {
     if (!currentLeague) return;
+    ensureLeaguePersonality();
     syncLeagueUserRoc();
 
     $('#league-name').text(currentLeague.name);
+    const division = ElTaulerCore.leagueDivision(currentLeague.division);
+    $('#league-division').text(`${division.name} · el podi puja de divisió i els tres últims baixen`);
     renderLeagueTimeControl();
 
     if (currentLeague.completed) {
         $('#league-round').text('Lliga acabada');
         $('#league-next').text('Proper rival: —');
+        $('#league-next-detail').text('');
         $('#btn-league-play').hide();
         $('#btn-league-new').show();
     } else {
-        $('#league-round').text(`Jornada ${currentLeague.currentRound}/9`);
-        const oppId = getMyOpponentForRound(currentLeague.currentRound - 1);
+        const round = currentLeague.currentRound;
+        $('#league-round').text(`Jornada ${round}/9`);
+        const oppId = getMyOpponentForRound(round - 1);
         const opp = oppId ? getLeaguePlayer(oppId) : null;
         $('#league-next').text(`Proper rival: ${opp ? opp.name : '—'}`);
+        $('#league-next-detail').text(opp ? describeLeagueOpponent(opp, getLeagueRoundColor(round)) : '');
         $('#btn-league-play').show();
         $('#btn-league-new').hide();
     }
+    const perf = getLeaguePerformance();
+    $('#league-perf').text(perf && perf.performance !== null
+        ? `El teu rendiment a la temporada: ${perf.performance} (${formatPts(perf.score)} de ${perf.games})`
+        : '');
 
     const sorted = leagueSort(currentLeague.players);
     const tbody = $('#league-table-body');
@@ -5423,7 +5511,7 @@ function renderLeague() {
         const displayElo = (isCalibrationActive() && p.id === 'me') ? '—' : p.elo;
         tr.append(`
             <td class="league-player-cell">
-                <span class="league-player-name">${p.name}</span>
+                <span class="league-player-name">${escapeHtml(p.name)}</span>
             </td>
         `);
         tr.append(`<td class="league-elo-cell num">${displayElo}</td>`);
@@ -5431,11 +5519,133 @@ function renderLeague() {
         tr.append(`<td class="num">${p.pg}</td>`);
         tr.append(`<td class="num">${p.pp}</td>`);
         tr.append(`<td class="num">${p.pe}</td>`);
+        tr.append(`<td class="num league-sb-cell">${formatPts(p.tb ? p.tb.sb : 0)}</td>`);
         tr.append(`<td class="num">${formatPts(p.pts)}</td>`);
         tbody.append(tr);
     });
 
+    renderLeagueFinal();
     renderLeagueHistory();
+    renderLeagueRounds(sorted);
+    renderLeagueCrossTable(sorted);
+    renderLeagueRivals();
+    renderLeagueCareer();
+}
+
+// Estil i obertures d'un rival, en una línia. myColor: el color del jugador a
+// la jornada (null si no se sap): llavors només es diu el que el rival hi jugarà.
+function describeLeagueOpponent(opp, myColor) {
+    if (!opp) return '';
+    const parts = [`ROC ${opp.elo}`];
+    const TV = window.ElTaulerStockfishTV;
+    const style = TV && TV.TV_STYLES && opp.style ? TV.TV_STYLES[opp.style] : null;
+    if (style) parts.push(style.label);
+    if (myColor === 'w' || myColor === 'b') parts.push(myColor === 'w' ? 'hi jugues amb blanques' : 'hi jugues amb negres');
+    const rep = opp.repertoire || {};
+    if (myColor === 'b' && rep.white) parts.push(`obre amb ${rep.white}`);
+    else if (myColor === 'w') {
+        const d = [rep.blackE4 ? `${rep.blackE4} contra 1.e4` : null, rep.blackD4 ? `${rep.blackD4} contra 1.d4` : null].filter(Boolean);
+        if (d.length) parts.push(`es defensa amb ${d.join(' i ')}`);
+    }
+    return parts.join(' · ');
+}
+
+// Ordinal en català: 1r, 2n, 3r, 4t, 5è...
+function leagueOrdinal(n) {
+    const k = Number(n) || 0;
+    return k + (k === 1 || k === 3 ? 'r' : (k === 2 ? 'n' : (k === 4 ? 't' : 'è')));
+}
+
+// Resum de la temporada acabada: posició, punts, rendiment i divisió.
+function renderLeagueFinal() {
+    const box = $('#league-final');
+    if (!box.length) return;
+    const f = currentLeague && currentLeague.completed ? currentLeague.final : null;
+    if (!f) { box.hide().empty(); return; }
+    const next = ElTaulerCore.leagueDivision(f.nextDivision);
+    const move = f.movement === 'up' ? `<span class="league-final-move up">Puges a ${escapeHtml(next.name)}</span>`
+        : f.movement === 'down' ? `<span class="league-final-move down">Baixes a ${escapeHtml(next.name)}</span>`
+            : `<span class="league-final-move">Continues a ${escapeHtml(next.name)}</span>`;
+    box.html(`<div class="league-final-title">Temporada acabada: ${leagueOrdinal(f.rank)} de ${f.players}</div>
+        <div class="league-final-line">${formatPts(f.pts)} punts${f.performance !== null ? ` · rendiment ${f.performance}` : ''}${f.champion && f.rank !== 1 ? ` · campió: ${escapeHtml(f.champion)}` : ''}</div>
+        <div class="league-final-line">${move}</div>`).show();
+}
+
+// Resultats de cada jornada jugada (les cinc partides), la més recent primer.
+function renderLeagueRounds(sorted) {
+    const box = document.getElementById('league-rounds');
+    if (!box) return;
+    const results = (currentLeague && Array.isArray(currentLeague.results)) ? currentLeague.results : [];
+    if (!results.length) { box.innerHTML = '<div class="league-history-empty">Encara no s\'ha jugat cap jornada.</div>'; return; }
+    const name = id => { const p = getLeaguePlayer(id); return p ? escapeHtml(p.name) : '—'; };
+    const score = v => v === 1 ? '1 - 0' : (v === 0 ? '0 - 1' : '½ - ½');
+    const rounds = Array.from(new Set(results.map(r => r.round))).sort((a, b) => b - a);
+    box.innerHTML = rounds.map(round => {
+        const games = results.filter(r => r.round === round).map(r => {
+            // La partida del jugador amb el seu color (blanques a l'esquerra).
+            let a = r.a, b = r.b, sc = r.s;
+            if (r.a === 'me' && r.color === 'b') { a = r.b; b = r.a; sc = 1 - r.s; }
+            const mine = r.a === 'me' || r.b === 'me';
+            return `<div class="league-round-game${mine ? ' lrg-me' : ''}"><span>${name(a)} – ${name(b)}</span><span class="lrg-score">${score(sc)}</span></div>`;
+        }).join('');
+        return `<div class="league-round-block"><div class="league-round-block-title">Jornada ${round}</div>${games}</div>`;
+    }).join('');
+}
+
+// Quadre d'enfrontaments: files i columnes en l'ordre de la classificació.
+function renderLeagueCrossTable(sorted) {
+    const box = document.getElementById('league-cross');
+    if (!box) return;
+    const results = (currentLeague && Array.isArray(currentLeague.results)) ? currentLeague.results : [];
+    if (!results.length) { box.innerHTML = '<div class="league-history-empty">El quadre s\'omple a mesura que es juguen les jornades.</div>'; return; }
+    const vs = {};
+    results.forEach(r => {
+        (vs[r.a] = vs[r.a] || {})[r.b] = r.s;
+        (vs[r.b] = vs[r.b] || {})[r.a] = 1 - r.s;
+    });
+    const cell = v => v === undefined ? '·' : (v === 1 ? '1' : (v === 0 ? '0' : '½'));
+    let html = '<table class="league-cross"><thead><tr><th></th><th></th>'
+        + sorted.map((p, i) => `<th>${i + 1}</th>`).join('') + '<th>Punts</th></tr></thead><tbody>';
+    sorted.forEach((p, i) => {
+        html += `<tr class="${p.id === 'me' ? 'lc-me' : ''}"><td>${i + 1}</td><td class="lc-name">${escapeHtml(p.name)}</td>`
+            + sorted.map(q => q.id === p.id ? '<td class="lc-self"></td>' : `<td>${cell((vs[p.id] || {})[q.id])}</td>`).join('')
+            + `<td>${formatPts(p.pts)}</td></tr>`;
+    });
+    box.innerHTML = html + '</tbody></table>';
+}
+
+// Els nou rivals amb el seu estil i repertori.
+function renderLeagueRivals() {
+    const box = document.getElementById('league-rivals');
+    if (!box || !currentLeague) return;
+    const TV = window.ElTaulerStockfishTV;
+    const rows = currentLeague.players.filter(p => p && p.id !== 'me').slice().sort((a, b) => b.elo - a.elo).map(p => {
+        const style = TV && TV.TV_STYLES && p.style ? TV.TV_STYLES[p.style] : null;
+        const rep = p.repertoire || {};
+        const lines = [
+            style ? `${style.label}: ${style.text}` : null,
+            rep.white ? `Amb blanques: ${rep.white}` : null,
+            (rep.blackE4 || rep.blackD4) ? `Amb negres: ${[rep.blackE4 ? `${rep.blackE4} (1.e4)` : null, rep.blackD4 ? `${rep.blackD4} (1.d4)` : null].filter(Boolean).join(', ')}` : null
+        ].filter(Boolean).map(escapeHtml).join('<br>');
+        return `<div class="league-rival-row"><div class="league-rival-name">${escapeHtml(p.name)} · ROC ${p.elo}</div><div class="league-rival-meta">${lines}</div></div>`;
+    });
+    box.innerHTML = rows.join('') + '<div class="league-note">Els rivals juguen el seu repertori mentre la partida el segueix (més jugades com més ROC). L\'estil només decideix entre jugades que el motor valora gairebé igual (a 12 centèsimes de peó o menys), de manera que pràcticament no en canvia la força.</div>';
+}
+
+// Palmarès: les últimes temporades acabades.
+function renderLeagueCareer() {
+    const box = document.getElementById('league-career');
+    if (!box) return;
+    const career = loadLeagueCareer();
+    const seasons = career.seasons.slice().reverse().slice(0, 10);
+    if (!seasons.length) { box.innerHTML = '<div class="league-history-empty">Encara no has acabat cap temporada.</div>'; return; }
+    box.innerHTML = seasons.map(x => {
+        const div = ElTaulerCore.leagueDivision(x.division).name;
+        const tc = getTimeControlLabel(x.timeControl || 'none');
+        const arrow = x.nextDivision > x.division ? ' ↑' : (x.nextDivision < x.division ? ' ↓' : '');
+        return `<div class="league-career-row"><span>${escapeHtml(x.name || 'Temporada')} · ${leagueOrdinal(x.rank)} · ${formatPts(x.pts || 0)} punts${arrow}</span>`
+            + `<span>${escapeHtml(div)} · ${escapeHtml(tc)}${x.performance ? ` · ${x.performance}` : ''}</span></div>`;
+    }).join('');
 }
 
 function renderLeagueHistory() {
@@ -5501,12 +5711,107 @@ function applyResult(aId, bId, outcome) {
     }
 }
 
+/* ---- Lliga ràpida (30s i 1+0): partides consecutives (LLIGA.md §8) ----
+   En acabar una jornada, en lloc de la revisió surt un compte enrere de 30 s
+   amb el següent rival i la seva posició; a zero, comença la jornada següent.
+   «Anar a l'inici» l'atura; la propera partida de la lliga que es jugui torna
+   a encadenar-se amb la següent, i així fins al final de la temporada. */
+let leagueInterlude = null;   // { remainingMs, lastTs, timer }
+
+function leagueInterludeWanted() {
+    return !!(currentLeague && !currentLeague.completed
+        && ElTaulerCore.leagueAutoChains(getLeagueTimeControlId()));
+}
+
+function showLeagueInterlude(resultText) {
+    const overlay = document.getElementById('league-interlude');
+    if (!overlay || !leagueInterludeWanted()) return false;
+    stopLeagueInterludeTimer();
+    syncLeagueUserRoc();
+    const round = currentLeague.currentRound;
+    const oppId = getMyOpponentForRound(round - 1);
+    const opp = oppId ? getLeaguePlayer(oppId) : null;
+    if (!opp) return false;
+    const standings = leagueSort(currentLeague.players);
+    const oppRank = standings.findIndex(p => p.id === opp.id) + 1;
+    const myRank = standings.findIndex(p => p.id === 'me') + 1;
+    const me = standings[myRank - 1];
+    $('#li-result').text(resultText || '');
+    $('#li-round').text(`Jornada ${round}/9 · ${ElTaulerCore.leagueDivision(currentLeague.division).name}`);
+    $('#li-opp-name').text(opp.name);
+    $('#li-opp-rank').text(`${leagueOrdinal(oppRank)} a la lliga`);
+    $('#li-opp-meta').text(describeLeagueOpponent(opp, getLeagueRoundColor(round)));
+    $('#li-me').text(me ? `Tu vas ${leagueOrdinal(myRank)} amb ${formatPts(me.pts)} punts` : '');
+    leagueInterlude = { remainingMs: ElTaulerCore.LEAGUE_INTERLUDE_SECONDS * 1000, lastTs: nowMs(), timer: null };
+    renderLeagueInterludeCount();
+    overlay.style.display = 'flex';
+    leagueInterlude.timer = setInterval(tickLeagueInterlude, 200);
+    return true;
+}
+
+function renderLeagueInterludeCount() {
+    if (!leagueInterlude) return;
+    $('#li-count').text(String(Math.max(0, Math.ceil(leagueInterlude.remainingMs / 1000))));
+}
+
+// El compte enrere només corre amb l'app a la vista: amb la pestanya amagada
+// es queda quiet, perquè la partida no comenci sense ningú davant.
+function tickLeagueInterlude() {
+    if (!leagueInterlude) return;
+    // Si una altra pantalla ha tancat el compte enrere, s'atura: cap partida
+    // no ha de començar sola d'amagat.
+    const overlay = document.getElementById('league-interlude');
+    if (!overlay || overlay.style.display === 'none') { stopLeagueInterludeTimer(); return; }
+    const now = nowMs();
+    if (!document.hidden) leagueInterlude.remainingMs -= Math.max(0, now - leagueInterlude.lastTs);
+    leagueInterlude.lastTs = now;
+    renderLeagueInterludeCount();
+    if (leagueInterlude.remainingMs <= 0) startLeagueRoundFromInterlude();
+}
+
+function stopLeagueInterludeTimer() {
+    if (leagueInterlude && leagueInterlude.timer) clearInterval(leagueInterlude.timer);
+    leagueInterlude = null;
+}
+
+function hideLeagueInterlude() {
+    stopLeagueInterludeTimer();
+    const overlay = document.getElementById('league-interlude');
+    if (overlay) overlay.style.display = 'none';
+}
+
+function startLeagueRoundFromInterlude() {
+    hideLeagueInterlude();
+    if (!currentLeague || currentLeague.completed) return;
+    $('#review-modal').hide();
+    $('#checkmate-overlay').hide();
+    try { hidePostGameStatusChip(); } catch (e) {}
+    startLeagueRound();
+}
+
+function leaveLeagueInterludeHome() {
+    hideLeagueInterlude();
+    currentGameMode = 'free';
+    currentOpponent = null;
+    goToHomeScreen();
+    updateLeagueBanner();
+}
+
+// Color del jugador a la jornada `round` (1-9).
+function getLeagueRoundColor(round) {
+    const colors = currentLeague && Array.isArray(currentLeague.colors) ? currentLeague.colors : null;
+    const c = colors ? colors[(round || 1) - 1] : null;
+    return c === 'w' || c === 'b' ? c : null;
+}
+
 function startLeagueRound() {
     if (!isLeagueUnlocked()) {
         alert('La lliga es desbloqueja amb la partida inicial de calibratge.');
         return;
     }
+    hideLeagueInterlude();
     if (!currentLeague) createNewLeague(false);
+    ensureLeaguePersonality();
     syncLeagueUserRoc();
     if (currentLeague.completed) return;
 
@@ -5528,7 +5833,9 @@ function startLeagueRound() {
         round: currentLeague.currentRound,
         opponentId: oppId,
         opponentRoc,
-        opponentName: opp ? opp.name : 'Rival'
+        opponentName: opp ? opp.name : 'Rival',
+        // Color del jugador en aquesta jornada (alternats, LLIGA.md §5).
+        playerColor: getLeagueRoundColor(currentLeague.currentRound)
     };
     currentGameMode = 'league';
     currentOpponent = { id: oppId, name: opp ? opp.name : 'Rival', elo: opponentRoc };
@@ -5548,6 +5855,10 @@ function applyLeagueAfterGame(myOutcome) {
     if (myOutcome === 'win') applyResult('me', oppId, 'winA');
     else if (myOutcome === 'loss') applyResult('me', oppId, 'winB');
     else applyResult('me', oppId, 'draw');
+    if (!Array.isArray(currentLeague.results)) currentLeague.results = [];
+    currentLeague.results.push({ round: roundNumber, a: 'me', b: oppId,
+        s: myOutcome === 'win' ? 1 : (myOutcome === 'loss' ? 0 : 0.5),
+        color: leagueActiveMatch.playerColor || null });
 
     // Desa el resultat de la meva ronda per a l'historial de la lliga
     const oppForHist = getLeaguePlayer(oppId);
@@ -5577,15 +5888,57 @@ function applyLeagueAfterGame(myOutcome) {
         if (sim === 'draw') applyResult(aId, bId, 'draw');
         else if (sim === 'A') applyResult(aId, bId, 'winA');
         else applyResult(aId, bId, 'winB');
+        currentLeague.results.push({ round: roundNumber, a: aId, b: bId, s: sim === 'A' ? 1 : (sim === 'B' ? 0 : 0.5) });
     }
 
     currentLeague.currentRound++;
     if (currentLeague.currentRound > 9) {
         currentLeague.completed = true;
+        finalizeLeagueSeason();
     }
 
     leagueActiveMatch = null;
     saveStorage();
+}
+
+// Rendiment del jugador a la temporada (core.js: leaguePerformanceRating): ELO
+// amb què la puntuació esperada contra els rivals que ha tingut és la que ha
+// fet. Retorna { games, score, performance } o null sense cap jornada.
+function getLeaguePerformance(league = currentLeague) {
+    const hist = (league && Array.isArray(league.history)) ? league.history : [];
+    const games = hist.filter(h => h && typeof h.oppElo === 'number' && ['win', 'loss', 'draw'].includes(h.outcome));
+    if (!games.length) return null;
+    const score = games.reduce((sum, h) => sum + (h.outcome === 'win' ? 1 : (h.outcome === 'draw' ? 0.5 : 0)), 0);
+    return { games: games.length, score,
+        performance: ElTaulerCore.leaguePerformanceRating(games.map(h => h.oppElo), score) };
+}
+
+// Tanca la temporada: posició final, rendiment i canvi de divisió, i la desa
+// a la trajectòria del jugador (LLIGA.md §6).
+function finalizeLeagueSeason() {
+    if (!currentLeague || currentLeague.final) return;
+    const standings = leagueSort(currentLeague.players);
+    const rank = standings.findIndex(p => p.id === 'me') + 1;
+    const me = standings[rank - 1] || {};
+    const perf = getLeaguePerformance();
+    const level = ElTaulerCore.leagueDivision(currentLeague.division).level;
+    const next = ElTaulerCore.leagueNextDivision(level, rank, standings.length);
+    currentLeague.final = {
+        rank, players: standings.length, pts: me.pts || 0, pg: me.pg || 0,
+        performance: perf ? perf.performance : null,
+        division: level, nextDivision: next,
+        movement: next > level ? 'up' : (next < level ? 'down' : 'stay'),
+        champion: standings[0] ? standings[0].name : null
+    };
+    const career = loadLeagueCareer();
+    career.division = next;
+    career.seasons.push({
+        id: currentLeague.id, name: currentLeague.name, endedAt: Date.now(),
+        timeControl: getLeagueTimeControlId(), rank, pts: me.pts || 0,
+        performance: currentLeague.final.performance, division: level, nextDivision: next
+    });
+    career.seasons = career.seasons.slice(-LEAGUE_CAREER_MAX_SEASONS);
+    saveLeagueCareer(career);
 }
 
 // Enganxa l'id de la partida acabada de desar a la jornada que l'esperava. Es
@@ -24894,6 +25247,8 @@ function setupEvents() {
         openLeague();
     });
     $('#btn-league-play').click(() => { if (guardCalibrationAccess()) startLeagueRound(); });
+    $('#btn-li-play').on('click', () => startLeagueRoundFromInterlude());
+    $('#btn-li-home').on('click', () => leaveLeagueInterludeHome());
     $('#btn-opening').click(() => {
         renderOpeningStatsScreen();
         renderPersonalRepertoire();
@@ -30332,6 +30687,10 @@ blunderMode = isBundle;
         // El color s'ha triat (i s'ha ensenyat) a la introducció de la modalitat.
         playerColor = antidoteRequest.color === 'b' ? 'b' : 'w';
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
+    } else if (leagueActiveMatch && (leagueActiveMatch.playerColor === 'w' || leagueActiveMatch.playerColor === 'b')) {
+        // Lliga: el color de la jornada, alternat al llarg de la temporada.
+        playerColor = leagueActiveMatch.playerColor;
+        boardOrientation = (playerColor === 'w') ? 'white' : 'black';
     } else if (freeGameColorRequest) {
         playerColor = freeGameColorRequest === 'b' ? 'b' : 'w';
         boardOrientation = (playerColor === 'w') ? 'white' : 'black';
@@ -32651,6 +33010,8 @@ function makeEngineMove(skipAntidote) {
     // El teu bessó juga primer del TEU llibre d'obertures personal; només passa
     // al motor quan la partida surt de les línies que jugues habitualment.
     if (currentGameMode === 'besso' && bessoState && tryBessoBookMove()) return;
+    // Rival de lliga: juga primer el seu repertori d'obertures (LLIGA.md §7).
+    if (currentGameMode === 'league' && leagueActiveMatch && tryLeagueBookMove()) return;
     // Rival Antídot: cerca MultiPV al seu worker propi i tria la jugada forta
     // que millor posa a prova el jugador. Si no se'n surt (motor caigut, temps
     // excedit, dades insuficients) torna aquí amb skipAntidote i la partida
@@ -32760,6 +33121,67 @@ function makeEngineMove(skipAntidote) {
     searchEngine.postMessage(searchBudgetMs === null
         ? `go depth ${depth}`
         : `go depth ${depth} movetime ${searchBudgetMs}`);
+}
+
+// Rival de la jornada en curs (o null).
+function getLeagueMatchOpponent() {
+    return (currentGameMode === 'league' && leagueActiveMatch) ? getLeaguePlayer(leagueActiveMatch.opponentId) : null;
+}
+
+// Línies del repertori del rival per al color amb què juga.
+function leagueRepertoireLines(opp, botColor) {
+    const rep = opp && opp.repertoire;
+    if (!rep) return [];
+    const names = botColor === 'w' ? [rep.white] : [rep.blackE4, rep.blackD4];
+    return names.map(curatedOpeningByName).filter(Boolean);
+}
+
+// Jugada de llibre del rival de lliga (core.js: leagueBookMove): la següent de
+// la seva obertura mentre la partida la segueixi i se la sàpiga (més jugades
+// com més ROC). S'aplica pel mateix camí que les jugades del motor, amb el
+// temps de reflexió humanitzat i el rellotge.
+function tryLeagueBookMove() {
+    const opp = getLeagueMatchOpponent();
+    if (!opp || !game) return false;
+    const botColor = playerColor === 'w' ? 'b' : 'w';
+    let book = null;
+    try {
+        book = ElTaulerCore.leagueBookMove(leagueRepertoireLines(opp, botColor), game.history(), botColor,
+            ElTaulerCore.leagueBookDepth(getActiveStrengthElo()));
+    } catch (e) { book = null; }
+    if (!book) return false;
+    let mv = null;
+    try { mv = new Chess(game.fen()).move(book.san); } catch (e) { mv = null; }
+    if (!mv) return false;
+    isEngineThinking = true;
+    $('#status').text("L'adversari pensa...");
+    if (engineReplyStartTs === null) engineReplyStartTs = nowMs();
+    resetEngineMoveCandidates();
+    engineMoveSearchTrace = [];
+    clearEngineMoveTimers();
+    const uci = mv.from + mv.to + (mv.promotion || '');
+    let delay = 400;
+    try { delay = computeHumanReplyDelayMs(uci); } catch (e) {}
+    scheduleEngineMoveApply(mv.from, mv.to, mv.promotion || 'q', delay);
+    return true;
+}
+
+// Estil del rival de lliga (perfils de la TV, stockfishtv.js): entre les
+// candidates a LEAGUE_STYLE_WINDOW_CP de la jugada triada, la que més s'avé amb
+// l'estil (core.js: leagueStyledChoice). Si no hi ha estil o dades, la triada.
+function leagueStyledMove(moveStr) {
+    const opp = getLeagueMatchOpponent();
+    const TV = window.ElTaulerStockfishTV;
+    if (!opp || !opp.style || !TV || !TV.tvMoveFeatures || !TV.tvStyleScore || !moveStr) return moveStr;
+    try {
+        const fen = game.fen();
+        const own = engineMoveCandidates.find(c => c.move === moveStr);
+        if (!own) return moveStr;
+        return ElTaulerCore.leagueStyledChoice(engineMoveCandidates, moveStr,
+            uci => TV.tvStyleScore(opp.style, TV.tvMoveFeatures(Chess, fen, uci, own.score)));
+    } catch (e) {
+        return moveStr;
+    }
 }
 
 function chooseFallbackMove(fallbackMove, chessInstance = game) {
@@ -33436,12 +33858,16 @@ function handleEngineMessage(rawMsg) {
             // calibrar (el de les partides amb rellotge), també a la lliga
             // sense rellotge; sense rellotge no hi ha errades per pressió.
             const nativePath = gameClock.enabled || engineSearchUsesTimedRival;
+            const slipArmed = engineClockSlipArmed;
             const chosen = chooseHumanLikeMove(engineMoveCandidates, game, nativePath
                 ? { engineBestMove: fallbackMove, clock: engineClockContext(), clockSlip: engineClockSlipArmed,
                     strengthElo: engineSearchStrengthElo, humanChoiceElo: engineSearchHumanElo,
                     nativeStrength: !!(searchCaps.skill || (searchCaps.limit && searchCaps.elo)) } : {}) || { move: null };
             engineClockSlipArmed = false;
-            const moveStr = chosen.move || (nativePath ? fallbackMove : chooseFallbackMove(fallbackMove));
+            let moveStr = chosen.move || (nativePath ? fallbackMove : chooseFallbackMove(fallbackMove));
+            // Estil del rival de lliga: només desempata entre jugades gairebé
+            // iguals a la triada (LLIGA.md §7); l'errada per pressió no es toca.
+            if (currentGameMode === 'league' && !slipArmed) moveStr = leagueStyledMove(moveStr);
             const fromSq = moveStr.substring(0, 2);
             const toSq = moveStr.substring(2, 4);
             const promotion = moveStr.length > 4 ? moveStr[4] : (match[3] || 'q');
@@ -34141,6 +34567,7 @@ function showPostGameReview(msg, finalPrecision, counts, onClose, options = {}) 
 }
 
 function returnToMainMenuImmediate() {
+    if (typeof hideLeagueInterlude === 'function') hideLeagueInterlude();
     if (canPauseUntimedGame()) {
         if (!saveLiveGame()) {
             showToast('No s\'ha pogut desar la partida. Allibera espai al navegador abans de sortir.', 'warn');
@@ -35502,6 +35929,10 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // NO es barreja amb l'ELO principal ni amb l'ajust adaptatiu continu.
     const isTimedRatedGame = !blunderMode && !calibrationGameWasActive && !isLeagueMode
         && !isAntidoteGameMode && currentGameTimeControlId !== 'none';
+    // Partida de lliga: puntua amb Elo (K=24) contra el ROC del rival de la
+    // jornada (LLIGA.md §5): a l'ELO del ritme de la temporada o, sense
+    // rellotge, al principal. Abans no puntuava enlloc.
+    const isLeagueRatedGame = isLeagueMode && wasLeagueMatch && !blunderMode && !calibrationGameWasActive;
     const adaptationPlayerEloBefore = userELO;
     const adaptationCurrentEloBefore = currentElo;
     const adaptationAdjustmentLogStart = adjustmentLog.length;
@@ -35585,6 +36016,21 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
             msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
         }
         timedCalibrationTcId = null;
+    } else if (isLeagueRatedGame) {
+        const leagueOppRoc = getLeagueOpponentRoc(leagueActiveMatch);
+        if (currentGameTimeControlId && currentGameTimeControlId !== 'none') {
+            change = applyTimeControlEloDelta(currentGameTimeControlId, resultScore, leagueOppRoc);
+            msg += ` (${formatEloChange(change)} · ${getTimeControlLabel(currentGameTimeControlId)})`;
+        } else {
+            change = ElTaulerCore.ratedEloDelta(userELO, leagueOppRoc, resultScore);
+            const before = userELO;
+            userELO = clampUserElo(userELO + change);
+            change = userELO - before;
+            updateEloHistory(userELO);
+            syncEngineEloFromUser();
+            msg += ` (${formatEloChange(change)})`;
+        }
+        lastLeagueEloChange = change;
     } else if (!calibrationGameWasActive && !isLeagueMode && !shouldContinuousAdjust && !isExplorerMode && !isPositionalGameMode && !isBessoMode && !isAntidoteGameMode) {
         change = calculateEloDelta(resultScore);
         msg += ` (${formatEloChange(change)})`;
@@ -35651,11 +36097,13 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
         }
         // En partides amb rellotge el delta s'ha aplicat a l'ELO del ritme,
         // no al principal: es reflecteix igualment a l'informe.
-        if (isTimedRatedGame && !appliedDelta) appliedDelta = change || 0;
+        if ((isTimedRatedGame || isLeagueRatedGame) && !appliedDelta) appliedDelta = change || 0;
         let adjustmentReason = adjustmentSummary.reason;
         if (adjustmentReason === 'Sense ajust adaptatiu') {
             if (calibrationGameWasActive) adjustmentReason = 'Partida de calibratge';
-            else if (isLeagueMode) adjustmentReason = 'Mode lliga: sense ajust adaptatiu';
+            else if (isLeagueMode) adjustmentReason = (currentGameTimeControlId && currentGameTimeControlId !== 'none')
+                ? `Lliga: puntua a l'ELO ${getTimeControlLabel(currentGameTimeControlId)} contra el ROC del rival`
+                : 'Lliga: puntua a l\'ELO principal contra el ROC del rival';
             else if (isTimedRatedGame) adjustmentReason = `Partida amb rellotge: puntua a l'ELO ${getTimeControlLabel(currentGameTimeControlId)}`;
             else if (!shouldContinuousAdjust) adjustmentReason = 'Ajust adaptatiu inicial per resultat';
         }
@@ -35809,7 +36257,17 @@ function handleGameOver(manualResign = false, timeoutColor = null) {
     // estàndard. Si per qualsevol motiu no es pot pintar, cau a la revisió
     // normal de sempre.
     const antidoteEntry = isAntidoteGameMode ? gameHistory[gameHistory.length - 1] : null;
+    // Lliga de 30s o 1+0 amb jornades pendents: compte enrere fins a la
+    // següent en lloc de la revisió (la partida ja és a l'historial).
+    const leagueChainNext = wasLeagueMatch && !blunderMode && leagueInterludeWanted();
     const showFullReview = () => {
+        if (leagueChainNext) {
+            hidePostGameStatusChip();
+            if (showLeagueInterlude(msg)) {
+                persistPostGameAfterPaint('league-interlude');
+                return;
+            }
+        }
         if (isAntidoteGameMode) {
             hidePostGameStatusChip();
             let shown = false;

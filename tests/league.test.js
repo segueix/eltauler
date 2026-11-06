@@ -333,7 +333,7 @@ describe('a l\'app: graella nova i lliga encara no començada', () => {
     test('createNewLeague sorteja els rivals amb leagueOpponentOffsets dins de ELO_MIN-ELO_MAX i en desa el desplaçament', () => {
         const fn = fnSource('createNewLeague');
         expect(fn).toMatch(/ElTaulerCore\.leagueOpponentOffsets\(\)/);
-        expect(fn).toMatch(/ElTaulerCore\.leagueOpponentRating\(baseRating, offset, ELO_MIN, ELO_MAX\)/);
+        expect(fn).toMatch(/ElTaulerCore\.leagueOpponentRating\(baseRating \+ division\.shift, offset, ELO_MIN, ELO_MAX\)/);
         expect(fn).toMatch(/offset: offset/);
         expect(fn).not.toMatch(/randInt\(-25, 25\)/);
     });

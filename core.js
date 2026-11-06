@@ -4325,7 +4325,7 @@
     // tornen a col·locar amb leagueOpponentRating dins del rang del motor
     // (minRating-maxRating); els de lligues velles es desplacen tal qual, sense
     // baixar de minRating ni passar de maxRating.
-    function rebasedLeagueRatings(players, oldBase, newBase, minRating, maxRating) {
+    function rebasedLeagueRatings(players, oldBase, newBase, minRating, maxRating, shift) {
         const list = Array.isArray(players) ? players : [];
         const floor = (typeof minRating === 'number' && !isNaN(minRating)) ? minRating : 50;
         const ceil = (typeof maxRating === 'number' && !isNaN(maxRating)) ? Math.max(floor, maxRating) : Infinity;
@@ -4339,7 +4339,10 @@
             // rang del motor (leagueBaseRating ja hi posa el terra de l'app).
             if (p.id === 'me') return Object.assign({}, p, { elo: to });
             if (typeof p.offset === 'number' && !isNaN(p.offset)) {
-                return Object.assign({}, p, { elo: leagueOpponentRating(to, p.offset, floor,
+                // shift: desplaçament de la divisió (els rivals giren al voltant
+                // de la referència + shift).
+                const center = to + (Number.isFinite(shift) ? shift : 0);
+                return Object.assign({}, p, { elo: leagueOpponentRating(center, p.offset, floor,
                     Number.isFinite(ceil) ? ceil : undefined) });
             }
             const elo = (typeof p.elo === 'number' && !isNaN(p.elo)) ? p.elo : to;
@@ -4400,6 +4403,206 @@
         const r = rnd();
         if (r < pd) return 'draw';
         return r < pd + (ea - pd / 2) ? 'A' : 'B';
+    }
+
+    // Colors del jugador a les nou jornades (LLIGA.md §5): alternats, com a
+    // les taules de tots contra tots, de manera que en fa 5 amb un color i 4
+    // amb l'altre (abans, cada jornada es tirava a l'atzar i podien sortir 7
+    // partides de 9 amb negres). El color de la primera jornada se sorteja.
+    function leaguePlayerColors(random, rounds) {
+        const rnd = typeof random === 'function' ? random : Math.random;
+        const n = Number.isFinite(rounds) && rounds > 0 ? Math.floor(rounds) : 9;
+        const first = rnd() < 0.5 ? 'w' : 'b';
+        const other = first === 'w' ? 'b' : 'w';
+        const out = [];
+        for (let i = 0; i < n; i++) out.push(i % 2 === 0 ? first : other);
+        return out;
+    }
+
+    // Classificació amb els desempats de les lligues de tots contra tots
+    // (FIDE, sistema de lliga): 1) punts; 2) enfrontament directe (punts entre
+    // els empatats, només si tots s'hi han enfrontat); 3) victòries;
+    // 4) Sonneborn-Berger (punts dels rivals guanyats + meitat dels empatats);
+    // 5) ROC i nom, perquè l'ordre sigui sempre el mateix. results: [{ round,
+    // a, b, s }] amb s = punts d'a (1, 0,5 o 0). Retorna còpies dels jugadors
+    // ordenades, amb tb = { sb, h2h }.
+    function leagueStandings(players, results) {
+        const list = (Array.isArray(players) ? players : []).filter(Boolean).map(function (p) {
+            return Object.assign({}, p, { pts: Number(p.pts) || 0, pg: Number(p.pg) || 0 });
+        });
+        const res = (Array.isArray(results) ? results : []).filter(function (r) {
+            return r && r.a && r.b && (r.s === 1 || r.s === 0 || r.s === 0.5);
+        });
+        const ptsOf = {};
+        list.forEach(function (p) { ptsOf[p.id] = p.pts; });
+        const scoreVs = {};   // scoreVs[a][b] = punts d'a contra b
+        res.forEach(function (r) {
+            (scoreVs[r.a] = scoreVs[r.a] || {})[r.b] = r.s;
+            (scoreVs[r.b] = scoreVs[r.b] || {})[r.a] = 1 - r.s;
+        });
+        list.forEach(function (p) {
+            let sb = 0;
+            const mine = scoreVs[p.id] || {};
+            Object.keys(mine).forEach(function (opp) { sb += mine[opp] * (ptsOf[opp] || 0); });
+            p.tb = { sb: sb, h2h: 0 };
+        });
+        // Enfrontament directe dins de cada grup d'empatats a punts.
+        const groups = {};
+        list.forEach(function (p) { (groups[p.pts] = groups[p.pts] || []).push(p); });
+        Object.keys(groups).forEach(function (k) {
+            const g = groups[k];
+            if (g.length < 2) return;
+            const allMet = g.every(function (x) {
+                return g.every(function (y) { return x === y || (scoreVs[x.id] && scoreVs[x.id][y.id] !== undefined); });
+            });
+            if (!allMet) return;
+            g.forEach(function (x) {
+                x.tb.h2h = g.reduce(function (sum, y) { return x === y ? sum : sum + scoreVs[x.id][y.id]; }, 0);
+            });
+        });
+        return list.sort(function (a, b) {
+            return (b.pts - a.pts) || (b.tb.h2h - a.tb.h2h) || (b.pg - a.pg) || (b.tb.sb - a.tb.sb)
+                || ((Number(b.elo) || 0) - (Number(a.elo) || 0)) || String(a.name || a.id).localeCompare(String(b.name || b.id));
+        });
+    }
+
+    // Rendiment d'una temporada (o de qualsevol tanda de partides): l'ELO amb
+    // què la puntuació esperada contra aquests rivals és exactament la feta.
+    // Amb el 100% o el 0% no té solució: s'hi compta mig punt menys (o més),
+    // com si s'hagués fet taules en una de les partides. null sense partides.
+    function leaguePerformanceRating(oppRatings, score) {
+        const opps = (Array.isArray(oppRatings) ? oppRatings : []).map(Number).filter(Number.isFinite);
+        const n = opps.length;
+        if (!n || !Number.isFinite(score)) return null;
+        const target = Math.max(0.5, Math.min(n - 0.5, score));
+        const expected = function (r) {
+            return opps.reduce(function (sum, o) { return sum + 1 / (1 + Math.pow(10, (o - r) / 400)); }, 0);
+        };
+        let lo = Math.min.apply(null, opps) - 1200, hi = Math.max.apply(null, opps) + 1200;
+        for (let i = 0; i < 60; i++) {
+            const mid = (lo + hi) / 2;
+            if (expected(mid) < target) lo = mid; else hi = mid;
+        }
+        return Math.round((lo + hi) / 2);
+    }
+
+    // Divisions (LLIGA.md §6): cada temporada es juga en una divisió, que
+    // desplaça tota la graella de rivals respecte de la referència del jugador.
+    // Podi (1r-3r): puja; últims tres (8è-10è): baixa. Es comença a Segona.
+    // El desplaçament és de 50 punts per divisió: les partides de lliga ja
+    // fan pujar o baixar la puntuació del jugador (i, amb ella, la referència
+    // de la graella), i la divisió hi afegeix un repte, no un salt de nivell.
+    const LEAGUE_DIVISIONS = [
+        { name: 'Quarta Divisió', shift: -100 },
+        { name: 'Tercera Divisió', shift: -50 },
+        { name: 'Segona Divisió', shift: 0 },
+        { name: 'Primera Divisió', shift: 50 },
+        { name: "Divisió d'Honor", shift: 100 }
+    ];
+    const LEAGUE_START_DIVISION = 2;
+    function leagueDivision(level) {
+        const i = Number.isFinite(level) ? Math.max(0, Math.min(LEAGUE_DIVISIONS.length - 1, Math.round(level))) : LEAGUE_START_DIVISION;
+        return Object.assign({ level: i }, LEAGUE_DIVISIONS[i]);
+    }
+    // Divisió de la temporada següent segons la posició final (1-10).
+    function leagueNextDivision(level, rank, players) {
+        const cur = leagueDivision(level).level;
+        const n = Number.isFinite(players) ? players : 10;
+        if (rank >= 1 && rank <= 3) return Math.min(LEAGUE_DIVISIONS.length - 1, cur + 1);
+        if (rank > n - 3 && rank <= n) return Math.max(0, cur - 1);
+        return cur;
+    }
+
+    // Partides consecutives (LLIGA.md §8): a les lligues de 30s i 1+0, en
+    // acabar una jornada es passa a la següent tota sola després d'un compte
+    // enrere de 30 segons.
+    const LEAGUE_AUTO_TCS = ['30s', '1+0'];
+    const LEAGUE_INTERLUDE_SECONDS = 30;
+    function leagueAutoChains(tcId) {
+        return LEAGUE_AUTO_TCS.indexOf(tcId) !== -1;
+    }
+
+    // Personalitat dels rivals (LLIGA.md §7). Estils: els perfils de la TV
+    // (stockfishtv.js), repartits perquè no se'n repeteixi cap més de tres vegades.
+    const LEAGUE_STYLE_IDS = ['attacker', 'wall', 'hunter', 'strategist'];
+    function leagueBotStyles(count, random) {
+        const rnd = typeof random === 'function' ? random : Math.random;
+        const n = Number.isFinite(count) ? count : 9;
+        const pool = [];
+        while (pool.length < n) pool.push.apply(pool, LEAGUE_STYLE_IDS);
+        for (let i = pool.length - 1; i > 0; i--) {
+            const j = Math.floor(rnd() * (i + 1));
+            const t = pool[i]; pool[i] = pool[j]; pool[j] = t;
+        }
+        return pool.slice(0, n);
+    }
+    // Repertori fix d'un rival: una obertura amb blanques i una defensa contra
+    // 1.e4 i una contra 1.d4, de la llista curada de l'app (camp moves en SAN
+    // i cat 'white' / 'black'). Retorna els índexs dins de la llista.
+    function leagueBotRepertoire(openings, random) {
+        const rnd = typeof random === 'function' ? random : Math.random;
+        const list = Array.isArray(openings) ? openings : [];
+        const pick = function (pred) {
+            const ids = [];
+            list.forEach(function (o, i) { if (o && Array.isArray(o.moves) && o.moves.length >= 2 && pred(o)) ids.push(i); });
+            return ids.length ? ids[Math.floor(rnd() * ids.length)] : null;
+        };
+        return {
+            white: pick(function (o) { return o.cat === 'white'; }),
+            blackE4: pick(function (o) { return o.cat === 'black' && o.moves[0] === 'e4'; }),
+            blackD4: pick(function (o) { return o.cat === 'black' && o.moves[0] === 'd4'; })
+        };
+    }
+    // Jugades pròpies del llibre que coneix un rival segons el ROC: qui
+    // comença només se sap les primeres jugades de la seva obertura.
+    function leagueBookDepth(roc) {
+        const r = Number(roc) || 0;
+        if (r < 800) return 3;
+        if (r < 1400) return 5;
+        return 8;
+    }
+    // Jugada de llibre del rival: la següent de la línia del seu repertori si
+    // la partida (des de la posició inicial) n'ha seguit fins ara totes les
+    // jugades, li toca a ell i encara no ha esgotat les que es coneix. history:
+    // SAN de la partida; botColor: 'w' o 'b'. Retorna { san, line } o null.
+    function leagueBookMove(lines, history, botColor, maxOwnMoves) {
+        const clean = function (m) { return String(m || '').replace(/[+#?!]/g, ''); };
+        const hist = (Array.isArray(history) ? history : []).map(clean);
+        const ply = hist.length;
+        const botTurn = (ply % 2 === 0) ? 'w' : 'b';
+        if (botTurn !== botColor) return null;
+        const ownSoFar = botColor === 'w' ? Math.ceil(ply / 2) : Math.floor(ply / 2);
+        if (Number.isFinite(maxOwnMoves) && ownSoFar >= maxOwnMoves) return null;
+        const usable = (Array.isArray(lines) ? lines : []).filter(function (l) { return l && Array.isArray(l.moves); });
+        for (let i = 0; i < usable.length; i++) {
+            const moves = usable[i].moves.map(clean);
+            if (moves.length <= ply) continue;
+            let ok = true;
+            for (let k = 0; k < ply; k++) { if (moves[k] !== hist[k]) { ok = false; break; } }
+            if (ok) return { san: usable[i].moves[ply], line: usable[i] };
+        }
+        return null;
+    }
+    // L'estil només desempata entre jugades gairebé iguals: entre les
+    // candidates a STYLE_WINDOW_CP o menys de la triada (per sobre o per
+    // sota), la que més s'avé amb l'estil. Així la força pràcticament no es
+    // mou: la diferència d'avaluació de la jugada canviada està acotada per
+    // la finestra, i en tots dos sentits. candidates: [{ move, score }] (cp des de
+    // qui mou); styleScore(move) → número. Amb un mat a la vista no toca res.
+    const LEAGUE_STYLE_WINDOW_CP = 12;
+    function leagueStyledChoice(candidates, chosenMove, styleScore, windowCp) {
+        const list = Array.isArray(candidates) ? candidates : [];
+        const own = list.find(function (c) { return c && c.move === chosenMove; });
+        if (!own || !Number.isFinite(own.score) || typeof styleScore !== 'function') return chosenMove;
+        if (list.some(function (c) { return c && Math.abs(c.score) >= 9999; })) return chosenMove;
+        const win = Number.isFinite(windowCp) ? windowCp : LEAGUE_STYLE_WINDOW_CP;
+        let best = chosenMove, bestScore = styleScore(chosenMove);
+        list.forEach(function (c) {
+            if (!c || c.move === chosenMove || !Number.isFinite(c.score) || Math.abs(c.score - own.score) > win) return;
+            const v = styleScore(c.move);
+            if (v > bestScore + 1e-9) { best = c.move; bestScore = v; }
+        });
+        return best;
     }
 
     // Quina partida guardada correspon a cada jornada de la lliga.
@@ -10083,6 +10286,23 @@
         LEAGUE_DRAW_RATES,
         leagueDrawChance,
         leagueSimulatedResult,
+        leaguePlayerColors,
+        leagueStandings,
+        leaguePerformanceRating,
+        LEAGUE_DIVISIONS,
+        LEAGUE_START_DIVISION,
+        leagueDivision,
+        leagueNextDivision,
+        LEAGUE_AUTO_TCS,
+        LEAGUE_INTERLUDE_SECONDS,
+        leagueAutoChains,
+        LEAGUE_STYLE_IDS,
+        leagueBotStyles,
+        leagueBotRepertoire,
+        leagueBookDepth,
+        leagueBookMove,
+        LEAGUE_STYLE_WINDOW_CP,
+        leagueStyledChoice,
         rebasedLeagueRatings,
         leagueRoundGameLinks,
         evaluateGameQuality,

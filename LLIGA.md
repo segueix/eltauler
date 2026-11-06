@@ -2,10 +2,13 @@
 
 Revisió de la lliga (deu jugadors, nou jornades, tots contra tots) després
 d'incorporar el rival de Stockfish 19 i les capes del rellotge
-(`ANALISI_RELLOTGE.md` §8-17). Codi a `app.js` (`createNewLeague`,
-`applyLeagueAfterGame`, `getAIDepth`, `makeEngineMove`) i `core.js` (secció
-«Lliga»); proves a `tests/league.test.js` i `tests/league-rival.test.js`;
-scripts i dades a `scripts/lliga-lichess/`.
+(`ANALISI_RELLOTGE.md` §8-17), i funcions noves de la temporada: colors
+alternats, desempats, puntuació, rendiment, divisions, personalitat dels
+rivals i partides consecutives a 30s i 1+0. Codi a `app.js`
+(`createNewLeague`, `applyLeagueAfterGame`, `getAIDepth`, `makeEngineMove`,
+`showLeagueInterlude`) i `core.js` (secció «Lliga»); proves a
+`tests/league.test.js`, `tests/league-rival.test.js` i
+`tests/league-season.test.js`; scripts i dades a `scripts/lliga-lichess/`.
 
 ## 1. Què hi havia
 
@@ -172,7 +175,100 @@ rellotge de §15), i el factor de la diferència. La puntuació esperada és
 exactament la d'Elo: P(guanya A) = E − taules/2. Les proves comproven les dues
 coses amb 40.000 partides simulades.
 
-## 5. Límits
+## 5. Colors, desempats i puntuació
+
+- **Colors alternats** (`leaguePlayerColors`): el jugador fa 5 partides amb un
+  color i 4 amb l'altre, alternant jornada a jornada (el color de la primera se
+  sorteja). Abans es tirava a l'atzar a cada partida i podien sortir-ne 7 de 9
+  amb negres. La jornada desa el color (`leagueActiveMatch.playerColor`) i
+  `startGame` el respecta.
+- **Tots els resultats** de la temporada es desen (`currentLeague.results`:
+  jornada, jugadors i punts), també els dels rivals entre ells.
+- **Desempats** (`leagueStandings`), els de les lligues de tots contra tots:
+  punts; enfrontament directe (punts entre els empatats, només si tots s'hi han
+  enfrontat); victòries; Sonneborn-Berger (punts dels rivals guanyats més la
+  meitat dels empatats); ROC i nom. Abans: victòries i ROC. Les lligues velles,
+  sense resultats desats, desempaten com abans.
+- **Les partides de lliga puntuen**: Elo (K=24, mínim ±8 com a la resta de
+  l'app) contra el ROC del rival de la jornada, a l'ELO del ritme de la
+  temporada o, sense rellotge, al principal. Abans no puntuaven enlloc. La
+  graella no es mou: es va sortejar amb la puntuació d'inici de temporada.
+- **Rendiment** (`leaguePerformanceRating`): l'ELO amb què la puntuació
+  esperada contra els rivals que s'han tingut és la feta (amb el 100% o el 0%
+  s'hi compta mig punt menys o més). Es veu durant la temporada i al final.
+
+## 6. Divisions i palmarès
+
+Cinc divisions (`LEAGUE_DIVISIONS`): Quarta, Tercera, Segona, Primera i
+d'Honor, que desplacen tota la graella −100, −50, 0, +50 i +100 punts. Es
+comença a Segona. En acabar la temporada, el podi puja una divisió i els tres
+últims en baixen una (`leagueNextDivision`). El desplaçament és petit perquè
+les partides de lliga ja mouen la puntuació del jugador, i amb ella la
+referència de la graella: la divisió hi afegeix un repte, no un salt de nivell.
+
+La trajectòria (divisió i fins a 30 temporades acabades: nom, ritme, posició,
+punts, rendiment i divisions) es desa a `chess_leagueCareer`, que se
+sincronitza amb la resta de dades. En acabar, la pantalla de la lliga mostra
+el resum (posició, punts, rendiment, campió, si es puja o es baixa) i el
+palmarès.
+
+## 7. Personalitat dels rivals
+
+- **Estil**: cadascun té un dels quatre perfils de la TV (`TV_STYLES` de
+  `stockfishtv.js`: l'Atacant, el Mur, el Caçador i l'Estratega), cap més de
+  tres vegades. Després de triar la jugada (model de tria humana o tria
+  anterior), entre les candidates que el motor valora a 12 centèsimes de peó o
+  menys de la triada, per sobre o per sota, s'hi juga la que més s'avé amb
+  l'estil (`leagueStyledChoice`). La diferència d'avaluació queda acotada per
+  aquesta finestra, de manera que la força pràcticament no es mou. L'errada per
+  pressió de rellotge no es toca, i amb un mat a la vista tampoc.
+- **Repertori**: una obertura amb blanques i una defensa contra 1.e4 i una
+  contra 1.d4, de la llista curada d'obertures de l'app (`CURATED_OPENINGS`, se
+  n'ha comprovat que totes les línies són legals). El rival juga la seva línia
+  mentre la partida la segueix i se la sap: 3 jugades pròpies per sota de ROC
+  800, 5 fins a 1400 i 8 a partir d'aquí (`leagueBookMove`, `leagueBookDepth`).
+  Les jugades de llibre passen pel mateix camí que les del motor: temps de
+  reflexió humanitzat, rellotge i premoves.
+- La pantalla de la lliga diu, del proper rival, el ROC, l'estil, el color de la
+  jornada i què hi jugarà; i una secció plegable ensenya l'estil i el repertori
+  dels nou.
+
+Les lligues desades abans d'aquest canvi reben estil, repertori, colors i
+divisió en obrir-les (`ensureLeaguePersonality`).
+
+## 8. Lliga ràpida: partides consecutives a 30s i 1+0
+
+A les lligues de 30s i 1+0 (`leagueAutoChains`), en acabar una jornada no surt
+la revisió: surt una pantalla amb el resultat (i el canvi d'ELO), un compte
+enrere de 30 a 0 segons, la jornada, el **nom del proper rival i la seva
+posició a la lliga**, el seu ROC, estil, color i obertura, i la posició del
+jugador. A zero comença sola la jornada següent; «Juga ara» no espera i
+«Anar a l'inici» l'atura.
+
+Sortir no desactiva res: és el ritme de la lliga el que encadena les
+partides. La propera jornada que es jugui (des de la lliga, el bàner de
+l'inici o una missió) tornarà a acabar amb el compte enrere, i així fins a la
+novena, que acaba amb la revisió normal i el resum de la temporada. La
+partida es desa a l'historial igualment i es pot revisar des de la llista de
+jornades.
+
+El compte enrere només corre amb l'app a la vista (amb la pestanya amagada
+s'atura) i, si una altra pantalla tanca la finestra, s'atura sense començar
+cap partida d'amagat.
+
+**Comprovat a l'app** (1+0, Chromium, Stockfish 19 real): el rival de la
+jornada 1, amb blanques i el Sistema Londres, obre 1.d4; en rendir-se apareix
+el compte enrere amb el proper rival («AlfilFosc, 10è a la lliga, ROC 1106, el
+Mur, hi jugues amb blanques, es defensa amb la Siciliana i la Benoni»), sense
+la revisió; a zero comença la jornada 2 amb blanques; «Anar a l'inici» porta a
+l'inici sense cap partida en marxa, i la jornada 3, començada des d'allà, torna
+a acabar amb el compte enrere. Amb 1.e4, un rival amb l'Escandinava respon
+1…d5. La jornada 9 acaba amb la revisió normal; en quedar 2n, la temporada es
+tanca amb «Puges a Primera Divisió» i la següent lliga surt +50 punts. Les
+partides reals han mogut l'ELO de 1+0 (tres derrotes: 1250 → 1202). Sense
+errors de pàgina.
+
+## 9. Límits
 
 - **El rival de lliga sense rellotge no s'ha comparat amb el de la partida
   lliure sense rellotge.** Stockfish 19 i el model de tria humana es van
@@ -191,8 +287,18 @@ coses amb 40.000 partides simulades.
   proposa ni accepta taules.
 - Per sota de ROC ~870 el nivell de Lichess equivalent és per sota de les
   dades (§15) i s'hi fa servir la franja més baixa (700).
+- Les jugades de llibre són teoria: durant les primeres jugades el rival
+  juga millor del que li tocaria pel ROC (com una persona que es coneix la
+  seva obertura). No s'ha mesurat l'efecte sobre els resultats; per això el
+  llibre és curt als nivells baixos (3 jugades).
+- L'efecte de l'estil sobre la força s'ha acotat (cada jugada canviada és a
+  12 centèsimes de peó o menys de la triada, en tots dos sentits), no mesurat
+  en partides.
+- Les partides de lliga puntuen, però la graella no segueix la puntuació un cop
+  començada la temporada: si el jugador puja molt durant la temporada, la
+  lliga se li fa més fàcil fins a la següent.
 
-## 6. Proves
+## 10. Proves
 
 - `league-rival.test.js`: quan juga el rival de Stockfish 19 (lliga amb i
   sense rellotge, partida lliure amb rellotge sí; lliure sense rellotge,
@@ -213,8 +319,21 @@ coses amb 40.000 partides simulades.
   d'Elo exacta amb 40.000 partides simulades.
 - `sf19rival.test.js`: la decisió de preparar Stockfish 19 passa per
   `sf19RivalWanted`.
+- `league-season.test.js` (§5-8): colors alternats i el color de la jornada a
+  `startGame`; desempats (punts, directe només si tots s'han enfrontat,
+  victòries, Sonneborn-Berger, lligues velles); rendiment (esperança igual a la
+  puntuació, monotonia, extrems); divisions i desplaçament de la graella; una
+  temporada sencera amb el codi real (45 resultats, cada parella un cop,
+  colors desats, campió que puja i últim que baixa, palmarès); les partides de
+  lliga puntuen i no es compten dues vegades; estils, repertori (totes les
+  línies de la llista curada són legals), llibre (segueix, s'atura en sortir-se,
+  torn i profunditat, defensa segons la primera jugada), estil acotat a la
+  finestra (200 casos a l'atzar) i `tryLeagueBookMove` a l'app; partides
+  consecutives (només 30s i 1+0, compte enrere 30 → 0 que arrenca la jornada,
+  aturat amb l'app amagada o la finestra tancada, mostrat en lloc de la
+  revisió i aturat per «Anar a l'inici»).
 
-## 7. Com refer-ho
+## 11. Com refer-ho
 
 ```bash
 # Taules i puntuació per diferència (Lichess, ~25 min; cal pip install zstandard)
